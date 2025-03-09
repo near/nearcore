@@ -1,6 +1,6 @@
-use crate::VerificationResult;
 use crate::config::{TransactionCost, total_prepaid_gas};
 use crate::near_primitives::account::Account;
+use crate::{VerificationResult, metrics};
 use near_crypto::key_conversion::is_valid_staking_key;
 use near_parameters::RuntimeConfig;
 use near_primitives::account::{AccessKey, AccessKeyPermission};
@@ -102,6 +102,49 @@ pub fn validate_transaction(
     ValidatedTransaction::new(config, signed_tx)
 }
 
+/// For a single group, ephemeral-check each transaction in ascending nonce.
+/// Returns ephemeral final state, and a list of (SignedTransaction, VerificationResult).
+pub fn verify_ephemeral_group(
+    config: &near_parameters::RuntimeConfig,
+    state_update: &TrieUpdate,
+    all_valid: &[(ValidatedTransaction, TransactionCost)],
+    idxs: &[usize],
+    block_height: Option<BlockHeight>,
+    current_protocol_version: ProtocolVersion,
+) -> Result<Vec<(usize, VerificationResult)>, InvalidTxError> {
+    let mut results = Vec::with_capacity(idxs.len());
+    let mut temp_state = None; // ephemeral (signer, access_key)
+    for &idx in idxs {
+        let (ref validated_tx, ref cost) = all_valid[idx];
+        let current_state = temp_state.take();
+        match verify_and_charge_tx_ephemeral(
+            config,
+            state_update,
+            validated_tx,
+            cost,
+            block_height,
+            current_protocol_version,
+            current_state,
+        ) {
+            Ok(vr) => {
+                temp_state = Some((vr.signer.clone(), vr.access_key.clone()));
+                results.push((idx, vr));
+            }
+            Err(e) => {
+                if checked_feature!("stable", RelaxedChunkValidation, current_protocol_version) {
+                    metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
+                    // skip this TX, but keep ephemeral state from previous success
+                    continue;
+                } else {
+                    // old behavior: abort the entire group
+                    return Err(e);
+                }
+            }
+        }
+    }
+    Ok(results)
+}
+
 pub fn commit_charging_for_tx(
     state_update: &mut TrieUpdate,
     tx: &Transaction,
@@ -124,8 +167,9 @@ pub fn verify_and_charge_tx_ephemeral(
     transaction_cost: &TransactionCost,
     block_height: Option<BlockHeight>,
     current_protocol_version: ProtocolVersion,
+    ephemeral_state: Option<(Account, AccessKey)>,
 ) -> Result<VerificationResult, InvalidTxError> {
-    let _span = tracing::debug_span!(target: "runtime", "verify_and_charge_transaction").entered();
+    let _span = tracing::debug_span!(target: "runtime", "verify_and_charge_tx_ephemeral").entered();
 
     let TransactionCost { gas_burnt, gas_remaining, receipt_gas_price, total_cost, burnt_amount } =
         *transaction_cost;
@@ -133,25 +177,34 @@ pub fn verify_and_charge_tx_ephemeral(
     let tx = validated_tx.to_tx();
     let signer_id = tx.signer_id();
 
-    let mut signer = match get_account(state_update, signer_id)? {
-        Some(signer) => signer,
-        None => {
-            return Err(InvalidTxError::SignerDoesNotExist { signer_id: signer_id.clone() });
-        }
-    };
+    let mut signer: Account;
+    let mut access_key: AccessKey;
 
-    let mut access_key = match get_access_key(state_update, signer_id, tx.public_key())? {
-        Some(access_key) => access_key,
-        None => {
-            return Err(InvalidTxError::InvalidAccessKeyError(
-                InvalidAccessKeyError::AccessKeyNotFound {
-                    account_id: signer_id.clone(),
-                    public_key: tx.public_key().clone().into(),
-                },
-            )
-            .into());
-        }
-    };
+    if ephemeral_state.is_none() {
+        signer = match get_account(state_update, signer_id)? {
+            Some(signer) => signer,
+            None => {
+                return Err(InvalidTxError::SignerDoesNotExist { signer_id: signer_id.clone() });
+            }
+        };
+
+        access_key = match get_access_key(state_update, signer_id, tx.public_key())? {
+            Some(access_key) => access_key,
+            None => {
+                return Err(InvalidTxError::InvalidAccessKeyError(
+                    InvalidAccessKeyError::AccessKeyNotFound {
+                        account_id: signer_id.clone(),
+                        public_key: tx.public_key().clone().into(),
+                    },
+                )
+                .into());
+            }
+        };
+    } else {
+        let (ephemeral_signer, ephemeral_access_key) = ephemeral_state.unwrap();
+        signer = ephemeral_signer;
+        access_key = ephemeral_access_key;
+    }
 
     if tx.nonce() <= access_key.nonce {
         return Err(InvalidTxError::InvalidNonce {
@@ -760,6 +813,7 @@ mod tests {
             &cost,
             None,
             PROTOCOL_VERSION,
+            None,
         )
         .expect_err("expected an error");
         assert_eq!(err, expected_err);
@@ -785,6 +839,7 @@ mod tests {
             &transaction_cost,
             block_height,
             current_protocol_version,
+            None
         )?;
         commit_charging_for_tx(state_update, validated_tx.to_tx(), &vr.signer, &vr.access_key);
         Ok(vr)
@@ -1290,7 +1345,6 @@ mod tests {
         )
         .expect_err("expected an error");
         let account = get_account(&state_update, &account_id).unwrap().unwrap();
-
         assert_eq!(
             err,
             InvalidTxError::LackBalanceForState {
