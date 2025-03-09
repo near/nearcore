@@ -163,7 +163,7 @@ pub struct ValidatorAccountsUpdate {
     pub slashing_info: HashMap<AccountId, Option<Balance>>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct VerificationResult {
     /// The amount gas that was burnt to convert the transaction into a receipt and send it.
     pub gas_burnt: Gas,
@@ -334,136 +334,67 @@ impl Runtime {
         state_update: &mut TrieUpdate,
         apply_state: &ApplyState,
         validated_tx: &ValidatedTransaction,
-        transaction_cost: &TransactionCost,
         stats: &mut ChunkApplyStatsV0,
-        pre_verified: VerificationResult,
+        verification_result: VerificationResult,
     ) -> Result<(Receipt, ExecutionOutcomeWithId), InvalidTxError> {
         let span = tracing::Span::current();
         metrics::TRANSACTION_PROCESSED_TOTAL.inc();
-
-        match verify_and_charge_tx_ephemeral(
-            &apply_state.config,
+        commit_charging_for_tx(
             state_update,
-            validated_tx,
-            transaction_cost,
-            Some(apply_state.block_height),
+            validated_tx.to_tx(),
+            &verification_result.signer,
+            &verification_result.access_key,
+        );
+        state_update.commit(StateChangeCause::TransactionProcessing {
+            tx_hash: validated_tx.get_hash(),
+        });
+        let transaction = validated_tx.to_tx();
+        let receipt_id = create_receipt_id_from_transaction(
             apply_state.current_protocol_version,
-        ) {
-            Ok(verification_result) => {
-                metrics::TRANSACTION_PROCESSED_SUCCESSFULLY_TOTAL.inc();
-                commit_charging_for_tx(
-                    state_update,
-                    validated_tx,
-                    &verification_result.signer,
-                    &verification_result.access_key,
-                );
-                state_update.commit(StateChangeCause::TransactionProcessing {
-                    tx_hash: validated_tx.get_hash(),
-                });
-                let transaction = validated_tx.to_tx();
-                let receipt_id = create_receipt_id_from_transaction(
-                    apply_state.current_protocol_version,
-                    validated_tx.to_signed_tx(),
-                    &apply_state.prev_block_hash,
-                    &apply_state.block_hash,
-                    apply_state.block_height,
-                );
-                let receipt = Receipt::V0(ReceiptV0 {
-                    predecessor_id: transaction.signer_id().clone(),
-                    receiver_id: transaction.receiver_id().clone(),
-                    receipt_id,
-                    receipt: ReceiptEnum::Action(ActionReceipt {
-                        signer_id: transaction.signer_id().clone(),
-                        signer_public_key: transaction.public_key().clone(),
-                        gas_price: verification_result.receipt_gas_price,
-                        output_data_receivers: vec![],
-                        input_data_ids: vec![],
-                        actions: transaction.actions().to_vec(),
-                    }),
-                });
-                stats.balance.tx_burnt_amount = safe_add_balance(
-                    stats.balance.tx_burnt_amount,
-                    verification_result.burnt_amount,
-                )
-                .map_err(|_| InvalidTxError::CostOverflow)?;
-                let gas_burnt = verification_result.gas_burnt;
-                let compute_usage = verification_result.gas_burnt;
-                let outcome = ExecutionOutcomeWithId {
-                    id: validated_tx.get_hash(),
-                    outcome: ExecutionOutcome {
-                        status: ExecutionStatus::SuccessReceiptId(*receipt.receipt_id()),
-                        logs: vec![],
-                        receipt_ids: vec![*receipt.receipt_id()],
-                        gas_burnt,
-                        // TODO(#8806): Support compute costs for actions. For now they match burnt gas.
-                        compute_usage: Some(compute_usage),
-                        tokens_burnt: verification_result.burnt_amount,
-                        executor_id: transaction.signer_id().clone(),
-                        // TODO: profile data is only counted in apply_action, which only happened at process_receipt
-                        // VerificationResult needs updates to incorporate profile data to support profile data of txns
-                        metadata: ExecutionMetadata::V1,
-                    },
-                };
-                span.record("gas_burnt", gas_burnt);
-                span.record("compute_usage", compute_usage);
-                Ok((receipt, outcome))
-            }
-            Err(e) => {
-                metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
-                state_update.rollback();
-                Err(e)
-            }
-        // TODO: deconflict with the above
-        if let Some(verification_result) = pre_verified {
-            // ephemeral is already committed above
-            state_update.commit(StateChangeCause::TransactionProcessing {
-                tx_hash: signed_transaction.get_hash(),
-            });
-            let transaction = &signed_transaction.transaction;
-            let receipt_id = create_receipt_id_from_transaction(
-                apply_state.current_protocol_version,
-                signed_transaction,
-                &apply_state.prev_block_hash,
-                &apply_state.block_hash,
-                apply_state.block_height,
-            );
-            let receipt = Receipt::V0(ReceiptV0 {
-                predecessor_id: transaction.signer_id().clone(),
-                receiver_id: transaction.receiver_id().clone(),
-                receipt_id,
-                receipt: ReceiptEnum::Action(ActionReceipt {
-                    signer_id: transaction.signer_id().clone(),
-                    signer_public_key: transaction.public_key().clone(),
-                    gas_price: verification_result.receipt_gas_price,
-                    output_data_receivers: vec![],
-                    input_data_ids: vec![],
-                    actions: transaction.actions().to_vec(),
-                }),
-            });
-            stats.balance.tx_burnt_amount =
-                safe_add_balance(stats.balance.tx_burnt_amount, verification_result.burnt_amount)
-                    .map_err(|_| InvalidTxError::CostOverflow)?;
-            let gas_burnt = verification_result.gas_burnt;
-            let compute_usage = verification_result.gas_burnt;
-            let outcome_with_id = ExecutionOutcomeWithId {
-                id: signed_transaction.get_hash(),
-                outcome: ExecutionOutcome {
-                    status: ExecutionStatus::SuccessReceiptId(*receipt.receipt_id()),
-                    logs: vec![],
-                    receipt_ids: vec![*receipt.receipt_id()],
-                    gas_burnt,
-                    compute_usage: Some(compute_usage),
-                    tokens_burnt: verification_result.burnt_amount,
-                    executor_id: transaction.signer_id().clone(),
-                    metadata: ExecutionMetadata::V1,
-                },
-            };
-            span.record("gas_burnt", gas_burnt);
-            span.record("compute_usage", compute_usage);
-            Ok((receipt, outcome_with_id))
-        } else {
-            Err(InvalidTxError::InvalidTransactionVersion)
-        }
+            validated_tx.to_signed_tx(),
+            &apply_state.prev_block_hash,
+            &apply_state.block_hash,
+            apply_state.block_height,
+        );
+        let receipt = Receipt::V0(ReceiptV0 {
+            predecessor_id: transaction.signer_id().clone(),
+            receiver_id: transaction.receiver_id().clone(),
+            receipt_id,
+            receipt: ReceiptEnum::Action(ActionReceipt {
+                signer_id: transaction.signer_id().clone(),
+                signer_public_key: transaction.public_key().clone(),
+                gas_price: verification_result.receipt_gas_price,
+                output_data_receivers: vec![],
+                input_data_ids: vec![],
+                actions: transaction.actions().to_vec(),
+            }),
+        });
+        stats.balance.tx_burnt_amount = safe_add_balance(
+            stats.balance.tx_burnt_amount,
+            verification_result.burnt_amount,
+        )
+        .map_err(|_| InvalidTxError::CostOverflow)?;
+        let gas_burnt = verification_result.gas_burnt;
+        let compute_usage = verification_result.gas_burnt;
+        let outcome = ExecutionOutcomeWithId {
+            id: validated_tx.get_hash(),
+            outcome: ExecutionOutcome {
+                status: ExecutionStatus::SuccessReceiptId(*receipt.receipt_id()),
+                logs: vec![],
+                receipt_ids: vec![*receipt.receipt_id()],
+                gas_burnt,
+                // TODO(#8806): Support compute costs for actions. For now they match burnt gas.
+                compute_usage: Some(compute_usage),
+                tokens_burnt: verification_result.burnt_amount,
+                executor_id: transaction.signer_id().clone(),
+                // TODO: profile data is only counted in apply_action, which only happened at process_receipt
+                // VerificationResult needs updates to incorporate profile data to support profile data of txns
+                metadata: ExecutionMetadata::V1,
+            },
+        };
+        span.record("gas_burnt", gas_burnt);
+        span.record("compute_usage", compute_usage);
+        Ok((receipt, outcome))
     }
 
     fn apply_action(
@@ -1760,116 +1691,82 @@ impl Runtime {
         processing_state: &mut ApplyProcessingReceiptState<'a>,
         receipt_sink: &mut ReceiptSink,
     ) -> Result<(), RuntimeError> {
-        use itertools::Itertools;
-        use rayon::prelude::*;
-
         let total = &mut processing_state.total;
         let apply_state = &mut processing_state.apply_state;
         let state_update = &mut processing_state.state_update;
 
-        let signed_txs =
-            processing_state.transactions.transactions.into_iter().cloned().collect::<Vec<_>>();
-        for (tx_hash, result) in Self::parallel_validate_transactions(
+        let signed_txs = processing_state
+            .transactions
+            .transactions
+            .into_iter()
+            .cloned()
+            .collect::<Vec<_>>();
+
+        let validated_iter = Self::parallel_validate_transactions(
             &apply_state.config,
             apply_state.gas_price,
             signed_txs,
             apply_state.current_protocol_version,
-        ) {
-            match result {
+        );
+
+        let mut valid_txs: Vec<(ValidatedTransaction, TransactionCost)> = Vec::new();
+        let mut original_hashes: Vec<CryptoHash> = Vec::new();
+
+        for (hash, maybe_tx) in validated_iter {
+            match maybe_tx {
                 Ok((validated_tx, cost)) => {
-                    let (receipt, outcome_with_id) = match self.process_transaction(
-                        state_update,
-                        apply_state,
-                        &validated_tx,
-                        &cost,
-                        &mut processing_state.stats,
-                    ) {
-                        Ok(outcome) => outcome,
-                        Err(err) => {
-                            Self::handle_invalid_transaction(
-                                err,
-                                &tx_hash,
-                                processing_state.protocol_version,
-                                "process_transaction error",
-                            )?;
-                            continue;
-                        }
-                    };
-                    if receipt.receiver_id() == validated_tx.to_tx().signer_id() {
-                        processing_state.local_receipts.push_back(receipt);
-                    } else {
-                        receipt_sink.forward_or_buffer_receipt(
-                            receipt,
-                            apply_state,
-                            state_update,
-                            processing_state.epoch_info_provider,
-                        )?;
-                    }
-                    let compute = outcome_with_id.outcome.compute_usage;
-                    let compute =
-                        compute.expect("`process_transaction` must populate compute usage");
-                    total.add(outcome_with_id.outcome.gas_burnt, compute)?;
-                    if !checked_feature!("stable", ComputeCosts, processing_state.protocol_version)
-                    {
-                        assert_eq!(total.compute, total.gas, "Compute usage must match burnt gas");
-                    }
-                    processing_state.outcomes.push(outcome_with_id);
+                    valid_txs.push((validated_tx, cost));
+                    original_hashes.push(hash);
                 }
-                Err(err) => {
+                Err(e) => {
                     Self::handle_invalid_transaction(
-                        err,
-                        &tx_hash,
+                        e,
+                        &hash,
                         processing_state.protocol_version,
-                        "parallel validation error",
+                        "stateless validation error",
                     )?;
                 }
             }
         }
 
-        // tag each valid transaction with its original index
-        let valid_with_idx: Vec<(usize, (SignedTransaction, TransactionCost))> =
-            valid_txs.into_iter().enumerate().collect();
+        let all_valid = valid_txs;
 
-        // group by signer_id and public_key
-        let mut groups: Vec<(
+        // grouping by (signer_id, public_key), store the index for each tx
+        let mut indexed_groups: Vec<(
             (AccountId, near_crypto::PublicKey),
-            Vec<(usize, (SignedTransaction, TransactionCost))>,
-        )> = valid_with_idx
-            .into_iter()
-            .group_by(|(_, (tx, _))| {
-                (tx.transaction.signer_id().clone(), tx.transaction.public_key().clone())
+            Vec<usize>,
+        )> = (0..all_valid.len())
+            .group_by(|&idx| {
+                let tx = all_valid[idx].0.to_tx();
+                (tx.signer_id().clone(), tx.public_key().clone())
             })
             .into_iter()
-            .map(|(key, group)| (key, group.collect()))
+            .map(|(key, idxs)| (key, idxs.collect::<Vec<_>>()))
             .collect();
 
-        // sort groups by the minimum index in each group
-        groups.sort_by_key(|(_, group)| group.iter().map(|(i, _)| *i).min().unwrap());
-        // within each group, drop the index and sort transactions by nonce ascending
-        let groups: Vec<(
-            (AccountId, near_crypto::PublicKey),
-            Vec<(SignedTransaction, TransactionCost)>,
-        )> = groups
-            .into_iter()
-            .map(|(key, mut group)| {
-                group.sort_by_key(|(_, (tx, _))| tx.transaction.nonce());
-                (key, group.into_iter().map(|(_, pair)| pair).collect())
-            })
-            .collect();
+        indexed_groups.sort_by_key(|(_, idxs)| idxs.iter().min().cloned().unwrap());
+        for (_, idxs) in indexed_groups.iter_mut() {
+            idxs.sort_by_key(|&idx| {
+                let tx = all_valid[idx].0.to_tx();
+                tx.nonce()
+            });
+        }
 
         #[derive(Debug)]
         struct GroupResult {
-            verified: Vec<(SignedTransaction, VerificationResult)>,
+            verified: Vec<(usize, VerificationResult)>,
         }
 
-        let group_outcomes: Vec<Result<GroupResult, InvalidTxError>> = groups
+        let group_outcomes: Vec<Result<GroupResult, InvalidTxError>> = indexed_groups
             .into_par_iter()
             .with_min_len(512)
-            .map(|((_, _), group_list)| {
+            .map(|((_, _), idxs)| {
+                // ephemeral-check the group’s transactions in ascending nonce
                 let verified = verify_ephemeral_group(
                     &apply_state.config,
                     state_update,
-                    &group_list,
+                    &all_valid,
+                    &idxs,
                     Some(apply_state.block_height),
                     apply_state.current_protocol_version,
                 )?;
@@ -1878,7 +1775,6 @@ impl Runtime {
             .collect();
 
         let mut all_verified = Vec::new();
-
         for gr in group_outcomes {
             match gr {
                 Ok(gr) => all_verified.extend(gr.verified),
@@ -1893,21 +1789,24 @@ impl Runtime {
             }
         }
 
-        for (st, vr) in all_verified {
-            let hash = st.get_hash();
+        for (idx, vr) in all_verified {
+            let validated_tx = &all_valid[idx].0;
+            let hash = &original_hashes[idx];
 
             metrics::TRANSACTION_PROCESSED_SUCCESSFULLY_TOTAL.inc();
-            commit_charging_for_tx(state_update, &st.transaction, &vr.signer, &vr.access_key);
+            commit_charging_for_tx(state_update, validated_tx.to_tx(), &vr.signer, &vr.access_key);
+
             let outcome = self.process_transaction(
                 state_update,
                 apply_state,
-                &st,
+                validated_tx,
                 &mut processing_state.stats,
                 vr,
             );
+
             match outcome {
                 Ok((receipt, outcome_with_id)) => {
-                    if receipt.receiver_id() == st.transaction.signer_id() {
+                    if receipt.receiver_id() == validated_tx.to_tx().signer_id() {
                         processing_state.local_receipts.push_back(receipt);
                     } else {
                         receipt_sink.forward_or_buffer_receipt(
@@ -1919,8 +1818,7 @@ impl Runtime {
                     }
                     let compute = outcome_with_id.outcome.compute_usage.unwrap_or(0);
                     total.add(outcome_with_id.outcome.gas_burnt, compute)?;
-                    if !checked_feature!("stable", ComputeCosts, processing_state.protocol_version)
-                    {
+                    if !checked_feature!("stable", ComputeCosts, processing_state.protocol_version) {
                         assert_eq!(total.compute, total.gas, "Compute usage must match burnt gas");
                     }
                     processing_state.outcomes.push(outcome_with_id);
@@ -1928,7 +1826,7 @@ impl Runtime {
                 Err(e) => {
                     Self::handle_invalid_transaction(
                         e,
-                        &hash,
+                        hash,
                         processing_state.protocol_version,
                         "final process_transaction error",
                     )?;

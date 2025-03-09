@@ -107,18 +107,20 @@ pub fn validate_transaction(
 pub fn verify_ephemeral_group(
     config: &near_parameters::RuntimeConfig,
     state_update: &TrieUpdate,
-    group: &[(SignedTransaction, TransactionCost)],
+    all_valid: &[(ValidatedTransaction, TransactionCost)],
+    idxs: &[usize],
     block_height: Option<BlockHeight>,
     current_protocol_version: ProtocolVersion,
-) -> Result<Vec<(SignedTransaction, VerificationResult)>, InvalidTxError> {
-    let mut results = Vec::with_capacity(group.len());
-    let mut temp_state = None;
-    for (tx, cost) in group {
+) -> Result<Vec<(usize, VerificationResult)>, InvalidTxError> {
+    let mut results = Vec::with_capacity(idxs.len());
+    let mut temp_state = None; // ephemeral (signer, access_key)
+    for &idx in idxs {
+        let (ref validated_tx, ref cost) = all_valid[idx];
         let current_state = temp_state.take();
         match verify_and_charge_tx_ephemeral(
             config,
             state_update,
-            tx,
+            validated_tx,
             cost,
             block_height,
             current_protocol_version,
@@ -126,13 +128,15 @@ pub fn verify_ephemeral_group(
         ) {
             Ok(vr) => {
                 temp_state = Some((vr.signer.clone(), vr.access_key.clone()));
-                results.push((tx.clone(), vr));
+                results.push((idx, vr));
             }
             Err(e) => {
                 if checked_feature!("stable", RelaxedChunkValidation, current_protocol_version) {
                     metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
+                    // skip this TX, but keep ephemeral state from previous success
                     continue;
                 } else {
+                    // old behavior: abort the entire group
                     return Err(e);
                 }
             }
@@ -174,21 +178,34 @@ pub fn verify_and_charge_tx_ephemeral(
     let tx = validated_tx.to_tx();
     let signer_id = tx.signer_id();
 
-    let mut signer;
-    let mut access_key;
+    let mut signer: Account;
+    let mut access_key: AccessKey;
 
-    let mut access_key = match get_access_key(state_update, signer_id, tx.public_key())? {
-        Some(access_key) => access_key,
-        None => {
-            return Err(InvalidTxError::InvalidAccessKeyError(
-                InvalidAccessKeyError::AccessKeyNotFound {
-                    account_id: signer_id.clone(),
-                    public_key: tx.public_key().clone().into(),
-                },
-            )
-            .into());
-        }
-    };
+    if ephemeral_state.is_none() {
+        signer = match get_account(state_update, signer_id)? {
+            Some(signer) => signer,
+            None => {
+                return Err(InvalidTxError::SignerDoesNotExist { signer_id: signer_id.clone() });
+            }
+        };
+
+        access_key = match get_access_key(state_update, signer_id, tx.public_key())? {
+            Some(access_key) => access_key,
+            None => {
+                return Err(InvalidTxError::InvalidAccessKeyError(
+                    InvalidAccessKeyError::AccessKeyNotFound {
+                        account_id: signer_id.clone(),
+                        public_key: tx.public_key().clone().into(),
+                    },
+                )
+                .into());
+            }
+        };
+    } else {
+        let (ephemeral_signer, ephemeral_access_key) = ephemeral_state.unwrap();
+        signer = ephemeral_signer;
+        access_key = ephemeral_access_key;
+    }
 
     if tx.nonce() <= access_key.nonce {
         return Err(InvalidTxError::InvalidNonce {
@@ -818,19 +835,12 @@ mod tests {
         let transaction_cost = tx_cost(config, &validated_tx, gas_price, current_protocol_version)?;
         let vr = verify_and_charge_tx_ephemeral(
             config,
-            gas_price,
-            signed_transaction,
-            true,
-            current_protocol_version,
-        )?;
-
-        let mut ephemeral = EphemeralAccount::new(
             state_update,
             &validated_tx,
             &transaction_cost,
             block_height,
             current_protocol_version,
-            None,
+            None
         )?;
         commit_charging_for_tx(state_update, &validated_tx, &vr.signer, &vr.access_key);
         Ok(vr)
