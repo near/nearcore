@@ -15,7 +15,7 @@ workspace = true
 anyhow.workspace = true
 chrono.workspace = true
 clap.workspace = true
-sha2 = "0.10.6"
+sha2 = { workspace = true }
 time.workspace = true
 tokio.workspace = true
 tracing.workspace = true
