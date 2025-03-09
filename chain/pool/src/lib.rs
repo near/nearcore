@@ -1,14 +1,12 @@
-use std::collections::btree_map::Entry;
-use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
-
 use crate::types::{PoolKey, TransactionGroup, TransactionGroupIterator};
-
 use near_crypto::PublicKey;
 use near_o11y::metrics::prometheus::core::{AtomicI64, GenericGauge};
 use near_primitives::epoch_info::RngSeed;
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::AccountId;
+use std::collections::btree_map::Entry;
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::ops::Bound;
 
 mod metrics;
@@ -79,13 +77,12 @@ impl TransactionPool {
     }
 
     /// Inserts a signed transaction that passed validation into the pool.
-    #[must_use]
     pub fn insert_transaction(
         &mut self,
         signed_transaction: SignedTransaction,
     ) -> InsertTransactionResult {
-        if !self.unique_transactions.insert(signed_transaction.get_hash()) {
-            // The hash of this transaction was already seen, skip it.
+        let tx_hash = signed_transaction.get_hash();
+        if self.unique_transactions.contains(&tx_hash) {
             return InsertTransactionResult::Duplicate;
         }
         // We never expect the total size to go over `u64` during real operation as that would
@@ -102,6 +99,12 @@ impl TransactionPool {
         }
 
         // At this point transaction is accepted to the pool.
+
+        // This is guaranteed to succeed because of the check above that the
+        // hashset does not contain this hash.  This can be improved once the
+        // entries API is stabilised
+        // (https://github.com/rust-lang/rust/issues/60896).
+        assert_eq!(self.unique_transactions.insert(tx_hash), true);
         self.total_transaction_size = new_total_transaction_size;
         let signer_id = signed_transaction.transaction.signer_id();
         let signer_public_key = signed_transaction.transaction.public_key();
