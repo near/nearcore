@@ -2,7 +2,7 @@ use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 
 use near_async::messaging::{IntoMultiSender, IntoSender, Sender};
-use near_async::test_loop::data::TestLoopDataHandle;
+use near_async::test_loop::data::{TestLoopData, TestLoopDataHandle};
 use near_async::test_loop::sender::TestLoopSender;
 use near_async::time::Duration;
 use near_chain_configs::{ClientConfig, Genesis};
@@ -16,7 +16,9 @@ use near_network::test_loop::{
     ClientSenderForTestLoopNetwork, TestLoopNetworkSharedState, TestLoopPeerManagerActor,
     ViewClientSenderForTestLoopNetwork,
 };
+use near_network::types::{HighestHeightPeerInfo, PeerInfo};
 use near_parameters::RuntimeConfigStore;
+use near_primitives::block::GenesisId;
 use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::network::PeerId;
 use near_primitives::types::AccountId;
@@ -64,6 +66,7 @@ pub struct NodeState {
 /// We can access each of the individual actors and senders from this state.
 #[derive(Clone)]
 pub struct TestData {
+    pub identifier: String,
     pub account_id: AccountId,
     pub peer_id: PeerId,
     pub client_sender: TestLoopSender<ClientActorInner>,
@@ -72,6 +75,30 @@ pub struct TestData {
     pub partial_witness_sender: TestLoopSender<PartialWitnessActor>,
     pub peer_manager_sender: TestLoopSender<TestLoopPeerManagerActor>,
     pub state_sync_dumper_handle: TestLoopDataHandle<StateSyncDumper>,
+}
+
+impl TestData {
+    pub fn get_highest_height_peer_info(
+        &self,
+        test_loop_data: &TestLoopData,
+    ) -> HighestHeightPeerInfo {
+        let client = &test_loop_data.get(&self.client_sender.actor_handle()).client;
+        HighestHeightPeerInfo {
+            archival: false,
+            genesis_id: GenesisId {
+                chain_id: client.config.chain_id.clone(),
+                hash: *client.chain.genesis().hash(),
+            },
+            highest_block_hash: client.chain.head().unwrap().last_block_hash,
+            highest_block_height: client.chain.head().unwrap().height,
+            tracked_shards: vec![],
+            peer_info: PeerInfo {
+                account_id: Some(self.account_id.clone()),
+                addr: None,
+                id: self.peer_id.clone(),
+            },
+        }
+    }
 }
 
 impl From<&TestData> for AccountId {
