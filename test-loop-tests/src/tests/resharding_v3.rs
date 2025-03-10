@@ -1185,7 +1185,7 @@ fn test_resharding_v3_global_contract_base(
         "account1".parse().unwrap(),
         "account3".parse().unwrap(),
         "account5".parse().unwrap(),
-        "account2".parse().unwrap(),
+        "account7".parse().unwrap(),
     ];
     let global_contract_user: AccountId = "account6".parse().unwrap();
     let params = TestReshardingParametersBuilder::default()
@@ -1196,8 +1196,9 @@ fn test_resharding_v3_global_contract_base(
             caller_accounts,
             vec![global_contract_user.clone()],
             275 * TGAS,
-            DEFAULT_EPOCH_LENGTH,
+            INCREASED_EPOCH_LENGTH,
         ))
+        .epoch_length(INCREASED_EPOCH_LENGTH)
         .add_loop_action(check_receipts_presence_at_resharding_block(
             vec![global_contract_user],
             ReceiptKind::Delayed,
