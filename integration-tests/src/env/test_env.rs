@@ -8,7 +8,7 @@ use near_chain::stateless_validation::processing_tracker::{
 use near_chain::test_utils::ValidatorSchedule;
 use near_chain::types::Tip;
 use near_chain::{ChainGenesis, ChainStoreAccess, Provenance};
-use near_chain_configs::GenesisConfig;
+use near_chain_configs::{Genesis, GenesisConfig};
 use near_chunks::client::ShardsManagerResponse;
 use near_chunks::test_utils::{MockClientAdapterForShardsManager, SynchronousShardsManagerAdapter};
 use near_client::{Client, DistributeStateWitnessRequest};
@@ -88,6 +88,10 @@ impl TestEnv {
 
     pub fn builder(genesis_config: &GenesisConfig) -> TestEnvBuilder {
         TestEnvBuilder::new(genesis_config.clone())
+    }
+
+    pub fn builder_from_genesis(genesis: &Genesis) -> TestEnvBuilder {
+        TestEnvBuilder::from_genesis(genesis.clone())
     }
 
     /// Process a given block in the client with index `id`.
