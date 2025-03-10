@@ -5320,7 +5320,6 @@ dependencies = [
  "ark-serialize",
  "ark-std",
  "assert_matches",
- "base64 0.21.0",
  "blst",
  "bolero",
  "borsh",
@@ -5628,6 +5627,7 @@ name = "node-runtime"
 version = "0.0.0"
 dependencies = [
  "assert_matches",
+ "base64 0.21.0",
  "borsh",
  "bytesize",
  "enum-map",

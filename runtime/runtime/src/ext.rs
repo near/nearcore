@@ -1,19 +1,18 @@
-use crate::conversions::Convert;
 use crate::receipt_manager::ReceiptManager;
 use near_primitives::account::Account;
 use near_primitives::account::id::AccountType;
 use near_primitives::checked_feature;
 use near_primitives::errors::{EpochError, StorageError};
 use near_primitives::hash::CryptoHash;
-use near_primitives::trie_key::{TrieKey, trie_key_parsers};
+use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{AccountId, Balance, BlockHeight, EpochId, EpochInfoProvider, Gas};
 use near_primitives::utils::create_receipt_id_from_action_hash;
 use near_primitives::version::ProtocolVersion;
 use near_store::contract::ContractStorage;
 use near_store::{KeyLookupMode, TrieUpdate, TrieUpdateValuePtr, has_promise_yield_receipt};
-use near_vm_runner::logic::errors::{AnyError, VMLogicError};
+use near_vm_runner::logic::errors::{AnyError, InconsistentStateError, VMLogicError};
 use near_vm_runner::logic::types::ReceiptIndex;
-use near_vm_runner::logic::{External, StorageGetMode, ValuePtr};
+use near_vm_runner::logic::{External, StorageAccessTracker, StorageGetMode, ValuePtr};
 use near_vm_runner::{Contract, ContractCode};
 use near_wallet_contract::wallet_contract;
 use std::sync::Arc;
@@ -56,8 +55,21 @@ impl<'a> ValuePtr for RuntimeExtValuePtr<'a> {
         self.0.len()
     }
 
-    fn deref(&self) -> ExtResult<Vec<u8>> {
-        self.0.deref_value().map_err(wrap_storage_error)
+    fn deref(&self, access_tracker: &mut dyn StorageAccessTracker) -> ExtResult<Vec<u8>> {
+        match &self.0 {
+            TrieUpdateValuePtr::MemoryRef(data) => Ok(data.to_vec()),
+            TrieUpdateValuePtr::Ref(trie, optimized_value_ref) => {
+                let ttn = trie.get_trie_nodes_count();
+                let result = trie.deref_optimized(&optimized_value_ref);
+                let delta = trie
+                    .get_trie_nodes_count()
+                    .checked_sub(&ttn)
+                    .ok_or(InconsistentStateError::IntegerOverflow)?;
+                access_tracker.trie_node_touched(delta.db_reads)?;
+                access_tracker.cached_trie_node_access(delta.mem_reads)?;
+                Ok(result.map_err(wrap_storage_error)?)
+            }
+        }
     }
 }
 
@@ -122,67 +134,167 @@ fn wrap_storage_error(error: StorageError) -> VMLogicError {
 type ExtResult<T> = ::std::result::Result<T, VMLogicError>;
 
 impl<'a> External for RuntimeExt<'a> {
-    fn storage_set(&mut self, key: &[u8], value: &[u8]) -> ExtResult<()> {
+    fn storage_set<'b>(
+        &'b mut self,
+        access_tracker: &mut dyn StorageAccessTracker,
+        key: &[u8],
+        value: &[u8],
+    ) -> ExtResult<Option<Vec<u8>>> {
+        // SUBTLE: Storage writes don't actually touch anything in the trie, at least not during
+        // the contract execution -- they just put a value as a prospective in a map in
+        // `TrieUpdate`. However we do need to grab the value for the evicted result and for all
+        // intents and purposes we need to both account for TTN fees and record the path to the
+        // value for the state witness. For that reason the lookup below has to happen through the
+        // Trie.
+        let ttn = self.trie_update.trie().get_trie_nodes_count();
         let storage_key = self.create_storage_key(key);
+        let evicted_ptr = self
+            .trie_update
+            .get_ref(&storage_key, KeyLookupMode::Trie)
+            .map_err(wrap_storage_error)?;
+        let evicted = match evicted_ptr {
+            None => None,
+            Some(ptr) => {
+                access_tracker.deref_write_evicted_value_bytes(u64::from(ptr.len()))?;
+                Some(ptr.deref_value().map_err(wrap_storage_error)?)
+            }
+        };
+        let ttn2 = self.trie_update.trie().get_trie_nodes_count();
+        let delta = ttn2.checked_sub(&ttn).ok_or(InconsistentStateError::IntegerOverflow)?;
+        access_tracker.trie_node_touched(delta.db_reads)?;
+        access_tracker.cached_trie_node_access(delta.mem_reads)?;
         self.trie_update.set(storage_key, Vec::from(value));
-        Ok(())
+        #[cfg(feature = "io_trace")]
+        tracing::trace!(
+            target = "io_tracer",
+            storage_op = "write",
+            key = base64(&key),
+            size = value.len(),
+            evicted_len = evicted.as_ref().map(Vec::len),
+            tn_mem_reads = delta.mem_reads,
+            tn_db_reads = delta.db_reads,
+        );
+        Ok(evicted)
     }
 
     fn storage_get<'b>(
         &'b self,
+        access_tracker: &mut dyn StorageAccessTracker,
         key: &[u8],
         mode: StorageGetMode,
     ) -> ExtResult<Option<Box<dyn ValuePtr + 'b>>> {
+        let ttn = self.trie_update.trie().get_trie_nodes_count();
         let storage_key = self.create_storage_key(key);
         let mode = match mode {
             StorageGetMode::FlatStorage => KeyLookupMode::FlatStorage,
             StorageGetMode::Trie => KeyLookupMode::Trie,
         };
-        self.trie_update
-            .get_ref(&storage_key, mode)
-            .map_err(wrap_storage_error)
-            .map(|option| option.map(|ptr| Box::new(RuntimeExtValuePtr(ptr)) as Box<_>))
+        // SUBTLE: unlike `write` or `remove` which does not record TTN fees if the read operations
+        // fail for the evicted values, this will record the TTN fees unconditionally.
+        let result =
+            self.trie_update.get_ref(&storage_key, mode).map_err(wrap_storage_error).map(
+                |option| option.map(|ptr| Box::new(RuntimeExtValuePtr(ptr)) as Box<dyn ValuePtr>),
+            );
+        let delta = self
+            .trie_update
+            .trie()
+            .get_trie_nodes_count()
+            .checked_sub(&ttn)
+            .ok_or(InconsistentStateError::IntegerOverflow)?;
+        access_tracker.trie_node_touched(delta.db_reads)?;
+        access_tracker.cached_trie_node_access(delta.mem_reads)?;
+
+        #[cfg(feature = "io_trace")]
+        if let Ok(read) = &result {
+            tracing::trace!(
+                target = "io_tracer",
+                storage_op = "read",
+                key = base64(&key),
+                size = read.as_ref().map(|v| v.len()),
+                tn_db_reads = delta.db_reads,
+                tn_mem_reads = delta.mem_reads,
+            );
+        }
+        Ok(result?)
     }
 
-    fn storage_remove(&mut self, key: &[u8]) -> ExtResult<()> {
+    fn storage_remove(
+        &mut self,
+        access_tracker: &mut dyn StorageAccessTracker,
+        key: &[u8],
+    ) -> ExtResult<Option<Vec<u8>>> {
+        // SUBTLE: Storage removals don't actually touch anything in the trie, at least not during
+        // the contract execution -- they just put a value as a prospective in a map in
+        // `TrieUpdate`. However we do need to grab the value for the evicted result and for all
+        // intents and purposes we need to both account for TTN fees and record the path to the
+        // value for the state witness. For that reason the lookup below has to happen through the
+        // Trie.
+        let ttn = self.trie_update.trie().get_trie_nodes_count();
         let storage_key = self.create_storage_key(key);
+        let removed = self
+            .trie_update
+            .get_ref(&storage_key, KeyLookupMode::Trie)
+            .map_err(wrap_storage_error)?;
+        let removed = match removed {
+            None => None,
+            Some(ptr) => {
+                access_tracker.deref_removed_value_bytes(u64::from(ptr.len()))?;
+                Some(ptr.deref_value().map_err(wrap_storage_error)?)
+            }
+        };
         self.trie_update.remove(storage_key);
-        Ok(())
+        let ttn2 = self.trie_update.trie().get_trie_nodes_count();
+        let delta = ttn2.checked_sub(&ttn).ok_or(InconsistentStateError::IntegerOverflow)?;
+        access_tracker.trie_node_touched(delta.db_reads)?;
+        access_tracker.cached_trie_node_access(delta.mem_reads)?;
+
+        #[cfg(feature = "io_trace")]
+        tracing::trace!(
+            target = "io_tracer",
+            storage_op = "remove",
+            key = base64(&key),
+            evicted_len = removed.as_ref().map(Vec::len),
+            tn_mem_reads = delta.mem_reads,
+            tn_db_reads = delta.db_reads,
+        );
+
+        Ok(removed)
     }
 
-    fn storage_has_key(&mut self, key: &[u8], mode: StorageGetMode) -> ExtResult<bool> {
+    fn storage_has_key(
+        &mut self,
+        access_tracker: &mut dyn StorageAccessTracker,
+        key: &[u8],
+        mode: StorageGetMode,
+    ) -> ExtResult<bool> {
+        let ttn = self.trie_update.trie().get_trie_nodes_count();
         let storage_key = self.create_storage_key(key);
         let mode = match mode {
             StorageGetMode::FlatStorage => KeyLookupMode::FlatStorage,
             StorageGetMode::Trie => KeyLookupMode::Trie,
         };
-        self.trie_update
+        let result = self
+            .trie_update
             .get_ref(&storage_key, mode)
             .map(|x| x.is_some())
-            .map_err(wrap_storage_error)
-    }
-
-    fn storage_remove_subtree(&mut self, prefix: &[u8]) -> ExtResult<()> {
-        let data_keys = self
+            .map_err(wrap_storage_error);
+        let delta = self
             .trie_update
-            .iter(&trie_key_parsers::get_raw_prefix_for_contract_data(&self.account_id, prefix))
-            .map_err(wrap_storage_error)?
-            .map(|raw_key| {
-                trie_key_parsers::parse_data_key_from_contract_data_key(&raw_key?, &self.account_id)
-                    .map_err(|_e| {
-                        StorageError::StorageInconsistentState(
-                            "Can't parse data key from raw key for ContractData".to_string(),
-                        )
-                    })
-                    .map(Vec::from)
-            })
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(wrap_storage_error)?;
-        for key in data_keys {
-            self.trie_update
-                .remove(TrieKey::ContractData { account_id: self.account_id.clone(), key });
-        }
-        Ok(())
+            .trie()
+            .get_trie_nodes_count()
+            .checked_sub(&ttn)
+            .ok_or(InconsistentStateError::IntegerOverflow)?;
+        access_tracker.trie_node_touched(delta.db_reads)?;
+        access_tracker.cached_trie_node_access(delta.mem_reads)?;
+        #[cfg(feature = "io_trace")]
+        tracing::trace!(
+            target = "io_tracer",
+            storage_op = "exists",
+            key = base64(&key),
+            tn_mem_reads = delta.mem_reads,
+            tn_db_reads = delta.db_reads,
+        );
+        Ok(result?)
     }
 
     fn generate_data_id(&mut self) -> CryptoHash {
@@ -196,10 +308,6 @@ impl<'a> External for RuntimeExt<'a> {
         );
         self.data_count += 1;
         data_id
-    }
-
-    fn get_trie_nodes_count(&self) -> near_vm_runner::logic::TrieNodesCount {
-        Convert::convert(self.trie_update.trie().get_trie_nodes_count())
     }
 
     fn get_recorded_storage_size(&self) -> usize {
@@ -407,4 +515,10 @@ impl<'a> Contract for RuntimeContractExt<'a> {
         }
         self.storage.get(self.code_hash).map(Arc::new)
     }
+}
+
+#[cfg(feature = "io_trace")]
+fn base64(s: &[u8]) -> String {
+    use base64::Engine;
+    base64::engine::general_purpose::STANDARD.encode(s)
 }
