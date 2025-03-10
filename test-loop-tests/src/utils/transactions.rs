@@ -1,4 +1,5 @@
-use crate::env::{TestData, TestLoopEnv};
+use crate::setup::env::TestLoopEnv;
+use crate::setup::state::TestData;
 use assert_matches::assert_matches;
 use itertools::Itertools;
 use near_async::messaging::{AsyncSendError, CanSend, SendAsync};
@@ -13,6 +14,7 @@ use near_client::test_utils::test_loop::ClientQueries;
 use near_client::{Client, ProcessTxResponse};
 use near_crypto::Signer;
 use near_network::client::ProcessTxRequest;
+use near_primitives::action::{GlobalContractDeployMode, GlobalContractIdentifier};
 use near_primitives::block::Tip;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
@@ -169,10 +171,10 @@ pub fn do_create_account(
     amount: u128,
 ) {
     tracing::info!(target: "test", "Creating account.");
-    let nonce = get_next_nonce(&env.test_loop.data, &env.datas, originator);
+    let nonce = get_next_nonce(&env.test_loop.data, &env.node_datas, originator);
     let tx = create_account(env, rpc_id, originator, new_account_id, amount, nonce);
     env.test_loop.run_for(Duration::seconds(5));
-    check_txs(&env.test_loop.data, &env.datas, rpc_id, &[tx]);
+    check_txs(&env.test_loop.data, &env.node_datas, rpc_id, &[tx]);
 }
 
 pub fn do_delete_account(
@@ -182,9 +184,10 @@ pub fn do_delete_account(
     beneficiary_id: &AccountId,
 ) {
     tracing::info!(target: "test", "Deleting account.");
-    let tx = delete_account(&env.test_loop.data, &env.datas, rpc_id, account_id, beneficiary_id);
+    let tx =
+        delete_account(&env.test_loop.data, &env.node_datas, rpc_id, account_id, beneficiary_id);
     env.test_loop.run_for(Duration::seconds(5));
-    check_txs(&env.test_loop.data, &env.datas, rpc_id, &[tx]);
+    check_txs(&env.test_loop.data, &env.node_datas, rpc_id, &[tx]);
 }
 
 pub fn do_deploy_contract(
@@ -194,10 +197,10 @@ pub fn do_deploy_contract(
     code: Vec<u8>,
 ) {
     tracing::info!(target: "test", "Deploying contract.");
-    let nonce = get_next_nonce(&env.test_loop.data, &env.datas, contract_id);
-    let tx = deploy_contract(&mut env.test_loop, &env.datas, rpc_id, contract_id, code, nonce);
+    let nonce = get_next_nonce(&env.test_loop.data, &env.node_datas, contract_id);
+    let tx = deploy_contract(&mut env.test_loop, &env.node_datas, rpc_id, contract_id, code, nonce);
     env.test_loop.run_for(Duration::seconds(2));
-    check_txs(&env.test_loop.data, &env.datas, rpc_id, &[tx]);
+    check_txs(&env.test_loop.data, &env.node_datas, rpc_id, &[tx]);
 }
 
 pub fn do_call_contract(
@@ -209,10 +212,10 @@ pub fn do_call_contract(
     args: Vec<u8>,
 ) {
     tracing::info!(target: "test", "Calling contract.");
-    let nonce = get_next_nonce(&env.test_loop.data, &env.datas, contract_id);
+    let nonce = get_next_nonce(&env.test_loop.data, &env.node_datas, contract_id);
     let tx = call_contract(
         &mut env.test_loop,
-        &env.datas,
+        &env.node_datas,
         rpc_id,
         sender_id,
         contract_id,
@@ -221,7 +224,7 @@ pub fn do_call_contract(
         nonce,
     );
     env.test_loop.run_for(Duration::seconds(2));
-    check_txs(&env.test_loop.data, &env.datas, rpc_id, &[tx]);
+    check_txs(&env.test_loop.data, &env.node_datas, rpc_id, &[tx]);
 }
 
 pub fn create_account(
@@ -232,7 +235,7 @@ pub fn create_account(
     amount: u128,
     nonce: u64,
 ) -> CryptoHash {
-    let block_hash = get_shared_block_hash(&env.datas, &env.test_loop.data);
+    let block_hash = get_shared_block_hash(&env.node_datas, &env.test_loop.data);
     let signer = create_user_test_signer(&originator);
     let new_signer: Signer = create_user_test_signer(&new_account_id);
 
@@ -247,7 +250,7 @@ pub fn create_account(
     );
 
     let tx_hash = tx.get_hash();
-    submit_tx(&env.datas, rpc_id, tx);
+    submit_tx(&env.node_datas, rpc_id, tx);
     tracing::debug!(target: "test", ?originator, ?new_account_id, ?tx_hash, "created account");
     tx_hash
 }
@@ -300,6 +303,67 @@ pub fn deploy_contract(
     submit_tx(node_datas, rpc_id, tx);
 
     tracing::debug!(target: "test", ?contract_id, ?tx_hash, "deployed contract");
+    tx_hash
+}
+
+/// Deploy a test global contract using the corresponding deploy_mode.
+///
+/// This function does not wait until the transactions is executed.
+pub fn deploy_global_contract(
+    test_loop: &mut TestLoopV2,
+    node_datas: &[TestData],
+    rpc_id: &AccountId,
+    deployer_id: AccountId,
+    code: Vec<u8>,
+    nonce: u64,
+    deploy_mode: GlobalContractDeployMode,
+) -> CryptoHash {
+    let block_hash = get_shared_block_hash(node_datas, &test_loop.data);
+
+    let signer = create_user_test_signer(&deployer_id);
+
+    let tx = SignedTransaction::deploy_global_contract(
+        nonce,
+        deployer_id.clone(),
+        code,
+        &signer,
+        block_hash,
+        deploy_mode.clone(),
+    );
+    let tx_hash = tx.get_hash();
+    submit_tx(node_datas, rpc_id, tx);
+
+    tracing::debug!(target: "test", ?deployer_id, ?tx_hash, ?deploy_mode, "deployed global contract");
+    tx_hash
+}
+
+/// Use a test global contract to the provided user_id account.
+/// The contract account should already exist.
+///
+/// This function does not wait until the transactions is executed.
+pub fn use_global_contract(
+    test_loop: &mut TestLoopV2,
+    node_datas: &[TestData],
+    rpc_id: &AccountId,
+    user_id: AccountId,
+    nonce: u64,
+    identifier: GlobalContractIdentifier,
+) -> CryptoHash {
+    let block_hash = get_shared_block_hash(node_datas, &test_loop.data);
+
+    let signer = create_user_test_signer(&user_id);
+
+    let tx = SignedTransaction::use_global_contract(
+        nonce,
+        &user_id,
+        &signer,
+        block_hash,
+        identifier.clone(),
+    );
+    let tx_hash = tx.get_hash();
+    submit_tx(node_datas, rpc_id, tx);
+
+    tracing::debug!(target: "test", ?user_id, ?tx_hash, ?identifier, "use global contract");
     tx_hash
 }
 

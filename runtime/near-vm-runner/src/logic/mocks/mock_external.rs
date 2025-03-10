@@ -1,5 +1,5 @@
 use crate::ContractCode;
-use crate::logic::dependencies::{Result, TrieNodesCount};
+use crate::logic::dependencies::{Result, StorageAccessTracker};
 use crate::logic::types::ReceiptIndex;
 use crate::logic::{External, StorageGetMode, ValuePtr};
 use near_primitives_core::hash::{CryptoHash, hash};
@@ -103,7 +103,10 @@ impl ValuePtr for MockedValuePtr {
         self.value.len() as u32
     }
 
-    fn deref(&self) -> crate::logic::dependencies::Result<Vec<u8>> {
+    fn deref(
+        &self,
+        _: &mut dyn StorageAccessTracker,
+    ) -> crate::logic::dependencies::Result<Vec<u8>> {
         Ok(self.value.clone())
     }
 }
@@ -123,29 +126,43 @@ impl MockedExternal {
 }
 
 impl External for MockedExternal {
-    fn storage_set(&mut self, key: &[u8], value: &[u8]) -> Result<()> {
-        self.fake_trie.insert(key.to_vec(), value.to_vec());
-        Ok(())
+    fn storage_set<'a>(
+        &'a mut self,
+        _: &mut dyn StorageAccessTracker,
+        key: &[u8],
+        value: &[u8],
+    ) -> Result<Option<Vec<u8>>> {
+        let value = self.fake_trie.insert(key.to_vec(), value.to_vec());
+        Ok(value)
     }
 
-    fn storage_get(&self, key: &[u8], _mode: StorageGetMode) -> Result<Option<Box<dyn ValuePtr>>> {
+    fn storage_get(
+        &self,
+        _: &mut dyn StorageAccessTracker,
+        key: &[u8],
+        _mode: StorageGetMode,
+    ) -> Result<Option<Box<dyn ValuePtr>>> {
         Ok(self
             .fake_trie
             .get(key)
             .map(|value| Box::new(MockedValuePtr { value: value.clone() }) as Box<_>))
     }
 
-    fn storage_remove(&mut self, key: &[u8]) -> Result<()> {
-        self.fake_trie.remove(key);
-        Ok(())
+    fn storage_remove(
+        &mut self,
+        _: &mut dyn StorageAccessTracker,
+        key: &[u8],
+    ) -> Result<Option<Vec<u8>>> {
+        let value = self.fake_trie.remove(key);
+        Ok(value)
     }
 
-    fn storage_remove_subtree(&mut self, prefix: &[u8]) -> Result<()> {
-        self.fake_trie.retain(|key, _| !key.starts_with(prefix));
-        Ok(())
-    }
-
-    fn storage_has_key(&mut self, key: &[u8], _mode: StorageGetMode) -> Result<bool> {
+    fn storage_has_key(
+        &mut self,
+        _: &mut dyn StorageAccessTracker,
+        key: &[u8],
+        _mode: StorageGetMode,
+    ) -> Result<bool> {
         Ok(self.fake_trie.contains_key(key))
     }
 
@@ -155,10 +172,6 @@ impl External for MockedExternal {
         let data_id = hash(&self.data_count.to_le_bytes());
         self.data_count += 1;
         data_id
-    }
-
-    fn get_trie_nodes_count(&self) -> TrieNodesCount {
-        TrieNodesCount { db_reads: 0, mem_reads: 0 }
     }
 
     fn get_recorded_storage_size(&self) -> usize {

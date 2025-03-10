@@ -4,7 +4,7 @@ use std::rc::Rc;
 use near_async::test_loop::data::TestLoopData;
 use near_primitives::types::AccountId;
 
-use crate::env::TestData;
+use crate::setup::state::TestData;
 
 /// Signature of functions callable from inside the inner loop of a testloop test.
 pub(crate) type LoopActionFn = Box<dyn Fn(&[TestData], &mut TestLoopData, AccountId)>;
