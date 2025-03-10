@@ -64,6 +64,10 @@ def prompt_init_flags(args):
         args.neard_binary_url = sys.stdin.readline().strip()
         assert len(args.neard_binary_url) > 0
 
+    if args.neard_upgrade_binary_url == "":
+        args.neard_upgrade_binary_url = None
+        return
+
     if args.neard_upgrade_binary_url is None:
         print(
             'add a second neard binary URL to upgrade to mid-test? enter nothing here to skip: '
