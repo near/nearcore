@@ -53,10 +53,10 @@ skip = [
 
     # wasmer and wasmtime
     { name = "target-lexicon", version = "=0.10.0" },
-    { name = "object", version = "=0.30.4" },
     { name = "memoffset", version = "=0.6.5" },
     { name = "memoffset", version = "=0.8.0" },
-    { name = "gimli", version = "=0.27.2" },
+    { name = "rustix", version = "^0.38" },
+    { name = "linux-raw-sys", version = "^0.4" },
 
     # wasm-tools
     { name = "wasmparser", version = "=0.51.4" },
@@ -86,6 +86,7 @@ skip = [
     # ed25519-dalek uses older versions of rand and rand_core
     { name = "rand_core", version = "=0.5.1" },
     { name = "getrandom", version = "=0.1.16" },
+    { name = "getrandom", version = "^0.2" },
 
     # criterion and criterion-plot use conflicting versions
     { name = "semver", version = "=0.9.0" },
