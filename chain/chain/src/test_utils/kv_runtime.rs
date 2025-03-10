@@ -1380,11 +1380,8 @@ impl RuntimeAdapter for KeyValueRuntime {
         Err(Error::Other("get_protocol_config should not be used in KeyValueRuntime".into()))
     }
 
-    fn get_runtime_config(
-        &self,
-        _protocol_version: ProtocolVersion,
-    ) -> Result<RuntimeConfig, Error> {
-        Ok(RuntimeConfig::test())
+    fn get_runtime_config(&self, _protocol_version: ProtocolVersion) -> RuntimeConfig {
+        RuntimeConfig::test()
     }
 
     fn will_shard_layout_change_next_epoch(
