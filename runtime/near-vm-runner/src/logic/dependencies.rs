@@ -227,38 +227,6 @@ pub trait External {
         key: &[u8],
     ) -> Result<Option<Vec<u8>>>;
 
-    /// Note: The method is currently unused and untested.
-    ///
-    /// Removes all keys with a given `prefix` from the storage trie associated with current
-    /// account.
-    ///
-    /// # Arguments
-    ///
-    /// * `prefix` - a prefix for all keys to remove
-    ///
-    /// # Errors
-    ///
-    /// This function could return [`near_vm_runner::logic::VMError`].
-    ///
-    /// # Example
-    /// ```
-    /// # use near_vm_runner::logic::mocks::mock_external::MockedExternal;
-    /// # use near_vm_runner::logic::gas_counter::FreeGasCounter;
-    /// # use near_vm_runner::logic::{External, StorageGetMode};
-    ///
-    /// # let mut external = MockedExternal::new();
-    /// external.storage_set(&mut FreeGasCounter, b"key1", b"value1337").unwrap();
-    /// external.storage_set(&mut FreeGasCounter, b"key2", b"value1337").unwrap();
-    /// assert_eq!(external.storage_remove_subtree(&mut FreeGasCounter, b"key"), Ok(()));
-    /// assert!(!external.storage_has_key(&mut FreeGasCounter, b"key1", StorageGetMode::Trie).unwrap());
-    /// assert!(!external.storage_has_key(&mut FreeGasCounter, b"key2", StorageGetMode::Trie).unwrap());
-    /// ```
-    fn storage_remove_subtree(
-        &mut self,
-        access_tracker: &mut dyn StorageAccessTracker,
-        prefix: &[u8],
-    ) -> Result<()>;
-
     /// Check whether the `key` is present in the storage trie associated with the current account.
     ///
     /// Returns `Ok(true)` if key is present, `Ok(false)` if the key is not present.

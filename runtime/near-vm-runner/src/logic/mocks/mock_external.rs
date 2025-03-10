@@ -157,15 +157,6 @@ impl External for MockedExternal {
         Ok(value)
     }
 
-    fn storage_remove_subtree(
-        &mut self,
-        _: &mut dyn StorageAccessTracker,
-        prefix: &[u8],
-    ) -> Result<()> {
-        self.fake_trie.retain(|key, _| !key.starts_with(prefix));
-        Ok(())
-    }
-
     fn storage_has_key(
         &mut self,
         _: &mut dyn StorageAccessTracker,

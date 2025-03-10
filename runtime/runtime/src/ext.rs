@@ -4,7 +4,7 @@ use near_primitives::account::id::AccountType;
 use near_primitives::checked_feature;
 use near_primitives::errors::{EpochError, StorageError};
 use near_primitives::hash::CryptoHash;
-use near_primitives::trie_key::{TrieKey, trie_key_parsers};
+use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{AccountId, Balance, BlockHeight, EpochId, EpochInfoProvider, Gas};
 use near_primitives::utils::create_receipt_id_from_action_hash;
 use near_primitives::version::ProtocolVersion;
@@ -295,42 +295,6 @@ impl<'a> External for RuntimeExt<'a> {
             tn_db_reads = delta.db_reads,
         );
         Ok(result?)
-    }
-
-    fn storage_remove_subtree(
-        &mut self,
-        access_tracker: &mut dyn StorageAccessTracker,
-        prefix: &[u8],
-    ) -> ExtResult<()> {
-        let ttn = self.trie_update.trie().get_trie_nodes_count();
-        let data_keys = self
-            .trie_update
-            .iter(&trie_key_parsers::get_raw_prefix_for_contract_data(&self.account_id, prefix))
-            .map_err(wrap_storage_error)?
-            .map(|raw_key| {
-                trie_key_parsers::parse_data_key_from_contract_data_key(&raw_key?, &self.account_id)
-                    .map_err(|_e| {
-                        StorageError::StorageInconsistentState(
-                            "Can't parse data key from raw key for ContractData".to_string(),
-                        )
-                    })
-                    .map(Vec::from)
-            })
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(wrap_storage_error)?;
-        for key in data_keys {
-            self.trie_update
-                .remove(TrieKey::ContractData { account_id: self.account_id.clone(), key });
-        }
-        let delta = self
-            .trie_update
-            .trie()
-            .get_trie_nodes_count()
-            .checked_sub(&ttn)
-            .ok_or(InconsistentStateError::IntegerOverflow)?;
-        access_tracker.trie_node_touched(delta.db_reads)?;
-        access_tracker.cached_trie_node_access(delta.mem_reads)?;
-        Ok(())
     }
 
     fn generate_data_id(&mut self) -> CryptoHash {
