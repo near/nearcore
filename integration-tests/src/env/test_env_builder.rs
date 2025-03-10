@@ -20,8 +20,9 @@ use near_store::config::StateSnapshotType;
 use near_store::test_utils::create_test_store;
 use near_store::{NodeStorage, ShardUId, Store, StoreConfig, TrieConfig};
 use near_vm_runner::{ContractRuntimeCache, FilesystemContractRuntimeCache};
+use nearcore::NightshadeRuntime;
 use std::collections::{BTreeMap, HashMap};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use crate::utils::mock_partial_witness_adapter::MockPartialWitnessAdapter;
@@ -468,15 +469,21 @@ impl TestEnvBuilder {
             "State snapshot is not supported with KeyValueRuntime. Consider adding nightshade_runtimes"
         );
         let runtimes = (0..ret.clients.len())
-            .map(|i| {
-                let epoch_manager = match &ret.epoch_managers.as_ref().unwrap()[i] {
-                    EpochManagerKind::Mock(mock) => mock.as_ref(),
-                    EpochManagerKind::Handle(_) => {
-                        panic!("Can only default construct KeyValueRuntime with MockEpochManager")
+            .map(|i| -> Arc<dyn RuntimeAdapter> {
+                let store = ret.stores.as_ref().unwrap()[i].clone();
+                match &ret.epoch_managers.as_ref().unwrap()[i] {
+                    EpochManagerKind::Mock(mock) => {
+                        return KeyValueRuntime::new(store, mock);
+                    }
+                    EpochManagerKind::Handle(epoch_manager_handle) => {
+                        return NightshadeRuntime::test(
+                            Path::new("."),
+                            store,
+                            &ret.genesis_config,
+                            epoch_manager_handle.clone(),
+                        );
                     }
                 };
-                KeyValueRuntime::new(ret.stores.as_ref().unwrap()[i].clone(), epoch_manager)
-                    as Arc<dyn RuntimeAdapter>
             })
             .collect();
         ret.runtimes(runtimes)

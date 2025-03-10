@@ -5,7 +5,7 @@ use near_async::messaging::IntoMultiSender;
 use near_async::time::Clock;
 use near_chain::Provenance;
 use near_chain::test_utils::wait_for_all_blocks_in_processing;
-use near_chain_configs::GenesisConfig;
+use near_chain_configs::Genesis;
 use near_client::sync::block::BlockSync;
 use near_crypto::{KeyType, PublicKey};
 use near_network::test_utils::MockPeerManagerAdapter;
@@ -16,6 +16,8 @@ use near_o11y::testonly::TracingCapture;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
 use near_primitives::utils::MaybeValidated;
+use near_store::genesis::initialize_genesis_state;
+use near_store::test_utils::create_test_store;
 
 use crate::env::test_env::TestEnv;
 
@@ -61,6 +63,25 @@ fn create_highest_height_peer_infos(num_peers: usize) -> Vec<HighestHeightPeerIn
         .collect()
 }
 
+fn test_env_with_epoch_length(epoch_length: u64) -> TestEnv {
+    let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
+    genesis.config.epoch_length = epoch_length;
+
+    TestEnv::builder(&genesis.config)
+        .clients_count(2)
+        .stores(
+            std::iter::repeat(())
+                .take(2)
+                .map(|_| {
+                    let store = create_test_store();
+                    initialize_genesis_state(store.clone(), &genesis, None);
+                    store
+                })
+                .collect(),
+        )
+        .build()
+}
+
 #[test]
 fn test_block_sync() {
     let mut capture = TracingCapture::enable();
@@ -74,9 +95,7 @@ fn test_block_sync() {
         false,
         true,
     );
-    let mut genesis_config = GenesisConfig::test(Clock::real());
-    genesis_config.epoch_length = 100;
-    let mut env = TestEnv::builder(&genesis_config).clients_count(2).mock_epoch_managers().build();
+    let mut env = test_env_with_epoch_length(100);
     let mut blocks = vec![];
     for i in 1..5 * max_block_requests + 1 {
         let block = env.clients[0].produce_block(i as u64).unwrap().unwrap();
@@ -157,9 +176,7 @@ fn test_block_sync_archival() {
         true,
         true,
     );
-    let mut genesis_config = GenesisConfig::test(Clock::real());
-    genesis_config.epoch_length = 5;
-    let mut env = TestEnv::builder(&genesis_config).clients_count(2).mock_epoch_managers().build();
+    let mut env = test_env_with_epoch_length(5);
     let mut blocks = vec![];
     for i in 1..41 {
         let block = env.clients[0].produce_block(i).unwrap().unwrap();
