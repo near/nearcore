@@ -254,6 +254,14 @@ impl<'a> StoreOpener<'a> {
         self.open_in_mode(Mode::ReadWrite)
     }
 
+    pub fn open_unsafe(&self) -> Result<crate::NodeStorage, StoreOpenerError> {
+        let mode = Mode::ReadWrite;
+        let hot_db = self.hot.open_unsafe(mode)?;
+        let cold_db = self.cold.as_ref().map(|cold| cold.open_unsafe(mode)).transpose()?;
+        let storage = NodeStorage::from_rocksdb(hot_db, cold_db);
+        Ok(storage)
+    }
+
     fn open_dbs(
         &self,
         mode: Mode,

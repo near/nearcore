@@ -8,6 +8,7 @@ use crate::compact::RunCompactionCommand;
 use crate::corrupt::CorruptStateSnapshotCommand;
 use crate::make_snapshot::MakeSnapshotCommand;
 use crate::memtrie::LoadMemTrieCommand;
+use crate::reset_version::ResetVersionCommand;
 use crate::resharding_v2::ReshardingV2Command;
 use crate::run_migrations::RunMigrationsCommand;
 use crate::state_perf::StatePerfCommand;
@@ -62,6 +63,9 @@ enum SubCommand {
     /// Analyze size of contracts present in the current state
     AnalyzeContractSizes(AnalyzeContractSizesCommand),
 
+    /// Reset the database to the version used by the binary.
+    ResetVersion(ResetVersionCommand),
+
     /// Perform on demand resharding V2
     Resharding(ReshardingV2Command),
 }
@@ -89,6 +93,7 @@ impl DatabaseCommand {
             SubCommand::HighLoadStats(cmd) => cmd.run(home),
             SubCommand::AnalyzeDelayedReceipt(cmd) => cmd.run(home, genesis_validation),
             SubCommand::AnalyzeContractSizes(cmd) => cmd.run(home, genesis_validation),
+            SubCommand::ResetVersion(cmd) => cmd.run(home, genesis_validation),
             SubCommand::Resharding(cmd) => {
                 let near_config = load_config(home, genesis_validation);
                 cmd.run(near_config, home)
