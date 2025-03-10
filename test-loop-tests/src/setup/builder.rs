@@ -434,8 +434,8 @@ pub fn setup_client(
         chunks_storage: chunks_storage.clone(),
     });
 
-    // Generate a PeerId. It doesn't matter what this is. We're just making it based on
-    // the account ID, so that it is stable across multiple runs in the same test.
+    // Generate a PeerId. This is used to identify the client in the network.
+    // Make sure this is the same as the account_id of the client to redirect the network messages properly.
     let peer_id = PeerId::new(create_test_signer(account_id.as_str()).public_key());
 
     let client = Client::new(
@@ -599,6 +599,7 @@ pub fn setup_client(
         test_loop.data.register_actor(identifier, peer_manager_actor, Some(network_adapter));
 
     let data = TestData {
+        identifier: identifier.to_string(),
         account_id,
         peer_id,
         client_sender,
@@ -610,6 +611,8 @@ pub fn setup_client(
     };
 
     // Add the client to the network shared state before returning data
+    // Note that this can potentially overwrite an existing client with the same account_id
+    // and all new messages would be redirected to the new client.
     network_shared_state.add_client(&data);
 
     // Register all accumulated drop conditions
