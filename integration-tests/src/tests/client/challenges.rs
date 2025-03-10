@@ -35,16 +35,16 @@ use crate::env::test_env::TestEnv;
 /// TODO (#2445): Enable challenges when they are working correctly.
 #[test]
 fn test_block_with_challenges() {
-    let mut env = TestEnv::default_builder().mock_epoch_managers().build();
-    let genesis = env.clients[0].chain.get_block_by_height(0).unwrap();
+    let mut env = TestEnv::default_builder_with_genesis().build();
+    let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
 
     let mut block = env.clients[0].produce_block(1).unwrap().unwrap();
     let signer = env.clients[0].validator_signer.get().unwrap();
 
     {
         let challenge_body = ChallengeBody::BlockDoubleSign(BlockDoubleSign {
-            left_block_header: borsh::to_vec(&genesis.header()).unwrap(),
-            right_block_header: borsh::to_vec(&genesis.header()).unwrap(),
+            left_block_header: borsh::to_vec(&genesis_block.header()).unwrap(),
+            right_block_header: borsh::to_vec(&genesis_block.header()).unwrap(),
         });
         let challenge = Challenge::produce(challenge_body, &*signer);
         let challenges = vec![challenge];
@@ -86,7 +86,7 @@ fn test_invalid_chunk_state() {
 
 #[test]
 fn test_verify_block_double_sign_challenge() {
-    let mut env = TestEnv::default_builder().clients_count(2).mock_epoch_managers().build();
+    let mut env = TestEnv::default_builder_with_genesis().clients_count(2).build();
     env.produce_block(0, 1);
     let genesis = env.clients[0].chain.get_block_by_height(0).unwrap();
     let b1 = env.clients[0].produce_block(2).unwrap().unwrap();
@@ -199,7 +199,7 @@ fn create_invalid_proofs_chunk(client: &mut Client) -> (ProduceChunkResult, Bloc
 
 #[test]
 fn test_verify_chunk_invalid_proofs_challenge() {
-    let mut env = TestEnv::default_builder().mock_epoch_managers().build();
+    let mut env = TestEnv::default_builder_with_genesis().build();
     env.produce_block(0, 1);
     let (ProduceChunkResult { chunk, .. }, block) =
         create_invalid_proofs_chunk(&mut env.clients[0]);
@@ -212,7 +212,7 @@ fn test_verify_chunk_invalid_proofs_challenge() {
 
 #[test]
 fn test_verify_chunk_invalid_proofs_challenge_decoded_chunk() {
-    let mut env = TestEnv::default_builder().mock_epoch_managers().build();
+    let mut env = TestEnv::default_builder_with_genesis().build();
     env.produce_block(0, 1);
     let (ProduceChunkResult { chunk: encoded_chunk, .. }, block) =
         create_invalid_proofs_chunk(&mut env.clients[0]);
@@ -227,7 +227,7 @@ fn test_verify_chunk_invalid_proofs_challenge_decoded_chunk() {
 
 #[test]
 fn test_verify_chunk_proofs_malicious_challenge_no_changes() {
-    let mut env = TestEnv::default_builder().mock_epoch_managers().build();
+    let mut env = TestEnv::default_builder_with_genesis().build();
     env.produce_block(0, 1);
     // Valid chunk
     let (ProduceChunkResult { chunk, .. }, block) = create_chunk(&mut env.clients[0], None, None);
@@ -240,7 +240,7 @@ fn test_verify_chunk_proofs_malicious_challenge_no_changes() {
 
 #[test]
 fn test_verify_chunk_proofs_malicious_challenge_valid_order_transactions() {
-    let mut env = TestEnv::default_builder().mock_epoch_managers().build();
+    let mut env = TestEnv::default_builder_with_genesis().build();
     env.produce_block(0, 1);
 
     let genesis_hash = *env.clients[0].chain.genesis().hash();
@@ -276,7 +276,7 @@ fn test_verify_chunk_proofs_malicious_challenge_valid_order_transactions() {
 
 #[test]
 fn test_verify_chunk_proofs_challenge_transaction_order() {
-    let mut env = TestEnv::default_builder().mock_epoch_managers().build();
+    let mut env = TestEnv::default_builder_with_genesis().build();
     env.produce_block(0, 1);
 
     let genesis_hash = *env.clients[0].chain.genesis().hash();
