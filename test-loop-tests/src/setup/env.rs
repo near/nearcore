@@ -143,6 +143,15 @@ impl TestLoopEnv {
         self.node_datas.push(node_data);
     }
 
+    /// Function to add a new node in test loop environment. This function takes in the identifier
+    /// and node_state of the new node as input.
+    ///
+    /// We set the NetworkInfo for this node which is required for state sync to work.
+    pub fn add_node(&mut self, identifier: &str, node_state: NodeState) {
+        // Logically this function is the same as restart_node
+        self.restart_node(identifier, node_state);
+    }
+
     /// Used to finish off remaining events that are still in the loop. This can be necessary if the
     /// destructor of some components wait for certain condition to become true. Otherwise, the
     /// destructors may end up waiting forever. This also helps avoid a panic when destructing

@@ -33,22 +33,30 @@ fn test_restart_node() {
         .shuffle_shard_assignment_for_chunk_producers(true)
         .build_store_for_genesis_protocol_version();
 
-    let mut env = builder
+    let env_builder = builder
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .clients(clients)
-        .build()
-        .warmup();
+        .gc_num_epochs_to_keep(20);
+
+    let new_node_state =
+        env_builder.new_node_state_builder().account_id(accounts[NUM_CLIENTS].clone()).build();
+
+    let mut env = env_builder.build().warmup();
 
     env.test_loop.run_for(Duration::seconds(2 * epoch_length as i64));
 
     // kill node
-    let node_state = env.kill_node("account0");
+    let killed_node_state = env.kill_node("account0");
     env.test_loop.run_for(Duration::seconds(2 * epoch_length as i64));
 
     // restart node
-    env.restart_node("account0-restart", node_state);
-    env.test_loop.run_for(Duration::seconds(4 * epoch_length as i64));
+    env.restart_node("account0-restart", killed_node_state);
+    env.test_loop.run_for(Duration::seconds(3 * epoch_length as i64));
+
+    // Add new node
+    env.add_node(accounts[NUM_CLIENTS].as_str(), new_node_state);
+    env.test_loop.run_for(Duration::seconds(3 * epoch_length as i64));
 
     // Give the test a chance to finish off remaining events in the event loop, which can
     // be important for properly shutting down the nodes.
