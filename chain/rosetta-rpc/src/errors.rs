@@ -8,8 +8,6 @@ pub(crate) enum ErrorKind {
     InvalidInput(String),
     #[error("Not found: {0}")]
     NotFound(String),
-    #[error("Missing block: {0}")]
-    MissingBlock(String),
     #[error("Wrong network: {0}")]
     WrongNetwork(String),
     #[error("Timeout: {0}")]
