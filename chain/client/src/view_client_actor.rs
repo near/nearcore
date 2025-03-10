@@ -99,7 +99,7 @@ pub struct ViewClientActorInner {
     /// Lock the value of mutable validator signer for the duration of a request to ensure consistency.
     /// Please note that the locked value should not be stored anywhere or passed through the thread boundary.
     validator: MutableValidatorSigner,
-    chain: Chain,
+    pub chain: Chain,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
     shard_tracker: ShardTracker,
     runtime: Arc<dyn RuntimeAdapter>,
