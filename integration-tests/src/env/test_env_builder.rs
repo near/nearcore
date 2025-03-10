@@ -6,7 +6,7 @@ use near_chain::state_snapshot_actor::SnapshotCallbacks;
 use near_chain::test_utils::{KeyValueRuntime, MockEpochManager, ValidatorSchedule};
 use near_chain::types::RuntimeAdapter;
 use near_chain::{Block, ChainGenesis};
-use near_chain_configs::GenesisConfig;
+use near_chain_configs::{Genesis, GenesisConfig};
 use near_chunks::test_utils::MockClientAdapterForShardsManager;
 use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
 use near_epoch_manager::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
@@ -17,6 +17,7 @@ use near_primitives::epoch_manager::{AllEpochConfigTestOverrides, EpochConfig, E
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::{AccountId, NumShards, ShardIndex};
 use near_store::config::StateSnapshotType;
+use near_store::genesis::initialize_genesis_state;
 use near_store::test_utils::create_test_store;
 use near_store::{NodeStorage, ShardUId, Store, StoreConfig, TrieConfig};
 use near_vm_runner::{ContractRuntimeCache, FilesystemContractRuntimeCache};
@@ -49,6 +50,7 @@ impl EpochManagerKind {
 pub struct TestEnvBuilder {
     clock: Option<Clock>,
     genesis_config: GenesisConfig,
+    genesis: Option<Genesis>,
     epoch_config_store: Option<EpochConfigStore>,
     clients: Vec<AccountId>,
     validators: Vec<AccountId>,
@@ -81,6 +83,7 @@ impl TestEnvBuilder {
         Self {
             clock: None,
             genesis_config,
+            genesis: None,
             epoch_config_store: None,
             clients,
             validators,
@@ -97,6 +100,12 @@ impl TestEnvBuilder {
             save_trie_changes: true,
             state_snapshot_enabled: false,
         }
+    }
+
+    pub(crate) fn from_genesis(genesis: Genesis) -> Self {
+        let mut env = Self::new(genesis.config.clone());
+        env.genesis = Some(genesis);
+        env
     }
 
     pub fn clock(mut self, clock: Clock) -> Self {
@@ -218,10 +227,24 @@ impl TestEnvBuilder {
     /// Internal impl to make sure the stores are initialized.
     fn ensure_stores(self) -> Self {
         if self.stores.is_some() {
+            if let Some(genesis) = &self.genesis {
+                for store in self.stores.as_ref().unwrap() {
+                    initialize_genesis_state(store.clone(), &genesis, None);
+                }
+            }
             self
         } else {
             let num_clients = self.clients.len();
-            self.stores((0..num_clients).map(|_| create_test_store()).collect())
+            let stores = (0..num_clients)
+                .map(|_| {
+                    let store = create_test_store();
+                    if let Some(genesis) = &self.genesis {
+                        initialize_genesis_state(store.clone(), &genesis, None);
+                    }
+                    store
+                })
+                .collect();
+            self.stores(stores)
         }
     }
 
@@ -476,6 +499,11 @@ impl TestEnvBuilder {
                         return KeyValueRuntime::new(store, mock);
                     }
                     EpochManagerKind::Handle(epoch_manager_handle) => {
+                        if ret.genesis.is_none() {
+                            // In order to use EpochManagerHandle and NightshadeRuntime stores have to be initialized with genesis
+                            // which in default case we can ensure only if builder has information about genesis.
+                            panic!("Unless genesis is set can only default construct KeyValueRuntime with MockEpochManager")
+                        }
                         return NightshadeRuntime::test(
                             Path::new("."),
                             store,

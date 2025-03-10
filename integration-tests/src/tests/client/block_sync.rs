@@ -16,8 +16,6 @@ use near_o11y::testonly::TracingCapture;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
 use near_primitives::utils::MaybeValidated;
-use near_store::genesis::initialize_genesis_state;
-use near_store::test_utils::create_test_store;
 
 use crate::env::test_env::TestEnv;
 
@@ -67,19 +65,7 @@ fn test_env_with_epoch_length(epoch_length: u64) -> TestEnv {
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
 
-    TestEnv::builder(&genesis.config)
-        .clients_count(2)
-        .stores(
-            std::iter::repeat(())
-                .take(2)
-                .map(|_| {
-                    let store = create_test_store();
-                    initialize_genesis_state(store.clone(), &genesis, None);
-                    store
-                })
-                .collect(),
-        )
-        .build()
+    TestEnv::builder_from_genesis(&genesis).clients_count(2).build()
 }
 
 #[test]
