@@ -302,6 +302,7 @@ impl Client {
             config.max_block_production_delay,
             config.max_block_production_delay / 10,
             config.max_block_wait_delay,
+            config.chunk_wait_mult,
             doomslug_threshold_mode,
         );
         let chunk_endorsement_tracker =
@@ -1041,16 +1042,28 @@ impl Client {
     pub fn receive_optimistic_block(&mut self, block: OptimisticBlock, peer_id: &PeerId) {
         let _span = debug_span!(target: "client", "receive_optimistic_block").entered();
         debug!(target: "client", ?block, ?peer_id, "Received optimistic block");
-        // Validate the optimistic block.
-        // Discard the block if it is old or not created by the right producer.
-        if let Err(e) = self.chain.check_optimistic_block(&block) {
-            metrics::NUM_INVALID_OPTIMISTIC_BLOCKS.inc();
+
+        // Pre-validate the optimistic block.
+        if let Err(e) = self.chain.pre_check_optimistic_block(&block) {
+            near_chain::metrics::NUM_INVALID_OPTIMISTIC_BLOCKS.inc();
             debug!(target: "client", ?e, "Optimistic block is invalid");
             return;
         }
 
-        self.chain.optimistic_block_chunks.add_block(block);
-        self.maybe_process_optimistic_block();
+        if let Err(_) = self.chain.get_block_header(&block.prev_block_hash()) {
+            // If the previous block is not found, add the block to the orphan
+            // pool for now.
+            self.chain.save_optimistic_orphan(block);
+            return;
+        }
+
+        let signer = self.validator_signer.get();
+        let me = signer.as_ref().map(|signer| signer.validator_id().clone());
+        self.chain.preprocess_optimistic_block(
+            block,
+            &me,
+            Some(self.myself_sender.apply_chunks_done.clone()),
+        );
     }
 
     /// To protect ourselves from spamming, we do some pre-check on block height before we do any
@@ -1337,7 +1350,12 @@ impl Client {
         self.chain.optimistic_block_chunks.add_chunk(&shard_layout, chunk_header);
         // If this was the last chunk that was missing for a block, it will be processed now.
         self.process_blocks_with_missing_chunks(apply_chunks_done_sender, &signer);
-        self.maybe_process_optimistic_block();
+
+        let me = signer.as_ref().map(|signer| signer.validator_id().clone());
+        self.chain.maybe_process_optimistic_block(
+            &me,
+            Some(self.myself_sender.apply_chunks_done.clone()),
+        );
     }
 
     /// Called asynchronously when the ShardsManager finishes processing a chunk but the chunk
@@ -1859,44 +1877,6 @@ impl Client {
         self.process_block_processing_artifact(blocks_processing_artifacts, signer);
     }
 
-    pub fn maybe_process_optimistic_block(&mut self) {
-        let Some((block, chunks)) = self.chain.optimistic_block_chunks.take_latest_ready_block()
-        else {
-            return;
-        };
-
-        self.chain.blocks_delay_tracker.record_optimistic_block_ready(block.height());
-
-        let signer = self.validator_signer.get();
-        let me = signer.as_ref().map(|signer| signer.validator_id());
-        let prev_block_hash = *block.prev_block_hash();
-        let block_hash = *block.hash();
-        let block_height = block.height();
-        let apply_chunks_done_sender = self.myself_sender.apply_chunks_done.clone();
-        match self.chain.process_optimistic_block(
-            &me.map(|x| x.clone()),
-            block,
-            chunks,
-            apply_chunks_done_sender,
-        ) {
-            Ok(()) => {
-                info!(
-                    target: "chain", prev_block_hash = ?prev_block_hash,
-                    hash = ?block_hash, height = block_height,
-                    "Processed optimistic block"
-                );
-            }
-            Err(err) => {
-                warn!(
-                    target: "chain", err = ?err,
-                    prev_block_hash = ?prev_block_hash,
-                    hash = ?block_hash, height = block_height,
-                    "Failed to process optimistic block"
-                );
-            }
-        }
-    }
-
     pub fn is_validator(&self, epoch_id: &EpochId, signer: &Option<Arc<ValidatorSigner>>) -> bool {
         match signer {
             None => false,
@@ -2197,7 +2177,7 @@ impl Client {
     /// Process transaction and either add it to the mempool or return to redirect to another validator.
     fn process_tx_internal(
         &mut self,
-        tx: &SignedTransaction,
+        signed_tx: &SignedTransaction,
         is_forwarded: bool,
         check_only: bool,
         signer: &Option<Arc<ValidatorSigner>>,
@@ -2209,48 +2189,44 @@ impl Client {
         // here it is fine to use `cur_block_header` as it is a best effort estimate. If the transaction
         // were to be included, the block that the chunk points to will have height >= height of
         // `cur_block_header`.
-        if let Err(e) = self
-            .chain
-            .chain_store()
-            .check_transaction_validity_period(&cur_block_header, tx.transaction.block_hash())
-        {
-            debug!(target: "client", ?tx, "Invalid tx: expired or from a different fork");
+        if let Err(e) = self.chain.chain_store().check_transaction_validity_period(
+            &cur_block_header,
+            signed_tx.transaction.block_hash(),
+        ) {
+            debug!(target: "client", ?signed_tx, "Invalid tx: expired or from a different fork");
             return Ok(ProcessTxResponse::InvalidTx(e));
         }
         let gas_price = cur_block_header.next_gas_price();
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&head.last_block_hash)?;
-        let shard_layout = self.runtime_adapter.get_shard_layout(&epoch_id)?;
-        let receiver_shard = account_id_to_shard_id(
-            self.epoch_manager.as_ref(),
-            tx.transaction.receiver_id(),
-            &epoch_id,
-        )?;
+        let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
+        let shard_layout =
+            self.epoch_manager.get_shard_layout_from_protocol_version(protocol_version);
+        let receiver_shard =
+            shard_layout.account_id_to_shard_id(signed_tx.transaction.receiver_id());
         let receiver_congestion_info =
             cur_block.block_congestion_info().get(&receiver_shard).copied();
-        let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
 
-        if let Err(err) = self.runtime_adapter.validate_tx(
+        let validated_tx = match self.runtime_adapter.validate_tx(
             &shard_layout,
-            tx,
+            signed_tx.clone(),
             protocol_version,
             receiver_congestion_info,
         ) {
-            debug!(target: "client", tx_hash = ?tx.get_hash(), ?err, "Invalid tx during basic validation");
-            return Ok(ProcessTxResponse::InvalidTx(err));
-        }
+            Ok(validated_tx) => validated_tx,
+            Err((err, signed_tx)) => {
+                debug!(target: "client", tx_hash = ?signed_tx.get_hash(), ?err, "Invalid tx during basic validation");
+                return Ok(ProcessTxResponse::InvalidTx(err));
+            }
+        };
 
-        let shard_id = account_id_to_shard_id(
-            self.epoch_manager.as_ref(),
-            tx.transaction.signer_id(),
-            &epoch_id,
-        )?;
+        let shard_uid = shard_layout.account_id_to_shard_uid(signed_tx.transaction.signer_id());
+        let shard_id = shard_uid.shard_id();
         let cares_about_shard =
             self.shard_tracker.cares_about_shard(me, &head.last_block_hash, shard_id, true);
         let will_care_about_shard =
             self.shard_tracker.will_care_about_shard(me, &head.last_block_hash, shard_id, true);
 
         if cares_about_shard || will_care_about_shard {
-            let shard_uid = shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, &epoch_id)?;
             let state_root = match self.chain.get_chunk_extra(&head.last_block_hash, &shard_uid) {
                 Ok(chunk_extra) => *chunk_extra.state_root(),
                 Err(_) => {
@@ -2259,7 +2235,7 @@ impl Client {
                     if is_forwarded {
                         return Err(Error::Other("Node has not caught up yet".to_string()));
                     } else {
-                        self.forward_tx(&epoch_id, tx, signer)?;
+                        self.forward_tx(&epoch_id, signed_tx, signer)?;
                         return Ok(ProcessTxResponse::RequestRouted);
                     }
                 }
@@ -2268,7 +2244,7 @@ impl Client {
                 &shard_layout,
                 gas_price,
                 state_root,
-                tx,
+                &validated_tx,
                 protocol_version,
             ) {
                 debug!(target: "client", ?err, "Invalid tx");
@@ -2279,20 +2255,23 @@ impl Client {
             }
             // Transactions only need to be recorded if the node is a validator.
             if me.is_some() {
-                match self.chunk_producer.sharded_tx_pool.insert_transaction(shard_uid, tx.clone())
+                match self
+                    .chunk_producer
+                    .sharded_tx_pool
+                    .insert_transaction(shard_uid, validated_tx.into_signed_tx())
                 {
                     InsertTransactionResult::Success => {
-                        trace!(target: "client", ?shard_uid, tx_hash = ?tx.get_hash(), "Recorded a transaction.");
+                        trace!(target: "client", ?shard_uid, tx_hash = ?signed_tx.get_hash(), "Recorded a transaction.");
                     }
                     InsertTransactionResult::Duplicate => {
-                        trace!(target: "client", ?shard_uid, tx_hash = ?tx.get_hash(), "Duplicate transaction, not forwarding it.");
+                        trace!(target: "client", ?shard_uid, tx_hash = ?signed_tx.get_hash(), "Duplicate transaction, not forwarding it.");
                         return Ok(ProcessTxResponse::ValidTx);
                     }
                     InsertTransactionResult::NoSpaceLeft => {
                         if is_forwarded {
-                            trace!(target: "client", ?shard_uid, tx_hash = ?tx.get_hash(), "Transaction pool is full, dropping the transaction.");
+                            trace!(target: "client", ?shard_uid, tx_hash = ?signed_tx.get_hash(), "Transaction pool is full, dropping the transaction.");
                         } else {
-                            trace!(target: "client", ?shard_uid, tx_hash = ?tx.get_hash(), "Transaction pool is full, trying to forward the transaction.");
+                            trace!(target: "client", ?shard_uid, tx_hash = ?signed_tx.get_hash(), "Transaction pool is full, trying to forward the transaction.");
                         }
                     }
                 }
@@ -2304,21 +2283,21 @@ impl Client {
             //   forward to current epoch validators,
             //   possibly forward to next epoch validators
             if self.active_validator(shard_id, signer)? {
-                trace!(target: "client", account = ?me, ?shard_id, tx_hash = ?tx.get_hash(), is_forwarded, "Recording a transaction.");
+                trace!(target: "client", account = ?me, ?shard_id, tx_hash = ?signed_tx.get_hash(), is_forwarded, "Recording a transaction.");
                 metrics::TRANSACTION_RECEIVED_VALIDATOR.inc();
 
                 if !is_forwarded {
-                    self.possibly_forward_tx_to_next_epoch(tx, signer)?;
+                    self.possibly_forward_tx_to_next_epoch(signed_tx, signer)?;
                 }
                 return Ok(ProcessTxResponse::ValidTx);
             }
             if !is_forwarded {
-                trace!(target: "client", ?shard_id, tx_hash = ?tx.get_hash(), "Forwarding a transaction.");
+                trace!(target: "client", ?shard_id, tx_hash = ?signed_tx.get_hash(), "Forwarding a transaction.");
                 metrics::TRANSACTION_RECEIVED_NON_VALIDATOR.inc();
-                self.forward_tx(&epoch_id, tx, signer)?;
+                self.forward_tx(&epoch_id, signed_tx, signer)?;
                 return Ok(ProcessTxResponse::RequestRouted);
             }
-            trace!(target: "client", ?shard_id, tx_hash = ?tx.get_hash(), "Non-validator received a forwarded transaction, dropping it.");
+            trace!(target: "client", ?shard_id, tx_hash = ?signed_tx.get_hash(), "Non-validator received a forwarded transaction, dropping it.");
             metrics::TRANSACTION_RECEIVED_NON_VALIDATOR_FORWARDED.inc();
             return Ok(ProcessTxResponse::NoResponse);
         }
@@ -2328,11 +2307,11 @@ impl Client {
         }
         if is_forwarded {
             // Received forwarded transaction but we are not tracking the shard
-            debug!(target: "client", ?me, ?shard_id, tx_hash = ?tx.get_hash(), "Received forwarded transaction but no tracking shard");
+            debug!(target: "client", ?me, ?shard_id, tx_hash = ?signed_tx.get_hash(), "Received forwarded transaction but no tracking shard");
             return Ok(ProcessTxResponse::NoResponse);
         }
         // We are not tracking this shard, so there is no way to validate this tx. Just rerouting.
-        self.forward_tx(&epoch_id, tx, signer).map(|()| ProcessTxResponse::RequestRouted)
+        self.forward_tx(&epoch_id, signed_tx, signer).map(|()| ProcessTxResponse::RequestRouted)
     }
 
     /// Determine if I am a validator in next few blocks for specified shard, assuming epoch doesn't change.

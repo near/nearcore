@@ -8,8 +8,8 @@ use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::AccountId;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 
-use crate::builder::TestLoopBuilder;
-use crate::env::TestLoopEnv;
+use crate::setup::builder::TestLoopBuilder;
+use crate::setup::env::TestLoopEnv;
 use crate::utils::ONE_NEAR;
 
 fn get_builder(num_shards: usize) -> TestLoopBuilder {
@@ -42,12 +42,12 @@ fn test_optimistic_block() {
         return;
     }
     let num_shards = 3;
-    let mut env: TestLoopEnv = get_builder(num_shards).build();
+    let mut env: TestLoopEnv = get_builder(num_shards).build().warmup();
     env.test_loop.run_for(Duration::seconds(10));
 
     {
         let chain =
-            &env.test_loop.data.get(&env.datas[0].client_sender.actor_handle()).client.chain;
+            &env.test_loop.data.get(&env.node_datas[0].client_sender.actor_handle()).client.chain;
         // Under normal block processing, there can be only one optimistic
         // block waiting to be processed.
         assert!(chain.optimistic_block_chunks.num_blocks() <= 1);
@@ -69,7 +69,7 @@ fn test_optimistic_block() {
 #[cfg(feature = "test_features")]
 /// Create an invalid optimistic block based on the adversarial type.
 fn make_invalid_ob(env: &TestLoopEnv, adv_type: OptimisticBlockAdvType) -> OptimisticBlock {
-    let client = &env.test_loop.data.get(&env.datas[0].client_sender.actor_handle()).client;
+    let client = &env.test_loop.data.get(&env.node_datas[0].client_sender.actor_handle()).client;
 
     let epoch_manager = &client.epoch_manager;
     let head = client.chain.head().unwrap();
@@ -79,7 +79,8 @@ fn make_invalid_ob(env: &TestLoopEnv, adv_type: OptimisticBlockAdvType) -> Optim
     let block_producer = epoch_manager.get_block_producer(&epoch_id, height).unwrap();
 
     // Get producer client
-    let client_data = &env.datas.iter().find(|data| data.account_id == block_producer).unwrap();
+    let client_data =
+        &env.node_datas.iter().find(|data| data.account_id == block_producer).unwrap();
     let client = &env.test_loop.data.get(&client_data.client_sender.actor_handle()).client;
     let chain = &client.chain;
 
@@ -104,9 +105,10 @@ fn test_invalid_optimistic_block() {
     if !ProtocolFeature::ProduceOptimisticBlock.enabled(PROTOCOL_VERSION) {
         return;
     }
-    let mut env = get_builder(3).build();
+    let mut env = get_builder(3).build().warmup();
     env.test_loop.run_for(Duration::seconds(10));
-    let chain = &env.test_loop.data.get(&env.datas[0].client_sender.actor_handle()).client.chain;
+    let chain =
+        &env.test_loop.data.get(&env.node_datas[0].client_sender.actor_handle()).client.chain;
     let adversarial_behaviour = [
         OptimisticBlockAdvType::InvalidVrfValue,
         OptimisticBlockAdvType::InvalidVrfProof,

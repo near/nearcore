@@ -17,17 +17,18 @@ use near_chain_configs::{
     MIN_BLOCK_PRODUCTION_DELAY, MIN_GAS_PRICE, MutableConfigValue, MutableValidatorSigner,
     NEAR_BASE, NUM_BLOCK_PRODUCER_SEATS, NUM_BLOCKS_PER_YEAR, PROTOCOL_REWARD_RATE,
     PROTOCOL_UPGRADE_STAKE_THRESHOLD, ReshardingConfig, StateSyncConfig,
-    TRANSACTION_VALIDITY_PERIOD, default_enable_multiline_logging, default_epoch_sync,
-    default_header_sync_expected_height_per_second, default_header_sync_initial_timeout,
-    default_header_sync_progress_timeout, default_header_sync_stall_ban_timeout,
-    default_log_summary_period, default_orphan_state_witness_max_size,
-    default_orphan_state_witness_pool_size, default_produce_chunk_add_transactions_time_limit,
-    default_state_sync_enabled, default_state_sync_external_backoff,
-    default_state_sync_external_timeout, default_state_sync_p2p_timeout,
-    default_state_sync_retry_backoff, default_sync_check_period, default_sync_height_threshold,
-    default_sync_max_block_requests, default_sync_step_period, default_transaction_pool_size_limit,
-    default_trie_viewer_state_size_limit, default_tx_routing_height_horizon,
-    default_view_client_threads, default_view_client_throttle_period, get_initial_supply,
+    TRANSACTION_VALIDITY_PERIOD, default_chunk_wait_mult, default_enable_multiline_logging,
+    default_epoch_sync, default_header_sync_expected_height_per_second,
+    default_header_sync_initial_timeout, default_header_sync_progress_timeout,
+    default_header_sync_stall_ban_timeout, default_log_summary_period,
+    default_orphan_state_witness_max_size, default_orphan_state_witness_pool_size,
+    default_produce_chunk_add_transactions_time_limit, default_state_sync_enabled,
+    default_state_sync_external_backoff, default_state_sync_external_timeout,
+    default_state_sync_p2p_timeout, default_state_sync_retry_backoff, default_sync_check_period,
+    default_sync_height_threshold, default_sync_max_block_requests, default_sync_step_period,
+    default_transaction_pool_size_limit, default_trie_viewer_state_size_limit,
+    default_tx_routing_height_horizon, default_view_client_threads,
+    default_view_client_throttle_period, get_initial_supply,
 };
 use near_config_utils::{DownloadConfigType, ValidationError, ValidationErrors};
 use near_crypto::{InMemorySigner, KeyFile, KeyType, PublicKey, Signer};
@@ -85,6 +86,9 @@ pub const TESTNET_MAX_BLOCK_PRODUCTION_DELAY: i64 = 2_500;
 /// Maximum time until skipping the previous block is ms.
 pub const MAX_BLOCK_WAIT_DELAY: i64 = 6_000;
 
+/// Multiplier for the wait time for all chunks to be received.
+pub const CHUNK_WAIT_DENOMINATOR: i32 = 3;
+
 /// Horizon at which instead of fetching block, fetch full state.
 const BLOCK_FETCH_HORIZON: BlockHeightDelta = 50;
 
@@ -131,6 +135,9 @@ pub struct Consensus {
     /// Maximum duration before skipping given height.
     #[serde(with = "near_async::time::serde_duration_as_std")]
     pub max_block_wait_delay: Duration,
+    /// Multiplier for the wait time for all chunks to be received.
+    #[serde(default = "default_chunk_wait_mult")]
+    pub chunk_wait_mult: Rational32,
     /// Produce empty blocks, use `false` for testing.
     pub produce_empty_blocks: bool,
     /// Horizon at which instead of fetching block, fetch full state.
@@ -200,6 +207,7 @@ impl Default for Consensus {
             min_block_production_delay: Duration::milliseconds(MIN_BLOCK_PRODUCTION_DELAY),
             max_block_production_delay: Duration::milliseconds(MAX_BLOCK_PRODUCTION_DELAY),
             max_block_wait_delay: Duration::milliseconds(MAX_BLOCK_WAIT_DELAY),
+            chunk_wait_mult: Rational32::new(1, CHUNK_WAIT_DENOMINATOR),
             produce_empty_blocks: true,
             block_fetch_horizon: BLOCK_FETCH_HORIZON,
             block_header_fetch_horizon: BLOCK_HEADER_FETCH_HORIZON,
@@ -519,6 +527,7 @@ impl NearConfig {
                 min_block_production_delay: config.consensus.min_block_production_delay,
                 max_block_production_delay: config.consensus.max_block_production_delay,
                 max_block_wait_delay: config.consensus.max_block_wait_delay,
+                chunk_wait_mult: config.consensus.chunk_wait_mult,
                 skip_sync_wait: config.network.skip_sync_wait,
                 sync_check_period: config.consensus.sync_check_period,
                 sync_step_period: config.consensus.sync_step_period,
