@@ -4,7 +4,7 @@ use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::types::AccountId;
 
-use crate::setup::builder::TestLoopBuilder;
+use crate::setup::builder::{NodeStateBuilder, TestLoopBuilder};
 use crate::utils::ONE_NEAR;
 
 const NUM_CLIENTS: usize = 4;
@@ -33,16 +33,13 @@ fn test_restart_node() {
         .shuffle_shard_assignment_for_chunk_producers(true)
         .build_store_for_genesis_protocol_version();
 
-    let env_builder = builder
+    let mut env = builder
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .clients(clients)
-        .gc_num_epochs_to_keep(20);
-
-    let new_node_state =
-        env_builder.new_node_state_builder().account_id(accounts[NUM_CLIENTS].clone()).build();
-
-    let mut env = env_builder.build().warmup();
+        .gc_num_epochs_to_keep(20)
+        .build()
+        .warmup();
 
     env.test_loop.run_for(Duration::seconds(2 * epoch_length as i64));
 
@@ -55,6 +52,11 @@ fn test_restart_node() {
     env.test_loop.run_for(Duration::seconds(3 * epoch_length as i64));
 
     // Add new node
+    let genesis = env.shared_state.genesis.clone();
+    let tempdir_path = env.shared_state.tempdir.path().to_path_buf();
+    let new_node_state = NodeStateBuilder::new(genesis, tempdir_path)
+        .account_id(accounts[NUM_CLIENTS].clone())
+        .build();
     env.add_node(accounts[NUM_CLIENTS].as_str(), new_node_state);
     env.test_loop.run_for(Duration::seconds(3 * epoch_length as i64));
 

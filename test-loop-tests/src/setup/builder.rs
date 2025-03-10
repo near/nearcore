@@ -197,18 +197,6 @@ impl TestLoopBuilder {
         self
     }
 
-    /// Builder for creating a new node state from some of the parameters we have supplied
-    /// to the test loop builder.
-    /// This includes things like genesis, tempdir, couple of client configs, etc.
-    pub(crate) fn new_node_state_builder(&self) -> NodeStateBuilder {
-        NodeStateBuilder::new(
-            self.genesis.as_ref().expect("Genesis must be provided").clone(),
-            self.test_loop_data_dir.path().to_path_buf(),
-            self.gc_num_epochs_to_keep,
-            self.track_all_shards,
-        )
-    }
-
     /// Build the test loop environment.
     pub(crate) fn build(self) -> TestLoopEnv {
         self.ensure_genesis().ensure_epoch_config_store().ensure_clients().build_impl()
@@ -281,43 +269,48 @@ impl TestLoopBuilder {
                 config_modifier(client_config, idx);
             }
         };
-        let node_state_builder = self.new_node_state_builder();
-        node_state_builder
-            .account_id(account_id)
-            .archive(is_archival)
-            .config_modifier(config_modifier)
-            .store_override(store_override)
-            .build()
+        let genesis = self.genesis.as_ref().unwrap().clone();
+        let mut node_state_builder =
+            NodeStateBuilder::new(genesis, self.test_loop_data_dir.path().to_path_buf())
+                .account_id(account_id)
+                .archive(is_archival)
+                .config_modifier(config_modifier)
+                .store_override(store_override);
+
+        if let Some(num_epochs) = self.gc_num_epochs_to_keep {
+            node_state_builder = node_state_builder.gc_num_epochs_to_keep(num_epochs);
+        }
+        if self.track_all_shards {
+            node_state_builder = node_state_builder.track_all_shards();
+        }
+
+        node_state_builder.build()
     }
 }
 
 pub struct NodeStateBuilder<'a> {
     genesis: Genesis,
     tempdir_path: PathBuf,
-    gc_num_epochs_to_keep: Option<u64>,
-    track_all_shards: bool,
 
     account_id: Option<AccountId>,
     archive: bool,
     config_modifier: Option<Box<dyn Fn(&mut ClientConfig) + 'a>>,
+
+    gc_num_epochs_to_keep: Option<u64>,
+    track_all_shards: bool,
     store_override: Option<(Store, Option<Store>)>,
 }
 
 impl<'a> NodeStateBuilder<'a> {
-    fn new(
-        genesis: Genesis,
-        tempdir_path: PathBuf,
-        gc_num_epochs_to_keep: Option<u64>,
-        track_all_shards: bool,
-    ) -> Self {
+    pub fn new(genesis: Genesis, tempdir_path: PathBuf) -> Self {
         Self {
             genesis,
             tempdir_path,
-            gc_num_epochs_to_keep,
-            track_all_shards,
             account_id: None,
             archive: false,
             config_modifier: None,
+            gc_num_epochs_to_keep: None,
+            track_all_shards: false,
             store_override: None,
         }
     }
@@ -334,6 +327,16 @@ impl<'a> NodeStateBuilder<'a> {
 
     pub fn config_modifier(mut self, modifier: impl Fn(&mut ClientConfig) + 'a) -> Self {
         self.config_modifier = Some(Box::new(modifier));
+        self
+    }
+
+    fn gc_num_epochs_to_keep(mut self, num_epochs: u64) -> Self {
+        self.gc_num_epochs_to_keep = Some(num_epochs);
+        self
+    }
+
+    fn track_all_shards(mut self) -> Self {
+        self.track_all_shards = true;
         self
     }
 
