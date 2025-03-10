@@ -40,13 +40,15 @@ fn test_restart_node() {
         .build()
         .warmup();
 
-    env.test_loop.run_for(Duration::seconds(5));
+    env.test_loop.run_for(Duration::seconds(2 * epoch_length as i64));
 
     // kill node
-    env.kill_node(accounts[0].as_str());
-    env.test_loop.run_for(Duration::seconds(5));
+    let node_state = env.kill_node("account0");
+    env.test_loop.run_for(Duration::seconds(2 * epoch_length as i64));
 
-    // TODO: implement restart node
+    // restart node
+    env.restart_node("account0-restart", node_state);
+    env.test_loop.run_for(Duration::seconds(4 * epoch_length as i64));
 
     // Give the test a chance to finish off remaining events in the event loop, which can
     // be important for properly shutting down the nodes.

@@ -522,24 +522,7 @@ pub(crate) async fn get_block_if_final(
         .await?
     {
         Ok(block) => block,
-        Err(near_client_primitives::types::GetBlockError::UnknownBlock { .. }) => {
-            let near_primitives::types::BlockReference::BlockId(
-                near_primitives::types::BlockId::Height(height),
-            ) = block_id
-            else {
-                return Ok(None);
-            };
-
-            if height < &final_block.header.height {
-                return Err(errors::ErrorKind::MissingBlock(format!(
-                    "Block at height {} is missing",
-                    height
-                ))
-                .into());
-            }
-
-            return Ok(None);
-        }
+        Err(near_client_primitives::types::GetBlockError::UnknownBlock { .. }) => return Ok(None),
         Err(err) => return Err(errors::ErrorKind::InternalError(err.to_string()).into()),
     };
     // if block height is larger than the last final block height, then the block is not final

@@ -374,7 +374,7 @@ fn assert_oversized_receipt_occurred(test_loop: &TestLoopV2, node_datas: &[TestD
 
     let epoch_id = epoch_manager.get_epoch_id(block.hash()).unwrap();
     let protocol_version = epoch_manager.get_epoch_protocol_version(&epoch_id).unwrap();
-    let runtime_config = client.runtime_adapter.get_runtime_config(protocol_version).unwrap();
+    let runtime_config = client.runtime_adapter.get_runtime_config(protocol_version);
 
     // Go over all blocks in the range
     loop {
