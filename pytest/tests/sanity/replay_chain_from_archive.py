@@ -109,12 +109,12 @@ class ReplayChainFromArchiveTest(unittest.TestCase):
         # Sanity check: Validators cannot return old blocks after GC (eg. genesis block) but archival node can.
         logger.info("Running sanity check for archival node")
         for node in self.nodes:
-            result = node.get_block_by_height(GC_BLOCKS_LIMIT - 1)
-            if node == self.archival_node:
-                assert 'error' not in result, result
-                assert result['result']['header']['hash'] is not None, result
-            else:
-                assert 'error' in result, result
+             result = node.get_block_by_height(GC_BLOCKS_LIMIT - 1)
+             if node == self.archival_node:
+                 assert 'error' not in result, result
+                 assert result['result']['header']['hash'] is not None, result
+             else:
+                 assert 'error' in result, result
 
         # Capture the last height to replay before killing the nodes.
         end_height = self.testcase.wait_for_blocks(1)
