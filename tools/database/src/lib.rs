@@ -10,6 +10,7 @@ mod compact;
 mod corrupt;
 mod make_snapshot;
 mod memtrie;
+mod reset_version;
 mod resharding_v2;
 mod run_migrations;
 mod state_perf;
