@@ -25,6 +25,8 @@ memoffset = { workspace = true, optional = true }
 num-rational.workspace = true
 parity-wasm = { workspace = true, optional = true }
 prefix-sum-vec = { workspace = true, optional = true }
+prometheus = { workspace = true, optional = true }
+rand.workspace = true
 rayon.workspace = true
 ripemd.workspace = true
 rustix = { workspace = true, features = ["fs"] }
@@ -37,7 +39,6 @@ strum.workspace = true
 tempfile.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
-prometheus = { workspace = true, optional = true }
 wasm-encoder = { workspace = true, optional = true }
 wasmparser = { workspace = true, optional = true }
 wasmtime = { workspace = true, features = ["runtime"], optional = true }
@@ -84,7 +85,6 @@ cov-mark.workspace = true
 expect-test.workspace = true
 hex.workspace = true
 near-test-contracts.workspace = true
-rand.workspace = true
 serde_json = { workspace = true, features = ["preserve_order"] }
 wasmprinter.workspace = true
 wasm-smith.workspace = true

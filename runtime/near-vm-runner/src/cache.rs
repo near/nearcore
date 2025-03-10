@@ -1,5 +1,3 @@
-use near_schema_checker_lib::ProtocolSchema;
-
 use crate::ContractCode;
 use crate::errors::ContractPrecompilatonResult;
 use crate::logic::Config;
@@ -8,6 +6,8 @@ use crate::runner::VMKindExt;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_parameters::vm::VMKind;
 use near_primitives_core::hash::CryptoHash;
+use near_schema_checker_lib::ProtocolSchema;
+use rand::Rng as _;
 use std::any::Any;
 use std::collections::HashMap;
 use std::fmt;
@@ -304,34 +304,55 @@ impl ContractRuntimeCache for FilesystemContractRuntimeCache {
         fields(key = key.to_string(), value.len = value.compiled.debug_len()),
     )]
     fn put(&self, key: &CryptoHash, value: CompiledContractInfo) -> std::io::Result<()> {
+        const MAX_ATTEMPTS: u32 = 5;
         use rustix::fs::{Mode, OFlags};
         let final_filename = key.to_string();
-        let mut temp_file = tempfile::Builder::new().make_in("", |filename| {
-            let mode = Mode::RUSR | Mode::WUSR | Mode::RGRP | Mode::WGRP;
-            let flags = OFlags::CREATE | OFlags::TRUNC | OFlags::WRONLY;
-            Ok(std::fs::File::from(rustix::fs::openat(&self.state.dir, filename, flags, mode)?))
-        })?;
+        let mode = Mode::RUSR | Mode::WUSR | Mode::RGRP | Mode::WGRP;
+        let flags = OFlags::CREATE | OFlags::TRUNC | OFlags::WRONLY;
+        let mut attempt = 0;
+        let (temp_filename, mut file) = loop {
+            attempt += 1;
+            let mut temporary_filename = final_filename.clone();
+            temporary_filename.push('.');
+            for b in rand::thread_rng().sample_iter(rand::distributions::Alphanumeric).take(8) {
+                temporary_filename.push(b as char);
+            }
+            temporary_filename.push_str(".temp");
+            match rustix::fs::openat(&self.state.dir, &temporary_filename, flags, mode) {
+                Ok(f) => break (temporary_filename, std::fs::File::from(f)),
+                Err(e) if attempt > MAX_ATTEMPTS => return Err(e.into()),
+                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                Err(e) => return Err(e.into()),
+            }
+        };
+
         // This section manually "serializes" the data. The cache is quite sensitive to
         // unnecessary overheads and in order to enable things like mmap-based file access, we want
         // to have full control of what has been written.
         match value.compiled {
             CompiledContract::CompileModuleError(e) => {
-                borsh::to_writer(&mut temp_file, &e)?;
-                temp_file.write_all(&[ERROR_TAG])?;
+                borsh::to_writer(&mut file, &e)?;
+                file.write_all(&[ERROR_TAG])?;
             }
             CompiledContract::Code(bytes) => {
-                temp_file.write_all(&bytes)?;
+                file.write_all(&bytes)?;
                 // Writing the tag at the end gives us well aligned buffer of the data above which
                 // is necessary for 0-copy deserialization later on.
-                temp_file.write_all(&[CODE_TAG])?;
+                file.write_all(&[CODE_TAG])?;
             }
         }
-        temp_file.write_all(&value.wasm_bytes.to_le_bytes())?;
-        let temp_filename = temp_file.into_temp_path();
+        file.write_all(&value.wasm_bytes.to_le_bytes())?;
+        file.sync_data()?;
+        drop(file);
         // This is atomic, so there wouldn't be instances where getters see an intermediate state.
-        rustix::fs::renameat(&self.state.dir, &*temp_filename, &self.state.dir, final_filename)?;
-        // Don't attempt deleting the temporary file now that it has been moved.
-        std::mem::forget(temp_filename);
+        rustix::fs::renameat(&self.state.dir, temp_filename, &self.state.dir, final_filename)?;
+
+        // NOTE: we do not remove the temporary file in case of failure in many of the
+        // intermediate steps above. This is not considered to be a significant risk: any failure
+        // here will result in the node terminating anyway, so the operator will have to fix the
+        // issue(s) before too many temporary files gather up in the cache.
+        //
+        // (Operators are also somewhat encouraged to occasionally clear up their cache.)
         Ok(())
     }
 
