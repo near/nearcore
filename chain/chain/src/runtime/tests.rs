@@ -1825,7 +1825,7 @@ fn test_precompile_contracts_updates_cache() {
     for code_hash in code_hashes.iter() {
         let cache_key = get_contract_cache_key(
             *code_hash,
-            &runtime.get_runtime_config(PROTOCOL_VERSION).unwrap().wasm_config,
+            &runtime.get_runtime_config(PROTOCOL_VERSION).wasm_config,
         );
         let contract = contract_cache.get(&cache_key).unwrap();
         assert!(contract.is_none());
@@ -1838,7 +1838,7 @@ fn test_precompile_contracts_updates_cache() {
     for code_hash in code_hashes.into_iter() {
         let cache_key = get_contract_cache_key(
             code_hash,
-            &runtime.get_runtime_config(PROTOCOL_VERSION).unwrap().wasm_config,
+            &runtime.get_runtime_config(PROTOCOL_VERSION).wasm_config,
         );
 
         let contract = contract_cache.get(&cache_key).unwrap();

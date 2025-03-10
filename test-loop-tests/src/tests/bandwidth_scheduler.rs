@@ -256,7 +256,7 @@ fn analyze_workload_blocks(
     let epoch_id = epoch_manager.get_epoch_id(block.hash()).unwrap();
     let num_shards = epoch_manager.get_shard_layout(&epoch_id).unwrap().num_shards();
     let protocol_version = epoch_manager.get_epoch_protocol_version(&epoch_id).unwrap();
-    let runtime_config = client.runtime_adapter.get_runtime_config(protocol_version).unwrap();
+    let runtime_config = client.runtime_adapter.get_runtime_config(protocol_version);
     let scheduler_params =
         BandwidthSchedulerParams::new(num_shards.try_into().unwrap(), &runtime_config);
     let mut bandwidth_stats =
