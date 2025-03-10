@@ -161,7 +161,7 @@ impl ChunkProducer {
         insert: bool,
     ) -> PreparedTransactions {
         if insert {
-            txs.transactions.push(SignedTransaction::new(
+            let signed_tx = SignedTransaction::new(
                 near_crypto::Signature::empty(near_crypto::KeyType::ED25519),
                 near_primitives::transaction::Transaction::new_v1(
                     "test".parse().unwrap(),
@@ -171,7 +171,10 @@ impl ChunkProducer {
                     prev_block_hash,
                     0,
                 ),
-            ));
+            );
+            let validated_tx =
+                near_primitives::transaction::ValidatedTransaction::new_for_test(signed_tx);
+            txs.transactions.push(validated_tx);
             if txs.storage_proof.is_none() {
                 txs.storage_proof = Some(Default::default());
             }
