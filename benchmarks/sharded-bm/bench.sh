@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# cspell:word benchnet mpstat
+# cspell:word benchnet mpstat tonumber
 
 set -o errexit
 
@@ -47,6 +47,7 @@ SYNTH_BM_PATH="../synth-bm/Cargo.toml"
 SYNTH_BM_BIN="${SYNTH_BM_BIN:-/home/ubuntu/nearcore/benchmarks/synth-bm/target/release/near-synth-bm}"
 RUN_ON_FORKNET=$(jq 'has("forknet")' ${BM_PARAMS})
 PYTEST_PATH="../../pytest/"
+TX_GENERATOR=$(jq -r '.tx_generator.enabled // false' ${BM_PARAMS})
 
 echo "Test case: ${CASE}"
 echo "Num nodes: ${NUM_NODES}"
@@ -67,6 +68,8 @@ if [ "${RUN_ON_FORKNET}" = true ]; then
     FORKNET_NAME=$(jq -r '.forknet.name' ${BM_PARAMS})
     FORKNET_START_HEIGHT=$(jq -r '.forknet.start_height' ${BM_PARAMS})
     FORKNET_RPC_NODE_ID=$(jq -r ".forknet.rpc" ${BM_PARAMS})
+    FORKNET_NEARD_LOG="/home/ubuntu/neard-logs/logs.txt"
+    FORKNET_NEARD_PATH="${NEAR_HOME}/neard-runner/binaries/neard0"
     NUM_SHARDS=$(jq '.shard_layout.V2.shard_ids | length' ${GENESIS} 2>/dev/null) || true
     NODE_BINARY_URL=$(jq -r '.forknet.binary_url' ${BM_PARAMS})
     VALIDATOR_KEY=${NEAR_HOME}/validator_key.json
@@ -86,7 +89,7 @@ start_nodes_forknet() {
 }
 
 start_neard0() {
-    nohup ${NEAR_HOME}/neard-runner/binaries/neard0 --home ${NEAR_HOME} run &>/home/ubuntu/neard-logs/logs.txt &
+    nohup ${FORKNET_NEARD_PATH} --home ${NEAR_HOME} run &> ${FORKNET_NEARD_LOG} &
 }
 
 start_nodes_local() {
@@ -164,7 +167,12 @@ reset() {
 
 fetch_forknet_details() {
     # Retrieve the internal IP of the node using gcloud command
-    FORKNET_RPC_INTERNAL_IP=$(gcloud compute instances list --project=nearone-mocknet --filter="name=${FORKNET_RPC_NODE_ID}" --format="get(networkInterfaces[0].networkIP)")
+    FORKNET_RPC_INTERNAL_IP=$(gcloud compute instances list \
+        --project=nearone-mocknet --filter="name=${FORKNET_RPC_NODE_ID}" --format="get(networkInterfaces[0].networkIP)")
+    if [ -z "$FORKNET_RPC_INTERNAL_IP" ]; then
+        echo "FORKNET_RPC_INTERNAL_IP is not set or empty. Check the value of forknet.rpc in params.json!"
+        exit 1
+    fi
     # Extract the public key from the node_key.json file
     NODE_PUBLIC_KEY=$(jq -r '.public_key' ${GEN_NODES_DIR}/node${NUM_CHUNK_PRODUCERS}/node_key.json)
     FORKNET_BOOT_NODES="${NODE_PUBLIC_KEY}@${FORKNET_RPC_INTERNAL_IP}:24567"
@@ -183,7 +191,7 @@ fetch_forknet_details() {
 init_forknet() {
     cd ${PYTEST_PATH}
     $MIRROR init-neard-runner --neard-binary-url ${NODE_BINARY_URL} --neard-upgrade-binary-url ""
-    $MIRROR --host-type nodes update-binaries
+    $MIRROR --host-type nodes update-binaries || true
     $MIRROR --host-type nodes run-cmd --cmd "mkdir -p ${BENCHNET_DIR}"
     $MIRROR --host-type nodes upload-file --src ${SYNTH_BM_BIN} --dst ${BENCHNET_DIR}
     $MIRROR --host-type nodes run-cmd --cmd "chmod +x ${BENCHNET_DIR}/near-synth-bm"
@@ -263,8 +271,8 @@ tweak_config_forknet() {
 }
 
 tweak_config_forknet_node() {
-    local node_type=$1
-    local boot_nodes=$2
+    local node_type=${1}
+    local boot_nodes=${2}
     jq --arg val "0.0.0.0:24567" \
         '.network.addr |= $val' ${CONFIG} >tmp.$$.json && mv tmp.$$.json ${CONFIG} || rm tmp.$$.json
     jq --arg val "0.0.0.0:3030" \
@@ -291,7 +299,8 @@ tweak_config_local() {
         done
         # set single node RPC port to known value
         jq --arg val "${RPC_ADDR}" \
-            '.rpc.addr |= $val' ${NEAR_HOMES[NUM_NODES - 1]}/config.json >tmp.$$.json && mv tmp.$$.json ${NEAR_HOMES[NUM_NODES - 1]}/config.json || rm tmp.$$.json
+            '.rpc.addr |= $val' ${NEAR_HOMES[NUM_NODES - 1]}/config.json >tmp.$$.json && \
+            mv tmp.$$.json ${NEAR_HOMES[NUM_NODES - 1]}/config.json || rm tmp.$$.json
     fi
 }
 
@@ -308,41 +317,67 @@ tweak_config() {
 create_accounts_forknet() {
     fetch_forknet_details
     cd ${PYTEST_PATH}
-    $MIRROR --host-filter ".*${FORKNET_RPC_NODE_ID}" run-cmd --cmd "cd ${BENCHNET_DIR}; ./bench.sh create-accounts-local ${CASE} ${RPC_URL}"
+    
+    if [ "${TX_GENERATOR}" = false ]; then
+        $MIRROR --host-filter ".*${FORKNET_RPC_NODE_ID}" run-cmd --cmd "cd ${BENCHNET_DIR}; ./bench.sh create-accounts-local ${CASE} ${RPC_URL}"
+    else
+        for node in ${FORKNET_CP_NODES}; do
+            $MIRROR --host-filter ".*${node}" run-cmd --cmd "cd ${BENCHNET_DIR}; ./bench.sh create-accounts-on-tracked-shard ${CASE} ${RPC_URL}"
+        done
+    fi
+    
     cd -
 }
 
-create_accounts_local() {
-    local cmd
+set_create_accounts_vars() {
     if [ "${RUN_ON_FORKNET}" = true ]; then
         cmd="./near-synth-bm"
     else
         cmd="cargo run --manifest-path ${SYNTH_BM_PATH} --release --"
     fi
-    local url=$1
+    url=${1}
 
     mkdir -p ${USERS_DATA_DIR}
-    local num_accounts=$(jq '.num_accounts' ${BM_PARAMS})
+    num_accounts=$(jq '.num_accounts' ${BM_PARAMS})
     echo "Number of shards: ${NUM_SHARDS}"
     echo "Accounts per shard: ${num_accounts}"
     echo "RPC: ${url}"
+}
+
+create_sub_accounts() {
+    local shard_index=${1}
+    local prefix=${2}
+    local data_dir=${3}
+    local nonce=$((1 + shard_index * num_accounts))
+    echo "Creating ${num_accounts} accounts for shard: ${shard_index}, account prefix: ${prefix}, use data dir: ${data_dir}, nonce: ${nonce}"
+    RUST_LOG=info \
+        ${cmd} create-sub-accounts \
+        --rpc-url ${url} \
+        --signer-key-path ${VALIDATOR_KEY} \
+        --nonce ${nonce} \
+        --sub-account-prefix ${prefix} \
+        --num-sub-accounts ${num_accounts} \
+        --deposit 953060601875000000010000 \
+        --channel-buffer-size 1200 \
+        --requests-per-second 250 \
+        --user-data-dir ${data_dir}
+}
+
+create_accounts_local() {
+    set_create_accounts_vars ${1}
     for i in $(seq 0 $((NUM_SHARDS - 1))); do
         local prefix=$(printf "a%02d" ${i})
         local data_dir="${USERS_DATA_DIR}/shard${i}"
-        local nonce=$((1 + i * num_accounts))
-        echo "Creating ${num_accounts} accounts for shard: ${i}, account prefix: ${prefix}, use data dir: ${data_dir}, nonce: ${nonce}"
-        RUST_LOG=info \
-            ${cmd} create-sub-accounts \
-            --rpc-url ${url} \
-            --signer-key-path ${VALIDATOR_KEY} \
-            --nonce ${nonce} \
-            --sub-account-prefix ${prefix} \
-            --num-sub-accounts ${num_accounts} \
-            --deposit 953060601875000000010000 \
-            --channel-buffer-size 1200 \
-            --requests-per-second 250 \
-            --user-data-dir ${data_dir}
+        create_sub_accounts ${i} ${prefix} ${data_dir}
     done
+}
+
+create_accounts_on_tracked_shard() {
+    set_create_accounts_vars ${1}
+    local i=$(curl -s localhost:3030/metrics | grep near_client_tracked_shards | awk -F'[="}]' '$5 == 1 {print $3; exit}')
+    local prefix=$(printf "a%02d" ${i})
+    local data_dir="${USERS_DATA_DIR}/shard"
+    create_sub_accounts ${i} ${prefix} ${data_dir}
 }
 
 create_accounts() {
@@ -369,7 +404,7 @@ native_transfers_local() {
     else
         cmd="cargo run --manifest-path ${SYNTH_BM_PATH} --release --"
     fi
-    local url=$1
+    local url=${1}
 
     echo "Number of shards: ${NUM_SHARDS}"
     echo "RPC: ${url}"
@@ -395,13 +430,50 @@ native_transfers_local() {
     wait
 }
 
+native_transfers_injection() {
+    fetch_forknet_details
+    local tps=$(jq -r '.tx_generator.tps' ${BM_PARAMS})
+    local volume=$(jq -r '.tx_generator.volume' ${BM_PARAMS})
+    local accounts_path="${BENCHNET_DIR}/${USERS_DATA_DIR}/shard"
+    cd ${PYTEST_PATH}
+    # Create a glob pattern for the host filter
+    host_filter=$(echo ${FORKNET_CP_NODES} | sed 's/ /|/g')
+    # Stop neard0 on all chunk producer nodes
+    $MIRROR --host-filter ".*(${host_filter})" run-cmd --cmd "killall --wait neard0 || true"
+    # Update the CONFIG file on all chunk producer nodes
+    $MIRROR --host-filter ".*(${host_filter})" run-cmd --cmd "jq --arg tps ${tps} \
+        --arg volume ${volume} --arg accounts_path ${accounts_path} \
+        '.tx_generator = {\"tps\": ${tps}, \"volume\": ${volume}, \
+        \"accounts_path\": \"${accounts_path}\", \"thread_count\": 2}' ${CONFIG} > tmp.$$.json && \
+        mv tmp.$$.json ${CONFIG} || rm tmp.$$.json"
+    # Restart neard on all chunk producer nodes
+    $MIRROR --host-filter ".*(${host_filter})" run-cmd --cmd "cd ${BENCHNET_DIR}; ./bench.sh start-neard0 ${CASE}"
+    cd -
+}
+
 native_transfers() {
     echo "=> Running native token transfer benchmark"
-    if [ "${RUN_ON_FORKNET}" = true ]; then
+    if [ "${TX_GENERATOR}" = true ]; then
+        native_transfers_injection
+    elif [ "${RUN_ON_FORKNET}" = true ]; then
         native_transfers_forknet
     else
         native_transfers_local ${RPC_URL}
     fi
+    echo "=> Done"
+}
+
+stop_injection() {
+    echo "=> Disabling transactions injection"
+    fetch_forknet_details
+    cd ${PYTEST_PATH}
+    # Create a glob pattern for the host filter
+    host_filter=$(echo ${FORKNET_CP_NODES} | sed 's/ /|/g')
+    # Stop neard0 on all chunk producer nodes
+    $MIRROR --host-filter ".*(${host_filter})" run-cmd --cmd "killall --wait neard0 || true"
+    # Remove tx generator from config on all chunk producer nodes
+    $MIRROR --host-filter ".*(${host_filter})" run-cmd --cmd "jq 'del(.tx_generator)' ${CONFIG} >tmp.$$.json && mv tmp.$$.json ${1} || rm tmp.$$.json"
+    cd -
     echo "=> Done"
 }
 
@@ -439,7 +511,7 @@ monitor() {
     done
 }
 
-case "$1" in
+case "${1}" in
 reset)
     reset
     ;;
@@ -472,9 +544,13 @@ stop-nodes)
     stop_nodes
     ;;
 
+stop-injection)
+    stop_injection
+    ;;
+
 # Forknet specific methods, not part of user API.
 tweak-config-forknet-node)
-    tweak_config_forknet_node $2 $3
+    tweak_config_forknet_node ${2} ${3}
     ;;
 
 start-neard0)
@@ -482,14 +558,18 @@ start-neard0)
     ;;
 
 create-accounts-local)
-    create_accounts_local $3
+    create_accounts_local ${3}
     ;;
 
 native-transfers-local)
-    native_transfers_local $3
+    native_transfers_local ${3}
+    ;;
+
+create-accounts-on-tracked-shard)
+    create_accounts_on_tracked_shard ${3}
     ;;
 
 *)
-    echo "Usage: $0 {reset|init|tweak-config|create-accounts|native-transfers|monitor|start-nodes|stop-nodes} <BENCH CASE>"
+    echo "Usage: ${0} {reset|init|tweak-config|create-accounts|native-transfers|monitor|start-nodes|stop-nodes|stop-injection} <CASE>"
     ;;
 esac

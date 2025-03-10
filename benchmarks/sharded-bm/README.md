@@ -127,3 +127,13 @@ Grafana mostly, [Blockchain utilization dashboard](https://grafana.nearone.org/g
 ### Known issues
 
 - generating nodes config and keys beforehand with another `init` is suboptimal
+
+## Transaction injection
+
+Transaction injection with `transactions-generator` works slightly different from `synth-bm`. When using the generator, the node creates transactions automatically as long as `neard` runs.
+
+To use transaction injection you must enable it in `params.json`. To stop the injection run:
+
+```sh
+./bench.sh stop-injection
+```
