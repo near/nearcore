@@ -786,7 +786,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                             .and_then(|vr| {
                                 commit_charging_for_tx(
                                     &mut state_update,
-                                    validated_tx.to_tx(),
+                                    &validated_tx,
                                     &vr.signer,
                                     &vr.access_key,
                                 );
