@@ -78,4 +78,6 @@ pub(crate) fn clear_compiled_contract_caches(env: &mut TestLoopEnv) {
             env.test_loop.data.get(&client_handle).client.runtime_adapter.compiled_contract_cache();
         contract_cache_handle.test_only_clear().unwrap();
     }
+    #[cfg(not(feature = "test_features"))]
+    let _ignore = env;
 }
