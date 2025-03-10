@@ -416,17 +416,17 @@ impl PartialWitnessActor {
                     ));
                 }
                 Ok(false) => {
-                    // TODO: ban sending peer
-                    tracing::warn!(
+                    tracing::debug!(
                         target: "client",
-                        "Received invalid partial encoded state witness {:?}",
+                        "Received irrelevant partial encoded state witness {:?}",
                         partial_witness
                     );
                 }
                 Err(err) => {
+                    // TODO: ban sending peer
                     tracing::warn!(
                         target: "client",
-                        "Encountered error during validation: {}",
+                        "Received invalid partial encoded state witness: {}",
                         err
                     );
                 }
@@ -464,17 +464,17 @@ impl PartialWitnessActor {
                         }
                     }
                     Ok(false) => {
-                        // TODO: ban sending peer
-                        tracing::warn!(
+                        tracing::debug!(
                             target: "client",
-                            "Received invalid partial encoded state witness {:?}",
+                            "Received irrelevant partial encoded state witness {:?}",
                             partial_witness
                         );
                     }
                     Err(err) => {
+                        // TODO: ban sending peer
                         tracing::warn!(
                             target: "client",
-                            "Encountered error during validation: {}",
+                            "Received invalid partial encoded state witness: {}",
                             err
                         );
                     }
