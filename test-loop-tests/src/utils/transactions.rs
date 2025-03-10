@@ -14,6 +14,7 @@ use near_client::test_utils::test_loop::ClientQueries;
 use near_client::{Client, ProcessTxResponse};
 use near_crypto::Signer;
 use near_network::client::ProcessTxRequest;
+use near_primitives::action::{GlobalContractDeployMode, GlobalContractIdentifier};
 use near_primitives::block::Tip;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
@@ -302,6 +303,67 @@ pub fn deploy_contract(
     submit_tx(node_datas, rpc_id, tx);
 
     tracing::debug!(target: "test", ?contract_id, ?tx_hash, "deployed contract");
+    tx_hash
+}
+
+/// Deploy a test global contract using the corresponding deploy_mode.
+///
+/// This function does not wait until the transactions is executed.
+pub fn deploy_global_contract(
+    test_loop: &mut TestLoopV2,
+    node_datas: &[TestData],
+    rpc_id: &AccountId,
+    deployer_id: AccountId,
+    code: Vec<u8>,
+    nonce: u64,
+    deploy_mode: GlobalContractDeployMode,
+) -> CryptoHash {
+    let block_hash = get_shared_block_hash(node_datas, &test_loop.data);
+
+    let signer = create_user_test_signer(&deployer_id);
+
+    let tx = SignedTransaction::deploy_global_contract(
+        nonce,
+        deployer_id.clone(),
+        code,
+        &signer,
+        block_hash,
+        deploy_mode.clone(),
+    );
+    let tx_hash = tx.get_hash();
+    submit_tx(node_datas, rpc_id, tx);
+
+    tracing::debug!(target: "test", ?deployer_id, ?tx_hash, ?deploy_mode, "deployed global contract");
+    tx_hash
+}
+
+/// Use a test global contract to the provided user_id account.
+/// The contract account should already exist.
+///
+/// This function does not wait until the transactions is executed.
+pub fn use_global_contract(
+    test_loop: &mut TestLoopV2,
+    node_datas: &[TestData],
+    rpc_id: &AccountId,
+    user_id: AccountId,
+    nonce: u64,
+    identifier: GlobalContractIdentifier,
+) -> CryptoHash {
+    let block_hash = get_shared_block_hash(node_datas, &test_loop.data);
+
+    let signer = create_user_test_signer(&user_id);
+
+    let tx = SignedTransaction::use_global_contract(
+        nonce,
+        &user_id,
+        &signer,
+        block_hash,
+        identifier.clone(),
+    );
+    let tx_hash = tx.get_hash();
+    submit_tx(node_datas, rpc_id, tx);
+
+    tracing::debug!(target: "test", ?user_id, ?tx_hash, ?identifier, "use global contract");
     tx_hash
 }
 
