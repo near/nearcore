@@ -44,7 +44,7 @@ use near_chain::{
 use near_chain_configs::{ClientConfig, MutableValidatorSigner, ReshardingHandle};
 use near_chain_primitives::error::EpochErrorResultToChainError;
 use near_chunks::adapter::ShardsManagerRequestFromClient;
-use near_chunks::client::ShardsManagerResponse;
+use near_chunks::client::{ShardedTransactionPool, ShardsManagerResponse};
 use near_client_primitives::types::{
     Error, GetClientConfig, GetClientConfigError, GetNetworkInfo, NetworkInfoResponse,
     StateSyncStatus, Status, StatusError, StatusSyncInfo, SyncStatus,
@@ -53,8 +53,7 @@ use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_network::client::{
     BlockApproval, BlockHeadersResponse, BlockResponse, ChunkEndorsementMessage,
-    OptimisticBlockMessage, ProcessTxRequest, ProcessTxResponse, RecvChallenge, SetNetworkInfo,
-    StateResponseReceived,
+    OptimisticBlockMessage, RecvChallenge, SetNetworkInfo, StateResponseReceived,
 };
 use near_network::types::ReasonForBan;
 use near_network::types::{
@@ -79,7 +78,7 @@ use near_telemetry::TelemetryEvent;
 use rand::seq::SliceRandom;
 use rand::{Rng, thread_rng};
 use std::fmt;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use tokio::sync::broadcast;
 use tracing::{debug, debug_span, error, info, trace, warn};
 
@@ -119,6 +118,7 @@ pub struct StartClientResult {
     pub client_actor: actix::Addr<ClientActor>,
     pub client_arbiter_handle: actix::ArbiterHandle,
     pub resharding_handle: ReshardingHandle,
+    pub tx_pool: Arc<Mutex<ShardedTransactionPool>>,
 }
 
 /// Starts client in a separate Arbiter (thread).
@@ -179,19 +179,21 @@ pub fn start_client(
     let sync_jobs_actor = SyncJobsActor::new(client_sender_for_sync_jobs.as_multi_sender());
     let sync_jobs_actor_addr = sync_jobs_actor.spawn_actix_actor();
 
+    let client_actor_inner = ClientActorInner::new(
+        clock,
+        client,
+        node_id,
+        network_adapter,
+        telemetry_sender,
+        sender,
+        adv,
+        config_updater,
+        sync_jobs_actor_addr.with_auto_span_context().into_multi_sender(),
+    )
+    .unwrap();
+    let tx_pool = client_actor_inner.client.chunk_producer.sharded_tx_pool.clone();
+
     let client_addr = ClientActor::start_in_arbiter(&client_arbiter_handle, move |_| {
-        let client_actor_inner = ClientActorInner::new(
-            clock,
-            client,
-            node_id,
-            network_adapter,
-            telemetry_sender,
-            sender,
-            adv,
-            config_updater,
-            sync_jobs_actor_addr.with_auto_span_context().into_multi_sender(),
-        )
-        .unwrap();
         ActixWrapper::new(client_actor_inner)
     });
 
@@ -201,7 +203,12 @@ pub fn start_client(
     chain_sender_for_state_sync
         .bind(client_addr.clone().with_auto_span_context().into_multi_sender());
 
-    StartClientResult { client_actor: client_addr, client_arbiter_handle, resharding_handle }
+    StartClientResult {
+        client_actor: client_addr,
+        client_arbiter_handle,
+        resharding_handle,
+        tx_pool,
+    }
 }
 
 #[derive(Clone, MultiSend, MultiSenderFrom)]
@@ -498,13 +505,6 @@ impl Handler<NetworkAdversarialMessage> for ClientActorInner {
                 None
             }
         }
-    }
-}
-
-impl Handler<ProcessTxRequest> for ClientActorInner {
-    fn handle(&mut self, msg: ProcessTxRequest) -> ProcessTxResponse {
-        let ProcessTxRequest { transaction, is_forwarded, check_only } = msg;
-        self.client.process_tx(transaction, is_forwarded, check_only)
     }
 }
 

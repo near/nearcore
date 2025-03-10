@@ -75,7 +75,7 @@ pub fn create_account(
         *block.hash(),
     );
     let tx_hash = tx.get_hash();
-    assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
+    assert_eq!(env.tx_request_handlers[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
     produce_blocks_from_height_with_protocol_version(env, epoch_length, height, protocol_version);
     tx_hash
 }
@@ -100,7 +100,7 @@ pub fn deploy_test_contract_with_protocol_version(
         *block.hash(),
         0,
     );
-    assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
+    assert_eq!(env.tx_request_handlers[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
     produce_blocks_from_height_with_protocol_version(env, epoch_length, height, protocol_version)
 }
 
@@ -152,7 +152,7 @@ pub fn prepare_env_with_congestion(
         *genesis_block.hash(),
         0,
     );
-    assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
+    assert_eq!(env.tx_request_handlers[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
     for i in 1..3 {
         env.produce_block(0, i);
     }
@@ -189,7 +189,7 @@ pub fn prepare_env_with_congestion(
         );
         tx_hashes.push(signed_transaction.get_hash());
         assert_eq!(
-            env.clients[0].process_tx(signed_transaction, false, false),
+            env.tx_request_handlers[0].process_tx(signed_transaction, false, false),
             ProcessTxResponse::ValidTx
         );
     }

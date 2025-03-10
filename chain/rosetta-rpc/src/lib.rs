@@ -14,7 +14,7 @@ use strum::IntoEnumIterator;
 
 pub use config::RosettaRpcConfig;
 use near_chain_configs::Genesis;
-use near_client::{ClientActor, ViewClientActor};
+use near_client::{ClientActor, TxRequestHandlerActor, ViewClientActor};
 use near_o11y::WithSpanContextExt;
 use near_primitives::{account::AccountContract, borsh::BorshDeserialize};
 
@@ -783,6 +783,7 @@ async fn construction_hash(
 /// mempool. Otherwise, it should return an error.
 async fn construction_submit(
     client_addr: web::Data<Addr<ClientActor>>,
+    tx_handler_addr: web::Data<Addr<TxRequestHandlerActor>>,
     body: Json<models::ConstructionSubmitRequest>,
 ) -> Result<Json<models::TransactionIdentifierResponse>, models::Error> {
     let Json(models::ConstructionSubmitRequest { network_identifier, signed_transaction }) = body;
@@ -790,7 +791,7 @@ async fn construction_submit(
     check_network_identifier(&client_addr, network_identifier).await?;
 
     let transaction_hash = signed_transaction.as_ref().get_hash();
-    let transaction_submission = client_addr
+    let transaction_submission = tx_handler_addr
         .send(
             near_client::ProcessTxRequest {
                 transaction: signed_transaction.into_inner(),
