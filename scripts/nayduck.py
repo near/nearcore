@@ -48,8 +48,8 @@ def _parse_args():
     parser.add_argument(
         "--sha",
         "-s",
-        help=
-        "Commit sha to test. By default gets current one. This is ignored if branch name is provided",
+        help="Commit SHA to test. By default, it gets the current one. This is ignored if a branch name is provided.",
+
     )
     group = parser.add_mutually_exclusive_group()
     group.add_argument(
@@ -260,7 +260,7 @@ def run_locally(args, tests):
         del fields[1:index]
         message = f'Running ‘{"".join(fields)}’'
         if ignored:
-            message = f'{message} (ignoring flags ‘{" ".join(ignored)}`)'
+            message = f'{message} (ignoring flags: {" ".join(ignored)})'
         if not args.dry_run:
             print(message)
 
@@ -284,7 +284,7 @@ def run_locally(args, tests):
             cmd = fields
             cwd = REPO_DIR / "pytest"
         else:
-            print(f"Unrecognized test category ‘{fields[0]}’", file=sys.stderr)
+            print(f"Unrecognized test category '{fields[0]}'", file=sys.stderr)
             continue
         if args.dry_run:
             print("( cd {} && {} )".format(
