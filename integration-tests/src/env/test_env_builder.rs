@@ -226,26 +226,19 @@ impl TestEnvBuilder {
 
     /// Internal impl to make sure the stores are initialized.
     fn ensure_stores(self) -> Self {
-        if self.stores.is_some() {
-            if let Some(genesis) = &self.genesis {
-                for store in self.stores.as_ref().unwrap() {
-                    initialize_genesis_state(store.clone(), &genesis, None);
-                }
-            }
+        let ret = if self.stores.is_some() {
             self
         } else {
             let num_clients = self.clients.len();
-            let stores = (0..num_clients)
-                .map(|_| {
-                    let store = create_test_store();
-                    if let Some(genesis) = &self.genesis {
-                        initialize_genesis_state(store.clone(), &genesis, None);
-                    }
-                    store
-                })
-                .collect();
-            self.stores(stores)
+            self.stores((0..num_clients).map(|_| create_test_store()).collect())
+        };
+
+        if let Some(genesis) = &ret.genesis {
+            for store in ret.stores.as_ref().unwrap() {
+                initialize_genesis_state(store.clone(), &genesis, None);
+            }
         }
+        ret
     }
 
     fn ensure_contract_caches(self) -> Self {
