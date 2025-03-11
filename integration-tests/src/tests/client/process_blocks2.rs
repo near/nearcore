@@ -258,7 +258,7 @@ fn test_bad_congestion_info_impl(mode: BadCongestionInfoMode) {
 
     let modified_chunk = ShardChunkHeader::V3(modified_chunk_header);
 
-    let shard_uid = ShardUId { shard_id: chunk.shard_id().into(), version: 0 };
+    let shard_uid = ShardUId { shard_id: chunk.shard_id().into(), version: 1 };
     let prev_block_hash = block.header().prev_hash();
     let client = &env.clients[0];
     let prev_chunk_extra = client.chain.get_chunk_extra(prev_block_hash, &shard_uid).unwrap();
