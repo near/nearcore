@@ -90,6 +90,11 @@ impl TestEnv {
         TestEnvBuilder::new(genesis_config.clone())
     }
 
+    pub fn default_builder_with_genesis() -> TestEnvBuilder {
+        let genesis = Genesis::test(vec!["test0".parse().unwrap()], 1);
+        TestEnvBuilder::from_genesis(genesis)
+    }
+
     pub fn builder_from_genesis(genesis: &Genesis) -> TestEnvBuilder {
         TestEnvBuilder::from_genesis(genesis.clone())
     }

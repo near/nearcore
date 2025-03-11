@@ -222,7 +222,7 @@ impl TrieViewer {
             gas_limit: None,
             random_seed: root,
             current_protocol_version: view_state.current_protocol_version,
-            config: config.clone(),
+            config: Arc::clone(config),
             cache: view_state.cache,
             is_new_chunk: false,
             migration_data: Arc::new(MigrationData::default()),
