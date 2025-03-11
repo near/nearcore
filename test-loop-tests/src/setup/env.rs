@@ -130,17 +130,21 @@ impl TestLoopEnv {
         // Note: TestLoopEnv does not currently propagate the network info to other peers. This is because
         // the networking layer is completely mocked out. So in order to allow the new node to sync, we
         // need to manually propagate the network info to the new node.
-        let client_sender = node_data.client_sender.clone();
-        self.test_loop.send_adhoc_event("set_network_info".to_string(), move |_| {
-            // highest_height_peers is the only field that matters for sync.
-            client_sender.send(SetNetworkInfo(NetworkInfo {
-                highest_height_peers,
-                ..NetworkInfo::default()
-            }))
-        });
+        node_data
+            .client_sender
+            .send(SetNetworkInfo(NetworkInfo { highest_height_peers, ..NetworkInfo::default() }));
 
         // Finally push node_data into node_datas
         self.node_datas.push(node_data);
+    }
+
+    /// Function to add a new node in test loop environment. This function takes in the identifier
+    /// and node_state of the new node as input.
+    ///
+    /// We set the NetworkInfo for this node which is required for state sync to work.
+    pub fn add_node(&mut self, identifier: &str, node_state: NodeState) {
+        // Logically this function is the same as restart_node
+        self.restart_node(identifier, node_state);
     }
 
     /// Used to finish off remaining events that are still in the loop. This can be necessary if the
