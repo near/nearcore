@@ -52,10 +52,6 @@ pub(crate) struct TestLoopBuilder {
     genesis: Option<Genesis>,
     epoch_config_store: Option<EpochConfigStore>,
     clients: Vec<AccountId>,
-    /// Overrides the stores; rather than constructing fresh new stores, use
-    /// the provided ones (to test with existing data).
-    /// Each element in the vector is (hot_store, split_store).
-    stores_override: Option<Vec<(Store, Option<Store>)>>,
     /// Overrides the directory used for test loop shared data; rather than
     /// constructing fresh new tempdir, use the provided one (to test with
     /// existing data from a previous test loop run).
@@ -86,7 +82,6 @@ impl TestLoopBuilder {
             genesis: None,
             epoch_config_store: None,
             clients: vec![],
-            stores_override: None,
             test_loop_data_dir: tempfile::tempdir().unwrap(),
             archival_clients: HashSet::new(),
             gc_num_epochs_to_keep: None,
@@ -132,19 +127,6 @@ impl TestLoopBuilder {
         self
     }
 
-    /// Uses the provided stores instead of generating new ones.
-    /// Each element in the vector is (hot_store, split_store).
-    pub fn stores_override(mut self, stores: Vec<(Store, Option<Store>)>) -> Self {
-        self.stores_override = Some(stores);
-        self
-    }
-
-    /// Like stores_override, but all cold stores are None.
-    pub fn stores_override_hot_only(mut self, stores: Vec<Store>) -> Self {
-        self.stores_override = Some(stores.into_iter().map(|store| (store, None)).collect());
-        self
-    }
-
     /// Set the accounts whose clients should be configured as archival nodes in the test loop.
     /// These accounts should be a subset of the accounts provided to the `clients` method.
     pub(crate) fn archival_clients(mut self, clients: HashSet<AccountId>) -> Self {
@@ -170,6 +152,7 @@ impl TestLoopBuilder {
     /// Note that this can cause unexpected issues, as the chain behaves
     /// somewhat differently (and correctly so) at genesis. So only skip
     /// warmup if you are interested in the behavior of starting from genesis.
+    #[allow(dead_code)]
     pub fn skip_warmup(self) -> Self {
         self.warmup_pending.store(false, Ordering::Relaxed);
         self
@@ -182,13 +165,6 @@ impl TestLoopBuilder {
 
     pub fn load_memtries_for_tracked_shards(mut self, load_memtries: bool) -> Self {
         self.load_memtries_for_tracked_shards = load_memtries;
-        self
-    }
-
-    /// Overrides the tempdir (which contains state dump, etc.) instead
-    /// of creating a new one.
-    pub fn test_loop_data_dir(mut self, dir: TempDir) -> Self {
-        self.test_loop_data_dir = dir;
         self
     }
 
@@ -264,7 +240,6 @@ impl TestLoopBuilder {
         let account_id = self.clients[idx].clone();
         let genesis = self.genesis.as_ref().unwrap();
         let is_archival = self.archival_clients.contains(&account_id);
-        let store_override = self.stores_override.as_ref().map(|stores| stores[idx].clone());
         let config_modifier = |client_config: &mut ClientConfig| {
             if let Some(num_epochs) = self.gc_num_epochs_to_keep {
                 client_config.gc.gc_num_epochs_to_keep = num_epochs;
@@ -289,7 +264,6 @@ impl TestLoopBuilder {
             .account_id(account_id.clone())
             .archive(is_archival)
             .config_modifier(config_modifier)
-            .store_override(store_override)
             .build()
     }
 }
@@ -301,20 +275,11 @@ pub struct NodeStateBuilder<'a> {
     account_id: Option<AccountId>,
     archive: bool,
     config_modifier: Option<Box<dyn Fn(&mut ClientConfig) + 'a>>,
-
-    store_override: Option<(Store, Option<Store>)>,
 }
 
 impl<'a> NodeStateBuilder<'a> {
     pub fn new(genesis: Genesis, tempdir_path: PathBuf) -> Self {
-        Self {
-            genesis,
-            tempdir_path,
-            account_id: None,
-            archive: false,
-            config_modifier: None,
-            store_override: None,
-        }
+        Self { genesis, tempdir_path, account_id: None, archive: false, config_modifier: None }
     }
 
     pub fn account_id(mut self, account_id: AccountId) -> Self {
@@ -329,11 +294,6 @@ impl<'a> NodeStateBuilder<'a> {
 
     pub fn config_modifier(mut self, modifier: impl Fn(&mut ClientConfig) + 'a) -> Self {
         self.config_modifier = Some(Box::new(modifier));
-        self
-    }
-
-    fn store_override(mut self, stores: Option<(Store, Option<Store>)>) -> Self {
-        self.store_override = stores;
         self
     }
 
@@ -378,9 +338,7 @@ impl<'a> NodeStateBuilder<'a> {
     }
 
     fn setup_store(&self) -> (Store, Option<Store>) {
-        let (store, split_store) = if let Some(stores_override) = &self.store_override {
-            stores_override.clone()
-        } else if self.archive {
+        let (store, split_store) = if self.archive {
             let (hot_store, split_store) = create_test_split_store();
             (hot_store, Some(split_store))
         } else {

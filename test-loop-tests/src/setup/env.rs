@@ -7,7 +7,6 @@ use near_client::SetNetworkInfo;
 use near_network::types::NetworkInfo;
 use near_store::adapter::StoreAdapter;
 use std::sync::atomic::Ordering;
-use tempfile::TempDir;
 
 use super::builder::setup_client;
 use super::drop_condition::DropCondition;
@@ -151,15 +150,12 @@ impl TestLoopEnv {
     /// destructor of some components wait for certain condition to become true. Otherwise, the
     /// destructors may end up waiting forever. This also helps avoid a panic when destructing
     /// TestLoop itself, as it asserts that all events have been handled.
-    ///
-    /// Returns the test loop data dir, if the caller wishes to reuse it for another test loop.
-    pub fn shutdown_and_drain_remaining_events(mut self, timeout: Duration) -> TempDir {
+    pub fn shutdown_and_drain_remaining_events(mut self, timeout: Duration) {
         // State sync dumper is not an Actor, handle stopping separately.
         for node_data in self.node_datas {
             self.test_loop.data.get_mut(&node_data.state_sync_dumper_handle).stop();
         }
 
         self.test_loop.shutdown_and_drain_remaining_events(timeout);
-        self.shared_state.tempdir
     }
 }
