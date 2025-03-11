@@ -588,52 +588,36 @@ impl<'a> ChainStoreUpdate<'a> {
 
         // 1. Apply revert insertions or deletions from DBCol::TrieChanges for Trie
         {
-            let shard_uids_to_gc: Vec<_> = self.get_shard_uids_to_gc(epoch_manager, &block_hash);
-            match gc_mode.clone() {
-                GCMode::Fork(tries) => {
-                    // If the block is on a fork, we delete the state that's the result of applying this block
-                    for shard_uid in shard_uids_to_gc {
-                        let trie_changes = self.store().get_ser(
-                            DBCol::TrieChanges,
-                            &get_block_shard_uid(&block_hash, &shard_uid),
-                        )?;
-                        if let Some(trie_changes) = trie_changes {
-                            tries.revert_insertions(&trie_changes, shard_uid, &mut store_update);
-                            self.gc_col(
-                                DBCol::TrieChanges,
-                                &get_block_shard_uid(&block_hash, &shard_uid),
-                            );
-                        }
+            let shard_uids_to_gc = self.get_shard_uids_to_gc(epoch_manager, &block_hash);
+            for shard_uid in shard_uids_to_gc {
+                let trie_changes = self
+                    .store()
+                    .get_ser(DBCol::TrieChanges, &get_block_shard_uid(&block_hash, &shard_uid))?;
+
+                let Some(trie_changes) = trie_changes else {
+                    continue;
+                };
+                match gc_mode.clone() {
+                    GCMode::Fork(tries) => {
+                        // If the block is on a fork, we delete the state that's the result of applying this block
+                        tries.revert_insertions(&trie_changes, shard_uid, &mut store_update);
+                    }
+                    GCMode::Canonical(tries) => {
+                        // If the block is on canonical chain, we delete the state that's before applying this block
+                        tries.apply_deletions(&trie_changes, shard_uid, &mut store_update);
+                    }
+                    GCMode::StateSync { .. } => {
+                        // Not apply the data from DBCol::TrieChanges
                     }
                 }
-                GCMode::Canonical(tries) => {
-                    // If the block is on canonical chain, we delete the state that's before applying this block
-                    for shard_uid in shard_uids_to_gc {
-                        let trie_changes = self.store().get_ser(
-                            DBCol::TrieChanges,
-                            &get_block_shard_uid(&block_hash, &shard_uid),
-                        )?;
-                        if let Some(trie_changes) = trie_changes {
-                            tries.apply_deletions(&trie_changes, shard_uid, &mut store_update);
-                            self.gc_col(
-                                DBCol::TrieChanges,
-                                &get_block_shard_uid(&block_hash, &shard_uid),
-                            );
-                        }
-                    }
-                    // Set `block_hash` on previous one
-                    block_hash = *self.get_block_header(&block_hash)?.prev_hash();
-                }
-                GCMode::StateSync { .. } => {
-                    // Not apply the data from DBCol::TrieChanges
-                    for shard_uid in shard_uids_to_gc {
-                        self.gc_col(
-                            DBCol::TrieChanges,
-                            &get_block_shard_uid(&block_hash, &shard_uid),
-                        );
-                    }
-                }
+
+                self.gc_col(DBCol::TrieChanges, &get_block_shard_uid(&block_hash, &shard_uid));
             }
+        }
+
+        if matches!(gc_mode, GCMode::Canonical(_)) {
+            // If you know why do we do this in case of canonical chain please add a comment here.
+            block_hash = *self.get_block_header(&block_hash)?.prev_hash();
         }
 
         let block =
