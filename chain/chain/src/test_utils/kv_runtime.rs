@@ -77,6 +77,7 @@ pub struct KeyValueRuntime {
     num_shards: NumShards,
     epoch_length: u64,
     no_gc: bool,
+    runtime_config: RuntimeConfig,
 
     // A mapping state_root => {account id => amounts}, for transactions and receipts
     state: RwLock<HashMap<StateRoot, KVState>>,
@@ -372,6 +373,7 @@ impl KeyValueRuntime {
             state: RwLock::new(state),
             state_size: RwLock::new(state_size),
             contract_cache: NoContractRuntimeCache,
+            runtime_config: RuntimeConfig::test(),
         })
     }
 
@@ -1380,8 +1382,8 @@ impl RuntimeAdapter for KeyValueRuntime {
         Err(Error::Other("get_protocol_config should not be used in KeyValueRuntime".into()))
     }
 
-    fn get_runtime_config(&self, _protocol_version: ProtocolVersion) -> RuntimeConfig {
-        RuntimeConfig::test()
+    fn get_runtime_config(&self, _protocol_version: ProtocolVersion) -> &RuntimeConfig {
+        &self.runtime_config
     }
 
     fn will_shard_layout_change_next_epoch(
