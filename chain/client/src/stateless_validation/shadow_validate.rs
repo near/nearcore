@@ -68,7 +68,7 @@ impl Client {
             ValidatedTransaction::new_list(&config, chunk.transactions().into_iter().cloned())
                 .map_err(|(err, signed_tx)| {
                     Error::Other(format!(
-                        "Validating Signed tx ({:?}) failed with {:?}",
+                        "Validating signed tx ({:?}) failed with {:?}",
                         signed_tx, err,
                     ))
                 })?;

@@ -417,7 +417,7 @@ pub fn pre_validate_chunk_state_witness(
                     ValidatedTransaction::new_list(&config, new_transactions.into_iter().cloned())
                         .map_err(|(err, signed_tx)| {
                             Error::InvalidChunkStateWitness(format!(
-                                "Validating Signed tx ({:?}) in new_transactions failed with {:?}",
+                                "Validating signed tx ({:?}) failed with {:?}",
                                 signed_tx, err
                             ))
                         })?;

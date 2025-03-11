@@ -455,7 +455,7 @@ impl Client {
                     )
                     .map_err(|(err, signed_tx)| {
                         Error::Other(format!(
-                            "Validating Signed tx ({:?}) in new_transactions failed with {:?}",
+                            "Validating signed tx ({:?}) failed with {:?}",
                             signed_tx, err
                         ))
                     })?;
