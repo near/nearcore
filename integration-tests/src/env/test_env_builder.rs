@@ -15,7 +15,7 @@ use near_parameters::RuntimeConfigStore;
 use near_primitives::epoch_info::RngSeed;
 use near_primitives::epoch_manager::{AllEpochConfigTestOverrides, EpochConfig, EpochConfigStore};
 use near_primitives::test_utils::create_test_signer;
-use near_primitives::types::{AccountId, NumShards, ShardIndex};
+use near_primitives::types::{AccountId, ShardIndex};
 use near_store::config::StateSnapshotType;
 use near_store::genesis::initialize_genesis_state;
 use near_store::test_utils::create_test_store;
@@ -61,7 +61,6 @@ pub struct TestEnvBuilder {
     shard_trackers: Option<Vec<ShardTracker>>,
     runtimes: Option<Vec<Arc<dyn RuntimeAdapter>>>,
     network_adapters: Option<Vec<Arc<MockPeerManagerAdapter>>>,
-    num_shards: Option<NumShards>,
     // random seed to be inject in each client according to AccountId
     // if not set, a default constant TEST_SEED will be injected
     seeds: HashMap<AccountId, RngSeed>,
@@ -94,7 +93,6 @@ impl TestEnvBuilder {
             shard_trackers: None,
             runtimes: None,
             network_adapters: None,
-            num_shards: None,
             seeds,
             archive: false,
             save_trie_changes: true,
@@ -259,10 +257,6 @@ impl TestEnvBuilder {
         assert_eq!(epoch_managers.len(), self.clients.len());
         assert!(self.epoch_managers.is_none(), "Cannot override twice");
         assert!(
-            self.num_shards.is_none(),
-            "Cannot set both num_shards and epoch_managers at the same time"
-        );
-        assert!(
             self.shard_trackers.is_none(),
             "Cannot override epoch_managers after shard_trackers"
         );
@@ -277,10 +271,6 @@ impl TestEnvBuilder {
         self,
         test_overrides: AllEpochConfigTestOverrides,
     ) -> Self {
-        assert!(
-            self.num_shards.is_none(),
-            "Cannot set both num_shards and epoch_managers at the same time"
-        );
         let ret = self.ensure_stores();
 
         // TODO(#11265): consider initializing epoch config separately as it
@@ -341,7 +331,7 @@ impl TestEnvBuilder {
         let mut ret = self.ensure_stores();
         let epoch_managers: Vec<EpochManagerKind> = (0..ret.clients.len())
             .map(|i| {
-                let vs = ValidatorSchedule::new_with_shards(ret.num_shards.unwrap_or(1))
+                let vs = ValidatorSchedule::new_with_shards(1)
                     .block_producers_per_epoch(vec![ret.validators.clone()]);
                 MockEpochManager::new_with_validators(
                     ret.stores.as_ref().unwrap()[i].clone(),
@@ -528,15 +518,6 @@ impl TestEnvBuilder {
             let num_clients = self.clients.len();
             self.network_adapters((0..num_clients).map(|_| Arc::new(Default::default())).collect())
         }
-    }
-
-    pub fn num_shards(mut self, num_shards: NumShards) -> Self {
-        assert!(
-            self.epoch_managers.is_none(),
-            "Cannot set both num_shards and epoch_managers at the same time"
-        );
-        self.num_shards = Some(num_shards);
-        self
     }
 
     pub fn archive(mut self, archive: bool) -> Self {
