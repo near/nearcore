@@ -1,49 +1,34 @@
-use itertools::Itertools;
-use near_async::time::Duration;
-use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
-use near_chain_configs::{Genesis, GenesisConfig};
-use near_client::test_utils::test_loop::ClientQueries;
-use near_o11y::testonly::init_test_logger;
-use near_primitives::epoch_manager::EpochConfigStore;
-use near_primitives::shard_layout::ShardLayout;
-use near_primitives::types::{AccountId, BlockHeightDelta};
-use near_store::{DBCol, Store};
-use tempfile::TempDir;
-
-use crate::setup::builder::TestLoopBuilder;
-use crate::setup::env::TestLoopEnv;
-use crate::utils::ONE_NEAR;
-use crate::utils::transactions::{BalanceMismatchError, execute_money_transfers};
-use near_async::messaging::CanSend;
-use near_chain::{ChainStore, ChainStoreAccess};
-use near_client::SetNetworkInfo;
-use near_client::sync::epoch::EpochSync;
-use near_network::types::{HighestHeightPeerInfo, NetworkInfo, PeerInfo};
-use near_primitives::block::GenesisId;
-use near_primitives::epoch_sync::EpochSyncProof;
-use near_primitives::hash::CryptoHash;
-use near_primitives::utils::compression::CompressedData;
-use near_store::test_utils::create_test_store;
 use std::cell::RefCell;
 use std::rc::Rc;
 
-struct TestNetworkSetup {
-    tempdir: TempDir,
-    genesis: Genesis,
-    epoch_config_store: EpochConfigStore,
-    accounts: Vec<AccountId>,
-    stores: Vec<Store>,
-}
+use itertools::Itertools;
+use near_async::messaging::CanSend;
+use near_async::time::Duration;
+use near_chain::ChainStoreAccess;
+use near_chain_configs::GenesisConfig;
+use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
+use near_client::SetNetworkInfo;
+use near_client::sync::epoch::EpochSync;
+use near_client::test_utils::test_loop::ClientQueries;
+use near_network::types::NetworkInfo;
+use near_o11y::testonly::init_test_logger;
+use near_primitives::epoch_sync::EpochSyncProof;
+use near_primitives::shard_layout::ShardLayout;
+use near_primitives::types::{AccountId, BlockHeightDelta};
+use near_primitives::utils::compression::CompressedData;
+use near_store::adapter::StoreAdapter;
 
-fn setup_initial_blockchain(
-    num_clients: usize,
-    transaction_validity_period: BlockHeightDelta,
-) -> TestNetworkSetup {
-    let builder = TestLoopBuilder::new();
+use crate::setup::builder::{NodeStateBuilder, TestLoopBuilder};
+use crate::setup::env::TestLoopEnv;
+use crate::utils::ONE_NEAR;
+use crate::utils::transactions::{BalanceMismatchError, execute_money_transfers};
 
+const NUM_CLIENTS: usize = 4;
+
+fn setup_initial_blockchain(transaction_validity_period: BlockHeightDelta) -> TestLoopEnv {
     let accounts =
         (0..100).map(|i| format!("account{}", i).parse().unwrap()).collect::<Vec<AccountId>>();
-    let clients = accounts.iter().take(num_clients).cloned().collect_vec();
+    let clients = accounts.iter().take(NUM_CLIENTS).cloned().collect_vec();
 
     let epoch_length = 10;
     let shard_layout = ShardLayout::simple_v1(&["account3", "account5", "account7"]);
@@ -62,9 +47,9 @@ fn setup_initial_blockchain(
         .shuffle_shard_assignment_for_chunk_producers(true)
         .build_store_for_genesis_protocol_version();
 
-    let TestLoopEnv { mut test_loop, node_datas, shared_state } = builder
-        .genesis(genesis.clone())
-        .epoch_config_store(epoch_config_store.clone())
+    let TestLoopEnv { mut test_loop, node_datas, shared_state } = TestLoopBuilder::new()
+        .genesis(genesis)
+        .epoch_config_store(epoch_config_store)
         .clients(clients)
         .build()
         .warmup();
@@ -81,7 +66,6 @@ fn setup_initial_blockchain(
     if transaction_validity_period <= 1 {
         // If we're testing handling expired transactions, the money transfers should fail at the end when checking
         // account balances, since some transactions expired.
-
         match execute_money_transfers(&mut test_loop, &node_datas, &accounts) {
             Ok(()) => panic!("Expected money transfers to fail due to expired transactions"),
             Err(BalanceMismatchError { .. }) => {}
@@ -91,56 +75,20 @@ fn setup_initial_blockchain(
     }
 
     // Make sure the chain progressed for several epochs.
-    assert!(
-        test_loop
-            .data
-            .get(&node_datas[0].client_sender.actor_handle())
-            .client
-            .chain
-            .head()
-            .unwrap()
-            .height
-            > 10050
-    );
+    let client_actor = test_loop.data.get(&node_datas[0].client_sender.actor_handle());
+    assert!(client_actor.client.chain.head().unwrap().height > 10050);
 
-    // Make a new TestLoopEnv, adding a new node to the network, and check that it can properly sync.
-    let mut stores = Vec::new();
-    for data in &node_datas {
-        stores.push(
-            test_loop
-                .data
-                .get(&data.client_sender.actor_handle())
-                .client
-                .chain
-                .chain_store
-                .store()
-                .clone(),
-        );
-    }
-
-    // Properly shut down the previous TestLoopEnv.
-    // We must preserve the tempdir, since state dumps are stored there,
-    // and are necessary for state sync to work on the new node.
-    let tempdir = TestLoopEnv { test_loop, node_datas, shared_state }
-        .shutdown_and_drain_remaining_events(Duration::seconds(5));
-
-    TestNetworkSetup { tempdir, genesis, epoch_config_store, accounts, stores }
+    TestLoopEnv { test_loop, node_datas, shared_state }
 }
 
-fn bootstrap_node_via_epoch_sync(setup: TestNetworkSetup, source_node: usize) -> TestNetworkSetup {
-    tracing::info!("Starting new TestLoopEnv with new node");
-    let TestNetworkSetup { genesis, epoch_config_store, accounts, mut stores, tempdir } = setup;
-    let num_existing_clients = stores.len();
-    let clients = accounts.iter().take(num_existing_clients + 1).cloned().collect_vec();
-    stores.push(create_test_store()); // new node starts empty.
-
-    let TestLoopEnv { mut test_loop, node_datas, shared_state } = TestLoopBuilder::new()
-        .genesis(genesis.clone())
-        .epoch_config_store(epoch_config_store.clone())
-        .clients(clients)
-        .stores_override_hot_only(stores)
-        .test_loop_data_dir(tempdir)
-        .config_modifier(|config, _| {
+fn bootstrap_node_via_epoch_sync(mut env: TestLoopEnv, source_node: usize) -> TestLoopEnv {
+    let genesis = env.shared_state.genesis.clone();
+    let tempdir_path = env.shared_state.tempdir.path().to_path_buf();
+    let identifier = format!("account{}", env.node_datas.len());
+    let account_id = identifier.parse().unwrap();
+    let node_state = NodeStateBuilder::new(genesis, tempdir_path)
+        .account_id(account_id)
+        .config_modifier(|config| {
             // Enable epoch sync, and make the horizon small enough to trigger it.
             config.epoch_sync.epoch_sync_horizon = 30;
             // Make header sync horizon small enough to trigger it.
@@ -148,45 +96,23 @@ fn bootstrap_node_via_epoch_sync(setup: TestNetworkSetup, source_node: usize) ->
             // Make block sync horizon small enough to trigger it.
             config.block_fetch_horizon = 3;
         })
-        .skip_warmup()
         .build();
+    env.add_node(&identifier, node_state);
 
-    // Note: TestLoopEnv does not currently propagate the network info to other peers. This is because
-    // the networking layer is completely mocked out. So in order to allow the new node to sync, we
-    // need to manually propagate the network info to the new node. In this case we'll tell the new
-    // node that node 0 is available to sync from.
-    let source_chain =
-        &test_loop.data.get(&node_datas[source_node].client_sender.actor_handle()).client.chain;
-    let peer_info = HighestHeightPeerInfo {
-        archival: false,
-        genesis_id: GenesisId {
-            chain_id: genesis.config.chain_id.clone(),
-            hash: *source_chain.genesis().hash(),
-        },
-        highest_block_hash: source_chain.head().unwrap().last_block_hash,
-        highest_block_height: source_chain.head().unwrap().height,
-        tracked_shards: vec![],
-        peer_info: PeerInfo {
-            account_id: Some(accounts[source_node].clone()),
-            addr: None,
-            id: node_datas[source_node].peer_id.clone(),
-        },
-    };
-    node_datas[num_existing_clients].client_sender.send(SetNetworkInfo(NetworkInfo {
-        connected_peers: Vec::new(),
-        highest_height_peers: vec![peer_info], // only this field matters.
-        known_producers: vec![],
-        num_connected_peers: 0,
-        peer_max_count: 0,
-        received_bytes_per_sec: 0,
-        sent_bytes_per_sec: 0,
-        tier1_accounts_data: Vec::new(),
-        tier1_accounts_keys: Vec::new(),
-        tier1_connections: Vec::new(),
+    let TestLoopEnv { mut test_loop, node_datas, shared_state } = env;
+
+    // Normally env.add_node() sets the network_info for the new node, but we want to override this
+    // with the highest height peer info from the source node.
+    let highest_height_peer_info =
+        node_datas[source_node].get_highest_height_peer_info(&test_loop.data);
+    let client_sender = &node_datas.last().unwrap().client_sender;
+    client_sender.send(SetNetworkInfo(NetworkInfo {
+        highest_height_peers: vec![highest_height_peer_info],
+        ..NetworkInfo::default()
     }));
 
     // Check that the new node will reach a high height as well.
-    let new_node = node_datas.last().unwrap().client_sender.actor_handle();
+    let new_node = client_sender.actor_handle();
     let sync_status_history = Rc::new(RefCell::new(Vec::new()));
     {
         let sync_status_history = sync_status_history.clone();
@@ -207,7 +133,7 @@ fn bootstrap_node_via_epoch_sync(setup: TestNetworkSetup, source_node: usize) ->
             }
         });
     }
-    let new_node = node_datas.last().unwrap().client_sender.actor_handle();
+    let new_node = client_sender.actor_handle();
     let node0 = node_datas[0].client_sender.actor_handle();
     test_loop.run_until(
         |test_loop_data| {
@@ -252,24 +178,7 @@ fn bootstrap_node_via_epoch_sync(setup: TestNetworkSetup, source_node: usize) ->
         .collect::<Vec<_>>()
     );
 
-    let mut stores = Vec::new();
-    for data in &node_datas {
-        stores.push(
-            test_loop
-                .data
-                .get(&data.client_sender.actor_handle())
-                .client
-                .chain
-                .chain_store
-                .store()
-                .clone(),
-        );
-    }
-
-    let tempdir = TestLoopEnv { test_loop, node_datas, shared_state }
-        .shutdown_and_drain_remaining_events(Duration::seconds(5));
-
-    TestNetworkSetup { tempdir, genesis, epoch_config_store, accounts, stores }
+    TestLoopEnv { test_loop, node_datas, shared_state }
 }
 
 // Test that a new node that only has genesis can use Epoch Sync to bring itself
@@ -277,8 +186,9 @@ fn bootstrap_node_via_epoch_sync(setup: TestNetworkSetup, source_node: usize) ->
 #[test]
 fn slow_test_epoch_sync_from_genesis() {
     init_test_logger();
-    let setup = setup_initial_blockchain(4, 20);
-    bootstrap_node_via_epoch_sync(setup, 0);
+    let env = setup_initial_blockchain(20);
+    let env = bootstrap_node_via_epoch_sync(env, 0);
+    env.shutdown_and_drain_remaining_events(Duration::seconds(5));
 }
 
 // Tests that after epoch syncing, we can use the new node to bootstrap another
@@ -286,33 +196,37 @@ fn slow_test_epoch_sync_from_genesis() {
 #[test]
 fn slow_test_epoch_sync_from_another_epoch_synced_node() {
     init_test_logger();
-    let setup = setup_initial_blockchain(4, 20);
-    let setup = bootstrap_node_via_epoch_sync(setup, 0);
-    bootstrap_node_via_epoch_sync(setup, 4);
+    let env = setup_initial_blockchain(20);
+    let env = bootstrap_node_via_epoch_sync(env, 0);
+    let env = bootstrap_node_via_epoch_sync(env, 4);
+    env.shutdown_and_drain_remaining_events(Duration::seconds(5));
 }
 
 #[test]
 fn slow_test_epoch_sync_transaction_validity_period_one_epoch() {
     init_test_logger();
-    let setup = setup_initial_blockchain(4, 10);
-    let setup = bootstrap_node_via_epoch_sync(setup, 0);
-    bootstrap_node_via_epoch_sync(setup, 4);
+    let env = setup_initial_blockchain(10);
+    let env = bootstrap_node_via_epoch_sync(env, 0);
+    let env = bootstrap_node_via_epoch_sync(env, 4);
+    env.shutdown_and_drain_remaining_events(Duration::seconds(5));
 }
 
 #[test]
 fn slow_test_epoch_sync_with_expired_transactions() {
     init_test_logger();
-    let setup = setup_initial_blockchain(4, 1);
-    let setup = bootstrap_node_via_epoch_sync(setup, 0);
-    bootstrap_node_via_epoch_sync(setup, 4);
+    let env = setup_initial_blockchain(1);
+    let env = bootstrap_node_via_epoch_sync(env, 0);
+    let env = bootstrap_node_via_epoch_sync(env, 4);
+    env.shutdown_and_drain_remaining_events(Duration::seconds(5));
 }
 
-impl TestNetworkSetup {
+impl TestLoopEnv {
     fn derive_epoch_sync_proof(&self, node_index: usize) -> EpochSyncProof {
-        let store = self.stores[node_index].clone();
+        let client_handle = self.node_datas[node_index].client_sender.actor_handle();
+        let store = self.test_loop.data.get(&client_handle).client.chain.chain_store.store();
         EpochSync::derive_epoch_sync_proof(
             store,
-            self.genesis.config.transaction_validity_period,
+            self.shared_state.genesis.config.transaction_validity_period,
             Default::default(),
         )
         .unwrap()
@@ -322,23 +236,23 @@ impl TestNetworkSetup {
     }
 
     fn chain_final_head_height(&self, node_index: usize) -> u64 {
-        let store = self.stores[node_index].clone();
-        let chain_store =
-            ChainStore::new(store, false, self.genesis.config.transaction_validity_period);
-        chain_store.final_head().unwrap().height
+        let client_handle = self.node_datas[node_index].client_sender.actor_handle();
+        let chain = &self.test_loop.data.get(&client_handle).client.chain;
+        chain.chain_store.final_head().unwrap().height
     }
 
     fn assert_epoch_sync_proof_existence_on_disk(&self, node_index: usize, exists: bool) {
-        let store = self.stores[node_index].clone();
-        let proof = store.get_ser::<EpochSyncProof>(DBCol::EpochSyncProof, &[]).unwrap();
+        let client_handle = self.node_datas[node_index].client_sender.actor_handle();
+        let store = self.test_loop.data.get(&client_handle).client.chain.chain_store.store();
+        let proof = store.epoch_store().get_epoch_sync_proof().unwrap();
         assert_eq!(proof.is_some(), exists);
     }
 
     fn assert_header_existence(&self, node_index: usize, height: u64, exists: bool) {
-        let store = self.stores[node_index].clone();
-        let header =
-            store.get_ser::<CryptoHash>(DBCol::BlockHeight, &height.to_le_bytes()).unwrap();
-        assert_eq!(header.is_some(), exists);
+        let client_handle = self.node_datas[node_index].client_sender.actor_handle();
+        let store = self.test_loop.data.get(&client_handle).client.chain.chain_store.store();
+        let header = store.chain_store().get_block_hash_by_height(height);
+        assert_eq!(header.is_ok(), exists);
     }
 }
 
@@ -384,55 +298,64 @@ fn sanity_check_epoch_sync_proof(
 #[test]
 fn slow_test_initial_epoch_sync_proof_sanity() {
     init_test_logger();
-    let setup = setup_initial_blockchain(4, 20);
-    let proof = setup.derive_epoch_sync_proof(0);
-    let final_head_height = setup.chain_final_head_height(0);
-    sanity_check_epoch_sync_proof(&proof, final_head_height, &setup.genesis.config, 2);
+    let env = setup_initial_blockchain(20);
+    let proof = env.derive_epoch_sync_proof(0);
+    let final_head_height = env.chain_final_head_height(0);
+    sanity_check_epoch_sync_proof(&proof, final_head_height, &env.shared_state.genesis.config, 2);
     // Requesting the proof should not have persisted the proof on disk. This is intentional;
     // it is to reduce the stateful-ness of the system so that we may modify the way the proof
     // is presented in the future (for e.g. bug fixes) without a DB migration.
-    setup.assert_epoch_sync_proof_existence_on_disk(0, false);
+    env.assert_epoch_sync_proof_existence_on_disk(0, false);
+    env.shutdown_and_drain_remaining_events(Duration::seconds(5));
 }
 
 #[test]
 fn slow_test_epoch_sync_proof_sanity_from_epoch_synced_node() {
     init_test_logger();
-    let setup = setup_initial_blockchain(4, 20);
-    let setup = bootstrap_node_via_epoch_sync(setup, 0);
-    let old_proof = setup.derive_epoch_sync_proof(0);
-    let new_proof = setup.derive_epoch_sync_proof(4);
-    let final_head_height_old = setup.chain_final_head_height(0);
-    let final_head_height_new = setup.chain_final_head_height(4);
-    sanity_check_epoch_sync_proof(&new_proof, final_head_height_new, &setup.genesis.config, 2);
+    let env = setup_initial_blockchain(20);
+    let env = bootstrap_node_via_epoch_sync(env, 0);
+    let old_proof = env.derive_epoch_sync_proof(0);
+    let new_proof = env.derive_epoch_sync_proof(4);
+    let final_head_height_old = env.chain_final_head_height(0);
+    let final_head_height_new = env.chain_final_head_height(4);
+    sanity_check_epoch_sync_proof(
+        &new_proof,
+        final_head_height_new,
+        &env.shared_state.genesis.config,
+        2,
+    );
     // Test loop shutdown mechanism should not have left any new block messages unhandled,
     // so the nodes should be at the same height in the end.
     assert_eq!(final_head_height_old, final_head_height_new);
     assert_eq!(old_proof, new_proof);
 
     // On the original node we should have no proof but all headers.
-    setup.assert_epoch_sync_proof_existence_on_disk(0, false);
-    setup.assert_header_existence(0, setup.genesis.config.genesis_height + 1, true);
+    env.assert_epoch_sync_proof_existence_on_disk(0, false);
+    env.assert_header_existence(0, env.shared_state.genesis.config.genesis_height + 1, true);
 
     // On the new node we should have a proof but missing headers for the old epochs.
-    setup.assert_epoch_sync_proof_existence_on_disk(4, true);
-    setup.assert_header_existence(4, setup.genesis.config.genesis_height + 1, false);
+    env.assert_epoch_sync_proof_existence_on_disk(4, true);
+    env.assert_header_existence(4, env.shared_state.genesis.config.genesis_height + 1, false);
+    env.shutdown_and_drain_remaining_events(Duration::seconds(5));
 }
 
 #[test]
 fn slow_test_epoch_sync_proof_sanity_shorter_transaction_validity_period() {
     init_test_logger();
-    let setup = setup_initial_blockchain(4, 10);
-    let proof = setup.derive_epoch_sync_proof(0);
-    let final_head_height = setup.chain_final_head_height(0);
-    sanity_check_epoch_sync_proof(&proof, final_head_height, &setup.genesis.config, 1);
+    let env = setup_initial_blockchain(10);
+    let proof = env.derive_epoch_sync_proof(0);
+    let final_head_height = env.chain_final_head_height(0);
+    sanity_check_epoch_sync_proof(&proof, final_head_height, &env.shared_state.genesis.config, 1);
+    env.shutdown_and_drain_remaining_events(Duration::seconds(5));
 }
 
 #[test]
 fn slow_test_epoch_sync_proof_sanity_zero_transaction_validity_period() {
     init_test_logger();
-    let setup = setup_initial_blockchain(4, 0);
-    let proof = setup.derive_epoch_sync_proof(0);
-    let final_head_height = setup.chain_final_head_height(0);
+    let env = setup_initial_blockchain(0);
+    let proof = env.derive_epoch_sync_proof(0);
+    let final_head_height = env.chain_final_head_height(0);
     // The proof should still be for the previous epoch, for state sync purposes.
-    sanity_check_epoch_sync_proof(&proof, final_head_height, &setup.genesis.config, 1);
+    sanity_check_epoch_sync_proof(&proof, final_head_height, &env.shared_state.genesis.config, 1);
+    env.shutdown_and_drain_remaining_events(Duration::seconds(5));
 }
