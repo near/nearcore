@@ -383,15 +383,32 @@ impl ReceiptSinkV2 {
         state_update: &mut TrieUpdate,
         epoch_info_provider: &dyn EpochInfoProvider,
     ) -> Result<(), RuntimeError> {
-        let shard = epoch_info_provider
-            .shard_layout(&apply_state.epoch_id)?
-            .account_id_to_shard_id(receipt.receiver_id());
-
+        let shard_layout = epoch_info_provider.shard_layout(&apply_state.epoch_id)?;
         let size = compute_receipt_size(&receipt)?;
         let gas = compute_receipt_congestion_gas(&receipt, &apply_state.config)?;
 
+        if receipt.send_to_all_shards() {
+            for shard in shard_layout.shard_ids() {
+                self.forward_or_buffer_receipt_impl(receipt.clone(), gas, size, shard, apply_state, state_update)?;
+            }
+        } else {
+            let shard = shard_layout.account_id_to_shard_id(receipt.receiver_id());
+            self.forward_or_buffer_receipt_impl(receipt, gas, size, shard, apply_state, state_update)?;
+        }
+        Ok(())
+    }
+
+    fn forward_or_buffer_receipt_impl(
+        &mut self,
+        receipt: Receipt,
+        gas: u64,
+        size: u64,
+        shard: ShardId,
+        apply_state: &ApplyState,
+        state_update: &mut TrieUpdate,
+    ) -> Result<(), RuntimeError> {
         match Self::try_forward(
-            receipt,
+            receipt.clone(),
             gas,
             size,
             shard,
