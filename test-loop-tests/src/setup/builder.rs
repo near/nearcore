@@ -262,29 +262,35 @@ impl TestLoopBuilder {
 
     fn setup_node_state(&mut self, idx: usize) -> NodeState {
         let account_id = self.clients[idx].clone();
+        let genesis = self.genesis.as_ref().unwrap();
         let is_archival = self.archival_clients.contains(&account_id);
         let store_override = self.stores_override.as_ref().map(|stores| stores[idx].clone());
         let config_modifier = |client_config: &mut ClientConfig| {
+            if let Some(num_epochs) = self.gc_num_epochs_to_keep {
+                client_config.gc.gc_num_epochs_to_keep = num_epochs;
+            }
+
+            // Configure tracked shards.
+            // * single shard tracking for validators
+            // * all shard tracking for non-validators (RPCs and archival)
+            let is_validator = genesis.config.validators.iter().any(|v| v.account_id == account_id);
+            if is_validator && !self.track_all_shards {
+                client_config.tracked_shards = Vec::new();
+            } else {
+                client_config.tracked_shards = vec![ShardId::new(666)];
+            }
+
             if let Some(config_modifier) = &self.config_modifier {
                 config_modifier(client_config, idx);
             }
         };
-        let genesis = self.genesis.as_ref().unwrap().clone();
-        let mut node_state_builder =
-            NodeStateBuilder::new(genesis, self.test_loop_data_dir.path().to_path_buf())
-                .account_id(account_id)
-                .archive(is_archival)
-                .config_modifier(config_modifier)
-                .store_override(store_override);
-
-        if let Some(num_epochs) = self.gc_num_epochs_to_keep {
-            node_state_builder = node_state_builder.gc_num_epochs_to_keep(num_epochs);
-        }
-        if self.track_all_shards {
-            node_state_builder = node_state_builder.track_all_shards();
-        }
-
-        node_state_builder.build()
+        let tempdir_path = self.test_loop_data_dir.path().to_path_buf();
+        NodeStateBuilder::new(genesis.clone(), tempdir_path)
+            .account_id(account_id.clone())
+            .archive(is_archival)
+            .config_modifier(config_modifier)
+            .store_override(store_override)
+            .build()
     }
 }
 
@@ -296,8 +302,6 @@ pub struct NodeStateBuilder<'a> {
     archive: bool,
     config_modifier: Option<Box<dyn Fn(&mut ClientConfig) + 'a>>,
 
-    gc_num_epochs_to_keep: Option<u64>,
-    track_all_shards: bool,
     store_override: Option<(Store, Option<Store>)>,
 }
 
@@ -309,8 +313,6 @@ impl<'a> NodeStateBuilder<'a> {
             account_id: None,
             archive: false,
             config_modifier: None,
-            gc_num_epochs_to_keep: None,
-            track_all_shards: false,
             store_override: None,
         }
     }
@@ -327,16 +329,6 @@ impl<'a> NodeStateBuilder<'a> {
 
     pub fn config_modifier(mut self, modifier: impl Fn(&mut ClientConfig) + 'a) -> Self {
         self.config_modifier = Some(Box::new(modifier));
-        self
-    }
-
-    fn gc_num_epochs_to_keep(mut self, num_epochs: u64) -> Self {
-        self.gc_num_epochs_to_keep = Some(num_epochs);
-        self
-    }
-
-    fn track_all_shards(mut self) -> Self {
-        self.track_all_shards = true;
         self
     }
 
@@ -357,9 +349,6 @@ impl<'a> NodeStateBuilder<'a> {
         client_config.state_sync_p2p_timeout = Duration::milliseconds(100);
         client_config.state_sync_retry_backoff = Duration::milliseconds(100);
         client_config.state_sync_external_backoff = Duration::milliseconds(100);
-        if let Some(num_epochs) = self.gc_num_epochs_to_keep {
-            client_config.gc.gc_num_epochs_to_keep = num_epochs;
-        }
         let external_storage_location =
             ExternalStorageLocation::Filesystem { root_dir: self.tempdir_path.join("state_sync") };
         client_config.state_sync = StateSyncConfig {
@@ -380,17 +369,6 @@ impl<'a> NodeStateBuilder<'a> {
                 external_storage_fallback_threshold: 0,
             }),
         };
-
-        // Configure tracked shards.
-        // * single shard tracking for validators
-        // * all shard tracking for non-validators (RPCs and archival)
-        let is_validator =
-            self.genesis.config.validators.iter().any(|v| v.account_id == account_id);
-        if is_validator && !self.track_all_shards {
-            client_config.tracked_shards = Vec::new();
-        } else {
-            client_config.tracked_shards = vec![ShardId::new(666)];
-        }
 
         if let Some(config_modifier) = self.config_modifier {
             config_modifier(&mut client_config);
