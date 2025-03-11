@@ -1642,10 +1642,8 @@ fn test_tx_forwarding_no_double_forwarding() {
     let signer = InMemorySigner::test_signer(&"test0".parse().unwrap());
     let tx = env.tx_from_actions(vec![], &signer, signer.get_account_id());
     // The transaction has already been forwarded, so it won't be forwarded again.
-    assert_eq!(
-        env.clients[0].process_tx(tx, /*is_forwarded*/ true, false),
-        ProcessTxResponse::NoResponse
-    );
+    let is_forwarded = true;
+    assert_eq!(env.clients[0].process_tx(tx, is_forwarded, false), ProcessTxResponse::NoResponse);
     assert!(env.network_adapters[0].requests.read().unwrap().is_empty());
 }
 
