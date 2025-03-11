@@ -254,6 +254,25 @@ impl ValidatedTransaction {
         Self(signed_tx)
     }
 
+    /// Builds a list of ValidatedTransactions from an iterator of
+    /// SignedTransactions.
+    ///
+    /// Note that the if a subset of SignedTransactions pass validation and then
+    /// one fails, then this function will drop the validated txs.  Currently,
+    /// this is not the intended behaviour for all callers of this function.
+    /// This could be improved to never drop any txs if callers require such
+    /// functionality in the future.
+    pub fn new_list(
+        config: &RuntimeConfig,
+        signed_txs: impl IntoIterator<Item = SignedTransaction>,
+    ) -> Result<Vec<ValidatedTransaction>, (InvalidTxError, SignedTransaction)> {
+        let mut validated_txs = vec![];
+        for signed_tx in signed_txs {
+            validated_txs.push(ValidatedTransaction::new(&config, signed_tx)?);
+        }
+        Ok(validated_txs)
+    }
+
     pub fn to_signed_tx(&self) -> &SignedTransaction {
         &self.0
     }

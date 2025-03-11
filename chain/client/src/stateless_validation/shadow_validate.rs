@@ -55,7 +55,7 @@ impl Client {
         let last_chunk = self.chain.get_chunk(&prev_chunk_header.chunk_hash())?;
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(prev_block_header.hash())?;
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
-        let config = self.runtime_adapter.get_runtime_config(protocol_version)?;
+        let config = self.runtime_adapter.get_runtime_config(protocol_version);
 
         let transactions_validation_storage_config = RuntimeStorageConfig {
             state_root: chunk_header.prev_state_root(),
@@ -64,18 +64,14 @@ impl Client {
             state_patch: Default::default(),
         };
 
-        let mut validated_txs = vec![];
-        for signed_tx in chunk.transactions() {
-            match ValidatedTransaction::new(&config, signed_tx.clone()) {
-                Ok(validated_tx) => validated_txs.push(validated_tx),
-                Err((err, signed_tx)) => {
-                    return Err(Error::Other(format!(
+        let validated_txs =
+            ValidatedTransaction::new_list(&config, chunk.transactions().into_iter().cloned())
+                .map_err(|(err, signed_tx)| {
+                    Error::Other(format!(
                         "Validating Signed tx ({:?}) failed with {:?}",
                         signed_tx, err,
-                    )));
-                }
-            };
-        }
+                    ))
+                })?;
 
         // We call `validate_prepared_transactions()` here because we need storage proof for transactions validation.
         // Normally it is provided by chunk producer, but for shadow validation we need to generate it ourselves.

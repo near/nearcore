@@ -432,7 +432,7 @@ impl Client {
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
         let shard_layout =
             self.epoch_manager.get_shard_layout_from_protocol_version(protocol_version);
-        let config = self.runtime_adapter.get_runtime_config(protocol_version)?;
+        let config = self.runtime_adapter.get_runtime_config(protocol_version);
 
         for (shard_index, chunk_header) in block.chunks().iter_deprecated().enumerate() {
             let shard_id = shard_layout.get_shard_id(shard_index);
@@ -449,18 +449,16 @@ impl Client {
                     // By now the chunk must be in store, otherwise the block would have been orphaned
                     let chunk = self.chain.get_chunk(&chunk_header.chunk_hash()).unwrap();
 
-                    let mut validated_txs = vec![];
-                    for signed_tx in chunk.transactions() {
-                        match ValidatedTransaction::new(&config, signed_tx.clone()) {
-                            Ok(validated_tx) => validated_txs.push(validated_tx),
-                            Err((err, signed_tx)) => {
-                                return Err(Error::Other(format!(
-                                    "Validating Signed tx ({:?}) in new_transactions failed with {:?}",
-                                    signed_tx, err
-                                )));
-                            }
-                        }
-                    }
+                    let validated_txs = ValidatedTransaction::new_list(
+                        &config,
+                        chunk.transactions().into_iter().cloned(),
+                    )
+                    .map_err(|(err, signed_tx)| {
+                        Error::Other(format!(
+                            "Validating Signed tx ({:?}) in new_transactions failed with {:?}",
+                            signed_tx, err
+                        ))
+                    })?;
                     let reintroduced_count = self
                         .chunk_producer
                         .sharded_tx_pool

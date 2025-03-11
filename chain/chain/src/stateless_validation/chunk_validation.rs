@@ -412,20 +412,15 @@ pub fn pre_validate_chunk_state_witness(
                     }),
                     state_patch: Default::default(),
                 };
-                let config = runtime_adapter.get_runtime_config(protocol_version)?;
-
-                let mut validated_txs = vec![];
-                for signed_tx in new_transactions {
-                    match ValidatedTransaction::new(&config, signed_tx.clone()) {
-                        Ok(validated_tx) => validated_txs.push(validated_tx),
-                        Err((err, signed_tx)) => {
-                            return Err(Error::InvalidChunkStateWitness(format!(
+                let config = runtime_adapter.get_runtime_config(protocol_version);
+                let validated_txs =
+                    ValidatedTransaction::new_list(&config, new_transactions.into_iter().cloned())
+                        .map_err(|(err, signed_tx)| {
+                            Error::InvalidChunkStateWitness(format!(
                                 "Validating Signed tx ({:?}) in new_transactions failed with {:?}",
                                 signed_tx, err
-                            )));
-                        }
-                    }
-                }
+                            ))
+                        })?;
                 match validate_prepared_transactions(
                     chain,
                     runtime_adapter,
