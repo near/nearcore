@@ -590,9 +590,10 @@ impl<'a> ChainStoreUpdate<'a> {
         {
             let shard_uids_to_gc = self.get_shard_uids_to_gc(epoch_manager, &block_hash);
             for shard_uid in shard_uids_to_gc {
+                let trie_changes_key = get_block_shard_uid(&block_hash, &shard_uid);
                 let trie_changes = self
                     .store()
-                    .get_ser(DBCol::TrieChanges, &get_block_shard_uid(&block_hash, &shard_uid))?;
+                    .get_ser(DBCol::TrieChanges, &trie_changes_key)?;
 
                 let Some(trie_changes) = trie_changes else {
                     continue;
@@ -611,7 +612,7 @@ impl<'a> ChainStoreUpdate<'a> {
                     }
                 }
 
-                self.gc_col(DBCol::TrieChanges, &get_block_shard_uid(&block_hash, &shard_uid));
+                self.gc_col(DBCol::TrieChanges, &trie_changes_key);
             }
         }
 
