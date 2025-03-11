@@ -12,7 +12,7 @@ use near_primitives::types::{AccountId, BlockHeight};
 
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
-use crate::setup::state::TestData;
+use crate::setup::state::NodeExecutionData;
 use crate::utils::transactions::{call_contract, check_txs, deploy_contract, make_accounts};
 use crate::utils::{ONE_NEAR, TGAS};
 
@@ -101,7 +101,7 @@ fn setup(accounts: &Vec<AccountId>) -> (TestLoopEnv, AccountId) {
 /// Deploy the contract and wait until the transaction is executed.
 fn do_deploy_contract(
     test_loop: &mut TestLoopV2,
-    node_datas: &Vec<TestData>,
+    node_datas: &Vec<NodeExecutionData>,
     rpc_id: &AccountId,
     contract_id: &AccountId,
 ) {
@@ -115,7 +115,7 @@ fn do_deploy_contract(
 /// Call the contract from all accounts and wait until the transactions are executed.
 fn do_call_contract(
     test_loop: &mut TestLoopV2,
-    node_datas: &Vec<TestData>,
+    node_datas: &Vec<NodeExecutionData>,
     rpc_id: &AccountId,
     contract_id: &AccountId,
     accounts: &Vec<AccountId>,

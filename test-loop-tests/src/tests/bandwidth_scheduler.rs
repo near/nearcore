@@ -59,7 +59,7 @@ use testlib::bandwidth_scheduler::{
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::drop_condition::DropCondition;
 use crate::setup::env::TestLoopEnv;
-use crate::setup::state::TestData;
+use crate::setup::state::NodeExecutionData;
 use crate::utils::transactions::{TransactionRunner, run_txs_parallel};
 use crate::utils::{ONE_NEAR, TGAS};
 
@@ -481,7 +481,7 @@ impl WorkloadGenerator {
         shard_accounts: BTreeMap<ShardIndex, AccountId>,
         concurrency: usize,
         test_loop: &mut TestLoopV2,
-        node_datas: &[TestData],
+        node_datas: &[NodeExecutionData],
         random_seed: u64,
         link_generators: LinkGenerators,
     ) -> Self {
@@ -516,7 +516,7 @@ impl WorkloadGenerator {
     }
 
     /// Deploy the test contract on all workload accounts
-    fn deploy_contracts(&mut self, test_loop: &mut TestLoopV2, node_datas: &[TestData]) {
+    fn deploy_contracts(&mut self, test_loop: &mut TestLoopV2, node_datas: &[NodeExecutionData]) {
         tracing::info!(target: "scheduler_test", "Deploying contracts...");
         let (last_block_hash, nonce) = get_last_block_and_nonce(test_loop, node_datas);
         let deploy_contracts_txs: Vec<SignedTransaction> = self
@@ -542,7 +542,7 @@ impl WorkloadGenerator {
     fn generate_access_keys(
         &mut self,
         test_loop: &mut TestLoopV2,
-        node_datas: &[TestData],
+        node_datas: &[NodeExecutionData],
         concurrency: usize,
     ) -> BTreeMap<AccountId, Vec<Signer>> {
         tracing::info!(target: "scheduler_test", "Adding access keys...");
@@ -807,7 +807,7 @@ fn get_last_block_and_nonce_from_client(client: &Client) -> (CryptoHash, Nonce) 
 
 fn get_last_block_and_nonce(
     test_loop: &TestLoopV2,
-    node_datas: &[TestData],
+    node_datas: &[NodeExecutionData],
 ) -> (CryptoHash, Nonce) {
     let client = &test_loop.data.get(&node_datas[0].client_sender.actor_handle()).client;
     get_last_block_and_nonce_from_client(client)

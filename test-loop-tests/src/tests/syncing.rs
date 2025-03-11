@@ -1,11 +1,11 @@
 use crate::setup::builder::{NodeStateBuilder, TestLoopBuilder};
 use crate::setup::env::TestLoopEnv;
 use crate::utils::ONE_NEAR;
+use crate::utils::client_queries::ClientQueries;
 use crate::utils::transactions::execute_money_transfers;
 use itertools::Itertools;
 use near_async::time::Duration;
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
-use near_client::test_utils::test_loop::ClientQueries;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::types::AccountId;
 
