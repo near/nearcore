@@ -259,9 +259,10 @@ impl ValidatedTransaction {
     ///
     /// Note that the if a subset of SignedTransactions pass validation and then
     /// one fails, then this function will drop the validated txs.  Currently,
-    /// this is not the intended behaviour for all callers of this function.
-    /// This could be improved to never drop any txs if callers require such
-    /// functionality in the future.
+    /// this is not problematic for any of the callers of this function. It is
+    /// possible to improve this function to never drop any txs if callers
+    /// require such functionality in the future.
+    #[allow(clippy::result_large_err)]
     pub fn new_list(
         config: &RuntimeConfig,
         signed_txs: impl IntoIterator<Item = SignedTransaction>,
