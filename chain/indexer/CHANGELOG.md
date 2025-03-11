@@ -3,14 +3,14 @@
 ## 1.38.x
 
 * Make `build_streamer_message` public to allow custom indexer to reuse this function (e.g. build an indexer that streams optimistic block finalities, indexer that streams only blocks satisfying some condition, etc.)
-* Add local cache for delayed local receipts to avoid fetching blocks from the node everytime we need to find a delayed local receipt
+* Add local cache for delayed local receipts to avoid fetching blocks from the node every time we need to find a delayed local receipt
   * Add metric to watch how far back in the history we went to find a delayed local receipt when cache didn't work
 * Remove unnecessary `#[async_recursion]` from `build_streamer_message` function
 * Clean up some useless debug logs and add more useful ones
 
 ## 1.32.x
 
-* Add `nightly` feature to NEAR Indexer Framework to respect this feature for `nearcore` lib (requried for `betanet`)
+* Add `nightly` feature to NEAR Indexer Framework to respect this feature for `nearcore` lib (required for `betanet`)
 
 ## 1.26.0
 
@@ -58,6 +58,7 @@ Since the change of reading genesis method to optimize memory usage. You'd be ab
 
 * `IndexerChunkView` doesn't contain field `receipt_execution_outcomes` anymore, this field has been moved to `IndexerShard`
 * `StreamerMessage` structure was aligned more with NEAR Protocol specification and now looks like:
+
   ```
   StreamerMessage {
     block: BlockView,
@@ -97,8 +98,8 @@ created and started on the Indexer implementation, not on the Indexer Framework 
 ## Breaking changes
 
 * `IndexerConfig` was extended with another field `await_for_node_synced`. Corresponding enum is `AwaitForNodeSyncedEnum` with variants:
-  - `WaitForFullSync` - await for node to be fully synced (previous default behaviour)
-  - `StreamWhileSyncing`- start streaming right away while node is syncing (it's useful in case of Indexing from genesis)
+  * `WaitForFullSync` - await for node to be fully synced (previous default behavior)
+  * `StreamWhileSyncing`- start streaming right away while node is syncing (it's useful in case of Indexing from genesis)
 
 ## 0.5.0
 

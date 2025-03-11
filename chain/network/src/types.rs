@@ -12,17 +12,18 @@ pub use crate::network_protocol::{
 use crate::routing::routing_table_view::RoutingTableInfo;
 pub use crate::state_sync::StateSyncResponse;
 use near_async::messaging::{AsyncSender, Sender};
-use near_async::time;
+use near_async::{MultiSend, MultiSendMessage, MultiSenderFrom, time};
 use near_crypto::PublicKey;
 use near_primitives::block::{ApprovalMessage, Block, GenesisId};
 use near_primitives::challenge::Challenge;
 use near_primitives::epoch_sync::CompressedEpochSyncProof;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
+use near_primitives::optimistic_block::OptimisticBlock;
 use near_primitives::sharding::PartialEncodedChunkWithArcReceipts;
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::stateless_validation::contract_distribution::{
-    ChunkContractAccesses, ChunkContractDeployments, ContractCodeRequest, ContractCodeResponse,
+    ChunkContractAccesses, ContractCodeRequest, ContractCodeResponse, PartialEncodedContractDeploys,
 };
 use near_primitives::stateless_validation::partial_witness::PartialEncodedStateWitness;
 use near_primitives::stateless_validation::state_witness::ChunkStateWitnessAck;
@@ -157,7 +158,7 @@ pub type AccountKeys = HashMap<AccountId, HashSet<PublicKey>>;
 #[derive(Debug, Clone)]
 pub struct ChainInfo {
     pub tracked_shards: Vec<ShardId>,
-    // The lastest block on chain.
+    // The latest block on chain.
     pub block: Block,
     // Public keys of accounts participating in the BFT consensus
     // It currently includes "block producers", "chunk producers" and "approvers".
@@ -240,6 +241,8 @@ impl From<NetworkResponses> for PeerManagerMessageResponse {
 pub enum NetworkRequests {
     /// Sends block, either when block was just produced or when requested.
     Block { block: Block },
+    /// Sends optimistic block as soon as the production window for the height starts.
+    OptimisticBlock { optimistic_block: OptimisticBlock },
     /// Sends approval.
     Approval { approval_message: ApprovalMessage },
     /// Request block with given hash from given peer.
@@ -298,15 +301,15 @@ pub enum NetworkRequests {
     /// Message from chunk producer to chunk validators containing the code-hashes of contracts
     /// accessed for the main state transition in the witness.
     ChunkContractAccesses(Vec<AccountId>, ChunkContractAccesses),
-    /// Message from chunk producer to other validators containing the code-hashes of contracts
-    /// deployed for the main state transition in the witness.
-    ChunkContractDeployments(Vec<AccountId>, ChunkContractDeployments),
     /// Message from chunk validator to chunk producer to request missing contract code.
     /// This message is currently sent as a result of receiving the ChunkContractAccesses message
     /// and failing to find the corresponding code for the hashes received.
     ContractCodeRequest(AccountId, ContractCodeRequest),
     /// Message from chunk producer to chunk validators to send the contract code as response to ContractCodeRequest.
     ContractCodeResponse(AccountId, ContractCodeResponse),
+    /// Message originates from the chunk producer and distributed among other validators,
+    /// containing the code of the newly-deployed contracts during the main state transition of the witness.
+    PartialEncodedContractDeploys(Vec<AccountId>, PartialEncodedContractDeploys),
 }
 
 #[derive(Debug, actix::Message, strum::IntoStaticStr)]
@@ -397,7 +400,7 @@ pub struct ConnectedPeerInfo {
     pub nonce: u64,
 }
 
-#[derive(Debug, Clone, actix::MessageResponse, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, actix::MessageResponse, PartialEq, Eq)]
 pub struct NetworkInfo {
     /// TIER2 connections.
     pub connected_peers: Vec<ConnectedPeerInfo>,
@@ -421,12 +424,19 @@ pub enum NetworkResponses {
     RouteNotFound,
 }
 
-#[derive(Clone, near_async::MultiSend, near_async::MultiSenderFrom)]
+#[derive(Clone, MultiSend, MultiSenderFrom)]
 pub struct PeerManagerAdapter {
     pub async_request_sender: AsyncSender<PeerManagerMessageRequest, PeerManagerMessageResponse>,
     pub request_sender: Sender<PeerManagerMessageRequest>,
     pub set_chain_info_sender: Sender<SetChainInfo>,
     pub state_sync_event_sender: Sender<StateSyncEvent>,
+}
+
+#[derive(Clone, MultiSend, MultiSenderFrom, MultiSendMessage)]
+#[multi_send_message_derive(Debug)]
+#[multi_send_input_derive(Debug, Clone, PartialEq, Eq)]
+pub struct PeerManagerSenderForNetwork {
+    pub tier3_request_sender: Sender<Tier3Request>,
 }
 
 #[cfg(test)]
@@ -527,7 +537,8 @@ pub struct AccountIdOrPeerTrackingShard {
     pub min_height: BlockHeight,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, actix::Message)]
+#[rtype(result = "()")]
 /// An inbound request to which a response should be sent over Tier3
 pub struct Tier3Request {
     /// Target peer to send the response to
@@ -536,7 +547,7 @@ pub struct Tier3Request {
     pub body: Tier3RequestBody,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, strum::IntoStaticStr)]
 pub enum Tier3RequestBody {
     StatePart(StatePartRequestBody),
 }

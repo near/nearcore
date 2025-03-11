@@ -1,7 +1,6 @@
 use borsh::BorshDeserialize;
 use near_chain::Provenance;
 use near_chain_configs::{Genesis, MutableConfigValue};
-use near_client::test_utils::TestEnv;
 use near_client::ProcessTxResponse;
 use near_crypto::{InMemorySigner, KeyType, Signer};
 use near_epoch_manager::EpochManager;
@@ -13,19 +12,21 @@ use near_primitives::transaction::{
 };
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::AccountId;
-use near_store::cold_storage::{
+use near_store::archive::cold_storage::{
     copy_all_data_to_cold, test_cold_genesis_update, test_get_store_initial_writes,
     test_get_store_reads, update_cold_db, update_cold_head,
 };
-use near_store::metadata::DbKind;
 use near_store::metadata::DB_VERSION;
+use near_store::metadata::DbKind;
 use near_store::test_utils::create_test_node_storage_with_cold;
-use near_store::{DBCol, Store, COLD_HEAD_KEY, HEAD_KEY};
-use nearcore::test_utils::TestEnvNightshadeSetupExt;
-use nearcore::{cold_storage::spawn_cold_store_loop, NearConfig};
+use near_store::{COLD_HEAD_KEY, DBCol, HEAD_KEY, Store};
+use nearcore::{NearConfig, cold_storage::spawn_cold_store_loop};
 use std::collections::HashSet;
 use std::str::FromStr;
 use strum::IntoEnumIterator;
+
+use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
+use crate::env::test_env::TestEnv;
 
 fn check_key(first_store: &Store, second_store: &Store, col: DBCol, key: &[u8]) {
     let pretty_key = near_fmt::StorageKey(key);
@@ -98,7 +99,7 @@ fn create_tx_function_call(
 
 /// Deploying test contract and calling write_random_value 5 times every block for 4 epochs.
 /// Also doing 5 send transactions every block.
-/// 4 epochs, because this test does not cover gc behaviour.
+/// 4 epochs, because this test does not cover gc behavior.
 /// After every block updating a separate database with data from client's storage.
 /// After 4 epochs we check that everything, that exists in cold columns
 /// of the storage of the client also exists in the database to which we were writing.
@@ -123,7 +124,7 @@ fn test_storage_after_commit_of_cold_update() {
 
     let mut last_hash = *env.clients[0].chain.genesis().hash();
     for height in 1..max_height {
-        let signer = InMemorySigner::from_seed(test0(), KeyType::ED25519, "test0").into();
+        let signer = InMemorySigner::test_signer(&test0());
         if height == 1 {
             let tx = create_tx_deploy_contract(height, &signer, last_hash);
             assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
@@ -147,9 +148,12 @@ fn test_storage_after_commit_of_cold_update() {
 
         let client = &env.clients[0];
         let client_store = client.runtime_adapter.store();
-        let epoch_id = client.epoch_manager.get_epoch_id_from_prev_block(&last_hash).unwrap();
+        let epoch_id = client.epoch_manager.get_epoch_id(block.hash()).unwrap();
         let shard_layout = client.epoch_manager.get_shard_layout(&epoch_id).unwrap();
-        update_cold_db(cold_db, &client_store, &shard_layout, &height, 4).unwrap();
+        let is_last_block_in_epoch =
+            client.epoch_manager.is_next_block_epoch_start(block.hash()).unwrap();
+        update_cold_db(cold_db, &client_store, &shard_layout, &height, is_last_block_in_epoch, 4)
+            .unwrap();
 
         last_hash = *block.hash();
     }
@@ -257,7 +261,7 @@ fn test_cold_db_copy_with_height_skips() {
 
     let mut last_hash = *env.clients[0].chain.genesis().hash();
     for height in 1..max_height {
-        let signer = InMemorySigner::from_seed(test0(), KeyType::ED25519, "test0").into();
+        let signer = InMemorySigner::test_signer(&test0());
         // It is still painful to filter out transactions in last two blocks.
         // So, as block 19 is skipped, blocks 17 and 18 shouldn't contain any transactions.
         // So, we shouldn't send any transactions between block 17 and the previous block.
@@ -281,14 +285,22 @@ fn test_cold_db_copy_with_height_skips() {
         };
 
         let client = &env.clients[0];
-        let epoch_id = client.epoch_manager.get_epoch_id_from_prev_block(&last_hash).unwrap();
+        let hot_store = client.runtime_adapter.store();
+        let block_hash =
+            hot_store.get_ser::<CryptoHash>(DBCol::BlockHeight, &height.to_le_bytes()).unwrap();
+        let Some(block) = block else {
+            assert!(block_hash.is_none());
+            continue;
+        };
+        let block_hash = block_hash.unwrap();
+        assert!(&block_hash == block.hash());
+        let epoch_id = client.epoch_manager.get_epoch_id(&block_hash).unwrap();
         let shard_layout = client.epoch_manager.get_shard_layout(&epoch_id).unwrap();
-        update_cold_db(&cold_db, &client.runtime_adapter.store(), &shard_layout, &height, 1)
+        let is_last_block_in_epoch =
+            client.epoch_manager.is_next_block_epoch_start(&block_hash).unwrap();
+        update_cold_db(&cold_db, hot_store, &shard_layout, &height, is_last_block_in_epoch, 1)
             .unwrap();
-
-        if block.is_some() {
-            last_hash = *block.unwrap().hash();
-        }
+        last_hash = block_hash;
     }
 
     // We still need to filter out one chunk
@@ -340,7 +352,7 @@ fn test_initial_copy_to_cold(batch_size: usize) {
 
     let mut last_hash = *env.clients[0].chain.genesis().hash();
     for height in 1..max_height {
-        let signer = InMemorySigner::from_seed(test0(), KeyType::ED25519, "test0").into();
+        let signer = InMemorySigner::test_signer(&test0());
         for i in 0..5 {
             let tx = create_tx_send_money(height * 10 + i, &signer, last_hash);
             assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
@@ -427,7 +439,7 @@ fn test_cold_loop_on_gc_boundary() {
     let mut last_hash = *env.clients[0].chain.genesis().hash();
 
     for height in 1..height_delta {
-        let signer = InMemorySigner::from_seed(test0(), KeyType::ED25519, "test0").into();
+        let signer = InMemorySigner::test_signer(&test0());
         for i in 0..5 {
             let tx = create_tx_send_money(height * 10 + i, &signer, last_hash);
             assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
@@ -446,7 +458,7 @@ fn test_cold_loop_on_gc_boundary() {
     update_cold_head(cold_db, &hot_store, &(height_delta - 1)).unwrap();
 
     for height in height_delta..height_delta * 2 {
-        let signer = InMemorySigner::from_seed(test0(), KeyType::ED25519, "test0").into();
+        let signer = InMemorySigner::test_signer(&test0());
         for i in 0..5 {
             let tx = create_tx_send_money(height * 10 + i, &signer, last_hash);
             assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);

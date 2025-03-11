@@ -5,8 +5,8 @@ use std::sync::Arc;
 
 use near_o11y::log_assert_fail;
 
-use crate::db::{DBIterator, DBIteratorItem, DBSlice, DBTransaction, Database, StoreStatistics};
 use crate::DBCol;
+use crate::db::{DBIterator, DBIteratorItem, DBSlice, DBTransaction, Database, StoreStatistics};
 
 /// A database that provides access to the hot and cold databases.
 ///
@@ -43,7 +43,7 @@ impl SplitDB {
             // When comparing two (key, value) paris only compare the keys.
             // - values in hot and cold may differ in rc but they are still the same
             // - values written to cold should be immutable anyway
-            // - values writted to cold should be final
+            // - values written to cold should be final
             (Ok((a_key, _)), Ok((b_key, _))) => Ord::cmp(a_key, b_key),
         }
     }
@@ -58,7 +58,7 @@ impl SplitDB {
         let iter = itertools::merge_join_by(a, b, Self::db_iter_item_cmp);
         // Flatten the EitherOrBoth while discarding duplicates. Each input
         // iterator should only contain unique and sorted items. If any item is
-        // present in both iterors before the merge, it will get mapped to a
+        // present in both iters before the merge, it will get mapped to a
         // EitherOrBoth::Both in the merged iter. Pick either and discard the
         // other - this will guarantee uniqueness of the resulting iterator.
         let iter = iter.map(|item| match item {
@@ -214,7 +214,7 @@ mod test {
 
     use super::*;
 
-    use crate::db::{testdb::TestDB, ColdDB, DBOp, DBTransaction};
+    use crate::db::{ColdDB, DBOp, DBTransaction, testdb::TestDB};
 
     const FOO: &[u8] = b"FOO";
     const BAR: &[u8] = b"BAR";

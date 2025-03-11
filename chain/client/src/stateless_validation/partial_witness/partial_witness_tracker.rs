@@ -1,29 +1,34 @@
-use std::collections::BTreeSet;
+use std::collections::HashSet;
 use std::num::NonZeroUsize;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use lru::LruCache;
 use near_async::messaging::CanSend;
 use near_async::time::Instant;
-use near_chain::chain::ChunkStateWitnessMessage;
+use near_cache::SyncLruCache;
 use near_chain::Error;
+use near_chain::chain::ChunkStateWitnessMessage;
 use near_epoch_manager::EpochManagerAdapter;
-use near_primitives::challenge::PartialState;
 use near_primitives::hash::CryptoHash;
+use near_primitives::reed_solomon::{
+    InsertPartResult, ReedSolomonEncoder, ReedSolomonEncoderCache, ReedSolomonPartsTracker,
+};
+use near_primitives::state::PartialState;
+use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::contract_distribution::{CodeBytes, CodeHash};
 use near_primitives::stateless_validation::partial_witness::PartialEncodedStateWitness;
 use near_primitives::stateless_validation::state_witness::{
     ChunkStateWitness, ChunkStateWitnessSize, EncodedChunkStateWitness,
 };
-use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::types::ShardId;
 use time::ext::InstantExt as _;
 
 use crate::client_actor::ClientSenderForPartialWitness;
 use crate::metrics;
 
-use super::encoding::{WitnessEncoder, WitnessEncoderCache, WitnessPart};
 use near_primitives::utils::compression::CompressedData;
+
+use super::encoding::WITNESS_RATIO_DATA_PARTS;
 
 /// Max number of chunks to keep in the witness tracker cache. We reach here only after validation
 /// of the partial_witness so the LRU cache size need not be too large.
@@ -43,7 +48,7 @@ enum AccessedContractsState {
     Unknown,
     /// Received `ChunkContractAccesses` and sent `ContractCodeRequest`,
     /// waiting for response from the chunk producer.
-    Requested { contract_hashes: BTreeSet<CodeHash>, requested_at: Instant },
+    Requested { contract_hashes: HashSet<CodeHash>, requested_at: Instant },
     /// Received a valid `ContractCodeResponse`.
     Received(Vec<CodeBytes>),
 }
@@ -58,82 +63,13 @@ impl AccessedContractsState {
     }
 }
 
-struct WaitingPartsState {
-    parts: Vec<WitnessPart>,
-    encoded_length: usize,
-    data_parts_present: usize,
-    encoder: Arc<WitnessEncoder>,
-    total_parts_size: usize,
-}
-
 enum WitnessPartsState {
     /// Haven't received any parts yet.
     Empty,
     /// Received at least one part, but not enough to decode the witness.
-    WaitingParts(WaitingPartsState),
+    WaitingParts(ReedSolomonPartsTracker<EncodedChunkStateWitness>),
     /// Received enough parts and tried decoding the witness.
     Decoded { decode_result: DecodePartialWitnessResult, decoded_at: Instant },
-}
-
-impl WaitingPartsState {
-    fn new(encoder: Arc<WitnessEncoder>, encoded_length: usize) -> Self {
-        Self {
-            data_parts_present: 0,
-            parts: vec![None; encoder.total_parts()],
-            total_parts_size: 0,
-            encoded_length,
-            encoder,
-        }
-    }
-
-    fn data_parts_required(&self) -> usize {
-        self.encoder.data_parts()
-    }
-
-    fn has_enough_parts(&self) -> bool {
-        self.data_parts_present >= self.data_parts_required()
-    }
-
-    fn insert_part(
-        &mut self,
-        partial_witness: PartialEncodedStateWitness,
-    ) -> Option<DecodePartialWitnessResult> {
-        let ChunkProductionKey { shard_id, height_created, .. } =
-            partial_witness.chunk_production_key();
-        let part_ord = partial_witness.part_ord();
-        let encoded_length = partial_witness.encoded_length();
-        let part = partial_witness.into_part();
-
-        // Check if the part is already present.
-        if self.parts[part_ord].is_some() {
-            tracing::warn!(
-                target: "client",
-                ?shard_id,
-                height_created,
-                part_ord,
-                "Received duplicate or redundant state witness part."
-            );
-            return None;
-        }
-
-        if self.encoded_length != encoded_length {
-            tracing::warn!(
-                target: "client",
-                expected = self.encoded_length,
-                actual = encoded_length,
-                "Partial encoded witness length field doesn't match",
-            );
-            return None;
-        }
-
-        // Increment the count of data parts present even if the part has been decoded before.
-        // We use this in metrics to track the number of parts received. Insert the part into the cache entry.
-        self.data_parts_present += 1;
-        self.total_parts_size += part.len();
-        self.parts[part_ord] = Some(part);
-
-        self.has_enough_parts().then(|| self.encoder.decode(&mut self.parts, self.encoded_length))
-    }
 }
 
 struct CacheEntry {
@@ -144,8 +80,8 @@ struct CacheEntry {
 }
 
 enum CacheUpdate {
-    WitnessPart(PartialEncodedStateWitness, Arc<WitnessEncoder>),
-    AccessedContractHashes(BTreeSet<CodeHash>),
+    WitnessPart(PartialEncodedStateWitness, Arc<ReedSolomonEncoder>),
+    AccessedContractHashes(HashSet<CodeHash>),
     AccessedContractCodes(Vec<CodeBytes>),
 }
 
@@ -168,7 +104,7 @@ impl CacheEntry {
 
     pub fn data_parts_present(&self) -> Option<usize> {
         match &self.witness_parts {
-            WitnessPartsState::WaitingParts(data) => Some(data.data_parts_present),
+            WitnessPartsState::WaitingParts(parts) => Some(parts.data_parts_present()),
             WitnessPartsState::Empty | WitnessPartsState::Decoded { .. } => None,
         }
     }
@@ -176,7 +112,7 @@ impl CacheEntry {
     pub fn total_size(&self) -> usize {
         let parts_size = match &self.witness_parts {
             WitnessPartsState::Empty => 0,
-            WitnessPartsState::WaitingParts(parts) => parts.total_parts_size,
+            WitnessPartsState::WaitingParts(parts) => parts.total_parts_size(),
             WitnessPartsState::Decoded { decode_result, .. } => {
                 decode_result.as_ref().map_or(0, |witness| witness.size_bytes())
             }
@@ -211,10 +147,10 @@ impl CacheEntry {
     fn process_witness_part(
         &mut self,
         partial_witness: PartialEncodedStateWitness,
-        encoder: Arc<WitnessEncoder>,
+        encoder: Arc<ReedSolomonEncoder>,
     ) {
         if matches!(self.witness_parts, WitnessPartsState::Empty) {
-            let parts = WaitingPartsState::new(encoder, partial_witness.encoded_length());
+            let parts = ReedSolomonPartsTracker::new(encoder, partial_witness.encoded_length());
             self.witness_parts = WitnessPartsState::WaitingParts(parts);
         }
         let parts = match &mut self.witness_parts {
@@ -222,19 +158,51 @@ impl CacheEntry {
             WitnessPartsState::WaitingParts(parts) => parts,
             WitnessPartsState::Decoded { .. } => return,
         };
-        if let Some(decode_result) = parts.insert_part(partial_witness) {
-            self.witness_parts =
-                WitnessPartsState::Decoded { decode_result, decoded_at: Instant::now() };
-            metrics::DECODE_PARTIAL_WITNESS_ACCESSED_CONTRACTS_STATE_COUNT
-                .with_label_values(&[
-                    &self.shard_id.to_string(),
-                    self.accessed_contracts.metrics_label(),
-                ])
-                .inc();
+        let key = partial_witness.chunk_production_key();
+        if parts.encoded_length() != partial_witness.encoded_length() {
+            tracing::warn!(
+                target: "client",
+                ?key,
+                expected = parts.encoded_length(),
+                actual = partial_witness.encoded_length(),
+                "Partial encoded witness encoded length field does not match",
+            );
+            return;
+        }
+        let part_ord = partial_witness.part_ord();
+        let part = partial_witness.into_part();
+        match parts.insert_part(part_ord, part) {
+            InsertPartResult::Accepted => {}
+            InsertPartResult::PartAlreadyAvailable => {
+                tracing::warn!(
+                    target: "client",
+                    ?key,
+                    part_ord,
+                    "Received duplicate or redundant state witness part"
+                );
+            }
+            InsertPartResult::InvalidPartOrd => {
+                tracing::warn!(
+                    target: "client",
+                    ?key,
+                    part_ord,
+                    "Received invalid partial witness part ord"
+                );
+            }
+            InsertPartResult::Decoded(decode_result) => {
+                self.witness_parts =
+                    WitnessPartsState::Decoded { decode_result, decoded_at: Instant::now() };
+                metrics::DECODE_PARTIAL_WITNESS_ACCESSED_CONTRACTS_STATE_COUNT
+                    .with_label_values(&[
+                        &self.shard_id.to_string(),
+                        self.accessed_contracts.metrics_label(),
+                    ])
+                    .inc();
+            }
         }
     }
 
-    fn set_requested_contracts(&mut self, contract_hashes: BTreeSet<CodeHash>) {
+    fn set_requested_contracts(&mut self, contract_hashes: HashSet<CodeHash>) {
         match &self.accessed_contracts {
             AccessedContractsState::Unknown => {
                 self.accessed_contracts = AccessedContractsState::Requested {
@@ -251,7 +219,7 @@ impl CacheEntry {
     fn set_received_contracts(&mut self, contract_codes: Vec<CodeBytes>) {
         match &self.accessed_contracts {
             AccessedContractsState::Requested { contract_hashes, requested_at } => {
-                let actual = BTreeSet::from_iter(
+                let actual = HashSet::from_iter(
                     contract_codes.iter().map(|code| CodeHash(CryptoHash::hash_bytes(&code.0))),
                 );
                 let expected = contract_hashes;
@@ -341,13 +309,13 @@ pub struct PartialEncodedStateWitnessTracker {
     /// Epoch manager to get the set of chunk validators
     epoch_manager: Arc<dyn EpochManagerAdapter>,
     /// Keeps track of state witness parts received from chunk producers.
-    parts_cache: LruCache<ChunkProductionKey, CacheEntry>,
+    parts_cache: Mutex<LruCache<ChunkProductionKey, CacheEntry>>,
     /// Keeps track of the already decoded witnesses. This is needed
     /// to protect chunk validator from processing the same witness multiple
     /// times.
-    processed_witnesses: LruCache<ChunkProductionKey, ()>,
+    processed_witnesses: SyncLruCache<ChunkProductionKey, ()>,
     /// Reed Solomon encoder for decoding state witness parts.
-    encoders: WitnessEncoderCache,
+    encoders: Mutex<ReedSolomonEncoderCache>,
 }
 
 impl PartialEncodedStateWitnessTracker {
@@ -358,16 +326,16 @@ impl PartialEncodedStateWitnessTracker {
         Self {
             client_sender,
             epoch_manager,
-            parts_cache: LruCache::new(NonZeroUsize::new(WITNESS_PARTS_CACHE_SIZE).unwrap()),
-            processed_witnesses: LruCache::new(
-                NonZeroUsize::new(PROCESSED_WITNESSES_CACHE_SIZE).unwrap(),
-            ),
-            encoders: WitnessEncoderCache::new(),
+            parts_cache: Mutex::new(LruCache::new(
+                NonZeroUsize::new(WITNESS_PARTS_CACHE_SIZE).unwrap(),
+            )),
+            processed_witnesses: SyncLruCache::new(PROCESSED_WITNESSES_CACHE_SIZE),
+            encoders: Mutex::new(ReedSolomonEncoderCache::new(WITNESS_RATIO_DATA_PARTS)),
         }
     }
 
     pub fn store_partial_encoded_state_witness(
-        &mut self,
+        &self,
         partial_witness: PartialEncodedStateWitness,
     ) -> Result<(), Error> {
         tracing::debug!(target: "client", ?partial_witness, "store_partial_encoded_state_witness");
@@ -378,9 +346,9 @@ impl PartialEncodedStateWitnessTracker {
     }
 
     pub fn store_accessed_contract_hashes(
-        &mut self,
+        &self,
         key: ChunkProductionKey,
-        hashes: BTreeSet<CodeHash>,
+        hashes: HashSet<CodeHash>,
     ) -> Result<(), Error> {
         tracing::debug!(target: "client", ?key, ?hashes, "store_accessed_contract_hashes");
         let update = CacheUpdate::AccessedContractHashes(hashes);
@@ -388,7 +356,7 @@ impl PartialEncodedStateWitnessTracker {
     }
 
     pub fn store_accessed_contract_codes(
-        &mut self,
+        &self,
         key: ChunkProductionKey,
         codes: Vec<CodeBytes>,
     ) -> Result<(), Error> {
@@ -398,7 +366,7 @@ impl PartialEncodedStateWitnessTracker {
     }
 
     fn process_update(
-        &mut self,
+        &self,
         key: ChunkProductionKey,
         create_if_not_exists: bool,
         update: CacheUpdate,
@@ -412,20 +380,26 @@ impl PartialEncodedStateWitnessTracker {
             return Ok(());
         }
 
+        let mut parts_cache = self.parts_cache.lock().unwrap();
         if create_if_not_exists {
-            self.maybe_insert_new_entry_in_parts_cache(&key);
+            Self::maybe_insert_new_entry_in_parts_cache(&mut parts_cache, &key);
         }
-        let Some(entry) = self.parts_cache.get_mut(&key) else {
+        let Some(entry) = parts_cache.get_mut(&key) else {
             return Ok(());
         };
-        if let Some((decode_result, accessed_contracts)) = entry.update(update) {
+        let total_size: usize = if let Some((decode_result, accessed_contracts)) =
+            entry.update(update)
+        {
             // Record the time taken from receiving first part to decoding partial witness.
             let time_to_last_part = Instant::now().signed_duration_since(entry.created_at);
             metrics::PARTIAL_WITNESS_TIME_TO_LAST_PART
                 .with_label_values(&[key.shard_id.to_string().as_str()])
                 .observe(time_to_last_part.as_seconds_f64());
 
-            self.parts_cache.pop(&key);
+            parts_cache.pop(&key);
+            let total_size = parts_cache.iter().map(|(_, entry)| entry.total_size()).sum();
+            drop(parts_cache);
+
             self.processed_witnesses.push(key.clone(), ());
 
             let encoded_witness = match decode_result {
@@ -461,26 +435,35 @@ impl PartialEncodedStateWitnessTracker {
 
             tracing::debug!(target: "client", ?key, "Sending encoded witness to client.");
             self.client_sender.send(ChunkStateWitnessMessage { witness, raw_witness_size });
-        }
-        self.record_total_parts_cache_size_metric();
+
+            total_size
+        } else {
+            parts_cache.iter().map(|(_, entry)| entry.total_size()).sum()
+        };
+        metrics::PARTIAL_WITNESS_CACHE_SIZE.set(total_size as f64);
+
         Ok(())
     }
 
-    fn get_encoder(&mut self, key: &ChunkProductionKey) -> Result<Arc<WitnessEncoder>, Error> {
+    fn get_encoder(&self, key: &ChunkProductionKey) -> Result<Arc<ReedSolomonEncoder>, Error> {
         // The expected number of parts for the Reed Solomon encoding is the number of chunk validators.
         let num_parts = self
             .epoch_manager
             .get_chunk_validator_assignments(&key.epoch_id, key.shard_id, key.height_created)?
             .len();
-        Ok(self.encoders.entry(num_parts))
+        let mut encoders = self.encoders.lock().unwrap();
+        Ok(encoders.entry(num_parts))
     }
 
     // Function to insert a new entry into the cache for the chunk hash if it does not already exist
     // We additionally check if an evicted entry has been fully decoded and processed.
-    fn maybe_insert_new_entry_in_parts_cache(&mut self, key: &ChunkProductionKey) {
-        if !self.parts_cache.contains(key) {
+    fn maybe_insert_new_entry_in_parts_cache(
+        parts_cache: &mut LruCache<ChunkProductionKey, CacheEntry>,
+        key: &ChunkProductionKey,
+    ) {
+        if !parts_cache.contains(key) {
             if let Some((evicted_key, evicted_entry)) =
-                self.parts_cache.push(key.clone(), CacheEntry::new(key.shard_id))
+                parts_cache.push(key.clone(), CacheEntry::new(key.shard_id))
             {
                 tracing::warn!(
                     target: "client",
@@ -491,11 +474,6 @@ impl PartialEncodedStateWitnessTracker {
                 );
             }
         }
-    }
-
-    fn record_total_parts_cache_size_metric(&self) {
-        let total_size: usize = self.parts_cache.iter().map(|(_, entry)| entry.total_size()).sum();
-        metrics::PARTIAL_WITNESS_CACHE_SIZE.set(total_size as f64);
     }
 
     fn decode_state_witness(

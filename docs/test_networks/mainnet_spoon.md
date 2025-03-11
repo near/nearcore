@@ -24,7 +24,7 @@ you have your node's home directory set up, run the following
 `state-viewer` command to generate a dump of the chain's state:
 
 ```shell
-$ neard --home $NEAR_HOME_DIRECTORY view-state dump-state --stream
+neard --home $NEAR_HOME_DIRECTORY view-state dump-state --stream
 ```
 
 This command will take a while (possibly many hours) to run. But at the
@@ -48,7 +48,7 @@ chain. Suppose that we want our chain to have two validators,
 where we'll be storing intermediate files during this process:
 
 ```shell
-$ mkdir ~/test-chain-scratch
+mkdir ~/test-chain-scratch
 ```
 
 then using your favorite editor, lay out the validators you want in
@@ -75,8 +75,8 @@ These validator keys should be keys you've already generated. So for
 the rest of this document, we'll assume you've run:
 
 ```shell
-$ neard --home ~/near-test-chain/validator0 init --account-id validator0.near
-$ neard --home ~/near-test-chain/validator1 init --account-id validator1.near
+neard --home ~/near-test-chain/validator0 init --account-id validator0.near
+neard --home ~/near-test-chain/validator1 init --account-id validator1.near
 ```
 
 This is also a good time to think about what extra accounts you might
@@ -146,10 +146,10 @@ copy the records and genesis files generated in the previous step to
 each of these:
 
 ```shell
-$ cp ~/near-test-chain/records.json ~/near-test-chain/validator0
-$ cp ~/near-test-chain/genesis.json ~/near-test-chain/validator0
-$ cp ~/near-test-chain/records.json ~/near-test-chain/validator1
-$ cp ~/near-test-chain/genesis.json ~/near-test-chain/validator1
+cp ~/near-test-chain/records.json ~/near-test-chain/validator0
+cp ~/near-test-chain/genesis.json ~/near-test-chain/validator0
+cp ~/near-test-chain/records.json ~/near-test-chain/validator1
+cp ~/near-test-chain/genesis.json ~/near-test-chain/validator1
 ```
 
 Now we'll need to make a few config changes to each of
@@ -212,8 +212,8 @@ After making these changes, you can try running one neard process for
 each of your validators:
 
 ```shell
-$ neard --home ~/near-test-chain/validator0 run
-$ neard --home ~/near-test-chain/validator1 run
+neard --home ~/near-test-chain/validator0 run
+neard --home ~/near-test-chain/validator1 run
 ```
 
 Now these nodes will begin by taking the records laid out in

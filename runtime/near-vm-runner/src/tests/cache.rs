@@ -3,19 +3,19 @@
 
 use super::{create_context, test_vm_config, with_vm_variants};
 use crate::cache::{CompiledContractInfo, ContractRuntimeCache};
+use crate::logic::Config;
 use crate::logic::errors::VMRunnerError;
 use crate::logic::mocks::mock_external::MockedExternal;
-use crate::logic::Config;
 use crate::runner::VMKindExt;
 use crate::runner::VMResult;
 use crate::{ContractCode, MockContractRuntimeCache};
 use assert_matches::assert_matches;
-use near_parameters::vm::VMKind;
 use near_parameters::RuntimeFeesConfig;
+use near_parameters::vm::VMKind;
 use near_primitives_core::hash::CryptoHash;
 use std::io;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 #[test]
 fn test_caches_compilation_error() {
@@ -148,23 +148,23 @@ fn test_wasmer2_artifact_output_stability() {
     // fall through the cracks here, but hopefully it should catch most of the fish just fine.
     let seeds = [2, 3, 5, 7, 11, 13, 17];
     let prepared_hashes = [
-        11313378614122864359,
-        15129741658507107429,
-        6663551338814735895,
-        17573418911223110359,
-        3130574445877428311,
-        11574598916196339098,
-        10719493536745069553,
+        10570074354427437071,
+        112822494854026494,
+        8923373422804896330,
+        7482465259708658318,
+        17593373341226268225,
+        16574762561946343960,
+        6263133173262547027,
     ];
     let mut got_prepared_hashes = Vec::with_capacity(seeds.len());
     let compiled_hashes = [
-        10064221885882795403,
-        3125775751094251057,
-        5419113076376709775,
-        11996380560209519923,
-        5262356478082097591,
-        15002713309850850128,
-        17666356303775050986,
+        13571899357794997814,
+        3529004220149248510,
+        12618963124682967106,
+        17344326048993250539,
+        9020736083169133944,
+        6686183491943308521,
+        12077631041629763505,
     ];
     let mut got_compiled_hashes = Vec::with_capacity(seeds.len());
     for seed in seeds {
@@ -173,7 +173,11 @@ fn test_wasmer2_artifact_output_stability() {
         let config = Arc::new(test_vm_config());
         let prepared_code =
             prepare::prepare_contract(contract.code(), &config, VMKind::Wasmer2).unwrap();
-        got_prepared_hashes.push(crate::utils::stable_hash((&contract.code(), &prepared_code)));
+        let this_hash = crate::utils::stable_hash((&contract.code(), &prepared_code));
+        got_prepared_hashes.push(this_hash);
+        if std::env::var_os("NEAR_STABILITY_TEST_WRITE").is_some() {
+            std::fs::write(format!("prepared{}", this_hash), prepared_code).unwrap();
+        }
 
         let mut features = CpuFeature::set();
         features.insert(CpuFeature::AVX);
@@ -184,8 +188,9 @@ fn test_wasmer2_artifact_output_stability() {
         let serialized = artifact.serialize().unwrap();
         let this_hash = crate::utils::stable_hash(&serialized);
         got_compiled_hashes.push(this_hash);
-
-        std::fs::write(format!("/tmp/artifact{}", this_hash), serialized).unwrap();
+        if std::env::var_os("NEAR_STABILITY_TEST_WRITE").is_some() {
+            std::fs::write(format!("artifact{}", this_hash), serialized).unwrap();
+        }
     }
     // These asserts have failed as a result of some change and the following text describes what
     // the implications of the change.
@@ -222,24 +227,24 @@ fn test_near_vm_artifact_output_stability() {
     let seeds = [2, 3, 5, 7, 11, 13, 17];
     let prepared_hashes = [
         // See the above comment if you want to change this
-        15237011375120738807,
-        3750594434467176559,
-        2196541628148102482,
-        1576495094908614397,
-        6394387219699970793,
-        18132026143745992229,
-        4095228008100475322,
+        2827992185785358581,
+        17421797339778310713,
+        16714934007236574397,
+        1884675227101889895,
+        10936343070920321432,
+        10728749071033926115,
+        8212262804128939827,
     ];
     let mut got_prepared_hashes = Vec::with_capacity(seeds.len());
     let compiled_hashes = [
         // See the above comment if you want to change this
-        4853457605418485197,
-        13732980080772388685,
-        1799532188931870758,
-        13960370229299554186,
-        12949634280637067071,
-        6571507299571270433,
-        2426595065881413005,
+        1182021398207161502,
+        905660765117347293,
+        16348151278815489293,
+        4289237417580123383,
+        13920596352648058761,
+        6324750771081683425,
+        4237611324950808774,
     ];
     let mut got_compiled_hashes = Vec::with_capacity(seeds.len());
     for seed in seeds {
@@ -248,7 +253,11 @@ fn test_near_vm_artifact_output_stability() {
         let config = Arc::new(test_vm_config());
         let prepared_code =
             prepare::prepare_contract(contract.code(), &config, VMKind::NearVm).unwrap();
-        got_prepared_hashes.push(crate::utils::stable_hash((&contract.code(), &prepared_code)));
+        let this_hash = crate::utils::stable_hash((&contract.code(), &prepared_code));
+        got_prepared_hashes.push(this_hash);
+        if std::env::var_os("NEAR_STABILITY_TEST_WRITE").is_some() {
+            std::fs::write(format!("prepared{}", this_hash), prepared_code).unwrap();
+        }
 
         let mut features = CpuFeature::set();
         features.insert(CpuFeature::AVX);
@@ -260,7 +269,9 @@ fn test_near_vm_artifact_output_stability() {
         let this_hash = crate::utils::stable_hash(&serialized);
         got_compiled_hashes.push(this_hash);
 
-        std::fs::write(format!("/tmp/artifact{}", this_hash), serialized).unwrap();
+        if std::env::var_os("NEAR_STABILITY_TEST_WRITE").is_some() {
+            let _ = std::fs::write(format!("artifact{}", this_hash), serialized);
+        }
     }
     // These asserts have failed as a result of some change and the following text describes what
     // the implications of the change.

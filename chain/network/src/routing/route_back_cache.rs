@@ -2,7 +2,7 @@ use ::time::ext::InstantExt as _;
 use near_async::time;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
-use std::collections::{btree_map, BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap, btree_map};
 
 /// default value for `capacity`
 const DEFAULT_CAPACITY: usize = 100_000;
@@ -419,6 +419,7 @@ mod test {
     /// initial hashes should be present in the cache after the attack.
     #[test]
     fn poison_attack() {
+        // cspell:ignore hashi
         let clock = time::FakeClock::default();
         let mut cache = RouteBackCache::new(17, time::Duration::milliseconds(1000000), 1);
         let mut ix = 0;

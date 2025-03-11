@@ -1,12 +1,12 @@
 #[macro_use]
 extern crate bencher;
 
-use bencher::{black_box, Bencher};
+use bencher::{Bencher, black_box};
 
 use borsh::BorshDeserialize;
 use near_crypto::{KeyType, PublicKey, Signature};
 use near_primitives::account::Account;
-use near_primitives::block::{genesis_chunks, Block};
+use near_primitives::block::{Block, genesis_chunks};
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::combine_hash;
 use near_primitives::test_utils::account_new;
@@ -42,7 +42,7 @@ fn create_block() -> Block {
     let shard_ids = vec![ShardId::new(0)];
     let genesis_chunks = genesis_chunks(
         vec![StateRoot::new()],
-        vec![Default::default(); shard_ids.len()],
+        vec![Some(Default::default()); shard_ids.len()],
         &shard_ids,
         1_000,
         0,
@@ -61,6 +61,7 @@ fn create_block() -> Block {
     Block::produce(
         PROTOCOL_VERSION,
         PROTOCOL_VERSION,
+        PROTOCOL_VERSION,
         genesis.header(),
         10,
         genesis.header().block_ordinal() + 1,
@@ -76,10 +77,11 @@ fn create_block() -> Block {
         Some(0),
         vec![],
         vec![],
-        &signer.into(),
+        &signer,
         CryptoHash::default(),
         CryptoHash::default(),
         Clock::real(),
+        None,
         None,
     )
 }
@@ -134,6 +136,7 @@ fn deserialize_account(bench: &mut Bencher) {
     let acc = create_account();
     let bytes = borsh::to_vec(&acc).unwrap();
     bench.iter(|| {
+        // cspell:ignore nacc
         let nacc = Account::try_from_slice(&bytes).unwrap();
         assert_eq!(nacc, acc);
     });

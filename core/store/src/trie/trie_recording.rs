@@ -1,7 +1,7 @@
 use crate::{NibbleSlice, PartialStorage, RawTrieNode, RawTrieNodeWithSize};
 use borsh::BorshDeserialize;
-use near_primitives::challenge::PartialState;
 use near_primitives::hash::CryptoHash;
+use near_primitives::state::PartialState;
 use near_primitives::trie_key::col::ALL_COLUMNS_WITH_NAMES;
 use near_primitives::types::AccountId;
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -11,6 +11,12 @@ use std::sync::Arc;
 pub struct TrieRecorder {
     recorded: HashMap<CryptoHash, Arc<[u8]>>,
     size: usize,
+    /// Size of the recorded state proof plus some additional size added to cover removals and contract code.
+    /// An upper-bound estimation of the true recorded size after finalization.
+    /// See https://github.com/near/nearcore/issues/10890 and https://github.com/near/nearcore/pull/11000 for details.
+    upper_bound_size: usize,
+    /// Soft limit on the maximum size of the state proof that can be recorded.
+    proof_size_limit: Option<usize>,
     /// Counts removals performed while recording.
     /// recorded_storage_size_upper_bound takes it into account when calculating the total size.
     removal_counter: usize,
@@ -45,10 +51,12 @@ pub struct SubtreeSize {
 }
 
 impl TrieRecorder {
-    pub fn new() -> Self {
+    pub fn new(proof_size_limit: Option<usize>) -> Self {
         Self {
             recorded: HashMap::new(),
             size: 0,
+            upper_bound_size: 0,
+            proof_size_limit,
             removal_counter: 0,
             code_len_counter: 0,
             codes_to_record: Default::default(),
@@ -66,16 +74,27 @@ impl TrieRecorder {
     pub fn record(&mut self, hash: &CryptoHash, node: Arc<[u8]>) {
         let size = node.len();
         if self.recorded.insert(*hash, node).is_none() {
-            self.size += size;
+            self.size = self.size.checked_add(size).unwrap();
+            self.upper_bound_size = self.upper_bound_size.checked_add(size).unwrap();
         }
     }
 
-    pub fn record_removal(&mut self) {
-        self.removal_counter = self.removal_counter.saturating_add(1)
+    pub fn record_key_removal(&mut self) {
+        // Charge 2000 bytes for every removal
+        self.removal_counter = self.removal_counter.checked_add(1).unwrap();
+        self.upper_bound_size = self.upper_bound_size.checked_add(2000).unwrap();
     }
 
     pub fn record_code_len(&mut self, code_len: usize) {
-        self.code_len_counter = self.code_len_counter.saturating_add(code_len)
+        self.code_len_counter = self.code_len_counter.checked_add(code_len).unwrap();
+        self.upper_bound_size = self.upper_bound_size.checked_add(code_len).unwrap();
+    }
+
+    pub fn check_proof_size_limit_exceed(&self) -> bool {
+        if let Some(proof_size_limit) = self.proof_size_limit {
+            return self.upper_bound_size > proof_size_limit;
+        }
+        false
     }
 
     pub fn recorded_storage(&mut self) -> PartialStorage {
@@ -84,23 +103,19 @@ impl TrieRecorder {
         PartialStorage { nodes: PartialState::TrieValues(nodes) }
     }
 
+    pub fn recorded_iter<'a>(&'a self) -> impl Iterator<Item = (&'a CryptoHash, &'a Arc<[u8]>)> {
+        self.recorded.iter()
+    }
+
     pub fn recorded_storage_size(&self) -> usize {
         self.size
     }
 
-    /// Size of the recorded state proof plus some additional size added to cover removals
-    /// and contract codes.
-    /// An upper-bound estimation of the true recorded size after finalization.
-    /// See https://github.com/near/nearcore/issues/10890 and https://github.com/near/nearcore/pull/11000 for details.
     pub fn recorded_storage_size_upper_bound(&self) -> usize {
-        // Charge 2000 bytes for every removal
-        let removals_size = self.removal_counter.saturating_mul(2000);
-        self.recorded_storage_size()
-            .saturating_add(removals_size)
-            .saturating_add(self.code_len_counter)
+        self.upper_bound_size
     }
 
-    /// Get statisitics about the recorded trie. Useful for observability and debugging.
+    /// Get statistics about the recorded trie. Useful for observability and debugging.
     /// This scans all of the recorded data, so could potentially be expensive to run.
     pub fn get_stats(&self, trie_root: &CryptoHash) -> TrieRecorderStats {
         let mut trie_column_sizes = Vec::new();
@@ -278,24 +293,24 @@ mod trie_recording_tests {
     use crate::adapter::{StoreAdapter, StoreUpdateAdapter};
     use crate::db::refcount::decode_value_with_rc;
     use crate::test_utils::{
-        gen_larger_changes, simplify_changes, test_populate_flat_storage, test_populate_trie,
-        TestTriesBuilder,
+        TestTriesBuilder, gen_larger_changes, simplify_changes, test_populate_flat_storage,
+        test_populate_trie,
     };
-    use crate::trie::mem::metrics::MEM_TRIE_NUM_LOOKUPS;
     use crate::trie::TrieNodesCount;
+    use crate::trie::mem::metrics::MEMTRIE_NUM_LOOKUPS;
     use crate::{DBCol, KeyLookupMode, PartialStorage, ShardTries, Store, Trie};
     use borsh::BorshDeserialize;
     use near_primitives::bandwidth_scheduler::BandwidthRequests;
-    use near_primitives::challenge::PartialState;
     use near_primitives::congestion_info::CongestionInfo;
-    use near_primitives::hash::{hash, CryptoHash};
-    use near_primitives::shard_layout::{get_block_shard_uid, ShardUId};
+    use near_primitives::hash::{CryptoHash, hash};
+    use near_primitives::shard_layout::{ShardUId, get_block_shard_uid};
+    use near_primitives::state::PartialState;
     use near_primitives::state::ValueRef;
-    use near_primitives::types::chunk_extra::ChunkExtra;
     use near_primitives::types::StateRoot;
-    use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
+    use near_primitives::types::chunk_extra::ChunkExtra;
+    use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
     use rand::prelude::SliceRandom;
-    use rand::{random, thread_rng, Rng};
+    use rand::{Rng, random, thread_rng};
     use std::collections::{HashMap, HashSet};
     use std::num::NonZeroU32;
 
@@ -469,7 +484,9 @@ mod trie_recording_tests {
                 false,
             )
         } else {
-            tries.get_trie_for_shard(shard_uid, state_root)
+            let mut trie = tries.get_trie_for_shard(shard_uid, state_root);
+            trie.charge_gas_for_trie_node_access = true;
+            trie
         }
     }
 
@@ -512,7 +529,7 @@ mod trie_recording_tests {
                 .build();
             let lookup_mode =
                 if use_flat_storage { KeyLookupMode::FlatStorage } else { KeyLookupMode::Trie };
-            let mem_trie_lookup_counts_before = MEM_TRIE_NUM_LOOKUPS.get();
+            let memtrie_lookup_counts_before = MEMTRIE_NUM_LOOKUPS.get();
 
             // Check that while using flat storage counters are all zero.
             // Only use get_optimized_ref(), because get() will actually
@@ -531,7 +548,7 @@ mod trie_recording_tests {
             // Let's capture the baseline node counts - this is what will happen
             // in production.
             let trie = get_trie_for_shard(&tries, shard_uid, state_root, use_flat_storage);
-            trie.accounting_cache.borrow().enable_switch().set(enable_accounting_cache);
+            trie.accounting_cache.lock().unwrap().enable_switch().set(enable_accounting_cache);
             for key in &keys_to_get {
                 assert_eq!(trie.get(key).unwrap(), data_in_trie.get(key).cloned());
             }
@@ -550,8 +567,8 @@ mod trie_recording_tests {
             // Now let's do this again while recording, and make sure that the counters
             // we get are exactly the same.
             let trie = get_trie_for_shard(&tries, shard_uid, state_root, use_flat_storage)
-                .recording_reads();
-            trie.accounting_cache.borrow().enable_switch().set(enable_accounting_cache);
+                .recording_reads_new_recorder();
+            trie.accounting_cache.lock().unwrap().enable_switch().set(enable_accounting_cache);
             for key in &keys_to_get {
                 assert_eq!(trie.get(key).unwrap(), data_in_trie.get(key).cloned());
             }
@@ -569,14 +586,14 @@ mod trie_recording_tests {
 
             // Now let's do this again with memtries enabled. Check that counters
             // are the same.
-            assert_eq!(MEM_TRIE_NUM_LOOKUPS.get(), mem_trie_lookup_counts_before);
-            tries.load_mem_trie(&shard_uid, None, false).unwrap();
+            assert_eq!(MEMTRIE_NUM_LOOKUPS.get(), memtrie_lookup_counts_before);
+            tries.load_memtrie(&shard_uid, None, false).unwrap();
             // Delete the on-disk state so that we really know we're using
             // in-memory tries.
             destructively_delete_in_memory_state_from_disk(&store.trie_store(), &data_in_trie);
             let trie = get_trie_for_shard(&tries, shard_uid, state_root, use_flat_storage)
-                .recording_reads();
-            trie.accounting_cache.borrow().enable_switch().set(enable_accounting_cache);
+                .recording_reads_new_recorder();
+            trie.accounting_cache.lock().unwrap().enable_switch().set(enable_accounting_cache);
             for key in &keys_to_get {
                 assert_eq!(trie.get(key).unwrap(), data_in_trie.get(key).cloned());
             }
@@ -602,7 +619,7 @@ mod trie_recording_tests {
             );
             let trie =
                 Trie::from_recorded_storage(partial_storage.clone(), state_root, use_flat_storage);
-            trie.accounting_cache.borrow().enable_switch().set(enable_accounting_cache);
+            trie.accounting_cache.lock().unwrap().enable_switch().set(enable_accounting_cache);
             for key in &keys_to_get {
                 assert_eq!(trie.get(key).unwrap(), data_in_trie.get(key).cloned());
             }
@@ -619,8 +636,8 @@ mod trie_recording_tests {
 
             // Build a Trie using recorded storage and enable recording_reads on this Trie
             let trie = Trie::from_recorded_storage(partial_storage, state_root, use_flat_storage)
-                .recording_reads();
-            trie.accounting_cache.borrow().enable_switch().set(enable_accounting_cache);
+                .recording_reads_new_recorder();
+            trie.accounting_cache.lock().unwrap().enable_switch().set(enable_accounting_cache);
             for key in &keys_to_get {
                 assert_eq!(trie.get(key).unwrap(), data_in_trie.get(key).cloned());
             }
@@ -638,7 +655,7 @@ mod trie_recording_tests {
 
             if !keys_to_get.is_empty() || !keys_to_get_ref.is_empty() {
                 // sanity check that we did indeed use in-memory tries.
-                assert!(MEM_TRIE_NUM_LOOKUPS.get() > mem_trie_lookup_counts_before);
+                assert!(MEMTRIE_NUM_LOOKUPS.get() > memtrie_lookup_counts_before);
             }
         }
     }

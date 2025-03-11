@@ -36,6 +36,7 @@ pub const FINAL_HEAD_KEY: &[u8; 10] = b"FINAL_HEAD";
 pub const LATEST_KNOWN_KEY: &[u8; 12] = b"LATEST_KNOWN";
 pub const LARGEST_TARGET_HEIGHT_KEY: &[u8; 21] = b"LARGEST_TARGET_HEIGHT";
 pub const GENESIS_JSON_HASH_KEY: &[u8; 17] = b"GENESIS_JSON_HASH";
+pub const GENESIS_HEIGHT_KEY: &[u8; 18] = b"GENESIS_HEIGHT_KEY";
 pub const GENESIS_STATE_ROOTS_KEY: &[u8; 19] = b"GENESIS_STATE_ROOTS";
 pub const GENESIS_CONGESTION_INFO_KEY: &[u8] = b"GENESIS_CONGESTION_INFO_KEY";
 pub const COLD_HEAD_KEY: &[u8; 9] = b"COLD_HEAD";
@@ -62,7 +63,7 @@ pub(crate) enum DBOp {
     /// Modifies a reference-counted column. `value` includes both the value per
     /// se and a refcount at the end.
     UpdateRefcount { col: DBCol, key: Vec<u8>, value: Vec<u8> },
-    /// Deletes sepecific `key`.
+    /// Deletes specific `key`.
     Delete { col: DBCol, key: Vec<u8> },
     /// Deletes all data from a column.
     DeleteAll { col: DBCol },
@@ -262,7 +263,7 @@ pub trait Database: Sync + Send {
 
     /// If this is a test database, return a copy of the entire database.
     /// Otherwise return None.
-    fn copy_if_test(&self) -> Option<Arc<dyn Database>> {
+    fn copy_if_test(&self, _columns_to_keep: Option<&[DBCol]>) -> Option<Arc<dyn Database>> {
         None
     }
 }

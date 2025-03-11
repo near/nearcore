@@ -3,8 +3,8 @@ use std::num::NonZeroUsize;
 use lru::LruCache;
 use near_chain_configs::default_orphan_state_witness_pool_size;
 use near_primitives::hash::CryptoHash;
-use near_primitives::stateless_validation::state_witness::ChunkStateWitness;
 use near_primitives::stateless_validation::ChunkProductionKey;
+use near_primitives::stateless_validation::state_witness::ChunkStateWitness;
 use near_primitives::types::BlockHeight;
 
 use metrics_tracker::OrphanWitnessMetricsTracker;
@@ -177,10 +177,10 @@ mod metrics_tracker {
 
 #[cfg(test)]
 mod tests {
-    use near_primitives::hash::{hash, CryptoHash};
+    use near_primitives::hash::{CryptoHash, hash};
     use near_primitives::sharding::{ShardChunkHeader, ShardChunkHeaderInner};
     use near_primitives::stateless_validation::state_witness::ChunkStateWitness;
-    use near_primitives::types::{shard_id_max, BlockHeight, ShardId};
+    use near_primitives::types::{BlockHeight, ShardId};
 
     use super::OrphanStateWitnessPool;
 
@@ -210,7 +210,7 @@ mod tests {
         hash(&height.to_be_bytes())
     }
 
-    /// Assert that both Vecs are equal after sorting. It's order-independent, unlike the standard assert_eq!
+    /// Assert that both vec are equal after sorting. It's order-independent, unlike the standard assert_eq!
     fn assert_contents(mut observed: Vec<ChunkStateWitness>, mut expected: Vec<ChunkStateWitness>) {
         let sort_comparator = |witness1: &ChunkStateWitness, witness2: &ChunkStateWitness| {
             let bytes1 = borsh::to_vec(witness1).unwrap();
@@ -337,7 +337,7 @@ mod tests {
     fn large_shard_id() {
         let mut pool = OrphanStateWitnessPool::new(10);
 
-        let large_shard_id = shard_id_max();
+        let large_shard_id = ShardId::max();
         let witness = make_witness(101, large_shard_id.into(), block(99), 0);
         pool.add_orphan_state_witness(witness.clone(), 0);
 
@@ -381,7 +381,7 @@ mod tests {
     /// It's hard to test it because metrics are global and it could interfere with other tests,
     /// but we can at least test that it doesn't crash. That's always something.
     #[test]
-    fn destructor_doesnt_crash() {
+    fn destructor_does_not_crash() {
         let mut pool = OrphanStateWitnessPool::new(10);
         pool.add_orphan_state_witness(make_witness(100, ShardId::new(0), block(99), 0), 0);
         pool.add_orphan_state_witness(make_witness(100, ShardId::new(2), block(99), 0), 0);

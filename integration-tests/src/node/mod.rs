@@ -7,8 +7,9 @@ pub use crate::node::thread_node::ThreadNode;
 use crate::user::{AsyncUser, User};
 use near_chain_configs::Genesis;
 use near_chain_configs::MutableConfigValue;
-use near_crypto::{InMemorySigner, Signer};
+use near_crypto::Signer;
 use near_jsonrpc_primitives::errors::ServerError;
+use near_primitives::account::AccountContract;
 use near_primitives::num_rational::Ratio;
 use near_primitives::state_record::StateRecord;
 use near_primitives::transaction::SignedTransaction;
@@ -16,8 +17,8 @@ use near_primitives::types::{AccountId, Balance, NumSeats};
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::views::AccountView;
 use near_vm_runner::ContractCode;
-use nearcore::config::{create_localnet_configs, create_localnet_configs_from_seeds, Config};
 use nearcore::NearConfig;
+use nearcore::config::{Config, create_localnet_configs, create_localnet_configs_from_seeds};
 use testlib::runtime_utils::{alice_account, bob_account};
 
 mod process_node;
@@ -124,7 +125,7 @@ impl dyn Node {
 fn near_configs_to_node_configs(
     configs: Vec<Config>,
     validator_signers: Vec<ValidatorSigner>,
-    network_signers: Vec<InMemorySigner>,
+    network_signers: Vec<Signer>,
     genesis: Genesis,
 ) -> Vec<NodeConfig> {
     let mut result = vec![];
@@ -133,7 +134,7 @@ fn near_configs_to_node_configs(
             NearConfig::new(
                 configs[i].clone(),
                 genesis.clone(),
-                (&network_signers[i]).into(),
+                network_signers[i].clone().into(),
                 MutableConfigValue::new(
                     Some(Arc::new(validator_signers[i].clone())),
                     "validator_signer",
@@ -171,7 +172,9 @@ pub fn create_nodes_from_seeds(seeds: Vec<String>) -> Vec<NodeConfig> {
             if let StateRecord::Account { account_id, account } = record {
                 if account_id == &seed {
                     found_account_record = true;
-                    account.set_code_hash(*ContractCode::new(code.to_vec(), None).hash());
+                    account.set_contract(AccountContract::Local(
+                        *ContractCode::new(code.to_vec(), None).hash(),
+                    ));
                 }
             }
         }

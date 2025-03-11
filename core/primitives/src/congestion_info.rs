@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use crate::errors::RuntimeError;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_parameters::config::CongestionControlConfig;
-use near_primitives_core::types::{shard_id_as_u16, Gas, ShardId};
+use near_primitives_core::types::{Gas, ShardId};
 use near_schema_checker_lib::ProtocolSchema;
 use ordered_float::NotNan;
 
@@ -81,11 +81,9 @@ impl CongestionControl {
     pub fn outgoing_gas_limit(&self, sender_shard: ShardId) -> Gas {
         let congestion = self.congestion_level();
 
-        // note: using float equality is okay here because
-        // `clamped_f64_fraction` clamps to exactly 1.0.
-        if congestion == 1.0 {
+        if Self::is_fully_congested(congestion) {
             // Red traffic light: reduce to minimum speed
-            if shard_id_as_u16(sender_shard) == self.info.allowed_shard() {
+            if sender_shard == ShardId::from(self.info.allowed_shard()) {
                 self.config.allowed_shard_outgoing_gas
             } else {
                 0
@@ -95,9 +93,16 @@ impl CongestionControl {
         }
     }
 
+    pub fn is_fully_congested(congestion_level: f64) -> bool {
+        // note: using float equality is okay here because
+        // `clamped_f64_fraction` clamps to exactly 1.0.
+        debug_assert!(congestion_level <= 1.0);
+        congestion_level == 1.0
+    }
+
     /// How much data another shard can send to us in the next block.
     pub fn outgoing_size_limit(&self, sender_shard: ShardId) -> Gas {
-        if shard_id_as_u16(sender_shard) == self.info.allowed_shard() {
+        if sender_shard == ShardId::from(self.info.allowed_shard()) {
             // The allowed shard is allowed to send more data to us.
             self.config.outgoing_receipts_big_size_limit
         } else {
@@ -295,11 +300,11 @@ impl CongestionInfo {
         Ok(())
     }
 
-    pub fn remove_buffered_receipt_gas(&mut self, gas: Gas) -> Result<(), RuntimeError> {
+    pub fn remove_buffered_receipt_gas(&mut self, gas: u128) -> Result<(), RuntimeError> {
         match self {
             CongestionInfo::V1(inner) => {
                 inner.buffered_receipts_gas =
-                    inner.buffered_receipts_gas.checked_sub(gas as u128).ok_or_else(|| {
+                    inner.buffered_receipts_gas.checked_sub(gas).ok_or_else(|| {
                         RuntimeError::UnexpectedIntegerOverflow(
                             "remove_buffered_receipt_gas".into(),
                         )
@@ -347,7 +352,7 @@ impl CongestionInfo {
         congestion_seed: u64,
     ) {
         let allowed_shard = Self::get_new_allowed_shard(own_shard, all_shards, congestion_seed);
-        self.set_allowed_shard(shard_id_as_u16(allowed_shard));
+        self.set_allowed_shard(allowed_shard.into());
     }
 
     fn get_new_allowed_shard(
@@ -455,11 +460,7 @@ pub struct CongestionInfoV1 {
 #[inline]
 fn clamped_f64_fraction(value: u128, max: u64) -> f64 {
     assert!(max > 0);
-    if max as u128 <= value {
-        1.0
-    } else {
-        value as f64 / max as f64
-    }
+    if max as u128 <= value { 1.0 } else { value as f64 / max as f64 }
 }
 
 /// linearly interpolate between two values
@@ -501,7 +502,7 @@ impl ShardAcceptsTransactions {
 mod tests {
     use itertools::Itertools;
     use near_parameters::RuntimeConfigStore;
-    use near_primitives_core::version::{ProtocolFeature, PROTOCOL_VERSION};
+    use near_primitives_core::version::{PROTOCOL_VERSION, ProtocolFeature};
 
     use super::*;
 
@@ -725,7 +726,8 @@ mod tests {
         assert_eq!(config.max_tx_gas, control.process_tx_limit());
 
         // remove halve the congestion
-        info.remove_buffered_receipt_gas(config.max_congestion_outgoing_gas / 2).unwrap();
+        let gas_diff = config.max_congestion_outgoing_gas / 2;
+        info.remove_buffered_receipt_gas(gas_diff.into()).unwrap();
         let control = CongestionControl::new(config, info, 0);
         assert_eq!(0.5, control.congestion_level());
         assert_eq!(
@@ -736,7 +738,8 @@ mod tests {
         assert!(control.shard_accepts_transactions().is_no());
 
         // reduce congestion to 1/8
-        info.remove_buffered_receipt_gas(3 * config.max_congestion_outgoing_gas / 8).unwrap();
+        let gas_diff = 3 * config.max_congestion_outgoing_gas / 8;
+        info.remove_buffered_receipt_gas(gas_diff.into()).unwrap();
         let control = CongestionControl::new(config, info, 0);
         assert_eq!(0.125, control.congestion_level());
         assert_eq!(
@@ -845,7 +848,7 @@ mod tests {
 
         // Full congestion - only the allowed shard should be able to send something.
         for shard in all_shards {
-            if shard_id_as_u16(shard) == control.info.allowed_shard() {
+            if shard == ShardId::from(control.info.allowed_shard()) {
                 assert_eq!(control.outgoing_gas_limit(shard), config.allowed_shard_outgoing_gas);
             } else {
                 assert_eq!(control.outgoing_gas_limit(shard), 0);

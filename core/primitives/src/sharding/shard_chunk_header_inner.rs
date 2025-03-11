@@ -1,7 +1,7 @@
 use crate::bandwidth_scheduler::BandwidthRequests;
 use crate::congestion_info::CongestionInfo;
-use crate::types::validator_stake::{ValidatorStake, ValidatorStakeIter, ValidatorStakeV1};
 use crate::types::StateRoot;
+use crate::types::validator_stake::{ValidatorStake, ValidatorStakeIter, ValidatorStakeV1};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::{Balance, BlockHeight, Gas, ShardId};
@@ -162,6 +162,17 @@ impl ShardChunkHeaderInner {
         match self {
             Self::V1(_) | Self::V2(_) | Self::V3(_) => None,
             Self::V4(inner) => Some(&inner.bandwidth_requests),
+        }
+    }
+
+    /// Used for error messages, use `match` for other code.
+    #[inline]
+    pub(crate) fn version_number(&self) -> u64 {
+        match self {
+            Self::V1(_) => 1,
+            Self::V2(_) => 2,
+            Self::V3(_) => 3,
+            Self::V4(_) => 4,
         }
     }
 }

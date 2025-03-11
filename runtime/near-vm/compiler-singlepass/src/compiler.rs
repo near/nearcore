@@ -3,8 +3,8 @@
 #![allow(unused_imports, dead_code)]
 
 use crate::codegen_x64::{
-    gen_import_call_trampoline, gen_std_dynamic_import_trampoline, gen_std_trampoline,
-    CodegenError, FuncGen,
+    CodegenError, FuncGen, gen_import_call_trampoline, gen_std_dynamic_import_trampoline,
+    gen_std_trampoline,
 };
 use crate::config::Singlepass;
 use near_vm_compiler::{

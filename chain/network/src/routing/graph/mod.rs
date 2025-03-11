@@ -78,7 +78,7 @@ impl Inner {
     }
 
     /// Removes all edges adjacent to the peers from the set.
-    /// It is used to prune unreachable connected components from the inmem graph.
+    /// It is used to prune unreachable connected components from the in mem graph.
     fn remove_adjacent_edges(&mut self, peers: &HashSet<PeerId>) -> Vec<Edge> {
         let mut edges = vec![];
         for e in self.edges.clone().values() {
@@ -167,11 +167,7 @@ impl Inner {
         // Stop at first invalid edge.
         let (mut edges, ok) = concurrency::rayon::run_blocking(move || {
             concurrency::rayon::try_map(edges.into_iter().par_bridge(), |e| {
-                if e.verify() {
-                    Some(e)
-                } else {
-                    None
-                }
+                if e.verify() { Some(e) } else { None }
             })
         });
 

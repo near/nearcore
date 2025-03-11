@@ -40,97 +40,80 @@ skip = [
     # `sha2` uses it
     { name = "cfg-if", version = "=1.0.0" },
 
-    # `sha2`, `blake3` and `curve25519-dalek` need to be updated.
-    { name = "digest", version = "=0.9.0" },
-
     # Need this specific version of pwasm-utils for backwards-compatible
     # stack limiting.
-    { name = "pwasm-utils", version = "=0.12.0" },
     { name = "parity-wasm", version = "=0.41.0" },
     # old version used by wasmer et al
     { name = "dynasm", version = "=1.2.3" },
     { name = "dynasmrt", version = "=1.2.3" },
+    { name = "rkyv", version = "^0.7" },
+    { name = "rkyv_derive", version = "^0.7" },
+    { name = "ptr_meta", version = "^0.1" },
+    { name = "ptr_meta_derive", version = "^0.1" },
 
     # wasmer and wasmtime
     { name = "target-lexicon", version = "=0.10.0" },
+    { name = "memoffset", version = "=0.6.5" },
+    { name = "memoffset", version = "=0.8.0" },
+    { name = "rustix", version = "^0.38" },
+    { name = "linux-raw-sys", version = "^0.4" },
+
+    # wasm-tools
     { name = "wasmparser", version = "=0.51.4" },
     { name = "wasmparser", version = "=0.78.2" },
-    { name = "wasmparser", version = "=0.84.0" },
     { name = "wasmparser", version = "=0.99.0" },
     { name = "wasmparser", version = "=0.105.0" },
     { name = "wasm-encoder", version = "=0.27.0" },
-    { name = "object", version = "=0.30.4" },
-    { name = "memoffset", version = "=0.6.5" },
-    { name = "memoffset", version = "=0.8.0" },
-    { name = "addr2line", version = "=0.19.0" },
-    { name = "gimli", version = "=0.27.2" },
+    { name = "wasmprinter", version = "=0.2.57" },
 
     # wasmer 0.17.x
+    { name = "target-lexicon", version = "^0.12.0" },
     { name = "parking_lot", version = "=0.10.2" },
     { name = "parking_lot_core", version = "=0.7.2" },
     { name = "lock_api", version = "=0.3.4" },
     { name = "digest", version = "=0.8.1" },
-
-    # wasmer 0.18
     { name = "nix", version = "=0.15.0" },
 
     # many crates haven't updated to syn 2.0 yet.
     { name = "syn", version = "=1.0.103" },
+    { name = "heck", version = "=0.4.0" }, # paperclip
 
-    # old version of tokio, parking_lot
-    { name = "windows-sys", version = "=0.36.1" },
-    # console
-    { name = "windows-sys", version = "=0.42.0" },
-    { name = "windows_x86_64_msvc", version = "=0.36.1" },
-
-    # old version of rustix, wasmtime, is-terminal, etc.
-    { name = "windows-sys", version = "=0.42.0" },
-    { name = "windows_x86_64_msvc", version = "=0.42.2" },
+    # ubiquituous dependencies that are prone to duplication due to frequent "breaking" releases.
+    { name = "windows-sys", version = "<0.59" },
+    { name = "windows_x86_64_msvc", version = "<0.59" },
+    { name = "windows-targets", version = "<0.52" },
 
     # ed25519-dalek uses older versions of rand and rand_core
     { name = "rand_core", version = "=0.5.1" },
     { name = "getrandom", version = "=0.1.16" },
+    { name = "getrandom", version = "^0.2" },
 
     # criterion and criterion-plot use conflicting versions
-    { name = "semver-parser", version = "=0.7.0" },
     { name = "semver", version = "=0.9.0" },
 
-    # wasmer-runtime-core-near and parity-secp256k1 use an older version
-    { name = "arrayvec", version = "=0.5.2" },
-
-    # borsh uses a very old version of proc-macro-crate
-    { name = "proc-macro-crate", version = "=0.1.5" },
-
-    # criterion and wasmer-runtime-core-near depend on this older
-    # version of the crate.
+    # criterion, wasmer-runtime-core-near, rocksdb depend on this older version of the crate.
     { name = "rustc_version", version = "=0.2.3" },
     { name = "errno", version = "=0.2.8" },
+    { name = "rustc-hash", version = "<2" },
 
-    # Bolero requires a newer version and the rest of the ecosystem hasn't caught up yet.
-    { name = "hashbrown", version = "0.11.0" },
+    # Hashbrowns
     { name = "hashbrown", version = "0.12.0" },
     { name = "hashbrown", version = "0.13.2" },
+    { name = "hashbrown", version = "0.14.5" },
+
+    # Bolero requires a newer version and the rest of the ecosystem hasn't caught up yet.
     { name = "bitflags", version = "=1.3.2" },
     { name = "indexmap", version = "=1.9.2" },
 
     # prometheus depends on an old version of protobuf
     { name = "protobuf", version = "=2.27.1" },
 
-    # rust-s3 is using an old version of smartstring
-    { name = "smartstring", version = "=0.2.10" },
-
-    # zeropool-bn uses borsh 0.9
-    { name = "borsh", version = "=0.9.3" },
-    { name = "borsh-derive", version = "=0.9.3" },
-    { name = "borsh-derive-internal", version = "=0.9.3" },
-    { name = "borsh-schema-derive-internal", version = "=0.9.3" },
-
-    # near-test-contracts
-    { name = "wasm-encoder", version = "=0.11.0" },
-
     # Various packages haven’t upgraded to 0.base64 21 yet.
     { name = "base64", version = "=0.13.0" },
     { name = "ahash", version = "=0.7.8" },
+
+    # ark-ec, criterion,
+    { name = "itertools", version = "0.10" },
 
     # actix-http hasn't upgraded iminz_oxide/flate2 yet.
     { name = "miniz_oxide", version = "=0.5.1" },
@@ -146,4 +129,12 @@ skip = [
     { name = "parking_lot", version = "=0.11.2" },
     { name = "parking_lot_core", version = "=0.8.6" },
     { name = "spin", version = "=0.9.8" },
+
+    # ecosystem migration to 2.0 is in early phases at the time of writing.
+    { name = "thiserror", version = "<2.0" },
+    { name = "thiserror-impl", version = "<2.0" },
+    { name = "derive_more", version = "<1" },
+
+    # indicatif brings in a newer version
+    { name = "unicode-width", version = "<0.2" },
 ]

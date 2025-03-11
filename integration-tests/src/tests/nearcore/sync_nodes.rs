@@ -1,17 +1,17 @@
-use crate::tests::genesis_helpers::genesis_block;
-use crate::tests::test_helpers::heavy_test;
+use crate::utils::genesis_helpers::genesis_block;
+use crate::utils::test_helpers::heavy_test;
 use actix::{Actor, System};
-use futures::{future, FutureExt};
+use futures::{FutureExt, future};
 use near_actix_test_utils::run_actix;
 use near_async::time::Duration;
-use near_chain_configs::test_utils::TESTING_INIT_STAKE;
 use near_chain_configs::Genesis;
+use near_chain_configs::test_utils::TESTING_INIT_STAKE;
 use near_client::{GetBlock, ProcessTxRequest};
-use near_crypto::{InMemorySigner, KeyType};
+use near_crypto::InMemorySigner;
 use near_network::tcp;
-use near_network::test_utils::{convert_boot_nodes, WaitOrTimeoutActor};
-use near_o11y::testonly::init_integration_logger;
+use near_network::test_utils::{WaitOrTimeoutActor, convert_boot_nodes};
 use near_o11y::WithSpanContextExt;
+use near_o11y::testonly::init_integration_logger;
 use near_primitives::transaction::SignedTransaction;
 use nearcore::{load_test_config, start_with_config};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -20,8 +20,7 @@ use std::sync::{Arc, RwLock};
 /// Starts one validation node, it reduces it's stake to 1/2 of the stake.
 /// Second node starts after 1s, needs to catchup & state sync and then make sure it's
 #[test]
-#[cfg_attr(not(feature = "expensive_tests"), ignore)]
-fn sync_state_stake_change() {
+fn ultra_slow_test_sync_state_stake_change() {
     heavy_test(|| {
         init_integration_logger();
 
@@ -49,10 +48,7 @@ fn sync_state_stake_change() {
                 start_with_config(dir1.path(), near1.clone()).expect("start_with_config");
 
             let genesis_hash = *genesis_block(&genesis).hash();
-            let signer = Arc::new(
-                InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1")
-                    .into(),
-            );
+            let signer = Arc::new(InMemorySigner::test_signer(&"test1".parse().unwrap()));
             let unstake_transaction = SignedTransaction::stake(
                 1,
                 "test1".parse().unwrap(),

@@ -10,7 +10,7 @@ use near_o11y::testonly::init_integration_logger;
 use near_primitives::types::{BlockHeight, BlockHeightDelta, NumSeats, NumShards, ShardId};
 use nearcore::{load_test_config, start_with_config};
 
-use crate::tests::test_helpers::heavy_test;
+use crate::utils::test_helpers::heavy_test;
 
 fn start_nodes(
     temp_dir: &std::path::Path,

@@ -1,5 +1,3 @@
-use std::collections::BTreeSet;
-
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_async::time::{Duration, Utc};
 use near_chain_configs::GenesisConfig;
@@ -14,19 +12,23 @@ use near_primitives::apply::ApplyChunkReason;
 use near_primitives::bandwidth_scheduler::BandwidthRequests;
 use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
 pub use near_primitives::block::{Block, BlockHeader, Tip};
-use near_primitives::challenge::{ChallengesResult, PartialState};
+use near_primitives::challenge::ChallengesResult;
 use near_primitives::checked_feature;
+use near_primitives::chunk_apply_stats::ChunkApplyStatsV0;
 use near_primitives::congestion_info::BlockCongestionInfo;
 use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::congestion_info::ExtendedCongestionInfo;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
-use near_primitives::merkle::{merklize, MerklePath};
+use near_primitives::merkle::{MerklePath, merklize};
 use near_primitives::receipt::{PromiseYieldTimeout, Receipt};
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
+use near_primitives::shard_layout::ShardLayout;
 use near_primitives::shard_layout::ShardUId;
+use near_primitives::state::PartialState;
 use near_primitives::state_part::PartId;
-use near_primitives::stateless_validation::contract_distribution::CodeHash;
+use near_primitives::stateless_validation::contract_distribution::ContractUpdates;
+use near_primitives::transaction::ValidatedTransaction;
 use near_primitives::transaction::{ExecutionOutcomeWithId, SignedTransaction};
 use near_primitives::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
 use near_primitives::types::{
@@ -35,14 +37,16 @@ use near_primitives::types::{
 };
 use near_primitives::utils::to_timestamp;
 use near_primitives::version::{
-    ProtocolVersion, MIN_GAS_PRICE_NEP_92, MIN_GAS_PRICE_NEP_92_FIX, MIN_PROTOCOL_VERSION_NEP_92,
-    MIN_PROTOCOL_VERSION_NEP_92_FIX,
+    MIN_GAS_PRICE_NEP_92, MIN_GAS_PRICE_NEP_92_FIX, MIN_PROTOCOL_VERSION_NEP_92,
+    MIN_PROTOCOL_VERSION_NEP_92_FIX, ProtocolVersion,
 };
 use near_primitives::views::{QueryRequest, QueryResponse};
 use near_schema_checker_lib::ProtocolSchema;
 use near_store::flat::FlatStorageManager;
 use near_store::{PartialStorage, ShardTries, Store, Trie, WrappedTrieChanges};
+use near_vm_runner::ContractCode;
 use near_vm_runner::ContractRuntimeCache;
+use node_runtime::SignedValidPeriodTransactions;
 use num_rational::Rational32;
 use tracing::instrument;
 
@@ -86,7 +90,7 @@ pub struct AcceptedBlock {
     pub provenance: Provenance,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ApplyChunkResult {
     pub trie_changes: WrappedTrieChanges,
     pub new_root: StateRoot,
@@ -112,10 +116,10 @@ pub struct ApplyChunkResult {
     pub bandwidth_requests: Option<BandwidthRequests>,
     /// Used only for a sanity check.
     pub bandwidth_scheduler_state_hash: CryptoHash,
-    /// Code-hashes of the contracts accessed (called) while applying the chunk.
-    pub contract_accesses: BTreeSet<CodeHash>,
-    /// Code-hashes of the contracts deployed while applying the chunk.
-    pub contract_deploys: BTreeSet<CodeHash>,
+    /// Contracts accessed and deployed while applying the chunk.
+    pub contract_updates: ContractUpdates,
+    /// Extra information gathered during chunk application.
+    pub stats: ChunkApplyStatsV0,
 }
 
 impl ApplyChunkResult {
@@ -423,23 +427,25 @@ pub trait RuntimeAdapter: Send + Sync {
 
     fn get_flat_storage_manager(&self) -> FlatStorageManager;
 
-    /// Validates a given signed transaction.
-    /// If the state root is given, then the verification will use the account. Otherwise it will
-    /// only validate the transaction math, limits and signatures.
-    /// Returns an option of `InvalidTxError`, it contains `Some(InvalidTxError)` if there is
-    /// a validation error, or `None` in case the transaction succeeded.
-    /// Throws an `Error` with `ErrorKind::StorageError` in case the runtime throws
-    /// `RuntimeError::StorageError`.
+    fn get_shard_layout(&self, protocol_version: ProtocolVersion) -> ShardLayout;
+
+    #[allow(clippy::result_large_err)]
     fn validate_tx(
         &self,
-        gas_price: Balance,
-        state_root: Option<StateRoot>,
-        transaction: &SignedTransaction,
-        verify_signature: bool,
-        epoch_id: &EpochId,
+        shard_layout: &ShardLayout,
+        signed_tx: SignedTransaction,
         current_protocol_version: ProtocolVersion,
         receiver_congestion_info: Option<ExtendedCongestionInfo>,
-    ) -> Result<Option<InvalidTxError>, Error>;
+    ) -> Result<ValidatedTransaction, (InvalidTxError, SignedTransaction)>;
+
+    fn can_verify_and_charge_tx(
+        &self,
+        shard_layout: &ShardLayout,
+        gas_price: Balance,
+        state_root: StateRoot,
+        validated_tx: &ValidatedTransaction,
+        current_protocol_version: ProtocolVersion,
+    ) -> Result<(), InvalidTxError>;
 
     /// Returns an ordered list of valid transactions from the pool up the given limits.
     /// Pulls transactions from the given pool iterators one by one. Validates each transaction
@@ -454,7 +460,7 @@ pub trait RuntimeAdapter: Send + Sync {
         chunk: PrepareTransactionsChunkContext,
         prev_block: PrepareTransactionsBlockContext,
         transaction_groups: &mut dyn TransactionGroupIterator,
-        chain_validate: &mut dyn FnMut(&SignedTransaction) -> bool,
+        chain_validate: &dyn Fn(&SignedTransaction) -> bool,
         time_limit: Option<Duration>,
     ) -> Result<PreparedTransactions, Error>;
 
@@ -475,7 +481,7 @@ pub trait RuntimeAdapter: Send + Sync {
         chunk: ApplyChunkShardContext,
         block: ApplyChunkBlockContext,
         receipts: &[Receipt],
-        transactions: &[SignedTransaction],
+        transactions: SignedValidPeriodTransactions<'_>,
     ) -> Result<ApplyChunkResult, Error>;
 
     /// Query runtime with given `path` and `data`.
@@ -536,10 +542,16 @@ pub trait RuntimeAdapter: Send + Sync {
 
     fn get_protocol_config(&self, epoch_id: &EpochId) -> Result<ProtocolConfig, Error>;
 
-    fn get_runtime_config(&self, protocol_version: ProtocolVersion)
-        -> Result<RuntimeConfig, Error>;
+    fn get_runtime_config(&self, protocol_version: ProtocolVersion) -> RuntimeConfig;
 
     fn compiled_contract_cache(&self) -> &dyn ContractRuntimeCache;
+
+    /// Precompiles the contracts and stores them in the compiled contract cache.
+    fn precompile_contracts(
+        &self,
+        epoch_id: &EpochId,
+        contract_codes: Vec<ContractCode>,
+    ) -> Result<(), Error>;
 }
 
 /// The last known / checked height and time when we have processed it.
@@ -555,10 +567,10 @@ pub struct LatestKnown {
 #[cfg(test)]
 mod tests {
     use near_async::time::{Clock, Utc};
-    use near_primitives::block::{genesis_chunks, Approval};
+    use near_primitives::block::{Approval, genesis_chunks};
     use near_primitives::hash::hash;
     use near_primitives::merkle::verify_path;
-    use near_primitives::test_utils::{create_test_signer, TestBlockBuilder};
+    use near_primitives::test_utils::{TestBlockBuilder, create_test_signer};
     use near_primitives::transaction::{ExecutionMetadata, ExecutionOutcome, ExecutionStatus};
     use near_primitives::version::PROTOCOL_VERSION;
     use std::sync::Arc;
@@ -570,7 +582,7 @@ mod tests {
         let shard_ids: Vec<_> = (0..32).map(ShardId::new).collect();
         let genesis_chunks = genesis_chunks(
             vec![Trie::EMPTY_ROOT],
-            vec![Default::default(); shard_ids.len()],
+            vec![Some(Default::default()); shard_ids.len()],
             &shard_ids,
             1_000_000,
             0,
@@ -598,7 +610,7 @@ mod tests {
     }
 
     #[test]
-    fn test_execution_outcome_merklization() {
+    fn test_execution_outcome_merkelization() {
         let outcome1 = ExecutionOutcomeWithId {
             id: Default::default(),
             outcome: ExecutionOutcome {

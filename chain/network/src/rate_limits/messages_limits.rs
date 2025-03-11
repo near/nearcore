@@ -3,7 +3,7 @@
 
 use std::collections::HashMap;
 
-use enum_map::{enum_map, EnumMap};
+use enum_map::{EnumMap, enum_map};
 use near_async::time::Instant;
 
 use crate::network_protocol::{PeerMessage, RoutedMessageBody};
@@ -101,18 +101,14 @@ impl Config {
                 errors.push((*key, err));
             }
         }
-        if errors.is_empty() {
-            Ok(())
-        } else {
-            Err(errors)
-        }
+        if errors.is_empty() { Ok(()) } else { Err(errors) }
     }
 
     /// Returns a good preset of rate limit configuration valid for any type of node.
     pub fn standard_preset() -> Self {
         // TODO(trisfald): make presets for other message types
         let mut config = Self::default();
-        // EpochSyncRequest is a very simple amplication attack vector, as it requires no arguments
+        // EpochSyncRequest is a very simple amplification attack vector, as it requires no arguments
         // and the response is large. So we rate limit it to 1 request per 30 seconds. In practice,
         // a peer should not need to epoch sync except when bootstrapping a node, so a request
         // should be rarely received. We still set it to a reasonable rate limit so a bootstrapping
@@ -181,10 +177,11 @@ pub enum RateLimitedPeerMessageKey {
     PartialEncodedStateWitness,
     PartialEncodedStateWitnessForward,
     ChunkContractAccesses,
-    ChunkContractDeployments,
     ContractCodeRequest,
     ContractCodeResponse,
+    PartialEncodedContractDeploys,
     EpochSyncRequest,
+    OptimisticBlock,
 }
 
 /// Given a `PeerMessage` returns a tuple containing the `RateLimitedPeerMessageKey`
@@ -206,6 +203,7 @@ fn get_key_and_token_cost(message: &PeerMessage) -> Option<(RateLimitedPeerMessa
         PeerMessage::BlockHeaders(_) => Some((BlockHeaders, 1)),
         PeerMessage::BlockRequest(_) => Some((BlockRequest, 1)),
         PeerMessage::Block(_) => Some((Block, 1)),
+        PeerMessage::OptimisticBlock(_) => Some((OptimisticBlock, 1)),
         PeerMessage::Transaction(_) => Some((Transaction, 1)),
         PeerMessage::Routed(msg) => match msg.body {
             RoutedMessageBody::BlockApproval(_) => Some((BlockApproval, 1)),
@@ -224,7 +222,6 @@ fn get_key_and_token_cost(message: &PeerMessage) -> Option<(RateLimitedPeerMessa
             RoutedMessageBody::PartialEncodedChunkForward(_) => {
                 Some((PartialEncodedChunkForward, 1))
             }
-            RoutedMessageBody::ChunkEndorsement(_) => Some((ChunkEndorsement, 1)),
             RoutedMessageBody::ChunkStateWitnessAck(_) => Some((ChunkStateWitnessAck, 1)),
             RoutedMessageBody::PartialEncodedStateWitness(_) => {
                 Some((PartialEncodedStateWitness, 1))
@@ -233,15 +230,18 @@ fn get_key_and_token_cost(message: &PeerMessage) -> Option<(RateLimitedPeerMessa
                 Some((PartialEncodedStateWitnessForward, 1))
             }
             RoutedMessageBody::ChunkContractAccesses(_) => Some((ChunkContractAccesses, 1)),
-            RoutedMessageBody::ChunkContractDeployments(_) => Some((ChunkContractDeployments, 1)),
             RoutedMessageBody::ContractCodeRequest(_) => Some((ContractCodeRequest, 1)),
             RoutedMessageBody::ContractCodeResponse(_) => Some((ContractCodeResponse, 1)),
+            RoutedMessageBody::PartialEncodedContractDeploys(_) => {
+                Some((PartialEncodedContractDeploys, 1))
+            }
             RoutedMessageBody::VersionedChunkEndorsement(_) => Some((ChunkEndorsement, 1)),
             RoutedMessageBody::_UnusedEpochSyncRequest => None,
             RoutedMessageBody::_UnusedEpochSyncResponse(_) => None,
             RoutedMessageBody::StatePartRequest(_) => None, // TODO
             RoutedMessageBody::Ping(_)
             | RoutedMessageBody::Pong(_)
+            | RoutedMessageBody::_UnusedChunkEndorsement
             | RoutedMessageBody::_UnusedChunkStateWitness
             | RoutedMessageBody::_UnusedVersionedStateResponse
             | RoutedMessageBody::_UnusedPartialEncodedChunk
@@ -354,16 +354,20 @@ mod tests {
         config.rate_limits.insert(BlockHeaders, SingleMessageConfig::new(0, -2.0, None));
         let result = config.validate();
         let error = result.expect_err("a configuration error is expected");
-        assert!(error
-            .iter()
-            .find(|(key, err)| *key == BlockApproval
-                && *err == TokenBucketError::InvalidRefillRate(-1.0))
-            .is_some());
-        assert!(error
-            .iter()
-            .find(|(key, err)| *key == BlockHeaders
-                && *err == TokenBucketError::InvalidRefillRate(-2.0))
-            .is_some());
+        assert!(
+            error
+                .iter()
+                .find(|(key, err)| *key == BlockApproval
+                    && *err == TokenBucketError::InvalidRefillRate(-1.0))
+                .is_some()
+        );
+        assert!(
+            error
+                .iter()
+                .find(|(key, err)| *key == BlockHeaders
+                    && *err == TokenBucketError::InvalidRefillRate(-2.0))
+                .is_some()
+        );
     }
 
     #[test]

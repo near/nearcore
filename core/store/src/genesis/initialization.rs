@@ -13,16 +13,16 @@ use near_chain_configs::{Genesis, GenesisContents};
 use near_parameters::RuntimeConfigStore;
 use near_primitives::{
     epoch_manager::EpochConfig,
-    shard_layout::{account_id_to_shard_id, ShardLayout},
-    state_record::{state_record_to_account_id, StateRecord},
+    shard_layout::ShardLayout,
+    state_record::{StateRecord, state_record_to_account_id},
     types::{AccountId, NumShards, ShardId, StateRoot},
 };
 use tracing::{error, info, warn};
 
 use crate::{
-    adapter::StoreAdapter, flat::FlatStorageManager, genesis::GenesisStateApplier,
-    get_genesis_hash, get_genesis_state_roots, set_genesis_hash, set_genesis_state_roots,
-    ShardTries, StateSnapshotConfig, Store, TrieConfig,
+    ShardTries, StateSnapshotConfig, Store, TrieConfig, adapter::StoreAdapter,
+    flat::FlatStorageManager, genesis::GenesisStateApplier, get_genesis_hash, get_genesis_height,
+    get_genesis_state_roots, set_genesis_hash, set_genesis_height, set_genesis_state_roots,
 };
 
 const STATE_DUMP_FILE: &str = "state_dump";
@@ -35,13 +35,24 @@ pub fn initialize_sharded_genesis_state(
     home_dir: Option<&Path>,
 ) {
     // Ignore initialization if we already have genesis hash and state roots in store
-    let stored_hash = get_genesis_hash(&store).expect("Store failed on genesis intialization");
+    let stored_hash = get_genesis_hash(&store).expect("Store failed on genesis initialization");
     if let Some(_hash) = stored_hash {
         // TODO: re-enable this check (#4447)
         //assert_eq!(hash, genesis_hash, "Storage already exists, but has a different genesis");
         get_genesis_state_roots(&store)
-            .expect("Store failed on genesis intialization")
+            .expect("Store failed on genesis initialization")
             .expect("Genesis state roots not found in storage");
+        // TODO: with 2.6 release, remove storing genesis height
+        let mut store_update: crate::StoreUpdate = store.store_update();
+        set_genesis_height(&mut store_update, &genesis.config.genesis_height);
+        store_update.commit().expect("Store failed on genesis initialization");
+        let genesis_height = get_genesis_height(&store)
+            .expect("Store failed on genesis initialization")
+            .expect("Genesis height not found in storage");
+        assert_eq!(
+            genesis_height, genesis.config.genesis_height,
+            "Genesis height in store is different from the one in genesis config"
+        );
         return;
     } else {
         let has_dump = home_dir.is_some_and(|dir| dir.join(STATE_DUMP_FILE).exists());
@@ -57,7 +68,8 @@ pub fn initialize_sharded_genesis_state(
         let mut store_update = store.store_update();
         set_genesis_hash(&mut store_update, &genesis_hash);
         set_genesis_state_roots(&mut store_update, &state_roots);
-        store_update.commit().expect("Store failed on genesis intialization");
+        set_genesis_height(&mut store_update, &genesis.config.genesis_height);
+        store_update.commit().expect("Store failed on genesis initialization");
     }
 
     let num_shards = genesis_epoch_config.shard_layout.shard_ids().count() as NumShards;
@@ -151,7 +163,7 @@ fn genesis_state_from_genesis(
                 .validators
                 .iter()
                 .filter_map(|account_info| {
-                    if account_id_to_shard_id(&account_info.account_id, &shard_layout) == shard_id {
+                    if shard_layout.account_id_to_shard_id(&account_info.account_id) == shard_id {
                         Some((
                             account_info.account_id.clone(),
                             account_info.public_key.clone(),
@@ -177,5 +189,5 @@ fn genesis_state_from_genesis(
 }
 
 fn state_record_to_shard_id(state_record: &StateRecord, shard_layout: &ShardLayout) -> ShardId {
-    account_id_to_shard_id(state_record_to_account_id(state_record), shard_layout)
+    shard_layout.account_id_to_shard_id(state_record_to_account_id(state_record))
 }

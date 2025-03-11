@@ -5,16 +5,22 @@
 //! from the source structure in the relevant `From<SourceStruct>` impl.
 use crate::account::{AccessKey, AccessKeyPermission, Account, FunctionCallPermission};
 use crate::action::delegate::{DelegateAction, SignedDelegateAction};
-use crate::bandwidth_scheduler::{BandwidthRequest, BandwidthRequests, BandwidthRequestsV1};
+use crate::action::{
+    DeployGlobalContractAction, GlobalContractDeployMode, GlobalContractIdentifier,
+    UseGlobalContractAction,
+};
+use crate::bandwidth_scheduler::BandwidthRequests;
 use crate::block::{Block, BlockHeader, Tip};
 use crate::block_header::BlockHeaderInnerLite;
 use crate::challenge::{Challenge, ChallengesResult};
 use crate::congestion_info::{CongestionInfo, CongestionInfoV1};
 use crate::errors::TxExecutionError;
-use crate::hash::{hash, CryptoHash};
-use crate::merkle::{combine_hash, MerklePath};
+use crate::hash::{CryptoHash, hash};
+use crate::merkle::{MerklePath, combine_hash};
 use crate::network::PeerId;
-use crate::receipt::{ActionReceipt, DataReceipt, DataReceiver, Receipt, ReceiptEnum, ReceiptV1};
+use crate::receipt::{
+    ActionReceipt, DataReceipt, DataReceiver, GlobalContractData, Receipt, ReceiptEnum, ReceiptV1,
+};
 use crate::serialize::dec_format;
 use crate::sharding::shard_chunk_header_inner::ShardChunkHeaderInnerV4;
 use crate::sharding::{
@@ -22,8 +28,6 @@ use crate::sharding::{
     ShardChunkHeaderInnerV3, ShardChunkHeaderV3,
 };
 use crate::stateless_validation::chunk_endorsements_bitmap::ChunkEndorsementsBitmap;
-#[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-use crate::transaction::NonrefundableStorageTransferAction;
 use crate::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
     DeployContractAction, ExecutionMetadata, ExecutionOutcome, ExecutionOutcomeWithIdAndProof,
@@ -43,7 +47,7 @@ use near_fmt::{AbbrBytes, Slice};
 use near_parameters::config::CongestionControlConfig;
 use near_parameters::view::CongestionControlConfigView;
 use near_parameters::{ActionCosts, ExtCosts};
-use near_primitives_core::version::PROTOCOL_VERSION;
+use near_primitives_core::account::AccountContract;
 use near_schema_checker_lib::ProtocolSchema;
 use near_time::Utc;
 use serde_with::base64::Base64;
@@ -62,14 +66,15 @@ pub struct AccountView {
     pub amount: Balance,
     #[serde(with = "dec_format")]
     pub locked: Balance,
-    #[serde(with = "dec_format")]
-    #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-    pub permanent_storage_bytes: StorageUsage,
     pub code_hash: CryptoHash,
     pub storage_usage: StorageUsage,
     /// TODO(2271): deprecated.
     #[serde(default)]
     pub storage_paid_at: BlockHeight,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub global_contract_hash: Option<CryptoHash>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub global_contract_account_id: Option<AccountId>,
 }
 
 /// A view of the contract code.
@@ -84,14 +89,20 @@ pub struct ContractCodeView {
 
 impl From<&Account> for AccountView {
     fn from(account: &Account) -> Self {
+        let (global_contract_hash, global_contract_account_id) =
+            match account.contract().into_owned() {
+                AccountContract::Global(contract) => (Some(contract), None),
+                AccountContract::GlobalByAccount(account_id) => (None, Some(account_id)),
+                AccountContract::Local(_) | AccountContract::None => (None, None),
+            };
         AccountView {
             amount: account.amount(),
             locked: account.locked(),
-            #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-            permanent_storage_bytes: account.permanent_storage_bytes(),
-            code_hash: account.code_hash(),
+            code_hash: account.local_contract_hash().unwrap_or_default(),
             storage_usage: account.storage_usage(),
             storage_paid_at: 0,
+            global_contract_hash,
+            global_contract_account_id,
         }
     }
 }
@@ -104,18 +115,14 @@ impl From<Account> for AccountView {
 
 impl From<&AccountView> for Account {
     fn from(view: &AccountView) -> Self {
-        #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-        let permanent_storage_bytes = view.permanent_storage_bytes;
-        #[cfg(not(feature = "protocol_feature_nonrefundable_transfer_nep491"))]
-        let permanent_storage_bytes = 0;
-        Account::new(
-            view.amount,
-            view.locked,
-            permanent_storage_bytes,
-            view.code_hash,
-            view.storage_usage,
-            PROTOCOL_VERSION,
-        )
+        let contract = match &view.global_contract_account_id {
+            Some(account_id) => AccountContract::GlobalByAccount(account_id.clone()),
+            None => match view.global_contract_hash {
+                Some(hash) => AccountContract::Global(hash),
+                None => AccountContract::from_local_code_hash(view.code_hash),
+            },
+        };
+        Account::new(view.amount, view.locked, contract, view.storage_usage)
     }
 }
 
@@ -245,6 +252,7 @@ impl FromIterator<AccessKeyInfoView> for AccessKeyList {
     }
 }
 
+// cspell:words deepsize
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct KnownPeerStateView {
@@ -479,7 +487,7 @@ pub struct LabeledEdgeView {
     pub nonce: u64,
 }
 
-#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Default)]
 pub struct EdgeCacheView {
     pub peer_labels: HashMap<PeerId, u32>,
     pub spanning_trees: HashMap<u32, Vec<LabeledEdgeView>>,
@@ -491,7 +499,7 @@ pub struct PeerDistancesView {
     pub min_nonce: u64,
 }
 
-#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Default)]
 pub struct NetworkRoutesView {
     pub edge_cache: EdgeCacheView,
     pub local_edges: HashMap<PeerId, EdgeView>,
@@ -945,8 +953,14 @@ pub struct ChunkHeaderView {
     pub tx_root: CryptoHash,
     pub validator_proposals: Vec<ValidatorStakeView>,
     pub congestion_info: Option<CongestionInfoView>,
-    pub bandwidth_requests: Option<BandwidthRequestsView>,
+    pub bandwidth_requests: Option<BandwidthRequests>,
     pub signature: Signature,
+}
+
+impl ChunkHeaderView {
+    pub fn is_new_chunk(&self, block_height: BlockHeight) -> bool {
+        self.height_included == block_height
+    }
 }
 
 impl From<ShardChunkHeader> for ChunkHeaderView {
@@ -974,7 +988,7 @@ impl From<ShardChunkHeader> for ChunkHeaderView {
             tx_root: *inner.tx_root(),
             validator_proposals: inner.prev_validator_proposals().map(Into::into).collect(),
             congestion_info: inner.congestion_info().map(Into::into),
-            bandwidth_requests: inner.bandwidth_requests().map(Into::into),
+            bandwidth_requests: inner.bandwidth_requests().cloned(),
             signature,
         }
     }
@@ -1004,7 +1018,7 @@ impl From<ChunkHeaderView> for ShardChunkHeader {
                             .map(Into::into)
                             .collect(),
                         congestion_info: congestion_info.into(),
-                        bandwidth_requests: bandwidth_requests.into(),
+                        bandwidth_requests,
                     }),
                     height_included: view.height_included,
                     signature: view.signature,
@@ -1146,11 +1160,6 @@ pub enum ActionView {
         #[serde(with = "dec_format")]
         deposit: Balance,
     },
-    #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-    NonrefundableStorageTransfer {
-        #[serde(with = "dec_format")]
-        deposit: Balance,
-    },
     Stake {
         #[serde(with = "dec_format")]
         stake: Balance,
@@ -1170,6 +1179,20 @@ pub enum ActionView {
         delegate_action: DelegateAction,
         signature: Signature,
     },
+    DeployGlobalContract {
+        #[serde_as(as = "Base64")]
+        code: Vec<u8>,
+    },
+    DeployGlobalContractByAccountId {
+        #[serde_as(as = "Base64")]
+        code: Vec<u8>,
+    },
+    UseGlobalContract {
+        code_hash: CryptoHash,
+    },
+    UseGlobalContractByAccountId {
+        account_id: AccountId,
+    },
 }
 
 impl From<Action> for ActionView {
@@ -1187,10 +1210,6 @@ impl From<Action> for ActionView {
                 deposit: action.deposit,
             },
             Action::Transfer(action) => ActionView::Transfer { deposit: action.deposit },
-            #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-            Action::NonrefundableStorageTransfer(action) => {
-                ActionView::NonrefundableStorageTransfer { deposit: action.deposit }
-            }
             Action::Stake(action) => {
                 ActionView::Stake { stake: action.stake, public_key: action.public_key }
             }
@@ -1205,6 +1224,23 @@ impl From<Action> for ActionView {
             Action::Delegate(action) => ActionView::Delegate {
                 delegate_action: action.delegate_action,
                 signature: action.signature,
+            },
+            Action::DeployGlobalContract(action) => {
+                let code = hash(&action.code).as_ref().to_vec();
+                match action.deploy_mode {
+                    GlobalContractDeployMode::CodeHash => ActionView::DeployGlobalContract { code },
+                    GlobalContractDeployMode::AccountId => {
+                        ActionView::DeployGlobalContractByAccountId { code }
+                    }
+                }
+            }
+            Action::UseGlobalContract(action) => match action.contract_identifier {
+                GlobalContractIdentifier::CodeHash(code_hash) => {
+                    ActionView::UseGlobalContract { code_hash }
+                }
+                GlobalContractIdentifier::AccountId(account_id) => {
+                    ActionView::UseGlobalContractByAccountId { account_id }
+                }
             },
         }
     }
@@ -1228,10 +1264,6 @@ impl TryFrom<ActionView> for Action {
                 }))
             }
             ActionView::Transfer { deposit } => Action::Transfer(TransferAction { deposit }),
-            #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-            ActionView::NonrefundableStorageTransfer { deposit } => {
-                Action::NonrefundableStorageTransfer(NonrefundableStorageTransferAction { deposit })
-            }
             ActionView::Stake { stake, public_key } => {
                 Action::Stake(Box::new(StakeAction { stake, public_key }))
             }
@@ -1246,6 +1278,28 @@ impl TryFrom<ActionView> for Action {
             }
             ActionView::Delegate { delegate_action, signature } => {
                 Action::Delegate(Box::new(SignedDelegateAction { delegate_action, signature }))
+            }
+            ActionView::DeployGlobalContract { code } => {
+                Action::DeployGlobalContract(DeployGlobalContractAction {
+                    code: code.into(),
+                    deploy_mode: GlobalContractDeployMode::CodeHash,
+                })
+            }
+            ActionView::DeployGlobalContractByAccountId { code } => {
+                Action::DeployGlobalContract(DeployGlobalContractAction {
+                    code: code.into(),
+                    deploy_mode: GlobalContractDeployMode::AccountId,
+                })
+            }
+            ActionView::UseGlobalContract { code_hash } => {
+                Action::UseGlobalContract(Box::new(UseGlobalContractAction {
+                    contract_identifier: GlobalContractIdentifier::CodeHash(code_hash),
+                }))
+            }
+            ActionView::UseGlobalContractByAccountId { account_id } => {
+                Action::UseGlobalContract(Box::new(UseGlobalContractAction {
+                    contract_identifier: GlobalContractIdentifier::AccountId(account_id),
+                }))
             }
         })
     }
@@ -1665,21 +1719,21 @@ pub struct TxStatusView {
 pub enum TxExecutionStatus {
     /// Transaction is waiting to be included into the block
     None,
-    /// Transaction is included into the block. The block may be not finalised yet
+    /// Transaction is included into the block. The block may be not finalized yet
     Included,
     /// Transaction is included into the block +
     /// All non-refund transaction receipts finished their execution.
-    /// The corresponding blocks for tx and each receipt may be not finalised yet
+    /// The corresponding blocks for tx and each receipt may be not finalized yet
     #[default]
     ExecutedOptimistic,
-    /// Transaction is included into finalised block
+    /// Transaction is included into finalized block
     IncludedFinal,
-    /// Transaction is included into finalised block +
+    /// Transaction is included into finalized block +
     /// All non-refund transaction receipts finished their execution.
-    /// The corresponding blocks for each receipt may be not finalised yet
+    /// The corresponding blocks for each receipt may be not finalized yet
     Executed,
-    /// Transaction is included into finalised block +
-    /// Execution of all transaction receipts is finalised, including refund receipts
+    /// Transaction is included into finalized block +
+    /// Execution of all transaction receipts is finalized, including refund receipts
     Final,
 }
 
@@ -1713,7 +1767,7 @@ impl TxStatusView {
 }
 
 /// Execution outcome of the transaction and all the subsequent receipts.
-/// Could be not finalised yet
+/// Could be not finalized yet
 #[derive(
     BorshSerialize, BorshDeserialize, serde::Serialize, serde::Deserialize, PartialEq, Eq, Clone,
 )]
@@ -1904,6 +1958,9 @@ pub enum ReceiptEnumView {
         #[serde(default = "default_is_promise")]
         is_promise_resume: bool,
     },
+    GlobalContractDistribution {
+        data: GlobalContractData,
+    },
 }
 
 // Default value used when deserializing ReceiptEnumViews which are missing either the
@@ -1952,6 +2009,9 @@ impl From<Receipt> for ReceiptView {
                         data: data_receipt.data,
                         is_promise_resume,
                     }
+                }
+                ReceiptEnum::GlobalContractDistribution(data) => {
+                    ReceiptEnumView::GlobalContractDistribution { data }
                 }
             },
             priority,
@@ -2010,6 +2070,9 @@ impl TryFrom<ReceiptView> for Receipt {
                         ReceiptEnum::Data(data_receipt)
                     }
                 }
+                ReceiptEnumView::GlobalContractDistribution { data } => {
+                    ReceiptEnum::GlobalContractDistribution(data)
+                }
             },
             priority: receipt_view.priority,
         }))
@@ -2060,7 +2123,9 @@ pub struct CurrentEpochValidatorInfo {
     pub is_slashed: bool,
     #[serde(with = "dec_format")]
     pub stake: Balance,
-    pub shards: Vec<ShardId>,
+    /// Shards this validator is assigned to as chunk producer in the current epoch.
+    #[serde(rename = "shards")]
+    pub shards_produced: Vec<ShardId>,
     pub num_produced_blocks: NumBlocks,
     pub num_expected_blocks: NumBlocks,
     #[serde(default)]
@@ -2070,20 +2135,22 @@ pub struct CurrentEpochValidatorInfo {
     // The following two fields correspond to the shards in the shard array.
     #[serde(default)]
     pub num_produced_chunks_per_shard: Vec<NumBlocks>,
+    /// Number of chunks this validator was expected to produce in each shard.
+    /// Each entry in the array corresponds to the shard in the `shards_produced` array.
     #[serde(default)]
     pub num_expected_chunks_per_shard: Vec<NumBlocks>,
-    #[serde(default, skip_serializing_if = "num_blocks_is_zero")]
+    #[serde(default)]
     pub num_produced_endorsements: NumBlocks,
-    #[serde(default, skip_serializing_if = "num_blocks_is_zero")]
+    #[serde(default)]
     pub num_expected_endorsements: NumBlocks,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(default)]
     pub num_produced_endorsements_per_shard: Vec<NumBlocks>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    /// Number of chunks this validator was expected to validate and endorse in each shard.
+    /// Each entry in the array corresponds to the shard in the `shards_endorsed` array.
+    #[serde(default)]
     pub num_expected_endorsements_per_shard: Vec<NumBlocks>,
-}
-
-fn num_blocks_is_zero(n: &NumBlocks) -> bool {
-    n == &0
+    /// Shards this validator is assigned to as chunk validator in the current epoch.
+    pub shards_endorsed: Vec<ShardId>,
 }
 
 #[derive(
@@ -2421,8 +2488,13 @@ impl From<CongestionInfoV1> for CongestionInfoView {
 }
 
 impl From<CongestionInfoView> for CongestionInfo {
-    fn from(_: CongestionInfoView) -> Self {
-        CongestionInfo::default()
+    fn from(congestion_info: CongestionInfoView) -> Self {
+        CongestionInfo::V1(CongestionInfoV1 {
+            delayed_receipts_gas: congestion_info.delayed_receipts_gas,
+            buffered_receipts_gas: congestion_info.buffered_receipts_gas,
+            receipt_bytes: congestion_info.receipt_bytes,
+            allowed_shard: congestion_info.allowed_shard,
+        })
     }
 }
 
@@ -2438,62 +2510,6 @@ impl CongestionInfoView {
         // misleading to call it congestion, as it is not a problem with too
         // much traffic.
         CongestionInfo::from(self.clone()).localized_congestion_level(&congestion_config)
-    }
-}
-
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
-pub enum BandwidthRequestsView {
-    V1(BandwidthRequestsV1View),
-}
-
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
-pub struct BandwidthRequestsV1View {
-    pub requests: Vec<BandwidthRequestView>,
-}
-
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
-pub struct BandwidthRequestView {
-    pub to_shard: u8,
-    // TODO(bandwidth_scheduler) - include requested values in the view.
-}
-
-impl From<&BandwidthRequests> for BandwidthRequestsView {
-    fn from(bandwidth_requests: &BandwidthRequests) -> BandwidthRequestsView {
-        match bandwidth_requests {
-            BandwidthRequests::V1(bandwidth_requests) => {
-                BandwidthRequestsView::V1(BandwidthRequestsV1View {
-                    requests: bandwidth_requests.requests.iter().map(Into::into).collect(),
-                })
-            }
-        }
-    }
-}
-
-impl From<&BandwidthRequest> for BandwidthRequestView {
-    fn from(request: &BandwidthRequest) -> BandwidthRequestView {
-        BandwidthRequestView { to_shard: request.to_shard }
-    }
-}
-
-impl From<BandwidthRequestsView> for BandwidthRequests {
-    fn from(bandwidth_requests: BandwidthRequestsView) -> BandwidthRequests {
-        match bandwidth_requests {
-            BandwidthRequestsView::V1(bandwidth_requests_view) => {
-                BandwidthRequests::V1(BandwidthRequestsV1 {
-                    requests: bandwidth_requests_view
-                        .requests
-                        .into_iter()
-                        .map(Into::into)
-                        .collect(),
-                })
-            }
-        }
-    }
-}
-
-impl From<BandwidthRequestView> for BandwidthRequest {
-    fn from(request_view: BandwidthRequestView) -> BandwidthRequest {
-        BandwidthRequest { to_shard: request_view.to_shard }
     }
 }
 
@@ -2545,6 +2561,7 @@ mod tests {
     #[test]
     fn test_deserialize_execution_outcome_with_receipt() {
         // Real JSON-RPC response for 'EXPERIMENTAL_tx_status' method
+        // cspell:ignore mainchain
         let json = r#"{"final_execution_status":"FINAL","receipts":[{"predecessor_id":"system","priority":0,"receipt":{"Action":{"actions":[{"Transfer":{"deposit":"17930928991009412192152"}}],"gas_price":"0","input_data_ids":[],"is_promise_yield":false,"output_data_receivers":[],"signer_id":"btc-client.testnet","signer_public_key":"ed25519:HM7ax8jJf41JozvanXepzhtD45AeRFcwJQCuLXFuDkjA"}},"receipt_id":"8ZD92cLpoCEU46hPGFfk3VqZpU8s6DoQhZ4pCMqWwDT6","receiver_id":"btc-client.testnet"}],"receipts_outcome":[{"block_hash":"9SP8Y3sVADWNN5QoEB5CsvPUE5HT4o8YfBaCnhLss87K","id":"e2XGEosf843XMiCJHvZufvHKyw419ZYibDBdVJQr9cB","outcome":{"executor_id":"btc-client.testnet","gas_burnt":2906160054161,"logs":["Block hash: 0000000000000000ee617846a3e081ae2f30091451442e1b5fb027d8eba09b3a","Saving to mainchain"],"metadata":{"gas_profile":[{"cost":"BASE","cost_category":"WASM_HOST_COST","gas_used":"8472579552"},{"cost":"CONTRACT_LOADING_BASE","cost_category":"WASM_HOST_COST","gas_used":"35445963"},{"cost":"CONTRACT_LOADING_BYTES","cost_category":"WASM_HOST_COST","gas_used":"413841688515"},{"cost":"LOG_BASE","cost_category":"WASM_HOST_COST","gas_used":"7086626100"},{"cost":"LOG_BYTE","cost_category":"WASM_HOST_COST","gas_used":"1253885145"},{"cost":"READ_CACHED_TRIE_NODE","cost_category":"WASM_HOST_COST","gas_used":"102600000000"},{"cost":"READ_MEMORY_BASE","cost_category":"WASM_HOST_COST","gas_used":"54807127200"},{"cost":"READ_MEMORY_BYTE","cost_category":"WASM_HOST_COST","gas_used":"2873807748"},{"cost":"READ_REGISTER_BASE","cost_category":"WASM_HOST_COST","gas_used":"22654486674"},{"cost":"READ_REGISTER_BYTE","cost_category":"WASM_HOST_COST","gas_used":"51252240"},{"cost":"SHA256_BASE","cost_category":"WASM_HOST_COST","gas_used":"13622910750"},{"cost":"SHA256_BYTE","cost_category":"WASM_HOST_COST","gas_used":"3400546491"},{"cost":"STORAGE_READ_BASE","cost_category":"WASM_HOST_COST","gas_used":"450854766000"},{"cost":"STORAGE_READ_KEY_BYTE","cost_category":"WASM_HOST_COST","gas_used":"4952405280"},{"cost":"STORAGE_READ_VALUE_BYTE","cost_category":"WASM_HOST_COST","gas_used":"1806743610"},{"cost":"STORAGE_WRITE_BASE","cost_category":"WASM_HOST_COST","gas_used":"256786944000"},{"cost":"STORAGE_WRITE_EVICTED_BYTE","cost_category":"WASM_HOST_COST","gas_used":"2826323016"},{"cost":"STORAGE_WRITE_KEY_BYTE","cost_category":"WASM_HOST_COST","gas_used":"5638629360"},{"cost":"STORAGE_WRITE_VALUE_BYTE","cost_category":"WASM_HOST_COST","gas_used":"8685190920"},{"cost":"TOUCHING_TRIE_NODE","cost_category":"WASM_HOST_COST","gas_used":"434752810002"},{"cost":"UTF8_DECODING_BASE","cost_category":"WASM_HOST_COST","gas_used":"6223558122"},{"cost":"UTF8_DECODING_BYTE","cost_category":"WASM_HOST_COST","gas_used":"27700145505"},{"cost":"WASM_INSTRUCTION","cost_category":"WASM_HOST_COST","gas_used":"126491330196"},{"cost":"WRITE_MEMORY_BASE","cost_category":"WASM_HOST_COST","gas_used":"28037948610"},{"cost":"WRITE_MEMORY_BYTE","cost_category":"WASM_HOST_COST","gas_used":"1459941792"},{"cost":"WRITE_REGISTER_BASE","cost_category":"WASM_HOST_COST","gas_used":"28655224860"},{"cost":"WRITE_REGISTER_BYTE","cost_category":"WASM_HOST_COST","gas_used":"2311350912"}],"version":3},"receipt_ids":["8ZD92cLpoCEU46hPGFfk3VqZpU8s6DoQhZ4pCMqWwDT6"],"status":{"SuccessValue":""},"tokens_burnt":"290616005416100000000"},"proof":[{"direction":"Left","hash":"BoQHueiPH9e4C7fkxouV4tFpGZ4hK5fJhKQnPBWwPazS"},{"direction":"Right","hash":"Ayxj8iVFTJMzZa7estoTtuBKJaUNhoipaaM7WmTjkkiS"}]},{"block_hash":"3rEx3xmgLCRgUfSgueD71YNrJYQYNvhtkXaqVQxdmj4U","id":"8ZD92cLpoCEU46hPGFfk3VqZpU8s6DoQhZ4pCMqWwDT6","outcome":{"executor_id":"btc-client.testnet","gas_burnt":223182562500,"logs":[],"metadata":{"gas_profile":[],"version":3},"receipt_ids":[],"status":{"SuccessValue":""},"tokens_burnt":"0"},"proof":[{"direction":"Right","hash":"8yEwg14D2GyyLNnJMxdSLDJKyrKShMAL3zTnf9YpQyPW"},{"direction":"Right","hash":"2UK7BfpHf9fCCsvmfHktDfz6Rh8sFihhN6cuTU3R4BBA"}]}],"status":{"SuccessValue":""},"transaction":{"actions":[{"FunctionCall":{"args":"AQAAAABA0CKoR96WKs+KPP6zPl0flT6XC91eR3uAUgwNAAAAAAAAAAzcZU0cipmejc+wGqnRJchd5uM6qRJM5Oojp3FrkJ2HVmGyZsnyFBlkvks8","deposit":"0","gas":100000000000000,"method_name":"submit_blocks"}}],"hash":"GMUCDLHFJVvmZYXmPf9QeUVAt9r9hXcQP1yL5emPFnvx","nonce":170437577001422,"priority_fee":0,"public_key":"ed25519:HM7ax8jJf41JozvanXepzhtD45AeRFcwJQCuLXFuDkjA","receiver_id":"btc-client.testnet","signature":"ed25519:2Qe3ccPSdzPddk764vm5jt4yXcvXgYQz3WzGF3oXpZLuaRa6ggpD131nSSy3FRVPquCvxYqgMGtdum8TKX3dVqNk","signer_id":"btc-client.testnet"},"transaction_outcome":{"block_hash":"9SP8Y3sVADWNN5QoEB5CsvPUE5HT4o8YfBaCnhLss87K","id":"GMUCDLHFJVvmZYXmPf9QeUVAt9r9hXcQP1yL5emPFnvx","outcome":{"executor_id":"btc-client.testnet","gas_burnt":308276385598,"logs":[],"metadata":{"gas_profile":null,"version":1},"receipt_ids":["e2XGEosf843XMiCJHvZufvHKyw419ZYibDBdVJQr9cB"],"status":{"SuccessReceiptId":"e2XGEosf843XMiCJHvZufvHKyw419ZYibDBdVJQr9cB"},"tokens_burnt":"30827638559800000000"},"proof":[{"direction":"Right","hash":"HDgWEk2okmDdAFAVf6ffxGBH6F6vdLM1X3H5Fmaafe4S"},{"direction":"Right","hash":"Ayxj8iVFTJMzZa7estoTtuBKJaUNhoipaaM7WmTjkkiS"}]}}"#;
         let view: FinalExecutionOutcomeViewEnum = serde_json::from_str(json).unwrap();
         assert!(matches!(view, FinalExecutionOutcomeViewEnum::FinalExecutionOutcomeWithReceipt(_)));

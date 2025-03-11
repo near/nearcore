@@ -1,8 +1,9 @@
-use super::task_tracker::TaskHandle;
 use super::StateSyncDownloadSource;
+use super::task_tracker::TaskHandle;
+use crate::metrics;
 use crate::sync::state::util::increment_download_count;
-use futures::future::BoxFuture;
 use futures::FutureExt;
+use futures::future::BoxFuture;
 use near_async::messaging::AsyncSender;
 use near_async::time::{Clock, Duration};
 use near_chain::BlockHeader;
@@ -180,16 +181,20 @@ impl StateSyncDownloadSourcePeer {
             PartIdOrHeader::Header => "header",
         };
 
+        let _timer = metrics::STATE_SYNC_P2P_REQUEST_DELAY
+            .with_label_values(&[&key.shard_id.to_string(), &typ])
+            .start_timer();
+
         handle.set_status("Sending network request");
         match request_sender.send_async(network_request).await {
             Ok(response) => {
                 if let NetworkResponses::RouteNotFound = response.as_network_response() {
-                    increment_download_count(key.shard_id, typ, "network", "error");
+                    increment_download_count(key.shard_id, typ, "network", "route_not_found");
                     return Err(near_chain::Error::Other("Route not found".to_owned()));
                 }
             }
             Err(e) => {
-                increment_download_count(key.shard_id, typ, "network", "error");
+                increment_download_count(key.shard_id, typ, "network", "failed_to_send");
                 return Err(near_chain::Error::Other(format!("Failed to send request: {}", e)));
             }
         }
@@ -201,7 +206,7 @@ impl StateSyncDownloadSourcePeer {
                 Err(near_chain::Error::Other("Timeout".to_owned()))
             }
             _ = cancel.cancelled() => {
-                increment_download_count(key.shard_id, typ, "network", "error");
+                increment_download_count(key.shard_id, typ, "network", "cancelled");
                 Err(near_chain::Error::Other("Cancelled".to_owned()))
             }
             result = receiver => {
@@ -211,7 +216,7 @@ impl StateSyncDownloadSourcePeer {
                         Ok(result)
                     }
                     Err(_) => {
-                        increment_download_count(key.shard_id, typ, "network", "error");
+                        increment_download_count(key.shard_id, typ, "network", "sender_dropped");
                         Err(near_chain::Error::Other("Sender dropped".to_owned()))
                     },
                 }

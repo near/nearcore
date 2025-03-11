@@ -1,18 +1,20 @@
 use crate::StoreValidator;
 
+use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_primitives::block::{Block, BlockHeader, Tip};
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::epoch_info::EpochInfo;
 use near_primitives::hash::CryptoHash;
-use near_primitives::shard_layout::{get_block_shard_uid, ShardUId};
-use near_primitives::sharding::{ChunkHash, ShardChunk, StateSyncInfo};
+use near_primitives::receipt::Receipt;
+use near_primitives::shard_layout::{ShardUId, get_block_shard_uid};
+use near_primitives::sharding::{ChunkHash, PartialEncodedChunk, ShardChunk, StateSyncInfo};
 use near_primitives::state_sync::{ShardStateSyncResponseHeader, StateHeaderKey, StatePartKey};
 use near_primitives::transaction::{ExecutionOutcomeWithProof, SignedTransaction};
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, EpochId};
 use near_primitives::utils::{get_block_shard_id, get_outcome_id_block_hash, index_to_bytes};
 use near_store::{
-    DBCol, TrieChanges, CHUNK_TAIL_KEY, FORK_TAIL_KEY, HEADER_HEAD_KEY, HEAD_KEY, TAIL_KEY,
+    CHUNK_TAIL_KEY, DBCol, FORK_TAIL_KEY, HEAD_KEY, HEADER_HEAD_KEY, TAIL_KEY, TrieChanges,
 };
 use std::collections::{HashMap, HashSet};
 
@@ -294,6 +296,25 @@ pub(crate) fn chunk_indexed_by_height_created(
     Ok(())
 }
 
+pub(crate) fn partial_chunk_receipts_exist_in_receipts(
+    sv: &mut StoreValidator,
+    _chunk_hash: &ChunkHash,
+    partial_chunk: &PartialEncodedChunk,
+) -> Result<(), StoreValidatorError> {
+    for receipt_proof in partial_chunk.prev_outgoing_receipts() {
+        for receipt in &receipt_proof.0 {
+            unwrap_or_err_db!(
+                sv.store.get_ser::<Receipt>(DBCol::Receipts, receipt.receipt_id().as_bytes()),
+                "IncomingReceipt has {:?} but it doesn't exist in Receipts column",
+                receipt
+            );
+            // This is verified later when we verify the Receipts column.
+            *sv.inner.receipt_refcount.entry(*receipt.receipt_id()).or_insert(0) += 1;
+        }
+    }
+    Ok(())
+}
+
 pub(crate) fn header_hash_indexed_by_height(
     sv: &mut StoreValidator,
     _hash: &CryptoHash,
@@ -339,9 +360,6 @@ pub(crate) fn chunk_tx_exists(
         let tx_hash = tx.get_hash();
         sv.inner.tx_refcount.entry(tx_hash).and_modify(|x| *x += 1).or_insert(1);
     }
-    for receipt in shard_chunk.prev_outgoing_receipts().iter() {
-        sv.inner.receipt_refcount.entry(receipt.get_hash()).and_modify(|x| *x += 1).or_insert(1);
-    }
     for tx in shard_chunk.transactions().iter() {
         let tx_hash = tx.get_hash();
         unwrap_or_err_db!(
@@ -370,7 +388,7 @@ pub(crate) fn block_chunks_exist(
     for chunk_header in block.chunks().iter_deprecated() {
         if chunk_header.height_included() == block.header().height() {
             if let Some(me) = &sv.me {
-                let cares_about_shard = sv.shard_tracker.care_about_shard(
+                let cares_about_shard = sv.shard_tracker.cares_about_shard(
                     Some(me),
                     block.header().prev_hash(),
                     chunk_header.shard_id(),
@@ -392,13 +410,17 @@ pub(crate) fn block_chunks_exist(
                         chunk_header
                     );
                     if cares_about_shard {
-                        let shard_uid = sv
-                            .epoch_manager
-                            .shard_id_to_uid(chunk_header.shard_id(), block.header().epoch_id())
-                            .map_err(|err| StoreValidatorError::DBNotFound {
+                        let shard_uid = shard_id_to_uid(
+                            sv.epoch_manager.as_ref(),
+                            chunk_header.shard_id(),
+                            block.header().epoch_id(),
+                        )
+                        .map_err(|err| {
+                            StoreValidatorError::DBNotFound {
                                 func_name: "get_shard_layout",
                                 reason: err.to_string(),
-                            })?;
+                            }
+                        })?;
                         let block_shard_uid = get_block_shard_uid(block.hash(), &shard_uid);
                         unwrap_or_err_db!(
                             sv.store
@@ -532,7 +554,12 @@ pub(crate) fn canonical_prev_block_validity(
                 cur_height
             );
             if cur_hash.is_some() {
-                err!("Unexpected Block on the Canonical Chain is found between Heights {:?} and {:?}, {:?}", prev_height, height, cur_hash);
+                err!(
+                    "Unexpected Block on the Canonical Chain is found between Heights {:?} and {:?}, {:?}",
+                    prev_height,
+                    height,
+                    cur_hash
+                );
             }
         }
     }
@@ -595,7 +622,8 @@ pub(crate) fn trie_changes_chunk_extra_exists(
 
     // 5. There should be ShardChunk with ShardId `shard_id`
     let shard_id = shard_uid.shard_id();
-    let shard_index = shard_layout.get_shard_index(shard_id);
+    let shard_index =
+        unwrap_or_err!(shard_layout.get_shard_index(shard_id), "error getting shard index");
     let chunks = block.chunks();
     if let Some(chunk_header) = chunks.get(shard_index) {
         // if the chunk is not a new chunk, skip the check
@@ -706,13 +734,15 @@ pub(crate) fn outcome_indexed_by_block_hash(
     );
     for chunk_header in block.chunks().iter_deprecated() {
         if chunk_header.height_included() == block.header().height() {
-            let shard_uid = sv
-                .epoch_manager
-                .shard_id_to_uid(chunk_header.shard_id(), block.header().epoch_id())
-                .map_err(|err| StoreValidatorError::DBNotFound {
-                    func_name: "get_shard_layout",
-                    reason: err.to_string(),
-                })?;
+            let shard_uid = shard_id_to_uid(
+                sv.epoch_manager.as_ref(),
+                chunk_header.shard_id(),
+                block.header().epoch_id(),
+            )
+            .map_err(|err| StoreValidatorError::DBNotFound {
+                func_name: "get_shard_layout",
+                reason: err.to_string(),
+            })?;
             if let Ok(Some(_)) = sv.store.get_ser::<ChunkExtra>(
                 DBCol::ChunkExtra,
                 &get_block_shard_uid(block.hash(), &shard_uid),
@@ -739,8 +769,8 @@ pub(crate) fn state_sync_info_valid(
     state_sync_info: &StateSyncInfo,
 ) -> Result<(), StoreValidatorError> {
     check_discrepancy!(
-        state_sync_info.epoch_tail_hash,
-        *block_hash,
+        state_sync_info.epoch_first_block(),
+        block_hash,
         "Invalid StateSyncInfo stored"
     );
     Ok(())

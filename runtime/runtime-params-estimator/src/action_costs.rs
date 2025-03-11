@@ -243,7 +243,7 @@ impl ActionEstimation {
         let predecessor_id = tb.account_by_requirement(self.predecessor, Some(&signer_id));
         let receiver_id = tb.account_by_requirement(self.receiver, Some(&signer_id));
         let tx = tb.transaction_from_actions(predecessor_id, receiver_id, actions);
-        testbed.verify_transaction(&tx, self.metric)
+        testbed.verify_transaction(tx, self.metric)
     }
 
     /// Estimate the cost of applying a set of actions once.
@@ -768,10 +768,10 @@ pub(crate) fn empty_delegate_action(
         actions: vec![],
         nonce,
         max_block_height: 1000,
-        public_key: signer.public_key.clone(),
+        public_key: signer.public_key(),
     };
-    let signature = SignableMessage::new(&delegate_action, SignableMessageType::DelegateAction)
-        .sign(&signer.into());
+    let signature =
+        SignableMessage::new(&delegate_action, SignableMessageType::DelegateAction).sign(&signer);
     Action::Delegate(Box::new(near_primitives::action::delegate::SignedDelegateAction {
         delegate_action,
         signature,
@@ -820,7 +820,7 @@ impl ActionSize {
 
 #[cfg(test)]
 mod tests {
-    use super::{deploy_action, ActionSize};
+    use super::{ActionSize, deploy_action};
     use genesis_populate::get_account_id;
 
     #[test]

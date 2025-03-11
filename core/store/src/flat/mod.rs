@@ -37,17 +37,13 @@ mod types;
 pub use chunk_view::FlatStorageChunkView;
 pub use delta::{FlatStateChanges, FlatStateDelta, FlatStateDeltaMetadata};
 pub use manager::FlatStorageManager;
-pub use metrics::FlatStorageCreationMetrics;
+pub use metrics::{
+    FlatStorageReshardingShardCatchUpMetrics, FlatStorageReshardingShardSplitMetrics,
+};
 pub use storage::FlatStorage;
 pub use types::{
     BlockInfo, FetchingStateStatus, FlatStateIterator, FlatStorageCreationStatus, FlatStorageError,
-    FlatStorageReadyStatus, FlatStorageReshardingStatus, FlatStorageStatus, SplittingParentStatus,
+    FlatStorageReadyStatus, FlatStorageReshardingStatus, FlatStorageStatus, ParentSplitParameters,
 };
 
 pub(crate) const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
-
-/// Number of traversed parts during a single step of fetching state.
-pub const NUM_PARTS_IN_ONE_STEP: u64 = 20;
-
-/// Memory limit for state part being fetched.
-pub const STATE_PART_MEMORY_LIMIT: bytesize::ByteSize = bytesize::ByteSize(10 * bytesize::MIB);

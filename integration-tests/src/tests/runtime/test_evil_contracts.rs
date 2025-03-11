@@ -39,7 +39,7 @@ fn setup_test_contract(wasm_binary: &[u8]) -> RuntimeNode {
 }
 
 #[test]
-fn test_evil_deep_trie() {
+fn slow_test_evil_deep_trie() {
     let node = setup_test_contract(near_test_contracts::rs_contract());
     for i in 0..50 {
         println!("insertStrings #{}", i);
@@ -88,7 +88,7 @@ fn test_evil_deep_trie() {
 /// Test delaying the conclusion of a receipt for as long as possible through the use of self
 /// cross-contract calls.
 #[test]
-fn test_self_delay() {
+fn slow_test_self_delay() {
     let node = setup_test_contract(near_test_contracts::rs_contract());
     let res = node
         .user()
@@ -114,8 +114,14 @@ fn test_self_delay() {
     match res.status {
         FinalExecutionStatus::SuccessValue(depth_bytes) => {
             let depth = u32::from_be_bytes(depth_bytes.try_into().unwrap());
-            assert!(depth >= min_expected_depth, "The function has recursed fewer times than expected: {depth} < {min_expected_depth}",);
-            assert!(depth <= max_expected_depth, "The function has recursed more times than expected: {depth} > {max_expected_depth}",);
+            assert!(
+                depth >= min_expected_depth,
+                "The function has recursed fewer times than expected: {depth} < {min_expected_depth}",
+            );
+            assert!(
+                depth <= max_expected_depth,
+                "The function has recursed more times than expected: {depth} > {max_expected_depth}",
+            );
         }
         _ => panic!("Expected success, got: {:?}", res),
     }

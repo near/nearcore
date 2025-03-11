@@ -7,9 +7,8 @@ use actix::Addr;
 use actix_cors::Cors;
 use actix_web::{App, HttpServer, ResponseError};
 use paperclip::actix::{
-    api_v2_operation,
+    OpenApiExt, api_v2_operation,
     web::{self, Json},
-    OpenApiExt,
 };
 use strum::IntoEnumIterator;
 
@@ -17,12 +16,13 @@ pub use config::RosettaRpcConfig;
 use near_chain_configs::Genesis;
 use near_client::{ClientActor, ViewClientActor};
 use near_o11y::WithSpanContextExt;
-use near_primitives::{borsh::BorshDeserialize, version::PROTOCOL_VERSION};
+use near_primitives::{account::AccountContract, borsh::BorshDeserialize};
 
 mod adapters;
 mod config;
 mod errors;
 mod models;
+pub mod test;
 mod types;
 mod utils;
 
@@ -253,6 +253,7 @@ async fn block_details(
 }
 
 #[api_v2_operation]
+/// cspell:ignore UTXOs
 /// Get a Block Transaction
 ///
 /// Get a transaction in a block by its Transaction Identifier. This endpoint
@@ -368,15 +369,7 @@ async fn account_balance(
             Err(crate::errors::ErrorKind::NotFound(_)) => (
                 block.header.hash,
                 block.header.height,
-                near_primitives::account::Account::new(
-                    0,
-                    0,
-                    0,
-                    Default::default(),
-                    0,
-                    PROTOCOL_VERSION,
-                )
-                .into(),
+                near_primitives::account::Account::new(0, 0, AccountContract::None, 0).into(),
             ),
             Err(err) => return Err(err.into()),
         };
@@ -419,11 +412,7 @@ async fn account_balance(
                         // retrieve contract address from global config if not provided in query
                         config_currencies.as_ref().clone().and_then(|currencies| {
                             currencies.iter().find_map(|c| {
-                                if c.symbol == currency.symbol {
-                                    c.metadata.clone()
-                                } else {
-                                    None
-                                }
+                                if c.symbol == currency.symbol { c.metadata.clone() } else { None }
                             })
                         })
                     })
@@ -801,7 +790,7 @@ async fn construction_submit(
     check_network_identifier(&client_addr, network_identifier).await?;
 
     let transaction_hash = signed_transaction.as_ref().get_hash();
-    let transaction_submittion = client_addr
+    let transaction_submission = client_addr
         .send(
             near_client::ProcessTxRequest {
                 transaction: signed_transaction.into_inner(),
@@ -811,7 +800,7 @@ async fn construction_submit(
             .with_span_context(),
         )
         .await?;
-    match transaction_submittion {
+    match transaction_submission {
         near_client::ProcessTxResponse::ValidTx | near_client::ProcessTxResponse::RequestRouted => {
             Ok(Json(models::TransactionIdentifierResponse {
                 transaction_identifier: models::TransactionIdentifier::transaction(
@@ -823,8 +812,8 @@ async fn construction_submit(
             Err(errors::ErrorKind::InvalidInput(error.to_string()).into())
         }
         _ => Err(errors::ErrorKind::InternalInvariantError(format!(
-            "Transaction submition return unexpected result: {:?}",
-            transaction_submittion
+            "Transaction submission return unexpected result: {:?}",
+            transaction_submission
         ))
         .into()),
     }

@@ -1,19 +1,19 @@
+use crate::PeerManagerActor;
 use crate::network_protocol::PeerInfo;
 use crate::types::{
     NetworkInfo, NetworkResponses, PeerManagerMessageRequest, PeerManagerMessageResponse,
-    SetChainInfo, StateSyncEvent,
+    SetChainInfo, StateSyncEvent, Tier3Request,
 };
-use crate::PeerManagerActor;
 use actix::{Actor, ActorContext, Context, Handler};
-use futures::{future, Future, FutureExt};
+use futures::{Future, FutureExt, future};
 use near_async::messaging::{CanSend, MessageWithCallback};
 use near_crypto::{KeyType, SecretKey};
-use near_o11y::{handler_debug_span, WithSpanContext};
+use near_o11y::{WithSpanContext, handler_debug_span};
 use near_primitives::hash::hash;
 use near_primitives::network::PeerId;
 use near_primitives::types::EpochId;
 use near_primitives::utils::index_to_bytes;
-use rand::{thread_rng, RngCore};
+use rand::{RngCore, thread_rng};
 use std::collections::{HashMap, VecDeque};
 use std::ops::ControlFlow;
 use std::sync::{Arc, RwLock};
@@ -264,6 +264,10 @@ impl CanSend<SetChainInfo> for MockPeerManagerAdapter {
 
 impl CanSend<StateSyncEvent> for MockPeerManagerAdapter {
     fn send(&self, _msg: StateSyncEvent) {}
+}
+
+impl CanSend<Tier3Request> for MockPeerManagerAdapter {
+    fn send(&self, _msg: Tier3Request) {}
 }
 
 impl MockPeerManagerAdapter {

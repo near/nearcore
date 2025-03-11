@@ -1,20 +1,17 @@
-use std::collections::HashMap;
 use std::fmt::Debug;
+use {crate::state::PartialState, std::collections::HashMap};
 
-use super::{ChunkProductionKey, SignatureDifferentiator};
-use crate::bandwidth_scheduler::BandwidthRequests;
-use crate::challenge::PartialState;
-use crate::congestion_info::CongestionInfo;
-use crate::sharding::{ChunkHash, ReceiptProof, ShardChunkHeader, ShardChunkHeaderV3};
+use super::ChunkProductionKey;
+#[cfg(feature = "solomon")]
+use crate::reed_solomon::{ReedSolomonEncoderDeserialize, ReedSolomonEncoderSerialize};
+use crate::sharding::{ChunkHash, ReceiptProof, ShardChunkHeader};
 use crate::transaction::SignedTransaction;
-use crate::types::EpochId;
+use crate::types::{EpochId, SignatureDifferentiator};
 use crate::utils::compression::CompressedData;
-use crate::validator_signer::EmptyValidatorSigner;
 use borsh::{BorshDeserialize, BorshSerialize};
 use bytesize::ByteSize;
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::{AccountId, BlockHeight, ShardId};
-use near_primitives_core::version::{ProtocolFeature, PROTOCOL_VERSION};
 use near_schema_checker_lib::ProtocolSchema;
 
 /// Represents max allowed size of the raw (not compressed) state witness,
@@ -47,6 +44,20 @@ impl
 {
 }
 
+#[cfg(feature = "solomon")]
+impl ReedSolomonEncoderSerialize for EncodedChunkStateWitness {
+    fn serialize_single_part(&self) -> std::io::Result<Vec<u8>> {
+        Ok(self.as_slice().to_vec())
+    }
+}
+
+#[cfg(feature = "solomon")]
+impl ReedSolomonEncoderDeserialize for EncodedChunkStateWitness {
+    fn deserialize_single_part(data: &[u8]) -> std::io::Result<Self> {
+        Ok(EncodedChunkStateWitness::from_boxed_slice(data.to_vec().into_boxed_slice()))
+    }
+}
+
 pub type ChunkStateWitnessSize = usize;
 
 /// An acknowledgement sent from the chunk producer upon receiving the state witness to
@@ -73,19 +84,16 @@ impl ChunkStateWitnessAck {
 /// chunk attests to.
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub struct ChunkStateWitness {
-    /// TODO(stateless_validation): Deprecate once we send state witness in parts.
+    // TODO(stateless_validation): Deprecate this field in the next version of the state witness.
     pub chunk_producer: AccountId,
     /// EpochId corresponds to the next block after chunk's previous block.
     /// This is effectively the output of EpochManager::get_epoch_id_from_prev_block
     /// with chunk_header.prev_block_hash().
-    /// This is needed to validate signature when the previous block is not yet
-    /// available on the validator side (aka orphan state witness).
-    /// TODO(stateless_validation): Deprecate once we send state witness in parts.
     pub epoch_id: EpochId,
     /// The chunk header that this witness is for. While this is not needed
     /// to apply the state transition, it is needed for a chunk validator to
     /// produce a chunk endorsement while knowing what they are endorsing.
-    /// TODO(stateless_validation): Deprecate once we send state witness in parts.
+    // TODO(stateless_validation): Deprecate this field in the next version of the state witness.
     pub chunk_header: ShardChunkHeader,
     /// The base state and post-state-root of the main transition where we
     /// apply transactions and receipts. Corresponds to the state transition
@@ -145,7 +153,7 @@ pub struct ChunkStateWitness {
     /// accounts have appropriate balances, access keys, nonces, etc.
     pub new_transactions: Vec<SignedTransaction>,
     pub new_transactions_validation_state: PartialState,
-    // TODO(stateless_validation): Deprecate once we send state witness in parts.
+    // TODO(stateless_validation): Deprecate this field in the next version of the state witness.
     signature_differentiator: SignatureDifferentiator,
 }
 
@@ -186,29 +194,7 @@ impl ChunkStateWitness {
     }
 
     pub fn new_dummy(height: BlockHeight, shard_id: ShardId, prev_block_hash: CryptoHash) -> Self {
-        let congestion_info = ProtocolFeature::CongestionControl
-            .enabled(PROTOCOL_VERSION)
-            .then_some(CongestionInfo::default());
-
-        let header = ShardChunkHeader::V3(ShardChunkHeaderV3::new(
-            PROTOCOL_VERSION,
-            prev_block_hash,
-            Default::default(),
-            Default::default(),
-            Default::default(),
-            Default::default(),
-            height,
-            shard_id,
-            Default::default(),
-            Default::default(),
-            Default::default(),
-            Default::default(),
-            Default::default(),
-            Default::default(),
-            congestion_info,
-            BandwidthRequests::default_for_protocol_version(PROTOCOL_VERSION),
-            &EmptyValidatorSigner::default().into(),
-        ));
+        let header = ShardChunkHeader::new_dummy(height, shard_id, prev_block_hash);
         Self::new(
             "alice.near".parse().unwrap(),
             EpochId::default(),

@@ -35,8 +35,8 @@ pub(crate) fn replay_headers(
 ) {
     let chain_store = ChainStore::new(
         store.clone(),
-        near_config.genesis.config.genesis_height,
         near_config.client_config.save_trie_changes,
+        near_config.genesis.config.transaction_validity_period,
     );
     let start_height: BlockHeight =
         start_height.unwrap_or_else(|| chain_store.get_genesis_height());
@@ -201,7 +201,7 @@ fn get_validator_summary(
     validator_to_summary
 }
 
-/// Returns a mapping from validator account id to the kickout reasong (from previous epoch).
+/// Returns a mapping from validator account id to the kickout reason (from previous epoch).
 fn get_validator_kickouts(
     validator_info: &EpochValidatorInfo,
 ) -> HashMap<AccountId, ValidatorKickoutReason> {
@@ -241,7 +241,7 @@ fn get_block_info(
             let prev_block_epoch_id =
                 epoch_manager.get_epoch_id_from_prev_block(header.prev_hash())?;
             for (shard_index, chunk_header) in chunks.iter_deprecated().enumerate() {
-                let shard_id = shard_layout.get_shard_id(shard_index);
+                let shard_id = shard_layout.get_shard_id(shard_index).unwrap();
                 let endorsements = &endorsement_signatures[shard_index];
                 if !chunk_header.is_new_chunk(height) {
                     assert_eq!(endorsements.len(), 0);
@@ -278,9 +278,8 @@ fn get_block_info(
 fn create_replay_store(home_dir: &Path, near_config: &NearConfig) -> Store {
     let store_opener = NodeStorage::opener(
         home_dir,
-        near_config.config.archive,
         &near_config.config.store,
-        near_config.config.cold_store.as_ref(),
+        near_config.config.archival_config(),
     );
     let storage = store_opener.open_in_mode(Mode::ReadOnly).unwrap();
 

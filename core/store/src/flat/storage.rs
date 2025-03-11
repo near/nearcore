@@ -9,10 +9,11 @@ use near_primitives::types::BlockHeight;
 use tracing::{debug, warn};
 
 use crate::adapter::flat_store::{FlatStoreAdapter, FlatStoreUpdateAdapter};
-use crate::flat::delta::{BlockWithChangesInfo, CachedFlatStateChanges};
 use crate::flat::BlockInfo;
+use crate::flat::delta::{BlockWithChangesInfo, CachedFlatStateChanges};
 use crate::flat::{FlatStorageReadyStatus, FlatStorageStatus};
 
+use super::FlatStorageReshardingStatus;
 use super::delta::{CachedFlatStateDelta, FlatStateDelta};
 use super::metrics::FlatStorageMetrics;
 use super::types::FlatStorageError;
@@ -42,10 +43,7 @@ pub(crate) struct FlatStorageInner {
     flat_head: BlockInfo,
     /// Cached deltas for all blocks supported by this flat storage.
     deltas: HashMap<CryptoHash, CachedFlatStateDelta>,
-    /// This flag enables skipping flat head moves, needed temporarily for FlatState
-    /// values inlining migration.
-    /// The flag has a numerical value and not a bool, to let us detect attempts
-    /// to disable move head multiple times.
+    /// Defines whether flat head can be moved forward or not.
     move_head_enabled: bool,
     metrics: FlatStorageMetrics,
 }
@@ -238,6 +236,9 @@ impl FlatStorage {
         let shard_id = shard_uid.shard_id();
         let flat_head = match store.get_flat_storage_status(shard_uid) {
             Ok(FlatStorageStatus::Ready(ready_status)) => ready_status.flat_head,
+            Ok(FlatStorageStatus::Resharding(FlatStorageReshardingStatus::SplittingParent(
+                split_parent_status,
+            ))) => split_parent_status.flat_head,
             status => {
                 return Err(StorageError::StorageInconsistentState(format!(
                     "Cannot create flat storage for shard {shard_id} with status {status:?}"
@@ -305,7 +306,7 @@ impl FlatStorage {
             let changes = guard.get_block_changes(block_hash)?;
             match changes.get(key) {
                 Some(value_ref) => {
-                    return Ok(value_ref.clone().map(|value_ref| FlatStateValue::Ref(value_ref)));
+                    return Ok((*value_ref).map(|value_ref| FlatStateValue::Ref(value_ref)));
                 }
                 None => {}
             };
@@ -494,15 +495,13 @@ impl FlatStorage {
         guard.shard_uid
     }
 
-    /// Updates `move_head_enabled` and returns whether the change was done.
-    pub(crate) fn set_flat_head_update_mode(&self, enabled: bool) -> bool {
+    /// Updates `move_head_enabled`. If false, this will prevent flat storage updates and deltas will accumulate
+    /// until this is called again with `enabled=true`.
+    /// TODO: This could be improved by setting a maximum block height instead of a bool that disables all updates,
+    /// by using the `want_snapshot` field of the flat storage manager we already have.
+    pub fn set_flat_head_update_mode(&self, enabled: bool) {
         let mut guard = self.0.write().expect(crate::flat::POISONED_LOCK_ERR);
-        if enabled != guard.move_head_enabled {
-            guard.move_head_enabled = enabled;
-            true
-        } else {
-            false
-        }
+        guard.move_head_enabled = enabled;
     }
 }
 
@@ -512,6 +511,7 @@ fn missing_delta_error(block_hash: &CryptoHash) -> FlatStorageError {
 
 #[cfg(test)]
 mod tests {
+    use crate::StorageError;
     use crate::adapter::StoreAdapter;
     use crate::flat::delta::{
         BlockWithChangesInfo, FlatStateChanges, FlatStateDelta, FlatStateDeltaMetadata,
@@ -522,15 +522,14 @@ mod tests {
     use crate::flat::types::FlatStorageError;
     use crate::flat::{FlatStorageReadyStatus, FlatStorageStatus};
     use crate::test_utils::create_test_store;
-    use crate::StorageError;
     use assert_matches::assert_matches;
 
     use near_o11y::testonly::init_test_logger;
-    use near_primitives::hash::{hash, CryptoHash};
+    use near_primitives::hash::{CryptoHash, hash};
     use near_primitives::shard_layout::ShardUId;
     use near_primitives::state::FlatStateValue;
     use near_primitives::types::BlockHeight;
-    use rand::{thread_rng, Rng};
+    use rand::{Rng, thread_rng};
     use std::collections::HashMap;
 
     #[test]

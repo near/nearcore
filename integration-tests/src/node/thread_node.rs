@@ -3,13 +3,13 @@ use std::sync::Arc;
 
 use near_actix_test_utils::ShutdownableThread;
 use near_chain_configs::Genesis;
-use near_crypto::{InMemorySigner, KeyType, Signer};
+use near_crypto::{InMemorySigner, Signer};
 use near_primitives::types::AccountId;
-use nearcore::{start_with_config, NearConfig};
+use nearcore::{NearConfig, start_with_config};
 
 use crate::node::Node;
-use crate::user::rpc_user::RpcUser;
 use crate::user::User;
+use crate::user::rpc_user::RpcUser;
 
 pub enum ThreadNodeState {
     Stopped,
@@ -87,12 +87,11 @@ impl ThreadNode {
     /// Side effects: create storage, open database, lock database
     pub fn new(config: NearConfig) -> ThreadNode {
         let account_id = config.validator_signer.get().unwrap().validator_id().clone();
-        let signer =
-            InMemorySigner::from_seed(account_id.clone(), KeyType::ED25519, account_id.as_ref());
+        let signer = Arc::new(InMemorySigner::test_signer(&account_id));
         ThreadNode {
             config,
             state: ThreadNodeState::Stopped,
-            signer: Arc::new(signer.into()),
+            signer,
             dir: tempfile::Builder::new().prefix("thread_node").tempdir().unwrap(),
             account_id,
         }

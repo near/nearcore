@@ -32,7 +32,7 @@ fn memory_size_alignment_issue() {
 }
 
 #[test]
-fn finite_wasm_gas_was_being_traced_and_thus_slow() {
+fn slow_finite_wasm_gas_was_being_traced_and_thus_slow() {
     test_builder()
         .wat(
             r#"(module
@@ -82,7 +82,7 @@ fn gas_intrinsic_did_not_multiply_by_opcode_cost() {
 }
 
 #[test]
-fn parallel_runtime_invocations() {
+fn slow_test_parallel_runtime_invocations() {
     let mut join_handles = Vec::new();
     for _ in 0..128 {
         let handle = std::thread::spawn(|| {

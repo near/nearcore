@@ -8,8 +8,8 @@ use near_vm_test_api::*;
 use std::convert::Infallible;
 use std::sync::atomic::AtomicBool;
 use std::sync::{
-    atomic::{AtomicUsize, Ordering::SeqCst},
     Arc,
+    atomic::{AtomicUsize, Ordering::SeqCst},
 };
 
 fn get_module(store: &Store) -> Result<Module> {
@@ -45,7 +45,6 @@ fn get_module(store: &Store) -> Result<Module> {
 }
 
 #[compiler_test(imports)]
-#[serial_test::serial(dynamic_function)]
 fn dynamic_function(config: crate::Config) -> Result<()> {
     let store = config.store();
     let module = get_module(&store)?;
@@ -142,7 +141,6 @@ fn dynamic_function_with_env(config: crate::Config) -> Result<()> {
 }
 
 #[compiler_test(imports)]
-#[serial_test::serial(static_function)]
 fn static_function(config: crate::Config) -> Result<()> {
     let store = config.store();
     let module = get_module(&store)?;
@@ -182,7 +180,6 @@ fn static_function(config: crate::Config) -> Result<()> {
 }
 
 #[compiler_test(imports)]
-#[serial_test::serial(static_function_with_results)]
 fn static_function_with_results(config: crate::Config) -> Result<()> {
     let store = config.store();
     let module = get_module(&store)?;

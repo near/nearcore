@@ -1,4 +1,4 @@
-//! A rate-limited demultiplexer.
+//! A rate-limited de-multiplexer.
 //! It can be useful for example, if you want to aggregate a bunch of
 //! network requests produced by unrelated routines into a single
 //! bulk message to rate limit the QPS.
@@ -18,8 +18,8 @@
 //! (other handlers will be dropped).
 //!
 use crate::concurrency::rate;
-use futures::future::BoxFuture;
 use futures::FutureExt;
+use futures::future::BoxFuture;
 use near_async::time;
 use std::future::Future;
 use tokio::sync::mpsc;
@@ -85,11 +85,12 @@ pub struct Demux<Arg, Res>(Stream<Arg, Res>);
 pub struct ServiceStoppedError;
 
 impl<Arg: 'static + Send, Res: 'static + Send> Demux<Arg, Res> {
-    pub fn call(
+    pub fn call<F: AsyncFn<Vec<Arg>, Vec<Res>>>(
         &self,
         arg: Arg,
-        f: impl AsyncFn<Vec<Arg>, Vec<Res>>,
-    ) -> impl std::future::Future<Output = Result<Res, ServiceStoppedError>> {
+        f: F,
+    ) -> impl std::future::Future<Output = Result<Res, ServiceStoppedError>> + use<Arg, Res, F>
+    {
         let stream = self.0.clone();
         async move {
             let (send, recv) = oneshot::channel();

@@ -1,8 +1,7 @@
 use near_chain::{ChainStoreAccess, Provenance};
 use near_chain_configs::{Genesis, NEAR_BASE};
-use near_client::test_utils::TestEnv;
 use near_client::ProcessTxResponse;
-use near_crypto::{InMemorySigner, KeyType, Signer};
+use near_crypto::{InMemorySigner, Signer};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::block::Block;
 use near_primitives::hash::CryptoHash;
@@ -12,21 +11,23 @@ use near_store::adapter::StoreAdapter;
 use near_store::config::StateSnapshotType;
 use near_store::flat::FlatStorageManager;
 use near_store::{
-    config::TrieCacheConfig, test_utils::create_test_store, Mode, ShardTries, StateSnapshotConfig,
-    StoreConfig, TrieConfig,
+    Mode, ShardTries, StateSnapshotConfig, StoreConfig, TrieConfig, config::TrieCacheConfig,
+    test_utils::create_test_store,
 };
 use near_store::{NodeStorage, Store};
-use nearcore::test_utils::TestEnvNightshadeSetupExt;
 use std::path::PathBuf;
 
-struct StateSnaptshotTestEnv {
+use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
+use crate::env::test_env::TestEnv;
+
+struct StateSnapshotTestEnv {
     home_dir: PathBuf,
     hot_store_path: PathBuf,
     state_snapshot_subdir: PathBuf,
     shard_tries: ShardTries,
 }
 
-impl StateSnaptshotTestEnv {
+impl StateSnapshotTestEnv {
     fn new(
         home_dir: PathBuf,
         hot_store_path: PathBuf,
@@ -62,12 +63,12 @@ impl StateSnaptshotTestEnv {
     }
 }
 
-fn set_up_test_env_for_state_snapshots(store: &Store) -> StateSnaptshotTestEnv {
+fn set_up_test_env_for_state_snapshots(store: &Store) -> StateSnapshotTestEnv {
     let home_dir =
         tempfile::Builder::new().prefix("storage").tempdir().unwrap().path().to_path_buf();
     let hot_store_path = PathBuf::from("data");
     let state_snapshot_subdir = PathBuf::from("state_snapshot");
-    StateSnaptshotTestEnv::new(home_dir, hot_store_path, state_snapshot_subdir, store)
+    StateSnapshotTestEnv::new(home_dir, hot_store_path, state_snapshot_subdir, store)
 }
 
 #[test]
@@ -99,7 +100,7 @@ fn test_maybe_open_state_snapshot_file_not_exist() {
 #[test]
 // there's garbage in the path for state snapshot, maybe_open_state_snapshot should return error instead of panic
 fn test_maybe_open_state_snapshot_garbage_snapshot() {
-    use std::fs::{create_dir_all, File};
+    use std::fs::{File, create_dir_all};
     use std::io::Write;
     use std::path::Path;
     init_test_logger();
@@ -129,7 +130,7 @@ fn test_maybe_open_state_snapshot_garbage_snapshot() {
 }
 
 fn verify_make_snapshot(
-    state_snapshot_test_env: &StateSnaptshotTestEnv,
+    state_snapshot_test_env: &StateSnapshotTestEnv,
     block_hash: CryptoHash,
     block: &Block,
 ) -> Result<(), anyhow::Error> {
@@ -161,7 +162,7 @@ fn verify_make_snapshot(
     }
     // check that the stored snapshot in file system is an actual snapshot
     let store_config = StoreConfig::default();
-    let opener = NodeStorage::opener(&snapshot_path, false, &store_config, None);
+    let opener = NodeStorage::opener(&snapshot_path, &store_config, None);
     let _storage = opener.open_in_mode(Mode::ReadOnly)?;
     // check that there's only one snapshot at the parent directory of snapshot path
     let parent_path = snapshot_path
@@ -190,7 +191,7 @@ fn delete_content_at_path(path: &str) -> std::io::Result<()> {
 // Runs a validator node.
 // Makes a state snapshot after processing every block. Each block contains a
 // transaction creating an account.
-fn test_make_state_snapshot() {
+fn slow_test_make_state_snapshot() {
     init_test_logger();
     let genesis = Genesis::test(vec!["test0".parse().unwrap()], 1);
     let mut env = TestEnv::builder(&genesis.config)
@@ -200,15 +201,14 @@ fn test_make_state_snapshot() {
         .nightshade_runtimes(&genesis)
         .build();
 
-    let signer: Signer =
-        InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0").into();
+    let signer: Signer = InMemorySigner::test_signer(&"test0".parse().unwrap());
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
     let genesis_hash = *genesis_block.hash();
 
     let mut blocks = vec![];
 
     let store = env.clients[0].chain.chain_store().store();
-    let state_snapshot_test_env = set_up_test_env_for_state_snapshots(store);
+    let state_snapshot_test_env = set_up_test_env_for_state_snapshots(&store);
 
     for i in 1..=5 {
         let new_account_id = format!("test_account_{i}");

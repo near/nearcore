@@ -20,6 +20,7 @@ use smallvec::SmallVec;
 use std::cmp::*;
 use std::fmt;
 
+/// cspell:words nibbleslice
 /// Nibble-orientated view onto byte-slice, allowing nibble-precision offsets.
 ///
 /// This is an immutable struct. No operations actually change it.
@@ -59,11 +60,7 @@ impl Iterator for NibbleSliceIterator<'_> {
 
     fn next(&mut self) -> Option<u8> {
         self.i += 1;
-        if self.i <= self.p.len() {
-            Some(self.p.at(self.i - 1))
-        } else {
-            None
-        }
+        if self.i <= self.p.len() { Some(self.p.at(self.i - 1)) } else { None }
     }
 }
 
@@ -186,11 +183,7 @@ impl<'a> NibbleSlice<'a> {
         while i < l {
             let bit1 = if i < self.len() { self.at(i) } else { other.at(i - self.len()) };
             let bit2 = if i + 1 < l {
-                if i + 1 < self.len() {
-                    self.at(i + 1)
-                } else {
-                    other.at(i + 1 - self.len())
-                }
+                if i + 1 < self.len() { self.at(i + 1) } else { other.at(i + 1 - self.len()) }
             } else {
                 0
             };
@@ -279,7 +272,7 @@ impl fmt::Debug for NibbleSlice<'_> {
 #[cfg(test)]
 mod tests {
     use super::NibbleSlice;
-    use rand::{thread_rng, Rng};
+    use rand::{Rng, thread_rng};
     use smallvec::SmallVec;
 
     static D: &[u8; 3] = &[0x01u8, 0x23, 0x45];
@@ -349,11 +342,11 @@ mod tests {
         let (n, is_leaf_decoded) = NibbleSlice::from_encoded(&encoded);
         assert_eq!(&n.iter().collect::<Vec<_>>(), nibbles);
         assert_eq!(is_leaf_decoded, is_leaf);
-        let reencoded = n.encoded(is_leaf);
-        assert_eq!(&reencoded, &encoded);
-        let mut reencoded2 = vec![];
-        n.encode_to(is_leaf, &mut reencoded2);
-        assert_eq!(&reencoded2, &encoded.to_vec());
+        let re_encoded = n.encoded(is_leaf);
+        assert_eq!(&re_encoded, &encoded);
+        let mut re_encoded2 = vec![];
+        n.encode_to(is_leaf, &mut re_encoded2);
+        assert_eq!(&re_encoded2, &encoded.to_vec());
 
         for i in 0..nibbles.len() {
             let encoded = NibbleSlice::encode_nibbles(&nibbles[..i], is_leaf);

@@ -80,6 +80,7 @@ class TestSplitStorage(unittest.TestCase):
         client_config_changes = {
             0: {
                 'archive': True,
+                'tracked_shards': [0],
                 'save_trie_changes': True,
             },
         }
@@ -125,7 +126,7 @@ class TestSplitStorage(unittest.TestCase):
         logger.info(f"Starting the archival <- split storage sync test")
 
         # Archival nodes do not run state sync. This means that if peers
-        # ran away further than epoch_lenght * gc_epoch_num, archival nodes
+        # ran away further than epoch_length * gc_epoch_num, archival nodes
         # will not be able to further sync. In practice it means we need a long
         # enough epoch_length or more gc_epoch_num to keep.
         epoch_length = 10

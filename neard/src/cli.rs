@@ -6,7 +6,8 @@ use near_client::ConfigUpdater;
 use near_cold_store_tool::ColdStoreCommand;
 use near_config_utils::DownloadConfigType;
 use near_database_tool::commands::DatabaseCommand;
-use near_dyn_configs::{UpdateableConfigLoader, UpdateableConfigLoaderError, UpdateableConfigs};
+use near_dump_test_contract::DumpTestContractCommand;
+use near_dyn_configs::{UpdatableConfigLoader, UpdatableConfigLoaderError, UpdatableConfigs};
 use near_flat_storage::commands::FlatStorageCommand;
 use near_fork_network::cli::ForkNetworkCommand;
 use near_jsonrpc_primitives::types::light_client::RpcLightClientExecutionProofResponse;
@@ -14,19 +15,19 @@ use near_mirror::MirrorCommand;
 use near_network::tcp;
 use near_o11y::tracing_subscriber::EnvFilter;
 use near_o11y::{
-    default_subscriber, default_subscriber_with_opentelemetry, BuildEnvFilterError,
-    EnvFilterBuilder,
+    BuildEnvFilterError, EnvFilterBuilder, default_subscriber,
+    default_subscriber_with_opentelemetry,
 };
 use near_ping::PingCommand;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::compute_root_from_path;
-use near_primitives::types::{Gas, NumSeats, NumShards, ShardId};
+use near_primitives::types::{Gas, NumSeats, NumShards, ProtocolVersion, ShardId};
 use near_replay_archive_tool::ReplayArchiveCommand;
 use near_state_parts::cli::StatePartsCommand;
 use near_state_parts_dump_check::cli::StatePartsDumpCheckCommand;
 use near_state_viewer::StateViewerSubCommand;
-use near_store::db::RocksDB;
 use near_store::Mode;
+use near_store::db::RocksDB;
 use near_undo_block::cli::UndoBlockCommand;
 use serde_json::Value;
 use std::fs::File;
@@ -65,6 +66,7 @@ impl NeardCmd {
             target: "neard",
             version = crate::NEARD_VERSION,
             build = crate::NEARD_BUILD,
+            commit = crate::NEARD_COMMIT,
             latest_protocol = near_primitives::version::PROTOCOL_VERSION
         );
 
@@ -99,7 +101,7 @@ impl NeardCmd {
             ),
 
             NeardSubCommand::StateViewer(cmd) => {
-                let mode = if cmd.readwrite { Mode::ReadWrite } else { Mode::ReadOnly };
+                let mode = if cmd.read_write { Mode::ReadWrite } else { Mode::ReadOnly };
                 cmd.subcmd.run(&home_dir, genesis_validation, mode, cmd.store_temperature);
             }
 
@@ -147,6 +149,9 @@ impl NeardCmd {
             NeardSubCommand::ReplayArchive(cmd) => {
                 cmd.run(&home_dir, genesis_validation)?;
             }
+            NeardSubCommand::DumpTestContracts(cmd) => {
+                cmd.run()?;
+            }
         };
         Ok(())
     }
@@ -158,7 +163,7 @@ pub(super) struct StateViewerCommand {
     /// multiple instances in parallel and be sure that no unintended changes get written to the DB.
     /// In case an operation needs to write to caches, a read-write mode may be needed.
     #[clap(long, short = 'w')]
-    readwrite: bool,
+    read_write: bool,
     /// What store temperature should the state viewer open. Allowed values are hot and cold but
     /// cold is only available when cold_store is configured.
     /// Cold temperature actually means the split store will be used.
@@ -253,6 +258,30 @@ pub(super) enum NeardSubCommand {
 
     /// Replays the blocks in the chain from an archival node.
     ReplayArchive(ReplayArchiveCommand),
+
+    /// Placeholder for test contracts subcommand
+    DumpTestContracts(DumpTestContractCommand),
+}
+
+#[allow(unused)]
+#[derive(Debug, Clone)]
+enum FirstProtocolVersion {
+    Since(ProtocolVersion),
+    Latest,
+}
+
+impl FromStr for FirstProtocolVersion {
+    type Err = String;
+
+    fn from_str(input: &str) -> Result<Self, Self::Err> {
+        match input {
+            "latest" => Ok(FirstProtocolVersion::Latest),
+            _ => input
+                .parse::<ProtocolVersion>()
+                .map(FirstProtocolVersion::Since)
+                .map_err(|_| format!("Invalid value for FirstProtocolVersion: {}", input)),
+        }
+    }
 }
 
 #[derive(clap::Parser)]
@@ -306,7 +335,7 @@ pub(super) struct InitCmd {
 ///
 /// Verifies that when running on mainnet or testnet chain a neard binary built
 /// with `make release` command is used.  That Makefile targets enable
-/// optimisation options which aren’t enabled when building with different
+/// optimization options which aren’t enabled when building with different
 /// methods and is the only officially supported method of building the binary
 /// to run in production.
 ///
@@ -329,7 +358,7 @@ fn check_release_build(chain: &str) {
         );
         warn!(
             target: "neard",
-            "Note that `cargo build --release` builds lack optimisations which \
+            "Note that `cargo build --release` builds lack optimizations which \
              may be needed to run properly on {}",
             chain
         );
@@ -438,6 +467,7 @@ impl RunCmd {
             .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
 
         check_release_build(&near_config.client_config.chain_id);
+        check_kernel_params();
 
         // Set current version in client config.
         near_config.client_config.version = crate::neard_version();
@@ -505,7 +535,7 @@ impl RunCmd {
 
         let (tx_crash, mut rx_crash) = broadcast::channel::<()>(16);
         let (tx_config_update, rx_config_update) =
-            broadcast::channel::<Result<UpdateableConfigs, Arc<UpdateableConfigLoaderError>>>(16);
+            broadcast::channel::<Result<UpdatableConfigs, Arc<UpdatableConfigLoaderError>>>(16);
         let sys = actix::System::new();
 
         sys.block_on(async move {
@@ -520,10 +550,10 @@ impl RunCmd {
             .await
             .global();
 
-            let updateable_configs = nearcore::dyn_config::read_updateable_configs(home_dir)
+            let updatable_configs = nearcore::dyn_config::read_updatable_configs(home_dir)
                 .unwrap_or_else(|e| panic!("Error reading dynamic configs: {:#}", e));
-            let mut updateable_config_loader =
-                UpdateableConfigLoader::new(updateable_configs.clone(), tx_config_update);
+            let mut updatable_config_loader =
+                UpdatableConfigLoader::new(updatable_configs.clone(), tx_config_update);
             let config_updater = ConfigUpdater::new(rx_config_update);
 
             let nearcore::NearNode {
@@ -543,9 +573,9 @@ impl RunCmd {
             let sig = loop {
                 let sig = wait_for_interrupt_signal(home_dir, &mut rx_crash).await;
                 if sig == "SIGHUP" {
-                    let maybe_updateable_configs =
-                        nearcore::dyn_config::read_updateable_configs(home_dir);
-                    updateable_config_loader.reload(maybe_updateable_configs);
+                    let maybe_updatable_configs =
+                        nearcore::dyn_config::read_updatable_configs(home_dir);
+                    updatable_config_loader.reload(maybe_updatable_configs);
                 } else {
                     break sig;
                 }
@@ -554,7 +584,7 @@ impl RunCmd {
             if let Some(handle) = cold_store_loop_handle {
                 handle.stop()
             }
-            state_sync_dumper.stop();
+            state_sync_dumper.stop_and_await();
             resharding_handle.stop();
             futures::future::join_all(rpc_servers.iter().map(|(name, server)| async move {
                 server.stop(true).await;
@@ -580,7 +610,7 @@ async fn wait_for_interrupt_signal(_home_dir: &Path, mut _rx_crash: &Receiver<()
 
 #[cfg(unix)]
 async fn wait_for_interrupt_signal(_home_dir: &Path, rx_crash: &mut Receiver<()>) -> &'static str {
-    use tokio::signal::unix::{signal, SignalKind};
+    use tokio::signal::unix::{SignalKind, signal};
     let mut sigint = signal(SignalKind::interrupt()).unwrap();
     let mut sigterm = signal(SignalKind::terminate()).unwrap();
     let mut sighup = signal(SignalKind::hangup()).unwrap();
@@ -787,6 +817,62 @@ impl ValidateConfigCommand {
     }
 }
 
+#[cfg(target_os = "linux")]
+fn normalize_whitespace(s: &str) -> String {
+    s.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// Checks the provided kernel parameter  from /proc/sys
+/// and prints an error if it is not set to the expected value.
+#[cfg(target_os = "linux")]
+fn check_kernel_param(param_name: &str, expected_value: &str) {
+    // Convert the dotted param_name into a path under /proc/sys
+    // For example, "net.core.rmem_max" -> "/proc/sys/net/core/rmem_max"
+    let mut path = PathBuf::from("/proc/sys");
+    for part in param_name.split('.') {
+        path.push(part);
+    }
+
+    match std::fs::read_to_string(&path) {
+        Ok(contents) => {
+            let actual = contents.trim();
+            let actual_normalized = normalize_whitespace(actual);
+            let expected_normalized = normalize_whitespace(expected_value);
+
+            if actual_normalized != expected_normalized {
+                error!(
+                    "ERROR: {} is set to {}, expected {}. Please run `scripts/set_kernel_params.sh`.",
+                    param_name, actual_normalized, expected_normalized
+                );
+            } else {
+                info!("OK: {} is set to expected value {}", param_name, expected_normalized);
+            }
+        }
+        Err(e) => {
+            error!("ERROR: failed to read parameter {} from {}: {}", param_name, path.display(), e);
+        }
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+fn check_kernel_params() {}
+
+/// Checks if the system has the expected values for the sysctl parameters for optimal networking performance.
+#[cfg(target_os = "linux")]
+fn check_kernel_params() {
+    let expected_rmem_max = "8388608";
+    let expected_wmem_max = "8388608";
+    let expected_tcp_rmem = "4096 87380 8388608";
+    let expected_tcp_wmem = "4096 16384 8388608";
+    let expected_slow_start = "0";
+
+    check_kernel_param("net.core.rmem_max", expected_rmem_max);
+    check_kernel_param("net.core.wmem_max", expected_wmem_max);
+    check_kernel_param("net.ipv4.tcp_rmem", expected_tcp_rmem);
+    check_kernel_param("net.ipv4.tcp_wmem", expected_tcp_wmem);
+    check_kernel_param("net.ipv4.tcp_slow_start_after_idle", expected_slow_start);
+}
+
 #[cfg(test)]
 mod tests {
     use super::{CryptoHash, NeardCmd, NeardSubCommand, VerifyProofError, VerifyProofSubCommand};
@@ -796,9 +882,9 @@ mod tests {
     #[test]
     fn optional_values() {
         let cmd = NeardCmd::parse_from(&["test", "init", "--chain-id=testid", "--fast"]);
-        if let NeardSubCommand::Init(scmd) = cmd.subcmd {
-            assert_eq!(scmd.chain_id, Some("testid".to_string()));
-            assert!(scmd.fast);
+        if let NeardSubCommand::Init(sub_cmd) = cmd.subcmd {
+            assert_eq!(sub_cmd.chain_id, Some("testid".to_string()));
+            assert!(sub_cmd.fast);
         } else {
             panic!("incorrect subcommand");
         }
@@ -806,16 +892,18 @@ mod tests {
 
     #[test]
     fn equal_no_value_syntax() {
-        assert!(NeardCmd::try_parse_from(&[
-            "test",
-            "init",
-            // * This line currently fails to be parsed (= without a value)
-            "--chain-id=",
-            "--test-seed=alice.near",
-            "--account-id=test.near",
-            "--fast"
-        ])
-        .is_err());
+        assert!(
+            NeardCmd::try_parse_from(&[
+                "test",
+                "init",
+                // * This line currently fails to be parsed (= without a value)
+                "--chain-id=",
+                "--test-seed=alice.near",
+                "--account-id=test.near",
+                "--fast"
+            ])
+            .is_err()
+        );
     }
 
     #[test]

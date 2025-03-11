@@ -1,13 +1,13 @@
-use near_schema_checker_lib::ProtocolSchema;
-
-use crate::errors::ContractPrecompilatonResult;
-use crate::logic::errors::{CacheError, CompilationError};
-use crate::logic::Config;
-use crate::runner::VMKindExt;
 use crate::ContractCode;
+use crate::errors::ContractPrecompilatonResult;
+use crate::logic::Config;
+use crate::logic::errors::{CacheError, CompilationError};
+use crate::runner::VMKindExt;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_parameters::vm::VMKind;
 use near_primitives_core::hash::CryptoHash;
+use near_schema_checker_lib::ProtocolSchema;
+use rand::Rng as _;
 use std::any::Any;
 use std::collections::HashMap;
 use std::fmt;
@@ -98,6 +98,17 @@ pub trait ContractRuntimeCache: Send + Sync {
     fn get(&self, key: &CryptoHash) -> std::io::Result<Option<CompiledContractInfo>>;
     fn has(&self, key: &CryptoHash) -> std::io::Result<bool> {
         self.get(key).map(|entry| entry.is_some())
+    }
+    /// TESTING ONLY: Clears the cache including in-memory and persistent data (if any).
+    ///
+    /// This should be used only for testing, since the implementations may not provide
+    /// a consistent view when the cache is both cleared and accessed as the same time.
+    ///
+    /// Default implementation panics; the implementations for which this method is called
+    /// should provide a proper implementation.
+    #[cfg(feature = "test_features")]
+    fn test_only_clear(&self) -> std::io::Result<()> {
+        unimplemented!("test_only_clear is not implemented for this cache");
     }
 }
 
@@ -293,34 +304,55 @@ impl ContractRuntimeCache for FilesystemContractRuntimeCache {
         fields(key = key.to_string(), value.len = value.compiled.debug_len()),
     )]
     fn put(&self, key: &CryptoHash, value: CompiledContractInfo) -> std::io::Result<()> {
+        const MAX_ATTEMPTS: u32 = 5;
         use rustix::fs::{Mode, OFlags};
         let final_filename = key.to_string();
-        let mut temp_file = tempfile::Builder::new().make_in("", |filename| {
-            let mode = Mode::RUSR | Mode::WUSR | Mode::RGRP | Mode::WGRP;
-            let flags = OFlags::CREATE | OFlags::TRUNC | OFlags::WRONLY;
-            Ok(std::fs::File::from(rustix::fs::openat(&self.state.dir, filename, flags, mode)?))
-        })?;
+        let mode = Mode::RUSR | Mode::WUSR | Mode::RGRP | Mode::WGRP;
+        let flags = OFlags::CREATE | OFlags::TRUNC | OFlags::WRONLY;
+        let mut attempt = 0;
+        let (temp_filename, mut file) = loop {
+            attempt += 1;
+            let mut temporary_filename = final_filename.clone();
+            temporary_filename.push('.');
+            for b in rand::thread_rng().sample_iter(rand::distributions::Alphanumeric).take(8) {
+                temporary_filename.push(b as char);
+            }
+            temporary_filename.push_str(".temp");
+            match rustix::fs::openat(&self.state.dir, &temporary_filename, flags, mode) {
+                Ok(f) => break (temporary_filename, std::fs::File::from(f)),
+                Err(e) if attempt > MAX_ATTEMPTS => return Err(e.into()),
+                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                Err(e) => return Err(e.into()),
+            }
+        };
+
         // This section manually "serializes" the data. The cache is quite sensitive to
         // unnecessary overheads and in order to enable things like mmap-based file access, we want
         // to have full control of what has been written.
         match value.compiled {
             CompiledContract::CompileModuleError(e) => {
-                borsh::to_writer(&mut temp_file, &e)?;
-                temp_file.write_all(&[ERROR_TAG])?;
+                borsh::to_writer(&mut file, &e)?;
+                file.write_all(&[ERROR_TAG])?;
             }
             CompiledContract::Code(bytes) => {
-                temp_file.write_all(&bytes)?;
+                file.write_all(&bytes)?;
                 // Writing the tag at the end gives us well aligned buffer of the data above which
                 // is necessary for 0-copy deserialization later on.
-                temp_file.write_all(&[CODE_TAG])?;
+                file.write_all(&[CODE_TAG])?;
             }
         }
-        temp_file.write_all(&value.wasm_bytes.to_le_bytes())?;
-        let temp_filename = temp_file.into_temp_path();
+        file.write_all(&value.wasm_bytes.to_le_bytes())?;
+        file.sync_data()?;
+        drop(file);
         // This is atomic, so there wouldn't be instances where getters see an intermediate state.
-        rustix::fs::renameat(&self.state.dir, &*temp_filename, &self.state.dir, final_filename)?;
-        // Don't attempt deleting the temporary file now that it has been moved.
-        std::mem::forget(temp_filename);
+        rustix::fs::renameat(&self.state.dir, temp_filename, &self.state.dir, final_filename)?;
+
+        // NOTE: we do not remove the temporary file in case of failure in many of the
+        // intermediate steps above. This is not considered to be a significant risk: any failure
+        // here will result in the node terminating anyway, so the operator will have to fix the
+        // issue(s) before too many temporary files gather up in the cache.
+        //
+        // (Operators are also somewhat encouraged to occasionally clear up their cache.)
         Ok(())
     }
 
@@ -378,6 +410,40 @@ impl ContractRuntimeCache for FilesystemContractRuntimeCache {
             }
         })
     }
+
+    /// Clears the in-memory cache and files in the cache directory.
+    ///
+    /// The cache must be created using `test` method, otherwise this method will panic.
+    #[cfg(feature = "test_features")]
+    fn test_only_clear(&self) -> std::io::Result<()> {
+        let Some(temp_dir) = &self.state.test_temp_dir else {
+            panic!("must be called for testing only");
+        };
+        self.memory_cache().clear();
+        let dir_path: std::path::PathBuf =
+            [temp_dir.path(), "data".as_ref(), "contracts".as_ref()].into_iter().collect();
+        for entry in std::fs::read_dir(dir_path).unwrap() {
+            if let Ok(entry) = entry {
+                let path = entry.path();
+                if path.is_dir() {
+                    debug_assert!(
+                        false,
+                        "Contract code cache directory should only contain files but found directory: {}",
+                        path.display()
+                    );
+                } else {
+                    if let Err(err) = std::fs::remove_file(&path) {
+                        tracing::error!(
+                            "Failed to remove contract cache file {}: {}",
+                            path.display(),
+                            err
+                        );
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
 }
 
 type AnyCacheValue = dyn Any + Send;
@@ -397,6 +463,12 @@ impl AnyCache {
             } else {
                 None
             },
+        }
+    }
+
+    pub fn clear(&self) {
+        if let Some(cache) = &self.cache {
+            cache.lock().unwrap().clear();
         }
     }
 
@@ -588,5 +660,45 @@ mod tests {
             |_| unreachable!(),
         );
         assert!(matches!(result, Err("mikan")));
+    }
+
+    #[cfg(feature = "test_features")]
+    #[test]
+    fn test_clear_compiled_contract_cache() {
+        let cache = FilesystemContractRuntimeCache::test().unwrap();
+
+        let contract1 = ContractCode::new(near_test_contracts::sized_contract(100).to_vec(), None);
+        let contract2 = ContractCode::new(near_test_contracts::sized_contract(200).to_vec(), None);
+
+        let compiled_contract1 = CompiledContractInfo {
+            wasm_bytes: 100,
+            compiled: CompiledContract::Code(contract1.code().to_vec()),
+        };
+
+        let compiled_contract2 = CompiledContractInfo {
+            wasm_bytes: 200,
+            compiled: CompiledContract::Code(contract2.code().to_vec()),
+        };
+
+        let insert_and_assert_keys_exist = || {
+            cache.put(contract1.hash(), compiled_contract1.clone()).unwrap();
+            cache.put(contract2.hash(), compiled_contract2.clone()).unwrap();
+
+            assert_eq!(cache.get(contract1.hash()).unwrap().unwrap(), compiled_contract1);
+            assert_eq!(cache.get(contract2.hash()).unwrap().unwrap(), compiled_contract2);
+        };
+
+        let assert_keys_absent = || {
+            assert_eq!(cache.has(contract1.hash()).unwrap(), false);
+            assert_eq!(cache.has(contract2.hash()).unwrap(), false);
+        };
+
+        // Insert the keys, and then ckear the cache, and assert that keys no longer exist after clear.
+        insert_and_assert_keys_exist();
+        cache.test_only_clear().unwrap();
+        assert_keys_absent();
+
+        // Insert the keys again and assert that the cache can be updated after clear.
+        insert_and_assert_keys_exist();
     }
 }

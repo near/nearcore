@@ -6,6 +6,7 @@ use std::sync::LazyLock;
 pub struct Version {
     pub version: String,
     pub build: String,
+    pub commit: String,
     #[serde(default)]
     pub rustc_version: String,
 }
@@ -15,9 +16,9 @@ use crate::upgrade_schedule::ProtocolUpgradeVotingSchedule;
 /// near_primitives_core re-exports
 pub use near_primitives_core::checked_feature;
 pub use near_primitives_core::types::ProtocolVersion;
-pub use near_primitives_core::version::ProtocolFeature;
 pub use near_primitives_core::version::PEER_MIN_ALLOWED_PROTOCOL_VERSION;
 pub use near_primitives_core::version::PROTOCOL_VERSION;
+pub use near_primitives_core::version::ProtocolFeature;
 
 /// Minimum gas price proposed in NEP 92 and the associated protocol version
 pub const MIN_GAS_PRICE_NEP_92: Balance = 1_000_000_000;
@@ -84,17 +85,3 @@ pub const PROTOCOL_UPGRADE_SCHEDULE: LazyLock<ProtocolUpgradeVotingSchedule> =
 
         ProtocolUpgradeVotingSchedule::new_from_env_or_schedule(PROTOCOL_VERSION, vec![]).unwrap()
     });
-
-/// Gives new clients an option to upgrade without announcing that they support
-/// the new version.  This gives non-validator nodes time to upgrade.  See
-/// <https://github.com/near/NEPs/issues/205>
-#[cfg(feature = "clock")]
-pub fn get_protocol_version(
-    next_epoch_protocol_version: ProtocolVersion,
-    clock: near_time::Clock,
-) -> ProtocolVersion {
-    let now = clock.now_utc();
-    let chrono = chrono::DateTime::from_timestamp(now.unix_timestamp(), now.nanosecond());
-    PROTOCOL_UPGRADE_SCHEDULE
-        .get_protocol_version(chrono.unwrap_or_default(), next_epoch_protocol_version)
-}

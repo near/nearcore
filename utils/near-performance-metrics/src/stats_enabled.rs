@@ -4,12 +4,14 @@ use futures::task::Context;
 use std::cmp::{max, min};
 use std::collections::{HashMap, HashSet};
 use std::pin::Pin;
-use std::sync::atomic::AtomicUsize;
 use std::sync::LazyLock;
+use std::sync::atomic::AtomicUsize;
 use std::sync::{Arc, Mutex};
 use std::task::Poll;
 use std::time::{Duration, Instant};
 use tracing::{info, warn};
+
+// cspell:words NTHREADS
 
 pub static NTHREADS: AtomicUsize = AtomicUsize::new(0);
 pub(crate) const SLOW_CALL_THRESHOLD: Duration = Duration::from_millis(500);
@@ -178,11 +180,7 @@ impl ThreadStats {
         self.c_mem = ByteSize::b(0);
         self.clear();
 
-        if show_stats {
-            (ratio, 0.0)
-        } else {
-            (ratio, ratio)
-        }
+        if show_stats { (ratio, 0.0) } else { (ratio, ratio) }
     }
 
     fn clear(&mut self) {

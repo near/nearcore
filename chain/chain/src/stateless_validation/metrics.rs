@@ -1,6 +1,7 @@
 use near_o11y::metrics::{
-    exponential_buckets, linear_buckets, try_create_histogram_vec, try_create_int_counter,
-    try_create_int_gauge, HistogramVec, IntCounter, IntGauge,
+    HistogramVec, IntCounter, IntCounterVec, IntGauge, exponential_buckets, linear_buckets,
+    try_create_histogram_vec, try_create_int_counter, try_create_int_counter_vec,
+    try_create_int_gauge,
 };
 use near_primitives::stateless_validation::state_witness::ChunkStateWitness;
 use std::sync::LazyLock;
@@ -51,10 +52,29 @@ pub static CHUNK_STATE_WITNESS_ENCODE_TIME: LazyLock<HistogramVec> = LazyLock::n
     .unwrap()
 });
 
+pub static PROCESS_CONTRACT_CODE_REQUEST_TIME: LazyLock<HistogramVec> = LazyLock::new(|| {
+    try_create_histogram_vec(
+        "near_process_contract_code_request_time",
+        "Total time taken to process contract code request from a chunk validator",
+        &["shard_id"],
+        Some(exponential_buckets(0.001, 2.0, 10).unwrap()),
+    )
+    .unwrap()
+});
+
 pub static SHADOW_CHUNK_VALIDATION_FAILED_TOTAL: LazyLock<IntCounter> = LazyLock::new(|| {
     try_create_int_counter(
         "near_shadow_chunk_validation_failed_total",
         "Shadow chunk validation failures count",
+    )
+    .unwrap()
+});
+
+pub static CHUNK_WITNESS_VALIDATION_FAILED_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
+    try_create_int_counter_vec(
+        "near_chunk_witness_validation_failed_total",
+        "Witness validation failure count",
+        &["shard_id", "error"],
     )
     .unwrap()
 });
@@ -100,7 +120,7 @@ pub static CHUNK_STATE_WITNESS_DECODE_TIME: LazyLock<HistogramVec> = LazyLock::n
     .unwrap()
 });
 
-pub(crate) static CHUNK_STATE_WITNESS_MAIN_STATE_TRANSISTION_SIZE: LazyLock<HistogramVec> =
+pub(crate) static CHUNK_STATE_WITNESS_MAIN_STATE_TRANSITION_SIZE: LazyLock<HistogramVec> =
     LazyLock::new(|| {
         try_create_histogram_vec(
             "near_chunk_state_witness_main_state_transition_size",
@@ -166,7 +186,7 @@ fn record_witness_size_metrics_fallible(
     CHUNK_STATE_WITNESS_TOTAL_SIZE
         .with_label_values(&[&shard_id.as_str()])
         .observe(encoded_size as f64);
-    CHUNK_STATE_WITNESS_MAIN_STATE_TRANSISTION_SIZE
+    CHUNK_STATE_WITNESS_MAIN_STATE_TRANSITION_SIZE
         .with_label_values(&[shard_id.as_str()])
         .observe(borsh::to_vec(&witness.main_state_transition)?.len() as f64);
     CHUNK_STATE_WITNESS_NEW_TRANSACTIONS_SIZE

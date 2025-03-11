@@ -17,20 +17,20 @@ async fn connection_tie_break() {
     let mut clock = time::FakeClock::default();
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
 
-    let mut cfgs: Vec<_> = (0..3).map(|_| chain.make_config(rng)).collect();
-    cfgs.sort_by_key(|c| c.node_id());
+    let mut configs: Vec<_> = (0..3).map(|_| chain.make_config(rng)).collect();
+    configs.sort_by_key(|c| c.node_id());
 
     let pm = peer_manager::testonly::start(
         clock.clock(),
         near_store::db::TestDB::new(),
-        cfgs[1].clone(),
+        configs[1].clone(),
         chain.clone(),
     )
     .await;
 
     // pm.id is lower
-    let outbound_conn = pm.start_outbound(chain.clone(), cfgs[2].clone(), tcp::Tier::T2).await;
-    let inbound_conn = pm.start_inbound(chain.clone(), cfgs[2].clone()).await;
+    let outbound_conn = pm.start_outbound(chain.clone(), configs[2].clone(), tcp::Tier::T2).await;
+    let inbound_conn = pm.start_inbound(chain.clone(), configs[2].clone()).await;
     // inbound should be rejected, outbound accepted.
     assert_eq!(
         ClosingReason::RejectedByPeerManager(RegisterPeerError::PoolError(
@@ -41,8 +41,8 @@ async fn connection_tie_break() {
     outbound_conn.handshake(&clock.clock()).await;
 
     // pm.id is higher
-    let outbound_conn = pm.start_outbound(chain.clone(), cfgs[0].clone(), tcp::Tier::T2).await;
-    let inbound_conn = pm.start_inbound(chain.clone(), cfgs[0].clone()).await;
+    let outbound_conn = pm.start_outbound(chain.clone(), configs[0].clone(), tcp::Tier::T2).await;
+    let inbound_conn = pm.start_inbound(chain.clone(), configs[0].clone()).await;
     // inbound should be accepted, outbound rejected by PM.
     let inbound = inbound_conn.handshake(&clock.clock()).await;
     assert_eq!(

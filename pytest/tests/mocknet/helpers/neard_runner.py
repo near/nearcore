@@ -23,6 +23,8 @@ import http
 import http.server
 import dotenv
 
+# cspell:ignore dotenv CREAT RDWR gethostname levelname
+
 
 def get_lock(home):
     lock_file = os.path.join(home, 'LOCK')
@@ -119,6 +121,7 @@ backup_id_pattern = re.compile(r'^[0-9a-zA-Z.][0-9a-zA-Z_\-.]+$')
 # Remove old files if all the logs are past __neard_logs_max_size__
 # The prerotate logic serves us in case neard_runner is not running for a while
 # and we end up with a file larger than the estimated size.
+# cspell:ignore prerotate copytruncate missingok notifempty dateext endscript
 LOGROTATE_TEMPLATE = """__neard_logs_dir__/__neard_logs_file_name__ {
     su ubuntu ubuntu
     size __neard_logs_file_size__
@@ -312,7 +315,7 @@ class NeardRunner:
         start_index = len(self.data['binaries'])
 
         # for now we assume that the binaries recorded in data.json as having been
-        # dowloaded are still valid and were not touched. Also this assumes that their
+        # downloaded are still valid and were not touched. Also this assumes that their
         # filenames are neard0, neard1, etc. in the right order and with nothing skipped
         for i in range(start_index, len(binaries)):
             b = binaries[i]
@@ -362,14 +365,20 @@ class NeardRunner:
         ]
         if not self.is_traffic_generator():
             if validator_id is None:
-                validator_id = f'{socket.gethostname()}.near'
+                host_name = socket.gethostname()
+                # Note that here we are assuming the last part is the unique part of the name
+                # If that changes for some reason then this will fail because multiple nodes will have
+                # the same validator ID. But should be fine for now.
+                # This last part of the hostname should be short, but we truncate it just in case it's not
+                unique_part = host_name.split("-")[-1][:6]
+                validator_id = f'node-{unique_part}'
             cmd += ['--account-id', validator_id]
         else:
             if validator_id is not None:
                 logging.warning(
                     f'ignoring validator ID "{validator_id}" for traffic generator node'
                 )
-        subprocess.check_call(cmd)
+        self.execute_neard_subcmd(cmd)
 
         with open(self.tmp_near_home_path('config.json'), 'r') as f:
             config = json.load(f)
@@ -386,8 +395,6 @@ class NeardRunner:
         config['consensus']['min_block_production_delay']['nanos'] = 300000000
         config['consensus']['max_block_production_delay']['secs'] = 3
         config['consensus']['max_block_production_delay']['nanos'] = 0
-        if self.is_traffic_generator():
-            config['archive'] = True
         with open(self.tmp_near_home_path('config.json'), 'w') as f:
             json.dump(config, f, indent=2)
 
@@ -405,7 +412,7 @@ class NeardRunner:
                 'run-migrations',
             ]
             logging.info(f'running {" ".join(cmd)}')
-            subprocess.check_call(cmd)
+            self.execute_neard_subcmd(cmd)
             cmd = [
                 self.data['binaries'][0]['system_path'],
                 '--home',
@@ -416,7 +423,7 @@ class NeardRunner:
                 self.target_near_home_path(),
             ]
             logging.info(f'running {" ".join(cmd)}')
-            subprocess.check_call(cmd)
+            self.execute_neard_subcmd(cmd)
 
     def move_init_files(self):
         try:
@@ -475,6 +482,9 @@ class NeardRunner:
                 os.remove(self.home_path('network_init.json'))
             except FileNotFoundError:
                 pass
+
+            self.reset_current_neard_path()
+            self.save_data()
 
             self.neard_init(rpc_port, protocol_port, validator_id)
             self.move_init_files()
@@ -546,7 +556,7 @@ class NeardRunner:
                     code=-32600,
                     message='Can only call network_init after a call to init')
 
-            if len(validators) < 3:
+            if len(validators) <= 3:
                 with open(self.target_near_home_path('config.json'), 'r') as f:
                     config = json.load(f)
                 config['consensus']['min_num_peers'] = len(validators) - 1
@@ -571,18 +581,18 @@ class NeardRunner:
             with open(self.target_near_home_path('config.json'), 'r') as f:
                 config = json.load(f)
 
-            [key, value] = key_value.split("=", 1)
-            key_item_list = key.split(".")
+            for kv in key_value.split(','):
+                [key, value] = kv.split("=", 1)
+                key_item_list = key.split(".")
 
-            object = config
-            for key_item in key_item_list[:-1]:
-                if key_item not in object:
-                    object[key_item] = {}
-                object = object[key_item]
+                object = config
+                for key_item in key_item_list[:-1]:
+                    if key_item not in object:
+                        object[key_item] = {}
+                    object = object[key_item]
 
-            value = json.loads(value)
-
-            object[key_item_list[-1]] = value
+                value = json.loads(value)
+                object[key_item_list[-1]] = value
 
             with open(self.target_near_home_path('config.json'), 'w') as f:
                 json.dump(config, f, indent=2)
@@ -793,15 +803,34 @@ class NeardRunner:
                 requests.exceptions.ReadTimeout, KeyError):
             return self.data['current_neard_path']
 
-    def run_neard(self, cmd, out_file=None):
-        assert (self.neard is None)
-        assert (self.data['neard_process'] is None)
+    """
+    Load the env variables from files. The order of override is:
+    1. Environment variables of the process
+    2. ~/.secrets
+    3. $NEARD_RUNNER_HOME/.env
+    """
+
+    def get_env(self):
         home_path = os.path.expanduser('~')
-        env = {
+        return {
             **os.environ,  # override loaded values with environment variables
             **dotenv.dotenv_values(os.path.join(home_path, '.secrets')),  # load sensitive variables
             **dotenv.dotenv_values(self.home_path('.env')),  # load neard variables
         }
+
+    """
+    Used to execute neard cli commands and wait for them to finish.
+    Do not use this for commands that are expected to run indefinitely.
+    """
+
+    def execute_neard_subcmd(self, cmd):
+        env = self.get_env()
+        return subprocess.check_call(cmd, env=env)
+
+    def run_neard(self, cmd, out_file=None):
+        assert (self.neard is None)
+        assert (self.data['neard_process'] is None)
+        env = self.get_env()
         logging.info(f'running {" ".join(cmd)}')
         self.neard = subprocess.Popen(
             cmd,
@@ -812,7 +841,7 @@ class NeardRunner:
         )
         # we save the create_time so we can tell if the process with pid equal
         # to the one we saved is the same process. It's not that likely, but
-        # if we don't do this (or maybe something else like it), then it's possble
+        # if we don't do this (or maybe something else like it), then it's possible
         # that if this process is killed and restarted and we see a process with that PID,
         # it could actually be a different process that was started later after neard exited
         try:
@@ -1079,12 +1108,19 @@ class NeardRunner:
             self.set_state(TestState.AMEND_GENESIS)
         else:
             cmd = [
-                self.data['binaries'][0]['system_path'], '--home',
-                self.target_near_home_path(), 'fork-network', 'set-validators',
+                self.data['binaries'][0]['system_path'],
+                '--home',
+                self.target_near_home_path(),
+                'fork-network',
+                'set-validators',
                 '--validators',
-                self.home_path('validators.json'), '--epoch-length',
-                str(n['epoch_length']), '--genesis-time',
-                str(n['genesis_time'])
+                self.home_path('validators.json'),
+                '--epoch-length',
+                str(n['epoch_length']),
+                '--genesis-time',
+                str(n['genesis_time']),
+                '--num-seats',
+                str(n['num_seats']),
             ]
             if new_chain_id is not None:
                 cmd.append('--chain-id')
@@ -1128,7 +1164,7 @@ class NeardRunner:
                     'finalize',
                 ]
                 logging.info(f'running {" ".join(cmd)}')
-                subprocess.check_call(cmd)
+                self.execute_neard_subcmd(cmd)
                 logging.info(
                     f'neard fork-network finalize succeeded. Node is ready')
                 self.make_initial_backup()
@@ -1228,7 +1264,7 @@ class NeardRunner:
             'make-snapshot', '--destination', backup_dir
         ]
         logging.info(f'running {" ".join(cmd)}')
-        exit_code = subprocess.check_call(cmd)
+        exit_code = self.execute_neard_subcmd(cmd)
         logging.info(
             f'copying data dir to {backup_dir} finished with code {exit_code}')
         # Copy config, genesis and node_key to the backup folder to use them to restore the db.
@@ -1295,7 +1331,7 @@ class NeardRunner:
             self.target_near_home_path()
         ]
         logging.info(f'running {" ".join(cmd)}')
-        exit_code = subprocess.check_call(cmd)
+        exit_code = self.execute_neard_subcmd(cmd)
         logging.info(
             f'snapshot restoration of {backup_path} terminated with code {exit_code}'
         )

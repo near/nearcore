@@ -30,7 +30,7 @@ In the test specification path to the file needs to be given
 (excluding the `pytest/tests` prefix) and anything that follows is
 passed as arguments to the script.  For example:
 
-    pytest sanity/lightclnt.py
+    pytest sanity/lightclient.py
     pytest sanity/state_sync_routed.py manytx 115
 
 Note: NayDuck also handles `mocknet` test category.  It is now
@@ -42,13 +42,11 @@ implicitly set.
 The `expensive` tests run a test binary and execute specific test in
 it.  (Test binaries are those built via `cargo test --no-run`).  While
 this can be used to run any Rust test, the intention is to run
-expensive tests only.  Those are the tests which are ignored unless
-`expensive_tests` crate feature is enabled.  Such tests should be
-marked with a `cfg_attr` macro, e.g.:
+expensive tests only.  Those are the tests which are normally ignored unless
+their name is prefixed with `ultra_slow_test` like so:
 
     #[test]
-    #[cfg_attr(not(feature = "expensive_tests"), ignore)]
-    fn test_gc_boundaries_large() {
+    fn ultra_slow_test_gc_boundaries_large() {
         /* ... */
     }
 
@@ -56,11 +54,11 @@ The arguments of an expensive test specify package in which the test
 is defined, test binary name and the full path to the test function.
 For example:
 
-    expensive nearcore test_tps_regression test::test_highload
+    expensive nearcore test_tps_regression test::ultra_slow_test_high_load
 
 (Currently the package name is ignored but it may change in the future
 so make sure it’s set correctly).  The path to the test function must
-match exactly an the test binary is called with `--exact` argument.
+match exactly the test binary is called with `--exact` argument.
 
 ### Other arguments
 
@@ -69,7 +67,7 @@ test category and the test specification arguments.  Those are
 `--skip-build`, `--timeout`, `--release` and `--remote`.
 
 `--skip-build` causes build step to be skipped for the test.  This
-means that the test doesn’t have access to build artefacts (located in
+means that the test doesn’t have access to build artifacts (located in
 `target/debug` or `target/release`) but also doesn’t need to wait for
 the build to finish and thus can start faster.
 
@@ -103,7 +101,7 @@ not passed to the test.
 
 ### Include directive
 
-To help organise tests, the file format also supports `./<path>`
+To help organize tests, the file format also supports `./<path>`
 syntax for including contents of other files in the list.  The
 includes are handled recursively though at the moment there’s a limit
 of three levels before the parser starts ignoring the includes.
@@ -121,7 +119,6 @@ Note that any includes accessible from `nightly.txt` file must live
 within the `nightly` directory and use `.txt` file extension.  Using
 arbitrary paths and extensions will work locally but it will break
 NayDuck’s nightly runs.
-
 
 ## Scheduling a run
 
@@ -151,19 +148,16 @@ On success the script outputs link to the page which can be used to
 see status of the run.  Depending on which tests were scheduled the
 run can take over an hour to finish.
 
-
 ## Creating new tests
 
 New tests can be created either as a Rust test or a pytest.
 
 If a Rust test is long-running (or otherwise requires a lot of
-resources) and intended to be run as a nightly test on NayDuck it
-should be marked with a `#[cfg(feature = "expensive_tests")]`
-directive (either on the test function or module containing it).  With
-that, the tests will not be part of a `cargo test` run performed on
-every commit, but NayDuck will be able to execute them.  Apart from
-that, expensive Rust tests work exactly the same as any other Rust
-tests.
+resources) and intended to be run as a nightly test on NayDuck it's
+name should be marked prefixed with `ultra_slow_test`.  With that, the
+tests will not be part of a `cargo test` run performed on every
+commit, but NayDuck will be able to execute them. Apart from that,
+expensive Rust tests work exactly the same as any other Rust tests.
 
 pytests are defined as scripts in the `pytest/tests` directory.  As
 previously mentioned, even though the directory is called pytest, when
@@ -184,7 +178,7 @@ all new tests are included in the nightly list.  That’s done by
 They list all the expensive and pytest tests defined in the repository
 and then check whether they are all mentioned in the nightly list.
 
-The scripts recognise commented out tests so if a test is broken it
+The scripts recognize commented out tests so if a test is broken it
 can be removed from the list by commenting it out.  However, such
 a test must be proceeded by a TODO comment mentioning an issue which
 tracks the breakage.  For example:

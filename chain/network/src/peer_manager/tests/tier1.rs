@@ -3,11 +3,11 @@ use crate::network_protocol::testonly as data;
 use crate::network_protocol::{PeerAddr, PeerMessage, RoutedMessageBody};
 use crate::peer_manager;
 use crate::peer_manager::peer_manager_actor::Event as PME;
-use crate::peer_manager::testonly::start as start_pm;
 use crate::peer_manager::testonly::Event;
+use crate::peer_manager::testonly::start as start_pm;
 use crate::stun;
 use crate::tcp;
-use crate::testonly::{make_rng, Rng};
+use crate::testonly::{Rng, make_rng};
 use near_async::time;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::block_header::{Approval, ApprovalInner};
@@ -22,7 +22,7 @@ fn make_block_approval(rng: &mut Rng, signer: &ValidatorSigner) -> Approval {
     let inner = ApprovalInner::Endorsement(data::make_hash(rng));
     let target_height = rng.gen_range(0..100000);
     Approval {
-        signature: signer.sign_approval(&inner, target_height),
+        signature: signer.sign_bytes(&Approval::get_data_for_sig(&inner, target_height)),
         account_id: signer.validator_id().clone(),
         target_height,
         inner,
@@ -61,11 +61,7 @@ async fn send_tier1_message(
     let want = RoutedMessageBody::BlockApproval(make_block_approval(rng, from_signer.as_ref()));
     let clock = clock.clone();
     from.with_state(move |s| async move {
-        if s.send_message_to_account(&clock, &target, want.clone()) {
-            Some(want)
-        } else {
-            None
-        }
+        if s.send_message_to_account(&clock, &target, want.clone()) { Some(want) } else { None }
     })
     .await
 }

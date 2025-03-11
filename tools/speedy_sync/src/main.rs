@@ -1,12 +1,11 @@
 use borsh::{BorshDeserialize, BorshSerialize};
-use near_async::messaging::{noop, IntoMultiSender};
+use near_async::messaging::{IntoMultiSender, noop};
 use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
 use near_chain::types::{ChainConfig, Tip};
 use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode};
 use near_chain_configs::{GenesisValidationMode, MutableConfigValue, ReshardingConfig};
-use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
-use near_epoch_manager::types::EpochInfoAggregator;
 use near_epoch_manager::EpochManager;
+use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
 use near_primitives::block::Block;
 use near_primitives::block_header::BlockHeader;
 use near_primitives::epoch_block_info::BlockInfo;
@@ -17,6 +16,7 @@ use near_primitives::merkle::PartialMerkleTree;
 use near_primitives::types::EpochId;
 use near_primitives::utils::index_to_bytes;
 use near_store::HEADER_HEAD_KEY;
+use near_store::epoch_info_aggregator::EpochInfoAggregator;
 use near_store::{DBCol, Mode, NodeStorage, Store, StoreUpdate};
 use near_time::Clock;
 use nearcore::{NightshadeRuntime, NightshadeRuntimeExt};
@@ -129,7 +129,7 @@ fn write_epoch_checkpoint(store_update: &mut StoreUpdate, epoch_checkpoint: &Epo
 
 fn create_snapshot(create_cmd: CreateCmd) {
     let path = Path::new(&create_cmd.home);
-    let store = NodeStorage::opener(path, false, &Default::default(), None)
+    let store = NodeStorage::opener(path, &Default::default(), None)
         .open_in_mode(Mode::ReadOnly)
         .unwrap()
         .get_hot_store();
@@ -165,7 +165,7 @@ fn create_snapshot(create_cmd: CreateCmd) {
     // 'block' - we'll always pick the last block of a given epoch.
     // 'prev_block' - its predecessor
     // 'final_block' - the block with finality (usually 2 blocks behind)
-    // 'first_block' - the first block of this epoch (usualy epoch_length behind).
+    // 'first_block' - the first block of this epoch (usually epoch_length behind).
 
     let block_hash = next_epoch.id.0;
     let block = read_block_checkpoint(&store, &block_hash);
@@ -225,20 +225,27 @@ fn load_snapshot(load_cmd: LoadCmd) {
     )
     .unwrap();
 
-    let config = nearcore::config::load_config(&home_dir, GenesisValidationMode::UnsafeFast)
+    let near_config = nearcore::config::load_config(&home_dir, GenesisValidationMode::UnsafeFast)
         .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
-    let store = NodeStorage::opener(home_dir, config.config.archive, &Default::default(), None)
-        .open()
-        .unwrap()
-        .get_hot_store();
-    let chain_genesis = ChainGenesis::new(&config.genesis.config);
+    let store =
+        NodeStorage::opener(home_dir, &Default::default(), near_config.config.archival_config())
+            .open()
+            .unwrap()
+            .get_hot_store();
+    let chain_genesis = ChainGenesis::new(&near_config.genesis.config);
     let epoch_manager =
-        EpochManager::new_arc_handle(store.clone(), &config.genesis.config, Some(home_dir));
-    let shard_tracker =
-        ShardTracker::new(TrackedConfig::from_config(&config.client_config), epoch_manager.clone());
-    let runtime =
-        NightshadeRuntime::from_config(home_dir, store.clone(), &config, epoch_manager.clone())
-            .expect("could not create transaction runtime");
+        EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config, Some(home_dir));
+    let shard_tracker = ShardTracker::new(
+        TrackedConfig::from_config(&near_config.client_config),
+        epoch_manager.clone(),
+    );
+    let runtime = NightshadeRuntime::from_config(
+        home_dir,
+        store.clone(),
+        &near_config,
+        epoch_manager.clone(),
+    )
+    .expect("could not create transaction runtime");
     // This will initialize the database (add genesis block etc)
     let _chain = Chain::new(
         Clock::real(),
@@ -248,7 +255,7 @@ fn load_snapshot(load_cmd: LoadCmd) {
         &chain_genesis,
         DoomslugThresholdMode::TwoThirds,
         ChainConfig {
-            save_trie_changes: config.client_config.save_trie_changes,
+            save_trie_changes: near_config.client_config.save_trie_changes,
             background_migration_threads: 1,
             resharding_config: MutableConfigValue::new(
                 ReshardingConfig::default(),

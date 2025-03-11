@@ -1,64 +1,57 @@
 use super::ValidatorSchedule;
+use crate::BlockHeader;
 use crate::types::{
     ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext,
     PrepareTransactionsBlockContext, PrepareTransactionsChunkContext, PreparedTransactions,
     RuntimeAdapter, RuntimeStorageConfig,
 };
-use crate::BlockHeader;
 use borsh::{BorshDeserialize, BorshSerialize};
 use itertools::Itertools;
 use near_async::time::Duration;
-use near_chain_configs::{ProtocolConfig, DEFAULT_GC_NUM_EPOCHS_TO_KEEP};
+use near_chain_configs::{DEFAULT_GC_NUM_EPOCHS_TO_KEEP, ProtocolConfig};
 use near_chain_primitives::Error;
-use near_crypto::{KeyType, PublicKey, SecretKey, Signature};
-use near_epoch_manager::{EpochManagerAdapter, RngSeed, ShardUIdAndIndex};
+use near_crypto::{KeyType, PublicKey, SecretKey};
+use near_epoch_manager::EpochManagerAdapter;
 use near_parameters::RuntimeConfig;
 use near_pool::types::TransactionGroupIterator;
-use near_primitives::account::{AccessKey, Account};
+use near_primitives::account::{AccessKey, Account, AccountContract};
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::bandwidth_scheduler::BandwidthRequests;
 use near_primitives::block::Tip;
-use near_primitives::block_header::{Approval, ApprovalInner};
+use near_primitives::chunk_apply_stats::ChunkApplyStatsV0;
 use near_primitives::congestion_info::{CongestionInfo, ExtendedCongestionInfo};
 use near_primitives::epoch_block_info::BlockInfo;
-use near_primitives::epoch_info::EpochInfo;
+use near_primitives::epoch_info::{EpochInfo, RngSeed};
 use near_primitives::epoch_manager::EpochConfig;
 use near_primitives::epoch_manager::ShardConfig;
-use near_primitives::epoch_manager::ValidatorSelectionConfig;
 use near_primitives::errors::{EpochError, InvalidTxError};
-use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum, ReceiptV0};
-use near_primitives::shard_layout;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
-use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
 use near_primitives::state_part::PartId;
-use near_primitives::stateless_validation::chunk_endorsement::{
-    ChunkEndorsementV1, ChunkEndorsementV2,
-};
-use near_primitives::stateless_validation::partial_witness::PartialEncodedStateWitness;
+use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::validator_assignment::ChunkValidatorAssignments;
 use near_primitives::transaction::{
     Action, ExecutionMetadata, ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus,
-    SignedTransaction, TransferAction,
+    SignedTransaction, TransferAction, ValidatedTransaction,
 };
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
-    shard_id_as_u32, AccountId, ApprovalStake, Balance, BlockHeight, EpochHeight, EpochId, Nonce,
-    NumShards, ShardId, ShardIndex, StateRoot, StateRootNode, ValidatorInfoIdentifier,
+    AccountId, ApprovalStake, Balance, BlockHeight, EpochHeight, EpochId, Nonce, NumShards,
+    ShardId, ShardIndex, StateRoot, StateRootNode, ValidatorInfoIdentifier,
 };
-use near_primitives::version::{ProtocolFeature, ProtocolVersion, PROTOCOL_VERSION};
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature, ProtocolVersion};
 use near_primitives::views::{
     AccessKeyInfoView, AccessKeyList, CallResult, ContractCodeView, EpochValidatorInfo,
     QueryRequest, QueryResponse, QueryResponseKind, ViewStateResult,
 };
 use near_store::test_utils::TestTriesBuilder;
 use near_store::{
-    set_genesis_hash, set_genesis_state_roots, DBCol, ShardTries, Store, StoreUpdate, Trie,
-    TrieChanges, WrappedTrieChanges,
+    DBCol, ShardTries, Store, StoreUpdate, Trie, TrieChanges, WrappedTrieChanges, set_genesis_hash,
+    set_genesis_height, set_genesis_state_roots,
 };
-use near_vm_runner::{ContractRuntimeCache, NoContractRuntimeCache};
-use num_rational::Ratio;
-use rand::Rng;
+use near_vm_runner::{ContractCode, ContractRuntimeCache, NoContractRuntimeCache};
+use node_runtime::SignedValidPeriodTransactions;
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::{Arc, RwLock};
@@ -174,14 +167,15 @@ impl MockEpochManager {
                     })
                     .collect();
 
+                // cspell:ignore coef
                 let validators_per_shard = block_producers.len() / vs.validator_groups as usize;
-                let coef = block_producers.len() / vs.num_shards as usize;
+                let coefficient = block_producers.len() / vs.num_shards as usize;
 
                 let chunk_producers: Vec<Vec<ValidatorStake>> = (0..vs.num_shards)
                     .map(|shard_index| {
                         let shard_index = shard_index as usize;
                         let offset =
-                            shard_index * coef / validators_per_shard * validators_per_shard;
+                            shard_index * coefficient / validators_per_shard * validators_per_shard;
                         block_producers[offset..offset + validators_per_shard].to_vec()
                     })
                     .collect();
@@ -236,9 +230,8 @@ impl MockEpochManager {
         if prev_hash == CryptoHash::default() {
             return Ok((EpochId(prev_hash), 0, EpochId(prev_hash)));
         }
-        let prev_block_header = self
-            .get_block_header(&prev_hash)?
-            .ok_or_else(|| EpochError::MissingBlock(prev_hash))?;
+        let prev_block_header =
+            self.get_block_header(&prev_hash)?.ok_or(EpochError::MissingBlock(prev_hash))?;
 
         let mut hash_to_epoch = self.hash_to_epoch.write().unwrap();
         let mut hash_to_next_epoch_approvals_req =
@@ -306,7 +299,7 @@ impl MockEpochManager {
             .read()
             .unwrap()
             .get(epoch_id)
-            .ok_or_else(|| EpochError::EpochOutOfBounds(*epoch_id))? as usize
+            .ok_or(EpochError::EpochOutOfBounds(*epoch_id))? as usize
             % self.validators_by_valset.len())
     }
 
@@ -332,12 +325,12 @@ impl KeyValueRuntime {
         epoch_manager: &MockEpochManager,
         no_gc: bool,
     ) -> Arc<Self> {
-        let num_shards = epoch_manager.shard_ids(&EpochId::default()).unwrap().len() as NumShards;
-        let epoch_length =
-            epoch_manager.get_epoch_config(&EpochId::default()).unwrap().epoch_length;
+        let epoch_id = EpochId::default();
+        let shard_layout = epoch_manager.get_shard_layout(&epoch_id).unwrap();
+        let epoch_length = epoch_manager.get_epoch_config(&epoch_id).unwrap().epoch_length;
         let tries = TestTriesBuilder::new()
             .with_store(store.clone())
-            .with_shard_layout(0, num_shards)
+            .with_shard_layout(shard_layout.clone())
             .build();
         let mut initial_amounts = HashMap::new();
         for (i, validator_stake) in epoch_manager
@@ -362,16 +355,18 @@ impl KeyValueRuntime {
         let state_size = HashMap::from([(Trie::EMPTY_ROOT, data_len)]);
 
         let mut store_update = store.store_update();
-        let genesis_roots: Vec<CryptoHash> = (0..num_shards).map(|_| Trie::EMPTY_ROOT).collect();
+        let genesis_roots: Vec<CryptoHash> =
+            shard_layout.shard_ids().map(|_| Trie::EMPTY_ROOT).collect();
         set_genesis_state_roots(&mut store_update, &genesis_roots);
         set_genesis_hash(&mut store_update, &CryptoHash::default());
-        store_update.commit().expect("Store failed on genesis intialization");
+        set_genesis_height(&mut store_update, &0);
+        store_update.commit().expect("Store failed on genesis initialization");
 
         Arc::new(KeyValueRuntime {
             store,
             tries,
             no_gc,
-            num_shards,
+            num_shards: shard_layout.num_shards(),
             epoch_length,
             headers_cache: RwLock::new(HashMap::new()),
             state: RwLock::new(state),
@@ -403,8 +398,9 @@ impl KeyValueRuntime {
 }
 
 pub fn account_id_to_shard_id(account_id: &AccountId, num_shards: NumShards) -> ShardId {
+    #[allow(deprecated)]
     let shard_layout = ShardLayout::v0(num_shards, 0);
-    shard_layout::account_id_to_shard_id(account_id, &shard_layout)
+    shard_layout.account_id_to_shard_id(account_id)
 }
 
 #[derive(BorshSerialize, BorshDeserialize)]
@@ -440,82 +436,30 @@ impl EpochManagerAdapter for MockEpochManager {
     fn num_data_parts(&self) -> usize {
         // Same as in Nightshade Runtime
         let total_parts = self.num_total_parts();
-        if total_parts <= 3 {
-            1
-        } else {
-            (total_parts - 1) / 3
-        }
+        if total_parts <= 3 { 1 } else { (total_parts - 1) / 3 }
     }
 
     fn get_part_owner(&self, epoch_id: &EpochId, part_id: u64) -> Result<AccountId, EpochError> {
-        let validators =
-            &self.get_epoch_block_producers_ordered(epoch_id, &CryptoHash::default())?;
+        let validators = &self.get_epoch_block_producers_ordered(epoch_id)?;
         // if we don't use data_parts and total_parts as part of the formula here, the part owner
         //     would not depend on height, and tests wouldn't catch passing wrong height here
         let idx = part_id as usize + self.num_data_parts() + self.num_total_parts();
-        Ok(validators[idx as usize % validators.len()].0.account_id().clone())
-    }
-
-    fn account_id_to_shard_id(
-        &self,
-        account_id: &AccountId,
-        _epoch_id: &EpochId,
-    ) -> Result<ShardId, EpochError> {
-        Ok(account_id_to_shard_id(account_id, self.num_shards))
-    }
-
-    fn account_id_to_shard_info(
-        &self,
-        account_id: &AccountId,
-        epoch_id: &EpochId,
-    ) -> Result<ShardUIdAndIndex, EpochError> {
-        let shard_layout = self.get_shard_layout(epoch_id)?;
-        let shard_id = account_id_to_shard_id(account_id, self.num_shards);
-        let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
-        let shard_index = shard_layout.get_shard_index(shard_id);
-        Ok(ShardUIdAndIndex { shard_uid, shard_index })
-    }
-
-    fn shard_id_to_uid(
-        &self,
-        shard_id: ShardId,
-        _epoch_id: &EpochId,
-    ) -> Result<ShardUId, EpochError> {
-        Ok(ShardUId { version: 0, shard_id: shard_id_as_u32(shard_id) })
-    }
-
-    fn shard_id_to_index(
-        &self,
-        shard_id: ShardId,
-        epoch_id: &EpochId,
-    ) -> Result<ShardIndex, EpochError> {
-        let shard_layout = self.get_shard_layout(epoch_id)?;
-        Ok(shard_layout.get_shard_index(shard_id))
+        Ok(validators[idx as usize % validators.len()].account_id().clone())
     }
 
     fn get_block_info(&self, _hash: &CryptoHash) -> Result<Arc<BlockInfo>, EpochError> {
         Ok(Default::default())
     }
 
-    fn get_epoch_config(&self, _epoch_id: &EpochId) -> Result<EpochConfig, EpochError> {
-        Ok(EpochConfig {
-            epoch_length: self.epoch_length,
-            num_block_producer_seats: 2,
-            num_block_producer_seats_per_shard: vec![1, 1],
-            avg_hidden_validator_seats_per_shard: vec![1, 1],
-            block_producer_kickout_threshold: 0,
-            chunk_producer_kickout_threshold: 0,
-            chunk_validator_only_kickout_threshold: 0,
-            target_validator_mandates_per_shard: 1,
-            validator_max_kickout_stake_perc: 0,
-            online_min_threshold: Ratio::new(1i32, 4i32),
-            online_max_threshold: Ratio::new(3i32, 4i32),
-            fishermen_threshold: 1,
-            minimum_stake_divisor: 1,
-            protocol_upgrade_stake_threshold: Ratio::new(3i32, 4i32),
-            shard_layout: ShardLayout::v1_test(),
-            validator_selection_config: ValidatorSelectionConfig::default(),
-        })
+    fn get_epoch_config_from_protocol_version(
+        &self,
+        _protocol_version: ProtocolVersion,
+    ) -> EpochConfig {
+        EpochConfig::mock(self.epoch_length, self.get_shard_layout(&EpochId::default()).unwrap())
+    }
+
+    fn get_epoch_config(&self, epoch_id: &EpochId) -> Result<EpochConfig, EpochError> {
+        Ok(EpochConfig::mock(self.epoch_length, self.get_shard_layout(epoch_id).unwrap()))
     }
 
     /// Return the epoch info containing the mocked data.
@@ -563,7 +507,15 @@ impl EpochManagerAdapter for MockEpochManager {
     }
 
     fn get_shard_layout(&self, _epoch_id: &EpochId) -> Result<ShardLayout, EpochError> {
+        #[allow(deprecated)]
         Ok(ShardLayout::v0(self.num_shards, 0))
+    }
+
+    fn get_shard_layout_from_protocol_version(
+        &self,
+        _protocol_version: ProtocolVersion,
+    ) -> ShardLayout {
+        self.get_shard_layout(&EpochId::default()).unwrap()
     }
 
     fn get_shard_config(&self, _epoch_id: &EpochId) -> Result<ShardConfig, EpochError> {
@@ -574,9 +526,8 @@ impl EpochManagerAdapter for MockEpochManager {
         if parent_hash == &CryptoHash::default() {
             return Ok(true);
         }
-        let prev_block_header = self
-            .get_block_header(parent_hash)?
-            .ok_or_else(|| EpochError::MissingBlock(*parent_hash))?;
+        let prev_block_header =
+            self.get_block_header(parent_hash)?.ok_or(EpochError::MissingBlock(*parent_hash))?;
         let prev_prev_hash = *prev_block_header.prev_hash();
         Ok(self.get_epoch_and_valset(*parent_hash)?.0
             != self.get_epoch_and_valset(prev_prev_hash)?.0)
@@ -597,6 +548,13 @@ impl EpochManagerAdapter for MockEpochManager {
         &self,
         _prev_block_hash: &CryptoHash,
     ) -> Result<EpochHeight, EpochError> {
+        Ok(0)
+    }
+
+    fn get_epoch_start_from_epoch_id(
+        &self,
+        _epoch_id: &EpochId,
+    ) -> Result<BlockHeight, EpochError> {
         Ok(0)
     }
 
@@ -623,30 +581,31 @@ impl EpochManagerAdapter for MockEpochManager {
             // This is not correct if there was a resharding event in between
             // the previous and current block.
             let prev_shard_id = shard_id;
-            let prev_shard_index = shard_layout.get_shard_index(prev_shard_id);
+            let prev_shard_index = shard_layout.get_shard_index(prev_shard_id)?;
             prev_shard_ids.push((prev_shard_id, prev_shard_index));
         }
 
         Ok(prev_shard_ids)
     }
 
-    fn get_prev_shard_id(
+    fn get_prev_shard_id_from_prev_hash(
         &self,
         prev_hash: &CryptoHash,
         shard_id: ShardId,
-    ) -> Result<(ShardId, ShardIndex), Error> {
+    ) -> Result<(ShardLayout, ShardId, ShardIndex), EpochError> {
         let shard_layout = self.get_shard_layout_from_prev_block(prev_hash)?;
         // This is not correct if there was a resharding event in between
         // the previous and current block.
         let prev_shard_id = shard_id;
-        let prev_shard_index = shard_layout.get_shard_index(prev_shard_id);
-        Ok((prev_shard_id, prev_shard_index))
+        let prev_shard_index = shard_layout.get_shard_index(prev_shard_id)?;
+        Ok((shard_layout, prev_shard_id, prev_shard_index))
     }
 
     fn get_shard_layout_from_prev_block(
         &self,
         _parent_hash: &CryptoHash,
     ) -> Result<ShardLayout, EpochError> {
+        #[allow(deprecated)]
         Ok(ShardLayout::v0(self.num_shards, 0))
     }
 
@@ -685,7 +644,7 @@ impl EpochManagerAdapter for MockEpochManager {
         loop {
             let header = self
                 .get_block_header(&candidate_hash)?
-                .ok_or_else(|| EpochError::MissingBlock(candidate_hash))?;
+                .ok_or(EpochError::MissingBlock(candidate_hash))?;
             candidate_hash = *header.prev_hash();
             if self.is_next_block_epoch_start(&candidate_hash)? {
                 break Ok(self.get_epoch_and_valset(candidate_hash)?.0);
@@ -703,16 +662,15 @@ impl EpochManagerAdapter for MockEpochManager {
     fn get_epoch_block_producers_ordered(
         &self,
         epoch_id: &EpochId,
-        _last_known_block_hash: &CryptoHash,
-    ) -> Result<Vec<(ValidatorStake, bool)>, EpochError> {
+    ) -> Result<Vec<ValidatorStake>, EpochError> {
         let validators = self.get_block_producers(self.get_valset_for_epoch(epoch_id)?);
-        Ok(validators.iter().map(|x| (x.clone(), false)).collect())
+        Ok(validators.iter().map(|x| x.clone()).collect())
     }
 
     fn get_epoch_block_approvers_ordered(
         &self,
         parent_hash: &CryptoHash,
-    ) -> Result<Vec<(ApprovalStake, bool)>, EpochError> {
+    ) -> Result<Vec<ApprovalStake>, EpochError> {
         let (_cur_epoch, cur_valset, next_epoch) = self.get_epoch_and_valset(*parent_hash)?;
         let mut validators = self
             .get_block_producers(cur_valset)
@@ -730,7 +688,7 @@ impl EpochManagerAdapter for MockEpochManager {
                     .map(|x| x.get_approval_stake(true)),
             );
         }
-        let validators = validators.into_iter().map(|stake| (stake, false)).collect::<Vec<_>>();
+        let validators = validators.into_iter().map(|stake| stake).collect::<Vec<_>>();
         Ok(validators)
     }
 
@@ -749,7 +707,7 @@ impl EpochManagerAdapter for MockEpochManager {
     ) -> Result<Vec<AccountId>, EpochError> {
         let valset = self.get_valset_for_epoch(epoch_id)?;
         let shard_layout = self.get_shard_layout(epoch_id)?;
-        let shard_index = shard_layout.get_shard_index(shard_id);
+        let shard_index = shard_layout.get_shard_index(shard_id)?;
         let chunk_producers = self.get_chunk_producers(valset, shard_index);
         Ok(chunk_producers.into_iter().map(|vs| vs.take_account_id()).collect())
     }
@@ -771,22 +729,28 @@ impl EpochManagerAdapter for MockEpochManager {
         epoch_id: &EpochId,
         height: BlockHeight,
     ) -> Result<AccountId, EpochError> {
-        let validators = self.get_block_producers(self.get_valset_for_epoch(epoch_id)?);
-        Ok(validators[(height as usize) % validators.len()].account_id().clone())
+        self.get_block_producer_info(epoch_id, height).map(|validator| validator.take_account_id())
     }
 
-    fn get_chunk_producer(
+    fn get_block_producer_info(
         &self,
         epoch_id: &EpochId,
         height: BlockHeight,
-        shard_id: ShardId,
-    ) -> Result<AccountId, EpochError> {
-        let valset = self.get_valset_for_epoch(epoch_id)?;
-        let shard_layout = self.get_shard_layout(epoch_id)?;
-        let shard_index = shard_layout.get_shard_index(shard_id);
+    ) -> Result<ValidatorStake, EpochError> {
+        let validators = self.get_block_producers(self.get_valset_for_epoch(epoch_id)?);
+        Ok(validators[(height as usize) % validators.len()].clone())
+    }
+
+    fn get_chunk_producer_info(
+        &self,
+        key: &ChunkProductionKey,
+    ) -> Result<ValidatorStake, EpochError> {
+        let valset = self.get_valset_for_epoch(&key.epoch_id)?;
+        let shard_layout = self.get_shard_layout(&key.epoch_id)?;
+        let shard_index = shard_layout.get_shard_index(key.shard_id)?;
         let chunk_producers = self.get_chunk_producers(valset, shard_index);
-        let index = (shard_index + height as usize + 1) % chunk_producers.len();
-        Ok(chunk_producers[index].account_id().clone())
+        let index = (shard_index + key.height_created as usize + 1) % chunk_producers.len();
+        Ok(chunk_producers[index].clone())
     }
 
     fn get_chunk_validator_assignments(
@@ -807,29 +771,19 @@ impl EpochManagerAdapter for MockEpochManager {
     fn get_validator_by_account_id(
         &self,
         epoch_id: &EpochId,
-        _last_known_block_hash: &CryptoHash,
         account_id: &AccountId,
-    ) -> Result<(ValidatorStake, bool), EpochError> {
+    ) -> Result<ValidatorStake, EpochError> {
         let validators = &self.validators_by_valset[self.get_valset_for_epoch(epoch_id)?];
         for validator_stake in validators.block_producers.iter() {
             if validator_stake.account_id() == account_id {
-                return Ok((validator_stake.clone(), false));
+                return Ok(validator_stake.clone());
             }
         }
         for validator_stake in validators.chunk_producers.iter().flatten() {
             if validator_stake.account_id() == account_id {
-                return Ok((validator_stake.clone(), false));
+                return Ok(validator_stake.clone());
             }
         }
-        Err(EpochError::NotAValidator(account_id.clone(), *epoch_id))
-    }
-
-    fn get_fisherman_by_account_id(
-        &self,
-        epoch_id: &EpochId,
-        _last_known_block_hash: &CryptoHash,
-        account_id: &AccountId,
-    ) -> Result<(ValidatorStake, bool), EpochError> {
         Err(EpochError::NotAValidator(account_id.clone(), *epoch_id))
     }
 
@@ -857,34 +811,11 @@ impl EpochManagerAdapter for MockEpochManager {
         Ok(self.store.store_update())
     }
 
-    fn get_epoch_minted_amount(&self, _epoch_id: &EpochId) -> Result<Balance, EpochError> {
-        Ok(0)
-    }
-
     fn get_epoch_protocol_version(
         &self,
         _epoch_id: &EpochId,
     ) -> Result<ProtocolVersion, EpochError> {
         Ok(PROTOCOL_VERSION)
-    }
-
-    fn get_epoch_sync_data(
-        &self,
-        _prev_epoch_last_block_hash: &CryptoHash,
-        _epoch_id: &EpochId,
-        _next_epoch_id: &EpochId,
-    ) -> Result<
-        (
-            Arc<BlockInfo>,
-            Arc<BlockInfo>,
-            Arc<BlockInfo>,
-            Arc<EpochInfo>,
-            Arc<EpochInfo>,
-            Arc<EpochInfo>,
-        ),
-        EpochError,
-    > {
-        Ok(Default::default())
     }
 
     fn init_after_epoch_sync(
@@ -903,149 +834,22 @@ impl EpochManagerAdapter for MockEpochManager {
         Ok(())
     }
 
-    fn verify_block_vrf(
-        &self,
-        _epoch_id: &EpochId,
-        _block_height: BlockHeight,
-        _prev_random_value: &CryptoHash,
-        _vrf_value: &near_crypto::vrf::Value,
-        _vrf_proof: &near_crypto::vrf::Proof,
-    ) -> Result<(), Error> {
-        Ok(())
-    }
-
-    fn verify_validator_signature(
-        &self,
-        _epoch_id: &EpochId,
-        _last_known_block_hash: &CryptoHash,
-        _account_id: &AccountId,
-        _data: &[u8],
-        _signature: &Signature,
-    ) -> Result<bool, Error> {
-        Ok(true)
-    }
-
-    fn verify_validator_or_fisherman_signature(
-        &self,
-        _epoch_id: &EpochId,
-        _last_known_block_hash: &CryptoHash,
-        _account_id: &AccountId,
-        _data: &[u8],
-        _signature: &Signature,
-    ) -> Result<bool, Error> {
-        Ok(true)
-    }
-
-    fn verify_header_signature(&self, header: &BlockHeader) -> Result<bool, Error> {
-        let validator = self.get_block_producer(&header.epoch_id(), header.height())?;
-        let validator_stake = &self.validators[&validator];
-        Ok(header.verify_block_producer(validator_stake.public_key()))
-    }
-
-    fn verify_chunk_signature_with_header_parts(
-        &self,
-        _chunk_hash: &ChunkHash,
-        _signature: &Signature,
-        _epoch_id: &EpochId,
-        _last_kown_hash: &CryptoHash,
-        _height_created: BlockHeight,
-        _shard_id: ShardId,
-    ) -> Result<bool, Error> {
-        Ok(true)
-    }
-
-    fn verify_approval(
-        &self,
-        _prev_block_hash: &CryptoHash,
-        _prev_block_height: BlockHeight,
-        _block_height: BlockHeight,
-        _approvals: &[Option<Box<Signature>>],
-    ) -> Result<bool, Error> {
-        Ok(true)
-    }
-
-    fn verify_approval_with_approvers_info(
-        &self,
-        _prev_block_hash: &CryptoHash,
-        _prev_block_height: BlockHeight,
-        _block_height: BlockHeight,
-        _approvals: &[Option<Box<Signature>>],
-        _info: Vec<(ApprovalStake, bool)>,
-    ) -> Result<bool, Error> {
-        Ok(true)
-    }
-
-    fn verify_approvals_and_threshold_orphan(
-        &self,
-        epoch_id: &EpochId,
-        can_approved_block_be_produced: &dyn Fn(
-            &[Option<Box<Signature>>],
-            &[(Balance, Balance, bool)],
-        ) -> bool,
-        prev_block_hash: &CryptoHash,
-        prev_block_height: BlockHeight,
-        block_height: BlockHeight,
-        approvals: &[Option<Box<Signature>>],
-    ) -> Result<(), Error> {
-        let validators = self.get_block_producers(self.get_valset_for_epoch(epoch_id)?);
-        let message_to_sign = Approval::get_data_for_sig(
-            &if prev_block_height + 1 == block_height {
-                ApprovalInner::Endorsement(*prev_block_hash)
-            } else {
-                ApprovalInner::Skip(prev_block_height)
-            },
-            block_height,
-        );
-
-        for (validator, may_be_signature) in validators.iter().zip(approvals.iter()) {
-            if let Some(signature) = may_be_signature {
-                if !signature.verify(message_to_sign.as_ref(), validator.public_key()) {
-                    return Err(Error::InvalidApprovals);
-                }
-            }
-        }
-        let stakes = validators.iter().map(|stake| (stake.stake(), 0, false)).collect::<Vec<_>>();
-        if !can_approved_block_be_produced(approvals, &stakes) {
-            Err(Error::NotEnoughApprovals)
-        } else {
-            Ok(())
-        }
-    }
-
-    fn verify_chunk_endorsement(
-        &self,
-        _chunk_header: &ShardChunkHeader,
-        _endorsement: &ChunkEndorsementV1,
-    ) -> Result<bool, Error> {
-        Ok(true)
-    }
-
-    fn verify_chunk_endorsement_signature(
-        &self,
-        _endorsement: &ChunkEndorsementV2,
-    ) -> Result<bool, Error> {
-        Ok(true)
-    }
-
-    fn verify_partial_witness_signature(
-        &self,
-        _partial_witness: &PartialEncodedStateWitness,
-    ) -> Result<bool, Error> {
-        Ok(true)
+    fn should_validate_signatures(&self) -> bool {
+        false
     }
 
     fn cares_about_shard_in_epoch(
         &self,
-        epoch_id: EpochId,
+        epoch_id: &EpochId,
         account_id: &AccountId,
         shard_id: ShardId,
     ) -> Result<bool, EpochError> {
         // This `unwrap` here tests that in all code paths we check that the epoch exists before
         //    we check if we care about a shard. Please do not remove the unwrap, fix the logic of
         //    the calling function.
-        let epoch_valset = self.get_valset_for_epoch(&epoch_id).unwrap();
-        let shard_layout = self.get_shard_layout(&epoch_id)?;
-        let shard_index = shard_layout.get_shard_index(shard_id);
+        let epoch_valset = self.get_valset_for_epoch(epoch_id).unwrap();
+        let shard_layout = self.get_shard_layout(epoch_id)?;
+        let shard_index = shard_layout.get_shard_index(shard_id)?;
         let chunk_producers = self.get_chunk_producers(epoch_valset, shard_index);
         for validator in chunk_producers {
             if validator.account_id() == account_id {
@@ -1066,7 +870,7 @@ impl EpochManagerAdapter for MockEpochManager {
         //    the calling function.
         let epoch_valset = self.get_epoch_and_valset(*parent_hash).unwrap();
         let shard_layout = self.get_shard_layout_from_prev_block(parent_hash)?;
-        let shard_index = shard_layout.get_shard_index(shard_id);
+        let shard_index = shard_layout.get_shard_index(shard_id)?;
         let chunk_producers = self.get_chunk_producers(epoch_valset.1, shard_index);
         for validator in chunk_producers {
             if validator.account_id() == account_id {
@@ -1087,9 +891,33 @@ impl EpochManagerAdapter for MockEpochManager {
         //    the calling function.
         let epoch_valset = self.get_epoch_and_valset(*parent_hash).unwrap();
         let shard_layout = self.get_shard_layout_from_prev_block(parent_hash)?;
-        let shard_index = shard_layout.get_shard_index(shard_id);
+        let shard_index = shard_layout.get_shard_index(shard_id)?;
         let chunk_producers = self.get_chunk_producers(
             (epoch_valset.1 + 1) % self.validators_by_valset.len(),
+            shard_index,
+        );
+        for validator in chunk_producers {
+            if validator.account_id() == account_id {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
+    fn cared_about_shard_prev_epoch_from_prev_block(
+        &self,
+        parent_hash: &CryptoHash,
+        account_id: &AccountId,
+        shard_id: ShardId,
+    ) -> Result<bool, EpochError> {
+        // This `unwrap` here tests that in all code paths we check that the epoch exists before
+        //    we check if we care about a shard. Please do not remove the unwrap, fix the logic of
+        //    the calling function.
+        let epoch_valset = self.get_epoch_and_valset(*parent_hash).unwrap();
+        let shard_layout = self.get_shard_layout_from_prev_block(parent_hash)?;
+        let shard_index = shard_layout.get_shard_index(shard_id)?;
+        let chunk_producers = self.get_chunk_producers(
+            (epoch_valset.1.wrapping_sub(1)) % self.validators_by_valset.len(),
             shard_index,
         );
         for validator in chunk_producers {
@@ -1134,19 +962,6 @@ impl EpochManagerAdapter for MockEpochManager {
     ) -> Result<Vec<ValidatorStake>, EpochError> {
         Ok(self.validators.iter().map(|(_, v)| v.clone()).collect())
     }
-
-    fn get_random_chunk_producer_for_shard(
-        &self,
-        epoch_id: &EpochId,
-        shard_id: ShardId,
-    ) -> Result<AccountId, EpochError> {
-        let valset = self.get_valset_for_epoch(epoch_id)?;
-        let shard_layout = self.get_shard_layout(epoch_id)?;
-        let shard_index = shard_layout.get_shard_index(shard_id);
-        let chunk_producers = self.get_chunk_producers(valset, shard_index);
-        let index = rand::thread_rng().gen_range(0..chunk_producers.len());
-        Ok(chunk_producers[index].account_id().clone())
-    }
 }
 
 impl RuntimeAdapter for KeyValueRuntime {
@@ -1165,10 +980,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         state_root: StateRoot,
         _use_flat_storage: bool,
     ) -> Result<Trie, Error> {
-        Ok(self.tries.get_trie_for_shard(
-            ShardUId { version: 0, shard_id: shard_id_as_u32(shard_id) },
-            state_root,
-        ))
+        Ok(self.tries.get_trie_for_shard(ShardUId::new(0, shard_id), state_root))
     }
 
     fn get_flat_storage_manager(&self) -> near_store::flat::FlatStorageManager {
@@ -1181,23 +993,32 @@ impl RuntimeAdapter for KeyValueRuntime {
         _block_hash: &CryptoHash,
         state_root: StateRoot,
     ) -> Result<Trie, Error> {
-        Ok(self.tries.get_view_trie_for_shard(
-            ShardUId { version: 0, shard_id: shard_id_as_u32(shard_id) },
-            state_root,
-        ))
+        Ok(self.tries.get_view_trie_for_shard(ShardUId::new(0, shard_id), state_root))
+    }
+
+    fn get_shard_layout(&self, _protocol_version: ProtocolVersion) -> ShardLayout {
+        ShardLayout::multi_shard(self.num_shards, 0)
     }
 
     fn validate_tx(
         &self,
-        _gas_price: Balance,
-        _state_update: Option<StateRoot>,
-        _transaction: &SignedTransaction,
-        _verify_signature: bool,
-        _epoch_id: &EpochId,
-        _current_protocol_version: ProtocolVersion,
+        _shard_layout: &ShardLayout,
+        signed_tx: SignedTransaction,
+        _protocol_version: ProtocolVersion,
         _receiver_congestion_info: Option<ExtendedCongestionInfo>,
-    ) -> Result<Option<InvalidTxError>, Error> {
-        Ok(None)
+    ) -> Result<ValidatedTransaction, (InvalidTxError, SignedTransaction)> {
+        Ok(ValidatedTransaction::new_for_test(signed_tx))
+    }
+
+    fn can_verify_and_charge_tx(
+        &self,
+        _shard_layout: &ShardLayout,
+        _gas_price: Balance,
+        _state_root: StateRoot,
+        _validated_tx: &ValidatedTransaction,
+        _current_protocol_version: ProtocolVersion,
+    ) -> Result<(), InvalidTxError> {
+        Ok(())
     }
 
     fn prepare_transactions(
@@ -1206,7 +1027,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         _chunk: PrepareTransactionsChunkContext,
         _prev_block: PrepareTransactionsBlockContext,
         transaction_groups: &mut dyn TransactionGroupIterator,
-        _chain_validate: &mut dyn FnMut(&SignedTransaction) -> bool,
+        _chain_validate: &dyn Fn(&SignedTransaction) -> bool,
         _time_limit: Option<Duration>,
     ) -> Result<PreparedTransactions, Error> {
         let mut res = vec![];
@@ -1224,7 +1045,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         chunk: ApplyChunkShardContext,
         block: ApplyChunkBlockContext,
         receipts: &[Receipt],
-        transactions: &[SignedTransaction],
+        transactions: SignedValidPeriodTransactions<'_>,
     ) -> Result<ApplyChunkResult, Error> {
         let mut tx_results = vec![];
         let shard_id = chunk.shard_id;
@@ -1261,7 +1082,7 @@ impl RuntimeAdapter for KeyValueRuntime {
             }
         }
 
-        for transaction in transactions {
+        for transaction in transactions.iter_nonexpired_transactions() {
             assert_eq!(
                 account_id_to_shard_id(transaction.transaction.signer_id(), self.num_shards),
                 shard_id
@@ -1367,10 +1188,9 @@ impl RuntimeAdapter for KeyValueRuntime {
         Ok(ApplyChunkResult {
             trie_changes: WrappedTrieChanges::new(
                 self.get_tries(),
-                ShardUId { version: 0, shard_id: shard_id_as_u32(shard_id) },
+                ShardUId::new(0, shard_id),
                 TrieChanges::empty(state_root),
                 Default::default(),
-                block.block_hash,
                 block.height,
             ),
             new_root: state_root,
@@ -1386,8 +1206,8 @@ impl RuntimeAdapter for KeyValueRuntime {
             congestion_info: Self::get_congestion_info(PROTOCOL_VERSION),
             bandwidth_requests: BandwidthRequests::default_for_protocol_version(PROTOCOL_VERSION),
             bandwidth_scheduler_state_hash: CryptoHash::default(),
-            contract_accesses: Default::default(),
-            contract_deploys: Default::default(),
+            contract_updates: Default::default(),
+            stats: ChunkApplyStatsV0::dummy(),
         })
     }
 
@@ -1411,10 +1231,8 @@ impl RuntimeAdapter for KeyValueRuntime {
                             |state| *state.amounts.get(account_id).unwrap_or(&0),
                         ),
                         0,
+                        AccountContract::None,
                         0,
-                        CryptoHash::default(),
-                        0,
-                        PROTOCOL_VERSION,
                     )
                     .into(),
                 ),
@@ -1562,11 +1380,8 @@ impl RuntimeAdapter for KeyValueRuntime {
         Err(Error::Other("get_protocol_config should not be used in KeyValueRuntime".into()))
     }
 
-    fn get_runtime_config(
-        &self,
-        _protocol_version: ProtocolVersion,
-    ) -> Result<RuntimeConfig, Error> {
-        Ok(RuntimeConfig::test())
+    fn get_runtime_config(&self, _protocol_version: ProtocolVersion) -> RuntimeConfig {
+        RuntimeConfig::test()
     }
 
     fn will_shard_layout_change_next_epoch(
@@ -1578,5 +1393,14 @@ impl RuntimeAdapter for KeyValueRuntime {
 
     fn compiled_contract_cache(&self) -> &dyn ContractRuntimeCache {
         &self.contract_cache
+    }
+
+    fn precompile_contracts(
+        &self,
+        _epoch_id: &EpochId,
+        _contract_codes: Vec<ContractCode>,
+    ) -> Result<(), Error> {
+        // Note that KeyValueRuntime does not use compiled contract cache, so this is no-op.
+        Ok(())
     }
 }

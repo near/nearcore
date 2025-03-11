@@ -166,11 +166,13 @@ impl CodeMemory {
     ///
     /// Calling this requires that no mutable references to the code memory remain.
     pub unsafe fn publish(&mut self) -> Result<(), CompileError> {
-        mm::mprotect(
-            self.map.cast(),
-            self.executable_end,
-            MprotectFlags::EXEC | MprotectFlags::READ,
-        )
+        unsafe {
+            mm::mprotect(
+                self.map.cast(),
+                self.executable_end,
+                MprotectFlags::EXEC | MprotectFlags::READ,
+            )
+        }
         .map_err(|e| {
             CompileError::Resource(format!("could not make code memory executable: {}", e))
         })
@@ -182,7 +184,7 @@ impl CodeMemory {
     pub unsafe fn executable_address(&self, offset: usize) -> *const u8 {
         // TODO: encapsulate offsets so that this `offset` is guaranteed to be sound.
         debug_assert!(offset <= isize::MAX as usize);
-        self.map.offset(offset as isize)
+        unsafe { self.map.offset(offset as isize) }
     }
 
     /// Remap the offset into an absolute address within a read-write mapping.
@@ -191,7 +193,7 @@ impl CodeMemory {
     pub unsafe fn writable_address(&self, offset: usize) -> *mut u8 {
         // TODO: encapsulate offsets so that this `offset` is guaranteed to be sound.
         debug_assert!(offset <= isize::MAX as usize);
-        self.map.offset(offset as isize)
+        unsafe { self.map.offset(offset as isize) }
     }
 }
 
@@ -263,11 +265,7 @@ impl MemoryPool {
             None => CodeMemory::create(std::cmp::max(size, 1))?,
         };
         memory.source_pool = Some(Arc::clone(&self.pool));
-        if memory.size < size {
-            Ok(memory.resize(size)?)
-        } else {
-            Ok(memory)
-        }
+        if memory.size < size { Ok(memory.resize(size)?) } else { Ok(memory) }
     }
 }
 

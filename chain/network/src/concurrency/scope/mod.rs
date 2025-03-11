@@ -4,7 +4,7 @@
 //! You can think of the scope as a lifetime 'env within a rust future, such that:
 //! * within 'env you can spawn subtasks, which may return an error E.
 //! * subtasks can spawn more subtasks.
-//! * 'env has special semantics: at the end of 'env all spawned substasks are awaited for
+//! * 'env has special semantics: at the end of 'env all spawned subtasks are awaited for
 //!    completion.
 //! * if ANY of the subtasks returns an error, all the other subtasks are GRACEFULLY cancelled.
 //!   It means that they are not just dropped, but rather they have a handle (aka Ctx) to be able
@@ -237,13 +237,7 @@ impl<E: 'static + Send> Service<E> {
             inner.ctx.cancel();
             inner.terminated.clone()
         });
-        async move {
-            if let Some(t) = terminated {
-                ctx::wait(t.recv()).await
-            } else {
-                Ok(())
-            }
-        }
+        async move { if let Some(t) = terminated { ctx::wait(t.recv()).await } else { Ok(()) } }
     }
 
     /// Spawns a task in this scope.
@@ -302,8 +296,10 @@ pub struct Scope<'env, E: 'static>(
     std::marker::PhantomData<fn(&'env ()) -> &'env ()>,
 );
 
+/// Extremely unsafe.
 unsafe fn to_static<'env, T>(f: BoxFuture<'env, T>) -> BoxFuture<'static, T> {
-    std::mem::transmute::<BoxFuture<'env, _>, BoxFuture<'static, _>>(f)
+    // Yikes.
+    unsafe { std::mem::transmute::<BoxFuture<'env, _>, BoxFuture<'static, _>>(f) }
 }
 
 impl<'env, E: 'static + Send> Scope<'env, E> {
@@ -330,7 +326,7 @@ impl<'env, E: 'static + Send> Scope<'env, E> {
     /// It behaves just like a single-task Service, but
     /// has the same lifetime as the Scope, so it can spawn
     /// more tasks in the scope. It is not a "main" task, so
-    /// it doesn't prevent scope cancelation.
+    /// it doesn't prevent scope cancellation.
     pub fn spawn_bg<T: 'static + Send>(
         &self,
         f: impl 'env + Send + Future<Output = Result<T, E>>,

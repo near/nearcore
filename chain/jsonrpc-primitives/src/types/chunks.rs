@@ -1,3 +1,4 @@
+use near_primitives::types::ShardId;
 use serde_json::Value;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, arbitrary::Arbitrary)]
@@ -29,14 +30,15 @@ pub struct RpcChunkResponse {
 pub enum RpcChunkError {
     #[error("The node reached its limits. Try again later. More details: {error_message}")]
     InternalError { error_message: String },
-    #[error("Block either has never been observed on the node or has been garbage collected: {error_message}")]
+    #[error(
+        "Block either has never been observed on the node or has been garbage collected: {error_message}"
+    )]
     UnknownBlock {
         #[serde(skip_serializing)]
         error_message: String,
     },
-    // TODO Should use ShardId instead of u64
     #[error("Shard id {shard_id} does not exist")]
-    InvalidShardId { shard_id: u64 },
+    InvalidShardId { shard_id: ShardId },
     #[error("Chunk with hash {chunk_hash:?} has never been observed on this node")]
     UnknownChunk { chunk_hash: near_primitives::sharding::ChunkHash },
 }
@@ -62,7 +64,7 @@ impl From<RpcChunkError> for crate::errors::RpcError {
                 return Self::new_internal_error(
                     None,
                     format!("Failed to serialize RpcStateChangesError: {:?}", err),
-                )
+                );
             }
         };
 

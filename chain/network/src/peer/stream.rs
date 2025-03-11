@@ -1,13 +1,13 @@
 use crate::peer_manager::connection;
 use crate::stats::metrics;
 use crate::tcp;
-use actix::fut::future::wrap_future;
 use actix::AsyncContext as _;
+use actix::fut::future::wrap_future;
 use bytesize::{GIB, MIB};
 use std::io;
 use std::net::SocketAddr;
-use std::sync::atomic::Ordering;
 use std::sync::Arc;
+use std::sync::atomic::Ordering;
 use tokio::io::AsyncReadExt as _;
 use tokio::io::AsyncWriteExt as _;
 
@@ -116,7 +116,7 @@ where
         self.stats.messages_to_send.fetch_add(1, Ordering::Acquire);
         self.send_buf_size_metric.add(msg.len() as i64);
         // Exceeding buffer capacity is a critical error and Actor should call ctx.stop()
-        // when receiving one. It is not like we do any extra allocations, so we can affort
+        // when receiving one. It is not like we do any extra allocations, so we can afford
         // pushing the message to the queue anyway.
         if buf_size > MAX_WRITE_BUFFER_CAPACITY_BYTES {
             metrics::MessageDropped::MaxCapacityExceeded.inc_unknown_msg();

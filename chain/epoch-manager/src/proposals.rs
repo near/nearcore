@@ -85,7 +85,7 @@ mod old_validator_selection {
     use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
     use std::iter;
 
-    use near_primitives::epoch_info::EpochInfo;
+    use near_primitives::epoch_info::{EpochInfo, RngSeed};
     use near_primitives::epoch_manager::EpochConfig;
     use near_primitives::errors::EpochError;
     use near_primitives::types::validator_stake::ValidatorStake;
@@ -98,7 +98,6 @@ mod old_validator_selection {
     use rand_hc::Hc128Rng;
 
     use crate::proposals::find_threshold;
-    use crate::types::RngSeed;
 
     pub fn proposals_to_epoch_info(
         epoch_config: &EpochConfig,

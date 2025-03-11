@@ -1,8 +1,7 @@
 use near_chain::Provenance;
 use near_chain_configs::Genesis;
-use near_client::test_utils::TestEnv;
 use near_client::ProcessTxResponse;
-use near_crypto::{InMemorySigner, KeyType, Signer};
+use near_crypto::{InMemorySigner, Signer};
 use near_primitives::account::Account;
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::state_record::StateRecord;
@@ -10,15 +9,16 @@ use near_primitives::transaction::{
     Action, DeployContractAction, FunctionCallAction, SignedTransaction,
 };
 use near_primitives::types::{AccountId, BlockHeight, Nonce};
-use nearcore::test_utils::TestEnvNightshadeSetupExt;
+
+use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
+use crate::env::test_env::TestEnv;
 
 fn test_setup() -> (TestEnv, Signer) {
     let epoch_length = 5;
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
-    let signer =
-        InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0").into();
+    let signer = InMemorySigner::test_signer(&"test0".parse().unwrap());
     assert_eq!(
         send_tx(
             &mut env,

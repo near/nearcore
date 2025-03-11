@@ -36,7 +36,7 @@ consensus_config1 = {
         }
     }
 }
-# give more stake to the bootnode so that it can produce the blocks alone
+# give more stake to the boot node so that it can produce the blocks alone
 nodes = start_cluster(
     2, 0, 4, None,
     [["epoch_length", 100], ["num_block_producer_seats", 100],

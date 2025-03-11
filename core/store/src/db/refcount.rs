@@ -18,13 +18,12 @@
 //! values by adding the reference counts.  When the reference count reaches
 //! zero RocksDB removes the key from the database.
 
-use std::cmp::Ordering;
 use std::io;
 
 use rocksdb::compaction_filter::Decision;
 
-use crate::db::RocksDB;
 use crate::DBCol;
+use crate::db::RocksDB;
 
 /// Extracts reference count from raw value and returns it along with the value.
 ///
@@ -42,11 +41,7 @@ pub fn decode_value_with_rc(bytes: &[u8]) -> (Option<&[u8]>, i64) {
         }
         Some((head, tail)) => {
             let rc = i64::from_le_bytes(*tail);
-            if rc <= 0 {
-                (None, rc)
-            } else {
-                (Some(head), rc)
-            }
+            if rc <= 0 { (None, rc) } else { (Some(head), rc) }
         }
     }
 }
@@ -105,8 +100,7 @@ pub(crate) fn encode_negative_refcount(rc: std::num::NonZeroU32) -> [u8; 8] {
 ///
 /// Extracts reference count from all provided value and sums them together and
 /// returns result depending on rc:
-/// - rc = 0 ⇒ empty,
-/// - rc < 0 ⇒ encoded reference count,
+/// - rc <= 0 ⇒ empty,
 /// - rc > 0 ⇒ value with encoded reference count.
 ///
 /// Assumes that all provided values with positive reference count have the same
@@ -126,11 +120,10 @@ pub(crate) fn refcount_merge<'a>(
         rc += delta;
     }
 
-    match rc.cmp(&0) {
-        Ordering::Less => rc.to_le_bytes().to_vec(),
-        Ordering::Equal => Vec::new(),
-        Ordering::Greater => [payload.unwrap_or(b""), &rc.to_le_bytes()].concat(),
-    }
+    // TODO(resharding) We should preserve negative refcounts, but we don't because of ReshardingV3.
+    // Resharding can result in some data being double deleted, that would result in negative refcount forever
+    // and lead to issue if the same data will be reintroduced later.
+    if rc <= 0 { Vec::new() } else { [payload.unwrap_or(b""), &rc.to_le_bytes()].concat() }
 }
 
 /// Iterator treats empty value as no value and strips refcount
@@ -167,11 +160,7 @@ impl RocksDB {
         _key: &[u8],
         value: &[u8],
     ) -> Decision {
-        if value.is_empty() {
-            Decision::Remove
-        } else {
-            Decision::Keep
-        }
+        if value.is_empty() { Decision::Remove } else { Decision::Keep }
     }
 }
 
@@ -272,11 +261,11 @@ mod test {
         test(b"", &[b"foo\x02\0\0\0\0\0\0\0", MINUS_ONE, MINUS_ONE]);
         test(b"", &[b"foo\x02\0\0\0\0\0\0\0", MINUS_TWO]);
 
-        test(MINUS_ONE, &[MINUS_ONE]);
-        test(MINUS_ONE, &[b"", MINUS_ONE]);
-        test(MINUS_ONE, &[ZERO, MINUS_ONE]);
-        test(MINUS_ONE, &[b"foo\x01\0\0\0\0\0\0\0", MINUS_TWO]);
-        test(MINUS_ONE, &[b"foo\x01\0\0\0\0\0\0\0", MINUS_ONE, MINUS_ONE]);
+        test(b"", &[MINUS_ONE]);
+        test(b"", &[b"", MINUS_ONE]);
+        test(b"", &[ZERO, MINUS_ONE]);
+        test(b"", &[b"foo\x01\0\0\0\0\0\0\0", MINUS_TWO]);
+        test(b"", &[b"foo\x01\0\0\0\0\0\0\0", MINUS_ONE, MINUS_ONE]);
 
         test(b"foo\x02\0\0\0\0\0\0\0", &[b"foo\x01\0\0\0\0\0\0\0", b"foo\x01\0\0\0\0\0\0\0"]);
         test(b"foo\x01\0\0\0\0\0\0\0", &[b"foo\x01\0\0\0\0\0\0\0"]);

@@ -1,5 +1,5 @@
 use crate::config_updater::ConfigUpdater;
-use crate::{metrics, SyncStatus};
+use crate::{SyncStatus, metrics};
 use itertools::Itertools;
 use lru::LruCache;
 use near_async::messaging::Sender;
@@ -20,7 +20,7 @@ use near_primitives::types::{
 };
 use near_primitives::unwrap_or_return;
 use near_primitives::validator_signer::ValidatorSigner;
-use near_primitives::version::{Version, PROTOCOL_VERSION};
+use near_primitives::version::{PROTOCOL_VERSION, Version};
 use near_primitives::views::{
     CatchupStatusView, ChunkProcessingStatus, CurrentEpochValidatorInfo, EpochValidatorInfo,
     ValidatorKickoutView,
@@ -31,7 +31,7 @@ use std::collections::HashMap;
 use std::fmt::Write;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
-use sysinfo::{get_current_pid, set_open_files_limit, Pid, ProcessExt, System, SystemExt};
+use sysinfo::{Pid, ProcessExt, System, SystemExt, get_current_pid, set_open_files_limit};
 use time::ext::InstantExt as _;
 use tracing::info;
 
@@ -152,7 +152,7 @@ impl InfoHelper {
         let me = validator_signer.as_ref().map(|x| x.validator_id());
         for shard_id in shard_layout.shard_ids() {
             let tracked =
-                client.shard_tracker.care_about_shard(me, &head.prev_block_hash, shard_id, true);
+                client.shard_tracker.cares_about_shard(me, &head.prev_block_hash, shard_id, true);
             metrics::TRACKED_SHARDS.with_label_values(&[&shard_id.to_string()]).set(if tracked {
                 1
             } else {
@@ -168,8 +168,8 @@ impl InfoHelper {
             // Don't set the metric in this case.
             client
                 .epoch_manager
-                .get_epoch_block_producers_ordered(&head.epoch_id, &head.last_block_hash)
-                .map_or(None, |bp| Some(bp.iter().any(|bp| bp.0.account_id() == &account_id)))
+                .get_epoch_block_producers_ordered(&head.epoch_id)
+                .map_or(None, |bp| Some(bp.iter().any(|bp| bp.account_id() == &account_id)))
         }) {
             metrics::IS_BLOCK_PRODUCER.set(if is_bp { 1 } else { 0 });
         }
@@ -178,14 +178,18 @@ impl InfoHelper {
     fn record_chunk_producers(
         head: &Tip,
         client: &crate::client::Client,
-        shard_layout: Option<&ShardLayout>,
+        shard_layout: &ShardLayout,
     ) {
         if let (Some(account_id), Ok(epoch_info)) = (
             client.validator_signer.get().map(|x| x.validator_id().clone()),
             client.epoch_manager.get_epoch_info(&head.epoch_id),
         ) {
-            for (shard_id, validators) in epoch_info.chunk_producers_settlement().iter().enumerate()
+            for (shard_index, validators) in
+                epoch_info.chunk_producers_settlement().iter().enumerate()
             {
+                let Ok(shard_id) = shard_layout.get_shard_id(shard_index) else {
+                    continue;
+                };
                 let is_chunk_producer_for_shard = validators.iter().any(|&validator_id| {
                     *epoch_info.validator_account_id(validator_id) == account_id
                 });
@@ -193,7 +197,7 @@ impl InfoHelper {
                     .with_label_values(&[&shard_id.to_string()])
                     .set(if is_chunk_producer_for_shard { 1 } else { 0 });
             }
-        } else if let Some(shard_layout) = shard_layout {
+        } else {
             for shard_id in shard_layout.shard_ids() {
                 metrics::IS_CHUNK_PRODUCER_FOR_SHARD
                     .with_label_values(&[&shard_id.to_string()])
@@ -251,7 +255,7 @@ impl InfoHelper {
             });
 
             for shard_id in shard_ids {
-                let shard_index = shard_layout.get_shard_index(shard_id);
+                let shard_index = shard_layout.get_shard_index(shard_id).unwrap();
                 let mut stake_per_cp = HashMap::<ValidatorId, Balance>::new();
                 stake_sum = 0;
                 let chunk_producers_settlement = &epoch_info.chunk_producers_settlement();
@@ -310,21 +314,14 @@ impl InfoHelper {
         config_updater: &Option<ConfigUpdater>,
         signer: &Option<Arc<ValidatorSigner>>,
     ) {
-        let is_syncing = client.sync_status.is_syncing();
+        let is_syncing = client.sync_handler.sync_status.is_syncing();
         let head = unwrap_or_return!(client.chain.head());
         let validator_info = if !is_syncing {
             let num_validators =
                 self.get_num_validators(client.epoch_manager.as_ref(), &head.epoch_id);
             let account_id = signer.as_ref().map(|x| x.validator_id());
             let is_validator = if let Some(account_id) = account_id {
-                match client.epoch_manager.get_validator_by_account_id(
-                    &head.epoch_id,
-                    &head.last_block_hash,
-                    account_id,
-                ) {
-                    Ok((_, is_slashed)) => !is_slashed,
-                    Err(_) => false,
-                }
+                client.epoch_manager.get_validator_by_account_id(&head.epoch_id, account_id).is_ok()
             } else {
                 false
             };
@@ -339,7 +336,7 @@ impl InfoHelper {
             // adapter calls) is expensive when node is syncing so we’re simply
             // not collecting the statistics.  The statistics are used to update
             // a few Prometheus metrics only so we prefer to leave the metrics
-            // unset until node finishes synchronising.  TODO(#6763): If we
+            // unset until node finishes synchronizing.  TODO(#6763): If we
             // manage to get get_validator_info fasts again (or return an error
             // if computation would be too slow), remove the ‘if is_syncing’
             // check.
@@ -357,9 +354,10 @@ impl InfoHelper {
 
         if let Some(shard_layout) = shard_layout.as_ref() {
             InfoHelper::record_tracked_shards(&head, &client, shard_layout);
+            InfoHelper::record_chunk_producers(&head, &client, shard_layout);
         }
         InfoHelper::record_block_producers(&head, &client);
-        InfoHelper::record_chunk_producers(&head, &client, shard_layout.as_ref());
+
         let next_epoch_id = Some(head.epoch_id);
         if self.epoch_id.ne(&next_epoch_id) {
             // We only want to compute this once per epoch to avoid heavy computational work, that can last up to 100ms.
@@ -372,7 +370,7 @@ impl InfoHelper {
 
         self.info(
             &head,
-            &client.sync_status,
+            &client.sync_handler.sync_status,
             client.get_catchup_status().unwrap_or_default(),
             node_id,
             network_info,
@@ -521,14 +519,17 @@ impl InfoHelper {
                     metrics::VALIDATORS_CHUNKS_EXPECTED
                         .with_label_values(&[stats.account_id.as_str()])
                         .set(stats.num_expected_chunks as i64);
-                    for i in 0..stats.shards.len() {
-                        let shard = stats.shards[i];
+                    for i in 0..stats.shards_produced.len() {
+                        let shard = stats.shards_produced[i];
                         metrics::VALIDATORS_CHUNKS_EXPECTED_BY_SHARD
                             .with_label_values(&[stats.account_id.as_str(), &shard.to_string()])
                             .set(stats.num_expected_chunks_per_shard[i] as i64);
                         metrics::VALIDATORS_CHUNKS_PRODUCED_BY_SHARD
                             .with_label_values(&[stats.account_id.as_str(), &shard.to_string()])
                             .set(stats.num_produced_chunks_per_shard[i] as i64);
+                    }
+                    for i in 0..stats.shards_endorsed.len() {
+                        let shard = stats.shards_endorsed[i];
                         metrics::VALIDATORS_CHUNK_ENDORSEMENTS_EXPECTED_BY_SHARD
                             .with_label_values(&[stats.account_id.as_str(), &shard.to_string()])
                             .set(stats.num_expected_endorsements_per_shard[i] as i64);
@@ -612,12 +613,14 @@ impl InfoHelper {
             },
             extra_info: serde_json::to_string(&extra_telemetry_info(client_config)).unwrap(),
         };
+
+        let mut json = serde_json::to_value(info).expect("Telemetry must serialize to JSON");
         // Sign telemetry if there is a signer present.
         if let Some(signer) = signer {
-            signer.sign_telemetry(&info)
-        } else {
-            serde_json::to_value(&info).expect("Telemetry must serialize to json")
+            let content = serde_json::to_string(&json).expect("Telemetry must serialize to JSON");
+            json["signature"] = signer.sign_bytes(content.as_bytes()).to_string().into();
         }
+        json
     }
 
     fn log_chain_processing_info(&mut self, client: &crate::Client, epoch_id: &EpochId) {
@@ -864,10 +867,11 @@ impl PrettyNumber {
 
 impl std::fmt::Display for PrettyNumber {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let Self(mut num, unit) = self;
+        let Self(mut num, unit) = *self;
         if num < 1_000 {
             return write!(f, "{} {}", num, unit);
         }
+        // cspell:ignore MGTPE
         for prefix in b"kMGTPE" {
             if num < 1_000_000 {
                 let precision = if num < 10_000 {
@@ -909,7 +913,10 @@ struct ValidatorProductionStats {
     num_expected_blocks: NumBlocks,
     num_produced_chunks: NumBlocks,
     num_expected_chunks: NumBlocks,
-    shards: Vec<ShardId>,
+    /// Shards this validator is assigned to as chunk producer in the current epoch.
+    shards_produced: Vec<ShardId>,
+    /// Shards this validator is assigned to as chunk validator in the current epoch.
+    shards_endorsed: Vec<ShardId>,
     num_produced_chunks_per_shard: Vec<NumBlocks>,
     num_expected_chunks_per_shard: Vec<NumBlocks>,
     num_produced_endorsements_per_shard: Vec<NumBlocks>,
@@ -921,13 +928,24 @@ impl ValidatorProductionStatus {
         Self::Kickout(kickout.account_id)
     }
     pub fn validator(info: CurrentEpochValidatorInfo) -> Self {
+        debug_assert_eq!(
+            info.shards_produced.len(),
+            info.num_expected_chunks_per_shard.len(),
+            "Number of shards must match number of shards expected to produce a chunk for"
+        );
+        debug_assert_eq!(
+            info.shards_endorsed.len(),
+            info.num_expected_endorsements_per_shard.len(),
+            "Number of shards must match number of shards expected to produce a chunk for"
+        );
         Self::Validator(ValidatorProductionStats {
             account_id: info.account_id,
             num_produced_blocks: info.num_produced_blocks,
             num_expected_blocks: info.num_expected_blocks,
             num_produced_chunks: info.num_produced_chunks,
             num_expected_chunks: info.num_expected_chunks,
-            shards: info.shards,
+            shards_produced: info.shards_produced,
+            shards_endorsed: info.shards_endorsed,
             num_produced_chunks_per_shard: info.num_produced_chunks_per_shard,
             num_expected_chunks_per_shard: info.num_expected_chunks_per_shard,
             num_produced_endorsements_per_shard: info.num_produced_endorsements_per_shard,
@@ -955,18 +973,17 @@ fn get_validator_production_status(
 mod tests {
     use super::*;
     use assert_matches::assert_matches;
-    use near_async::messaging::{noop, IntoMultiSender, IntoSender};
+    use near_async::messaging::{IntoMultiSender, IntoSender, noop};
     use near_async::time::Clock;
     use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
     use near_chain::runtime::NightshadeRuntime;
     use near_chain::types::ChainConfig;
     use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode};
     use near_chain_configs::{Genesis, MutableConfigValue};
+    use near_epoch_manager::EpochManager;
     use near_epoch_manager::shard_tracker::ShardTracker;
     use near_epoch_manager::test_utils::*;
-    use near_epoch_manager::EpochManager;
     use near_network::test_utils::peer_id_from_seed;
-    use near_primitives::hash::CryptoHash;
     use near_store::genesis::initialize_genesis_state;
 
     #[test]
@@ -1068,7 +1085,6 @@ mod tests {
             "for this test, make sure number of validators are more than block producer seats"
         );
 
-        let last_block_hash = CryptoHash::default();
         let epoch_id = EpochId::default();
         let epoch_length = 2;
         let num_shards = 2;
@@ -1088,10 +1104,7 @@ mod tests {
         // First check that we have different number of block and chunk producers.
         assert_eq!(
             num_block_producer_seats,
-            epoch_manager_adapter
-                .get_epoch_block_producers_ordered(&epoch_id, &last_block_hash)
-                .unwrap()
-                .len()
+            epoch_manager_adapter.get_epoch_block_producers_ordered(&epoch_id).unwrap().len()
         );
         assert_eq!(
             num_validators,

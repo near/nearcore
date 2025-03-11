@@ -8,7 +8,7 @@
 //!     `observe()` method to record durations (e.g., block processing time).
 //! - `IncCounter`: used to represent an ideally ever-growing, never-shrinking
 //!     integer (e.g., number of block processing requests).
-//! - `IntGauge`: used to represent an varying integer (e.g., number of
+//! - `IntGauge`: used to represent a varying integer (e.g., number of
 //!     attestations per block).
 //!
 //! ## Important
@@ -68,9 +68,9 @@
 //! ```
 
 pub use prometheus::{
-    self, core::MetricVec, core::MetricVecBuilder, exponential_buckets, linear_buckets, Counter,
-    CounterVec, Encoder, Gauge, GaugeVec, Histogram, HistogramOpts, HistogramVec, IntCounter,
-    IntCounterVec, IntGauge, IntGaugeVec, Opts, Result, TextEncoder,
+    self, Counter, CounterVec, Encoder, Gauge, GaugeVec, Histogram, HistogramOpts, HistogramVec,
+    IntCounter, IntCounterVec, IntGauge, IntGaugeVec, Opts, Result, TextEncoder, core::MetricVec,
+    core::MetricVecBuilder, exponential_buckets, linear_buckets,
 };
 use std::collections::HashSet;
 use std::sync::LazyLock;
@@ -206,22 +206,11 @@ pub fn try_create_histogram_vec(
     Ok(histogram)
 }
 
-pub fn processing_time_buckets() -> Vec<f64> {
-    let mut buckets = vec![0.01, 0.025, 0.05, 0.1, 0.25, 0.5];
-    buckets.extend_from_slice(&exponential_buckets(1.0, 1.3, 12).unwrap());
-    buckets
-}
-
 static EXCEPTIONS: LazyLock<HashSet<&str>> = LazyLock::new(|| {
     HashSet::from([
         "flat_storage_cached_changes_num_items",
         "flat_storage_cached_changes_size",
         "flat_storage_cached_deltas",
-        "flat_storage_creation_fetched_state_items",
-        "flat_storage_creation_fetched_state_parts",
-        "flat_storage_creation_remaining_state_parts",
-        "flat_storage_creation_status",
-        "flat_storage_creation_threads_used",
         "flat_storage_distance_to_head",
         "flat_storage_head_height",
         "flat_storage_hops_to_head",

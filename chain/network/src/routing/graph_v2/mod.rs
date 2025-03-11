@@ -51,7 +51,7 @@ struct PeerDistances {
 struct Inner {
     config: GraphConfigV2,
 
-    /// Data structure maintaing information about the entire known network
+    /// Data structure maintaining information about the entire known network
     edge_cache: EdgeCache,
 
     /// Edges of the local node's direct connections
@@ -103,11 +103,7 @@ impl Inner {
         // Stop at first invalid edge.
         let (verified_edges, ok) = concurrency::rayon::run_blocking(move || {
             concurrency::rayon::try_map(unverified_edges.into_iter().par_bridge(), |e| {
-                if e.verify() {
-                    Some(e)
-                } else {
-                    None
-                }
+                if e.verify() { Some(e) } else { None }
             })
         });
 

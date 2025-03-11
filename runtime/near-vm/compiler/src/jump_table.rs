@@ -5,14 +5,14 @@
 //! [Learn more](https://en.wikipedia.org/wiki/Branch_table).
 
 use super::CodeOffset;
-use near_vm_types::entity::{entity_impl, SecondaryMap};
+use near_vm_types::entity::{SecondaryMap, entity_impl};
 
 /// An opaque reference to a [jump table](https://en.wikipedia.org/wiki/Branch_table).
 ///
 /// `JumpTable`s are used for indirect branching and are specialized for dense,
 /// 0-based jump offsets.
 #[derive(rkyv::Serialize, rkyv::Deserialize, rkyv::Archive)]
-#[archive_attr(derive(Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord))]
+#[rkyv(derive(Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord))]
 #[derive(Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct JumpTable(u32);
 
@@ -24,11 +24,7 @@ impl JumpTable {
     ///
     /// This method is for use by the parser.
     pub fn with_number(n: u32) -> Option<Self> {
-        if n < u32::max_value() {
-            Some(Self(n))
-        } else {
-            None
-        }
+        if n < u32::max_value() { Some(Self(n)) } else { None }
     }
 }
 

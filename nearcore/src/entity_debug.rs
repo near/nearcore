@@ -1,30 +1,31 @@
 use crate::entity_debug_serializer::serialize_entity;
-use anyhow::{anyhow, Context};
+use anyhow::{Context, anyhow};
 
 use borsh::BorshDeserialize;
 use near_chain::types::{LatestKnown, RuntimeAdapter};
 use near_chain::{Block, BlockHeader};
-use near_epoch_manager::types::EpochInfoAggregator;
 use near_epoch_manager::EpochManagerAdapter;
+use near_epoch_manager::shard_assignment::{account_id_to_shard_id, shard_id_to_uid};
 use near_jsonrpc_primitives::errors::RpcError;
 use near_jsonrpc_primitives::types::entity_debug::{
     EntityDataStruct, EntityDataValue, EntityDebugHandler, EntityQuery, EntityQueryWithParams,
 };
 use near_primitives::block::Tip;
-use near_primitives::challenge::{PartialState, TrieValue};
 use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::epoch_manager::AGGREGATOR_KEY;
-use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::errors::EpochError;
+use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::merkle::PartialMerkleTree;
 use near_primitives::receipt::Receipt;
 use near_primitives::shard_layout::get_block_shard_uid;
 use near_primitives::sharding::ShardChunk;
 use near_primitives::state::FlatStateValue;
+use near_primitives::state::{PartialState, TrieValue};
 use near_primitives::state_sync::StateSyncDumpProgress;
+use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::stored_chunk_state_transition_data::{
     StoredChunkStateTransitionData, StoredChunkStateTransitionDataV1,
-    StoredChunkStateTransitionDataV2,
 };
 use near_primitives::transaction::{ExecutionOutcomeWithProof, SignedTransaction};
 use near_primitives::types::chunk_extra::ChunkExtra;
@@ -33,16 +34,17 @@ use near_primitives::utils::{get_block_shard_id, get_outcome_id_block_hash};
 use near_primitives::views::{
     BlockHeaderView, BlockView, ChunkView, ExecutionOutcomeView, ReceiptView, SignedTransactionView,
 };
-use near_store::adapter::flat_store::encode_flat_state_db_key;
 use near_store::adapter::StoreAdapter;
+use near_store::adapter::flat_store::encode_flat_state_db_key;
 use near_store::db::GENESIS_CONGESTION_INFO_KEY;
+use near_store::epoch_info_aggregator::EpochInfoAggregator;
 use near_store::flat::delta::KeyForFlatStateDelta;
 use near_store::flat::{FlatStateChanges, FlatStateDeltaMetadata, FlatStorageStatus};
 use near_store::{
-    DBCol, NibbleSlice, RawTrieNode, RawTrieNodeWithSize, ShardUId, Store, CHUNK_TAIL_KEY,
-    COLD_HEAD_KEY, FINAL_HEAD_KEY, FORK_TAIL_KEY, GENESIS_JSON_HASH_KEY, GENESIS_STATE_ROOTS_KEY,
-    HEADER_HEAD_KEY, HEAD_KEY, LARGEST_TARGET_HEIGHT_KEY, LATEST_KNOWN_KEY, STATE_SNAPSHOT_KEY,
-    STATE_SYNC_DUMP_KEY, TAIL_KEY,
+    CHUNK_TAIL_KEY, COLD_HEAD_KEY, DBCol, FINAL_HEAD_KEY, FORK_TAIL_KEY, GENESIS_JSON_HASH_KEY,
+    GENESIS_STATE_ROOTS_KEY, HEAD_KEY, HEADER_HEAD_KEY, LARGEST_TARGET_HEIGHT_KEY,
+    LATEST_KNOWN_KEY, NibbleSlice, RawTrieNode, RawTrieNodeWithSize, STATE_SNAPSHOT_KEY,
+    STATE_SYNC_DUMP_KEY, ShardUId, Store, TAIL_KEY,
 };
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
@@ -119,11 +121,14 @@ impl EntityDebugHandlerImpl {
                     .ok_or_else(|| anyhow!("Chunk not found"))?;
                 let epoch_id =
                     self.epoch_manager.get_epoch_id_from_prev_block(chunk.prev_block())?;
-                let author = self.epoch_manager.get_chunk_producer(
-                    &epoch_id,
-                    chunk.height_created(),
-                    chunk.shard_id(),
-                )?;
+                let author = self
+                    .epoch_manager
+                    .get_chunk_producer_info(&ChunkProductionKey {
+                        epoch_id,
+                        height_created: chunk.height_created(),
+                        shard_id: chunk.shard_id(),
+                    })?
+                    .take_account_id();
                 Ok(serialize_entity(&ChunkView::from_author_chunk(author, chunk)))
             }
             EntityQuery::ChunkExtraByBlockHashShardUId { block_hash, shard_uid } => {
@@ -148,7 +153,7 @@ impl EntityDebugHandlerImpl {
                 let epoch_id =
                     self.epoch_manager.get_epoch_id_from_prev_block(chunk.prev_block())?;
                 let shard_id = chunk.shard_id();
-                let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, &epoch_id)?;
+                let shard_uid = shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, &epoch_id)?;
                 let chunk_extra = store
                     .get_ser::<ChunkExtra>(
                         DBCol::ChunkExtra,
@@ -263,7 +268,8 @@ impl EntityDebugHandlerImpl {
                     .epoch_manager
                     .get_shard_layout_from_prev_block(&chunk.cloned_header().prev_block_hash())?;
                 let shard_id = chunk.shard_id();
-                let shard_index = shard_layout.get_shard_index(shard_id);
+                let shard_index =
+                    shard_layout.get_shard_index(shard_id).map_err(Into::<EpochError>::into)?;
                 let shard_uid = shard_layout
                     .shard_uids()
                     .nth(shard_index)
@@ -288,8 +294,11 @@ impl EntityDebugHandlerImpl {
                 Ok(serialize_entity(&ReceiptView::from(receipt)))
             }
             EntityQuery::ShardIdByAccountId { account_id, epoch_id } => {
-                let shard_id =
-                    self.epoch_manager.account_id_to_shard_id(&account_id.parse()?, &epoch_id)?;
+                let shard_id = account_id_to_shard_id(
+                    self.epoch_manager.as_ref(),
+                    &account_id.parse()?,
+                    &epoch_id,
+                )?;
                 Ok(serialize_entity(&shard_id))
             }
             EntityQuery::ShardLayoutByEpochId { epoch_id } => {
@@ -298,7 +307,8 @@ impl EntityDebugHandlerImpl {
             }
             EntityQuery::ShardUIdByShardId { shard_id, epoch_id } => {
                 let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
-                let shard_index = shard_layout.get_shard_index(shard_id);
+                let shard_index =
+                    shard_layout.get_shard_index(shard_id).map_err(Into::<EpochError>::into)?;
 
                 let shard_uid = shard_layout
                     .shard_uids()
@@ -321,24 +331,23 @@ impl EntityDebugHandlerImpl {
                             &get_block_shard_id(&block_hash, shard_id),
                         )?
                         .ok_or_else(|| anyhow!("State transition not found"))?;
-                    let (base_state, receipts_hash) = match state_transition {
-                        StoredChunkStateTransitionData::V1(StoredChunkStateTransitionDataV1 {
-                            base_state,
-                            receipts_hash,
-                            ..
-                        }) => (base_state, receipts_hash),
-                        StoredChunkStateTransitionData::V2(StoredChunkStateTransitionDataV2 {
-                            base_state,
-                            receipts_hash,
-                            ..
-                        }) => (base_state, receipts_hash),
-                    };
+                    let StoredChunkStateTransitionData::V1(StoredChunkStateTransitionDataV1 {
+                        base_state,
+                        receipts_hash,
+                        contract_accesses,
+                        contract_deploys,
+                    }) = state_transition;
                     let mut serialized = EntityDataStruct::new();
                     serialized.add(
                         "base_state",
                         PartialStateParser::parse_and_serialize_partial_state(base_state),
                     );
                     serialized.add("receipts_hash", serialize_entity(&receipts_hash));
+                    serialized.add("contract_accesses", serialize_entity(&contract_accesses));
+                    // Add the hash of the deployed contract code instead of the actual code.
+                    let contract_deploy_hashes =
+                        contract_deploys.into_iter().map(|code| code.hash()).collect::<Vec<_>>();
+                    serialized.add("contract_deploys", serialize_entity(&contract_deploy_hashes));
                     state_transitions
                         .add(&shard_id.to_string(), EntityDataValue::Struct(serialized.into()));
                 }
@@ -391,7 +400,8 @@ impl EntityDebugHandlerImpl {
                     .epoch_manager
                     .get_shard_layout_from_prev_block(&chunk.cloned_header().prev_block_hash())?;
                 let shard_id = chunk.shard_id();
-                let shard_index = shard_layout.get_shard_index(shard_id);
+                let shard_index =
+                    shard_layout.get_shard_index(shard_id).map_err(Into::<EpochError>::into)?;
                 let shard_uid = shard_layout
                     .shard_uids()
                     .nth(shard_index)
@@ -417,7 +427,12 @@ impl EntityDebugHandlerImpl {
                     .shard_ids()
                     .map(|shard_id| {
                         self.epoch_manager
-                            .get_chunk_producer(&epoch_id, block_height, shard_id)
+                            .get_chunk_producer_info(&ChunkProductionKey {
+                                epoch_id,
+                                height_created: block_height,
+                                shard_id,
+                            })
+                            .map(|info| info.take_account_id())
                             .context("Getting chunk producer")
                     })
                     .collect::<Result<Vec<_>, _>>()?;

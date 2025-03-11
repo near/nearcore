@@ -1,18 +1,17 @@
-use crate::tests::client::process_blocks::set_block_protocol_version;
 use assert_matches::assert_matches;
-use near_chain::test_utils::wait_for_all_blocks_in_processing;
 use near_chain::Provenance;
+use near_chain::test_utils::wait_for_all_blocks_in_processing;
 use near_chain_configs::{Genesis, NEAR_BASE};
-use near_client::test_utils::{run_catchup, TestEnv};
 use near_client::ProcessTxResponse;
-use near_crypto::{InMemorySigner, KeyType};
+use near_client::test_utils::client::run_catchup;
+use near_crypto::InMemorySigner;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::account::id::AccountId;
 use near_primitives::block::{Block, Tip};
 use near_primitives::epoch_manager::{AllEpochConfig, AllEpochConfigTestOverrides, EpochConfig};
 use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::to_base64;
-use near_primitives::shard_layout::account_id_to_shard_uid;
+use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::transaction::{
     Action, DeployContractAction, FunctionCallAction, SignedTransaction,
 };
@@ -24,12 +23,15 @@ use near_primitives::views::{
 };
 use near_primitives_core::num_rational::Rational32;
 use near_store::test_utils::{gen_account, gen_shard_accounts, gen_unique_accounts};
-use nearcore::test_utils::TestEnvNightshadeSetupExt;
 use rand::rngs::StdRng;
 use rand::seq::SliceRandom;
 use rand::{Rng, SeedableRng};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use tracing::debug;
+
+use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
+use crate::env::test_env::TestEnv;
+use crate::utils::process_blocks::set_block_protocol_version;
 
 const P_CATCHUP: f64 = 0.2;
 
@@ -71,7 +73,11 @@ impl DropChunkCondition {
             return true;
         }
 
-        tracing::warn!("Inconsistent test setup. Chunk producer configured to produce one of its chunks and to skip another. This is not supported, skipping all. height {} shard_ids {:?}", height, shard_ids);
+        tracing::warn!(
+            "Inconsistent test setup. Chunk producer configured to produce one of its chunks and to skip another. This is not supported, skipping all. height {} shard_ids {:?}",
+            height,
+            shard_ids
+        );
         return true;
     }
 
@@ -233,7 +239,7 @@ impl TestReshardingEnv {
         let shard_layout = env.clients[0].epoch_manager.get_shard_layout(&epoch_id).unwrap();
         let mut chunk_producer_to_shard_id: HashMap<AccountId, Vec<ShardId>> = HashMap::new();
         for shard_index in 0..block.chunks().len() {
-            let shard_id = shard_layout.get_shard_id(shard_index);
+            let shard_id = shard_layout.get_shard_id(shard_index).unwrap();
             let validator_id = get_chunk_producer(env, &block, shard_id);
             chunk_producer_to_shard_id.entry(validator_id).or_default().push(shard_id);
         }
@@ -269,7 +275,8 @@ impl TestReshardingEnv {
             }
             // manually invoke gc
             let gc_config = client.config.gc.clone();
-            client.chain.clear_data(&gc_config).unwrap();
+            let me = signer.as_ref().map(|signer| signer.validator_id());
+            client.chain.clear_data(&gc_config, me).unwrap();
             if should_catchup {
                 run_catchup(&mut env.clients[j], &[])?;
             }
@@ -297,7 +304,7 @@ impl TestReshardingEnv {
 
         // Don't do catchup in the very first block of the epoch. This is
         // primarily for the error handling test where we want to corrupt the
-        // databse before catchup happens.
+        // database before catchup happens.
         if next_height % epoch_length == 1 {
             return false;
         }
@@ -307,7 +314,7 @@ impl TestReshardingEnv {
 
     // Submit the tx to all clients for processing and checks:
     // Clients that track the relevant shard should return ValidTx
-    // Clients that do not track the relevenat shard should return RequestRouted
+    // Clients that do not track the relevant shard should return RequestRouted
     // At least one client should process it and return ValidTx.
     fn process_tx(env: &mut TestEnv, tx: &SignedTransaction) {
         let mut response_valid_count = 0;
@@ -359,7 +366,7 @@ impl TestReshardingEnv {
         let shard_layout = client.epoch_manager.get_shard_layout(&epoch_id).unwrap();
         for shard_id in shard_layout.shard_ids() {
             // get hash of the last block that we need to check that it has empty chunks for the shard
-            // if `get_next_block_hash_with_new_chunk` returns None, that would be the lastest block
+            // if `get_next_block_hash_with_new_chunk` returns None, that would be the latest block
             // on chain, otherwise, that would be the block before the `block_hash` that the function
             // call returns
             let next_block_hash_with_new_chunk =
@@ -369,7 +376,7 @@ impl TestReshardingEnv {
                 Some((new_block_hash, target_shard_id)) => {
                     let new_block = client.chain.get_block(&new_block_hash).unwrap().clone();
                     let chunks = new_block.chunks();
-                    let target_shard_index = shard_layout.get_shard_index(target_shard_id);
+                    let target_shard_index = shard_layout.get_shard_index(target_shard_id).unwrap();
                     // check that the target chunk in the new block is new
                     assert_eq!(
                         chunks.get(target_shard_index).unwrap().height_included(),
@@ -405,7 +412,7 @@ impl TestReshardingEnv {
                 };
 
                 for target_shard_id in target_shard_ids {
-                    let target_shard_index = shard_layout.get_shard_index(target_shard_id);
+                    let target_shard_index = shard_layout.get_shard_index(target_shard_id).unwrap();
                     let chunk = chunks.get(target_shard_index).unwrap();
                     assert_ne!(chunk.height_included(), last_block.header().height());
                 }
@@ -443,14 +450,14 @@ impl TestReshardingEnv {
             let id = &tx.get_hash();
 
             let signer_account_id = tx.transaction.signer_id();
-            let shard_uid = account_id_to_shard_uid(signer_account_id, &shard_layout);
+            let shard_uid = shard_layout.account_id_to_shard_uid(signer_account_id);
 
             tracing::trace!(target: "test", tx=?id, ?signer_account_id, ?shard_uid, "checking tx");
 
             for (i, validator_account_id) in env.validators.iter().enumerate() {
                 let client = &env.clients[i];
 
-                let cares_about_shard = client.shard_tracker.care_about_shard(
+                let cares_about_shard = client.shard_tracker.cares_about_shard(
                     Some(validator_account_id),
                     block.header().prev_hash(),
                     shard_uid.shard_id(),
@@ -506,7 +513,10 @@ fn get_chunk_producer(env: &TestEnv, block: &Block, shard_id: ShardId) -> Accoun
     let parent_hash = block.header().prev_hash();
     let epoch_id = epoch_manager.get_epoch_id_from_prev_block(parent_hash).unwrap();
     let height = block.header().height() + 1;
-    let chunk_producer = epoch_manager.get_chunk_producer(&epoch_id, height, shard_id).unwrap();
+    let chunk_producer = epoch_manager
+        .get_chunk_producer_info(&ChunkProductionKey { epoch_id, height_created: height, shard_id })
+        .unwrap()
+        .take_account_id();
     chunk_producer
 }
 
@@ -518,14 +528,14 @@ fn check_account(env: &TestEnv, account_id: &AccountId, block: &Block) {
     let prev_hash = block.header().prev_hash();
     let shard_layout =
         env.clients[0].epoch_manager.get_shard_layout_from_prev_block(prev_hash).unwrap();
-    let shard_uid = account_id_to_shard_uid(account_id, &shard_layout);
+    let shard_uid = shard_layout.account_id_to_shard_uid(account_id);
     let shard_id = shard_uid.shard_id();
-    let shard_index = shard_layout.get_shard_index(shard_id);
+    let shard_index = shard_layout.get_shard_index(shard_id).unwrap();
     for (i, me) in env.validators.iter().enumerate() {
         let client = &env.clients[i];
-        let care_about_shard =
-            client.shard_tracker.care_about_shard(Some(me), prev_hash, shard_id, true);
-        if !care_about_shard {
+        let cares_about_shard =
+            client.shard_tracker.cares_about_shard(Some(me), prev_hash, shard_id, true);
+        if !cares_about_shard {
             continue;
         }
         let chunk_extra = &client.chain.get_chunk_extra(block.hash(), &shard_uid).unwrap();
@@ -639,8 +649,7 @@ fn setup_test_env_with_cross_contract_txs(
 
     let mut init_txs = vec![];
     for account_id in &contract_accounts {
-        let signer =
-            InMemorySigner::from_seed(account_id.clone(), KeyType::ED25519, account_id.as_ref());
+        let signer = InMemorySigner::test_signer(&account_id);
         let actions = vec![Action::DeployContract(DeployContractAction {
             code: near_test_contracts::backwards_compatible_rs_contract().to_vec(),
         })];
@@ -648,7 +657,7 @@ fn setup_test_env_with_cross_contract_txs(
             1,
             account_id.clone(),
             account_id.clone(),
-            &signer.into(),
+            &signer,
             actions,
             genesis_hash,
             0,
@@ -778,9 +787,8 @@ fn gen_cross_contract_tx_impl(
     nonce: u64,
     block_hash: &CryptoHash,
 ) -> SignedTransaction {
-    let signer0 = InMemorySigner::from_seed(account0.clone(), KeyType::ED25519, account0.as_ref());
-    let signer_new_account =
-        InMemorySigner::from_seed(new_account.clone(), KeyType::ED25519, new_account.as_ref());
+    let signer0 = InMemorySigner::test_signer(&account0);
+    let signer_new_account = InMemorySigner::test_signer(&new_account);
     let data = serde_json::json!([
         {"create": {
         "account_id": account2.to_string(),
@@ -804,7 +812,7 @@ fn gen_cross_contract_tx_impl(
                 }, "id": 0 },
                 {"action_add_key_with_full_access": {
                     "promise_index": 0,
-                    "public_key": to_base64(&borsh::to_vec(&signer_new_account.public_key).unwrap()),
+                    "public_key": to_base64(&borsh::to_vec(&signer_new_account.public_key()).unwrap()),
                     "nonce": 0,
                 }, "id": 0 }
             ],
@@ -817,7 +825,7 @@ fn gen_cross_contract_tx_impl(
         nonce,
         account0.clone(),
         account1.clone(),
-        &signer0.into(),
+        &signer0,
         vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "call_promise".to_string(),
             args: serde_json::to_vec(&data).unwrap(),
@@ -889,16 +897,16 @@ fn test_latest_protocol_missing_chunks(p_missing: f64, rng_seed: u64) {
 // latest protocol
 
 #[test]
-fn test_latest_protocol_missing_chunks_low_missing_prob() {
+fn slow_test_latest_protocol_missing_chunks_low_missing_prob() {
     test_latest_protocol_missing_chunks(0.1, 25);
 }
 
 #[test]
-fn test_latest_protocol_missing_chunks_mid_missing_prob() {
+fn slow_test_latest_protocol_missing_chunks_mid_missing_prob() {
     test_latest_protocol_missing_chunks(0.5, 26);
 }
 
 #[test]
-fn test_latest_protocol_missing_chunks_high_missing_prob() {
+fn slow_test_latest_protocol_missing_chunks_high_missing_prob() {
     test_latest_protocol_missing_chunks(0.9, 27);
 }

@@ -1,17 +1,19 @@
+use crate::approval_verification::verify_approvals_and_threshold_orphan;
 use crate::block_processing_utils::BlockPreprocessInfo;
 use crate::chain::collect_receipts_from_response;
 use crate::metrics::{SHARD_LAYOUT_NUM_SHARDS, SHARD_LAYOUT_VERSION};
+use crate::store::utils::get_block_header_on_chain_by_height;
 use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate};
-
 use crate::types::{
     ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext, RuntimeAdapter,
     RuntimeStorageConfig,
 };
 use crate::update_shard::{NewChunkResult, OldChunkResult, ShardUpdateResult};
-use crate::{metrics, DoomslugThresholdMode};
 use crate::{Chain, Doomslug};
+use crate::{DoomslugThresholdMode, metrics};
 use near_chain_primitives::error::Error;
 use near_epoch_manager::EpochManagerAdapter;
+use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::block::{Block, Tip};
 use near_primitives::block_header::BlockHeader;
@@ -21,8 +23,9 @@ use near_primitives::shard_layout::ShardUId;
 use near_primitives::sharding::ShardChunk;
 use near_primitives::state_sync::{ReceiptProofResponse, ShardStateSyncResponseHeader};
 use near_primitives::types::chunk_extra::ChunkExtra;
-use near_primitives::types::{BlockExtra, BlockHeight, BlockHeightDelta, ShardId};
+use near_primitives::types::{BlockExtra, BlockHeight, ShardId};
 use near_primitives::views::LightClientBlockView;
+use node_runtime::SignedValidPeriodTransactions;
 use std::sync::Arc;
 use tracing::{debug, info, warn};
 
@@ -35,8 +38,6 @@ pub struct ChainUpdate<'a> {
     runtime_adapter: Arc<dyn RuntimeAdapter>,
     chain_store_update: ChainStoreUpdate<'a>,
     doomslug_threshold_mode: DoomslugThresholdMode,
-    #[allow(unused)]
-    transaction_validity_period: BlockHeightDelta,
 }
 
 impl<'a> ChainUpdate<'a> {
@@ -45,32 +46,18 @@ impl<'a> ChainUpdate<'a> {
         epoch_manager: Arc<dyn EpochManagerAdapter>,
         runtime_adapter: Arc<dyn RuntimeAdapter>,
         doomslug_threshold_mode: DoomslugThresholdMode,
-        transaction_validity_period: BlockHeightDelta,
     ) -> Self {
         let chain_store_update: ChainStoreUpdate<'_> = chain_store.store_update();
-        Self::new_impl(
-            epoch_manager,
-            runtime_adapter,
-            doomslug_threshold_mode,
-            transaction_validity_period,
-            chain_store_update,
-        )
+        Self::new_impl(epoch_manager, runtime_adapter, doomslug_threshold_mode, chain_store_update)
     }
 
     fn new_impl(
         epoch_manager: Arc<dyn EpochManagerAdapter>,
         runtime_adapter: Arc<dyn RuntimeAdapter>,
         doomslug_threshold_mode: DoomslugThresholdMode,
-        transaction_validity_period: BlockHeightDelta,
         chain_store_update: ChainStoreUpdate<'a>,
     ) -> Self {
-        ChainUpdate {
-            epoch_manager,
-            runtime_adapter,
-            chain_store_update,
-            doomslug_threshold_mode,
-            transaction_validity_period,
-        }
+        ChainUpdate { epoch_manager, runtime_adapter, chain_store_update, doomslug_threshold_mode }
     }
 
     /// Commit changes to the chain into the database.
@@ -138,7 +125,7 @@ impl<'a> ChainUpdate<'a> {
                 )?;
                 self.chain_store_update.merge(store_update.into());
 
-                self.chain_store_update.save_trie_changes(apply_result.trie_changes);
+                self.chain_store_update.save_trie_changes(*block_hash, apply_result.trie_changes);
                 self.chain_store_update.save_outgoing_receipt(
                     block_hash,
                     shard_id,
@@ -157,10 +144,14 @@ impl<'a> ChainUpdate<'a> {
                         shard_id,
                         apply_result.proof,
                         apply_result.applied_receipts_hash,
-                        apply_result.contract_accesses,
-                        apply_result.contract_deploys,
+                        apply_result.contract_updates,
                     );
                 }
+                self.chain_store_update.save_chunk_apply_stats(
+                    *block_hash,
+                    shard_id,
+                    apply_result.stats,
+                );
             }
             ShardUpdateResult::OldChunk(OldChunkResult { shard_uid, apply_result }) => {
                 // The chunk is missing but some fields may need to be updated
@@ -181,23 +172,27 @@ impl<'a> ChainUpdate<'a> {
                 self.chain_store_update.merge(store_update.into());
 
                 self.chain_store_update.save_chunk_extra(block_hash, &shard_uid, new_extra);
-                self.chain_store_update.save_trie_changes(apply_result.trie_changes);
+                self.chain_store_update.save_trie_changes(*block_hash, apply_result.trie_changes);
                 if should_save_state_transition_data {
                     self.chain_store_update.save_state_transition_data(
                         *block_hash,
                         shard_uid.shard_id(),
                         apply_result.proof,
                         apply_result.applied_receipts_hash,
-                        apply_result.contract_accesses,
-                        apply_result.contract_deploys,
+                        apply_result.contract_updates,
                     );
                 }
+                self.chain_store_update.save_chunk_apply_stats(
+                    *block_hash,
+                    shard_uid.shard_id(),
+                    apply_result.stats,
+                );
             }
         };
         Ok(())
     }
 
-    /// Extra sanity check for bandwdith scheduler - the scheduler state should be the same on all shards.
+    /// Extra sanity check for bandwidth scheduler - the scheduler state should be the same on all shards.
     fn bandwidth_scheduler_state_sanity_check(apply_results: &[ShardUpdateResult]) {
         let state_hashes: Vec<CryptoHash> = apply_results
             .iter()
@@ -348,8 +343,8 @@ impl<'a> ChainUpdate<'a> {
         let height = header.height();
         let epoch_id = header.epoch_id();
         let approvals = header.approvals();
-        self.epoch_manager.verify_approvals_and_threshold_orphan(
-            epoch_id,
+        let epoch_info = self.epoch_manager.get_epoch_info(epoch_id)?;
+        verify_approvals_and_threshold_orphan(
             &|approvals, stakes| {
                 Doomslug::can_approved_block_be_produced(
                     self.doomslug_threshold_mode,
@@ -361,6 +356,7 @@ impl<'a> ChainUpdate<'a> {
             prev_height,
             height,
             approvals,
+            epoch_info,
         )
     }
 
@@ -500,25 +496,35 @@ impl<'a> ChainUpdate<'a> {
             }
         };
 
-        let block_header = self
-            .chain_store_update
-            .get_block_header_on_chain_by_height(&sync_hash, chunk.height_included())?;
+        // Note that block headers are already synced and can be taken
+        // from store on disk.
+        let block_header = get_block_header_on_chain_by_height(
+            &self.chain_store_update.chain_store(),
+            &sync_hash,
+            chunk.height_included(),
+        )?;
 
         // Getting actual incoming receipts.
-        let mut receipt_proof_response: Vec<ReceiptProofResponse> = vec![];
+        let mut receipt_proof_responses: Vec<ReceiptProofResponse> = vec![];
         for incoming_receipt_proof in incoming_receipts_proofs.iter() {
             let ReceiptProofResponse(hash, _) = incoming_receipt_proof;
             let block_header = self.chain_store_update.get_block_header(hash)?;
             if block_header.height() <= chunk.height_included() {
-                receipt_proof_response.push(incoming_receipt_proof.clone());
+                receipt_proof_responses.push(incoming_receipt_proof.clone());
             }
         }
-        let receipts = collect_receipts_from_response(&receipt_proof_response);
-        // Prev block header should be present during state sync, since headers have been synced at this point.
-        let gas_price = if block_header.height() == self.chain_store_update.get_genesis_height() {
-            block_header.next_gas_price()
+        let receipts = collect_receipts_from_response(&receipt_proof_responses);
+        let is_genesis = block_header.height() == self.chain_store_update.get_genesis_height();
+        let prev_block_header = (!is_genesis)
+            .then(|| self.chain_store_update.get_block_header(block_header.prev_hash()))
+            .transpose()?;
+
+        // Prev block header should be present during state sync, since headers have been synced at
+        // this point, except for genesis.
+        let gas_price = if let Some(prev_block_header) = &prev_block_header {
+            prev_block_header.next_gas_price()
         } else {
-            self.chain_store_update.get_block_header(block_header.prev_hash())?.next_gas_price()
+            block_header.next_gas_price()
         };
 
         let chunk_header = chunk.cloned_header();
@@ -529,7 +535,19 @@ impl<'a> ChainUpdate<'a> {
         let is_first_block_with_chunk_of_version = false;
 
         let block = self.chain_store_update.get_block(block_header.hash())?;
-
+        let epoch_id = self.epoch_manager.get_epoch_id(block_header.hash())?;
+        let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
+        let transactions = chunk.transactions();
+        let transaction_validity = if let Some(prev_block_header) = prev_block_header {
+            self.chain_store_update.chain_store().compute_transaction_validity(
+                protocol_version,
+                &prev_block_header,
+                &chunk,
+            )?
+        } else {
+            vec![true; transactions.len()]
+        };
+        let transactions = SignedValidPeriodTransactions::new(transactions, &transaction_validity);
         let apply_result = self.runtime_adapter.apply_chunk(
             RuntimeStorageConfig::new(chunk_header.prev_state_root(), true),
             ApplyChunkReason::UpdateTrackedShard,
@@ -552,7 +570,7 @@ impl<'a> ChainUpdate<'a> {
                 bandwidth_requests: block.block_bandwidth_requests(),
             },
             &receipts,
-            chunk.transactions(),
+            transactions,
         )?;
 
         let (outcome_root, outcome_proofs) =
@@ -560,7 +578,8 @@ impl<'a> ChainUpdate<'a> {
 
         self.chain_store_update.save_chunk(chunk);
 
-        let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, block_header.epoch_id())?;
+        let shard_uid =
+            shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, block_header.epoch_id())?;
         let flat_storage_manager = self.runtime_adapter.get_flat_storage_manager();
         let store_update = flat_storage_manager.save_flat_state_changes(
             *block_header.hash(),
@@ -571,10 +590,7 @@ impl<'a> ChainUpdate<'a> {
         )?;
         self.chain_store_update.merge(store_update.into());
 
-        self.chain_store_update.save_trie_changes(apply_result.trie_changes);
-
-        let epoch_id = self.epoch_manager.get_epoch_id(block_header.hash())?;
-        let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
+        self.chain_store_update.save_trie_changes(*block_header.hash(), apply_result.trie_changes);
 
         let chunk_extra = ChunkExtra::new(
             protocol_version,
@@ -602,7 +618,7 @@ impl<'a> ChainUpdate<'a> {
             outcome_proofs,
         );
         // Saving all incoming receipts.
-        for receipt_proof_response in incoming_receipts_proofs {
+        for receipt_proof_response in receipt_proof_responses {
             self.chain_store_update.save_incoming_receipt(
                 &receipt_proof_response.0,
                 shard_id,
@@ -624,8 +640,13 @@ impl<'a> ChainUpdate<'a> {
         let _span =
             tracing::debug_span!(target: "sync", "set_state_finalize_on_height", height, ?shard_id)
                 .entered();
-        let block_header_result =
-            self.chain_store_update.get_block_header_on_chain_by_height(&sync_hash, height);
+        // Note that block headers are already synced and can be taken
+        // from store on disk.
+        let block_header_result = get_block_header_on_chain_by_height(
+            &self.chain_store_update.chain_store(),
+            &sync_hash,
+            height,
+        );
         if let Err(_) = block_header_result {
             // No such height, go ahead.
             return Ok(true);
@@ -640,7 +661,8 @@ impl<'a> ChainUpdate<'a> {
         let prev_hash = block_header.prev_hash();
         let prev_block_header = self.chain_store_update.get_block_header(prev_hash)?;
 
-        let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, block_header.epoch_id())?;
+        let shard_uid =
+            shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, block_header.epoch_id())?;
         let chunk_extra = self.chain_store_update.get_chunk_extra(prev_hash, &shard_uid)?;
 
         let apply_result = self.runtime_adapter.apply_chunk(
@@ -660,7 +682,7 @@ impl<'a> ChainUpdate<'a> {
                 block.block_bandwidth_requests(),
             ),
             &[],
-            &[],
+            SignedValidPeriodTransactions::new(&[], &[]),
         )?;
         let flat_storage_manager = self.runtime_adapter.get_flat_storage_manager();
         let store_update = flat_storage_manager.save_flat_state_changes(
@@ -671,7 +693,7 @@ impl<'a> ChainUpdate<'a> {
             apply_result.trie_changes.state_changes(),
         )?;
         self.chain_store_update.merge(store_update.into());
-        self.chain_store_update.save_trie_changes(apply_result.trie_changes);
+        self.chain_store_update.save_trie_changes(*block_header.hash(), apply_result.trie_changes);
 
         // The chunk is missing but some fields may need to be updated
         // anyway. Prepare a chunk extra as a copy of the old chunk

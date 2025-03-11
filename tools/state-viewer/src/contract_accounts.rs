@@ -5,10 +5,11 @@ use borsh::BorshDeserialize;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{Receipt, ReceiptEnum};
 use near_primitives::transaction::{Action, ExecutionOutcomeWithProof};
-use near_primitives::trie_key::trie_key_parsers::parse_account_id_from_contract_code_key;
 use near_primitives::trie_key::TrieKey;
+use near_primitives::trie_key::trie_key_parsers::parse_account_id_from_contract_code_key;
 use near_primitives::types::AccountId;
-use near_store::{DBCol, NibbleSlice, StorageError, Store, Trie, TrieTraversalItem};
+use near_store::trie::ops::iter::TrieTraversalItem;
+use near_store::{DBCol, NibbleSlice, StorageError, Store, Trie};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 type Result<T> = std::result::Result<T, ContractAccountError>;
@@ -128,14 +129,14 @@ pub(crate) enum ActionType {
     DeployContract,
     FunctionCall,
     Transfer,
-    #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-    NonrefundableStorageTransfer,
     Stake,
     AddKey,
     DeleteKey,
     DeleteAccount,
     DataReceipt,
     Delegate,
+    DeployGlobalContract,
+    UseGlobalContract,
 }
 
 impl ContractAccount {
@@ -325,7 +326,7 @@ fn try_find_actions_spawned_by_receipt(
                     let maybe_outgoing_receipt: Option<Receipt> = store
                         .get_ser(near_store::DBCol::Receipts, outgoing_receipt_id.as_bytes())
                         .map_err(|e| ContractAccountError::UnparsableValue(e, DBCol::Receipts))?;
-                    let outgoing_receipt = maybe_outgoing_receipt.ok_or_else(|| {
+                    let outgoing_receipt = maybe_outgoing_receipt.ok_or({
                         ContractAccountError::MissingOutgoingReceipt(*outgoing_receipt_id)
                     })?;
                     match outgoing_receipt.receipt() {
@@ -337,17 +338,15 @@ fn try_find_actions_spawned_by_receipt(
                                     Action::DeployContract(_) => ActionType::DeployContract,
                                     Action::FunctionCall(_) => ActionType::FunctionCall,
                                     Action::Transfer(_) => ActionType::Transfer,
-                                    #[cfg(
-                                        feature = "protocol_feature_nonrefundable_transfer_nep491"
-                                    )]
-                                    Action::NonrefundableStorageTransfer(_) => {
-                                        ActionType::NonrefundableStorageTransfer
-                                    }
                                     Action::Stake(_) => ActionType::Stake,
                                     Action::AddKey(_) => ActionType::AddKey,
                                     Action::DeleteKey(_) => ActionType::DeleteKey,
                                     Action::DeleteAccount(_) => ActionType::DeleteAccount,
                                     Action::Delegate(_) => ActionType::Delegate,
+                                    Action::DeployGlobalContract(_) => {
+                                        ActionType::DeployGlobalContract
+                                    }
+                                    Action::UseGlobalContract(_) => ActionType::UseGlobalContract,
                                 };
                                 entry
                                     .actions
@@ -361,6 +360,7 @@ fn try_find_actions_spawned_by_receipt(
                                 .get_or_insert_with(Default::default)
                                 .insert(ActionType::DataReceipt);
                         }
+                        ReceiptEnum::GlobalContractDistribution(_) => {}
                     }
                 }
             }
@@ -502,14 +502,15 @@ mod tests {
     use near_primitives::trie_key::TrieKey;
     use near_primitives::types::AccountId;
     use near_store::test_utils::{
-        create_test_store, test_populate_store, test_populate_store_rc, test_populate_trie,
-        TestTriesBuilder,
+        TestTriesBuilder, create_test_store, test_populate_store, test_populate_store_rc,
+        test_populate_trie,
     };
     use near_store::{DBCol, ShardUId, Store, Trie};
     use std::fmt::Write;
 
     #[test]
     fn test_three_contract_sizes() {
+        // cspell:words nearx xeno
         let initial = vec![
             contract_tuple("caroline.near", 3),
             contract_tuple("alice.near", 1),
@@ -600,14 +601,11 @@ mod tests {
         let fn_call_outcome = create_execution_outcome(vec![outgoing_receipt_id]);
 
         // Now prepare data to be inserted to DB, separating ref counted data.
-        let store_data = [store_tripple(
-            DBCol::TransactionResultForBlock,
-            &fn_call_receipt_id,
-            &fn_call_outcome,
-        )];
+        let store_data =
+            [store_triple(DBCol::TransactionResultForBlock, &fn_call_receipt_id, &fn_call_outcome)];
         let store_data_rc = [
-            store_tripple(DBCol::Receipts, &fn_call_receipt_id, &fn_call_receipt),
-            store_tripple(DBCol::Receipts, &outgoing_receipt_id, &outgoing_receipt),
+            store_triple(DBCol::Receipts, &fn_call_receipt_id, &fn_call_receipt),
+            store_triple(DBCol::Receipts, &outgoing_receipt_id, &outgoing_receipt),
         ];
 
         let trie_data = vec![contract_tuple("alice.near", 100), contract_tuple("bob.near", 200)];
@@ -698,7 +696,7 @@ mod tests {
     }
 
     /// Convenience fn to create a triple to insert to the store.
-    fn store_tripple(
+    fn store_triple(
         col: DBCol,
         key: &impl BorshSerialize,
         value: &impl BorshSerialize,

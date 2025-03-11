@@ -44,7 +44,7 @@ pub const PEERS_RESPONSE_MAX_PEERS: u32 = 512;
 ///
 /// neard supports 2 modes for configuring proxy addresses:
 /// * [recommended] `Static` list of proxies (public SocketAddr + PeerId), supports up to 10 proxies.
-///   It is a totally valid setup for a TIER1 validator to be its own (perahaps only) proxy:
+///   It is a totally valid setup for a TIER1 validator to be its own (perhaps only) proxy:
 ///   to achieve that, add an entry with the public address of this node to the Static list.
 /// * [discouraged] `Dynamic` proxy - in case you want this validator to be its own and only proxy,
 ///   instead of adding the public address explicitly to the `Static` list, you can specify a STUN
@@ -90,7 +90,7 @@ pub struct Tier1 {
     /// TIER1 can consists of hundreds of nodes, so it is not feasible to connect to all of them at
     /// once.
     pub new_connections_per_attempt: u64,
-    /// Interval between broacasts of the list of validator's proxies.
+    /// Interval between broadcasts of the list of validator's proxies.
     /// Before the broadcast, validator tries to establish all the missing connections to proxies.
     pub advertise_proxies_interval: time::Duration,
     /// Support for gradual TIER1 feature rollout:
@@ -261,13 +261,18 @@ impl NetworkConfig {
         let mut proxies = HashSet::new();
         for proxy in &cfg.public_addrs {
             if proxies.contains(&proxy.peer_id) {
-                anyhow::bail!("public_addrs: found multiple entries with peer_id {}. Only 1 entry per peer_id is supported.",proxy.peer_id);
+                anyhow::bail!(
+                    "public_addrs: found multiple entries with peer_id {}. Only 1 entry per peer_id is supported.",
+                    proxy.peer_id
+                );
             }
             proxies.insert(proxy.peer_id.clone());
             let ip = proxy.addr.ip();
             if cfg.allow_private_ip_in_public_addrs {
                 if ip.is_unspecified() {
-                    anyhow::bail!("public_addrs: {ip} is not a valid IP. If you wanted to specify a loopback IP, use 127.0.0.1 instead.");
+                    anyhow::bail!(
+                        "public_addrs: {ip} is not a valid IP. If you wanted to specify a loopback IP, use 127.0.0.1 instead."
+                    );
                 }
             } else {
                 // TODO(gprusak): use !ip.is_global() instead, once it is stable.
@@ -477,7 +482,8 @@ impl NetworkConfig {
         if !(self.ideal_connections_hi <= self.max_num_peers) {
             anyhow::bail!(
                 "max_num_peers({}) < ideal_connections_hi({}) which may lead to connection saturation and declining new connections.",
-                self.max_num_peers, self.ideal_connections_hi
+                self.max_num_peers,
+                self.ideal_connections_hi
             );
         }
 
@@ -492,7 +498,8 @@ impl NetworkConfig {
         if UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE * 2 > self.peer_recent_time_window {
             anyhow::bail!(
                 "Very short peer_recent_time_window({}). it should be at least twice update_interval_last_time_received_message({}).",
-                self.peer_recent_time_window, UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE
+                self.peer_recent_time_window,
+                UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE
             );
         }
 

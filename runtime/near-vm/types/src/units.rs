@@ -29,7 +29,6 @@ pub const WASM_MIN_PAGES: u32 = 0x100;
     rkyv::Deserialize,
     rkyv::Archive,
 )]
-#[archive(as = "Self")]
 #[repr(transparent)]
 pub struct Pages(pub u32);
 
@@ -46,11 +45,7 @@ impl Pages {
     /// returning `None` if overflow occurred.
     pub fn checked_add(self, rhs: Self) -> Option<Self> {
         let added = (self.0 as usize) + (rhs.0 as usize);
-        if added <= (WASM_MAX_PAGES as usize) {
-            Some(Self(added as u32))
-        } else {
-            None
-        }
+        if added <= (WASM_MAX_PAGES as usize) { Some(Self(added as u32)) } else { None }
     }
 
     /// Calculate number of bytes from pages.

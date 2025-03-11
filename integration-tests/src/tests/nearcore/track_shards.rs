@@ -5,16 +5,15 @@ use actix::System;
 
 use near_client::{GetBlock, GetChunk};
 use near_network::test_utils::wait_or_timeout;
-use near_o11y::testonly::init_integration_logger;
 use near_o11y::WithSpanContextExt;
+use near_o11y::testonly::init_integration_logger;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::ShardId;
 
 use crate::tests::nearcore::node_cluster::NodeCluster;
 
 #[test]
-#[cfg_attr(not(feature = "expensive_tests"), ignore)]
-fn track_shards() {
+fn ultra_slow_test_track_shards() {
     init_integration_logger();
 
     let cluster = NodeCluster::default()

@@ -114,17 +114,17 @@ mod tests {
     use std::sync::Arc;
 
     use near_primitives::block_header::{BlockHeader, BlockHeaderInnerLite, BlockHeaderV4};
-    use near_primitives::hash::{hash, CryptoHash};
+    use near_primitives::hash::{CryptoHash, hash};
     use near_primitives::stateless_validation::stored_chunk_state_transition_data::{
-        StoredChunkStateTransitionData, StoredChunkStateTransitionDataV2,
+        StoredChunkStateTransitionData, StoredChunkStateTransitionDataV1,
     };
     use near_primitives::types::{BlockHeight, EpochId, ShardId};
     use near_primitives::utils::{get_block_shard_id, get_block_shard_id_rev, index_to_bytes};
     use near_store::db::STATE_TRANSITION_START_HEIGHTS;
     use near_store::test_utils::create_test_store;
-    use near_store::{DBCol, Store};
+    use near_store::{DBCol, Store, set_genesis_height};
 
-    use super::{clear_before_last_final_block, StateTransitionStartHeights};
+    use super::{StateTransitionStartHeights, clear_before_last_final_block};
     use crate::ChainStore;
 
     #[test]
@@ -182,7 +182,10 @@ mod tests {
     }
 
     fn create_chain_store(store: &Store) -> ChainStore {
-        ChainStore::new(store.clone(), 0, true)
+        let mut store_update = store.store_update();
+        set_genesis_height(&mut store_update, &0);
+        store_update.commit().unwrap();
+        ChainStore::new(store.clone(), true, 5)
     }
 
     fn save_state_transition_data(
@@ -204,7 +207,7 @@ mod tests {
             .set_ser(
                 DBCol::StateTransitionData,
                 &get_block_shard_id(&block_hash, shard_id),
-                &StoredChunkStateTransitionData::V2(StoredChunkStateTransitionDataV2 {
+                &StoredChunkStateTransitionData::V1(StoredChunkStateTransitionDataV1 {
                     base_state: Default::default(),
                     receipts_hash: Default::default(),
                     contract_accesses: Default::default(),

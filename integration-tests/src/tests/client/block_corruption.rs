@@ -2,7 +2,6 @@ use anyhow::Context;
 use borsh::BorshDeserialize;
 use near_chain::{Block, Error, Provenance};
 use near_chain_configs::Genesis;
-use near_client::test_utils::TestEnv;
 use near_client::ProcessTxResponse;
 use near_crypto::{InMemorySigner, KeyType};
 use near_o11y::testonly::init_test_logger;
@@ -11,18 +10,20 @@ use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::ShardId;
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_primitives_core::types::BlockHeight;
-use nearcore::test_utils::TestEnvNightshadeSetupExt;
+
+use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
+use crate::env::test_env::TestEnv;
 
 const NOT_BREAKING_CHANGE_MSG: &str = "Not a breaking change";
 const BLOCK_NOT_PARSED_MSG: &str = "Corrupt block didn't parse";
 
 fn create_tx_load(height: BlockHeight, last_block: &Block) -> Vec<SignedTransaction> {
-    let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
+    let signer = InMemorySigner::test_signer(&"test0".parse().unwrap());
     let tx = SignedTransaction::send_money(
         height + 10000,
         "test0".parse().unwrap(),
         "test1".parse().unwrap(),
-        &signer.into(),
+        &signer,
         10,
         *last_block.hash(),
     );
@@ -83,10 +84,11 @@ fn change_shard_id_to_invalid() {
     // 2. Rehash and resign
     let body_hash = block.compute_block_body_hash().unwrap();
     block.mut_header().set_block_body_hash(body_hash);
-    block.mut_header().resign(
-        &InMemoryValidatorSigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0")
-            .into(),
-    );
+    block.mut_header().resign(&InMemoryValidatorSigner::from_seed(
+        "test0".parse().unwrap(),
+        KeyType::ED25519,
+        "test0",
+    ));
 
     // Try to process corrupt block and expect code to notice invalid shard_id
     let res = env.clients[0].process_block_test(block.into(), Provenance::NONE);
@@ -120,24 +122,30 @@ fn is_breaking_block_change(original: &Block, corrupt: &Block) -> bool {
 /// Returns `Ok(reason)` if corrupt block wasn't parsed or had changes that are not breaking by design.
 /// Returns `Err(reason)` if corrupt block was processed or correct block wasn't processed afterwards.
 fn check_corrupt_block(
-    mut env: TestEnv,
+    env: &mut TestEnv,
     corrupt_block_vec: Vec<u8>,
     correct_block: Block,
     corrupted_bit_idx: usize,
 ) -> Result<anyhow::Error, anyhow::Error> {
+    macro_rules! process_correct_block {
+        () => {
+            if let Err(e) = env.clients[0].process_block_test(correct_block.into(), Provenance::NONE) {
+                return Err(anyhow::anyhow!("Was unable to process default block after attempting to process default block with {} bit switched. {}", corrupted_bit_idx, e));
+            }
+        };
+    }
+
     if let Ok(mut corrupt_block) = Block::try_from_slice(corrupt_block_vec.as_slice()) {
         let body_hash = corrupt_block.compute_block_body_hash().unwrap();
         corrupt_block.mut_header().set_block_body_hash(body_hash);
-        corrupt_block.mut_header().resign(
-            &InMemoryValidatorSigner::from_seed(
-                "test0".parse().unwrap(),
-                KeyType::ED25519,
-                "test0",
-            )
-            .into(),
-        );
+        corrupt_block.mut_header().resign(&InMemoryValidatorSigner::from_seed(
+            "test0".parse().unwrap(),
+            KeyType::ED25519,
+            "test0",
+        ));
 
         if !is_breaking_block_change(&correct_block, &corrupt_block) {
+            process_correct_block!();
             return Ok(anyhow::anyhow!(NOT_BREAKING_CHANGE_MSG));
         }
 
@@ -147,17 +155,12 @@ fn check_corrupt_block(
                 corrupted_bit_idx
             )),
             Err(e) => {
-                if let Err(e) =
-                    env.clients[0].process_block_test(correct_block.into(), Provenance::NONE)
-                {
-                    return Err(anyhow::anyhow!("Was unable to process default block after attempting to process default block with {} bit switched. {}",
-                    corrupted_bit_idx, e)
-                    );
-                }
+                process_correct_block!();
                 Ok(e.into())
             }
         }
     } else {
+        process_correct_block!();
         return Ok(anyhow::anyhow!(BLOCK_NOT_PARSED_MSG));
     }
 }
@@ -165,6 +168,7 @@ fn check_corrupt_block(
 /// Each block contains one 'send' transaction.
 /// First three blocks are produced without changes.
 /// For the fourth block we are calculating two versions – correct and corrupt.
+/// Blocks are produced at heights on top of `last_block_height`.
 /// Corrupt block is produced by
 /// - serializing correct block
 /// - flipping one bit
@@ -177,17 +181,14 @@ fn check_corrupt_block(
 /// Returns `Ok(reason)` if corrupt block wasn't parsed or had changes that are not breaking by design.
 /// Returns `Err(reason)` if corrupt block was processed or correct block wasn't processed afterwards.
 fn check_process_flipped_block_fails_on_bit(
+    env: &mut TestEnv,
     corrupted_bit_idx: usize,
 ) -> Result<anyhow::Error, anyhow::Error> {
-    let epoch_length = 5000000;
-    let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
-    genesis.config.epoch_length = epoch_length;
-    let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
+    let mut last_block = env.clients[0].chain.get_head_block().unwrap();
+    let last_block_height = last_block.header().height();
 
-    let mut last_block = env.clients[0].chain.get_block_by_height(0).unwrap();
-
-    let mid_height = 3;
-    for h in 1..=mid_height {
+    let mid_height = last_block_height + 3;
+    for h in last_block_height + 1..=mid_height {
         let txs = create_tx_load(h, &last_block);
         for tx in txs {
             assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
@@ -240,8 +241,7 @@ fn check_process_flipped_block_fails_on_bit(
 /// `oks` are printed to check the sanity of the test.
 /// This vector should include various validation errors that correspond to data changed with a bit flip.
 #[test]
-#[cfg_attr(not(feature = "expensive_tests"), ignore)]
-fn check_process_flipped_block_fails() {
+fn ultra_slow_test_check_process_flipped_block_fails() {
     init_test_logger();
     let mut corrupted_bit_idx = 0;
     // List of reasons `check_process_flipped_block_fails_on_bit` returned `Err`.
@@ -250,8 +250,23 @@ fn check_process_flipped_block_fails() {
     // List of reasons `check_process_flipped_block_fails_on_bit` returned `Ok`.
     // Should contain various validation errors.
     let mut oks = vec![];
+
+    let create_env = || {
+        let mut genesis =
+            Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
+        genesis.config.epoch_length = 5000000;
+        TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build()
+    };
+
+    let mut env = create_env();
+
     loop {
-        let res = check_process_flipped_block_fails_on_bit(corrupted_bit_idx);
+        // Reset env once in a while to avoid excessive memory usage.
+        if corrupted_bit_idx % 1_000 == 0 {
+            env = create_env();
+        }
+
+        let res = check_process_flipped_block_fails_on_bit(&mut env, corrupted_bit_idx);
         if let Ok(res) = &res {
             if res.to_string() == "End" {
                 // `corrupted_bit_idx` is out of bounds for correct block length. Should stop iteration.

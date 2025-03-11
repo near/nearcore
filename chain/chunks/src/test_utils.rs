@@ -1,9 +1,9 @@
 use near_async::messaging::CanSend;
 use near_chain::types::{EpochManagerAdapter, Tip};
 use near_chain::{Chain, ChainStore};
+use near_epoch_manager::EpochManagerHandle;
 use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
 use near_epoch_manager::test_utils::setup_epoch_manager_with_block_and_chunk_producers;
-use near_epoch_manager::EpochManagerHandle;
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_network::test_utils::MockPeerManagerAdapter;
 use near_primitives::bandwidth_scheduler::BandwidthRequests;
@@ -15,12 +15,14 @@ use near_primitives::sharding::{
     EncodedShardChunk, PartialEncodedChunk, PartialEncodedChunkPart, PartialEncodedChunkV2,
     ShardChunkHeader,
 };
+use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::MerkleHash;
-use near_primitives::types::{AccountId, EpochId, ShardId};
-use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
-use near_store::adapter::chunk_store::ChunkStoreAdapter;
+use near_primitives::types::{AccountId, EpochId};
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_store::adapter::StoreAdapter;
+use near_store::adapter::chunk_store::ChunkStoreAdapter;
+use near_store::set_genesis_height;
 use near_store::test_utils::create_test_store;
 use reed_solomon_erasure::galois_8::ReedSolomon;
 use std::collections::VecDeque;
@@ -68,6 +70,10 @@ impl ChunkTestFixture {
             panic!("Invalid setup: there must be at least as many block producers as shards");
         }
         let store = create_test_store();
+        let mut store_update = store.store_update();
+        set_genesis_height(&mut store_update, &0);
+        store_update.commit().unwrap();
+
         let epoch_manager = setup_epoch_manager_with_block_and_chunk_producers(
             store.clone(),
             (0..num_block_producers).map(|i| format!("test_bp_{}", i).parse().unwrap()).collect(),
@@ -78,6 +84,7 @@ impl ChunkTestFixture {
             2,
         );
         let epoch_manager = epoch_manager.into_handle();
+        let shard_layout = epoch_manager.get_shard_layout(&EpochId::default()).unwrap();
         let shard_tracker = ShardTracker::new(
             if track_all_shards { TrackedConfig::AllShards } else { TrackedConfig::new_empty() },
             Arc::new(epoch_manager.clone()),
@@ -93,17 +100,23 @@ impl ChunkTestFixture {
         let (mock_parent_hash, mock_height) =
             if orphan_chunk { (CryptoHash::hash_bytes(&[]), 2) } else { (mock_ancestor_hash, 1) };
         // setting this to 2 instead of 0 so that when chunk producers
-        let mock_shard_id: ShardId = ShardId::new(0);
+        let mock_shard_id = shard_layout.shard_ids().next().unwrap();
         let mock_epoch_id =
             epoch_manager.get_epoch_id_from_prev_block(&mock_ancestor_hash).unwrap();
-        let mock_chunk_producer =
-            epoch_manager.get_chunk_producer(&mock_epoch_id, mock_height, mock_shard_id).unwrap();
+        let mock_chunk_producer = epoch_manager
+            .get_chunk_producer_info(&ChunkProductionKey {
+                epoch_id: mock_epoch_id,
+                height_created: mock_height,
+                shard_id: mock_shard_id,
+            })
+            .unwrap()
+            .take_account_id();
         let signer = create_test_signer(mock_chunk_producer.as_str());
         let validators: Vec<_> = epoch_manager
-            .get_epoch_block_producers_ordered(&EpochId::default(), &CryptoHash::default())
+            .get_epoch_block_producers_ordered(&EpochId::default())
             .unwrap()
             .into_iter()
-            .map(|v| v.0.account_id().clone())
+            .map(|v| v.account_id().clone())
             .collect();
         let mock_shard_tracker = validators
             .iter()
@@ -111,7 +124,7 @@ impl ChunkTestFixture {
                 if v == &&mock_chunk_producer {
                     false
                 } else {
-                    let tracks_shard = shard_tracker.care_about_shard(
+                    let tracks_shard = shard_tracker.cares_about_shard(
                         Some(*v),
                         &mock_ancestor_hash,
                         mock_shard_id,
@@ -175,7 +188,7 @@ impl ChunkTestFixture {
             Vec::new(),
             &mock_merkle_paths,
         );
-        let chain_store = ChainStore::new(store.clone(), 0, true);
+        let chain_store = ChainStore::new(store.clone(), true, 5);
 
         ChunkTestFixture {
             store: store.chunk_store(),

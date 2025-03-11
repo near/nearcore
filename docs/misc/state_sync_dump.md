@@ -7,6 +7,7 @@ reworked.
 
 A new version is available for experimental use. This version gets state parts
 from external storage. The following kinds of external storage are supported:
+
 * Local filesystem
 * Google Cloud Storage
 * Amazon S3
@@ -24,6 +25,7 @@ State Sync from External Storage.
 In case you would like to manage your own dumps of State, keep reading.
 
 ### Google Cloud Storage
+
 To enable Google Cloud Storage as your external storage, add this to your
 `config.json` file:
 
@@ -41,11 +43,13 @@ To enable Google Cloud Storage as your external storage, add this to your
 
 And run your node with an environment variable `SERVICE_ACCOUNT` or
 `GOOGLE_APPLICATION_CREDENTIALS` pointing to the credentials json file
+
 ```shell
 SERVICE_ACCOUNT=/path/to/file ./neard run
 ```
 
 ### Amazon S3
+
 To enable Amazon S3 as your external storage, add this to your `config.json`
 file:
 
@@ -64,6 +68,7 @@ file:
 
 And run your node with environment variables `AWS_ACCESS_KEY_ID` and
 `AWS_SECRET_ACCESS_KEY`:
+
 ```shell
 AWS_ACCESS_KEY_ID="MY_ACCESS_KEY" AWS_SECRET_ACCESS_KEY="MY_AWS_SECRET_ACCESS_KEY" ./neard run
 ```
@@ -87,6 +92,7 @@ filesystem:
 
 In this case you don't need any extra environment variables. Simply run your
 node:
+
 ```shell
 ./neard run
 ```

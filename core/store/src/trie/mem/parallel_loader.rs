@@ -1,10 +1,10 @@
+use super::arena::ArenaMut;
 use super::arena::concurrent::{ConcurrentArena, ConcurrentArenaForThread};
 use super::arena::single_thread::STArena;
-use super::arena::ArenaMut;
 use super::construction::TrieConstructor;
 use super::node::{InputMemTrieNode, MemTrieNodeId};
-use crate::adapter::trie_store::TrieStoreAdapter;
 use crate::adapter::StoreAdapter;
+use crate::adapter::trie_store::TrieStoreAdapter;
 use crate::flat::FlatStorageError;
 use crate::trie::Children;
 use crate::{DBCol, NibbleSlice, RawTrieNode, RawTrieNodeWithSize};
@@ -191,7 +191,6 @@ impl ParallelMemTrieLoader {
         arena: &mut impl ArenaMut,
     ) -> Result<MemTrieNodeId, StorageError> {
         // Figure out which range corresponds to the prefix of this subtree.
-        // TODO(reshardingV3) This seems fragile, potentially does not work with mapping.
         let (start, end) = subtree_to_load.to_iter_range(self.shard_uid);
 
         // Load all the keys in this range from the FlatState column.
@@ -392,8 +391,8 @@ fn calculate_end_key(start_key: &Vec<u8>, last_byte_increment: u8) -> Option<Vec
 #[cfg(test)]
 mod tests {
     use super::NibblePrefix;
-    use crate::trie::mem::parallel_loader::calculate_end_key;
     use crate::NibbleSlice;
+    use crate::trie::mem::parallel_loader::calculate_end_key;
     use near_primitives::shard_layout::ShardUId;
 
     #[test]

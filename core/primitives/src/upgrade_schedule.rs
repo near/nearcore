@@ -6,7 +6,9 @@ const NEAR_TESTS_PROTOCOL_UPGRADE_OVERRIDE: &str = "NEAR_TESTS_PROTOCOL_UPGRADE_
 
 #[derive(thiserror::Error, Clone, Debug)]
 pub enum ProtocolUpgradeVotingScheduleError {
-    #[error("The final upgrade must be the client protocol version! final version: {0}, client version: {1}")]
+    #[error(
+        "The final upgrade must be the client protocol version! final version: {0}, client version: {1}"
+    )]
     InvalidFinalUpgrade(ProtocolVersion, ProtocolVersion),
     #[error("The upgrades must be sorted by datetime!")]
     InvalidDateTimeOrder,
@@ -99,9 +101,10 @@ impl ProtocolUpgradeVotingSchedule {
         Ok(Self { client_protocol_version, schedule })
     }
 
-    /// This method returns the protocol version that the node should vote for.
+    /// This method returns the protocol version that the node should vote for
+    /// at the given date and time.
     #[cfg(feature = "clock")]
-    pub(crate) fn get_protocol_version(
+    pub(crate) fn protocol_version_to_vote_for_at_date(
         &self,
         now: DateTime<Utc>,
         // Protocol version that will be used in the next epoch.
@@ -132,6 +135,24 @@ impl ProtocolUpgradeVotingSchedule {
         }
 
         result
+    }
+
+    /// This method returns the protocol version that the node should vote for
+    /// at the given time (taken from Clock::now_utc)
+    #[cfg(feature = "clock")]
+    pub fn protocol_version_to_vote_for(
+        &self,
+        current_time: near_time::Utc,
+        next_epoch_protocol_version: ProtocolVersion,
+    ) -> ProtocolVersion {
+        let date_time = chrono::DateTime::from_timestamp(
+            current_time.unix_timestamp(),
+            current_time.nanosecond(),
+        );
+        self.protocol_version_to_vote_for_at_date(
+            date_time.unwrap_or_default(),
+            next_epoch_protocol_version,
+        )
     }
 
     /// Returns the schedule. Should only be used for exporting metrics.
@@ -239,15 +260,15 @@ mod tests {
 
         assert_eq!(
             client_protocol_version,
-            schedule.get_protocol_version(now, client_protocol_version - 2)
+            schedule.protocol_version_to_vote_for_at_date(now, client_protocol_version - 2)
         );
         assert_eq!(
             client_protocol_version,
-            schedule.get_protocol_version(now, client_protocol_version)
+            schedule.protocol_version_to_vote_for_at_date(now, client_protocol_version)
         );
         assert_eq!(
             client_protocol_version,
-            schedule.get_protocol_version(now, client_protocol_version + 2)
+            schedule.protocol_version_to_vote_for_at_date(now, client_protocol_version + 2)
         );
     }
 
@@ -263,21 +284,21 @@ mod tests {
         let next_epoch_protocol_version = client_protocol_version - 2;
         assert_eq!(
             next_epoch_protocol_version,
-            schedule.get_protocol_version(now, next_epoch_protocol_version)
+            schedule.protocol_version_to_vote_for_at_date(now, next_epoch_protocol_version)
         );
 
         // An upgrade happened before the scheduled time.
         let next_epoch_protocol_version = client_protocol_version;
         assert_eq!(
             next_epoch_protocol_version,
-            schedule.get_protocol_version(now, next_epoch_protocol_version)
+            schedule.protocol_version_to_vote_for_at_date(now, next_epoch_protocol_version)
         );
 
         // Several upgrades happened before the scheduled time. Announce only the currently supported protocol version.
         let next_epoch_protocol_version = client_protocol_version + 2;
         assert_eq!(
             client_protocol_version,
-            schedule.get_protocol_version(now, next_epoch_protocol_version)
+            schedule.protocol_version_to_vote_for_at_date(now, next_epoch_protocol_version)
         );
     }
 
@@ -291,15 +312,15 @@ mod tests {
         // Regardless of the protocol version of the next epoch, return the version supported by the client.
         assert_eq!(
             client_protocol_version,
-            schedule.get_protocol_version(now, client_protocol_version - 2)
+            schedule.protocol_version_to_vote_for_at_date(now, client_protocol_version - 2)
         );
         assert_eq!(
             client_protocol_version,
-            schedule.get_protocol_version(now, client_protocol_version)
+            schedule.protocol_version_to_vote_for_at_date(now, client_protocol_version)
         );
         assert_eq!(
             client_protocol_version,
-            schedule.get_protocol_version(now, client_protocol_version + 2)
+            schedule.protocol_version_to_vote_for_at_date(now, client_protocol_version + 2)
         );
     }
 
@@ -318,31 +339,31 @@ mod tests {
         let now = ProtocolUpgradeVotingSchedule::parse_datetime("2000-01-05 00:00:00").unwrap();
         assert_eq!(
             current_protocol_version,
-            schedule.get_protocol_version(now, current_protocol_version)
+            schedule.protocol_version_to_vote_for_at_date(now, current_protocol_version)
         );
 
         // Test the first upgrade.
         let now = ProtocolUpgradeVotingSchedule::parse_datetime("2000-01-10 00:00:00").unwrap();
         assert_eq!(
             current_protocol_version + 1,
-            schedule.get_protocol_version(now, current_protocol_version)
+            schedule.protocol_version_to_vote_for_at_date(now, current_protocol_version)
         );
         let now = ProtocolUpgradeVotingSchedule::parse_datetime("2000-01-12 00:00:00").unwrap();
         assert_eq!(
             current_protocol_version + 1,
-            schedule.get_protocol_version(now, current_protocol_version)
+            schedule.protocol_version_to_vote_for_at_date(now, current_protocol_version)
         );
 
         // Test the final upgrade.
         let now = ProtocolUpgradeVotingSchedule::parse_datetime("2000-01-15 00:00:00").unwrap();
         assert_eq!(
             current_protocol_version + 2,
-            schedule.get_protocol_version(now, current_protocol_version + 1)
+            schedule.protocol_version_to_vote_for_at_date(now, current_protocol_version + 1)
         );
         let now = ProtocolUpgradeVotingSchedule::parse_datetime("2000-01-20 00:00:00").unwrap();
         assert_eq!(
             current_protocol_version + 2,
-            schedule.get_protocol_version(now, current_protocol_version + 1)
+            schedule.protocol_version_to_vote_for_at_date(now, current_protocol_version + 1)
         );
     }
 
@@ -362,7 +383,7 @@ mod tests {
         let now = ProtocolUpgradeVotingSchedule::parse_datetime("2000-01-05 00:00:00").unwrap();
         assert_eq!(
             current_protocol_version,
-            schedule.get_protocol_version(now, current_protocol_version)
+            schedule.protocol_version_to_vote_for_at_date(now, current_protocol_version)
         );
 
         // Upgrades are scheduled very close to each other, but they should be voted on at a time.
@@ -370,21 +391,21 @@ mod tests {
         let now = ProtocolUpgradeVotingSchedule::parse_datetime("2000-01-10 10:00:00").unwrap();
         assert_eq!(
             current_protocol_version + 1,
-            schedule.get_protocol_version(now, current_protocol_version)
+            schedule.protocol_version_to_vote_for_at_date(now, current_protocol_version)
         );
 
         // Test the second upgrade.
         let now = ProtocolUpgradeVotingSchedule::parse_datetime("2000-01-10 10:00:00").unwrap();
         assert_eq!(
             current_protocol_version + 2,
-            schedule.get_protocol_version(now, current_protocol_version + 1)
+            schedule.protocol_version_to_vote_for_at_date(now, current_protocol_version + 1)
         );
 
         // Test the final upgrade.
         let now = ProtocolUpgradeVotingSchedule::parse_datetime("2000-01-10 10:00:00").unwrap();
         assert_eq!(
             current_protocol_version + 3,
-            schedule.get_protocol_version(now, current_protocol_version + 2)
+            schedule.protocol_version_to_vote_for_at_date(now, current_protocol_version + 2)
         );
     }
 
@@ -483,17 +504,24 @@ mod tests {
     #[test]
     fn test_env_override() {
         let client_protocol_version = 100;
-
-        std::env::set_var(NEAR_TESTS_PROTOCOL_UPGRADE_OVERRIDE, "now");
+        unsafe {
+            // SAFE: our tests run with nextest with a process-per-test scheme, so in a
+            // single-threaded manner.
+            std::env::set_var(NEAR_TESTS_PROTOCOL_UPGRADE_OVERRIDE, "now");
+        }
         let schedule = make_simple_voting_schedule(client_protocol_version, "2999-02-03 23:59:59");
 
         assert_eq!(schedule, ProtocolUpgradeVotingSchedule::new_immediate(client_protocol_version));
 
         let datetime_override = "2000-01-01 23:59:59";
-        std::env::set_var(
-            NEAR_TESTS_PROTOCOL_UPGRADE_OVERRIDE,
-            format!("{}={}", datetime_override, client_protocol_version),
-        );
+        unsafe {
+            // SAFE: our tests run with nextest with a process-per-test scheme, so in a
+            // single-threaded manner.
+            std::env::set_var(
+                NEAR_TESTS_PROTOCOL_UPGRADE_OVERRIDE,
+                format!("{}={}", datetime_override, client_protocol_version),
+            );
+        }
         let schedule = make_simple_voting_schedule(client_protocol_version, "2999-02-03 23:59:59");
 
         assert_eq!(

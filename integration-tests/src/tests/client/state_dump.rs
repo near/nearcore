@@ -1,14 +1,14 @@
 use assert_matches::assert_matches;
 
+use near_async::futures::ActixArbiterHandleFutureSpawner;
 use near_async::time::{Clock, Duration};
 use near_chain::near_chain_primitives::error::QueryError;
 use near_chain::{ChainGenesis, ChainStoreAccess, Provenance};
 use near_chain_configs::ExternalStorageLocation::Filesystem;
 use near_chain_configs::{DumpConfig, Genesis, MutableConfigValue, NEAR_BASE};
-use near_client::sync::external::{external_storage_location, StateFileType};
-use near_client::test_utils::TestEnv;
 use near_client::ProcessTxResponse;
-use near_crypto::{InMemorySigner, KeyType, Signer};
+use near_client::sync::external::{StateFileType, external_storage_location};
+use near_crypto::InMemorySigner;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::block::Tip;
 use near_primitives::shard_layout::ShardUId;
@@ -18,16 +18,18 @@ use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{BlockHeight, ShardId};
 use near_primitives::validator_signer::{EmptyValidatorSigner, InMemoryValidatorSigner};
 use near_primitives::views::{QueryRequest, QueryResponseKind};
-use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::Store;
+use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use nearcore::state_sync::StateSyncDumper;
-use nearcore::test_utils::TestEnvNightshadeSetupExt;
 use std::sync::Arc;
+
+use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
+use crate::env::test_env::TestEnv;
 
 #[test]
 /// Produce several blocks, wait for the state dump thread to notice and
 /// write files to a temp dir.
-fn test_state_dump() {
+fn slow_test_state_dump() {
     init_test_logger();
 
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
@@ -57,6 +59,8 @@ fn test_state_dump() {
         Some(Arc::new(EmptyValidatorSigner::new("test0".parse().unwrap()))),
         "validator_signer",
     );
+
+    let arbiter = actix::Arbiter::new();
     let mut state_sync_dumper = StateSyncDumper {
         clock: Clock::real(),
         client_config: config,
@@ -65,7 +69,7 @@ fn test_state_dump() {
         shard_tracker,
         runtime,
         validator,
-        dump_future_runner: StateSyncDumper::arbiter_dump_future_runner(),
+        future_spawner: Arc::new(ActixArbiterHandleFutureSpawner(arbiter.handle())),
         handle: None,
     };
     state_sync_dumper.start().unwrap();
@@ -127,9 +131,13 @@ fn run_state_sync_with_dumped_parts(
 ) {
     init_test_logger();
     if is_final_block_in_new_epoch {
-        tracing::info!("Testing for case when both head and final block of the dumping node are in new epoch...");
+        tracing::info!(
+            "Testing for case when both head and final block of the dumping node are in new epoch..."
+        );
     } else {
-        tracing::info!("Testing for case when head is in new epoch, but final block isn't for the dumping node...");
+        tracing::info!(
+            "Testing for case when head is in new epoch, but final block isn't for the dumping node..."
+        );
     }
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
@@ -141,9 +149,9 @@ fn run_state_sync_with_dumped_parts(
         .nightshade_runtimes(&genesis)
         .build();
 
-    let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
+    let signer = InMemorySigner::test_signer(&"test0".parse().unwrap());
     let validator = MutableConfigValue::new(
-        Some(Arc::new(InMemoryValidatorSigner::from_signer(signer.clone()).into())),
+        Some(Arc::new(InMemoryValidatorSigner::from_signer(signer.clone()))),
         "validator_signer",
     );
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
@@ -162,6 +170,7 @@ fn run_state_sync_with_dumped_parts(
         iteration_delay: Some(Duration::ZERO),
         credentials_file: None,
     });
+    let arbiter = actix::Arbiter::new();
     let mut state_sync_dumper = StateSyncDumper {
         clock: Clock::real(),
         client_config: config.clone(),
@@ -170,7 +179,7 @@ fn run_state_sync_with_dumped_parts(
         shard_tracker,
         runtime,
         validator,
-        dump_future_runner: StateSyncDumper::arbiter_dump_future_runner(),
+        future_spawner: Arc::new(ActixArbiterHandleFutureSpawner(arbiter.handle())),
         handle: None,
     };
     state_sync_dumper.start().unwrap();
@@ -183,7 +192,6 @@ fn run_state_sync_with_dumped_parts(
         account_creation_at_epoch_height * epoch_length + 1
     };
 
-    let signer: Signer = signer.into();
     for i in 1..=dump_node_head_height {
         if i == account_creation_at_height {
             let tx = SignedTransaction::create_account(
@@ -244,17 +252,13 @@ fn run_state_sync_with_dumped_parts(
     let epoch_info = epoch_manager.get_epoch_info(&epoch_id).unwrap();
     let epoch_height = epoch_info.epoch_height();
 
-    let sync_block_height = (epoch_length * epoch_height + 1) as usize;
-    let sync_hash = *blocks[sync_block_height - 1].hash();
-
-    // the block at sync_block_height should be the start of an epoch
-    assert_ne!(
-        blocks[sync_block_height - 1].header().epoch_id(),
-        blocks[sync_block_height - 2].header().epoch_id()
-    );
+    let sync_hash = env.clients[0].chain.get_sync_hash(final_block_hash).unwrap().unwrap();
     assert!(env.clients[0].chain.check_sync_hash_validity(&sync_hash).unwrap());
-    let state_sync_header =
-        env.clients[0].chain.get_state_response_header(shard_id, sync_hash).unwrap();
+    let state_sync_header = env.clients[0]
+        .chain
+        .state_sync_adapter
+        .get_state_response_header(shard_id, sync_hash)
+        .unwrap();
     let state_root = state_sync_header.chunk_prev_state_root();
     let num_parts = state_sync_header.num_state_parts();
 
@@ -292,16 +296,22 @@ fn run_state_sync_with_dumped_parts(
 
     // Simulate state sync by reading the dumped parts from the external storage and applying them to the other node
     tracing::info!("syncing node: simulating state sync..");
-    env.clients[1].chain.set_state_header(shard_id, sync_hash, state_sync_header).unwrap();
+    env.clients[1]
+        .chain
+        .state_sync_adapter
+        .set_state_header(shard_id, sync_hash, state_sync_header)
+        .unwrap();
     let runtime_client_1 = Arc::clone(&env.clients[1].runtime_adapter);
     let mut store_update = runtime_client_1.store().store_update();
-    assert!(runtime_client_1
-        .get_flat_storage_manager()
-        .remove_flat_storage_for_shard(
-            ShardUId::single_shard(),
-            &mut store_update.flat_store_update()
-        )
-        .unwrap());
+    assert!(
+        runtime_client_1
+            .get_flat_storage_manager()
+            .remove_flat_storage_for_shard(
+                ShardUId::single_shard(),
+                &mut store_update.flat_store_update()
+            )
+            .unwrap()
+    );
     store_update.commit().unwrap();
     let shard_id = ShardId::new(0);
     for part_id in 0..num_parts {
@@ -347,8 +357,8 @@ fn run_state_sync_with_dumped_parts(
         {
             let store0 = env.clients[0].chain.chain_store().store();
             let store1 = env.clients[1].chain.chain_store().store();
-            let (num_inlined_before, num_ref_before) = count_flat_state_value_kinds(store0);
-            let (num_inlined_after, num_ref_after) = count_flat_state_value_kinds(store1);
+            let (num_inlined_before, num_ref_before) = count_flat_state_value_kinds(&store0);
+            let (num_inlined_after, num_ref_after) = count_flat_state_value_kinds(&store1);
             // Nothing new created, number of flat state values should be identical.
             assert_eq!(num_inlined_before, num_inlined_after);
             assert_eq!(num_ref_before, num_ref_after);
@@ -366,8 +376,8 @@ fn run_state_sync_with_dumped_parts(
         {
             let store0 = env.clients[0].chain.chain_store().store();
             let store1 = env.clients[1].chain.chain_store().store();
-            let (num_inlined_before, _num_ref_before) = count_flat_state_value_kinds(store0);
-            let (num_inlined_after, _num_ref_after) = count_flat_state_value_kinds(store1);
+            let (num_inlined_before, _num_ref_before) = count_flat_state_value_kinds(&store0);
+            let (num_inlined_after, _num_ref_after) = count_flat_state_value_kinds(&store1);
             // Created a new entry, but inlined values should stay inlinedNothing new created, number of flat state values should be identical.
             assert!(num_inlined_before >= num_inlined_after);
             assert!(num_inlined_after > 0);
@@ -375,44 +385,44 @@ fn run_state_sync_with_dumped_parts(
     }
 }
 
-/// This test verifies that after state sync, the syncing node has the data that corresponds to the state of the epoch previous to the dumping node's final block.
+/// This test verifies that after state sync, the syncing node has the data that corresponds to the state of the epoch previous (or current) to the dumping node's final block.
 /// Specifically, it tests that the above holds true in both conditions:
 /// - the dumping node's head is in new epoch but final block is not;
 /// - the dumping node's head and final block are in same epoch
 #[test]
-fn test_state_sync_with_dumped_parts_2_non_final() {
+fn slow_test_state_sync_with_dumped_parts_2_non_final() {
     init_test_logger();
-    run_state_sync_with_dumped_parts(false, 2, 5);
+    run_state_sync_with_dumped_parts(false, 2, 8);
 }
 
 #[test]
-fn test_state_sync_with_dumped_parts_2_final() {
+fn slow_test_state_sync_with_dumped_parts_2_final() {
     init_test_logger();
-    run_state_sync_with_dumped_parts(true, 2, 5);
+    run_state_sync_with_dumped_parts(true, 2, 8);
 }
 
 #[test]
-fn test_state_sync_with_dumped_parts_3_non_final() {
+fn slow_test_state_sync_with_dumped_parts_3_non_final() {
     init_test_logger();
-    run_state_sync_with_dumped_parts(false, 3, 5);
+    run_state_sync_with_dumped_parts(false, 3, 8);
 }
 
 #[test]
-fn test_state_sync_with_dumped_parts_3_final() {
+fn slow_test_state_sync_with_dumped_parts_3_final() {
     init_test_logger();
-    run_state_sync_with_dumped_parts(true, 3, 5);
+    run_state_sync_with_dumped_parts(true, 3, 8);
 }
 
 #[test]
-fn test_state_sync_with_dumped_parts_4_non_final() {
+fn slow_test_state_sync_with_dumped_parts_4_non_final() {
     init_test_logger();
-    run_state_sync_with_dumped_parts(false, 4, 5);
+    run_state_sync_with_dumped_parts(false, 4, 8);
 }
 
 #[test]
-fn test_state_sync_with_dumped_parts_4_final() {
+fn slow_test_state_sync_with_dumped_parts_4_final() {
     init_test_logger();
-    run_state_sync_with_dumped_parts(true, 4, 5);
+    run_state_sync_with_dumped_parts(true, 4, 8);
 }
 
 fn count_flat_state_value_kinds(store: &Store) -> (u64, u64) {

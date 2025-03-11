@@ -5,7 +5,7 @@ use near_o11y::WithSpanContextExt;
 use validated_operations::ValidatedOperation;
 
 pub(crate) mod nep141;
-mod transactions;
+pub(crate) mod transactions;
 mod validated_operations;
 
 /// NEAR Protocol defines initial state in genesis records and treats the first
@@ -140,7 +140,7 @@ pub(crate) async fn convert_block_to_transactions(
         })
         .filter(move |account_id| {
             // TODO(mina86): Convert this to seen.get_or_insert_with(account_id,
-            // Clone::clone) once hash_set_entry stabilises.
+            // Clone::clone) once hash_set_entry stabilizes.
             seen.insert(account_id.clone())
         })
         .collect::<Vec<_>>();
@@ -352,23 +352,6 @@ impl From<NearActions> for Vec<crate::models::Operation> {
                     );
                 }
 
-                #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-                // Non-refundable transfer deposit is burnt for permanent storage bytes on the receiving account.
-                near_primitives::transaction::Action::NonrefundableStorageTransfer(action) => {
-                    let transfer_amount = crate::models::Amount::from_yoctonear(action.deposit);
-
-                    let sender_transfer_operation_id =
-                        crate::models::OperationIdentifier::new(&operations);
-                    operations.push(
-                        validated_operations::TransferOperation {
-                            account: sender_account_identifier.clone(),
-                            amount: -transfer_amount.clone(),
-                            predecessor_id: Some(sender_account_identifier.clone()),
-                        }
-                        .into_operation(sender_transfer_operation_id.clone()),
-                    );
-                }
-
                 near_primitives::transaction::Action::Stake(action) => {
                     operations.push(
                         validated_operations::StakeOperation {
@@ -500,6 +483,10 @@ impl From<NearActions> for Vec<crate::models::Operation> {
 
                     operations.extend(delegated_operations);
                 } // TODO(#8469): Implement delegate action support, for now they are ignored.
+                near_primitives::transaction::Action::DeployGlobalContract(_)
+                | near_primitives::transaction::Action::UseGlobalContract(_) => {
+                    // TODO(#12639): Implement global contracts support, ignored for now.
+                }
             }
         }
         operations
@@ -743,9 +730,9 @@ impl TryFrom<Vec<crate::models::Operation>> for NearActions {
                     // the "sender" of this group of operations is considered to be the delegating account, not the proxy
                     sender_account_id.try_set(&signed_delegate_action_operation.receiver_id)?;
 
-                    let intitiate_signed_delegate_action_operation = validated_operations::intitiate_signed_delegate_action::InitiateSignedDelegateActionOperation::try_from_option(operations.next())?;
+                    let initiate_signed_delegate_action_operation = validated_operations::initiate_signed_delegate_action::InitiateSignedDelegateActionOperation::try_from_option(operations.next())?;
                     delegate_proxy_account_id
-                        .try_set(&intitiate_signed_delegate_action_operation.sender_account)?;
+                        .try_set(&initiate_signed_delegate_action_operation.sender_account)?;
 
                     let delegate_action: near_primitives::transaction::Action =
                         near_primitives::action::delegate::SignedDelegateAction {
@@ -761,10 +748,12 @@ impl TryFrom<Vec<crate::models::Operation>> for NearActions {
                                         non_delegate_actions.push(match action.try_into() {
                                             Ok(a) => a,
                                             Err(_) => {
-                                                return Err(crate::errors::ErrorKind::InvalidInput(
-                                                    "Nested delegate actions not allowed"
-                                                        .to_string(),
-                                                ))
+                                                return Err(
+                                                    crate::errors::ErrorKind::InvalidInput(
+                                                        "Nested delegate actions not allowed"
+                                                            .to_string(),
+                                                    ),
+                                                );
                                             }
                                         });
                                     }
@@ -778,7 +767,7 @@ impl TryFrom<Vec<crate::models::Operation>> for NearActions {
                                     Err(_) => {
                                         return Err(crate::errors::ErrorKind::InvalidInput(
                                             "Invalid public key on delegate action".to_string(),
-                                        ))
+                                        ));
                                     }
                                 },
                             },
@@ -801,7 +790,7 @@ impl TryFrom<Vec<crate::models::Operation>> for NearActions {
                     return Err(crate::errors::ErrorKind::InvalidInput(format!(
                         "Unexpected operation `{:?}`",
                         tail_operation.type_
-                    )))
+                    )));
                 }
             }
         }
@@ -846,209 +835,71 @@ impl TryFrom<Vec<crate::models::Operation>> for NearActions {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use actix::System;
-    use near_actix_test_utils::run_actix;
-    use near_client::test_utils::setup_no_network;
     use near_crypto::{KeyType, SecretKey};
-    use near_parameters::{RuntimeConfig, RuntimeConfigView};
     use near_primitives::action::delegate::{DelegateAction, SignedDelegateAction};
     use near_primitives::transaction::{Action, TransferAction};
-    use near_time::Clock;
-
-    #[test]
-    fn test_convert_block_changes_to_transactions() {
-        run_actix(async {
-            let runtime_config: RuntimeConfigView = RuntimeConfig::test().into();
-            let actor_handles = setup_no_network(
-                Clock::real(),
-                vec!["test".parse().unwrap()],
-                "other".parse().unwrap(),
-                true,
-                false,
-            );
-            let block_hash = near_primitives::hash::CryptoHash::default();
-            let nfvalidator1_receipt_processing_hash = near_primitives::hash::CryptoHash([1u8; 32]);
-            let nfvalidator2_action_receipt_gas_reward_hash =
-                near_primitives::hash::CryptoHash([2u8; 32]);
-            let accounts_changes = vec![
-                near_primitives::views::StateChangeWithCauseView {
-                    cause: near_primitives::views::StateChangeCauseView::ValidatorAccountsUpdate,
-                    value: near_primitives::views::StateChangeValueView::AccountUpdate {
-                        account_id: "nfvalidator1.near".parse().unwrap(),
-                        account: near_primitives::views::AccountView {
-                            amount: 5000000000000000000,
-                            code_hash: near_primitives::hash::CryptoHash::default(),
-                            locked: 400000000000000000000000000000,
-                            #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-                            permanent_storage_bytes: 0,
-                            storage_paid_at: 0,
-                            storage_usage: 200000,
-                        },
-                    },
-                },
-                near_primitives::views::StateChangeWithCauseView {
-                    cause: near_primitives::views::StateChangeCauseView::ReceiptProcessing {
-                        receipt_hash: nfvalidator1_receipt_processing_hash,
-                    },
-                    value: near_primitives::views::StateChangeValueView::AccountUpdate {
-                        account_id: "nfvalidator1.near".parse().unwrap(),
-                        account: near_primitives::views::AccountView {
-                            amount: 4000000000000000000,
-                            code_hash: near_primitives::hash::CryptoHash::default(),
-                            locked: 400000000000000000000000000000,
-                            #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-                            permanent_storage_bytes: 0,
-                            storage_paid_at: 0,
-                            storage_usage: 200000,
-                        },
-                    },
-                },
-                near_primitives::views::StateChangeWithCauseView {
-                    cause: near_primitives::views::StateChangeCauseView::ValidatorAccountsUpdate,
-                    value: near_primitives::views::StateChangeValueView::AccountUpdate {
-                        account_id: "nfvalidator2.near".parse().unwrap(),
-                        account: near_primitives::views::AccountView {
-                            amount: 7000000000000000000,
-                            code_hash: near_primitives::hash::CryptoHash::default(),
-                            locked: 400000000000000000000000000000,
-                            #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-                            permanent_storage_bytes: 0,
-                            storage_paid_at: 0,
-                            storage_usage: 200000,
-                        },
-                    },
-                },
-                near_primitives::views::StateChangeWithCauseView {
-                    cause: near_primitives::views::StateChangeCauseView::ActionReceiptGasReward {
-                        receipt_hash: nfvalidator2_action_receipt_gas_reward_hash,
-                    },
-                    value: near_primitives::views::StateChangeValueView::AccountUpdate {
-                        account_id: "nfvalidator2.near".parse().unwrap(),
-                        account: near_primitives::views::AccountView {
-                            amount: 8000000000000000000,
-                            code_hash: near_primitives::hash::CryptoHash::default(),
-                            locked: 400000000000000000000000000000,
-                            #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-                            permanent_storage_bytes: 0,
-                            storage_paid_at: 0,
-                            storage_usage: 200000,
-                        },
-                    },
-                },
-            ];
-            let mut accounts_previous_state = std::collections::HashMap::new();
-            accounts_previous_state.insert(
-                "nfvalidator1.near".parse().unwrap(),
-                near_primitives::views::AccountView {
-                    amount: 4000000000000000000,
-                    code_hash: near_primitives::hash::CryptoHash::default(),
-                    locked: 400000000000000000000000000000,
-                    #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-                    permanent_storage_bytes: 0,
-                    storage_paid_at: 0,
-                    storage_usage: 200000,
-                },
-            );
-            accounts_previous_state.insert(
-                "nfvalidator2.near".parse().unwrap(),
-                near_primitives::views::AccountView {
-                    amount: 6000000000000000000,
-                    code_hash: near_primitives::hash::CryptoHash::default(),
-                    locked: 400000000000000000000000000000,
-                    #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-                    permanent_storage_bytes: 0,
-                    storage_paid_at: 0,
-                    storage_usage: 200000,
-                },
-            );
-            let transactions = super::transactions::convert_block_changes_to_transactions(
-                &actor_handles.view_client_actor,
-                &runtime_config,
-                &block_hash,
-                accounts_changes,
-                accounts_previous_state,
-                super::transactions::ExecutionToReceipts::empty(),
-            )
-            .await
-            .unwrap();
-            assert_eq!(transactions.len(), 3);
-            assert!(transactions.iter().all(|(transaction_hash, transaction)| {
-                &transaction.transaction_identifier.hash == transaction_hash
-            }));
-
-            let validators_update_transaction =
-                &transactions[&format!("block-validators-update:{}", block_hash)];
-            insta::assert_debug_snapshot!(
-                "validators_update_transaction",
-                validators_update_transaction
-            );
-
-            let nfvalidator1_receipt_processing_transaction =
-                &transactions[&format!("receipt:{}", nfvalidator1_receipt_processing_hash)];
-            insta::assert_debug_snapshot!(
-                "nfvalidator1_receipt_processing_transaction",
-                nfvalidator1_receipt_processing_transaction
-            );
-
-            let nfvalidator2_action_receipt_gas_reward_transaction =
-                &transactions[&format!("receipt:{}", nfvalidator2_action_receipt_gas_reward_hash)];
-            insta::assert_debug_snapshot!(
-                "nfvalidator2_action_receipt_gas_reward_transaction",
-                nfvalidator2_action_receipt_gas_reward_transaction
-            );
-            System::current().stop();
-        });
-    }
 
     #[test]
     fn test_near_actions_bijection() {
         let create_account_actions =
             vec![near_primitives::transaction::CreateAccountAction {}.into()];
-        let delete_account_actions = vec![near_primitives::transaction::DeleteAccountAction {
-            beneficiary_id: "beneficiary.near".parse().unwrap(),
-        }
-        .into()];
-        let add_key_actions = vec![near_primitives::transaction::AddKeyAction {
-            access_key: near_primitives::account::AccessKey::full_access(),
-            public_key: near_crypto::SecretKey::from_random(near_crypto::KeyType::ED25519)
-                .public_key(),
-        }
-        .into()];
-        let delete_key_actions = vec![near_primitives::transaction::DeleteKeyAction {
-            public_key: near_crypto::SecretKey::from_random(near_crypto::KeyType::ED25519)
-                .public_key(),
-        }
-        .into()];
-        let transfer_actions = vec![near_primitives::transaction::TransferAction {
-            deposit: near_primitives::types::Balance::MAX,
-        }
-        .into()];
-        let stake_actions = vec![near_primitives::transaction::StakeAction {
-            stake: 456,
-            public_key: near_crypto::SecretKey::from_random(near_crypto::KeyType::ED25519)
-                .public_key(),
-        }
-        .into()];
-        let deploy_contract_actions = vec![near_primitives::transaction::DeployContractAction {
-            code: b"binary-data".to_vec(),
-        }
-        .into()];
-        let function_call_without_balance_actions =
-            vec![near_primitives::transaction::FunctionCallAction {
+        let delete_account_actions = vec![
+            near_primitives::transaction::DeleteAccountAction {
+                beneficiary_id: "beneficiary.near".parse().unwrap(),
+            }
+            .into(),
+        ];
+        let add_key_actions = vec![
+            near_primitives::transaction::AddKeyAction {
+                access_key: near_primitives::account::AccessKey::full_access(),
+                public_key: near_crypto::SecretKey::from_random(near_crypto::KeyType::ED25519)
+                    .public_key(),
+            }
+            .into(),
+        ];
+        let delete_key_actions = vec![
+            near_primitives::transaction::DeleteKeyAction {
+                public_key: near_crypto::SecretKey::from_random(near_crypto::KeyType::ED25519)
+                    .public_key(),
+            }
+            .into(),
+        ];
+        let transfer_actions = vec![
+            near_primitives::transaction::TransferAction {
+                deposit: near_primitives::types::Balance::MAX,
+            }
+            .into(),
+        ];
+        let stake_actions = vec![
+            near_primitives::transaction::StakeAction {
+                stake: 456,
+                public_key: near_crypto::SecretKey::from_random(near_crypto::KeyType::ED25519)
+                    .public_key(),
+            }
+            .into(),
+        ];
+        let deploy_contract_actions = vec![
+            near_primitives::transaction::DeployContractAction { code: b"binary-data".to_vec() }
+                .into(),
+        ];
+        let function_call_without_balance_actions = vec![
+            near_primitives::transaction::FunctionCallAction {
                 method_name: "method-name".parse().unwrap(),
                 args: b"args".to_vec(),
                 gas: 100500,
                 deposit: 0,
             }
-            .into()];
-        let function_call_with_balance_actions =
-            vec![near_primitives::transaction::FunctionCallAction {
+            .into(),
+        ];
+        let function_call_with_balance_actions = vec![
+            near_primitives::transaction::FunctionCallAction {
                 method_name: "method-name".parse().unwrap(),
                 args: b"args".to_vec(),
                 gas: 100500,
                 deposit: near_primitives::types::Balance::MAX,
             }
-            .into()];
+            .into(),
+        ];
 
         let wallet_style_create_account_actions =
             [create_account_actions.to_vec(), add_key_actions.to_vec(), transfer_actions.to_vec()]
@@ -1137,9 +988,9 @@ mod tests {
                 delegate_action: DelegateAction {
                     sender_id: "account.near".parse().unwrap(),
                     receiver_id: "receiver.near".parse().unwrap(),
-                    actions: vec![Action::Transfer(TransferAction { deposit: 1 })
-                        .try_into()
-                        .unwrap()],
+                    actions: vec![
+                        Action::Transfer(TransferAction { deposit: 1 }).try_into().unwrap(),
+                    ],
                     nonce: 0,
                     max_block_height: 0,
                     public_key: sk.public_key(),
@@ -1586,34 +1437,5 @@ mod tests {
             NearActions::try_from(operations),
             Err(crate::errors::ErrorKind::InvalidInput(_))
         ));
-    }
-
-    #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-    #[test]
-    fn test_convert_nonrefundable_storage_transfer_action() {
-        let deposit = near_primitives::types::Balance::MAX - 1;
-        let nonrefundable_transfer_actions = vec![
-            near_primitives::transaction::NonrefundableStorageTransferAction { deposit }.into(),
-        ];
-        let near_nonrefundable_transfer_actions = NearActions {
-            sender_account_id: "sender.near".parse().unwrap(),
-            receiver_account_id: "receiver.near".parse().unwrap(),
-            actions: nonrefundable_transfer_actions,
-        };
-        let nonrefundable_transfer_operations_converted: Vec<crate::models::Operation> =
-            near_nonrefundable_transfer_actions.into();
-        assert_eq!(nonrefundable_transfer_operations_converted.len(), 1);
-        assert_eq!(
-            nonrefundable_transfer_operations_converted[0].type_,
-            crate::models::OperationType::Transfer
-        );
-        assert_eq!(
-            nonrefundable_transfer_operations_converted[0].account,
-            "sender.near".parse().unwrap()
-        );
-        assert_eq!(
-            nonrefundable_transfer_operations_converted[0].amount,
-            Some(-crate::models::Amount::from_yoctonear(deposit))
-        );
     }
 }

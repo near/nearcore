@@ -1,8 +1,8 @@
-use super::encoding::BorshFixedSize;
 use super::FlexibleDataHeader;
+use super::encoding::BorshFixedSize;
+use crate::trie::Children;
 use crate::trie::mem::arena::{ArenaMemory, ArenaMemoryMut, ArenaSlice, ArenaSliceMut};
 use crate::trie::mem::node::{MemTrieNodeId, MemTrieNodePtr};
-use crate::trie::Children;
 use borsh::{BorshDeserialize, BorshSerialize};
 use derive_where::derive_where;
 use std::mem::size_of;
@@ -89,6 +89,7 @@ impl<'a, M: ArenaMemory> ChildrenView<'a, M> {
             return Children(nodes);
         };
 
+        // cspell:words ptrs
         let mut node_ptrs = [None; 16];
         let mut j = size_of::<usize>() * self.mask.count_ones() as usize;
         // Execute all `read_ptr_at` in reverse to avoid repeat bound checks.

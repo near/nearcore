@@ -1,3 +1,4 @@
+<!-- cspell:ignore Heaptrack Jemalloc bytehound highcpu jemallocator koute kptr libbytehound myexportedfile mylittleprofile readwrite rgba setcap tikv -->
 # Profiling neard
 
 ## Sampling performance profiling
@@ -12,8 +13,8 @@ Linux's `perf` has been a tool of choice in most cases, although tools like Inte
 used too. In order to use either, first prepare your system:
 
 ```command
-$ sudo sysctl kernel.perf_event_paranoid=0
-$ sudo sysctl kernel.restrict_kptr=0
+sudo sysctl kernel.perf_event_paranoid=0
+sudo sysctl kernel.kptr_restrict=0
 ```
 
 <blockquote style="background: rgba(255, 200, 0, 0.1); border: 5px solid rgba(255, 200, 0, 0.4);">
@@ -44,7 +45,7 @@ Profiler supports `perf` and many other different data formats, for `perf` in pa
 conversion step is necessary:
 
 ```command
-$ perf script -F +pid > mylittleprofile.script
+perf script -F +pid > mylittleprofile.script
 ```
 
 Then, load this `mylittleprofile.script` file with the profiler.
@@ -58,18 +59,18 @@ ability to build a profiling-tuned build of `neard`, you can use higher quality 
 collection.
 
 ```command
-$ cargo build --release --config .cargo/config.profiling.toml -p neard
+cargo build --release --config .cargo/config.profiling.toml -p neard
 ```
 
 Then, replace the `--call-graph dwarf` with `--call-graph fp`:
 
 ```command
-$ perf record -e cpu-clock -F1000 -g --call-graph fp,65528 YOUR_COMMAND_HERE
+perf record -e cpu-clock -F1000 -g --call-graph fp,65528 YOUR_COMMAND_HERE
 ```
 
 ### Profiling with hardware counters
 
-As mentioned earlier, sampling profiler is probablistic and the data it produces is only really
+As mentioned earlier, sampling profiler is probabilistic and the data it produces is only really
 suitable for a broad overview. Any attempt to analyze the performance of the code at the
 microarchitectural level (which you might want to do if investigating how to speed up a small but
 frequently invoked function) will be severely hampered by the low quality of data.
@@ -98,15 +99,15 @@ Once everything is set up, though, the following command can gather some interes
 for you.
 
 ```command
-$ perf record -e cycles:u -b -g --call-graph fp,65528 YOUR_COMMAND_HERE
+perf record -e cycles:u -b -g --call-graph fp,65528 YOUR_COMMAND_HERE
 ```
 
 Analyzing this data is, unfortunately, not as easy as chucking it away to Firefox Profiler. I'm not
 aware of any other ways to inspect the data other than using `perf report`:
 
 ```command
-$ perf report -g --branch-history
-$ perf report -g --branch-stack
+perf report -g --branch-history
+perf report -g --branch-stack
 ```
 
 You may also be able to gather some interesting results if you use `--call-graph lbr` and the
@@ -119,7 +120,7 @@ Although Rust makes it pretty hard to introduce memory problems, it is still pos
 memory or to inadvertently retain too much of it.
 
 Unfortunately, “just” throwing a random profiler at neard does not work for many reasons. Valgrind
-for example is introducing enough slowdown to significantly alter the behaviour of the run, not to
+for example is introducing enough slowdown to significantly alter the behavior of the run, not to
 mention that to run it successfully and without crashing it will be necessary to comment out
 `neard`’s use of `jemalloc` for yet another substantial slowdown.
 
@@ -131,24 +132,24 @@ First, checkout and build the profiler (you will need to have nodejs `yarn` thin
 well):
 
 ```command
-$ git clone git@github.com:koute/bytehound.git
-$ cargo build --release -p bytehound-preload
-$ cargo build --release -p bytehound-cli
+git clone git@github.com:koute/bytehound.git
+cargo build --release -p bytehound-preload
+cargo build --release -p bytehound-cli
 ```
 
-You will also need a build of your `neard`, once you have that, give it some ambient cabapilities
+You will also need a build of your `neard`, once you have that, give it some ambient capabilities
 necessary for profiling:
 
 ```command
-$ sudo sysctl kernel.perf_event_paranoid=0
-$ sudo setcap 'CAP_SYS_ADMIN+ep' /path/to/neard
-$ sudo setcap 'CAP_SYS_ADMIN+ep' /path/to/libbytehound.so
+sudo sysctl kernel.perf_event_paranoid=0
+sudo setcap 'CAP_SYS_ADMIN+ep' /path/to/neard
+sudo setcap 'CAP_SYS_ADMIN+ep' /path/to/libbytehound.so
 ```
 
 And finally run the program with the profiler enabled (in this case `neard run` command is used):
 
 ```command
-$ /lib64/ld-linux-x86-64.so.2 --preload /path/to/libbytehound.so /path/to/neard run
+/lib64/ld-linux-x86-64.so.2 --preload /path/to/libbytehound.so /path/to/neard run
 ```
 
 ### Viewing the profile
@@ -202,3 +203,57 @@ I don't have specific recommendations here.
 We don't know what exactly it is about neard that leads to it crashing under the profiler as easily
 as it does. I have seen valgrind reporting that we have libraries that are deallocating with a
 wrong size class, so that might be the reason? Do definitely look into this if you have time.
+
+## What to profile?
+
+This section provides some ideas on programs you could consider profiling if you are not sure where
+to start.
+
+First and foremost you could go shotgun and profile a full running `neard` node that's operating on
+mainnet or testnet traffic. There are a couple ways to set up such a node: search for
+[my-own-mainnet](https://docs.nearone.org/doc/my-own-mainnettestnet-MZTRLQjXCz) or a forknet based
+tooling.
+
+From there either attach to a running `neard run` process or stop the running one and start a new
+instance under the profiler.
+
+This approach will give you a good overview of the entire system, but at the same time the
+information might be so dense, it might be difficult to derive any signal from the noise. There are
+alternatives that isolate certain components of the runtime:
+
+### `Runtime::apply`
+
+Profiling just the `Runtime::apply` is going to include the work done by transaction runtime and
+the contract runtime only. A smart use of the tools already present in the `neard` binary can
+achieve that today.
+
+First, make sure all deltas in flat storage are applied and written:
+
+```
+neard view-state --readwrite apply-range --shard-id $SHARD_ID --storage flat sequential
+```
+
+You will need to do this for all shards you're interested in profiling. Then pick a block or a
+range of blocks you want to re-apply and set the flat head to the specified height:
+
+```
+neard flat-storage move-flat-head --shard-id 0 --version 0 back --blocks 17
+```
+
+Finally the following commands will apply the block or blocks from the height in various different
+ways. Experiment with the different modes and flags to find the best fit for your task. Don't
+forget to run these commands under the profiler :)
+
+```
+# Apply blocks from current flat head to the highest known block height in sequence
+# using the memtrie storage (note that after this you will need to move the flat head again)
+neard view-state --readwrite apply-range --shard-id 0 --storage memtrie sequential
+# Same but with flat storage
+neard view-state --readwrite apply-range --shard-id 0 --storage flat sequential
+
+# Repeatedly apply a single block at the flat head using the memtrie storage.
+# Will not modify the storage on the disk.
+neard view-state apply-range --shard-id 0 --storage memtrie benchmark
+# Same but with flat storage
+neard view-state apply-range --shard-id 0 --storage flat benchmark
+```

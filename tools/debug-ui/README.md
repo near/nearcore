@@ -60,7 +60,7 @@ more precisely, using TestLoop from core/async/src/test_loop.rs), the test can b
 
 1. First run the test from the Rust side and save the output, e.g.
    ```
-   cargo test -p near-chunks test_multi -- --show-output > ~/log.txt
+   cargo test -p integration-tests slow_test_client_with_multi_test_loop -- --show-output > ~/log.txt
    ```
 2. Go to the UI at `/logviz`, such as http://localhost:3000/logviz
 3. Drag the log.txt file into the UI.

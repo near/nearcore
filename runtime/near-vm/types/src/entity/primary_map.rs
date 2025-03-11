@@ -4,10 +4,10 @@
 //! Densely numbered entity references as mapping keys.
 use rkyv::Archive;
 
+use crate::entity::EntityRef;
 use crate::entity::boxed_slice::BoxedSlice;
 use crate::entity::iter::{IntoIter, Iter, IterMut};
 use crate::entity::keys::Keys;
-use crate::entity::EntityRef;
 use crate::lib::std::boxed::Box;
 use crate::lib::std::iter::FromIterator;
 use crate::lib::std::marker::PhantomData;
@@ -244,6 +244,14 @@ where
     /// Iterate over all the keys and values in this map.
     pub fn iter(&self) -> Iter<K, rkyv::Archived<V>> {
         Iter::new(self.elems.iter())
+    }
+
+    /// Similar to `Index::index` but keys by the native type rather than archive of it.
+    pub fn index_by_native(&self, k: &K) -> &<V as rkyv::Archive>::Archived
+    where
+        K: EntityRef + Archive,
+    {
+        &self.elems[k.index()]
     }
 }
 

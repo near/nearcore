@@ -8,7 +8,7 @@ use near_o11y::env_filter::EnvFilterBuilder;
 use near_primitives::block::Tip;
 use near_primitives::block_header::BlockHeader;
 use near_primitives::types::ShardId;
-use near_store::{DBCol, ShardUId, HEAD_KEY};
+use near_store::{DBCol, HEAD_KEY, ShardUId};
 use nearcore::{NightshadeRuntime, NightshadeRuntimeExt};
 use std::path::Path;
 use std::sync::Arc;
@@ -34,7 +34,7 @@ impl LoadMemTrieCommand {
         let _subscriber = default_subscriber(env_filter, &Default::default()).global();
         let mut near_config = nearcore::config::load_config(&home, genesis_validation)
             .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
-        near_config.config.store.load_mem_tries_for_tracked_shards = true;
+        near_config.config.store.load_memtries_for_tracked_shards = true;
 
         let rocksdb = Arc::new(open_rocksdb(home, near_store::Mode::ReadOnly)?);
         let store = near_store::NodeStorage::new(rocksdb).get_hot_store();
@@ -65,9 +65,11 @@ impl LoadMemTrieCommand {
 
         println!("Loading memtries for shards {:?}...", selected_shard_uids);
         let start_time = std::time::Instant::now();
-        runtime
-            .get_tries()
-            .load_mem_tries_for_enabled_shards(&selected_shard_uids, !self.no_parallel)?;
+        runtime.get_tries().load_memtries_for_enabled_shards(
+            &selected_shard_uids,
+            &[].into(),
+            !self.no_parallel,
+        )?;
         println!(
             "Finished loading memtries, took {:?}, press Ctrl-C to exit.",
             start_time.elapsed()

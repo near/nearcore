@@ -1,11 +1,13 @@
 use std::sync::Arc;
 
 use crate::EpochManagerAdapter;
+use itertools::Itertools;
 use near_cache::SyncLruCache;
 use near_chain_configs::ClientConfig;
+use near_chain_primitives::Error;
 use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
-use near_primitives::shard_layout::account_id_to_shard_id;
+use near_primitives::sharding::StateSyncInfo;
 use near_primitives::types::{AccountId, EpochId, ShardId};
 
 #[derive(Clone)]
@@ -76,17 +78,20 @@ impl ShardTracker {
         match &self.tracked_config {
             TrackedConfig::Accounts(tracked_accounts) => {
                 let shard_layout = self.epoch_manager.get_shard_layout(epoch_id)?;
-                let tracking_mask = self.tracking_shards_cache.get_or_put(*epoch_id, |_| {
-                    let mut tracking_mask: Vec<_> =
-                        shard_layout.shard_ids().map(|_| false).collect();
-                    for account_id in tracked_accounts {
-                        let shard_id = account_id_to_shard_id(account_id, &shard_layout);
-                        let shard_index = shard_layout.get_shard_index(shard_id);
-                        tracking_mask[shard_index] = true;
-                    }
-                    tracking_mask
-                });
-                let shard_index = shard_layout.get_shard_index(shard_id);
+                let tracking_mask = self.tracking_shards_cache.get_or_try_put(
+                    *epoch_id,
+                    |_| -> Result<Vec<bool>, EpochError> {
+                        let mut tracking_mask =
+                            shard_layout.shard_ids().map(|_| false).collect_vec();
+                        for account_id in tracked_accounts {
+                            let shard_id = shard_layout.account_id_to_shard_id(account_id);
+                            let shard_index = shard_layout.get_shard_index(shard_id)?;
+                            tracking_mask[shard_index] = true;
+                        }
+                        Ok(tracking_mask)
+                    },
+                )?;
+                let shard_index = shard_layout.get_shard_index(shard_id)?;
                 Ok(tracking_mask.get(shard_index).copied().unwrap_or(false))
             }
             TrackedConfig::AllShards => Ok(true),
@@ -99,7 +104,7 @@ impl ShardTracker {
                 Ok(subset.contains(&shard_id))
             }
             TrackedConfig::ShadowValidator(account_id) => {
-                self.epoch_manager.cares_about_shard_in_epoch(*epoch_id, account_id, shard_id)
+                self.epoch_manager.cares_about_shard_in_epoch(epoch_id, account_id, shard_id)
             }
         }
     }
@@ -118,13 +123,68 @@ impl ShardTracker {
         self.tracks_shard_at_epoch(shard_id, &epoch_id)
     }
 
+    fn tracks_shard_prev_epoch_from_prev_block(
+        &self,
+        shard_id: ShardId,
+        prev_hash: &CryptoHash,
+    ) -> Result<bool, EpochError> {
+        let epoch_id = self.epoch_manager.get_prev_epoch_id_from_prev_block(prev_hash)?;
+        self.tracks_shard_at_epoch(shard_id, &epoch_id)
+    }
+
+    /// Whether the client cares about some shard in the previous epoch.
+    /// * If `account_id` is None, `is_me` is not checked and the
+    /// result indicates whether the client is tracking the shard
+    /// * If `account_id` is not None, it is supposed to be a validator
+    /// account and `is_me` indicates whether we check what shards
+    /// the client tracks.
+    // TODO: consolidate all these cares_about_shard() functions. This could all be one
+    // function with an enum arg that tells what epoch we want to check, and one that allows
+    // passing an epoch ID or a prev hash, or current hash, or whatever.
+    pub fn cared_about_shard_in_prev_epoch(
+        &self,
+        account_id: Option<&AccountId>,
+        parent_hash: &CryptoHash,
+        shard_id: ShardId,
+        is_me: bool,
+    ) -> bool {
+        // TODO: fix these unwrap_or here and handle error correctly. The current behavior masks potential errors and bugs
+        // https://github.com/near/nearcore/issues/4936
+        if let Some(account_id) = account_id {
+            let account_cares_about_shard = self
+                .epoch_manager
+                .cared_about_shard_prev_epoch_from_prev_block(parent_hash, account_id, shard_id)
+                .unwrap_or(false);
+            if account_cares_about_shard {
+                // An account has to track this shard because of its validation duties.
+                return true;
+            }
+            if !is_me {
+                // We don't know how another node is configured.
+                // It may track all shards, it may track no additional shards.
+                return false;
+            } else {
+                // We have access to the node config. Use the config to find a definite answer.
+            }
+        }
+        match self.tracked_config {
+            TrackedConfig::AllShards => {
+                // Avoid looking up EpochId as a performance optimization.
+                true
+            }
+            _ => {
+                self.tracks_shard_prev_epoch_from_prev_block(shard_id, parent_hash).unwrap_or(false)
+            }
+        }
+    }
+
     /// Whether the client cares about some shard right now.
     /// * If `account_id` is None, `is_me` is not checked and the
     /// result indicates whether the client is tracking the shard
     /// * If `account_id` is not None, it is supposed to be a validator
     /// account and `is_me` indicates whether we check what shards
     /// the client tracks.
-    pub fn care_about_shard(
+    pub fn cares_about_shard(
         &self,
         account_id: Option<&AccountId>,
         parent_hash: &CryptoHash,
@@ -203,11 +263,103 @@ impl ShardTracker {
             }
         }
     }
+
+    // TODO(robin-near): I think we only need the shard_tracker if is_me is false.
+    pub fn cares_about_shard_this_or_next_epoch(
+        &self,
+        account_id: Option<&AccountId>,
+        parent_hash: &CryptoHash,
+        shard_id: ShardId,
+        is_me: bool,
+    ) -> bool {
+        self.cares_about_shard(account_id, parent_hash, shard_id, is_me)
+            || self.will_care_about_shard(account_id, parent_hash, shard_id, is_me)
+    }
+
+    /// Returns whether the node is configured for all shards tracking.
+    pub fn tracks_all_shards(&self) -> bool {
+        matches!(self.tracked_config, TrackedConfig::AllShards)
+    }
+
+    /// Return all shards that whose states need to be caught up
+    /// That has two cases:
+    /// 1) Shard layout will change in the next epoch. In this case, the method returns all shards
+    ///    in the current epoch that will be split into a future shard that `me` will track.
+    /// 2) Shard layout will be the same. In this case, the method returns all shards that `me` will
+    ///    track in the next epoch but not this epoch
+    fn get_shards_to_state_sync(
+        &self,
+        me: &Option<AccountId>,
+        parent_hash: &CryptoHash,
+    ) -> Result<Vec<ShardId>, Error> {
+        let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(parent_hash)?;
+        let mut shards_to_sync = Vec::new();
+        for shard_id in self.epoch_manager.shard_ids(&epoch_id)? {
+            if self.should_catch_up_shard(me, parent_hash, shard_id)? {
+                shards_to_sync.push(shard_id)
+            }
+        }
+        Ok(shards_to_sync)
+    }
+
+    /// Returns whether we need to initiate state sync for the given `shard_id` for the epoch
+    /// beginning after the block `epoch_last_block`. If that epoch is epoch T, the logic is:
+    /// - will track the shard in epoch T+1
+    /// - AND not tracking it in T
+    /// - AND didn't track it in T-1
+    /// We check that we didn't track it in T-1 because if so, and we're in the relatively rare case
+    /// where we'll go from tracking it to not tracking it and back to tracking it in consecutive epochs,
+    /// then we can just continue to apply chunks as if we were tracking it in epoch T, and there's no need to state sync.
+    fn should_catch_up_shard(
+        &self,
+        me: &Option<AccountId>,
+        prev_hash: &CryptoHash,
+        shard_id: ShardId,
+    ) -> Result<bool, Error> {
+        // Won't care about it next epoch, no need to state sync it.
+        if !self.will_care_about_shard(me.as_ref(), prev_hash, shard_id, true) {
+            return Ok(false);
+        }
+        // Currently tracking the shard, so no need to state sync it.
+        if self.cares_about_shard(me.as_ref(), prev_hash, shard_id, true) {
+            return Ok(false);
+        }
+
+        // Now we need to state sync it unless we were tracking the parent in the previous epoch,
+        // in which case we don't need to because we already have the state, and can just continue applying chunks
+
+        let tracked_before =
+            self.cared_about_shard_in_prev_epoch(me.as_ref(), prev_hash, shard_id, true);
+        Ok(!tracked_before)
+    }
+
+    /// Return a StateSyncInfo that includes the information needed for syncing state for shards needed
+    /// in the next epoch.
+    pub fn get_state_sync_info(
+        &self,
+        me: &Option<AccountId>,
+        epoch_id: &EpochId,
+        block_hash: &CryptoHash,
+        prev_hash: &CryptoHash,
+    ) -> Result<Option<StateSyncInfo>, Error> {
+        let shards_to_state_sync = self.get_shards_to_state_sync(me, prev_hash)?;
+        if shards_to_state_sync.is_empty() {
+            Ok(None)
+        } else {
+            tracing::debug!(target: "chain", "Downloading state for {:?}, I'm {:?}", shards_to_state_sync, me);
+            let protocol_version = self.epoch_manager.get_epoch_protocol_version(epoch_id)?;
+            // Note that this block is the first block in an epoch because this function is only called
+            // in get_catchup_and_state_sync_infos() when that is the case.
+            let state_sync_info =
+                StateSyncInfo::new(protocol_version, *block_hash, shards_to_state_sync);
+            Ok(Some(state_sync_info))
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{account_id_to_shard_id, ShardTracker};
+    use super::ShardTracker;
     use crate::shard_tracker::TrackedConfig;
     use crate::test_utils::hash_range;
     use crate::{EpochManager, EpochManagerAdapter, EpochManagerHandle, RewardCalculator};
@@ -219,8 +371,8 @@ mod tests {
     use near_primitives::shard_layout::ShardLayout;
     use near_primitives::types::validator_stake::ValidatorStake;
     use near_primitives::types::{BlockHeight, EpochId, NumShards, ProtocolVersion, ShardId};
-    use near_primitives::version::ProtocolFeature::SimpleNightshade;
     use near_primitives::version::PROTOCOL_VERSION;
+    use near_primitives::version::ProtocolFeature::SimpleNightshade;
     use near_store::test_utils::create_test_store;
     use num_rational::Ratio;
     use std::collections::HashSet;
@@ -248,8 +400,14 @@ mod tests {
             online_min_threshold: Ratio::new(90, 100),
             minimum_stake_divisor: 1,
             protocol_upgrade_stake_threshold: Ratio::new(80, 100),
-            shard_layout: ShardLayout::v0(num_shards, 0),
-            validator_selection_config: Default::default(),
+            shard_layout: ShardLayout::multi_shard(num_shards, 0),
+            num_chunk_producer_seats: 100,
+            num_chunk_validator_seats: 300,
+            num_chunk_only_producer_seats: 300,
+            minimum_validators_per_shard: 1,
+            minimum_stake_ratio: Ratio::new(160i32, 1_000_000i32),
+            chunk_producer_assignment_changes_limit: 5,
+            shuffle_shard_assignment_for_chunk_producers: false,
             validator_max_kickout_stake_perc: 100,
         };
         let reward_calculator = RewardCalculator {
@@ -318,7 +476,7 @@ mod tests {
     ) -> HashSet<ShardId> {
         shard_ids
             .into_iter()
-            .filter(|&&shard_id| tracker.care_about_shard(None, parent_hash, shard_id, true))
+            .filter(|&&shard_id| tracker.cares_about_shard(None, parent_hash, shard_id, true))
             .cloned()
             .collect()
     }
@@ -345,10 +503,8 @@ mod tests {
         let tracker =
             ShardTracker::new(TrackedConfig::Accounts(tracked_accounts), Arc::new(epoch_manager));
         let mut total_tracked_shards = HashSet::new();
-        total_tracked_shards
-            .insert(account_id_to_shard_id(&"test1".parse().unwrap(), &shard_layout));
-        total_tracked_shards
-            .insert(account_id_to_shard_id(&"test2".parse().unwrap(), &shard_layout));
+        total_tracked_shards.insert(shard_layout.account_id_to_shard_id(&"test1".parse().unwrap()));
+        total_tracked_shards.insert(shard_layout.account_id_to_shard_id(&"test2".parse().unwrap()));
 
         assert_eq!(
             get_all_shards_care_about(&tracker, &shard_ids, &CryptoHash::default()),
@@ -479,10 +635,10 @@ mod tests {
             let shard_layout = epoch_manager.get_shard_layout(&epoch_id).unwrap();
 
             for account_id in tracked_accounts.iter() {
-                let shard_id = account_id_to_shard_id(account_id, &shard_layout);
+                let shard_id = shard_layout.account_id_to_shard_id(account_id);
                 total_tracked_shards.insert(shard_id);
 
-                let next_shard_id = account_id_to_shard_id(account_id, &next_shard_layout);
+                let next_shard_id = next_shard_layout.account_id_to_shard_id(account_id);
                 total_next_tracked_shards.insert(next_shard_id);
             }
 

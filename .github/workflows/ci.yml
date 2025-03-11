@@ -27,44 +27,27 @@ jobs:
             id: linux
             os: ubuntu-22.04-16core
             type: stable
-            runs_integ_tests: true
             upload_profraws: true
           - name: Linux Nightly
             id: linux-nightly
             os: ubuntu-22.04-16core
             type: nightly
-            runs_integ_tests: true
             upload_profraws: true
-          - name: MacOS
-            id: macos
-            os: macos-latest-xlarge
-            type: stable
-            runs_integ_tests: false
-            # TODO: Currently only computing linux coverage, because the MacOS runners
-            # have files at a different path and thus comes out duplicated.
-            upload_profraws: false
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
 
       # Install all the required tools
-      - uses: taiki-e/install-action@9b5b983efc779f85e5e5d11539f005e85ccb27ff
+      - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
         with:
           tool: just,cargo-nextest,cargo-llvm-cov
 
       # Run the tests:
-      - run: mkdir -p coverage/profraw/{unit,integration,binaries}
+      - run: mkdir -p coverage/profraw/{unit,binaries}
       # - Run the unit tests, retrieving the coverage information
-      - run: just codecov-ci "nextest-unit ${{ matrix.type }}"
+      - run: just codecov-ci "nextest-slow ${{ matrix.type }}"
       - run: mv coverage/codecov/{new,unit-${{matrix.id}}}.json
       - run: mv coverage/profraw/{new,unit/${{matrix.id}}}.tar.zst
-      # - Run the integration tests, retrieving the coverage information
-      - run: just codecov-ci "nextest-integration ${{ matrix.type }}"
-        if: matrix.runs_integ_tests
-      - run: mv coverage/codecov/{new,integration-${{matrix.id}}}.json
-        if: matrix.runs_integ_tests
-      - run: mv coverage/profraw/{new,integration/${{matrix.id}}}.tar.zst
-        if: matrix.runs_integ_tests
 
       # Cleanup the target directory, leaving only stuff interesting to llvm-cov, and tarball it
       - run: just tar-bins-for-coverage-ci
@@ -101,7 +84,7 @@ jobs:
         with:
           python-version: 3.11
           cache: pip
-      - uses: taiki-e/install-action@9b5b983efc779f85e5e5d11539f005e85ccb27ff
+      - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
         with:
           tool: cargo-llvm-cov
       - run: pip3 install --user -r pytest/requirements.txt
@@ -127,7 +110,7 @@ jobs:
         with:
           python-version: 3.11
           cache: pip
-      - uses: taiki-e/install-action@9b5b983efc779f85e5e5d11539f005e85ccb27ff
+      - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
         with:
           tool: cargo-llvm-cov
       - run: pip3 install --user -r pytest/requirements.txt
@@ -157,7 +140,7 @@ jobs:
         with:
           python-version: 3.11
           cache: pip
-      - uses: taiki-e/install-action@9b5b983efc779f85e5e5d11539f005e85ccb27ff
+      - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
         with:
           tool: cargo-llvm-cov
       - run: pip3 install --user -r pytest/requirements.txt
@@ -189,7 +172,7 @@ jobs:
         with:
           python-version: 3.11
           cache: pip
-      - uses: taiki-e/install-action@9b5b983efc779f85e5e5d11539f005e85ccb27ff
+      - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
         with:
           tool: cargo-llvm-cov
       - run: pip3 install --user -r pytest/requirements.txt
@@ -211,7 +194,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: taiki-e/install-action@9b5b983efc779f85e5e5d11539f005e85ccb27ff
+      - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
         with:
           tool: just
       - uses: actions/setup-python@v5
@@ -230,7 +213,7 @@ jobs:
         with:
           python-version: 3.11
           cache: pip
-      - uses: taiki-e/install-action@9b5b983efc779f85e5e5d11539f005e85ccb27ff
+      - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
         with:
           tool: cargo-llvm-cov
       - run: pip3 install --user -r pytest/requirements.txt
@@ -252,7 +235,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: taiki-e/install-action@9b5b983efc779f85e5e5d11539f005e85ccb27ff
+      - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
         with:
           tool: just
       - run: just check-protocol-schema
@@ -262,7 +245,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: taiki-e/install-action@9b5b983efc779f85e5e5d11539f005e85ccb27ff
+      - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
         with:
           tool: just
       - run: just check-cargo-fmt
@@ -272,7 +255,7 @@ jobs:
     runs-on: ubuntu-22.04-8core
     steps:
       - uses: actions/checkout@v4
-      - uses: taiki-e/install-action@9b5b983efc779f85e5e5d11539f005e85ccb27ff
+      - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
         with:
           tool: just
       - run: just check-cargo-clippy
@@ -282,17 +265,23 @@ jobs:
     runs-on: ubuntu-22.04-8core
     steps:
       - uses: actions/checkout@v4
-      - uses: taiki-e/install-action@9b5b983efc779f85e5e5d11539f005e85ccb27ff
+      - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
         with:
           tool: just
       - run: just doctests
+
+  spellcheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: streetsidesoftware/cspell-action@v6
 
   check_cargo_deny:
     name: "Cargo Deny"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: taiki-e/install-action@9b5b983efc779f85e5e5d11539f005e85ccb27ff
+      - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
         with:
           tool: just,cargo-deny
       - run: just check-cargo-deny
@@ -302,7 +291,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: taiki-e/install-action@9b5b983efc779f85e5e5d11539f005e85ccb27ff
+      - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
         with:
           tool: just
       - run: just check-themis
@@ -312,7 +301,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: taiki-e/install-action@9b5b983efc779f85e5e5d11539f005e85ccb27ff
+      - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
         with:
           tool: just
       - run: just check-non-default
@@ -322,7 +311,7 @@ jobs:
     runs-on: ubuntu-22.04-8core
     steps:
       - uses: actions/checkout@v4
-      - uses: taiki-e/install-action@9b5b983efc779f85e5e5d11539f005e85ccb27ff
+      - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
         with:
           tool: just,cargo-udeps
       - run: just check-cargo-udeps
@@ -332,7 +321,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: taiki-e/install-action@9b5b983efc779f85e5e5d11539f005e85ccb27ff
+      - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
         with:
           tool: cargo-audit
       - run: cargo audit -D warnings
@@ -348,8 +337,6 @@ jobs:
         include:
           - type: unit
             profraws: unit
-          - type: integration
-            profraws: unit integration
     steps:
       - uses: actions/checkout@v4
         with:
@@ -359,7 +346,7 @@ jobs:
           pattern: coverage-profraw-*
           path: coverage/profraw
           merge-multiple: true
-      - uses: taiki-e/install-action@9b5b983efc779f85e5e5d11539f005e85ccb27ff
+      - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
         with:
           tool: cargo-llvm-cov
       - uses: actions/setup-python@v5
@@ -407,7 +394,7 @@ jobs:
           pattern: coverage-codecov-*
           merge-multiple: true
       # Keep the number of uploads here in sync with codecov.yml’s after_n_build value
-      # codecov will send a comment only after having receidev this number of uploads.
+      # codecov will send a comment only after having received this number of uploads.
       - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
         with:
           files: unit-linux.json
@@ -418,26 +405,6 @@ jobs:
           files: unit-linux-nightly.json
           fail_ci_if_error: true
           flags: unittests,linux-nightly
-      - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
-        with:
-          files: unit-macos.json
-          fail_ci_if_error: true
-          flags: unittests,macos
-      - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
-        with:
-          files: integration-linux.json
-          fail_ci_if_error: true
-          flags: integration-tests,linux
-      - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
-        with:
-          files: integration-linux-nightly.json
-          fail_ci_if_error: true
-          flags: integration-tests,linux-nightly
-      # - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
-      #   with:
-      #     files: integration-macos.json
-      #     fail_ci_if_error: true
-      #     flags: integration-tests,macos
       - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
         with:
           files: py-backward-compat.json
@@ -463,14 +430,26 @@ jobs:
           files: py-upgradability.json
           fail_ci_if_error: true
           flags: pytests,upgradability,linux
-  
-  windows_public_libraries_check:
-    name: "Windows check for building public libraries"
-    runs-on: "windows-latest"
+
+  publishable_packages_check:
+    name: "Cargo check publishable packages separately"
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux
+            id: linux
+            os: ubuntu-latest
+          - name: Windows
+            id: win
+            os: windows-latest
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
-      - uses: taiki-e/install-action@9b5b983efc779f85e5e5d11539f005e85ccb27ff
+      - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
         with:
           tool: just
-      - run: just check_build_public_libraries
+      - run: just check-publishable-separately
+      - run: just check-publishable-separately --no-default-features
+      - run: just check-publishable-separately --all-features

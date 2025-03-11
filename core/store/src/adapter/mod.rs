@@ -1,4 +1,6 @@
+pub mod chain_store;
 pub mod chunk_store;
+pub mod epoch_store;
 pub mod flat_store;
 pub mod trie_store;
 
@@ -85,18 +87,30 @@ impl Into<StoreUpdate> for StoreUpdateHolder<'static> {
 /// Simple adapter wrapper on top of Store to provide a more ergonomic interface for different store types.
 /// We provide simple inter-convertibility between different store types like FlatStoreAdapter and TrieStoreAdapter.
 pub trait StoreAdapter {
-    fn store(&self) -> Store;
+    fn store_ref(&self) -> &Store;
 
-    fn trie_store(&self) -> trie_store::TrieStoreAdapter {
-        trie_store::TrieStoreAdapter::new(self.store())
+    fn store(&self) -> Store {
+        self.store_ref().clone()
+    }
+
+    fn chain_store(&self) -> chain_store::ChainStoreAdapter {
+        chain_store::ChainStoreAdapter::new(self.store())
+    }
+
+    fn chunk_store(&self) -> chunk_store::ChunkStoreAdapter {
+        chunk_store::ChunkStoreAdapter::new(self.store())
+    }
+
+    fn epoch_store(&self) -> epoch_store::EpochStoreAdapter {
+        epoch_store::EpochStoreAdapter::new(self.store())
     }
 
     fn flat_store(&self) -> flat_store::FlatStoreAdapter {
         flat_store::FlatStoreAdapter::new(self.store())
     }
 
-    fn chunk_store(&self) -> chunk_store::ChunkStoreAdapter {
-        chunk_store::ChunkStoreAdapter::new(self.store())
+    fn trie_store(&self) -> trie_store::TrieStoreAdapter {
+        trie_store::TrieStoreAdapter::new(self.store())
     }
 }
 
@@ -108,11 +122,19 @@ pub trait StoreAdapter {
 pub trait StoreUpdateAdapter: Sized {
     fn store_update(&mut self) -> &mut StoreUpdate;
 
-    fn trie_store_update(&mut self) -> trie_store::TrieStoreUpdateAdapter {
-        trie_store::TrieStoreUpdateAdapter::new(self.store_update())
+    fn chain_store_update(&mut self) -> chain_store::ChainStoreUpdateAdapter {
+        chain_store::ChainStoreUpdateAdapter::new(self.store_update())
+    }
+
+    fn epoch_store_update(&mut self) -> epoch_store::EpochStoreUpdateAdapter {
+        epoch_store::EpochStoreUpdateAdapter::new(self.store_update())
     }
 
     fn flat_store_update(&mut self) -> flat_store::FlatStoreUpdateAdapter {
         flat_store::FlatStoreUpdateAdapter::new(self.store_update())
+    }
+
+    fn trie_store_update(&mut self) -> trie_store::TrieStoreUpdateAdapter {
+        trie_store::TrieStoreUpdateAdapter::new(self.store_update())
     }
 }

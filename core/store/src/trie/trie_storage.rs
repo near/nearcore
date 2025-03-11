@@ -1,16 +1,16 @@
 use crate::adapter::trie_store::TrieStoreAdapter;
+use crate::trie::POISONED_LOCK_ERR;
 use crate::trie::config::TrieConfig;
 use crate::trie::prefetching_trie_storage::PrefetcherResult;
-use crate::trie::POISONED_LOCK_ERR;
-use crate::{metrics, MissingTrieValueContext, PrefetchApi, StorageError};
+use crate::{MissingTrieValueContext, PrefetchApi, StorageError, metrics};
 use lru::LruCache;
 use near_o11y::log_assert;
 use near_o11y::metrics::prometheus;
 use near_o11y::metrics::prometheus::core::{GenericCounter, GenericGauge};
-use near_primitives::challenge::PartialState;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
-use near_primitives::types::{shard_id_as_u64, ShardId};
+use near_primitives::state::PartialState;
+use near_primitives::types::ShardId;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::num::NonZeroUsize;
 use std::sync::{Arc, Mutex};
@@ -103,7 +103,8 @@ impl TrieCacheInner {
         assert!(total_size_limit > 0);
         // `itoa` is much faster for printing shard_id to a string than trivial alternatives.
         let mut buffer = itoa::Buffer::new();
-        let shard_id_str = buffer.format(shard_id_as_u64(shard_id));
+        let shard_id_int: u64 = shard_id.into();
+        let shard_id_str = buffer.format(shard_id_int);
 
         let metrics_labels: [&str; 2] = [&shard_id_str, if is_view { "1" } else { "0" }];
         let metrics = TrieCacheMetrics {
@@ -171,7 +172,13 @@ impl TrieCacheInner {
         self.add_value_of_size(value.len());
         match self.cache.push(key, value) {
             Some((evicted_key, evicted_value)) => {
-                log_assert!(key == evicted_key, "LRU cache with shard_id = {}, is_view = {} can't be full before inserting key {}", self.shard_id, self.is_view, key);
+                log_assert!(
+                    key == evicted_key,
+                    "LRU cache with shard_id = {}, is_view = {} can't be full before inserting key {}",
+                    self.shard_id,
+                    self.is_view,
+                    key
+                );
                 self.remove_value_of_size(evicted_value.len());
             }
             None => {}
@@ -340,11 +347,7 @@ impl TrieMemoryPartialStorage {
             self.recorded_storage
                 .iter()
                 .filter_map(|(node_hash, value)| {
-                    if touched_nodes.contains(node_hash) {
-                        Some(value.clone())
-                    } else {
-                        None
-                    }
+                    if touched_nodes.contains(node_hash) { Some(value.clone()) } else { None }
                 })
                 .collect();
 
@@ -612,8 +615,8 @@ mod trie_cache_tests {
     use crate::trie::trie_storage::TrieCacheInner;
     use crate::{StoreConfig, TrieCache, TrieConfig};
     use near_primitives::hash::hash;
-    use near_primitives::shard_layout::ShardUId;
-    use near_primitives::types::{shard_id_as_u32, ShardId};
+    use near_primitives::shard_layout::{ShardUId, ShardVersion};
+    use near_primitives::types::ShardId;
 
     fn put_value(cache: &mut TrieCacheInner, value: &[u8]) {
         cache.put(hash(value), value.into());
@@ -701,20 +704,29 @@ mod trie_cache_tests {
         store_config.view_trie_cache.per_shard_max_bytes.insert(s0, S0_VIEW_SIZE);
         let trie_config = TrieConfig::from_store_config(&store_config);
 
-        check_cache_size(&trie_config, ShardId::new(1), false, DEFAULT_SIZE);
-        check_cache_size(&trie_config, ShardId::new(0), false, S0_SIZE);
-        check_cache_size(&trie_config, ShardId::new(1), true, DEFAULT_VIEW_SIZE);
-        check_cache_size(&trie_config, ShardId::new(0), true, S0_VIEW_SIZE);
+        check_cache_size(&trie_config, 0, ShardId::new(1), false, DEFAULT_SIZE);
+        check_cache_size(&trie_config, 0, ShardId::new(0), false, S0_SIZE);
+        check_cache_size(&trie_config, 0, ShardId::new(1), true, DEFAULT_VIEW_SIZE);
+        check_cache_size(&trie_config, 0, ShardId::new(0), true, S0_VIEW_SIZE);
+    }
+
+    #[test]
+    fn test_default_per_shard_max_bytes() {
+        let store_config = StoreConfig::default();
+        let trie_config = TrieConfig::from_store_config(&store_config);
+        check_cache_size(&trie_config, 3, ShardId::new(1), false, bytesize::ByteSize::mb(50));
+        check_cache_size(&trie_config, 3, ShardId::new(5), false, bytesize::ByteSize::gb(3));
     }
 
     #[track_caller]
     fn check_cache_size(
         trie_config: &TrieConfig,
+        version: ShardVersion,
         shard_id: ShardId,
         is_view: bool,
         expected_size: bytesize::ByteSize,
     ) {
-        let shard_uid = ShardUId { version: 0, shard_id: shard_id_as_u32(shard_id) };
+        let shard_uid = ShardUId::new(version, shard_id);
         let trie_cache = TrieCache::new(&trie_config, shard_uid, is_view);
         assert_eq!(expected_size.as_u64(), trie_cache.lock().total_size_limit);
         assert_eq!(is_view, trie_cache.lock().is_view);

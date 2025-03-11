@@ -1,13 +1,13 @@
 use crate::concurrency::rate;
-use crate::network_protocol::testonly as data;
 use crate::network_protocol::SyncAccountsData;
+use crate::network_protocol::testonly as data;
 use crate::peer;
 use crate::peer_manager;
 use crate::peer_manager::peer_manager_actor::Event as PME;
 use crate::peer_manager::testonly;
 use crate::peer_manager::testonly::start as start_pm;
 use crate::tcp;
-use crate::testonly::{make_rng, AsSet as _};
+use crate::testonly::{AsSet as _, make_rng};
 use crate::types::PeerMessage;
 use itertools::Itertools;
 use near_async::time;
@@ -165,7 +165,7 @@ async fn gradual_epoch_change() {
 // - 3rd 5 and 4th 5 ...
 // All of them are validators.
 #[tokio::test(flavor = "multi_thread")]
-async fn rate_limiting() {
+async fn slow_test_rate_limiting() {
     init_test_logger();
     // Adjust the file descriptors limit, so that we can create many connection in the test.
     const MAX_CONNECTIONS: usize = 300;

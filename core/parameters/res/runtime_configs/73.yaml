@@ -2,10 +2,10 @@ wasm_yield_resume_byte: { old: 1_195_627_285_210 , new: 47_683_715 }
 
 # Congestion Control
 
-# 40 PGAS
+# 400 PGAS
 max_congestion_incoming_gas: {
   old : 20_000_000_000_000_000,
-  new : 40_000_000_000_000_000,
+  new : 400_000_000_000_000_000,
 }
 
 # 0.7

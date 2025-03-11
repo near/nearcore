@@ -1,8 +1,8 @@
 use near_o11y::metrics::{
-    exponential_buckets, linear_buckets, try_create_counter, try_create_counter_vec,
+    Counter, CounterVec, Gauge, Histogram, HistogramVec, IntCounter, IntCounterVec, IntGauge,
+    IntGaugeVec, exponential_buckets, linear_buckets, try_create_counter, try_create_counter_vec,
     try_create_gauge, try_create_histogram, try_create_histogram_vec, try_create_int_counter,
-    try_create_int_counter_vec, try_create_int_gauge, try_create_int_gauge_vec, Counter,
-    CounterVec, Gauge, Histogram, HistogramVec, IntCounter, IntCounterVec, IntGauge, IntGaugeVec,
+    try_create_int_counter_vec, try_create_int_gauge, try_create_int_gauge_vec,
 };
 use std::sync::LazyLock;
 
@@ -10,6 +10,14 @@ pub(crate) static BLOCK_PRODUCED_TOTAL: LazyLock<IntCounter> = LazyLock::new(|| 
     try_create_int_counter(
         "near_block_produced_total",
         "Total number of blocks produced since starting this node",
+    )
+    .unwrap()
+});
+
+pub(crate) static OPTIMISTIC_BLOCK_PRODUCED_TOTAL: LazyLock<IntCounter> = LazyLock::new(|| {
+    try_create_int_counter(
+        "near_optimistic_block_produced_total",
+        "Total number of optimistic blocks produced since starting this node",
     )
     .unwrap()
 });
@@ -22,10 +30,10 @@ pub(crate) static CHUNK_PRODUCED_TOTAL: LazyLock<IntCounter> = LazyLock::new(|| 
     .unwrap()
 });
 
-pub(crate) static PRODUCED_CHUNKS_SOME_POOL_TRANSACTIONS_DIDNT_FIT: LazyLock<IntCounterVec> =
+pub(crate) static PRODUCED_CHUNKS_SOME_POOL_TRANSACTIONS_DID_NOT_FIT: LazyLock<IntCounterVec> =
     LazyLock::new(|| {
         try_create_int_counter_vec(
-        "near_produced_chunks_some_pool_transactions_didnt_fit",
+        "near_produced_chunks_some_pool_transactions_did_not_fit",
         "Total number of produced chunks where some transactions from the pool didn't fit in the chunk \
         (since starting this node). The limited_by label specifies which limit was hit.",
         &["shard_id", "limited_by"],
@@ -412,6 +420,14 @@ pub(crate) static VIEW_CLIENT_MESSAGE_TIME: LazyLock<HistogramVec> = LazyLock::n
     .unwrap()
 });
 
+pub(crate) static STATE_SYNC_REQUESTS_THROTTLED_TOTAL: LazyLock<IntCounter> = LazyLock::new(|| {
+    try_create_int_counter(
+        "near_state_sync_requests_throttled_total",
+        "Total number of state sync requests which were received and ignored",
+    )
+    .unwrap()
+});
+
 pub(crate) static PRODUCE_AND_DISTRIBUTE_CHUNK_TIME: LazyLock<HistogramVec> = LazyLock::new(|| {
     try_create_histogram_vec(
         "near_produce_and_distribute_chunk_time",
@@ -465,7 +481,7 @@ pub(crate) static STATE_SYNC_STAGE: LazyLock<IntGaugeVec> = LazyLock::new(|| {
 
 pub(crate) static STATE_SYNC_DOWNLOAD_RESULT: LazyLock<IntCounterVec> = LazyLock::new(|| {
     try_create_int_counter_vec(
-        "near_state_sync_header_download_result",
+        "near_state_sync_download_result",
         "Count of number of state sync downloads by type (header, part),
                source (network, external), and result (timeout, error, success)",
         &["shard_id", "type", "source", "result"],
@@ -478,6 +494,16 @@ pub(crate) static STATE_SYNC_PARTS_TOTAL: LazyLock<IntGaugeVec> = LazyLock::new(
         "near_state_sync_parts_per_shard",
         "Number of parts in the shard",
         &["shard_id"],
+    )
+    .unwrap()
+});
+
+pub(crate) static STATE_SYNC_P2P_REQUEST_DELAY: LazyLock<HistogramVec> = LazyLock::new(|| {
+    try_create_histogram_vec(
+        "near_state_sync_p2p_request_delay_sec",
+        "Latency of state requests to peers",
+        &["shard_id", "type"],
+        Some(exponential_buckets(0.001, 2.0, 20).unwrap()),
     )
     .unwrap()
 });
@@ -584,6 +610,16 @@ pub(crate) static ORPHAN_CHUNK_STATE_WITNESS_POOL_MEMORY_USED: LazyLock<IntGauge
         .unwrap()
     });
 
+pub(crate) static BLOCK_PRODUCER_EXCLUDED_CHUNKS_COUNT: LazyLock<CounterVec> =
+    LazyLock::new(|| {
+        try_create_counter_vec(
+            "near_block_producer_excluded_chunks_count",
+            "Number of chunks excluded from the block due to insufficient chunk endorsements",
+            &["shard_id", "reason"],
+        )
+        .unwrap()
+    });
+
 pub(crate) static BLOCK_PRODUCER_ENDORSED_STAKE_RATIO: LazyLock<HistogramVec> =
     LazyLock::new(|| {
         try_create_histogram_vec(
@@ -629,6 +665,17 @@ pub(crate) static PARTIAL_WITNESS_TIME_TO_LAST_PART: LazyLock<HistogramVec> = La
     )
     .unwrap()
 });
+
+pub(crate) static PARTIAL_CONTRACT_DEPLOYS_TIME_TO_LAST_PART: LazyLock<HistogramVec> =
+    LazyLock::new(|| {
+        try_create_histogram_vec(
+        "near_partial_contract_deploys_time_to_last_part",
+        "Time taken from receiving first partial contract deploys to receiving enough parts to decode",
+        &["shard_id"],
+        Some(exponential_buckets(0.05, 2.0, 10).unwrap()),
+    )
+    .unwrap()
+    });
 
 pub(crate) static PARTIAL_WITNESS_CACHE_SIZE: LazyLock<Gauge> = LazyLock::new(|| {
     try_create_gauge(

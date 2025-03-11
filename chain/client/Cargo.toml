@@ -20,7 +20,7 @@ borsh.workspace = true
 bytesize.workspace = true
 chrono.workspace = true
 cloud-storage.workspace = true
-derive_more.workspace = true
+derive_more = { workspace = true, features = ["from"] }
 futures.workspace = true
 itertools.workspace = true
 lru.workspace = true

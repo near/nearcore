@@ -1,5 +1,5 @@
 use super::config::{AccountCreationConfig, RuntimeConfig};
-use crate::config::{CongestionControlConfig, WitnessConfig};
+use crate::config::{BandwidthSchedulerConfig, CongestionControlConfig, WitnessConfig};
 use crate::cost::{
     ActionCosts, ExtCostsConfig, Fee, ParameterCost, RuntimeFeesConfig, StorageUsageConfig,
 };
@@ -302,6 +302,8 @@ impl TryFrom<&ParameterTable> for RuntimeConfig {
                     storage_amount_per_byte: params.get(Parameter::StorageAmountPerByte)?,
                     num_bytes_account: params.get(Parameter::StorageNumBytesAccount)?,
                     num_extra_bytes_record: params.get(Parameter::StorageNumExtraBytesRecord)?,
+                    global_contract_storage_amount_per_byte: params
+                        .get(Parameter::GlobalContractStorageAmountPerByte)?,
                 },
             }),
             wasm_config: Arc::new(Config {
@@ -343,6 +345,12 @@ impl TryFrom<&ParameterTable> for RuntimeConfig {
                     .get(Parameter::CombinedTransactionsSizeLimit)?,
                 new_transactions_validation_state_size_soft_limit: params
                     .get(Parameter::NewTransactionsValidationStateSizeSoftLimit)?,
+            },
+            bandwidth_scheduler_config: BandwidthSchedulerConfig {
+                max_shard_bandwidth: params.get(Parameter::MaxShardBandwidth)?,
+                max_single_grant: params.get(Parameter::MaxSingleGrant)?,
+                max_allowance: params.get(Parameter::MaxAllowance)?,
+                max_base_bandwidth: params.get(Parameter::MaxBaseBandwidth)?,
             },
             use_state_stored_receipt: params.get(Parameter::UseStateStoredReceipt)?,
         })
@@ -520,8 +528,8 @@ fn canonicalize_yaml_string(value: &str) -> Result<serde_yaml::Value, InvalidCon
 #[cfg(test)]
 mod tests {
     use super::{
-        parse_parameter_value, InvalidConfigError, ParameterTable, ParameterTableDiff,
-        ParameterValue,
+        InvalidConfigError, ParameterTable, ParameterTableDiff, ParameterValue,
+        parse_parameter_value,
     };
     use crate::Parameter;
     use assert_matches::assert_matches;
@@ -584,7 +592,7 @@ mod tests {
         check_parameter_table("", &[], []);
     }
 
-    /// Reading reading a normally formatted base parameter file with no diffs
+    /// Reading a normally formatted base parameter file with no diffs
     #[test]
     fn test_basic_parameter_table() {
         check_parameter_table(
@@ -605,7 +613,7 @@ mod tests {
         );
     }
 
-    /// Reading reading a slightly funky formatted base parameter file with no diffs
+    /// Reading a slightly funky formatted base parameter file with no diffs
     #[test]
     fn test_basic_parameter_table_weird_syntax() {
         check_parameter_table(

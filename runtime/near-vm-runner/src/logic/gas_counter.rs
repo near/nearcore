@@ -1,7 +1,7 @@
-use super::dependencies::TrieNodesCount;
+use super::dependencies::StorageAccessTracker;
+use super::dependencies::sealed::StorageAccessTrackerSeal;
 use super::errors::{HostError, VMLogicError};
 use crate::ProfileDataV3;
-use near_parameters::ExtCosts::{read_cached_trie_node, touching_trie_node};
 use near_parameters::{ActionCosts, ExtCosts, ExtCostsConfig};
 use near_primitives_core::types::Gas;
 use std::collections::HashMap;
@@ -27,18 +27,38 @@ type Result<T> = ::std::result::Result<T, VMLogicError>;
 #[repr(C)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct FastGasCounter {
-    /// The following three fields must be put next to another to make sure
-    /// generated gas counting code can use and adjust them.
-    /// We will share counter to ensure we never miss synchronization.
-    /// This could change and in such a case synchronization required between compiled WASM code
-    /// and the host code.
-
+    // The following three fields must be put next to another to make sure
+    // generated gas counting code can use and adjust them.
+    // We will share counter to ensure we never miss synchronization.
+    // This could change and in such a case synchronization required between compiled WASM code
+    // and the host code.
     /// The amount of gas that was irreversibly used for contract execution.
     pub burnt_gas: u64,
     /// Hard gas limit for execution
     pub gas_limit: u64,
     /// Cost for one opcode. Used only by VMs preceding near_vm.
     pub opcode_cost: u64,
+}
+
+/// A gas counter type that does not actually count any gas.
+///
+/// For use in tests or when an operation does not need to account for TTN fees.
+pub struct FreeGasCounter;
+
+impl StorageAccessTrackerSeal for FreeGasCounter {}
+impl StorageAccessTracker for FreeGasCounter {
+    fn trie_node_touched(&mut self, _: u64) -> Result<()> {
+        Ok(())
+    }
+    fn cached_trie_node_access(&mut self, _: u64) -> Result<()> {
+        Ok(())
+    }
+    fn deref_write_evicted_value_bytes(&mut self, _: u64) -> Result<()> {
+        Ok(())
+    }
+    fn deref_removed_value_bytes(&mut self, _: u64) -> Result<()> {
+        Ok(())
+    }
 }
 
 /// Gas counter (a part of VMlogic)
@@ -53,7 +73,7 @@ pub struct GasCounter {
     prepaid_gas: Gas,
     /// If this is a view-only call.
     is_view: bool,
-    /// FIXME(nagisa): why do we store a copy both here and in the VMLogic???
+    // FIXME(nagisa): why do we store a copy both here and in the VMLogic???
     ext_costs_config: ExtCostsConfig,
     /// Where to store profile data, if needed.
     profile: ProfileDataV3,
@@ -318,12 +338,6 @@ impl GasCounter {
         deduct_gas_result
     }
 
-    pub(crate) fn add_trie_fees(&mut self, count: &TrieNodesCount) -> Result<()> {
-        self.pay_per(touching_trie_node, count.db_reads)?;
-        self.pay_per(read_cached_trie_node, count.mem_reads)?;
-        Ok(())
-    }
-
     pub(crate) fn prepay_gas(&mut self, use_gas: Gas) -> Result<()> {
         self.deduct_gas(0, use_gas)
     }
@@ -339,6 +353,24 @@ impl GasCounter {
 
     pub(crate) fn profile_data(&self) -> ProfileDataV3 {
         self.profile.clone()
+    }
+}
+
+impl StorageAccessTrackerSeal for GasCounter {}
+impl StorageAccessTracker for GasCounter {
+    fn trie_node_touched(&mut self, count: u64) -> Result<()> {
+        self.pay_per(ExtCosts::touching_trie_node, count)
+    }
+
+    fn cached_trie_node_access(&mut self, count: u64) -> Result<()> {
+        self.pay_per(ExtCosts::read_cached_trie_node, count)
+    }
+
+    fn deref_write_evicted_value_bytes(&mut self, bytes: u64) -> Result<()> {
+        self.pay_per(ExtCosts::storage_write_evicted_byte, bytes)
+    }
+    fn deref_removed_value_bytes(&mut self, bytes: u64) -> Result<()> {
+        self.pay_per(ExtCosts::storage_remove_ret_value_byte, bytes)
     }
 }
 

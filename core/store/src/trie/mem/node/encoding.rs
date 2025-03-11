@@ -1,10 +1,10 @@
 use super::{InputMemTrieNode, MemTrieNodeId, MemTrieNodePtr, MemTrieNodeView};
 use crate::trie::mem::arena::{ArenaMemory, ArenaMemoryMut, ArenaMut, ArenaPos, ArenaWithDealloc};
+use crate::trie::mem::flexible_data::FlexibleDataHeader;
 use crate::trie::mem::flexible_data::children::EncodedChildrenHeader;
 use crate::trie::mem::flexible_data::encoding::{BorshFixedSize, RawDecoder, RawEncoder};
 use crate::trie::mem::flexible_data::extension::EncodedExtensionHeader;
 use crate::trie::mem::flexible_data::value::EncodedValueHeader;
-use crate::trie::mem::flexible_data::FlexibleDataHeader;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives::hash::CryptoHash;
 use std::mem::size_of;
@@ -250,6 +250,7 @@ impl MemTrieNodeId {
             return 1;
         }
         // Refcount is always encoded as the first four bytes of the node memory.
+        // cspell:words unref
         let refcount_memory = arena.memory_mut().raw_slice_mut(self.pos, size_of::<u32>());
         let refcount = u32::from_le_bytes(refcount_memory.try_into().unwrap());
         let new_refcount = refcount.checked_sub(1).unwrap();

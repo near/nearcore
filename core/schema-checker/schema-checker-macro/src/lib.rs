@@ -11,9 +11,9 @@ mod helper {
     use proc_macro2::TokenStream as TokenStream2;
     use quote::{format_ident, quote};
     use syn::{
-        parse_macro_input, Data, DeriveInput, Field, Fields, FieldsNamed, FieldsUnnamed,
-        GenericArgument, GenericParam, Generics, Index, Path, PathArguments, PathSegment, Type,
-        TypePath, Variant,
+        Data, DeriveInput, Field, Fields, FieldsNamed, FieldsUnnamed, GenericArgument,
+        GenericParam, Generics, Index, Path, PathArguments, PathSegment, Type, TypePath, Variant,
+        parse_macro_input,
     };
 
     pub fn protocol_schema_impl(input: TokenStream) -> TokenStream {
@@ -213,6 +213,7 @@ mod helper {
             new_segment
         });
 
+        // cspell:ignore qself
         Type::Path(TypePath {
             qself: type_path.qself.clone(),
             path: Path {

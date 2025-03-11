@@ -1,6 +1,6 @@
 use crate::config::SocketOptions;
-use crate::network_protocol::testonly as data;
 use crate::network_protocol::PeerMessage;
+use crate::network_protocol::testonly as data;
 use crate::network_protocol::{Encoding, Handshake, OwnedAccount, PartialEdgeInfo};
 use crate::peer::peer_actor::ClosingReason;
 use crate::peer_manager;
@@ -19,7 +19,7 @@ use near_primitives::version::PROTOCOL_VERSION;
 use std::sync::Arc;
 
 #[tokio::test]
-async fn connection_spam_security_test() {
+async fn slow_test_connection_spam_security_test() {
     init_test_logger();
     let mut rng = make_rng(921853233);
     let rng = &mut rng;

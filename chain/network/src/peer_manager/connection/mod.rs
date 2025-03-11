@@ -18,7 +18,7 @@ use near_o11y::WithSpanContextExt;
 use near_primitives::block::GenesisId;
 use near_primitives::network::PeerId;
 use near_primitives::types::ShardId;
-use std::collections::{hash_map::Entry, HashMap};
+use std::collections::{HashMap, hash_map::Entry};
 use std::fmt;
 use std::future::Future;
 use std::sync::atomic::AtomicU64;
@@ -42,22 +42,66 @@ impl tcp::Tier {
             PeerMessage::VersionedStateResponse(_) => {
                 self == tcp::Tier::T2 || self == tcp::Tier::T3
             }
+            PeerMessage::OptimisticBlock(..) => true,
             PeerMessage::Routed(msg) => self.is_allowed_routed(&msg.body),
-            _ => self == tcp::Tier::T2,
+            PeerMessage::SyncRoutingTable(..)
+            | PeerMessage::DistanceVector(..)
+            | PeerMessage::RequestUpdateNonce(..)
+            | PeerMessage::SyncAccountsData(..)
+            | PeerMessage::PeersRequest(..)
+            | PeerMessage::PeersResponse(..)
+            | PeerMessage::BlockHeadersRequest(..)
+            | PeerMessage::BlockHeaders(..)
+            | PeerMessage::BlockRequest(..)
+            | PeerMessage::Block(..)
+            | PeerMessage::Transaction(..)
+            | PeerMessage::Disconnect(..)
+            | PeerMessage::Challenge(..)
+            | PeerMessage::SyncSnapshotHosts(..)
+            | PeerMessage::StateRequestHeader(..)
+            | PeerMessage::StateRequestPart(..)
+            | PeerMessage::EpochSyncRequest
+            | PeerMessage::EpochSyncResponse(..) => self == tcp::Tier::T2,
         }
     }
 
     pub(crate) fn is_allowed_routed(self, body: &RoutedMessageBody) -> bool {
         match body {
+            // T1
             RoutedMessageBody::BlockApproval(..)
-            | RoutedMessageBody::ChunkEndorsement(..)
+            | RoutedMessageBody::VersionedChunkEndorsement(..)
             | RoutedMessageBody::PartialEncodedStateWitness(..)
             | RoutedMessageBody::PartialEncodedStateWitnessForward(..)
             | RoutedMessageBody::VersionedPartialEncodedChunk(..)
             | RoutedMessageBody::ChunkContractAccesses(_)
             | RoutedMessageBody::ContractCodeRequest(_)
             | RoutedMessageBody::ContractCodeResponse(_) => true,
-            _ => self == tcp::Tier::T2,
+            // Rest
+            RoutedMessageBody::ForwardTx(..)
+            | RoutedMessageBody::TxStatusRequest(..)
+            | RoutedMessageBody::TxStatusResponse(..)
+            | RoutedMessageBody::PartialEncodedChunkRequest(..)
+            | RoutedMessageBody::PartialEncodedChunkResponse(..)
+            | RoutedMessageBody::Ping(..)
+            | RoutedMessageBody::Pong(..)
+            | RoutedMessageBody::PartialEncodedChunkForward(..)
+            | RoutedMessageBody::ChunkStateWitnessAck(..)
+            | RoutedMessageBody::StatePartRequest(..)
+            | RoutedMessageBody::PartialEncodedContractDeploys(..) => self == tcp::Tier::T2,
+            // Deprecated
+            RoutedMessageBody::_UnusedQueryRequest
+            | RoutedMessageBody::_UnusedQueryResponse
+            | RoutedMessageBody::_UnusedReceiptOutcomeRequest(..)
+            | RoutedMessageBody::_UnusedReceiptOutcomeResponse
+            | RoutedMessageBody::_UnusedStateRequestHeader
+            | RoutedMessageBody::_UnusedStateRequestPart
+            | RoutedMessageBody::_UnusedStateResponse
+            | RoutedMessageBody::_UnusedPartialEncodedChunk
+            | RoutedMessageBody::_UnusedVersionedStateResponse
+            | RoutedMessageBody::_UnusedChunkStateWitness
+            | RoutedMessageBody::_UnusedChunkEndorsement
+            | RoutedMessageBody::_UnusedEpochSyncRequest
+            | RoutedMessageBody::_UnusedEpochSyncResponse(..) => unreachable!(),
         }
     }
 }
@@ -81,7 +125,7 @@ pub(crate) struct Stats {
 
 /// Contains information relevant to a connected peer.
 pub(crate) struct Connection {
-    // TODO(gprusak): add rate limiting on TIER1 connections for defence in-depth.
+    // TODO(gprusak): add rate limiting on TIER1 connections for defense in-depth.
     pub tier: tcp::Tier,
     // TODO(gprusak): addr should be internal, so that Connection will become an API of the
     // PeerActor.
@@ -154,7 +198,7 @@ impl Connection {
     pub fn send_accounts_data(
         self: &Arc<Self>,
         data: Vec<Arc<SignedAccountData>>,
-    ) -> impl Future<Output = ()> {
+    ) -> impl Future<Output = ()> + use<> {
         let this = self.clone();
         async move {
             let res = this
@@ -198,10 +242,10 @@ impl Connection {
     // Accepts a list of SnapshotHostInfos to be broadcast to all neighbors of the node.
     // Multiple calls to this function made in quick succession will be condensed into a
     // single outgoing message.
-    pub fn send_snapshot_hosts(
-        self: &Arc<Self>,
+    pub fn send_snapshot_hosts<'a>(
+        self: &'a Arc<Self>,
         data: Vec<Arc<SnapshotHostInfo>>,
-    ) -> impl Future<Output = ()> {
+    ) -> impl Future<Output = ()> + use<> {
         let this = self.clone();
         async move {
             // Pass the data through the snapshot_hosts_demux to
@@ -274,6 +318,7 @@ pub(crate) struct PoolSnapshot {
     /// In case any of these steps fails the connection and the OutboundHandshakePermit
     /// should be dropped.
     ///
+    /// cspell:ignore WLOG
     /// Now imagine that A and B try to connect to each other at the same time:
     /// a. Peer A executes 1,2,3.
     /// b. Peer B executes 1,2,3.
@@ -394,6 +439,7 @@ impl Pool {
                 return Err(PoolError::AlreadyConnected);
             }
             if let Some(owned_account) = &peer.owned_account {
+                // cspell:ignore KEEPALIVE KEEPCNT KEEPIDLE KEEPINTVL
                 // Only 1 connection per account key is allowed.
                 // Having 2 peers use the same account key is an invalid setup,
                 // which violates the BFT consensus anyway.
@@ -406,7 +452,7 @@ impl Pool {
                 // TCP_KEEPIDLE - idle connection time after which a KEEPALIVE is sent
                 // TCP_KEEPINTVL - interval between subsequent KEEPALIVE probes
                 // TCP_KEEPCNT - number of KEEPALIVE probes before closing the connection.
-                // If it ever becomes a problem, we can eiter:
+                // If it ever becomes a problem, we can either:
                 // 1. replace TCP with sth else, like QUIC.
                 // 2. use some lower level API than tokio::net to be able to set the linux flags.
                 // 3. implement KEEPALIVE equivalent manually on top of TCP to resolve conflicts.

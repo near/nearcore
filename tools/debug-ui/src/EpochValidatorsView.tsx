@@ -1,7 +1,7 @@
-import { useId } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { useId, useState } from 'react';
 import { Tooltip } from 'react-tooltip';
-import { ValidatorKickoutReason, fetchEpochInfo } from './api';
+import { EpochInfoView, ValidatorKickoutReason, fetchEpochInfo } from './api';
 import './EpochValidatorsView.scss';
 
 interface ProducedAndExpected {
@@ -104,31 +104,25 @@ class Validators {
     }
 }
 
-type EpochValidatorViewProps = {
-    addr: string;
-};
+interface ProcessedEpochData {
+    validators: Validators;
+    maxStake: number;
+    totalStake: number;
+    maxExpectedBlocks: number;
+    maxExpectedChunks: number;
+    maxExpectedEndorsements: number;
+}
 
-export const EpochValidatorsView = ({ addr }: EpochValidatorViewProps) => {
-    const {
-        data: epochData,
-        error: epochError,
-        isLoading: epochIsLoading,
-    } = useQuery(['epochInfo', addr], () => fetchEpochInfo(addr));
-
-    if (epochIsLoading) {
-        return <div>Loading...</div>;
-    }
-    if (epochError) {
-        return <div className="error">{(epochError as Error).stack}</div>;
-    }
+function processEpochData(epochData: any): ProcessedEpochData {
     let maxStake = 0,
         totalStake = 0,
         maxExpectedBlocks = 0,
         maxExpectedChunks = 0,
         maxExpectedEndorsements = 0;
-    const epochs = epochData!.status_response.EpochInfo;
+    const epochs = epochData.status_response.EpochInfo;
     const validators = new Validators(epochs.length);
-    const currentValidatorInfo = epochData!.status_response.EpochInfo[1].validator_info;
+    const currentValidatorInfo = epochData.status_response.EpochInfo[1].validator_info;
+
     for (const validatorInfo of currentValidatorInfo.current_validators) {
         const validator = validators.validator(validatorInfo.account_id);
         const stake = parseFloat(validatorInfo.stake);
@@ -157,6 +151,7 @@ export const EpochValidatorsView = ({ addr }: EpochValidatorViewProps) => {
             validatorInfo.num_expected_endorsements
         );
     }
+
     for (const validatorInfo of currentValidatorInfo.next_validators) {
         const validator = validators.validator(validatorInfo.account_id);
         validator.next = {
@@ -169,16 +164,22 @@ export const EpochValidatorsView = ({ addr }: EpochValidatorViewProps) => {
                 shards: validatorInfo.shards,
             });
         }
+        validators.addValidatorRole(validator.accountId, 0, {
+            kind: 'ChunkValidator',
+        });
     }
+
     for (const proposal of currentValidatorInfo.current_proposals) {
         const validator = validators.validator(proposal.account_id);
         validator.proposalStake = parseFloat(proposal.stake);
     }
+
     for (const kickout of currentValidatorInfo.prev_epoch_kickout) {
         const validator = validators.validator(kickout.account_id);
         validator.kickoutReason = kickout.reason;
     }
-    epochs.forEach((epochInfo, index) => {
+
+    epochs.forEach((epochInfo: any, index: number) => {
         for (const blockProducer of epochInfo.block_producers) {
             validators.addValidatorRole(blockProducer.account_id, index, { kind: 'BlockProducer' });
         }
@@ -199,87 +200,259 @@ export const EpochValidatorsView = ({ addr }: EpochValidatorViewProps) => {
         }
     });
 
-    return (
-        <table className="epoch-validators-table">
+    return {
+        validators,
+        maxStake,
+        totalStake,
+        maxExpectedBlocks,
+        maxExpectedChunks,
+        maxExpectedEndorsements,
+    };
+}
+
+type EpochValidatorViewProps = {
+    addr: string;
+};
+
+export const EpochValidatorsView = ({ addr }: EpochValidatorViewProps) => {
+    const [enteredEpochId, setEnteredEpochId] = useState<string>('');
+    const [currentEpochId, setCurrentEpochId] = useState<string | null>(null);
+    const [validators, setValidators] = useState<Validators | null>(null);
+    const [maxStake, setMaxStake] = useState<number>(0);
+    const [totalStake, setTotalStake] = useState<number>(0);
+    const [maxExpectedBlocks, setMaxExpectedBlocks] = useState<number>(0);
+    const [maxExpectedChunks, setMaxExpectedChunks] = useState<number>(0);
+    const [maxExpectedEndorsements, setMaxExpectedEndorsements] = useState<number>(0);
+
+    const { data: epochData, error: epochError, isLoading: epochIsLoading, isFetching } = useQuery(
+        ['epochInfo', addr, currentEpochId],
+        () => fetchEpochInfo(addr, currentEpochId),
+        {
+            onSuccess: (data) => {
+                const { 
+                    validators, maxStake, totalStake, 
+                    maxExpectedBlocks, maxExpectedChunks, maxExpectedEndorsements 
+                } = processEpochData(data);
+                setValidators(validators);
+                setMaxStake(maxStake);
+                setTotalStake(totalStake);
+                setMaxExpectedBlocks(maxExpectedBlocks);
+                setMaxExpectedChunks(maxExpectedChunks);
+                setMaxExpectedEndorsements(maxExpectedEndorsements);
+            },
+            keepPreviousData: true
+        }
+    );
+
+    if (epochIsLoading) {	
+        return <div>Loading...</div>;	
+    }
+    if (epochError) {
+        return <div className="error">{(epochError as Error).stack}</div>;
+    }
+
+    const handleNavigateEpoch = async (direction: 'left' | 'right') => {
+        if (!epochData?.status_response.EpochInfo) return;
+        
+        const epochs = epochData.status_response.EpochInfo;
+        const currentIndex = 1;
+        const targetIndex = direction === 'left' ? currentIndex - 1 : currentIndex + 1;
+        
+        if (targetIndex < 0 || targetIndex >= epochs.length) {
+            alert('No more epochs available in that direction');
+            return;
+        }
+
+        const targetEpochId = epochs[targetIndex].epoch_id;
+        setCurrentEpochId(targetEpochId);
+        setEnteredEpochId(targetEpochId);
+    };
+
+    const handleButtonClick = async () => {
+        try {
+            setCurrentEpochId(enteredEpochId || null);
+        } catch (error) {
+            console.error('Error fetching epoch data:', error);
+            alert('Failed to fetch epoch data');
+        }
+    };
+
+    const handleEpochIdInput = (event: React.ChangeEvent<HTMLInputElement>) => {
+        setEnteredEpochId(event.target.value);
+    };
+
+    function renderTableHeaders(epochData: any): JSX.Element {
+        return (
             <thead>
                 <tr>
                     <th></th>
-                    <th colSpan={3}>Next Epoch</th>
-                    <th colSpan={5}>Current Epoch</th>
-                    <th colSpan={1 + epochs.length - 2}>Past Epochs</th>
+                    <th colSpan={3}>Next Epoch {epochData?.status_response.EpochInfo[0].epoch_height}</th>
+                    <th colSpan={5}>Current Epoch {epochData?.status_response.EpochInfo[1].epoch_height}</th>
+                    <th colSpan={1 + (epochData?.status_response.EpochInfo.length || 0) - 2}>Past Epochs</th>
                 </tr>
                 <tr>
                     <th>Validator</th>
-
                     <th className="small-text">Roles (shards)</th>
                     <th>Stake</th>
                     <th>Proposal</th>
-
                     <th className="small-text">Roles (shards)</th>
                     <th>Stake</th>
                     <th>Blocks</th>
                     <th>Produced Chunks</th>
                     <th>Endorsed Chunks</th>
-
-                    <th>Kickout</th>
-                    {epochs.slice(2).map((epoch) => {
-                        return (
-                            <th key={epoch.epoch_id} className="small-text">
-                                {epoch.epoch_id.substring(0, 4)}...
-                            </th>
-                        );
-                    })}
+                    {epochData?.status_response.EpochInfo.slice(2).map((epoch: any) => (
+                        <th key={epoch.epoch_id} className="small-text">
+                            {epoch.epoch_id.substring(0, 4)}...
+                        </th>
+                    ))}
                 </tr>
             </thead>
+        );
+    }
+
+    function renderTableBody(
+        validators: Validators | null,
+        maxStake: number,
+        totalStake: number,
+        maxExpectedBlocks: number,
+        maxExpectedChunks: number,
+        maxExpectedEndorsements: number,
+    ): JSX.Element {
+        return (
             <tbody>
-                {validators.sorted().map((validator) => {
+                {validators?.sorted().map((validator: ValidatorInfo) => {
                     return (
                         <tr key={validator.accountId}>
                             <td>{validator.accountId}</td>
-                            <td>{renderRoles(validator.roles[0])}</td>
+                            <td>{renderRoles(validator.roles[0], validator.kickoutReason, true)}</td>
                             <td>
-                                {drawStakeBar(validator.next?.stake ?? null, maxStake, totalStake)}
-                            </td>
-                            <td>{drawStakeBar(validator.proposalStake, maxStake, totalStake)}</td>
-
-                            <td>{renderRoles(validator.roles[1])}</td>
-                            <td>
-                                {drawStakeBar(
-                                    validator.current?.stake ?? null,
-                                    maxStake,
-                                    totalStake
-                                )}
-                            </td>
-                            <td>
-                                {drawProducedAndExpectedBar(
-                                    validator.current?.blocks ?? null,
-                                    maxExpectedBlocks
-                                )}
-                            </td>
-                            <td>
-                                {drawProducedAndExpectedBar(
-                                    validator.current?.chunks ?? null,
-                                    maxExpectedChunks
-                                )}
-                            </td>
-                            <td>
-                                {drawProducedAndExpectedBar(
-                                    validator.current?.endorsements ?? null,
-                                    maxExpectedEndorsements
-                                )}
-                            </td>
-
-                            <td>
-                                <KickoutReason reason={validator.kickoutReason} />
-                            </td>
-                            {validator.roles.slice(2).map((roles, i) => {
-                                return <td key={i}>{renderRoles(roles)}</td>;
-                            })}
+                            {drawStakeBar(validator.next?.stake ?? null, maxStake, totalStake)}
+                        </td>
+                        <td>{drawStakeBar(validator.proposalStake, maxStake, totalStake)}</td>
+                        <td>{renderRoles(validator.roles[1], validator.kickoutReason)}</td>
+                        <td>
+                            {drawStakeBar(
+                                validator.current?.stake ?? null,
+                                maxStake,
+                                totalStake
+                            )}
+                        </td>
+                        <td>
+                            {drawProducedAndExpectedBar(
+                                validator.current?.blocks ?? null,
+                                maxExpectedBlocks
+                            )}
+                        </td>
+                        <td>
+                            {drawProducedAndExpectedBar(
+                                validator.current?.chunks ?? null,
+                                maxExpectedChunks
+                            )}
+                        </td>
+                        <td>
+                            {drawProducedAndExpectedBar(
+                                validator.current?.endorsements ?? null,
+                                maxExpectedEndorsements
+                            )}
+                        </td>
+                        {validator.roles.slice(2).map((roles: ValidatorRole[], i: number) => (
+                            <td key={i}>{renderRoles(roles, validator.kickoutReason)}</td>
+                        ))}
                         </tr>
                     );
                 })}
             </tbody>
-        </table>
+        );
+    }
+
+    function renderValidatorsTable(
+        epochData: any,
+        validators: Validators | null,
+        maxStake: number,
+        totalStake: number,
+        maxExpectedBlocks: number,
+        maxExpectedChunks: number,
+        maxExpectedEndorsements: number,
+    ): JSX.Element {
+        return (
+            <table className="epoch-validators-table">
+                {renderTableHeaders(epochData)}
+                {renderTableBody(
+                    validators,
+                    maxStake,
+                    totalStake,
+                    maxExpectedBlocks,
+                    maxExpectedChunks,
+                    maxExpectedEndorsements
+                )}
+            </table>
+        );
+    }
+
+    return (
+        <div className={isFetching ? 'loading-overlay' : ''}>
+            <div className="kickout-disclaimer">
+                Note: Validator kickouts are determined at the end of the <b>second previous epoch</b>
+            </div>
+
+            <div className="epoch-navigation">
+                <button 
+                    onClick={() => handleNavigateEpoch('left')}
+                    disabled={!epochData}
+                    className="arrow-button"
+                >
+                    ←
+                </button>
+                
+                <div className="epoch-info">
+                    {epochData && (
+                        <>
+                            <div className="epoch-height">
+                                Epoch {epochData.status_response.EpochInfo[1].epoch_height}
+                                <span className="epoch-start-height">
+                                    (starts at {epochData.status_response.EpochInfo[1].height || 'N/A'})
+                                </span>
+                            </div>
+                            <details>
+                                <summary>Recent Epochs</summary>
+                                <div className="epoch-debug">
+                                    {epochData.status_response.EpochInfo.map((epoch: EpochInfoView, index: number) => (
+                                        <div key={epoch.epoch_id}>
+                                            Epoch {epoch.epoch_height}: {epoch.epoch_id}
+                                        </div>
+                                    ))}
+                                </div>
+                            </details>
+                        </>
+                    )}
+                </div>
+
+                <button 
+                    onClick={() => handleNavigateEpoch('right')}
+                    disabled={!epochData}
+                    className="arrow-button"
+                >
+                    →
+                </button>
+            </div>
+
+            <input
+                type="text"
+                placeholder="Enter Epoch ID"
+                value={enteredEpochId}
+                onChange={handleEpochIdInput}
+            />
+            <button onClick={handleButtonClick}>Show Validators</button>
+            {renderValidatorsTable(
+                epochData,
+                validators,
+                maxStake,
+                totalStake,
+                maxExpectedBlocks,
+                maxExpectedChunks,
+                maxExpectedEndorsements
+            )}
+        </div>
     );
 };
 
@@ -339,7 +512,11 @@ function drawStakeBar(stake: number | null, maxStake: number, totalStake: number
     );
 }
 
-function renderRoles(roles: ValidatorRole[]): JSX.Element {
+function renderRoles(roles: ValidatorRole[], kickoutReason: ValidatorKickoutReason | null = null, isNextEpoch: boolean = false): JSX.Element {
+    if (isNextEpoch && kickoutReason) {
+        return <span className="kickout">✖ <KickoutReason reason={kickoutReason} /></span>;
+    }
+
     const renderedItems = [];
     for (const role of roles) {
         switch (role.kind) {
@@ -356,6 +533,7 @@ function renderRoles(roles: ValidatorRole[]): JSX.Element {
                 break;
         }
     }
+    
     return <>{renderedItems}</>;
 }
 
@@ -381,6 +559,10 @@ const KickoutReason = ({ reason }: { reason: ValidatorKickoutReason | null }) =>
     } else if ('NotEnoughChunks' in reason) {
         kickoutSummary = '#Chunks';
         kickoutReason = `Validator did not produce enough chunks: expected ${reason.NotEnoughChunks.expected}, actually produced ${reason.NotEnoughChunks.produced}`;
+    } else if ('NotEnoughChunkEndorsements' in reason) {
+        {/* cspell: words Endors */}
+        kickoutSummary = '#Endors';
+        kickoutReason = `Validator did not produce enough chunk endorsements: expected ${reason.NotEnoughChunkEndorsements.expected}, actually produced ${reason.NotEnoughChunkEndorsements.produced}`;
     } else if ('NotEnoughStake' in reason) {
         kickoutSummary = 'LowStake';
         kickoutReason = `Validator did not have enough stake: minimum stake required was ${reason.NotEnoughStake.threshold}, but validator only had ${reason.NotEnoughStake.stake}`;

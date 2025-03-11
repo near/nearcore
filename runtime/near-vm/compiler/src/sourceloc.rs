@@ -14,7 +14,6 @@ use crate::lib::std::fmt;
 /// The default source location uses the all-ones bit pattern `!0`. It is used for instructions
 /// that can't be given a real source location.
 #[derive(rkyv::Serialize, rkyv::Deserialize, rkyv::Archive, Debug, Clone, Copy, PartialEq, Eq)]
-#[archive(as = "Self")]
 #[repr(transparent)]
 pub struct SourceLoc(u32);
 
@@ -43,11 +42,7 @@ impl Default for SourceLoc {
 
 impl fmt::Display for SourceLoc {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        if self.is_default() {
-            write!(f, "0x-")
-        } else {
-            write!(f, "0x{:04x}", self.0)
-        }
+        if self.is_default() { write!(f, "0x-") } else { write!(f, "0x{:04x}", self.0) }
     }
 }
 

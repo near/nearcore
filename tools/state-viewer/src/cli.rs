@@ -20,7 +20,7 @@ use near_primitives_core::types::EpochHeight;
 use near_store::adapter::StoreAdapter;
 use near_store::{Mode, NodeStorage, Store, Temperature};
 use nearcore::entity_debug::EntityDebugHandlerImpl;
-use nearcore::{load_config, NearConfig, NightshadeRuntime, NightshadeRuntimeExt};
+use nearcore::{NearConfig, NightshadeRuntime, NightshadeRuntimeExt, load_config};
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
@@ -52,6 +52,8 @@ pub enum StateViewerSubCommand {
     CheckBlock,
     /// Looks up a certain chunk.
     Chunks(ChunksCmd),
+    /// View chunk application stats for a chunk.
+    ChunkApplyStats(ChunkApplyStatsCmd),
     /// Clear recoverable data in CachedContractCode column.
     #[clap(alias = "clear_cache")]
     ClearCache,
@@ -144,12 +146,10 @@ impl StateViewerSubCommand {
         let near_config = load_config(home_dir, genesis_validation)
             .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
 
-        let cold_config: Option<&near_store::StoreConfig> = near_config.config.cold_store.as_ref();
         let store_opener = NodeStorage::opener(
             home_dir,
-            near_config.config.archive,
             &near_config.config.store,
-            cold_config,
+            near_config.config.archival_config(),
         );
 
         let storage = store_opener.open_in_mode(mode).unwrap();
@@ -170,6 +170,7 @@ impl StateViewerSubCommand {
             StateViewerSubCommand::Chain(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::CheckBlock => check_block_chunk_existence(near_config, store),
             StateViewerSubCommand::Chunks(cmd) => cmd.run(near_config, store),
+            StateViewerSubCommand::ChunkApplyStats(cmd) => cmd.run(near_config, store),
             StateViewerSubCommand::ClearCache => clear_cache(store),
             StateViewerSubCommand::ContractAccounts(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::DebugUI(cmd) => {
@@ -191,7 +192,7 @@ impl StateViewerSubCommand {
             StateViewerSubCommand::StateChanges(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::StateParts(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::StateStats(cmd) => cmd.run(home_dir, near_config, store),
-            StateViewerSubCommand::ViewChain(cmd) => cmd.run(near_config, store),
+            StateViewerSubCommand::ViewChain(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::ViewGenesis(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::ViewTrie(cmd) => cmd.run(store),
             StateViewerSubCommand::TrieIterationBenchmark(cmd) => cmd.run(near_config, store),
@@ -208,7 +209,10 @@ pub enum StorageSource {
     /// Use the data stored in trie, but without paying extra gas costs.
     /// This could be used to simulate flat storage when the latter is not present.
     TrieFree,
+    #[value(alias("flat"))]
     FlatStorage,
+    /// Implies flat storage and loads the memtries as well.
+    Memtrie,
 }
 
 impl StorageSource {
@@ -217,6 +221,9 @@ impl StorageSource {
             StorageSource::Trie => RuntimeStorageConfig::new(state_root, false),
             StorageSource::TrieFree => RuntimeStorageConfig::new_with_db_trie_only(state_root),
             StorageSource::FlatStorage => RuntimeStorageConfig::new(state_root, true),
+            // This is the same as FlatStorage handling. That's because memtrie initialization
+            // happens as part of `ShardTries::load_memtrie` function call.
+            StorageSource::Memtrie => RuntimeStorageConfig::new(state_root, true),
         }
     }
 }
@@ -283,16 +290,16 @@ impl ApplyChunkCmd {
 #[derive(clap::Parser, Copy, Clone, Debug, Eq, PartialEq)]
 pub enum ApplyRangeMode {
     /// Applies chunks one after another in order of increasing heights.
+    ///
+    /// Great for profiling.
     Sequential,
     /// Applies chunks in parallel.
+    ///
     /// Useful for quick correctness check of applying chunks by comparing
     /// results with `ChunkExtra`s.
     Parallel,
-    /// Sequentially applies chunks from flat storage head until chain
-    /// final head, moving flat head forward. Use in combination with
-    /// `MoveFlatHeadCmd` and `MoveFlatHeadMode::Back`.
-    /// Useful for benchmarking.
-    Benchmarking,
+    /// Applies a single block repeatedly without committing any state changes.
+    Benchmark,
 }
 
 #[derive(clap::Parser)]
@@ -326,7 +333,7 @@ impl ApplyRangeCmd {
         store: Store,
         node_storage: NodeStorage,
     ) {
-        if matches!(self.mode, ApplyRangeMode::Benchmarking) && self.save_state.is_some() {
+        if matches!(self.mode, ApplyRangeMode::Benchmark) && self.save_state.is_some() {
             panic!("Persisting trie nodes in storage is not compatible with benchmark mode!");
         }
         apply_range(
@@ -411,6 +418,20 @@ impl ChunksCmd {
     pub fn run(self, near_config: NearConfig, store: Store) {
         let chunk_hash = ChunkHash::from(CryptoHash::from_str(&self.chunk_hash).unwrap());
         get_chunk(chunk_hash, near_config, store)
+    }
+}
+
+#[derive(clap::Parser)]
+pub struct ChunkApplyStatsCmd {
+    #[clap(long)]
+    block_hash: CryptoHash,
+    #[clap(long)]
+    shard_id: u64,
+}
+
+impl ChunkApplyStatsCmd {
+    pub fn run(self, near_config: NearConfig, store: Store) {
+        print_chunk_apply_stats(&self.block_hash, self.shard_id, near_config, store);
     }
 }
 
@@ -621,7 +642,7 @@ impl EpochInfoCmd {
 
 #[derive(clap::Args)]
 pub struct EpochAnalysisCmd {
-    /// Start height of the epochs to analyse.
+    /// Start height of the epochs to analyze.
     #[clap(long)]
     start_height: EpochHeight,
     /// Epoch analysis mode.
@@ -829,8 +850,8 @@ pub struct ViewChainCmd {
 }
 
 impl ViewChainCmd {
-    pub fn run(self, near_config: NearConfig, store: Store) {
-        view_chain(self.height, self.block, self.chunk, near_config, store);
+    pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
+        view_chain(self.height, self.block, self.chunk, home_dir, near_config, store);
     }
 }
 

@@ -9,6 +9,7 @@ pub use curve25519_dalek::scalar::Scalar;
 
 use near_account_id::AccountType;
 
+// cspell:words vmul vartime multiscalar
 pub fn vmul2(s1: Scalar, p1: &Point, s2: Scalar, p2: &Point) -> Point {
     Point::vartime_multiscalar_mul(&[s1, s2], [p1, p2].iter().copied())
 }
@@ -73,10 +74,10 @@ impl<T1: Packable<Packed = [u8; 32]>, T2: Packable<Packed = [u8; 32]>> Packable 
 }
 
 impl<
-        T1: Packable<Packed = [u8; 32]>,
-        T2: Packable<Packed = [u8; 32]>,
-        T3: Packable<Packed = [u8; 32]>,
-    > Packable for (T1, T2, T3)
+    T1: Packable<Packed = [u8; 32]>,
+    T2: Packable<Packed = [u8; 32]>,
+    T3: Packable<Packed = [u8; 32]>,
+> Packable for (T1, T2, T3)
 {
     type Packed = [u8; 96];
 

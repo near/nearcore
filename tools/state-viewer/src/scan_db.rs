@@ -1,12 +1,11 @@
 use borsh::BorshDeserialize;
 use near_chain::types::LatestKnown;
-use near_epoch_manager::types::EpochInfoAggregator;
 use near_primitives::block::{Block, BlockHeader, Tip};
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::epoch_info::EpochInfo;
 use near_primitives::epoch_manager::AGGREGATOR_KEY;
 use near_primitives::receipt::Receipt;
-use near_primitives::shard_layout::{get_block_shard_uid_rev, ShardUId};
+use near_primitives::shard_layout::{ShardUId, get_block_shard_uid_rev};
 use near_primitives::sharding::{ChunkHash, ReceiptProof, ShardChunk, StateSyncInfo};
 use near_primitives::state::FlatStateValue;
 use near_primitives::state_sync::{
@@ -19,6 +18,7 @@ use near_primitives::utils::{get_block_shard_id_rev, get_outcome_id_block_hash_r
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::BlockHeight;
 use near_store::adapter::flat_store::decode_flat_state_db_key;
+use near_store::epoch_info_aggregator::EpochInfoAggregator;
 use near_store::flat::delta::KeyForFlatStateDelta;
 use near_store::flat::{FlatStateChanges, FlatStateDeltaMetadata};
 use near_store::{DBCol, RawTrieNodeWithSize, Store, TrieChanges};
@@ -32,7 +32,7 @@ fn find_db_col(col: &str) -> DBCol {
             return db_col;
         }
     }
-    panic!("Wrong columnn")
+    panic!("Wrong column")
 }
 
 /// Scans a DB column, deserializes keys and values and prints them.

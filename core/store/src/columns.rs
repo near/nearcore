@@ -43,7 +43,7 @@ pub enum DBCol {
     BlockHeight,
     /// Column that stores the Trie state.
     /// - *Rows*: trie_node_or_value_hash (CryptoHash)
-    /// - *Content type*: Serializd RawTrieNodeWithSize or value ()
+    /// - *Content type*: Serialized RawTrieNodeWithSize or value ()
     State,
     /// Mapping from BlockChunk to ChunkExtra
     /// - *Rows*: BlockChunk (block_hash, shard_uid)
@@ -162,7 +162,7 @@ pub enum DBCol {
     ///     - PeerComponent: keep information on mapping from the peer to the last component that it belonged to (so that if a new peer shows
     ///         up we know which 'component' to load)
     ///     - ComponentEdges: keep the info about the edges that were connecting these peers that were removed.
-
+    ///
     /// Map each saved peer on disk with its component id (a.k.a. nonce).
     /// - *Rows*: peer_id
     /// - *Column type*:  (nonce) u64
@@ -306,6 +306,22 @@ pub enum DBCol {
     /// - *Rows*: `ShardUId`
     /// - *Column type*: `ShardUId`
     StateShardUIdMapping,
+    /// Stores a mapping from epoch IDs to the hash of the block that should be used as the "sync_hash" in state sync
+    /// when syncing state to the current epoch after the StateSyncHashUpdate protocol feature is enabled.
+    /// - *Rows*: `EpochId`
+    /// - *Column type*: `CryptoHash`
+    StateSyncHashes,
+    /// Stores a mapping from a block's hash to a list (indexed by ShardIndex like a header's chunk_mask())
+    /// of the number of new chunks up to that block after the first block in the epoch. Used in calculating
+    /// the right "sync_hash" for state sync after the StateSyncHashUpdate protocol feature is enabled.
+    /// - *Rows*: `CryptoHash`
+    /// - *Column type*: `Vec<u8>`
+    StateSyncNewChunks,
+    /// Stores chunk application stats for every applied chunk.
+    /// The stats can be read to analyze what happened during chunk application.
+    /// - *Rows*: BlockShardId (BlockHash || ShardId) - 40 bytes
+    /// - *Column type*: `ChunkApplyStats`
+    ChunkApplyStats,
 }
 
 /// Defines different logical parts of a db key.
@@ -346,7 +362,7 @@ pub enum DBKeyType {
 impl DBCol {
     /// Whether data in this column is effectively immutable.
     ///
-    /// Data in such columns is never overwriten, though it can be deleted by gc
+    /// Data in such columns is never overwritten, though it can be deleted by gc
     /// eventually. Specifically, for a given key:
     ///
     /// * It's OK to insert a new value.
@@ -451,8 +467,8 @@ impl DBCol {
             | DBCol::StateHeaders
             | DBCol::TransactionResultForBlock
             | DBCol::Transactions
-            // TODO(reshardingV3) How the mapping will work with split storage?
-            | DBCol::StateShardUIdMapping => true,
+            | DBCol::StateShardUIdMapping
+            | DBCol::ChunkApplyStats => true,
 
             // TODO
             DBCol::ChallengedBlocks => false,
@@ -510,7 +526,9 @@ impl DBCol {
             | DBCol::FlatStateChanges
             | DBCol::FlatStateDeltaMetadata
             | DBCol::FlatStorageStatus
-            | DBCol::EpochSyncProof => false,
+            | DBCol::EpochSyncProof
+            | DBCol::StateSyncHashes
+            | DBCol::StateSyncNewChunks => false,
         }
     }
 
@@ -584,6 +602,9 @@ impl DBCol {
             DBCol::LatestWitnessesByIndex => &[DBKeyType::LatestWitnessIndex],
             DBCol::EpochSyncProof => &[DBKeyType::Empty],
             DBCol::StateShardUIdMapping => &[DBKeyType::ShardUId],
+            DBCol::StateSyncHashes => &[DBKeyType::EpochId],
+            DBCol::StateSyncNewChunks => &[DBKeyType::BlockHash],
+            DBCol::ChunkApplyStats => &[DBKeyType::BlockHash, DBKeyType::ShardId],
         }
     }
 }

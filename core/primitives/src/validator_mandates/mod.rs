@@ -1,4 +1,4 @@
-use crate::types::{validator_stake::ValidatorStake, ValidatorId};
+use crate::types::{ValidatorId, validator_stake::ValidatorStake};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives_core::types::Balance;
 use near_schema_checker_lib::ProtocolSchema;
@@ -122,7 +122,7 @@ impl ValidatorMandates {
 mod validator_mandates_sample {
     use super::*;
     use itertools::Itertools;
-    use rand::{seq::SliceRandom, Rng};
+    use rand::{Rng, seq::SliceRandom};
 
     impl ValidatorMandates {
         /// Returns a validator assignment obtained by shuffling mandates and assigning them to shards.
@@ -136,7 +136,7 @@ mod validator_mandates_sample {
             R: Rng + ?Sized,
         {
             // Shuffling shard ids to avoid a bias towards lower ids, see [`ShuffledShardIds`]. We
-            // do two separate shuffes for full and partial mandates to reduce the likelihood of
+            // do two separate shuffles for full and partial mandates to reduce the likelihood of
             // assigning fewer full _and_ partial mandates to the _same_ shard.
             let shard_ids_for_mandates = ShuffledShardIds::new(rng, self.config.num_shards);
             let shard_ids_for_partials = ShuffledShardIds::new(rng, self.config.num_shards);
@@ -241,7 +241,7 @@ pub type ChunkValidatorStakeAssignment = Vec<Vec<(ValidatorId, Balance)>>;
 /// # Shuffling to avoid bias
 ///
 /// When mandates cannot be distributed evenly across shards, some shards will be assigned one
-/// mandata less than others. Shuffling shard ids prevents a bias towards lower shard ids, as it is
+/// mandate less than others. Shuffling shard ids prevents a bias towards lower shard ids, as it is
 /// no longer predictable which shard(s) will be assigned one mandate less.
 #[cfg(feature = "rand")]
 #[derive(Default, Clone, Debug, PartialEq, Eq)]
@@ -281,7 +281,7 @@ mod tests {
     use rand_chacha::ChaCha8Rng;
 
     use crate::{
-        types::validator_stake::ValidatorStake, types::ValidatorId,
+        types::ValidatorId, types::validator_stake::ValidatorStake,
         validator_mandates::ValidatorMandatesConfig,
     };
 

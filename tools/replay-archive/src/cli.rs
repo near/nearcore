@@ -1,24 +1,28 @@
-use crate::replaydb::{open_storage_for_replay, ReplayDB};
-use anyhow::{anyhow, bail, Context, Result};
+use crate::replaydb::{ReplayDB, open_storage_for_replay};
+use anyhow::{Context, Result, anyhow, bail};
 use clap;
 use itertools::Itertools;
 use near_chain::chain::{
-    collect_receipts_from_response, NewChunkData, NewChunkResult, OldChunkData, OldChunkResult,
-    ShardContext, StorageContext,
+    NewChunkData, NewChunkResult, OldChunkData, OldChunkResult, ShardContext, StorageContext,
+    collect_receipts_from_response,
 };
 use near_chain::migrations::check_if_block_is_first_with_chunk_of_version;
-use near_chain::sharding::shuffle_receipt_proofs;
+use near_chain::sharding::{get_receipts_shuffle_salt, shuffle_receipt_proofs};
 use near_chain::stateless_validation::chunk_endorsement::validate_chunk_endorsements_in_block;
 use near_chain::stateless_validation::chunk_validation::apply_result_to_chunk_extra;
 use near_chain::types::StorageDataSource;
-use near_chain::update_shard::{process_shard_update, ShardUpdateReason, ShardUpdateResult};
+use near_chain::update_shard::{ShardUpdateReason, ShardUpdateResult, process_shard_update};
 use near_chain::validate::{
     validate_chunk_proofs, validate_chunk_with_chunk_extra, validate_transactions_order,
 };
-use near_chain::{Block, BlockHeader, Chain, ChainGenesis, ChainStore, ChainStoreAccess};
+use near_chain::{
+    Block, BlockHeader, Chain, ChainGenesis, ChainStore, ChainStoreAccess, ReceiptFilter,
+    get_incoming_receipts_for_shard,
+};
 use near_chain_configs::GenesisValidationMode;
 use near_chunks::logic::make_outgoing_receipts_proofs;
 use near_epoch_manager::EpochManagerAdapter;
+use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_epoch_manager::{EpochManager, EpochManagerHandle};
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::hash::CryptoHash;
@@ -27,17 +31,17 @@ use near_primitives::sharding::{ReceiptProof, ShardChunk, ShardChunkHeader, Shar
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, Gas, ProtocolVersion, ShardId};
 use near_primitives::version::ProtocolFeature;
-use near_state_viewer::progress_reporter::{timestamp_ms, ProgressReporter};
-use near_store::{get_genesis_state_roots, ShardUId, Store};
-use nearcore::{load_config, NearConfig, NightshadeRuntime, NightshadeRuntimeExt};
+use near_state_viewer::progress_reporter::ProgressReporter;
+use near_store::{ShardUId, Store, get_genesis_state_roots};
+use nearcore::{NearConfig, NightshadeRuntime, NightshadeRuntimeExt, load_config};
 use std::collections::HashMap;
 use std::path::Path;
-use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
+use std::sync::atomic::AtomicU64;
 
 /// This command assumes that it is run from an archival node
 /// and not all the operations data that is available for a
-/// regular validator may not be available in the archival database.
+/// regular validator might not be available in the archival database.
 #[derive(clap::Parser)]
 pub struct ReplayArchiveCommand {
     #[clap(long)]
@@ -114,7 +118,11 @@ impl ReplayController {
         let store = Store::new(storage.clone());
 
         let genesis_height = near_config.genesis.config.genesis_height;
-        let chain_store = ChainStore::new(store.clone(), genesis_height, false);
+        let chain_store = ChainStore::new(
+            store.clone(),
+            false,
+            near_config.genesis.config.transaction_validity_period,
+        );
 
         let head_height = chain_store.head().context("Failed to get head of the chain")?.height;
         let start_height = start_height.unwrap_or(genesis_height);
@@ -132,12 +140,13 @@ impl ReplayController {
 
         let progress_reporter = ProgressReporter {
             cnt: AtomicU64::new(0),
-            ts: AtomicU64::new(timestamp_ms()),
-            all: (end_height + 1).saturating_sub(start_height),
             skipped: AtomicU64::new(0),
             empty_blocks: AtomicU64::new(0),
             non_empty_blocks: AtomicU64::new(0),
             tgas_burned: AtomicU64::new(0),
+            indicatif: near_state_viewer::progress_reporter::default_indicatif(
+                (end_height + 1).checked_sub(start_height),
+            ),
         };
 
         Ok(Self {
@@ -192,7 +201,8 @@ impl ReplayController {
                 total_gas_burnt = Some(gas_burnt);
             }
         }
-        self.progress_reporter.inc_and_report_progress(total_gas_burnt.unwrap_or(0));
+        self.progress_reporter
+            .inc_and_report_progress(self.next_height, total_gas_burnt.unwrap_or(0));
         self.next_height += 1;
         Ok(self.next_height <= self.end_height)
     }
@@ -237,9 +247,7 @@ impl ReplayController {
             let prev_chunk_header = &prev_chunk_headers[shard_id];
             let epoch_id = block.header().epoch_id();
             let shard_id: ShardId = shard_id.try_into()?;
-            let shard_uid = self
-                .epoch_manager
-                .shard_id_to_uid(shard_id, epoch_id)
+            let shard_uid = shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, epoch_id)
                 .context("Failed to get shard UID from shard id")?;
             let replay_output = self
                 .replay_chunk(
@@ -305,7 +313,7 @@ impl ReplayController {
         )?;
 
         let shard_id = shard_uid.shard_id();
-        let shard_context = self.get_shard_context(block_header, shard_uid)?;
+        let shard_context = self.get_shard_context(shard_uid)?;
 
         let storage_context = StorageContext {
             storage_data_source: StorageDataSource::DbTrieOnly,
@@ -337,6 +345,8 @@ impl ReplayController {
             ShardUpdateReason::NewChunk(NewChunkData {
                 chunk_header: chunk_header.clone(),
                 transactions: chunk.transactions().to_vec(),
+                // FIXME: see the `validate_chunk` thing above.
+                transaction_validity_check_results: vec![true; chunk.transactions().len()],
                 receipts,
                 block: block_context,
                 is_first_block_with_chunk_of_version,
@@ -384,14 +394,16 @@ impl ReplayController {
     ) -> Result<Vec<Receipt>> {
         let shard_layout =
             self.epoch_manager.get_shard_layout_from_prev_block(block_header.prev_hash())?;
-        let receipt_response = &self.chain_store.get_incoming_receipts_for_shard(
+        let receipt_response = get_incoming_receipts_for_shard(
+            &self.chain_store,
             self.epoch_manager.as_ref(),
             shard_id,
             &shard_layout,
             *block_header.hash(),
             prev_chunk_height_included,
+            ReceiptFilter::TargetShard,
         )?;
-        let receipts = collect_receipts_from_response(receipt_response);
+        let receipts = collect_receipts_from_response(&receipt_response);
         Ok(receipts)
     }
 
@@ -416,7 +428,7 @@ impl ReplayController {
         prev_chunk_header: &ShardChunkHeader,
         prev_chunk_extra: &ChunkExtra,
     ) -> Result<()> {
-        // Check if the information in the ChunkExtra recorded after applying the previuous chunk matches the information in the new chunk.
+        // Check if the information in the ChunkExtra recorded after applying the previous chunk matches the information in the new chunk.
         if is_new_chunk {
             validate_chunk_with_chunk_extra(
                 &self.chain_store,
@@ -433,6 +445,8 @@ impl ReplayController {
         {
             bail!("Failed to validate chunk proofs");
         }
+        // FIXME: this should be using Chain::validate_chunk_transactions instead of doing its own
+        // thing?
         if !validate_transactions_order(chunk.transactions()) {
             bail!("Failed to validate transactions order in the chunk");
         }
@@ -478,8 +492,9 @@ impl ReplayController {
         }
 
         let mut store_update = self.chain_store.store_update();
+        let receipts_shuffle_salt = get_receipts_shuffle_salt(self.epoch_manager.as_ref(), block)?;
         for (shard_id, mut receipts) in receipt_proofs_by_shard_id.into_iter() {
-            shuffle_receipt_proofs(&mut receipts, block_hash);
+            shuffle_receipt_proofs(&mut receipts, receipts_shuffle_salt);
             store_update.save_incoming_receipt(&block_hash, shard_id, Arc::new(receipts));
         }
         store_update.commit().unwrap();
@@ -488,28 +503,17 @@ impl ReplayController {
 
     /// Generates a ShardContext specific to replaying the blocks, which indicates that
     /// we care about all the shards and should always apply chunk.
-    fn get_shard_context(
-        &self,
-        block_header: &BlockHeader,
-        shard_uid: ShardUId,
-    ) -> Result<ShardContext> {
-        let prev_hash = block_header.prev_hash();
-        let will_shard_layout_change = self.epoch_manager.will_shard_layout_change(prev_hash)?;
-        let shard_context = ShardContext {
-            shard_uid,
-            cares_about_shard_this_epoch: true,
-            will_shard_layout_change: will_shard_layout_change,
-            should_apply_chunk: true,
-        };
+    fn get_shard_context(&self, shard_uid: ShardUId) -> Result<ShardContext> {
+        let shard_context = ShardContext { shard_uid, should_apply_chunk: true };
         Ok(shard_context)
     }
 
     /// Saves the ChunkExtras for the shards in the genesis block.
-    /// Note that there is no chunks in the genesis block, so we directly generate the ChunkExtras
+    /// Note that there are no chunks in the genesis block, so we directly generate the ChunkExtras
     /// from the information in the genesis block without applying any transactions or receipts.
     fn save_genesis_chunk_extras(&mut self, genesis_block: &Block) -> Result<()> {
         let chain_genesis = ChainGenesis::new(&self.near_config.genesis.config);
-        let state_roots = get_genesis_state_roots(self.chain_store.store())?
+        let state_roots = get_genesis_state_roots(&self.chain_store.store())?
             .ok_or_else(|| anyhow!("genesis state roots do not exist in the db".to_owned()))?;
         let mut store_update = self.chain_store.store_update();
         Chain::save_genesis_chunk_extras(

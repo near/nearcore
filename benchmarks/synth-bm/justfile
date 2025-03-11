@@ -1,0 +1,72 @@
+# Point the `NEARD_PATH` environment variable to the binary or place it here.
+neard := env('NEARD_PATH', "./neard")
+near_localnet_home := ".near/"
+rpc_url := "http://127.0.0.1:3030"
+# Each RPC connection requires a file descriptor, so this value should be
+# higher than your --channel-buffer-size
+num_file_descriptors := "65536"
+
+init_localnet:
+    {{neard}} --home {{near_localnet_home}} init --chain-id localnet
+
+run_localnet:
+    {{neard}} --home {{near_localnet_home}} run
+
+# For native transfer benchmarks we mostly use 10k accounts.
+# When running this against testnet or mainnet, you'll most likely want to
+# reduce this number.
+#
+# Re-running this command without wiping state in between requires adjusting
+# the --nonce and --sub-account-prefix. To avoid sending transactions with
+# invalid nonces or trying to create accounts that already exist.
+create_sub_accounts:
+    RUST_LOG=info \
+    ulimit -n {{num_file_descriptors}} && \
+    cargo run --release -- create-sub-accounts \
+        --rpc-url {{rpc_url}} \
+        --signer-key-path {{near_localnet_home}}/validator_key.json \
+        --nonce 1 \
+        --sub-account-prefix 'a' \
+        --num-sub-accounts 10000 \
+        --deposit 953060601875000000010000 \
+        --channel-buffer-size 1200 \
+        --requests-per-second 1250 \
+        --user-data-dir user-data
+
+# Default config is expected to allow less than 2k RPS.
+# With unlimited config that number is higher, around 5k or 6k on personal
+# machines.
+# 
+# These values change as nearcore evolves and depend on hardware. So finding
+# the current max on your machine requires some experimentation.
+#
+# When profiling the node which receives the workload, consider sending
+# transactions immediately by removing --read-nonces-from-network.
+benchmark_native_transfers:
+    RUST_LOG=info \
+    ulimit -n {{num_file_descriptors}} && \
+    cargo run --release -- benchmark-native-transfers \
+        --rpc-url {{rpc_url}} \
+        --user-data-dir user-data/ \
+        --read-nonces-from-network \
+        --num-transfers 40000 \
+        --channel-buffer-size 30000 \
+        --requests-per-second 2000 \
+        --amount 1 \
+        --transaction-statistics-service
+
+benchmark_mpc_sign:
+    RUST_LOG=info \
+    ulimit -n {{num_file_descriptors}} && \
+    cargo run --release -- benchmark-mpc-sign \
+        --rpc-url {{rpc_url}} \
+        --user-data-dir user-data/ \
+        --read-nonces-from-network \
+        --num-transactions 500 \
+        --requests-per-second 100 \
+        --receiver-id 'v1.signer-dev.testnet' \
+        --key-version 0 \
+        --channel-buffer-size 500 \
+        --gas 300000000000000 \
+        --deposit 100000000000000000000000
+

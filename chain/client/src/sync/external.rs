@@ -369,7 +369,7 @@ struct S3CredentialsConfig {
     secret_key: String,
 }
 
-pub fn create_bucket_readwrite(
+pub fn create_bucket_read_write(
     bucket: &str,
     region: &str,
     timeout: Duration,
@@ -409,8 +409,8 @@ fn create_bucket(
 #[cfg(test)]
 mod test {
     use crate::sync::external::{
-        get_num_parts_from_filename, get_part_id_from_filename, is_part_filename,
-        ExternalConnection, StateFileType,
+        ExternalConnection, StateFileType, get_num_parts_from_filename, get_part_id_from_filename,
+        is_part_filename,
     };
     use near_o11y::testonly::init_test_logger;
     use near_primitives::types::ShardId;
@@ -458,7 +458,7 @@ mod test {
         let data: Vec<u8> = data.into();
         tracing::debug!("Data: {:?}", data);
 
-        // Directory resembles real usecase.
+        // Directory resembles real use case.
         let dir = "test_folder/chain_id=test/epoch_height=1/epoch_id=test/shard_id=0".to_string();
         let full_filename = format!("{}/{}", dir, filename);
         let file_type = StateFileType::StatePart { part_id: 0, num_parts: 1 };

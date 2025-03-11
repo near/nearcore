@@ -8,7 +8,7 @@ authors = ["Wasmer Engineering Team <engineering@wasmer.io>", "Near Inc <hello@n
 repository.workspace = true
 license = "MIT"
 readme = "README.md"
-edition = "2021"
+edition.workspace = true
 publish = false
 rust-version.workspace = true
 
@@ -51,7 +51,6 @@ wat.workspace = true
 near-vm-compiler-test-derive.workspace = true
 near-vm-wast.workspace = true
 test-log.workspace = true
-serial_test.workspace = true
 tracing-subscriber.workspace = true
 
 [build-dependencies]

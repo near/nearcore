@@ -16,7 +16,7 @@ pub(crate) struct ExecutionToReceipts {
     /// converting blocks to Rosetta transactions.
     transactions: HashMap<CryptoHash, SignedTransactionView>,
     /// A mapping of receipts to predecessor_ids
-    /// receipts map is needed to determine the initing account of the receipt
+    /// receipts map is needed to determine the init account of the receipt
     /// and to determine if a receipt is a refund.
     receipts: HashMap<CryptoHash, AccountId>,
     /// A vector of FungibleTokenEvents derived from logs in the ExecutionOutcomeWithIdView vector.
@@ -86,7 +86,6 @@ impl ExecutionToReceipts {
     }
 
     /// Creates an empty mapping.  This is useful for tests.
-    #[cfg(test)]
     pub(crate) fn empty() -> Self {
         Self {
             map: Default::default(),
@@ -322,11 +321,7 @@ pub(crate) async fn convert_block_changes_to_transactions(
                                 _ => 0,
                             })
                             .sum::<u128>();
-                        if total_sum == 0 {
-                            None
-                        } else {
-                            Some(total_sum)
-                        }
+                        if total_sum == 0 { None } else { Some(total_sum) }
                     }),
                     _ => None,
                 };
@@ -362,7 +357,7 @@ pub(crate) async fn convert_block_changes_to_transactions(
                 return Err(crate::errors::ErrorKind::InternalInvariantError(format!(
                     "queried AccountChanges, but received {:?}.",
                     unexpected_value
-                )))
+                )));
             }
         }
     }
@@ -610,7 +605,7 @@ fn convert_fungible_token_balance_change_to_operations(
             currency: Currency {
                 symbol: fungible_token_event.symbol.clone(),
                 decimals: fungible_token_event.decimals,
-                metadata: Some(crate::models::CurrenyMetadata {
+                metadata: Some(crate::models::CurrencyMetadata {
                     contract_address: fungible_token_event.contract_account_id.clone(),
                 }),
             },

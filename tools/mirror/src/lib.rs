@@ -837,22 +837,14 @@ impl<T: ChainAccess> TxMirror<T> {
         let target_config =
             nearcore::config::load_config(target_home, GenesisValidationMode::UnsafeFast)
                 .with_context(|| format!("Error loading target config from {:?}", target_home))?;
-        if !target_config.client_config.archive {
-            // this is probably not going to come up, but we want to avoid a situation where
-            // we go offline for a long time and then come back online, and we state sync to
-            // the head of the target chain without looking for our outcomes that made it on
-            // chain right before we went offline
-            anyhow::bail!("config file in {} has archive: false, but archive must be set to true for the target chain", target_home.display());
-        }
         let db = match mirror_db_path {
             Some(mirror_db_path) => open_db(mirror_db_path),
             None => {
                 // keep backward compatibility
                 let mirror_db_path = near_store::NodeStorage::opener(
                     target_home,
-                    target_config.config.archive,
                     &target_config.config.store,
-                    None,
+                    target_config.config.archival_config(),
                 )
                 .path()
                 .join("mirror");
@@ -1166,8 +1158,9 @@ impl<T: ChainAccess> TxMirror<T> {
                 }
             }
             Err(e) => {
-                return Err(e)
-                    .with_context(|| format!("failed fetching access key for {}", &predecessor_id))
+                return Err(e).with_context(|| {
+                    format!("failed fetching access key for {}", &predecessor_id)
+                });
             }
         };
 
@@ -1562,7 +1555,7 @@ impl<T: ChainAccess> TxMirror<T> {
                 .await?;
             }
             tracing::debug!(
-                target: "mirror", "prepared {} transacations for source chain #{} shard {}",
+                target: "mirror", "prepared {} transactions for source chain #{} shard {}",
                 txs.len(), source_height, ch.shard_id
             );
             chunks.push(MappedChunk { txs, shard_id: ch.shard_id });
@@ -1582,7 +1575,10 @@ impl<T: ChainAccess> TxMirror<T> {
                 .await?;
             } else {
                 // shouldn't happen
-                tracing::warn!("something is wrong as there are no chunks to send transactions for at height {}", source_height);
+                tracing::warn!(
+                    "something is wrong as there are no chunks to send transactions for at height {}",
+                    source_height
+                );
             }
         }
         Ok(MappedBlock { source_height, source_hash: source_block.hash, chunks })
@@ -1771,6 +1767,7 @@ impl<T: ChainAccess> TxMirror<T> {
             home_dir,
             sync_mode: near_indexer::SyncModeEnum::FromInterruption,
             await_for_node_synced: near_indexer::AwaitForNodeSyncedEnum::StreamWhileSyncing,
+            finality: Finality::Final,
             validate_genesis: false,
         })
         .context("failed to start target chain indexer")?;

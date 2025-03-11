@@ -1,9 +1,9 @@
 use near_primitives::block::BlockValidityError;
-use near_primitives::challenge::{ChunkProofs, ChunkState};
+use near_primitives::challenge::{ChunkProofs, ChunkState, MaybeEncodedShardChunk};
 use near_primitives::errors::{ChunkAccessError, EpochError, StorageError};
 use near_primitives::shard_layout::ShardLayoutError;
-use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
-use near_primitives::types::{BlockHeight, EpochId, ShardId};
+use near_primitives::sharding::{BadHeaderForProtocolVersionError, ChunkHash, ShardChunkHeader};
+use near_primitives::types::{BlockHeight, EpochId, ShardId, ShardIndex};
 use near_time::Utc;
 use std::io;
 
@@ -125,6 +125,9 @@ pub enum Error {
     /// Invalid chunk.
     #[error("Invalid Chunk")]
     InvalidChunk(String),
+    /// One of the chunks has invalid transactions order
+    #[error("Invalid Chunk Transactions Order")]
+    InvalidChunkTransactionsOrder(Box<MaybeEncodedShardChunk>),
     /// One of the chunks has invalid proofs
     #[error("Invalid Chunk Proofs")]
     InvalidChunkProofs(Box<ChunkProofs>),
@@ -191,6 +194,10 @@ pub enum Error {
     /// Invalid shard id
     #[error("Shard id {0} does not exist")]
     InvalidShardId(ShardId),
+    #[error("Shard index {0} does not exist")]
+    InvalidShardIndex(ShardIndex),
+    #[error("Shard id {0} does not have a parent")]
+    NoParentShardId(ShardId),
     /// Invalid shard id
     #[error("Invalid state request: {0}")]
     InvalidStateRequest(String),
@@ -241,6 +248,9 @@ pub enum Error {
     /// EpochSyncProof validation error.
     #[error("EpochSyncProof Validation Error: {0}")]
     InvalidEpochSyncProof(String),
+    /// Invalid chunk header version for protocol version
+    #[error(transparent)]
+    BadHeaderForProtocolVersion(#[from] BadHeaderForProtocolVersionError),
     /// Anything else
     #[error("Other Error: {0}")]
     Other(String),
@@ -285,6 +295,7 @@ impl Error {
             | Error::InvalidBlockHeight(_)
             | Error::InvalidBlockProposer
             | Error::InvalidChunk(_)
+            | Error::InvalidChunkTransactionsOrder(_)
             | Error::InvalidChunkProofs(_)
             | Error::InvalidChunkState(_)
             | Error::InvalidChunkStateWitness(_)
@@ -320,13 +331,16 @@ impl Error {
             | Error::InvalidCongestionInfo(_)
             | Error::InvalidBandwidthRequests(_)
             | Error::InvalidShardId(_)
+            | Error::InvalidShardIndex(_)
+            | Error::NoParentShardId(_)
             | Error::InvalidStateRequest(_)
             | Error::InvalidRandomnessBeaconOutput
             | Error::InvalidBlockMerkleRoot
             | Error::InvalidProtocolVersion
             | Error::NotAValidator(_)
             | Error::NotAChunkValidator
-            | Error::InvalidChallengeRoot => true,
+            | Error::InvalidChallengeRoot
+            | Error::BadHeaderForProtocolVersion(_) => true,
         }
     }
 
@@ -364,6 +378,7 @@ impl Error {
             Error::InvalidBlockHeight(_) => "invalid_block_height",
             Error::InvalidBlockProposer => "invalid_block_proposer",
             Error::InvalidChunk(_) => "invalid_chunk",
+            Error::InvalidChunkTransactionsOrder(_) => "invalid_chunk_transactions_order",
             Error::InvalidChunkProofs(_) => "invalid_chunk_proofs",
             Error::InvalidChunkState(_) => "invalid_chunk_state",
             Error::InvalidChunkStateWitness(_) => "invalid_chunk_state_witness",
@@ -399,14 +414,18 @@ impl Error {
             Error::InvalidCongestionInfo(_) => "invalid_congestion_info",
             Error::InvalidBandwidthRequests(_) => "invalid_bandwidth_requests",
             Error::InvalidShardId(_) => "invalid_shard_id",
+            Error::InvalidShardIndex(_) => "invalid_shard_index",
+            Error::NoParentShardId(_) => "no_parent_shard_id",
             Error::InvalidStateRequest(_) => "invalid_state_request",
             Error::InvalidRandomnessBeaconOutput => "invalid_randomness_beacon_output",
-            Error::InvalidBlockMerkleRoot => "invalid_block_merkele_root",
+            Error::InvalidBlockMerkleRoot => "invalid_block_merkle_root",
             Error::InvalidProtocolVersion => "invalid_protocol_version",
             Error::NotAValidator(_) => "not_a_validator",
             Error::NotAChunkValidator => "not_a_chunk_validator",
             Error::InvalidChallengeRoot => "invalid_challenge_root",
             Error::ReshardingError(_) => "resharding_error",
+
+            Error::BadHeaderForProtocolVersion(_) => "bad_header_for_protocol_version",
         }
     }
 }
@@ -438,6 +457,10 @@ impl From<ShardLayoutError> for Error {
     fn from(error: ShardLayoutError) -> Self {
         match error {
             ShardLayoutError::InvalidShardIdError { shard_id } => Error::InvalidShardId(shard_id),
+            ShardLayoutError::InvalidShardIndexError { shard_index } => {
+                Error::InvalidShardIndex(shard_index)
+            }
+            ShardLayoutError::NoParentError { shard_id } => Error::NoParentShardId(shard_id),
         }
     }
 }

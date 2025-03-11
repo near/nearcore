@@ -1,21 +1,21 @@
-use crate::tests::genesis_helpers::genesis_block;
 use crate::tests::nearcore::node_cluster::NodeCluster;
+use crate::utils::genesis_helpers::genesis_block;
 use actix::clock::sleep;
 use actix::{Actor, System};
 use assert_matches::assert_matches;
 
 use futures::future::join_all;
-use futures::{future, FutureExt, TryFutureExt};
+use futures::{FutureExt, TryFutureExt, future};
 use near_actix_test_utils::spawn_interruptible;
 use near_client::{GetBlock, GetExecutionOutcome, GetValidatorInfo};
-use near_crypto::{InMemorySigner, KeyType};
+use near_crypto::InMemorySigner;
 use near_jsonrpc::client::new_client;
 use near_jsonrpc_primitives::types::transactions::{RpcTransactionStatusRequest, TransactionInfo};
 use near_network::test_utils::WaitOrTimeoutActor;
-use near_o11y::testonly::init_integration_logger;
 use near_o11y::WithSpanContextExt;
+use near_o11y::testonly::init_integration_logger;
 use near_parameters::{RuntimeConfigStore, RuntimeConfigView};
-use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::merkle::{compute_root_from_path_and_item, verify_path};
 use near_primitives::serialize::to_base64;
 use near_primitives::transaction::{PartialExecutionStatus, SignedTransaction};
@@ -27,8 +27,7 @@ use near_primitives::views::{ExecutionOutcomeView, ExecutionStatusView, TxExecut
 use std::time::Duration;
 
 #[test]
-#[cfg_attr(not(feature = "expensive_tests"), ignore)]
-fn test_get_validator_info_rpc() {
+fn ultra_slow_test_get_validator_info_rpc() {
     init_integration_logger();
 
     let cluster = NodeCluster::default()
@@ -106,14 +105,13 @@ fn test_get_execution_outcome(is_tx_successful: bool) {
         let view_client = clients[0].1.clone();
 
         let genesis_hash = *genesis_block(&genesis).hash();
-        let signer =
-            InMemorySigner::from_seed("near.0".parse().unwrap(), KeyType::ED25519, "near.0");
+        let signer = InMemorySigner::test_signer(&"near.0".parse().unwrap());
         let transaction = if is_tx_successful {
             SignedTransaction::send_money(
                 1,
                 "near.0".parse().unwrap(),
                 "near.1".parse().unwrap(),
-                &signer.into(),
+                &signer,
                 10000,
                 genesis_hash,
             )
@@ -123,8 +121,8 @@ fn test_get_execution_outcome(is_tx_successful: bool) {
                 "near.0".parse().unwrap(),
                 "near.1".parse().unwrap(),
                 10,
-                signer.public_key.clone(),
-                &signer.into(),
+                signer.public_key(),
+                &signer,
                 genesis_hash,
             )
         };
@@ -208,20 +206,17 @@ fn test_get_execution_outcome(is_tx_successful: bool) {
 }
 
 #[test]
-#[cfg_attr(not(feature = "expensive_tests"), ignore)]
-fn test_get_execution_outcome_tx_success() {
+fn ultra_slow_test_get_execution_outcome_tx_success() {
     test_get_execution_outcome(true);
 }
 
 #[test]
-#[cfg_attr(not(feature = "expensive_tests"), ignore)]
-fn test_get_execution_outcome_tx_failure() {
+fn ultra_slow_test_get_execution_outcome_tx_failure() {
     test_get_execution_outcome(false);
 }
 
 #[test]
-#[cfg_attr(not(feature = "expensive_tests"), ignore)]
-fn test_protocol_config_rpc() {
+fn ultra_slow_test_protocol_config_rpc() {
     init_integration_logger();
 
     let cluster = NodeCluster::default()
@@ -245,12 +240,12 @@ fn test_protocol_config_rpc() {
             .unwrap();
 
         let runtime_config_store = RuntimeConfigStore::new(None);
-        let intial_runtime_config = runtime_config_store.get_config(ProtocolVersion::MIN);
+        let initial_runtime_config = runtime_config_store.get_config(ProtocolVersion::MIN);
         let latest_runtime_config =
             runtime_config_store.get_config(near_primitives::version::PROTOCOL_VERSION);
         assert_ne!(
             config_response.config_view.runtime_config.storage_amount_per_byte,
-            intial_runtime_config.storage_amount_per_byte()
+            initial_runtime_config.storage_amount_per_byte()
         );
         // compare JSON view
         assert_eq!(
@@ -262,8 +257,7 @@ fn test_protocol_config_rpc() {
 }
 
 #[test]
-#[cfg_attr(not(feature = "expensive_tests"), ignore)]
-fn test_query_rpc_account_view_must_succeed() {
+fn ultra_slow_test_query_rpc_account_view_must_succeed() {
     init_integration_logger();
 
     let cluster = NodeCluster::default()
@@ -301,8 +295,7 @@ fn test_query_rpc_account_view_must_succeed() {
 }
 
 #[test]
-#[cfg_attr(not(feature = "expensive_tests"), ignore)]
-fn test_query_rpc_account_view_account_doesnt_exist_must_return_error() {
+fn ultra_slow_test_query_rpc_account_view_account_does_not_exist_must_return_error() {
     init_integration_logger();
 
     let cluster = NodeCluster::default()
@@ -312,6 +305,7 @@ fn test_query_rpc_account_view_account_doesnt_exist_must_return_error() {
         .set_epoch_length(10)
         .set_genesis_height(0);
 
+    // cspell:ignore accountdoesntexist
     cluster.exec_until_stop(|_, rpc_addrs, _| async move {
         let client = new_client(&format!("http://{}", rpc_addrs[0]));
         let error_message = loop {
@@ -351,8 +345,7 @@ fn test_query_rpc_account_view_account_doesnt_exist_must_return_error() {
 }
 
 #[test]
-#[cfg_attr(not(feature = "expensive_tests"), ignore)]
-fn test_tx_not_enough_balance_must_return_error() {
+fn ultra_slow_test_tx_not_enough_balance_must_return_error() {
     init_integration_logger();
 
     let cluster = NodeCluster::default()
@@ -366,13 +359,12 @@ fn test_tx_not_enough_balance_must_return_error() {
         let view_client = clients[0].1.clone();
 
         let genesis_hash = *genesis_block(&genesis).hash();
-        let signer =
-            InMemorySigner::from_seed("near.0".parse().unwrap(), KeyType::ED25519, "near.0");
+        let signer = InMemorySigner::test_signer(&"near.0".parse().unwrap());
         let transaction = SignedTransaction::send_money(
             1,
             "near.0".parse().unwrap(),
             "near.1".parse().unwrap(),
-            &signer.into(),
+            &signer,
             1100000000000000000000000000000000,
             genesis_hash,
         );
@@ -414,8 +406,7 @@ fn test_tx_not_enough_balance_must_return_error() {
 }
 
 #[test]
-#[cfg_attr(not(feature = "expensive_tests"), ignore)]
-fn test_check_unknown_tx_must_return_error() {
+fn ultra_slow_test_check_unknown_tx_must_return_error() {
     init_integration_logger();
 
     let cluster = NodeCluster::default()
@@ -430,13 +421,12 @@ fn test_check_unknown_tx_must_return_error() {
         let view_client = clients[0].1.clone();
 
         let genesis_hash = *genesis_block(&genesis).hash();
-        let signer =
-            InMemorySigner::from_seed("near.0".parse().unwrap(), KeyType::ED25519, "near.0");
+        let signer = InMemorySigner::test_signer(&"near.0".parse().unwrap());
         let transaction = SignedTransaction::send_money(
             1,
             "near.0".parse().unwrap(),
             "near.0".parse().unwrap(),
-            &signer.into(),
+            &signer,
             10000,
             genesis_hash,
         );
@@ -480,8 +470,7 @@ fn test_check_unknown_tx_must_return_error() {
 
 #[test]
 #[ignore = "Need to implement forwarding and fix the test"]
-// #[cfg_attr(not(feature = "expensive_tests"), ignore)]
-fn test_tx_status_on_lightclient_must_return_does_not_track_shard() {
+fn ultra_slow_test_tx_status_on_lightclient_must_return_does_not_track_shard() {
     init_integration_logger();
 
     let cluster = NodeCluster::default()
@@ -495,12 +484,12 @@ fn test_tx_status_on_lightclient_must_return_does_not_track_shard() {
         let view_client = clients[0].1.clone();
 
         let genesis_hash = *genesis_block(&genesis).hash();
-        let signer = InMemorySigner::from_seed("near.1".parse().unwrap(), KeyType::ED25519, "near.1");
+        let signer = InMemorySigner::test_signer(&"near.1".parse().unwrap());
         let transaction = SignedTransaction::send_money(
             1,
             "near.1".parse().unwrap(),
             "near.1".parse().unwrap(),
-            &signer.into(),
+            &signer,
             10000,
             genesis_hash,
         );
@@ -537,8 +526,7 @@ fn test_tx_status_on_lightclient_must_return_does_not_track_shard() {
 }
 
 #[test]
-#[cfg_attr(not(feature = "expensive_tests"), ignore)]
-fn test_validators_by_epoch_id_current_epoch_not_fails() {
+fn ultra_slow_test_validators_by_epoch_id_current_epoch_not_fails() {
     init_integration_logger();
 
     let cluster = NodeCluster::default()

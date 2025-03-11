@@ -6,7 +6,8 @@ use near_chain::{ChainStore, ChainStoreAccess};
 use near_chain_configs::GenesisValidationMode;
 use near_chain_primitives::error::EpochErrorResultToChainError;
 use near_crypto::PublicKey;
-use near_epoch_manager::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
+use near_epoch_manager::shard_assignment::{account_id_to_shard_id, shard_id_to_uid};
+use near_epoch_manager::{EpochManager, EpochManagerHandle};
 use near_primitives::block::BlockHeader;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
@@ -14,6 +15,7 @@ use near_primitives::types::{AccountId, BlockHeight, TransactionOrReceiptId};
 use near_primitives::views::{
     AccessKeyPermissionView, ExecutionOutcomeWithIdView, QueryRequest, QueryResponseKind,
 };
+use near_store::genesis::initialize_genesis_state;
 use nearcore::{NightshadeRuntime, NightshadeRuntimeExt};
 use std::path::Path;
 use std::sync::Arc;
@@ -40,10 +42,11 @@ impl ChainAccess {
         let node_storage =
             nearcore::open_storage(home.as_ref(), &mut config).context("failed opening storage")?;
         let store = node_storage.get_hot_store();
+        initialize_genesis_state(store.clone(), &config.genesis, Some(home.as_ref()));
         let chain = ChainStore::new(
             store.clone(),
-            config.genesis.config.genesis_height,
             config.client_config.save_trie_changes,
+            config.genesis.config.transaction_validity_period,
         );
         let epoch_manager = EpochManager::new_arc_handle(
             store.clone(),
@@ -87,7 +90,7 @@ impl crate::ChainAccess for ChainAccess {
                 }
                 Err(e) => {
                     return Err(e)
-                        .with_context(|| format!("failed fetching block hash for #{}", height))
+                        .with_context(|| format!("failed fetching block hash for #{}", height));
                 }
             };
         }
@@ -99,7 +102,7 @@ impl crate::ChainAccess for ChainAccess {
                 Err(ChainError::Other(e)) => {
                     return Err(e).with_context(|| {
                         format!("failed getting next block height after {}", last_height)
-                    })
+                    });
                 }
             };
         }
@@ -128,7 +131,9 @@ impl crate::ChainAccess for ChainAccess {
                 Err(e) => {
                     tracing::error!(
                         "Can't fetch source chain shard {} chunk at height {}. Are we tracking all shards?: {:?}",
-                        chunk.shard_id(), height, e
+                        chunk.shard_id(),
+                        height,
+                        e
                     );
                     continue;
                 }
@@ -181,12 +186,11 @@ impl crate::ChainAccess for ChainAccess {
     ) -> Result<Vec<PublicKey>, ChainError> {
         let mut ret = Vec::new();
         let header = self.chain.get_block_header(block_hash)?;
-        let shard_id = self
-            .epoch_manager
-            .account_id_to_shard_id(account_id, header.epoch_id())
+        let shard_id =
+            account_id_to_shard_id(self.epoch_manager.as_ref(), account_id, header.epoch_id())
+                .into_chain_error()?;
+        let shard_uid = shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, header.epoch_id())
             .into_chain_error()?;
-        let shard_uid =
-            self.epoch_manager.shard_id_to_uid(shard_id, header.epoch_id()).into_chain_error()?;
         let chunk_extra = self.chain.get_chunk_extra(header.hash(), &shard_uid)?;
         match self
             .runtime

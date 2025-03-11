@@ -1,25 +1,26 @@
-use crate::config::{total_prepaid_gas, tx_cost, TransactionCost};
-use crate::near_primitives::account::Account;
 use crate::VerificationResult;
+use crate::config::{TransactionCost, total_prepaid_gas};
+use crate::near_primitives::account::Account;
 use near_crypto::key_conversion::is_valid_staking_key;
 use near_parameters::RuntimeConfig;
-use near_primitives::account::AccessKeyPermission;
+use near_primitives::account::{AccessKey, AccessKeyPermission};
+use near_primitives::action::DeployGlobalContractAction;
 use near_primitives::action::delegate::SignedDelegateAction;
 use near_primitives::checked_feature;
 use near_primitives::errors::{
     ActionsValidationError, InvalidAccessKeyError, InvalidTxError, ReceiptValidationError,
 };
 use near_primitives::receipt::{ActionReceipt, DataReceipt, Receipt, ReceiptEnum};
-use near_primitives::transaction::DeleteAccountAction;
 use near_primitives::transaction::{
     Action, AddKeyAction, DeployContractAction, FunctionCallAction, SignedTransaction, StakeAction,
 };
+use near_primitives::transaction::{DeleteAccountAction, ValidatedTransaction};
 use near_primitives::types::{AccountId, Balance};
 use near_primitives::types::{BlockHeight, StorageUsage};
 use near_primitives::version::ProtocolFeature;
 use near_primitives::version::ProtocolVersion;
 use near_store::{
-    get_access_key, get_account, set_access_key, set_account, StorageError, TrieUpdate,
+    StorageError, TrieUpdate, get_access_key, get_account, set_access_key, set_account,
 };
 use near_vm_runner::logic::LimitConfig;
 
@@ -44,12 +45,7 @@ pub fn check_storage_stake(
     runtime_config: &RuntimeConfig,
     current_protocol_version: ProtocolVersion,
 ) -> Result<(), StorageStakingError> {
-    #[cfg(not(feature = "protocol_feature_nonrefundable_transfer_nep491"))]
     let billable_storage_bytes = account.storage_usage();
-    #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-    let billable_storage_bytes =
-        account.storage_usage().saturating_sub(account.permanent_storage_bytes());
-
     let required_amount = Balance::from(billable_storage_bytes)
         .checked_mul(runtime_config.storage_amount_per_byte())
         .ok_or_else(|| {
@@ -90,74 +86,53 @@ fn is_zero_balance_account(account: &Account) -> bool {
 
 /// Validates the transaction without using the state. It allows any node to validate a
 /// transaction before forwarding it to the node that tracks the `signer_id` account.
+#[allow(clippy::result_large_err)]
 pub fn validate_transaction(
     config: &RuntimeConfig,
-    gas_price: Balance,
-    signed_transaction: &SignedTransaction,
-    verify_signature: bool,
+    signed_tx: SignedTransaction,
     current_protocol_version: ProtocolVersion,
-) -> Result<TransactionCost, InvalidTxError> {
-    // Don't allow V1 currently. This will be changed when the new protocol version is introduced.
-    if matches!(signed_transaction.transaction, near_primitives::transaction::Transaction::V1(_)) {
-        return Err(InvalidTxError::InvalidTransactionVersion);
-    }
-    let transaction = &signed_transaction.transaction;
-    let signer_id = transaction.signer_id();
-
-    if verify_signature
-        && !signed_transaction
-            .signature
-            .verify(signed_transaction.get_hash().as_ref(), transaction.public_key())
-    {
-        return Err(InvalidTxError::InvalidSignature);
-    }
-
-    let transaction_size = signed_transaction.get_size();
-    let max_transaction_size = config.wasm_config.limit_config.max_transaction_size;
-    if transaction_size > max_transaction_size {
-        return Err(InvalidTxError::TransactionSizeExceeded {
-            size: transaction_size,
-            limit: max_transaction_size,
-        }
-        .into());
-    }
-
-    validate_actions(
+) -> Result<ValidatedTransaction, (InvalidTxError, SignedTransaction)> {
+    if let Err(err) = validate_actions(
         &config.wasm_config.limit_config,
-        transaction.actions(),
+        signed_tx.transaction.actions(),
         current_protocol_version,
-    )
-    .map_err(InvalidTxError::ActionsValidation)?;
-
-    let sender_is_receiver = transaction.receiver_id() == signer_id;
-
-    tx_cost(&config, transaction, gas_price, sender_is_receiver, current_protocol_version)
-        .map_err(|_| InvalidTxError::CostOverflow.into())
+    ) {
+        return Err((InvalidTxError::ActionsValidation(err), signed_tx));
+    }
+    ValidatedTransaction::new(config, signed_tx)
 }
 
-/// Verifies the signed transaction on top of given state, charges transaction fees
-/// and balances, and updates the state for the used account and access keys.
-pub fn verify_and_charge_transaction(
-    config: &RuntimeConfig,
+pub fn commit_charging_for_tx(
     state_update: &mut TrieUpdate,
-    gas_price: Balance,
-    signed_transaction: &SignedTransaction,
-    verify_signature: bool,
+    validated_tx: &ValidatedTransaction,
+    signer: &Account,
+    access_key: &AccessKey,
+) {
+    let tx = validated_tx.to_tx();
+    set_access_key(state_update, tx.signer_id().clone(), tx.public_key().clone(), &access_key);
+    set_account(state_update, tx.signer_id().clone(), &signer);
+}
+
+/// Verifies the signed transaction on top of the given state; looks up the
+/// signer account and access_key from the transaction; updates them to charge
+/// for the transaction processing; returns the updated signer and access_key to
+/// the caller.  The caller can use `commit_charging_for_tx()` to commit the
+/// actual charging.
+pub fn verify_and_charge_tx_ephemeral(
+    config: &RuntimeConfig,
+    state_update: &TrieUpdate,
+    validated_tx: &ValidatedTransaction,
+    transaction_cost: &TransactionCost,
     block_height: Option<BlockHeight>,
     current_protocol_version: ProtocolVersion,
 ) -> Result<VerificationResult, InvalidTxError> {
     let _span = tracing::debug_span!(target: "runtime", "verify_and_charge_transaction").entered();
-    let TransactionCost { gas_burnt, gas_remaining, receipt_gas_price, total_cost, burnt_amount } =
-        validate_transaction(
-            config,
-            gas_price,
-            signed_transaction,
-            verify_signature,
-            current_protocol_version,
-        )?;
 
-    let transaction = &signed_transaction.transaction;
-    let signer_id = transaction.signer_id();
+    let TransactionCost { gas_burnt, gas_remaining, receipt_gas_price, total_cost, burnt_amount } =
+        *transaction_cost;
+
+    let tx = validated_tx.to_tx();
+    let signer_id = tx.signer_id();
 
     let mut signer = match get_account(state_update, signer_id)? {
         Some(signer) => signer,
@@ -165,22 +140,23 @@ pub fn verify_and_charge_transaction(
             return Err(InvalidTxError::SignerDoesNotExist { signer_id: signer_id.clone() });
         }
     };
-    let mut access_key = match get_access_key(state_update, signer_id, transaction.public_key())? {
+
+    let mut access_key = match get_access_key(state_update, signer_id, tx.public_key())? {
         Some(access_key) => access_key,
         None => {
             return Err(InvalidTxError::InvalidAccessKeyError(
                 InvalidAccessKeyError::AccessKeyNotFound {
                     account_id: signer_id.clone(),
-                    public_key: transaction.public_key().clone().into(),
+                    public_key: tx.public_key().clone().into(),
                 },
             )
             .into());
         }
     };
 
-    if transaction.nonce() <= access_key.nonce {
+    if tx.nonce() <= access_key.nonce {
         return Err(InvalidTxError::InvalidNonce {
-            tx_nonce: transaction.nonce(),
+            tx_nonce: tx.nonce(),
             ak_nonce: access_key.nonce,
         }
         .into());
@@ -189,17 +165,15 @@ pub fn verify_and_charge_transaction(
         if let Some(height) = block_height {
             let upper_bound =
                 height * near_primitives::account::AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER;
-            if transaction.nonce() >= upper_bound {
-                return Err(InvalidTxError::NonceTooLarge {
-                    tx_nonce: transaction.nonce(),
-                    upper_bound,
-                }
-                .into());
+            if tx.nonce() >= upper_bound {
+                return Err(
+                    InvalidTxError::NonceTooLarge { tx_nonce: tx.nonce(), upper_bound }.into()
+                );
             }
         }
     };
 
-    access_key.nonce = transaction.nonce();
+    access_key.nonce = tx.nonce();
 
     signer.set_amount(signer.amount().checked_sub(total_cost).ok_or_else(|| {
         InvalidTxError::NotEnoughBalance {
@@ -216,7 +190,7 @@ pub fn verify_and_charge_transaction(
             *allowance = allowance.checked_sub(total_cost).ok_or_else(|| {
                 InvalidTxError::InvalidAccessKeyError(InvalidAccessKeyError::NotEnoughAllowance {
                     account_id: signer_id.clone(),
-                    public_key: transaction.public_key().clone().into(),
+                    public_key: tx.public_key().clone().into(),
                     allowance: *allowance,
                     cost: total_cost,
                 })
@@ -231,7 +205,7 @@ pub fn verify_and_charge_transaction(
                 signer_id: signer_id.clone(),
                 amount,
             }
-            .into())
+            .into());
         }
         Err(StorageStakingError::StorageError(err)) => {
             return Err(StorageError::StorageInconsistentState(err).into());
@@ -239,23 +213,23 @@ pub fn verify_and_charge_transaction(
     };
 
     if let AccessKeyPermission::FunctionCall(ref function_call_permission) = access_key.permission {
-        if transaction.actions().len() != 1 {
+        if tx.actions().len() != 1 {
             return Err(InvalidTxError::InvalidAccessKeyError(
                 InvalidAccessKeyError::RequiresFullAccess,
             )
             .into());
         }
-        if let Some(Action::FunctionCall(ref function_call)) = transaction.actions().get(0) {
+        if let Some(Action::FunctionCall(function_call)) = tx.actions().get(0) {
             if function_call.deposit > 0 {
                 return Err(InvalidTxError::InvalidAccessKeyError(
                     InvalidAccessKeyError::DepositWithFunctionCall,
                 )
                 .into());
             }
-            if transaction.receiver_id() != &function_call_permission.receiver_id {
+            if tx.receiver_id() != &function_call_permission.receiver_id {
                 return Err(InvalidTxError::InvalidAccessKeyError(
                     InvalidAccessKeyError::ReceiverMismatch {
-                        tx_receiver: transaction.receiver_id().clone(),
+                        tx_receiver: tx.receiver_id().clone(),
                         ak_receiver: function_call_permission.receiver_id.clone(),
                     },
                 )
@@ -282,10 +256,14 @@ pub fn verify_and_charge_transaction(
         }
     };
 
-    set_access_key(state_update, signer_id.clone(), transaction.public_key().clone(), &access_key);
-    set_account(state_update, signer_id.clone(), &signer);
-
-    Ok(VerificationResult { gas_burnt, gas_remaining, receipt_gas_price, burnt_amount })
+    Ok(VerificationResult {
+        gas_burnt,
+        gas_remaining,
+        receipt_gas_price,
+        burnt_amount,
+        signer,
+        access_key,
+    })
 }
 
 /// Validates a given receipt. Checks validity of the Action or Data receipt.
@@ -293,14 +271,17 @@ pub(crate) fn validate_receipt(
     limit_config: &LimitConfig,
     receipt: &Receipt,
     current_protocol_version: ProtocolVersion,
+    mode: ValidateReceiptMode,
 ) -> Result<(), ReceiptValidationError> {
-    let receipt_size: u64 =
-        borsh::to_vec(receipt).unwrap().len().try_into().expect("Can't convert usize to u64");
-    if receipt_size > limit_config.max_receipt_size {
-        return Err(ReceiptValidationError::ReceiptSizeExceeded {
-            size: receipt_size,
-            limit: limit_config.max_receipt_size,
-        });
+    if mode == ValidateReceiptMode::NewReceipt {
+        let receipt_size: u64 =
+            borsh::to_vec(receipt).unwrap().len().try_into().expect("Can't convert usize to u64");
+        if receipt_size > limit_config.max_receipt_size {
+            return Err(ReceiptValidationError::ReceiptSizeExceeded {
+                size: receipt_size,
+                limit: limit_config.max_receipt_size,
+            });
+        }
     }
 
     // We retain these checks here as to maintain backwards compatibility
@@ -322,7 +303,23 @@ pub(crate) fn validate_receipt(
         ReceiptEnum::Data(data_receipt) | ReceiptEnum::PromiseResume(data_receipt) => {
             validate_data_receipt(limit_config, data_receipt)
         }
+        ReceiptEnum::GlobalContractDistribution(_) => Ok(()), // Distribution receipt can't be issued without a valid contract
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ValidateReceiptMode {
+    /// Used for validating new receipts that were just created.
+    /// More strict than `OldReceipt` mode, which has to handle older receipts.
+    NewReceipt,
+    /// Used for validating older receipts that were saved in the state/received. Less strict than
+    /// NewReceipt validation. Tolerates some receipts that wouldn't pass new validation. It has to
+    /// be less strict because:
+    /// 1) Older receipts might have been created before new validation rules.
+    /// 2) There is a bug which allows to create receipts that are above the size limit. Runtime has
+    ///    to handle them gracefully until the receipt size limit bug is fixed.
+    ///    See https://github.com/near/nearcore/issues/12606 for details.
+    ExistingReceipt,
 }
 
 /// Validates given ActionReceipt. Checks validity of the number of input data dependencies and all actions.
@@ -420,12 +417,14 @@ pub fn validate_action(
     match action {
         Action::CreateAccount(_) => Ok(()),
         Action::DeployContract(a) => validate_deploy_contract_action(limit_config, a),
+        Action::DeployGlobalContract(a) => {
+            validate_deploy_global_contract_action(limit_config, a, current_protocol_version)
+        }
+        Action::UseGlobalContract(_) => {
+            validate_use_global_contract_action(current_protocol_version)
+        }
         Action::FunctionCall(a) => validate_function_call_action(limit_config, a),
         Action::Transfer(_) => Ok(()),
-        #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-        Action::NonrefundableStorageTransfer(_) => {
-            check_feature_enabled(ProtocolFeature::NonrefundableStorage, current_protocol_version)
-        }
         Action::Stake(a) => validate_stake_action(a),
         Action::AddKey(a) => validate_add_key_action(limit_config, a),
         Action::DeleteKey(_) => Ok(()),
@@ -457,6 +456,31 @@ fn validate_deploy_contract_action(
     }
 
     Ok(())
+}
+
+/// Validates `DeployGlobalContractAction`. Checks that the given contract size doesn't exceed the limit.
+fn validate_deploy_global_contract_action(
+    limit_config: &LimitConfig,
+    action: &DeployGlobalContractAction,
+    current_protocol_version: ProtocolVersion,
+) -> Result<(), ActionsValidationError> {
+    check_global_contracts_enabled(current_protocol_version)?;
+
+    if action.code.len() as u64 > limit_config.max_contract_size {
+        return Err(ActionsValidationError::ContractSizeExceeded {
+            size: action.code.len() as u64,
+            limit: limit_config.max_contract_size,
+        });
+    }
+
+    Ok(())
+}
+
+/// Validates `UseGlobalContractAction`.
+fn validate_use_global_contract_action(
+    current_protocol_version: ProtocolVersion,
+) -> Result<(), ActionsValidationError> {
+    check_global_contracts_enabled(current_protocol_version)
 }
 
 /// Validates `FunctionCallAction`. Checks that the method name length doesn't exceed the limit and
@@ -555,21 +579,6 @@ fn validate_delete_action(action: &DeleteAccountAction) -> Result<(), ActionsVal
     Ok(())
 }
 
-#[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-fn check_feature_enabled(
-    feature: ProtocolFeature,
-    current_protocol_version: ProtocolVersion,
-) -> Result<(), ActionsValidationError> {
-    if feature.protocol_version() <= current_protocol_version {
-        Ok(())
-    } else {
-        Err(ActionsValidationError::UnsupportedProtocolFeature {
-            protocol_feature: format!("{feature:?}"),
-            version: feature.protocol_version(),
-        })
-    }
-}
-
 fn truncate_string(s: &str, limit: usize) -> String {
     for i in (0..=limit).rev() {
         if let Some(s) = s.get(..i) {
@@ -579,14 +588,28 @@ fn truncate_string(s: &str, limit: usize) -> String {
     unreachable!()
 }
 
+fn check_global_contracts_enabled(
+    current_protocol_version: ProtocolVersion,
+) -> Result<(), ActionsValidationError> {
+    if !checked_feature!("stable", GlobalContracts, current_protocol_version) {
+        return Err(ActionsValidationError::UnsupportedProtocolFeature {
+            protocol_feature: "GlobalContracts".to_owned(),
+            version: current_protocol_version,
+        });
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-
+    use super::*;
+    use crate::config::tx_cost;
+    use crate::near_primitives::shard_layout::ShardUId;
+    use crate::near_primitives::trie_key::TrieKey;
     use near_crypto::{InMemorySigner, KeyType, PublicKey, Signature, Signer};
-    use near_primitives::account::{AccessKey, FunctionCallPermission};
+    use near_primitives::account::{AccessKey, AccountContract, FunctionCallPermission};
     use near_primitives::action::delegate::{DelegateAction, NonDelegateAction};
-    use near_primitives::hash::{hash, CryptoHash};
+    use near_primitives::hash::{CryptoHash, hash};
     use near_primitives::receipt::ReceiptPriority;
     use near_primitives::test_utils::account_new;
     use near_primitives::transaction::{
@@ -595,14 +618,10 @@ mod tests {
     use near_primitives::types::{AccountId, Balance, MerkleHash, StateChangeCause};
     use near_primitives::version::PROTOCOL_VERSION;
     use near_store::test_utils::TestTriesBuilder;
-    use testlib::runtime_utils::{alice_account, bob_account, eve_dot_alice_account};
-
-    use crate::near_primitives::shard_layout::ShardUId;
-
-    use super::*;
-    use crate::near_primitives::trie_key::TrieKey;
-    use near_store::{set, set_code};
+    use near_store::{set, set_access_key, set_account};
     use near_vm_runner::ContractCode;
+    use std::sync::Arc;
+    use testlib::runtime_utils::{alice_account, bob_account, eve_dot_alice_account};
 
     /// Initial balance used in tests.
     const TESTING_INIT_BALANCE: Balance = 1_000_000_000 * NEAR_BASE;
@@ -640,10 +659,7 @@ mod tests {
         let root = MerkleHash::default();
 
         let account_id = alice_account();
-        let signer: Arc<Signer> = Arc::new(
-            InMemorySigner::from_seed(account_id.clone(), KeyType::ED25519, account_id.as_ref())
-                .into(),
-        );
+        let signer: Arc<Signer> = Arc::new(InMemorySigner::test_signer(&account_id));
 
         let mut initial_state = tries.new_trie_update(ShardUId::single_shard(), root);
         for (account_id, initial_balance, initial_locked, access_keys, has_contract, has_data) in
@@ -679,12 +695,11 @@ mod tests {
             if has_contract {
                 let code = vec![0; 100];
                 let code_hash = hash(&code);
-                set_code(
-                    &mut initial_state,
+                initial_state.set_code(
                     account_id.clone(),
                     &ContractCode::new(code.clone(), Some(code_hash)),
                 );
-                initial_account.set_code_hash(code_hash);
+                initial_account.set_contract(AccountContract::Local(code_hash));
                 initial_account.set_storage_usage(
                     initial_account.storage_usage().checked_add(code.len() as u64).unwrap(),
                 );
@@ -717,40 +732,73 @@ mod tests {
 
     fn assert_err_both_validations(
         config: &RuntimeConfig,
-        state_update: &mut TrieUpdate,
+        state_update: &TrieUpdate,
         gas_price: Balance,
-        signed_transaction: &SignedTransaction,
+        signed_transaction: SignedTransaction,
         expected_err: InvalidTxError,
     ) {
-        assert_eq!(
-            validate_transaction(config, gas_price, signed_transaction, true, PROTOCOL_VERSION)
-                .expect_err("expected an error"),
-            expected_err,
-        );
-        assert_eq!(
-            verify_and_charge_transaction(
-                config,
-                state_update,
-                gas_price,
-                signed_transaction,
-                true,
-                None,
-                PROTOCOL_VERSION,
-            )
-            .expect_err("expected an error"),
-            expected_err,
-        );
+        let validated_tx = match validate_transaction(config, signed_transaction, PROTOCOL_VERSION)
+        {
+            Ok(v) => v,
+            Err((err, _tx)) => {
+                assert_eq!(err, expected_err);
+                return;
+            }
+        };
+        let cost = match tx_cost(config, &validated_tx, gas_price, PROTOCOL_VERSION) {
+            Ok(c) => c,
+            Err(err) => {
+                assert_eq!(InvalidTxError::from(err), expected_err);
+                return;
+            }
+        };
+
+        // Validation passed, now verification should fail with expected_err
+        let err = verify_and_charge_tx_ephemeral(
+            config,
+            state_update,
+            &validated_tx,
+            &cost,
+            None,
+            PROTOCOL_VERSION,
+        )
+        .expect_err("expected an error");
+        assert_eq!(err, expected_err);
+    }
+
+    pub fn validate_verify_and_charge_transaction(
+        config: &RuntimeConfig,
+        state_update: &mut TrieUpdate,
+        signed_tx: SignedTransaction,
+        gas_price: Balance,
+        block_height: Option<BlockHeight>,
+        current_protocol_version: ProtocolVersion,
+    ) -> Result<VerificationResult, InvalidTxError> {
+        let validated_tx = match validate_transaction(config, signed_tx, current_protocol_version) {
+            Ok(validated_tx) => validated_tx,
+            Err((err, _tx)) => return Err(err),
+        };
+        let transaction_cost = tx_cost(config, &validated_tx, gas_price, current_protocol_version)?;
+        let vr = verify_and_charge_tx_ephemeral(
+            config,
+            state_update,
+            &validated_tx,
+            &transaction_cost,
+            block_height,
+            current_protocol_version,
+        )?;
+        commit_charging_for_tx(state_update, &validated_tx, &vr.signer, &vr.access_key);
+        Ok(vr)
     }
 
     mod zero_balance_account_tests {
         use crate::near_primitives::account::id::AccountId;
         use crate::near_primitives::account::{
-            AccessKeyPermission, Account, FunctionCallPermission,
+            AccessKey, AccessKeyPermission, Account, FunctionCallPermission,
         };
-        use crate::verifier::tests::{setup_accounts, TESTING_INIT_BALANCE};
-        use crate::verifier::{is_zero_balance_account, ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT};
-        use near_primitives::account::AccessKey;
-        use near_store::{get_account, TrieUpdate};
+        use crate::verifier::tests::{TESTING_INIT_BALANCE, setup_accounts};
+        use crate::verifier::{ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT, is_zero_balance_account};
+        use near_store::{TrieUpdate, get_account};
         use testlib::runtime_utils::{alice_account, bob_account};
 
         fn set_up_test_account(
@@ -829,7 +877,7 @@ mod tests {
                     permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
                         allowance: Some(100),
                         receiver_id: bob_account().into(),
-                        method_names: method_names,
+                        method_names,
                     }),
                 }],
                 false,
@@ -849,7 +897,7 @@ mod tests {
             setup_common(TESTING_INIT_BALANCE, 0, Some(AccessKey::full_access()));
 
         let deposit = 100;
-        let transaction = SignedTransaction::send_money(
+        let signed_tx = SignedTransaction::send_money(
             1,
             alice_account(),
             bob_account(),
@@ -857,14 +905,12 @@ mod tests {
             deposit,
             CryptoHash::default(),
         );
-        validate_transaction(&config, gas_price, &transaction, true, PROTOCOL_VERSION)
-            .expect("valid transaction");
-        let verification_result = verify_and_charge_transaction(
+
+        let verification_result = validate_verify_and_charge_transaction(
             &config,
             &mut state_update,
+            signed_tx,
             gas_price,
-            &transaction,
-            true,
             None,
             PROTOCOL_VERSION,
         )
@@ -878,7 +924,7 @@ mod tests {
         );
 
         let account = get_account(&state_update, &alice_account()).unwrap().unwrap();
-        // Balance is decreased by the (TX fees + transfer balance).
+        // Balance is decreased by (TX fees + transfer balance).
         assert_eq!(
             account.amount(),
             TESTING_INIT_BALANCE
@@ -913,7 +959,7 @@ mod tests {
             &config,
             &mut state_update,
             gas_price,
-            &tx,
+            tx,
             InvalidTxError::InvalidSignature,
         );
     }
@@ -923,28 +969,30 @@ mod tests {
         let config = RuntimeConfig::test();
         let (bad_signer, mut state_update, gas_price) = setup_common(TESTING_INIT_BALANCE, 0, None);
 
+        let transaction = SignedTransaction::send_money(
+            1,
+            alice_account(),
+            bob_account(),
+            &*bad_signer,
+            100,
+            CryptoHash::default(),
+        );
+
+        let err = validate_verify_and_charge_transaction(
+            &config,
+            &mut state_update,
+            transaction,
+            gas_price,
+            None,
+            PROTOCOL_VERSION,
+        )
+        .expect_err("expected an error");
         assert_eq!(
-            verify_and_charge_transaction(
-                &config,
-                &mut state_update,
-                gas_price,
-                &SignedTransaction::send_money(
-                    1,
-                    alice_account(),
-                    bob_account(),
-                    &*bad_signer,
-                    100,
-                    CryptoHash::default(),
-                ),
-                false,
-                None,
-                PROTOCOL_VERSION,
-            )
-            .expect_err("expected an error"),
+            err,
             InvalidTxError::InvalidAccessKeyError(InvalidAccessKeyError::AccessKeyNotFound {
                 account_id: alice_account(),
                 public_key: bad_signer.public_key().into(),
-            },),
+            })
         );
     }
 
@@ -961,7 +1009,7 @@ mod tests {
             &config,
             &mut state_update,
             gas_price,
-            &SignedTransaction::from_actions(
+            SignedTransaction::from_actions(
                 1,
                 alice_account(),
                 bob_account(),
@@ -988,26 +1036,25 @@ mod tests {
         let (signer, mut state_update, gas_price) =
             setup_common(TESTING_INIT_BALANCE, 0, Some(AccessKey::full_access()));
 
-        assert_eq!(
-            verify_and_charge_transaction(
-                &config,
-                &mut state_update,
-                gas_price,
-                &SignedTransaction::send_money(
-                    1,
-                    bob_account(),
-                    alice_account(),
-                    &*signer,
-                    100,
-                    CryptoHash::default(),
-                ),
-                true,
-                None,
-                PROTOCOL_VERSION,
-            )
-            .expect_err("expected an error"),
-            InvalidTxError::SignerDoesNotExist { signer_id: bob_account() },
+        let signed_tx = SignedTransaction::send_money(
+            1,
+            bob_account(),
+            alice_account(),
+            &*signer,
+            100,
+            CryptoHash::default(),
         );
+
+        let err = validate_verify_and_charge_transaction(
+            &config,
+            &mut state_update,
+            signed_tx,
+            gas_price,
+            None,
+            PROTOCOL_VERSION,
+        )
+        .expect_err("expected an error");
+        assert_eq!(err, InvalidTxError::SignerDoesNotExist { signer_id: bob_account() });
     }
 
     #[test]
@@ -1019,26 +1066,25 @@ mod tests {
             Some(AccessKey { nonce: 2, permission: AccessKeyPermission::FullAccess }),
         );
 
-        assert_eq!(
-            verify_and_charge_transaction(
-                &config,
-                &mut state_update,
-                gas_price,
-                &SignedTransaction::send_money(
-                    1,
-                    alice_account(),
-                    bob_account(),
-                    &*signer,
-                    100,
-                    CryptoHash::default(),
-                ),
-                true,
-                None,
-                PROTOCOL_VERSION,
-            )
-            .expect_err("expected an error"),
-            InvalidTxError::InvalidNonce { tx_nonce: 1, ak_nonce: 2 },
+        let transaction = SignedTransaction::send_money(
+            1,
+            alice_account(),
+            bob_account(),
+            &*signer,
+            100,
+            CryptoHash::default(),
         );
+
+        let err = validate_verify_and_charge_transaction(
+            &config,
+            &mut state_update,
+            transaction,
+            gas_price,
+            None,
+            PROTOCOL_VERSION,
+        )
+        .expect_err("expected an error");
+        assert_eq!(err, InvalidTxError::InvalidNonce { tx_nonce: 1, ak_nonce: 2 });
     }
 
     #[test]
@@ -1051,7 +1097,7 @@ mod tests {
             &config,
             &mut state_update,
             gas_price,
-            &SignedTransaction::send_money(
+            SignedTransaction::send_money(
                 1,
                 alice_account(),
                 bob_account(),
@@ -1073,7 +1119,7 @@ mod tests {
             &config,
             &mut state_update,
             gas_price,
-            &SignedTransaction::from_actions_v1(
+            SignedTransaction::from_actions_v1(
                 1,
                 alice_account(),
                 bob_account(),
@@ -1092,19 +1138,20 @@ mod tests {
         let (signer, mut state_update, gas_price) =
             setup_common(TESTING_INIT_BALANCE, 0, Some(AccessKey::full_access()));
 
-        let err = verify_and_charge_transaction(
+        let signed_tx = SignedTransaction::send_money(
+            1,
+            alice_account(),
+            bob_account(),
+            &*signer,
+            TESTING_INIT_BALANCE,
+            CryptoHash::default(),
+        );
+
+        let err = validate_verify_and_charge_transaction(
             &config,
             &mut state_update,
+            signed_tx,
             gas_price,
-            &SignedTransaction::send_money(
-                1,
-                alice_account(),
-                bob_account(),
-                &*signer,
-                TESTING_INIT_BALANCE,
-                CryptoHash::default(),
-            ),
-            true,
             None,
             PROTOCOL_VERSION,
         )
@@ -1134,25 +1181,26 @@ mod tests {
             }),
         );
 
-        let err = verify_and_charge_transaction(
+        let transaction = SignedTransaction::from_actions(
+            1,
+            alice_account(),
+            bob_account(),
+            &*signer,
+            vec![Action::FunctionCall(Box::new(FunctionCallAction {
+                method_name: "hello".to_string(),
+                args: b"abc".to_vec(),
+                gas: 300,
+                deposit: 0,
+            }))],
+            CryptoHash::default(),
+            0,
+        );
+
+        let err = validate_verify_and_charge_transaction(
             &config,
             &mut state_update,
+            transaction,
             gas_price,
-            &SignedTransaction::from_actions(
-                1,
-                alice_account(),
-                bob_account(),
-                &*signer,
-                vec![Action::FunctionCall(Box::new(FunctionCallAction {
-                    method_name: "hello".to_string(),
-                    args: b"abc".to_vec(),
-                    gas: 300,
-                    deposit: 0,
-                }))],
-                CryptoHash::default(),
-                0,
-            ),
-            true,
             None,
             PROTOCOL_VERSION,
         )
@@ -1173,9 +1221,6 @@ mod tests {
         }
     }
 
-    /// Setup: account has 1B yoctoN and is 180 bytes. Storage requirement is 1M per byte.
-    /// Test that such account can not send 950M yoctoN out as that will leave it under storage requirements.
-    /// If zero balance account is enabled, however, the transaction should succeed
     #[test]
     fn test_validate_transaction_invalid_low_balance() {
         let mut config = RuntimeConfig::free();
@@ -1186,23 +1231,24 @@ mod tests {
         let (signer, mut state_update, gas_price) =
             setup_common(initial_balance, 0, Some(AccessKey::full_access()));
 
-        let res = verify_and_charge_transaction(
+        let signed_tx = SignedTransaction::send_money(
+            1,
+            alice_account(),
+            bob_account(),
+            &*signer,
+            transfer_amount,
+            CryptoHash::default(),
+        );
+
+        let verification_result = validate_verify_and_charge_transaction(
             &config,
             &mut state_update,
+            signed_tx,
             gas_price,
-            &SignedTransaction::send_money(
-                1,
-                alice_account(),
-                bob_account(),
-                &*signer,
-                transfer_amount,
-                CryptoHash::default(),
-            ),
-            true,
             None,
             PROTOCOL_VERSION,
-        );
-        let verification_result = res.unwrap();
+        )
+        .unwrap();
         assert_eq!(verification_result.gas_burnt, 0);
         assert_eq!(verification_result.gas_remaining, 0);
         assert_eq!(verification_result.burnt_amount, 0);
@@ -1226,19 +1272,20 @@ mod tests {
             false,
         )]);
 
-        let res = verify_and_charge_transaction(
+        let signed_tx = SignedTransaction::send_money(
+            1,
+            account_id.clone(),
+            bob_account(),
+            &*signer,
+            transfer_amount,
+            CryptoHash::default(),
+        );
+
+        let err = validate_verify_and_charge_transaction(
             &config,
             &mut state_update,
+            signed_tx,
             gas_price,
-            &SignedTransaction::send_money(
-                1,
-                account_id.clone(),
-                bob_account(),
-                &*signer,
-                transfer_amount,
-                CryptoHash::default(),
-            ),
-            true,
             None,
             PROTOCOL_VERSION,
         )
@@ -1246,7 +1293,7 @@ mod tests {
         let account = get_account(&state_update, &account_id).unwrap().unwrap();
 
         assert_eq!(
-            res,
+            err,
             InvalidTxError::LackBalanceForState {
                 signer_id: account_id,
                 amount: Balance::from(account.storage_usage()) * config.storage_amount_per_byte()
@@ -1271,79 +1318,73 @@ mod tests {
             }),
         );
 
-        assert_eq!(
-            verify_and_charge_transaction(
-                &config,
-                &mut state_update,
-                gas_price,
-                &SignedTransaction::from_actions(
-                    1,
-                    alice_account(),
-                    bob_account(),
-                    &*signer,
-                    vec![
-                        Action::FunctionCall(Box::new(FunctionCallAction {
-                            method_name: "hello".to_string(),
-                            args: b"abc".to_vec(),
-                            gas: 100,
-                            deposit: 0,
-                        })),
-                        Action::CreateAccount(CreateAccountAction {})
-                    ],
-                    CryptoHash::default(),
-                    0
-                ),
-                true,
-                None,
-                PROTOCOL_VERSION,
-            )
-            .expect_err("expected an error"),
-            InvalidTxError::InvalidAccessKeyError(InvalidAccessKeyError::RequiresFullAccess),
+        // Case 1
+        let signed_tx = SignedTransaction::from_actions(
+            1,
+            alice_account(),
+            bob_account(),
+            &*signer,
+            vec![
+                Action::FunctionCall(Box::new(FunctionCallAction {
+                    method_name: "hello".to_string(),
+                    args: b"abc".to_vec(),
+                    gas: 100,
+                    deposit: 0,
+                })),
+                Action::CreateAccount(CreateAccountAction {}),
+            ],
+            CryptoHash::default(),
+            0,
         );
+        validate_verify_and_charge_transaction(
+            &config,
+            &mut state_update,
+            signed_tx,
+            gas_price,
+            None,
+            PROTOCOL_VERSION,
+        )
+        .expect_err("expected an error");
 
-        assert_eq!(
-            verify_and_charge_transaction(
-                &config,
-                &mut state_update,
-                gas_price,
-                &SignedTransaction::from_actions(
-                    1,
-                    alice_account(),
-                    bob_account(),
-                    &*signer,
-                    vec![],
-                    CryptoHash::default(),
-                    0
-                ),
-                true,
-                None,
-                PROTOCOL_VERSION,
-            )
-            .expect_err("expected an error"),
-            InvalidTxError::InvalidAccessKeyError(InvalidAccessKeyError::RequiresFullAccess),
+        // Case 2
+        let signed_tx = SignedTransaction::from_actions(
+            1,
+            alice_account(),
+            bob_account(),
+            &*signer,
+            vec![],
+            CryptoHash::default(),
+            0,
         );
+        validate_verify_and_charge_transaction(
+            &config,
+            &mut state_update,
+            signed_tx,
+            gas_price,
+            None,
+            PROTOCOL_VERSION,
+        )
+        .expect_err("expected an error");
 
-        assert_eq!(
-            verify_and_charge_transaction(
-                &config,
-                &mut state_update,
-                gas_price,
-                &SignedTransaction::from_actions(
-                    1,
-                    alice_account(),
-                    bob_account(),
-                    &*signer,
-                    vec![Action::CreateAccount(CreateAccountAction {})],
-                    CryptoHash::default(),
-                    0
-                ),
-                true,
-                None,
-                PROTOCOL_VERSION,
-            )
-            .expect_err("expected an error"),
-            InvalidTxError::InvalidAccessKeyError(InvalidAccessKeyError::RequiresFullAccess),
+        // Case 3
+        let signed_tx = SignedTransaction::from_actions(
+            1,
+            alice_account(),
+            bob_account(),
+            &*signer,
+            vec![Action::CreateAccount(CreateAccountAction {})],
+            CryptoHash::default(),
+            0,
         );
+        validate_verify_and_charge_transaction(
+            &config,
+            &mut state_update,
+            signed_tx,
+            gas_price,
+            None,
+            PROTOCOL_VERSION,
+        )
+        .expect_err("expected an error");
     }
 
     #[test]
@@ -1362,30 +1403,32 @@ mod tests {
             }),
         );
 
+        let signed_tx = SignedTransaction::from_actions(
+            1,
+            alice_account(),
+            eve_dot_alice_account(),
+            &*signer,
+            vec![Action::FunctionCall(Box::new(FunctionCallAction {
+                method_name: "hello".to_string(),
+                args: b"abc".to_vec(),
+                gas: 100,
+                deposit: 0,
+            }))],
+            CryptoHash::default(),
+            0,
+        );
+
+        let err = validate_verify_and_charge_transaction(
+            &config,
+            &mut state_update,
+            signed_tx,
+            gas_price,
+            None,
+            PROTOCOL_VERSION,
+        )
+        .expect_err("expected an error");
         assert_eq!(
-            verify_and_charge_transaction(
-                &config,
-                &mut state_update,
-                gas_price,
-                &SignedTransaction::from_actions(
-                    1,
-                    alice_account(),
-                    eve_dot_alice_account(),
-                    &*signer,
-                    vec![Action::FunctionCall(Box::new(FunctionCallAction {
-                        method_name: "hello".to_string(),
-                        args: b"abc".to_vec(),
-                        gas: 100,
-                        deposit: 0,
-                    })),],
-                    CryptoHash::default(),
-                    0
-                ),
-                true,
-                None,
-                PROTOCOL_VERSION,
-            )
-            .expect_err("expected an error"),
+            err,
             InvalidTxError::InvalidAccessKeyError(InvalidAccessKeyError::ReceiverMismatch {
                 tx_receiver: eve_dot_alice_account(),
                 ak_receiver: bob_account().into()
@@ -1409,30 +1452,32 @@ mod tests {
             }),
         );
 
+        let signed_tx = SignedTransaction::from_actions(
+            1,
+            alice_account(),
+            bob_account(),
+            &*signer,
+            vec![Action::FunctionCall(Box::new(FunctionCallAction {
+                method_name: "hello".to_string(),
+                args: b"abc".to_vec(),
+                gas: 100,
+                deposit: 0,
+            }))],
+            CryptoHash::default(),
+            0,
+        );
+
+        let err = validate_verify_and_charge_transaction(
+            &config,
+            &mut state_update,
+            signed_tx,
+            gas_price,
+            None,
+            PROTOCOL_VERSION,
+        )
+        .expect_err("expected an error");
         assert_eq!(
-            verify_and_charge_transaction(
-                &config,
-                &mut state_update,
-                gas_price,
-                &SignedTransaction::from_actions(
-                    1,
-                    alice_account(),
-                    bob_account(),
-                    &*signer,
-                    vec![Action::FunctionCall(Box::new(FunctionCallAction {
-                        method_name: "hello".to_string(),
-                        args: b"abc".to_vec(),
-                        gas: 100,
-                        deposit: 0,
-                    })),],
-                    CryptoHash::default(),
-                    0
-                ),
-                true,
-                None,
-                PROTOCOL_VERSION,
-            )
-            .expect_err("expected an error"),
+            err,
             InvalidTxError::InvalidAccessKeyError(InvalidAccessKeyError::MethodNameMismatch {
                 method_name: "hello".to_string()
             }),
@@ -1455,31 +1500,33 @@ mod tests {
             }),
         );
 
+        let signed_tx = SignedTransaction::from_actions(
+            1,
+            alice_account(),
+            bob_account(),
+            &*signer,
+            vec![Action::FunctionCall(Box::new(FunctionCallAction {
+                method_name: "hello".to_string(),
+                args: b"abc".to_vec(),
+                gas: 100,
+                deposit: 100,
+            }))],
+            CryptoHash::default(),
+            0,
+        );
+
+        let err = validate_verify_and_charge_transaction(
+            &config,
+            &mut state_update,
+            signed_tx,
+            gas_price,
+            None,
+            PROTOCOL_VERSION,
+        )
+        .expect_err("expected an error");
         assert_eq!(
-            verify_and_charge_transaction(
-                &config,
-                &mut state_update,
-                gas_price,
-                &SignedTransaction::from_actions(
-                    1,
-                    alice_account(),
-                    bob_account(),
-                    &*signer,
-                    vec![Action::FunctionCall(Box::new(FunctionCallAction {
-                        method_name: "hello".to_string(),
-                        args: b"abc".to_vec(),
-                        gas: 100,
-                        deposit: 100,
-                    })),],
-                    CryptoHash::default(),
-                    0
-                ),
-                true,
-                None,
-                PROTOCOL_VERSION,
-            )
-            .expect_err("expected an error"),
-            InvalidTxError::InvalidAccessKeyError(InvalidAccessKeyError::DepositWithFunctionCall,),
+            err,
+            InvalidTxError::InvalidAccessKeyError(InvalidAccessKeyError::DepositWithFunctionCall,)
         );
     }
 
@@ -1488,7 +1535,7 @@ mod tests {
         let (signer, mut state_update, gas_price) =
             setup_common(TESTING_INIT_BALANCE, 0, Some(AccessKey::full_access()));
 
-        let transaction = SignedTransaction::from_actions(
+        let signed_tx = SignedTransaction::from_actions(
             1,
             alice_account(),
             bob_account(),
@@ -1497,38 +1544,35 @@ mod tests {
             CryptoHash::default(),
             0,
         );
-        let transaction_size = transaction.get_size();
+        let transaction_size = signed_tx.get_size();
 
         let mut config = RuntimeConfig::test();
         let max_transaction_size = transaction_size - 1;
-        let wasm_config = Arc::make_mut(&mut config.wasm_config);
-        wasm_config.limit_config.max_transaction_size = transaction_size - 1;
+        {
+            let wasm_config = Arc::make_mut(&mut config.wasm_config);
+            wasm_config.limit_config.max_transaction_size = transaction_size - 1;
+        }
 
+        let (err, _tx) = validate_transaction(&config, signed_tx.clone(), PROTOCOL_VERSION)
+            .expect_err("expected validation error - size exceeded");
         assert_eq!(
-            verify_and_charge_transaction(
-                &config,
-                &mut state_update,
-                gas_price,
-                &transaction,
-                false,
-                None,
-                PROTOCOL_VERSION,
-            )
-            .expect_err("expected an error"),
+            err,
             InvalidTxError::TransactionSizeExceeded {
                 size: transaction_size,
                 limit: max_transaction_size
-            },
+            }
         );
 
-        let wasm_config = Arc::make_mut(&mut config.wasm_config);
-        wasm_config.limit_config.max_transaction_size = transaction_size + 1;
-        verify_and_charge_transaction(
+        {
+            let wasm_config = Arc::make_mut(&mut config.wasm_config);
+            wasm_config.limit_config.max_transaction_size = transaction_size + 1;
+        }
+
+        validate_verify_and_charge_transaction(
             &config,
             &mut state_update,
+            signed_tx,
             gas_price,
-            &transaction,
-            false,
             None,
             PROTOCOL_VERSION,
         )
@@ -1544,6 +1588,7 @@ mod tests {
             &limit_config,
             &Receipt::new_balance_refund(&alice_account(), 10, ReceiptPriority::NoPriority),
             PROTOCOL_VERSION,
+            ValidateReceiptMode::NewReceipt,
         )
         .expect("valid receipt");
     }
@@ -1896,10 +1941,10 @@ mod tests {
             delegate_action: DelegateAction {
                 sender_id: "bob.test.near".parse().unwrap(),
                 receiver_id: "token.test.near".parse().unwrap(),
-                actions: vec![NonDelegateAction::try_from(Action::CreateAccount(
-                    CreateAccountAction {},
-                ))
-                .unwrap()],
+                actions: vec![
+                    NonDelegateAction::try_from(Action::CreateAccount(CreateAccountAction {}))
+                        .unwrap(),
+                ],
                 nonce: 19000001,
                 max_block_height: 57,
                 public_key: PublicKey::empty(KeyType::ED25519),
@@ -1951,6 +1996,7 @@ mod tests {
         check("hello", 5, "hello");
         check("hello", 6, "hello");
         check("hello", 10, "hello");
+        // cspell:ignore привет
         check("привет", 3, "п");
     }
 }

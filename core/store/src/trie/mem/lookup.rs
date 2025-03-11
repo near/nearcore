@@ -1,6 +1,6 @@
 use super::arena::ArenaMemory;
 use super::flexible_data::value::ValueView;
-use super::metrics::MEM_TRIE_NUM_LOOKUPS;
+use super::metrics::MEMTRIE_NUM_LOOKUPS;
 use super::node::{MemTrieNodePtr, MemTrieNodeView};
 use crate::NibbleSlice;
 use near_primitives::hash::CryptoHash;
@@ -15,7 +15,7 @@ pub fn memtrie_lookup<'a, M: ArenaMemory>(
     key: &[u8],
     mut nodes_accessed: Option<&mut Vec<(CryptoHash, Arc<[u8]>)>>,
 ) -> Option<ValueView<'a>> {
-    MEM_TRIE_NUM_LOOKUPS.inc();
+    MEMTRIE_NUM_LOOKUPS.inc();
     let mut nibbles = NibbleSlice::new(key);
     let mut node = root;
 

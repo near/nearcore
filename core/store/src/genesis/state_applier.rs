@@ -2,9 +2,8 @@ use crate::adapter::StoreUpdateAdapter;
 use crate::flat::FlatStateChanges;
 use crate::trie::update::TrieUpdateResult;
 use crate::{
-    get_account, has_received_data, set, set_access_key, set_account, set_code,
+    ShardTries, TrieUpdate, get_account, has_received_data, set, set_access_key, set_account,
     set_delayed_receipt, set_postponed_receipt, set_promise_yield_receipt, set_received_data,
-    ShardTries, TrieUpdate,
 };
 
 use near_chain_configs::Genesis;
@@ -13,7 +12,7 @@ use near_parameters::StorageUsageConfig;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::receipt::{DelayedReceiptIndices, Receipt, ReceiptEnum, ReceivedData};
 use near_primitives::shard_layout::ShardUId;
-use near_primitives::state_record::{state_record_to_account_id, StateRecord};
+use near_primitives::state_record::{StateRecord, state_record_to_account_id};
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{AccountId, Balance, StateChangeCause, StateRoot};
 use near_vm_runner::ContractCode;
@@ -117,7 +116,7 @@ impl<'a> AutoFlushingTrieUpdate<'a> {
     }
 
     fn modify<R>(&mut self, process_callback: impl FnOnce(&mut TrieUpdate) -> R) -> R {
-        let Self { ref mut changes, ref mut state_update, .. } = self;
+        let Self { changes, state_update, .. } = self;
         // See if we should consider flushing.
         let result = process_callback(state_update.as_mut().expect("state update should be set"));
         let writers = self.active_writers.load(atomic::Ordering::Relaxed);
@@ -130,7 +129,7 @@ impl<'a> AutoFlushingTrieUpdate<'a> {
     }
 
     fn flush(&mut self) -> StateRoot {
-        let Self { ref mut changes, ref mut state_root, ref mut state_update, .. } = self;
+        let Self { changes, state_root, state_update, .. } = self;
         tracing::info!(
             target: "runtime",
             shard_uid=?self.shard_uid,
@@ -206,8 +205,11 @@ impl GenesisStateApplier {
                         if let Some(acc) =
                             get_account(state_update, account_id).expect("Failed to read state")
                         {
-                            set_code(state_update, account_id.clone(), &code);
-                            assert_eq!(*code.hash(), acc.code_hash());
+                            state_update.set_code(account_id.clone(), &code);
+                            assert_eq!(
+                                *code.hash(),
+                                acc.contract().local_code().unwrap_or_default()
+                            );
                         } else {
                             tracing::error!(
                                 target: "runtime",
@@ -244,7 +246,7 @@ impl GenesisStateApplier {
                     })
                 }
                 StateRecord::DelayedReceipt(receipt) => storage.modify(|state_update| {
-                    set_delayed_receipt(state_update, delayed_receipts_indices, &*receipt);
+                    set_delayed_receipt(state_update, delayed_receipts_indices, &*receipt.receipt);
                 }),
             }
         });
@@ -310,12 +312,14 @@ impl GenesisStateApplier {
                         });
                     }
                 }
-                ReceiptEnum::PromiseYield(ref _action_receipt) => {
+                ReceiptEnum::PromiseYield(_action_receipt) => {
                     storage.modify(|state_update| {
                         set_promise_yield_receipt(state_update, &receipt);
                     });
                 }
-                ReceiptEnum::Data(_) | ReceiptEnum::PromiseResume(_) => {
+                ReceiptEnum::GlobalContractDistribution(_)
+                | ReceiptEnum::Data(_)
+                | ReceiptEnum::PromiseResume(_) => {
                     panic!("Expected action receipt")
                 }
             }

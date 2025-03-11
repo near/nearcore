@@ -243,5 +243,11 @@ expression: config_view
     "main_storage_proof_size_soft_limit": 3000000,
     "combined_transactions_size_limit": 4194304,
     "new_transactions_validation_state_size_soft_limit": 572864
+  },
+  "bandwidth_scheduler_config": {
+    "max_shard_bandwidth": 4500000,
+    "max_single_grant": 4194304,
+    "max_allowance": 4500000,
+    "max_base_bandwidth": 100000
   }
 }

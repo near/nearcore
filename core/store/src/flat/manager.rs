@@ -1,5 +1,8 @@
 use crate::adapter::flat_store::{FlatStoreAdapter, FlatStoreUpdateAdapter};
-use crate::flat::{BlockInfo, FlatStorageReadyStatus, FlatStorageStatus, POISONED_LOCK_ERR};
+use crate::flat::{
+    BlockInfo, FlatStorageReadyStatus, FlatStorageReshardingStatus, FlatStorageStatus,
+    POISONED_LOCK_ERR,
+};
 use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
@@ -19,6 +22,12 @@ use super::{
 #[derive(Clone)]
 pub struct FlatStorageManager(Arc<FlatStorageManagerInner>);
 
+/// Stores the reference block hash and min height of all the prev hashes of that block's chunks.
+struct SnapshotBlock {
+    block_hash: CryptoHash,
+    min_chunk_prev_height: BlockHeight,
+}
+
 pub struct FlatStorageManagerInner {
     store: FlatStoreAdapter,
     /// Here we store the flat_storage per shard. The reason why we don't use the same
@@ -30,11 +39,18 @@ pub struct FlatStorageManagerInner {
     /// this epoch can share the same `head` and `tail`, similar for shards for the next epoch,
     /// but such overhead is negligible comparing the delta sizes, so we think it's ok.
     flat_storages: Mutex<HashMap<ShardUId, FlatStorage>>,
+    /// Set to Some() when there's a state snapshot in progress. Used to signal to the resharding flat
+    /// storage catchup code that it shouldn't advance past this block height
+    want_snapshot: Mutex<Option<SnapshotBlock>>,
 }
 
 impl FlatStorageManager {
     pub fn new(store: FlatStoreAdapter) -> Self {
-        Self(Arc::new(FlatStorageManagerInner { store, flat_storages: Default::default() }))
+        Self(Arc::new(FlatStorageManagerInner {
+            store,
+            flat_storages: Default::default(),
+            want_snapshot: Default::default(),
+        }))
     }
 
     /// When a node starts from an empty database, this function must be called to ensure
@@ -66,19 +82,59 @@ impl FlatStorageManager {
     /// and resharding.
     pub fn create_flat_storage_for_shard(&self, shard_uid: ShardUId) -> Result<(), StorageError> {
         tracing::debug!(target: "store", ?shard_uid, "Creating flat storage for shard");
+        let want_snapshot = self.0.want_snapshot.lock().expect(POISONED_LOCK_ERR);
+        let disable_updates = want_snapshot.is_some();
+
         let mut flat_storages = self.0.flat_storages.lock().expect(POISONED_LOCK_ERR);
         let flat_storage = FlatStorage::new(self.0.store.clone(), shard_uid)?;
+        if disable_updates {
+            flat_storage.set_flat_head_update_mode(false);
+        }
         let original_value = flat_storages.insert(shard_uid, flat_storage);
         if original_value.is_some() {
-            // Generally speaking this shouldn't happen. It may only happen when
-            // the node is restarted in the middle of resharding.
-            //
-            // TODO(resharding) It would be better to detect when building state
-            // is finished for a shard and skip doing it again after restart. We
-            // can then assert that the flat storage is only created once.
+            // Generally speaking this shouldn't happen. Starting from resharding V3 it shouldn't
+            // happen even if the node is restarted.
             tracing::warn!(target: "store", ?shard_uid, "Creating flat storage for shard that already has flat storage.");
         }
         Ok(())
+    }
+
+    /// Sets the status to `Ready` if it's currently `Resharding(CatchingUp)`
+    fn mark_flat_storage_ready(&self, shard_uid: ShardUId) -> Result<(), StorageError> {
+        // Don't use Self::get_flat_storage_status() because there's no need to panic if this fails, since this is used
+        // during state snapshotting where an error isn't critical to node operation.
+        let status = self.0.store.get_flat_storage_status(shard_uid)?;
+        let flat_head = match status {
+            FlatStorageStatus::Ready(_) => return Ok(()),
+            FlatStorageStatus::Resharding(FlatStorageReshardingStatus::CatchingUp(flat_head)) => {
+                flat_head
+            }
+            _ => {
+                return Err(StorageError::StorageInconsistentState(format!(
+                    "Unexpected flat storage status: {:?}",
+                    &status
+                )));
+            }
+        };
+        let mut store_update = self.0.store.store_update();
+        store_update.set_flat_storage_status(
+            shard_uid,
+            FlatStorageStatus::Ready(FlatStorageReadyStatus { flat_head }),
+        );
+        // TODO: Consider adding a StorageError::IO variant?
+        store_update.commit().map_err(|_| StorageError::StorageInternalError)?;
+        Ok(())
+    }
+
+    // If the flat storage status is Resharding(CatchingUp), sets it to Ready(), and then calls create_flat_storage_for_shard()
+    // This is used in creating state snapshots when this might be a flat storage that is in the middle of catchup, and that
+    // should now be considered `Ready` in the state snapshot, even if not in the main DB.
+    pub fn mark_ready_and_create_flat_storage(
+        &self,
+        shard_uid: ShardUId,
+    ) -> Result<(), StorageError> {
+        self.mark_flat_storage_ready(shard_uid)?;
+        self.create_flat_storage_for_shard(shard_uid)
     }
 
     /// Update flat storage for given processed or caught up block, which includes:
@@ -220,39 +276,81 @@ impl FlatStorageManager {
         }
     }
 
-    /// Updates `move_head_enabled` for all shards and returns whether it succeeded.
-    /// If at least one of the shards fails to update move_head_enabled, then that operation is rolled back for all shards.
-    ///
-    /// Rollbacks should work, because we assume that this function is the only
-    /// entry point to locking/unlocking flat head updates in a system with
-    /// multiple FlatStorages running in parallel.
-    pub fn set_flat_state_updates_mode(&self, enabled: bool) -> bool {
+    /// Returns None if there's no resharding flat storage split in progress
+    /// If there is, returns Some(None) if there's at least one child shard that hasn't been split and had its
+    /// status set to `CatchingUp`. If they've all been split already and are in the catchup phase,
+    /// returns the lowest height among all shards that resharding catchup has advanced to.
+    pub fn resharding_catchup_height_reached(
+        &self,
+        shard_uids: impl Iterator<Item = ShardUId>,
+    ) -> Result<Option<Option<BlockHeight>>, StorageError> {
+        let mut ret = None;
+        for shard_uid in shard_uids {
+            match self.0.store.get_flat_storage_status(shard_uid)? {
+                FlatStorageStatus::Resharding(FlatStorageReshardingStatus::CatchingUp(
+                    flat_head,
+                )) => {
+                    if let Some(Some(min_height)) = ret {
+                        ret = Some(Some(std::cmp::min(min_height, flat_head.height)));
+                    } else {
+                        ret = Some(Some(flat_head.height));
+                    }
+                }
+                FlatStorageStatus::Resharding(_) => return Ok(Some(None)),
+                _ => {}
+            };
+        }
+        Ok(ret)
+    }
+
+    /// Should be called when we want to take a state snapshot. Disallows flat head updates, and signals to any resharding
+    /// flat storage code that it should not advance beyond this hash
+    // TODO(#12919): This sets the currently active snapshot request to `block_hash` in favor of any previous requests. We
+    // should modify this to be sure that the correct block hash that will end up on the canonical chain is taken. Right now
+    // we rely on the canonical one being requested after any other forks, which may not be the case.
+    pub fn want_snapshot(&self, block_hash: CryptoHash, min_chunk_prev_height: BlockHeight) {
+        {
+            let mut want_snapshot = self.0.want_snapshot.lock().expect(POISONED_LOCK_ERR);
+            *want_snapshot = Some(SnapshotBlock { block_hash, min_chunk_prev_height });
+        }
         let flat_storages = self.0.flat_storages.lock().expect(POISONED_LOCK_ERR);
-        let mut all_updated = true;
-        let mut updated_flat_storages = vec![];
-        let mut updated_shard_uids = vec![];
-        for (shard_uid, flat_storage) in flat_storages.iter() {
-            if flat_storage.set_flat_head_update_mode(enabled) {
-                updated_flat_storages.push(flat_storage);
-                updated_shard_uids.push(shard_uid);
+        for flat_storage in flat_storages.values() {
+            flat_storage.set_flat_head_update_mode(false);
+        }
+        tracing::debug!(target: "store", "Locked flat head updates");
+    }
+
+    /// Should be called when we're done taking a state snapshot. If `block_hash` was the most recently requested snapshot, this
+    /// allows flat head updates, and signals to any resharding flat storage code that it can advance now.
+    pub fn snapshot_taken(&self, block_hash: &CryptoHash) {
+        {
+            let mut want_snapshot = self.0.want_snapshot.lock().expect(POISONED_LOCK_ERR);
+            if let Some(want) = &*want_snapshot {
+                if &want.block_hash != block_hash {
+                    return;
+                }
             } else {
-                all_updated = false;
-                tracing::error!(target: "store", rolling_back_shards = ?updated_shard_uids, enabled, ?shard_uid, "Locking/Unlocking of flat head updates failed for shard. Reverting.");
-                break;
+                tracing::warn!(target: "store", %block_hash, "State snapshot being marked as taken without a corresponding pending request set");
             }
+            *want_snapshot = None;
         }
-        if all_updated {
-            tracing::debug!(target: "store", enabled, "Locking/Unlocking of flat head updates succeeded");
-            true
-        } else {
-            // Do rollback.
-            // It does allow for a data race if somebody updates move_head_enabled on individual shards.
-            // The assumption is that all shards get locked/unlocked at the same time.
-            for flat_storage in updated_flat_storages {
-                flat_storage.set_flat_head_update_mode(!enabled);
-            }
-            tracing::error!(target: "store", enabled, "Locking/Unlocking of flat head updates failed");
-            false
+        let flat_storages = self.0.flat_storages.lock().expect(POISONED_LOCK_ERR);
+        for flat_storage in flat_storages.values() {
+            flat_storage.set_flat_head_update_mode(true);
         }
+        tracing::debug!(target: "store", "Unlocked flat head updates");
+    }
+
+    // Returns Some() if a state snapshot should be taken, and therefore any resharding flat storage code should not advance
+    // past the given hash
+    pub fn snapshot_height_wanted(&self) -> Option<BlockHeight> {
+        let want_snapshot = self.0.want_snapshot.lock().expect(POISONED_LOCK_ERR);
+        want_snapshot.as_ref().map(|s| s.min_chunk_prev_height)
+    }
+
+    // Returns Some() with the corresponding block hash if a state snapshot has been requested
+    pub fn snapshot_hash_wanted(&self) -> Option<CryptoHash> {
+        let want_snapshot = self.0.want_snapshot.lock().expect(POISONED_LOCK_ERR);
+        want_snapshot.as_ref().map(|s| s.block_hash)
     }
 }

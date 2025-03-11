@@ -3,7 +3,7 @@ use std::io;
 use std::ops::Bound;
 use std::sync::{Arc, RwLock};
 
-use crate::db::{refcount, DBIterator, DBOp, DBSlice, DBTransaction, Database};
+use crate::db::{DBIterator, DBOp, DBSlice, DBTransaction, Database, refcount};
 use crate::{DBCol, StoreStatistics};
 
 /// An in-memory database intended for tests and IO-agnostic estimations.
@@ -136,11 +136,16 @@ impl Database for TestDB {
         Ok(())
     }
 
-    fn copy_if_test(&self) -> Option<Arc<dyn Database>> {
+    fn copy_if_test(&self, columns_to_keep: Option<&[DBCol]>) -> Option<Arc<dyn Database>> {
         let copy = Self::default();
         {
             let mut db = copy.db.write().unwrap();
             for (col, map) in self.db.read().unwrap().iter() {
+                if let Some(keep) = columns_to_keep {
+                    if !keep.contains(&col) {
+                        continue;
+                    }
+                }
                 let new_col = &mut db[col];
                 for (key, value) in map.iter() {
                     new_col.insert(key.clone(), value.clone());

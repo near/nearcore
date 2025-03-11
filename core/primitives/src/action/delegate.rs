@@ -7,7 +7,7 @@ use super::Action;
 use crate::signable_message::{SignableMessage, SignableMessageType};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::{PublicKey, Signature};
-use near_primitives_core::hash::{hash, CryptoHash};
+use near_primitives_core::hash::{CryptoHash, hash};
 use near_primitives_core::types::BlockHeight;
 use near_primitives_core::types::{AccountId, Nonce};
 use near_schema_checker_lib::ProtocolSchema;
@@ -156,7 +156,7 @@ mod tests {
 
     /// A serialized `Action::Delegate(SignedDelegateAction)` for testing.
     ///
-    /// We want this to be parseable and accepted by protocol versions with meta
+    /// We want this to be parsable and accepted by protocol versions with meta
     /// transactions enabled. But it should fail either in parsing or in
     /// validation when this is included in a receipt for a block of an earlier
     /// version. For now, it just fails to parse, as a test below checks.

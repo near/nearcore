@@ -4,15 +4,19 @@ use crate::config::{
 };
 use crate::ext::{ExternalError, RuntimeExt};
 use crate::receipt_manager::ReceiptManager;
-use crate::{metrics, ActionResult, ApplyState};
+use crate::{ActionResult, ApplyState, ChunkApplyStatsV0, metrics};
 use near_crypto::PublicKey;
 use near_parameters::{AccountCreationConfig, ActionCosts, RuntimeConfig, RuntimeFeesConfig};
-use near_primitives::account::{AccessKey, AccessKeyPermission, Account};
+use near_primitives::account::{AccessKey, AccessKeyPermission, Account, AccountContract};
 use near_primitives::action::delegate::{DelegateAction, SignedDelegateAction};
+use near_primitives::action::{
+    DeployGlobalContractAction, GlobalContractDeployMode, GlobalContractIdentifier,
+    UseGlobalContractAction,
+};
 use near_primitives::checked_feature;
 use near_primitives::config::ViewConfig;
 use near_primitives::errors::{ActionError, ActionErrorKind, InvalidAccessKeyError, RuntimeError};
-use near_primitives::hash::CryptoHash;
+use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::receipt::{
     ActionReceipt, DataReceipt, Receipt, ReceiptEnum, ReceiptPriority, ReceiptV0,
 };
@@ -20,26 +24,27 @@ use near_primitives::transaction::{
     Action, AddKeyAction, DeleteAccountAction, DeleteKeyAction, DeployContractAction,
     FunctionCallAction, StakeAction,
 };
+use near_primitives::trie_key::TrieKey;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, EpochInfoProvider, Gas, StorageUsage, TrieCacheMode,
 };
 use near_primitives::utils::account_is_implicit;
 use near_primitives::version::{
-    ProtocolFeature, ProtocolVersion, DELETE_KEY_STORAGE_USAGE_PROTOCOL_VERSION,
+    DELETE_KEY_STORAGE_USAGE_PROTOCOL_VERSION, ProtocolFeature, ProtocolVersion,
 };
 use near_primitives_core::account::id::AccountType;
 use near_store::{
-    enqueue_promise_yield_timeout, get_access_key, get_code, get_promise_yield_indices,
-    remove_access_key, remove_account, set_access_key, set_code, set_promise_yield_indices,
-    StorageError, TrieUpdate,
+    StorageError, TrieUpdate, enqueue_promise_yield_timeout, get_access_key,
+    get_promise_yield_indices, remove_access_key, remove_account, set_access_key,
+    set_promise_yield_indices,
 };
 use near_vm_runner::logic::errors::{
     CompilationError, FunctionCallError, InconsistentStateError, VMRunnerError,
 };
 use near_vm_runner::logic::{VMContext, VMOutcome};
-use near_vm_runner::{precompile_contract, PreparedContract};
 use near_vm_runner::{ContractCode, ContractRuntimeCache};
+use near_vm_runner::{PreparedContract, precompile_contract};
 use near_wallet_contract::{wallet_contract, wallet_contract_magic_bytes};
 use std::sync::Arc;
 
@@ -106,10 +111,7 @@ pub(crate) fn execute_function_call(
     drop(mode_guard);
     near_vm_runner::report_metrics(
         &apply_state.shard_id.to_string(),
-        &apply_state
-            .apply_reason
-            .as_ref()
-            .map_or_else(|| String::from("unknown"), |r| r.to_string()),
+        &apply_state.apply_reason.to_string(),
     );
 
     // There are many specific errors that the runtime can encounter.
@@ -141,7 +143,7 @@ pub(crate) fn execute_function_call(
             return Err(StorageError::StorageInconsistentState(err.to_string()).into());
         }
         Err(VMRunnerError::LoadingError(msg)) => {
-            panic!("Contract runtime failed to load a contrct: {msg}")
+            panic!("Contract runtime failed to load a contract: {msg}")
         }
         Err(VMRunnerError::Nondeterministic(msg)) => {
             panic!("Contract runner returned non-deterministic error '{}', aborting", msg)
@@ -175,7 +177,7 @@ pub(crate) fn action_function_call(
     code_hash: CryptoHash,
     config: &RuntimeConfig,
     is_last_action: bool,
-    epoch_info_provider: &(dyn EpochInfoProvider),
+    epoch_info_provider: &dyn EpochInfoProvider,
     contract: Box<dyn PreparedContract>,
 ) -> Result<(), RuntimeError> {
     if account.amount().checked_add(function_call.deposit).is_none() {
@@ -185,17 +187,14 @@ pub(crate) fn action_function_call(
         .into());
     }
 
-    // When the contract code is excluded from the witness, the Trie read for the contract code
-    // is not recorded and the code-size does not contribute to the storage-proof limit.
-    // Instead we just record that the code with the given hash was called, so that we can identify
-    // which contract-code to distribute to the validators.
-    if ProtocolFeature::ExcludeContractCodeFromStateWitness
-        .enabled(apply_state.current_protocol_version)
-    {
-        state_update.contract_storage.record_call(code_hash);
-    } else {
-        state_update.trie.request_code_recording(account_id.clone());
-    }
+    let account_contract = account.contract();
+    state_update.record_contract_call(
+        account_id.clone(),
+        code_hash,
+        account_contract.as_ref(),
+        apply_state.apply_reason.clone(),
+        apply_state.current_protocol_version,
+    )?;
 
     #[cfg(feature = "test_features")]
     apply_recorded_storage_garbage(function_call, state_update);
@@ -210,6 +209,7 @@ pub(crate) fn action_function_call(
         apply_state.epoch_id,
         apply_state.prev_block_hash,
         apply_state.block_hash,
+        apply_state.block_height,
         epoch_info_provider,
         apply_state.current_protocol_version,
     );
@@ -254,12 +254,12 @@ pub(crate) fn action_function_call(
                     .with_label_values(&[err.into()])
                     .inc();
             }
-            FunctionCallError::WasmTrap(ref inner_err) => {
+            FunctionCallError::WasmTrap(inner_err) => {
                 metrics::FUNCTION_CALL_PROCESSED_WASM_TRAP_ERRORS
                     .with_label_values(&[inner_err.into()])
                     .inc();
             }
-            FunctionCallError::HostError(ref inner_err) => {
+            FunctionCallError::HostError(inner_err) => {
                 metrics::FUNCTION_CALL_PROCESSED_HOST_ERRORS
                     .with_label_values(&[inner_err.into()])
                     .inc();
@@ -285,7 +285,7 @@ pub(crate) fn action_function_call(
     if execution_succeeded {
         // Fetch metadata for PromiseYield timeout queue
         let mut promise_yield_indices = get_promise_yield_indices(state_update).unwrap_or_default();
-        let initial_promse_yield_indices = promise_yield_indices.clone();
+        let initial_promise_yield_indices = promise_yield_indices.clone();
 
         let mut new_receipts: Vec<_> = receipt_manager
             .action_receipts
@@ -346,7 +346,7 @@ pub(crate) fn action_function_call(
         }));
 
         // Commit metadata for yielded promises queue
-        if promise_yield_indices != initial_promse_yield_indices {
+        if promise_yield_indices != initial_promise_yield_indices {
             set_promise_yield_indices(state_update, &promise_yield_indices);
         }
 
@@ -446,25 +446,6 @@ pub(crate) fn action_transfer(account: &mut Account, deposit: Balance) -> Result
     Ok(())
 }
 
-#[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-pub(crate) fn action_nonrefundable_storage_transfer(
-    account: &mut Account,
-    deposit: Balance,
-    storage_amount_per_byte: Balance,
-) -> Result<(), StorageError> {
-    let permanent_storage_bytes = (deposit / storage_amount_per_byte) as StorageUsage;
-    account.set_permanent_storage_bytes(
-        account.permanent_storage_bytes().checked_add(permanent_storage_bytes).ok_or_else(
-            || {
-                StorageError::StorageInconsistentState(
-                    "permanent_storage_bytes integer overflow".to_string(),
-                )
-            },
-        )?,
-    );
-    Ok(())
-}
-
 pub(crate) fn action_create_account(
     fee_config: &RuntimeFeesConfig,
     account_creation_config: &AccountCreationConfig,
@@ -473,7 +454,6 @@ pub(crate) fn action_create_account(
     account_id: &AccountId,
     predecessor_id: &AccountId,
     result: &mut ActionResult,
-    protocol_version: ProtocolVersion,
 ) {
     if account_id.is_top_level() {
         if account_id.len() < account_creation_config.min_allowed_top_level_account_length as usize
@@ -506,10 +486,8 @@ pub(crate) fn action_create_account(
     *account = Some(Account::new(
         0,
         0,
-        0,
-        CryptoHash::default(),
+        AccountContract::None,
         fee_config.storage_usage_config.num_bytes_account,
-        protocol_version,
     ));
 }
 
@@ -524,19 +502,9 @@ pub(crate) fn action_implicit_account_creation_transfer(
     deposit: Balance,
     block_height: BlockHeight,
     current_protocol_version: ProtocolVersion,
-    nonrefundable_storage_transfer: bool,
     epoch_info_provider: &dyn EpochInfoProvider,
 ) {
     *actor_id = account_id.clone();
-
-    let (amount, permanent_storage_bytes) = if nonrefundable_storage_transfer {
-        let permanent_storage_bytes =
-            (deposit / apply_state.config.storage_amount_per_byte()) as StorageUsage;
-        (0, permanent_storage_bytes)
-    } else {
-        (deposit, 0)
-    };
-
     match account_id.get_account_type() {
         AccountType::NearImplicitAccount => {
             let mut access_key = AccessKey::full_access();
@@ -555,15 +523,13 @@ pub(crate) fn action_implicit_account_creation_transfer(
             let public_key = PublicKey::from_near_implicit_account(account_id).unwrap();
 
             *account = Some(Account::new(
-                amount,
+                deposit,
                 0,
-                permanent_storage_bytes,
-                CryptoHash::default(),
+                AccountContract::None,
                 fee_config.storage_usage_config.num_bytes_account
                     + public_key.len() as u64
                     + borsh::object_length(&access_key).unwrap() as u64
                     + fee_config.storage_usage_config.num_extra_bytes_record,
-                current_protocol_version,
             ));
 
             set_access_key(state_update, account_id.clone(), public_key, &access_key);
@@ -585,14 +551,12 @@ pub(crate) fn action_implicit_account_creation_transfer(
 
                 let contract_hash = *magic_bytes.hash();
                 *account = Some(Account::new(
-                    amount,
+                    deposit,
                     0,
-                    permanent_storage_bytes,
-                    contract_hash,
+                    AccountContract::from_local_code_hash(contract_hash),
                     storage_usage,
-                    current_protocol_version,
                 ));
-                set_code(state_update, account_id.clone(), &magic_bytes);
+                state_update.set_code(account_id.clone(), &magic_bytes);
 
                 // Precompile Wallet Contract and store result (compiled code or error) in the database.
                 // Note this contract is shared among ETH-implicit accounts and `precompile_contract`
@@ -623,12 +587,17 @@ pub(crate) fn action_deploy_contract(
     deploy_contract: &DeployContractAction,
     config: Arc<near_parameters::vm::Config>,
     cache: Option<&dyn ContractRuntimeCache>,
+    current_protocol_version: ProtocolVersion,
 ) -> Result<(), StorageError> {
     let _span = tracing::debug_span!(target: "runtime", "action_deploy_contract").entered();
+    clear_account_contract_storage_usage(
+        state_update,
+        account_id,
+        account,
+        current_protocol_version,
+    )?;
+
     let code = ContractCode::new(deploy_contract.code.clone(), None);
-    let prev_code = get_code(state_update, account_id, Some(account.code_hash()))?;
-    let prev_code_length = prev_code.map(|code| code.code().len() as u64).unwrap_or_default();
-    account.set_storage_usage(account.storage_usage().saturating_sub(prev_code_length));
     account.set_storage_usage(
         account.storage_usage().checked_add(code.code().len() as u64).ok_or_else(|| {
             StorageError::StorageInconsistentState(format!(
@@ -637,12 +606,12 @@ pub(crate) fn action_deploy_contract(
             ))
         })?,
     );
-    account.set_code_hash(*code.hash());
+    account.set_contract(AccountContract::Local(*code.hash()));
     // Legacy: populate the mapping from `AccountId => sha256(code)` thus making contracts part of
     // The State. For the time being we are also relying on the `TrieUpdate` to actually write the
     // contracts into the storage as part of the commit routine, however no code should be relying
     // that the contracts are written to The State.
-    set_code(state_update, account_id.clone(), &code);
+    state_update.set_code(account_id.clone(), &code);
     // Precompile the contract and store result (compiled code or error) in the contract runtime
     // cache.
     // Note, that contract compilation costs are already accounted in deploy cost using special
@@ -651,7 +620,95 @@ pub(crate) fn action_deploy_contract(
     // Inform the `store::contract::Storage` about the new deploy (so that the `get` method can
     // return the contract before the contract is written out to the underlying storage as part of
     // the `TrieUpdate` commit.)
-    state_update.contract_storage.record_deploy(code);
+    state_update.record_contract_deploy(code);
+    Ok(())
+}
+
+pub(crate) fn action_deploy_global_contract(
+    account: &mut Account,
+    account_id: &AccountId,
+    apply_state: &ApplyState,
+    deploy_contract: &DeployGlobalContractAction,
+    result: &mut ActionResult,
+    stats: &mut ChunkApplyStatsV0,
+) {
+    let _span = tracing::debug_span!(target: "runtime", "action_deploy_global_contract").entered();
+
+    let storage_cost = apply_state
+        .config
+        .fees
+        .storage_usage_config
+        .global_contract_storage_amount_per_byte
+        .saturating_mul(deploy_contract.code.len() as u128);
+    let Some(updated_balance) = account.amount().checked_sub(storage_cost) else {
+        result.result = Err(ActionErrorKind::LackBalanceForState {
+            account_id: account_id.clone(),
+            amount: storage_cost,
+        }
+        .into());
+        return;
+    };
+    stats.balance.global_actions_burnt_amount =
+        stats.balance.global_actions_burnt_amount.saturating_add(storage_cost);
+    account.set_amount(updated_balance);
+
+    let id = match deploy_contract.deploy_mode {
+        GlobalContractDeployMode::CodeHash => {
+            GlobalContractIdentifier::CodeHash(hash(&deploy_contract.code))
+        }
+        GlobalContractDeployMode::AccountId => {
+            GlobalContractIdentifier::AccountId(account_id.clone())
+        }
+    };
+
+    result.new_receipts.push(Receipt::new_global_contract_distribution(
+        account_id.clone(),
+        deploy_contract.code.clone(),
+        id,
+    ));
+}
+
+pub(crate) fn action_use_global_contract(
+    state_update: &mut TrieUpdate,
+    account_id: &AccountId,
+    account: &mut Account,
+    action: &UseGlobalContractAction,
+    current_protocol_version: ProtocolVersion,
+    result: &mut ActionResult,
+) -> Result<(), RuntimeError> {
+    let _span = tracing::debug_span!(target: "runtime", "action_use_global_contract").entered();
+    let key = TrieKey::GlobalContractCode { identifier: action.contract_identifier.clone().into() };
+    if !state_update.contains_key(&key)? {
+        result.result = Err(ActionErrorKind::GlobalContractDoesNotExist {
+            identifier: action.contract_identifier.clone(),
+        }
+        .into());
+        return Ok(());
+    }
+    clear_account_contract_storage_usage(
+        state_update,
+        account_id,
+        account,
+        current_protocol_version,
+    )?;
+    if account.contract().is_local() {
+        state_update.remove(TrieKey::ContractCode { account_id: account_id.clone() });
+    }
+    let contract = match &action.contract_identifier {
+        GlobalContractIdentifier::CodeHash(code_hash) => AccountContract::Global(*code_hash),
+        GlobalContractIdentifier::AccountId(id) => AccountContract::GlobalByAccount(id.clone()),
+    };
+    account.set_storage_usage(
+        account.storage_usage().checked_add(action.contract_identifier.len() as u64).ok_or_else(
+            || {
+                StorageError::StorageInconsistentState(format!(
+                    "Storage usage integer overflow for account {}",
+                    account_id
+                ))
+            },
+        )?,
+    );
+    account.set_contract(contract);
     Ok(())
 }
 
@@ -668,13 +725,19 @@ pub(crate) fn action_delete_account(
     if current_protocol_version >= ProtocolFeature::DeleteActionRestriction.protocol_version() {
         let account = account.as_ref().unwrap();
         let mut account_storage_usage = account.storage_usage();
-        let contract_code = get_code(state_update, account_id, Some(account.code_hash()))?;
-        if let Some(code) = contract_code {
-            // account storage usage should be larger than code size
-            let code_len = code.code().len() as u64;
-            debug_assert!(account_storage_usage > code_len);
-            account_storage_usage = account_storage_usage.saturating_sub(code_len);
-        }
+        let code_len = get_code_len_or_default(
+            state_update,
+            account_id.clone(),
+            account.local_contract_hash().unwrap_or_default(),
+            current_protocol_version,
+        )?;
+        debug_assert!(
+            code_len == 0 || account_storage_usage > code_len,
+            "Account storage usage should be larger than code size. Storage usage: {}, code size: {}",
+            account_storage_usage,
+            code_len
+        );
+        account_storage_usage = account_storage_usage.saturating_sub(code_len);
         if account_storage_usage > Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE {
             result.result = Err(ActionErrorKind::DeleteAccountWithLargeState {
                 account_id: account_id.clone(),
@@ -695,6 +758,61 @@ pub(crate) fn action_delete_account(
     remove_account(state_update, account_id)?;
     *actor_id = receipt.predecessor_id().clone();
     *account = None;
+    Ok(())
+}
+
+/// Returns the storage usage for the contract code with the given `code_hash` and deployed to the given `account_id`.
+/// If no contract was deployed to the account, returns `0`.
+///
+/// This implements different behaviors based on the protocol version:
+/// If `ExcludeExistingCodeFromWitnessForCodeLen` is enabled then the code-length is obtained without reading
+/// the code but from the value-ref in the trie leaf node, otherwise it reads the code and returns its size.
+fn get_code_len_or_default(
+    state_update: &TrieUpdate,
+    account_id: AccountId,
+    code_hash: CryptoHash,
+    protocol_version: ProtocolVersion,
+) -> Result<StorageUsage, StorageError> {
+    let code_len =
+        if ProtocolFeature::ExcludeExistingCodeFromWitnessForCodeLen.enabled(protocol_version) {
+            state_update.get_code_len(account_id, code_hash)?
+        } else {
+            state_update.get_code(account_id, code_hash)?.map(|contract| contract.code().len())
+        };
+    debug_assert!(
+        code_len.is_some() || code_hash == CryptoHash::default(),
+        "Non-default code hash for account with no contract deployed: {:?}",
+        code_hash
+    );
+    Ok(code_len.unwrap_or_default().try_into().unwrap())
+}
+
+/// Clears the contract storage usage based on type for an account.
+fn clear_account_contract_storage_usage(
+    state_update: &mut TrieUpdate,
+    account_id: &AccountId,
+    account: &mut Account,
+    current_protocol_version: ProtocolVersion,
+) -> Result<(), StorageError> {
+    match account.contract().as_ref() {
+        AccountContract::None => {}
+        AccountContract::Local(code_hash) => {
+            let prev_code_len = get_code_len_or_default(
+                state_update,
+                account_id.clone(),
+                *code_hash,
+                current_protocol_version,
+            )?;
+            account.set_storage_usage(account.storage_usage().saturating_sub(prev_code_len));
+        }
+        AccountContract::Global(_) | AccountContract::GlobalByAccount(_) => {
+            account.set_storage_usage(
+                account
+                    .storage_usage()
+                    .saturating_sub(account.contract().identifier_storage_usage()),
+            );
+        }
+    };
     Ok(())
 }
 
@@ -872,7 +990,9 @@ fn receipt_required_gas(apply_state: &ApplyState, receipt: &Receipt) -> Result<G
 
             required_gas
         }
-        ReceiptEnum::Data(_) | ReceiptEnum::PromiseResume(_) => 0,
+        ReceiptEnum::GlobalContractDistribution(_)
+        | ReceiptEnum::Data(_)
+        | ReceiptEnum::PromiseResume(_) => 0,
     })
 }
 
@@ -940,7 +1060,7 @@ fn validate_delegate_action_key(
             .into());
             return Ok(());
         }
-        if let Some(Action::FunctionCall(ref function_call)) = actions.get(0) {
+        if let Some(Action::FunctionCall(function_call)) = actions.get(0) {
             if function_call.deposit > 0 {
                 result.result = Err(ActionErrorKind::DelegateActionAccessKeyError(
                     InvalidAccessKeyError::DepositWithFunctionCall,
@@ -998,7 +1118,12 @@ pub(crate) fn check_actor_permissions(
     account_id: &AccountId,
 ) -> Result<(), ActionError> {
     match action {
-        Action::DeployContract(_) | Action::Stake(_) | Action::AddKey(_) | Action::DeleteKey(_) => {
+        Action::DeployContract(_)
+        | Action::Stake(_)
+        | Action::AddKey(_)
+        | Action::DeleteKey(_)
+        | Action::DeployGlobalContract(_)
+        | Action::UseGlobalContract(_) => {
             if actor_id != account_id {
                 return Err(ActionErrorKind::ActorNoPermission {
                     account_id: account_id.clone(),
@@ -1025,8 +1150,6 @@ pub(crate) fn check_actor_permissions(
         }
         Action::CreateAccount(_) | Action::FunctionCall(_) | Action::Transfer(_) => (),
         Action::Delegate(_) => (),
-        #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-        Action::NonrefundableStorageTransfer(_) => (),
     };
     Ok(())
 }
@@ -1037,11 +1160,6 @@ pub(crate) fn check_account_existence(
     account_id: &AccountId,
     config: &RuntimeConfig,
     implicit_account_creation_eligible: bool,
-    #[cfg_attr(
-        not(feature = "protocol_feature_nonrefundable_transfer_nep491"),
-        allow(unused_variables)
-    )]
-    receipt_starts_with_create_account: bool,
 ) -> Result<(), ActionError> {
     match action {
         Action::CreateAccount(_) => {
@@ -1080,37 +1198,15 @@ pub(crate) fn check_account_existence(
                 );
             }
         }
-        // TODO(nonrefundable) Merge with arm above on stabilization.
-        #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-        Action::NonrefundableStorageTransfer(_) => {
-            if account.is_none() {
-                return check_transfer_to_nonexisting_account(
-                    config,
-                    account_id,
-                    implicit_account_creation_eligible,
-                );
-            } else if !receipt_starts_with_create_account {
-                // If the account already existed before the current receipt,
-                // non-refundable transfer is not allowed. But for named
-                // accounts, it could be that the account was created in this
-                // receipt which is allowed. Checking for the first action of
-                // the receipt being a `CreateAccount` action serves this
-                // purpose.
-                // For implicit accounts creation with non-refundable storage
-                // we require that this is the only action in the receipt.
-                return Err(ActionErrorKind::NonRefundableTransferToExistingAccount {
-                    account_id: account_id.clone(),
-                }
-                .into());
-            }
-        }
         Action::DeployContract(_)
         | Action::FunctionCall(_)
         | Action::Stake(_)
         | Action::AddKey(_)
         | Action::DeleteKey(_)
         | Action::DeleteAccount(_)
-        | Action::Delegate(_) => {
+        | Action::Delegate(_)
+        | Action::DeployGlobalContract(_)
+        | Action::UseGlobalContract(_) => {
             if account.is_none() {
                 return Err(ActionErrorKind::AccountDoesNotExist {
                     account_id: account_id.clone(),
@@ -1169,13 +1265,13 @@ mod tests {
     use crate::near_primitives::shard_layout::ShardUId;
     use near_primitives::account::FunctionCallPermission;
     use near_primitives::action::delegate::NonDelegateAction;
+    use near_primitives::apply::ApplyChunkReason;
     use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
     use near_primitives::congestion_info::BlockCongestionInfo;
     use near_primitives::errors::InvalidAccessKeyError;
     use near_primitives::runtime::migration_data::MigrationFlags;
     use near_primitives::transaction::CreateAccountAction;
     use near_primitives::types::{EpochId, StateChangeCause};
-    use near_primitives_core::version::PROTOCOL_VERSION;
     use near_store::set_account;
     use near_store::test_utils::TestTriesBuilder;
     use std::sync::Arc;
@@ -1199,7 +1295,6 @@ mod tests {
             &account_id,
             &predecessor_id,
             &mut action_result,
-            PROTOCOL_VERSION,
         );
         if action_result.result.is_ok() {
             assert!(account.is_some());
@@ -1285,8 +1380,12 @@ mod tests {
         storage_usage: u64,
         state_update: &mut TrieUpdate,
     ) -> ActionResult {
-        let mut account =
-            Some(Account::new(100, 0, 0, *code_hash, storage_usage, PROTOCOL_VERSION));
+        let mut account = Some(Account::new(
+            100,
+            0,
+            AccountContract::from_local_code_hash(*code_hash),
+            storage_usage,
+        ));
         let mut actor_id = account_id.clone();
         let mut action_result = ActionResult::default();
         let receipt = Receipt::new_balance_refund(
@@ -1336,8 +1435,7 @@ mod tests {
             tries.new_trie_update(ShardUId::single_shard(), CryptoHash::default());
         let account_id = "alice".parse::<AccountId>().unwrap();
         let deploy_action = DeployContractAction { code: [0; 10_000].to_vec() };
-        let mut account =
-            Account::new(100, 0, 0, CryptoHash::default(), storage_usage, PROTOCOL_VERSION);
+        let mut account = Account::new(100, 0, AccountContract::None, storage_usage);
         let apply_state = create_apply_state(0);
         let res = action_deploy_contract(
             &mut state_update,
@@ -1346,11 +1444,12 @@ mod tests {
             &deploy_action,
             Arc::clone(&apply_state.config.wasm_config),
             None,
+            apply_state.current_protocol_version,
         );
         assert!(res.is_ok());
         test_delete_large_account(
             &account_id,
-            &account.code_hash(),
+            &account.local_contract_hash().unwrap_or_default(),
             storage_usage,
             &mut state_update,
         )
@@ -1416,7 +1515,7 @@ mod tests {
 
     fn create_apply_state(block_height: BlockHeight) -> ApplyState {
         ApplyState {
-            apply_reason: None,
+            apply_reason: ApplyChunkReason::UpdateTrackedShard,
             block_height,
             prev_block_hash: CryptoHash::default(),
             block_hash: CryptoHash::default(),
@@ -1446,7 +1545,7 @@ mod tests {
         let tries = TestTriesBuilder::new().build();
         let mut state_update =
             tries.new_trie_update(ShardUId::single_shard(), CryptoHash::default());
-        let account = Account::new(100, 0, 0, CryptoHash::default(), 100, PROTOCOL_VERSION);
+        let account = Account::new(100, 0, AccountContract::None, 100);
         set_account(&mut state_update, account_id.clone(), &account);
         set_access_key(&mut state_update, account_id.clone(), public_key.clone(), access_key);
 
@@ -1517,7 +1616,7 @@ mod tests {
             create_apply_state(signed_delegate_action.delegate_action.max_block_height);
         let mut state_update = setup_account(&sender_id, &sender_pub_key, &access_key);
 
-        // Corrupt receiver_id. Signature verifycation must fail.
+        // Corrupt receiver_id. Signature verification must fail.
         signed_delegate_action.delegate_action.receiver_id = "www.test.near".parse().unwrap();
 
         apply_delegate_action(
@@ -1602,7 +1701,6 @@ mod tests {
                 &sender_id,
                 &RuntimeConfig::test(),
                 false,
-                false,
             ),
             Err(ActionErrorKind::AccountDoesNotExist { account_id: sender_id.clone() }.into())
         );
@@ -1663,7 +1761,7 @@ mod tests {
     }
 
     #[test]
-    fn test_delegate_action_key_doesnt_exist() {
+    fn test_delegate_action_key_does_not_exist() {
         let mut result = ActionResult::default();
         let (_, signed_delegate_action) = create_delegate_action_receipt();
         let sender_id = signed_delegate_action.delegate_action.sender_id.clone();
@@ -1780,7 +1878,7 @@ mod tests {
     }
 
     #[test]
-    fn test_delegate_action_key_permissions_fncall() {
+    fn test_delegate_action_key_permissions_function_call() {
         let (_, signed_delegate_action) = create_delegate_action_receipt();
         let access_key = AccessKey {
             nonce: 19000000,
@@ -1870,7 +1968,7 @@ mod tests {
     }
 
     #[test]
-    fn test_delegate_action_key_permissions_fncall_deposit() {
+    fn test_delegate_action_key_permissions_function_call_deposit() {
         let (_, signed_delegate_action) = create_delegate_action_receipt();
         let access_key = AccessKey {
             nonce: 19000000,

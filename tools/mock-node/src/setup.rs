@@ -1,468 +1,138 @@
 //! Provides functions for setting up a mock network from configs and home dirs.
 
-use crate::{MockNetworkConfig, MockPeer};
+use crate::{MockNetworkConfig, MockNode};
 use anyhow::Context;
-use near_chain::types::RuntimeAdapter;
-use near_chain::ChainStoreUpdate;
-use near_chain::{Chain, ChainGenesis, ChainStore, ChainStoreAccess, DoomslugThresholdMode};
-use near_crypto::{KeyType, SecretKey};
+use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode};
+use near_chain_configs::GenesisValidationMode;
 use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
-use near_epoch_manager::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
-use near_jsonrpc_client::JsonRpcClient;
+use near_epoch_manager::{EpochManager, EpochManagerAdapter};
 use near_network::tcp;
-use near_network::types::PeerInfo;
-use near_primitives::network::PeerId;
 use near_primitives::shard_layout::ShardLayout;
-use near_primitives::state_part::PartId;
-use near_primitives::state_sync::get_num_state_parts;
 use near_primitives::types::BlockHeight;
-use near_store::test_utils::create_test_store;
+use near_primitives::version::ProtocolVersion;
+use near_store::adapter::StoreAdapter;
+use near_store::adapter::chain_store::ChainStoreAdapter;
+
 use near_time::Clock;
+
 use nearcore::{NearConfig, NightshadeRuntime, NightshadeRuntimeExt};
-use rayon::iter::{IntoParallelIterator, ParallelIterator};
+
 use std::cmp::min;
 use std::path::Path;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
-fn setup_runtime(
-    home_dir: &Path,
-    config: &NearConfig,
-    in_memory_storage: bool,
-) -> (Arc<EpochManagerHandle>, ShardTracker, Arc<NightshadeRuntime>) {
-    let store = if in_memory_storage {
-        create_test_store()
-    } else {
-        near_store::NodeStorage::opener(home_dir, config.config.archive, &config.config.store, None)
-            .open()
-            .unwrap()
-            .get_hot_store()
-    };
-    let epoch_manager =
-        EpochManager::new_arc_handle(store.clone(), &config.genesis.config, Some(home_dir));
-    let shard_tracker =
-        ShardTracker::new(TrackedConfig::from_config(&config.client_config), epoch_manager.clone());
-    let runtime = NightshadeRuntime::from_config(home_dir, store, config, epoch_manager.clone())
-        .expect("could not create transaction runtime");
-    (epoch_manager, shard_tracker, runtime)
-}
-
-fn setup_mock_peer(
+/// Starts a mock server listening on the addr specified in `config`
+/// The `archival` field does not refer to whether the database is archival
+/// (which is still controlled by `config`), but tells whether the mock server should
+/// advertise itself as archival in handshakes with peers. We might want to use the mock
+/// server with clients with `state_sync_enabled=false` in the config and with a head
+/// more than one epoch behind ours. In that case, if the client believes we're not archival,
+/// it wont send us any chunk part requests for old chunks.
+pub(crate) fn setup_mock_peer(
     chain: Chain,
-    config: &mut NearConfig,
+    epoch_manager: Arc<dyn EpochManagerAdapter>,
+    config: NearConfig,
     network_start_height: Option<BlockHeight>,
     network_config: MockNetworkConfig,
     target_height: BlockHeight,
     shard_layout: ShardLayout,
-    mock_listen_addr: tcp::ListenerAddr,
+    handshake_protocol_version: Option<ProtocolVersion>,
+    archival: bool,
 ) -> tokio::task::JoinHandle<anyhow::Result<()>> {
     let network_start_height = match network_start_height {
         None => target_height,
         Some(0) => chain.genesis_block().header().height(),
         Some(it) => it,
     };
-    let secret_key = SecretKey::from_random(KeyType::ED25519);
-    config
-        .network_config
-        .peer_store
-        .boot_nodes
-        .push(PeerInfo::new(PeerId::new(secret_key.public_key()), *mock_listen_addr));
-    let chain_id = config.genesis.config.chain_id.clone();
+    let secret_key = config.network_config.node_key;
+    let chain_id = config.genesis.config.chain_id;
     let block_production_delay = config.client_config.min_block_production_delay;
-    let archival = config.client_config.archive;
-    actix::spawn(async move {
-        let mock = MockPeer::new(
-            chain,
+    let listen_addr = match config.network_config.node_addr {
+        Some(a) => a,
+        None => tcp::ListenerAddr::new("127.0.0.1".parse().unwrap()),
+    };
+    let mock_peer = tokio::spawn(async move {
+        let mock = MockNode::new(
+            ChainStoreAdapter::new(chain.chain_store().store()),
+            epoch_manager,
+            *chain.genesis().hash(),
             secret_key,
-            mock_listen_addr,
+            listen_addr,
             chain_id,
             archival,
             block_production_delay.unsigned_abs(),
             shard_layout,
             network_start_height,
             network_config,
+            handshake_protocol_version,
         )
         .await?;
         mock.run(target_height).await
-    })
+    });
+    mock_peer
 }
 
-pub struct MockNode {
-    // target height actually available to sync to in the chain history database
-    pub target_height: BlockHeight,
-    pub mock_peer: tokio::task::JoinHandle<anyhow::Result<()>>,
-    // client that allows making RPC requests to the node under test
-    pub rpc_client: JsonRpcClient,
-}
-
-/// Setup up a mock node, including setting up
-/// a MockPeerManagerActor and a ClientActor and a ViewClientActor
-/// `client_home_dir`: home dir for the new client
-/// `network_home_dir`: home dir that contains the pre-generated chain history, will be used
-///                     to construct `MockPeerManagerActor`
-/// `config`: config for the new client
-/// `network_delay`: delay for getting response from the simulated network
-/// `client_start_height`: start height for client
-/// `network_start_height`: height at which the simulated network starts producing blocks
-/// `target_height`: height that the simulated peers will produce blocks until. If None, will
-///                  use the height from the chain head in storage
-/// `in_memory_storage`: if true, make client use in memory storage instead of rocksdb
-///
-/// Returns a struct representing the node under test
+/// Set up a mock node, which will read blocks and chunks from the DB at
+/// `home_dir`, and provide them to any node that connects. If `network_start_height` is
+/// Some(), it will first send a block at that height, so that the connecting node sees
+/// that its head is at that height, and it will then send higher heights periodically.
+/// If target_height is Some(), it will not send any blocks or chunks of higher height.
 pub fn setup_mock_node(
-    client_home_dir: &Path,
-    network_home_dir: &Path,
-    mut config: NearConfig,
-    network_config: &MockNetworkConfig,
-    client_start_height: BlockHeight,
+    home_dir: &Path,
+    network_config: MockNetworkConfig,
     network_start_height: Option<BlockHeight>,
     target_height: Option<BlockHeight>,
-    in_memory_storage: bool,
-    mock_listen_addr: tcp::ListenerAddr,
-) -> MockNode {
-    let parent_span = tracing::debug_span!(target: "mock_node", "setup_mock_node").entered();
-    let (mock_network_epoch_manager, mock_network_shard_tracker, mock_network_runtime) =
-        setup_runtime(network_home_dir, &config, false);
-    tracing::info!(target: "mock_node", ?network_home_dir, "Setup network runtime");
+    handshake_protocol_version: Option<ProtocolVersion>,
+    archival: bool,
+) -> anyhow::Result<tokio::task::JoinHandle<anyhow::Result<()>>> {
+    let near_config = nearcore::config::load_config(home_dir, GenesisValidationMode::Full)
+        .context("Error loading config")?;
 
-    let chain_genesis = ChainGenesis::new(&config.genesis.config);
+    let store = near_store::NodeStorage::opener(
+        home_dir,
+        &near_config.config.store,
+        near_config.config.archival_config(),
+    )
+    .open()
+    .context("failed opening storage")?
+    .get_hot_store();
+    let epoch_manager =
+        EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config, Some(home_dir));
+    let shard_tracker = ShardTracker::new(
+        TrackedConfig::from_config(&near_config.client_config),
+        epoch_manager.clone(),
+    );
+    let runtime =
+        NightshadeRuntime::from_config(home_dir, store, &near_config, epoch_manager.clone())
+            .context("could not create transaction runtime")?;
 
-    // set up client dir to be ready to process blocks from client_start_height
-    if client_start_height > 0 {
-        tracing::info!(target: "mock_node", "Preparing client data dir to be able to start at the specified start height {}", client_start_height);
-        let (client_epoch_manager, _, client_runtime) =
-            setup_runtime(client_home_dir, &config, in_memory_storage);
-        tracing::info!(target: "mock_node", ?client_home_dir, "Setup client runtime");
-        let mut chain_store = ChainStore::new(
-            client_runtime.store().clone(),
-            config.genesis.config.genesis_height,
-            config.client_config.save_trie_changes,
-        );
-        let mut network_chain_store = ChainStore::new(
-            mock_network_runtime.store().clone(),
-            config.genesis.config.genesis_height,
-            config.client_config.save_trie_changes,
-        );
-
-        let network_tail_height = network_chain_store.tail().unwrap();
-        let network_head_height = network_chain_store.head().unwrap().height;
-        tracing::info!(target: "mock_node", network_tail_height, network_head_height, "network data chain");
-        assert!(
-            client_start_height <= network_head_height
-                && client_start_height >= network_tail_height,
-            "client start height {} is not within the network chain range [{}, {}]",
-            client_start_height,
-            network_tail_height,
-            network_head_height
-        );
-        let hash = network_chain_store.get_block_hash_by_height(client_start_height).unwrap();
-        tracing::info!(target: "mock_node", "Checking whether the given start height is the last block of an epoch.");
-        if !mock_network_epoch_manager.is_next_block_epoch_start(&hash).unwrap() {
-            let epoch_start_height =
-                mock_network_epoch_manager.get_epoch_start_height(&hash).unwrap();
-            panic!(
-                "start height must be the last block of an epoch, try using {} instead.",
-                epoch_start_height - 1
-            );
-        }
-
-        // copy chain info
-        let chain_store_update = ChainStoreUpdate::copy_chain_state_as_of_block(
-            &mut chain_store,
-            &hash,
-            mock_network_epoch_manager.as_ref(),
-            &mut network_chain_store,
-        )
-        .unwrap();
-        chain_store_update.commit().unwrap();
-        tracing::info!(target: "mock_node", "Done preparing chain state");
-
-        client_epoch_manager
-            .write()
-            .copy_epoch_info_as_of_block(&hash, &mock_network_epoch_manager.read())
-            .unwrap();
-        tracing::info!(target: "mock_node", "Done preparing epoch info");
-
-        // copy state for all shards
-        let block = network_chain_store.get_block(&hash).unwrap();
-        let prev_hash = *block.header().prev_hash();
-        let epoch_id = block.header().epoch_id();
-        let shard_layout = client_epoch_manager.get_shard_layout(epoch_id).unwrap();
-        for (shard_index, chunk_header) in block.chunks().iter_deprecated().enumerate() {
-            let shard_id = shard_layout.get_shard_id(shard_index);
-            let state_root = chunk_header.prev_state_root();
-            let state_root_node =
-                mock_network_runtime.get_state_root_node(shard_id, &hash, &state_root).unwrap();
-            let num_parts = get_num_state_parts(state_root_node.memory_usage);
-            let finished_parts_count = Arc::new(AtomicUsize::new(0));
-            tracing::info!(target: "mock_node", ?shard_id, ?state_root, num_parts, "Preparing state for a shard");
-
-            (0..num_parts)
-                .into_par_iter()
-                .try_for_each(|part_id| -> anyhow::Result<()> {
-                    let _span = tracing::debug_span!(
-                        target: "mock_node",
-                        parent: &parent_span,
-                        "obtain_and_apply_state_part",
-                        part_id,
-                        ?shard_id)
-                    .entered();
-
-                    let state_part = mock_network_runtime
-                        .obtain_state_part(
-                            shard_id,
-                            &prev_hash,
-                            &state_root,
-                            PartId::new(part_id, num_parts),
-                        )
-                        .with_context(|| {
-                            format!("Obtaining state part {} in shard {}", part_id, shard_id)
-                        })?;
-                    client_runtime
-                        .apply_state_part(
-                            shard_id,
-                            &state_root,
-                            PartId::new(part_id, num_parts),
-                            &state_part,
-                            &mock_network_epoch_manager.get_epoch_id_from_prev_block(&hash)?,
-                        )
-                        .with_context(|| {
-                            format!("Applying state part {} in shard {}", part_id, shard_id)
-                        })?;
-                    finished_parts_count.fetch_add(1, Ordering::SeqCst);
-                    tracing::info!(
-                        target: "mock_node",
-                        "Done {}/{} parts for shard {}",
-                        finished_parts_count.load(Ordering::SeqCst),
-                        num_parts,
-                        shard_id,
-                    );
-                    Ok(())
-                })
-                .unwrap();
-        }
-    }
-
+    let chain_genesis = ChainGenesis::new(&near_config.genesis.config);
     let chain = Chain::new_for_view_client(
         Clock::real(),
-        mock_network_epoch_manager.clone(),
-        mock_network_shard_tracker,
-        mock_network_runtime,
+        epoch_manager.clone(),
+        shard_tracker,
+        runtime,
         &chain_genesis,
         DoomslugThresholdMode::NoApprovals,
-        config.client_config.save_trie_changes,
+        near_config.client_config.save_trie_changes,
     )
-    .unwrap();
-    let head = chain.head().unwrap();
+    .context("failed creating Chain")?;
+
+    let head = chain.head().context("failed getting chain head")?;
     let epoch_id = head.epoch_id;
-    let shard_layout = mock_network_epoch_manager.get_shard_layout(&epoch_id).unwrap();
+    let shard_layout = epoch_manager.get_shard_layout(&epoch_id).unwrap();
+
     let target_height = min(target_height.unwrap_or(head.height), head.height);
 
-    config.network_config.peer_store.boot_nodes.clear();
-    let mock_peer = setup_mock_peer(
+    Ok(setup_mock_peer(
         chain,
-        &mut config,
+        epoch_manager,
+        near_config,
         network_start_height,
-        network_config.clone(),
+        network_config,
         target_height,
         shard_layout,
-        mock_listen_addr,
-    );
-
-    let rpc_client = near_jsonrpc_client::new_client(&format!(
-        "http://{}",
-        &config.rpc_config.as_ref().expect("the JSON RPC config must be set").addr
-    ));
-    let _node = nearcore::start_with_config(client_home_dir, config).unwrap();
-
-    MockNode { target_height, mock_peer, rpc_client }
-}
-
-#[cfg(test)]
-mod tests {
-    use crate::setup::{setup_mock_node, MockNode};
-    use crate::MockNetworkConfig;
-    use actix::{Actor, System};
-    use futures::{future, FutureExt};
-    use near_actix_test_utils::{run_actix, spawn_interruptible};
-    use near_chain::{ChainStore, ChainStoreAccess};
-    use near_chain_configs::{Genesis, NEAR_BASE};
-    use near_client::{GetBlock, ProcessTxRequest};
-    use near_crypto::{InMemorySigner, KeyType};
-    use near_epoch_manager::{EpochManager, EpochManagerAdapter};
-    use near_network::tcp;
-    use near_network::test_utils::{wait_or_timeout, WaitOrTimeoutActor};
-    use near_o11y::testonly::init_integration_logger;
-    use near_o11y::WithSpanContextExt;
-    use near_primitives::transaction::SignedTransaction;
-    use near_primitives::types::ShardId;
-    use near_store::test_utils::gen_account_from_alphabet;
-    use nearcore::{load_test_config, start_with_config};
-    use rand::thread_rng;
-    use std::ops::ControlFlow;
-    use std::sync::{Arc, RwLock};
-    use std::time::Duration;
-
-    // Test the basic mocknet setup.
-    // This test first starts a localnet with one validator node that generates 2 epochs of blocks
-    // to generate a chain history.
-    // Then start a mock network with this chain history and test that the client in the mock network can catch up these 2 epochs.
-    // The localnet needs to have state snapshots enabled. It copies state from
-    // one instance to another by using the state sync mechanism, which relies
-    // on the flat storage snapshots.
-    #[test]
-    fn test_mock_node_basic() {
-        init_integration_logger();
-
-        // first set up a network with only one validator and generate some blocks
-        let mut genesis =
-            Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
-        let epoch_length = 50;
-        genesis.config.epoch_length = epoch_length;
-        let mut near_config =
-            load_test_config("test0", tcp::ListenerAddr::reserve_for_test(), genesis.clone());
-        near_config.client_config.min_num_peers = 0;
-        near_config.config.store.state_snapshot_enabled = true;
-        near_config.config.tracked_shards = vec![ShardId::new(0)]; // Track all shards.
-
-        let dir = tempfile::Builder::new().prefix("test0").tempdir().unwrap();
-        let path1 = dir.path();
-        run_actix(async move {
-            let nearcore::NearNode { view_client, client, .. } =
-                start_with_config(path1, near_config).expect("start_with_config");
-
-            let view_client1 = view_client;
-            let nonce = Arc::new(RwLock::new(10));
-            WaitOrTimeoutActor::new(
-                Box::new(move |_ctx| {
-                    let nonce = nonce.clone();
-                    let client1 = client.clone();
-                    let actor = view_client1.send(GetBlock::latest().with_span_context());
-                    let actor = actor.then(move |res| {
-                        if let Ok(Ok(block)) = res {
-                            let next_nonce = *nonce.read().unwrap();
-                            if next_nonce < 100 {
-                                WaitOrTimeoutActor::new(
-                                    Box::new(move |_ctx| {
-                                        let signer0 = InMemorySigner::from_seed(
-                                            "test1".parse().unwrap(),
-                                            KeyType::ED25519,
-                                            "test1",
-                                        );
-                                        let mut rng = thread_rng();
-                                        let transaction = SignedTransaction::create_account(
-                                            next_nonce,
-                                            "test1".parse().unwrap(),
-                                            gen_account_from_alphabet(&mut rng, b"abcdefghijklmn"),
-                                            5 * NEAR_BASE,
-                                            signer0.public_key.clone(),
-                                            &signer0.into(),
-                                            block.header.hash,
-                                        );
-                                        spawn_interruptible(
-                                            client1
-                                                .send(
-                                                    ProcessTxRequest {
-                                                        transaction,
-                                                        is_forwarded: false,
-                                                        check_only: false,
-                                                    }
-                                                    .with_span_context(),
-                                                )
-                                                .then(move |_res| future::ready(())),
-                                        );
-                                    }),
-                                    100,
-                                    30000,
-                                )
-                                .start();
-                                *nonce.write().unwrap() = next_nonce + 1;
-                            }
-
-                            // This is the flaky part.
-                            // The node needs to stop as late into an epoch as
-                            // possible without going over into the next epoch.
-                            let expected_height = epoch_length * 3 - 5;
-                            if block.header.height >= expected_height {
-                                tracing::info!(
-                                    block_height = block.header.height,
-                                    expected_height,
-                                    "Time to stop"
-                                );
-                                System::current().stop()
-                            }
-                        }
-                        future::ready(())
-                    });
-                    spawn_interruptible(actor);
-                }),
-                // Keep this number low to ensure the node is stopped late in
-                // the epoch without going into the next epoch.
-                100,
-                60000,
-            )
-            .start();
-        });
-
-        // start the mock network to simulate a new node "test1" to sync up
-        // start the client at height 10 (end of the first epoch)
-        let dir1 = tempfile::Builder::new().prefix("test1").tempdir().unwrap();
-        let mut near_config1 = load_test_config("", tcp::ListenerAddr::reserve_for_test(), genesis);
-        near_config1.client_config.min_num_peers = 1;
-        near_config1.client_config.tracked_shards = vec![ShardId::new(0)]; // Track all shards.
-        near_config1.config.store.state_snapshot_enabled = true;
-        let network_config = MockNetworkConfig::with_delay(Duration::from_millis(10));
-
-        let client_start_height = {
-            tracing::info!(target: "mock_node", store_path = ?dir.path(), "Opening the created store to get client_start_height");
-            let store = near_store::NodeStorage::opener(
-                dir.path(),
-                near_config1.config.archive,
-                &near_config1.config.store,
-                None,
-            )
-            .open()
-            .unwrap()
-            .get_hot_store();
-            let epoch_manager =
-                EpochManager::new_arc_handle(store.clone(), &near_config1.genesis.config, None);
-            let chain_store = ChainStore::new(
-                store,
-                near_config1.genesis.config.genesis_height,
-                near_config1.client_config.save_trie_changes,
-            );
-            let network_head_hash = chain_store.head().unwrap().last_block_hash;
-            let last_epoch_start_height =
-                epoch_manager.get_epoch_start_height(&network_head_hash).unwrap();
-            tracing::info!(target: "mock_node", ?network_head_hash, last_epoch_start_height);
-            // Needs to be the last block of an epoch.
-            last_epoch_start_height - 1
-        };
-        tracing::info!(target: "mock_node", client_start_height);
-
-        run_actix(async {
-            let MockNode { rpc_client, .. } = setup_mock_node(
-                dir1.path(),
-                dir.path(),
-                near_config1,
-                &network_config,
-                client_start_height,
-                None,
-                None,
-                false,
-                tcp::ListenerAddr::reserve_for_test(),
-            );
-            wait_or_timeout(100, 60000, || async {
-                if let Ok(status) = rpc_client.status().await {
-                    if status.sync_info.latest_block_height >= client_start_height {
-                        System::current().stop();
-                        return ControlFlow::Break(());
-                    }
-                }
-                ControlFlow::Continue(())
-            })
-            .await
-            .unwrap();
-        })
-    }
+        handshake_protocol_version,
+        archival,
+    ))
 }

@@ -12,9 +12,11 @@ use near_chain::validate::validate_chunk_with_chunk_extra;
 use near_chain::{Block, Chain};
 use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
+use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_network::types::{NetworkRequests, PeerManagerMessageRequest};
 use near_o11y::log_assert;
 use near_primitives::sharding::ShardChunkHeader;
+use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::stateless_validation::state_witness::{
     ChunkStateWitness, ChunkStateWitnessAck, ChunkStateWitnessSize,
@@ -42,11 +44,6 @@ pub struct ChunkValidator {
     orphan_witness_pool: OrphanStateWitnessPool,
     validation_spawner: Arc<dyn AsyncComputationSpawner>,
     main_state_transition_result_cache: chunk_validation::MainStateTransitionCache,
-    /// If true, a chunk-witness validation error will lead to a panic.
-    /// This is used for non-production environments, eg. mocknet and localnet,
-    /// to quickly detect issues in validation code, and must NOT be set to true
-    /// for mainnet and testnet.
-    panic_on_validation_error: bool,
 }
 
 impl ChunkValidator {
@@ -56,7 +53,6 @@ impl ChunkValidator {
         runtime_adapter: Arc<dyn RuntimeAdapter>,
         orphan_witness_pool_size: usize,
         validation_spawner: Arc<dyn AsyncComputationSpawner>,
-        panic_on_validation_error: bool,
     ) -> Self {
         Self {
             epoch_manager,
@@ -66,7 +62,6 @@ impl ChunkValidator {
             validation_spawner,
             main_state_transition_result_cache: chunk_validation::MainStateTransitionCache::default(
             ),
-            panic_on_validation_error,
         }
     }
 
@@ -83,6 +78,7 @@ impl ChunkValidator {
         signer: &Arc<ValidatorSigner>,
     ) -> Result<(), Error> {
         let prev_block_hash = state_witness.chunk_header.prev_block_hash();
+        let shard_id = state_witness.chunk_header.shard_id();
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(prev_block_hash)?;
         if epoch_id != state_witness.epoch_id {
             return Err(Error::InvalidChunkStateWitness(format!(
@@ -101,31 +97,26 @@ impl ChunkValidator {
         let chunk_header = state_witness.chunk_header.clone();
         let network_sender = self.network_sender.clone();
         let epoch_manager = self.epoch_manager.clone();
-        if matches!(
-            pre_validation_result.main_transition_params,
-            chunk_validation::MainTransition::ShardLayoutChange
-        ) {
-            send_chunk_endorsement_to_block_producers(
-                &chunk_header,
-                epoch_manager.as_ref(),
-                signer,
-                &network_sender,
-            );
-            return Ok(());
-        }
 
-        // If we have the chunk extra for the previous block, we can validate the chunk without state witness.
+        // If we have the chunk extra for the previous block, we can validate
+        // the chunk without state witness.
         // This usually happens because we are a chunk producer and
         // therefore have the chunk extra for the previous block saved on disk.
         // We can also skip validating the chunk state witness in this case.
+        // We don't need to switch to parent shard uid, because resharding
+        // creates chunk extra for new shard uid.
+        let shard_uid = shard_id_to_uid(epoch_manager.as_ref(), shard_id, &epoch_id)?;
         let prev_block = chain.get_block(prev_block_hash)?;
-        let last_header = Chain::get_prev_chunk_header(
-            epoch_manager.as_ref(),
-            &prev_block,
-            chunk_header.shard_id(),
-        )?;
-        let shard_uid = epoch_manager.shard_id_to_uid(last_header.shard_id(), &epoch_id)?;
-        let panic_on_validation_error = self.panic_on_validation_error;
+        let last_header =
+            Chain::get_prev_chunk_header(epoch_manager.as_ref(), &prev_block, shard_id)?;
+
+        let chunk_production_key = ChunkProductionKey {
+            shard_id,
+            epoch_id,
+            height_created: chunk_header.height_created(),
+        };
+        let chunk_producer_name =
+            epoch_manager.get_chunk_producer_info(&chunk_production_key)?.take_account_id();
 
         if let Ok(prev_chunk_extra) = chain.get_chunk_extra(prev_block_hash, &shard_uid) {
             match validate_chunk_with_chunk_extra(
@@ -146,14 +137,16 @@ impl ChunkValidator {
                     return Ok(());
                 }
                 Err(err) => {
-                    if panic_on_validation_error {
-                        panic!("Failed to validate chunk using existing chunk extra: {:?}", err);
-                    } else {
-                        tracing::error!(
-                            "Failed to validate chunk using existing chunk extra: {:?}",
-                            err
-                        );
-                    }
+                    tracing::error!(
+                        target: "client",
+                        ?err,
+                        ?chunk_producer_name,
+                        ?chunk_production_key,
+                        "Failed to validate chunk using existing chunk extra",
+                    );
+                    near_chain::stateless_validation::metrics::CHUNK_WITNESS_VALIDATION_FAILED_TOTAL
+                        .with_label_values(&[&shard_id.to_string(), err.prometheus_label_value()])
+                        .inc();
                     return Err(err);
                 }
             }
@@ -183,23 +176,20 @@ impl ChunkValidator {
                     );
                 }
                 Err(err) => {
-                    if panic_on_validation_error {
-                        panic!("Failed to validate chunk: {:?}", err);
-                    } else {
-                        tracing::error!("Failed to validate chunk: {:?}", err);
-                    }
+                    near_chain::stateless_validation::metrics::CHUNK_WITNESS_VALIDATION_FAILED_TOTAL
+                        .with_label_values(&[&shard_id.to_string(), err.prometheus_label_value()])
+                        .inc();
+                    tracing::error!(
+                        target: "client",
+                        ?err,
+                        ?chunk_producer_name,
+                        ?chunk_production_key,
+                        "Failed to validate chunk"
+                    );
                 }
             }
         });
         Ok(())
-    }
-
-    /// TESTING ONLY: Used to override the value of panic_on_validation_error, for example,
-    /// when the chunks validation errors are expected when testing adversarial behavior and
-    /// the test should not panic for the invalid chunks witnesses.
-    #[cfg(feature = "test_features")]
-    pub fn set_should_panic_on_validation_error(&mut self, value: bool) {
-        self.panic_on_validation_error = value;
     }
 }
 
@@ -232,8 +222,7 @@ pub(crate) fn send_chunk_endorsement_to_block_producers(
         "send_chunk_endorsement",
     );
 
-    let protocol_version = epoch_manager.get_epoch_protocol_version(&epoch_id).unwrap();
-    let endorsement = ChunkEndorsement::new(epoch_id, chunk_header, signer, protocol_version);
+    let endorsement = ChunkEndorsement::new(epoch_id, chunk_header, signer);
     for block_producer in block_producers {
         network_sender.send(PeerManagerMessageRequest::NetworkRequests(
             NetworkRequests::ChunkEndorsement(block_producer, endorsement.clone()),

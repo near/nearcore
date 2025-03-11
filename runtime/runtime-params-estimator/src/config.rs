@@ -1,5 +1,5 @@
-use crate::rocksdb::RocksDBTestConfig;
 use crate::Cost;
+use crate::rocksdb::RocksDBTestConfig;
 use near_parameters::vm::VMKind;
 use std::path::PathBuf;
 

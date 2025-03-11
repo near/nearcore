@@ -3,12 +3,12 @@ use std::str::FromStr;
 
 use actix::System;
 use awc::http::StatusCode;
-use futures::{future, FutureExt};
+use futures::{FutureExt, future};
 use serde_json::json;
 
 use near_actix_test_utils::run_actix;
 use near_crypto::{KeyType, PublicKey, Signature};
-use near_jsonrpc::client::{new_client, ChunkId};
+use near_jsonrpc::client::{ChunkId, new_client};
 use near_jsonrpc_primitives::types::query::QueryResponseKind;
 use near_jsonrpc_primitives::types::validator::RpcValidatorsOrderedRequest;
 use near_network::test_utils::wait_or_timeout;
@@ -147,10 +147,12 @@ fn test_query_by_path_account() {
             panic!("queried account, but received something else: {:?}", query_response.kind);
         };
         assert_eq!(account_info.amount, 0);
-        assert_eq!(account_info.code_hash.as_ref(), &[0; 32]);
+        assert_eq!(account_info.code_hash, CryptoHash::default());
         assert_eq!(account_info.locked, 0);
         assert_eq!(account_info.storage_paid_at, 0);
         assert_eq!(account_info.storage_usage, 0);
+        assert_eq!(account_info.global_contract_hash, None);
+        assert_eq!(account_info.global_contract_account_id, None);
     });
 }
 
@@ -192,10 +194,12 @@ fn test_query_account() {
                 panic!("queried account, but received something else: {:?}", query_response.kind);
             };
             assert_eq!(account_info.amount, 0);
-            assert_eq!(account_info.code_hash.as_ref(), &[0; 32]);
+            assert_eq!(account_info.code_hash, CryptoHash::default());
             assert_eq!(account_info.locked, 0);
             assert_eq!(account_info.storage_paid_at, 0);
             assert_eq!(account_info.storage_usage, 0);
+            assert_eq!(account_info.global_contract_hash, None);
+            assert_eq!(account_info.global_contract_account_id, None);
         }
     });
 }
@@ -554,6 +558,7 @@ fn test_invalid_methods() {
 
 #[test]
 fn test_parse_error_status_code() {
+    // cspell:ignore badtx frolik
     test_with_client!(test_utils::NodeType::NonValidator, client, async move {
         let json = serde_json::json!({
             "jsonrpc": "2.0",
@@ -578,7 +583,7 @@ fn test_parse_error_status_code() {
 }
 
 #[test]
-fn test_bad_handler_error_status_code() {
+fn slow_test_bad_handler_error_status_code() {
     test_with_client!(test_utils::NodeType::NonValidator, client, async move {
         let json = serde_json::json!({
             "jsonrpc": "2.0",

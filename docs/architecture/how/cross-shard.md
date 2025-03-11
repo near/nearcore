@@ -9,7 +9,7 @@ shard 1).
 Imagine, we run the following command in the command line:
 
 ```console
-$ NEAR_ENV=local near send shard0 shard1 500
+NEAR_ENV=local near send shard0 shard1 500
 ```
 
 What happens under the hood? How is this transaction changed into receipts and
@@ -125,7 +125,7 @@ Chunk: Ok(
 
 **Side note:** When we're converting the transaction into a receipt, we also use
 this moment to deduct prepaid gas fees and transferred tokens from the 'signer'
-account. The details on how much gas is charged can be found at https://nomicon.io/RuntimeSpec/Fees/.
+account. The details on how much gas is charged can be found at <https://nomicon.io/RuntimeSpec/Fees/>.
 
 ## Step 2 - cross shard receipt
 
@@ -209,7 +209,7 @@ Such a receipt is sent to the destination shard (we'll explain this process in a
 separate article) where it can be executed.
 <!-- TODO: maybe add the link to that article here? -->
 
-## 3. Gas refund.
+## 3. Gas refund
 
 When shard 1 processes the receipt above, it is then ready to refund the unused
 gas to the original account (`shard0`). So it also creates the receipt, and puts

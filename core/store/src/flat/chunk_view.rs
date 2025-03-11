@@ -3,8 +3,8 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::state::FlatStateValue;
 
-use super::types::FlatStateIterator;
 use super::FlatStorage;
+use super::types::FlatStateIterator;
 
 /// Struct for getting value references from the flat storage, corresponding
 /// to some block defined in `blocks_to_head`.
@@ -47,6 +47,8 @@ impl FlatStorageChunkView {
         self.flat_storage.contains_key(&self.block_hash, key)
     }
 
+    // TODO: this should be changed to check the values that haven't yet been applied, like in get_value() and contains_key(),
+    // because otherwise we're iterating over old state that might have been updated by `self.block_hash`
     pub fn iter_range(&self, from: Option<&[u8]>, to: Option<&[u8]>) -> FlatStateIterator {
         self.store.iter_range(self.flat_storage.shard_uid(), from, to)
     }

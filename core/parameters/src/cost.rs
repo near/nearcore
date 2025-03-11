@@ -1,5 +1,5 @@
 use crate::parameter::Parameter;
-use enum_map::{enum_map, EnumMap};
+use enum_map::{EnumMap, enum_map};
 use near_account_id::AccountType;
 use near_primitives_core::types::{Balance, Compute, Gas};
 use near_schema_checker_lib::ProtocolSchema;
@@ -23,11 +23,7 @@ pub struct Fee {
 impl Fee {
     #[inline]
     pub fn send_fee(&self, sir: bool) -> Gas {
-        if sir {
-            self.send_sir
-        } else {
-            self.send_not_sir
-        }
+        if sir { self.send_sir } else { self.send_not_sir }
     }
 
     pub fn exec_fee(&self) -> Gas {
@@ -307,6 +303,10 @@ pub enum ActionCosts {
     new_data_receipt_base = 13,
     new_data_receipt_byte = 14,
     delegate = 15,
+    deploy_global_contract_base = 16,
+    deploy_global_contract_byte = 17,
+    use_global_contract_base = 18,
+    use_global_contract_byte = 19,
 }
 
 impl ExtCosts {
@@ -438,6 +438,8 @@ pub struct StorageUsageConfig {
     pub num_bytes_account: u64,
     /// Additional number of bytes for a k/v record
     pub num_extra_bytes_record: u64,
+    /// Amount of yN burned per byte of deployed Global Contract code.
+    pub global_contract_storage_amount_per_byte: Balance,
 }
 
 impl RuntimeFeesConfig {
@@ -532,6 +534,26 @@ impl RuntimeFeesConfig {
                     send_not_sir: 200_000_000_000,
                     execution: 200_000_000_000,
                 },
+                ActionCosts::deploy_global_contract_base => Fee {
+                    send_sir: 184_765_750_000,
+                    send_not_sir: 184_765_750_000,
+                    execution: 184_765_750_000,
+                },
+                ActionCosts::deploy_global_contract_byte => Fee {
+                    send_sir: 6_812_999,
+                    send_not_sir: 6_812_999,
+                    execution: 70_000_000,
+                },
+                ActionCosts::use_global_contract_base => Fee {
+                    send_sir: 184_765_750_000,
+                    send_not_sir: 184_765_750_000,
+                    execution: 184_765_750_000,
+                },
+                ActionCosts::use_global_contract_byte => Fee {
+                    send_sir: 6_812_999,
+                    send_not_sir: 47_683_715,
+                    execution: 64_572_944,
+                },
             },
         }
     }
@@ -563,11 +585,17 @@ impl StorageUsageConfig {
             num_bytes_account: 100,
             num_extra_bytes_record: 40,
             storage_amount_per_byte: 909 * 100_000_000_000_000_000,
+            global_contract_storage_amount_per_byte: 100_000_000_000_000_000_000,
         }
     }
 
     pub(crate) fn free() -> StorageUsageConfig {
-        Self { num_bytes_account: 0, num_extra_bytes_record: 0, storage_amount_per_byte: 0 }
+        Self {
+            num_bytes_account: 0,
+            num_extra_bytes_record: 0,
+            storage_amount_per_byte: 0,
+            global_contract_storage_amount_per_byte: 0,
+        }
     }
 }
 

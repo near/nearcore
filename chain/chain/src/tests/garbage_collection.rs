@@ -11,13 +11,13 @@ use crate::test_utils::{
 use crate::types::Tip;
 use crate::{ChainStoreAccess, StoreValidator};
 
-use near_chain_configs::{GCConfig, GenesisConfig, DEFAULT_GC_NUM_EPOCHS_TO_KEEP};
+use near_chain_configs::{DEFAULT_GC_NUM_EPOCHS_TO_KEEP, GCConfig, GenesisConfig};
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::block::Block;
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::merkle::PartialMerkleTree;
 use near_primitives::shard_layout::ShardUId;
-use near_primitives::test_utils::{create_test_signer, TestBlockBuilder};
+use near_primitives::test_utils::{TestBlockBuilder, create_test_signer};
 use near_primitives::types::{BlockHeight, NumBlocks, StateRoot};
 use near_primitives::validator_signer::ValidatorSigner;
 use near_store::test_utils::gen_changes;
@@ -55,7 +55,6 @@ fn do_fork(
         let block = if next_epoch_id == *prev_block.header().next_epoch_id() {
             TestBlockBuilder::new(Clock::real(), &prev_block, signer.clone()).build()
         } else {
-            let prev_hash = prev_block.hash();
             let epoch_id = *prev_block.header().next_epoch_id();
             if verbose {
                 println!(
@@ -64,13 +63,9 @@ fn do_fork(
                     prev_block.header().height() + 1
                 );
             }
-            let next_bp_hash = Chain::compute_bp_hash(
-                chain.epoch_manager.as_ref(),
-                next_epoch_id,
-                epoch_id,
-                &prev_hash,
-            )
-            .unwrap();
+            let next_bp_hash =
+                Chain::compute_bp_hash(chain.epoch_manager.as_ref(), next_epoch_id, epoch_id)
+                    .unwrap();
             TestBlockBuilder::new(Clock::real(), &prev_block, signer.clone())
                 .epoch_id(epoch_id)
                 .next_epoch_id(next_epoch_id)
@@ -128,10 +123,9 @@ fn do_fork(
                 shard_uid,
                 trie_changes,
                 Default::default(),
-                *block.hash(),
                 block.header().height(),
             );
-            store_update.save_trie_changes(wrapped_trie_changes);
+            store_update.save_trie_changes(*block.hash(), wrapped_trie_changes);
 
             prev_state_roots[shard_id as usize] = new_root;
             trie_changes_shards.push(trie_changes_data);
@@ -192,7 +186,7 @@ fn gc_fork_common(simple_chains: Vec<SimpleChain>, max_changes: usize) {
     }
 
     // GC execution
-    chain1.clear_data(&GCConfig { gc_blocks_limit: 1000, ..GCConfig::default() }).unwrap();
+    chain1.clear_data(&GCConfig { gc_blocks_limit: 1000, ..GCConfig::default() }, None).unwrap();
 
     let tries2 = get_chain_with_num_shards(Clock::real(), num_shards).runtime_adapter.get_tries();
 
@@ -350,8 +344,7 @@ fn test_gc_remove_fork_small() {
 }
 
 #[test]
-#[cfg_attr(not(feature = "expensive_tests"), ignore)]
-fn test_gc_remove_fork_large() {
+fn ultra_slow_test_gc_remove_fork_large() {
     test_gc_remove_fork_common(20)
 }
 
@@ -397,8 +390,7 @@ fn test_gc_not_remove_fork_small() {
 }
 
 #[test]
-#[cfg_attr(not(feature = "expensive_tests"), ignore)]
-fn test_gc_not_remove_fork_large() {
+fn ultra_slow_test_gc_not_remove_fork_large() {
     test_gc_not_remove_fork_common(20)
 }
 
@@ -416,7 +408,7 @@ fn test_gc_not_remove_longer_fork() {
 
 // This test creates forks from genesis
 #[test]
-fn test_gc_forks_from_genesis() {
+fn slow_test_gc_forks_from_genesis() {
     for fork_length in 1..=10 {
         let chains = vec![
             SimpleChain { from: 0, length: 101, is_removed: false },
@@ -450,7 +442,7 @@ fn test_gc_forks_from_genesis() {
 }
 
 #[test]
-fn test_gc_overlap() {
+fn slow_test_gc_overlap() {
     for max_changes in 1..=20 {
         let chains = vec![
             SimpleChain { from: 0, length: 101, is_removed: false },
@@ -483,8 +475,7 @@ fn test_gc_boundaries_small() {
 }
 
 #[test]
-#[cfg_attr(not(feature = "expensive_tests"), ignore)]
-fn test_gc_boundaries_large() {
+fn ultra_slow_test_gc_boundaries_large() {
     test_gc_boundaries_common(20)
 }
 
@@ -507,13 +498,12 @@ fn test_gc_random_common(runs: u64) {
 }
 
 #[test]
-fn test_gc_random_small() {
+fn slow_test_gc_random_small() {
     test_gc_random_common(3);
 }
 
 #[test]
-#[cfg_attr(not(feature = "expensive_tests"), ignore)]
-fn test_gc_random_large() {
+fn ultra_slow_test_gc_random_large() {
     test_gc_random_common(25);
 }
 
@@ -545,8 +535,7 @@ fn test_gc_pine_small() {
 }
 
 #[test]
-#[cfg_attr(not(feature = "expensive_tests"), ignore)]
-fn test_gc_pine() {
+fn ultra_slow_test_gc_pine() {
     for max_changes in 1..=20 {
         let mut chains = vec![SimpleChain { from: 0, length: 101, is_removed: false }];
         for i in 1..100 {
@@ -578,8 +567,7 @@ fn test_gc_star_small() {
 }
 
 #[test]
-#[cfg_attr(not(feature = "expensive_tests"), ignore)]
-fn test_gc_star_large() {
+fn ultra_slow_test_gc_star_large() {
     test_gc_star_common(20)
 }
 
@@ -630,11 +618,14 @@ fn test_fork_far_away_from_epoch_end() {
 
     // GC execution
     chain
-        .clear_data(&GCConfig {
-            gc_blocks_limit: 100,
-            gc_fork_clean_step: fork_clean_step,
-            ..GCConfig::default()
-        })
+        .clear_data(
+            &GCConfig {
+                gc_blocks_limit: 100,
+                gc_fork_clean_step: fork_clean_step,
+                ..GCConfig::default()
+            },
+            None,
+        )
         .expect("Clear data failed");
 
     // The run above would clear just the first 5 blocks from the beginning, but shouldn't clear any forks
@@ -676,7 +667,7 @@ fn test_fork_far_away_from_epoch_end() {
         );
     }
     chain
-        .clear_data(&GCConfig { gc_blocks_limit: 100, ..GCConfig::default() })
+        .clear_data(&GCConfig { gc_blocks_limit: 100, ..GCConfig::default() }, None)
         .expect("Clear data failed");
     // And now all these blocks should be safely removed.
     for i in 6..50 {
@@ -713,7 +704,7 @@ fn test_clear_old_data() {
         );
     }
 
-    chain.clear_data(&GCConfig { gc_blocks_limit: 100, ..GCConfig::default() }).unwrap();
+    chain.clear_data(&GCConfig { gc_blocks_limit: 100, ..GCConfig::default() }, None).unwrap();
 
     for i in 0..=max_height {
         println!("height = {} hash = {}", i, blocks[i].hash());
@@ -743,10 +734,8 @@ fn add_block(
     let block = if next_epoch_id == *prev_block.header().next_epoch_id() {
         TestBlockBuilder::new(Clock::real(), &prev_block, signer).height(height).build()
     } else {
-        let prev_hash = prev_block.hash();
         let epoch_id = *prev_block.header().next_epoch_id();
-        let next_bp_hash =
-            Chain::compute_bp_hash(epoch_manager, next_epoch_id, epoch_id, &prev_hash).unwrap();
+        let next_bp_hash = Chain::compute_bp_hash(epoch_manager, next_epoch_id, epoch_id).unwrap();
         TestBlockBuilder::new(Clock::real(), &prev_block, signer)
             .height(height)
             .epoch_id(epoch_id)
@@ -812,9 +801,11 @@ fn test_clear_old_data_fixed_height() {
 
     let trie = chain.runtime_adapter.get_tries();
     let mut store_update = chain.mut_chain_store().store_update();
-    assert!(store_update
-        .clear_block_data(epoch_manager.as_ref(), *blocks[5].hash(), GCMode::Canonical(trie))
-        .is_ok());
+    assert!(
+        store_update
+            .clear_block_data(epoch_manager.as_ref(), *blocks[5].hash(), GCMode::Canonical(trie))
+            .is_ok()
+    );
     store_update.commit().unwrap();
 
     assert!(chain.get_block(blocks[4].hash()).is_err());
@@ -834,9 +825,8 @@ fn test_clear_old_data_fixed_height() {
 
 /// Test that `gc_blocks_limit` works properly
 #[test]
-#[cfg_attr(not(feature = "expensive_tests"), ignore)]
 #[allow(unreachable_code)]
-fn test_clear_old_data_too_many_heights() {
+fn ultra_slow_test_clear_old_data_too_many_heights() {
     // TODO(#10634): panics on `clear_data` -> `clear_resharding_data` ->
     // `MockEpochManager::is_next_block_epoch_start` apparently because
     // epoch manager is not updated at all. Should we fix it together with
@@ -892,24 +882,30 @@ fn test_clear_old_data_too_many_heights_common(gc_blocks_limit: NumBlocks) {
 
     for iter in 0..10 {
         println!("ITERATION #{:?}", iter);
-        assert!(chain.clear_data(&GCConfig { gc_blocks_limit, ..GCConfig::default() }).is_ok());
+        assert!(
+            chain.clear_data(&GCConfig { gc_blocks_limit, ..GCConfig::default() }, None).is_ok()
+        );
 
         // epoch didn't change so no data is garbage collected.
         for i in 0..1000 {
             if i < (iter + 1) * gc_blocks_limit as usize {
                 assert!(chain.get_block(&blocks[i].hash()).is_err());
-                assert!(chain
-                    .mut_chain_store()
-                    .get_all_block_hashes_by_height(i as BlockHeight)
-                    .unwrap()
-                    .is_empty());
+                assert!(
+                    chain
+                        .mut_chain_store()
+                        .get_all_block_hashes_by_height(i as BlockHeight)
+                        .unwrap()
+                        .is_empty()
+                );
             } else {
                 assert!(chain.get_block(&blocks[i].hash()).is_ok());
-                assert!(!chain
-                    .mut_chain_store()
-                    .get_all_block_hashes_by_height(i as BlockHeight)
-                    .unwrap()
-                    .is_empty());
+                assert!(
+                    !chain
+                        .mut_chain_store()
+                        .get_all_block_hashes_by_height(i as BlockHeight)
+                        .unwrap()
+                        .is_empty()
+                );
             }
         }
         let mut genesis = GenesisConfig::default();

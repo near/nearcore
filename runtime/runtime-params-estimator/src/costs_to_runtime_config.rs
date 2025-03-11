@@ -39,6 +39,7 @@ pub fn costs_to_runtime_config(cost_table: &CostTable) -> anyhow::Result<Runtime
         account_creation_config: AccountCreationConfig::default(),
         congestion_control_config: latest_runtime_config.congestion_control_config,
         witness_config: latest_runtime_config.witness_config,
+        bandwidth_scheduler_config: latest_runtime_config.bandwidth_scheduler_config,
         use_state_stored_receipt: latest_runtime_config.use_state_stored_receipt,
     };
     Ok(res)
@@ -72,6 +73,10 @@ fn runtime_fees_config(cost_table: &CostTable) -> anyhow::Result<RuntimeFeesConf
             ActionCosts::new_action_receipt => fee(Cost::ActionReceiptCreation)?,
             ActionCosts::new_data_receipt_base => fee(Cost::DataReceiptCreationBase)?,
             ActionCosts::new_data_receipt_byte => fee(Cost::DataReceiptCreationPerByte)?,
+            ActionCosts::deploy_global_contract_base => fee(Cost::ActionDeployGlobalContractBase)?,
+            ActionCosts::deploy_global_contract_byte => fee(Cost::ActionDeployGlobalContractPerByte)?,
+            ActionCosts::use_global_contract_base => fee(Cost::ActionUseGlobalContractBase)?,
+            ActionCosts::use_global_contract_byte => fee(Cost::ActionUseGlobalContractPerIdentifierByte)?,
         },
         ..RuntimeFeesConfig::clone(&actual_fees_config)
     };

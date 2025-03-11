@@ -4,6 +4,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::PublicKey;
 use near_primitives_core::{
     account::AccessKey,
+    hash::CryptoHash,
     serialize::dec_format,
     types::{AccountId, Balance, Gas},
 };
@@ -11,8 +12,11 @@ use near_schema_checker_lib::ProtocolSchema;
 use serde_with::base64::Base64;
 use serde_with::serde_as;
 use std::fmt;
+use std::sync::Arc;
 
-fn base64(s: &[u8]) -> String {
+use crate::trie_key::GlobalContractCodeIdentifier;
+
+pub fn base64(s: &[u8]) -> String {
     use base64::Engine;
     base64::engine::general_purpose::STANDARD.encode(s)
 }
@@ -116,6 +120,116 @@ impl fmt::Debug for DeployContractAction {
     Eq,
     Clone,
     ProtocolSchema,
+    Debug,
+)]
+#[repr(u8)]
+pub enum GlobalContractDeployMode {
+    /// Contract is deployed under its code hash.
+    /// Users will be able reference it by that hash.
+    /// This effectively makes the contract immutable.
+    CodeHash,
+    /// Contract is deployed under the owner account id.
+    /// Users will be able reference it by that account id.
+    /// This allows the owner to update the contract for all its users.
+    AccountId,
+}
+
+/// Deploy global contract action
+#[serde_as]
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    PartialEq,
+    Eq,
+    Clone,
+    ProtocolSchema,
+)]
+pub struct DeployGlobalContractAction {
+    /// WebAssembly binary
+    #[serde_as(as = "Base64")]
+    pub code: Arc<[u8]>,
+
+    pub deploy_mode: GlobalContractDeployMode,
+}
+
+impl fmt::Debug for DeployGlobalContractAction {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("DeployGlobalContractAction")
+            .field("code", &format_args!("{}", base64(&self.code)))
+            .field("deploy_mode", &format_args!("{:?}", &self.deploy_mode))
+            .finish()
+    }
+}
+
+#[serde_as]
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    Hash,
+    PartialEq,
+    Eq,
+    Clone,
+    ProtocolSchema,
+    Debug,
+)]
+pub enum GlobalContractIdentifier {
+    CodeHash(CryptoHash),
+    AccountId(AccountId),
+}
+
+impl From<GlobalContractCodeIdentifier> for GlobalContractIdentifier {
+    fn from(identifier: GlobalContractCodeIdentifier) -> Self {
+        match identifier {
+            GlobalContractCodeIdentifier::CodeHash(hash) => {
+                GlobalContractIdentifier::CodeHash(hash)
+            }
+            GlobalContractCodeIdentifier::AccountId(account_id) => {
+                GlobalContractIdentifier::AccountId(account_id)
+            }
+        }
+    }
+}
+
+impl GlobalContractIdentifier {
+    pub fn len(&self) -> usize {
+        match self {
+            GlobalContractIdentifier::CodeHash(_) => 32,
+            GlobalContractIdentifier::AccountId(account_id) => account_id.len(),
+        }
+    }
+}
+
+/// Use global contract action
+#[serde_as]
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    PartialEq,
+    Eq,
+    Clone,
+    ProtocolSchema,
+    Debug,
+)]
+pub struct UseGlobalContractAction {
+    pub contract_identifier: GlobalContractIdentifier,
+}
+
+#[serde_as]
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    PartialEq,
+    Eq,
+    Clone,
+    ProtocolSchema,
 )]
 pub struct FunctionCallAction {
     pub method_name: String,
@@ -178,23 +292,6 @@ pub struct TransferAction {
     BorshDeserialize,
     PartialEq,
     Eq,
-    Clone,
-    Debug,
-    serde::Serialize,
-    serde::Deserialize,
-    ProtocolSchema,
-)]
-#[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-pub struct NonrefundableStorageTransferAction {
-    #[serde(with = "dec_format")]
-    pub deposit: Balance,
-}
-
-#[derive(
-    BorshSerialize,
-    BorshDeserialize,
-    PartialEq,
-    Eq,
     Debug,
     Clone,
     serde::Serialize,
@@ -216,17 +313,14 @@ pub enum Action {
     DeleteKey(Box<DeleteKeyAction>),
     DeleteAccount(DeleteAccountAction),
     Delegate(Box<delegate::SignedDelegateAction>),
-    #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-    /// Makes a non-refundable transfer for storage allowance.
-    /// Only possible during new account creation.
-    /// For implicit account creation, it has to be the only action in the receipt.
-    NonrefundableStorageTransfer(NonrefundableStorageTransferAction),
+    DeployGlobalContract(DeployGlobalContractAction),
+    UseGlobalContract(Box<UseGlobalContractAction>),
 }
 
 const _: () = assert!(
     // 1 word for tag plus the largest variant `DeployContractAction` which is a 3-word `Vec`.
     // The `<=` check covers platforms that have pointers smaller than 8 bytes as well as random
-    // freak nightlies that somehow find a way to pack everything into one less word.
+    // freak night lies that somehow find a way to pack everything into one less word.
     std::mem::size_of::<Action>() <= 32,
     "Action <= 32 bytes for performance reasons, see #9451"
 );
@@ -242,8 +336,6 @@ impl Action {
         match self {
             Action::FunctionCall(a) => a.deposit,
             Action::Transfer(a) => a.deposit,
-            #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-            Action::NonrefundableStorageTransfer(a) => a.deposit,
             _ => 0,
         }
     }
@@ -261,6 +353,12 @@ impl From<DeployContractAction> for Action {
     }
 }
 
+impl From<DeployGlobalContractAction> for Action {
+    fn from(deploy_global_contract_action: DeployGlobalContractAction) -> Self {
+        Self::DeployGlobalContract(deploy_global_contract_action)
+    }
+}
+
 impl From<FunctionCallAction> for Action {
     fn from(function_call_action: FunctionCallAction) -> Self {
         Self::FunctionCall(Box::new(function_call_action))
@@ -270,13 +368,6 @@ impl From<FunctionCallAction> for Action {
 impl From<TransferAction> for Action {
     fn from(transfer_action: TransferAction) -> Self {
         Self::Transfer(transfer_action)
-    }
-}
-
-#[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-impl From<NonrefundableStorageTransferAction> for Action {
-    fn from(nonrefundable_transfer_action: NonrefundableStorageTransferAction) -> Self {
-        Self::NonrefundableStorageTransfer(nonrefundable_transfer_action)
     }
 }
 

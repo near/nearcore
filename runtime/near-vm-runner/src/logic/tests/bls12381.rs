@@ -1,15 +1,15 @@
 mod tests {
-    use crate::logic::tests::vm_logic_builder::{TestVMLogic, VMLogicBuilder};
     use crate::logic::MemSlice;
+    use crate::logic::tests::vm_logic_builder::{TestVMLogic, VMLogicBuilder};
     use ark_bls12_381::{Bls12_381, Fq, Fq2, Fr, G1Affine, G2Affine};
     use ark_ec::hashing::{curve_maps::wb::WBMap, map_to_curve_hasher::MapToCurve};
-    use ark_ec::{bls12::Bls12Config, pairing::Pairing, AffineRepr, CurveGroup};
+    use ark_ec::{AffineRepr, CurveGroup, bls12::Bls12Config, pairing::Pairing};
     use ark_ff::{Field, PrimeField};
     use ark_serialize::{
         CanonicalDeserialize, CanonicalSerialize, CanonicalSerializeWithFlags, EmptyFlags,
     };
     use ark_std::{One, Zero};
-    use bolero::{generator, TypeGenerator};
+    use bolero::{TypeGenerator, generator};
     use rand::{seq::SliceRandom, thread_rng};
     use std::{fs, ops::Add, ops::Mul, ops::Neg, str::FromStr};
 
@@ -549,7 +549,7 @@ mod tests {
 
                 bolero::check!()
                     .with_generator(
-                        bolero::gen::<Vec<(bool, $EPoint)>>().with().len(0usize..$GOp::MAX_N_SUM),
+                        bolero::r#gen::<Vec<(bool, $EPoint)>>().with().len(0usize..$GOp::MAX_N_SUM),
                     )
                     .for_each(|ps: &Vec<(bool, $EPoint)>| {
                         $GOp::check_multipoint_sum(ps);
@@ -557,7 +557,7 @@ mod tests {
 
                 bolero::check!()
                     .with_generator(
-                        bolero::gen::<Vec<(bool, $GPoint)>>().with().len(0usize..$GOp::MAX_N_SUM),
+                        bolero::r#gen::<Vec<(bool, $GPoint)>>().with().len(0usize..$GOp::MAX_N_SUM),
                     )
                     .for_each(|ps: &Vec<(bool, $GPoint)>| {
                         let mut points: Vec<(u8, $GAffine)> = vec![];
@@ -576,7 +576,7 @@ mod tests {
             fn $test_bls12381_crosscheck_sum_and_multiexp() {
                 bolero::check!()
                     .with_generator(
-                        bolero::gen::<Vec<(bool, $GPoint)>>()
+                        bolero::r#gen::<Vec<(bool, $GPoint)>>()
                             .with()
                             .len(0usize..=$GOp::MAX_N_MULTIEXP),
                     )
@@ -619,13 +619,13 @@ mod tests {
         G1Affine,
         bls12381_p1_sum,
         check_sum_p1,
-        test_bls12381_p1_sum_edge_cases_fuzzer,
-        test_bls12381_p1_sum_fuzzer,
-        test_bls12381_p1_sum_not_g1_points_fuzzer,
-        test_bls12381_p1_sum_inverse_fuzzer,
-        test_bls12381_p1_sum_many_points_fuzzer,
-        test_bls12381_p1_crosscheck_sum_and_multiexp_fuzzer,
-        test_bls12381_p1_sum_incorrect_input_fuzzer
+        slow_test_bls12381_p1_sum_edge_cases_fuzzer,
+        slow_test_bls12381_p1_sum_fuzzer,
+        slow_test_bls12381_p1_sum_not_g1_points_fuzzer,
+        slow_test_bls12381_p1_sum_inverse_fuzzer,
+        slow_test_bls12381_p1_sum_many_points_fuzzer,
+        slow_test_bls12381_p1_crosscheck_sum_and_multiexp_fuzzer,
+        slow_test_bls12381_p1_sum_incorrect_input_fuzzer
     );
     test_bls12381_sum!(
         G2Operations,
@@ -635,13 +635,13 @@ mod tests {
         G2Affine,
         bls12381_p2_sum,
         check_sum_p2,
-        test_bls12381_p2_sum_edge_cases_fuzzer,
-        test_bls12381_p2_sum_fuzzer,
-        test_bls12381_p2_sum_not_g2_points_fuzzer,
-        test_bls12381_p2_sum_inverse_fuzzer,
-        test_bls12381_p2_sum_many_points_fuzzer,
-        test_bls12381_p2_crosscheck_sum_and_multiexp_fuzzer,
-        test_bls12381_p2_sum_incorrect_input_fuzzer
+        slow_test_bls12381_p2_sum_edge_cases_fuzzer,
+        slow_test_bls12381_p2_sum_fuzzer,
+        slow_test_bls12381_p2_sum_not_g2_points_fuzzer,
+        slow_test_bls12381_p2_sum_inverse_fuzzer,
+        slow_test_bls12381_p2_sum_many_points_fuzzer,
+        slow_test_bls12381_p2_crosscheck_sum_and_multiexp_fuzzer,
+        slow_test_bls12381_p2_sum_incorrect_input_fuzzer
     );
 
     macro_rules! test_bls12381_memory_limit {
@@ -712,8 +712,8 @@ mod tests {
             fn $test_bls12381_multiexp_mul() {
                 bolero::check!()
                     .with_generator((
-                        generator::gen::<$GPoint>(),
-                        generator::gen::<usize>().with().bounds(0..=200),
+                        generator::r#gen::<$GPoint>(),
+                        generator::r#gen::<usize>().with().bounds(0..=200),
                     ))
                     .for_each(|(p, n): &($GPoint, usize)| {
                         let points: Vec<(u8, $GAffine)> = vec![(0, p.p.clone()); *n];
@@ -737,7 +737,7 @@ mod tests {
             fn $test_bls12381_multiexp_many_points() {
                 bolero::check!()
                     .with_generator(
-                        bolero::gen::<Vec<(Scalar, $GPoint)>>()
+                        bolero::r#gen::<Vec<(Scalar, $GPoint)>>()
                             .with()
                             .len(0usize..=$GOp::MAX_N_MULTIEXP),
                     )
@@ -782,9 +782,9 @@ mod tests {
 
                 bolero::check!()
                     .with_generator((
-                        generator::gen::<$GPoint>(),
-                        generator::gen::<Scalar>(),
-                        generator::gen::<usize>().with().bounds(0..$GOp::MAX_N_MULTIEXP),
+                        generator::r#gen::<$GPoint>(),
+                        generator::r#gen::<Scalar>(),
+                        generator::r#gen::<usize>().with().bounds(0..$GOp::MAX_N_MULTIEXP),
                     ))
                     .for_each(|(p, scalar, n): &($GPoint, Scalar, usize)| {
                         // group_order * P = 0
@@ -822,10 +822,10 @@ mod tests {
         G1Affine,
         bls12381_g1_multiexp,
         bls12381_p1_sum,
-        test_bls12381_g1_multiexp_mul_fuzzer,
+        slow_test_bls12381_g1_multiexp_mul_fuzzer,
         test_bls12381_g1_multiexp_many_points_fuzzer,
-        test_bls12381_g1_multiexp_incorrect_input_fuzzer,
-        test_bls12381_g1_multiexp_invariants_checks_fuzzer,
+        slow_test_bls12381_g1_multiexp_incorrect_input_fuzzer,
+        slow_test_bls12381_g1_multiexp_invariants_checks_fuzzer,
         test_bls12381_error_g1_encoding
     );
     test_bls12381_multiexp!(
@@ -836,10 +836,10 @@ mod tests {
         G2Affine,
         bls12381_g2_multiexp,
         bls12381_p2_sum,
-        test_bls12381_g2_multiexp_mul_fuzzer,
+        slow_test_bls12381_g2_multiexp_mul_fuzzer,
         test_bls12381_g2_multiexp_many_points_fuzzer,
-        test_bls12381_g2_multiexp_incorrect_input_fuzzer,
-        test_bls12381_g2_multiexp_invariants_checks_fuzzer,
+        slow_test_bls12381_g2_multiexp_incorrect_input_fuzzer,
+        slow_test_bls12381_g2_multiexp_invariants_checks_fuzzer,
         test_bls12381_error_g2_encoding
     );
 
@@ -892,7 +892,9 @@ mod tests {
             #[test]
             fn $test_bls12381_map_fp_to_g_many_points() {
                 bolero::check!()
-                    .with_generator(bolero::gen::<Vec<$FP>>().with().len(0usize..=$GOp::MAX_N_MAP))
+                    .with_generator(
+                        bolero::r#gen::<Vec<$FP>>().with().len(0usize..=$GOp::MAX_N_MAP),
+                    )
                     .for_each(|fps: &Vec<$FP>| {
                         let mut fps_fq: Vec<$Fq> = vec![];
                         let mut res2_mul: Vec<u8> = vec![];
@@ -917,8 +919,8 @@ mod tests {
         Fq,
         FP,
         check_map_fp,
-        test_bls12381_map_fp_to_g1_fuzzer,
-        test_bls12381_map_fp_to_g1_many_points_fuzzer
+        slow_test_bls12381_map_fp_to_g1_fuzzer,
+        slow_test_bls12381_map_fp_to_g1_many_points_fuzzer
     );
 
     test_bls12381_map_fp_to_g!(
@@ -927,8 +929,8 @@ mod tests {
         Fq2,
         FP2,
         check_map_fp2,
-        test_bls12381_map_fp2_to_g2_fuzzer,
-        test_bls12381_map_fp2_to_g2_many_points_fuzzer
+        slow_test_bls12381_map_fp2_to_g2_fuzzer,
+        slow_test_bls12381_map_fp2_to_g2_many_points_fuzzer
     );
 
     #[test]
@@ -987,7 +989,7 @@ mod tests {
             fn $test_bls12381_decompress_many_points() {
                 bolero::check!()
                     .with_generator(
-                        bolero::gen::<Vec<$EPoint>>().with().len(0usize..=$GOp::MAX_N_DECOMPRESS),
+                        bolero::r#gen::<Vec<$EPoint>>().with().len(0usize..=$GOp::MAX_N_DECOMPRESS),
                     )
                     .for_each(|es: &Vec<$EPoint>| {
                         let mut p1s: Vec<$GAffine> = vec![];
@@ -1002,7 +1004,7 @@ mod tests {
 
                 bolero::check!()
                     .with_generator(
-                        bolero::gen::<Vec<$GPoint>>().with().len(0usize..=$GOp::MAX_N_DECOMPRESS),
+                        bolero::r#gen::<Vec<$GPoint>>().with().len(0usize..=$GOp::MAX_N_DECOMPRESS),
                     )
                     .for_each(|gs: &Vec<$GPoint>| {
                         let mut p1s: Vec<$GAffine> = vec![];
@@ -1051,9 +1053,9 @@ mod tests {
         48,
         bls12381_p1_decompress,
         add_p_x,
-        test_bls12381_p1_decompress_fuzzer,
-        test_bls12381_p1_decompress_many_points_fuzzer,
-        test_bls12381_p1_decompress_incorrect_input_fuzzer
+        slow_test_bls12381_p1_decompress_fuzzer,
+        slow_test_bls12381_p1_decompress_many_points_fuzzer,
+        slow_test_bls12381_p1_decompress_incorrect_input_fuzzer
     );
 
     test_bls12381_decompress!(
@@ -1064,9 +1066,9 @@ mod tests {
         96,
         bls12381_p2_decompress,
         add2_p_x,
-        test_bls12381_p2_decompress_fuzzer,
-        test_bls12381_p2_decompress_many_points_fuzzer,
-        test_bls12381_p2_decompress_incorrect_input_fuzzer
+        slow_test_bls12381_p2_decompress_fuzzer,
+        slow_test_bls12381_p2_decompress_many_points_fuzzer,
+        slow_test_bls12381_p2_decompress_incorrect_input_fuzzer
     );
 
     fn add_p_x(point: &G1Affine) -> Vec<u8> {
@@ -1082,7 +1084,7 @@ mod tests {
     }
 
     #[test]
-    fn test_bls12381_pairing_check_one_point_fuzzer() {
+    fn slow_test_bls12381_pairing_check_one_point_fuzzer() {
         bolero::check!().with_type().for_each(|(p1, p2): &(G1Point, G2Point)| {
             let zero1 = G1Affine::zero();
             let zero2 = G2Affine::zero();
@@ -1098,7 +1100,7 @@ mod tests {
     }
 
     #[test]
-    fn test_bls12381_pairing_check_two_points_fuzzer() {
+    fn slow_test_bls12381_pairing_check_two_points_fuzzer() {
         bolero::check!().with_type().for_each(
             |(p1, p2, s1, s2): &(G1Point, G2Point, Scalar, Scalar)| {
                 let p1_neg = p1.p.neg();
@@ -1134,10 +1136,10 @@ mod tests {
     }
 
     #[test]
-    fn test_bls12381_pairing_check_many_points_fuzzer() {
+    fn slow_test_bls12381_pairing_check_many_points_fuzzer() {
         bolero::check!()
             .with_generator(
-                bolero::gen::<Vec<(Scalar, Scalar)>>().with().len(0usize..MAX_N_PAIRING),
+                bolero::r#gen::<Vec<(Scalar, Scalar)>>().with().len(0usize..MAX_N_PAIRING),
             )
             .for_each(|scalars: &Vec<(Scalar, Scalar)>| {
                 let mut scalars_1: Vec<Fr> = vec![];
@@ -1180,7 +1182,7 @@ mod tests {
     }
 
     #[test]
-    fn test_bls12381_pairing_incorrect_input_point_fuzzer() {
+    fn slow_test_bls12381_pairing_incorrect_input_point_fuzzer() {
         bolero::check!().with_type().for_each(
             |(p1_not_from_g1, p2, p1, p2_not_from_g2, curve_p1, curve_p2): &(
                 EnotG1Point,

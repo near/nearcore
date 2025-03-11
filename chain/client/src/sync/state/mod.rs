@@ -7,7 +7,7 @@ mod task_tracker;
 mod util;
 
 use crate::metrics;
-use crate::sync::external::{create_bucket_readonly, ExternalConnection};
+use crate::sync::external::{ExternalConnection, create_bucket_readonly};
 use chain_requests::ChainSenderForStateSync;
 use downloader::StateSyncDownloader;
 use external::StateSyncDownloadSourceExternal;
@@ -15,8 +15,8 @@ use futures::future::BoxFuture;
 use near_async::futures::{FutureSpawner, FutureSpawnerExt};
 use near_async::messaging::{AsyncSender, IntoSender};
 use near_async::time::{Clock, Duration};
-use near_chain::types::RuntimeAdapter;
 use near_chain::Chain;
+use near_chain::types::RuntimeAdapter;
 use near_chain_configs::{ExternalStorageConfig, ExternalStorageLocation, SyncConfig};
 use near_client_primitives::types::{ShardSyncStatus, StateSyncStatus};
 use near_epoch_manager::EpochManagerAdapter;
@@ -29,9 +29,9 @@ use near_primitives::state_sync::{ShardStateSyncResponse, ShardStateSyncResponse
 use near_primitives::types::ShardId;
 use near_store::Store;
 use network::{StateSyncDownloadSourcePeer, StateSyncDownloadSourcePeerSharedState};
-use shard::{run_state_sync_for_shard, StateSyncShardHandle};
-use std::collections::hash_map::Entry;
+use shard::{StateSyncShardHandle, run_state_sync_for_shard};
 use std::collections::HashMap;
+use std::collections::hash_map::Entry;
 use std::sync::{Arc, Mutex};
 use task_tracker::{TaskHandle, TaskTracker};
 use tokio::sync::oneshot;
@@ -89,7 +89,10 @@ impl StateSync {
         epoch_manager: Arc<dyn EpochManagerAdapter>,
         runtime: Arc<dyn RuntimeAdapter>,
         network_adapter: AsyncSender<PeerManagerMessageRequest, PeerManagerMessageResponse>,
-        timeout: Duration,
+        external_timeout: Duration,
+        p2p_timeout: Duration,
+        retry_backoff: Duration,
+        external_backoff: Duration,
         chain_id: &str,
         sync_config: &SyncConfig,
         chain_requests_sender: ChainSenderForStateSync,
@@ -102,7 +105,7 @@ impl StateSync {
             clock: clock.clone(),
             store: store.clone(),
             request_sender: network_adapter,
-            request_timeout: timeout,
+            request_timeout: p2p_timeout,
             state: peer_source_state.clone(),
         }) as Arc<dyn StateSyncDownloadSource>;
         let (fallback_source, num_attempts_before_fallback, num_concurrent_requests) =
@@ -118,7 +121,7 @@ impl StateSync {
                         let bucket = create_bucket_readonly(
                             &bucket,
                             &region,
-                            timeout.max(Duration::ZERO).unsigned_abs(),
+                            external_timeout.max(Duration::ZERO).unsigned_abs(),
                         );
                         if let Err(err) = bucket {
                             panic!("Failed to create an S3 bucket: {}", err);
@@ -144,7 +147,8 @@ impl StateSync {
                     store: store.clone(),
                     chain_id: chain_id.to_string(),
                     conn: external,
-                    timeout,
+                    timeout: external_timeout,
+                    backoff: external_backoff,
                 }) as Arc<dyn StateSyncDownloadSource>;
                 (
                     Some(fallback_source),
@@ -164,7 +168,7 @@ impl StateSync {
             num_attempts_before_fallback,
             header_validation_sender: chain_requests_sender.clone().into_sender(),
             runtime: runtime.clone(),
-            retry_timeout: timeout, // TODO: This is not what timeout meant. Introduce a new parameter.
+            retry_backoff,
             task_tracker: downloading_task_tracker.clone(),
         });
 
@@ -210,7 +214,7 @@ impl StateSync {
         sync_hash: CryptoHash,
         sync_status: &mut StateSyncStatus,
         highest_height_peers: &[HighestHeightPeerInfo],
-        tracking_shards: Vec<ShardId>,
+        tracking_shards: &[ShardId],
     ) -> Result<StateSyncResult, near_chain::Error> {
         let _span =
             tracing::debug_span!(target: "sync", "run_sync", sync_type = "StateSync").entered();
@@ -221,7 +225,7 @@ impl StateSync {
         );
 
         let mut all_done = true;
-        for shard_id in &tracking_shards {
+        for shard_id in tracking_shards {
             let key = (sync_hash, *shard_id);
             let status = match self.shard_syncs.entry(key) {
                 Entry::Occupied(mut entry) => match entry.get_mut().result.try_recv() {

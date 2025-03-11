@@ -85,8 +85,8 @@ mod trie;
 
 use crate::config::Config;
 pub use crate::cost::Cost;
-use crate::cost_table::format_gas;
 pub use crate::cost_table::CostTable;
+use crate::cost_table::format_gas;
 pub use crate::costs_to_runtime_config::costs_to_runtime_config;
 use crate::estimator_context::EstimatorContext;
 use crate::gas_cost::GasCost;
@@ -107,10 +107,10 @@ use near_primitives::transaction::{
 };
 use near_primitives::types::AccountId;
 use near_primitives::version::PROTOCOL_VERSION;
-use near_vm_runner::internal::VMKindExt;
-use near_vm_runner::logic::mocks::mock_external::MockedExternal;
 use near_vm_runner::ContractCode;
 use near_vm_runner::MockContractRuntimeCache;
+use near_vm_runner::internal::VMKindExt;
+use near_vm_runner::logic::mocks::mock_external::MockedExternal;
 use serde_json::json;
 use std::convert::TryFrom;
 use std::iter;
@@ -843,15 +843,16 @@ fn data_receipt_creation_base(ctx: &mut EstimatorContext) -> GasCost {
     total_cost.saturating_sub(&base_cost, &NonNegativeTolerance::PER_MILLE) / 1000
 }
 
+/// Number of receipts might be too small here, see https://github.com/near/nearcore/issues/12781
 fn data_receipt_creation_per_byte(ctx: &mut EstimatorContext) -> GasCost {
     // NB: there isn't `ExtCosts` for data receipt creation, so we ignore (`_`) the counts.
     // The function returns a chain of two promises.
     let block_latency = 2;
     let (total_cost, _) =
-        fn_cost_count(ctx, "data_receipt_100kib_1000", ExtCosts::base, block_latency);
+        fn_cost_count(ctx, "data_receipt_100kib_40", ExtCosts::base, block_latency);
     // The function returns a chain of two promises.
     let block_latency = 2;
-    let (base_cost, _) = fn_cost_count(ctx, "data_receipt_10b_1000", ExtCosts::base, block_latency);
+    let (base_cost, _) = fn_cost_count(ctx, "data_receipt_10b_40", ExtCosts::base, block_latency);
 
     let bytes_per_transaction = 1000 * 100 * 1024;
 
@@ -1450,7 +1451,9 @@ fn cpu_benchmark_sha256(ctx: &mut EstimatorContext) -> GasCost {
 
 /// Estimate how much gas is charged for 1 CPU instruction. (Using given runtime parameters, on the specific system this is being run on.)
 fn one_cpu_instruction(ctx: &mut EstimatorContext) -> GasCost {
-    eprintln!("Cannot estimate ONE_CPU_INSTRUCTION like any other cost. The result will only show the constant value currently used in the estimator.");
+    eprintln!(
+        "Cannot estimate ONE_CPU_INSTRUCTION like any other cost. The result will only show the constant value currently used in the estimator."
+    );
     GasCost::from_gas(estimator_params::GAS_IN_INSTR, ctx.config.metric)
 }
 
@@ -1458,6 +1461,8 @@ fn one_cpu_instruction(ctx: &mut EstimatorContext) -> GasCost {
 fn one_nanosecond(ctx: &mut EstimatorContext) -> GasCost {
     // Currently we don't have a test for this, yet. 1 gas has just always been 1ns.
     // But it would be useful to go backwards and see how expensive computation time is on specific hardware.
-    eprintln!("Cannot estimate ONE_NANOSECOND like any other cost. The result will only show the constant value currently used in the estimator.");
+    eprintln!(
+        "Cannot estimate ONE_NANOSECOND like any other cost. The result will only show the constant value currently used in the estimator."
+    );
     GasCost::from_gas(estimator_params::GAS_IN_NS, ctx.config.metric)
 }

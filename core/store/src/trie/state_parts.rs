@@ -17,25 +17,24 @@
 //! necessary to prove its position in the list of prefix sums.
 
 use crate::flat::{FlatStateChanges, FlatStateIterator};
-use crate::trie::iterator::TrieTraversalItem;
 use crate::trie::nibble_slice::NibbleSlice;
 use crate::trie::trie_storage::TrieMemoryPartialStorage;
-use crate::trie::{
-    ApplyStatePartResult, NodeHandle, RawTrieNodeWithSize, TrieNode, TrieNodeWithSize,
-};
-use crate::{metrics, PartialStorage, StorageError, Trie, TrieChanges};
+use crate::trie::{ApplyStatePartResult, RawTrieNodeWithSize};
+use crate::{PartialStorage, StorageError, Trie, TrieChanges, metrics};
 use borsh::BorshDeserialize;
-use near_primitives::challenge::PartialState;
-use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::state::FlatStateValue;
+use near_primitives::state::PartialState;
 use near_primitives::state_part::PartId;
 use near_primitives::state_record::is_contract_code_key;
-use near_primitives::types::{shard_id_max, ShardId, StateRoot};
+use near_primitives::types::{ShardId, StateRoot};
 use near_vm_runner::ContractCode;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use super::TrieRefcountDeltaMap;
+use super::ops::iter::TrieTraversalItem;
+use super::trie_storage_update::{TrieStorageNode, TrieStorageNodeWithSize};
 
 /// Trie key in nibbles corresponding to the right boundary for the last state part.
 /// Guaranteed to be bigger than any existing trie key.
@@ -69,7 +68,7 @@ impl Trie {
         if part_id == num_parts {
             return Ok(LAST_STATE_PART_BOUNDARY.to_vec());
         }
-        let root_node = self.retrieve_node(&self.root)?.1;
+        let root_node = self.retrieve_storage_node(&self.root)?;
         let total_size = root_node.memory_usage;
         let size_start = total_size / num_parts * part_id + part_id.min(total_size % num_parts);
         self.find_node_in_dfs_order(&root_node, size_start)
@@ -81,7 +80,7 @@ impl Trie {
         &self,
         part_id: PartId,
     ) -> Result<PartialState, StorageError> {
-        let with_recording = self.recording_reads();
+        let with_recording = self.recording_reads_new_recorder();
         with_recording.visit_nodes_for_state_part(part_id)?;
         let recorded = with_recording.recorded_storage().unwrap();
         Ok(recorded.nodes)
@@ -128,10 +127,11 @@ impl Trie {
         &self,
         part_id: PartId,
     ) -> Result<(PartialState, Vec<u8>, Vec<u8>), StorageError> {
-        let shard_id: ShardId = self.flat_storage_chunk_view.as_ref().map_or_else(
-            shard_id_max, // Fake value for metrics.
-            |chunk_view| chunk_view.shard_uid().shard_id(),
-        );
+        // If chunk view is missing us ShardId::max() as fake value for metrics.
+        let shard_id = self
+            .flat_storage_chunk_view
+            .as_ref()
+            .map_or_else(ShardId::max, |chunk_view| chunk_view.shard_uid().shard_id());
         let _span = tracing::debug_span!(
             target: "state-parts",
             "get_state_part_boundaries",
@@ -146,7 +146,7 @@ impl Trie {
         let PartId { idx, total } = part_id;
 
         // 1. Extract nodes corresponding to state part boundaries.
-        let recording_trie = self.recording_reads();
+        let recording_trie = self.recording_reads_new_recorder();
         let boundaries_read_timer = metrics::GET_STATE_PART_BOUNDARIES_ELAPSED
             .with_label_values(&[&shard_id.to_string()])
             .start_timer();
@@ -182,10 +182,11 @@ impl Trie {
         nibbles_end: Vec<u8>,
         state_trie: &Trie,
     ) -> Result<PartialState, StorageError> {
-        let shard_id: ShardId = self.flat_storage_chunk_view.as_ref().map_or_else(
-            shard_id_max, // Fake value for metrics.
-            |chunk_view| chunk_view.shard_uid().shard_id(),
-        );
+        // If chunk view is missing us ShardId::max() as fake value for metrics.
+        let shard_id = self
+            .flat_storage_chunk_view
+            .as_ref()
+            .map_or_else(ShardId::max, |chunk_view| chunk_view.shard_uid().shard_id());
         let _span = tracing::debug_span!(
             target: "state-parts",
             "get_trie_nodes_for_part_with_flat_storage",
@@ -335,42 +336,39 @@ impl Trie {
     fn find_child_in_dfs_order(
         &self,
         memory_threshold: u64,
-        node: &mut TrieNodeWithSize,
+        node: &mut TrieStorageNodeWithSize,
         memory_skipped: &mut u64,
         key_nibbles: &mut Vec<u8>,
     ) -> Result<bool, StorageError> {
-        *memory_skipped += node.node.memory_usage_direct_no_memory();
+        *memory_skipped += node.node.memory_usage_direct();
 
         match &node.node {
-            TrieNode::Empty => Ok(false),
-            TrieNode::Leaf(key, _) => {
-                let (slice, _) = NibbleSlice::from_encoded(key);
+            TrieStorageNode::Empty => Ok(false),
+            TrieStorageNode::Leaf { extension, .. } => {
+                let (slice, _) = NibbleSlice::from_encoded(extension);
                 key_nibbles.extend(slice.iter());
 
                 // Leaf must contain value, so we found the boundary.
                 Ok(false)
             }
-            TrieNode::Branch(children, value_handle) => {
-                if *memory_skipped > memory_threshold && value_handle.is_some() {
+            TrieStorageNode::Branch { children, value } => {
+                if *memory_skipped > memory_threshold && value.is_some() {
                     // If we skipped enough memory and found some value, we found the boundary.
                     return Ok(false);
                 }
 
-                let mut iter = children.iter();
-                while let Some((index, child)) = iter.next() {
-                    let child = if let NodeHandle::Hash(h) = child {
-                        self.retrieve_node(h)?.1
-                    } else {
-                        unreachable!("only possible while mutating")
-                    };
-                    if *memory_skipped + child.memory_usage > memory_threshold {
-                        core::mem::drop(iter);
-                        key_nibbles.push(index);
-                        *node = child;
-                        return Ok(true);
+                for index in 0..16 {
+                    if let Some(child) = &children[index] {
+                        let child = self.retrieve_storage_node(child)?;
+                        if *memory_skipped + child.memory_usage > memory_threshold {
+                            key_nibbles.push(index as u8);
+                            *node = child;
+                            return Ok(true);
+                        }
+                        *memory_skipped += child.memory_usage;
                     }
-                    *memory_skipped += child.memory_usage;
                 }
+
                 // This line should be unreachable if we descended into current node.
                 // TODO (#8997): test this case properly by simulating trie data corruption.
                 Err(StorageError::StorageInconsistentState(format!(
@@ -378,12 +376,9 @@ impl Trie {
                     threshold {memory_threshold} and skipped {memory_skipped}"
                 )))
             }
-            TrieNode::Extension(key, child_handle) => {
-                let child = match child_handle {
-                    NodeHandle::InMemory(_) => unreachable!("only possible while mutating"),
-                    NodeHandle::Hash(h) => self.retrieve_node(h)?.1,
-                };
-                let (slice, _) = NibbleSlice::from_encoded(key);
+            TrieStorageNode::Extension { extension, child } => {
+                let child = self.retrieve_storage_node(child)?;
+                let (slice, _) = NibbleSlice::from_encoded(extension);
                 key_nibbles.extend(slice.iter());
                 *node = child;
                 Ok(true)
@@ -396,7 +391,7 @@ impl Trie {
     /// Returns trie key in nibbles corresponding to this node.
     fn find_node_in_dfs_order(
         &self,
-        root_node: &TrieNodeWithSize,
+        root_node: &TrieStorageNodeWithSize,
         memory_threshold: u64,
     ) -> Result<Vec<u8>, StorageError> {
         if root_node.memory_usage <= memory_threshold {
@@ -478,7 +473,8 @@ impl Trie {
                 new_root: *state_root,
                 insertions,
                 deletions,
-                mem_trie_changes: None,
+                memtrie_changes: None,
+                children_memtrie_changes: Default::default(),
             },
             flat_state_delta,
             contract_codes,
@@ -501,6 +497,16 @@ impl Trie {
             |err| StorageError::StorageInconsistentState(format!("Failed to decode node: {err}")),
         )
     }
+
+    fn retrieve_storage_node(
+        &self,
+        hash: &CryptoHash,
+    ) -> Result<TrieStorageNodeWithSize, StorageError> {
+        Ok(match self.retrieve_raw_node(hash, true, true)?.map(|node| node.1) {
+            Some(node) => TrieStorageNodeWithSize::from_raw_trie_node_with_size(node),
+            None => Default::default(),
+        })
+    }
 }
 
 #[cfg(test)]
@@ -511,15 +517,15 @@ mod tests {
     use std::hash::Hash;
     use std::sync::Arc;
 
+    use rand::Rng;
     use rand::prelude::ThreadRng;
     use rand::seq::SliceRandom;
-    use rand::Rng;
 
-    use near_primitives::hash::{hash, CryptoHash};
+    use near_primitives::hash::{CryptoHash, hash};
 
     use crate::adapter::StoreUpdateAdapter;
-    use crate::test_utils::{gen_changes, test_populate_trie, TestTriesBuilder};
-    use crate::trie::iterator::CrumbStatus;
+    use crate::test_utils::{TestTriesBuilder, gen_changes, test_populate_trie};
+    use crate::trie::ops::iter::CrumbStatus;
     use crate::trie::{
         TrieRefcountAddition, TrieRefcountDeltaMap, TrieRefcountSubtraction, ValueHandle,
     };
@@ -645,7 +651,8 @@ mod tests {
                 new_root: *state_root,
                 insertions,
                 deletions: vec![],
-                mem_trie_changes: None,
+                memtrie_changes: None,
+                children_memtrie_changes: Default::default(),
             })
         }
 
@@ -657,8 +664,8 @@ mod tests {
             if self.root == Trie::EMPTY_ROOT {
                 return Ok(());
             }
-            let mut stack: Vec<(CryptoHash, TrieNodeWithSize, CrumbStatus)> = Vec::new();
-            let root_node = self.retrieve_node(&self.root)?.1;
+            let mut stack: Vec<(CryptoHash, TrieStorageNodeWithSize, CrumbStatus)> = Vec::new();
+            let root_node = self.retrieve_storage_node(&self.root)?;
             stack.push((self.root, root_node, CrumbStatus::Entering));
             while let Some((hash, node, position)) = stack.pop() {
                 if let CrumbStatus::Entering = position {
@@ -672,16 +679,16 @@ mod tests {
                     }
                 };
                 match &node.node {
-                    TrieNode::Empty => {
+                    TrieStorageNode::Empty => {
                         continue;
                     }
-                    TrieNode::Leaf(_, value) => {
+                    TrieStorageNode::Leaf { value, .. } => {
                         on_enter_value(value)?;
                         continue;
                     }
-                    TrieNode::Branch(children, value) => match position {
+                    TrieStorageNode::Branch { children, value } => match position {
                         CrumbStatus::Entering => {
-                            if let Some(ref value) = value {
+                            if let Some(value) = value {
                                 on_enter_value(value)?;
                             }
                             stack.push((hash, node, CrumbStatus::AtChild(0)));
@@ -692,11 +699,10 @@ mod tests {
                                 stack.push((hash, node, CrumbStatus::Exiting));
                                 break;
                             }
-                            if let Some(NodeHandle::Hash(ref h)) = children[i] {
-                                let h = *h;
-                                let child = self.retrieve_node(&h)?.1;
-                                stack.push((hash, node, CrumbStatus::AtChild(i + 1)));
-                                stack.push((h, child, CrumbStatus::Entering));
+                            if let Some(child_hash) = children[i as usize] {
+                                let child = self.retrieve_storage_node(&child_hash)?;
+                                stack.push((child_hash, node, CrumbStatus::AtChild(i + 1)));
+                                stack.push((child_hash, child, CrumbStatus::Entering));
                                 break;
                             }
                             i += 1;
@@ -708,15 +714,12 @@ mod tests {
                             continue;
                         }
                     },
-                    TrieNode::Extension(_key, child) => {
+                    TrieStorageNode::Extension { child, .. } => {
                         if let CrumbStatus::Entering = position {
-                            if let NodeHandle::Hash(h) = child.clone() {
-                                let child = self.retrieve_node(&h)?.1;
-                                stack.push((h, node, CrumbStatus::Exiting));
-                                stack.push((h, child, CrumbStatus::Entering));
-                            } else {
-                                unreachable!("only possible while mutating")
-                            }
+                            let child_hash = *child;
+                            let child = self.retrieve_storage_node(&child_hash)?;
+                            stack.push((child_hash, node, CrumbStatus::Exiting));
+                            stack.push((child_hash, child, CrumbStatus::Entering));
                         }
                     }
                 }
@@ -752,7 +755,7 @@ mod tests {
         for i in 0..max_key_length {
             // ([255,255,..,255], big_value)
             let key = (0..(i + 1)).map(|_| 255u8).collect::<Vec<_>>();
-            let value = (0..big_value_length).map(|_| rng.gen::<u8>()).collect::<Vec<_>>();
+            let value = (0..big_value_length).map(|_| rng.r#gen::<u8>()).collect::<Vec<_>>();
             trie_changes.push((key, Some(value)));
         }
         trie_changes
@@ -777,7 +780,7 @@ mod tests {
                         let mut key = (0..(i + 1)).map(|_| 255u8).collect::<Vec<_>>();
                         key.push(x * 16 + y);
                         let value =
-                            (0..small_value_length).map(|_| rng.gen::<u8>()).collect::<Vec<_>>();
+                            (0..small_value_length).map(|_| rng.r#gen::<u8>()).collect::<Vec<_>>();
                         trie_changes.push((key, Some(value)));
                     }
                     {
@@ -785,7 +788,7 @@ mod tests {
                         key.push(16 * 15 + x);
                         key.push(y * 16);
                         let value =
-                            (0..small_value_length).map(|_| rng.gen::<u8>()).collect::<Vec<_>>();
+                            (0..small_value_length).map(|_| rng.r#gen::<u8>()).collect::<Vec<_>>();
                         trie_changes.push((key, Some(value)));
                     }
                     {
@@ -793,7 +796,7 @@ mod tests {
                         key.push(16 * x + 15);
                         key.push(y);
                         let value =
-                            (0..small_value_length).map(|_| rng.gen::<u8>()).collect::<Vec<_>>();
+                            (0..small_value_length).map(|_| rng.r#gen::<u8>()).collect::<Vec<_>>();
                         trie_changes.push((key, Some(value)));
                     }
                 }
@@ -831,7 +834,7 @@ mod tests {
             for part_id in 0..num_parts {
                 // Compute proof with size and check that it doesn't exceed theoretical boundary for
                 // the path with full set of left siblings of maximal possible size.
-                let trie_recording = trie.recording_reads();
+                let trie_recording = trie.recording_reads_new_recorder();
                 let left_nibbles_boundary =
                     trie_recording.find_state_part_boundary(part_id, num_parts).unwrap();
                 let left_key_boundary = NibbleSlice::nibbles_to_bytes(&left_nibbles_boundary);
@@ -905,7 +908,8 @@ mod tests {
             new_root,
             insertions,
             deletions,
-            mem_trie_changes: None,
+            memtrie_changes: None,
+            children_memtrie_changes: Default::default(),
         }
     }
 

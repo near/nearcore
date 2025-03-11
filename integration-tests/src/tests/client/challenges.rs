@@ -4,14 +4,13 @@ use near_chain::validate::validate_challenge;
 use near_chain::{Block, ChainStoreAccess, Error, Provenance};
 use near_chain_configs::Genesis;
 use near_chunks::shards_manager_actor::ShardsManagerActor;
-use near_client::test_utils::{create_chunk, create_chunk_with_transactions, TestEnv};
+use near_client::test_utils::client::{create_chunk, create_chunk_with_transactions};
 use near_client::{Client, ProcessTxResponse, ProduceChunkResult};
-use near_crypto::{InMemorySigner, KeyType};
+use near_crypto::InMemorySigner;
 use near_network::types::NetworkRequests;
 use near_primitives::bandwidth_scheduler::BandwidthRequests;
 use near_primitives::challenge::{
-    BlockDoubleSign, Challenge, ChallengeBody, ChunkProofs, MaybeEncodedShardChunk, PartialState,
-    TrieValue,
+    BlockDoubleSign, Challenge, ChallengeBody, ChunkProofs, MaybeEncodedShardChunk,
 };
 use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::hash::CryptoHash;
@@ -19,30 +18,33 @@ use near_primitives::merkle::PartialMerkleTree;
 use near_primitives::num_rational::Ratio;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::sharding::EncodedShardChunk;
-use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsementV1;
+use near_primitives::state::{PartialState, TrieValue};
+use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::chunk_extra::ChunkExtra;
-use near_primitives::types::{AccountId, ShardId};
-use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
+use near_primitives::types::{AccountId, EpochId, ShardId};
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_store::Trie;
-use nearcore::test_utils::TestEnvNightshadeSetupExt;
 use reed_solomon_erasure::galois_8::ReedSolomon;
+
+use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
+use crate::env::test_env::TestEnv;
 
 /// Check that block containing a challenge is rejected.
 /// TODO (#2445): Enable challenges when they are working correctly.
 #[test]
 fn test_block_with_challenges() {
-    let mut env = TestEnv::default_builder().mock_epoch_managers().build();
-    let genesis = env.clients[0].chain.get_block_by_height(0).unwrap();
+    let mut env = TestEnv::default_builder_with_genesis().build();
+    let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
 
     let mut block = env.clients[0].produce_block(1).unwrap().unwrap();
     let signer = env.clients[0].validator_signer.get().unwrap();
 
     {
         let challenge_body = ChallengeBody::BlockDoubleSign(BlockDoubleSign {
-            left_block_header: borsh::to_vec(&genesis.header()).unwrap(),
-            right_block_header: borsh::to_vec(&genesis.header()).unwrap(),
+            left_block_header: borsh::to_vec(&genesis_block.header()).unwrap(),
+            right_block_header: borsh::to_vec(&genesis_block.header()).unwrap(),
         });
         let challenge = Challenge::produce(challenge_body, &*signer);
         let challenges = vec![challenge];
@@ -84,7 +86,7 @@ fn test_invalid_chunk_state() {
 
 #[test]
 fn test_verify_block_double_sign_challenge() {
-    let mut env = TestEnv::default_builder().clients_count(2).mock_epoch_managers().build();
+    let mut env = TestEnv::default_builder_with_genesis().clients_count(2).build();
     env.produce_block(0, 1);
     let genesis = env.clients[0].chain.get_block_by_height(0).unwrap();
     let b1 = env.clients[0].produce_block(2).unwrap().unwrap();
@@ -95,6 +97,7 @@ fn test_verify_block_double_sign_challenge() {
     let mut block_merkle_tree = PartialMerkleTree::default();
     block_merkle_tree.insert(*genesis.hash());
     let b2 = Block::produce(
+        PROTOCOL_VERSION,
         PROTOCOL_VERSION,
         PROTOCOL_VERSION,
         genesis.header(),
@@ -117,6 +120,7 @@ fn test_verify_block_double_sign_challenge() {
         block_merkle_tree.root(),
         Clock::real(),
         None,
+        None,
     );
     let epoch_id = *b1.header().epoch_id();
     let valid_challenge = Challenge::produce(
@@ -131,7 +135,6 @@ fn test_verify_block_double_sign_challenge() {
             env.clients[1].chain.epoch_manager.as_ref(),
             env.clients[1].chain.runtime_adapter.as_ref(),
             &epoch_id,
-            genesis.hash(),
             &valid_challenge
         )
         .unwrap()
@@ -145,14 +148,15 @@ fn test_verify_block_double_sign_challenge() {
         }),
         &signer,
     );
-    assert!(validate_challenge(
-        env.clients[1].chain.epoch_manager.as_ref(),
-        env.clients[1].chain.runtime_adapter.as_ref(),
-        &epoch_id,
-        genesis.hash(),
-        &invalid_challenge,
-    )
-    .is_err());
+    assert!(
+        validate_challenge(
+            env.clients[1].chain.epoch_manager.as_ref(),
+            env.clients[1].chain.runtime_adapter.as_ref(),
+            &epoch_id,
+            &invalid_challenge,
+        )
+        .is_err()
+    );
     let b3 = env.clients[0].produce_block(3).unwrap().unwrap();
     let invalid_challenge = Challenge::produce(
         ChallengeBody::BlockDoubleSign(BlockDoubleSign {
@@ -161,14 +165,15 @@ fn test_verify_block_double_sign_challenge() {
         }),
         &signer,
     );
-    assert!(validate_challenge(
-        env.clients[1].chain.epoch_manager.as_ref(),
-        env.clients[1].chain.runtime_adapter.as_ref(),
-        &epoch_id,
-        genesis.hash(),
-        &invalid_challenge,
-    )
-    .is_err());
+    assert!(
+        validate_challenge(
+            env.clients[1].chain.epoch_manager.as_ref(),
+            env.clients[1].chain.runtime_adapter.as_ref(),
+            &epoch_id,
+            &invalid_challenge,
+        )
+        .is_err()
+    );
 
     let result = env.clients[0].process_block_test(b2.into(), Provenance::SYNC);
     assert!(result.is_ok());
@@ -194,7 +199,7 @@ fn create_invalid_proofs_chunk(client: &mut Client) -> (ProduceChunkResult, Bloc
 
 #[test]
 fn test_verify_chunk_invalid_proofs_challenge() {
-    let mut env = TestEnv::default_builder().mock_epoch_managers().build();
+    let mut env = TestEnv::default_builder_with_genesis().build();
     env.produce_block(0, 1);
     let (ProduceChunkResult { chunk, .. }, block) =
         create_invalid_proofs_chunk(&mut env.clients[0]);
@@ -207,7 +212,7 @@ fn test_verify_chunk_invalid_proofs_challenge() {
 
 #[test]
 fn test_verify_chunk_invalid_proofs_challenge_decoded_chunk() {
-    let mut env = TestEnv::default_builder().mock_epoch_managers().build();
+    let mut env = TestEnv::default_builder_with_genesis().build();
     env.produce_block(0, 1);
     let (ProduceChunkResult { chunk: encoded_chunk, .. }, block) =
         create_invalid_proofs_chunk(&mut env.clients[0]);
@@ -222,7 +227,7 @@ fn test_verify_chunk_invalid_proofs_challenge_decoded_chunk() {
 
 #[test]
 fn test_verify_chunk_proofs_malicious_challenge_no_changes() {
-    let mut env = TestEnv::default_builder().mock_epoch_managers().build();
+    let mut env = TestEnv::default_builder_with_genesis().build();
     env.produce_block(0, 1);
     // Valid chunk
     let (ProduceChunkResult { chunk, .. }, block) = create_chunk(&mut env.clients[0], None, None);
@@ -235,12 +240,11 @@ fn test_verify_chunk_proofs_malicious_challenge_no_changes() {
 
 #[test]
 fn test_verify_chunk_proofs_malicious_challenge_valid_order_transactions() {
-    let mut env = TestEnv::default_builder().mock_epoch_managers().build();
+    let mut env = TestEnv::default_builder_with_genesis().build();
     env.produce_block(0, 1);
 
     let genesis_hash = *env.clients[0].chain.genesis().hash();
-    let signer =
-        InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0").into();
+    let signer = InMemorySigner::test_signer(&"test0".parse().unwrap());
 
     let (ProduceChunkResult { chunk, .. }, block) = create_chunk_with_transactions(
         &mut env.clients[0],
@@ -272,12 +276,11 @@ fn test_verify_chunk_proofs_malicious_challenge_valid_order_transactions() {
 
 #[test]
 fn test_verify_chunk_proofs_challenge_transaction_order() {
-    let mut env = TestEnv::default_builder().mock_epoch_managers().build();
+    let mut env = TestEnv::default_builder_with_genesis().build();
     env.produce_block(0, 1);
 
     let genesis_hash = *env.clients[0].chain.genesis().hash();
-    let signer =
-        InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0").into();
+    let signer = InMemorySigner::test_signer(&"test0".parse().unwrap());
 
     let (ProduceChunkResult { chunk, .. }, block) = create_chunk_with_transactions(
         &mut env.clients[0],
@@ -315,7 +318,7 @@ fn challenge(
 ) -> Result<(CryptoHash, Vec<AccountId>), Error> {
     let epoch_id = block.header().epoch_id();
     let shard_layout = env.clients[0].chain.epoch_manager.get_shard_layout(epoch_id).unwrap();
-    let shard_index = shard_layout.get_shard_index(shard_id);
+    let shard_index = shard_layout.get_shard_index(shard_id)?;
 
     let merkle_paths = Block::compute_chunk_headers_root(block.chunks().iter_deprecated()).1;
     let valid_challenge = Challenge::produce(
@@ -330,7 +333,6 @@ fn challenge(
         env.clients[0].chain.epoch_manager.as_ref(),
         env.clients[0].chain.runtime_adapter.as_ref(),
         block.header().epoch_id(),
-        block.header().prev_hash(),
         &valid_challenge,
     )
 }
@@ -340,7 +342,7 @@ fn test_verify_chunk_invalid_state_challenge() {
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.min_gas_price = 0;
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
-    let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
+    let signer = InMemorySigner::test_signer(&"test0".parse().unwrap());
     let validator_signer = create_test_signer("test0");
     let genesis_hash = *env.clients[0].chain.genesis().hash();
     env.produce_block(0, 1);
@@ -350,7 +352,7 @@ fn test_verify_chunk_invalid_state_challenge() {
                 1,
                 "test0".parse().unwrap(),
                 "test1".parse().unwrap(),
-                &signer.into(),
+                &signer,
                 1000,
                 genesis_hash,
             ),
@@ -407,10 +409,10 @@ fn test_verify_chunk_invalid_state_challenge() {
         .unwrap();
 
     match &mut invalid_chunk {
-        EncodedShardChunk::V1(ref mut chunk) => {
+        EncodedShardChunk::V1(chunk) => {
             chunk.header.height_included = last_block.header().height() + 1;
         }
-        EncodedShardChunk::V2(ref mut chunk) => {
+        EncodedShardChunk::V2(chunk) => {
             *chunk.header.height_included_mut() = last_block.header().height() + 1;
         }
     }
@@ -421,15 +423,16 @@ fn test_verify_chunk_invalid_state_challenge() {
 
     let signer = client.validator_signer.get().unwrap();
     let endorsement =
-        ChunkEndorsementV1::new(invalid_chunk.cloned_header().chunk_hash(), signer.as_ref());
+        ChunkEndorsement::new(EpochId::default(), &invalid_chunk.cloned_header(), signer.as_ref());
     let block = Block::produce(
+        PROTOCOL_VERSION,
         PROTOCOL_VERSION,
         PROTOCOL_VERSION,
         last_block.header(),
         last_block.header().height() + 1,
         last_block.header().block_ordinal() + 1,
         vec![invalid_chunk.cloned_header()],
-        vec![vec![Some(Box::new(endorsement.signature))]],
+        vec![vec![Some(Box::new(endorsement.signature()))]],
         *last_block.header().epoch_id(),
         *last_block.header().next_epoch_id(),
         None,
@@ -445,10 +448,18 @@ fn test_verify_chunk_invalid_state_challenge() {
         block_merkle_tree.root(),
         Clock::real(),
         None,
+        None,
     );
 
-    let challenge_body =
-        client.chain.create_chunk_state_challenge(&last_block, &block, &block.chunks()[0]).unwrap();
+    let challenge_body = client
+        .chain
+        .create_chunk_state_challenge(
+            &last_block,
+            block.header().height(),
+            &block.chunks(),
+            &block.chunks()[0],
+        )
+        .unwrap();
     {
         let prev_merkle_proofs =
             Block::compute_chunk_headers_root(last_block.chunks().iter_deprecated()).1;
@@ -484,7 +495,6 @@ fn test_verify_chunk_invalid_state_challenge() {
             client.chain.epoch_manager.as_ref(),
             client.chain.runtime_adapter.as_ref(),
             block.header().epoch_id(),
-            block.header().prev_hash(),
             &challenge,
         )
         .unwrap_err(),

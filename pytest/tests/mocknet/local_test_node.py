@@ -94,8 +94,11 @@ class LocalTestNeardRunner:
 
     def run_cmd(self, cmd, raise_on_fail=False, return_on_fail=False):
         logger.error(
-            "Does not make sense to run command on local host. The behaviour may not be the desired one."
+            "Does not make sense to run command on local host. The behavior may not be the desired one."
         )
+
+    def upload_file(self, src, dst):
+        logger.error("Does not make sense to upload a file on local host.")
 
     def init_python(self):
         return
@@ -282,6 +285,7 @@ def make_forked_network(neard_binary_path, traffic_generator_setup, node_homes,
         fork_db(neard_binary_path, target_home_dir, setup_dir)
 
 
+# cspell:ignore mkdirs
 def mkdirs(local_mocknet_path):
     traffic_generator_home = local_mocknet_path / 'traffic-generator'
     traffic_generator_home.mkdir()
@@ -321,11 +325,18 @@ def make_binaries_dir(local_mocknet_path, neard_binary_path):
     return binaries_path
 
 
+class HTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
+    # follow symlinks
+    def translate_path(self, path):
+        path = super().translate_path(path)
+        return os.path.realpath(path)
+
+
 class Server(http.server.HTTPServer):
 
     def __init__(self, addr, directory):
         self.directory = directory
-        super().__init__(addr, http.server.SimpleHTTPRequestHandler)
+        super().__init__(addr, HTTPRequestHandler)
 
     def finish_request(self, request, client_address):
         self.RequestHandlerClass(request,
@@ -341,9 +352,9 @@ def write_config(home, config):
 
 # looks for directories called node{i} in `local_mocknet_path`
 def get_node_homes(local_mocknet_path):
-    dirents = os.listdir(local_mocknet_path)
+    dirs = os.listdir(local_mocknet_path)
     node_homes = []
-    for p in dirents:
+    for p in dirs:
         m = re.match(r'node(\d+)', p)
         if m is None:
             continue

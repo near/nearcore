@@ -8,9 +8,9 @@ use crate::types::{
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives_core::checked_feature;
 use near_primitives_core::hash::CryptoHash;
-use near_primitives_core::version::{ProtocolFeature, PROTOCOL_VERSION};
+use near_primitives_core::serialize::dec_format;
+use near_primitives_core::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_schema_checker_lib::ProtocolSchema;
-use smart_default::SmartDefault;
 use std::collections::{BTreeMap, HashMap};
 use std::fs;
 use std::ops::Bound;
@@ -46,6 +46,7 @@ pub struct EpochConfig {
     /// Online maximum threshold above which validator gets full reward.
     pub online_max_threshold: Rational32,
     /// Stake threshold for becoming a fisherman.
+    #[serde(with = "dec_format")]
     pub fishermen_threshold: Balance,
     /// The minimum stake required for staking is last seat price divided by this number.
     pub minimum_stake_divisor: u64,
@@ -53,16 +54,133 @@ pub struct EpochConfig {
     pub protocol_upgrade_stake_threshold: Rational32,
     /// Shard layout of this epoch, may change from epoch to epoch
     pub shard_layout: ShardLayout,
-    /// Additional config for validator selection algorithm
-    pub validator_selection_config: ValidatorSelectionConfig,
+    /// Additional configuration parameters for the new validator selection
+    /// algorithm. See <https://github.com/near/NEPs/pull/167> for details.
+    // #[default(100)]
+    pub num_chunk_producer_seats: NumSeats,
+    // #[default(300)]
+    pub num_chunk_validator_seats: NumSeats,
+    // TODO (#11267): deprecate after StatelessValidationV0 is in place.
+    // Use 300 for older protocol versions.
+    // #[default(300)]
+    pub num_chunk_only_producer_seats: NumSeats,
+    // #[default(1)]
+    pub minimum_validators_per_shard: NumSeats,
+    // #[default(Rational32::new(160, 1_000_000))]
+    pub minimum_stake_ratio: Rational32,
+    // #[default(5)]
+    /// Limits the number of shard changes in chunk producer assignments,
+    /// if algorithm is able to choose assignment with better balance of
+    /// number of chunk producers for shards.
+    pub chunk_producer_assignment_changes_limit: NumSeats,
+    // #[default(false)]
+    pub shuffle_shard_assignment_for_chunk_producers: bool,
 }
 
 impl EpochConfig {
     /// Total number of validator seats in the epoch since protocol version 69.
     pub fn num_validators(&self) -> NumSeats {
         self.num_block_producer_seats
-            .max(self.validator_selection_config.num_chunk_producer_seats)
-            .max(self.validator_selection_config.num_chunk_validator_seats)
+            .max(self.num_chunk_producer_seats)
+            .max(self.num_chunk_validator_seats)
+    }
+}
+
+impl EpochConfig {
+    // Create test-only epoch config.
+    // Not depends on genesis!
+    pub fn genesis_test(
+        num_block_producer_seats: NumSeats,
+        shard_layout: ShardLayout,
+        epoch_length: BlockHeightDelta,
+        block_producer_kickout_threshold: u8,
+        chunk_producer_kickout_threshold: u8,
+        chunk_validator_only_kickout_threshold: u8,
+        protocol_upgrade_stake_threshold: Rational32,
+        fishermen_threshold: Balance,
+    ) -> Self {
+        Self {
+            epoch_length,
+            num_block_producer_seats,
+            num_block_producer_seats_per_shard: vec![
+                num_block_producer_seats;
+                shard_layout.shard_ids().count()
+            ],
+            avg_hidden_validator_seats_per_shard: vec![],
+            target_validator_mandates_per_shard: 68,
+            validator_max_kickout_stake_perc: 100,
+            online_min_threshold: Rational32::new(90, 100),
+            online_max_threshold: Rational32::new(99, 100),
+            minimum_stake_divisor: 10,
+            protocol_upgrade_stake_threshold,
+            block_producer_kickout_threshold,
+            chunk_producer_kickout_threshold,
+            chunk_validator_only_kickout_threshold,
+            fishermen_threshold,
+            shard_layout,
+            num_chunk_producer_seats: 100,
+            num_chunk_validator_seats: 300,
+            num_chunk_only_producer_seats: 300,
+            minimum_validators_per_shard: 1,
+            minimum_stake_ratio: Rational32::new(160i32, 1_000_000i32),
+            chunk_producer_assignment_changes_limit: 5,
+            shuffle_shard_assignment_for_chunk_producers: false,
+        }
+    }
+
+    /// Minimal config for testing.
+    pub fn minimal() -> Self {
+        Self {
+            epoch_length: 0,
+            num_block_producer_seats: 0,
+            num_block_producer_seats_per_shard: vec![],
+            avg_hidden_validator_seats_per_shard: vec![],
+            block_producer_kickout_threshold: 0,
+            chunk_producer_kickout_threshold: 0,
+            chunk_validator_only_kickout_threshold: 0,
+            target_validator_mandates_per_shard: 0,
+            validator_max_kickout_stake_perc: 0,
+            online_min_threshold: 0.into(),
+            online_max_threshold: 0.into(),
+            fishermen_threshold: 0,
+            minimum_stake_divisor: 0,
+            protocol_upgrade_stake_threshold: 0.into(),
+            shard_layout: ShardLayout::get_simple_nightshade_layout(),
+            num_chunk_producer_seats: 100,
+            num_chunk_validator_seats: 300,
+            num_chunk_only_producer_seats: 300,
+            minimum_validators_per_shard: 1,
+            minimum_stake_ratio: Rational32::new(160i32, 1_000_000i32),
+            chunk_producer_assignment_changes_limit: 5,
+            shuffle_shard_assignment_for_chunk_producers: false,
+        }
+    }
+
+    pub fn mock(epoch_length: BlockHeightDelta, shard_layout: ShardLayout) -> Self {
+        Self {
+            epoch_length,
+            num_block_producer_seats: 2,
+            num_block_producer_seats_per_shard: vec![1, 1],
+            avg_hidden_validator_seats_per_shard: vec![1, 1],
+            block_producer_kickout_threshold: 0,
+            chunk_producer_kickout_threshold: 0,
+            chunk_validator_only_kickout_threshold: 0,
+            target_validator_mandates_per_shard: 1,
+            validator_max_kickout_stake_perc: 0,
+            online_min_threshold: Rational32::new(1i32, 4i32),
+            online_max_threshold: Rational32::new(3i32, 4i32),
+            fishermen_threshold: 1,
+            minimum_stake_divisor: 1,
+            protocol_upgrade_stake_threshold: Rational32::new(3i32, 4i32),
+            shard_layout,
+            num_chunk_producer_seats: 100,
+            num_chunk_validator_seats: 300,
+            num_chunk_only_producer_seats: 300,
+            minimum_validators_per_shard: 1,
+            minimum_stake_ratio: Rational32::new(160i32, 1_000_000i32),
+            chunk_producer_assignment_changes_limit: 5,
+            shuffle_shard_assignment_for_chunk_producers: false,
+        }
     }
 }
 
@@ -184,7 +302,8 @@ impl AllEpochConfig {
             debug_assert_eq!(
                 config_store.as_ref().unwrap().get_config(genesis_protocol_version).as_ref(),
                 &all_epoch_config.generate_epoch_config(genesis_protocol_version),
-                "Provided genesis EpochConfig for protocol version {} does not match the stored config", genesis_protocol_version
+                "Provided genesis EpochConfig for protocol version {} does not match the stored config",
+                genesis_protocol_version
             );
         }
         all_epoch_config
@@ -244,10 +363,10 @@ impl AllEpochConfig {
         // ProtocolFeature::ShuffleShardAssignments. (see config_validator_selection function).
         // For pre-release environment such as mocknet, which uses features between production and nightly
         // (eg. stateless validation) we enable it by default with stateless validation in order to exercise
-        // the codepaths for state sync more often.
+        // the codepath for state sync more often.
         // TODO(#11201): When stabilizing "ShuffleShardAssignments" in mainnet,
         // also remove this temporary code and always rely on ShuffleShardAssignments.
-        config.validator_selection_config.shuffle_shard_assignment_for_chunk_producers = true;
+        config.shuffle_shard_assignment_for_chunk_producers = true;
     }
 
     /// Configures validator-selection related features.
@@ -255,19 +374,18 @@ impl AllEpochConfig {
         // Shuffle shard assignments every epoch, to trigger state sync more
         // frequently to exercise that code path.
         if checked_feature!("stable", ShuffleShardAssignments, protocol_version) {
-            config.validator_selection_config.shuffle_shard_assignment_for_chunk_producers = true;
+            config.shuffle_shard_assignment_for_chunk_producers = true;
         }
     }
 
     fn config_nightshade(config: &mut EpochConfig, protocol_version: ProtocolVersion) {
-        // Unlike the other checks, this one is for strict equality. The testonly nightshade layout
-        // is specifically used in resharding tests, not for any other protocol versions.
-        #[cfg(feature = "nightly")]
-        if protocol_version == ProtocolFeature::SimpleNightshadeTestonly.protocol_version() {
-            Self::config_nightshade_impl(
-                config,
-                ShardLayout::get_simple_nightshade_layout_testonly(),
-            );
+        if checked_feature!("stable", SimpleNightshadeV5, protocol_version) {
+            Self::config_nightshade_impl(config, ShardLayout::get_simple_nightshade_layout_v5());
+            return;
+        }
+
+        if checked_feature!("stable", SimpleNightshadeV4, protocol_version) {
+            Self::config_nightshade_impl(config, ShardLayout::get_simple_nightshade_layout_v4());
             return;
         }
 
@@ -310,7 +428,7 @@ impl AllEpochConfig {
                 config.shard_layout.shard_ids().map(|_| 100).collect();
             config.block_producer_kickout_threshold = 80;
             config.chunk_producer_kickout_threshold = 80;
-            config.validator_selection_config.num_chunk_only_producer_seats = 200;
+            config.num_chunk_only_producer_seats = 200;
         }
 
         // Adjust the number of block and chunk producers for testnet, to make it easier to test the change.
@@ -322,18 +440,18 @@ impl AllEpochConfig {
             config.num_block_producer_seats = 20;
             // Checking feature NoChunkOnlyProducers in stateless validation
             if ProtocolFeature::StatelessValidation.enabled(protocol_version) {
-                config.validator_selection_config.num_chunk_producer_seats = 20;
+                config.num_chunk_producer_seats = 20;
             }
             config.num_block_producer_seats_per_shard =
                 shard_ids.map(|_| config.num_block_producer_seats).collect();
             // Decrease the number of chunk producers.
-            config.validator_selection_config.num_chunk_only_producer_seats = 100;
+            config.num_chunk_only_producer_seats = 100;
         }
 
         // Checking feature NoChunkOnlyProducers in stateless validation
         if ProtocolFeature::StatelessValidation.enabled(protocol_version) {
             // Make sure there is no chunk only producer in stateless validation
-            config.validator_selection_config.num_chunk_only_producer_seats = 0;
+            config.num_chunk_only_producer_seats = 0;
         }
     }
 
@@ -345,7 +463,7 @@ impl AllEpochConfig {
 
     fn config_fix_min_stake_ratio(config: &mut EpochConfig, protocol_version: u32) {
         if checked_feature!("stable", FixMinStakeRatio, protocol_version) {
-            config.validator_selection_config.minimum_stake_ratio = Rational32::new(1, 62_500);
+            config.minimum_stake_ratio = Rational32::new(1, 62_500);
         }
     }
 
@@ -371,31 +489,6 @@ impl AllEpochConfig {
             config.chunk_producer_kickout_threshold = chunk_producer_kickout_threshold;
         }
     }
-}
-
-/// Additional configuration parameters for the new validator selection
-/// algorithm.  See <https://github.com/near/NEPs/pull/167> for details.
-#[derive(Debug, Clone, SmartDefault, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct ValidatorSelectionConfig {
-    #[default(100)]
-    pub num_chunk_producer_seats: NumSeats,
-    #[default(300)]
-    pub num_chunk_validator_seats: NumSeats,
-    // TODO (#11267): deprecate after StatelessValidationV0 is in place.
-    // Use 300 for older protocol versions.
-    #[default(300)]
-    pub num_chunk_only_producer_seats: NumSeats,
-    #[default(1)]
-    pub minimum_validators_per_shard: NumSeats,
-    #[default(Rational32::new(160, 1_000_000))]
-    pub minimum_stake_ratio: Rational32,
-    #[default(5)]
-    /// Limits the number of shard changes in chunk producer assignments,
-    /// if algorithm is able to choose assignment with better balance of
-    /// number of chunk producers for shards.
-    pub chunk_producer_assignment_changes_limit: NumSeats,
-    #[default(false)]
-    pub shuffle_shard_assignment_for_chunk_producers: bool,
 }
 
 #[derive(BorshSerialize, BorshDeserialize, ProtocolSchema)]
@@ -430,7 +523,7 @@ macro_rules! include_config {
 
 /// List of (chain_id, version, JSON content) tuples used to initialize the EpochConfigStore.
 static CONFIGS: &[(&str, ProtocolVersion, &str)] = &[
-    // Epoch configs for mainnet (genesis protool version is 29).
+    // Epoch configs for mainnet (genesis protocol version is 29).
     include_config!("mainnet", 29, "29.json"),
     include_config!("mainnet", 48, "48.json"),
     include_config!("mainnet", 56, "56.json"),
@@ -440,10 +533,10 @@ static CONFIGS: &[(&str, ProtocolVersion, &str)] = &[
     include_config!("mainnet", 70, "70.json"),
     include_config!("mainnet", 71, "71.json"),
     include_config!("mainnet", 72, "72.json"),
-    include_config!("mainnet", 100, "100.json"),
-    include_config!("mainnet", 101, "101.json"),
+    include_config!("mainnet", 75, "75.json"),
+    include_config!("mainnet", 76, "76.json"),
     include_config!("mainnet", 143, "143.json"),
-    // Epoch configs for testnet (genesis protool version is 29).
+    // Epoch configs for testnet (genesis protocol version is 29).
     include_config!("testnet", 29, "29.json"),
     include_config!("testnet", 48, "48.json"),
     include_config!("testnet", 56, "56.json"),
@@ -453,21 +546,9 @@ static CONFIGS: &[(&str, ProtocolVersion, &str)] = &[
     include_config!("testnet", 70, "70.json"),
     include_config!("testnet", 71, "71.json"),
     include_config!("testnet", 72, "72.json"),
-    include_config!("testnet", 100, "100.json"),
-    include_config!("testnet", 101, "101.json"),
+    include_config!("testnet", 75, "75.json"),
+    include_config!("testnet", 76, "76.json"),
     include_config!("testnet", 143, "143.json"),
-    // Epoch configs for mocknet (forknet) (genesis protool version is 29).
-    // TODO(#11900): Check the forknet config and uncomment this.
-    // include_config!("mocknet", 29, "29.json"),
-    // include_config!("mocknet", 48, "48.json"),
-    // include_config!("mocknet", 64, "64.json"),
-    // include_config!("mocknet", 65, "65.json"),
-    // include_config!("mocknet", 69, "69.json"),
-    // include_config!("mocknet", 70, "70.json"),
-    // include_config!("mocknet", 71, "71.json"),
-    // include_config!("mocknet", 72, "72.json"),
-    // include_config!("mocknet", 100, "100.json"),
-    // include_config!("mocknet", 101, "101.json"),
 ];
 
 /// Store for `[EpochConfig]` per protocol version.`
@@ -490,11 +571,7 @@ impl EpochConfigStore {
             store = Self::load_epoch_config_from_file_system(config_dir.to_str().unwrap());
         }
 
-        if store.is_empty() {
-            None
-        } else {
-            Some(Self { store })
-        }
+        if store.is_empty() { None } else { Some(Self { store }) }
     }
 
     /// Loads the default epoch configs for the given chain from the CONFIGS array.
@@ -554,6 +631,13 @@ impl EpochConfigStore {
         Self { store }
     }
 
+    pub fn test_single_version(
+        protocol_version: ProtocolVersion,
+        epoch_config: EpochConfig,
+    ) -> Self {
+        Self::test(BTreeMap::from([(protocol_version, Arc::new(epoch_config))]))
+    }
+
     /// Returns the EpochConfig for the given protocol version.
     /// This panics if no config is found for the given version, thus the initialization via `for_chain_id` should
     /// only be performed for chains with some configs stored in files.
@@ -565,6 +649,34 @@ impl EpochConfigStore {
                 panic!("Failed to find EpochConfig for protocol version {}", protocol_version)
             })
             .1
+    }
+
+    fn dump_epoch_config(directory: &str, version: &ProtocolVersion, config: &Arc<EpochConfig>) {
+        let content = serde_json::to_string_pretty(config.as_ref()).unwrap();
+        let path = PathBuf::from(directory).join(format!("{}.json", version));
+        fs::write(path, content).unwrap();
+    }
+
+    /// Dumps all the configs between the beginning and end protocol versions to the given directory.
+    /// If the beginning version doesn't exist, the closest config to it will be dumped.
+    pub fn dump_epoch_configs_between(
+        &self,
+        first_version: &ProtocolVersion,
+        last_version: &ProtocolVersion,
+        directory: &str,
+    ) {
+        // Dump all the configs between the beginning and end versions, inclusive.
+        self.store
+            .iter()
+            .filter(|(version, _)| *version >= first_version && *version <= last_version)
+            .for_each(|(version, config)| {
+                Self::dump_epoch_config(directory, version, config);
+            });
+        // Dump the closest config to the beginning version if it doesn't exist.
+        if !self.store.contains_key(&first_version) {
+            let config = self.get_config(*first_version);
+            Self::dump_epoch_config(directory, first_version, config);
+        }
     }
 }
 
@@ -598,11 +710,15 @@ mod tests {
         for protocol_version in genesis_protocol_version..=PROTOCOL_VERSION {
             let stored_config = config_store.get_config(protocol_version);
             let expected_config = all_epoch_config.generate_epoch_config(protocol_version);
-            assert_eq!(
-                *stored_config.as_ref(),
-                expected_config,
-                "Mismatch for protocol version {protocol_version}"
-            );
+            if stored_config.as_ref() != &expected_config {
+                println!(
+                    "Mismatching epoch configs for protocol version {protocol_version}.
+                    Please update the appropriate <version>.json file."
+                );
+                println!("stored\n{:#?}", stored_config);
+                println!("expected\n{:#?}", expected_config);
+                panic!("Mismatch for protocol version {protocol_version}");
+            }
         }
     }
 
@@ -615,12 +731,6 @@ mod tests {
     fn test_epoch_config_store_testnet() {
         test_epoch_config_store("testnet", 29);
     }
-
-    // TODO(#11900): Check the forknet config and uncomment this.
-    // #[test]
-    // fn test_epoch_config_store_mocknet() {
-    //     test_epoch_config_store("mocknet", 29);
-    // }
 
     #[allow(unused)]
     fn generate_epoch_configs(chain_id: &str, genesis_protocol_version: ProtocolVersion) {
@@ -645,6 +755,31 @@ mod tests {
     }
 
     #[test]
+    fn test_dump_epoch_configs_mainnet() {
+        let tmp_dir = tempfile::tempdir().unwrap();
+        EpochConfigStore::for_chain_id("mainnet", None).unwrap().dump_epoch_configs_between(
+            &55,
+            &68,
+            tmp_dir.path().to_str().unwrap(),
+        );
+
+        // Check if tmp dir contains the dumped files. 55, 64, 65.
+        let dumped_files = fs::read_dir(tmp_dir.path()).unwrap();
+        let dumped_files: Vec<_> =
+            dumped_files.map(|entry| entry.unwrap().file_name().into_string().unwrap()).collect();
+
+        assert!(dumped_files.contains(&String::from("55.json")));
+        assert!(dumped_files.contains(&String::from("64.json")));
+        assert!(dumped_files.contains(&String::from("65.json")));
+
+        // Check if 55.json is equal to 48.json from res/epoch_configs/mainnet.
+        let contents_55 = fs::read_to_string(tmp_dir.path().join("55.json")).unwrap();
+        let epoch_config_55: EpochConfig = serde_json::from_str(&contents_55).unwrap();
+        let epoch_config_48 = parse_config_file("mainnet", 48).unwrap();
+        assert_eq!(epoch_config_55, epoch_config_48);
+    }
+
+    #[test]
     #[ignore]
     fn generate_epoch_configs_mainnet() {
         generate_epoch_configs("mainnet", 29);
@@ -655,13 +790,6 @@ mod tests {
     fn generate_epoch_configs_testnet() {
         generate_epoch_configs("testnet", 29);
     }
-
-    // TODO(#11900): Check the forknet config and uncomment this.
-    // #[test]
-    // #[ignore]
-    // fn generate_epoch_configs_mocknet() {
-    //     generate_epoch_configs("mocknet", 29);
-    // }
 
     #[allow(unused)]
     fn parse_config_file(chain_id: &str, protocol_version: ProtocolVersion) -> Option<EpochConfig> {

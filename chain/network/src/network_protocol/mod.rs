@@ -8,11 +8,10 @@ mod proto_conv;
 mod state_sync;
 pub use edge::*;
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
-use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsementV1;
 use near_primitives::stateless_validation::contract_distribution::ChunkContractAccesses;
-use near_primitives::stateless_validation::contract_distribution::ChunkContractDeployments;
 use near_primitives::stateless_validation::contract_distribution::ContractCodeRequest;
 use near_primitives::stateless_validation::contract_distribution::ContractCodeResponse;
+use near_primitives::stateless_validation::contract_distribution::PartialEncodedContractDeploys;
 use near_primitives::stateless_validation::partial_witness::PartialEncodedStateWitness;
 use near_primitives::stateless_validation::state_witness::ChunkStateWitnessAck;
 pub use peer::*;
@@ -47,6 +46,7 @@ use near_primitives::epoch_sync::CompressedEpochSyncProof;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::combine_hash;
 use near_primitives::network::{AnnounceAccount, PeerId};
+use near_primitives::optimistic_block::OptimisticBlock;
 use near_primitives::sharding::{
     ChunkHash, PartialEncodedChunk, PartialEncodedChunkPart, ReceiptProof, ShardChunkHeader,
 };
@@ -180,7 +180,7 @@ impl VersionedAccountData {
     /// intermediate SerializedAccountData type) so that sign() then could fail only
     /// due to account_id mismatch. Then instead of panicking we could return an error
     /// and the caller (who constructs the arguments) would do an unwrap(). This would
-    /// consistute a cleaner never-panicking interface.
+    /// constitute a cleaner never-panicking interface.
     pub fn sign(self, signer: &ValidatorSigner) -> anyhow::Result<SignedAccountData> {
         assert_eq!(
             self.account_key,
@@ -195,7 +195,7 @@ impl VersionedAccountData {
                 MAX_ACCOUNT_DATA_SIZE_BYTES
             );
         }
-        let signature = signer.sign_account_key_payload(&payload);
+        let signature = signer.sign_bytes(&payload);
         Ok(SignedAccountData {
             account_data: self,
             payload: AccountKeySignedPayload { payload, signature },
@@ -274,7 +274,7 @@ impl OwnedAccount {
             "OwnedAccount.account_key doesn't match the signer's account_key"
         );
         let payload = proto::AccountKeyPayload::from(&self).write_to_bytes().unwrap();
-        let signature = signer.sign_account_key_payload(&payload);
+        let signature = signer.sign_bytes(&payload);
         SignedOwnedAccount {
             owned_account: self,
             payload: AccountKeySignedPayload { payload, signature },
@@ -434,6 +434,7 @@ pub enum PeerMessage {
 
     BlockRequest(CryptoHash),
     Block(Block),
+    OptimisticBlock(OptimisticBlock),
 
     Transaction(SignedTransaction),
     Routed(Box<RoutedMessageV2>),
@@ -552,8 +553,7 @@ pub enum RoutedMessageBody {
     _UnusedVersionedStateResponse,
     PartialEncodedChunkForward(PartialEncodedChunkForwardMsg),
     _UnusedChunkStateWitness,
-    /// TODO(ChunkEndorsementV2): Deprecate once we move to VersionedChunkEndorsement
-    ChunkEndorsement(ChunkEndorsementV1),
+    _UnusedChunkEndorsement,
     ChunkStateWitnessAck(ChunkStateWitnessAck),
     PartialEncodedStateWitness(PartialEncodedStateWitness),
     PartialEncodedStateWitnessForward(PartialEncodedStateWitness),
@@ -563,9 +563,9 @@ pub enum RoutedMessageBody {
     _UnusedEpochSyncResponse(CompressedEpochSyncProof),
     StatePartRequest(StatePartRequest),
     ChunkContractAccesses(ChunkContractAccesses),
-    ChunkContractDeployments(ChunkContractDeployments),
     ContractCodeRequest(ContractCodeRequest),
     ContractCodeResponse(ContractCodeResponse),
+    PartialEncodedContractDeploys(PartialEncodedContractDeploys),
 }
 
 impl RoutedMessageBody {
@@ -588,8 +588,7 @@ impl RoutedMessageBody {
     // we may be the block_producer.
     pub fn allow_sending_to_self(&self) -> bool {
         match self {
-            RoutedMessageBody::ChunkEndorsement(_)
-            | RoutedMessageBody::PartialEncodedStateWitness(_)
+            RoutedMessageBody::PartialEncodedStateWitness(_)
             | RoutedMessageBody::PartialEncodedStateWitnessForward(_)
             | RoutedMessageBody::VersionedChunkEndorsement(_) => true,
             _ => false,
@@ -628,7 +627,7 @@ impl fmt::Debug for RoutedMessageBody {
                 response.chunk_hash,
                 response.parts.iter().map(|p| p.part_ord).collect::<Vec<_>>()
             ),
-            RoutedMessageBody::_UnusedPartialEncodedChunk => write!(f, "PartiaEncodedChunk"),
+            RoutedMessageBody::_UnusedPartialEncodedChunk => write!(f, "PartialEncodedChunk"),
             RoutedMessageBody::VersionedPartialEncodedChunk(_) => {
                 write!(f, "VersionedPartialEncodedChunk(?)")
             }
@@ -642,7 +641,7 @@ impl fmt::Debug for RoutedMessageBody {
             RoutedMessageBody::Pong(_) => write!(f, "Pong"),
             RoutedMessageBody::_UnusedVersionedStateResponse => write!(f, "VersionedStateResponse"),
             RoutedMessageBody::_UnusedChunkStateWitness => write!(f, "ChunkStateWitness"),
-            RoutedMessageBody::ChunkEndorsement(_) => write!(f, "ChunkEndorsement"),
+            RoutedMessageBody::_UnusedChunkEndorsement => write!(f, "ChunkEndorsement"),
             RoutedMessageBody::ChunkStateWitnessAck(ack, ..) => {
                 f.debug_tuple("ChunkStateWitnessAck").field(&ack.chunk_hash).finish()
             }
@@ -663,13 +662,13 @@ impl fmt::Debug for RoutedMessageBody {
             RoutedMessageBody::ChunkContractAccesses(accesses) => {
                 write!(f, "ChunkContractAccesses(code_hashes={:?})", accesses.contracts())
             }
-            RoutedMessageBody::ChunkContractDeployments(deploys) => {
-                write!(f, "ChunkContractDeployments(code_hashes={:?}", deploys.contracts())
-            }
             RoutedMessageBody::ContractCodeRequest(request) => {
                 write!(f, "ContractCodeRequest(code_hashes={:?})", request.contracts())
             }
             RoutedMessageBody::ContractCodeResponse(_) => write!(f, "ContractCodeResponse",),
+            RoutedMessageBody::PartialEncodedContractDeploys(deploys) => {
+                write!(f, "PartialEncodedContractDeploys(part={:?}", deploys.part())
+            }
         }
     }
 }
@@ -706,9 +705,9 @@ pub struct RoutedMessageV2 {
     pub msg: RoutedMessage,
     /// The time the Routed message was created by `author`.
     pub created_at: Option<time::Utc>,
-    /// Number of peers this routed message travelled through.
+    /// Number of peers this routed message traveled through.
     /// Doesn't include the peers that are the source and the destination of the message.
-    pub num_hops: Option<i32>,
+    pub num_hops: u32,
 }
 
 impl std::ops::Deref for RoutedMessageV2 {
@@ -949,7 +948,7 @@ impl RawRoutedMessage {
                 body: self.body,
             },
             created_at: now,
-            num_hops: Some(0),
+            num_hops: 0,
         }
     }
 }

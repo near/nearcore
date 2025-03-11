@@ -5,16 +5,16 @@ use near_primitives::types::ProtocolVersion;
 use near_store::Store;
 use num_rational::Ratio;
 
-use crate::proposals::find_threshold;
 use crate::RewardCalculator;
 use crate::RngSeed;
+use crate::proposals::find_threshold;
 use crate::{BlockInfo, EpochManager};
 use near_crypto::{KeyType, SecretKey};
 use near_primitives::challenge::SlashedValidator;
 use near_primitives::epoch_block_info::BlockInfoV2;
 use near_primitives::epoch_info::EpochInfo;
-use near_primitives::epoch_manager::{AllEpochConfig, EpochConfig, ValidatorSelectionConfig};
-use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::epoch_manager::{AllEpochConfig, EpochConfig};
+use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, BlockHeightDelta, EpochHeight, NumSeats, NumShards,
@@ -26,7 +26,7 @@ use near_primitives::version::PROTOCOL_VERSION;
 use near_store::test_utils::create_test_store;
 
 use near_primitives::shard_layout::ShardLayout;
-use {crate::reward_calculator::NUM_NS_IN_SECOND, crate::NUM_SECONDS_IN_A_YEAR};
+use {crate::NUM_SECONDS_IN_A_YEAR, crate::reward_calculator::NUM_NS_IN_SECOND};
 
 pub const DEFAULT_GAS_PRICE: u128 = 100;
 pub const DEFAULT_TOTAL_SUPPLY: u128 = 1_000_000_000_000;
@@ -151,11 +151,14 @@ pub fn epoch_config_with_production_config(
         online_max_threshold: Ratio::new(99, 100),
         protocol_upgrade_stake_threshold: Ratio::new(80, 100),
         minimum_stake_divisor: 1,
-        validator_selection_config: ValidatorSelectionConfig {
-            num_chunk_producer_seats,
-            ..Default::default()
-        },
-        shard_layout: ShardLayout::v0(num_shards, 0),
+        num_chunk_producer_seats,
+        num_chunk_validator_seats: 300,
+        num_chunk_only_producer_seats: 300,
+        minimum_validators_per_shard: 1,
+        minimum_stake_ratio: Ratio::new(160i32, 1_000_000i32),
+        chunk_producer_assignment_changes_limit: 5,
+        shuffle_shard_assignment_for_chunk_producers: false,
+        shard_layout: ShardLayout::multi_shard(num_shards, 0),
         validator_max_kickout_stake_perc: 100,
     };
     AllEpochConfig::new(use_production_config, PROTOCOL_VERSION, epoch_config, "test-chain")
@@ -296,9 +299,8 @@ pub fn setup_epoch_manager_with_block_and_chunk_producers(
     )
     .unwrap();
     // Sanity check that the election results are indeed as expected.
-    let actual_block_producers = epoch_manager
-        .get_all_block_producers_ordered(&EpochId::default(), &CryptoHash::default())
-        .unwrap();
+    let actual_block_producers =
+        epoch_manager.get_all_block_producers_ordered(&EpochId::default()).unwrap();
     assert_eq!(actual_block_producers.len(), block_producers.len());
     let actual_chunk_producers =
         epoch_manager.get_all_chunk_producers(&EpochId::default()).unwrap();

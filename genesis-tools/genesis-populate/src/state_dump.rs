@@ -1,7 +1,7 @@
 use borsh::BorshDeserialize;
 use near_primitives::types::StateRoot;
-use near_store::db::TestDB;
 use near_store::Store;
+use near_store::db::TestDB;
 use std::fs::File;
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -15,12 +15,12 @@ pub struct StateDump {
 }
 
 impl StateDump {
-    pub fn from_dir(dir: &Path, store_home_dir: &Path, in_memory_db: bool, archive: bool) -> Self {
+    pub fn from_dir(dir: &Path, store_home_dir: &Path, in_memory_db: bool) -> Self {
         let node_storage = if in_memory_db {
             let storage = TestDB::new();
             near_store::NodeStorage::new(storage)
         } else {
-            near_store::NodeStorage::opener(store_home_dir, archive, &Default::default(), None)
+            near_store::NodeStorage::opener(store_home_dir, &Default::default(), None)
                 .open()
                 .unwrap()
         };

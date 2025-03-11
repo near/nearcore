@@ -1,17 +1,19 @@
 use crate::accounts_data::AccountDataError;
 use crate::client::{
     AnnounceAccountRequest, BlockHeadersRequest, BlockHeadersResponse, BlockRequest, BlockResponse,
-    EpochSyncRequestMessage, EpochSyncResponseMessage, ProcessTxRequest, RecvChallenge,
-    StateRequestHeader, StateRequestPart, StateResponseReceived,
+    EpochSyncRequestMessage, EpochSyncResponseMessage, OptimisticBlockMessage, ProcessTxRequest,
+    RecvChallenge, StateRequestHeader, StateRequestPart, StateResponseReceived,
 };
 use crate::concurrency::atomic_cell::AtomicCell;
 use crate::concurrency::demux;
 use crate::config::PEERS_RESPONSE_MAX_PEERS;
-use crate::network_protocol::SnapshotHostInfoVerificationError;
+#[cfg(feature = "distance_vector_routing")]
+use crate::network_protocol::DistanceVector;
 use crate::network_protocol::{
-    DistanceVector, Edge, EdgeState, Encoding, OwnedAccount, ParsePeerMessageError,
-    PartialEdgeInfo, PeerChainInfoV2, PeerIdOrHash, PeerInfo, PeersRequest, PeersResponse,
-    RawRoutedMessage, RoutedMessageBody, RoutingTableUpdate, SyncAccountsData, SyncSnapshotHosts,
+    Edge, EdgeState, Encoding, OwnedAccount, ParsePeerMessageError, PartialEdgeInfo,
+    PeerChainInfoV2, PeerIdOrHash, PeerInfo, PeersRequest, PeersResponse, RawRoutedMessage,
+    RoutedMessageBody, RoutingTableUpdate, SnapshotHostInfoVerificationError, SyncAccountsData,
+    SyncSnapshotHosts,
 };
 use crate::peer::stream;
 use crate::peer::tracker::Tracker;
@@ -22,8 +24,9 @@ use crate::peer_manager::peer_manager_actor::Event;
 use crate::peer_manager::peer_manager_actor::MAX_TIER2_PEERS;
 use crate::private_actix::{RegisterPeerError, SendMessage};
 use crate::rate_limits::messages_limits;
-use crate::routing::edge::verify_nonce;
+#[cfg(feature = "distance_vector_routing")]
 use crate::routing::NetworkTopologyChange;
+use crate::routing::edge::verify_nonce;
 use crate::snapshot_hosts::SnapshotHostInfoError;
 use crate::stats::metrics;
 use crate::tcp;
@@ -36,14 +39,14 @@ use lru::LruCache;
 use near_async::messaging::{CanSend, SendAsync};
 use near_async::time;
 use near_crypto::Signature;
-use near_o11y::{handler_debug_span, log_assert, WithSpanContext};
+use near_o11y::{WithSpanContext, handler_debug_span, log_assert};
 use near_performance_metrics_macros::perf;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::types::EpochId;
 use near_primitives::utils::DisplayOption;
 use near_primitives::version::{
-    ProtocolVersion, PEER_MIN_ALLOWED_PROTOCOL_VERSION, PROTOCOL_VERSION,
+    PEER_MIN_ALLOWED_PROTOCOL_VERSION, PROTOCOL_VERSION, ProtocolVersion,
 };
 use parking_lot::Mutex;
 use rand::seq::IteratorRandom;
@@ -53,8 +56,8 @@ use std::fmt::Debug;
 use std::io;
 use std::net::SocketAddr;
 use std::num::NonZeroUsize;
-use std::sync::atomic::Ordering;
 use std::sync::Arc;
+use std::sync::atomic::Ordering;
 use tracing::Instrument as _;
 
 /// How often to request peers from active peers.
@@ -675,6 +678,7 @@ impl PeerActor {
             peer_type: self.peer_type,
             stats: self.stats.clone(),
             _peer_connections_metric: metrics::PEER_CONNECTIONS.new_point(&metrics::Connection {
+                tier: tier,
                 type_: self.peer_type,
                 encoding: self.encoding(),
             }),
@@ -740,7 +744,7 @@ impl PeerActor {
                                 partial_edge_info: partial_edge_info,
                             });
                         }
-                        // TIER1 is strictly reserved for BFT consensensus messages,
+                        // TIER1 is strictly reserved for BFT consensus messages,
                         // so all kinds of periodical syncs happen only on TIER2 connections.
                         if tier==tcp::Tier::T2 {
                             // Trigger a full accounts data sync periodically.
@@ -973,12 +977,13 @@ impl PeerActor {
     )]
     async fn receive_routed_message(
         clock: &time::Clock,
-        network_state: &NetworkState,
-        peer_id: PeerId,
+        network_state: &Arc<NetworkState>,
+        msg_author: PeerId,
+        prev_hop: PeerId,
         msg_hash: CryptoHash,
         body: RoutedMessageBody,
     ) -> Result<Option<RoutedMessageBody>, ReasonForBan> {
-        Ok(network_state.receive_routed_message(clock, peer_id, msg_hash, body).await)
+        Ok(network_state.receive_routed_message(clock, msg_author, prev_hop, msg_hash, body).await)
     }
 
     fn receive_message(
@@ -1025,7 +1030,8 @@ impl PeerActor {
                     Self::receive_routed_message(
                         &clock,
                         &network_state,
-                        peer_id,
+                        msg.msg.author,
+                        peer_id.clone(),
                         msg_hash,
                         msg.msg.body,
                     )
@@ -1119,6 +1125,12 @@ impl PeerActor {
                     network_state
                         .client
                         .send(EpochSyncResponseMessage { from_peer: peer_id, proof });
+                    None
+                }
+                PeerMessage::OptimisticBlock(ob) => {
+                    network_state
+                        .client
+                        .send(OptimisticBlockMessage { from_peer: peer_id, optimistic_block: ob });
                     None
                 }
                 msg => {
@@ -1287,6 +1299,9 @@ impl PeerActor {
                     message_processed_event();
                 }));
             }
+            #[cfg(not(feature = "distance_vector_routing"))]
+            PeerMessage::DistanceVector(_) => {}
+            #[cfg(feature = "distance_vector_routing")]
             PeerMessage::DistanceVector(dv) => {
                 let clock = self.clock.clone();
                 let conn = conn.clone();
@@ -1307,7 +1322,7 @@ impl PeerActor {
                     .inc();
                 let network_state = self.network_state.clone();
                 // In case a full sync is requested, immediately send what we got.
-                // It is a microoptimization: we do not send back the data we just received.
+                // It is a micro optimization: we do not send back the data we just received.
                 if msg.requesting_full_sync {
                     self.send_message_or_log(&PeerMessage::SyncAccountsData(SyncAccountsData {
                         requesting_full_sync: false,
@@ -1449,6 +1464,7 @@ impl PeerActor {
                     }
                 } else {
                     if msg.decrease_ttl() {
+                        msg.num_hops += 1;
                         self.network_state.send_message_to_peer(&self.clock, conn.tier, msg);
                     } else {
                         #[cfg(test)]
@@ -1481,6 +1497,7 @@ impl PeerActor {
         }
 
         // Also pass the edges to the V2 routing table
+        #[cfg(feature = "distance_vector_routing")]
         if let Err(ban_reason) = network_state
             .update_routes(&clock, NetworkTopologyChange::EdgeNonceRefresh(rtu.edges))
             .await
@@ -1511,6 +1528,7 @@ impl PeerActor {
     }
 
     #[tracing::instrument(level = "trace", target = "network", "handle_distance_vector", skip_all)]
+    #[cfg(feature = "distance_vector_routing")]
     async fn handle_distance_vector(
         clock: &time::Clock,
         network_state: &Arc<NetworkState>,
@@ -1642,7 +1660,8 @@ impl actix::Handler<stream::Error> for PeerActor {
                 io::ErrorKind::UnexpectedEof
                 | io::ErrorKind::ConnectionReset
                 | io::ErrorKind::BrokenPipe
-                // libc::ETIIMEDOUT = 110, translates to io::ErrorKind::TimedOut.
+                // cspell:ignore libc TIMEDOUT
+                // libc::TIMEDOUT = 110, translates to io::ErrorKind::TimedOut.
                 | io::ErrorKind::TimedOut => true,
                 // When stopping tokio runtime, an "IO driver has terminated" is sometimes
                 // returned.

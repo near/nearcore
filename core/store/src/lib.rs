@@ -2,25 +2,25 @@
 
 extern crate core;
 
-use crate::db::{refcount, DBIterator, DBOp, DBSlice, DBTransaction, Database, StoreStatistics};
-pub use crate::trie::iterator::{TrieIterator, TrieTraversalItem};
+use crate::db::{DBIterator, DBOp, DBSlice, DBTransaction, Database, StoreStatistics, refcount};
 pub use crate::trie::update::{TrieUpdate, TrieUpdateIterator, TrieUpdateValuePtr};
 pub use crate::trie::{
-    estimator, resharding_v2, ApplyStatePartResult, KeyForStateChanges, KeyLookupMode, NibbleSlice,
-    PartialStorage, PrefetchApi, PrefetchError, RawTrieNode, RawTrieNodeWithSize, ShardTries,
-    StateSnapshot, StateSnapshotConfig, Trie, TrieAccess, TrieCache, TrieCachingStorage,
-    TrieChanges, TrieConfig, TrieDBStorage, TrieStorage, WrappedTrieChanges,
-    STATE_SNAPSHOT_COLUMNS,
+    ApplyStatePartResult, KeyForStateChanges, KeyLookupMode, NibbleSlice, PartialStorage,
+    PrefetchApi, PrefetchError, RawTrieNode, RawTrieNodeWithSize, STATE_SNAPSHOT_COLUMNS,
+    ShardTries, StateSnapshot, StateSnapshotConfig, Trie, TrieAccess, TrieCache,
+    TrieCachingStorage, TrieChanges, TrieConfig, TrieDBStorage, TrieStorage, WrappedTrieChanges,
+    estimator, resharding_v2,
 };
 use adapter::{StoreAdapter, StoreUpdateAdapter};
 use borsh::{BorshDeserialize, BorshSerialize};
 pub use columns::DBCol;
-use db::{SplitDB, GENESIS_CONGESTION_INFO_KEY};
+use config::ArchivalConfig;
 pub use db::{
     CHUNK_TAIL_KEY, COLD_HEAD_KEY, FINAL_HEAD_KEY, FORK_TAIL_KEY, GENESIS_JSON_HASH_KEY,
-    GENESIS_STATE_ROOTS_KEY, HEADER_HEAD_KEY, HEAD_KEY, LARGEST_TARGET_HEIGHT_KEY,
+    GENESIS_STATE_ROOTS_KEY, HEAD_KEY, HEADER_HEAD_KEY, LARGEST_TARGET_HEIGHT_KEY,
     LATEST_KNOWN_KEY, STATE_SNAPSHOT_KEY, STATE_SYNC_DUMP_KEY, TAIL_KEY,
 };
+use db::{GENESIS_CONGESTION_INFO_KEY, GENESIS_HEIGHT_KEY, SplitDB};
 use metadata::{DbKind, DbVersion, KIND_KEY, VERSION_KEY};
 use near_crypto::PublicKey;
 use near_fmt::{AbbrBytes, StorageKey};
@@ -34,9 +34,9 @@ use near_primitives::receipt::{
     Receipt, ReceiptEnum, ReceivedData,
 };
 pub use near_primitives::shard_layout::ShardUId;
-use near_primitives::trie_key::{trie_key_parsers, TrieKey};
+use near_primitives::trie_key::{TrieKey, trie_key_parsers};
 use near_primitives::types::{AccountId, BlockHeight, StateRoot};
-use near_vm_runner::{CompiledContractInfo, ContractCode, ContractRuntimeCache};
+use near_vm_runner::{CompiledContractInfo, ContractRuntimeCache};
 use std::fs::File;
 use std::path::Path;
 use std::str::FromStr;
@@ -46,11 +46,12 @@ use std::{fmt, io};
 use strum;
 
 pub mod adapter;
-pub mod cold_storage;
+pub mod archive;
 mod columns;
 pub mod config;
 pub mod contract;
 pub mod db;
+pub mod epoch_info_aggregator;
 pub mod flat;
 pub mod genesis;
 pub mod metadata;
@@ -64,7 +65,8 @@ pub mod trie;
 
 pub use crate::config::{Mode, StoreConfig};
 pub use crate::opener::{
-    checkpoint_hot_storage_and_cleanup_columns, StoreMigrator, StoreOpener, StoreOpenerError,
+    StoreMigrator, StoreOpener, StoreOpenerError, checkpoint_hot_storage_and_cleanup_columns,
+    clear_columns,
 };
 
 /// Specifies temperature of a storage.
@@ -116,21 +118,20 @@ pub struct Store {
 }
 
 impl StoreAdapter for Store {
-    fn store(&self) -> Store {
-        self.clone()
+    fn store_ref(&self) -> &Store {
+        self
     }
 }
 
 impl NodeStorage {
-    /// Initialises a new opener with given home directory and hot and cold
+    /// Initializes a new opener with given home directory and hot and cold
     /// store config.
     pub fn opener<'a>(
         home_dir: &std::path::Path,
-        archive: bool,
-        config: &'a StoreConfig,
-        cold_config: Option<&'a StoreConfig>,
+        store_config: &'a StoreConfig,
+        archival_config: Option<ArchivalConfig<'a>>,
     ) -> StoreOpener<'a> {
-        StoreOpener::new(home_dir, archive, config, cold_config)
+        StoreOpener::new(home_dir, store_config, archival_config)
     }
 
     /// Constructs new object backed by given database.
@@ -150,7 +151,7 @@ impl NodeStorage {
         Self { hot_storage, cold_storage: cold_db }
     }
 
-    /// Initialises an opener for a new temporary test store.
+    /// Initializes an opener for a new temporary test store.
     ///
     /// As per the name, this is meant for tests only.  The created store will
     /// use test configuration (which may differ slightly from default config).
@@ -161,7 +162,7 @@ impl NodeStorage {
     pub fn test_opener() -> (tempfile::TempDir, StoreOpener<'static>) {
         static CONFIG: LazyLock<StoreConfig> = LazyLock::new(StoreConfig::test_config);
         let dir = tempfile::tempdir().unwrap();
-        let opener = StoreOpener::new(dir.path(), false, &CONFIG, None);
+        let opener = NodeStorage::opener(dir.path(), &CONFIG, None);
         (dir, opener)
     }
 
@@ -335,11 +336,20 @@ impl Store {
         self.storage.iter(col)
     }
 
+    pub fn iter_ser<'a, T: BorshDeserialize>(
+        &'a self,
+        col: DBCol,
+    ) -> impl Iterator<Item = io::Result<(Box<[u8]>, T)>> + 'a {
+        self.storage
+            .iter(col)
+            .map(|item| item.and_then(|(key, value)| Ok((key, T::try_from_slice(value.as_ref())?))))
+    }
+
     /// Fetches raw key/value pairs from the database.
     ///
     /// Practically, this means that for rc columns rc is included in the value.
     /// This method is a deliberate escape hatch, and shouldn't be used outside
-    /// of auxilary code like migrations which wants to hack on the database
+    /// of auxiliary code like migrations which wants to hack on the database
     /// directly.
     pub fn iter_raw_bytes<'a>(&'a self, col: DBCol) -> DBIterator<'a> {
         self.storage.iter_raw_bytes(col)
@@ -588,7 +598,7 @@ impl StoreUpdate {
     /// for ref counts.
     ///
     /// This method is a deliberate escape hatch, and shouldn't be used outside
-    /// of auxilary code like migrations which wants to hack on the database
+    /// of auxiliary code like migrations which wants to hack on the database
     /// directly.
     pub fn set_raw_bytes(&mut self, column: DBCol, key: &[u8], value: &[u8]) {
         self.transaction.set(column, key.to_vec(), value.to_vec())
@@ -608,10 +618,11 @@ impl StoreUpdate {
         self.transaction.delete_all(column);
     }
 
-    /// Deletes the given key range from the database including `from`
-    /// and excluding `to` keys.
+    /// Deletes the given key range from the database including `from` and excluding `to` keys.
+    ///
+    /// Be aware when using with `DBCol::State`! Keys prefixed with a `ShardUId` might be used
+    /// by a descendant shard. See `DBCol::StateShardUIdMapping` for more context.
     pub fn delete_range(&mut self, column: DBCol, from: &[u8], to: &[u8]) {
-        assert!(column != DBCol::State, "can't range delete State column");
         self.transaction.delete_range(column, from.to_vec(), to.to_vec());
     }
 
@@ -922,7 +933,7 @@ pub fn enqueue_promise_yield_timeout(
 
 pub fn set_promise_yield_receipt(state_update: &mut TrieUpdate, receipt: &Receipt) {
     match receipt.receipt() {
-        ReceiptEnum::PromiseYield(ref action_receipt) => {
+        ReceiptEnum::PromiseYield(action_receipt) => {
             assert!(action_receipt.input_data_ids.len() == 1);
             let key = TrieKey::PromiseYieldReceipt {
                 receiver_id: receipt.receiver_id().clone(),
@@ -1016,10 +1027,6 @@ pub fn get_access_key_raw(
     )
 }
 
-pub fn set_code(state_update: &mut TrieUpdate, account_id: AccountId, code: &ContractCode) {
-    state_update.set(TrieKey::ContractCode { account_id }, code.code().to_vec());
-}
-
 /// Removes account, code and all access keys associated to it.
 pub fn remove_account(
     state_update: &mut TrieUpdate,
@@ -1103,6 +1110,16 @@ pub fn set_genesis_congestion_infos(
         .expect("Borsh cannot fail");
 }
 
+pub fn get_genesis_height(store: &Store) -> io::Result<Option<BlockHeight>> {
+    store.get_ser::<BlockHeight>(DBCol::BlockMisc, GENESIS_HEIGHT_KEY)
+}
+
+pub fn set_genesis_height(store_update: &mut StoreUpdate, genesis_height: &BlockHeight) {
+    store_update
+        .set_ser::<BlockHeight>(DBCol::BlockMisc, GENESIS_HEIGHT_KEY, genesis_height)
+        .expect("Borsh cannot fail");
+}
+
 #[derive(Clone)]
 pub struct StoreContractRuntimeCache {
     db: Arc<dyn Database>,
@@ -1164,30 +1181,12 @@ impl ContractRuntimeCache for StoreContractRuntimeCache {
     }
 }
 
-/// Get the contract WASM code from The State.
-///
-/// Executing all the usual storage access side-effects.
-pub fn get_code(
-    trie: &dyn TrieAccess,
-    account_id: &AccountId,
-    code_hash: Option<CryptoHash>,
-) -> Result<Option<ContractCode>, StorageError> {
-    let key = TrieKey::ContractCode { account_id: account_id.clone() };
-    trie.get(&key).map(|opt| opt.map(|code| ContractCode::new(code, code_hash)))
-}
-
 #[cfg(test)]
 mod tests {
     use near_primitives::hash::CryptoHash;
     use near_vm_runner::CompiledContractInfo;
 
     use super::{DBCol, NodeStorage, Store};
-
-    #[test]
-    fn test_no_cache_disabled() {
-        #[cfg(feature = "no_cache")]
-        panic!("no cache is enabled");
-    }
 
     fn test_clear_column(store: Store) {
         assert_eq!(store.get(DBCol::State, &[1; 8]).unwrap(), None);

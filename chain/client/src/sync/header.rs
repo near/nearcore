@@ -393,7 +393,7 @@ mod test {
     use near_async::time::{Clock, Duration, FakeClock, Utc};
     use near_chain::test_utils::{process_block_sync, setup, setup_with_tx_validity_period};
     use near_chain::types::Tip;
-    use near_chain::{BlockProcessingArtifact, Provenance};
+    use near_chain::{BlockProcessingArtifact, Provenance, retrieve_headers};
     use near_chain_configs::MutableConfigValue;
     use near_client_primitives::types::SyncStatus;
     use near_crypto::{KeyType, PublicKey};
@@ -411,7 +411,7 @@ mod test {
     use std::sync::Arc;
     use std::thread;
 
-    use crate::sync::header::{get_locator_ordinals, HeaderSync, MAX_BLOCK_HEADERS};
+    use crate::sync::header::{HeaderSync, MAX_BLOCK_HEADERS, get_locator_ordinals};
 
     #[test]
     fn test_get_locator_ordinals() {
@@ -516,14 +516,16 @@ mod test {
             },
         };
         let head = chain.head().unwrap();
-        assert!(header_sync
-            .run(
-                &mut sync_status,
-                &mut chain,
-                head.height,
-                &[<FullPeerInfo as Into<Option<_>>>::into(peer1.clone()).unwrap()]
-            )
-            .is_ok());
+        assert!(
+            header_sync
+                .run(
+                    &mut sync_status,
+                    &mut chain,
+                    head.height,
+                    &[<FullPeerInfo as Into<Option<_>>>::into(peer1.clone()).unwrap()]
+                )
+                .is_ok()
+        );
         assert!(sync_status.is_syncing());
         // Check that it queried last block, and then stepped down to genesis block to find common block with the peer.
 
@@ -618,14 +620,16 @@ mod test {
             },
         };
         let head = chain.head().unwrap();
-        assert!(header_sync
-            .run(
-                &mut sync_status,
-                &mut chain,
-                head.height,
-                &[<FullPeerInfo as Into<Option<_>>>::into(peer1.clone()).unwrap()]
-            )
-            .is_ok());
+        assert!(
+            header_sync
+                .run(
+                    &mut sync_status,
+                    &mut chain,
+                    head.height,
+                    &[<FullPeerInfo as Into<Option<_>>>::into(peer1.clone()).unwrap()]
+                )
+                .is_ok()
+        );
         assert!(sync_status.is_syncing());
         // Check that it queried last block, and then stepped down to genesis block to find common block with the peer.
 
@@ -651,7 +655,7 @@ mod test {
     /// the peer doesn't get banned. (specifically, that the expected height downloaded gets properly
     /// adjusted for time passed)
     #[test]
-    fn test_slow_header_sync() {
+    fn slow_test_slow_header_sync() {
         let network_adapter = Arc::new(MockPeerManagerAdapter::default());
         let highest_height = 1000;
 
@@ -751,7 +755,7 @@ mod test {
     }
 
     #[test]
-    fn test_sync_from_very_behind() {
+    fn slow_test_sync_from_very_behind() {
         let mock_adapter = Arc::new(MockPeerManagerAdapter::default());
         let mut header_sync = HeaderSync::new(
             Clock::real(),
@@ -779,6 +783,7 @@ mod test {
                 (*last_block.header().epoch_id(), *last_block.header().next_epoch_id())
             };
             let block = Block::produce(
+                PROTOCOL_VERSION,
                 PROTOCOL_VERSION,
                 PROTOCOL_VERSION,
                 last_block.header(),
@@ -813,6 +818,7 @@ mod test {
                 *last_block.header().next_bp_hash(),
                 block_merkle_tree.root(),
                 clock.clock(),
+                None,
                 None,
             );
             block_merkle_tree.insert(*block.hash());
@@ -850,14 +856,16 @@ mod test {
                 // sync is done.
                 break;
             }
-            assert!(header_sync
-                .run(
-                    &mut sync_status,
-                    &mut chain,
-                    header_head.height,
-                    &[<FullPeerInfo as Into<Option<_>>>::into(peer1.clone()).unwrap()]
-                )
-                .is_ok());
+            assert!(
+                header_sync
+                    .run(
+                        &mut sync_status,
+                        &mut chain,
+                        header_head.height,
+                        &[<FullPeerInfo as Into<Option<_>>>::into(peer1.clone()).unwrap()]
+                    )
+                    .is_ok()
+            );
             match sync_status {
                 SyncStatus::HeaderSync { .. } => {}
                 _ => panic!("Unexpected sync status: {:?}", sync_status),
@@ -871,7 +879,9 @@ mod test {
             match message {
                 NetworkRequests::BlockHeadersRequest { hashes, peer_id } => {
                     assert_eq!(peer_id, peer1.peer_info.id);
-                    let headers = chain2.retrieve_headers(hashes, MAX_BLOCK_HEADERS, None).unwrap();
+                    let headers =
+                        retrieve_headers(chain2.chain_store(), hashes, MAX_BLOCK_HEADERS, None)
+                            .unwrap();
                     assert!(!headers.is_empty(), "No headers were returned");
                     match chain.sync_block_headers(headers, &mut Vec::new()) {
                         Ok(_) => {}

@@ -35,12 +35,12 @@ If the tool fails, it indicates that you've made changes to the protocol schema.
    a. For structures stored only locally in the database:
       - Implement a database migration for the affected structure.
    
-        Otherwise, newly deployed nodes have a risk to not recognise the old data format and fail to start. 
+        Otherwise, newly deployed nodes have a risk to not recognize the old data format and fail to start. 
 
    b. For structures involved in the protocol or network communication:
       - Add a new version to the structure that maintains backward compatibility with the previous version.
    
-    Otherwise, old and new nodes have a risk to not recognise the messaging format of each other and fail to communicate.
+    Otherwise, old and new nodes have a risk to not recognize the messaging format of each other and fail to communicate.
 
 4. Copy the newly generated file to `res/protocol_schema.toml` to reflect your changes.
 
@@ -51,4 +51,4 @@ Note that the tool can provide a false positive, including the cases when
 
 This is done to strengthen the check and ensure that no changes are missed.
 The real failure case was when we accidentally swapped the enum variants. 
-If both are units, serialisation don't break, but the impacted logic will be broken.
+If both are units, serialization don't break, but the impacted logic will be broken.

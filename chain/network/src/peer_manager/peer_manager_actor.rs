@@ -18,8 +18,9 @@ use crate::store;
 use crate::tcp;
 use crate::types::{
     ConnectedPeerInfo, HighestHeightPeerInfo, KnownProducer, NetworkInfo, NetworkRequests,
-    NetworkResponses, PeerInfo, PeerManagerMessageRequest, PeerManagerMessageResponse, PeerType,
-    SetChainInfo, SnapshotHostInfo, StatePartRequestBody, StateSyncEvent, Tier3RequestBody,
+    NetworkResponses, PeerInfo, PeerManagerMessageRequest, PeerManagerMessageResponse,
+    PeerManagerSenderForNetwork, PeerType, SetChainInfo, SnapshotHostInfo, StatePartRequestBody,
+    StateSyncEvent, Tier3Request, Tier3RequestBody,
 };
 use ::time::ext::InstantExt as _;
 use actix::fut::future::wrap_future;
@@ -27,23 +28,22 @@ use actix::{Actor as _, AsyncContext as _};
 use anyhow::Context as _;
 use near_async::messaging::{SendAsync, Sender};
 use near_async::time;
-use near_o11y::{handler_debug_span, handler_trace_span, WithSpanContext};
+use near_o11y::{WithSpanContext, handler_debug_span, handler_trace_span};
 use near_performance_metrics_macros::perf;
 use near_primitives::block::GenesisId;
 use near_primitives::network::{AnnounceAccount, PeerId};
-use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::views::{
-    ConnectionInfoView, EdgeView, KnownPeerStateView, NetworkGraphView, PeerStoreView,
-    RecentOutboundConnectionsView, SnapshotHostInfoView, SnapshotHostsView,
+    ConnectionInfoView, EdgeView, KnownPeerStateView, NetworkGraphView, NetworkRoutesView,
+    PeerStoreView, RecentOutboundConnectionsView, SnapshotHostInfoView, SnapshotHostsView,
 };
 use network_protocol::MAX_SHARDS_PER_SNAPSHOT_HOST_INFO;
+use rand::Rng;
 use rand::seq::{IteratorRandom, SliceRandom};
 use rand::thread_rng;
-use rand::Rng;
 use std::cmp::min;
 use std::collections::HashSet;
-use std::sync::atomic::Ordering;
 use std::sync::Arc;
+use std::sync::atomic::Ordering;
 use tracing::Instrument as _;
 
 /// Ratio between consecutive attempts to establish connection with another peer.
@@ -88,8 +88,6 @@ pub(crate) const UPDATE_CONNECTION_STORE_INTERVAL: time::Duration = time::Durati
 /// How often to poll the NetworkState for closed connections we'd like to re-establish.
 pub(crate) const POLL_CONNECTION_STORE_INTERVAL: time::Duration = time::Duration::minutes(1);
 
-/// How often we check for and process pending Tier3 requests
-const PROCESS_TIER3_REQUESTS_INTERVAL: time::Duration = time::Duration::seconds(1);
 /// The length of time that a Tier3 connection is allowed to idle before it is stopped
 const TIER3_IDLE_TIMEOUT: time::Duration = time::Duration::seconds(15);
 
@@ -216,6 +214,7 @@ impl PeerManagerActor {
         store: Arc<dyn near_store::db::Database>,
         config: config::NetworkConfig,
         client: ClientSenderForNetwork,
+        peer_manager_adapter: PeerManagerSenderForNetwork,
         shards_manager_adapter: Sender<ShardsManagerRequestFromNetwork>,
         partial_witness_adapter: PartialWitnessSenderForNetwork,
         genesis_id: GenesisId,
@@ -247,6 +246,7 @@ impl PeerManagerActor {
             config,
             genesis_id,
             client,
+            peer_manager_adapter,
             shards_manager_adapter,
             partial_witness_adapter,
             whitelist_nodes,
@@ -341,62 +341,6 @@ impl PeerManagerActor {
 
                                 #[cfg(test)]
                                 state.config.event_sink.send(Event::ReconnectLoopSpawned(peer_info));
-                            }
-                        }
-                    }
-                });
-                // Periodically process pending Tier3 requests.
-                arbiter.spawn({
-                    let clock = clock.clone();
-                    let state = state.clone();
-                    let arbiter = arbiter.clone();
-                    let mut interval = time::Interval::new(clock.now(), PROCESS_TIER3_REQUESTS_INTERVAL);
-                    async move {
-                        loop {
-                            interval.tick(&clock).await;
-
-                            if let Some(request) = state.tier3_requests.lock().pop_front() {
-                                arbiter.spawn({
-                                    let clock = clock.clone();
-                                    let state = state.clone();
-                                    async move {
-                                        let tier3_response = match request.body {
-                                            Tier3RequestBody::StatePart(StatePartRequestBody { shard_id, sync_hash, part_id }) => {
-                                                match state.client.send_async(StateRequestPart { shard_id, sync_hash, part_id }).await {
-                                                    Ok(Some(client_response)) => {
-                                                        PeerMessage::VersionedStateResponse(*client_response.0)
-                                                    }
-                                                    Ok(None) => {
-                                                        tracing::debug!(target: "network", "client declined to respond to {:?}", request);
-                                                        return;
-                                                    }
-                                                    Err(err) => {
-                                                        tracing::error!(target: "network", ?err, "client failed to respond to {:?}", request);
-                                                        return;
-                                                    }
-                                                }
-                                            }
-                                        };
-
-                                        if !state.tier3.load().ready.contains_key(&request.peer_info.id) {
-                                            let result = async {
-                                                let stream = tcp::Stream::connect(
-                                                    &request.peer_info,
-                                                    tcp::Tier::T3,
-                                                    &state.config.socket_options
-                                                ).await.context("tcp::Stream::connect()")?;
-                                                PeerActor::spawn_and_handshake(clock.clone(),stream,None,state.clone()).await.context("PeerActor::spawn()")?;
-                                                anyhow::Ok(())
-                                            }.await;
-
-                                            if let Err(ref err) = result {
-                                                tracing::info!(target: "network", err = format!("{:#}", err), "tier3 failed to connect to {}", request.peer_info);
-                                            }
-                                        }
-
-                                        state.tier3.send_message(request.peer_info.id, Arc::new(tier3_response));
-                                    }
-                                });
                             }
                         }
                     }
@@ -629,20 +573,19 @@ impl PeerManagerActor {
     /// retry logic anyway. TODO(saketh): consider if we can improve this in a simple way.
     fn stop_tier3_idle_connections(&self) {
         let now = self.clock.now();
-        let _ = self
-            .state
+        self.state
             .tier3
             .load()
             .ready
             .values()
             .filter(|p| now - p.last_time_received_message.load() > TIER3_IDLE_TIMEOUT)
-            .map(|p| p.stop(None));
+            .for_each(|p| p.stop(None));
     }
 
     /// Periodically monitor list of peers and:
     ///  - request new peers from connected peers,
     ///  - bootstrap outbound connections from known peers,
-    ///  - unban peers that have been banned for awhile,
+    ///  - un-ban peers that have been banned for awhile,
     ///  - remove expired peers,
     ///
     /// # Arguments:
@@ -840,6 +783,14 @@ impl PeerManagerActor {
                 self.state.tier2.broadcast_message(Arc::new(PeerMessage::Block(block)));
                 NetworkResponses::NoResponse
             }
+            NetworkRequests::OptimisticBlock { optimistic_block } => {
+                // TODO(#10584): send this message to all the producers.
+                // Maybe we just need to send this to the next producers.
+                self.state
+                    .tier1
+                    .broadcast_message(Arc::new(PeerMessage::OptimisticBlock(optimistic_block)));
+                NetworkResponses::NoResponse
+            }
             NetworkRequests::Approval { approval_message } => {
                 self.state.send_message_to_account(
                     &self.clock,
@@ -886,7 +837,7 @@ impl PeerManagerActor {
                 let mut success = false;
 
                 // The node needs to include its own public address in the request
-                // so that the reponse can be sent over Tier3
+                // so that the response can be sent over Tier3
                 if let Some(addr) = *self.state.my_public_addr.read() {
                     if let Some(peer_id) = self.state.snapshot_hosts.select_host_for_part(
                         &sync_prev_prev_hash,
@@ -913,17 +864,17 @@ impl PeerManagerActor {
                     }
                 }
 
-                if success {
-                    NetworkResponses::NoResponse
-                } else {
-                    NetworkResponses::RouteNotFound
-                }
+                if success { NetworkResponses::NoResponse } else { NetworkResponses::RouteNotFound }
             }
             NetworkRequests::SnapshotHostInfo { sync_hash, mut epoch_height, mut shards } => {
                 if shards.len() > MAX_SHARDS_PER_SNAPSHOT_HOST_INFO {
-                    tracing::warn!("PeerManager: Sending out a SnapshotHostInfo message with {} shards, \
+                    tracing::warn!(
+                        "PeerManager: Sending out a SnapshotHostInfo message with {} shards, \
                                     this is more than the allowed limit. The list of shards will be truncated. \
-                                    Please adjust the MAX_SHARDS_PER_SNAPSHOT_HOST_INFO constant ({})", shards.len(), MAX_SHARDS_PER_SNAPSHOT_HOST_INFO);
+                                    Please adjust the MAX_SHARDS_PER_SNAPSHOT_HOST_INFO constant ({})",
+                        shards.len(),
+                        MAX_SHARDS_PER_SNAPSHOT_HOST_INFO
+                    );
 
                     // We can's send out more than MAX_SHARDS_PER_SNAPSHOT_HOST_INFO shards because other nodes would
                     // ban us for abusive behavior. Let's truncate the shards vector by choosing a random subset of
@@ -1119,13 +1070,11 @@ impl PeerManagerActor {
                 NetworkResponses::NoResponse
             }
             NetworkRequests::ChunkEndorsement(target, endorsement) => {
-                let msg = match endorsement {
-                    ChunkEndorsement::V1(endorsement) => {
-                        RoutedMessageBody::ChunkEndorsement(endorsement)
-                    }
-                    _ => RoutedMessageBody::VersionedChunkEndorsement(endorsement),
-                };
-                self.state.send_message_to_account(&self.clock, &target, msg);
+                self.state.send_message_to_account(
+                    &self.clock,
+                    &target,
+                    RoutedMessageBody::VersionedChunkEndorsement(endorsement),
+                );
                 NetworkResponses::NoResponse
             }
             NetworkRequests::PartialEncodedStateWitness(validator_witness_tuple) => {
@@ -1181,16 +1130,6 @@ impl PeerManagerActor {
                 }
                 NetworkResponses::NoResponse
             }
-            NetworkRequests::ChunkContractDeployments(validators, deploys) => {
-                for validator in validators {
-                    self.state.send_message_to_account(
-                        &self.clock,
-                        &validator,
-                        RoutedMessageBody::ChunkContractDeployments(deploys.clone()),
-                    );
-                }
-                NetworkResponses::NoResponse
-            }
             NetworkRequests::ContractCodeRequest(target, request) => {
                 self.state.send_message_to_account(
                     &self.clock,
@@ -1204,6 +1143,23 @@ impl PeerManagerActor {
                     &self.clock,
                     &target,
                     RoutedMessageBody::ContractCodeResponse(response),
+                );
+                NetworkResponses::NoResponse
+            }
+            NetworkRequests::PartialEncodedContractDeploys(accounts, deploys) => {
+                // Send to last account separately to avoid clone when sending to a single target.
+                let (last_account, other_accounts) = accounts.split_last().unwrap();
+                for account in other_accounts {
+                    self.state.send_message_to_account(
+                        &self.clock,
+                        &account,
+                        RoutedMessageBody::PartialEncodedContractDeploys(deploys.clone()),
+                    );
+                }
+                self.state.send_message_to_account(
+                    &self.clock,
+                    &last_account,
+                    RoutedMessageBody::PartialEncodedContractDeploys(deploys),
                 );
                 NetworkResponses::NoResponse
             }
@@ -1267,7 +1223,7 @@ impl actix::Handler<WithSpanContext<SetChainInfo>> for PeerManagerActor {
         ctx.spawn(wrap_future(
             async move {
                 // This node might have become a TIER1 node due to the change of the key set.
-                // If so we should recompute and readvertise the list of proxies.
+                // If so we should recompute and re-advertise the list of proxies.
                 // This is mostly important in case a node is its own proxy. In all other cases
                 // (when proxies are different nodes) the update of the key set happens asynchronously
                 // and this node won't be able to connect to proxies until it happens (and only the
@@ -1311,6 +1267,64 @@ impl actix::Handler<WithSpanContext<StateSyncEvent>> for PeerManagerActor {
                 self.state.snapshot_hosts.part_received(shard_id, part_id);
             }
         }
+    }
+}
+
+impl actix::Handler<WithSpanContext<Tier3Request>> for PeerManagerActor {
+    type Result = ();
+    #[perf]
+    fn handle(
+        &mut self,
+        request: WithSpanContext<Tier3Request>,
+        ctx: &mut Self::Context,
+    ) -> Self::Result {
+        let (_span, request) = handler_debug_span!(target: "network", request);
+        let _timer = metrics::PEER_MANAGER_TIER3_REQUEST_TIME
+            .with_label_values(&[(&request.body).into()])
+            .start_timer();
+
+        let state = self.state.clone();
+        let clock = self.clock.clone();
+        ctx.spawn(wrap_future(
+            async move {
+                let tier3_response = match request.body {
+                    Tier3RequestBody::StatePart(StatePartRequestBody { shard_id, sync_hash, part_id }) => {
+                        match state.client.send_async(StateRequestPart { shard_id, sync_hash, part_id }).await {
+                            Ok(Some(client_response)) => {
+                                PeerMessage::VersionedStateResponse(*client_response.0)
+                            }
+                            Ok(None) => {
+                                tracing::debug!(target: "network", "client declined to respond to {:?}", request);
+                                return;
+                            }
+                            Err(err) => {
+                                tracing::error!(target: "network", ?err, "client failed to respond to {:?}", request);
+                                return;
+                            }
+                        }
+                    }
+                };
+
+                // Establish a tier3 connection if we don't have one already
+                if !state.tier3.load().ready.contains_key(&request.peer_info.id) {
+                    let result = async {
+                        let stream = tcp::Stream::connect(
+                            &request.peer_info,
+                            tcp::Tier::T3,
+                            &state.config.socket_options
+                        ).await.context("tcp::Stream::connect()")?;
+                        PeerActor::spawn_and_handshake(clock.clone(),stream,None,state.clone()).await.context("PeerActor::spawn()")?;
+                        anyhow::Ok(())
+                    }.await;
+
+                    if let Err(ref err) = result {
+                        tracing::info!(target: "network", err = format!("{:#}", err), "tier3 failed to connect to {}", request.peer_info);
+                    }
+                }
+
+                state.tier3.send_message(request.peer_info.id, Arc::new(tier3_response));
+            }
+        ));
     }
 }
 
@@ -1381,7 +1395,12 @@ impl actix::Handler<GetDebugStatus> for PeerManagerActor {
                         .collect::<Vec<_>>(),
                 })
             }
-            GetDebugStatus::Routes => DebugStatus::Routes(self.state.graph_v2.get_debug_view()),
+            GetDebugStatus::Routes => {
+                #[cfg(feature = "distance_vector_routing")]
+                return DebugStatus::Routes(self.state.graph_v2.get_debug_view());
+                #[cfg(not(feature = "distance_vector_routing"))]
+                return DebugStatus::Routes(NetworkRoutesView::default());
+            }
             GetDebugStatus::SnapshotHosts => DebugStatus::SnapshotHosts(SnapshotHostsView {
                 hosts: self
                     .state

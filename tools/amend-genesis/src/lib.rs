@@ -2,18 +2,17 @@ use anyhow::Context;
 
 use near_chain_configs::{Genesis, GenesisValidationMode, NEAR_BASE};
 use near_crypto::PublicKey;
-use near_primitives::hash::CryptoHash;
+use near_primitives::account::AccountContract;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::state_record::StateRecord;
-use near_primitives::types::{AccountId, AccountInfo, StorageUsage};
+use near_primitives::types::{AccountId, AccountInfo};
 use near_primitives::utils;
 use near_primitives::version::ProtocolVersion;
 use near_primitives_core::account::{AccessKey, Account};
 use near_primitives_core::types::{Balance, BlockHeightDelta, NumBlocks, NumSeats, NumShards};
-use near_primitives_core::version::PROTOCOL_VERSION;
 use num_rational::Rational32;
 use serde::ser::{SerializeSeq, Serializer};
-use std::collections::{hash_map, HashMap};
+use std::collections::{HashMap, hash_map};
 use std::fs::File;
 use std::io::{BufReader, BufWriter};
 use std::path::Path;
@@ -48,40 +47,22 @@ fn set_total_balance(dst: &mut Account, src: &Account) {
 }
 
 impl AccountRecords {
-    fn new(
-        amount: Balance,
-        locked: Balance,
-        permanent_storage_bytes: StorageUsage,
-        num_bytes_account: u64,
-    ) -> Self {
+    fn new(amount: Balance, locked: Balance, num_bytes_account: u64) -> Self {
         let mut ret = Self::default();
-        ret.set_account(amount, locked, permanent_storage_bytes, num_bytes_account);
+        ret.set_account(amount, locked, num_bytes_account);
         ret
     }
 
     fn new_validator(stake: Balance, num_bytes_account: u64) -> Self {
         let mut ret = Self::default();
-        ret.set_account(0, stake, 0, num_bytes_account);
+        ret.set_account(0, stake, num_bytes_account);
         ret.amount_needed = true;
         ret
     }
 
-    fn set_account(
-        &mut self,
-        amount: Balance,
-        locked: Balance,
-        permanent_storage_bytes: StorageUsage,
-        num_bytes_account: u64,
-    ) {
+    fn set_account(&mut self, amount: Balance, locked: Balance, num_bytes_account: u64) {
         assert!(self.account.is_none());
-        let account = Account::new(
-            amount,
-            locked,
-            permanent_storage_bytes,
-            CryptoHash::default(),
-            num_bytes_account,
-            PROTOCOL_VERSION,
-        );
+        let account = Account::new(amount, locked, AccountContract::None, num_bytes_account);
         self.account = Some(account);
     }
 
@@ -92,7 +73,7 @@ impl AccountRecords {
                 // records. Set the storage usage to reflect whatever's in the original records, and at the
                 // end we will add to the storage usage with any extra keys added for this account
                 account.set_storage_usage(existing.storage_usage());
-                account.set_code_hash(existing.code_hash());
+                account.set_contract(existing.contract().into_owned());
                 if self.amount_needed {
                     set_total_balance(account, existing);
                 }
@@ -146,7 +127,10 @@ impl AccountRecords {
                 }
             }
             None => {
-                tracing::warn!("access keys for {} were included in --extra-records, but no Account record was found. Not adding them to the output", &account_id);
+                tracing::warn!(
+                    "access keys for {} were included in --extra-records, but no Account record was found. Not adding them to the output",
+                    &account_id
+                );
             }
         }
         Ok(())
@@ -190,7 +174,7 @@ fn parse_extra_records(
     near_chain_configs::stream_records_from_file(reader, |r| {
         match r {
             StateRecord::Account { account_id, account } => {
-                if account.code_hash() != CryptoHash::default() {
+                if !account.contract().is_none() {
                     result = Err(anyhow::anyhow!(
                         "FIXME: accounts in --extra-records with code_hash set not supported"
                     ));
@@ -200,7 +184,6 @@ fn parse_extra_records(
                         let r = AccountRecords::new(
                             account.amount(),
                             account.locked(),
-                            account.permanent_storage_bytes(),
                             num_bytes_account,
                         );
                         e.insert(r);
@@ -214,12 +197,7 @@ fn parse_extra_records(
                                 &account_id
                             ));
                         }
-                        r.set_account(
-                            account.amount(),
-                            account.locked(),
-                            account.permanent_storage_bytes(),
-                            num_bytes_account,
-                        );
+                        r.set_account(account.amount(), account.locked(), num_bytes_account);
                     }
                 }
             }
@@ -430,8 +408,8 @@ pub fn amend_genesis(
 #[cfg(test)]
 mod test {
     use anyhow::Context;
-    use near_chain_configs::{get_initial_supply, Genesis, GenesisConfig, NEAR_BASE};
-    use near_primitives::hash::CryptoHash;
+    use near_chain_configs::{Genesis, GenesisConfig, NEAR_BASE, get_initial_supply};
+    use near_primitives::account::AccountContract;
     use near_primitives::shard_layout::ShardLayout;
     use near_primitives::state_record::StateRecord;
     use near_primitives::types::{AccountId, AccountInfo};
@@ -442,7 +420,6 @@ mod test {
     use near_time::Clock;
     use num_rational::Rational32;
     use std::collections::{HashMap, HashSet};
-    use std::str::FromStr;
     use tempfile::NamedTempFile;
 
     // these (TestAccountInfo, TestStateRecord, and ParsedTestCase) are here so we can
@@ -484,16 +461,8 @@ mod test {
         fn parse(&self) -> StateRecord {
             match &self {
                 Self::Account { account_id, amount, locked, storage_usage } => {
-                    // `permanent_storage_bytes` can be implemented if this is required in state records.
-                    let permanent_storage_bytes = 0;
-                    let account = Account::new(
-                        *amount,
-                        *locked,
-                        permanent_storage_bytes,
-                        CryptoHash::default(),
-                        *storage_usage,
-                        PROTOCOL_VERSION,
-                    );
+                    let account =
+                        Account::new(*amount, *locked, AccountContract::None, *storage_usage);
                     StateRecord::Account { account_id: account_id.parse().unwrap(), account }
                 }
                 Self::AccessKey { account_id, public_key } => StateRecord::AccessKey {
@@ -551,7 +520,7 @@ mod test {
                             (
                                 account.amount(),
                                 account.locked(),
-                                account.code_hash(),
+                                account.contract().into_owned(),
                                 account.storage_usage(),
                             ),
                         )
@@ -589,7 +558,7 @@ mod test {
                         (
                             account.amount(),
                             account.locked(),
-                            account.code_hash(),
+                            account.contract().into_owned(),
                             account.storage_usage(),
                         ),
                     );
@@ -616,17 +585,12 @@ mod test {
             let records_in: Vec<_> = self.records_in.iter().map(|r| r.parse()).collect();
 
             let num_shards = 4;
-            let shards = ShardLayout::v1(
-                (0..num_shards - 1)
-                    .map(|f| AccountId::from_str(format!("shard{}.test.near", f).as_str()).unwrap())
-                    .collect(),
-                None,
-                1,
-            );
+            let shard_layout = ShardLayout::multi_shard(num_shards, 3);
 
             let genesis_config = GenesisConfig {
                 protocol_version: PROTOCOL_VERSION,
                 genesis_time: from_timestamp(Clock::real().now_utc().unix_timestamp_nanos() as u64),
+                // cspell:words rusttestnet
                 chain_id: "rusttestnet".to_string(),
                 genesis_height: 0,
                 num_block_producer_seats: near_chain_configs::NUM_BLOCK_PRODUCER_SEATS,
@@ -660,7 +624,7 @@ mod test {
                 num_blocks_per_year: near_chain_configs::NUM_BLOCKS_PER_YEAR,
                 protocol_treasury_account: "treasury.near".parse().unwrap(),
                 fishermen_threshold: near_chain_configs::FISHERMEN_THRESHOLD,
-                shard_layout: shards,
+                shard_layout,
                 min_gas_price: near_chain_configs::MIN_GAS_PRICE,
                 ..Default::default()
             };
@@ -734,6 +698,7 @@ mod test {
         }
     }
 
+    // cspell:words SQDK Tsena Hvcnutu
     static TEST_CASES: &[TestCase] = &[
         // first one adds one validator (foo2), bumps up another's balance (foo0), and adds an extra account (extra-account.near)
         TestCase {

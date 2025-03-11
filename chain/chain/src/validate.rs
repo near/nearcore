@@ -10,15 +10,21 @@ use near_primitives::challenge::{
     BlockDoubleSign, Challenge, ChallengeBody, ChunkProofs, ChunkState, MaybeEncodedShardChunk,
 };
 use near_primitives::congestion_info::CongestionInfo;
+use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::merklize;
 use near_primitives::sharding::{ShardChunk, ShardChunkHeader};
+use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{AccountId, BlockHeight, EpochId, Nonce};
 
+use crate::signature_verification::{
+    verify_block_header_signature_with_epoch_manager,
+    verify_chunk_header_signature_with_epoch_manager,
+};
 use crate::types::RuntimeAdapter;
-use crate::{byzantine_assert, Chain};
+use crate::{Chain, byzantine_assert};
 use crate::{ChainStore, Error};
 
 /// Gas limit cannot be adjusted for more than 0.1% at a time.
@@ -220,17 +226,6 @@ fn validate_bandwidth_requests(
     extra_bandwidth_requests: Option<&BandwidthRequests>,
     header_bandwidth_requests: Option<&BandwidthRequests>,
 ) -> Result<(), Error> {
-    if extra_bandwidth_requests.is_none()
-        && header_bandwidth_requests == Some(&BandwidthRequests::empty())
-    {
-        // This corner case happens for the first chunk that has the BandwidthScheduler feature enabled.
-        // The previous chunk was applied with a protocol version which doesn't have bandwidth scheduler
-        // enabled and because of that the bandwidth requests in ChunkExtra are None.
-        // The header was produced in the new protocol version, and the newer version of header always
-        // has some bandwidth requests, it's not an `Option`. Because of that the header requests are `Some(BandwidthRequests::empty())`.
-        return Ok(());
-    }
-
     if extra_bandwidth_requests != header_bandwidth_requests {
         fn requests_len(requests_opt: Option<&BandwidthRequests>) -> usize {
             match requests_opt {
@@ -265,14 +260,12 @@ fn validate_double_sign(
         && left_block_header.height() == right_block_header.height()
         && epoch_manager.verify_validator_signature(
             left_block_header.epoch_id(),
-            left_block_header.prev_hash(),
             &block_producer,
             left_block_header.hash().as_ref(),
             left_block_header.signature(),
         )?
         && epoch_manager.verify_validator_signature(
             right_block_header.epoch_id(),
-            right_block_header.prev_hash(),
             &block_producer,
             right_block_header.hash().as_ref(),
             right_block_header.signature(),
@@ -293,7 +286,7 @@ fn validate_header_authorship(
     epoch_manager: &dyn EpochManagerAdapter,
     block_header: &BlockHeader,
 ) -> Result<(), Error> {
-    if epoch_manager.verify_header_signature(block_header)? {
+    if verify_block_header_signature_with_epoch_manager(epoch_manager, block_header)? {
         Ok(())
     } else {
         Err(Error::InvalidChallenge)
@@ -304,17 +297,21 @@ fn validate_chunk_authorship(
     epoch_manager: &dyn EpochManagerAdapter,
     chunk_header: &ShardChunkHeader,
 ) -> Result<AccountId, Error> {
-    let epoch_id = epoch_manager.get_epoch_id_from_prev_block(&chunk_header.prev_block_hash())?;
-    if epoch_manager.verify_chunk_header_signature(
+    let parent_hash = chunk_header.prev_block_hash();
+    let epoch_id = epoch_manager.get_epoch_id_from_prev_block(parent_hash)?;
+    if verify_chunk_header_signature_with_epoch_manager(
+        epoch_manager,
         chunk_header,
-        &epoch_id,
-        &chunk_header.prev_block_hash(),
+        parent_hash,
+        epoch_id,
     )? {
-        let chunk_producer = epoch_manager.get_chunk_producer(
-            &epoch_id,
-            chunk_header.height_created(),
-            chunk_header.shard_id(),
-        )?;
+        let chunk_producer = epoch_manager
+            .get_chunk_producer_info(&ChunkProductionKey {
+                epoch_id,
+                height_created: chunk_header.height_created(),
+                shard_id: chunk_header.shard_id(),
+            })?
+            .take_account_id();
         Ok(chunk_producer)
     } else {
         Err(Error::InvalidChallenge)
@@ -457,19 +454,9 @@ pub fn validate_challenge(
     epoch_manager: &dyn EpochManagerAdapter,
     runtime: &dyn RuntimeAdapter,
     epoch_id: &EpochId,
-    last_block_hash: &CryptoHash,
     challenge: &Challenge,
 ) -> Result<(CryptoHash, Vec<AccountId>), Error> {
-    // Check signature is correct on the challenge.
-    if !epoch_manager.verify_validator_or_fisherman_signature(
-        epoch_id,
-        last_block_hash,
-        &challenge.account_id,
-        challenge.hash.as_ref(),
-        &challenge.signature,
-    )? {
-        return Err(Error::InvalidChallenge);
-    }
+    validate_challenge_signature(epoch_manager, epoch_id, challenge)?;
     match &challenge.body {
         ChallengeBody::BlockDoubleSign(block_double_sign) => {
             validate_double_sign(epoch_manager, block_double_sign)
@@ -481,6 +468,28 @@ pub fn validate_challenge(
             validate_chunk_state_challenge(runtime, chunk_state)
         }
     }
+}
+
+fn validate_challenge_signature(
+    epoch_manager: &dyn EpochManagerAdapter,
+    epoch_id: &EpochId,
+    challenge: &Challenge,
+) -> Result<(), Error> {
+    if !epoch_manager.should_validate_signatures() {
+        return Ok(());
+    }
+    let data = challenge.hash.as_ref();
+    let account_id = &challenge.account_id;
+    let epoch_info = epoch_manager.get_epoch_info(epoch_id)?;
+    let validator = epoch_info
+        .get_validator_by_account(account_id)
+        .or_else(|| epoch_info.get_fisherman_by_account(account_id))
+        .ok_or_else(|| EpochError::NotAValidator(account_id.clone(), *epoch_id))?;
+    if !challenge.signature.verify(data, validator.public_key()) {
+        return Err(Error::InvalidChallenge);
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]
@@ -496,7 +505,7 @@ mod tests {
             nonce,
             account_id,
             "bob".parse().unwrap(),
-            &signer.into(),
+            &signer,
             10,
             CryptoHash::default(),
         )
