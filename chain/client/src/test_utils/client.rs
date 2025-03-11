@@ -145,7 +145,7 @@ fn create_chunk_on_height_for_shard(
 ) -> ProduceChunkResult {
     let last_block_hash = client.chain.head().unwrap().last_block_hash;
     let last_block = client.chain.get_block(&last_block_hash).unwrap();
-    let signer = client.validator_signer.get();
+    let signer = client.validator_signer.get().unwrap();
     client
         .chunk_producer
         .produce_chunk(
@@ -155,7 +155,7 @@ fn create_chunk_on_height_for_shard(
                 .unwrap(),
             next_height,
             shard_id,
-            signer.as_ref(),
+            &signer,
             &client.chain.transaction_validity_check(last_block.header().clone()),
         )
         .unwrap()
@@ -182,7 +182,7 @@ pub fn create_chunk(
 ) -> (ProduceChunkResult, Block) {
     let last_block = client.chain.get_block_by_height(client.chain.head().unwrap().height).unwrap();
     let next_height = last_block.header().height() + 1;
-    let signer = client.validator_signer.get();
+    let signer = client.validator_signer.get().unwrap();
     let ProduceChunkResult {
         mut chunk,
         encoded_chunk_parts_paths: mut merkle_paths,
@@ -196,7 +196,7 @@ pub fn create_chunk(
             last_block.chunks()[0].clone(),
             next_height,
             ShardId::new(0),
-            signer.as_ref(),
+            &signer,
             &client.chain.transaction_validity_check(last_block.header().clone()),
         )
         .unwrap()
@@ -216,7 +216,6 @@ pub fn create_chunk(
         let parity_parts = total_parts - data_parts;
         let rs = ReedSolomon::new(data_parts, parity_parts).unwrap();
 
-        let signer = signer.unwrap();
         let header = chunk.cloned_header();
         let (mut encoded_chunk, mut new_merkle_paths) = EncodedShardChunk::new(
             *header.prev_block_hash(),
