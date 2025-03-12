@@ -9,10 +9,10 @@ use crate::prefetch::TriePrefetcher;
 use crate::verifier::{StorageStakingError, check_storage_stake, validate_receipt};
 pub use crate::verifier::{
     ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT, commit_charging_for_tx, validate_transaction,
-    verify_and_charge_tx_ephemeral, verify_ephemeral_group,
+    verify_and_charge_tx_ephemeral,
 };
 use bandwidth_scheduler::{BandwidthSchedulerOutput, run_bandwidth_scheduler};
-use config::{TransactionCost, total_prepaid_send_fees, tx_cost};
+use config::{total_prepaid_send_fees, tx_cost};
 use congestion_control::ReceiptSink;
 pub use congestion_control::bootstrap_congestion_info;
 use itertools::Itertools;
@@ -27,7 +27,7 @@ use near_primitives::checked_feature;
 use near_primitives::chunk_apply_stats::{BalanceStats, ChunkApplyStatsV0};
 use near_primitives::congestion_info::{BlockCongestionInfo, CongestionInfo};
 use near_primitives::errors::{
-    ActionError, ActionErrorKind, EpochError, IntegerOverflowError, InvalidTxError, RuntimeError,
+    ActionError, ActionErrorKind, EpochError, IntegerOverflowError, RuntimeError,
     TxExecutionError,
 };
 use near_primitives::hash::CryptoHash;
@@ -146,6 +146,14 @@ pub struct ApplyState {
     /// Each shard requests some bandwidth to other shards and then the bandwidth scheduler
     /// decides how much each shard is allowed to send.
     pub bandwidth_requests: BlockBandwidthRequests,
+}
+
+#[derive(Debug)]
+struct GroupResult {
+    verified: Vec<(usize, ValidatedTransaction, VerificationResult, Receipt, ExecutionOutcomeWithId)>,
+    final_state: Option<(Account, AccessKey)>,
+    signer_id: AccountId,
+    public_key: near_crypto::PublicKey,
 }
 
 /// Contains information to update validators accounts at the first block of a new epoch.
@@ -281,34 +289,95 @@ impl Runtime {
         debug!(target: "runtime", "{}", log_str);
     }
 
-    fn parallel_validate_transactions(
-        config: &RuntimeConfig,
+    fn verify_grouped_transactions(
+        &self,
+        group_indices: &[usize],
+        signed_txs: &[SignedTransaction],
+        apply_state: &ApplyState,
+        state_update: &TrieUpdate,
         gas_price: Balance,
-        signed_txs: impl IntoParallelIterator<Item = SignedTransaction>,
+        block_height: BlockHeight,
         current_protocol_version: ProtocolVersion,
-    ) -> Vec<(CryptoHash, Result<(ValidatedTransaction, TransactionCost), InvalidTxError>)> {
-        signed_txs
-            .into_par_iter()
-            .map(|signed_tx| {
-                (
-                    signed_tx.get_hash(),
-                    match validate_transaction(config, signed_tx, current_protocol_version) {
-                        Ok(validated_tx) => {
-                            match tx_cost(
-                                config,
-                                &validated_tx,
-                                gas_price,
-                                current_protocol_version,
-                            ) {
-                                Ok(cost) => Ok((validated_tx, cost)),
-                                Err(e) => Err(InvalidTxError::from(e)),
-                            }
-                        }
-                        Err((e, _tx)) => Err(e),
-                    },
-                )
-            })
-            .collect()
+        mut temp_state: Option<(Account, AccessKey)>,
+    ) -> Result<GroupResult, RuntimeError> {
+        let first_idx = group_indices[0];
+        let signer_id = signed_txs[first_idx].transaction.signer_id().clone();
+        let public_key = signed_txs[first_idx].transaction.public_key();
+
+        let mut verified = Vec::with_capacity(group_indices.len());
+
+        for &idx in group_indices {
+            let validated_tx = match validate_transaction(
+                &apply_state.config,
+                signed_txs[idx].clone(),
+                current_protocol_version
+            ) {
+                Ok(validated_tx) => validated_tx,
+                Err((e, tx)) => {
+                    Self::handle_invalid_transaction(
+                        e, 
+                        &tx.get_hash(),
+                        current_protocol_version,
+                        "transaction validation failed",
+                    )?;
+                    continue;
+                }
+            };
+
+            let cost = match tx_cost(
+                &apply_state.config,
+                &validated_tx,
+                gas_price,
+                current_protocol_version
+            ) {
+                Ok(cost) => cost,
+                Err(e) => {
+                    Self::handle_invalid_transaction(
+                        e, 
+                        &validated_tx.get_hash(),
+                        current_protocol_version,
+                        "transaction cost calculation failed",
+                    )?;
+                    continue;
+                }
+            };
+
+            match verify_and_charge_tx_ephemeral(
+                &apply_state.config,
+                state_update,
+                &validated_tx,
+                &cost,
+                Some(block_height),
+                current_protocol_version,
+                temp_state.take(),
+            ) {
+                Ok(vr) => {
+                    // store ephemeral updates for next transaction
+                    temp_state = Some((vr.signer.clone(), vr.access_key.clone()));
+                    let (receipt, outcome) = self.process_transaction(
+                        apply_state,
+                        &validated_tx,
+                        &vr,
+                    );
+                    verified.push((idx, validated_tx, vr, receipt, outcome));
+                }
+                Err(err) => {
+                    Self::handle_invalid_transaction(
+                        err, 
+                        &validated_tx.get_hash(),
+                        current_protocol_version,
+                        "transaction cost calculation failed",
+                    )?;
+                }
+            }
+        }
+
+        Ok(GroupResult {
+            verified,
+            final_state: temp_state,
+            signer_id,
+            public_key: public_key.clone(),
+        })
     }
 
     /// Takes one signed transaction, verifies it and converts it to a receipt.
@@ -331,23 +400,12 @@ impl Runtime {
     ))]
     fn process_transaction(
         &self,
-        state_update: &mut TrieUpdate,
         apply_state: &ApplyState,
         validated_tx: &ValidatedTransaction,
-        stats: &mut ChunkApplyStatsV0,
-        verification_result: VerificationResult,
-    ) -> Result<(Receipt, ExecutionOutcomeWithId), InvalidTxError> {
+        verification_result: &VerificationResult,
+    ) -> (Receipt, ExecutionOutcomeWithId) {
         let span = tracing::Span::current();
         metrics::TRANSACTION_PROCESSED_TOTAL.inc();
-        commit_charging_for_tx(
-            state_update,
-            validated_tx.to_tx(),
-            &verification_result.signer,
-            &verification_result.access_key,
-        );
-        state_update.commit(StateChangeCause::TransactionProcessing {
-            tx_hash: validated_tx.get_hash(),
-        });
         let transaction = validated_tx.to_tx();
         let receipt_id = create_receipt_id_from_transaction(
             apply_state.current_protocol_version,
@@ -369,11 +427,6 @@ impl Runtime {
                 actions: transaction.actions().to_vec(),
             }),
         });
-        stats.balance.tx_burnt_amount = safe_add_balance(
-            stats.balance.tx_burnt_amount,
-            verification_result.burnt_amount,
-        )
-        .map_err(|_| InvalidTxError::CostOverflow)?;
         let gas_burnt = verification_result.gas_burnt;
         let compute_usage = verification_result.gas_burnt;
         let outcome = ExecutionOutcomeWithId {
@@ -394,7 +447,7 @@ impl Runtime {
         };
         span.record("gas_burnt", gas_burnt);
         span.record("compute_usage", compute_usage);
-        Ok((receipt, outcome))
+        (receipt, outcome)
     }
 
     fn apply_action(
@@ -1702,135 +1755,106 @@ impl Runtime {
             .cloned()
             .collect::<Vec<_>>();
 
-        let validated_iter = Self::parallel_validate_transactions(
-            &apply_state.config,
-            apply_state.gas_price,
-            signed_txs,
-            apply_state.current_protocol_version,
-        );
+        let mut indices: Vec<usize> = (0..signed_txs.len()).collect();
+        indices.sort_by_key(|&i| {
+            let st = &signed_txs[i];
+            (
+                st.transaction.signer_id(),
+                st.transaction.public_key(),
+                st.transaction.nonce(),
+            )
+        });
 
-        let mut valid_txs: Vec<(ValidatedTransaction, TransactionCost)> = Vec::new();
-        let mut original_hashes: Vec<CryptoHash> = Vec::new();
+        // grouping by (signer_id, public_key)
+        let grouped = indices.par_chunk_by(|&left_idx, &right_idx| {
+            let left = &signed_txs[left_idx];
+            let right = &signed_txs[right_idx];
+            left.transaction.signer_id() == right.transaction.signer_id() 
+                && left.transaction.public_key() == right.transaction.public_key()
+        });
 
-        for (hash, maybe_tx) in validated_iter {
-            match maybe_tx {
-                Ok((validated_tx, cost)) => {
-                    valid_txs.push((validated_tx, cost));
-                    original_hashes.push(hash);
-                }
-                Err(e) => {
-                    Self::handle_invalid_transaction(
-                        e,
-                        &hash,
-                        processing_state.protocol_version,
-                        "stateless validation error",
-                    )?;
-                }
-            }
-        }
-
-        let all_valid = valid_txs;
-
-        // grouping by (signer_id, public_key), store the index for each tx
-        let mut indexed_groups: Vec<(
-            (AccountId, near_crypto::PublicKey),
-            Vec<usize>,
-        )> = (0..all_valid.len())
-            .group_by(|&idx| {
-                let tx = all_valid[idx].0.to_tx();
-                (tx.signer_id().clone(), tx.public_key().clone())
-            })
-            .into_iter()
-            .map(|(key, idxs)| (key, idxs.collect::<Vec<_>>()))
-            .collect();
-
-        indexed_groups.sort_by_key(|(_, idxs)| idxs.iter().min().cloned().unwrap());
-        for (_, idxs) in indexed_groups.iter_mut() {
-            idxs.sort_by_key(|&idx| {
-                let tx = all_valid[idx].0.to_tx();
-                tx.nonce()
-            });
-        }
-
-        #[derive(Debug)]
-        struct GroupResult {
-            verified: Vec<(usize, VerificationResult)>,
-        }
-
-        let group_outcomes: Vec<Result<GroupResult, InvalidTxError>> = indexed_groups
-            .into_par_iter()
-            .with_min_len(512)
-            .map(|((_, _), idxs)| {
-                // ephemeral-check the group’s transactions in ascending nonce
-                let verified = verify_ephemeral_group(
-                    &apply_state.config,
-                    state_update,
-                    &all_valid,
-                    &idxs,
-                    Some(apply_state.block_height),
-                    apply_state.current_protocol_version,
-                )?;
-                Ok(GroupResult { verified })
-            })
-            .collect();
-
-        let mut all_verified = Vec::new();
-        for gr in group_outcomes {
-            match gr {
-                Ok(gr) => all_verified.extend(gr.verified),
-                Err(e) => {
-                    Self::handle_invalid_transaction(
-                        e,
-                        &CryptoHash::default(),
-                        processing_state.protocol_version,
-                        "final verify_ephemeral_group error",
-                    )?;
-                }
-            }
-        }
-
-        for (idx, vr) in all_verified {
-            let validated_tx = &all_valid[idx].0;
-            let hash = &original_hashes[idx];
-
-            metrics::TRANSACTION_PROCESSED_SUCCESSFULLY_TOTAL.inc();
-            commit_charging_for_tx(state_update, validated_tx.to_tx(), &vr.signer, &vr.access_key);
-
-            let outcome = self.process_transaction(
+        let group_outcomes: Vec<Result<GroupResult, RuntimeError>> = grouped
+        .map(|chunk_indices| {
+            self.verify_grouped_transactions(
+                chunk_indices,
+                &signed_txs,
+                &apply_state,
                 state_update,
-                apply_state,
-                validated_tx,
-                &mut processing_state.stats,
-                vr,
-            );
+                apply_state.gas_price,
+                apply_state.block_height,
+                apply_state.current_protocol_version,
+                None,
+            )
+        })
+        .collect();
 
-            match outcome {
-                Ok((receipt, outcome_with_id)) => {
-                    if receipt.receiver_id() == validated_tx.to_tx().signer_id() {
-                        processing_state.local_receipts.push_back(receipt);
-                    } else {
-                        receipt_sink.forward_or_buffer_receipt(
-                            receipt,
-                            apply_state,
-                            state_update,
-                            processing_state.epoch_info_provider,
-                        )?;
-                    }
-                    let compute = outcome_with_id.outcome.compute_usage.unwrap_or(0);
-                    total.add(outcome_with_id.outcome.gas_burnt, compute)?;
-                    if !checked_feature!("stable", ComputeCosts, processing_state.protocol_version) {
-                        assert_eq!(total.compute, total.gas, "Compute usage must match burnt gas");
-                    }
-                    processing_state.outcomes.push(outcome_with_id);
-                }
+        for group_outcome in group_outcomes {
+            let group_result = match group_outcome {
+                Ok(group_result) => group_result,
                 Err(e) => {
-                    Self::handle_invalid_transaction(
-                        e,
-                        hash,
-                        processing_state.protocol_version,
-                        "final process_transaction error",
-                    )?;
+                    return Err(e)
                 }
+            };
+
+            if let Some((account, access_key)) = group_result.final_state {
+                set_account(state_update, group_result.signer_id.clone(), &account);
+                set_access_key(
+                    state_update,
+                    group_result.signer_id.clone(),
+                    group_result.public_key.clone(),
+                    &access_key,
+                );
+
+                let last_tx_hash = group_result.verified
+                    .last()
+                    .map(|(_, tx, _, _, _)| tx.get_hash())
+                    .unwrap_or(CryptoHash::default());
+                state_update.commit(StateChangeCause::TransactionProcessing {
+                    tx_hash: last_tx_hash,
+                });
+            }
+
+            for (_, tx, verification_result, receipt, outcome) in group_result.verified {                        
+                match safe_add_balance(
+                    processing_state.stats.balance.tx_burnt_amount,
+                    verification_result.burnt_amount,
+                ) {
+                    Ok(new_balance) => {
+                        processing_state.stats.balance.tx_burnt_amount = new_balance;
+                    }
+                    Err(err) => {
+                        Self::handle_invalid_transaction(
+                            err,
+                            &tx.get_hash(),
+                            processing_state.protocol_version,
+                            "failed to add burnt amount to balance",
+                        )?;
+                        continue;
+                    }
+                }
+
+                // Forward or buffer the receipt
+                if receipt.receiver_id() == tx.to_tx().signer_id() {
+                    processing_state.local_receipts.push_back(receipt);
+                } else if let Err(_) = receipt_sink.forward_or_buffer_receipt(
+                    receipt,
+                    apply_state,
+                    state_update,
+                    processing_state.epoch_info_provider,
+                ) {
+                    continue;
+                }
+
+                // Update usage/outcome
+                let compute = outcome
+                    .outcome
+                    .compute_usage
+                    .expect("`process_transaction` must populate compute usage");
+                total.add(outcome.outcome.gas_burnt, compute)?;
+                if !checked_feature!("stable", ComputeCosts, processing_state.protocol_version) {
+                    assert_eq!(total.compute, total.gas, "Compute usage must match burnt gas");
+                }
+                processing_state.outcomes.push(outcome);
             }
         }
 

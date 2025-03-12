@@ -1,6 +1,6 @@
 use crate::config::{TransactionCost, total_prepaid_gas};
 use crate::near_primitives::account::Account;
-use crate::{VerificationResult, metrics};
+use crate::VerificationResult;
 use near_crypto::key_conversion::is_valid_staking_key;
 use near_parameters::RuntimeConfig;
 use near_primitives::account::{AccessKey, AccessKeyPermission};
@@ -100,49 +100,6 @@ pub fn validate_transaction(
         return Err((InvalidTxError::ActionsValidation(err), signed_tx));
     }
     ValidatedTransaction::new(config, signed_tx)
-}
-
-/// For a single group, ephemeral-check each transaction in ascending nonce.
-/// Returns ephemeral final state, and a list of (SignedTransaction, VerificationResult).
-pub fn verify_ephemeral_group(
-    config: &near_parameters::RuntimeConfig,
-    state_update: &TrieUpdate,
-    all_valid: &[(ValidatedTransaction, TransactionCost)],
-    idxs: &[usize],
-    block_height: Option<BlockHeight>,
-    current_protocol_version: ProtocolVersion,
-) -> Result<Vec<(usize, VerificationResult)>, InvalidTxError> {
-    let mut results = Vec::with_capacity(idxs.len());
-    let mut temp_state = None; // ephemeral (signer, access_key)
-    for &idx in idxs {
-        let (ref validated_tx, ref cost) = all_valid[idx];
-        let current_state = temp_state.take();
-        match verify_and_charge_tx_ephemeral(
-            config,
-            state_update,
-            validated_tx,
-            cost,
-            block_height,
-            current_protocol_version,
-            current_state,
-        ) {
-            Ok(vr) => {
-                temp_state = Some((vr.signer.clone(), vr.access_key.clone()));
-                results.push((idx, vr));
-            }
-            Err(e) => {
-                if checked_feature!("stable", RelaxedChunkValidation, current_protocol_version) {
-                    metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
-                    // skip this TX, but keep ephemeral state from previous success
-                    continue;
-                } else {
-                    // old behavior: abort the entire group
-                    return Err(e);
-                }
-            }
-        }
-    }
-    Ok(results)
 }
 
 pub fn commit_charging_for_tx(
