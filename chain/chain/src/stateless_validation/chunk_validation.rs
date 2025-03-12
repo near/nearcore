@@ -551,7 +551,7 @@ fn validate_source_receipt_proofs(
             &target_shard_layout,
             target_chunk_shard_id,
             Arc::new(block_receipt_proofs),
-        );
+        )?;
 
         // Arrange the receipts in the order in which they should be applied.
         let receipts_shuffle_salt = get_receipts_shuffle_salt(epoch_manager, block)?;
@@ -681,7 +681,7 @@ pub fn validate_chunk_state_witness(
                 shard_id,
             )?;
         }
-        Chain::build_receipts_hashes(&outgoing_receipts, &witness_shard_layout)
+        Chain::build_receipts_hashes(&outgoing_receipts, &witness_shard_layout)?
     };
     // Save main state transition result to cache.
     {

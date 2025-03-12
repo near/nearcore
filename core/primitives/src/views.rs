@@ -19,7 +19,8 @@ use crate::hash::{CryptoHash, hash};
 use crate::merkle::{MerklePath, combine_hash};
 use crate::network::PeerId;
 use crate::receipt::{
-    ActionReceipt, DataReceipt, DataReceiver, GlobalContractData, Receipt, ReceiptEnum, ReceiptV1,
+    ActionReceipt, DataReceipt, DataReceiver, GlobalContractDistributionReceipt, Receipt,
+    ReceiptEnum, ReceiptV1,
 };
 use crate::serialize::dec_format;
 use crate::sharding::shard_chunk_header_inner::ShardChunkHeaderInnerV4;
@@ -1959,7 +1960,7 @@ pub enum ReceiptEnumView {
         is_promise_resume: bool,
     },
     GlobalContractDistribution {
-        data: GlobalContractData,
+        data: GlobalContractDistributionReceipt,
     },
 }
 

@@ -17,6 +17,10 @@ use bandwidth_scheduler::{BandwidthSchedulerOutput, run_bandwidth_scheduler};
 use config::{TransactionCost, total_prepaid_send_fees, tx_cost};
 use congestion_control::ReceiptSink;
 pub use congestion_control::bootstrap_congestion_info;
+use global_contracts::{
+    action_deploy_global_contract, action_use_global_contract,
+    apply_global_contract_distribution_receipt,
+};
 use itertools::Itertools;
 use metrics::ApplyMetrics;
 pub use near_crypto;
@@ -44,7 +48,7 @@ use near_primitives::transaction::{
     Action, ExecutionMetadata, ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus, LogEntry,
     SignedTransaction, TransferAction, ValidatedTransaction,
 };
-use near_primitives::trie_key::{GlobalContractCodeIdentifier, TrieKey};
+use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, Compute, EpochHeight, EpochId, EpochInfoProvider, Gas,
     RawStateChangesWithTrieKey, ShardId, StateChangeCause, StateRoot,
@@ -66,12 +70,12 @@ use near_store::{
     set_access_key, set_account, set_postponed_receipt, set_promise_yield_receipt,
     set_received_data,
 };
+use near_vm_runner::ContractCode;
 use near_vm_runner::ContractRuntimeCache;
 use near_vm_runner::ProfileDataV3;
 use near_vm_runner::logic::ReturnData;
 use near_vm_runner::logic::types::PromiseResult;
 pub use near_vm_runner::with_ext_cost_counter;
-use near_vm_runner::{ContractCode, precompile_contract};
 use pipelining::ReceiptPreparationPipeline;
 use rayon::prelude::*;
 use std::cmp::max;
@@ -88,6 +92,7 @@ pub mod config;
 mod congestion_control;
 mod conversions;
 pub mod ext;
+mod global_contracts;
 pub mod metrics;
 mod pipelining;
 mod prefetch;
@@ -148,6 +153,23 @@ pub struct ApplyState {
     /// Each shard requests some bandwidth to other shards and then the bandwidth scheduler
     /// decides how much each shard is allowed to send.
     pub bandwidth_requests: BlockBandwidthRequests,
+}
+
+impl ApplyState {
+    pub fn create_receipt_id(
+        &self,
+        parent_receipt_id: &CryptoHash,
+        receipt_index: usize,
+    ) -> CryptoHash {
+        create_receipt_id_from_receipt_id(
+            self.current_protocol_version,
+            parent_receipt_id,
+            &self.prev_block_hash,
+            &self.block_hash,
+            self.block_height,
+            receipt_index,
+        )
+    }
 }
 
 /// Contains information to update validators accounts at the first block of a new epoch.
@@ -499,7 +521,7 @@ impl Runtime {
                     deploy_global_contract,
                     &mut result,
                     stats,
-                );
+                )?;
             }
             Action::UseGlobalContract(use_global_contract) => {
                 let account = account.as_mut().expect(EXPECT_ACCOUNT_EXISTS);
@@ -903,15 +925,7 @@ impl Runtime {
             .into_iter()
             .enumerate()
             .filter_map(|(receipt_index, mut new_receipt)| {
-                let receipt_id = create_receipt_id_from_receipt_id(
-                    apply_state.current_protocol_version,
-                    receipt.receipt_id(),
-                    &apply_state.prev_block_hash,
-                    &apply_state.block_hash,
-                    apply_state.block_height,
-                    receipt_index,
-                );
-
+                let receipt_id = apply_state.create_receipt_id(receipt.receipt_id(), receipt_index);
                 new_receipt.set_receipt_id(receipt_id);
                 let is_action = matches!(
                     new_receipt.receipt(),
@@ -935,16 +949,9 @@ impl Runtime {
             .collect::<Result<_, _>>()?;
 
         let status = match result.result {
-            Ok(ReturnData::ReceiptIndex(receipt_index)) => {
-                ExecutionStatus::SuccessReceiptId(create_receipt_id_from_receipt_id(
-                    apply_state.current_protocol_version,
-                    receipt.receipt_id(),
-                    &apply_state.prev_block_hash,
-                    &apply_state.block_hash,
-                    apply_state.block_height,
-                    receipt_index as usize,
-                ))
-            }
+            Ok(ReturnData::ReceiptIndex(receipt_index)) => ExecutionStatus::SuccessReceiptId(
+                apply_state.create_receipt_id(receipt.receipt_id(), receipt_index as usize),
+            ),
             Ok(ReturnData::Value(data)) => ExecutionStatus::SuccessValue(data),
             Ok(ReturnData::None) => ExecutionStatus::SuccessValue(vec![]),
             Err(e) => ExecutionStatus::Failure(TxExecutionError::ActionError(e)),
@@ -967,48 +974,6 @@ impl Runtime {
                 ))),
             },
         })
-    }
-
-    fn apply_global_contract_distribution_receipt(
-        &self,
-        receipt: &Receipt,
-        config: Arc<near_parameters::vm::Config>,
-        cache: Option<&dyn ContractRuntimeCache>,
-        state_update: &mut TrieUpdate,
-    ) {
-        let _span = tracing::debug_span!(
-            target: "runtime",
-            "apply_global_contract_distribution_receipt",
-        )
-        .entered();
-
-        let ReceiptEnum::GlobalContractDistribution(global_contract_data) = receipt.receipt()
-        else {
-            unreachable!("given receipt should be an global contract distribution receipt")
-        };
-
-        let trie_key = TrieKey::GlobalContractCode {
-            identifier: match &global_contract_data.id {
-                GlobalContractIdentifier::CodeHash(hash) => {
-                    GlobalContractCodeIdentifier::CodeHash(*hash)
-                }
-                GlobalContractIdentifier::AccountId(account_id) => {
-                    GlobalContractCodeIdentifier::AccountId(account_id.clone())
-                }
-            },
-        };
-        state_update.set(trie_key, global_contract_data.code.to_vec());
-        state_update
-            .commit(StateChangeCause::ReceiptProcessing { receipt_hash: receipt.get_hash() });
-        let code_hash = match global_contract_data.id {
-            GlobalContractIdentifier::CodeHash(hash) => Some(hash),
-            GlobalContractIdentifier::AccountId(_) => None,
-        };
-        let _ = precompile_contract(
-            &ContractCode::new(global_contract_data.code.to_vec(), code_hash),
-            config,
-            cache,
-        );
     }
 
     fn generate_refund_receipts(
@@ -1284,12 +1249,13 @@ impl Runtime {
                 }
             }
             ReceiptEnum::GlobalContractDistribution(_) => {
-                self.apply_global_contract_distribution_receipt(
+                apply_global_contract_distribution_receipt(
                     receipt,
-                    processing_state.apply_state.config.wasm_config.clone(),
-                    processing_state.apply_state.cache.as_deref(),
+                    apply_state,
+                    epoch_info_provider,
                     state_update,
-                );
+                    receipt_sink,
+                )?;
                 return Ok(None);
             }
         };
