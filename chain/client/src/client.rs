@@ -394,9 +394,7 @@ impl Client {
         block: &Block,
     ) -> Result<(), Error> {
         let epoch_id = self.epoch_manager.get_epoch_id(block.hash())?;
-        let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
-        let shard_layout =
-            self.epoch_manager.get_shard_layout_from_protocol_version(protocol_version);
+        let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
         for (shard_index, chunk_header) in block.chunks().iter_deprecated().enumerate() {
             let shard_id = shard_layout.get_shard_id(shard_index);
             let shard_id = shard_id.map_err(Into::<EpochError>::into)?;
