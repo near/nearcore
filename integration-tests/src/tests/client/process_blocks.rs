@@ -1112,8 +1112,7 @@ fn test_bad_chunk_mask() {
                 .resign(&*env.client(&block_producer).validator_signer.get().unwrap().clone());
 
             for client in env.clients.iter_mut() {
-                let res = client
-                    .process_block_test_no_produce_chunk(block.clone().into(), Provenance::NONE);
+                let res = client.process_block_test(block.clone().into(), Provenance::NONE);
                 if !mess_with_chunk_mask {
                     res.unwrap();
                 } else {
@@ -2186,7 +2185,7 @@ fn test_validate_chunk_extra() {
             env.process_block(0, last_block.clone(), Provenance::PRODUCED);
         } else {
             let _ = env.clients[0]
-                .process_block_test_no_produce_chunk(last_block.clone().into(), Provenance::NONE)
+                .process_block_test(last_block.clone().into(), Provenance::NONE)
                 .unwrap();
         }
     }

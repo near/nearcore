@@ -133,10 +133,7 @@ fn test_invalid_transactions_no_panic() {
             let block = env.client(&block_producer).produce_block(height).unwrap().unwrap();
             for client in env.clients.iter_mut() {
                 client
-                    .process_block_test_no_produce_chunk_allow_errors(
-                        block.clone().into(),
-                        Provenance::NONE,
-                    )
+                    .process_block_test_allow_errors(block.clone().into(), Provenance::NONE)
                     .unwrap();
             }
         }

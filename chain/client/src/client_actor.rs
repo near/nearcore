@@ -1291,7 +1291,6 @@ impl ClientActorInner {
         let _span = debug_span!(target: "client", "try_process_unfinished_blocks").entered();
         let (accepted_blocks, errors) = self.client.postprocess_ready_blocks(
             Some(self.client.myself_sender.apply_chunks_done.clone()),
-            true,
             signer,
         );
         if !errors.is_empty() {

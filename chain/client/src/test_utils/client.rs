@@ -42,14 +42,12 @@ impl Client {
         &mut self,
         block: MaybeValidated<Block>,
         provenance: Provenance,
-        should_produce_chunk: bool,
         allow_errors: bool,
     ) -> Result<Vec<CryptoHash>, near_chain::Error> {
         let signer = self.validator_signer.get();
         self.start_process_block(block, provenance, None, &signer)?;
         wait_for_all_blocks_in_processing(&mut self.chain);
-        let (accepted_blocks, errors) =
-            self.postprocess_ready_blocks(None, should_produce_chunk, &signer);
+        let (accepted_blocks, errors) = self.postprocess_ready_blocks(None, &signer);
         if !allow_errors {
             assert!(errors.is_empty(), "unexpected errors when processing blocks: {errors:#?}");
         }
@@ -61,23 +59,15 @@ impl Client {
         block: MaybeValidated<Block>,
         provenance: Provenance,
     ) -> Result<Vec<CryptoHash>, near_chain::Error> {
-        self.process_block_sync_with_produce_chunk_options(block, provenance, true, false)
+        self.process_block_sync_with_produce_chunk_options(block, provenance, false)
     }
 
-    pub fn process_block_test_no_produce_chunk(
+    pub fn process_block_test_allow_errors(
         &mut self,
         block: MaybeValidated<Block>,
         provenance: Provenance,
     ) -> Result<Vec<CryptoHash>, near_chain::Error> {
-        self.process_block_sync_with_produce_chunk_options(block, provenance, false, false)
-    }
-
-    pub fn process_block_test_no_produce_chunk_allow_errors(
-        &mut self,
-        block: MaybeValidated<Block>,
-        provenance: Provenance,
-    ) -> Result<Vec<CryptoHash>, near_chain::Error> {
-        self.process_block_sync_with_produce_chunk_options(block, provenance, false, true)
+        self.process_block_sync_with_produce_chunk_options(block, provenance, true)
     }
 
     /// This function finishes processing all blocks that started being processed.
@@ -85,7 +75,7 @@ impl Client {
         let signer = self.validator_signer.get();
         let mut accepted_blocks = vec![];
         while wait_for_all_blocks_in_processing(&mut self.chain) {
-            accepted_blocks.extend(self.postprocess_ready_blocks(None, true, &signer).0);
+            accepted_blocks.extend(self.postprocess_ready_blocks(None, &signer).0);
         }
         accepted_blocks
     }
@@ -95,7 +85,7 @@ impl Client {
     pub fn finish_block_in_processing(&mut self, hash: &CryptoHash) -> Vec<CryptoHash> {
         if let Ok(()) = wait_for_block_in_processing(&mut self.chain, hash) {
             let signer = self.validator_signer.get();
-            let (accepted_blocks, _) = self.postprocess_ready_blocks(None, true, &signer);
+            let (accepted_blocks, _) = self.postprocess_ready_blocks(None, &signer);
             return accepted_blocks;
         }
         vec![]

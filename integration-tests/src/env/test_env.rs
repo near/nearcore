@@ -548,9 +548,7 @@ impl TestEnv {
         let mut block = self.clients[0].produce_block(tip.height + 1).unwrap().unwrap();
         block.mut_header().resign(&create_test_signer(block_producer.as_str()));
 
-        let _ = self.clients[0]
-            .process_block_test_no_produce_chunk(block.into(), Provenance::NONE)
-            .unwrap();
+        let _ = self.clients[0].process_block_test(block.into(), Provenance::NONE).unwrap();
 
         for i in 0..self.clients[0].chain.epoch_length * 2 {
             self.produce_block(0, tip.height + i + 2);
