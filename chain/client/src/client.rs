@@ -449,16 +449,26 @@ impl Client {
                     // By now the chunk must be in store, otherwise the block would have been orphaned
                     let chunk = self.chain.get_chunk(&chunk_header.chunk_hash()).unwrap();
 
-                    let validated_txs = ValidatedTransaction::new_list(
-                        &config,
-                        chunk.transactions().into_iter().cloned(),
-                    )
-                    .map_err(|(err, signed_tx)| {
-                        Error::Other(format!(
-                            "Validating signed tx ({:?}) failed with {:?}",
-                            signed_tx, err
-                        ))
-                    })?;
+                    let validated_txs = chunk
+                        .transactions()
+                        .into_iter()
+                        .cloned()
+                        .filter_map(|signed_tx| {
+                            match ValidatedTransaction::new(&config, signed_tx.clone()) {
+                                Ok(validated_tx) => Some(validated_tx),
+                                Err((err, signed_tx)) => {
+                                    debug!(
+                                        target: "client",
+                                        "Validating signed tx ({:?}) failed with error {:?}",
+                                        signed_tx,
+                                        err
+                                    );
+                                    None
+                                }
+                            }
+                        })
+                        .collect::<Vec<_>>();
+
                     let reintroduced_count = self
                         .chunk_producer
                         .sharded_tx_pool
