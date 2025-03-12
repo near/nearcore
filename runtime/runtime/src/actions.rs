@@ -212,6 +212,7 @@ pub(crate) fn action_function_call(
         apply_state.block_height,
         epoch_info_provider,
         apply_state.current_protocol_version,
+        config.wasm_config.storage_get_mode,
     );
     let outcome = execute_function_call(
         contract,
