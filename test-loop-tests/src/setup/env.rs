@@ -8,13 +8,13 @@ use near_network::types::NetworkInfo;
 use near_store::adapter::StoreAdapter;
 use std::sync::atomic::Ordering;
 
-use super::builder::setup_client;
 use super::drop_condition::DropCondition;
-use super::state::{NodeState, SharedState, TestData};
+use super::setup::setup_client;
+use super::state::{NodeExecutionData, NodeSetupState, SharedState};
 
 pub struct TestLoopEnv {
     pub test_loop: TestLoopV2,
-    pub node_datas: Vec<TestData>,
+    pub node_datas: Vec<NodeExecutionData>,
     pub shared_state: SharedState,
 }
 
@@ -80,7 +80,7 @@ impl TestLoopEnv {
     ///
     /// Note that other nodes may still continue to queue network events into the peer
     /// manager actor of the stopped node but this would not be processed.
-    pub fn kill_node(&mut self, identifier: &str) -> NodeState {
+    pub fn kill_node(&mut self, identifier: &str) -> NodeSetupState {
         // Make test_loop ignore all events from this node.
         self.test_loop.remove_events_with_identifier(identifier);
 
@@ -103,7 +103,7 @@ impl TestLoopEnv {
             None
         };
 
-        NodeState { account_id, client_config, store, split_store }
+        NodeSetupState { account_id, client_config, store, split_store }
     }
 
     /// Function to restart a node in test loop environment. This function takes in the new_identifier
@@ -113,7 +113,7 @@ impl TestLoopEnv {
     /// this function automatically takes care of properly redirecting all network messages to the new node.
     ///
     /// Additionally, we set the NetworkInfo for this node which is required for state sync to work.
-    pub fn restart_node(&mut self, new_identifier: &str, node_state: NodeState) {
+    pub fn restart_node(&mut self, new_identifier: &str, node_state: NodeSetupState) {
         // get the HeightHeightPeerInfo from all nodes
         let highest_height_peers = self
             .node_datas
@@ -141,7 +141,7 @@ impl TestLoopEnv {
     /// and node_state of the new node as input.
     ///
     /// We set the NetworkInfo for this node which is required for state sync to work.
-    pub fn add_node(&mut self, identifier: &str, node_state: NodeState) {
+    pub fn add_node(&mut self, identifier: &str, node_state: NodeSetupState) {
         // Logically this function is the same as restart_node
         self.restart_node(identifier, node_state);
     }

@@ -1,28 +1,29 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-use crate::client::{
-    BlockApproval, BlockHeadersRequest, BlockHeadersResponse, BlockRequest, BlockResponse,
-    ChunkEndorsementMessage, EpochSyncRequestMessage, EpochSyncResponseMessage,
-    OptimisticBlockMessage, ProcessTxRequest, ProcessTxResponse,
-};
-use crate::shards_manager::ShardsManagerRequestFromNetwork;
-use crate::state_witness::{
-    ChunkContractAccessesMessage, ChunkStateWitnessAckMessage, ContractCodeRequestMessage,
-    ContractCodeResponseMessage, PartialEncodedContractDeploysMessage,
-    PartialEncodedStateWitnessForwardMessage, PartialEncodedStateWitnessMessage,
-    PartialWitnessSenderForNetwork,
-};
-use crate::types::{
-    NetworkRequests, NetworkResponses, PeerManagerMessageRequest, PeerManagerMessageResponse,
-    SetChainInfo, StateSyncEvent, Tier3Request,
-};
 use itertools::Itertools;
 use near_async::actix::ActixResult;
 use near_async::futures::{FutureSpawner, FutureSpawnerExt};
 use near_async::messaging::{Actor, AsyncSender, CanSend, Handler, SendAsync, Sender};
 use near_async::time::Clock;
 use near_async::{MultiSend, MultiSenderFrom};
+use near_client::{BlockApproval, BlockResponse};
+use near_network::client::{
+    BlockHeadersRequest, BlockHeadersResponse, BlockRequest, ChunkEndorsementMessage,
+    EpochSyncRequestMessage, EpochSyncResponseMessage, OptimisticBlockMessage, ProcessTxRequest,
+    ProcessTxResponse,
+};
+use near_network::shards_manager::ShardsManagerRequestFromNetwork;
+use near_network::state_witness::{
+    ChunkContractAccessesMessage, ChunkStateWitnessAckMessage, ContractCodeRequestMessage,
+    ContractCodeResponseMessage, PartialEncodedContractDeploysMessage,
+    PartialEncodedStateWitnessForwardMessage, PartialEncodedStateWitnessMessage,
+    PartialWitnessSenderForNetwork,
+};
+use near_network::types::{
+    NetworkRequests, NetworkResponses, PeerManagerMessageRequest, PeerManagerMessageResponse,
+    SetChainInfo, StateSyncEvent, Tier3Request,
+};
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
 use near_primitives::types::AccountId;
