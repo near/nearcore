@@ -159,7 +159,7 @@ impl TxGenerator {
                 ProcessTxResponse::ValidTx => true,
                 _ => {
                     tracing::debug!(target: "transaction-generator",
-                        request_rsp=format!("{res:?}"));
+                        request_rsp=?res);
                     false
                 }
             },
