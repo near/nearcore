@@ -141,7 +141,10 @@ stop_nodes() {
 
 reset_forknet() {
     cd ${PYTEST_PATH}
-    $MIRROR --host-type nodes run-cmd --cmd "find ${NEAR_HOME}/data -mindepth 1 -delete ; rm -rf ${BENCHNET_DIR}"
+    $MIRROR --host-type nodes run-cmd --cmd "find ${NEAR_HOME}/data -mindepth 1 -delete ; rm -rf ${BENCHNET_DIR}/${USERS_DATA_DIR}"
+    if [ "${TX_GENERATOR}" = true ]; then
+        $MIRROR --host-type nodes run-cmd --cmd "jq 'del(.tx_generator)' ${CONFIG} > tmp.$$.json && mv tmp.$$.json ${CONFIG} || rm tmp.$$.json"
+    fi
     cd -
 }
 
@@ -472,7 +475,7 @@ stop_injection() {
     # Stop neard0 on all chunk producer nodes
     $MIRROR --host-filter ".*(${host_filter})" run-cmd --cmd "killall --wait neard0 || true"
     # Remove tx generator from config on all chunk producer nodes
-    $MIRROR --host-filter ".*(${host_filter})" run-cmd --cmd "jq 'del(.tx_generator)' ${CONFIG} >tmp.$$.json && mv tmp.$$.json ${1} || rm tmp.$$.json"
+    $MIRROR --host-filter ".*(${host_filter})" run-cmd --cmd "jq 'del(.tx_generator)' ${CONFIG} > tmp.$$.json && mv tmp.$$.json ${CONFIG} || rm tmp.$$.json"
     cd -
     echo "=> Done"
 }
