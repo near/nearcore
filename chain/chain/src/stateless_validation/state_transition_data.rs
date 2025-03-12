@@ -41,6 +41,7 @@ impl Chain {
 /// TODO(resharding): this doesn't work after shard layout change
 fn clear_before_last_final_block(
     chain_store: &ChainStore,
+    // hash map shard id -> block height; but several of the same keys are possible.
     last_final_block_chunk_created_heights: &[(ShardId, BlockHeight)],
 ) -> Result<(), Error> {
     let mut start_heights = if let Some(start_heights) =
@@ -50,6 +51,13 @@ fn clear_before_last_final_block(
     {
         start_heights
     } else {
+        // WHY: This is done once IIUC because mostly we'd use STATE_TRANSITION_START_HEIGHTS
+        // so probably we didn't want to have a completely separate implementation for this case
+        // (which would iterate over all DBCol::StateTransitionData and remove everything with
+        // height < max(last_final_block_chunk_created_heights) for shard).
+        // Also maybe iteration is more expensive than just trying to remove everything?
+        // It shouldn't matter if not all shards are in last_final_block_chunk_created_heights,
+        // since we can just skip over absent ones.
         compute_start_heights(chain_store)?
     };
     tracing::debug!(

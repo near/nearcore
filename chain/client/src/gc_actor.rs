@@ -84,6 +84,8 @@ impl GCActor {
             );
         }
 
+        // FIXME: Do we need the StateTransitionData clean for archival nodes?
+        //
         // An archival node with legacy storage or in the midst of migration to split
         // storage should do the legacy clear_archive_data.
         self.store.clear_archive_data(self.gc_config.gc_blocks_limit, self.runtime_adapter.clone())
