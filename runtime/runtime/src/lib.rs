@@ -148,6 +148,56 @@ pub struct ApplyState {
     pub bandwidth_requests: BlockBandwidthRequests,
 }
 
+/// Represents a single group of transactions (sharing the same signer_id and public_key)
+/// along with their indices in the original slice.
+pub struct TransactionGroup<'a> {
+    pub indices: Vec<usize>,
+    pub signed_txs: &'a [SignedTransaction],
+}
+
+/// Represents multiple groups of transactions. It provides a parallel iterator over
+/// each individual TransactionGroup.
+pub struct TransactionGroups<'a> {
+    groups: Vec<TransactionGroup<'a>>,
+}
+
+impl<'a> TransactionGroups<'a> {
+    /// Constructs TransactionGroups from a slice of SignedTransaction.
+    /// Transactions are sorted by (signer_id, public_key, nonce) and then grouped by (signer_id, public_key).
+    pub fn new(signed_txs: &'a [SignedTransaction]) -> Self {
+        let mut indices: Vec<usize> = (0..signed_txs.len()).collect();
+        indices.sort_by_key(|&i| {
+            let st = &signed_txs[i];
+            (st.transaction.signer_id(), st.transaction.public_key(), st.transaction.nonce())
+        });
+        let mut groups = Vec::new();
+        if indices.is_empty() {
+            return TransactionGroups { groups };
+        }
+        let mut current_group = vec![indices[0]];
+        for &idx in indices.iter().skip(1) {
+            let last_idx = *current_group.last().unwrap();
+            let prev = &signed_txs[last_idx];
+            let curr = &signed_txs[idx];
+            if prev.transaction.signer_id() == curr.transaction.signer_id()
+                && prev.transaction.public_key() == curr.transaction.public_key()
+            {
+                current_group.push(idx);
+            } else {
+                groups.push(TransactionGroup { indices: current_group, signed_txs });
+                current_group = vec![idx];
+            }
+        }
+        groups.push(TransactionGroup { indices: current_group, signed_txs });
+        TransactionGroups { groups }
+    }
+
+    /// Returns a parallel iterator over the grouped transactions.
+    pub fn par_grouped(&self) -> impl rayon::iter::ParallelIterator<Item = &TransactionGroup<'a>> {
+        self.groups.par_iter()
+    }
+}
+
 #[derive(Debug)]
 struct GroupResult {
     verified: Vec<(usize, ValidatedTransaction, VerificationResult, Receipt, ExecutionOutcomeWithId)>,
@@ -289,10 +339,16 @@ impl Runtime {
         debug!(target: "runtime", "{}", log_str);
     }
 
+    /// Processes a group of transactions (same signer_id and public_key), sorted by ascending nonce.
+    /// Validates, calculates cost, and performs checks sequentially.
+    /// If a transaction fails validation or verification, it invokes handle_invalid_transaction
+    /// and, if `RelaxedChunkValidation` is enabled, skips to the next transaction without failing
+    /// the whole group. The resulting state (`final_state`) contains `Account` and `AccessKey` after
+    /// the last successful transaction in the group to be committed to the `state_update`.
+    /// Returns a `GroupResult` containing verified transactions, final state, and signer_id.
     fn verify_grouped_transactions(
         &self,
-        group_indices: &[usize],
-        signed_txs: &[SignedTransaction],
+        group: &TransactionGroup,
         apply_state: &ApplyState,
         state_update: &TrieUpdate,
         gas_price: Balance,
@@ -300,16 +356,16 @@ impl Runtime {
         current_protocol_version: ProtocolVersion,
         mut temp_state: Option<(Account, AccessKey)>,
     ) -> Result<GroupResult, RuntimeError> {
-        let first_idx = group_indices[0];
-        let signer_id = signed_txs[first_idx].transaction.signer_id().clone();
-        let public_key = signed_txs[first_idx].transaction.public_key();
+        let first_idx = group.indices[0];
+        let signer_id = group.signed_txs[first_idx].transaction.signer_id().clone();
+        let public_key = group.signed_txs[first_idx].transaction.public_key();
 
-        let mut verified = Vec::with_capacity(group_indices.len());
-
-        for &idx in group_indices {
+        let mut verified = Vec::with_capacity(group.indices.len());
+        
+        for &idx in &group.indices {
             let validated_tx = match validate_transaction(
                 &apply_state.config,
-                signed_txs[idx].clone(),
+                group.signed_txs[idx].clone(),
                 current_protocol_version
             ) {
                 Ok(validated_tx) => validated_tx,
@@ -380,19 +436,12 @@ impl Runtime {
         })
     }
 
-    /// Takes one signed transaction, verifies it and converts it to a receipt.
+    /// Converts a validated and verified transaction into a receipt
     ///
-    /// Add the produced receipt either to the new local receipts if the signer is the same
-    /// as receiver or to the new outgoing receipts.
-    ///
-    /// When transaction is converted to a receipt, the account is charged for the full value of
-    /// the generated receipt.
-    ///
-    /// In case of successful verification, returns the receipt and `ExecutionOutcomeWithId` for
-    /// the transaction.
-    ///
-    /// In case of an error, returns either `InvalidTxError` if the transaction verification failed
-    /// or a `StorageError` wrapped into `RuntimeError`.
+    /// Returns the generated receipt and the associated execution outcome.
+    /// 
+    /// The account is already charged for the full value of
+    /// the generated receipt during the verification process.
     #[instrument(target = "runtime", level = "debug", "process_transaction", skip_all, fields(
         tx_hash = %validated_tx.get_hash(),
         gas_burnt = tracing::field::Empty,
@@ -1748,45 +1797,24 @@ impl Runtime {
         let apply_state = &mut processing_state.apply_state;
         let state_update = &mut processing_state.state_update;
 
-        let signed_txs = processing_state
-            .transactions
-            .transactions
-            .into_iter()
-            .cloned()
-            .collect::<Vec<_>>();
+        let tx_groups = TransactionGroups::new(
+            processing_state.transactions.transactions
+        );
 
-        let mut indices: Vec<usize> = (0..signed_txs.len()).collect();
-        indices.sort_by_key(|&i| {
-            let st = &signed_txs[i];
-            (
-                st.transaction.signer_id(),
-                st.transaction.public_key(),
-                st.transaction.nonce(),
-            )
-        });
-
-        // grouping by (signer_id, public_key)
-        let grouped = indices.par_chunk_by(|&left_idx, &right_idx| {
-            let left = &signed_txs[left_idx];
-            let right = &signed_txs[right_idx];
-            left.transaction.signer_id() == right.transaction.signer_id() 
-                && left.transaction.public_key() == right.transaction.public_key()
-        });
-
-        let group_outcomes: Vec<Result<GroupResult, RuntimeError>> = grouped
-        .map(|chunk_indices| {
-            self.verify_grouped_transactions(
-                chunk_indices,
-                &signed_txs,
-                &apply_state,
-                state_update,
-                apply_state.gas_price,
-                apply_state.block_height,
-                apply_state.current_protocol_version,
-                None,
-            )
-        })
-        .collect();
+        let group_outcomes: Vec<Result<GroupResult, RuntimeError>> = tx_groups
+            .par_grouped()
+            .map(|group| {
+                self.verify_grouped_transactions(
+                    group,
+                    &apply_state,
+                    state_update,
+                    apply_state.gas_price,
+                    apply_state.block_height,
+                    apply_state.current_protocol_version,
+                    None,
+                )
+            })
+            .collect();
 
         for group_outcome in group_outcomes {
             let group_result = match group_outcome {
@@ -1833,7 +1861,8 @@ impl Runtime {
                     }
                 }
 
-                // Forward or buffer the receipt
+                // Add the produced receipt either to the new local receipts if
+                // the signer is the same as receiver or to the new outgoing receipts.
                 if receipt.receiver_id() == tx.to_tx().signer_id() {
                     processing_state.local_receipts.push_back(receipt);
                 } else if let Err(_) = receipt_sink.forward_or_buffer_receipt(
