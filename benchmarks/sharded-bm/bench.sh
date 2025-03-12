@@ -360,7 +360,7 @@ create_sub_accounts() {
         --nonce ${nonce} \
         --sub-account-prefix ${prefix} \
         --num-sub-accounts ${num_accounts} \
-        --deposit 953060601875000000010000 \
+        --deposit 9530606018750000000100000000 \
         --channel-buffer-size 1200 \
         --requests-per-second 250 \
         --user-data-dir ${data_dir}
