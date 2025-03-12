@@ -505,32 +505,21 @@ impl ChainStore {
         protocol_version: ProtocolVersion,
         prev_block_header: &BlockHeader,
         chunk: &ShardChunk,
-    ) -> Result<Vec<bool>, Error> {
-        let relaxed_chunk_validation =
-            near_primitives::checked_feature!("stable", RelaxedChunkValidation, protocol_version);
+    ) -> Vec<bool> {
         if near_primitives::checked_feature!("stable", AccessKeyNonceRange, protocol_version) {
-            let mut valid_txs = Vec::with_capacity(chunk.transactions().len());
-            if relaxed_chunk_validation {
-                for transaction in chunk.transactions() {
-                    let is_valid = self.check_transaction_validity_period(
-                        prev_block_header,
-                        transaction.transaction.block_hash(),
-                    );
-                    valid_txs.push(is_valid.is_ok());
-                }
-            } else {
-                for transaction in chunk.transactions() {
+            chunk
+                .transactions()
+                .into_iter()
+                .map(|tx| {
                     self.check_transaction_validity_period(
                         prev_block_header,
-                        transaction.transaction.block_hash(),
+                        tx.transaction.block_hash(),
                     )
-                    .map_err(|_| Error::from(Error::InvalidTransactions))?;
-                    valid_txs.push(true);
-                }
-            }
-            Ok(valid_txs)
+                    .is_ok()
+                })
+                .collect::<Vec<_>>()
         } else {
-            Ok(vec![true; chunk.transactions().len()])
+            vec![true; chunk.transactions().len()]
         }
     }
 }

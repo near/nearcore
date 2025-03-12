@@ -36,9 +36,7 @@ pub use crate::update_shard::{
     apply_new_chunk, apply_old_chunk,
 };
 use crate::update_shard::{ShardUpdateReason, ShardUpdateResult, process_shard_update};
-use crate::validate::{
-    validate_challenge, validate_chunk_with_chunk_extra, validate_transactions_order,
-};
+use crate::validate::{validate_challenge, validate_chunk_with_chunk_extra};
 use crate::{
     BlockStatus, ChainGenesis, Doomslug, Provenance, byzantine_assert,
     create_light_client_block_view,
@@ -2950,18 +2948,12 @@ impl Chain {
     ) -> Result<Vec<bool>, Error> {
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(prev_block_header.hash())?;
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
-        let relaxed_chunk_validation =
-            checked_feature!("stable", RelaxedChunkValidation, protocol_version);
 
-        if !relaxed_chunk_validation {
-            if !validate_transactions_order(chunk.transactions()) {
-                return Err(Error::InvalidChunkTransactionsOrder(
-                    MaybeEncodedShardChunk::Decoded(chunk.clone()).into(),
-                ));
-            }
-        }
-
-        self.chain_store().compute_transaction_validity(protocol_version, prev_block_header, chunk)
+        Ok(self.chain_store().compute_transaction_validity(
+            protocol_version,
+            prev_block_header,
+            chunk,
+        ))
     }
 
     pub fn transaction_validity_check<'a>(

@@ -86,15 +86,8 @@ fn test_invalid_transactions_no_panic() {
                 assert!(matches!(res, ProcessTxResponse::ValidTx))
             }
 
-            let (
-                ProduceChunkResult {
-                    chunk,
-                    encoded_chunk_parts_paths,
-                    receipts,
-                    transactions_storage_proof,
-                },
-                _,
-            ) = create_chunk_with_transactions(client, transactions);
+            let (ProduceChunkResult { chunk, encoded_chunk_parts_paths, receipts }, _) =
+                create_chunk_with_transactions(client, transactions);
 
             let shard_chunk = client
                 .persist_and_distribute_encoded_chunk(
@@ -120,7 +113,6 @@ fn test_invalid_transactions_no_panic() {
                     prev_block.header(),
                     &prev_chunk_header,
                     &shard_chunk,
-                    transactions_storage_proof,
                     &client.validator_signer.get(),
                 )
                 .unwrap();
