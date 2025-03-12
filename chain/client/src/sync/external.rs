@@ -1,6 +1,8 @@
 use crate::metrics;
+use anyhow::Context;
 use futures::TryStreamExt;
 use near_primitives::types::{EpochId, ShardId};
+use object_store::{ObjectStore as _, PutPayload};
 use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -53,7 +55,7 @@ pub enum ExternalConnection {
     GCS {
         // Used for uploading and listing state parts.
         // Requires valid credentials to be specified through env variable.
-        gcs_client: Arc<cloud_storage::Client>,
+        gcs_client: Arc<object_store::gcp::GoogleCloudStorage>,
         // Used for anonymously downloading state parts.
         reqwest_client: Arc<reqwest::Client>,
         bucket: String,
@@ -163,11 +165,10 @@ impl ExternalConnection {
                 tracing::debug!(target: "state_sync_dump", ?shard_id, part_length = data.len(), ?location, ?file_type, "Wrote a state part to a file");
                 Ok(())
             }
-            ExternalConnection::GCS { gcs_client, bucket, .. } => {
-                gcs_client
-                    .object()
-                    .create(bucket, data.to_vec(), location, "application/octet-stream")
-                    .await?;
+            ExternalConnection::GCS { gcs_client, .. } => {
+                let path = object_store::path::Path::parse(location)
+                    .with_context(|| format!("{location} isn't a valid path for GCP"))?;
+                gcs_client.put(&path, PutPayload::from_bytes(data.to_vec().into())).await?;
                 tracing::debug!(target: "state_sync_dump", ?shard_id, part_length = data.len(), ?location, ?file_type, "Wrote a state part to GCS");
                 Ok(())
             }
@@ -218,27 +219,18 @@ impl ExternalConnection {
                 }
                 Ok(file_names)
             }
-            ExternalConnection::GCS { gcs_client, bucket, .. } => {
+            ExternalConnection::GCS { gcs_client, .. } => {
                 let prefix = format!("{}/", directory_path);
                 tracing::debug!(target: "state_sync_dump", ?shard_id, ?directory_path, "List state parts in GCS");
                 Ok(gcs_client
-                    .object()
-                    .list(
-                        bucket,
-                        cloud_storage::ListRequest { prefix: Some(prefix), ..Default::default() },
-                    )
-                    .await?
-                    .try_collect::<Vec<cloud_storage::object::ObjectList>>()
+                    .list(Some(
+                        &object_store::path::Path::parse(&prefix)
+                            .with_context(|| format!("can't parse {prefix} as path"))?,
+                    ))
+                    .try_collect::<Vec<_>>()
                     .await?
                     .into_iter()
-                    .map(|object_list| {
-                        object_list
-                            .items
-                            .into_iter()
-                            .map(|obj| Self::extract_file_name_from_full_path(obj.name))
-                            .collect::<Vec<String>>()
-                    })
-                    .flatten()
+                    .map(|object| object.location.filename().unwrap().into())
                     .collect())
             }
         }
@@ -446,10 +438,16 @@ mod test {
         tracing::debug!("Filename: {:?}", filename);
 
         // Define bucket.
+        let bucket = String::from("state-parts");
         let connection = ExternalConnection::GCS {
-            gcs_client: std::sync::Arc::new(cloud_storage::Client::default()),
+            gcs_client: std::sync::Arc::new(
+                object_store::gcp::GoogleCloudStorageBuilder::new()
+                    .with_bucket_name(&bucket)
+                    .build()
+                    .unwrap(),
+            ),
             reqwest_client: std::sync::Arc::new(reqwest::Client::default()),
-            bucket: "state-parts".to_string(),
+            bucket,
         };
 
         // Generate random data.
