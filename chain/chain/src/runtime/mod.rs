@@ -779,14 +779,14 @@ impl RuntimeAdapter for NightshadeRuntime {
                         protocol_version,
                     )
                 })
-                .and_then(|vr| {
+                .and_then(|verification_res| {
                     commit_charging_for_tx(
                         &mut state_update,
                         &validated_tx,
-                        &vr.signer,
-                        &vr.access_key,
+                        &verification_res.signer,
+                        &verification_res.access_key,
                     );
-                    Ok(vr)
+                    Ok(verification_res)
                 });
 
                 match verify_result {
