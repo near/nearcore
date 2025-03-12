@@ -1,19 +1,19 @@
 {
     "chunk_producers": 5,
     "rpcs": 1,
-    "num_accounts": 200,
+    "num_accounts": 100,
     "channel_buffer_size": 30000,
     "requests_per_second": 500,
     "num_transfers": 100000,
     "tx_generator": {
         "enabled": true,
-        "tps": 4000,
+        "tps": 16000,
         "volume": 0
     },
     "forknet": {
         "name": "tps5shards",
         "start_height": "138038233",
         "binary_url": "https://s3-us-west-1.amazonaws.com/build.nearprotocol.com/nearcore/Linux/tx-generator-neard/neard",
-        "rpc": "mocknet-mainnet-138038233-tps5shards-72b3"
+        "rpc": "mocknet-mainnet-138038233-tps5shards-c3d1"
     }
 }
