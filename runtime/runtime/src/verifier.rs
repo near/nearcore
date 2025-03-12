@@ -1,6 +1,6 @@
+use crate::VerificationResult;
 use crate::config::{TransactionCost, total_prepaid_gas};
 use crate::near_primitives::account::Account;
-use crate::VerificationResult;
 use near_crypto::key_conversion::is_valid_staking_key;
 use near_parameters::RuntimeConfig;
 use near_primitives::account::{AccessKey, AccessKeyPermission};
@@ -797,7 +797,7 @@ mod tests {
             &transaction_cost,
             block_height,
             current_protocol_version,
-            None
+            None,
         )?;
         commit_charging_for_tx(state_update, &validated_tx, &vr.signer, &vr.access_key);
         Ok(vr)
@@ -1303,6 +1303,7 @@ mod tests {
         )
         .expect_err("expected an error");
         let account = get_account(&state_update, &account_id).unwrap().unwrap();
+
         assert_eq!(
             err,
             InvalidTxError::LackBalanceForState {

@@ -27,8 +27,7 @@ use near_primitives::checked_feature;
 use near_primitives::chunk_apply_stats::{BalanceStats, ChunkApplyStatsV0};
 use near_primitives::congestion_info::{BlockCongestionInfo, CongestionInfo};
 use near_primitives::errors::{
-    ActionError, ActionErrorKind, EpochError, IntegerOverflowError, RuntimeError,
-    TxExecutionError,
+    ActionError, ActionErrorKind, EpochError, IntegerOverflowError, RuntimeError, TxExecutionError,
 };
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{
@@ -200,7 +199,8 @@ impl<'a> TransactionGroups<'a> {
 
 #[derive(Debug)]
 struct GroupResult {
-    verified: Vec<(usize, ValidatedTransaction, VerificationResult, Receipt, ExecutionOutcomeWithId)>,
+    verified:
+        Vec<(usize, ValidatedTransaction, VerificationResult, Receipt, ExecutionOutcomeWithId)>,
     final_state: Option<(Account, AccessKey)>,
     signer_id: AccountId,
     public_key: near_crypto::PublicKey,
@@ -361,17 +361,17 @@ impl Runtime {
         let public_key = group.signed_txs[first_idx].transaction.public_key();
 
         let mut verified = Vec::with_capacity(group.indices.len());
-        
+
         for &idx in &group.indices {
             let validated_tx = match validate_transaction(
                 &apply_state.config,
                 group.signed_txs[idx].clone(),
-                current_protocol_version
+                current_protocol_version,
             ) {
                 Ok(validated_tx) => validated_tx,
                 Err((e, tx)) => {
                     Self::handle_invalid_transaction(
-                        e, 
+                        e,
                         &tx.get_hash(),
                         current_protocol_version,
                         "transaction validation failed",
@@ -384,12 +384,12 @@ impl Runtime {
                 &apply_state.config,
                 &validated_tx,
                 gas_price,
-                current_protocol_version
+                current_protocol_version,
             ) {
                 Ok(cost) => cost,
                 Err(e) => {
                     Self::handle_invalid_transaction(
-                        e, 
+                        e,
                         &validated_tx.get_hash(),
                         current_protocol_version,
                         "transaction cost calculation failed",
@@ -410,16 +410,13 @@ impl Runtime {
                 Ok(vr) => {
                     // store ephemeral updates for next transaction
                     temp_state = Some((vr.signer.clone(), vr.access_key.clone()));
-                    let (receipt, outcome) = self.process_transaction(
-                        apply_state,
-                        &validated_tx,
-                        &vr,
-                    );
+                    let (receipt, outcome) =
+                        self.process_transaction(apply_state, &validated_tx, &vr);
                     verified.push((idx, validated_tx, vr, receipt, outcome));
                 }
                 Err(err) => {
                     Self::handle_invalid_transaction(
-                        err, 
+                        err,
                         &validated_tx.get_hash(),
                         current_protocol_version,
                         "transaction cost calculation failed",
@@ -439,7 +436,7 @@ impl Runtime {
     /// Converts a validated and verified transaction into a receipt
     ///
     /// Returns the generated receipt and the associated execution outcome.
-    /// 
+    ///
     /// The account is already charged for the full value of
     /// the generated receipt during the verification process.
     #[instrument(target = "runtime", level = "debug", "process_transaction", skip_all, fields(
@@ -1797,9 +1794,7 @@ impl Runtime {
         let apply_state = &mut processing_state.apply_state;
         let state_update = &mut processing_state.state_update;
 
-        let tx_groups = TransactionGroups::new(
-            processing_state.transactions.transactions
-        );
+        let tx_groups = TransactionGroups::new(processing_state.transactions.transactions);
 
         let group_outcomes: Vec<Result<GroupResult, RuntimeError>> = tx_groups
             .par_grouped()
@@ -1819,9 +1814,7 @@ impl Runtime {
         for group_outcome in group_outcomes {
             let group_result = match group_outcome {
                 Ok(group_result) => group_result,
-                Err(e) => {
-                    return Err(e)
-                }
+                Err(e) => return Err(e),
             };
 
             if let Some((account, access_key)) = group_result.final_state {
@@ -1833,16 +1826,16 @@ impl Runtime {
                     &access_key,
                 );
 
-                let last_tx_hash = group_result.verified
+                let last_tx_hash = group_result
+                    .verified
                     .last()
                     .map(|(_, tx, _, _, _)| tx.get_hash())
                     .unwrap_or(CryptoHash::default());
-                state_update.commit(StateChangeCause::TransactionProcessing {
-                    tx_hash: last_tx_hash,
-                });
+                state_update
+                    .commit(StateChangeCause::TransactionProcessing { tx_hash: last_tx_hash });
             }
 
-            for (_, tx, verification_result, receipt, outcome) in group_result.verified {                        
+            for (_, tx, verification_result, receipt, outcome) in group_result.verified {
                 match safe_add_balance(
                     processing_state.stats.balance.tx_burnt_amount,
                     verification_result.burnt_amount,
