@@ -18,6 +18,7 @@ use tokio::task;
 pub mod account;
 #[cfg(feature = "with_actix")]
 pub mod actix_actor;
+// cspell:words welford
 mod welford;
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
