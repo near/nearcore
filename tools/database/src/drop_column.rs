@@ -3,6 +3,7 @@ use clap::Parser;
 use dialoguer::Confirm;
 use std::path::PathBuf;
 
+// TODO: remove this cmd once we have a proper way to rollback migration
 #[derive(Parser)]
 pub(crate) struct DropColumnCommand {
     /// Column name, e.g. 'ChunkApplyStats'.
