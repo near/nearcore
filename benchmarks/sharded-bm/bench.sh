@@ -70,6 +70,7 @@ if [ "${RUN_ON_FORKNET}" = true ]; then
     FORKNET_RPC_NODE_ID=$(jq -r ".forknet.rpc" ${BM_PARAMS})
     FORKNET_NEARD_LOG="/home/ubuntu/neard-logs/logs.txt"
     FORKNET_NEARD_PATH="${NEAR_HOME}/neard-runner/binaries/neard0"
+    UPDATE_BINARIES="${UPDATE_BINARIES:-false}"
     NUM_SHARDS=$(jq '.shard_layout.V2.shard_ids | length' ${GENESIS} 2>/dev/null) || true
     NODE_BINARY_URL=$(jq -r '.forknet.binary_url' ${BM_PARAMS})
     VALIDATOR_KEY=${NEAR_HOME}/validator_key.json
@@ -194,7 +195,9 @@ fetch_forknet_details() {
 init_forknet() {
     cd ${PYTEST_PATH}
     $MIRROR init-neard-runner --neard-binary-url ${NODE_BINARY_URL} --neard-upgrade-binary-url ""
-    $MIRROR --host-type nodes update-binaries || true
+    if [ "${UPDATE_BINARIES}" = true ]; then
+        $MIRROR --host-type nodes update-binaries || true
+    fi
     $MIRROR --host-type nodes run-cmd --cmd "mkdir -p ${BENCHNET_DIR}"
     $MIRROR --host-type nodes upload-file --src ${SYNTH_BM_BIN} --dst ${BENCHNET_DIR}
     $MIRROR --host-type nodes run-cmd --cmd "chmod +x ${BENCHNET_DIR}/near-synth-bm"
