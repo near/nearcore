@@ -1,6 +1,7 @@
 use itertools::Itertools;
 use near_chain_configs::test_genesis::TestGenesisBuilder;
 use std::collections::HashSet;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use tempfile::TempDir;
@@ -51,14 +52,10 @@ pub(crate) struct TestLoopBuilder {
     genesis: Option<Genesis>,
     epoch_config_store: Option<EpochConfigStore>,
     clients: Vec<AccountId>,
-    /// Overrides the stores; rather than constructing fresh new stores, use
-    /// the provided ones (to test with existing data).
-    /// Each element in the vector is (hot_store, split_store).
-    stores_override: Option<Vec<(Store, Option<Store>)>>,
     /// Overrides the directory used for test loop shared data; rather than
     /// constructing fresh new tempdir, use the provided one (to test with
     /// existing data from a previous test loop run).
-    test_loop_data_dir: Option<TempDir>,
+    test_loop_data_dir: TempDir,
     /// Accounts whose clients should be configured as an archival node.
     /// This should be a subset of the accounts in the `clients` list.
     archival_clients: HashSet<AccountId>,
@@ -85,8 +82,7 @@ impl TestLoopBuilder {
             genesis: None,
             epoch_config_store: None,
             clients: vec![],
-            stores_override: None,
-            test_loop_data_dir: None,
+            test_loop_data_dir: tempfile::tempdir().unwrap(),
             archival_clients: HashSet::new(),
             gc_num_epochs_to_keep: None,
             runtime_config_store: None,
@@ -131,19 +127,6 @@ impl TestLoopBuilder {
         self
     }
 
-    /// Uses the provided stores instead of generating new ones.
-    /// Each element in the vector is (hot_store, split_store).
-    pub fn stores_override(mut self, stores: Vec<(Store, Option<Store>)>) -> Self {
-        self.stores_override = Some(stores);
-        self
-    }
-
-    /// Like stores_override, but all cold stores are None.
-    pub fn stores_override_hot_only(mut self, stores: Vec<Store>) -> Self {
-        self.stores_override = Some(stores.into_iter().map(|store| (store, None)).collect());
-        self
-    }
-
     /// Set the accounts whose clients should be configured as archival nodes in the test loop.
     /// These accounts should be a subset of the accounts provided to the `clients` method.
     pub(crate) fn archival_clients(mut self, clients: HashSet<AccountId>) -> Self {
@@ -169,6 +152,7 @@ impl TestLoopBuilder {
     /// Note that this can cause unexpected issues, as the chain behaves
     /// somewhat differently (and correctly so) at genesis. So only skip
     /// warmup if you are interested in the behavior of starting from genesis.
+    #[allow(dead_code)]
     pub fn skip_warmup(self) -> Self {
         self.warmup_pending.store(false, Ordering::Relaxed);
         self
@@ -184,13 +168,6 @@ impl TestLoopBuilder {
         self
     }
 
-    /// Overrides the tempdir (which contains state dump, etc.) instead
-    /// of creating a new one.
-    pub fn test_loop_data_dir(mut self, dir: TempDir) -> Self {
-        self.test_loop_data_dir = Some(dir);
-        self
-    }
-
     pub fn protocol_upgrade_schedule(mut self, schedule: ProtocolUpgradeVotingSchedule) -> Self {
         self.upgrade_schedule = schedule;
         self
@@ -198,11 +175,7 @@ impl TestLoopBuilder {
 
     /// Build the test loop environment.
     pub(crate) fn build(self) -> TestLoopEnv {
-        self.ensure_genesis()
-            .ensure_epoch_config_store()
-            .ensure_clients()
-            .ensure_tempdir()
-            .build_impl()
+        self.ensure_genesis().ensure_epoch_config_store().ensure_clients().build_impl()
     }
 
     fn ensure_genesis(self) -> Self {
@@ -221,11 +194,6 @@ impl TestLoopBuilder {
             self.archival_clients.is_subset(&HashSet::from_iter(self.clients.iter().cloned())),
             "Archival accounts must be subset of the clients"
         );
-        self
-    }
-
-    fn ensure_tempdir(mut self) -> Self {
-        self.test_loop_data_dir.get_or_insert_with(|| tempfile::tempdir().unwrap());
         self
     }
 
@@ -255,7 +223,7 @@ impl TestLoopBuilder {
     fn setup_shared_state(self) -> (TestLoopV2, SharedState) {
         let shared_state = SharedState {
             genesis: self.genesis.unwrap(),
-            tempdir: self.test_loop_data_dir.unwrap(),
+            tempdir: self.test_loop_data_dir,
             epoch_config_store: self.epoch_config_store.unwrap(),
             runtime_config_store: self.runtime_config_store,
             network_shared_state: TestLoopNetworkSharedState::new(),
@@ -270,30 +238,79 @@ impl TestLoopBuilder {
 
     fn setup_node_state(&mut self, idx: usize) -> NodeState {
         let account_id = self.clients[idx].clone();
-        let client_config = self.setup_client_config(idx);
-        let (store, split_store) = self.setup_store(idx);
-        NodeState { account_id, client_config, store, split_store }
+        let genesis = self.genesis.as_ref().unwrap();
+        let is_archival = self.archival_clients.contains(&account_id);
+        let config_modifier = |client_config: &mut ClientConfig| {
+            if let Some(num_epochs) = self.gc_num_epochs_to_keep {
+                client_config.gc.gc_num_epochs_to_keep = num_epochs;
+            }
+
+            // Configure tracked shards.
+            // * single shard tracking for validators
+            // * all shard tracking for non-validators (RPCs and archival)
+            let is_validator = genesis.config.validators.iter().any(|v| v.account_id == account_id);
+            if is_validator && !self.track_all_shards {
+                client_config.tracked_shards = Vec::new();
+            } else {
+                client_config.tracked_shards = vec![ShardId::new(666)];
+            }
+
+            if let Some(config_modifier) = &self.config_modifier {
+                config_modifier(client_config, idx);
+            }
+        };
+        let tempdir_path = self.test_loop_data_dir.path().to_path_buf();
+        NodeStateBuilder::new(genesis.clone(), tempdir_path)
+            .account_id(account_id.clone())
+            .archive(is_archival)
+            .config_modifier(config_modifier)
+            .build()
+    }
+}
+
+pub struct NodeStateBuilder<'a> {
+    genesis: Genesis,
+    tempdir_path: PathBuf,
+
+    account_id: Option<AccountId>,
+    archive: bool,
+    config_modifier: Option<Box<dyn Fn(&mut ClientConfig) + 'a>>,
+}
+
+impl<'a> NodeStateBuilder<'a> {
+    pub fn new(genesis: Genesis, tempdir_path: PathBuf) -> Self {
+        Self { genesis, tempdir_path, account_id: None, archive: false, config_modifier: None }
     }
 
-    fn setup_client_config(&mut self, idx: usize) -> ClientConfig {
-        let account_id = &self.clients[idx];
-        let is_archival = self.archival_clients.contains(account_id);
+    pub fn account_id(mut self, account_id: AccountId) -> Self {
+        self.account_id = Some(account_id);
+        self
+    }
 
-        let genesis = self.genesis.as_ref().unwrap();
-        let tempdir = self.test_loop_data_dir.as_ref().unwrap();
-        let mut client_config = ClientConfig::test(true, 600, 2000, 4, is_archival, true, false);
-        client_config.epoch_length = genesis.config.epoch_length;
+    pub fn archive(mut self, archive: bool) -> Self {
+        self.archive = archive;
+        self
+    }
+
+    pub fn config_modifier(mut self, modifier: impl Fn(&mut ClientConfig) + 'a) -> Self {
+        self.config_modifier = Some(Box::new(modifier));
+        self
+    }
+
+    pub fn build(self) -> NodeState {
+        let (store, split_store) = self.setup_store();
+        let account_id = self.account_id.unwrap();
+
+        let mut client_config = ClientConfig::test(true, 600, 2000, 4, self.archive, true, false);
+        client_config.epoch_length = self.genesis.config.epoch_length;
         client_config.max_block_wait_delay = Duration::seconds(6);
         client_config.state_sync_enabled = true;
         client_config.state_sync_external_timeout = Duration::milliseconds(100);
         client_config.state_sync_p2p_timeout = Duration::milliseconds(100);
         client_config.state_sync_retry_backoff = Duration::milliseconds(100);
         client_config.state_sync_external_backoff = Duration::milliseconds(100);
-        if let Some(num_epochs) = self.gc_num_epochs_to_keep {
-            client_config.gc.gc_num_epochs_to_keep = num_epochs;
-        }
         let external_storage_location =
-            ExternalStorageLocation::Filesystem { root_dir: tempdir.path().join("state_sync") };
+            ExternalStorageLocation::Filesystem { root_dir: self.tempdir_path.join("state_sync") };
         client_config.state_sync = StateSyncConfig {
             dump: Some(DumpConfig {
                 iteration_delay: Some(Duration::seconds(1)),
@@ -313,39 +330,22 @@ impl TestLoopBuilder {
             }),
         };
 
-        // Configure tracked shards.
-        // * single shard tracking for validators
-        // * all shard tracking for non-validators (RPCs and archival)
-        let is_validator =
-            genesis.config.validators.iter().any(|validator| validator.account_id == *account_id);
-        if is_validator && !self.track_all_shards {
-            client_config.tracked_shards = Vec::new();
-        } else {
-            client_config.tracked_shards = vec![ShardId::new(666)];
+        if let Some(config_modifier) = self.config_modifier {
+            config_modifier(&mut client_config);
         }
 
-        if let Some(config_modifier) = &self.config_modifier {
-            config_modifier(&mut client_config, idx);
-        }
-
-        client_config
+        NodeState { account_id, client_config, store, split_store }
     }
 
-    fn setup_store(&mut self, idx: usize) -> (Store, Option<Store>) {
-        let account_id = &self.clients[idx];
-        let is_archival = self.archival_clients.contains(account_id);
-
-        let (store, split_store) = if let Some(stores_override) = &self.stores_override {
-            stores_override[idx].clone()
-        } else if is_archival {
+    fn setup_store(&self) -> (Store, Option<Store>) {
+        let (store, split_store) = if self.archive {
             let (hot_store, split_store) = create_test_split_store();
             (hot_store, Some(split_store))
         } else {
             (create_test_store(), None)
         };
 
-        let genesis = self.genesis.as_ref().unwrap();
-        initialize_genesis_state(store.clone(), genesis, None);
+        initialize_genesis_state(store.clone(), &self.genesis, None);
         (store, split_store)
     }
 }
@@ -434,8 +434,8 @@ pub fn setup_client(
         chunks_storage: chunks_storage.clone(),
     });
 
-    // Generate a PeerId. It doesn't matter what this is. We're just making it based on
-    // the account ID, so that it is stable across multiple runs in the same test.
+    // Generate a PeerId. This is used to identify the client in the network.
+    // Make sure this is the same as the account_id of the client to redirect the network messages properly.
     let peer_id = PeerId::new(create_test_signer(account_id.as_str()).public_key());
 
     let client = Client::new(
@@ -599,6 +599,7 @@ pub fn setup_client(
         test_loop.data.register_actor(identifier, peer_manager_actor, Some(network_adapter));
 
     let data = TestData {
+        identifier: identifier.to_string(),
         account_id,
         peer_id,
         client_sender,
@@ -610,6 +611,8 @@ pub fn setup_client(
     };
 
     // Add the client to the network shared state before returning data
+    // Note that this can potentially overwrite an existing client with the same account_id
+    // and all new messages would be redirected to the new client.
     network_shared_state.add_client(&data);
 
     // Register all accumulated drop conditions

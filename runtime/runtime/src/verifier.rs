@@ -14,7 +14,7 @@ use near_primitives::receipt::{ActionReceipt, DataReceipt, Receipt, ReceiptEnum}
 use near_primitives::transaction::{
     Action, AddKeyAction, DeployContractAction, FunctionCallAction, SignedTransaction, StakeAction,
 };
-use near_primitives::transaction::{DeleteAccountAction, Transaction, ValidatedTransaction};
+use near_primitives::transaction::{DeleteAccountAction, ValidatedTransaction};
 use near_primitives::types::{AccountId, Balance};
 use near_primitives::types::{BlockHeight, StorageUsage};
 use near_primitives::version::ProtocolFeature;
@@ -104,10 +104,11 @@ pub fn validate_transaction(
 
 pub fn commit_charging_for_tx(
     state_update: &mut TrieUpdate,
-    tx: &Transaction,
+    validated_tx: &ValidatedTransaction,
     signer: &Account,
     access_key: &AccessKey,
 ) {
+    let tx = validated_tx.to_tx();
     set_access_key(state_update, tx.signer_id().clone(), tx.public_key().clone(), &access_key);
     set_account(state_update, tx.signer_id().clone(), &signer);
 }
@@ -786,7 +787,7 @@ mod tests {
             block_height,
             current_protocol_version,
         )?;
-        commit_charging_for_tx(state_update, validated_tx.to_tx(), &vr.signer, &vr.access_key);
+        commit_charging_for_tx(state_update, &validated_tx, &vr.signer, &vr.access_key);
         Ok(vr)
     }
 

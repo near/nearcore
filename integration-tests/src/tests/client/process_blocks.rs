@@ -15,7 +15,7 @@ use near_chain::validate::validate_chunk_with_chunk_extra;
 use near_chain::{Block, BlockProcessingArtifact, ChainStoreAccess, Error, Provenance};
 use near_chain::{ChainStore, MerkleProofAccess};
 use near_chain_configs::test_utils::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
-use near_chain_configs::{DEFAULT_GC_NUM_EPOCHS_TO_KEEP, Genesis, GenesisConfig, NEAR_BASE};
+use near_chain_configs::{DEFAULT_GC_NUM_EPOCHS_TO_KEEP, Genesis, NEAR_BASE};
 use near_client::test_utils::client::create_chunk_on_height;
 use near_client::{
     BlockApproval, BlockResponse, GetBlockWithMerkleTree, ProcessTxResponse, ProduceChunkResult,
@@ -75,6 +75,7 @@ use rand::{Rng, SeedableRng};
 use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
 use crate::env::setup::{setup_mock, setup_mock_all_validators};
 use crate::env::test_env::TestEnv;
+use crate::env::test_env_builder::TestEnvBuilder;
 use crate::utils::process_blocks::{
     deploy_test_contract, prepare_env_with_congestion, set_block_protocol_version,
 };
@@ -858,7 +859,7 @@ fn test_process_invalid_tx() {
 #[test]
 fn test_time_attack() {
     init_test_logger();
-    let mut env = TestEnv::default_builder().clients_count(1).mock_epoch_managers().build();
+    let mut env = TestEnv::default_builder_with_genesis().clients_count(1).build();
     let client = &mut env.clients[0];
     let signer = client.validator_signer.get().unwrap();
     let genesis = client.chain.get_block_by_height(0).unwrap();
@@ -876,7 +877,7 @@ fn test_time_attack() {
 
 #[test]
 fn test_no_double_sign() {
-    let mut env = TestEnv::default_builder().mock_epoch_managers().build();
+    let mut env = TestEnv::default_builder_with_genesis().build();
     let _ = env.clients[0].produce_block(1).unwrap().unwrap();
     // Second time producing with the same height should fail.
     assert_eq!(env.clients[0].produce_block(1).unwrap(), None);
@@ -885,9 +886,9 @@ fn test_no_double_sign() {
 #[test]
 fn test_invalid_gas_price() {
     init_test_logger();
-    let mut genesis_config = GenesisConfig::test(Clock::real());
-    genesis_config.min_gas_price = 100;
-    let mut env = TestEnv::builder(&genesis_config).clients_count(1).mock_epoch_managers().build();
+    let mut genesis = Genesis::test(vec!["test0".parse().unwrap()], 1);
+    genesis.config.min_gas_price = 100;
+    let mut env = TestEnv::builder_from_genesis(&genesis).clients_count(1).build();
     let client = &mut env.clients[0];
     let signer = client.validator_signer.get().unwrap();
 
@@ -902,7 +903,7 @@ fn test_invalid_gas_price() {
 
 #[test]
 fn test_invalid_height_too_large() {
-    let mut env = TestEnv::default_builder().mock_epoch_managers().build();
+    let mut env = TestEnv::default_builder_with_genesis().build();
     let b1 = env.clients[0].produce_block(1).unwrap().unwrap();
     let _ = env.clients[0].process_block_test(b1.clone().into(), Provenance::PRODUCED).unwrap();
     let signer = Arc::new(create_test_signer("test0"));
@@ -914,21 +915,27 @@ fn test_invalid_height_too_large() {
 /// Check that if block height is 5 epochs behind the head, it is not processed.
 #[test]
 fn test_invalid_height_too_old() {
-    let mut env = TestEnv::default_builder().mock_epoch_managers().build();
-    for i in 1..4 {
+    let mut genesis = Genesis::test(vec!["test0".parse().unwrap()], 1);
+    genesis.config.epoch_length = 5;
+    let mut env = TestEnv::builder_from_genesis(&genesis).build();
+    let unprocessed_height = 6;
+    for i in 1..unprocessed_height {
         env.produce_block(0, i);
     }
-    let block = env.clients[0].produce_block(4).unwrap().unwrap();
-    for i in 5..30 {
+    let block = env.clients[0].produce_block(unprocessed_height).unwrap().unwrap();
+    for i in (unprocessed_height + 1)..28 {
         env.produce_block(0, i);
     }
     let res = env.clients[0].process_block_test(block.into(), Provenance::NONE);
+    // GC for canonical chain cleans up previous blocks for a given height. So in this case
+    // block at height 5 will not be cleaned up by GC and we wouldn't get Orphan error here,
+    // although GC would clean up the respective epoch.
     assert_matches!(res.unwrap_err(), Error::InvalidBlockHeight(_));
 }
 
 #[test]
 fn test_bad_orphan() {
-    let mut env = TestEnv::default_builder().mock_epoch_managers().build();
+    let mut env = TestEnv::default_builder_with_genesis().build();
     for i in 1..4 {
         env.produce_block(0, i);
     }
@@ -1121,10 +1128,10 @@ fn test_bad_chunk_mask() {
 #[test]
 fn test_minimum_gas_price() {
     let min_gas_price = 100;
-    let mut genesis_config = GenesisConfig::test(Clock::real());
-    genesis_config.min_gas_price = min_gas_price;
-    genesis_config.gas_price_adjustment_rate = Ratio::new(1, 10);
-    let mut env = TestEnv::builder(&genesis_config).mock_epoch_managers().build();
+    let mut genesis = Genesis::test(vec!["test0".parse().unwrap()], 1);
+    genesis.config.min_gas_price = min_gas_price;
+    genesis.config.gas_price_adjustment_rate = Ratio::new(1, 10);
+    let mut env = TestEnv::builder_from_genesis(&genesis).build();
     for i in 1..=100 {
         env.produce_block(0, i);
     }
@@ -1392,22 +1399,22 @@ fn test_archival_gc_split_storage_behind() {
 
 #[test]
 fn test_gc_block_skips() {
-    let mut genesis_config = GenesisConfig::test(Clock::real());
-    genesis_config.epoch_length = 5;
-    let mut env = TestEnv::builder(&genesis_config).mock_epoch_managers().build();
+    let mut genesis = Genesis::test(vec!["test0".parse().unwrap()], 1);
+    genesis.config.epoch_length = 5;
+    let mut env = TestEnv::builder_from_genesis(&genesis).build();
     for i in 1..=1000 {
         if i % 2 == 0 {
             env.produce_block(0, i);
         }
     }
-    let mut env = TestEnv::builder(&genesis_config).mock_epoch_managers().build();
+    let mut env = TestEnv::builder_from_genesis(&genesis).build();
     for i in 1..=1000 {
         if i % 2 == 1 {
             env.produce_block(0, i);
         }
     }
     // Epoch skips
-    let mut env = TestEnv::builder(&genesis_config).mock_epoch_managers().build();
+    let mut env = TestEnv::builder_from_genesis(&genesis).build();
     for i in 1..=1000 {
         if i % 9 == 7 {
             env.produce_block(0, i);
@@ -1417,10 +1424,10 @@ fn test_gc_block_skips() {
 
 #[test]
 fn test_gc_chunk_tail() {
-    let mut genesis_config = GenesisConfig::test(Clock::real());
+    let mut genesis = Genesis::test(vec!["test0".parse().unwrap()], 1);
     let epoch_length = 100;
-    genesis_config.epoch_length = epoch_length;
-    let mut env = TestEnv::builder(&genesis_config).mock_epoch_managers().build();
+    genesis.config.epoch_length = epoch_length;
+    let mut env = TestEnv::builder_from_genesis(&genesis).build();
     let mut chunk_tail = 0;
     for i in (1..10).chain(101..epoch_length * 6) {
         env.produce_block(0, i);
@@ -1604,39 +1611,39 @@ fn test_gc_fork_tail() {
 
 #[test]
 fn test_tx_forwarding() {
-    let mut genesis_config = GenesisConfig::test(Clock::real());
-    genesis_config.epoch_length = 100;
-    let mut env = TestEnv::builder(&genesis_config)
-        .clients_count(50)
-        .validator_seats(50)
-        .mock_epoch_managers()
-        .build();
-    let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
-    let genesis_hash = *genesis_block.hash();
-    // forward to 2 chunk producers
+    let mut genesis = Genesis::test(TestEnvBuilder::make_accounts(50), 50);
+    genesis.config.epoch_length = 100;
+    let mut env =
+        TestEnv::builder_from_genesis(&genesis).clients_count(50).validator_seats(50).build();
+
+    let signer = InMemorySigner::test_signer(&"test0".parse().unwrap());
+    let tx = env.tx_from_actions(vec![], &signer, signer.get_account_id());
+
+    // client_index is picked so that with epoch_info rng tx wouldn't need to be forwarded to
+    // client itself.
+    let client_index = 1;
     assert_eq!(
-        env.clients[0].process_tx(SignedTransaction::empty(genesis_hash), false, false),
+        env.clients[client_index].process_tx(tx, false, false),
         ProcessTxResponse::RequestRouted
     );
-    assert_eq!(env.network_adapters[0].requests.read().unwrap().len(), 4);
+    assert_eq!(
+        env.network_adapters[client_index].requests.read().unwrap().len(),
+        env.clients[client_index].config.tx_routing_height_horizon as usize
+    );
 }
 
 #[test]
 fn test_tx_forwarding_no_double_forwarding() {
-    let mut genesis_config = GenesisConfig::test(Clock::real());
-    genesis_config.epoch_length = 100;
-    let mut env = TestEnv::builder(&genesis_config)
-        .clients_count(50)
-        .validator_seats(50)
-        .mock_epoch_managers()
-        .build();
-    let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
-    let genesis_hash = *genesis_block.hash();
+    let mut genesis = Genesis::test(TestEnvBuilder::make_accounts(50), 50);
+    genesis.config.epoch_length = 100;
+    let mut env =
+        TestEnv::builder_from_genesis(&genesis).clients_count(50).validator_seats(50).build();
+
+    let signer = InMemorySigner::test_signer(&"test0".parse().unwrap());
+    let tx = env.tx_from_actions(vec![], &signer, signer.get_account_id());
     // The transaction has already been forwarded, so it won't be forwarded again.
-    assert_eq!(
-        env.clients[0].process_tx(SignedTransaction::empty(genesis_hash), true, false),
-        ProcessTxResponse::NoResponse
-    );
+    let is_forwarded = true;
+    assert_eq!(env.clients[0].process_tx(tx, is_forwarded, false), ProcessTxResponse::NoResponse);
     assert!(env.network_adapters[0].requests.read().unwrap().is_empty());
 }
 
@@ -1900,7 +1907,7 @@ fn test_gas_price_overflow() {
 
 #[test]
 fn test_invalid_block_root() {
-    let mut env = TestEnv::default_builder().mock_epoch_managers().build();
+    let mut env = TestEnv::default_builder_with_genesis().build();
     let mut b1 = env.clients[0].produce_block(1).unwrap().unwrap();
     let signer = create_test_signer("test0");
     b1.mut_header().set_block_merkle_root(CryptoHash::default());
@@ -1923,7 +1930,7 @@ fn test_incorrect_validator_key_produce_block() {
 }
 
 fn test_block_merkle_proof_with_len(n: NumBlocks, rng: &mut StdRng) {
-    let mut env = TestEnv::default_builder().mock_epoch_managers().build();
+    let mut env = TestEnv::default_builder_with_genesis().build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
     let mut blocks = vec![genesis_block.clone()];
     let mut cur_height = genesis_block.header().height() + 1;
@@ -1993,7 +2000,7 @@ fn test_block_merkle_proof() {
 
 #[test]
 fn test_block_merkle_proof_same_hash() {
-    let env = TestEnv::default_builder().mock_epoch_managers().build();
+    let env = TestEnv::default_builder_with_genesis().build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
     let proof = env.clients[0]
         .chain
@@ -2111,7 +2118,7 @@ fn test_sync_hash_validity() {
 
 #[test]
 fn test_block_height_processed_orphan() {
-    let mut env = TestEnv::default_builder().mock_epoch_managers().build();
+    let mut env = TestEnv::default_builder_with_genesis().build();
     let block = env.clients[0].produce_block(1).unwrap().unwrap();
     let mut orphan_block = block;
     let validator_signer = create_test_signer("test0");
@@ -3374,7 +3381,7 @@ fn test_block_ordinal() {
     let epoch_length = 200;
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
-    let mut env = TestEnv::builder(&genesis.config).mock_epoch_managers().build();
+    let mut env = TestEnv::builder_from_genesis(&genesis).build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
     assert_eq!(genesis_block.header().block_ordinal(), 1);
     let mut ordinal = 1;
@@ -3713,7 +3720,7 @@ mod contract_precompilation_tests {
             block_height: EPOCH_LENGTH,
             prev_block_hash: *block.header().prev_hash(),
             block_hash: *block.hash(),
-            shard_id: shard_id,
+            shard_id,
             epoch_id: *block.header().epoch_id(),
             epoch_height: 1,
             block_timestamp: block.header().raw_timestamp(),

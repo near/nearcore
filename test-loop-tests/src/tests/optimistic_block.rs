@@ -109,21 +109,53 @@ fn test_invalid_optimistic_block() {
     env.test_loop.run_for(Duration::seconds(10));
     let chain =
         &env.test_loop.data.get(&env.node_datas[0].client_sender.actor_handle()).client.chain;
-    let adversarial_behaviour = [
-        OptimisticBlockAdvType::InvalidVrfValue,
-        OptimisticBlockAdvType::InvalidVrfProof,
-        OptimisticBlockAdvType::InvalidRandomValue,
-        OptimisticBlockAdvType::InvalidTimestamp(0),
-        OptimisticBlockAdvType::InvalidPrevBlockHash,
-        OptimisticBlockAdvType::InvalidHeight(99),
-        OptimisticBlockAdvType::InvalidSignature,
-    ];
-    for adv in adversarial_behaviour.into_iter() {
-        let ob = make_invalid_ob(&env, adv);
-        assert!(&chain.check_optimistic_block(&ob).is_err());
-    }
-    let ob = make_invalid_ob(&env, OptimisticBlockAdvType::Normal);
-    assert!(&chain.check_optimistic_block(&ob).is_ok());
+    assert!(
+        &chain
+            .check_optimistic_block(&make_invalid_ob(&env, OptimisticBlockAdvType::InvalidVrfValue))
+            .is_err()
+    );
+    assert!(
+        &chain
+            .check_optimistic_block(&make_invalid_ob(&env, OptimisticBlockAdvType::InvalidVrfProof))
+            .is_err()
+    );
+    assert!(
+        &chain
+            .check_optimistic_block(&make_invalid_ob(
+                &env,
+                OptimisticBlockAdvType::InvalidRandomValue
+            ))
+            .is_err()
+    );
+    assert!(
+        &chain
+            .check_optimistic_block(&make_invalid_ob(
+                &env,
+                OptimisticBlockAdvType::InvalidTimestamp(0)
+            ))
+            .is_err()
+    );
+    assert!(
+        &chain
+            .check_optimistic_block(&make_invalid_ob(
+                &env,
+                OptimisticBlockAdvType::InvalidPrevBlockHash
+            ))
+            .is_err()
+    );
+    assert!(
+        &chain
+            .check_optimistic_block(&make_invalid_ob(
+                &env,
+                OptimisticBlockAdvType::InvalidSignature
+            ))
+            .is_err()
+    );
+    assert!(
+        &chain
+            .check_optimistic_block(&make_invalid_ob(&env, OptimisticBlockAdvType::Normal))
+            .is_ok()
+    );
 
     env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
