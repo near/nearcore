@@ -82,7 +82,7 @@ pub const MIN_BLOCK_PROD_TIME: Duration = Duration::milliseconds(100);
 pub const MAX_BLOCK_PROD_TIME: Duration = Duration::milliseconds(200);
 
 /// Sets up ClientActor and ViewClientActor viewing the same store/runtime.
-pub fn setup(
+fn setup(
     clock: Clock,
     vs: ValidatorSchedule,
     epoch_length: BlockHeightDelta,
@@ -215,95 +215,6 @@ pub fn setup(
         view_client_addr,
         shards_manager_adapter.into_multi_sender(),
         partial_witness_adapter.into_multi_sender(),
-    )
-}
-
-pub fn setup_only_view(
-    clock: Clock,
-    vs: ValidatorSchedule,
-    epoch_length: BlockHeightDelta,
-    account_id: AccountId,
-    skip_sync_wait: bool,
-    min_block_prod_time: u64,
-    max_block_prod_time: u64,
-    enable_doomslug: bool,
-    archive: bool,
-    state_sync_enabled: bool,
-    network_adapter: PeerManagerAdapter,
-    transaction_validity_period: NumBlocks,
-) -> Addr<ViewClientActor> {
-    let store = create_test_store();
-    let num_validator_seats = vs.all_block_producers().count() as NumSeats;
-    let epoch_manager = MockEpochManager::new_with_validators(store.clone(), vs, epoch_length);
-    let shard_tracker = ShardTracker::new_empty(epoch_manager.clone());
-    let runtime = KeyValueRuntime::new_with_no_gc(store, epoch_manager.as_ref(), archive);
-    let chain_genesis = ChainGenesis {
-        time: clock.now_utc(),
-        height: 0,
-        gas_limit: 1_000_000,
-        min_gas_price: 100,
-        max_gas_price: 1_000_000_000,
-        total_supply: 3_000_000_000_000_000_000_000_000_000_000_000,
-        gas_price_adjustment_rate: Ratio::from_integer(0),
-        transaction_validity_period,
-        epoch_length,
-        protocol_version: PROTOCOL_VERSION,
-    };
-
-    let doomslug_threshold_mode = if enable_doomslug {
-        DoomslugThresholdMode::TwoThirds
-    } else {
-        DoomslugThresholdMode::NoApprovals
-    };
-    Chain::new(
-        clock.clone(),
-        epoch_manager.clone(),
-        shard_tracker.clone(),
-        runtime.clone(),
-        &chain_genesis,
-        doomslug_threshold_mode,
-        ChainConfig {
-            save_trie_changes: true,
-            background_migration_threads: 1,
-            resharding_config: MutableConfigValue::new(
-                ReshardingConfig::default(),
-                "resharding_config",
-            ),
-        },
-        None,
-        Arc::new(RayonAsyncComputationSpawner),
-        MutableConfigValue::new(None, "validator_signer"),
-        noop().into_multi_sender(),
-    )
-    .unwrap();
-
-    let signer = MutableConfigValue::new(
-        Some(Arc::new(create_test_signer(account_id.as_str()))),
-        "validator_signer",
-    );
-    ActixWrapper::new(TelemetryActor::default()).start();
-    let config = ClientConfig::test(
-        skip_sync_wait,
-        min_block_prod_time,
-        max_block_prod_time,
-        num_validator_seats,
-        archive,
-        true,
-        state_sync_enabled,
-    );
-
-    let adv = Controls::default();
-
-    ViewClientActorInner::spawn_actix_actor(
-        clock,
-        signer,
-        chain_genesis,
-        epoch_manager,
-        shard_tracker,
-        runtime,
-        network_adapter,
-        config,
-        adv,
     )
 }
 
