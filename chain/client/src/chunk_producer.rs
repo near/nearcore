@@ -17,7 +17,6 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{MerklePath, merklize};
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{EncodedShardChunk, ShardChunk, ShardChunkHeader};
-use near_primitives::state::PartialState;
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::chunk_extra::ChunkExtra;
@@ -49,7 +48,6 @@ pub struct ProduceChunkResult {
     pub chunk: EncodedShardChunk,
     pub encoded_chunk_parts_paths: Vec<MerklePath>,
     pub receipts: Vec<Receipt>,
-    pub transactions_storage_proof: Option<PartialState>,
 }
 
 /// Handles chunk production.
@@ -352,7 +350,6 @@ impl ChunkProducer {
             chunk: encoded_chunk,
             encoded_chunk_parts_paths: merkle_paths,
             receipts: outgoing_receipts,
-            transactions_storage_proof: prepared_transactions.storage_proof,
         }))
     }
 

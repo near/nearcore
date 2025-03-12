@@ -543,7 +543,7 @@ impl<'a> ChainUpdate<'a> {
                 protocol_version,
                 &prev_block_header,
                 &chunk,
-            )?
+            )
         } else {
             vec![true; transactions.len()]
         };

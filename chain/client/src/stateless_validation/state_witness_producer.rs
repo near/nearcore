@@ -12,7 +12,6 @@ use near_primitives::checked_feature;
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{ChunkHash, ReceiptProof, ShardChunk, ShardChunkHeader};
-use near_primitives::state::PartialState;
 use near_primitives::stateless_validation::contract_distribution::ContractUpdates;
 use near_primitives::stateless_validation::state_witness::{
     ChunkStateTransition, ChunkStateWitness,
@@ -59,7 +58,6 @@ impl Client {
         prev_block_header: &BlockHeader,
         prev_chunk_header: &ShardChunkHeader,
         chunk: &ShardChunk,
-        transactions_storage_proof: Option<PartialState>,
         validator_signer: &Option<Arc<ValidatorSigner>>,
     ) -> Result<(), Error> {
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(epoch_id)?;
@@ -79,7 +77,6 @@ impl Client {
                 prev_block_header,
                 prev_chunk_header,
                 chunk,
-                transactions_storage_proof,
             )?;
 
         if self.config.save_latest_witnesses {
@@ -122,12 +119,10 @@ impl Client {
         prev_block_header: &BlockHeader,
         prev_chunk_header: &ShardChunkHeader,
         chunk: &ShardChunk,
-        transactions_storage_proof: Option<PartialState>,
     ) -> Result<CreateWitnessResult, Error> {
         let chunk_header = chunk.cloned_header();
         let epoch_id =
             self.epoch_manager.get_epoch_id_from_prev_block(chunk_header.prev_block_hash())?;
-        let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
         let prev_chunk = self.chain.get_chunk(&prev_chunk_header.chunk_hash())?;
         let StateTransitionData {
             main_transition,
@@ -136,25 +131,6 @@ impl Client {
             applied_receipts_hash,
             contract_updates,
         } = self.collect_state_transition_data(&chunk_header, prev_chunk_header)?;
-
-        let (new_transactions, new_transactions_validation_state) =
-            if checked_feature!("stable", RelaxedChunkValidation, protocol_version) {
-                (Vec::new(), PartialState::default())
-            } else {
-                let new_transactions = chunk.transactions().to_vec();
-                let new_transactions_validation_state = if new_transactions.is_empty() {
-                    PartialState::default()
-                } else {
-                    // With stateless validation chunk producer uses recording reads when validating
-                    // transactions. The storage proof must be available here.
-                    transactions_storage_proof.ok_or_else(|| {
-                        let message = "Missing storage proof for transactions validation";
-                        log_assert_fail!("{message}");
-                        Error::Other(message.to_owned())
-                    })?
-                };
-                (new_transactions, new_transactions_validation_state)
-            };
 
         let source_receipt_proofs =
             self.collect_source_receipt_proofs(prev_block_header, prev_chunk_header)?;
@@ -171,8 +147,6 @@ impl Client {
             applied_receipts_hash,
             prev_chunk.transactions().to_vec(),
             implicit_transitions,
-            new_transactions,
-            new_transactions_validation_state,
         );
         Ok(CreateWitnessResult { state_witness, contract_updates, main_transition_shard_id })
     }
