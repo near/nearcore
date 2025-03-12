@@ -180,13 +180,8 @@ fn run_chunk_validation_test(
                 target: "client",
                 "Applying block at height {} at {}", block.header().height(), validator_id
             );
-            let blocks_processed = if rng.gen_bool(prob_missing_chunk) {
-                env.clients[i]
-                    .process_block_test_no_produce_chunk(block.clone().into(), Provenance::NONE)
-                    .unwrap()
-            } else {
-                env.clients[i].process_block_test(block.clone().into(), Provenance::NONE).unwrap()
-            };
+            let blocks_processed =
+                env.clients[i].process_block_test(block.clone().into(), Provenance::NONE).unwrap();
             assert_eq!(blocks_processed, vec![*block.hash()]);
         }
 

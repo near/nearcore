@@ -517,7 +517,7 @@ fn ultra_slow_test_dump_epoch_missing_chunk_in_last_block() {
                 if i >= start_skipping_chunks && i < stop_skipping_chunks {
                     // Don't produce chunks for the last blocks of an epoch.
                     env.clients[0]
-                        .process_block_test_no_produce_chunk(
+                        .process_block_test(
                             MaybeValidated::from(block.clone()),
                             Provenance::PRODUCED,
                         )

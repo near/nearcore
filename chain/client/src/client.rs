@@ -1211,11 +1211,9 @@ impl Client {
     pub fn postprocess_ready_blocks(
         &mut self,
         apply_chunks_done_sender: Option<Sender<ApplyChunksDoneMessage>>,
-        should_produce_chunk: bool,
         signer: &Option<Arc<ValidatorSigner>>,
     ) -> (Vec<CryptoHash>, HashMap<CryptoHash, near_chain::Error>) {
-        let _span = debug_span!(target: "client", "postprocess_ready_blocks", should_produce_chunk)
-            .entered();
+        let _span = debug_span!(target: "client", "postprocess_ready_blocks").entered();
         let me = signer.as_ref().map(|signer| signer.validator_id().clone());
         let mut block_processing_artifacts = BlockProcessingArtifact::default();
         let (accepted_blocks, errors) = self.chain.postprocess_ready_blocks(
@@ -1237,7 +1235,6 @@ impl Client {
                 accepted_block.hash,
                 accepted_block.status,
                 accepted_block.provenance,
-                !should_produce_chunk,
                 signer,
             );
         }
@@ -1471,15 +1468,12 @@ impl Client {
         Ok(())
     }
 
-    /// Gets called when block got accepted.
-    /// Only produce chunk if `skip_produce_chunk` is false.
-    /// `skip_produce_chunk` is set to true to simulate when there are missing chunks in a block
+    /// Gets called when block got accepted.  Optionally produces chunks.
     fn on_block_accepted_with_optional_chunk_produce(
         &mut self,
         block_hash: CryptoHash,
         status: BlockStatus,
         provenance: Provenance,
-        skip_produce_chunk: bool,
         signer: &Option<Arc<ValidatorSigner>>,
     ) {
         let _span = tracing::debug_span!(
@@ -1488,7 +1482,6 @@ impl Client {
             ?block_hash,
             ?status,
             ?provenance,
-            skip_produce_chunk,
             is_syncing = self.sync_handler.sync_status.is_syncing(),
             sync_status = ?self.sync_handler.sync_status)
         .entered();
@@ -1569,10 +1562,10 @@ impl Client {
 
             let can_produce_with_provenance = provenance != Provenance::SYNC;
             let can_produce_with_sync_status = !self.sync_handler.sync_status.is_syncing();
-            if can_produce_with_provenance && can_produce_with_sync_status && !skip_produce_chunk {
+            if can_produce_with_provenance && can_produce_with_sync_status {
                 self.produce_chunks(&block, &signer);
             } else {
-                info!(target: "client", can_produce_with_provenance, can_produce_with_sync_status, skip_produce_chunk, "not producing a chunk");
+                info!(target: "client", can_produce_with_provenance, can_produce_with_sync_status, "not producing a chunk");
             }
         }
 

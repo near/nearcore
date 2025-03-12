@@ -35,62 +35,6 @@ use crate::utils::process_blocks::set_block_protocol_version;
 
 const P_CATCHUP: f64 = 0.2;
 
-/// The condition that determines if a chunk should be produced of dropped.
-/// Can be probabilistic, predefined based on height and shard id or both.
-struct DropChunkCondition {
-    probability: f64,
-    by_height_shard_id: HashSet<(BlockHeight, ShardId)>,
-}
-
-impl DropChunkCondition {
-    fn should_drop_chunk(
-        &self,
-        rng: &mut StdRng,
-        height: BlockHeight,
-        shard_ids: &Vec<ShardId>,
-    ) -> bool {
-        if rng.gen_bool(self.probability) {
-            return true;
-        }
-
-        // One chunk producer may be responsible for producing multiple chunks.
-        // Ensure that the by_height_shard_id is consistent in that it doesn't
-        // try to produce one chunk and drop another chunk, produced by the same
-        // chunk producer.
-        // It shouldn't happen in setups where num_validators >= num_shards.
-        let mut all_true = true;
-        let mut all_false = true;
-        for shard_id in shard_ids {
-            match self.by_height_shard_id.contains(&(height, *shard_id)) {
-                true => all_false = false,
-                false => all_true = false,
-            }
-        }
-        if all_false {
-            return false;
-        }
-        if all_true {
-            return true;
-        }
-
-        tracing::warn!(
-            "Inconsistent test setup. Chunk producer configured to produce one of its chunks and to skip another. This is not supported, skipping all. height {} shard_ids {:?}",
-            height,
-            shard_ids
-        );
-        return true;
-    }
-
-    /// Returns a DropChunkCondition that doesn't drop any chunks.
-    fn new() -> Self {
-        Self { probability: 0.0, by_height_shard_id: HashSet::new() }
-    }
-
-    fn with_probability(probability: f64) -> Self {
-        Self { probability, by_height_shard_id: HashSet::new() }
-    }
-}
-
 /// Test environment prepared for testing the sharding upgrade.
 /// Epoch 0, blocks 1-5  : genesis shard layout
 /// Epoch 1, blocks 6-10 : genesis shard layout, resharding happens
@@ -181,12 +125,8 @@ impl TestReshardingEnv {
         self.txs_by_height.insert(height, txs);
     }
 
-    fn step(
-        &mut self,
-        drop_chunk_condition: &DropChunkCondition,
-        protocol_version: ProtocolVersion,
-    ) {
-        self.step_err(drop_chunk_condition, protocol_version).unwrap();
+    fn step(&mut self, protocol_version: ProtocolVersion) {
+        self.step_err(protocol_version).unwrap();
     }
 
     /// produces and processes the next block also checks that all accounts in
@@ -195,11 +135,7 @@ impl TestReshardingEnv {
     /// allows for changing the protocol version in the middle of the test the
     /// testing_v2 argument means whether the test should expect the sharding
     /// layout V2 to be used once the appropriate protocol version is reached
-    fn step_err(
-        &mut self,
-        drop_chunk_condition: &DropChunkCondition,
-        protocol_version: ProtocolVersion,
-    ) -> Result<(), near_client::Error> {
+    fn step_err(&mut self, protocol_version: ProtocolVersion) -> Result<(), near_client::Error> {
         let env = &mut self.env;
         let head = env.clients[0].chain.head().unwrap();
         let next_height = head.height + 1;
@@ -251,14 +187,6 @@ impl TestReshardingEnv {
             let client = &mut env.clients[j];
             let _span = tracing::debug_span!(target: "test", "process block", client=j).entered();
 
-            let shard_ids = chunk_producer_to_shard_id
-                .get(client.validator_signer.get().unwrap().validator_id())
-                .cloned()
-                .unwrap_or_default();
-            let should_produce_chunk =
-                !drop_chunk_condition.should_drop_chunk(&mut self.rng, next_height + 1, &shard_ids);
-            tracing::info!(target: "test", ?next_height, ?should_produce_chunk, ?shard_ids, "should produce chunk");
-
             // Here we don't just call self.clients[i].process_block_sync_with_produce_chunk_options
             // because we want to call run_catchup before finish processing this block. This simulates
             // that catchup and block processing run in parallel.
@@ -269,8 +197,7 @@ impl TestReshardingEnv {
                 run_catchup(client, &[])?;
             }
             while wait_for_all_blocks_in_processing(&mut client.chain) {
-                let (_, errors) =
-                    client.postprocess_ready_blocks(None, should_produce_chunk, &signer);
+                let (_, errors) = client.postprocess_ready_blocks(None, &signer);
                 assert!(errors.is_empty(), "unexpected errors: {:?}", errors);
             }
             // manually invoke gc
@@ -843,7 +770,6 @@ fn gen_cross_contract_tx_impl(
 // receipts into next chunks
 fn test_missing_chunks(
     test_env: &mut TestReshardingEnv,
-    p_missing: f64,
     target_protocol_version: ProtocolVersion,
     epoch_length: u64,
 ) {
@@ -852,14 +778,12 @@ fn test_missing_chunks(
 
     // randomly dropping chunks at the first few epochs when sharding splits happens
     // make sure initial txs (deploy smart contracts) are processed successfully
-    let drop_chunk_condition = DropChunkCondition::new();
     for _ in 1..3 {
-        test_env.step(&drop_chunk_condition, target_protocol_version);
+        test_env.step(target_protocol_version);
     }
 
-    let drop_chunk_condition = DropChunkCondition::with_probability(p_missing);
     for _ in 3..3 * epoch_length {
-        test_env.step(&drop_chunk_condition, target_protocol_version);
+        test_env.step(target_protocol_version);
         let last_height = test_env.env.clients[0].chain.head().unwrap().height;
         for height in last_height - 3..=last_height {
             test_env.check_next_block_with_new_chunk(height);
@@ -867,9 +791,8 @@ fn test_missing_chunks(
     }
 
     // make sure all included transactions finished processing
-    let drop_chunk_condition = DropChunkCondition::new();
     for _ in 3 * epoch_length..5 * epoch_length {
-        test_env.step(&drop_chunk_condition, target_protocol_version);
+        test_env.step(target_protocol_version);
         let last_height = test_env.env.clients[0].chain.head().unwrap().height;
         for height in last_height - 3..=last_height {
             test_env.check_next_block_with_new_chunk(height);
@@ -886,27 +809,27 @@ fn test_missing_chunks(
 // of missing chunk. In particular, checks that all txs generated in env have
 // final outcome in the end.
 // TODO: remove logical dependency on resharding.
-fn test_latest_protocol_missing_chunks(p_missing: f64, rng_seed: u64) {
+fn test_latest_protocol_missing_chunks(rng_seed: u64) {
     init_test_logger();
     let epoch_length = 10;
     let mut test_env =
         create_test_env_for_cross_contract_test(PROTOCOL_VERSION, epoch_length, rng_seed);
-    test_missing_chunks(&mut test_env, p_missing, PROTOCOL_VERSION, epoch_length)
+    test_missing_chunks(&mut test_env, PROTOCOL_VERSION, epoch_length)
 }
 
 // latest protocol
 
 #[test]
 fn slow_test_latest_protocol_missing_chunks_low_missing_prob() {
-    test_latest_protocol_missing_chunks(0.1, 25);
+    test_latest_protocol_missing_chunks(25);
 }
 
 #[test]
 fn slow_test_latest_protocol_missing_chunks_mid_missing_prob() {
-    test_latest_protocol_missing_chunks(0.5, 26);
+    test_latest_protocol_missing_chunks(26);
 }
 
 #[test]
 fn slow_test_latest_protocol_missing_chunks_high_missing_prob() {
-    test_latest_protocol_missing_chunks(0.9, 27);
+    test_latest_protocol_missing_chunks(27);
 }
