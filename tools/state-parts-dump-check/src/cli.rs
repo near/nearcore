@@ -231,7 +231,12 @@ fn create_external_connection(
         ExternalConnection::S3 { bucket: Arc::new(bucket) }
     } else if let Some(bucket) = gcs_bucket {
         ExternalConnection::GCS {
-            gcs_client: Arc::new(cloud_storage::Client::default()),
+            gcs_client: Arc::new(
+                object_store::gcp::GoogleCloudStorageBuilder::new()
+                    .with_bucket_name(&bucket)
+                    .build()
+                    .unwrap(),
+            ),
             reqwest_client: Arc::new(reqwest::Client::default()),
             bucket,
         }
