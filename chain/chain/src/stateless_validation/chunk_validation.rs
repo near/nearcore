@@ -93,7 +93,7 @@ pub fn validate_prepared_transactions(
     runtime_adapter: &dyn RuntimeAdapter,
     chunk_header: &ShardChunkHeader,
     storage_config: RuntimeStorageConfig,
-    transactions: &[SignedTransaction],
+    signed_txs: impl IntoIterator<Item = SignedTransaction>,
     last_chunk_transactions: &[SignedTransaction],
 ) -> Result<PreparedTransactions, Error> {
     let parent_block = chain.chain_store().get_block(chunk_header.prev_block_hash())?;
@@ -106,7 +106,7 @@ pub fn validate_prepared_transactions(
             last_chunk_transactions_size,
         },
         (&parent_block).into(),
-        &mut TransactionGroupIteratorWrapper::new(transactions),
+        &mut TransactionGroupIteratorWrapper::new(signed_txs),
         &mut chain.transaction_validity_check(parent_block.header().clone()),
         None,
     )
@@ -393,7 +393,7 @@ pub fn pre_validate_chunk_state_witness(
                 state_witness.transactions.iter().map(|t| check(t)).collect::<Vec<_>>()
             }
         } else {
-            let new_transactions = &state_witness.new_transactions;
+            let new_transactions = state_witness.new_transactions.clone();
             let (new_tx_root_from_state_witness, _) = merklize(&new_transactions);
             let chunk_tx_root = state_witness.chunk_header.tx_root();
             if new_tx_root_from_state_witness != chunk_tx_root {
@@ -413,21 +413,22 @@ pub fn pre_validate_chunk_state_witness(
                     state_patch: Default::default(),
                 };
 
+                let new_transactions_len = new_transactions.len();
                 match validate_prepared_transactions(
                     chain,
                     runtime_adapter,
                     &state_witness.chunk_header,
                     transactions_validation_storage_config,
-                    &new_transactions,
+                    new_transactions,
                     &state_witness.transactions,
                 ) {
                     Ok(result) => {
-                        if result.transactions.len() != new_transactions.len() {
+                        if result.transactions.len() != new_transactions_len {
                             return Err(Error::InvalidChunkStateWitness(format!(
                                 "New transactions validation failed. \
                          {} transactions out of {} proposed transactions were valid.",
                                 result.transactions.len(),
-                                new_transactions.len(),
+                                new_transactions_len,
                             )));
                         }
                     }
