@@ -18,7 +18,7 @@ static NEARD_FEATURES: &str = env!("NEARD_FEATURES");
 
 static NEARD_VERSION_STRING: LazyLock<String> = LazyLock::new(|| {
     format!(
-        "(release {}) (build {}) (commit {}) (rustc {}) (protocol [{},{}]) (db {})\nfeatures: [{}]",
+        "(release {}) (build {}) (commit {}) (rustc {}) (min_protocol {}) (protocol {}) (db {})\nfeatures: [{}]",
         NEARD_VERSION,
         NEARD_BUILD,
         NEARD_COMMIT,
