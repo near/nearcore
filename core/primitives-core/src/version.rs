@@ -185,6 +185,8 @@ pub enum ProtocolFeature {
     /// Chunks no longer become entirely invalid in case invalid transactions are included in the
     /// chunk. Instead the transactions are discarded during their conversion to receipts.
     RelaxedChunkValidation,
+    /// This enables us to remove the expensive check_balance call from the runtime.
+    RemoveCheckBalance,
     /// Exclude existing contract code in deploy-contract and delete-account actions from the chunk state witness.
     /// Instead of sending code in the witness, the code checks the code-size using the internal trie nodes.
     ExcludeExistingCodeFromWitnessForCodeLen,
@@ -256,6 +258,7 @@ impl ProtocolFeature {
             | ProtocolFeature::RejectBlocksWithOutdatedProtocolVersions
             | ProtocolFeature::FixChunkProducerStakingThreshold
             | ProtocolFeature::RelaxedChunkValidation
+            | ProtocolFeature::RemoveCheckBalance
             // BandwidthScheduler and CurrentEpochStateSync must be enabled
             // before ReshardingV3! When releasing this feature please make sure
             // to schedule separate protocol upgrades for these features.
@@ -263,6 +266,9 @@ impl ProtocolFeature {
             | ProtocolFeature::CurrentEpochStateSync => 74,
             ProtocolFeature::SimpleNightshadeV4 => 75,
             ProtocolFeature::SimpleNightshadeV5 => 76,
+            ProtocolFeature::GlobalContracts
+            | ProtocolFeature::BlockHeightForReceiptId
+            | ProtocolFeature::ProduceOptimisticBlock => 77,
 
             // Nightly features:
             #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
@@ -271,11 +277,7 @@ impl ProtocolFeature {
             // that always enables this for mocknet (see config_mocknet function).
             ProtocolFeature::ShuffleShardAssignments => 143,
             ProtocolFeature::ExcludeExistingCodeFromWitnessForCodeLen => 148,
-            ProtocolFeature::BlockHeightForReceiptId | ProtocolFeature::ProduceOptimisticBlock => {
-                149
-            }
             // Place features that are not yet in Nightly below this line.
-            ProtocolFeature::GlobalContracts => 200,
         }
     }
 
@@ -285,7 +287,7 @@ impl ProtocolFeature {
 }
 
 /// Current protocol version used on the mainnet with all stable features.
-const STABLE_PROTOCOL_VERSION: ProtocolVersion = 76;
+const STABLE_PROTOCOL_VERSION: ProtocolVersion = 77;
 
 // On nightly, pick big enough version to support all features.
 const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 149;
@@ -299,13 +301,12 @@ pub const PROTOCOL_VERSION: ProtocolVersion = if cfg!(feature = "nightly_protoco
 
 /// Both, outgoing and incoming tcp connections to peers, will be rejected if `peer's`
 /// protocol version is lower than this.
-pub const PEER_MIN_ALLOWED_PROTOCOL_VERSION: ProtocolVersion = STABLE_PROTOCOL_VERSION - 3;
+/// TODO(pugachag): revert back to `- 3` after mainnet is upgraded
+pub const PEER_MIN_ALLOWED_PROTOCOL_VERSION: ProtocolVersion = STABLE_PROTOCOL_VERSION - 4;
 
 #[macro_export]
 macro_rules! checked_feature {
-    ("stable", $feature:ident, $current_protocol_version:expr) => {{
-        $crate::version::ProtocolFeature::$feature.protocol_version() <= $current_protocol_version
-    }};
+    ("stable", $feature:ident, $current_protocol_version:expr) => {{ $crate::version::ProtocolFeature::$feature.protocol_version() <= $current_protocol_version }};
     ($feature_name:tt, $feature:ident, $current_protocol_version:expr) => {{
         #[cfg(feature = $feature_name)]
         let is_feature_enabled = $crate::version::ProtocolFeature::$feature.protocol_version()
@@ -320,9 +321,7 @@ macro_rules! checked_feature {
         is_feature_enabled
     }};
 
-    ($feature_name:tt, $feature:ident, $current_protocol_version:expr, $feature_block:block) => {{
-        checked_feature!($feature_name, $feature, $current_protocol_version, $feature_block, {})
-    }};
+    ($feature_name:tt, $feature:ident, $current_protocol_version:expr, $feature_block:block) => {{ checked_feature!($feature_name, $feature, $current_protocol_version, $feature_block, {}) }};
 
     ($feature_name:tt, $feature:ident, $current_protocol_version:expr, $feature_block:block, $non_feature_block:block) => {{
         #[cfg(feature = $feature_name)]

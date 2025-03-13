@@ -7,7 +7,7 @@ use near_chain::types::{
     ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext, RuntimeAdapter,
 };
 use near_chain::{
-    get_incoming_receipts_for_shard, ChainStore, ChainStoreAccess, ChainStoreUpdate, ReceiptFilter,
+    ChainStore, ChainStoreAccess, ChainStoreUpdate, ReceiptFilter, get_incoming_receipts_for_shard,
 };
 use near_chain_configs::Genesis;
 use near_epoch_manager::shard_assignment::{shard_id_to_index, shard_id_to_uid};
@@ -130,7 +130,10 @@ fn apply_block_from_range(
             Ok(prev_block) => prev_block,
             Err(_) => {
                 if verbose_output {
-                    println!("Skipping applying block #{} because the previous block is unavailable and I can't determine the gas_price to use.", height);
+                    println!(
+                        "Skipping applying block #{} because the previous block is unavailable and I can't determine the gas_price to use.",
+                        height
+                    );
                 }
                 maybe_add_to_csv(
                     csv_file_mutex,
@@ -265,18 +268,32 @@ fn apply_block_from_range(
     match existing_chunk_extra {
         Some(existing_chunk_extra) => {
             if verbose_output {
-                println!("block_height: {}, block_hash: {}\nchunk_extra: {:#?}\nexisting_chunk_extra: {:#?}\noutcomes: {:#?}", height, block_hash, chunk_extra, existing_chunk_extra, apply_result.outcomes);
+                println!(
+                    "block_height: {}, block_hash: {}\nchunk_extra: {:#?}\nexisting_chunk_extra: {:#?}\noutcomes: {:#?}",
+                    height, block_hash, chunk_extra, existing_chunk_extra, apply_result.outcomes
+                );
             }
             if !smart_equals(&existing_chunk_extra, &chunk_extra) {
                 maybe_print_db_stats(write_store);
-                panic!("Got a different ChunkExtra:\nblock_height: {}, block_hash: {}\nchunk_extra: {:#?}\nexisting_chunk_extra: {:#?}\nnew outcomes: {:#?}\n\nold outcomes: {:#?}\n", height, block_hash, chunk_extra, existing_chunk_extra, apply_result.outcomes, old_outcomes(read_store, &apply_result.outcomes));
+                panic!(
+                    "Got a different ChunkExtra:\nblock_height: {}, block_hash: {}\nchunk_extra: {:#?}\nexisting_chunk_extra: {:#?}\nnew outcomes: {:#?}\n\nold outcomes: {:#?}\n",
+                    height,
+                    block_hash,
+                    chunk_extra,
+                    existing_chunk_extra,
+                    apply_result.outcomes,
+                    old_outcomes(read_store, &apply_result.outcomes)
+                );
             }
         }
         None => {
             assert!(prev_chunk_extra.is_some());
             assert!(apply_result.outcomes.is_empty());
             if verbose_output {
-                println!("block_height: {}, block_hash: {}\nchunk_extra: {:#?}\nprev_chunk_extra: {:#?}\noutcomes: {:#?}", height, block_hash, chunk_extra, prev_chunk_extra, apply_result.outcomes);
+                println!(
+                    "block_height: {}, block_hash: {}\nchunk_extra: {:#?}\nprev_chunk_extra: {:#?}\noutcomes: {:#?}",
+                    height, block_hash, chunk_extra, prev_chunk_extra, apply_result.outcomes
+                );
             }
         }
     };
@@ -343,6 +360,7 @@ fn apply_block_from_range(
             if let Err(err) = maybe_save_trie_changes(
                 write_store,
                 &genesis.config,
+                block_hash,
                 apply_result,
                 height,
                 shard_id,
@@ -447,7 +465,10 @@ pub fn apply_chain_range(
         println!("Writing results of applying receipts to the CSV file");
     }
     let csv_file_mutex = Mutex::new(csv_file);
-    maybe_add_to_csv(&csv_file_mutex, "Height,Hash,Author,#Tx,#Receipt,Timestamp,GasUsed,ChunkPresent,#ProcessedDelayedReceipts,#DelayedReceipts,#StateChanges");
+    maybe_add_to_csv(
+        &csv_file_mutex,
+        "Height,Hash,Author,#Tx,#Receipt,Timestamp,GasUsed,ChunkPresent,#ProcessedDelayedReceipts,#DelayedReceipts,#StateChanges",
+    );
     let progress_reporter = ProgressReporter {
         cnt: AtomicU64::new(0),
         skipped: AtomicU64::new(0),
@@ -546,189 +567,4 @@ fn smart_equals(extra1: &ChunkExtra, extra2: &ChunkExtra) -> bool {
         }
     }
     true
-}
-
-#[cfg(test)]
-mod test {
-    use std::io::{Read, Seek, SeekFrom};
-    use std::path::Path;
-
-    use near_chain::Provenance;
-    use near_chain_configs::test_utils::TESTING_INIT_STAKE;
-    use near_chain_configs::Genesis;
-    use near_client::test_utils::TestEnv;
-    use near_client::ProcessTxResponse;
-    use near_crypto::InMemorySigner;
-    use near_epoch_manager::EpochManager;
-    use near_primitives::transaction::SignedTransaction;
-    use near_primitives::types::{BlockHeight, BlockHeightDelta, NumBlocks, ShardId};
-    use near_store::genesis::initialize_genesis_state;
-    use near_store::test_utils::create_test_store;
-    use near_store::Store;
-    use nearcore::NightshadeRuntime;
-
-    use crate::apply_chain_range::apply_chain_range;
-    use crate::cli::{ApplyRangeMode, StorageSource};
-
-    fn setup(epoch_length: NumBlocks) -> (Store, Genesis, TestEnv) {
-        let mut genesis =
-            Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
-        genesis.config.num_block_producer_seats = 2;
-        genesis.config.num_block_producer_seats_per_shard = vec![2];
-        genesis.config.epoch_length = epoch_length;
-        let store = create_test_store();
-        initialize_genesis_state(store.clone(), &genesis, None);
-        let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
-        let nightshade_runtime = NightshadeRuntime::test(
-            Path::new("."),
-            store.clone(),
-            &genesis.config,
-            epoch_manager.clone(),
-        );
-        let env = TestEnv::builder(&genesis.config)
-            .validator_seats(2)
-            .stores(vec![store.clone()])
-            .epoch_managers(vec![epoch_manager])
-            .runtimes(vec![nightshade_runtime])
-            .build();
-        (store, genesis, env)
-    }
-
-    /// Produces blocks, avoiding the potential failure where the client is not the
-    /// block producer for each subsequent height (this can happen when a new validator
-    /// is staked since they will also have heights where they should produce the block instead).
-    fn safe_produce_blocks(
-        env: &mut TestEnv,
-        initial_height: BlockHeight,
-        num_blocks: BlockHeightDelta,
-        block_without_chunks: Option<BlockHeight>,
-    ) {
-        let mut h = initial_height;
-        let mut blocks = vec![];
-        for _ in 1..=num_blocks {
-            let mut block = None;
-            // `env.clients[0]` may not be the block producer at `h`,
-            // loop until we find a height env.clients[0] should produce.
-            while block.is_none() {
-                block = env.clients[0].produce_block(h).unwrap();
-                h += 1;
-            }
-            let mut block = block.unwrap();
-            if let Some(block_without_chunks) = block_without_chunks {
-                if block_without_chunks == h {
-                    assert!(!blocks.is_empty());
-                    testlib::process_blocks::set_no_chunk_in_block(
-                        &mut block,
-                        blocks.last().unwrap(),
-                    )
-                }
-            }
-            blocks.push(block.clone());
-            env.process_block(0, block, Provenance::PRODUCED);
-        }
-    }
-
-    #[test]
-    fn test_apply_chain_range() {
-        let epoch_length = 4;
-        let (store, genesis, mut env) = setup(epoch_length);
-        let genesis_hash = *env.clients[0].chain.genesis().hash();
-        let signer = InMemorySigner::test_signer(&"test1".parse().unwrap());
-        let tx = SignedTransaction::stake(
-            1,
-            "test1".parse().unwrap(),
-            &signer,
-            TESTING_INIT_STAKE,
-            signer.public_key(),
-            genesis_hash,
-        );
-        assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
-
-        safe_produce_blocks(&mut env, 1, epoch_length * 2 + 1, None);
-
-        initialize_genesis_state(store.clone(), &genesis, None);
-        let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
-        let runtime = NightshadeRuntime::test(
-            Path::new("."),
-            store.clone(),
-            &genesis.config,
-            epoch_manager.clone(),
-        );
-        apply_chain_range(
-            ApplyRangeMode::Parallel,
-            store,
-            None,
-            &genesis,
-            None,
-            None,
-            ShardId::new(0),
-            epoch_manager.as_ref(),
-            runtime,
-            true,
-            None,
-            false,
-            StorageSource::Trie,
-        );
-    }
-
-    #[test]
-    fn test_apply_chain_range_no_chunks() {
-        let epoch_length = 4;
-        let (store, genesis, mut env) = setup(epoch_length);
-        let genesis_hash = *env.clients[0].chain.genesis().hash();
-        let signer = InMemorySigner::test_signer(&"test1".parse().unwrap());
-        let tx = SignedTransaction::stake(
-            1,
-            "test1".parse().unwrap(),
-            &signer,
-            TESTING_INIT_STAKE,
-            signer.public_key(),
-            genesis_hash,
-        );
-        assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
-
-        safe_produce_blocks(&mut env, 1, epoch_length * 2 + 1, Some(5));
-
-        initialize_genesis_state(store.clone(), &genesis, None);
-        let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
-        let runtime = NightshadeRuntime::test(
-            Path::new("."),
-            store.clone(),
-            &genesis.config,
-            epoch_manager.clone(),
-        );
-        let mut file = tempfile::NamedTempFile::new().unwrap();
-        apply_chain_range(
-            ApplyRangeMode::Parallel,
-            store,
-            None,
-            &genesis,
-            None,
-            None,
-            ShardId::new(0),
-            epoch_manager.as_ref(),
-            runtime,
-            true,
-            Some(file.as_file_mut()),
-            false,
-            StorageSource::Trie,
-        );
-        let mut csv = String::new();
-        file.as_file_mut().seek(SeekFrom::Start(0)).unwrap();
-        file.as_file_mut().read_to_string(&mut csv).unwrap();
-        let lines: Vec<&str> = csv.split("\n").collect();
-        assert!(lines[0].contains("Height"));
-        let mut has_tx = 0;
-        let mut no_tx = 0;
-        for line in &lines {
-            if line.contains(",test0,1,0,") {
-                has_tx += 1;
-            }
-            if line.contains(",test0,0,0,") {
-                no_tx += 1;
-            }
-        }
-        assert_eq!(has_tx, 1, "{:#?}", lines);
-        assert_eq!(no_tx, 8, "{:#?}", lines);
-    }
 }

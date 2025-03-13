@@ -2,7 +2,7 @@ mod cli;
 
 use self::cli::NeardCmd;
 use anyhow::Context;
-use near_primitives::version::{Version, PROTOCOL_VERSION};
+use near_primitives::version::{PROTOCOL_VERSION, Version};
 use near_store::metadata::DB_VERSION;
 use nearcore::get_default_home;
 use std::env;
@@ -12,13 +12,20 @@ use std::time::Duration;
 
 static NEARD_VERSION: &str = env!("NEARD_VERSION");
 static NEARD_BUILD: &str = env!("NEARD_BUILD");
+static NEARD_COMMIT: &str = env!("NEARD_COMMIT");
 static RUSTC_VERSION: &str = env!("NEARD_RUSTC_VERSION");
 static NEARD_FEATURES: &str = env!("NEARD_FEATURES");
 
 static NEARD_VERSION_STRING: LazyLock<String> = LazyLock::new(|| {
     format!(
-        "(release {}) (build {}) (rustc {}) (protocol {}) (db {})\nfeatures: [{}]",
-        NEARD_VERSION, NEARD_BUILD, RUSTC_VERSION, PROTOCOL_VERSION, DB_VERSION, NEARD_FEATURES
+        "(release {}) (build {}) (commit {}) (rustc {}) (protocol {}) (db {})\nfeatures: [{}]",
+        NEARD_VERSION,
+        NEARD_BUILD,
+        NEARD_COMMIT,
+        RUSTC_VERSION,
+        PROTOCOL_VERSION,
+        DB_VERSION,
+        NEARD_FEATURES
     )
 });
 
@@ -26,6 +33,7 @@ fn neard_version() -> Version {
     Version {
         version: NEARD_VERSION.to_string(),
         build: NEARD_BUILD.to_string(),
+        commit: NEARD_COMMIT.to_string(),
         rustc_version: RUSTC_VERSION.to_string(),
     }
 }
@@ -39,7 +47,7 @@ static ALLOC: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 fn main() -> anyhow::Result<()> {
     if env::var("RUST_BACKTRACE").is_err() {
         // Enable backtraces on panics by default.
-        env::set_var("RUST_BACKTRACE", "1");
+        unsafe { env::set_var("RUST_BACKTRACE", "1") };
     }
 
     rayon::ThreadPoolBuilder::new()

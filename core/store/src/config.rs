@@ -1,12 +1,12 @@
+use crate::DBCol;
 use crate::trie::{
     DEFAULT_SHARD_CACHE_DELETIONS_QUEUE_CAPACITY, DEFAULT_SHARD_CACHE_TOTAL_SIZE_LIMIT,
 };
-use crate::DBCol;
 use near_primitives::chains::MAINNET;
 use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::types::AccountId;
-use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_time::Duration;
 use std::{collections::HashMap, str::FromStr};
 
@@ -504,10 +504,15 @@ impl<'a> ArchivalConfig<'a> {
         if archive {
             // Since only ColdDB storage is supported for now, assert that cold storage is configured.
             // TODO: Change this condition after supporting other archival storage options such as GCS.
-            assert!(cold_store_config.is_some()
+            assert!(
+                cold_store_config.is_some()
                     && (archival_store_config.is_none()
-                        || matches!(archival_store_config.unwrap().storage, ArchivalStorageLocation::ColdDB)),
-                    "Archival storage must be ColdDB and it must be configured with a valid StoreConfig");
+                        || matches!(
+                            archival_store_config.unwrap().storage,
+                            ArchivalStorageLocation::ColdDB
+                        )),
+                "Archival storage must be ColdDB and it must be configured with a valid StoreConfig"
+            );
         } else {
             assert!(
                 cold_store_config.is_none()

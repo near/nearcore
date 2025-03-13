@@ -103,6 +103,10 @@ impl TrieRecorder {
         PartialStorage { nodes: PartialState::TrieValues(nodes) }
     }
 
+    pub fn recorded_iter<'a>(&'a self) -> impl Iterator<Item = (&'a CryptoHash, &'a Arc<[u8]>)> {
+        self.recorded.iter()
+    }
+
     pub fn recorded_storage_size(&self) -> usize {
         self.size
     }
@@ -289,24 +293,24 @@ mod trie_recording_tests {
     use crate::adapter::{StoreAdapter, StoreUpdateAdapter};
     use crate::db::refcount::decode_value_with_rc;
     use crate::test_utils::{
-        gen_larger_changes, simplify_changes, test_populate_flat_storage, test_populate_trie,
-        TestTriesBuilder,
+        TestTriesBuilder, gen_larger_changes, simplify_changes, test_populate_flat_storage,
+        test_populate_trie,
     };
-    use crate::trie::mem::metrics::MEMTRIE_NUM_LOOKUPS;
     use crate::trie::TrieNodesCount;
+    use crate::trie::mem::metrics::MEMTRIE_NUM_LOOKUPS;
     use crate::{DBCol, KeyLookupMode, PartialStorage, ShardTries, Store, Trie};
     use borsh::BorshDeserialize;
     use near_primitives::bandwidth_scheduler::BandwidthRequests;
     use near_primitives::congestion_info::CongestionInfo;
-    use near_primitives::hash::{hash, CryptoHash};
-    use near_primitives::shard_layout::{get_block_shard_uid, ShardUId};
+    use near_primitives::hash::{CryptoHash, hash};
+    use near_primitives::shard_layout::{ShardUId, get_block_shard_uid};
     use near_primitives::state::PartialState;
     use near_primitives::state::ValueRef;
-    use near_primitives::types::chunk_extra::ChunkExtra;
     use near_primitives::types::StateRoot;
-    use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
+    use near_primitives::types::chunk_extra::ChunkExtra;
+    use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
     use rand::prelude::SliceRandom;
-    use rand::{random, thread_rng, Rng};
+    use rand::{Rng, random, thread_rng};
     use std::collections::{HashMap, HashSet};
     use std::num::NonZeroU32;
 
@@ -544,7 +548,7 @@ mod trie_recording_tests {
             // Let's capture the baseline node counts - this is what will happen
             // in production.
             let trie = get_trie_for_shard(&tries, shard_uid, state_root, use_flat_storage);
-            trie.accounting_cache.borrow().enable_switch().set(enable_accounting_cache);
+            trie.accounting_cache.lock().unwrap().enable_switch().set(enable_accounting_cache);
             for key in &keys_to_get {
                 assert_eq!(trie.get(key).unwrap(), data_in_trie.get(key).cloned());
             }
@@ -564,7 +568,7 @@ mod trie_recording_tests {
             // we get are exactly the same.
             let trie = get_trie_for_shard(&tries, shard_uid, state_root, use_flat_storage)
                 .recording_reads_new_recorder();
-            trie.accounting_cache.borrow().enable_switch().set(enable_accounting_cache);
+            trie.accounting_cache.lock().unwrap().enable_switch().set(enable_accounting_cache);
             for key in &keys_to_get {
                 assert_eq!(trie.get(key).unwrap(), data_in_trie.get(key).cloned());
             }
@@ -589,7 +593,7 @@ mod trie_recording_tests {
             destructively_delete_in_memory_state_from_disk(&store.trie_store(), &data_in_trie);
             let trie = get_trie_for_shard(&tries, shard_uid, state_root, use_flat_storage)
                 .recording_reads_new_recorder();
-            trie.accounting_cache.borrow().enable_switch().set(enable_accounting_cache);
+            trie.accounting_cache.lock().unwrap().enable_switch().set(enable_accounting_cache);
             for key in &keys_to_get {
                 assert_eq!(trie.get(key).unwrap(), data_in_trie.get(key).cloned());
             }
@@ -615,7 +619,7 @@ mod trie_recording_tests {
             );
             let trie =
                 Trie::from_recorded_storage(partial_storage.clone(), state_root, use_flat_storage);
-            trie.accounting_cache.borrow().enable_switch().set(enable_accounting_cache);
+            trie.accounting_cache.lock().unwrap().enable_switch().set(enable_accounting_cache);
             for key in &keys_to_get {
                 assert_eq!(trie.get(key).unwrap(), data_in_trie.get(key).cloned());
             }
@@ -633,7 +637,7 @@ mod trie_recording_tests {
             // Build a Trie using recorded storage and enable recording_reads on this Trie
             let trie = Trie::from_recorded_storage(partial_storage, state_root, use_flat_storage)
                 .recording_reads_new_recorder();
-            trie.accounting_cache.borrow().enable_switch().set(enable_accounting_cache);
+            trie.accounting_cache.lock().unwrap().enable_switch().set(enable_accounting_cache);
             for key in &keys_to_get {
                 assert_eq!(trie.get(key).unwrap(), data_in_trie.get(key).cloned());
             }

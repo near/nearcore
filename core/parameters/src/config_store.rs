@@ -1,8 +1,10 @@
-use crate::config::{CongestionControlConfig, RuntimeConfig, WitnessConfig};
+use crate::config::{
+    BandwidthSchedulerConfig, CongestionControlConfig, RuntimeConfig, WitnessConfig,
+};
 use crate::parameter_table::{ParameterTable, ParameterTableDiff};
 use crate::vm;
 use near_primitives_core::types::ProtocolVersion;
-use near_primitives_core::version::{ProtocolFeature, PROTOCOL_VERSION};
+use near_primitives_core::version::{PROTOCOL_VERSION, ProtocolFeature};
 use std::collections::BTreeMap;
 use std::ops::Bound;
 use std::sync::Arc;
@@ -52,6 +54,7 @@ static CONFIG_DIFFS: &[(ProtocolVersion, &str)] = &[
     // Fix wasm_yield_resume_byte and relax congestion control.
     (73, include_config!("73.yaml")),
     (74, include_config!("74.yaml")),
+    (77, include_config!("77.yaml")),
     (129, include_config!("129.yaml")),
 ];
 
@@ -83,28 +86,58 @@ impl RuntimeConfigStore {
         let mut store = BTreeMap::new();
         #[cfg(not(feature = "calimero_zero_storage"))]
         {
-            let initial_config = RuntimeConfig::new(&params).unwrap_or_else(|err| panic!("Failed generating `RuntimeConfig` from parameters for base parameter file. Error: {err}"));
+            let initial_config = RuntimeConfig::new(&params).unwrap_or_else(|err| {
+                panic!(
+                    "Failed generating `RuntimeConfig` from parameters for base parameter file. \
+                     Error: {err:?}"
+                )
+            });
             store.insert(0, Arc::new(initial_config));
         }
         #[cfg(feature = "calimero_zero_storage")]
         {
-            let mut initial_config = RuntimeConfig::new(&params).unwrap_or_else(|err| panic!("Failed generating `RuntimeConfig` from parameters for base parameter file. Error: {err}"));
+            let mut initial_config = RuntimeConfig::new(&params).unwrap_or_else(|err| {
+                panic!(
+                    "Failed generating `RuntimeConfig` from parameters for base parameter file. \
+                     Error: {err:?}"
+                )
+            });
             let fees = Arc::make_mut(&mut initial_config.fees);
             fees.storage_usage_config.storage_amount_per_byte = 0;
             store.insert(0, Arc::new(initial_config));
         }
 
         for (protocol_version, diff_bytes) in CONFIG_DIFFS {
-            let diff :ParameterTableDiff = diff_bytes.parse().unwrap_or_else(|err| panic!("Failed parsing runtime parameters diff for version {protocol_version}. Error: {err}"));
-            params.apply_diff(diff).unwrap_or_else(|err| panic!("Failed applying diff to `RuntimeConfig` for version {protocol_version}. Error: {err}"));
+            let diff: ParameterTableDiff = diff_bytes.parse().unwrap_or_else(|err| {
+                panic!(
+                    "Failed parsing runtime parameters diff for version {protocol_version}. \
+                     Error: {err:?}"
+                )
+            });
+            params.apply_diff(diff).unwrap_or_else(|err| {
+                panic!(
+                    "Failed applying diff to `RuntimeConfig` for version {protocol_version}. \
+                     Error: {err}"
+                )
+            });
             #[cfg(not(feature = "calimero_zero_storage"))]
             store.insert(
                 *protocol_version,
-                Arc::new(RuntimeConfig::new(&params).unwrap_or_else(|err| panic!("Failed generating `RuntimeConfig` from parameters for version {protocol_version}. Error: {err}"))),
+                Arc::new(RuntimeConfig::new(&params).unwrap_or_else(|err| {
+                    panic!(
+                        "Failed generating `RuntimeConfig` from parameters for \
+                         version {protocol_version}. Error: {err:?}"
+                    )
+                })),
             );
             #[cfg(feature = "calimero_zero_storage")]
             {
-                let mut runtime_config = RuntimeConfig::new(&params).unwrap_or_else(|err| panic!("Failed generating `RuntimeConfig` from parameters for version {protocol_version}. Error: {err}"));
+                let mut runtime_config = RuntimeConfig::new(&params).unwrap_or_else(|err| {
+                    panic!(
+                        "Failed generating `RuntimeConfig` from parameters for \
+                         version {protocol_version}. Error: {err:?}"
+                    )
+                });
                 let fees = Arc::make_mut(&mut runtime_config.fees);
                 fees.storage_usage_config.storage_amount_per_byte = 0;
                 store.insert(*protocol_version, Arc::new(runtime_config));
@@ -150,9 +183,10 @@ impl RuntimeConfigStore {
                 let mut config_store = Self::new(None);
                 let mut config = RuntimeConfig::clone(config_store.get_config(PROTOCOL_VERSION));
                 config.congestion_control_config = CongestionControlConfig::test_disabled();
+                config.bandwidth_scheduler_config = BandwidthSchedulerConfig::test_disabled();
                 config.witness_config = WitnessConfig::test_disabled();
                 let mut wasm_config = vm::Config::clone(&config.wasm_config);
-                wasm_config.limit_config.per_receipt_storage_proof_size_limit = 999_999_999_999_999;
+                wasm_config.limit_config.per_receipt_storage_proof_size_limit = usize::max_value();
                 config.wasm_config = Arc::new(wasm_config);
                 config_store.store.insert(PROTOCOL_VERSION, Arc::new(config));
                 config_store

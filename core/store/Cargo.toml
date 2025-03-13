@@ -34,10 +34,12 @@ rlimit.workspace = true
 rocksdb.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+static_assertions.workspace = true
 stdx.workspace = true
 strum.workspace = true
 tempfile.workspace = true
 thiserror.workspace = true
+thread_local.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 

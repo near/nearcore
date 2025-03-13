@@ -1,22 +1,17 @@
-use std::collections::HashMap;
 use std::fmt::Debug;
+use {crate::state::PartialState, std::collections::HashMap};
 
 use super::ChunkProductionKey;
-use crate::bandwidth_scheduler::BandwidthRequests;
-use crate::congestion_info::CongestionInfo;
 #[cfg(feature = "solomon")]
 use crate::reed_solomon::{ReedSolomonEncoderDeserialize, ReedSolomonEncoderSerialize};
-use crate::sharding::{ChunkHash, ReceiptProof, ShardChunkHeader, ShardChunkHeaderV3};
-use crate::state::PartialState;
+use crate::sharding::{ChunkHash, ReceiptProof, ShardChunkHeader};
 use crate::transaction::SignedTransaction;
 use crate::types::{EpochId, SignatureDifferentiator};
 use crate::utils::compression::CompressedData;
-use crate::validator_signer::EmptyValidatorSigner;
 use borsh::{BorshDeserialize, BorshSerialize};
 use bytesize::ByteSize;
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::{AccountId, BlockHeight, ShardId};
-use near_primitives_core::version::{ProtocolFeature, PROTOCOL_VERSION};
 use near_schema_checker_lib::ProtocolSchema;
 
 /// Represents max allowed size of the raw (not compressed) state witness,
@@ -199,29 +194,7 @@ impl ChunkStateWitness {
     }
 
     pub fn new_dummy(height: BlockHeight, shard_id: ShardId, prev_block_hash: CryptoHash) -> Self {
-        let congestion_info = ProtocolFeature::CongestionControl
-            .enabled(PROTOCOL_VERSION)
-            .then_some(CongestionInfo::default());
-
-        let header = ShardChunkHeader::V3(ShardChunkHeaderV3::new(
-            PROTOCOL_VERSION,
-            prev_block_hash,
-            Default::default(),
-            Default::default(),
-            Default::default(),
-            Default::default(),
-            height,
-            shard_id,
-            Default::default(),
-            Default::default(),
-            Default::default(),
-            Default::default(),
-            Default::default(),
-            Default::default(),
-            congestion_info,
-            BandwidthRequests::default_for_protocol_version(PROTOCOL_VERSION),
-            &EmptyValidatorSigner::default().into(),
-        ));
+        let header = ShardChunkHeader::new_dummy(height, shard_id, prev_block_hash);
         Self::new(
             "alice.near".parse().unwrap(),
             EpochId::default(),

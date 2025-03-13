@@ -1,8 +1,8 @@
 [workspace.package]
 version = "0.0.0"                               # managed by cargo-workspaces, see below
 authors = ["Near Inc <hello@nearprotocol.com>"]
-edition = "2021"
-rust-version = "1.84.0"
+edition = "2024"
+rust-version = "1.85.0"
 repository = "https://github.com/near/nearcore"
 license = "MIT OR Apache-2.0"
 
@@ -20,6 +20,7 @@ exclude = ["neard"]
 [workspace]
 resolver = "2"
 members = [
+    "benchmarks/transactions-generator",
     "chain/chain",
     "chain/chunks",
     "chain/client",
@@ -71,6 +72,7 @@ members = [
     "runtime/runtime",
     "runtime/runtime-params-estimator",
     "runtime/runtime-params-estimator/estimator-warehouse",
+    "test-loop-tests",
     "test-utils/actix-test-utils",
     "test-utils/runtime-tester",
     "test-utils/runtime-tester/fuzz",
@@ -244,7 +246,7 @@ near-indexer = { path = "chain/indexer" }
 near-indexer-primitives = { path = "chain/indexer-primitives" }
 near-jsonrpc = { path = "chain/jsonrpc" }
 near-jsonrpc-adversarial-primitives = { path = "chain/jsonrpc-adversarial-primitives" }
-near-jsonrpc-client = { path = "chain/jsonrpc/client" }
+near-jsonrpc-client-internal = { path = "chain/jsonrpc/client" }
 near-jsonrpc-primitives = { path = "chain/jsonrpc-primitives", features = [
     "full",
 ] }
@@ -270,6 +272,7 @@ near-schema-checker-macro = { path = "core/schema-checker/schema-checker-macro" 
 near-schema-checker-core = { path = "core/schema-checker/schema-checker-core" }
 near-schema-checker-lib = { path = "core/schema-checker/schema-checker-lib" }
 near-store = { path = "core/store" }
+near-transactions-generator = { path = "benchmarks/transactions-generator"}
 near-telemetry = { path = "chain/telemetry" }
 near-test-contracts = { path = "runtime/near-test-contracts" }
 near-time = { path = "core/time" }
@@ -341,7 +344,7 @@ runtime-tester = { path = "test-utils/runtime-tester" }
 rusqlite = { version = "0.29.0", features = ["bundled", "chrono", "functions"] }
 rustc-demangle = "0.1"
 rust-s3 = { version = "0.32.3", features = ["blocking"] }
-rustix = "0.38"
+rustix = "1"
 secp256k1 = { version = "0.27.0", default-features = false }
 semver = "1.0.4"
 serde = { version = "1.0.136", features = ["alloc", "derive", "rc"] }
@@ -358,6 +361,7 @@ smartstring = "1.0.1"
 strum = { version = "0.24", features = ["derive"] }
 stun = "0.4"
 subtle = "2.2"
+static_assertions = "1.1"
 syn = { version = "2.0.4", features = ["extra-traits", "full"] }
 sysinfo = "0.24.5"
 target-lexicon = { version = "0.12.2", default-features = false }
@@ -365,6 +369,7 @@ tempfile = "3.3"
 testlib = { path = "test-utils/testlib" }
 test-log = { version = "0.2", default-features = false, features = ["trace"] }
 thiserror = "2.0"
+thread_local = "1.1"
 tikv-jemallocator = "0.5.0"
 time = { version = "0.3.9", default-features = false }
 tokio = { version = "1.28", default-features = false }
@@ -384,7 +389,7 @@ tracing-subscriber = { version = "0.3.18", features = [
 ] }
 trybuild = "1.0.11"
 turn = "0.6"
-wasm-encoder = "0.218.0"
+wasm-encoder = "0.224.0"
 wasmer-compiler = { package = "wasmer-compiler-near", version = "=2.4.1" }
 wasmer-compiler-singlepass = { package = "wasmer-compiler-singlepass-near", version = "=2.4.1" }
 wasmer-engine = { package = "wasmer-engine-near", version = "=2.4.1" }
@@ -398,9 +403,9 @@ wasmer-runtime-core = { version = "0.18.2", package = "wasmer-runtime-core-near"
 wasmer-types = { package = "wasmer-types-near", version = "=2.4.1" }
 wasmer-vm = { package = "wasmer-vm-near", version = "=2.4.1" }
 wasmparser = "0.78" # TODO: unify at least the versions of wasmparser we have in our codebase
-wasmprinter = "0.218"
-wasm-smith = "0.218"
-wasmtime = { version = "26.0.1", default-features = false, features = [
+wasmprinter = "0.224"
+wasm-smith = "0.224"
+wasmtime = { version = "30.0.2", default-features = false, features = [
     "cranelift",
 ] }
 wast = "40.0"

@@ -83,7 +83,7 @@ def test_protocol_versions() -> None:
         )
         ok = (head_proto in allowed_head_proto and
               test_proto in allowed_main_proto)
-    elif head_proto == 76:
+    elif head_proto == 76 or head_proto == 77:
         allowed_head_proto = (
             test_proto,
             test_proto + 1,

@@ -67,16 +67,12 @@ pub mod sender;
 use data::TestLoopData;
 use futures::{TestLoopAsyncComputationSpawner, TestLoopFutureSpawner};
 use near_time::{Clock, Duration, FakeClock};
-use pending_events_sender::{CallbackEvent, PendingEventsSender};
-use sender::TestLoopSender;
+use pending_events_sender::{CallbackEvent, PendingEventsSender, RawPendingEventsSender};
 use serde::Serialize;
-use std::collections::BinaryHeap;
+use std::collections::{BinaryHeap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use time::ext::InstantExt;
-
-use crate::messaging::{Actor, LateBoundSender};
 
 /// Main struct for the Test Loop framework.
 /// The `TestLoopData` should contain all the business logic state that is relevant
@@ -88,7 +84,7 @@ pub struct TestLoopV2 {
     /// The data that is stored and accessed by the test loop.
     pub data: TestLoopData,
     /// The sender is used to send events to the event loop.
-    pending_events_sender: PendingEventsSender,
+    raw_pending_events_sender: RawPendingEventsSender,
     /// The events that are yet to be handled. They are kept in a heap so that
     /// events that shall execute earlier (by our own virtual clock) are popped
     /// first.
@@ -98,7 +94,7 @@ pub struct TestLoopV2 {
     /// The next ID to assign to an event we receive.
     next_event_index: usize,
     /// The current virtual time.
-    pub current_time: Duration,
+    current_time: Duration,
     /// Fake clock that always returns the virtual time.
     clock: near_time::FakeClock,
     /// Shutdown flag. When this flag is true, delayed action runners will no
@@ -107,6 +103,8 @@ pub struct TestLoopV2 {
     /// If present, a function to call to print something every time an event is
     /// handled. Intended only for debugging.
     every_event_callback: Option<Box<dyn FnMut(&TestLoopData)>>,
+    /// All events with this identifier are ignored in testloop execution environment.
+    denylisted_identifiers: HashSet<String>,
 }
 
 /// An event waiting to be executed, ordered by the due time and then by ID.
@@ -141,13 +139,15 @@ struct InFlightEvents {
     /// The TestLoop thread ID. This and the following field are used to detect unintended
     /// parallel processing.
     event_loop_thread_id: std::thread::ThreadId,
-    /// Whether we're currently handling an event.
-    is_handling_event: bool,
 }
 
 impl InFlightEvents {
+    fn new() -> Self {
+        Self { events: Vec::new(), event_loop_thread_id: std::thread::current().id() }
+    }
+
     fn add(&mut self, event: CallbackEvent) {
-        if !self.is_handling_event && std::thread::current().id() != self.event_loop_thread_id {
+        if std::thread::current().id() != self.event_loop_thread_id {
             // Another thread shall not be sending an event while we're not handling an event.
             // If that happens, it means we have a rogue thread spawned somewhere that has not been
             // converted to TestLoop. TestLoop tests should be single-threaded (or at least, look
@@ -173,10 +173,14 @@ struct EventStartLogOutput {
     current_index: usize,
     /// See `EventEndLogOutput::total_events`.
     total_events: usize,
+    /// The identifier of the event, usually the node_id.
+    identifier: String,
     /// The Debug representation of the event payload.
     current_event: String,
     /// The current virtual time.
     current_time_ms: u64,
+    /// Whether this event is executed or not
+    event_ignored: bool,
 }
 
 #[derive(Serialize)]
@@ -189,13 +193,9 @@ struct EventEndLogOutput {
 
 impl TestLoopV2 {
     pub fn new() -> Self {
-        let pending_events = Arc::new(Mutex::new(InFlightEvents {
-            events: Vec::new(),
-            event_loop_thread_id: std::thread::current().id(),
-            is_handling_event: false,
-        }));
+        let pending_events = Arc::new(Mutex::new(InFlightEvents::new()));
         let pending_events_clone = pending_events.clone();
-        let pending_events_sender = PendingEventsSender::new(move |callback_event| {
+        let raw_pending_events_sender = RawPendingEventsSender::new(move |callback_event| {
             let mut pending_events = pending_events_clone.lock().unwrap();
             pending_events.add(callback_event);
         });
@@ -203,21 +203,22 @@ impl TestLoopV2 {
         // Needed for the log visualizer to know when the test loop starts.
         tracing::info!(target: "test_loop", "TEST_LOOP_INIT");
         Self {
-            data: TestLoopData::new(pending_events_sender.clone(), shutting_down.clone()),
+            data: TestLoopData::new(raw_pending_events_sender.clone(), shutting_down.clone()),
             events: BinaryHeap::new(),
             pending_events,
-            pending_events_sender,
+            raw_pending_events_sender,
             next_event_index: 0,
             current_time: Duration::ZERO,
             clock: FakeClock::default(),
             shutting_down,
             every_event_callback: None,
+            denylisted_identifiers: HashSet::new(),
         }
     }
 
     /// Returns a FutureSpawner that can be used to spawn futures into the loop.
-    pub fn future_spawner(&self) -> TestLoopFutureSpawner {
-        self.pending_events_sender.clone()
+    pub fn future_spawner(&self, identifier: &str) -> TestLoopFutureSpawner {
+        self.raw_pending_events_sender.for_identifier(identifier)
     }
 
     /// Returns an AsyncComputationSpawner that can be used to spawn async computation into the
@@ -225,14 +226,13 @@ impl TestLoopV2 {
     /// computation should take, based on the name of the computation.
     pub fn async_computation_spawner(
         &self,
+        identifier: &str,
         artificial_delay: impl Fn(&str) -> Duration + Send + Sync + 'static,
     ) -> TestLoopAsyncComputationSpawner {
-        TestLoopAsyncComputationSpawner::new(self.pending_events_sender.clone(), artificial_delay)
-    }
-
-    /// Returns a sender that can be used anywhere to send events to the loop.
-    pub fn sender(&self) -> PendingEventsSender {
-        self.pending_events_sender.clone()
+        TestLoopAsyncComputationSpawner::new(
+            self.raw_pending_events_sender.for_identifier(identifier),
+            artificial_delay,
+        )
     }
 
     /// Sends any ad-hoc event to the loop.
@@ -241,7 +241,7 @@ impl TestLoopV2 {
         description: String,
         callback: impl FnOnce(&mut TestLoopData) + Send + 'static,
     ) {
-        self.pending_events_sender.send(format!("Adhoc({})", description), Box::new(callback));
+        self.send_adhoc_event_with_delay(description, Duration::ZERO, callback)
     }
 
     /// Sends any ad-hoc event to the loop, after some delay.
@@ -251,39 +251,22 @@ impl TestLoopV2 {
         delay: Duration,
         callback: impl FnOnce(&mut TestLoopData) + Send + 'static,
     ) {
-        self.pending_events_sender.send_with_delay(
-            format!("Adhoc({})", description),
+        self.raw_pending_events_sender.for_identifier("Adhoc").send_with_delay(
+            description,
             Box::new(callback),
             delay,
         );
     }
 
+    /// This function is used to filter out all events that belong to a certain identifier.
+    /// The use case is while shutting down a node, we would like to not execute any more events from that node.
+    pub fn remove_events_with_identifier(&mut self, identifier: &str) {
+        self.denylisted_identifiers.insert(identifier.to_string());
+    }
+
     /// Returns a clock that will always return the current virtual time.
     pub fn clock(&self) -> Clock {
         self.clock.clock()
-    }
-
-    pub fn register_actor<A>(
-        &mut self,
-        actor: A,
-        adapter: Option<Arc<LateBoundSender<TestLoopSender<A>>>>,
-    ) -> TestLoopSender<A>
-    where
-        A: Actor + 'static,
-    {
-        self.data.register_actor_for_index(0, actor, adapter)
-    }
-
-    pub fn register_actor_for_index<A>(
-        &mut self,
-        index: usize,
-        actor: A,
-        adapter: Option<Arc<LateBoundSender<TestLoopSender<A>>>>,
-    ) -> TestLoopSender<A>
-    where
-        A: Actor + 'static,
-    {
-        self.data.register_actor_for_index(index, actor, adapter)
     }
 
     pub fn set_every_event_callback(&mut self, callback: impl FnMut(&TestLoopData) + 'static) {
@@ -363,22 +346,27 @@ impl TestLoopV2 {
 
     /// Processes the given event, by logging a line first and then finding a handler to run it.
     fn process_event(&mut self, event: EventInHeap) {
+        let event_ignored = self.denylisted_identifiers.contains(&event.event.identifier);
         let start_json = serde_json::to_string(&EventStartLogOutput {
             current_index: event.id,
             total_events: self.next_event_index,
+            identifier: event.event.identifier.clone(),
             current_event: event.event.description,
             current_time_ms: event.due.whole_milliseconds() as u64,
+            event_ignored,
         })
         .unwrap();
         tracing::info!(target: "test_loop", "TEST_LOOP_EVENT_START {}", start_json);
         assert_eq!(self.current_time, event.due);
 
-        if let Some(callback) = &mut self.every_event_callback {
-            callback(&self.data);
-        }
+        if !event_ignored {
+            if let Some(callback) = &mut self.every_event_callback {
+                callback(&self.data);
+            }
 
-        let callback = event.event.callback;
-        callback(&mut self.data);
+            let callback = event.event.callback;
+            callback(&mut self.data);
+        }
 
         // Push any new events into the queue. Do this before emitting the end log line,
         // so that it contains the correct new total number of events.
@@ -453,7 +441,7 @@ impl Drop for TestLoopV2 {
             self.events.clear();
             panic!(
                 "Event scheduled at {} is not handled at the end of the test: {}.
-                 Consider calling `test.shutdown_and_drain_remaining_events(...)`.",
+                     Consider calling `test.shutdown_and_drain_remaining_events(...)`.",
                 event.due, event.event.description
             );
         }
@@ -472,8 +460,8 @@ enum AdvanceDecision {
 mod tests {
     use crate::futures::FutureSpawnerExt;
     use crate::test_loop::TestLoopV2;
-    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
     use time::Duration;
 
     // Tests that the TestLoop correctly handles futures that sleep on the fake clock.
@@ -487,7 +475,7 @@ mod tests {
 
         let clock1 = clock.clone();
         let finished1 = finished.clone();
-        test_loop.future_spawner().spawn("test1", async move {
+        test_loop.future_spawner("adhoc future spawner").spawn("test1", async move {
             assert_eq!(clock1.now(), start_time);
             clock1.sleep(Duration::seconds(10)).await;
             assert_eq!(clock1.now(), start_time + Duration::seconds(10));
@@ -500,7 +488,7 @@ mod tests {
 
         let clock2 = clock;
         let finished2 = finished.clone();
-        test_loop.future_spawner().spawn("test2", async move {
+        test_loop.future_spawner("adhoc future spawner").spawn("test2", async move {
             assert_eq!(clock2.now(), start_time + Duration::seconds(2));
             clock2.sleep(Duration::seconds(3)).await;
             assert_eq!(clock2.now(), start_time + Duration::seconds(5));

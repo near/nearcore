@@ -37,12 +37,12 @@
 
 #![allow(missing_docs)] // For some reason lint fails saying that `LibCall` is not documented, when it actually is
 
+use crate::VMExternRef;
 use crate::func_data_registry::VMFuncRef;
 use crate::probestack::PROBESTACK;
 use crate::table::{RawTableElement, TableElement};
-use crate::trap::{raise_lib_trap, Trap, TrapCode};
+use crate::trap::{Trap, TrapCode, raise_lib_trap};
 use crate::vmcontext::VMContext;
-use crate::VMExternRef;
 use near_vm_types::{
     DataIndex, ElemIndex, FunctionIndex, LocalMemoryIndex, LocalTableIndex, MemoryIndex,
     TableIndex, Type,
@@ -143,14 +143,14 @@ pub extern "C" fn near_vm_f64_nearest(x: f64) -> f64 {
 ///
 /// # Safety
 ///
-/// `vmctx` must be dereferenceable.
+/// * `vmctx` must be dereferenceable.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn near_vm_memory32_grow(
     vmctx: *mut VMContext,
     delta: u32,
     memory_index: u32,
 ) -> u32 {
-    let instance = (&*vmctx).instance();
+    let instance = unsafe { (&*vmctx).instance() };
     let memory_index = LocalMemoryIndex::from_u32(memory_index);
 
     instance.memory_grow(memory_index, delta).map(|pages| pages.0).unwrap_or(u32::max_value())
@@ -160,18 +160,18 @@ pub unsafe extern "C" fn near_vm_memory32_grow(
 ///
 /// # Safety
 ///
-/// `vmctx` must be dereferenceable.
+/// * `vmctx` must be dereferenceable;
+/// * invariants for `imported_memory_grow` must hold.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn near_vm_imported_memory32_grow(
     vmctx: *mut VMContext,
     delta: u32,
     memory_index: u32,
 ) -> u32 {
-    let instance = (&*vmctx).instance();
+    let instance = unsafe { (&*vmctx).instance() };
     let memory_index = MemoryIndex::from_u32(memory_index);
 
-    instance
-        .imported_memory_grow(memory_index, delta)
+    unsafe { instance.imported_memory_grow(memory_index, delta) }
         .map(|pages| pages.0)
         .unwrap_or(u32::max_value())
 }
@@ -180,10 +180,10 @@ pub unsafe extern "C" fn near_vm_imported_memory32_grow(
 ///
 /// # Safety
 ///
-/// `vmctx` must be dereferenceable.
+/// * `vmctx` must be dereferenceable.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn near_vm_memory32_size(vmctx: *mut VMContext, memory_index: u32) -> u32 {
-    let instance = (&*vmctx).instance();
+    let instance = unsafe { (&*vmctx).instance() };
     let memory_index = LocalMemoryIndex::from_u32(memory_index);
 
     instance.memory_size(memory_index).0
@@ -193,23 +193,25 @@ pub unsafe extern "C" fn near_vm_memory32_size(vmctx: *mut VMContext, memory_ind
 ///
 /// # Safety
 ///
-/// `vmctx` must be dereferenceable.
+/// * `vmctx` must be dereferenceable;
+/// * invariants for `imported_memory_size` must hold.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn near_vm_imported_memory32_size(
     vmctx: *mut VMContext,
     memory_index: u32,
 ) -> u32 {
-    let instance = (&*vmctx).instance();
+    let instance = unsafe { (&*vmctx).instance() };
     let memory_index = MemoryIndex::from_u32(memory_index);
 
-    instance.imported_memory_size(memory_index).0
+    unsafe { instance.imported_memory_size(memory_index).0 }
 }
 
 /// Implementation of `table.copy`.
 ///
 /// # Safety
 ///
-/// `vmctx` must be dereferenceable.
+/// * `vmctx` must be dereferenceable;
+/// * invariants for [`raise_lib_trap`] must hold.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn near_vm_table_copy(
     vmctx: *mut VMContext,
@@ -222,13 +224,13 @@ pub unsafe extern "C" fn near_vm_table_copy(
     let result = {
         let dst_table_index = TableIndex::from_u32(dst_table_index);
         let src_table_index = TableIndex::from_u32(src_table_index);
-        let instance = (&*vmctx).instance();
+        let instance = unsafe { (&*vmctx).instance() };
         let dst_table = instance.get_table(dst_table_index);
         let src_table = instance.get_table(src_table_index);
         dst_table.copy(src_table, dst, src, len)
     };
     if let Err(trap) = result {
-        raise_lib_trap(trap);
+        unsafe { raise_lib_trap(trap) };
     }
 }
 
@@ -236,7 +238,8 @@ pub unsafe extern "C" fn near_vm_table_copy(
 ///
 /// # Safety
 ///
-/// `vmctx` must be dereferenceable.
+/// * `vmctx` must be dereferenceable;
+/// * invariants for [`raise_lib_trap`] must hold.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn near_vm_table_init(
     vmctx: *mut VMContext,
@@ -249,11 +252,11 @@ pub unsafe extern "C" fn near_vm_table_init(
     let result = {
         let table_index = TableIndex::from_u32(table_index);
         let elem_index = ElemIndex::from_u32(elem_index);
-        let instance = (&*vmctx).instance();
+        let instance = unsafe { (&*vmctx).instance() };
         instance.table_init(table_index, elem_index, dst, src, len)
     };
     if let Err(trap) = result {
-        raise_lib_trap(trap);
+        unsafe { raise_lib_trap(trap) };
     }
 }
 
@@ -261,7 +264,9 @@ pub unsafe extern "C" fn near_vm_table_init(
 ///
 /// # Safety
 ///
-/// `vmctx` must be dereferenceable.
+/// * `vmctx` must be dereferenceable;
+/// * invariants for [`raise_lib_trap`] must hold;
+/// * `item` must match table type.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn near_vm_table_fill(
     vmctx: *mut VMContext,
@@ -272,17 +277,19 @@ pub unsafe extern "C" fn near_vm_table_fill(
 ) {
     let result = {
         let table_index = TableIndex::from_u32(table_index);
-        let instance = (&*vmctx).instance();
-        let elem = match instance.get_table(table_index).ty().ty {
-            Type::ExternRef => TableElement::ExternRef(item.extern_ref.into()),
-            Type::FuncRef => TableElement::FuncRef(item.func_ref),
-            _ => panic!("Unrecognized table type: does not contain references"),
+        let instance = unsafe { (&*vmctx).instance() };
+        let elem = unsafe {
+            match instance.get_table(table_index).ty().ty {
+                Type::ExternRef => TableElement::ExternRef(item.extern_ref.into()),
+                Type::FuncRef => TableElement::FuncRef(item.func_ref),
+                _ => panic!("Unrecognized table type: does not contain references"),
+            }
         };
 
         instance.table_fill(table_index, start_idx, elem, len)
     };
     if let Err(trap) = result {
-        raise_lib_trap(trap);
+        unsafe { raise_lib_trap(trap) };
     }
 }
 
@@ -293,7 +300,7 @@ pub unsafe extern "C" fn near_vm_table_fill(
 /// `vmctx` must be dereferenceable.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn near_vm_table_size(vmctx: *mut VMContext, table_index: u32) -> u32 {
-    let instance = (&*vmctx).instance();
+    let instance = unsafe { (&*vmctx).instance() };
     let table_index = LocalTableIndex::from_u32(table_index);
 
     instance.table_size(table_index)
@@ -303,36 +310,38 @@ pub unsafe extern "C" fn near_vm_table_size(vmctx: *mut VMContext, table_index: 
 ///
 /// # Safety
 ///
-/// `vmctx` must be dereferenceable.
+/// * `vmctx` must be dereferenceable.
+/// * `table_index` must be a valid imported table index.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn near_vm_imported_table_size(
     vmctx: *mut VMContext,
     table_index: u32,
 ) -> u32 {
-    let instance = (&*vmctx).instance();
+    let instance = unsafe { (&*vmctx).instance() };
     let table_index = TableIndex::from_u32(table_index);
 
-    instance.imported_table_size(table_index)
+    unsafe { instance.imported_table_size(table_index) }
 }
 
 /// Implementation of `table.get`.
 ///
 /// # Safety
 ///
-/// `vmctx` must be dereferenceable.
+/// * `vmctx` must be dereferenceable.
+/// * invariants for [`raise_lib_trap`] must hold;
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn near_vm_table_get(
     vmctx: *mut VMContext,
     table_index: u32,
     elem_index: u32,
 ) -> RawTableElement {
-    let instance = (&*vmctx).instance();
+    let instance = unsafe { (&*vmctx).instance() };
     let table_index = LocalTableIndex::from_u32(table_index);
 
     // TODO: type checking, maybe have specialized accessors
     match instance.table_get(table_index, elem_index) {
         Some(table_ref) => table_ref.into(),
-        None => raise_lib_trap(Trap::lib(TrapCode::TableAccessOutOfBounds)),
+        None => unsafe { raise_lib_trap(Trap::lib(TrapCode::TableAccessOutOfBounds)) },
     }
 }
 
@@ -340,20 +349,22 @@ pub unsafe extern "C" fn near_vm_table_get(
 ///
 /// # Safety
 ///
-/// `vmctx` must be dereferenceable.
+/// * `vmctx` must be dereferenceable.
+/// * invariants for [`raise_lib_trap`] must hold;
+/// * `table_index` must be a valid imported table index.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn near_vm_imported_table_get(
     vmctx: *mut VMContext,
     table_index: u32,
     elem_index: u32,
 ) -> RawTableElement {
-    let instance = (&*vmctx).instance();
+    let instance = unsafe { (&*vmctx).instance() };
     let table_index = TableIndex::from_u32(table_index);
 
     // TODO: type checking, maybe have specialized accessors
-    match instance.imported_table_get(table_index, elem_index) {
+    match unsafe { instance.imported_table_get(table_index, elem_index) } {
         Some(table_ref) => table_ref.into(),
-        None => raise_lib_trap(Trap::lib(TrapCode::TableAccessOutOfBounds)),
+        None => unsafe { raise_lib_trap(Trap::lib(TrapCode::TableAccessOutOfBounds)) },
     }
 }
 
@@ -361,7 +372,9 @@ pub unsafe extern "C" fn near_vm_imported_table_get(
 ///
 /// # Safety
 ///
-/// `vmctx` must be dereferenceable.
+/// * `vmctx` must be dereferenceable.
+/// * invariants for [`raise_lib_trap`] must hold;
+/// * `value` must match the table type;
 ///
 /// It is the caller's responsibility to increment the ref count of any ref counted
 /// type before passing it to this function.
@@ -372,18 +385,20 @@ pub unsafe extern "C" fn near_vm_table_set(
     elem_index: u32,
     value: RawTableElement,
 ) {
-    let instance = (&*vmctx).instance();
+    let instance = unsafe { (&*vmctx).instance() };
     let table_index = TableIndex::from_u32(table_index);
     if let Ok(local_table) = instance.artifact.import_counts().local_table_index(table_index) {
-        let elem = match instance.get_local_table(local_table).ty().ty {
-            Type::ExternRef => TableElement::ExternRef(value.extern_ref.into()),
-            Type::FuncRef => TableElement::FuncRef(value.func_ref),
-            _ => panic!("Unrecognized table type: does not contain references"),
+        let elem = unsafe {
+            match instance.get_local_table(local_table).ty().ty {
+                Type::ExternRef => TableElement::ExternRef(value.extern_ref.into()),
+                Type::FuncRef => TableElement::FuncRef(value.func_ref),
+                _ => panic!("Unrecognized table type: does not contain references"),
+            }
         };
         // TODO: type checking, maybe have specialized accessors
         let result = instance.table_set(local_table, elem_index, elem);
         if let Err(trap) = result {
-            raise_lib_trap(trap);
+            unsafe { raise_lib_trap(trap) };
         }
     } else {
         panic!("near_vm_imported_table_set should have been called");
@@ -394,7 +409,10 @@ pub unsafe extern "C" fn near_vm_table_set(
 ///
 /// # Safety
 ///
-/// `vmctx` must be dereferenceable.
+/// * `vmctx` must be dereferenceable;
+/// * invariants for [`raise_lib_trap`] must hold;
+/// * `value` must match the table type;
+/// * invariants for `imported_table_set` must hold.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn near_vm_imported_table_set(
     vmctx: *mut VMContext,
@@ -402,16 +420,20 @@ pub unsafe extern "C" fn near_vm_imported_table_set(
     elem_index: u32,
     value: RawTableElement,
 ) {
-    let instance = (&*vmctx).instance();
+    let instance = unsafe { (&*vmctx).instance() };
     let table_index = TableIndex::from_u32(table_index);
-    let elem = match instance.get_foreign_table(table_index).ty().ty {
-        Type::ExternRef => TableElement::ExternRef(value.extern_ref.into()),
-        Type::FuncRef => TableElement::FuncRef(value.func_ref),
-        _ => panic!("Unrecognized table type: does not contain references"),
+    let elem = unsafe {
+        match instance.get_foreign_table(table_index).ty().ty {
+            Type::ExternRef => TableElement::ExternRef(value.extern_ref.into()),
+            Type::FuncRef => TableElement::FuncRef(value.func_ref),
+            _ => panic!("Unrecognized table type: does not contain references"),
+        }
     };
-    let result = instance.imported_table_set(table_index, elem_index, elem);
+    let result = unsafe { instance.imported_table_set(table_index, elem_index, elem) };
     if let Err(trap) = result {
-        raise_lib_trap(trap);
+        unsafe {
+            raise_lib_trap(trap);
+        }
     }
 }
 
@@ -419,7 +441,8 @@ pub unsafe extern "C" fn near_vm_imported_table_set(
 ///
 /// # Safety
 ///
-/// `vmctx` must be dereferenceable.
+/// * `vmctx` must be dereferenceable;
+/// * `init_value` must match the table type;
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn near_vm_table_grow(
     vmctx: *mut VMContext,
@@ -427,12 +450,14 @@ pub unsafe extern "C" fn near_vm_table_grow(
     delta: u32,
     table_index: u32,
 ) -> u32 {
-    let instance = (&*vmctx).instance();
+    let instance = unsafe { (&*vmctx).instance() };
     let table_index = LocalTableIndex::from_u32(table_index);
-    let init_value = match instance.get_local_table(table_index).ty().ty {
-        Type::ExternRef => TableElement::ExternRef(init_value.extern_ref.into()),
-        Type::FuncRef => TableElement::FuncRef(init_value.func_ref),
-        _ => panic!("Unrecognized table type: does not contain references"),
+    let init_value = unsafe {
+        match instance.get_local_table(table_index).ty().ty {
+            Type::ExternRef => TableElement::ExternRef(init_value.extern_ref.into()),
+            Type::FuncRef => TableElement::FuncRef(init_value.func_ref),
+            _ => panic!("Unrecognized table type: does not contain references"),
+        }
     };
     instance.table_grow(table_index, delta, init_value).unwrap_or(u32::max_value())
 }
@@ -441,7 +466,9 @@ pub unsafe extern "C" fn near_vm_table_grow(
 ///
 /// # Safety
 ///
-/// `vmctx` must be dereferenceable.
+/// * `vmctx` must be dereferenceable;
+/// * `init_value` must match the table type;
+/// * invariants for `imported_table_grow` must hold;
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn near_vm_imported_table_grow(
     vmctx: *mut VMContext,
@@ -449,25 +476,29 @@ pub unsafe extern "C" fn near_vm_imported_table_grow(
     delta: u32,
     table_index: u32,
 ) -> u32 {
-    let instance = (&*vmctx).instance();
+    let instance = unsafe { (&*vmctx).instance() };
     let table_index = TableIndex::from_u32(table_index);
-    let init_value = match instance.get_table(table_index).ty().ty {
-        Type::ExternRef => TableElement::ExternRef(init_value.extern_ref.into()),
-        Type::FuncRef => TableElement::FuncRef(init_value.func_ref),
-        _ => panic!("Unrecognized table type: does not contain references"),
+    let init_value = unsafe {
+        match instance.get_table(table_index).ty().ty {
+            Type::ExternRef => TableElement::ExternRef(init_value.extern_ref.into()),
+            Type::FuncRef => TableElement::FuncRef(init_value.func_ref),
+            _ => panic!("Unrecognized table type: does not contain references"),
+        }
     };
 
-    instance.imported_table_grow(table_index, delta, init_value).unwrap_or(u32::max_value())
+    unsafe {
+        instance.imported_table_grow(table_index, delta, init_value).unwrap_or(u32::max_value())
+    }
 }
 
 /// Implementation of `func.ref`.
 ///
 /// # Safety
 ///
-/// `vmctx` must be dereferenceable.
+/// * `vmctx` must be dereferenceable.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn near_vm_func_ref(vmctx: *mut VMContext, function_index: u32) -> VMFuncRef {
-    let instance = (&*vmctx).instance();
+    let instance = unsafe { (&*vmctx).instance() };
     let function_index = FunctionIndex::from_u32(function_index);
 
     instance.func_ref(function_index).unwrap()
@@ -477,7 +508,7 @@ pub unsafe extern "C" fn near_vm_func_ref(vmctx: *mut VMContext, function_index:
 ///
 /// # Safety
 ///
-/// `vmctx` must be dereferenceable.
+/// * `vmctx` must be dereferenceable.
 ///
 /// This function must only be called at precise locations to prevent memory leaks.
 #[unsafe(no_mangle)]
@@ -502,11 +533,11 @@ pub unsafe extern "C" fn near_vm_externref_dec(mut externref: VMExternRef) {
 ///
 /// # Safety
 ///
-/// `vmctx` must be dereferenceable.
+/// * `vmctx` must be dereferenceable.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn near_vm_elem_drop(vmctx: *mut VMContext, elem_index: u32) {
     let elem_index = ElemIndex::from_u32(elem_index);
-    let instance = (&*vmctx).instance();
+    let instance = unsafe { (&*vmctx).instance() };
     instance.elem_drop(elem_index);
 }
 
@@ -514,7 +545,8 @@ pub unsafe extern "C" fn near_vm_elem_drop(vmctx: *mut VMContext, elem_index: u3
 ///
 /// # Safety
 ///
-/// `vmctx` must be dereferenceable.
+/// * `vmctx` must be dereferenceable.
+/// * invariants for [`raise_lib_trap`] must hold.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn near_vm_memory32_copy(
     vmctx: *mut VMContext,
@@ -525,11 +557,11 @@ pub unsafe extern "C" fn near_vm_memory32_copy(
 ) {
     let result = {
         let memory_index = LocalMemoryIndex::from_u32(memory_index);
-        let instance = (&*vmctx).instance();
+        let instance = unsafe { (&*vmctx).instance() };
         instance.local_memory_copy(memory_index, dst, src, len)
     };
     if let Err(trap) = result {
-        raise_lib_trap(trap);
+        unsafe { raise_lib_trap(trap) };
     }
 }
 
@@ -537,7 +569,8 @@ pub unsafe extern "C" fn near_vm_memory32_copy(
 ///
 /// # Safety
 ///
-/// `vmctx` must be dereferenceable.
+/// * `vmctx` must be dereferenceable.
+/// * invariants for [`raise_lib_trap`] must hold.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn near_vm_imported_memory32_copy(
     vmctx: *mut VMContext,
@@ -548,11 +581,11 @@ pub unsafe extern "C" fn near_vm_imported_memory32_copy(
 ) {
     let result = {
         let memory_index = MemoryIndex::from_u32(memory_index);
-        let instance = (&*vmctx).instance();
+        let instance = unsafe { (&*vmctx).instance() };
         instance.imported_memory_copy(memory_index, dst, src, len)
     };
     if let Err(trap) = result {
-        raise_lib_trap(trap);
+        unsafe { raise_lib_trap(trap) };
     }
 }
 
@@ -560,7 +593,8 @@ pub unsafe extern "C" fn near_vm_imported_memory32_copy(
 ///
 /// # Safety
 ///
-/// `vmctx` must be dereferenceable.
+/// * `vmctx` must be dereferenceable.
+/// * invariants for [`raise_lib_trap`] must hold.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn near_vm_memory32_fill(
     vmctx: *mut VMContext,
@@ -571,11 +605,11 @@ pub unsafe extern "C" fn near_vm_memory32_fill(
 ) {
     let result = {
         let memory_index = LocalMemoryIndex::from_u32(memory_index);
-        let instance = (&*vmctx).instance();
+        let instance = unsafe { (&*vmctx).instance() };
         instance.local_memory_fill(memory_index, dst, val, len)
     };
     if let Err(trap) = result {
-        raise_lib_trap(trap);
+        unsafe { raise_lib_trap(trap) };
     }
 }
 
@@ -583,7 +617,8 @@ pub unsafe extern "C" fn near_vm_memory32_fill(
 ///
 /// # Safety
 ///
-/// `vmctx` must be dereferenceable.
+/// * `vmctx` must be dereferenceable.
+/// * invariants for [`raise_lib_trap`] must hold.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn near_vm_imported_memory32_fill(
     vmctx: *mut VMContext,
@@ -594,11 +629,11 @@ pub unsafe extern "C" fn near_vm_imported_memory32_fill(
 ) {
     let result = {
         let memory_index = MemoryIndex::from_u32(memory_index);
-        let instance = (&*vmctx).instance();
+        let instance = unsafe { (&*vmctx).instance() };
         instance.imported_memory_fill(memory_index, dst, val, len)
     };
     if let Err(trap) = result {
-        raise_lib_trap(trap);
+        unsafe { raise_lib_trap(trap) };
     }
 }
 
@@ -606,7 +641,8 @@ pub unsafe extern "C" fn near_vm_imported_memory32_fill(
 ///
 /// # Safety
 ///
-/// `vmctx` must be dereferenceable.
+/// * `vmctx` must be dereferenceable.
+/// * invariants for [`raise_lib_trap`] must hold.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn near_vm_memory32_init(
     vmctx: *mut VMContext,
@@ -619,11 +655,11 @@ pub unsafe extern "C" fn near_vm_memory32_init(
     let result = {
         let memory_index = MemoryIndex::from_u32(memory_index);
         let data_index = DataIndex::from_u32(data_index);
-        let instance = (&*vmctx).instance();
+        let instance = unsafe { (&*vmctx).instance() };
         instance.memory_init(memory_index, data_index, dst, src, len)
     };
     if let Err(trap) = result {
-        raise_lib_trap(trap);
+        unsafe { raise_lib_trap(trap) };
     }
 }
 
@@ -631,11 +667,12 @@ pub unsafe extern "C" fn near_vm_memory32_init(
 ///
 /// # Safety
 ///
-/// `vmctx` must be dereferenceable.
+/// * `vmctx` must be dereferenceable.
+/// * invariants for [`raise_lib_trap`] must hold.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn near_vm_data_drop(vmctx: *mut VMContext, data_index: u32) {
     let data_index = DataIndex::from_u32(data_index);
-    let instance = (&*vmctx).instance();
+    let instance = unsafe { (&*vmctx).instance() };
     instance.data_drop(data_index)
 }
 
@@ -648,7 +685,7 @@ pub unsafe extern "C" fn near_vm_data_drop(vmctx: *mut VMContext, data_index: u3
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn near_vm_raise_trap(trap_code: TrapCode) -> ! {
     let trap = Trap::lib(trap_code);
-    raise_lib_trap(trap)
+    unsafe { raise_lib_trap(trap) }
 }
 
 /// Probestack check
@@ -658,6 +695,7 @@ pub unsafe extern "C" fn near_vm_raise_trap(trap_code: TrapCode) -> ! {
 /// This function does not follow the standard function ABI, and is called as
 /// part of the function prologue.
 #[unsafe(no_mangle)]
+#[allow(non_upper_case_globals)]
 pub static near_vm_probestack: unsafe extern "C" fn() = PROBESTACK;
 
 /// The name of a runtime library routine.

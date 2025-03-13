@@ -90,7 +90,7 @@ export type ArrowRowPosition = 'above' | 'inbound' | 'outbound';
 export const ARROW_ROW_POSITIONS: ArrowRowPosition[] = ['above', 'inbound', 'outbound'];
 
 export class ArrowRow {
-    constructor(public readonly gridRow: number, public readonly positioning: ArrowRowPosition) {}
+    constructor(public readonly gridRow: number, public readonly positioning: ArrowRowPosition) { }
 
     // Gets a unique key for this ArrowRow that is larger if it's more
     // vertically down.
@@ -120,7 +120,7 @@ export class ArrowColumn {
     constructor(
         public readonly gridColumn: number,
         public readonly positioning: ArrowColumnPosition
-    ) {}
+    ) { }
 
     get key(): number {
         return this.gridColumn * 2 + (this.positioning == 'left' ? 0 : 1);
@@ -265,8 +265,8 @@ export function makeOutgoingArrowsForItem(
         for (const targetId of targetIds) {
             const child = items.get(targetId)!;
             columnToMaxRow.set(
-                child.column,
-                Math.max(columnToMaxRow.get(child.column) ?? 0, child.row)
+                child.columnNumber,
+                Math.max(columnToMaxRow.get(child.columnNumber) ?? 0, child.rowNumber)
             );
         }
         let minColumn = 100000,
@@ -279,22 +279,22 @@ export function makeOutgoingArrowsForItem(
         const verticalParts = [] as ArrowPartVertical[];
         // If we only have children to the same instance, then draw them in the
         // first fashion (see comment at beginning of file).
-        if (minColumn == maxColumn && minColumn == item.column && attachmentId === null) {
-            horizontalParts.push(ArrowPartHorizontal.outOfItem(item.row, item.column));
+        if (minColumn == maxColumn && minColumn == item.columnNumber && attachmentId === null) {
+            horizontalParts.push(ArrowPartHorizontal.outOfItem(item.rowNumber, item.columnNumber));
             verticalParts.push(
                 ArrowPartVertical.acrossRows(
-                    new ArrowRow(item.row, 'outbound'),
-                    new ArrowRow(columnToMaxRow.get(item.column)!, 'inbound'),
-                    item.column
+                    new ArrowRow(item.rowNumber, 'outbound'),
+                    new ArrowRow(columnToMaxRow.get(item.columnNumber)!, 'inbound'),
+                    item.columnNumber
                 )
             );
         } else {
             // Otherwise we draw them in the second fashion.
-            const verticalOut = ArrowPartVertical.outOfItem(item.row, item.column);
+            const verticalOut = ArrowPartVertical.outOfItem(item.rowNumber, item.columnNumber);
             verticalParts.push(verticalOut);
             horizontalParts.push(
                 ArrowPartHorizontal.acrossColumns(
-                    item.row + 1,
+                    item.rowNumber + 1,
                     verticalOut.column.min(new ArrowColumn(minColumn, 'left')),
                     verticalOut.column.max(new ArrowColumn(maxColumn, 'left'))
                 )
@@ -302,7 +302,7 @@ export function makeOutgoingArrowsForItem(
             for (const column of columnToMaxRow.keys()) {
                 verticalParts.push(
                     ArrowPartVertical.acrossRows(
-                        new ArrowRow(item.row + 1, 'above'),
+                        new ArrowRow(item.rowNumber + 1, 'above'),
                         new ArrowRow(columnToMaxRow.get(column)!, 'inbound'),
                         column
                     )
@@ -311,7 +311,7 @@ export function makeOutgoingArrowsForItem(
         }
         for (const targetId of targetIds) {
             const child = items.get(targetId)!;
-            horizontalParts.push(ArrowPartHorizontal.intoItem(child.row, child.column));
+            horizontalParts.push(ArrowPartHorizontal.intoItem(child.rowNumber, child.columnNumber));
         }
         arrowGroups.push({
             horizontalParts,

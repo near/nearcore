@@ -1,5 +1,5 @@
-use super::cache_stats::CacheStats;
 use super::Visitor;
+use super::cache_stats::CacheStats;
 use std::collections::{BTreeMap, HashMap};
 use std::io::Write;
 

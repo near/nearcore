@@ -2,7 +2,7 @@ use anyhow::Context;
 
 use near_chain_configs::{Genesis, GenesisValidationMode, NEAR_BASE};
 use near_crypto::PublicKey;
-use near_primitives::hash::CryptoHash;
+use near_primitives::account::AccountContract;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::state_record::StateRecord;
 use near_primitives::types::{AccountId, AccountInfo};
@@ -12,7 +12,7 @@ use near_primitives_core::account::{AccessKey, Account};
 use near_primitives_core::types::{Balance, BlockHeightDelta, NumBlocks, NumSeats, NumShards};
 use num_rational::Rational32;
 use serde::ser::{SerializeSeq, Serializer};
-use std::collections::{hash_map, HashMap};
+use std::collections::{HashMap, hash_map};
 use std::fs::File;
 use std::io::{BufReader, BufWriter};
 use std::path::Path;
@@ -62,7 +62,7 @@ impl AccountRecords {
 
     fn set_account(&mut self, amount: Balance, locked: Balance, num_bytes_account: u64) {
         assert!(self.account.is_none());
-        let account = Account::new(amount, locked, CryptoHash::default(), num_bytes_account);
+        let account = Account::new(amount, locked, AccountContract::None, num_bytes_account);
         self.account = Some(account);
     }
 
@@ -73,7 +73,7 @@ impl AccountRecords {
                 // records. Set the storage usage to reflect whatever's in the original records, and at the
                 // end we will add to the storage usage with any extra keys added for this account
                 account.set_storage_usage(existing.storage_usage());
-                account.set_code_hash(existing.code_hash());
+                account.set_contract(existing.contract().into_owned());
                 if self.amount_needed {
                     set_total_balance(account, existing);
                 }
@@ -127,7 +127,10 @@ impl AccountRecords {
                 }
             }
             None => {
-                tracing::warn!("access keys for {} were included in --extra-records, but no Account record was found. Not adding them to the output", &account_id);
+                tracing::warn!(
+                    "access keys for {} were included in --extra-records, but no Account record was found. Not adding them to the output",
+                    &account_id
+                );
             }
         }
         Ok(())
@@ -171,7 +174,7 @@ fn parse_extra_records(
     near_chain_configs::stream_records_from_file(reader, |r| {
         match r {
             StateRecord::Account { account_id, account } => {
-                if account.code_hash() != CryptoHash::default() {
+                if !account.contract().is_none() {
                     result = Err(anyhow::anyhow!(
                         "FIXME: accounts in --extra-records with code_hash set not supported"
                     ));
@@ -405,8 +408,8 @@ pub fn amend_genesis(
 #[cfg(test)]
 mod test {
     use anyhow::Context;
-    use near_chain_configs::{get_initial_supply, Genesis, GenesisConfig, NEAR_BASE};
-    use near_primitives::hash::CryptoHash;
+    use near_chain_configs::{Genesis, GenesisConfig, NEAR_BASE, get_initial_supply};
+    use near_primitives::account::AccountContract;
     use near_primitives::shard_layout::ShardLayout;
     use near_primitives::state_record::StateRecord;
     use near_primitives::types::{AccountId, AccountInfo};
@@ -459,7 +462,7 @@ mod test {
             match &self {
                 Self::Account { account_id, amount, locked, storage_usage } => {
                     let account =
-                        Account::new(*amount, *locked, CryptoHash::default(), *storage_usage);
+                        Account::new(*amount, *locked, AccountContract::None, *storage_usage);
                     StateRecord::Account { account_id: account_id.parse().unwrap(), account }
                 }
                 Self::AccessKey { account_id, public_key } => StateRecord::AccessKey {
@@ -517,7 +520,7 @@ mod test {
                             (
                                 account.amount(),
                                 account.locked(),
-                                account.code_hash(),
+                                account.contract().into_owned(),
                                 account.storage_usage(),
                             ),
                         )
@@ -555,7 +558,7 @@ mod test {
                         (
                             account.amount(),
                             account.locked(),
-                            account.code_hash(),
+                            account.contract().into_owned(),
                             account.storage_usage(),
                         ),
                     );

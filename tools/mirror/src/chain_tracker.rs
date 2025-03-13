@@ -15,8 +15,8 @@ use near_primitives::views::{ActionView, ExecutionStatusView, ReceiptEnumView};
 use near_primitives_core::types::{Gas, Nonce};
 use rocksdb::DB;
 use std::cmp::Ordering;
-use std::collections::hash_map;
 use std::collections::HashMap;
+use std::collections::hash_map;
 use std::collections::{BTreeSet, HashSet, VecDeque};
 use std::fmt::Write;
 use std::sync::Mutex;
@@ -219,7 +219,7 @@ impl TxTracker {
                 Err(ChainError::Unknown) => break,
                 Err(ChainError::Other(e)) => {
                     return Err(e)
-                        .with_context(|| format!("failed fetching next height after {}", h))
+                        .with_context(|| format!("failed fetching next height after {}", h));
                 }
             };
         }
@@ -405,10 +405,11 @@ impl TxTracker {
             info.target_nonce.pending_outcomes.insert(NonceUpdater::TxRef(tx_ref.clone()));
         }
         if !nonce_updates.is_empty() {
-            assert!(self
-                .updater_to_keys
-                .insert(NonceUpdater::TxRef(tx_ref.clone()), nonce_updates.clone())
-                .is_none());
+            assert!(
+                self.updater_to_keys
+                    .insert(NonceUpdater::TxRef(tx_ref.clone()), nonce_updates.clone())
+                    .is_none()
+            );
         }
         Ok(())
     }

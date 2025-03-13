@@ -243,7 +243,7 @@ impl ActionEstimation {
         let predecessor_id = tb.account_by_requirement(self.predecessor, Some(&signer_id));
         let receiver_id = tb.account_by_requirement(self.receiver, Some(&signer_id));
         let tx = tb.transaction_from_actions(predecessor_id, receiver_id, actions);
-        testbed.verify_transaction(&tx, self.metric)
+        testbed.verify_transaction(tx, self.metric)
     }
 
     /// Estimate the cost of applying a set of actions once.
@@ -820,7 +820,7 @@ impl ActionSize {
 
 #[cfg(test)]
 mod tests {
-    use super::{deploy_action, ActionSize};
+    use super::{ActionSize, deploy_action};
     use genesis_populate::get_account_id;
 
     #[test]

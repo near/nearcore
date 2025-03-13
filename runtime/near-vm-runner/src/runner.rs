@@ -2,8 +2,8 @@ use crate::errors::ContractPrecompilatonResult;
 use crate::logic::errors::{CacheError, CompilationError, VMRunnerError};
 use crate::logic::{External, VMContext, VMOutcome};
 use crate::{ContractCode, ContractRuntimeCache};
-use near_parameters::vm::{Config, VMKind};
 use near_parameters::RuntimeFeesConfig;
+use near_parameters::vm::{Config, VMKind};
 use std::sync::Arc;
 
 /// Returned by VM::run method.

@@ -8,6 +8,7 @@ use near_parameters::config::CongestionControlConfig;
 use near_parameters::{ExtCosts, RuntimeConfigStore};
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
+use near_primitives::chunk_apply_stats::ChunkApplyStatsV0;
 use near_primitives::congestion_info::{BlockCongestionInfo, ExtendedCongestionInfo};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
@@ -16,7 +17,7 @@ use near_primitives::state::FlatStateValue;
 use near_primitives::test_utils::MockEpochInfoProvider;
 use near_primitives::transaction::{ExecutionStatus, SignedTransaction};
 use near_primitives::types::{Gas, MerkleHash};
-use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::flat::{
     BlockInfo, FlatStateChanges, FlatStateDelta, FlatStateDeltaMetadata, FlatStorage,
@@ -24,9 +25,13 @@ use near_store::flat::{
 };
 use near_store::{ShardTries, ShardUId, StateSnapshotConfig, TrieUpdate};
 use near_store::{TrieCache, TrieCachingStorage, TrieConfig};
-use near_vm_runner::logic::LimitConfig;
 use near_vm_runner::FilesystemContractRuntimeCache;
-use node_runtime::{ApplyState, Runtime, SignedValidPeriodTransactions};
+use near_vm_runner::logic::LimitConfig;
+use node_runtime::config::tx_cost;
+use node_runtime::{
+    ApplyState, Runtime, SignedValidPeriodTransactions, commit_charging_for_tx,
+    verify_and_charge_tx_ephemeral,
+};
 use std::collections::HashMap;
 use std::iter;
 use std::sync::Arc;
@@ -441,7 +446,7 @@ impl Testbed<'_> {
     /// Network costs for sending are not included.
     pub(crate) fn verify_transaction(
         &mut self,
-        tx: &SignedTransaction,
+        signed_tx: SignedTransaction,
         metric: GasMetric,
     ) -> GasCost {
         let mut state_update = TrieUpdate::new(self.trie());
@@ -449,27 +454,27 @@ impl Testbed<'_> {
         // but making it too small affects max_depth and thus pessimistic inflation
         let gas_price = 100_000_000;
         let block_height = None;
-        // do a full verification
-        let verify_signature = true;
 
         let clock = GasCost::measure(metric);
-        let cost = node_runtime::validate_transaction(
+        let validated_tx = node_runtime::validate_transaction(
             &self.apply_state.config,
-            gas_price,
-            tx,
-            verify_signature,
+            signed_tx,
             PROTOCOL_VERSION,
         )
         .expect("expected no validation error");
-        node_runtime::verify_and_charge_transaction(
+        let cost =
+            tx_cost(&self.apply_state.config, &validated_tx, gas_price, PROTOCOL_VERSION).unwrap();
+
+        let vr = verify_and_charge_tx_ephemeral(
             &self.apply_state.config,
-            &mut state_update,
-            tx,
+            &state_update,
+            &validated_tx,
             &cost,
             block_height,
             PROTOCOL_VERSION,
         )
         .expect("tx verification should not fail in estimator");
+        commit_charging_for_tx(&mut state_update, &validated_tx, &vr.signer, &vr.access_key);
         clock.elapsed()
     }
 
@@ -480,7 +485,8 @@ impl Testbed<'_> {
         let mut state_update = TrieUpdate::new(self.trie());
         let mut outgoing_receipts = vec![];
         let mut validator_proposals = vec![];
-        let mut stats = node_runtime::ApplyStats::default();
+        let mut stats =
+            ChunkApplyStatsV0::new(self.apply_state.block_height, self.apply_state.shard_id);
         // TODO: mock is not accurate, potential DB requests are skipped in the mock!
         let epoch_info_provider = MockEpochInfoProvider::default();
         let clock = GasCost::measure(metric);

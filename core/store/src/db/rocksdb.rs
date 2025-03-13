@@ -1,8 +1,8 @@
 use crate::config::Mode;
-use crate::db::{refcount, DBIterator, DBOp, DBSlice, DBTransaction, Database, StatsValue};
-use crate::{metadata, metrics, DBCol, StoreConfig, StoreStatistics, Temperature};
+use crate::db::{DBIterator, DBOp, DBSlice, DBTransaction, Database, StatsValue, refcount};
+use crate::{DBCol, StoreConfig, StoreStatistics, Temperature, metadata, metrics};
 use ::rocksdb::{
-    BlockBasedOptions, Cache, ColumnFamily, Env, IteratorMode, Options, ReadOptions, WriteBatch, DB,
+    BlockBasedOptions, Cache, ColumnFamily, DB, Env, IteratorMode, Options, ReadOptions, WriteBatch,
 };
 use anyhow::Context;
 use itertools::Itertools;
@@ -441,11 +441,7 @@ impl Database for RocksDB {
             }
         }
         self.get_cf_statistics(&mut result);
-        if result.data.is_empty() {
-            None
-        } else {
-            Some(result)
-        }
+        if result.data.is_empty() { None } else { Some(result) }
     }
 
     #[tracing::instrument(
@@ -683,6 +679,16 @@ impl RocksDB {
                 result.data.push((stat_name.to_string(), values));
             }
         }
+    }
+
+    /// Deletes all data in `cols`. This should also remove all sst files
+    pub fn clear_cols(&mut self, cols: &[DBCol]) -> anyhow::Result<()> {
+        for col in cols {
+            self.db
+                .drop_cf(col_name(*col))
+                .with_context(|| format!("failed to drop column family {:?}", col,))?;
+        }
+        Ok(())
     }
 }
 

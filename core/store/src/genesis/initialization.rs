@@ -14,16 +14,15 @@ use near_parameters::RuntimeConfigStore;
 use near_primitives::{
     epoch_manager::EpochConfig,
     shard_layout::ShardLayout,
-    state_record::{state_record_to_account_id, StateRecord},
+    state_record::{StateRecord, state_record_to_account_id},
     types::{AccountId, NumShards, ShardId, StateRoot},
 };
 use tracing::{error, info, warn};
 
 use crate::{
-    adapter::StoreAdapter, flat::FlatStorageManager, genesis::GenesisStateApplier,
-    get_genesis_hash, get_genesis_height, get_genesis_state_roots, set_genesis_hash,
-    set_genesis_height, set_genesis_state_roots, ShardTries, StateSnapshotConfig, Store,
-    TrieConfig,
+    ShardTries, StateSnapshotConfig, Store, TrieConfig, adapter::StoreAdapter,
+    flat::FlatStorageManager, genesis::GenesisStateApplier, get_genesis_hash, get_genesis_height,
+    get_genesis_state_roots, set_genesis_hash, set_genesis_height, set_genesis_state_roots,
 };
 
 const STATE_DUMP_FILE: &str = "state_dump";

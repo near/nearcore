@@ -1,12 +1,12 @@
-use super::{to_yocto, GAS_PRICE};
+use super::{GAS_PRICE, to_yocto};
 use crate::config::safe_add_gas;
 use crate::congestion_control::{compute_receipt_congestion_gas, compute_receipt_size};
 use crate::tests::{
-    create_receipt_for_create_account, create_receipt_with_actions, set_sha256_cost,
-    MAX_ATTACHED_GAS,
+    MAX_ATTACHED_GAS, create_receipt_for_create_account, create_receipt_with_actions,
+    set_sha256_cost,
 };
-use crate::{total_prepaid_exec_fees, SignedValidPeriodTransactions};
 use crate::{ApplyResult, ApplyState, Runtime, ValidatorAccountsUpdate};
+use crate::{SignedValidPeriodTransactions, total_prepaid_exec_fees};
 use assert_matches::assert_matches;
 use near_crypto::{InMemorySigner, KeyType, PublicKey, Signer};
 use near_o11y::testonly::init_test_logger;
@@ -20,13 +20,13 @@ use near_primitives::congestion_info::{
     BlockCongestionInfo, CongestionControl, CongestionInfo, ExtendedCongestionInfo,
 };
 use near_primitives::errors::{ActionErrorKind, FunctionCallError, TxExecutionError};
-use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum, ReceiptPriority, ReceiptV0};
 use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::state::PartialState;
 use near_primitives::stateless_validation::contract_distribution::CodeHash;
-use near_primitives::test_utils::{account_new, MockEpochInfoProvider};
+use near_primitives::test_utils::{MockEpochInfoProvider, account_new};
 use near_primitives::transaction::{
     AddKeyAction, DeleteKeyAction, DeployContractAction, ExecutionOutcomeWithId, ExecutionStatus,
     FunctionCallAction, SignedTransaction, TransferAction,
@@ -36,12 +36,12 @@ use near_primitives::types::{
     AccountId, Balance, EpochId, EpochInfoProvider, Gas, MerkleHash, ShardId, StateChangeCause,
 };
 use near_primitives::utils::create_receipt_id_from_transaction;
-use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_store::test_utils::TestTriesBuilder;
 use near_store::trie::receipts_column_helper::ShardsOutgoingReceiptBuffer;
 use near_store::{
-    get_account, set_access_key, set_account, MissingTrieValueContext, ShardTries, StorageError,
-    Trie,
+    MissingTrieValueContext, ShardTries, StorageError, Trie, get_account, set_access_key,
+    set_account,
 };
 use near_vm_runner::{ContractCode, FilesystemContractRuntimeCache};
 use std::collections::{HashMap, HashSet};
@@ -370,13 +370,13 @@ fn test_apply_delayed_receipts_adjustable_gas_limit() {
         );
         let expected_queue_length = num_receipts_given - num_receipts_processed;
         println!(
-                "{} processed out of {} given. With limit {} receipts per block. The expected delayed_receipts_count is {}. The delayed_receipts_count is {}.",
-                num_receipts_processed,
-                num_receipts_given,
-                num_receipts_per_block,
-                expected_queue_length,
-                apply_result.delayed_receipts_count,
-            );
+            "{} processed out of {} given. With limit {} receipts per block. The expected delayed_receipts_count is {}. The delayed_receipts_count is {}.",
+            num_receipts_processed,
+            num_receipts_given,
+            num_receipts_per_block,
+            expected_queue_length,
+            apply_result.delayed_receipts_count,
+        );
         assert_eq!(apply_result.delayed_receipts_count, expected_queue_length);
     }
 }
@@ -737,7 +737,7 @@ fn test_apply_deficit_gas_for_transfer() {
             Default::default(),
         )
         .unwrap();
-    assert_eq!(result.stats.gas_deficit_amount, result.stats.tx_burnt_amount * 9)
+    assert_eq!(result.stats.balance.gas_deficit_amount, result.stats.balance.tx_burnt_amount * 9)
 }
 
 #[test]
@@ -795,7 +795,7 @@ fn test_apply_deficit_gas_for_function_call_covered() {
         )
         .unwrap();
     // We used part of the prepaid gas to paying extra fees.
-    assert_eq!(result.stats.gas_deficit_amount, 0);
+    assert_eq!(result.stats.balance.gas_deficit_amount, 0);
     // The refund is less than the received amount.
     match result.outgoing_receipts[0].receipt() {
         ReceiptEnum::Action(ActionReceipt { actions, .. }) => {
@@ -862,9 +862,9 @@ fn test_apply_deficit_gas_for_function_call_partial() {
         )
         .unwrap();
     // Used full prepaid gas, but it still not enough to cover deficit.
-    assert_eq!(result.stats.gas_deficit_amount, expected_deficit);
+    assert_eq!(result.stats.balance.gas_deficit_amount, expected_deficit);
     // Burnt all the fees + all prepaid gas.
-    assert_eq!(result.stats.tx_burnt_amount, total_receipt_cost);
+    assert_eq!(result.stats.balance.tx_burnt_amount, total_receipt_cost);
 }
 
 #[test]

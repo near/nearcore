@@ -302,6 +302,8 @@ impl TryFrom<&ParameterTable> for RuntimeConfig {
                     storage_amount_per_byte: params.get(Parameter::StorageAmountPerByte)?,
                     num_bytes_account: params.get(Parameter::StorageNumBytesAccount)?,
                     num_extra_bytes_record: params.get(Parameter::StorageNumExtraBytesRecord)?,
+                    global_contract_storage_amount_per_byte: params
+                        .get(Parameter::GlobalContractStorageAmountPerByte)?,
                 },
             }),
             wasm_config: Arc::new(Config {
@@ -526,8 +528,8 @@ fn canonicalize_yaml_string(value: &str) -> Result<serde_yaml::Value, InvalidCon
 #[cfg(test)]
 mod tests {
     use super::{
-        parse_parameter_value, InvalidConfigError, ParameterTable, ParameterTableDiff,
-        ParameterValue,
+        InvalidConfigError, ParameterTable, ParameterTableDiff, ParameterValue,
+        parse_parameter_value,
     };
     use crate::Parameter;
     use assert_matches::assert_matches;

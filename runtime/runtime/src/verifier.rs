@@ -1,26 +1,26 @@
-use crate::config::{total_prepaid_gas, tx_cost, TransactionCost};
-use crate::near_primitives::account::Account;
 use crate::VerificationResult;
+use crate::config::{TransactionCost, total_prepaid_gas};
+use crate::near_primitives::account::Account;
 use near_crypto::key_conversion::is_valid_staking_key;
 use near_parameters::RuntimeConfig;
-use near_primitives::account::AccessKeyPermission;
-use near_primitives::action::delegate::SignedDelegateAction;
+use near_primitives::account::{AccessKey, AccessKeyPermission};
 use near_primitives::action::DeployGlobalContractAction;
+use near_primitives::action::delegate::SignedDelegateAction;
 use near_primitives::checked_feature;
 use near_primitives::errors::{
     ActionsValidationError, InvalidAccessKeyError, InvalidTxError, ReceiptValidationError,
 };
 use near_primitives::receipt::{ActionReceipt, DataReceipt, Receipt, ReceiptEnum};
-use near_primitives::transaction::DeleteAccountAction;
 use near_primitives::transaction::{
     Action, AddKeyAction, DeployContractAction, FunctionCallAction, SignedTransaction, StakeAction,
 };
+use near_primitives::transaction::{DeleteAccountAction, ValidatedTransaction};
 use near_primitives::types::{AccountId, Balance};
 use near_primitives::types::{BlockHeight, StorageUsage};
 use near_primitives::version::ProtocolFeature;
 use near_primitives::version::ProtocolVersion;
 use near_store::{
-    get_access_key, get_account, set_access_key, set_account, StorageError, TrieUpdate,
+    StorageError, TrieUpdate, get_access_key, get_account, set_access_key, set_account,
 };
 use near_vm_runner::logic::LimitConfig;
 
@@ -86,57 +86,42 @@ fn is_zero_balance_account(account: &Account) -> bool {
 
 /// Validates the transaction without using the state. It allows any node to validate a
 /// transaction before forwarding it to the node that tracks the `signer_id` account.
+#[allow(clippy::result_large_err)]
 pub fn validate_transaction(
     config: &RuntimeConfig,
-    gas_price: Balance,
-    signed_transaction: &SignedTransaction,
-    verify_signature: bool,
+    signed_tx: SignedTransaction,
     current_protocol_version: ProtocolVersion,
-) -> Result<TransactionCost, InvalidTxError> {
-    // Don't allow V1 currently. This will be changed when the new protocol version is introduced.
-    if matches!(signed_transaction.transaction, near_primitives::transaction::Transaction::V1(_)) {
-        return Err(InvalidTxError::InvalidTransactionVersion);
-    }
-    let transaction = &signed_transaction.transaction;
-    let signer_id = transaction.signer_id();
-
-    if verify_signature
-        && !signed_transaction
-            .signature
-            .verify(signed_transaction.get_hash().as_ref(), transaction.public_key())
-    {
-        return Err(InvalidTxError::InvalidSignature);
-    }
-
-    let transaction_size = signed_transaction.get_size();
-    let max_transaction_size = config.wasm_config.limit_config.max_transaction_size;
-    if transaction_size > max_transaction_size {
-        return Err(InvalidTxError::TransactionSizeExceeded {
-            size: transaction_size,
-            limit: max_transaction_size,
-        }
-        .into());
-    }
-
-    validate_actions(
+) -> Result<ValidatedTransaction, (InvalidTxError, SignedTransaction)> {
+    if let Err(err) = validate_actions(
         &config.wasm_config.limit_config,
-        transaction.actions(),
+        signed_tx.transaction.actions(),
         current_protocol_version,
-    )
-    .map_err(InvalidTxError::ActionsValidation)?;
-
-    let sender_is_receiver = transaction.receiver_id() == signer_id;
-
-    tx_cost(&config, transaction, gas_price, sender_is_receiver, current_protocol_version)
-        .map_err(|_| InvalidTxError::CostOverflow.into())
+    ) {
+        return Err((InvalidTxError::ActionsValidation(err), signed_tx));
+    }
+    ValidatedTransaction::new(config, signed_tx)
 }
 
-/// Verifies the signed transaction on top of given state, charges transaction fees
-/// and balances, and updates the state for the used account and access keys.
-pub fn verify_and_charge_transaction(
-    config: &RuntimeConfig,
+pub fn commit_charging_for_tx(
     state_update: &mut TrieUpdate,
-    signed_transaction: &SignedTransaction,
+    validated_tx: &ValidatedTransaction,
+    signer: &Account,
+    access_key: &AccessKey,
+) {
+    let tx = validated_tx.to_tx();
+    set_access_key(state_update, tx.signer_id().clone(), tx.public_key().clone(), &access_key);
+    set_account(state_update, tx.signer_id().clone(), &signer);
+}
+
+/// Verifies the signed transaction on top of the given state; looks up the
+/// signer account and access_key from the transaction; updates them to charge
+/// for the transaction processing; returns the updated signer and access_key to
+/// the caller.  The caller can use `commit_charging_for_tx()` to commit the
+/// actual charging.
+pub fn verify_and_charge_tx_ephemeral(
+    config: &RuntimeConfig,
+    state_update: &TrieUpdate,
+    validated_tx: &ValidatedTransaction,
     transaction_cost: &TransactionCost,
     block_height: Option<BlockHeight>,
     current_protocol_version: ProtocolVersion,
@@ -146,8 +131,8 @@ pub fn verify_and_charge_transaction(
     let TransactionCost { gas_burnt, gas_remaining, receipt_gas_price, total_cost, burnt_amount } =
         *transaction_cost;
 
-    let transaction = &signed_transaction.transaction;
-    let signer_id = transaction.signer_id();
+    let tx = validated_tx.to_tx();
+    let signer_id = tx.signer_id();
 
     let mut signer = match get_account(state_update, signer_id)? {
         Some(signer) => signer,
@@ -156,22 +141,22 @@ pub fn verify_and_charge_transaction(
         }
     };
 
-    let mut access_key = match get_access_key(state_update, signer_id, transaction.public_key())? {
+    let mut access_key = match get_access_key(state_update, signer_id, tx.public_key())? {
         Some(access_key) => access_key,
         None => {
             return Err(InvalidTxError::InvalidAccessKeyError(
                 InvalidAccessKeyError::AccessKeyNotFound {
                     account_id: signer_id.clone(),
-                    public_key: transaction.public_key().clone().into(),
+                    public_key: tx.public_key().clone().into(),
                 },
             )
             .into());
         }
     };
 
-    if transaction.nonce() <= access_key.nonce {
+    if tx.nonce() <= access_key.nonce {
         return Err(InvalidTxError::InvalidNonce {
-            tx_nonce: transaction.nonce(),
+            tx_nonce: tx.nonce(),
             ak_nonce: access_key.nonce,
         }
         .into());
@@ -180,17 +165,15 @@ pub fn verify_and_charge_transaction(
         if let Some(height) = block_height {
             let upper_bound =
                 height * near_primitives::account::AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER;
-            if transaction.nonce() >= upper_bound {
-                return Err(InvalidTxError::NonceTooLarge {
-                    tx_nonce: transaction.nonce(),
-                    upper_bound,
-                }
-                .into());
+            if tx.nonce() >= upper_bound {
+                return Err(
+                    InvalidTxError::NonceTooLarge { tx_nonce: tx.nonce(), upper_bound }.into()
+                );
             }
         }
     };
 
-    access_key.nonce = transaction.nonce();
+    access_key.nonce = tx.nonce();
 
     signer.set_amount(signer.amount().checked_sub(total_cost).ok_or_else(|| {
         InvalidTxError::NotEnoughBalance {
@@ -207,7 +190,7 @@ pub fn verify_and_charge_transaction(
             *allowance = allowance.checked_sub(total_cost).ok_or_else(|| {
                 InvalidTxError::InvalidAccessKeyError(InvalidAccessKeyError::NotEnoughAllowance {
                     account_id: signer_id.clone(),
-                    public_key: transaction.public_key().clone().into(),
+                    public_key: tx.public_key().clone().into(),
                     allowance: *allowance,
                     cost: total_cost,
                 })
@@ -222,7 +205,7 @@ pub fn verify_and_charge_transaction(
                 signer_id: signer_id.clone(),
                 amount,
             }
-            .into())
+            .into());
         }
         Err(StorageStakingError::StorageError(err)) => {
             return Err(StorageError::StorageInconsistentState(err).into());
@@ -230,23 +213,23 @@ pub fn verify_and_charge_transaction(
     };
 
     if let AccessKeyPermission::FunctionCall(ref function_call_permission) = access_key.permission {
-        if transaction.actions().len() != 1 {
+        if tx.actions().len() != 1 {
             return Err(InvalidTxError::InvalidAccessKeyError(
                 InvalidAccessKeyError::RequiresFullAccess,
             )
             .into());
         }
-        if let Some(Action::FunctionCall(ref function_call)) = transaction.actions().get(0) {
+        if let Some(Action::FunctionCall(function_call)) = tx.actions().get(0) {
             if function_call.deposit > 0 {
                 return Err(InvalidTxError::InvalidAccessKeyError(
                     InvalidAccessKeyError::DepositWithFunctionCall,
                 )
                 .into());
             }
-            if transaction.receiver_id() != &function_call_permission.receiver_id {
+            if tx.receiver_id() != &function_call_permission.receiver_id {
                 return Err(InvalidTxError::InvalidAccessKeyError(
                     InvalidAccessKeyError::ReceiverMismatch {
-                        tx_receiver: transaction.receiver_id().clone(),
+                        tx_receiver: tx.receiver_id().clone(),
                         ak_receiver: function_call_permission.receiver_id.clone(),
                     },
                 )
@@ -273,10 +256,14 @@ pub fn verify_and_charge_transaction(
         }
     };
 
-    set_access_key(state_update, signer_id.clone(), transaction.public_key().clone(), &access_key);
-    set_account(state_update, signer_id.clone(), &signer);
-
-    Ok(VerificationResult { gas_burnt, gas_remaining, receipt_gas_price, burnt_amount })
+    Ok(VerificationResult {
+        gas_burnt,
+        gas_remaining,
+        receipt_gas_price,
+        burnt_amount,
+        signer,
+        access_key,
+    })
 }
 
 /// Validates a given receipt. Checks validity of the Action or Data receipt.
@@ -615,12 +602,14 @@ fn check_global_contracts_enabled(
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-
+    use super::*;
+    use crate::config::tx_cost;
+    use crate::near_primitives::shard_layout::ShardUId;
+    use crate::near_primitives::trie_key::TrieKey;
     use near_crypto::{InMemorySigner, KeyType, PublicKey, Signature, Signer};
-    use near_primitives::account::{AccessKey, FunctionCallPermission};
+    use near_primitives::account::{AccessKey, AccountContract, FunctionCallPermission};
     use near_primitives::action::delegate::{DelegateAction, NonDelegateAction};
-    use near_primitives::hash::{hash, CryptoHash};
+    use near_primitives::hash::{CryptoHash, hash};
     use near_primitives::receipt::ReceiptPriority;
     use near_primitives::test_utils::account_new;
     use near_primitives::transaction::{
@@ -629,14 +618,10 @@ mod tests {
     use near_primitives::types::{AccountId, Balance, MerkleHash, StateChangeCause};
     use near_primitives::version::PROTOCOL_VERSION;
     use near_store::test_utils::TestTriesBuilder;
-    use testlib::runtime_utils::{alice_account, bob_account, eve_dot_alice_account};
-
-    use crate::near_primitives::shard_layout::ShardUId;
-
-    use super::*;
-    use crate::near_primitives::trie_key::TrieKey;
-    use near_store::set;
+    use near_store::{set, set_access_key, set_account};
     use near_vm_runner::ContractCode;
+    use std::sync::Arc;
+    use testlib::runtime_utils::{alice_account, bob_account, eve_dot_alice_account};
 
     /// Initial balance used in tests.
     const TESTING_INIT_BALANCE: Balance = 1_000_000_000 * NEAR_BASE;
@@ -714,7 +699,7 @@ mod tests {
                     account_id.clone(),
                     &ContractCode::new(code.clone(), Some(code_hash)),
                 );
-                initial_account.set_code_hash(code_hash);
+                initial_account.set_contract(AccountContract::Local(code_hash));
                 initial_account.set_storage_usage(
                     initial_account.storage_usage().checked_add(code.len() as u64).unwrap(),
                 );
@@ -747,55 +732,63 @@ mod tests {
 
     fn assert_err_both_validations(
         config: &RuntimeConfig,
-        state_update: &mut TrieUpdate,
+        state_update: &TrieUpdate,
         gas_price: Balance,
-        signed_transaction: &SignedTransaction,
+        signed_transaction: SignedTransaction,
         expected_err: InvalidTxError,
     ) {
-        match validate_transaction(config, gas_price, signed_transaction, true, PROTOCOL_VERSION) {
-            Ok(cost) => {
-                // Validation passed, now verification should fail with expected_err
-                let err = verify_and_charge_transaction(
-                    config,
-                    state_update,
-                    signed_transaction,
-                    &cost,
-                    None,
-                    PROTOCOL_VERSION,
-                )
-                .expect_err("expected an error");
+        let validated_tx = match validate_transaction(config, signed_transaction, PROTOCOL_VERSION)
+        {
+            Ok(v) => v,
+            Err((err, _tx)) => {
                 assert_eq!(err, expected_err);
+                return;
             }
+        };
+        let cost = match tx_cost(config, &validated_tx, gas_price, PROTOCOL_VERSION) {
+            Ok(c) => c,
             Err(err) => {
-                // Validation itself returned an error
-                assert_eq!(err, expected_err);
+                assert_eq!(InvalidTxError::from(err), expected_err);
+                return;
             }
-        }
+        };
+
+        // Validation passed, now verification should fail with expected_err
+        let err = verify_and_charge_tx_ephemeral(
+            config,
+            state_update,
+            &validated_tx,
+            &cost,
+            None,
+            PROTOCOL_VERSION,
+        )
+        .expect_err("expected an error");
+        assert_eq!(err, expected_err);
     }
 
     pub fn validate_verify_and_charge_transaction(
         config: &RuntimeConfig,
         state_update: &mut TrieUpdate,
-        signed_transaction: &SignedTransaction,
+        signed_tx: SignedTransaction,
         gas_price: Balance,
         block_height: Option<BlockHeight>,
         current_protocol_version: ProtocolVersion,
     ) -> Result<VerificationResult, InvalidTxError> {
-        let transaction_cost = validate_transaction(
-            config,
-            gas_price,
-            signed_transaction,
-            true,
-            current_protocol_version,
-        )?;
-        verify_and_charge_transaction(
+        let validated_tx = match validate_transaction(config, signed_tx, current_protocol_version) {
+            Ok(validated_tx) => validated_tx,
+            Err((err, _tx)) => return Err(err),
+        };
+        let transaction_cost = tx_cost(config, &validated_tx, gas_price, current_protocol_version)?;
+        let vr = verify_and_charge_tx_ephemeral(
             config,
             state_update,
-            signed_transaction,
+            &validated_tx,
             &transaction_cost,
             block_height,
             current_protocol_version,
-        )
+        )?;
+        commit_charging_for_tx(state_update, &validated_tx, &vr.signer, &vr.access_key);
+        Ok(vr)
     }
 
     mod zero_balance_account_tests {
@@ -803,9 +796,9 @@ mod tests {
         use crate::near_primitives::account::{
             AccessKey, AccessKeyPermission, Account, FunctionCallPermission,
         };
-        use crate::verifier::tests::{setup_accounts, TESTING_INIT_BALANCE};
-        use crate::verifier::{is_zero_balance_account, ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT};
-        use near_store::{get_account, TrieUpdate};
+        use crate::verifier::tests::{TESTING_INIT_BALANCE, setup_accounts};
+        use crate::verifier::{ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT, is_zero_balance_account};
+        use near_store::{TrieUpdate, get_account};
         use testlib::runtime_utils::{alice_account, bob_account};
 
         fn set_up_test_account(
@@ -904,7 +897,7 @@ mod tests {
             setup_common(TESTING_INIT_BALANCE, 0, Some(AccessKey::full_access()));
 
         let deposit = 100;
-        let transaction = SignedTransaction::send_money(
+        let signed_tx = SignedTransaction::send_money(
             1,
             alice_account(),
             bob_account(),
@@ -916,7 +909,7 @@ mod tests {
         let verification_result = validate_verify_and_charge_transaction(
             &config,
             &mut state_update,
-            &transaction,
+            signed_tx,
             gas_price,
             None,
             PROTOCOL_VERSION,
@@ -966,7 +959,7 @@ mod tests {
             &config,
             &mut state_update,
             gas_price,
-            &tx,
+            tx,
             InvalidTxError::InvalidSignature,
         );
     }
@@ -988,7 +981,7 @@ mod tests {
         let err = validate_verify_and_charge_transaction(
             &config,
             &mut state_update,
-            &transaction,
+            transaction,
             gas_price,
             None,
             PROTOCOL_VERSION,
@@ -1016,7 +1009,7 @@ mod tests {
             &config,
             &mut state_update,
             gas_price,
-            &SignedTransaction::from_actions(
+            SignedTransaction::from_actions(
                 1,
                 alice_account(),
                 bob_account(),
@@ -1043,7 +1036,7 @@ mod tests {
         let (signer, mut state_update, gas_price) =
             setup_common(TESTING_INIT_BALANCE, 0, Some(AccessKey::full_access()));
 
-        let transaction = SignedTransaction::send_money(
+        let signed_tx = SignedTransaction::send_money(
             1,
             bob_account(),
             alice_account(),
@@ -1055,7 +1048,7 @@ mod tests {
         let err = validate_verify_and_charge_transaction(
             &config,
             &mut state_update,
-            &transaction,
+            signed_tx,
             gas_price,
             None,
             PROTOCOL_VERSION,
@@ -1085,7 +1078,7 @@ mod tests {
         let err = validate_verify_and_charge_transaction(
             &config,
             &mut state_update,
-            &transaction,
+            transaction,
             gas_price,
             None,
             PROTOCOL_VERSION,
@@ -1104,7 +1097,7 @@ mod tests {
             &config,
             &mut state_update,
             gas_price,
-            &SignedTransaction::send_money(
+            SignedTransaction::send_money(
                 1,
                 alice_account(),
                 bob_account(),
@@ -1126,7 +1119,7 @@ mod tests {
             &config,
             &mut state_update,
             gas_price,
-            &SignedTransaction::from_actions_v1(
+            SignedTransaction::from_actions_v1(
                 1,
                 alice_account(),
                 bob_account(),
@@ -1145,7 +1138,7 @@ mod tests {
         let (signer, mut state_update, gas_price) =
             setup_common(TESTING_INIT_BALANCE, 0, Some(AccessKey::full_access()));
 
-        let transaction = SignedTransaction::send_money(
+        let signed_tx = SignedTransaction::send_money(
             1,
             alice_account(),
             bob_account(),
@@ -1157,7 +1150,7 @@ mod tests {
         let err = validate_verify_and_charge_transaction(
             &config,
             &mut state_update,
-            &transaction,
+            signed_tx,
             gas_price,
             None,
             PROTOCOL_VERSION,
@@ -1206,7 +1199,7 @@ mod tests {
         let err = validate_verify_and_charge_transaction(
             &config,
             &mut state_update,
-            &transaction,
+            transaction,
             gas_price,
             None,
             PROTOCOL_VERSION,
@@ -1238,7 +1231,7 @@ mod tests {
         let (signer, mut state_update, gas_price) =
             setup_common(initial_balance, 0, Some(AccessKey::full_access()));
 
-        let transaction = SignedTransaction::send_money(
+        let signed_tx = SignedTransaction::send_money(
             1,
             alice_account(),
             bob_account(),
@@ -1250,7 +1243,7 @@ mod tests {
         let verification_result = validate_verify_and_charge_transaction(
             &config,
             &mut state_update,
-            &transaction,
+            signed_tx,
             gas_price,
             None,
             PROTOCOL_VERSION,
@@ -1279,7 +1272,7 @@ mod tests {
             false,
         )]);
 
-        let transaction = SignedTransaction::send_money(
+        let signed_tx = SignedTransaction::send_money(
             1,
             account_id.clone(),
             bob_account(),
@@ -1291,7 +1284,7 @@ mod tests {
         let err = validate_verify_and_charge_transaction(
             &config,
             &mut state_update,
-            &transaction,
+            signed_tx,
             gas_price,
             None,
             PROTOCOL_VERSION,
@@ -1326,7 +1319,7 @@ mod tests {
         );
 
         // Case 1
-        let transaction = SignedTransaction::from_actions(
+        let signed_tx = SignedTransaction::from_actions(
             1,
             alice_account(),
             bob_account(),
@@ -1346,7 +1339,7 @@ mod tests {
         validate_verify_and_charge_transaction(
             &config,
             &mut state_update,
-            &transaction,
+            signed_tx,
             gas_price,
             None,
             PROTOCOL_VERSION,
@@ -1354,7 +1347,7 @@ mod tests {
         .expect_err("expected an error");
 
         // Case 2
-        let transaction = SignedTransaction::from_actions(
+        let signed_tx = SignedTransaction::from_actions(
             1,
             alice_account(),
             bob_account(),
@@ -1366,7 +1359,7 @@ mod tests {
         validate_verify_and_charge_transaction(
             &config,
             &mut state_update,
-            &transaction,
+            signed_tx,
             gas_price,
             None,
             PROTOCOL_VERSION,
@@ -1374,7 +1367,7 @@ mod tests {
         .expect_err("expected an error");
 
         // Case 3
-        let transaction = SignedTransaction::from_actions(
+        let signed_tx = SignedTransaction::from_actions(
             1,
             alice_account(),
             bob_account(),
@@ -1386,7 +1379,7 @@ mod tests {
         validate_verify_and_charge_transaction(
             &config,
             &mut state_update,
-            &transaction,
+            signed_tx,
             gas_price,
             None,
             PROTOCOL_VERSION,
@@ -1410,7 +1403,7 @@ mod tests {
             }),
         );
 
-        let transaction = SignedTransaction::from_actions(
+        let signed_tx = SignedTransaction::from_actions(
             1,
             alice_account(),
             eve_dot_alice_account(),
@@ -1428,7 +1421,7 @@ mod tests {
         let err = validate_verify_and_charge_transaction(
             &config,
             &mut state_update,
-            &transaction,
+            signed_tx,
             gas_price,
             None,
             PROTOCOL_VERSION,
@@ -1459,7 +1452,7 @@ mod tests {
             }),
         );
 
-        let transaction = SignedTransaction::from_actions(
+        let signed_tx = SignedTransaction::from_actions(
             1,
             alice_account(),
             bob_account(),
@@ -1477,7 +1470,7 @@ mod tests {
         let err = validate_verify_and_charge_transaction(
             &config,
             &mut state_update,
-            &transaction,
+            signed_tx,
             gas_price,
             None,
             PROTOCOL_VERSION,
@@ -1507,7 +1500,7 @@ mod tests {
             }),
         );
 
-        let transaction = SignedTransaction::from_actions(
+        let signed_tx = SignedTransaction::from_actions(
             1,
             alice_account(),
             bob_account(),
@@ -1525,7 +1518,7 @@ mod tests {
         let err = validate_verify_and_charge_transaction(
             &config,
             &mut state_update,
-            &transaction,
+            signed_tx,
             gas_price,
             None,
             PROTOCOL_VERSION,
@@ -1542,7 +1535,7 @@ mod tests {
         let (signer, mut state_update, gas_price) =
             setup_common(TESTING_INIT_BALANCE, 0, Some(AccessKey::full_access()));
 
-        let transaction = SignedTransaction::from_actions(
+        let signed_tx = SignedTransaction::from_actions(
             1,
             alice_account(),
             bob_account(),
@@ -1551,7 +1544,7 @@ mod tests {
             CryptoHash::default(),
             0,
         );
-        let transaction_size = transaction.get_size();
+        let transaction_size = signed_tx.get_size();
 
         let mut config = RuntimeConfig::test();
         let max_transaction_size = transaction_size - 1;
@@ -1560,7 +1553,7 @@ mod tests {
             wasm_config.limit_config.max_transaction_size = transaction_size - 1;
         }
 
-        let err = validate_transaction(&config, gas_price, &transaction, false, PROTOCOL_VERSION)
+        let (err, _tx) = validate_transaction(&config, signed_tx.clone(), PROTOCOL_VERSION)
             .expect_err("expected validation error - size exceeded");
         assert_eq!(
             err,
@@ -1578,7 +1571,7 @@ mod tests {
         validate_verify_and_charge_transaction(
             &config,
             &mut state_update,
-            &transaction,
+            signed_tx,
             gas_price,
             None,
             PROTOCOL_VERSION,
@@ -1948,10 +1941,10 @@ mod tests {
             delegate_action: DelegateAction {
                 sender_id: "bob.test.near".parse().unwrap(),
                 receiver_id: "token.test.near".parse().unwrap(),
-                actions: vec![NonDelegateAction::try_from(Action::CreateAccount(
-                    CreateAccountAction {},
-                ))
-                .unwrap()],
+                actions: vec![
+                    NonDelegateAction::try_from(Action::CreateAccount(CreateAccountAction {}))
+                        .unwrap(),
+                ],
                 nonce: 19000001,
                 max_block_height: 57,
                 public_key: PublicKey::empty(KeyType::ED25519),

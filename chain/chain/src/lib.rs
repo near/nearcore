@@ -1,7 +1,7 @@
 #![cfg_attr(enable_const_type_id, feature(const_type_id))]
 
 pub use block_processing_utils::BlockProcessingArtifact;
-pub use chain::{check_known, collect_receipts, Chain};
+pub use chain::{Chain, check_known, collect_receipts};
 pub use chain_update::ChainUpdate;
 pub use doomslug::{Doomslug, DoomslugBlockProductionReadiness, DoomslugThresholdMode};
 pub use lightclient::{create_light_client_block_view, get_epoch_block_producers_view};

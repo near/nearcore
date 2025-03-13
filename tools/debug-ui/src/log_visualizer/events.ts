@@ -12,7 +12,7 @@ export class EventItem {
     // is zero; in a multi-instance test, this is the instance number.
     // Emitted from the Rust side as part of the event dump (like "(0, Event)")
     // and parsed here.
-    public readonly column: number;
+    public readonly identifier: string;
     // The title we display for the event. Parsed from the event dump after
     // extracting column number; this is usually the enum variant name.
     public readonly title: string;
@@ -24,28 +24,25 @@ export class EventItem {
     // The parent event whose handler spawned this event. See the parsing logic
     // for how this is derived.
     public readonly parentId: number | null = null;
+    // Whether this event was executed or ignored. Emitted from the Rust side.
+    public readonly ignored: boolean;
 
-    // The row of the event in the log visualizer. This is set during layout.
-    public row = 0;
+    // The row and column of the event in the log visualizer. This is set during layout.
+    public rowNumber = 0;
+    public columnNumber = 0;
     // The children IDs of this event. Derived from parentId.
     public readonly childIds: number[] = [];
     // The log lines emitted by the Rust program while handling this event.
     public readonly logRows: string[] = [];
 
-    constructor(id: number, parentId: number | null, time: number, eventDump: string) {
+    constructor(id: number, identifier: string, parentId: number | null, time: number, eventDump: string, eventIgnored: boolean) {
         this.id = id;
         this.time = time;
         this.parentId = parentId;
+        this.identifier = identifier;
+        this.data = eventDump;
+        this.ignored = eventIgnored;
 
-        // If the event dump is a tuple, the first element is the instance ID.
-        if (eventDump.startsWith('(')) {
-            const split = eventDump.indexOf(',');
-            this.column = parseInt(eventDump.substring(1, split));
-            this.data = eventDump.substring(split + 1, eventDump.length - 1).trim();
-        } else {
-            this.column = 0;
-            this.data = eventDump;
-        }
         // Parse the title and subtitle; for example, if the event dump is
         // "OutboundNetwork(NetworkRequests(...))""
         // then the title is "OutboundNetwork" and the subtitle is
@@ -200,8 +197,10 @@ export class EventItemCollection {
                 type EventStartLogLineData = {
                     current_index: number;
                     total_events: number;
+                    identifier: string;
                     current_event: string;
                     current_time_ms: number;
+                    event_ignored: boolean;
                 };
                 const startData = JSON.parse(
                     line.substring(startIndex + startMarker.length)
@@ -209,9 +208,11 @@ export class EventItemCollection {
                 totalEventCount = startData.total_events;
                 const event = new EventItem(
                     startData.current_index,
+                    startData.identifier,
                     parentIds[startData.current_index] ?? null,
                     startData.current_time_ms,
-                    startData.current_event
+                    startData.current_event,
+                    startData.event_ignored
                 );
                 items.add(event);
             } else if (endIndex != -1) {

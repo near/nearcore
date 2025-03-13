@@ -9,8 +9,8 @@ mod ts_contract;
 mod wasm_validation;
 
 use crate::logic::VMContext;
-use near_parameters::vm::VMKind;
 use near_parameters::RuntimeConfigStore;
+use near_parameters::vm::VMKind;
 use near_primitives_core::version::PROTOCOL_VERSION;
 
 const CURRENT_ACCOUNT_ID: &str = "alice";

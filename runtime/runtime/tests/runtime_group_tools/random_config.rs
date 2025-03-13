@@ -1,6 +1,6 @@
 use near_parameters::{Fee, RuntimeConfig, RuntimeFeesConfig, StorageUsageConfig};
 use near_primitives::num_rational::Rational32;
-use rand::{thread_rng, RngCore};
+use rand::{RngCore, thread_rng};
 
 pub fn random_config() -> RuntimeConfig {
     let mut rng = thread_rng();
@@ -18,6 +18,7 @@ pub fn random_config() -> RuntimeConfig {
                 num_bytes_account: rng.next_u64() % 10000,
                 num_extra_bytes_record: rng.next_u64() % 10000,
                 storage_amount_per_byte: rng.next_u64() as u128,
+                global_contract_storage_amount_per_byte: rng.next_u64() as u128,
             },
             burnt_gas_reward: Rational32::new((rng.next_u32() % 100).try_into().unwrap(), 100),
             pessimistic_gas_price_inflation_ratio: Rational32::new(

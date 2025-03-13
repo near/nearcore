@@ -1,7 +1,7 @@
 use crate::config::ArchivalConfig;
-use crate::db::rocksdb::snapshot::{Snapshot, SnapshotError, SnapshotRemoveError};
 use crate::db::rocksdb::RocksDB;
-use crate::metadata::{DbKind, DbMetadata, DbVersion, DB_VERSION};
+use crate::db::rocksdb::snapshot::{Snapshot, SnapshotError, SnapshotRemoveError};
+use crate::metadata::{DB_VERSION, DbKind, DbMetadata, DbVersion};
 use crate::{DBCol, DBTransaction, Mode, NodeStorage, Store, StoreConfig, Temperature};
 use std::sync::Arc;
 
@@ -39,7 +39,9 @@ pub enum StoreOpenerError {
     /// Specifically, this happens if node is running with a single database and
     /// its kind is not RPC or Archive; or it’s running with two databases and
     /// their types aren’t Hot and Cold respectively.
-    #[error("{which} database kind should be {want} but got {got:?}. Did you forget to set archive on your store opener?")]
+    #[error(
+        "{which} database kind should be {want} but got {got:?}. Did you forget to set archive on your store opener?"
+    )]
     DbKindMismatch { which: &'static str, got: Option<DbKind>, want: DbKind },
 
     /// Unable to create a migration snapshot because one already exists.
@@ -252,14 +254,10 @@ impl<'a> StoreOpener<'a> {
         self.open_in_mode(Mode::ReadWrite)
     }
 
-    /// Opens the RocksDB database(s) for hot and cold (if configured) storages.
-    ///
-    /// When opening in read-only mode, verifies that the database version is
-    /// what the node expects and fails if it isn’t.  If database doesn’t exist,
-    /// creates a new one unless mode is [`Mode::ReadWriteExisting`].  On the
-    /// other hand, if mode is [`Mode::Create`], fails if the database already
-    /// exists.
-    pub fn open_in_mode(&self, mode: Mode) -> Result<crate::NodeStorage, StoreOpenerError> {
+    fn open_dbs(
+        &self,
+        mode: Mode,
+    ) -> Result<(RocksDB, Snapshot, Option<RocksDB>, Snapshot), StoreOpenerError> {
         {
             let hot_path = self.hot.path.display().to_string();
             let cold_path = match &self.cold {
@@ -290,7 +288,18 @@ impl<'a> StoreOpener<'a> {
             .map(|cold| cold.open(mode, DB_VERSION))
             .transpose()?
             .map(|(db, _)| db);
+        Ok((hot_db, hot_snapshot, cold_db, cold_snapshot))
+    }
 
+    /// Opens the RocksDB database(s) for hot and cold (if configured) storages.
+    ///
+    /// When opening in read-only mode, verifies that the database version is
+    /// what the node expects and fails if it isn’t.  If database doesn’t exist,
+    /// creates a new one unless mode is [`Mode::ReadWriteExisting`].  On the
+    /// other hand, if mode is [`Mode::Create`], fails if the database already
+    /// exists.
+    pub fn open_in_mode(&self, mode: Mode) -> Result<crate::NodeStorage, StoreOpenerError> {
+        let (hot_db, hot_snapshot, cold_db, cold_snapshot) = self.open_dbs(mode)?;
         let storage = NodeStorage::from_rocksdb(hot_db, cold_db);
 
         hot_snapshot.remove()?;
@@ -313,22 +322,14 @@ impl<'a> StoreOpener<'a> {
             Self::ensure_created(mode, &self.hot)?;
             Self::ensure_kind(mode, &self.hot, self.is_archive(), Temperature::Hot)?;
             let snapshot = Self::ensure_version(mode, &self.hot, &self.migrator)?;
-            if snapshot.0.is_none() {
-                self.hot.snapshot()?
-            } else {
-                snapshot
-            }
+            if snapshot.0.is_none() { self.hot.snapshot()? } else { snapshot }
         };
 
         let cold_snapshot = if let Some(cold) = &self.cold {
             Self::ensure_created(mode, cold)?;
             Self::ensure_kind(mode, cold, self.is_archive(), Temperature::Cold)?;
             let snapshot = Self::ensure_version(mode, cold, &self.migrator)?;
-            if snapshot.0.is_none() {
-                cold.snapshot()?
-            } else {
-                snapshot
-            }
+            if snapshot.0.is_none() { cold.snapshot()? } else { snapshot }
         } else {
             Snapshot::none()
         };
@@ -634,6 +635,35 @@ pub fn checkpoint_hot_storage_and_cleanup_columns(
     }
 
     Ok(node_storage)
+}
+
+/// Deletes all data in the columns in `cols` from the rocksdb data
+/// dir in `home_dir`. This actually removes all the sst files rather than
+/// just logically deleting all keys with a transaction, which would
+/// only give space savings after a compaction.  This is meant to be
+/// used only in tools where certain large columns don't need to be kept around.
+///
+/// For example, when preparing a database for use in a forknet
+/// with the fork-network tool, we only need the state and
+/// flat state, and a few other small columns. So getting rid of
+/// everything else saves quite a bit on the disk space needed for each node.
+pub fn clear_columns<'a>(
+    home_dir: &std::path::Path,
+    config: &StoreConfig,
+    archival_config: Option<ArchivalConfig<'a>>,
+    cols: &[DBCol],
+) -> anyhow::Result<()> {
+    let opener = StoreOpener::new(home_dir, config, archival_config);
+    let (mut hot_db, _hot_snapshot, cold_db, _cold_snapshot) =
+        opener.open_dbs(Mode::ReadWriteExisting)?;
+    hot_db.clear_cols(cols)?;
+    if let Some(mut cold) = cold_db {
+        cold.clear_cols(cols)?;
+    }
+    drop(hot_db);
+    // Here we call open_dbs() to recreate the dropped columns, which should now be empty.
+    let _ = opener.open_dbs(Mode::ReadWriteExisting)?;
+    Ok(())
 }
 
 #[cfg(test)]

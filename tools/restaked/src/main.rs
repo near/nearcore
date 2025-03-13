@@ -3,13 +3,13 @@ use near_chain_configs::BLOCK_PRODUCER_KICKOUT_THRESHOLD;
 use near_crypto::{InMemorySigner, KeyFile};
 use near_o11y::tracing::{error, info};
 use near_primitives::views::CurrentEpochValidatorInfo;
-use nearcore::config::{Config, CONFIG_FILENAME};
+use nearcore::config::{CONFIG_FILENAME, Config};
 use nearcore::get_default_home;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 // TODO(1905): Move out RPC interface for transacting into separate production crate.
-use integration_tests::user::{rpc_user::RpcUser, User};
+use integration_tests::user::{User, rpc_user::RpcUser};
 
 const DEFAULT_WAIT_PERIOD_SEC: &str = "60";
 const DEFAULT_RPC_URL: &str = "http://localhost:3030";

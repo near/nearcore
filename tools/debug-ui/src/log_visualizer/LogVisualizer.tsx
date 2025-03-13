@@ -73,7 +73,7 @@ export const LogVisualizer = () => {
                     })}
                 </div>
                 {/* Render the column headers. */}
-                {layouts.columns.map((_, i) => {
+                {layouts.columns.map((col, i) => {
                     return (
                         <div
                             key={i}
@@ -82,7 +82,7 @@ export const LogVisualizer = () => {
                                 left: layouts.getGridColumnXOffset(i),
                                 width: layouts.getGridColumnWidth(i),
                             }}>
-                            Node {i}
+                            {col.identifier}
                         </div>
                     );
                 })}
@@ -157,17 +157,17 @@ export const LogVisualizer = () => {
                                             className={
                                                 'attached-event' +
                                                 (event.id == selectedEventId ||
-                                                parent.id == selectedEventId
+                                                    parent.id == selectedEventId
                                                     ? ' selected'
                                                     : '')
                                             }
                                             style={{
                                                 left: layouts.getArrowColumnXOffset(
-                                                    new ArrowColumn(parent.column, 'middle'),
+                                                    new ArrowColumn(parent.columnNumber, 'middle'),
                                                     arrowGroupId
                                                 ),
                                                 top:
-                                                    layouts.getItemYOffset(parent.row) +
+                                                    layouts.getItemYOffset(parent.rowNumber) +
                                                     layouts.sizes.itemHeight,
                                             }}
                                             onClick={(e) => {
@@ -182,14 +182,15 @@ export const LogVisualizer = () => {
 
                 {/* Render all the events (other than attachments). */}
                 {events.getAllNonAttachedItems().map((event) => {
+                    const className = event.ignored ? 'event ignored' : event.id == selectedEventId ? 'event selected' : 'event';
                     return (
                         <div
                             key={`event ${event.id}`}
-                            className={'event' + (event.id == selectedEventId ? ' selected' : '')}
+                            className={className}
                             style={{
-                                left: layouts.getItemXOffset(event.column),
-                                top: layouts.getItemYOffset(event.row),
-                                width: layouts.getItemWidth(event.column),
+                                left: layouts.getItemXOffset(event.columnNumber),
+                                top: layouts.getItemYOffset(event.rowNumber),
+                                width: layouts.getItemWidth(event.columnNumber),
                                 height: layouts.sizes.itemHeight,
                             }}
                             onClick={(e) => {

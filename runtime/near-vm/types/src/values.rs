@@ -107,21 +107,27 @@ where
 
     /// Writes it's value to a given pointer
     ///
+    /// The previous value is forgotten.
+    ///
     /// # Safety
-    /// `p` must be:
+    ///
+    /// Invariants for writing `Self` to `p` must be satisfied:
     /// - Sufficiently aligned for the Rust equivalent of the type in `self`
     /// - Non-null and pointing to valid, mutable memory
     pub unsafe fn write_value_to(&self, p: *mut i128) {
-        match self {
-            Self::I32(i) => ptr::write(p as *mut i32, *i),
-            Self::I64(i) => ptr::write(p as *mut i64, *i),
-            Self::F32(u) => ptr::write(p as *mut f32, *u),
-            Self::F64(u) => ptr::write(p as *mut f64, *u),
-            Self::V128(b) => ptr::write(p as *mut u128, *b),
-            Self::FuncRef(Some(b)) => T::write_value_to(b, p),
-            Self::FuncRef(None) => ptr::write(p as *mut usize, 0),
-            // TODO(reftypes): review clone here
-            Self::ExternRef(extern_ref) => ptr::write(p as *mut ExternRef, extern_ref.clone()),
+        // SAFE: ptr::write invariants delegated to the caller.
+        unsafe {
+            match self {
+                Self::I32(i) => ptr::write(p.cast(), *i),
+                Self::I64(i) => ptr::write(p.cast(), *i),
+                Self::F32(u) => ptr::write(p.cast(), *u),
+                Self::F64(u) => ptr::write(p.cast(), *u),
+                Self::V128(b) => ptr::write(p.cast(), *b),
+                Self::FuncRef(Some(b)) => T::write_value_to(b, p),
+                Self::FuncRef(None) => ptr::write(p.cast(), 0),
+                // TODO(reftypes): review clone here
+                Self::ExternRef(extern_ref) => ptr::write(p.cast(), extern_ref.clone()),
+            }
         }
     }
 
@@ -132,23 +138,26 @@ where
     /// - Properly aligned to the specified `ty`'s Rust equivalent
     /// - Non-null and pointing to valid memory
     pub unsafe fn read_value_from(store: &dyn std::any::Any, p: *const i128, ty: Type) -> Self {
-        match ty {
-            Type::I32 => Self::I32(ptr::read(p as *const i32)),
-            Type::I64 => Self::I64(ptr::read(p as *const i64)),
-            Type::F32 => Self::F32(ptr::read(p as *const f32)),
-            Type::F64 => Self::F64(ptr::read(p as *const f64)),
-            Type::V128 => Self::V128(ptr::read(p as *const u128)),
-            Type::FuncRef => {
-                // We do the null check ourselves
-                if (*(p as *const usize)) == 0 {
-                    Self::FuncRef(None)
-                } else {
-                    Self::FuncRef(Some(T::read_value_from(store, p)))
+        // SAFE: ptr::read invariants delegated to the caller.
+        unsafe {
+            match ty {
+                Type::I32 => Self::I32(ptr::read(p.cast())),
+                Type::I64 => Self::I64(ptr::read(p.cast())),
+                Type::F32 => Self::F32(ptr::read(p.cast())),
+                Type::F64 => Self::F64(ptr::read(p.cast())),
+                Type::V128 => Self::V128(ptr::read(p.cast())),
+                Type::FuncRef => {
+                    // We do the null check ourselves
+                    if *p.cast::<usize>() == 0 {
+                        Self::FuncRef(None)
+                    } else {
+                        Self::FuncRef(Some(T::read_value_from(store, p)))
+                    }
                 }
-            }
-            Type::ExternRef => {
-                let extern_ref = (&*(p as *const ExternRef)).clone();
-                Self::ExternRef(extern_ref)
+                Type::ExternRef => {
+                    let extern_ref = p.cast::<ExternRef>().as_ref().unwrap();
+                    Self::ExternRef(extern_ref.clone())
+                }
             }
         }
     }

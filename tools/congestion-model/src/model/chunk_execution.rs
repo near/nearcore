@@ -1,8 +1,8 @@
+use super::BlockInfo;
 use super::queue_bundle::QueueBundle;
 use super::transaction_registry::TransactionRegistry;
-use super::BlockInfo;
 use crate::model::transaction::ExecutionResult;
-use crate::{GGas, Queue, QueueId, Receipt, Round, ShardId, TransactionId, GAS_LIMIT};
+use crate::{GAS_LIMIT, GGas, Queue, QueueId, Receipt, Round, ShardId, TransactionId};
 use std::collections::{BTreeMap, VecDeque};
 
 /// Transient struct created once for each shard per model execution round,

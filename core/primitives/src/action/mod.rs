@@ -14,6 +14,8 @@ use serde_with::serde_as;
 use std::fmt;
 use std::sync::Arc;
 
+use crate::trie_key::GlobalContractCodeIdentifier;
+
 pub fn base64(s: &[u8]) -> String {
     use base64::Engine;
     base64::engine::general_purpose::STANDARD.encode(s)
@@ -177,6 +179,28 @@ impl fmt::Debug for DeployGlobalContractAction {
 pub enum GlobalContractIdentifier {
     CodeHash(CryptoHash),
     AccountId(AccountId),
+}
+
+impl From<GlobalContractCodeIdentifier> for GlobalContractIdentifier {
+    fn from(identifier: GlobalContractCodeIdentifier) -> Self {
+        match identifier {
+            GlobalContractCodeIdentifier::CodeHash(hash) => {
+                GlobalContractIdentifier::CodeHash(hash)
+            }
+            GlobalContractCodeIdentifier::AccountId(account_id) => {
+                GlobalContractIdentifier::AccountId(account_id)
+            }
+        }
+    }
+}
+
+impl GlobalContractIdentifier {
+    pub fn len(&self) -> usize {
+        match self {
+            GlobalContractIdentifier::CodeHash(_) => 32,
+            GlobalContractIdentifier::AccountId(account_id) => account_id.len(),
+        }
+    }
 }
 
 /// Use global contract action

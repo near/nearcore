@@ -8,8 +8,8 @@ use crate::state_dump::state_dump;
 use crate::state_dump::state_dump_redis;
 use crate::tx_dump::dump_tx_from_block;
 use crate::util::{
-    check_apply_block_result, load_trie, load_trie_stop_at_height, resulting_chunk_extra,
-    LoadTrieMode,
+    LoadTrieMode, check_apply_block_result, load_trie, load_trie_stop_at_height,
+    resulting_chunk_extra,
 };
 use crate::{apply_chunk, epoch_info};
 use anyhow::Context;
@@ -22,8 +22,8 @@ use near_chain::types::{
     ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext, RuntimeAdapter,
 };
 use near_chain::{
-    get_incoming_receipts_for_shard, Chain, ChainGenesis, ChainStore, ChainStoreAccess, Error,
-    ReceiptFilter,
+    Chain, ChainGenesis, ChainStore, ChainStoreAccess, Error, ReceiptFilter,
+    get_incoming_receipts_for_shard,
 };
 use near_chain_configs::GenesisChangeConfig;
 use near_epoch_manager::shard_assignment::{shard_id_to_index, shard_id_to_uid};
@@ -37,24 +37,24 @@ use near_primitives::shard_layout::ShardLayout;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::sharding::{ChunkHash, ShardChunk};
 use near_primitives::state::FlatStateValue;
-use near_primitives::state_record::state_record_to_account_id;
 use near_primitives::state_record::StateRecord;
+use near_primitives::state_record::state_record_to_account_id;
 use near_primitives::stateless_validation::ChunkProductionKey;
-use near_primitives::trie_key::col::COLUMNS_WITH_ACCOUNT_ID_IN_KEY;
 use near_primitives::trie_key::TrieKey;
+use near_primitives::trie_key::col::COLUMNS_WITH_ACCOUNT_ID_IN_KEY;
 use near_primitives::types::{BlockHeight, EpochId, ShardId};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives_core::types::{Balance, EpochHeight};
-use near_store::adapter::trie_store::TrieStoreAdapter;
+use near_store::TrieStorage;
 use near_store::adapter::StoreAdapter;
+use near_store::adapter::trie_store::TrieStoreAdapter;
 use near_store::flat::FlatStorageChunkView;
 use near_store::flat::FlatStorageManager;
-use near_store::TrieStorage;
 use near_store::{DBCol, Store, Trie, TrieCache, TrieCachingStorage, TrieConfig, TrieDBStorage};
 use nearcore::NightshadeRuntimeExt;
 use nearcore::{NearConfig, NightshadeRuntime};
-use node_runtime::adapter::ViewRuntimeAdapter;
 use node_runtime::SignedValidPeriodTransactions;
+use node_runtime::adapter::ViewRuntimeAdapter;
 use serde_json::json;
 use std::collections::HashMap;
 use std::collections::{BTreeMap, BinaryHeap};
@@ -206,6 +206,7 @@ pub(crate) fn apply_block_at_height(
     let result = maybe_save_trie_changes(
         write_store.clone(),
         &near_config.genesis.config,
+        block_hash,
         apply_result,
         height,
         shard_id,
@@ -551,6 +552,26 @@ pub(crate) fn get_chunk(chunk_hash: ChunkHash, near_config: NearConfig, store: S
     println!("Chunk: {:#?}", chunk);
 }
 
+pub(crate) fn print_chunk_apply_stats(
+    block_hash: &CryptoHash,
+    shard_id: u64,
+    near_config: NearConfig,
+    store: Store,
+) {
+    let chain_store = ChainStore::new(
+        store,
+        near_config.client_config.save_trie_changes,
+        near_config.genesis.config.transaction_validity_period,
+    );
+    match chain_store.get_chunk_apply_stats(block_hash, &ShardId::new(shard_id)) {
+        Ok(Some(stats)) => println!("{:#?}", stats),
+        Ok(None) => {
+            println!("\nNo stats found for block hash {} and shard {}\n", block_hash, shard_id)
+        }
+        Err(e) => eprintln!("Error: {:#?}", e),
+    }
+}
+
 pub(crate) fn get_partial_chunk(
     partial_chunk_hash: ChunkHash,
     near_config: NearConfig,
@@ -867,7 +888,9 @@ pub(crate) fn view_genesis(
             Err(error) => {
                 println!("Failed to read genesis block from store. Error: {}", error);
                 if !near_config.config.archive {
-                    println!("Hint: This is not an archival node. Try running this command from an archival node since genesis block may be garbage collected.");
+                    println!(
+                        "Hint: This is not an archival node. Try running this command from an archival node since genesis block may be garbage collected."
+                    );
                 }
             }
         }
@@ -1004,7 +1027,9 @@ pub(crate) fn print_epoch_analysis(
             println!("HEIGHT | VERSION | STATE SYNCS");
         }
         EpochAnalysisMode::Backtest => {
-            println!("epoch_height,original_protocol_version,state_syncs,min_validator_num,diff_validator_num,min_stake,diff_stake,rel_diff_stake");
+            println!(
+                "epoch_height,original_protocol_version,state_syncs,min_validator_num,diff_validator_num,min_stake,diff_stake,rel_diff_stake"
+            );
             // Start from empty assignment for correct number of shards.
             *next_epoch_info.chunk_producers_settlement_mut() =
                 vec![vec![]; next_next_epoch_config.shard_layout.shard_ids().collect_vec().len()];
@@ -1285,6 +1310,7 @@ pub(crate) fn print_state_stats(home_dir: &Path, store: Store, near_config: Near
 pub(crate) fn maybe_save_trie_changes(
     store: Option<Store>,
     genesis_config: &near_chain_configs::GenesisConfig,
+    block_hash: CryptoHash,
     apply_result: ApplyChunkResult,
     block_height: u64,
     shard_id: ShardId,
@@ -1293,7 +1319,7 @@ pub(crate) fn maybe_save_trie_changes(
         let mut chain_store =
             ChainStore::new(store, false, genesis_config.transaction_validity_period);
         let mut chain_store_update = chain_store.store_update();
-        chain_store_update.save_trie_changes(apply_result.trie_changes);
+        chain_store_update.save_trie_changes(block_hash, apply_result.trie_changes);
         chain_store_update.commit()?;
         tracing::debug!("Trie changes persisted for block {block_height}, shard {shard_id}");
     }
@@ -1535,88 +1561,5 @@ impl std::fmt::Debug for StateStatsAccount {
             .field("account_id", &self.account_id.as_str())
             .field("size", &self.size)
             .finish()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use near_chain::types::RuntimeAdapter;
-    use near_chain_configs::{Genesis, MutableConfigValue};
-    use near_client::test_utils::TestEnv;
-    use near_crypto::{InMemorySigner, KeyFile};
-    use near_epoch_manager::EpochManager;
-    use near_primitives::shard_layout::ShardUId;
-    use near_primitives::types::chunk_extra::ChunkExtra;
-    use near_primitives::types::AccountId;
-    use near_store::genesis::initialize_genesis_state;
-    use nearcore::config::Config;
-    use nearcore::{NearConfig, NightshadeRuntime};
-    use std::sync::Arc;
-
-    #[test]
-    /// Tests that getting the latest trie state actually gets the latest state.
-    /// Adds a transaction and waits for it to be included in a block.
-    /// Checks that the change of state caused by that transaction is visible to `load_trie()`.
-    fn test_latest_trie_state() {
-        near_o11y::testonly::init_test_logger();
-        let validators = vec!["test0".parse::<AccountId>().unwrap()];
-        let genesis = Genesis::test_sharded_new_version(validators, 1, vec![1]);
-
-        let tmp_dir = tempfile::tempdir().unwrap();
-        let home_dir = tmp_dir.path();
-
-        let store = near_store::test_utils::create_test_store();
-        initialize_genesis_state(store.clone(), &genesis, Some(home_dir));
-        let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
-        let runtime = NightshadeRuntime::test(
-            home_dir,
-            store.clone(),
-            &genesis.config,
-            epoch_manager.clone(),
-        ) as Arc<dyn RuntimeAdapter>;
-
-        let stores = vec![store.clone()];
-        let epoch_managers = vec![epoch_manager];
-        let runtimes = vec![runtime];
-
-        let mut env = TestEnv::builder(&genesis.config)
-            .stores(stores)
-            .epoch_managers(epoch_managers)
-            .runtimes(runtimes)
-            .build();
-
-        let signer = InMemorySigner::test_signer(&"test0".parse().unwrap());
-        assert_eq!(env.send_money(0), near_client::ProcessTxResponse::ValidTx);
-
-        // It takes 2 blocks to record a transaction on chain and apply the receipts.
-        env.produce_block(0, 1);
-        env.produce_block(0, 2);
-
-        let chunk_extras: Vec<Arc<ChunkExtra>> = (1..=2)
-            .map(|height| {
-                let block = env.clients[0].chain.get_block_by_height(height).unwrap();
-                let hash = *block.hash();
-                let chunk_extra = env.clients[0]
-                    .chain
-                    .get_chunk_extra(&hash, &ShardUId { version: 1, shard_id: 0 })
-                    .unwrap();
-                chunk_extra
-            })
-            .collect();
-
-        // Check that `send_money()` actually changed state.
-        assert_ne!(chunk_extras[0].state_root(), chunk_extras[1].state_root());
-
-        let near_config = NearConfig::new(
-            Config::default(),
-            genesis,
-            KeyFile::from(signer),
-            MutableConfigValue::new(None, "validator_signer"),
-        )
-        .unwrap();
-        let (_epoch_manager, _runtime, state_roots, block_header) =
-            crate::commands::load_trie(store, home_dir, &near_config);
-        assert_eq!(&state_roots[0], chunk_extras[1].state_root());
-        assert_eq!(block_header.height(), 2);
     }
 }

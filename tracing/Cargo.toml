@@ -2,8 +2,8 @@
 name = "near-tracing"
 version = "0.0.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
-edition = "2021"
-rust-version = "1.84.0" # Please update the Dockerfile to `rust:1.XX-bullseye` when bumping version here
+edition = "2024"
+rust-version = "1.85.0" # Please update the Dockerfile to `rust:1.XX-bullseye` when bumping version here
 repository = "https://github.com/near/nearcore"
 license = "MIT OR Apache-2.0"
 

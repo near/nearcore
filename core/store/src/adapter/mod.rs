@@ -101,7 +101,7 @@ pub trait StoreAdapter {
         chunk_store::ChunkStoreAdapter::new(self.store())
     }
 
-    fn epoch(&self) -> epoch_store::EpochStoreAdapter {
+    fn epoch_store(&self) -> epoch_store::EpochStoreAdapter {
         epoch_store::EpochStoreAdapter::new(self.store())
     }
 
@@ -121,6 +121,14 @@ pub trait StoreAdapter {
 /// The underlying StoreUpdate instance remains the same.
 pub trait StoreUpdateAdapter: Sized {
     fn store_update(&mut self) -> &mut StoreUpdate;
+
+    fn chain_store_update(&mut self) -> chain_store::ChainStoreUpdateAdapter {
+        chain_store::ChainStoreUpdateAdapter::new(self.store_update())
+    }
+
+    fn epoch_store_update(&mut self) -> epoch_store::EpochStoreUpdateAdapter {
+        epoch_store::EpochStoreUpdateAdapter::new(self.store_update())
+    }
 
     fn flat_store_update(&mut self) -> flat_store::FlatStoreUpdateAdapter {
         flat_store::FlatStoreUpdateAdapter::new(self.store_update())

@@ -52,6 +52,16 @@ expression: view
     },
     {
       "cost_category": "ACTION_COST",
+      "cost": "DEPLOY_GLOBAL_CONTRACT_BASE",
+      "gas_used": "1016"
+    },
+    {
+      "cost_category": "ACTION_COST",
+      "cost": "DEPLOY_GLOBAL_CONTRACT_BYTE",
+      "gas_used": "1017"
+    },
+    {
+      "cost_category": "ACTION_COST",
       "cost": "FUNCTION_CALL_BASE",
       "gas_used": "1004"
     },
@@ -84,6 +94,16 @@ expression: view
       "cost_category": "ACTION_COST",
       "cost": "TRANSFER",
       "gas_used": "1006"
+    },
+    {
+      "cost_category": "ACTION_COST",
+      "cost": "USE_GLOBAL_CONTRACT_BASE",
+      "gas_used": "1018"
+    },
+    {
+      "cost_category": "ACTION_COST",
+      "cost": "USE_GLOBAL_CONTRACT_BYTE",
+      "gas_used": "1019"
     },
     {
       "cost_category": "WASM_HOST_COST",
