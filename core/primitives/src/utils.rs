@@ -14,7 +14,7 @@ use crate::hash::{CryptoHash, hash};
 use crate::transaction::SignedTransaction;
 use crate::types::{NumSeats, NumShards, ShardId};
 use crate::version::{
-    CORRECT_RANDOM_VALUE_PROTOCOL_VERSION, CREATE_HASH_PROTOCOL_VERSION,
+    _UNUSED_CORRECT_RANDOM_VALUE_PROTOCOL_VERSION, CREATE_HASH_PROTOCOL_VERSION,
     CREATE_RECEIPT_ID_SWITCH_TO_CURRENT_BLOCK_VERSION, ProtocolVersion,
 };
 
@@ -308,9 +308,8 @@ pub fn create_random_seed(
     action_hash: CryptoHash,
     random_seed: CryptoHash,
 ) -> Vec<u8> {
-    let res = if protocol_version < CORRECT_RANDOM_VALUE_PROTOCOL_VERSION {
-        action_hash
-    } else if protocol_version < CREATE_HASH_PROTOCOL_VERSION {
+    let res = if protocol_version < CREATE_HASH_PROTOCOL_VERSION {
+        // Protocol version is always >= CORRECT_RANDOM_VALUE_PROTOCOL_VERSION
         random_seed
     } else {
         // Generates random seed from random_seed and action_hash.
