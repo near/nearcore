@@ -2,6 +2,7 @@ use near_async::messaging::AsyncSender;
 use near_client::GetBlock;
 use near_client_primitives::types::GetBlockError;
 use near_network::client::{ProcessTxRequest, ProcessTxResponse};
+use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::BlockReference;
@@ -134,7 +135,8 @@ impl TxGenerator {
         const AMOUNT: near_primitives::types::Balance = 1_000;
 
         let idx = rand::seq::index::sample(rnd, accounts.len(), 2);
-        let sender = &mut accounts[idx.index(0)];
+        let sender_idx = idx.index(0);
+        let sender = &mut accounts[sender_idx];
         sender.nonce += 1;
         let nonce = sender.nonce;
         let sender_id = sender.id.clone();
@@ -157,9 +159,17 @@ impl TxGenerator {
         {
             Ok(res) => match res {
                 ProcessTxResponse::ValidTx => true,
+                ProcessTxResponse::InvalidTx(InvalidTxError::InvalidNonce {
+                    tx_nonce,
+                    ak_nonce,
+                }) => {
+                    tracing::debug!(target: "transaction-generator", tx_nonce, ak_nonce, 
+                        "InvalidNonce error: updating sender nonce");
+                    *&mut accounts[sender_idx].nonce = ak_nonce;
+                    false
+                }
                 _ => {
-                    tracing::debug!(target: "transaction-generator",
-                        request_rsp=?res);
+                    tracing::debug!(target: "transaction-generator", request_rsp=?res);
                     false
                 }
             },
