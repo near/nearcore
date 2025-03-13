@@ -1612,7 +1612,7 @@ impl Client {
                 match self.remove_transactions_for_block(&validator_id, block) {
                     Ok(()) => (),
                     Err(err) => {
-                        tracing::warn!(
+                        tracing::debug!(
                             "validator {}: removing txs for block {:?} failed with {:?}",
                             validator_id,
                             block,
@@ -1659,7 +1659,7 @@ impl Client {
                         match self.reintroduce_transactions_for_block(&validator_id, &block) {
                             Ok(()) => (),
                             Err(err) => {
-                                tracing::warn!(
+                                tracing::debug!(
                                     "validator {}: reintroducing txs for block {:?} failed with {:?}",
                                     validator_id,
                                     block,
