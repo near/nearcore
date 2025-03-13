@@ -352,7 +352,7 @@ impl Runtime {
                 metrics::TRANSACTION_PROCESSED_SUCCESSFULLY_TOTAL.inc();
                 commit_charging_for_tx(
                     state_update,
-                    validated_tx.to_tx(),
+                    validated_tx,
                     &verification_result.signer,
                     &verification_result.access_key,
                 );

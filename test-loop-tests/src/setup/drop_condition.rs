@@ -16,7 +16,7 @@ use crate::utils::network::{
     block_dropper_by_height, chunk_endorsement_dropper, chunk_endorsement_dropper_by_hash,
 };
 
-use super::state::TestData;
+use super::state::NodeExecutionData;
 
 pub enum DropCondition {
     /// Whether test loop should drop all chunks validated by the given account.
@@ -95,7 +95,7 @@ impl CanSend<ShardsManagerRequestFromClient> for ClientToShardsManagerSender {
     }
 }
 
-impl TestData {
+impl NodeExecutionData {
     pub fn register_drop_condition(
         &self,
         test_loop_data: &mut TestLoopData,

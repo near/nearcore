@@ -3,25 +3,26 @@ use itertools::{Itertools, multizip};
 use near_async::messaging::{IntoMultiSender, IntoSender, noop};
 use near_async::time::Clock;
 use near_chain::state_snapshot_actor::SnapshotCallbacks;
-use near_chain::test_utils::{KeyValueRuntime, MockEpochManager, ValidatorSchedule};
 use near_chain::types::RuntimeAdapter;
 use near_chain::{Block, ChainGenesis};
-use near_chain_configs::GenesisConfig;
+use near_chain_configs::{Genesis, GenesisConfig};
 use near_chunks::test_utils::MockClientAdapterForShardsManager;
 use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
-use near_epoch_manager::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
+use near_epoch_manager::{EpochManager, EpochManagerHandle};
 use near_network::test_utils::MockPeerManagerAdapter;
 use near_parameters::RuntimeConfigStore;
 use near_primitives::epoch_info::RngSeed;
 use near_primitives::epoch_manager::{AllEpochConfigTestOverrides, EpochConfig, EpochConfigStore};
 use near_primitives::test_utils::create_test_signer;
-use near_primitives::types::{AccountId, NumShards, ShardIndex};
+use near_primitives::types::{AccountId, ShardIndex};
 use near_store::config::StateSnapshotType;
+use near_store::genesis::initialize_genesis_state;
 use near_store::test_utils::create_test_store;
 use near_store::{NodeStorage, ShardUId, Store, StoreConfig, TrieConfig};
 use near_vm_runner::{ContractRuntimeCache, FilesystemContractRuntimeCache};
+use nearcore::NightshadeRuntime;
 use std::collections::{BTreeMap, HashMap};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use crate::utils::mock_partial_witness_adapter::MockPartialWitnessAdapter;
@@ -29,36 +30,21 @@ use crate::utils::mock_partial_witness_adapter::MockPartialWitnessAdapter;
 use super::setup::{TEST_SEED, setup_client_with_runtime, setup_synchronous_shards_manager};
 use super::test_env::{AccountIndices, TestEnv};
 
-#[derive(derive_more::From, Clone)]
-enum EpochManagerKind {
-    Mock(Arc<MockEpochManager>),
-    Handle(Arc<EpochManagerHandle>),
-}
-
-impl EpochManagerKind {
-    pub fn into_adapter(self) -> Arc<dyn EpochManagerAdapter> {
-        match self {
-            Self::Mock(mock) => mock,
-            Self::Handle(handle) => handle,
-        }
-    }
-}
-
 /// A builder for the TestEnv structure.
 pub struct TestEnvBuilder {
     clock: Option<Clock>,
     genesis_config: GenesisConfig,
+    genesis: Option<Genesis>,
     epoch_config_store: Option<EpochConfigStore>,
     clients: Vec<AccountId>,
     validators: Vec<AccountId>,
     home_dirs: Option<Vec<PathBuf>>,
     stores: Option<Vec<Store>>,
     contract_caches: Option<Vec<Box<dyn ContractRuntimeCache>>>,
-    epoch_managers: Option<Vec<EpochManagerKind>>,
+    epoch_managers: Option<Vec<Arc<EpochManagerHandle>>>,
     shard_trackers: Option<Vec<ShardTracker>>,
-    runtimes: Option<Vec<Arc<dyn RuntimeAdapter>>>,
+    runtimes: Option<Vec<Arc<NightshadeRuntime>>>,
     network_adapters: Option<Vec<Arc<MockPeerManagerAdapter>>>,
-    num_shards: Option<NumShards>,
     // random seed to be inject in each client according to AccountId
     // if not set, a default constant TEST_SEED will be injected
     seeds: HashMap<AccountId, RngSeed>,
@@ -80,6 +66,7 @@ impl TestEnvBuilder {
         Self {
             clock: None,
             genesis_config,
+            genesis: None,
             epoch_config_store: None,
             clients,
             validators,
@@ -90,12 +77,17 @@ impl TestEnvBuilder {
             shard_trackers: None,
             runtimes: None,
             network_adapters: None,
-            num_shards: None,
             seeds,
             archive: false,
             save_trie_changes: true,
             state_snapshot_enabled: false,
         }
+    }
+
+    pub(crate) fn from_genesis(genesis: Genesis) -> Self {
+        let mut env = Self::new(genesis.config.clone());
+        env.genesis = Some(genesis);
+        env
     }
 
     pub fn clock(mut self, clock: Clock) -> Self {
@@ -216,12 +208,19 @@ impl TestEnvBuilder {
 
     /// Internal impl to make sure the stores are initialized.
     fn ensure_stores(self) -> Self {
-        if self.stores.is_some() {
+        let ret = if self.stores.is_some() {
             self
         } else {
             let num_clients = self.clients.len();
             self.stores((0..num_clients).map(|_| create_test_store()).collect())
+        };
+
+        if let Some(genesis) = &ret.genesis {
+            for store in ret.stores.as_ref().unwrap() {
+                initialize_genesis_state(store.clone(), &genesis, None);
+            }
         }
+        ret
     }
 
     fn ensure_contract_caches(self) -> Self {
@@ -242,16 +241,11 @@ impl TestEnvBuilder {
         assert_eq!(epoch_managers.len(), self.clients.len());
         assert!(self.epoch_managers.is_none(), "Cannot override twice");
         assert!(
-            self.num_shards.is_none(),
-            "Cannot set both num_shards and epoch_managers at the same time"
-        );
-        assert!(
             self.shard_trackers.is_none(),
             "Cannot override epoch_managers after shard_trackers"
         );
         assert!(self.runtimes.is_none(), "Cannot override epoch_managers after runtimes");
-        self.epoch_managers =
-            Some(epoch_managers.into_iter().map(|epoch_manager| epoch_manager.into()).collect());
+        self.epoch_managers = Some(epoch_managers);
         self
     }
 
@@ -260,10 +254,6 @@ impl TestEnvBuilder {
         self,
         test_overrides: AllEpochConfigTestOverrides,
     ) -> Self {
-        assert!(
-            self.num_shards.is_none(),
-            "Cannot set both num_shards and epoch_managers at the same time"
-        );
         let ret = self.ensure_stores();
 
         // TODO(#11265): consider initializing epoch config separately as it
@@ -318,34 +308,6 @@ impl TestEnvBuilder {
         ret.epoch_managers_with_test_overrides(AllEpochConfigTestOverrides::default())
     }
 
-    /// Constructs MockEpochManager implementations for each instance.
-    pub fn mock_epoch_managers(self) -> Self {
-        assert!(self.epoch_managers.is_none(), "Cannot override twice");
-        let mut ret = self.ensure_stores();
-        let epoch_managers: Vec<EpochManagerKind> = (0..ret.clients.len())
-            .map(|i| {
-                let vs = ValidatorSchedule::new_with_shards(ret.num_shards.unwrap_or(1))
-                    .block_producers_per_epoch(vec![ret.validators.clone()]);
-                MockEpochManager::new_with_validators(
-                    ret.stores.as_ref().unwrap()[i].clone(),
-                    vs,
-                    ret.genesis_config.epoch_length,
-                )
-                .into()
-            })
-            .collect();
-        assert!(
-            ret.shard_trackers.is_none(),
-            "Cannot override shard_trackers without overriding epoch_managers"
-        );
-        assert!(
-            ret.runtimes.is_none(),
-            "Cannot override runtimes without overriding epoch_managers"
-        );
-        ret.epoch_managers = Some(epoch_managers);
-        ret
-    }
-
     /// Visible for extension methods in integration-tests.
     pub fn internal_initialize_nightshade_runtimes(
         self,
@@ -358,7 +320,7 @@ impl TestEnvBuilder {
             Arc<EpochManagerHandle>,
             RuntimeConfigStore,
             TrieConfig,
-        ) -> Arc<dyn RuntimeAdapter>,
+        ) -> Arc<NightshadeRuntime>,
     ) -> Self {
         let builder = self
             .ensure_home_dirs()
@@ -379,12 +341,6 @@ impl TestEnvBuilder {
             trie_configs,
         ))
         .map(|(home_dir, store, contract_cache, epoch_manager, runtime_config, trie_config)| {
-            let epoch_manager = match epoch_manager {
-                EpochManagerKind::Mock(_) => {
-                    panic!("NightshadeRuntime can only be instantiated with EpochManagerHandle")
-                }
-                EpochManagerKind::Handle(handle) => handle,
-            };
             nightshade_runtime_creator(
                 home_dir,
                 store,
@@ -417,9 +373,7 @@ impl TestEnvBuilder {
             .as_ref()
             .unwrap()
             .iter()
-            .map(|epoch_manager| {
-                ShardTracker::new(TrackedConfig::AllShards, epoch_manager.clone().into_adapter())
-            })
+            .map(|epoch_manager| ShardTracker::new(TrackedConfig::AllShards, epoch_manager.clone()))
             .collect();
         ret.shard_trackers(shard_trackers)
     }
@@ -441,15 +395,15 @@ impl TestEnvBuilder {
             .unwrap()
             .iter()
             .map(|epoch_manager| {
-                ShardTracker::new(TrackedConfig::new_empty(), epoch_manager.clone().into_adapter())
+                ShardTracker::new(TrackedConfig::new_empty(), epoch_manager.clone())
             })
             .collect();
         ret.shard_trackers(shard_trackers)
     }
 
-    /// Specifies custom RuntimeAdapter for each client.  This allows us to
+    /// Specifies custom NightshadeRuntime for each client.  This allows us to
     /// construct [`TestEnv`] with a custom implementation.
-    pub fn runtimes(mut self, runtimes: Vec<Arc<dyn RuntimeAdapter>>) -> Self {
+    pub fn runtimes(mut self, runtimes: Vec<Arc<NightshadeRuntime>>) -> Self {
         assert_eq!(runtimes.len(), self.clients.len());
         assert!(self.runtimes.is_none(), "Cannot override twice");
         self.runtimes = Some(runtimes);
@@ -458,25 +412,25 @@ impl TestEnvBuilder {
 
     /// Internal impl to make sure runtimes are initialized.
     fn ensure_runtimes(self) -> Self {
-        let state_snapshot_enabled = self.state_snapshot_enabled;
         let ret = self.ensure_epoch_managers();
         if ret.runtimes.is_some() {
             return ret;
         }
-        assert!(
-            !state_snapshot_enabled,
-            "State snapshot is not supported with KeyValueRuntime. Consider adding nightshade_runtimes"
-        );
         let runtimes = (0..ret.clients.len())
             .map(|i| {
-                let epoch_manager = match &ret.epoch_managers.as_ref().unwrap()[i] {
-                    EpochManagerKind::Mock(mock) => mock.as_ref(),
-                    EpochManagerKind::Handle(_) => {
-                        panic!("Can only default construct KeyValueRuntime with MockEpochManager")
-                    }
-                };
-                KeyValueRuntime::new(ret.stores.as_ref().unwrap()[i].clone(), epoch_manager)
-                    as Arc<dyn RuntimeAdapter>
+                let store = ret.stores.as_ref().unwrap()[i].clone();
+                let epoch_manager = ret.epoch_managers.as_ref().unwrap()[i].clone();
+                if ret.genesis.is_none() {
+                    // In order to use EpochManagerHandle and NightshadeRuntime stores have to be initialized with genesis
+                    // which in default case we can ensure only if builder has information about genesis.
+                    panic!("NightshadeRuntime cannot be created automatically in testenv without genesis")
+                }
+                return NightshadeRuntime::test(
+                    Path::new("."),
+                    store,
+                    &ret.genesis_config,
+                    epoch_manager,
+                );
             })
             .collect();
         ret.runtimes(runtimes)
@@ -500,15 +454,6 @@ impl TestEnvBuilder {
             let num_clients = self.clients.len();
             self.network_adapters((0..num_clients).map(|_| Arc::new(Default::default())).collect())
         }
-    }
-
-    pub fn num_shards(mut self, num_shards: NumShards) -> Self {
-        assert!(
-            self.epoch_managers.is_none(),
-            "Cannot set both num_shards and epoch_managers at the same time"
-        );
-        self.num_shards = Some(num_shards);
-        self
     }
 
     pub fn archive(mut self, archive: bool) -> Self {
@@ -564,7 +509,7 @@ impl TestEnvBuilder {
                     Some(clients[i].clone()),
                     client_adapter.as_sender(),
                     network_adapter.as_multi_sender(),
-                    epoch_manager.into_adapter(),
+                    epoch_manager,
                     shard_tracker,
                     runtime,
                     &chain_genesis,
@@ -608,7 +553,7 @@ impl TestEnvBuilder {
                         network_adapter.as_multi_sender(),
                         shards_manager_adapter,
                         chain_genesis.clone(),
-                        epoch_manager.into_adapter(),
+                        epoch_manager,
                         shard_tracker,
                         runtime,
                         rng_seed,

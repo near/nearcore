@@ -27,7 +27,7 @@ use near_primitives::views::{
 
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
-use crate::setup::state::TestData;
+use crate::setup::state::NodeExecutionData;
 use crate::utils::ONE_NEAR;
 use crate::utils::transactions::execute_money_transfers;
 
@@ -112,11 +112,11 @@ struct ViewClientTester<'a> {
 }
 
 impl<'a> ViewClientTester<'a> {
-    fn new(test_loop: &'a mut TestLoopV2, test_data: &Vec<TestData>) -> Self {
+    fn new(test_loop: &'a mut TestLoopV2, node_datas: &Vec<NodeExecutionData>) -> Self {
         Self {
             test_loop,
             // Save the handles for the view client senders.
-            handles: test_data
+            handles: node_datas
                 .iter()
                 .map(|data| data.view_client_sender.actor_handle())
                 .collect_vec(),
