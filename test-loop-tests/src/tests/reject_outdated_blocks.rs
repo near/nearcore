@@ -89,31 +89,44 @@ fn slow_test_reject_blocks_with_outdated_protocol_version_protocol_upgrade() {
 
     let sender = node_datas[0].client_sender.clone();
     let handle = sender.actor_handle();
-    let client = &mut test_loop.data.get_mut(&handle).client;
+
+    let tx_sender = node_datas[0].tx_processor_sender.clone();
+    let tx_handle = tx_sender.actor_handle();
 
     // produce a valid block then tamper it with outdated protocol version
     // then check if block is NOT rejected because of outdated protocol version
-    let height = client.chain.head().unwrap().height;
-    let latest_block = client.chain.get_block_by_height(height).unwrap();
-    let tx = create_tx(&latest_block, &accounts[0], &accounts[1]);
-    let _ = client.process_tx(tx, false, false);
-    let mut old_version_block = client.produce_block(height + 1).unwrap().unwrap();
-    old_version_block.mut_header().set_latest_protocol_version(
-        ProtocolFeature::RejectBlocksWithOutdatedProtocolVersions.protocol_version() - 2,
-    );
+    let (height, latest_block) = {
+        let client = &test_loop.data.get_mut(&handle).client;
+        let height = client.chain.head().unwrap().height;
+        (height, client.chain.get_block_by_height(height).unwrap())
+    };
 
-    let epoch_id = client
-        .epoch_manager
-        .get_epoch_id_from_prev_block(&client.chain.head().unwrap().last_block_hash)
-        .unwrap();
-    protocol_version = client.epoch_manager.get_epoch_protocol_version(&epoch_id).unwrap();
-    assert!(
-        protocol_version
-            < ProtocolFeature::RejectBlocksWithOutdatedProtocolVersions.protocol_version()
-    );
-    assert!(old_version_block.header().latest_protocol_version() < protocol_version);
-    let res = client.process_block_test(old_version_block.clone().into(), Provenance::NONE);
-    assert!(!matches!(res, Err(Error::InvalidProtocolVersion)));
+    {
+        let tx = create_tx(&latest_block, &accounts[0], &accounts[1]);
+        let tx_processor = &test_loop.data.get(&tx_handle);
+        let _ = tx_processor.process_tx(tx, false, false);
+    }
+
+    {
+        let client = &mut test_loop.data.get_mut(&handle).client;
+        let mut old_version_block = client.produce_block(height + 1).unwrap().unwrap();
+        old_version_block.mut_header().set_latest_protocol_version(
+            ProtocolFeature::RejectBlocksWithOutdatedProtocolVersions.protocol_version() - 2,
+        );
+
+        let epoch_id = client
+            .epoch_manager
+            .get_epoch_id_from_prev_block(&client.chain.head().unwrap().last_block_hash)
+            .unwrap();
+        protocol_version = client.epoch_manager.get_epoch_protocol_version(&epoch_id).unwrap();
+        assert!(
+            protocol_version
+                < ProtocolFeature::RejectBlocksWithOutdatedProtocolVersions.protocol_version()
+        );
+        assert!(old_version_block.header().latest_protocol_version() < protocol_version);
+        let res = client.process_block_test(old_version_block.clone().into(), Provenance::NONE);
+        assert!(!matches!(res, Err(Error::InvalidProtocolVersion)));
+    }
 
     // wait for protocol version to advance
     test_loop.run_until(
@@ -138,10 +151,17 @@ fn slow_test_reject_blocks_with_outdated_protocol_version_protocol_upgrade() {
 
     // produce another block with outdated protocol version
     // then check if block is rejected due to the outdated version
+    let (height, latest_block) = {
+        let client = &mut test_loop.data.get_mut(&handle).client;
+        let height = client.chain.head().unwrap().height;
+        (height, client.chain.get_block_by_height(height).unwrap())
+    };
+
+    let tx_processor = test_loop.data.get(&tx_handle);
+    let _ =
+        tx_processor.process_tx(create_tx(&latest_block, &accounts[0], &accounts[1]), false, false);
+
     let client = &mut test_loop.data.get_mut(&handle).client;
-    let height = client.chain.head().unwrap().height;
-    let latest_block = client.chain.get_block_by_height(height).unwrap();
-    let _ = client.process_tx(create_tx(&latest_block, &accounts[0], &accounts[1]), false, false);
     let mut old_version_block = client.produce_block(height + 1).unwrap().unwrap();
     old_version_block.mut_header().set_latest_protocol_version(protocol_version - 1);
     let res = client.process_block_test(old_version_block.clone().into(), Provenance::NONE);

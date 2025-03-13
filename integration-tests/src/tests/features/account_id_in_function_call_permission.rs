@@ -66,7 +66,7 @@ fn test_account_id_in_function_call_permission_upgrade() {
         })
         .sign(&signer);
         assert_eq!(
-            env.clients[0].process_tx(signed_transaction, false, false),
+            env.tx_request_handlers[0].process_tx(signed_transaction, false, false),
             ProcessTxResponse::ValidTx
         );
         for i in 0..3 {
@@ -83,7 +83,7 @@ fn test_account_id_in_function_call_permission_upgrade() {
             Transaction::V0(TransactionV0 { nonce: 11, block_hash: tip.last_block_hash, ..tx })
                 .sign(&signer);
         assert_eq!(
-            env.clients[0].process_tx(signed_transaction, false, false),
+            env.tx_request_handlers[0].process_tx(signed_transaction, false, false),
             ProcessTxResponse::InvalidTx(InvalidTxError::ActionsValidation(
                 ActionsValidationError::InvalidAccountId { account_id: "#".to_string() }
             ))
@@ -93,7 +93,7 @@ fn test_account_id_in_function_call_permission_upgrade() {
 
 #[test]
 fn test_very_long_account_id() {
-    let mut env = {
+    let env = {
         let genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
         TestEnv::builder(&genesis.config)
             .nightshade_runtimes_with_runtime_config_store(
@@ -126,7 +126,7 @@ fn test_very_long_account_id() {
     .sign(&signer);
 
     assert_eq!(
-        env.clients[0].process_tx(tx, false, false),
+        env.tx_request_handlers[0].process_tx(tx, false, false),
         ProcessTxResponse::InvalidTx(InvalidTxError::ActionsValidation(
             ActionsValidationError::InvalidAccountId { account_id: "A".repeat(128) }
         ))

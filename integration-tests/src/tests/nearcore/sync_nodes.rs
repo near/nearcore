@@ -44,8 +44,9 @@ fn ultra_slow_test_sync_state_stake_change() {
         let dir1 = tempfile::Builder::new().prefix("sync_state_stake_change_1").tempdir().unwrap();
         let dir2 = tempfile::Builder::new().prefix("sync_state_stake_change_2").tempdir().unwrap();
         run_actix(async {
-            let nearcore::NearNode { client: client1, view_client: view_client1, .. } =
-                start_with_config(dir1.path(), near1.clone()).expect("start_with_config");
+            let nearcore::NearNode {
+                view_client: view_client1, tx_processor: tx_processor1, ..
+            } = start_with_config(dir1.path(), near1.clone()).expect("start_with_config");
 
             let genesis_hash = *genesis_block(&genesis).hash();
             let signer = Arc::new(InMemorySigner::test_signer(&"test1".parse().unwrap()));
@@ -58,7 +59,7 @@ fn ultra_slow_test_sync_state_stake_change() {
                 genesis_hash,
             );
             actix::spawn(
-                client1
+                tx_processor1
                     .send(
                         ProcessTxRequest {
                             transaction: unstake_transaction,

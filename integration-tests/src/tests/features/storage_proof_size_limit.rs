@@ -132,7 +132,7 @@ fn test_storage_proof_size_limit() {
     let read2_txs =
         [make_read_transaction(0, 3), make_read_transaction(3, 6), make_read_transaction(6, 9)];
     for read2_tx in &read2_txs {
-        let response = env.clients[0].process_tx(read2_tx.clone(), false, false);
+        let response = env.tx_request_handlers[0].process_tx(read2_tx.clone(), false, false);
         assert_eq!(response, ProcessTxResponse::ValidTx);
     }
 

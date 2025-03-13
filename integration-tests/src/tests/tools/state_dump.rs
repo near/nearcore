@@ -108,7 +108,7 @@ fn test_dump_state_preserve_validators() {
         signer.public_key(),
         genesis_hash,
     );
-    assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
+    assert_eq!(env.tx_request_handlers[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
 
     safe_produce_blocks(&mut env, 1, epoch_length * 2 + 1);
 
@@ -169,8 +169,14 @@ fn test_dump_state_respect_select_account_ids() {
         signer0.public_key(),
         genesis_hash,
     );
-    assert_eq!(env.clients[0].process_tx(tx00, false, false), ProcessTxResponse::ValidTx);
-    assert_eq!(env.clients[0].process_tx(tx01, false, false), ProcessTxResponse::ValidTx);
+    assert_eq!(
+        env.tx_request_handlers[0].process_tx(tx00, false, false),
+        ProcessTxResponse::ValidTx
+    );
+    assert_eq!(
+        env.tx_request_handlers[0].process_tx(tx01, false, false),
+        ProcessTxResponse::ValidTx
+    );
 
     let signer1 = InMemorySigner::test_signer(&"test1".parse().unwrap());
     let tx1 = SignedTransaction::stake(
@@ -181,7 +187,10 @@ fn test_dump_state_respect_select_account_ids() {
         signer1.public_key(),
         genesis_hash,
     );
-    assert_eq!(env.clients[0].process_tx(tx1, false, false), ProcessTxResponse::ValidTx);
+    assert_eq!(
+        env.tx_request_handlers[0].process_tx(tx1, false, false),
+        ProcessTxResponse::ValidTx
+    );
 
     safe_produce_blocks(&mut env, 1, epoch_length * 2 + 1);
 
@@ -240,7 +249,7 @@ fn test_dump_state_preserve_validators_in_memory() {
         signer.public_key(),
         genesis_hash,
     );
-    assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
+    assert_eq!(env.tx_request_handlers[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
 
     safe_produce_blocks(&mut env, 1, epoch_length * 2 + 1);
 
@@ -288,7 +297,7 @@ fn test_dump_state_return_locked() {
         signer.public_key(),
         genesis_hash,
     );
-    assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
+    assert_eq!(env.tx_request_handlers[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
     for i in 1..=epoch_length + 1 {
         env.produce_block(0, i);
     }
@@ -410,7 +419,7 @@ fn test_dump_state_not_track_shard() {
         1,
         genesis_hash,
     );
-    assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
+    assert_eq!(env.tx_request_handlers[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
 
     let mut blocks = vec![];
     for i in 1..epoch_length {
@@ -493,7 +502,7 @@ fn test_dump_state_with_delayed_receipt() {
         signer.public_key(),
         genesis_hash,
     );
-    assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
+    assert_eq!(env.tx_request_handlers[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
 
     safe_produce_blocks(&mut env, 1, epoch_length * 2 + 1);
 
@@ -560,7 +569,7 @@ fn test_dump_state_respect_select_whitelist_validators() {
         signer.public_key(),
         genesis_hash,
     );
-    assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
+    assert_eq!(env.tx_request_handlers[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
 
     safe_produce_blocks(&mut env, 1, epoch_length * 2 + 1);
 

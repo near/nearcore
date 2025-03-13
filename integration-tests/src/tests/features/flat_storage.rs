@@ -81,7 +81,7 @@ fn test_flat_storage_upgrade() {
         .sign(&signer);
         let tx_hash = signed_transaction.get_hash();
         assert_eq!(
-            env.clients[0].process_tx(signed_transaction, false, false),
+            env.tx_request_handlers[0].process_tx(signed_transaction, false, false),
             ProcessTxResponse::ValidTx
         );
         for i in 0..blocks_to_process_txn {
@@ -109,7 +109,7 @@ fn test_flat_storage_upgrade() {
             .sign(&signer);
             let tx_hash = signed_transaction.get_hash();
             assert_eq!(
-                env.clients[0].process_tx(signed_transaction, false, false),
+                env.tx_request_handlers[0].process_tx(signed_transaction, false, false),
                 ProcessTxResponse::ValidTx
             );
             for i in 0..blocks_to_process_txn {
