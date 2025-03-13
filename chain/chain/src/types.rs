@@ -348,10 +348,10 @@ pub struct ApplyChunkShardContext<'a> {
 
 /// Contains transactions that were fetched from the transaction pool
 /// and prepared for adding them to a new chunk that is being produced.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct PreparedTransactions {
     /// Prepared transactions
-    pub transactions: Vec<SignedTransaction>,
+    pub transactions: Vec<ValidatedTransaction>,
     /// Describes which limit was hit when preparing the transactions.
     pub limited_by: Option<PrepareTransactionsLimit>,
     /// May contain partial state that was used to verify transactions when preparing.

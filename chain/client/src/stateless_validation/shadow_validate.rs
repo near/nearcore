@@ -6,6 +6,7 @@ use near_chain::types::{RuntimeStorageConfig, StorageDataSource};
 use near_chain::{Block, BlockHeader};
 use near_chain_primitives::Error;
 use near_primitives::sharding::{ShardChunk, ShardChunkHeader};
+use near_primitives::transaction::ValidatedTransaction;
 
 impl Client {
     // Temporary feature to make node produce state witness for every chunk in every processed block
@@ -52,6 +53,9 @@ impl Client {
     ) -> Result<(), Error> {
         let chunk_header = chunk.cloned_header();
         let last_chunk = self.chain.get_chunk(&prev_chunk_header.chunk_hash())?;
+        let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(prev_block_header.hash())?;
+        let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
+        let config = self.runtime_adapter.get_runtime_config(protocol_version);
 
         let transactions_validation_storage_config = RuntimeStorageConfig {
             state_root: chunk_header.prev_state_root(),
@@ -60,14 +64,23 @@ impl Client {
             state_patch: Default::default(),
         };
 
+        let validated_txs =
+            ValidatedTransaction::new_list(&config, chunk.transactions().into_iter().cloned())
+                .map_err(|(err, signed_tx)| {
+                    Error::Other(format!(
+                        "Validating signed tx ({:?}) failed with {:?}",
+                        signed_tx, err,
+                    ))
+                })?;
+
         // We call `validate_prepared_transactions()` here because we need storage proof for transactions validation.
         // Normally it is provided by chunk producer, but for shadow validation we need to generate it ourselves.
-        let Ok(validated_transactions) = validate_prepared_transactions(
+        let Ok(prepared_txs) = validate_prepared_transactions(
             &self.chain,
             self.runtime_adapter.as_ref(),
             &chunk_header,
             transactions_validation_storage_config,
-            chunk.transactions().to_vec(),
+            validated_txs,
             last_chunk.transactions(),
         ) else {
             return Err(Error::Other(
@@ -81,7 +94,7 @@ impl Client {
             prev_block_header,
             prev_chunk_header,
             chunk,
-            validated_transactions.storage_proof,
+            prepared_txs.storage_proof,
         )?;
         if self.config.save_latest_witnesses {
             self.chain.chain_store.save_latest_chunk_state_witness(&state_witness)?;
