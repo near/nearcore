@@ -182,7 +182,7 @@ fn all_touched_accounts(
     incoming_receipts: &[Receipt],
     yield_timeout_receipts: &[Receipt],
     processed_delayed_receipts: &[Receipt],
-    transactions: SignedValidPeriodTransactions<'_>,
+    transactions: SignedValidPeriodTransactions,
     validator_accounts_update: &Option<ValidatorAccountsUpdate>,
 ) -> Result<HashSet<AccountId>, RuntimeError> {
     let mut all_accounts_ids: HashSet<AccountId> = transactions
@@ -280,7 +280,7 @@ pub(crate) fn check_balance(
     incoming_receipts: &[Receipt],
     processed_delayed_receipts: &[Receipt],
     yield_timeout_receipts: &[Receipt],
-    transactions: SignedValidPeriodTransactions<'_>,
+    transactions: SignedValidPeriodTransactions,
     outgoing_receipts: &[Receipt],
     stats: &BalanceStats,
 ) -> Result<(), RuntimeError> {
@@ -558,7 +558,7 @@ mod tests {
             &[],
             &[],
             &[],
-            SignedValidPeriodTransactions::new(&[tx], &[true]),
+            SignedValidPeriodTransactions::new(vec![tx], vec![true]),
             &[receipt],
             &BalanceStats {
                 tx_burnt_amount: total_validator_reward,
@@ -631,7 +631,7 @@ mod tests {
                 &[receipt],
                 &[],
                 &[],
-                SignedValidPeriodTransactions::new(&[tx], &[true]),
+                SignedValidPeriodTransactions::new(vec![tx], vec![true]),
                 &[],
                 &BalanceStats::default(),
             ),
@@ -673,7 +673,7 @@ mod tests {
                 &[receipt],
                 &[],
                 &[],
-                SignedValidPeriodTransactions::new(&[tx], &[true]),
+                SignedValidPeriodTransactions::new(vec![tx], vec![true]),
                 &[],
                 &BalanceStats::default(),
             ),
@@ -753,7 +753,7 @@ mod tests {
             &[],
             &[],
             &[],
-            SignedValidPeriodTransactions::new(&[tx], &[true]),
+            SignedValidPeriodTransactions::new(vec![tx], vec![true]),
             &[],
             &BalanceStats {
                 // send gas was burnt on this shard, exec gas is part of the receipt value
