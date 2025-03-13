@@ -106,7 +106,6 @@ pub(crate) fn apply_block(
         )
         .unwrap();
 
-        let transactions = chunk.transactions();
         let valid_txs = chain_store
             .compute_transaction_validity(
                 block.header().latest_protocol_version(),
@@ -132,7 +131,7 @@ pub(crate) fn apply_block(
                     block.block_bandwidth_requests(),
                 ),
                 &receipts,
-                SignedValidPeriodTransactions::new(transactions, &valid_txs),
+                SignedValidPeriodTransactions::new(chunk.transactions().to_vec(), valid_txs),
             )
             .unwrap()
     } else {

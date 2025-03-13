@@ -115,7 +115,7 @@ impl RuntimeUser {
                     &None,
                     &apply_state,
                     &receipts,
-                    SignedValidPeriodTransactions::new(&txs, &vec![true; txs.len()]),
+                    SignedValidPeriodTransactions::new(txs.clone(), vec![true; txs.len()]),
                     &self.epoch_info_provider,
                     Default::default(),
                 )

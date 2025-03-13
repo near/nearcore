@@ -1499,7 +1499,7 @@ impl Runtime {
     /// the only alternative way to handle these transactions is to make the entire chunk invalid.
     #[instrument(target = "runtime", level = "debug", "apply", skip_all, fields(
         protocol_version = apply_state.current_protocol_version,
-        num_transactions = transactions.len(),
+        num_transactions = signed_txs.len(),
         gas_burnt = tracing::field::Empty,
         compute_usage = tracing::field::Empty,
     ))]
@@ -1509,11 +1509,11 @@ impl Runtime {
         validator_accounts_update: &Option<ValidatorAccountsUpdate>,
         apply_state: &ApplyState,
         incoming_receipts: &[Receipt],
-        transactions: SignedValidPeriodTransactions<'_>,
+        signed_txs: SignedValidPeriodTransactions,
         epoch_info_provider: &dyn EpochInfoProvider,
         state_patch: SandboxStatePatch,
     ) -> Result<ApplyResult, RuntimeError> {
-        metrics::TRANSACTION_APPLIED_TOTAL.inc_by(transactions.len() as u64);
+        metrics::TRANSACTION_APPLIED_TOTAL.inc_by(signed_txs.len() as u64);
 
         // state_patch must be empty unless this is sandbox build.  Thanks to
         // conditional compilation this always resolves to true so technically
@@ -1529,15 +1529,14 @@ impl Runtime {
         // 5. Validate and apply the state update.
 
         let mut processing_state =
-            ApplyProcessingState::new(&apply_state, trie, epoch_info_provider, transactions);
-        processing_state.stats.transactions_num =
-            transactions.transactions.len().try_into().unwrap();
+            ApplyProcessingState::new(&apply_state, trie, epoch_info_provider);
+        processing_state.stats.transactions_num = signed_txs.transactions.len().try_into().unwrap();
         processing_state.stats.incoming_receipts_num = incoming_receipts.len().try_into().unwrap();
         processing_state.stats.is_new_chunk = !apply_state.is_new_chunk;
 
         if let Some(prefetcher) = &mut processing_state.prefetcher {
             // Prefetcher is allowed to fail
-            _ = prefetcher.prefetch_transactions_data(transactions);
+            _ = prefetcher.prefetch_transactions_data(&signed_txs);
         }
 
         // Step 1: update validator accounts.
@@ -1616,7 +1615,8 @@ impl Runtime {
         )?;
 
         // Step 3: process transactions.
-        let validated_txs = self.process_transactions(&mut processing_state, &mut receipt_sink)?;
+        let validated_txs =
+            self.process_transactions(&mut processing_state, &mut receipt_sink, signed_txs)?;
 
         // Step 4: process receipts.
         let process_receipts_result =
@@ -1707,18 +1707,17 @@ impl Runtime {
         &self,
         processing_state: &mut ApplyProcessingReceiptState,
         receipt_sink: &mut ReceiptSink,
+        signed_txs: SignedValidPeriodTransactions,
     ) -> Result<Vec<(ValidatedTransaction, bool)>, RuntimeError> {
         let total = &mut processing_state.total;
         let apply_state = &mut processing_state.apply_state;
         let state_update = &mut processing_state.state_update;
 
-        let signed_txs =
-            processing_state.transactions.transactions.into_iter().cloned().collect::<Vec<_>>();
-        let mut validated_txs = Vec::with_capacity(signed_txs.len());
+        let mut validated_txs = Vec::with_capacity(signed_txs.transactions.len());
         for (tx_hash, result) in Self::parallel_validate_transactions(
             &apply_state.config,
             apply_state.gas_price,
-            signed_txs,
+            signed_txs.transactions,
             apply_state.current_protocol_version,
         ) {
             match result {
@@ -1772,16 +1771,8 @@ impl Runtime {
             }
         }
         processing_state.metrics.tx_processing_done(total.gas, total.compute);
-        let validated_txs = validated_txs
-            .into_iter()
-            .zip(
-                processing_state
-                    .transactions
-                    .transaction_validity_check_passed
-                    .into_iter()
-                    .cloned(),
-            )
-            .collect();
+        let validated_txs =
+            validated_txs.into_iter().zip(signed_txs.transaction_validity_check_passed).collect();
         Ok(validated_txs)
     }
 
@@ -2597,7 +2588,6 @@ struct ApplyProcessingState<'a> {
     prefetcher: Option<TriePrefetcher>,
     state_update: TrieUpdate,
     epoch_info_provider: &'a dyn EpochInfoProvider,
-    transactions: SignedValidPeriodTransactions<'a>,
     total: TotalResourceGuard,
     stats: ChunkApplyStatsV0,
 }
@@ -2607,7 +2597,6 @@ impl<'a> ApplyProcessingState<'a> {
         apply_state: &'a ApplyState,
         trie: Trie,
         epoch_info_provider: &'a dyn EpochInfoProvider,
-        transactions: SignedValidPeriodTransactions<'a>,
     ) -> Self {
         let protocol_version = apply_state.current_protocol_version;
         let prefetcher = TriePrefetcher::new_if_enabled(&trie);
@@ -2627,7 +2616,6 @@ impl<'a> ApplyProcessingState<'a> {
             prefetcher,
             state_update,
             epoch_info_provider,
-            transactions,
             total,
             stats,
         }
@@ -2651,7 +2639,6 @@ impl<'a> ApplyProcessingState<'a> {
             prefetcher: self.prefetcher,
             state_update: self.state_update,
             epoch_info_provider: self.epoch_info_provider,
-            transactions: self.transactions,
             total: self.total,
             stats: self.stats,
             outcomes: Vec::new(),
@@ -2663,9 +2650,9 @@ impl<'a> ApplyProcessingState<'a> {
     }
 }
 
-#[derive(Clone, Copy)]
-pub struct SignedValidPeriodTransactions<'a> {
-    transactions: &'a [SignedTransaction],
+#[derive(Clone)]
+pub struct SignedValidPeriodTransactions {
+    transactions: Vec<SignedTransaction>,
     /// List of the transactions that are valid and should be processed by `apply`.
     ///
     /// This list is exactly the length of the corresponding `Self::transactions` field. Element at
@@ -2675,23 +2662,23 @@ pub struct SignedValidPeriodTransactions<'a> {
     ///
     /// All elements will be true for protocol versions where `RelaxedChunkValidation` is not
     /// enabled.
-    transaction_validity_check_passed: &'a [bool],
+    transaction_validity_check_passed: Vec<bool>,
 }
 
-impl<'a> SignedValidPeriodTransactions<'a> {
-    pub fn new(transactions: &'a [SignedTransaction], validity_check_results: &'a [bool]) -> Self {
+impl SignedValidPeriodTransactions {
+    pub fn new(transactions: Vec<SignedTransaction>, validity_check_results: Vec<bool>) -> Self {
         assert_eq!(transactions.len(), validity_check_results.len());
         Self { transactions, transaction_validity_check_passed: validity_check_results }
     }
 
     pub fn empty() -> Self {
-        Self::new(&[], &[])
+        Self::new(vec![], vec![])
     }
 
-    pub fn iter_nonexpired_transactions(&self) -> impl Iterator<Item = &'a SignedTransaction> {
+    pub fn iter_nonexpired_transactions(&self) -> impl Iterator<Item = &SignedTransaction> {
         self.transactions
-            .into_iter()
-            .zip(self.transaction_validity_check_passed.into_iter())
+            .iter()
+            .zip(self.transaction_validity_check_passed.iter())
             .filter_map(|(t, v)| v.then_some(t))
     }
 
@@ -2708,7 +2695,6 @@ struct ApplyProcessingReceiptState<'a> {
     prefetcher: Option<TriePrefetcher>,
     state_update: TrieUpdate,
     epoch_info_provider: &'a dyn EpochInfoProvider,
-    transactions: SignedValidPeriodTransactions<'a>,
     total: TotalResourceGuard,
     stats: ChunkApplyStatsV0,
     outcomes: Vec<ExecutionOutcomeWithId>,

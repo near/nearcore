@@ -149,7 +149,7 @@ impl StandaloneRuntime {
         let shard_uid = ShardUId::new(0, shard_id);
         let trie = self.tries.get_trie_for_shard(shard_uid, self.root);
         let validity = vec![true; transactions.len()];
-        let transactions = SignedValidPeriodTransactions::new(transactions, &validity);
+        let transactions = SignedValidPeriodTransactions::new(transactions.to_vec(), validity);
         let apply_result = self
             .runtime
             .apply(
