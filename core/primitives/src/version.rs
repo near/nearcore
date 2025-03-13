@@ -23,13 +23,13 @@ pub use near_primitives_core::version::ProtocolFeature;
 
 /// Minimum gas price proposed in NEP 92 and the associated protocol version
 pub const MIN_GAS_PRICE_NEP_92: Balance = 1_000_000_000;
-pub const MIN_PROTOCOL_VERSION_NEP_92: ProtocolVersion = 31;
+pub const _UNUSED_MIN_PROTOCOL_VERSION_NEP_92: ProtocolVersion = 31;
 
 /// Minimum gas price proposed in NEP 92 (fixed) and the associated protocol version
 pub const MIN_GAS_PRICE_NEP_92_FIX: Balance = 100_000_000;
-pub const MIN_PROTOCOL_VERSION_NEP_92_FIX: ProtocolVersion = 32;
+pub const _UNUSED_MIN_PROTOCOL_VERSION_NEP_92_FIX: ProtocolVersion = 32;
 
-pub const CORRECT_RANDOM_VALUE_PROTOCOL_VERSION: ProtocolVersion = 33;
+pub const _UNUSED_CORRECT_RANDOM_VALUE_PROTOCOL_VERSION: ProtocolVersion = 33;
 
 /// The protocol version that enables reward on mainnet.
 pub const ENABLE_INFLATION_PROTOCOL_VERSION: ProtocolVersion = 36;
