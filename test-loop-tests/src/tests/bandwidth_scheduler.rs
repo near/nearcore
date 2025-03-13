@@ -25,8 +25,7 @@ use near_async::test_loop::sender::TestLoopSender;
 use near_async::time::Duration;
 use near_chain::{ChainStoreAccess, ReceiptFilter, get_incoming_receipts_for_shard};
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
-use near_client::Client;
-use near_client::client_actor::ClientActorInner;
+use near_client::{Client, TxRequestHandler};
 use near_crypto::Signer;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::account::{AccessKey, AccessKeyPermission};
@@ -183,7 +182,7 @@ fn run_bandwidth_scheduler_test(scenario: TestScenario, tx_concurrency: usize) -
     );
 
     let client_handle = node_datas[0].client_sender.actor_handle();
-    let client_sender = node_datas[0].client_sender.clone();
+    let tx_processor_sender = node_datas[0].tx_processor_sender.clone();
     let future_spawner = test_loop.future_spawner("WorkloadGenerator");
 
     // Run the workload for a number of blocks and verify that the bandwidth requests are generated correctly.
@@ -210,7 +209,7 @@ fn run_bandwidth_scheduler_test(scenario: TestScenario, tx_concurrency: usize) -
         }
 
         // Run the transactions which generate cross-shard receipts.
-        workload_generator.run(&client_sender, client, &future_spawner);
+        workload_generator.run(&tx_processor_sender, client, &future_spawner);
 
         false
     };
@@ -616,7 +615,7 @@ impl WorkloadGenerator {
 
     pub fn run(
         &mut self,
-        client_sender: &TestLoopSender<ClientActorInner>,
+        client_sender: &TestLoopSender<TxRequestHandler>,
         client: &Client,
         future_spawner: &TestLoopFutureSpawner,
     ) {
@@ -667,7 +666,7 @@ impl WorkloadSender {
 
     pub fn run(
         &mut self,
-        client_sender: &TestLoopSender<ClientActorInner>,
+        client_sender: &TestLoopSender<TxRequestHandler>,
         client: &Client,
         future_spawner: &TestLoopFutureSpawner,
         rng: &mut ChaCha20Rng,
@@ -688,7 +687,7 @@ impl WorkloadSender {
 
     pub fn start_new_transaction(
         &mut self,
-        client_sender: &TestLoopSender<ClientActorInner>,
+        client_sender: &TestLoopSender<TxRequestHandler>,
         client: &Client,
         future_spawner: &TestLoopFutureSpawner,
         rng: &mut ChaCha20Rng,

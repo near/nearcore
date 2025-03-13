@@ -331,7 +331,10 @@ fn produce_saturated_chunk(
         tx_ids.push(tx.get_hash());
 
         // add tx to the mempool but don't execute it yet
-        assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
+        assert_eq!(
+            env.tx_request_handlers[0].process_tx(tx, false, false),
+            ProcessTxResponse::ValidTx
+        );
     }
 
     // process the queued transactions

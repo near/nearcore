@@ -7,6 +7,7 @@ use near_chain::types::RuntimeAdapter;
 use near_chain::{Block, ChainGenesis};
 use near_chain_configs::{Genesis, GenesisConfig};
 use near_chunks::test_utils::MockClientAdapterForShardsManager;
+use near_client::Client;
 use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
 use near_epoch_manager::{EpochManager, EpochManagerHandle};
 use near_network::test_utils::MockPeerManagerAdapter;
@@ -27,7 +28,10 @@ use std::sync::Arc;
 
 use crate::utils::mock_partial_witness_adapter::MockPartialWitnessAdapter;
 
-use super::setup::{TEST_SEED, setup_client_with_runtime, setup_synchronous_shards_manager};
+use super::setup::{
+    TEST_SEED, setup_client_with_runtime, setup_synchronous_shards_manager,
+    setup_tx_request_handler,
+};
 use super::test_env::{AccountIndices, TestEnv};
 
 /// A builder for the TestEnv structure.
@@ -482,8 +486,8 @@ impl TestEnvBuilder {
     fn build_impl(self) -> TestEnv {
         let clock = self.clock.unwrap_or_else(|| Clock::real());
         let chain_genesis = ChainGenesis::new(&self.genesis_config);
-        let clients = self.clients.clone();
-        let num_clients = clients.len();
+        let client_accounts = self.clients.clone();
+        let num_clients = client_accounts.len();
         let validators = self.validators;
         let num_validators = validators.len();
         let seeds = self.seeds;
@@ -506,7 +510,7 @@ impl TestEnvBuilder {
                 let client_adapter = client_adapters[i].clone();
                 setup_synchronous_shards_manager(
                     clock,
-                    Some(clients[i].clone()),
+                    Some(client_accounts[i].clone()),
                     client_adapter.as_sender(),
                     network_adapter.as_multi_sender(),
                     epoch_manager,
@@ -516,9 +520,9 @@ impl TestEnvBuilder {
                 )
             })
             .collect_vec();
-        let clients = (0..num_clients)
+        let clients: Vec<Client> = (0..num_clients)
                 .map(|i| {
-                    let account_id = clients[i].clone();
+                    let account_id = client_accounts[i].clone();
                     let network_adapter = network_adapters[i].clone();
                     let partial_witness_adapter = partial_witness_adapters[i].clone();
                     let shards_manager_adapter = shards_manager_adapters[i].clone();
@@ -545,7 +549,7 @@ impl TestEnvBuilder {
                         make_snapshot_callback,
                         delete_snapshot_callback,
                     };
-                    let validator_signer = Arc::new(create_test_signer(clients[i].as_str()));
+                    let validator_signer = Arc::new(create_test_signer(client_accounts[i].as_str()));
                     setup_client_with_runtime(
                         clock.clone(),
                         u64::try_from(num_validators).unwrap(),
@@ -567,6 +571,19 @@ impl TestEnvBuilder {
                 })
                 .collect();
 
+        let tx_request_handlers = (0..num_clients)
+            .map(|i| {
+                setup_tx_request_handler(
+                    chain_genesis.clone(),
+                    &clients[i],
+                    epoch_managers[i].clone(),
+                    shard_trackers[i].clone(),
+                    runtimes[i].clone(),
+                    network_adapters[i].clone().as_multi_sender(),
+                )
+            })
+            .collect();
+
         TestEnv {
             clock,
             chain_genesis,
@@ -576,6 +593,7 @@ impl TestEnvBuilder {
             partial_witness_adapters,
             shards_manager_adapters,
             clients,
+            tx_request_handlers,
             account_indices: AccountIndices(
                 self.clients
                     .into_iter()

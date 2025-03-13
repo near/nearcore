@@ -347,7 +347,7 @@ fn test_verify_chunk_invalid_state_challenge() {
     let genesis_hash = *env.clients[0].chain.genesis().hash();
     env.produce_block(0, 1);
     assert_eq!(
-        env.clients[0].process_tx(
+        env.tx_request_handlers[0].process_tx(
             SignedTransaction::send_money(
                 1,
                 "test0".parse().unwrap(),

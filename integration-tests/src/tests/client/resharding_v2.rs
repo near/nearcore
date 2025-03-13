@@ -320,7 +320,7 @@ impl TestReshardingEnv {
         let mut response_valid_count = 0;
         let mut response_routed_count = 0;
         for j in 0..env.validators.len() {
-            let response = env.clients[j].process_tx(tx.clone(), false, false);
+            let response = env.tx_request_handlers[j].process_tx(tx.clone(), false, false);
             tracing::trace!(target: "test", client=j, tx=?tx.get_hash(), ?response, "process tx");
             match response {
                 ProcessTxResponse::ValidTx => response_valid_count += 1,

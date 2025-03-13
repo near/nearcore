@@ -127,7 +127,10 @@ fn test_storage_after_commit_of_cold_update() {
         let signer = InMemorySigner::test_signer(&test0());
         if height == 1 {
             let tx = create_tx_deploy_contract(height, &signer, last_hash);
-            assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
+            assert_eq!(
+                env.tx_request_handlers[0].process_tx(tx, false, false),
+                ProcessTxResponse::ValidTx
+            );
         }
         // Don't send transactions in last two blocks. Because on last block production a chunk from
         // the next block will be produced and information about these transactions will be written
@@ -135,11 +138,17 @@ fn test_storage_after_commit_of_cold_update() {
         if height + 2 < max_height {
             for i in 0..5 {
                 let tx = create_tx_function_call(height * 10 + i, &signer, last_hash);
-                assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
+                assert_eq!(
+                    env.tx_request_handlers[0].process_tx(tx, false, false),
+                    ProcessTxResponse::ValidTx
+                );
             }
             for i in 0..5 {
                 let tx = create_tx_send_money(height * 10 + i, &signer, last_hash);
-                assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
+                assert_eq!(
+                    env.tx_request_handlers[0].process_tx(tx, false, false),
+                    ProcessTxResponse::ValidTx
+                );
             }
         }
 
@@ -270,7 +279,10 @@ fn test_cold_db_copy_with_height_skips() {
         if height < 16 {
             for i in 0..5 {
                 let tx = create_tx_send_money(height * 10 + i, &signer, last_hash);
-                assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
+                assert_eq!(
+                    env.tx_request_handlers[0].process_tx(tx, false, false),
+                    ProcessTxResponse::ValidTx
+                );
             }
         }
 
@@ -355,7 +367,10 @@ fn test_initial_copy_to_cold(batch_size: usize) {
         let signer = InMemorySigner::test_signer(&test0());
         for i in 0..5 {
             let tx = create_tx_send_money(height * 10 + i, &signer, last_hash);
-            assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
+            assert_eq!(
+                env.tx_request_handlers[0].process_tx(tx, false, false),
+                ProcessTxResponse::ValidTx
+            );
         }
 
         let block = env.clients[0].produce_block(height).unwrap().unwrap();
@@ -442,7 +457,10 @@ fn test_cold_loop_on_gc_boundary() {
         let signer = InMemorySigner::test_signer(&test0());
         for i in 0..5 {
             let tx = create_tx_send_money(height * 10 + i, &signer, last_hash);
-            assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
+            assert_eq!(
+                env.tx_request_handlers[0].process_tx(tx, false, false),
+                ProcessTxResponse::ValidTx
+            );
         }
 
         let block = env.clients[0].produce_block(height).unwrap().unwrap();
@@ -461,7 +479,10 @@ fn test_cold_loop_on_gc_boundary() {
         let signer = InMemorySigner::test_signer(&test0());
         for i in 0..5 {
             let tx = create_tx_send_money(height * 10 + i, &signer, last_hash);
-            assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
+            assert_eq!(
+                env.tx_request_handlers[0].process_tx(tx, false, false),
+                ProcessTxResponse::ValidTx
+            );
         }
 
         let block = env.clients[0].produce_block(height).unwrap().unwrap();

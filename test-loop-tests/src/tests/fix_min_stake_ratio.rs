@@ -92,7 +92,7 @@ fn slow_test_fix_min_stake_ratio() {
         .build()
         .warmup();
 
-    let client_sender = node_datas[0].client_sender.clone();
+    let tx_processor_sender = node_datas[0].tx_processor_sender.clone();
     let client_handle = node_datas[0].client_sender.actor_handle();
     let initial_validators = get_epoch_all_validators(&test_loop.data.get(&client_handle).client);
     assert_eq!(initial_validators.len(), 2);
@@ -117,7 +117,7 @@ fn slow_test_fix_min_stake_ratio() {
                 near_primitives::test_utils::create_test_signer(accounts[2].as_str()).public_key(),
                 prev_block_hash,
             );
-            let future = client_sender.send_async(ProcessTxRequest {
+            let future = tx_processor_sender.send_async(ProcessTxRequest {
                 transaction: tx,
                 is_forwarded: false,
                 check_only: false,

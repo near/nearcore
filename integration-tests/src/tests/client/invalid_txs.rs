@@ -79,10 +79,11 @@ fn test_invalid_transactions_no_panic() {
             let chunk_producer = env.get_chunk_producer_at_offset(&tip, 1, ShardId::new(0));
             let block_producer = env.get_block_producer_at_offset(&tip, 1);
 
+            let tx_processor = env.tx_processor(&chunk_producer).clone();
             let client = env.client(&chunk_producer);
             let transactions = if height == start_height { vec![tx.clone()] } else { vec![] };
             if height == start_height {
-                let res = client.process_tx(valid_tx.clone(), false, false);
+                let res = tx_processor.process_tx(valid_tx.clone(), false, false);
                 assert!(matches!(res, ProcessTxResponse::ValidTx))
             }
 
