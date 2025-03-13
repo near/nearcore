@@ -1,4 +1,3 @@
-use near_chain::types::RuntimeAdapter;
 use near_chain_configs::{DEFAULT_GC_NUM_EPOCHS_TO_KEEP, Genesis};
 use near_epoch_manager::EpochManagerHandle;
 use near_parameters::RuntimeConfigStore;
@@ -49,8 +48,7 @@ impl TestEnvNightshadeSetupExt for TestEnvBuilder {
                                           contract_cache: Box<dyn ContractRuntimeCache>,
                                           epoch_manager: Arc<EpochManagerHandle>,
                                           runtime_config: RuntimeConfigStore,
-                                          _|
-         -> Arc<dyn RuntimeAdapter> {
+                                          _| {
             // TODO: It's not ideal to initialize genesis state with the nightshade runtime here for tests
             // Tests that don't use nightshade runtime have genesis initialized in kv_runtime.
             // We should instead try to do this while configuring store.
@@ -80,30 +78,30 @@ impl TestEnvNightshadeSetupExt for TestEnvBuilder {
         trie_configs: Vec<TrieConfig>,
     ) -> Self {
         let state_snapshot_type = self.state_snapshot_type();
-        let nightshade_runtime_creator = |home_dir: PathBuf,
-                                          store: Store,
-                                          contract_cache: Box<dyn ContractRuntimeCache>,
-                                          epoch_manager: Arc<EpochManagerHandle>,
-                                          runtime_config_store: RuntimeConfigStore,
-                                          trie_config: TrieConfig|
-         -> Arc<dyn RuntimeAdapter> {
-            // TODO: It's not ideal to initialize genesis state with the nightshade runtime here for tests
-            // Tests that don't use nightshade runtime have genesis initialized in kv_runtime.
-            // We should instead try to do this while configuring store.
-            let home_dir = home_dir.as_path();
-            initialize_genesis_state(store.clone(), genesis, Some(home_dir));
-            NightshadeRuntime::test_with_trie_config(
-                home_dir,
-                store,
-                contract_cache,
-                &genesis.config,
-                epoch_manager,
-                Some(runtime_config_store),
-                trie_config,
-                state_snapshot_type.clone(),
-                DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
-            )
-        };
+        let nightshade_runtime_creator =
+            |home_dir: PathBuf,
+             store: Store,
+             contract_cache: Box<dyn ContractRuntimeCache>,
+             epoch_manager: Arc<EpochManagerHandle>,
+             runtime_config_store: RuntimeConfigStore,
+             trie_config: TrieConfig| {
+                // TODO: It's not ideal to initialize genesis state with the nightshade runtime here for tests
+                // Tests that don't use nightshade runtime have genesis initialized in kv_runtime.
+                // We should instead try to do this while configuring store.
+                let home_dir = home_dir.as_path();
+                initialize_genesis_state(store.clone(), genesis, Some(home_dir));
+                NightshadeRuntime::test_with_trie_config(
+                    home_dir,
+                    store,
+                    contract_cache,
+                    &genesis.config,
+                    epoch_manager,
+                    Some(runtime_config_store),
+                    trie_config,
+                    state_snapshot_type.clone(),
+                    DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
+                )
+            };
         let dummy_runtime_configs =
             vec![RuntimeConfigStore::test_congestion_control_disabled(); self.num_clients()];
         self.internal_initialize_nightshade_runtimes(

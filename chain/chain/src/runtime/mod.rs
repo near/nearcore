@@ -786,7 +786,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                             .and_then(|vr| {
                                 commit_charging_for_tx(
                                     &mut state_update,
-                                    validated_tx.to_tx(),
+                                    &validated_tx,
                                     &vr.signer,
                                     &vr.access_key,
                                 );
@@ -1183,12 +1183,8 @@ impl RuntimeAdapter for NightshadeRuntime {
         }
     }
 
-    fn get_runtime_config(
-        &self,
-        protocol_version: ProtocolVersion,
-    ) -> Result<RuntimeConfig, Error> {
-        let runtime_config = self.runtime_config_store.get_config(protocol_version);
-        Ok(runtime_config.as_ref().clone())
+    fn get_runtime_config(&self, protocol_version: ProtocolVersion) -> &RuntimeConfig {
+        self.runtime_config_store.get_config(protocol_version)
     }
 
     fn get_protocol_config(&self, epoch_id: &EpochId) -> Result<ProtocolConfig, Error> {

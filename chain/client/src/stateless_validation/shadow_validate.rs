@@ -67,7 +67,7 @@ impl Client {
             self.runtime_adapter.as_ref(),
             &chunk_header,
             transactions_validation_storage_config,
-            chunk.transactions(),
+            chunk.transactions().to_vec(),
             last_chunk.transactions(),
         ) else {
             return Err(Error::Other(

@@ -117,13 +117,9 @@ impl ChunkProducer {
         last_header: ShardChunkHeader,
         next_height: BlockHeight,
         shard_id: ShardId,
-        signer: Option<&Arc<ValidatorSigner>>,
+        signer: &Arc<ValidatorSigner>,
         chain_validate: &dyn Fn(&SignedTransaction) -> bool,
     ) -> Result<Option<ProduceChunkResult>, Error> {
-        let signer = signer.ok_or_else(|| {
-            Error::ChunkProducer("Called without block producer info.".to_string())
-        })?;
-
         let chunk_proposer = self
             .epoch_manager
             .get_chunk_producer_info(&ChunkProductionKey {
@@ -410,7 +406,7 @@ impl ChunkProducer {
         // included into the block.
         let reintroduced_count = self
             .sharded_tx_pool
-            .reintroduce_transactions(shard_uid, &prepared_transactions.transactions);
+            .reintroduce_transactions(shard_uid, prepared_transactions.transactions.clone());
         if reintroduced_count < prepared_transactions.transactions.len() {
             debug!(target: "client", reintroduced_count, num_tx = prepared_transactions.transactions.len(), "Reintroduced transactions");
         }

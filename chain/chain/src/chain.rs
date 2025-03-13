@@ -2485,11 +2485,6 @@ impl Chain {
 
         let prev = self.get_block_header(&block.prev_block_hash())?;
         let prev_random_value = *prev.random_value();
-        let prev_height = prev.height();
-
-        if prev_height + 1 != block.height() {
-            return Err(Error::InvalidBlockHeight(block.height()));
-        }
 
         // Prevent time warp attacks and some timestamp manipulations by forcing strict
         // time progression.
@@ -3901,8 +3896,8 @@ fn get_genesis_congestion_info(
     // Get the view trie because it's possible that the chain is ahead of
     // genesis and doesn't have this block in flat state and memtrie.
     let trie = runtime.get_view_trie_for_shard(shard_id, prev_hash, state_root)?;
-    let runtime_config = runtime.get_runtime_config(protocol_version)?;
-    let congestion_info = bootstrap_congestion_info(&trie, &runtime_config, shard_id)?;
+    let runtime_config = runtime.get_runtime_config(protocol_version);
+    let congestion_info = bootstrap_congestion_info(&trie, runtime_config, shard_id)?;
     tracing::debug!(target: "chain", ?shard_id, ?state_root, ?congestion_info, "Computed genesis congestion info.");
     Ok(congestion_info)
 }

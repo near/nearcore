@@ -13,8 +13,7 @@ pub(crate) fn run_until_caches_contain_contract(env: &mut TestLoopEnv, code_hash
             for i in 0..env.node_datas.len() {
                 let client_handle = env.node_datas[i].client_sender.actor_handle();
                 let client = &test_loop_data.get(&client_handle).client;
-                let runtime_config =
-                    client.runtime_adapter.get_runtime_config(PROTOCOL_VERSION).unwrap();
+                let runtime_config = client.runtime_adapter.get_runtime_config(PROTOCOL_VERSION);
                 let cache_key = get_contract_cache_key(*code_hash, &runtime_config.wasm_config);
 
                 let contract_cache = client.runtime_adapter.compiled_contract_cache();
@@ -78,4 +77,6 @@ pub(crate) fn clear_compiled_contract_caches(env: &mut TestLoopEnv) {
             env.test_loop.data.get(&client_handle).client.runtime_adapter.compiled_contract_cache();
         contract_cache_handle.test_only_clear().unwrap();
     }
+    #[cfg(not(feature = "test_features"))]
+    let _ignore = env;
 }

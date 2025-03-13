@@ -446,7 +446,7 @@ impl Client {
                     let reintroduced_count = self
                         .chunk_producer
                         .sharded_tx_pool
-                        .reintroduce_transactions(shard_uid, &chunk.transactions());
+                        .reintroduce_transactions(shard_uid, chunk.transactions().to_vec());
                     if reintroduced_count < chunk.transactions().len() {
                         debug!(target: "client",
                             reintroduced_count,
@@ -1720,7 +1720,7 @@ impl Client {
                 last_header.clone(),
                 next_height,
                 shard_id,
-                Some(signer),
+                signer,
                 &|tx| {
                     #[cfg(features = "test_features")]
                     match self.adv_produce_chunks {
