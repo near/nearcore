@@ -117,13 +117,9 @@ impl ChunkProducer {
         last_header: ShardChunkHeader,
         next_height: BlockHeight,
         shard_id: ShardId,
-        signer: Option<&Arc<ValidatorSigner>>,
+        signer: &Arc<ValidatorSigner>,
         chain_validate: &dyn Fn(&SignedTransaction) -> bool,
     ) -> Result<Option<ProduceChunkResult>, Error> {
-        let signer = signer.ok_or_else(|| {
-            Error::ChunkProducer("Called without block producer info.".to_string())
-        })?;
-
         let chunk_proposer = self
             .epoch_manager
             .get_chunk_producer_info(&ChunkProductionKey {

@@ -1744,7 +1744,7 @@ impl Client {
                 last_header.clone(),
                 next_height,
                 shard_id,
-                Some(signer),
+                signer,
                 &|tx| {
                     #[cfg(features = "test_features")]
                     match self.adv_produce_chunks {

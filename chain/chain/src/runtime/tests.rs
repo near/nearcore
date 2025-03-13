@@ -1706,7 +1706,7 @@ fn test_prepare_transactions_storage_proof() {
     let validated_transactions = prepare_transactions(
         &env,
         &chain,
-        &mut TransactionGroupIteratorWrapper::new(&proposed_transactions.transactions),
+        &mut TransactionGroupIteratorWrapper::new(proposed_transactions.transactions.clone()),
         validator_storage_config,
     )
     .unwrap();

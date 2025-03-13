@@ -305,12 +305,12 @@ pub struct TransactionGroupIteratorWrapper {
 }
 
 impl TransactionGroupIteratorWrapper {
-    pub fn new(transactions: &[ValidatedTransaction]) -> Self {
-        let groups = transactions
+    pub fn new(validated_txs: impl IntoIterator<Item = ValidatedTransaction>) -> Self {
+        let groups = validated_txs
             .into_iter()
-            .map(|transaction| TransactionGroup {
+            .map(|validated_tx| TransactionGroup {
                 key: PoolKey::default(),
-                transactions: vec![transaction.clone()],
+                transactions: vec![validated_tx],
                 removed_transaction_hashes: vec![],
                 removed_transaction_size: 0,
             })

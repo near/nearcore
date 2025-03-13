@@ -222,7 +222,7 @@ impl TrieViewer {
             gas_limit: None,
             random_seed: root,
             current_protocol_version: view_state.current_protocol_version,
-            config: config.clone(),
+            config: Arc::clone(config),
             cache: view_state.cache,
             is_new_chunk: false,
             migration_data: Arc::new(MigrationData::default()),
@@ -277,6 +277,7 @@ impl TrieViewer {
             view_state.block_height,
             epoch_info_provider,
             view_state.current_protocol_version,
+            config.wasm_config.storage_get_mode,
         );
         let outcome = execute_function_call(
             contract,

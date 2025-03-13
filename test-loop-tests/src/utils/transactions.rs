@@ -1,7 +1,11 @@
-use crate::setup::env::TestLoopEnv;
-use crate::setup::state::TestData;
+use std::cell::Cell;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
+use std::task::Poll;
+
 use assert_matches::assert_matches;
 use itertools::Itertools;
+use near_async::futures::FutureSpawnerExt;
 use near_async::messaging::{AsyncSendError, CanSend, SendAsync};
 use near_async::test_loop::TestLoopV2;
 use near_async::test_loop::data::TestLoopData;
@@ -10,7 +14,6 @@ use near_async::test_loop::sender::TestLoopSender;
 use near_async::time::Duration;
 use near_chain::Error;
 use near_client::client_actor::ClientActorInner;
-use near_client::test_utils::test_loop::ClientQueries;
 use near_client::{Client, ProcessTxResponse};
 use near_crypto::Signer;
 use near_network::client::ProcessTxRequest;
@@ -24,13 +27,13 @@ use near_primitives::types::{AccountId, BlockHeight};
 use near_primitives::views::{
     FinalExecutionOutcomeView, FinalExecutionStatus, QueryRequest, QueryResponseKind,
 };
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
-use std::task::Poll;
 
-use super::{ONE_NEAR, TGAS, get_node_data};
-use near_async::futures::FutureSpawnerExt;
-use std::cell::Cell;
+use crate::setup::env::TestLoopEnv;
+use crate::setup::state::NodeExecutionData;
+use crate::utils::TGAS;
+
+use super::client_queries::ClientQueries;
+use super::{ONE_NEAR, get_node_data};
 
 /// See `execute_money_transfers`. Debug is implemented so .unwrap() can print
 /// the error.
@@ -63,7 +66,7 @@ pub(crate) fn get_anchor_hash(clients: &[&Client]) -> CryptoHash {
 /// Get next available nonce for the account's public key.
 pub fn get_next_nonce(
     test_loop_data: &TestLoopData,
-    node_datas: &[TestData],
+    node_datas: &[NodeExecutionData],
     account_id: &AccountId,
 ) -> u64 {
     let signer: Signer = create_user_test_signer(&account_id);
@@ -95,10 +98,10 @@ pub fn get_next_nonce(
 /// missing chunks.
 pub(crate) fn execute_money_transfers(
     test_loop: &mut TestLoopV2,
-    node_data: &[TestData],
+    node_datas: &[NodeExecutionData],
     accounts: &[AccountId],
 ) -> Result<(), BalanceMismatchError> {
-    let clients = node_data
+    let clients = node_datas
         .iter()
         .map(|data| &test_loop.data.get(&data.client_sender.actor_handle()).client)
         .collect_vec();
@@ -109,7 +112,7 @@ pub(crate) fn execute_money_transfers(
     let num_clients = clients.len();
     drop(clients);
 
-    let node_data = Arc::new(node_data.to_vec());
+    let node_data = Arc::new(node_datas.to_vec());
 
     for i in 0..accounts.len() {
         let amount = ONE_NEAR * (i as u128 + 1);
@@ -257,7 +260,7 @@ pub fn create_account(
 
 pub fn delete_account(
     test_loop_data: &TestLoopData,
-    node_datas: &[TestData],
+    node_datas: &[NodeExecutionData],
     rpc_id: &AccountId,
     account_id: &AccountId,
     beneficiary_id: &AccountId,
@@ -288,7 +291,7 @@ pub fn delete_account(
 /// This function does not wait until the transactions is executed.
 pub fn deploy_contract(
     test_loop: &mut TestLoopV2,
-    node_datas: &[TestData],
+    node_datas: &[NodeExecutionData],
     rpc_id: &AccountId,
     contract_id: &AccountId,
     code: Vec<u8>,
@@ -311,7 +314,7 @@ pub fn deploy_contract(
 /// This function does not wait until the transactions is executed.
 pub fn deploy_global_contract(
     test_loop: &mut TestLoopV2,
-    node_datas: &[TestData],
+    node_datas: &[NodeExecutionData],
     rpc_id: &AccountId,
     deployer_id: AccountId,
     code: Vec<u8>,
@@ -343,7 +346,7 @@ pub fn deploy_global_contract(
 /// This function does not wait until the transactions is executed.
 pub fn use_global_contract(
     test_loop: &mut TestLoopV2,
-    node_datas: &[TestData],
+    node_datas: &[NodeExecutionData],
     rpc_id: &AccountId,
     user_id: AccountId,
     nonce: u64,
@@ -372,7 +375,7 @@ pub fn use_global_contract(
 /// This function does not wait until the transactions is executed.
 pub fn call_contract(
     test_loop: &mut TestLoopV2,
-    node_datas: &[TestData],
+    node_datas: &[NodeExecutionData],
     rpc_id: &AccountId,
     sender_id: &AccountId,
     contract_id: &AccountId,
@@ -405,7 +408,7 @@ pub fn call_contract(
 
 /// Submit a transaction to the rpc node with the given account id.
 /// Doesn't wait for the result, it must be requested separately.
-pub fn submit_tx(node_datas: &[TestData], rpc_id: &AccountId, tx: SignedTransaction) {
+pub fn submit_tx(node_datas: &[NodeExecutionData], rpc_id: &AccountId, tx: SignedTransaction) {
     let process_tx_request =
         ProcessTxRequest { transaction: tx, is_forwarded: false, check_only: false };
 
@@ -422,7 +425,7 @@ pub fn submit_tx(node_datas: &[TestData], rpc_id: &AccountId, tx: SignedTransact
 /// Otherwise, the transactions may not be found.
 pub fn check_txs(
     test_loop_data: &TestLoopData,
-    node_datas: &[TestData],
+    node_datas: &[NodeExecutionData],
     rpc_id: &AccountId,
     txs: &[CryptoHash],
 ) {
@@ -440,7 +443,7 @@ pub fn check_txs(
 /// Get the client for the provided rpd node account id.
 fn rpc_client<'a>(
     test_loop_data: &'a TestLoopData,
-    node_datas: &'a [TestData],
+    node_datas: &'a [NodeExecutionData],
     rpc_id: &AccountId,
 ) -> &'a Client {
     let node_data = get_node_data(node_datas, rpc_id);
@@ -450,7 +453,10 @@ fn rpc_client<'a>(
 }
 
 /// Finds a block that all clients have on their chain and return its hash.
-pub fn get_shared_block_hash(node_datas: &[TestData], test_loop_data: &TestLoopData) -> CryptoHash {
+pub fn get_shared_block_hash(
+    node_datas: &[NodeExecutionData],
+    test_loop_data: &TestLoopData,
+) -> CryptoHash {
     let clients = node_datas
         .iter()
         .map(|data| &test_loop_data.get(&data.client_sender.actor_handle()).client)
@@ -473,7 +479,7 @@ pub fn run_tx(
     test_loop: &mut TestLoopV2,
     rpc_id: &AccountId,
     tx: SignedTransaction,
-    node_datas: &[TestData],
+    node_datas: &[NodeExecutionData],
     maximum_duration: Duration,
 ) -> Vec<u8> {
     let tx_res = execute_tx(test_loop, rpc_id, tx, node_datas, maximum_duration).unwrap();
@@ -489,7 +495,7 @@ pub fn run_tx(
 pub fn run_txs_parallel(
     test_loop: &mut TestLoopV2,
     txs: Vec<SignedTransaction>,
-    node_datas: &[TestData],
+    node_datas: &[NodeExecutionData],
     maximum_duration: Duration,
 ) {
     let mut tx_runners = txs.into_iter().map(|tx| TransactionRunner::new(tx, true)).collect_vec();
@@ -521,7 +527,7 @@ pub fn execute_tx(
     test_loop: &mut TestLoopV2,
     rpc_id: &AccountId,
     tx: SignedTransaction,
-    node_datas: &[TestData],
+    node_datas: &[NodeExecutionData],
     maximum_duration: Duration,
 ) -> Result<FinalExecutionOutcomeView, InvalidTxError> {
     let client_sender = &get_node_data(node_datas, rpc_id).client_sender;
@@ -721,7 +727,7 @@ enum TxProcessingResult {
 
 /// Stores a transaction hash into a vector of `(transaction, block_height)` and then submits the transaction.
 pub fn store_and_submit_tx(
-    node_datas: &[TestData],
+    node_datas: &[NodeExecutionData],
     rpc_id: &AccountId,
     txs: &Cell<Vec<(CryptoHash, BlockHeight)>>,
     signer_id: &AccountId,

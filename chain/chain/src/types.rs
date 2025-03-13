@@ -542,7 +542,7 @@ pub trait RuntimeAdapter: Send + Sync {
 
     fn get_protocol_config(&self, epoch_id: &EpochId) -> Result<ProtocolConfig, Error>;
 
-    fn get_runtime_config(&self, protocol_version: ProtocolVersion) -> RuntimeConfig;
+    fn get_runtime_config(&self, protocol_version: ProtocolVersion) -> &RuntimeConfig;
 
     fn compiled_contract_cache(&self) -> &dyn ContractRuntimeCache;
 

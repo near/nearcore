@@ -324,7 +324,7 @@ fn test_dump_state_return_locked() {
 #[ignore]
 #[test]
 fn test_dump_state_shard_upgrade() {
-    use near_client::test_utils::client::run_catchup;
+    use near_client::test_utils::run_catchup;
     use near_primitives::shard_layout::ShardLayout;
     use near_primitives::version::ProtocolFeature::SimpleNightshade;
 

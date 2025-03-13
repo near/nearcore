@@ -3,11 +3,13 @@ use near_client::client_actor::ClientActorInner;
 use near_primitives::types::AccountId;
 
 use crate::setup::env::TestLoopEnv;
-use crate::setup::state::TestData;
+use crate::setup::state::NodeExecutionData;
 
+pub(crate) mod client_queries;
 pub(crate) mod contract_distribution;
 pub(crate) mod loop_action;
 pub(crate) mod network;
+pub(crate) mod peer_manager_actor;
 pub(crate) mod receipts;
 pub(crate) mod resharding;
 pub(crate) mod setups;
@@ -28,9 +30,9 @@ pub(crate) fn get_head_height(env: &mut TestLoopEnv) -> u64 {
 
 /// Returns the test data of for the node with the given account id.
 pub(crate) fn get_node_data<'a>(
-    node_datas: &'a [TestData],
+    node_datas: &'a [NodeExecutionData],
     account_id: &AccountId,
-) -> &'a TestData {
+) -> &'a NodeExecutionData {
     for node_data in node_datas {
         if &node_data.account_id == account_id {
             return node_data;
@@ -41,7 +43,7 @@ pub(crate) fn get_node_data<'a>(
 
 /// Retrieves the client actor of the node having account_id equal to `client_account_id`.
 pub(crate) fn retrieve_client_actor<'a>(
-    node_datas: &'a [TestData],
+    node_datas: &'a [NodeExecutionData],
     test_loop_data: &'a mut TestLoopData,
     client_account_id: &AccountId,
 ) -> &'a mut ClientActorInner {

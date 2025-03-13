@@ -1,6 +1,6 @@
+use crate::logic::External;
 use crate::logic::gas_counter::FreeGasCounter;
 use crate::logic::tests::vm_logic_builder::VMLogicBuilder;
-use crate::logic::{External, StorageGetMode};
 
 #[test]
 fn test_storage_write_with_register() {
@@ -15,11 +15,7 @@ fn test_storage_write_with_register() {
 
     logic.storage_write(u64::MAX, 1 as _, u64::MAX, 2 as _, 0).expect("storage write ok");
 
-    let value_ptr = logic_builder
-        .ext
-        .storage_get(&mut FreeGasCounter, key, StorageGetMode::Trie)
-        .unwrap()
-        .unwrap();
+    let value_ptr = logic_builder.ext.storage_get(&mut FreeGasCounter, key).unwrap().unwrap();
     assert_eq!(value_ptr.deref(&mut FreeGasCounter).unwrap(), val.to_vec());
 }
 

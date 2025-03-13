@@ -2,7 +2,6 @@ use assert_matches::assert_matches;
 use near_async::time::Duration;
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
 use near_client::Client;
-use near_client::test_utils::test_loop::ClientQueries;
 use near_o11y::testonly::init_test_logger;
 use near_parameters::{ActionCosts, RuntimeConfigStore, RuntimeFeesConfig};
 use near_primitives::action::{GlobalContractDeployMode, GlobalContractIdentifier};
@@ -22,6 +21,7 @@ use near_vm_runner::ContractCode;
 
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
+use crate::utils::client_queries::ClientQueries;
 use crate::utils::transactions::{self};
 use crate::utils::{ONE_NEAR, TGAS};
 
