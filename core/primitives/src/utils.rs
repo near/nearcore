@@ -14,8 +14,8 @@ use crate::hash::{CryptoHash, hash};
 use crate::transaction::SignedTransaction;
 use crate::types::{NumSeats, NumShards, ShardId};
 use crate::version::{
-    _UNUSED_CORRECT_RANDOM_VALUE_PROTOCOL_VERSION, CREATE_HASH_PROTOCOL_VERSION,
-    CREATE_RECEIPT_ID_SWITCH_TO_CURRENT_BLOCK_VERSION, ProtocolVersion,
+    CREATE_HASH_PROTOCOL_VERSION, CREATE_RECEIPT_ID_SWITCH_TO_CURRENT_BLOCK_VERSION, 
+    ProtocolVersion,
 };
 
 use near_crypto::{ED25519PublicKey, Secp256K1PublicKey};
