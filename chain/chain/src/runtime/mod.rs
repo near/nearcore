@@ -778,7 +778,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                         &cost,
                         Some(next_block_height),
                         protocol_version,
-                        None
+                        None,
                     )
                 })
                 .and_then(|verification_res| {

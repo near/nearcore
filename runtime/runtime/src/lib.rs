@@ -169,25 +169,20 @@ impl<'a> TransactionGroups<'a> {
             let st = &signed_txs[i];
             (st.transaction.signer_id(), st.transaction.public_key(), st.transaction.nonce())
         });
-        let mut groups = Vec::new();
-        if indices.is_empty() {
-            return TransactionGroups { groups };
-        }
-        let mut current_group = vec![indices[0]];
-        for &idx in indices.iter().skip(1) {
-            let last_idx = *current_group.last().unwrap();
-            let prev = &signed_txs[last_idx];
-            let curr = &signed_txs[idx];
-            if prev.transaction.signer_id() == curr.transaction.signer_id()
-                && prev.transaction.public_key() == curr.transaction.public_key()
-            {
-                current_group.push(idx);
-            } else {
-                groups.push(TransactionGroup { indices: current_group, signed_txs });
-                current_group = vec![idx];
-            }
-        }
-        groups.push(TransactionGroup { indices: current_group, signed_txs });
+        let groups = if indices.is_empty() {
+            Vec::new()
+        } else {
+            indices
+                .par_chunk_by(|&left_idx, &right_idx| {
+                    let left = &signed_txs[left_idx];
+                    let right = &signed_txs[right_idx];
+                    left.transaction.signer_id() == right.transaction.signer_id()
+                        && left.transaction.public_key() == right.transaction.public_key()
+                })
+                .filter(|chunk| !chunk.is_empty())
+                .map(|chunk| TransactionGroup { indices: chunk.to_vec(), signed_txs })
+                .collect()
+        };
         TransactionGroups { groups }
     }
 
@@ -1830,7 +1825,7 @@ impl Runtime {
                     .verified
                     .last()
                     .map(|(_, tx, _, _, _)| tx.get_hash())
-                    .unwrap_or(CryptoHash::default());
+                    .unwrap_or_default();
                 state_update
                     .commit(StateChangeCause::TransactionProcessing { tx_hash: last_tx_hash });
             }
