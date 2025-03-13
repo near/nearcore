@@ -261,7 +261,7 @@ tweak_config_forknet() {
     cd -
     local node_index=0
     for node in ${FORKNET_CP_NODES}; do
-        local cmd="cp ${BENCHNET_DIR}/nodes/node${node_index}/* ${NEAR_HOME}/ && cd ${BENCHNET_DIR};"
+        local cmd="cp -r ${BENCHNET_DIR}/nodes/node${node_index}/* ${NEAR_HOME}/ && cd ${BENCHNET_DIR};"
         cmd="${cmd} ./bench.sh tweak-config-forknet-node ${CASE} ${FORKNET_BOOT_NODES}"
         cd ${PYTEST_PATH}
         $MIRROR --host-filter ".*${node}" run-cmd --cmd "${cmd}"
@@ -270,7 +270,7 @@ tweak_config_forknet() {
     done
 
     cd ${PYTEST_PATH}
-    local cmd="cp ${BENCHNET_DIR}/nodes/node${NUM_CHUNK_PRODUCERS}/* ${NEAR_HOME}/ && cd ${BENCHNET_DIR};"
+    local cmd="cp -r ${BENCHNET_DIR}/nodes/node${NUM_CHUNK_PRODUCERS}/* ${NEAR_HOME}/ && cd ${BENCHNET_DIR};"
     cmd="${cmd} ./bench.sh tweak-config-forknet-node ${CASE}"
     $MIRROR --host-filter ".*${FORKNET_RPC_NODE_ID}" run-cmd --cmd "${cmd}"
     cd -
@@ -294,7 +294,7 @@ tweak_config_local() {
         edit_genesis ${GENESIS}
         edit_config ${CONFIG}
         edit_log_config ${LOG_CONFIG}
-        # set single node RPC port to known value
+        # Set single node RPC port to known value
         jq --arg val "${RPC_ADDR}" \
             '.rpc.addr |= $val' ${CONFIG} >tmp.$$.json && mv tmp.$$.json ${CONFIG} || rm tmp.$$.json
     else
@@ -303,10 +303,21 @@ tweak_config_local() {
             edit_config ${node}/config.json
             edit_log_config ${node}/log_config.json
         done
-        # set single node RPC port to known value
+        # Set single node RPC port to known value
         jq --arg val "${RPC_ADDR}" \
             '.rpc.addr |= $val' ${NEAR_HOMES[NUM_NODES - 1]}/config.json >tmp.$$.json && \
             mv tmp.$$.json ${NEAR_HOMES[NUM_NODES - 1]}/config.json || rm tmp.$$.json
+    fi
+
+    # Copy epoch_configs directory if it exists
+    if [ -d "${CASE}/epoch_configs" ]; then
+        if [ "${NUM_NODES}" -eq "1" ]; then
+            cp -r "${CASE}/epoch_configs" "${NEAR_HOME}/"
+        else
+            for node in "${NEAR_HOMES[@]}"; do
+                cp -r "${CASE}/epoch_configs" "${node}/"
+            done
+        fi
     fi
 }
 
