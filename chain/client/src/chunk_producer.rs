@@ -157,7 +157,7 @@ impl ChunkProducer {
         insert: bool,
     ) -> PreparedTransactions {
         if insert {
-            txs.transactions.push(SignedTransaction::new(
+            let signed_tx = SignedTransaction::new(
                 near_crypto::Signature::empty(near_crypto::KeyType::ED25519),
                 near_primitives::transaction::Transaction::new_v1(
                     "test".parse().unwrap(),
@@ -167,7 +167,10 @@ impl ChunkProducer {
                     prev_block_hash,
                     0,
                 ),
-            ));
+            );
+            let validated_tx =
+                near_primitives::transaction::ValidatedTransaction::new_for_test(signed_tx);
+            txs.transactions.push(validated_tx);
             if txs.storage_proof.is_none() {
                 txs.storage_proof = Some(Default::default());
             }
@@ -284,7 +287,14 @@ impl ChunkProducer {
             self.produce_invalid_tx_in_chunks,
         );
         let num_filtered_transactions = prepared_transactions.transactions.len();
-        let (tx_root, _) = merklize(&prepared_transactions.transactions);
+        let (tx_root, _) = merklize(
+            &prepared_transactions
+                .transactions
+                .iter()
+                .cloned()
+                .map(|vt| vt.into_signed_tx())
+                .collect::<Vec<_>>(),
+        );
         let outgoing_receipts = ChainStore::get_outgoing_receipts_for_shard_from_store(
             &self.chain,
             self.epoch_manager.as_ref(),
@@ -310,7 +320,11 @@ impl ChunkProducer {
             chunk_extra.gas_limit(),
             chunk_extra.balance_burnt(),
             chunk_extra.validator_proposals().collect(),
-            prepared_transactions.transactions,
+            prepared_transactions
+                .transactions
+                .into_iter()
+                .map(|vt| vt.into_signed_tx())
+                .collect::<Vec<_>>(),
             &outgoing_receipts,
             outgoing_receipts_root,
             tx_root,

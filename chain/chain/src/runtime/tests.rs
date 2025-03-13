@@ -1578,7 +1578,8 @@ fn generate_transaction_pool(signers: &Vec<Signer>, block_hash: CryptoHash) -> T
                 round.try_into().unwrap(),
                 block_hash,
             );
-            transactions.push(transaction);
+            let validated_tx = ValidatedTransaction::new_for_test(transaction);
+            transactions.push(validated_tx);
         }
     }
     transactions.shuffle(&mut rng);
@@ -1705,7 +1706,7 @@ fn test_prepare_transactions_storage_proof() {
     let validated_transactions = prepare_transactions(
         &env,
         &chain,
-        &mut TransactionGroupIteratorWrapper::new(&proposed_transactions.transactions),
+        &mut TransactionGroupIteratorWrapper::new(proposed_transactions.transactions.clone()),
         validator_storage_config,
     )
     .unwrap();

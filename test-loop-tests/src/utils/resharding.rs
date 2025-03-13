@@ -33,7 +33,7 @@ use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha20Rng;
 
 use super::sharding::{next_epoch_has_new_shard_layout, this_block_has_new_shard_layout};
-use crate::setup::state::TestData;
+use crate::setup::state::NodeExecutionData;
 use crate::utils::loop_action::LoopAction;
 use crate::utils::sharding::{get_memtrie_for_shard, next_block_has_new_shard_layout};
 use crate::utils::transactions::{
@@ -65,7 +65,7 @@ pub(crate) fn fork_before_resharding_block(
 
     let (done, succeeded) = LoopAction::shared_success_flag();
     let action_fn = Box::new(
-        move |node_datas: &[TestData],
+        move |node_datas: &[NodeExecutionData],
               test_loop_data: &mut TestLoopData,
               client_account_id: AccountId| {
             // It must happen only for the first resharding block encountered.
@@ -108,7 +108,7 @@ pub(crate) fn execute_money_transfers(account_ids: Vec<AccountId>) -> LoopAction
 
     let (ran_transfers, succeeded) = LoopAction::shared_success_flag();
     let action_fn = Box::new(
-        move |node_datas: &[TestData],
+        move |node_datas: &[NodeExecutionData],
               test_loop_data: &mut TestLoopData,
               client_account_id: AccountId| {
             let client_actor =
@@ -170,7 +170,7 @@ pub(crate) fn execute_storage_operations(
     let (ran_transfers, succeeded) = LoopAction::shared_success_flag();
 
     let action_fn = Box::new(
-        move |node_datas: &[TestData],
+        move |node_datas: &[NodeExecutionData],
               test_loop_data: &mut TestLoopData,
               client_account_id: AccountId| {
             let client_actor =
@@ -271,7 +271,7 @@ pub(crate) fn call_burn_gas_contract(
     let (checked_transactions, succeeded) = LoopAction::shared_success_flag();
 
     let action_fn = Box::new(
-        move |node_datas: &[TestData],
+        move |node_datas: &[NodeExecutionData],
               test_loop_data: &mut TestLoopData,
               client_account_id: AccountId| {
             let client_actor =
@@ -359,7 +359,7 @@ pub(crate) fn send_large_cross_shard_receipts(
     let (action_success_setter, succeeded) = LoopAction::shared_success_flag();
 
     let action_fn = Box::new(
-        move |node_datas: &[TestData],
+        move |node_datas: &[NodeExecutionData],
               test_loop_data: &mut TestLoopData,
               client_account_id: AccountId| {
             let client_actor =
@@ -503,7 +503,7 @@ pub(crate) fn call_promise_yield(
     let (checked_transactions, succeeded) = LoopAction::shared_success_flag();
 
     let action_fn = Box::new(
-        move |node_datas: &[TestData],
+        move |node_datas: &[NodeExecutionData],
               test_loop_data: &mut TestLoopData,
               client_account_id: AccountId| {
             let client_actor =
@@ -629,7 +629,7 @@ pub(crate) fn call_promise_yield(
 /// is still accessible through archival node view client (if available),
 /// and it is not accessible through a regular, RPC node.
 fn check_deleted_account_availability(
-    node_datas: &[TestData],
+    node_datas: &[NodeExecutionData],
     test_loop_data: &mut TestLoopData,
     archival_id: &Option<AccountId>,
     rpc_id: &AccountId,
@@ -683,7 +683,7 @@ pub(crate) fn temporary_account_during_resharding(
 
     let (done, succeeded) = LoopAction::shared_success_flag();
     let action_fn = Box::new(
-        move |node_datas: &[TestData],
+        move |node_datas: &[NodeExecutionData],
               test_loop_data: &mut TestLoopData,
               client_account_id: AccountId| {
             if done.get() {
@@ -817,7 +817,7 @@ pub(crate) fn check_state_cleanup(
 
     let (done, succeeded) = LoopAction::shared_success_flag();
     let action_fn = Box::new(
-        move |node_datas: &[TestData], test_loop_data: &mut TestLoopData, _: AccountId| {
+        move |node_datas: &[NodeExecutionData], test_loop_data: &mut TestLoopData, _: AccountId| {
             if done.get() {
                 return;
             }
@@ -884,7 +884,7 @@ pub(crate) fn promise_yield_repro_missing_trie_value(
     );
 
     let action_fn = Box::new(
-        move |node_datas: &[TestData],
+        move |node_datas: &[NodeExecutionData],
               test_loop_data: &mut TestLoopData,
               client_account_id: AccountId| {
             let client_actor =
@@ -1080,7 +1080,7 @@ pub(crate) fn delayed_receipts_repro_missing_trie_value(
     );
 
     let action_fn = Box::new(
-        move |node_datas: &[TestData],
+        move |node_datas: &[NodeExecutionData],
               test_loop_data: &mut TestLoopData,
               client_account_id: AccountId| {
             let client_actor =

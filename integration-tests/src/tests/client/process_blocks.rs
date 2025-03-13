@@ -16,7 +16,7 @@ use near_chain::{Block, BlockProcessingArtifact, ChainStoreAccess, Error, Proven
 use near_chain::{ChainStore, MerkleProofAccess};
 use near_chain_configs::test_utils::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use near_chain_configs::{DEFAULT_GC_NUM_EPOCHS_TO_KEEP, Genesis, NEAR_BASE};
-use near_client::test_utils::client::create_chunk_on_height;
+use near_client::test_utils::create_chunk_on_height;
 use near_client::{
     BlockApproval, BlockResponse, GetBlockWithMerkleTree, ProcessTxResponse, ProduceChunkResult,
     SetNetworkInfo,

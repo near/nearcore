@@ -5,7 +5,7 @@
 //! note the wall-clock time.
 
 use near_chain_configs::Genesis;
-use near_client::test_utils::client::create_chunk_on_height;
+use near_client::test_utils::create_chunk_on_height;
 use near_client::{ProcessTxResponse, ProduceChunkResult};
 use near_crypto::InMemorySigner;
 use near_primitives::transaction::{Action, DeployContractAction, SignedTransaction};

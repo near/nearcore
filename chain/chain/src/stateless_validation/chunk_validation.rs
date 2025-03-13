@@ -31,7 +31,7 @@ use near_primitives::sharding::{ChunkHash, ReceiptProof, ShardChunkHeader};
 use near_primitives::stateless_validation::state_witness::{
     ChunkStateWitness, EncodedChunkStateWitness,
 };
-use near_primitives::transaction::SignedTransaction;
+use near_primitives::transaction::{SignedTransaction, ValidatedTransaction};
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{AccountId, ProtocolVersion, ShardId, ShardIndex};
 use near_primitives::utils::compression::CompressedData;
@@ -93,7 +93,7 @@ pub fn validate_prepared_transactions(
     runtime_adapter: &dyn RuntimeAdapter,
     chunk_header: &ShardChunkHeader,
     storage_config: RuntimeStorageConfig,
-    transactions: &[SignedTransaction],
+    validated_txs: impl IntoIterator<Item = ValidatedTransaction>,
     last_chunk_transactions: &[SignedTransaction],
 ) -> Result<PreparedTransactions, Error> {
     let parent_block = chain.chain_store().get_block(chunk_header.prev_block_hash())?;
@@ -106,7 +106,7 @@ pub fn validate_prepared_transactions(
             last_chunk_transactions_size,
         },
         (&parent_block).into(),
-        &mut TransactionGroupIteratorWrapper::new(transactions),
+        &mut TransactionGroupIteratorWrapper::new(validated_txs),
         &mut chain.transaction_validity_check(parent_block.header().clone()),
         None,
     )
@@ -393,8 +393,7 @@ pub fn pre_validate_chunk_state_witness(
                 state_witness.transactions.iter().map(|t| check(t)).collect::<Vec<_>>()
             }
         } else {
-            let new_transactions = &state_witness.new_transactions;
-            let (new_tx_root_from_state_witness, _) = merklize(&new_transactions);
+            let (new_tx_root_from_state_witness, _) = merklize(&state_witness.new_transactions);
             let chunk_tx_root = state_witness.chunk_header.tx_root();
             if new_tx_root_from_state_witness != chunk_tx_root {
                 return Err(Error::InvalidChunkStateWitness(format!(
@@ -403,7 +402,7 @@ pub fn pre_validate_chunk_state_witness(
                 )));
             }
             // Verify that all proposed transactions are valid.
-            if !new_transactions.is_empty() {
+            if !state_witness.new_transactions.is_empty() {
                 let transactions_validation_storage_config = RuntimeStorageConfig {
                     state_root: state_witness.chunk_header.prev_state_root(),
                     use_flat_storage: true,
@@ -412,22 +411,30 @@ pub fn pre_validate_chunk_state_witness(
                     }),
                     state_patch: Default::default(),
                 };
-
+                let config = runtime_adapter.get_runtime_config(protocol_version);
+                let validated_txs =
+                    ValidatedTransaction::new_list(&config, state_witness.new_transactions.clone())
+                        .map_err(|(err, signed_tx)| {
+                            Error::InvalidChunkStateWitness(format!(
+                                "Validating signed tx ({:?}) failed with {:?}",
+                                signed_tx, err
+                            ))
+                        })?;
                 match validate_prepared_transactions(
                     chain,
                     runtime_adapter,
                     &state_witness.chunk_header,
                     transactions_validation_storage_config,
-                    &new_transactions,
+                    validated_txs,
                     &state_witness.transactions,
                 ) {
                     Ok(result) => {
-                        if result.transactions.len() != new_transactions.len() {
+                        if result.transactions.len() != state_witness.new_transactions.len() {
                             return Err(Error::InvalidChunkStateWitness(format!(
                                 "New transactions validation failed. \
                          {} transactions out of {} proposed transactions were valid.",
                                 result.transactions.len(),
-                                new_transactions.len(),
+                                state_witness.new_transactions.len(),
                             )));
                         }
                     }

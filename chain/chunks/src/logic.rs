@@ -245,18 +245,14 @@ pub fn persist_chunk(
     shard_chunk: Option<ShardChunk>,
     store: &mut ChainStore,
 ) -> Result<(), Error> {
-    let need_persist_partial_chunk = store.get_partial_chunk(&partial_chunk.chunk_hash()).is_err();
-    let need_persist_shard_chunk = shard_chunk.is_some()
-        && store.get_chunk(&shard_chunk.as_ref().unwrap().chunk_hash()).is_err();
     let mut update = store.store_update();
-    if need_persist_partial_chunk {
+    if update.get_partial_chunk(&partial_chunk.chunk_hash()).is_err() {
         update.save_partial_chunk(partial_chunk);
-    };
+    }
     if let Some(shard_chunk) = shard_chunk {
-        if need_persist_shard_chunk {
+        if update.get_chunk(&shard_chunk.chunk_hash()).is_err() {
             update.save_chunk(shard_chunk);
         }
     }
-    update.commit()?;
-    Ok(())
+    update.commit().map_err(Error::from)
 }

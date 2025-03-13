@@ -9,7 +9,6 @@ use near_chain_configs::GenesisConfig;
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
 use near_client::SetNetworkInfo;
 use near_client::sync::epoch::EpochSync;
-use near_client::test_utils::test_loop::ClientQueries;
 use near_network::types::NetworkInfo;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::epoch_sync::EpochSyncProof;
@@ -21,6 +20,7 @@ use near_store::adapter::StoreAdapter;
 use crate::setup::builder::{NodeStateBuilder, TestLoopBuilder};
 use crate::setup::env::TestLoopEnv;
 use crate::utils::ONE_NEAR;
+use crate::utils::client_queries::ClientQueries;
 use crate::utils::transactions::{BalanceMismatchError, execute_money_transfers};
 
 const NUM_CLIENTS: usize = 4;

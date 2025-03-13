@@ -17,7 +17,7 @@ use near_primitives::types::AccountId;
 use near_primitives::views::FinalExecutionStatus;
 
 use crate::setup::env::TestLoopEnv;
-use crate::setup::state::TestData;
+use crate::setup::state::NodeExecutionData;
 use crate::utils::TGAS;
 use crate::utils::setups::standard_setup_1;
 use crate::utils::transactions::{execute_tx, get_shared_block_hash, run_tx};
@@ -362,7 +362,7 @@ fn test_max_receipt_size_yield_resume() {
 }
 
 /// Assert that there was an incoming receipt with size above max_receipt_size
-fn assert_oversized_receipt_occurred(test_loop: &TestLoopV2, node_datas: &[TestData]) {
+fn assert_oversized_receipt_occurred(test_loop: &TestLoopV2, node_datas: &[NodeExecutionData]) {
     let client_handle = node_datas[0].client_sender.actor_handle();
     let client = &test_loop.data.get(&client_handle).client;
     let chain = &client.chain;

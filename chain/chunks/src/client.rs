@@ -1,17 +1,15 @@
-use std::collections::HashMap;
-
 use actix::Message;
 use itertools::Itertools;
-
 use near_pool::types::TransactionGroupIterator;
 use near_pool::{InsertTransactionResult, PoolIteratorWrapper, TransactionPool};
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
+use near_primitives::transaction::{SignedTransaction, ValidatedTransaction};
 use near_primitives::{
     epoch_info::RngSeed,
     sharding::{EncodedShardChunk, PartialEncodedChunk, ShardChunk, ShardChunkHeader},
-    transaction::SignedTransaction,
     types::{AccountId, ShardId},
 };
+use std::collections::HashMap;
 
 #[derive(Message, Debug)]
 #[rtype(result = "()")]
@@ -59,14 +57,14 @@ impl ShardedTransactionPool {
     pub fn insert_transaction(
         &mut self,
         shard_uid: ShardUId,
-        tx: SignedTransaction,
+        validated_tx: ValidatedTransaction,
     ) -> InsertTransactionResult {
-        self.pool_for_shard(shard_uid).insert_transaction(tx)
+        self.pool_for_shard(shard_uid).insert_transaction(validated_tx)
     }
 
-    pub fn remove_transactions(&mut self, shard_uid: ShardUId, transactions: &[SignedTransaction]) {
+    pub fn remove_transactions(&mut self, shard_uid: ShardUId, signed_txs: &[SignedTransaction]) {
         if let Some(pool) = self.tx_pools.get_mut(&shard_uid) {
-            pool.remove_transactions(transactions)
+            pool.remove_transactions(signed_txs)
         }
     }
 
@@ -105,12 +103,12 @@ impl ShardedTransactionPool {
     pub fn reintroduce_transactions(
         &mut self,
         shard_uid: ShardUId,
-        signed_txs: impl IntoIterator<Item = SignedTransaction>,
+        validated_txs: impl IntoIterator<Item = ValidatedTransaction>,
     ) -> usize {
         let mut reintroduced_count = 0;
         let pool = self.pool_for_shard(shard_uid);
-        for signed_tx in signed_txs {
-            reintroduced_count += match pool.insert_transaction(signed_tx) {
+        for validated_tx in validated_txs {
+            reintroduced_count += match pool.insert_transaction(validated_tx) {
                 InsertTransactionResult::Success | InsertTransactionResult::Duplicate => 1,
                 InsertTransactionResult::NoSpaceLeft => 0,
             }
@@ -131,22 +129,22 @@ impl ShardedTransactionPool {
         );
         debug_assert!(old_shard_layout != new_shard_layout);
 
-        let mut transactions = vec![];
+        let mut validated_txs = vec![];
 
         for old_shard_uid in old_shard_layout.shard_uids() {
             if let Some(mut iter) = self.get_pool_iterator(old_shard_uid) {
                 while let Some(group) = iter.next() {
-                    while let Some(tx) = group.next() {
-                        transactions.push(tx);
+                    while let Some(validated_tx) = group.next() {
+                        validated_txs.push(validated_tx);
                     }
                 }
             }
         }
 
-        for tx in transactions {
-            let signer_id = tx.transaction.signer_id();
-            let new_shard_uid = new_shard_layout.account_id_to_shard_uid(&signer_id);
-            self.insert_transaction(new_shard_uid, tx);
+        for validated_tx in validated_txs {
+            let signer_id = validated_tx.signer_id();
+            let new_shard_uid = new_shard_layout.account_id_to_shard_uid(signer_id);
+            self.insert_transaction(new_shard_uid, validated_tx);
         }
     }
 }
@@ -161,7 +159,7 @@ mod tests {
         epoch_info::RngSeed,
         hash::CryptoHash,
         shard_layout::ShardLayout,
-        transaction::SignedTransaction,
+        transaction::{SignedTransaction, ValidatedTransaction},
         types::{AccountId, ShardId},
     };
     use near_store::ShardUId;
@@ -227,7 +225,7 @@ mod tests {
 
             let signer = InMemorySigner::from_seed(signer_id.clone(), KeyType::ED25519, "seed");
 
-            let tx = SignedTransaction::send_money(
+            let signed_tx = SignedTransaction::send_money(
                 nonce,
                 signer_id.clone(),
                 receiver_id.clone(),
@@ -235,9 +233,10 @@ mod tests {
                 deposit,
                 CryptoHash::default(),
             );
+            let validated_tx = ValidatedTransaction::new_for_test(signed_tx);
 
             let shard_uid = ShardUId::new(old_shard_layout.version(), signer_shard_id);
-            pool.insert_transaction(shard_uid, tx);
+            pool.insert_transaction(shard_uid, validated_tx);
         }
 
         // reshard
@@ -263,9 +262,9 @@ mod tests {
                 let shard_uid = ShardUId::new(new_shard_layout.version(), shard_id);
                 let mut pool_iter = pool.get_pool_iterator(shard_uid).unwrap();
                 while let Some(group) = pool_iter.next() {
-                    while let Some(tx) = group.next() {
+                    while let Some(validated_tx) = group.next() {
                         total += 1;
-                        let account_id = tx.transaction.signer_id();
+                        let account_id = validated_tx.signer_id();
                         let tx_shard_uid = new_shard_layout.account_id_to_shard_uid(account_id);
                         tracing::debug!("checking {account_id:?}:{tx_shard_uid} in {shard_uid}");
                         assert_eq!(shard_uid, tx_shard_uid);
