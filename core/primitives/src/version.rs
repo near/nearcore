@@ -16,6 +16,7 @@ use crate::upgrade_schedule::ProtocolUpgradeVotingSchedule;
 /// near_primitives_core re-exports
 pub use near_primitives_core::checked_feature;
 pub use near_primitives_core::types::ProtocolVersion;
+pub use near_primitives_core::version::MIN_SUPPORTED_PROTOCOL_VERSION;
 pub use near_primitives_core::version::PEER_MIN_ALLOWED_PROTOCOL_VERSION;
 pub use near_primitives_core::version::PROTOCOL_VERSION;
 pub use near_primitives_core::version::ProtocolFeature;

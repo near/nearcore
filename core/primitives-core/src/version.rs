@@ -286,6 +286,9 @@ impl ProtocolFeature {
     }
 }
 
+/// Minimum supported protocol version
+pub const MIN_SUPPORTED_PROTOCOL_VERSION: ProtocolVersion = 29;
+
 /// Current protocol version used on the mainnet with all stable features.
 const STABLE_PROTOCOL_VERSION: ProtocolVersion = 77;
 
