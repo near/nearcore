@@ -8,7 +8,7 @@ use tokio::task::JoinSet;
 use tokio::time;
 
 use crate::block_service::BlockService;
-use crate::rpc::{new_request, view_access_key, ResponseCheckSeverity, RpcResponseHandler};
+use crate::rpc::{ResponseCheckSeverity, RpcResponseHandler, new_request, view_access_key};
 use clap::Args;
 use near_crypto::{InMemorySigner, KeyType, SecretKey};
 use near_crypto::{PublicKey, Signer};
