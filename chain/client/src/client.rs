@@ -452,7 +452,7 @@ impl Client {
                         .into_iter()
                         .cloned()
                         .filter_map(|signed_tx| {
-                            match ValidatedTransaction::new(&config, signed_tx.clone()) {
+                            match ValidatedTransaction::new(&config, signed_tx) {
                                 Ok(validated_tx) => Some(validated_tx),
                                 Err((err, signed_tx)) => {
                                     debug!(
