@@ -20,7 +20,7 @@ use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::drop_condition::DropCondition;
 use crate::setup::env::TestLoopEnv;
-use crate::setup::state::TestData;
+use crate::setup::state::NodeExecutionData;
 use crate::utils::ONE_NEAR;
 use crate::utils::transactions::{get_anchor_hash, get_smallest_height_head};
 
@@ -200,10 +200,10 @@ fn get_wrapped_mut<T>(s: &mut [T], idx: usize) -> &mut T {
 /// tries to generate transactions between lots of different pairs of shards (accounts for shard i are in accounts[i])
 fn send_txs_between_shards(
     test_loop: &mut TestLoopV2,
-    node_data: &[TestData],
+    node_datas: &[NodeExecutionData],
     accounts: &mut [Vec<(AccountId, Nonce)>],
 ) {
-    let clients = node_data
+    let clients = node_datas
         .iter()
         .map(|data| &test_loop.data.get(&data.client_sender.actor_handle()).client)
         .collect_vec();
@@ -235,7 +235,7 @@ fn send_txs_between_shards(
         );
         *nonce += 1;
 
-        let future = get_wrapped(node_data, client_idx)
+        let future = get_wrapped(node_datas, client_idx)
             .client_sender
             .clone()
             //.with_delay(Duration::milliseconds(300 * txs_sent as i64))

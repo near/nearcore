@@ -3121,11 +3121,7 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
             .into());
         }
         self.result_state.gas_counter.pay_per(storage_read_key_byte, key.len() as u64)?;
-        let read = self.ext.storage_get(
-            &mut self.result_state.gas_counter,
-            &key,
-            self.config.storage_get_mode,
-        );
+        let read = self.ext.storage_get(&mut self.result_state.gas_counter, &key);
         let read = match read? {
             Some(read) => {
                 // Here we'll do u32 -> usize -> u64, which is always infallible
@@ -3244,11 +3240,7 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
             .into());
         }
         self.result_state.gas_counter.pay_per(storage_has_key_byte, key.len() as u64)?;
-        let res = self.ext.storage_has_key(
-            &mut self.result_state.gas_counter,
-            &key,
-            self.config.storage_get_mode,
-        );
+        let res = self.ext.storage_has_key(&mut self.result_state.gas_counter, &key);
 
         self.recorded_storage_counter.observe_size(self.ext.get_recorded_storage_size())?;
         Ok(res? as u64)

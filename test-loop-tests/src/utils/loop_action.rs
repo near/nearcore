@@ -4,10 +4,10 @@ use std::rc::Rc;
 use near_async::test_loop::data::TestLoopData;
 use near_primitives::types::AccountId;
 
-use crate::setup::state::TestData;
+use crate::setup::state::NodeExecutionData;
 
 /// Signature of functions callable from inside the inner loop of a testloop test.
-pub(crate) type LoopActionFn = Box<dyn Fn(&[TestData], &mut TestLoopData, AccountId)>;
+pub(crate) type LoopActionFn = Box<dyn Fn(&[NodeExecutionData], &mut TestLoopData, AccountId)>;
 
 /// A wrapper for a callable (action) to be used inside a testloop test.
 ///
@@ -51,12 +51,12 @@ impl LoopAction {
     /// Call the action callable with provided arguments.
     pub fn call(
         &self,
-        test_data: &[TestData],
+        node_datas: &[NodeExecutionData],
         test_loop_data: &mut TestLoopData,
         account_id: AccountId,
     ) {
         self.started.set(true);
-        (self.action_fn)(test_data, test_loop_data, account_id)
+        (self.action_fn)(node_datas, test_loop_data, account_id)
     }
 
     /// Return the current status of the loop action.

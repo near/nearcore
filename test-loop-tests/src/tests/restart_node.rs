@@ -4,7 +4,7 @@ use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::types::AccountId;
 
-use crate::setup::builder::TestLoopBuilder;
+use crate::setup::builder::{NodeStateBuilder, TestLoopBuilder};
 use crate::utils::ONE_NEAR;
 
 const NUM_CLIENTS: usize = 4;
@@ -37,18 +37,28 @@ fn test_restart_node() {
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .clients(clients)
+        .gc_num_epochs_to_keep(20)
         .build()
         .warmup();
 
     env.test_loop.run_for(Duration::seconds(2 * epoch_length as i64));
 
     // kill node
-    let node_state = env.kill_node("account0");
+    let killed_node_state = env.kill_node("account0");
     env.test_loop.run_for(Duration::seconds(2 * epoch_length as i64));
 
     // restart node
-    env.restart_node("account0-restart", node_state);
-    env.test_loop.run_for(Duration::seconds(4 * epoch_length as i64));
+    env.restart_node("account0-restart", killed_node_state);
+    env.test_loop.run_for(Duration::seconds(3 * epoch_length as i64));
+
+    // Add new node
+    let genesis = env.shared_state.genesis.clone();
+    let tempdir_path = env.shared_state.tempdir.path().to_path_buf();
+    let new_node_state = NodeStateBuilder::new(genesis, tempdir_path)
+        .account_id(accounts[NUM_CLIENTS].clone())
+        .build();
+    env.add_node(accounts[NUM_CLIENTS].as_str(), new_node_state);
+    env.test_loop.run_for(Duration::seconds(3 * epoch_length as i64));
 
     // Give the test a chance to finish off remaining events in the event loop, which can
     // be important for properly shutting down the nodes.
