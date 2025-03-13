@@ -1676,7 +1676,7 @@ impl Client {
                             Ok(()) => (),
                             Err(err) => {
                                 tracing::warn!(
-                                    "validtor {}: removing txs for block {:?} failed with {:?}",
+                                    "validator {}: removing txs for block {:?} failed with {:?}",
                                     validator_id,
                                     block,
                                     err
