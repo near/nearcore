@@ -147,55 +147,58 @@ pub struct ApplyState {
     pub bandwidth_requests: BlockBandwidthRequests,
 }
 
-/// Represents a single group of transactions (sharing the same signer_id and public_key)
-/// along with their indices in the original slice.
-pub struct TransactionGroup<'a> {
-    pub indices: Vec<usize>,
+/// Represents a batch of transactions sharing the same (signer_id, public_key),
+/// sorted by ascending nonce.
+struct TransactionBatch<'a> {
+    pub indices: &'a [usize],
     pub signed_txs: &'a [SignedTransaction],
 }
 
-/// Represents multiple groups of transactions. It provides a parallel iterator over
-/// each individual TransactionGroup.
-pub struct TransactionGroups<'a> {
-    groups: Vec<TransactionGroup<'a>>,
+/// Represents a collection of transaction batches. Provides a parallel iterator.
+struct TransactionBatches<'a> {
+    signed_txs: &'a [SignedTransaction],
+    indices: Vec<usize>,
 }
 
-impl<'a> TransactionGroups<'a> {
-    /// Constructs TransactionGroups from a slice of SignedTransaction.
-    /// Transactions are sorted by (signer_id, public_key, nonce) and then grouped by (signer_id, public_key).
+impl<'a> TransactionBatches<'a> {
+    /// Constructs TransactionBatches from a slice of SignedTransaction.
+    /// Transactions are sorted by (signer_id, public_key, nonce).
     pub fn new(signed_txs: &'a [SignedTransaction]) -> Self {
         let mut indices: Vec<usize> = (0..signed_txs.len()).collect();
         indices.sort_by_key(|&i| {
-            let st = &signed_txs[i];
-            (st.transaction.signer_id(), st.transaction.public_key(), st.transaction.nonce())
+            let tx = &signed_txs[i].transaction;
+            (tx.signer_id(), tx.public_key(), tx.nonce())
         });
-        let groups = if indices.is_empty() {
-            Vec::new()
-        } else {
-            indices
-                .par_chunk_by(|&left_idx, &right_idx| {
-                    let left = &signed_txs[left_idx];
-                    let right = &signed_txs[right_idx];
-                    left.transaction.signer_id() == right.transaction.signer_id()
-                        && left.transaction.public_key() == right.transaction.public_key()
-                })
-                .filter(|chunk| !chunk.is_empty())
-                .map(|chunk| TransactionGroup { indices: chunk.to_vec(), signed_txs })
-                .collect()
-        };
-        TransactionGroups { groups }
+        Self { signed_txs, indices }
     }
 
-    /// Returns a parallel iterator over the grouped transactions.
-    pub fn par_grouped(&self) -> impl rayon::iter::ParallelIterator<Item = &TransactionGroup<'a>> {
-        self.groups.par_iter()
+    /// Returns a parallel iterator over transaction batches grouped by (signer_id, public_key).
+    pub fn par_batches(
+        &'a self,
+    ) -> impl rayon::iter::ParallelIterator<Item = TransactionBatch<'a>> {
+        self.indices
+            .par_chunk_by(|&left, &right| {
+                let left_tx = &self.signed_txs[left].transaction;
+                let right_tx = &self.signed_txs[right].transaction;
+                left_tx.signer_id() == right_tx.signer_id()
+                    && left_tx.public_key() == right_tx.public_key()
+            })
+            .map(|chunk| TransactionBatch { indices: chunk, signed_txs: self.signed_txs })
     }
 }
 
 #[derive(Debug)]
-struct GroupResult {
-    verified:
-        Vec<(usize, ValidatedTransaction, VerificationResult, Receipt, ExecutionOutcomeWithId)>,
+struct ProcessedTransaction {
+    index: usize,
+    transaction: ValidatedTransaction,
+    verification_result: VerificationResult,
+    receipt: Receipt,
+    outcome: ExecutionOutcomeWithId,
+}
+
+#[derive(Debug)]
+struct BatchResult {
+    processed_transactions: Vec<ProcessedTransaction>,
     final_state: Option<(Account, AccessKey)>,
     signer_id: AccountId,
     public_key: near_crypto::PublicKey,
@@ -340,27 +343,27 @@ impl Runtime {
     /// and, if `RelaxedChunkValidation` is enabled, skips to the next transaction without failing
     /// the whole group. The resulting state (`final_state`) contains `Account` and `AccessKey` after
     /// the last successful transaction in the group to be committed to the `state_update`.
-    /// Returns a `GroupResult` containing verified transactions, final state, and signer_id.
-    fn verify_grouped_transactions(
+    /// Returns a `BatchResult` containing verified transactions, final state, and signer_id.
+    fn process_grouped_transactions(
         &self,
-        group: &TransactionGroup,
+        group: TransactionBatch,
         apply_state: &ApplyState,
         state_update: &TrieUpdate,
         gas_price: Balance,
         block_height: BlockHeight,
         current_protocol_version: ProtocolVersion,
         mut temp_state: Option<(Account, AccessKey)>,
-    ) -> Result<GroupResult, RuntimeError> {
+    ) -> Result<BatchResult, RuntimeError> {
         let first_idx = group.indices[0];
         let signer_id = group.signed_txs[first_idx].transaction.signer_id().clone();
         let public_key = group.signed_txs[first_idx].transaction.public_key();
 
-        let mut verified = Vec::with_capacity(group.indices.len());
+        let mut processed_transactions = Vec::with_capacity(group.indices.len());
 
-        for &idx in &group.indices {
+        for idx in group.indices {
             let validated_tx = match validate_transaction(
                 &apply_state.config,
-                group.signed_txs[idx].clone(),
+                group.signed_txs[*idx].clone(),
                 current_protocol_version,
             ) {
                 Ok(validated_tx) => validated_tx,
@@ -407,7 +410,14 @@ impl Runtime {
                     temp_state = Some((vr.signer.clone(), vr.access_key.clone()));
                     let (receipt, outcome) =
                         self.process_transaction(apply_state, &validated_tx, &vr);
-                    verified.push((idx, validated_tx, vr, receipt, outcome));
+
+                    processed_transactions.push(ProcessedTransaction {
+                        index: *idx,
+                        transaction: validated_tx,
+                        verification_result: vr,
+                        receipt,
+                        outcome,
+                    });
                 }
                 Err(err) => {
                     Self::handle_invalid_transaction(
@@ -420,8 +430,8 @@ impl Runtime {
             }
         }
 
-        Ok(GroupResult {
-            verified,
+        Ok(BatchResult {
+            processed_transactions,
             final_state: temp_state,
             signer_id,
             public_key: public_key.clone(),
@@ -1789,12 +1799,12 @@ impl Runtime {
         let apply_state = &mut processing_state.apply_state;
         let state_update = &mut processing_state.state_update;
 
-        let tx_groups = TransactionGroups::new(processing_state.transactions.transactions);
+        let tx_batches = TransactionBatches::new(processing_state.transactions.transactions);
 
-        let group_outcomes: Vec<Result<GroupResult, RuntimeError>> = tx_groups
-            .par_grouped()
+        let batch_outcomes: Vec<Result<BatchResult, RuntimeError>> = tx_batches
+            .par_batches()
             .map(|group| {
-                self.verify_grouped_transactions(
+                self.process_grouped_transactions(
                     group,
                     &apply_state,
                     state_update,
@@ -1806,34 +1816,34 @@ impl Runtime {
             })
             .collect();
 
-        for group_outcome in group_outcomes {
-            let group_result = match group_outcome {
-                Ok(group_result) => group_result,
+        for batch_outcome in batch_outcomes {
+            let batch_result = match batch_outcome {
+                Ok(batch_result) => batch_result,
                 Err(e) => return Err(e),
             };
 
-            if let Some((account, access_key)) = group_result.final_state {
-                set_account(state_update, group_result.signer_id.clone(), &account);
+            if let Some((account, access_key)) = batch_result.final_state {
+                set_account(state_update, batch_result.signer_id.clone(), &account);
                 set_access_key(
                     state_update,
-                    group_result.signer_id.clone(),
-                    group_result.public_key.clone(),
+                    batch_result.signer_id.clone(),
+                    batch_result.public_key.clone(),
                     &access_key,
                 );
 
-                let last_tx_hash = group_result
-                    .verified
+                let last_tx_hash = batch_result
+                    .processed_transactions
                     .last()
-                    .map(|(_, tx, _, _, _)| tx.get_hash())
+                    .map(|pt| pt.transaction.get_hash())
                     .unwrap_or_default();
                 state_update
                     .commit(StateChangeCause::TransactionProcessing { tx_hash: last_tx_hash });
             }
 
-            for (_, tx, verification_result, receipt, outcome) in group_result.verified {
+            for processed in batch_result.processed_transactions {
                 match safe_add_balance(
                     processing_state.stats.balance.tx_burnt_amount,
-                    verification_result.burnt_amount,
+                    processed.verification_result.burnt_amount,
                 ) {
                     Ok(new_balance) => {
                         processing_state.stats.balance.tx_burnt_amount = new_balance;
@@ -1841,7 +1851,7 @@ impl Runtime {
                     Err(err) => {
                         Self::handle_invalid_transaction(
                             err,
-                            &tx.get_hash(),
+                            &processed.transaction.get_hash(),
                             processing_state.protocol_version,
                             "failed to add burnt amount to balance",
                         )?;
@@ -1851,10 +1861,10 @@ impl Runtime {
 
                 // Add the produced receipt either to the new local receipts if
                 // the signer is the same as receiver or to the new outgoing receipts.
-                if receipt.receiver_id() == tx.to_tx().signer_id() {
-                    processing_state.local_receipts.push_back(receipt);
+                if processed.receipt.receiver_id() == processed.transaction.to_tx().signer_id() {
+                    processing_state.local_receipts.push_back(processed.receipt);
                 } else if let Err(_) = receipt_sink.forward_or_buffer_receipt(
-                    receipt,
+                    processed.receipt,
                     apply_state,
                     state_update,
                     processing_state.epoch_info_provider,
@@ -1863,15 +1873,16 @@ impl Runtime {
                 }
 
                 // Update usage/outcome
-                let compute = outcome
+                let compute = processed
+                    .outcome
                     .outcome
                     .compute_usage
                     .expect("`process_transaction` must populate compute usage");
-                total.add(outcome.outcome.gas_burnt, compute)?;
+                total.add(processed.outcome.outcome.gas_burnt, compute)?;
                 if !checked_feature!("stable", ComputeCosts, processing_state.protocol_version) {
                     assert_eq!(total.compute, total.gas, "Compute usage must match burnt gas");
                 }
-                processing_state.outcomes.push(outcome);
+                processing_state.outcomes.push(processed.outcome);
             }
         }
 
