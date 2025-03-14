@@ -135,34 +135,34 @@ pub fn verify_and_charge_tx_ephemeral(
     let tx = validated_tx.to_tx();
     let signer_id = tx.signer_id();
 
-    let mut signer: Account;
-    let mut access_key: AccessKey;
+    let (mut signer, mut access_key) = match ephemeral_state {
+        Some((ephemeral_signer, ephemeral_access_key)) => (ephemeral_signer, ephemeral_access_key),
+        None => {
+            let signer = match get_account(state_update, signer_id)? {
+                Some(signer) => signer,
+                None => {
+                    return Err(InvalidTxError::SignerDoesNotExist {
+                        signer_id: signer_id.clone(),
+                    });
+                }
+            };
 
-    if ephemeral_state.is_none() {
-        signer = match get_account(state_update, signer_id)? {
-            Some(signer) => signer,
-            None => {
-                return Err(InvalidTxError::SignerDoesNotExist { signer_id: signer_id.clone() });
-            }
-        };
+            let access_key = match get_access_key(state_update, signer_id, tx.public_key())? {
+                Some(access_key) => access_key,
+                None => {
+                    return Err(InvalidTxError::InvalidAccessKeyError(
+                        InvalidAccessKeyError::AccessKeyNotFound {
+                            account_id: signer_id.clone(),
+                            public_key: tx.public_key().clone().into(),
+                        },
+                    )
+                    .into());
+                }
+            };
 
-        access_key = match get_access_key(state_update, signer_id, tx.public_key())? {
-            Some(access_key) => access_key,
-            None => {
-                return Err(InvalidTxError::InvalidAccessKeyError(
-                    InvalidAccessKeyError::AccessKeyNotFound {
-                        account_id: signer_id.clone(),
-                        public_key: tx.public_key().clone().into(),
-                    },
-                )
-                .into());
-            }
-        };
-    } else {
-        let (ephemeral_signer, ephemeral_access_key) = ephemeral_state.unwrap();
-        signer = ephemeral_signer;
-        access_key = ephemeral_access_key;
-    }
+            (signer, access_key)
+        }
+    };
 
     if tx.nonce() <= access_key.nonce {
         return Err(InvalidTxError::InvalidNonce {
