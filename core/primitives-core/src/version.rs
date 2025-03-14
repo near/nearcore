@@ -307,8 +307,6 @@ pub const PROTOCOL_VERSION: ProtocolVersion = if cfg!(feature = "nightly_protoco
 /// TODO(pugachag): revert back to `- 3` after mainnet is upgraded
 pub const PEER_MIN_ALLOWED_PROTOCOL_VERSION: ProtocolVersion = STABLE_PROTOCOL_VERSION - 4;
 
-// The checked_feature! macro has been removed and replaced with ProtocolFeature::Feature.enabled(protocol_version)
-
 #[cfg(test)]
 mod tests {
     use super::ProtocolFeature;

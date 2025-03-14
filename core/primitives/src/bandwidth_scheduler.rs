@@ -1,4 +1,3 @@
-use near_primitives_core::version::ProtocolFeature;
 use std::collections::BTreeMap;
 use std::num::NonZeroU64;
 
@@ -8,6 +7,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use near_parameters::RuntimeConfig;
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::{ProtocolVersion, ShardId};
+use near_primitives_core::version::ProtocolFeature;
 use near_schema_checker_lib::ProtocolSchema;
 
 /// Represents size of receipts, in the context of cross-shard bandwidth, in bytes.

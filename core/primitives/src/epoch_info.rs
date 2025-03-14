@@ -1,7 +1,13 @@
-use borsh::{BorshDeserialize, BorshSerialize};
-use near_primitives_core::version::ProtocolFeature;
-use smart_default::SmartDefault;
 use std::collections::{BTreeMap, HashMap};
+
+use borsh::{BorshDeserialize, BorshSerialize};
+use near_primitives_core::types::{Balance, EpochHeight, ProtocolVersion, ValidatorId};
+use near_primitives_core::version::ProtocolFeature;
+use near_primitives_core::{
+    hash::hash,
+    types::{BlockHeight, ShardId},
+};
+use smart_default::SmartDefault;
 
 use crate::rand::WeightedIndex;
 use crate::shard_layout::ShardLayout;
@@ -9,11 +15,6 @@ use crate::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
 use crate::types::{AccountId, ValidatorKickoutReason, ValidatorStakeV1};
 use crate::validator_mandates::ValidatorMandates;
 use crate::version::PROTOCOL_VERSION;
-use near_primitives_core::types::{Balance, EpochHeight, ProtocolVersion, ValidatorId};
-use near_primitives_core::{
-    hash::hash,
-    types::{BlockHeight, ShardId},
-};
 use near_schema_checker_lib::ProtocolSchema;
 
 /// Information per epoch.

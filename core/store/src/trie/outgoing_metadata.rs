@@ -1,4 +1,3 @@
-use near_primitives::version::ProtocolFeature;
 use std::collections::BTreeMap;
 
 use borsh::{BorshDeserialize, BorshSerialize};

@@ -35,10 +35,9 @@ use near_primitives::types::{
     StateRoot, StateRootNode,
 };
 use near_primitives::utils::to_timestamp;
-use near_primitives::version::ProtocolFeature;
 use near_primitives::version::{
     MIN_GAS_PRICE_NEP_92, MIN_GAS_PRICE_NEP_92_FIX, MIN_PROTOCOL_VERSION_NEP_92,
-    MIN_PROTOCOL_VERSION_NEP_92_FIX, ProtocolVersion,
+    MIN_PROTOCOL_VERSION_NEP_92_FIX, ProtocolFeature, ProtocolVersion,
 };
 use near_primitives::views::{QueryRequest, QueryResponse};
 use near_schema_checker_lib::ProtocolSchema;
