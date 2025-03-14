@@ -1,10 +1,5 @@
-use crate::config::{
-    safe_add_compute, safe_add_gas, total_prepaid_exec_fees, total_prepaid_gas,
-    total_prepaid_send_fees,
-};
-use crate::ext::{ExternalError, RuntimeExt};
-use crate::receipt_manager::ReceiptManager;
-use crate::{ActionResult, ApplyState, ChunkApplyStatsV0, metrics};
+use std::sync::Arc;
+
 use near_crypto::PublicKey;
 use near_parameters::{AccountCreationConfig, ActionCosts, RuntimeConfig, RuntimeFeesConfig};
 use near_primitives::account::{AccessKey, AccessKeyPermission, Account, AccountContract};
@@ -44,7 +39,14 @@ use near_vm_runner::logic::{VMContext, VMOutcome};
 use near_vm_runner::{ContractCode, ContractRuntimeCache};
 use near_vm_runner::{PreparedContract, precompile_contract};
 use near_wallet_contract::{wallet_contract, wallet_contract_magic_bytes};
-use std::sync::Arc;
+
+use crate::config::{
+    safe_add_compute, safe_add_gas, total_prepaid_exec_fees, total_prepaid_gas,
+    total_prepaid_send_fees,
+};
+use crate::ext::{ExternalError, RuntimeExt};
+use crate::receipt_manager::ReceiptManager;
+use crate::{ActionResult, ApplyState, ChunkApplyStatsV0, metrics};
 
 /// Runs given function call with given context / apply state.
 pub(crate) fn execute_function_call(

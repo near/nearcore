@@ -1,12 +1,14 @@
-use crate::block::BlockHeader;
-use crate::hash::{CryptoHash, hash};
-use crate::types::{BlockHeight, SignatureDifferentiator};
+use std::fmt::Debug;
+use std::str::FromStr;
+
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::{InMemorySigner, Signature};
 use near_primitives_core::types::AccountId;
 use near_schema_checker_lib::ProtocolSchema;
-use std::fmt::Debug;
-use std::str::FromStr;
+
+use crate::block::BlockHeader;
+use crate::hash::{CryptoHash, hash};
+use crate::types::{BlockHeight, SignatureDifferentiator};
 
 #[derive(BorshSerialize, BorshDeserialize, Clone, Debug, Eq, PartialEq, ProtocolSchema)]
 pub struct OptimisticBlockInner {

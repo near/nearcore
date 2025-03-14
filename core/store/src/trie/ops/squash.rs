@@ -1,11 +1,12 @@
-use near_primitives::errors::StorageError;
+use std::fmt::Debug;
 
-use crate::NibbleSlice;
+use near_primitives::errors::StorageError;
 
 use super::interface::{
     GenericNodeOrIndex, GenericTrieUpdate, GenericUpdatedTrieNode, GenericUpdatedTrieNodeWithSize,
     HasValueLength, UpdatedNodeId,
 };
+use crate::NibbleSlice;
 
 pub(crate) trait GenericTrieUpdateSquash<'a, N, V>: GenericTrieUpdate<'a, N, V>
 where

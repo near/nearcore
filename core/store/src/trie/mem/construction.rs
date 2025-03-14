@@ -1,10 +1,15 @@
+// Standard library imports
+
+// External crate imports
+use near_primitives::state::FlatStateValue;
+use smallvec::SmallVec;
+
+// Local crate imports
 use super::arena::ArenaMut;
 use super::freelist::{ReusableVecU8, VecU8Freelist};
 use super::node::MemTrieNodeId;
 use crate::NibbleSlice;
 use crate::trie::mem::node::InputMemTrieNode;
-use near_primitives::state::FlatStateValue;
-use smallvec::SmallVec;
 
 /// Algorithm to construct a trie from a given stream of sorted leaf values.
 ///

@@ -1,13 +1,16 @@
-use crate::errors::ImplicitPublicKeyError;
-use crate::{KeyType, PublicKey};
+// Standard library imports
+
+// External crate imports
 use borsh::BorshDeserialize;
 use curve25519_dalek::ristretto::CompressedRistretto;
-use curve25519_dalek::traits::VartimeMultiscalarMul;
-
 pub use curve25519_dalek::ristretto::RistrettoPoint as Point;
 pub use curve25519_dalek::scalar::Scalar;
-
+use curve25519_dalek::traits::VartimeMultiscalarMul;
 use near_account_id::AccountType;
+
+// Local crate imports
+use crate::errors::ImplicitPublicKeyError;
+use crate::{KeyType, PublicKey};
 
 // cspell:words vmul vartime multiscalar
 pub fn vmul2(s1: Scalar, p1: &Point, s2: Scalar, p2: &Point) -> Point {

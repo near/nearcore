@@ -1,14 +1,16 @@
-use crate::Temperature;
-use crate::db::{StatsValue, StoreStatistics};
-use near_o11y::metrics::{
-    GaugeVec, IntGauge, IntGaugeVec, try_create_gauge_vec, try_create_int_gauge,
-    try_create_int_gauge_vec,
-};
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::sync::LazyLock;
 use std::sync::Mutex;
+
+use near_o11y::metrics::{
+    GaugeVec, IntGauge, IntGaugeVec, try_create_gauge_vec, try_create_int_gauge,
+    try_create_int_gauge_vec,
+};
 use tracing::warn;
+
+use crate::Temperature;
+use crate::db::{StatsValue, StoreStatistics};
 
 pub fn export_stats_as_metrics(stats: StoreStatistics, temperature: Temperature) {
     match ROCKSDB_METRICS.lock().unwrap().export_stats_as_metrics(stats, temperature) {

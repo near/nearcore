@@ -1,9 +1,10 @@
-use borsh::{BorshDeserialize, BorshSerialize};
-use itertools::Itertools;
-use reed_solomon_erasure::galois_8::ReedSolomon;
 use std::collections::HashMap;
 use std::io::Error;
 use std::sync::Arc;
+
+use borsh::{BorshDeserialize, BorshSerialize};
+use itertools::Itertools;
+use reed_solomon_erasure::galois_8::ReedSolomon;
 
 /// Type alias around what ReedSolomon represents data part as.
 /// This should help with making the code a bit more understandable.
