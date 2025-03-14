@@ -15,27 +15,27 @@ Keep shared configuration overrides in the base directory, example `base_config_
     // number of RPC nodes
     "rpcs": 1,
     // patch file for node config, can be further customize through config_patch.json
-    // not used for forknet
+    // OPTIONAL: not necessary for forknet
     "base_config_patch": "../../base_config_patch.json",
     // patch file for chain genesis, can be further customize through genesis_patch.json
-    // not used for forknet
+    // OPTIONAL: not necessary for forknet
     "base_genesis_patch": "../../50_shards_genesis_patch.json",
     // num accounts per shard
     "num_accounts": 20,
     // synth-bm configuration
-    // not used with tx generator
+    // OPTIONAL: not necessary for tx generator
     "requests_per_second": 6000,
     // synth-bm configuration
-    // not used with tx generator
+    // OPTIONAL: not necessary for tx generator
     "num_transfers": 6000,
-    // required if using tx generator
+    // OPTIONAL: required only if using tx generator
     "tx_generator": {
         // true to use tx injection
         "enabled": true,
         "tps": 4000,
         "volume": 0
     }
-    // required for forknet runs
+    // OPTIONAL: required only for forknet runs
     "forknet": {
         // forknet unique name
         "name": "foo",

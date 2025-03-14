@@ -376,7 +376,7 @@ create_sub_accounts() {
         --num-sub-accounts ${num_accounts} \
         --deposit 9530606018750000000100000000 \
         --channel-buffer-size 1200 \
-        --requests-per-second 250 \
+        --requests-per-second 100 \
         --user-data-dir ${data_dir}
 }
 
