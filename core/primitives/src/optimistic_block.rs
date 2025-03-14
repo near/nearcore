@@ -189,7 +189,7 @@ pub struct OptimisticBlockKeySource {
 #[derive(Debug, Clone, strum::AsRefStr)]
 pub enum BlockToApply {
     Normal(CryptoHash),
-    Optimistic(CryptoHash),
+    Optimistic(BlockHeight),
 }
 
 #[derive(Hash, PartialEq, Eq, Clone, Copy, Debug)]

@@ -55,6 +55,8 @@ pub struct BlockTrackingStats {
     pub orphaned_timestamp: Option<Instant>,
     /// Timestamp when block was put to the missing chunks pool
     pub missing_chunks_timestamp: Option<Instant>,
+    /// Timestamp when block was put to the pending execution pool
+    pub pending_execution_timestamp: Option<Instant>,
     /// Timestamp when block was moved out of the orphan pool
     pub removed_from_orphan_timestamp: Option<Instant>,
     /// Timestamp when block was moved out of the missing chunks pool
@@ -220,6 +222,7 @@ impl BlocksDelayTracker {
             received_utc_timestamp: self.clock.now_utc(),
             orphaned_timestamp: None,
             missing_chunks_timestamp: None,
+            pending_execution_timestamp: None,
             removed_from_orphan_timestamp: None,
             removed_from_missing_chunks_timestamp: None,
             processed_timestamp: None,
@@ -276,6 +279,13 @@ impl BlocksDelayTracker {
         }
     }
 
+    pub fn mark_block_pending_execution(&mut self, block_hash: &CryptoHash) {
+        if let Some(block_entry) = self.blocks.get_mut(block_hash) {
+            block_entry.pending_execution_timestamp = Some(self.clock.now());
+        } else {
+            error!(target:"blocks_delay_tracker", "block {:?} was marked as pending execution but was not marked received", block_hash);
+        }
+    }
     pub fn mark_block_completed_missing_chunks(&mut self, block_hash: &CryptoHash) {
         if let Some(block_entry) = self.blocks.get_mut(block_hash) {
             block_entry.removed_from_missing_chunks_timestamp = Some(self.clock.now());
