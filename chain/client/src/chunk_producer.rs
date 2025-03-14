@@ -220,6 +220,8 @@ impl ChunkProducer {
         validator_signer: &Arc<ValidatorSigner>,
         chain_validate: &dyn Fn(&SignedTransaction) -> bool,
     ) -> Result<Option<ProduceChunkResult>, Error> {
+        let _span = tracing::info_span!(target: "client", "produce_chunk_internal", epoch_id = ?epoch_id, next_height, ?shard_id).entered();
+
         let span = tracing::Span::current();
         let timer = Instant::now();
         let _timer =

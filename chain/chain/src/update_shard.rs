@@ -128,11 +128,15 @@ pub fn apply_new_chunk(
         storage_context,
     } = data;
     let shard_id = shard_context.shard_uid.shard_id();
-    let _span = tracing::debug_span!(
+    let height_created = chunk_header.height_created();
+    let chunk_hash = chunk_header.chunk_hash();
+    let _span = tracing::info_span!(
         target: "chain",
         parent: parent_span,
         "apply_new_chunk",
         ?shard_id,
+        ?height_created,
+        ?chunk_hash,
         ?apply_reason)
     .entered();
     let gas_limit = chunk_header.gas_limit();
@@ -177,11 +181,12 @@ pub fn apply_old_chunk(
 ) -> Result<OldChunkResult, Error> {
     let OldChunkData { prev_chunk_extra, block, storage_context } = data;
     let shard_id = shard_context.shard_uid.shard_id();
-    let _span = tracing::debug_span!(
+    let _span = tracing::info_span!(
         target: "chain",
         parent: parent_span,
         "apply_old_chunk",
         ?shard_id,
+        block_height = block.height,
         ?apply_reason)
     .entered();
 
