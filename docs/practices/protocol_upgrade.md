@@ -136,7 +136,7 @@ cargo build -p neard --release --features nightly
 or enable some specific protocol feature by
 
 ```rust
-cargo build -p neard --release --features nightly_protocol,<protocol_feature>
+cargo build -p neard --release --features nightly,<protocol_feature>
 ```
 
 In practice, we have all nightly protocol features enabled for Nayduck tests and
