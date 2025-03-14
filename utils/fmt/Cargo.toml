@@ -17,5 +17,4 @@ near-primitives-core.workspace = true
 [features]
 nightly = [
   "near-primitives-core/nightly",
-
 ]

@@ -90,7 +90,6 @@ nightly = [
   "near-primitives/nightly",
   "near-store/nightly",
   "near-vm-runner/nightly",
-
   "node-runtime/nightly",
 ]
 sandbox = ["near-o11y/sandbox", "near-primitives/sandbox"]

@@ -48,7 +48,6 @@ nightly = [
   "near-store/nightly",
   "near-vm-runner/nightly",
   "near-wallet-contract/nightly",
-
   "testlib/nightly",
 ]
 no_cpu_compatibility_checks = ["near-vm-runner/no_cpu_compatibility_checks"]

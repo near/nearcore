@@ -45,5 +45,4 @@ nightly = [
   "near-primitives/nightly",
   "near-store/nightly",
   "nearcore/nightly",
-
 ]

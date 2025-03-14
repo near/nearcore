@@ -30,5 +30,4 @@ near-performance-metrics-macros.workspace = true
 nightly = [
   "near-async/nightly",
   "near-o11y/nightly",
-
 ]

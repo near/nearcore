@@ -77,7 +77,6 @@ nightly = [
   "near-primitives/nightly",
   "near-store/nightly",
   "nearcore/nightly",
-
   "node-runtime/nightly",
   "testlib/nightly",
 ]

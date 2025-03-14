@@ -48,6 +48,5 @@ nightly = [
   "near-o11y/nightly",
   "near-parameters/nightly",
   "near-primitives/nightly",
-
   "node-runtime/nightly",
 ]

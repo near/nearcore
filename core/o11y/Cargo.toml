@@ -43,7 +43,6 @@ smartstring.workspace = true
 nightly = [
   "near-fmt/nightly",
   "near-primitives-core/nightly",
-
 ]
 io_trace = [ "near-fmt", "strum" ]
 sandbox = []

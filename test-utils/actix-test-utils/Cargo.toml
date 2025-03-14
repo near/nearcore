@@ -19,5 +19,4 @@ near-store.workspace = true
 [features]
 nightly = [
   "near-store/nightly",
-
 ]

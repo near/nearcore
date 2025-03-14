@@ -22,5 +22,4 @@ members = []
 
 [features]
 nightly = [
-
 ]

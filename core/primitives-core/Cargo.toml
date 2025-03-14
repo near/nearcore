@@ -36,7 +36,6 @@ expect-test.workspace = true
 default = []
 
 nightly = [
-
 ]
 
 protocol_schema = [

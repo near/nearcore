@@ -25,5 +25,4 @@ near-primitives.workspace = true
 nightly = [
   "near-jsonrpc-primitives/nightly",
   "near-primitives/nightly",
-
 ]

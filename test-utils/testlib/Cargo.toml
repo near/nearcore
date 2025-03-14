@@ -29,7 +29,6 @@ nightly = [
   "near-chain/nightly",
   "near-parameters/nightly",
   "near-primitives/nightly",
-
   "node-runtime/nightly",
 ]
 default = []

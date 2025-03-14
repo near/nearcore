@@ -123,7 +123,6 @@ nightly = [
   "near-vm-runner/nightly",
   "near-wallet-contract/nightly",
   "nearcore/nightly",
-
   "node-runtime/nightly",
   "testlib/nightly",
 ]
