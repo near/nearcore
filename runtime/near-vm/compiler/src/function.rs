@@ -4,7 +4,7 @@
 //! A `Compilation` contains the compiled function bodies for a WebAssembly
 //! module (`CompiledFunction`).
 
-// cspell:ignore rkyv, rodata
+// cspell:ignore rodata
 
 use crate::lib::std::vec::Vec;
 use crate::section::{CustomSection, SectionIndex};
