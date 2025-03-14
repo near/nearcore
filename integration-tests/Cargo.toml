@@ -97,9 +97,6 @@ test_features = [
   "near-vm-runner/test_features",
   "near-test-contracts/test_features",
 ]
-protocol_feature_fix_contract_loading_cost = [
-  "nearcore/protocol_feature_fix_contract_loading_cost",
-]
 
 nightly = [
   "near-actix-test-utils/nightly",
@@ -128,7 +125,6 @@ nightly = [
   "nearcore/nightly",
   "nightly_protocol",
   "node-runtime/nightly",
-  "protocol_feature_fix_contract_loading_cost",
   "testlib/nightly",
 ]
 nightly_protocol = [

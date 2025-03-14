@@ -1327,7 +1327,7 @@ fn calculate_transactions_size_limit(
 ) -> u64 {
     // Checking feature WitnessTransactionLimits
     if ProtocolFeature::StatelessValidation.enabled(protocol_version) {
-        if near_primitives::checked_feature!("stable", RelaxedChunkValidation, protocol_version) {
+        if ProtocolFeature::RelaxedChunkValidation.enabled(protocol_version) {
             last_chunk_transactions_size = 0;
         }
         // Sum of transactions in the previous and current chunks should not exceed the limit.

@@ -4,7 +4,6 @@ use num_rational::Rational32;
 use primitive_types::{U256, U512};
 
 use near_chain_configs::GenesisConfig;
-use near_primitives::checked_feature;
 use near_primitives::types::{AccountId, Balance, BlockChunkValidatorStats};
 use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 
@@ -74,7 +73,7 @@ impl RewardCalculator {
             self.protocol_reward_rate
         };
         let epoch_total_reward: u128 =
-            if checked_feature!("stable", RectifyInflation, protocol_version) {
+            if ProtocolFeature::RectifyInflation.enabled(protocol_version) {
                 (U256::from(*max_inflation_rate.numer() as u64)
                     * U256::from(total_supply)
                     * U256::from(epoch_duration)
@@ -117,7 +116,7 @@ impl RewardCalculator {
                 U256::from(*online_thresholds.online_min_threshold.denom() as u64);
             // If average of produced blocks below online min threshold, validator gets 0 reward.
             let chunk_only_producers_enabled =
-                checked_feature!("stable", ChunkOnlyProducers, protocol_version);
+                ProtocolFeature::ChunkOnlyProducers.enabled(protocol_version);
             let reward = if average_produced_numer * online_min_denom
                 < online_min_numer * average_produced_denom
                 || (chunk_only_producers_enabled

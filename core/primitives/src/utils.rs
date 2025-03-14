@@ -1,3 +1,4 @@
+use near_primitives_core::version::ProtocolFeature;
 use std::cmp::max;
 use std::convert::AsRef;
 use std::fmt;
@@ -6,7 +7,6 @@ use chrono;
 use chrono::DateTime;
 
 use near_primitives_core::types::BlockHeight;
-use near_primitives_core::version::ProtocolFeature;
 use serde;
 
 use crate::block::BlockHeader;
@@ -538,7 +538,6 @@ pub fn get_block_metadata(
 mod tests {
     use super::*;
     use near_crypto::{KeyType, PublicKey};
-    use near_primitives_core::version::ProtocolFeature;
 
     #[test]
     fn test_derive_near_implicit_account_id() {

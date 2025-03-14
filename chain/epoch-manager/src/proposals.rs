@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 
-use near_primitives::checked_feature;
 use near_primitives::epoch_info::{EpochInfo, RngSeed};
 use near_primitives::epoch_manager::EpochConfig;
 use near_primitives::errors::EpochError;
@@ -8,6 +7,7 @@ use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
     AccountId, Balance, NumSeats, ProtocolVersion, ValidatorKickoutReason,
 };
+use near_primitives::version::ProtocolFeature;
 
 /// Find threshold of stake per seat, given provided stakes and required number of seats.
 pub(crate) fn find_threshold(
@@ -51,11 +51,7 @@ pub fn proposals_to_epoch_info(
 ) -> Result<EpochInfo, EpochError> {
     // For this protocol feature, switch happened two epochs after protocol upgrade.
     // Keeping it this way for replayability.
-    if checked_feature!(
-        "stable",
-        AliasValidatorSelectionAlgorithm,
-        prev_prev_epoch_protocol_version
-    ) {
+    if ProtocolFeature::AliasValidatorSelectionAlgorithm.enabled(prev_prev_epoch_protocol_version) {
         crate::validator_selection::proposals_to_epoch_info(
             epoch_config,
             rng_seed,
