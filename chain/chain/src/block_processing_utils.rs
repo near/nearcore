@@ -43,7 +43,6 @@ pub(crate) struct BlockPreprocessInfo {
 
 pub(crate) struct OptimisticBlockInfo {
     /// Used to get notified when the applying chunks of a block finishes.
-    #[allow(unused)]
     pub(crate) apply_chunks_done_waiter: ApplyChunksDoneWaiter,
     /// This is used to calculate block processing time metric
     #[allow(unused)]
@@ -190,7 +189,10 @@ impl BlocksInProcessing {
         for (_, (_, block_preprocess_info)) in self.preprocessed_blocks.iter() {
             let _ = block_preprocess_info.apply_chunks_done_waiter.wait();
         }
-        !self.preprocessed_blocks.is_empty()
+        for (_, (_, block_preprocess_info)) in self.optimistic_blocks.iter() {
+            let _ = block_preprocess_info.apply_chunks_done_waiter.wait();
+        }
+        !self.preprocessed_blocks.is_empty() || !self.optimistic_blocks.is_empty()
     }
 
     /// This function waits until apply_chunks_done is marked as true for block `block_hash`
