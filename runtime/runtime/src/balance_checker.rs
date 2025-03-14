@@ -2,8 +2,8 @@ use crate::config::{
     safe_add_balance, safe_add_gas, safe_gas_to_balance, total_deposit, total_prepaid_exec_fees,
     total_prepaid_gas, total_prepaid_send_fees,
 };
+use crate::safe_add_balance_apply;
 use crate::{DelayedReceiptIndices, ValidatorAccountsUpdate};
-use crate::{SignedValidPeriodTransactions, safe_add_balance_apply};
 use near_parameters::{ActionCosts, RuntimeConfig};
 use near_primitives::chunk_apply_stats::BalanceStats;
 use near_primitives::errors::{
@@ -11,6 +11,7 @@ use near_primitives::errors::{
 };
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{Receipt, ReceiptEnum, ReceiptOrStateStoredReceipt};
+use near_primitives::transaction::ValidatedTransaction;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{AccountId, Balance, ShardId};
 use near_store::trie::receipts_column_helper::{ShardsOutgoingReceiptBuffer, TrieQueue};
@@ -182,27 +183,34 @@ fn all_touched_accounts(
     incoming_receipts: &[Receipt],
     yield_timeout_receipts: &[Receipt],
     processed_delayed_receipts: &[Receipt],
-    transactions: SignedValidPeriodTransactions<'_>,
+    validated_txs: Vec<(ValidatedTransaction, bool)>,
     validator_accounts_update: &Option<ValidatorAccountsUpdate>,
 ) -> Result<HashSet<AccountId>, RuntimeError> {
-    let mut all_accounts_ids: HashSet<AccountId> = transactions
-        .iter_nonexpired_transactions()
-        .map(|tx| tx.transaction.signer_id().clone())
-        .chain(incoming_receipts.iter().map(|r| r.receiver_id().clone()))
-        .chain(yield_timeout_receipts.iter().map(|r| r.receiver_id().clone()))
-        .chain(processed_delayed_receipts.iter().map(|r| r.receiver_id().clone()))
-        .collect();
-    if let Some(validator_accounts_update) = validator_accounts_update {
-        all_accounts_ids.extend(validator_accounts_update.stake_info.keys().cloned());
-        all_accounts_ids.extend(validator_accounts_update.validator_rewards.keys().cloned());
-        all_accounts_ids.extend(validator_accounts_update.last_proposals.keys().cloned());
-        all_accounts_ids.extend(validator_accounts_update.slashing_info.keys().cloned());
-        if let Some(account_id) = &validator_accounts_update.protocol_treasury_account_id {
-            all_accounts_ids.insert(account_id.clone());
+    let receipts_account_ids = incoming_receipts
+        .into_iter()
+        .chain(yield_timeout_receipts)
+        .chain(processed_delayed_receipts)
+        .map(|r| r.receiver_id())
+        .cloned();
+    let txs_account_ids = validated_txs
+        .into_iter()
+        .filter_map(|(vt, validity)| validity.then_some(vt))
+        .map(|vt| vt.signer_id().clone());
+    let mut all_account_ids = receipts_account_ids.chain(txs_account_ids).collect::<HashSet<_>>();
+    if let Some(update) = validator_accounts_update {
+        let validate_accounts = update
+            .stake_info
+            .keys()
+            .chain(update.validator_rewards.keys())
+            .chain(update.last_proposals.keys())
+            .chain(update.slashing_info.keys())
+            .cloned();
+        all_account_ids.extend(validate_accounts);
+        if let Some(account) = &update.protocol_treasury_account_id {
+            all_account_ids.insert(account.clone());
         }
-    };
-
-    Ok(all_accounts_ids)
+    }
+    Ok(all_account_ids)
 }
 
 fn validator_rewards(
@@ -268,7 +276,7 @@ fn potential_postponed_receipt_ids(
 }
 
 #[tracing::instrument(target = "runtime", level = "debug", "check_balance", skip_all, fields(
-    transactions.len = transactions.len(),
+    validated_txs.len = validated_txs.len(),
     incoming_receipts.len = incoming_receipts.len(),
     yield_timeout_receipts.len = yield_timeout_receipts.len(),
     outgoing_receipts.len = outgoing_receipts.len()
@@ -280,7 +288,7 @@ pub(crate) fn check_balance(
     incoming_receipts: &[Receipt],
     processed_delayed_receipts: &[Receipt],
     yield_timeout_receipts: &[Receipt],
-    transactions: SignedValidPeriodTransactions<'_>,
+    validated_txs: Vec<(ValidatedTransaction, bool)>,
     outgoing_receipts: &[Receipt],
     stats: &BalanceStats,
 ) -> Result<(), RuntimeError> {
@@ -308,7 +316,7 @@ pub(crate) fn check_balance(
         incoming_receipts,
         yield_timeout_receipts,
         &processed_delayed_receipts,
-        transactions,
+        validated_txs,
         validator_accounts_update,
     )?;
 
@@ -425,7 +433,7 @@ mod tests {
             &[],
             &[],
             &[],
-            SignedValidPeriodTransactions::empty(),
+            vec![],
             &[],
             &BalanceStats::default(),
         )
@@ -444,7 +452,7 @@ mod tests {
             &[Receipt::new_balance_refund(&alice_account(), 1000, ReceiptPriority::NoPriority)],
             &[],
             &[],
-            SignedValidPeriodTransactions::empty(),
+            vec![],
             &[],
             &BalanceStats::default(),
         )
@@ -509,7 +517,7 @@ mod tests {
             )],
             &[],
             &[],
-            SignedValidPeriodTransactions::empty(),
+            vec![],
             &[],
             &BalanceStats::default(),
         )
@@ -549,7 +557,7 @@ mod tests {
         );
 
         let tx = transfer_tx(account_id, bob_account(), deposit);
-        let receipt = extract_transfer_receipt(&tx, gas_price, deposit);
+        let receipt = extract_transfer_receipt(tx.to_signed_tx(), gas_price, deposit);
 
         check_balance(
             &cfg,
@@ -558,7 +566,7 @@ mod tests {
             &[],
             &[],
             &[],
-            SignedValidPeriodTransactions::new(&[tx], &[true]),
+            vec![(tx, true)],
             &[receipt],
             &BalanceStats {
                 tx_burnt_amount: total_validator_reward,
@@ -571,7 +579,7 @@ mod tests {
         .unwrap();
     }
 
-    fn transfer_tx(sender: AccountId, receiver: AccountId, deposit: u128) -> SignedTransaction {
+    fn transfer_tx(sender: AccountId, receiver: AccountId, deposit: u128) -> ValidatedTransaction {
         let signer = InMemorySigner::test_signer(&sender);
         let tx = SignedTransaction::send_money(
             0,
@@ -581,7 +589,7 @@ mod tests {
             deposit,
             CryptoHash::default(),
         );
-        tx
+        ValidatedTransaction::new_for_test(tx)
     }
 
     fn extract_transfer_receipt(tx: &SignedTransaction, gas_price: u128, deposit: u128) -> Receipt {
@@ -621,7 +629,7 @@ mod tests {
 
         // Sending 2 yoctoNEAR, so that we have an overflow when adding to alice's balance.
         let tx = transfer_tx(alice_id, bob_id, 2);
-        let receipt = extract_transfer_receipt(&tx, gas_price, deposit);
+        let receipt = extract_transfer_receipt(tx.to_signed_tx(), gas_price, deposit);
 
         assert_matches!(
             check_balance(
@@ -631,7 +639,7 @@ mod tests {
                 &[receipt],
                 &[],
                 &[],
-                SignedValidPeriodTransactions::new(&[tx], &[true]),
+                vec![(tx, true)],
                 &[],
                 &BalanceStats::default(),
             ),
@@ -659,7 +667,7 @@ mod tests {
         initial_state.commit(StateChangeCause::NotWritableToDisk);
 
         let tx = transfer_tx(alice_id, bob_id, deposit);
-        let receipt = extract_transfer_receipt(&tx, gas_price, deposit);
+        let receipt = extract_transfer_receipt(tx.to_signed_tx(), gas_price, deposit);
 
         // Alice's balance becomes u128::MAX, which causes it is interpreted as
         // the Alice's account version to be 2 or higher, instead of being interpreted
@@ -673,7 +681,7 @@ mod tests {
                 &[receipt],
                 &[],
                 &[],
-                SignedValidPeriodTransactions::new(&[tx], &[true]),
+                vec![(tx, true)],
                 &[],
                 &BalanceStats::default(),
             ),
@@ -693,8 +701,8 @@ mod tests {
         let initial_balance = TESTING_INIT_BALANCE;
 
         let tx = transfer_tx(account_id.clone(), bob_account(), deposit);
-        let existing_receipt = extract_transfer_receipt(&tx, gas_price, deposit + 5);
-        let new_receipt = extract_transfer_receipt(&tx, gas_price, deposit);
+        let existing_receipt = extract_transfer_receipt(tx.to_signed_tx(), gas_price, deposit + 5);
+        let new_receipt = extract_transfer_receipt(tx.to_signed_tx(), gas_price, deposit);
 
         let cfg = RuntimeConfig::test();
         let fees = &cfg.fees;
@@ -753,7 +761,7 @@ mod tests {
             &[],
             &[],
             &[],
-            SignedValidPeriodTransactions::new(&[tx], &[true]),
+            vec![(tx, true)],
             &[],
             &BalanceStats {
                 // send gas was burnt on this shard, exec gas is part of the receipt value
@@ -777,8 +785,8 @@ mod tests {
         let gas_price = 10;
 
         let tx = transfer_tx(account_id, bob_account(), deposit);
-        let receipt0 = extract_transfer_receipt(&tx, gas_price, deposit);
-        let receipt1 = extract_transfer_receipt(&tx, gas_price, deposit + 5);
+        let receipt0 = extract_transfer_receipt(tx.to_signed_tx(), gas_price, deposit);
+        let receipt1 = extract_transfer_receipt(tx.to_signed_tx(), gas_price, deposit + 5);
 
         let final_state = prepare_state_change(
             |trie_update| {
@@ -825,7 +833,7 @@ mod tests {
             &[],
             &[],
             &[],
-            SignedValidPeriodTransactions::empty(),
+            vec![],
             &outgoing_receipts,
             &BalanceStats::default(),
         )
@@ -841,8 +849,8 @@ mod tests {
         let gas_price = 10;
 
         let tx = transfer_tx(account_id, bob_account(), deposit0);
-        let receipt0 = extract_transfer_receipt(&tx, gas_price, deposit0);
-        let receipt1 = extract_transfer_receipt(&tx, gas_price, deposit1);
+        let receipt0 = extract_transfer_receipt(tx.to_signed_tx(), gas_price, deposit0);
+        let receipt1 = extract_transfer_receipt(tx.to_signed_tx(), gas_price, deposit1);
 
         let final_state = prepare_state_change(
             |trie_update| {
@@ -889,7 +897,7 @@ mod tests {
             &[],
             &[],
             &[],
-            SignedValidPeriodTransactions::empty(),
+            vec![],
             &outgoing_receipts,
             &BalanceStats::default(),
         );
