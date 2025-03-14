@@ -1,3 +1,4 @@
+use near_client::Client;
 use near_epoch_manager::shard_assignment::{account_id_to_shard_id, shard_id_to_uid};
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{AccountId, Balance, ShardId};
@@ -5,14 +6,13 @@ use near_primitives::views::{
     FinalExecutionOutcomeView, QueryRequest, QueryResponse, QueryResponseKind,
 };
 
-use crate::Client;
-
-// TODO: This would be a good starting point for turning this into a test util.
 pub trait ClientQueries {
     fn client_index_tracking_account(&self, account: &AccountId) -> usize;
     fn runtime_query(&self, account: &AccountId, query: QueryRequest) -> QueryResponse;
     fn query_balance(&self, account: &AccountId) -> Balance;
+    #[allow(unused)]
     fn view_call(&self, account: &AccountId, method: &str, args: &[u8]) -> Vec<u8>;
+    #[allow(unused)]
     fn tx_outcome(&self, tx_hash: CryptoHash) -> FinalExecutionOutcomeView;
     fn tracked_shards_for_each_client(&self) -> Vec<Vec<ShardId>>;
 }

@@ -25,8 +25,9 @@ use near_primitives::views::{
     StateChangeCauseView, StateChangeKindView, StateChangeValueView, StateChangesRequestView,
 };
 
-use crate::builder::TestLoopBuilder;
-use crate::env::{TestData, TestLoopEnv};
+use crate::setup::builder::TestLoopBuilder;
+use crate::setup::env::TestLoopEnv;
+use crate::setup::state::NodeExecutionData;
 use crate::utils::ONE_NEAR;
 use crate::utils::transactions::execute_money_transfers;
 
@@ -71,13 +72,14 @@ fn slow_test_view_requests_to_archival_node() {
         .genesis_height(GENESIS_HEIGHT)
         .build();
     let epoch_config_store = TestEpochConfigBuilder::build_store_from_genesis(&genesis);
-    let TestLoopEnv { mut test_loop, datas: node_datas, tempdir } = builder
+    let TestLoopEnv { mut test_loop, node_datas, shared_state } = builder
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .clients(all_clients)
         .archival_clients(archival_clients)
         .gc_num_epochs_to_keep(GC_NUM_EPOCHS_TO_KEEP)
-        .build();
+        .build()
+        .warmup();
 
     let non_validator_accounts = accounts.iter().skip(NUM_VALIDATORS).cloned().collect_vec();
     execute_money_transfers(&mut test_loop, &node_datas, &non_validator_accounts).unwrap();
@@ -96,7 +98,7 @@ fn slow_test_view_requests_to_archival_node() {
     let mut view_client_tester = ViewClientTester::new(&mut test_loop, &node_datas);
     view_client_tester.run_tests(&shard_layout);
 
-    TestLoopEnv { test_loop, datas: node_datas, tempdir }
+    TestLoopEnv { test_loop, node_datas, shared_state }
         .shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
@@ -110,11 +112,11 @@ struct ViewClientTester<'a> {
 }
 
 impl<'a> ViewClientTester<'a> {
-    fn new(test_loop: &'a mut TestLoopV2, test_data: &Vec<TestData>) -> Self {
+    fn new(test_loop: &'a mut TestLoopV2, node_datas: &Vec<NodeExecutionData>) -> Self {
         Self {
             test_loop,
             // Save the handles for the view client senders.
-            handles: test_data
+            handles: node_datas
                 .iter()
                 .map(|data| data.view_client_sender.actor_handle())
                 .collect_vec(),

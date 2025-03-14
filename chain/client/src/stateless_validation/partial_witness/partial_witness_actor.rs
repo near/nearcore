@@ -416,16 +416,18 @@ impl PartialWitnessActor {
                     ));
                 }
                 Ok(false) => {
-                    // TODO: ban sending peer
-                    tracing::warn!(
+                    tracing::debug!(
                         target: "client",
-                        "Received invalid partial encoded state witness"
+                        chunk_production_key = ?partial_witness.chunk_production_key(),
+                        "Received irrelevant partial encoded state witness",
                     );
                 }
                 Err(err) => {
+                    // TODO: ban sending peer
                     tracing::warn!(
                         target: "client",
-                        "Encountered error during validation: {}",
+                        chunk_production_key = ?partial_witness.chunk_production_key(),
+                        "Received invalid partial encoded state witness: {}",
                         err
                     );
                 }
@@ -463,16 +465,18 @@ impl PartialWitnessActor {
                         }
                     }
                     Ok(false) => {
-                        // TODO: ban sending peer
-                        tracing::warn!(
+                        tracing::debug!(
                             target: "client",
-                            "Received invalid partial encoded state witness"
+                            chunk_production_key = ?partial_witness.chunk_production_key(),
+                            "Received irrelevant partial encoded state witness",
                         );
                     }
                     Err(err) => {
+                        // TODO: ban sending peer
                         tracing::warn!(
                             target: "client",
-                            "Encountered error during validation: {}",
+                            chunk_production_key = ?partial_witness.chunk_production_key(),
+                            "Received invalid partial encoded state witness: {}",
                             err
                         );
                     }
@@ -607,7 +611,7 @@ impl PartialWitnessActor {
         let contracts_cache = self.runtime.compiled_contract_cache();
         let runtime_config = self
             .runtime
-            .get_runtime_config(self.epoch_manager.get_epoch_protocol_version(&key.epoch_id)?)?;
+            .get_runtime_config(self.epoch_manager.get_epoch_protocol_version(&key.epoch_id)?);
         let missing_contract_hashes = HashSet::from_iter(
             accesses
                 .contracts()

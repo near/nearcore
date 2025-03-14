@@ -2,7 +2,7 @@ pub use crate::action::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
     DeployContractAction, FunctionCallAction, StakeAction, TransferAction,
 };
-use crate::errors::TxExecutionError;
+use crate::errors::{InvalidTxError, TxExecutionError};
 use crate::hash::{CryptoHash, hash};
 use crate::merkle::MerklePath;
 use crate::profile_data_v3::ProfileDataV3;
@@ -10,6 +10,7 @@ use crate::types::{AccountId, Balance, Gas, Nonce};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::{PublicKey, Signature};
 use near_fmt::{AbbrBytes, Slice};
+use near_parameters::RuntimeConfig;
 use near_primitives_core::serialize::{from_base64, to_base64};
 use near_primitives_core::types::Compute;
 use near_schema_checker_lib::ProtocolSchema;
@@ -208,6 +209,105 @@ impl BorshDeserialize for Transaction {
                 priority_fee,
             }))
         }
+    }
+}
+
+/// Using the new type pattern to construct a type of signed transaction that is
+/// guaranteed to have various checks performed on it.  In particular, ensure
+/// that the signature is verified and the max transaction size checks have been
+/// conducted.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ValidatedTransaction(SignedTransaction);
+
+impl ValidatedTransaction {
+    #[allow(clippy::result_large_err)]
+    pub fn new(
+        config: &RuntimeConfig,
+        signed_tx: SignedTransaction,
+    ) -> Result<Self, (InvalidTxError, SignedTransaction)> {
+        // Don't allow V1 currently. This will be changed when the new protocol version is introduced.
+        if matches!(signed_tx.transaction, Transaction::V1(_)) {
+            return Err((InvalidTxError::InvalidTransactionVersion, signed_tx));
+        }
+        let tx_size = signed_tx.get_size();
+        let max_tx_size = config.wasm_config.limit_config.max_transaction_size;
+        if tx_size > max_tx_size {
+            return Err((
+                InvalidTxError::TransactionSizeExceeded { size: tx_size, limit: max_tx_size },
+                signed_tx,
+            ));
+        }
+
+        if signed_tx
+            .signature
+            .verify(signed_tx.get_hash().as_ref(), signed_tx.transaction.public_key())
+        {
+            Ok(Self(signed_tx))
+        } else {
+            Err((InvalidTxError::InvalidSignature, signed_tx))
+        }
+    }
+
+    /// This method should only be used for test purposes.  This is because
+    /// kv_runtime is not designed to do proper signature verification.
+    pub fn new_for_test(signed_tx: SignedTransaction) -> Self {
+        Self(signed_tx)
+    }
+
+    /// Builds a list of ValidatedTransactions from an iterator of
+    /// SignedTransactions.
+    ///
+    /// Note that the if a subset of SignedTransactions pass validation and then
+    /// one fails, then this function will drop the validated txs.  Currently,
+    /// this is not problematic for any of the callers of this function. It is
+    /// possible to improve this function to never drop any txs if callers
+    /// require such functionality in the future.
+    #[allow(clippy::result_large_err)]
+    pub fn new_list(
+        config: &RuntimeConfig,
+        signed_txs: impl IntoIterator<Item = SignedTransaction>,
+    ) -> Result<Vec<ValidatedTransaction>, (InvalidTxError, SignedTransaction)> {
+        let mut validated_txs = vec![];
+        for signed_tx in signed_txs {
+            validated_txs.push(ValidatedTransaction::new(&config, signed_tx)?);
+        }
+        Ok(validated_txs)
+    }
+
+    pub fn to_signed_tx(&self) -> &SignedTransaction {
+        &self.0
+    }
+
+    pub fn into_signed_tx(self) -> SignedTransaction {
+        self.0
+    }
+
+    pub fn to_tx(&self) -> &Transaction {
+        &self.0.transaction
+    }
+
+    pub fn get_hash(&self) -> CryptoHash {
+        self.0.get_hash()
+    }
+
+    pub fn get_size(&self) -> u64 {
+        self.0.get_size()
+    }
+
+    pub fn signer_id(&self) -> &AccountId {
+        self.to_tx().signer_id()
+    }
+
+    pub fn receiver_id(&self) -> &AccountId {
+        self.to_tx().receiver_id()
+    }
+
+    pub fn nonce(&self) -> Nonce {
+        self.to_tx().nonce()
+    }
+
+    pub fn public_key(&self) -> &PublicKey {
+        self.to_tx().public_key()
     }
 }
 

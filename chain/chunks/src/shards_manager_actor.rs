@@ -17,7 +17,7 @@
 //!   producer to the part owners after the chunk is produced
 //! - by receiving a PartialEncodedChunkForward, which is sent from part owners
 //!   to validators who track the shard, when a validator first receives a part
-//!   it owns.  TODO(#5886): this is actually not the current behavior.
+//!   it owns.
 //! Note that last two messages can only be sent from validators to validators,
 //! so the only way a non-validator receives a partial encoded chunk is by
 //! requesting it.

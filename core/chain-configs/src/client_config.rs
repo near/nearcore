@@ -7,6 +7,7 @@ use near_primitives::types::{
 };
 use near_primitives::version::Version;
 use near_time::Duration;
+use num_rational::Rational32;
 use std::cmp::{max, min};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -333,6 +334,10 @@ pub fn default_state_sync_external_backoff() -> Duration {
     Duration::seconds(60)
 }
 
+pub fn default_chunk_wait_mult() -> Rational32 {
+    Rational32::new(1, 6)
+}
+
 pub fn default_header_sync_expected_height_per_second() -> u64 {
     10
 }
@@ -444,6 +449,8 @@ pub struct ClientConfig {
     pub max_block_production_delay: Duration,
     /// Maximum duration before skipping given height.
     pub max_block_wait_delay: Duration,
+    /// Multiplier for the wait time for all chunks to be received.
+    pub chunk_wait_mult: Rational32,
     /// Skip waiting for sync (for testing or single node testnet).
     pub skip_sync_wait: bool,
     /// How often to check that we are not out of sync.
@@ -569,6 +576,7 @@ pub struct ClientConfig {
     /// which can cause extra load on the database. This option is not recommended for production use,
     /// as a large number of incoming witnesses could cause denial of service.
     pub save_latest_witnesses: bool,
+    pub transaction_request_handler_threads: usize,
 }
 
 impl ClientConfig {
@@ -599,6 +607,7 @@ impl ClientConfig {
             min_block_production_delay: Duration::milliseconds(min_block_prod_time as i64),
             max_block_production_delay: Duration::milliseconds(max_block_prod_time as i64),
             max_block_wait_delay: Duration::milliseconds(3 * min_block_prod_time as i64),
+            chunk_wait_mult: Rational32::new(1, 6),
             skip_sync_wait,
             sync_check_period: Duration::milliseconds(100),
             sync_step_period: Duration::milliseconds(10),
@@ -658,6 +667,7 @@ impl ClientConfig {
             orphan_state_witness_pool_size: default_orphan_state_witness_pool_size(),
             orphan_state_witness_max_size: default_orphan_state_witness_max_size(),
             save_latest_witnesses: false,
+            transaction_request_handler_threads: 4,
         }
     }
 }

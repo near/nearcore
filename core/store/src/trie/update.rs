@@ -15,6 +15,7 @@ use near_primitives::types::{
     StateRoot, TrieCacheMode,
 };
 use near_primitives::version::ProtocolFeature;
+
 use near_vm_runner::ContractCode;
 use near_vm_runner::logic::ProtocolVersion;
 use std::collections::BTreeMap;

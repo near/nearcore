@@ -25,8 +25,7 @@ use near_async::test_loop::sender::TestLoopSender;
 use near_async::time::Duration;
 use near_chain::{ChainStoreAccess, ReceiptFilter, get_incoming_receipts_for_shard};
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
-use near_client::Client;
-use near_client::client_actor::ClientActorInner;
+use near_client::{Client, TxRequestHandler};
 use near_crypto::Signer;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::account::{AccessKey, AccessKeyPermission};
@@ -56,8 +55,10 @@ use testlib::bandwidth_scheduler::{
     TestScenario, TestScenarioBuilder, TestSummary,
 };
 
-use crate::builder::TestLoopBuilder;
-use crate::env::{TestData, TestLoopEnv};
+use crate::setup::builder::TestLoopBuilder;
+use crate::setup::drop_condition::DropCondition;
+use crate::setup::env::TestLoopEnv;
+use crate::setup::state::NodeExecutionData;
 use crate::utils::transactions::{TransactionRunner, run_txs_parallel};
 use crate::utils::{ONE_NEAR, TGAS};
 
@@ -162,12 +163,13 @@ fn run_bandwidth_scheduler_test(scenario: TestScenario, tx_concurrency: usize) -
         .build();
     let epoch_config_store = TestEpochConfigBuilder::build_store_from_genesis(&genesis);
 
-    let TestLoopEnv { mut test_loop, datas: node_datas, tempdir } = TestLoopBuilder::new()
+    let TestLoopEnv { mut test_loop, node_datas, shared_state } = TestLoopBuilder::new()
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .clients(vec![node_account])
-        .drop_chunks_by_height(missing_chunks_map)
-        .build();
+        .build()
+        .drop(DropCondition::ChunksProducedByHeight(missing_chunks_map))
+        .warmup();
 
     // Initialize the workload generator.
     let mut workload_generator = WorkloadGenerator::init(
@@ -180,7 +182,7 @@ fn run_bandwidth_scheduler_test(scenario: TestScenario, tx_concurrency: usize) -
     );
 
     let client_handle = node_datas[0].client_sender.actor_handle();
-    let client_sender = node_datas[0].client_sender.clone();
+    let tx_processor_sender = node_datas[0].tx_processor_sender.clone();
     let future_spawner = test_loop.future_spawner("WorkloadGenerator");
 
     // Run the workload for a number of blocks and verify that the bandwidth requests are generated correctly.
@@ -207,7 +209,7 @@ fn run_bandwidth_scheduler_test(scenario: TestScenario, tx_concurrency: usize) -
         }
 
         // Run the transactions which generate cross-shard receipts.
-        workload_generator.run(&client_sender, client, &future_spawner);
+        workload_generator.run(&tx_processor_sender, client, &future_spawner);
 
         false
     };
@@ -219,7 +221,7 @@ fn run_bandwidth_scheduler_test(scenario: TestScenario, tx_concurrency: usize) -
     let bandwidth_stats =
         analyze_workload_blocks(first_height.unwrap(), last_height.unwrap(), client);
 
-    TestLoopEnv { test_loop, datas: node_datas, tempdir }
+    TestLoopEnv { test_loop, node_datas, shared_state }
         .shutdown_and_drain_remaining_events(Duration::seconds(20));
 
     let summary = bandwidth_stats.summarize(&active_links);
@@ -253,7 +255,7 @@ fn analyze_workload_blocks(
     let epoch_id = epoch_manager.get_epoch_id(block.hash()).unwrap();
     let num_shards = epoch_manager.get_shard_layout(&epoch_id).unwrap().num_shards();
     let protocol_version = epoch_manager.get_epoch_protocol_version(&epoch_id).unwrap();
-    let runtime_config = client.runtime_adapter.get_runtime_config(protocol_version).unwrap();
+    let runtime_config = client.runtime_adapter.get_runtime_config(protocol_version);
     let scheduler_params =
         BandwidthSchedulerParams::new(num_shards.try_into().unwrap(), &runtime_config);
     let mut bandwidth_stats =
@@ -478,7 +480,7 @@ impl WorkloadGenerator {
         shard_accounts: BTreeMap<ShardIndex, AccountId>,
         concurrency: usize,
         test_loop: &mut TestLoopV2,
-        node_datas: &[TestData],
+        node_datas: &[NodeExecutionData],
         random_seed: u64,
         link_generators: LinkGenerators,
     ) -> Self {
@@ -513,7 +515,7 @@ impl WorkloadGenerator {
     }
 
     /// Deploy the test contract on all workload accounts
-    fn deploy_contracts(&mut self, test_loop: &mut TestLoopV2, node_datas: &[TestData]) {
+    fn deploy_contracts(&mut self, test_loop: &mut TestLoopV2, node_datas: &[NodeExecutionData]) {
         tracing::info!(target: "scheduler_test", "Deploying contracts...");
         let (last_block_hash, nonce) = get_last_block_and_nonce(test_loop, node_datas);
         let deploy_contracts_txs: Vec<SignedTransaction> = self
@@ -539,7 +541,7 @@ impl WorkloadGenerator {
     fn generate_access_keys(
         &mut self,
         test_loop: &mut TestLoopV2,
-        node_datas: &[TestData],
+        node_datas: &[NodeExecutionData],
         concurrency: usize,
     ) -> BTreeMap<AccountId, Vec<Signer>> {
         tracing::info!(target: "scheduler_test", "Adding access keys...");
@@ -613,7 +615,7 @@ impl WorkloadGenerator {
 
     pub fn run(
         &mut self,
-        client_sender: &TestLoopSender<ClientActorInner>,
+        client_sender: &TestLoopSender<TxRequestHandler>,
         client: &Client,
         future_spawner: &TestLoopFutureSpawner,
     ) {
@@ -664,7 +666,7 @@ impl WorkloadSender {
 
     pub fn run(
         &mut self,
-        client_sender: &TestLoopSender<ClientActorInner>,
+        client_sender: &TestLoopSender<TxRequestHandler>,
         client: &Client,
         future_spawner: &TestLoopFutureSpawner,
         rng: &mut ChaCha20Rng,
@@ -685,7 +687,7 @@ impl WorkloadSender {
 
     pub fn start_new_transaction(
         &mut self,
-        client_sender: &TestLoopSender<ClientActorInner>,
+        client_sender: &TestLoopSender<TxRequestHandler>,
         client: &Client,
         future_spawner: &TestLoopFutureSpawner,
         rng: &mut ChaCha20Rng,
@@ -804,7 +806,7 @@ fn get_last_block_and_nonce_from_client(client: &Client) -> (CryptoHash, Nonce) 
 
 fn get_last_block_and_nonce(
     test_loop: &TestLoopV2,
-    node_datas: &[TestData],
+    node_datas: &[NodeExecutionData],
 ) -> (CryptoHash, Nonce) {
     let client = &test_loop.data.get(&node_datas[0].client_sender.actor_handle()).client;
     get_last_block_and_nonce_from_client(client)

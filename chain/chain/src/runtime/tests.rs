@@ -1578,7 +1578,8 @@ fn generate_transaction_pool(signers: &Vec<Signer>, block_hash: CryptoHash) -> T
                 round.try_into().unwrap(),
                 block_hash,
             );
-            transactions.push(transaction);
+            let validated_tx = ValidatedTransaction::new_for_test(transaction);
+            transactions.push(validated_tx);
         }
     }
     transactions.shuffle(&mut rng);
@@ -1705,7 +1706,7 @@ fn test_prepare_transactions_storage_proof() {
     let validated_transactions = prepare_transactions(
         &env,
         &chain,
-        &mut TransactionGroupIteratorWrapper::new(&proposed_transactions.transactions),
+        &mut TransactionGroupIteratorWrapper::new(proposed_transactions.transactions.clone()),
         validator_storage_config,
     )
     .unwrap();
@@ -1825,7 +1826,7 @@ fn test_precompile_contracts_updates_cache() {
     for code_hash in code_hashes.iter() {
         let cache_key = get_contract_cache_key(
             *code_hash,
-            &runtime.get_runtime_config(PROTOCOL_VERSION).unwrap().wasm_config,
+            &runtime.get_runtime_config(PROTOCOL_VERSION).wasm_config,
         );
         let contract = contract_cache.get(&cache_key).unwrap();
         assert!(contract.is_none());
@@ -1838,7 +1839,7 @@ fn test_precompile_contracts_updates_cache() {
     for code_hash in code_hashes.into_iter() {
         let cache_key = get_contract_cache_key(
             code_hash,
-            &runtime.get_runtime_config(PROTOCOL_VERSION).unwrap().wasm_config,
+            &runtime.get_runtime_config(PROTOCOL_VERSION).wasm_config,
         );
 
         let contract = contract_cache.get(&cache_key).unwrap();

@@ -33,7 +33,7 @@ use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::validator_assignment::ChunkValidatorAssignments;
 use near_primitives::transaction::{
     Action, ExecutionMetadata, ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus,
-    SignedTransaction, TransferAction,
+    SignedTransaction, TransferAction, ValidatedTransaction,
 };
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
@@ -77,6 +77,7 @@ pub struct KeyValueRuntime {
     num_shards: NumShards,
     epoch_length: u64,
     no_gc: bool,
+    runtime_config: RuntimeConfig,
 
     // A mapping state_root => {account id => amounts}, for transactions and receipts
     state: RwLock<HashMap<StateRoot, KVState>>,
@@ -372,6 +373,7 @@ impl KeyValueRuntime {
             state: RwLock::new(state),
             state_size: RwLock::new(state_size),
             contract_cache: NoContractRuntimeCache,
+            runtime_config: RuntimeConfig::test(),
         })
     }
 
@@ -996,17 +998,18 @@ impl RuntimeAdapter for KeyValueRuntime {
         Ok(self.tries.get_view_trie_for_shard(ShardUId::new(0, shard_id), state_root))
     }
 
-    fn get_shard_layout(&self, _epoch_id: &EpochId) -> Result<ShardLayout, Error> {
-        Ok(ShardLayout::multi_shard(self.num_shards, 0))
+    fn get_shard_layout(&self, _protocol_version: ProtocolVersion) -> ShardLayout {
+        ShardLayout::multi_shard(self.num_shards, 0)
     }
+
     fn validate_tx(
         &self,
         _shard_layout: &ShardLayout,
-        _transaction: &SignedTransaction,
-        _current_protocol_version: ProtocolVersion,
+        signed_tx: SignedTransaction,
+        _protocol_version: ProtocolVersion,
         _receiver_congestion_info: Option<ExtendedCongestionInfo>,
-    ) -> Result<(), InvalidTxError> {
-        Ok(())
+    ) -> Result<ValidatedTransaction, (InvalidTxError, SignedTransaction)> {
+        Ok(ValidatedTransaction::new_for_test(signed_tx))
     }
 
     fn can_verify_and_charge_tx(
@@ -1014,7 +1017,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         _shard_layout: &ShardLayout,
         _gas_price: Balance,
         _state_root: StateRoot,
-        _transaction: &SignedTransaction,
+        _validated_tx: &ValidatedTransaction,
         _current_protocol_version: ProtocolVersion,
     ) -> Result<(), InvalidTxError> {
         Ok(())
@@ -1379,11 +1382,8 @@ impl RuntimeAdapter for KeyValueRuntime {
         Err(Error::Other("get_protocol_config should not be used in KeyValueRuntime".into()))
     }
 
-    fn get_runtime_config(
-        &self,
-        _protocol_version: ProtocolVersion,
-    ) -> Result<RuntimeConfig, Error> {
-        Ok(RuntimeConfig::test())
+    fn get_runtime_config(&self, _protocol_version: ProtocolVersion) -> &RuntimeConfig {
+        &self.runtime_config
     }
 
     fn will_shard_layout_change_next_epoch(

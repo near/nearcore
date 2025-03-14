@@ -1,5 +1,5 @@
-use crate::builder::TestLoopBuilder;
-use crate::env::TestLoopEnv;
+use crate::setup::builder::TestLoopBuilder;
+use crate::setup::env::TestLoopEnv;
 use crate::utils::ONE_NEAR;
 use crate::utils::validators::get_epoch_all_validators;
 use near_async::test_loop::data::TestLoopData;
@@ -11,7 +11,7 @@ use near_primitives::shard_layout::ShardLayout;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::AccountId;
 use near_primitives::types::AccountInfo;
-use near_primitives_core::version::ProtocolFeature;
+use near_primitives::version::ProtocolFeature;
 
 #[test]
 fn slow_test_fix_cp_stake_threshold() {
@@ -58,13 +58,14 @@ fn slow_test_fix_cp_stake_threshold() {
         .add_user_accounts_simple(&accounts, 1_000_000 * ONE_NEAR)
         .build();
     let epoch_config_store = TestEpochConfigBuilder::build_store_from_genesis(&genesis);
-    let TestLoopEnv { mut test_loop, datas: node_data, tempdir } = TestLoopBuilder::new()
+    let TestLoopEnv { mut test_loop, node_datas, shared_state } = TestLoopBuilder::new()
         .genesis(genesis)
         .epoch_config_store(epoch_config_store.clone())
         .clients(clients)
-        .build();
+        .build()
+        .warmup();
 
-    let sender = node_data[0].client_sender.clone();
+    let sender = node_datas[0].client_sender.clone();
     let handle = sender.actor_handle();
     let client = &test_loop.data.get(&handle).client;
 
@@ -134,6 +135,6 @@ fn slow_test_fix_cp_stake_threshold() {
         Duration::seconds(3 * epoch_length as i64),
     );
 
-    TestLoopEnv { test_loop, datas: node_data, tempdir }
+    TestLoopEnv { test_loop, node_datas, shared_state }
         .shutdown_and_drain_remaining_events(Duration::seconds(20));
 }

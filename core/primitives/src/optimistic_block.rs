@@ -28,7 +28,6 @@ pub enum OptimisticBlockAdvType {
     InvalidRandomValue,
     InvalidTimestamp(u64),
     InvalidPrevBlockHash,
-    InvalidHeight(BlockHeight),
     InvalidSignature,
 }
 
@@ -115,9 +114,6 @@ impl OptimisticBlock {
             }
             OptimisticBlockAdvType::InvalidPrevBlockHash => {
                 inner.prev_block_hash.0[0] = !inner.prev_block_hash.0[0];
-            }
-            OptimisticBlockAdvType::InvalidHeight(h) => {
-                inner.block_height = h;
             }
             _ => {}
         }

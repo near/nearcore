@@ -1,5 +1,5 @@
 #![cfg(test)]
-mod builder;
-mod env;
+mod examples;
+mod setup;
 mod tests;
 mod utils;

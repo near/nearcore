@@ -67,6 +67,10 @@ pub static VALIDATOR_ACTIVE_TOTAL: LazyLock<IntGauge> = LazyLock::new(|| {
 });
 pub static NUM_ORPHANS: LazyLock<IntGauge> =
     LazyLock::new(|| try_create_int_gauge("near_num_orphans", "Number of orphan blocks.").unwrap());
+pub static NUM_OPTIMISTIC_ORPHANS: LazyLock<IntGauge> = LazyLock::new(|| {
+    try_create_int_gauge("near_num_optimistic_orphans", "Number of optimistic orphan blocks.")
+        .unwrap()
+});
 pub static HEADER_HEAD_HEIGHT: LazyLock<IntGauge> = LazyLock::new(|| {
     try_create_int_gauge("near_header_head_height", "Height of the header head").unwrap()
 });
@@ -148,6 +152,13 @@ pub static STATE_PART_CACHE_MISS: LazyLock<IntCounter> = LazyLock::new(|| {
 pub static NUM_INVALID_BLOCKS: LazyLock<IntGaugeVec> = LazyLock::new(|| {
     try_create_int_gauge_vec("near_num_invalid_blocks", "Number of invalid blocks", &["error"])
         .unwrap()
+});
+pub static NUM_INVALID_OPTIMISTIC_BLOCKS: LazyLock<IntCounter> = LazyLock::new(|| {
+    try_create_int_counter(
+        "near_num_invalid_optimistic_blocks",
+        "Number of invalid optimistic blocks",
+    )
+    .unwrap()
 });
 pub(crate) static SCHEDULED_CATCHUP_BLOCK: LazyLock<IntGauge> = LazyLock::new(|| {
     try_create_int_gauge(
