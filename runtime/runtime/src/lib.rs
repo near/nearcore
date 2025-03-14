@@ -1,3 +1,5 @@
+// cspell:ignore contractregistry
+
 use crate::actions::*;
 use crate::balance_checker::check_balance;
 use crate::config::{

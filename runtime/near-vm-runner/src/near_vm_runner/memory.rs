@@ -1,3 +1,5 @@
+// cspell:words vmmem vmmemory
+
 use crate::logic::{MemSlice, MemoryLike};
 use near_vm_types::{MemoryType, Pages};
 use near_vm_vm::{LinearMemory, MemoryStyle, VMMemory};
@@ -29,7 +31,7 @@ impl NearVmMemory {
     /// after guest memory mapping is changed (e.g. grown).
     unsafe fn get_ptr(&self, offset: u64, len: usize) -> Result<*mut u8, ()> {
         let offset = usize::try_from(offset).map_err(|_| ())?;
-        // SAFETY: Caller promisses memory mapping won’t change.
+        // SAFETY: Caller promises memory mapping won’t change.
         let vmmem = unsafe { self.0.vmmemory().as_ref() };
         // `checked_sub` here verifies that offsetting the buffer by offset
         // still lands us in-bounds of the allocated object.
@@ -42,7 +44,7 @@ impl NearVmMemory {
     /// Safety: Caller must guarantee that guest memory mapping is not changed
     /// (e.g. grown) while the slice is held.
     unsafe fn get(&self, offset: u64, len: usize) -> Result<&[u8], ()> {
-        // SAFETY: Caller promisses memory mapping won’t change.
+        // SAFETY: Caller promises memory mapping won’t change.
         let ptr = unsafe { self.get_ptr(offset, len)? };
         // SAFETY: get_ptr verifies that [ptr, ptr+len) is valid slice.
         Ok(unsafe { core::slice::from_raw_parts(ptr, len) })
@@ -53,7 +55,7 @@ impl NearVmMemory {
     /// Safety: Caller must guarantee that guest memory mapping is not changed
     /// (e.g. grown) while the slice is held.
     unsafe fn get_mut(&mut self, offset: u64, len: usize) -> Result<&mut [u8], ()> {
-        // SAFETY: Caller promisses memory mapping won’t change.
+        // SAFETY: Caller promises memory mapping won’t change.
         let ptr = unsafe { self.get_ptr(offset, len)? };
         // SAFETY: get_ptr verifies that [ptr, ptr+len) is valid slice and since
         // we’re holding exclusive self reference another mut reference won’t be

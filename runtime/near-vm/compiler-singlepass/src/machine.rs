@@ -1,3 +1,6 @@
+// cspell:ignore dynasmrt, Fastcall, GPRS, REGS, XMMS, idxs, nopanic, stosq,
+// cspell:ignore vmctx, winapi, wasmparser
+
 use crate::emitter_x64::*;
 use near_vm_compiler::CallingConvention;
 use near_vm_compiler::wasmparser::ValType as WpType;

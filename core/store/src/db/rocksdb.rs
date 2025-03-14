@@ -673,7 +673,7 @@ impl RocksDB {
                 })
                 .collect::<Vec<_>>();
             if !values.is_empty() {
-                // TODO(mina86): Once const_str_from_utf8 is stabilised we might
+                // TODO(mina86): Once const_str_from_utf8 is stabilized we might
                 // be able convert this runtime UTF-8 validation into const.
                 let stat_name = prop_name.to_str().unwrap();
                 result.data.push((stat_name.to_string(), values));

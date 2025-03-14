@@ -102,7 +102,7 @@ impl TransactionPool {
 
         // This is guaranteed to succeed because of the check above that the
         // hashset does not contain this hash.  This can be improved once the
-        // entries API is stabilised
+        // entries API is stabilized
         // (https://github.com/rust-lang/rust/issues/60896).
         assert_eq!(self.unique_transactions.insert(tx_hash), true);
         self.total_transaction_size = new_total_transaction_size;
