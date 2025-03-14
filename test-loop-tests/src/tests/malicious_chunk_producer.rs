@@ -4,13 +4,13 @@
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
 use crate::utils::ONE_NEAR;
+use crate::utils::client_queries::ClientQueries;
 use crate::utils::transactions::get_anchor_hash;
 use near_async::messaging::CanSend as _;
 use near_async::time::Duration;
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
 use near_client::ProcessTxRequest;
 use near_client::client_actor::{AdvProduceChunksMode, NetworkAdversarialMessage};
-use near_client::test_utils::test_loop::ClientQueries;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
@@ -79,7 +79,7 @@ fn test_producer_with_expired_transactions() {
             );
             let process_tx_request =
                 ProcessTxRequest { transaction: tx, is_forwarded: false, check_only: false };
-            chunk_producer.client_sender.send(process_tx_request);
+            chunk_producer.tx_processor_sender.send(process_tx_request);
         });
     }
 

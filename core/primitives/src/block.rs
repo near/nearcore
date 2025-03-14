@@ -6,7 +6,6 @@ use crate::block::BlockValidityError::{
 use crate::block_body::{BlockBody, BlockBodyV1, ChunkEndorsementSignatures};
 pub use crate::block_header::*;
 use crate::challenge::Challenges;
-use crate::checked_feature;
 use crate::congestion_info::{BlockCongestionInfo, ExtendedCongestionInfo};
 use crate::hash::CryptoHash;
 use crate::merkle::{MerklePath, merklize, verify_path};
@@ -14,9 +13,10 @@ use crate::num_rational::Rational32;
 use crate::optimistic_block::OptimisticBlock;
 use crate::sharding::{ChunkHashHeight, ShardChunkHeader, ShardChunkHeaderV1};
 use crate::types::{Balance, BlockHeight, EpochId, Gas};
-use crate::version::{ProtocolVersion, SHARD_CHUNK_HEADER_UPGRADE_VERSION};
+use crate::version::ProtocolVersion;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives_core::types::ShardIndex;
+use near_primitives_core::version::ProtocolFeature;
 use near_schema_checker_lib::ProtocolSchema;
 use near_time::Utc;
 use primitive_types::U256;
@@ -180,7 +180,7 @@ impl Block {
         header: BlockHeader,
         body: BlockBody,
     ) -> Block {
-        if next_epoch_protocol_version < SHARD_CHUNK_HEADER_UPGRADE_VERSION {
+        if !ProtocolFeature::ShardChunkHeaderUpgrade.enabled(next_epoch_protocol_version) {
             let legacy_chunks = body
                 .chunks()
                 .iter()
@@ -203,7 +203,7 @@ impl Block {
                 vrf_value: *body.vrf_value(),
                 vrf_proof: *body.vrf_proof(),
             }))
-        } else if !checked_feature!("stable", BlockHeaderV4, this_epoch_protocol_version) {
+        } else if !ProtocolFeature::BlockHeaderV4.enabled(this_epoch_protocol_version) {
             Block::BlockV2(Arc::new(BlockV2 {
                 header,
                 chunks: body.chunks().to_vec(),
@@ -211,7 +211,7 @@ impl Block {
                 vrf_value: *body.vrf_value(),
                 vrf_proof: *body.vrf_proof(),
             }))
-        } else if !checked_feature!("stable", StatelessValidation, this_epoch_protocol_version) {
+        } else if !ProtocolFeature::StatelessValidation.enabled(this_epoch_protocol_version) {
             // BlockV3 should only have BlockBodyV1
             match body {
                 BlockBody::V1(body) => Block::BlockV3(Arc::new(BlockV3 { header, body })),
@@ -309,7 +309,6 @@ impl Block {
         optimistic_block: Option<OptimisticBlock>,
     ) -> Self {
         use itertools::Itertools;
-        use near_primitives_core::version::ProtocolFeature;
 
         use crate::{
             stateless_validation::chunk_endorsements_bitmap::ChunkEndorsementsBitmap,

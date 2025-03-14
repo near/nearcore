@@ -4,7 +4,7 @@ use near_chain::validate::validate_challenge;
 use near_chain::{Block, ChainStoreAccess, Error, Provenance};
 use near_chain_configs::Genesis;
 use near_chunks::shards_manager_actor::ShardsManagerActor;
-use near_client::test_utils::client::{create_chunk, create_chunk_with_transactions};
+use near_client::test_utils::{create_chunk, create_chunk_with_transactions};
 use near_client::{Client, ProcessTxResponse, ProduceChunkResult};
 use near_crypto::InMemorySigner;
 use near_network::types::NetworkRequests;
@@ -347,7 +347,7 @@ fn test_verify_chunk_invalid_state_challenge() {
     let genesis_hash = *env.clients[0].chain.genesis().hash();
     env.produce_block(0, 1);
     assert_eq!(
-        env.clients[0].process_tx(
+        env.tx_request_handlers[0].process_tx(
             SignedTransaction::send_money(
                 1,
                 "test0".parse().unwrap(),

@@ -1,18 +1,19 @@
 use crate::receipt_manager::ReceiptManager;
+use near_parameters::vm::StorageGetMode;
 use near_primitives::account::Account;
 use near_primitives::account::id::AccountType;
-use near_primitives::checked_feature;
 use near_primitives::errors::{EpochError, StorageError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{AccountId, Balance, BlockHeight, EpochId, EpochInfoProvider, Gas};
 use near_primitives::utils::create_receipt_id_from_action_hash;
 use near_primitives::version::ProtocolVersion;
+use near_primitives_core::version::ProtocolFeature;
 use near_store::contract::ContractStorage;
 use near_store::{KeyLookupMode, TrieUpdate, TrieUpdateValuePtr, has_promise_yield_receipt};
 use near_vm_runner::logic::errors::{AnyError, InconsistentStateError, VMLogicError};
 use near_vm_runner::logic::types::ReceiptIndex;
-use near_vm_runner::logic::{External, StorageAccessTracker, StorageGetMode, ValuePtr};
+use near_vm_runner::logic::{External, StorageAccessTracker, ValuePtr};
 use near_vm_runner::{Contract, ContractCode};
 use near_wallet_contract::wallet_contract;
 use std::sync::Arc;
@@ -30,6 +31,7 @@ pub struct RuntimeExt<'a> {
     block_height: BlockHeight,
     epoch_info_provider: &'a dyn EpochInfoProvider,
     current_protocol_version: ProtocolVersion,
+    storage_access_mode: StorageGetMode,
 }
 
 /// Error used by `RuntimeExt`.
@@ -86,6 +88,7 @@ impl<'a> RuntimeExt<'a> {
         block_height: BlockHeight,
         epoch_info_provider: &'a dyn EpochInfoProvider,
         current_protocol_version: ProtocolVersion,
+        storage_access_mode: StorageGetMode,
     ) -> Self {
         RuntimeExt {
             trie_update,
@@ -100,6 +103,7 @@ impl<'a> RuntimeExt<'a> {
             block_height,
             epoch_info_provider,
             current_protocol_version,
+            storage_access_mode,
         }
     }
 
@@ -181,11 +185,10 @@ impl<'a> External for RuntimeExt<'a> {
         &'b self,
         access_tracker: &mut dyn StorageAccessTracker,
         key: &[u8],
-        mode: StorageGetMode,
     ) -> ExtResult<Option<Box<dyn ValuePtr + 'b>>> {
         let ttn = self.trie_update.trie().get_trie_nodes_count();
         let storage_key = self.create_storage_key(key);
-        let mode = match mode {
+        let mode = match self.storage_access_mode {
             StorageGetMode::FlatStorage => KeyLookupMode::FlatStorage,
             StorageGetMode::Trie => KeyLookupMode::Trie,
         };
@@ -265,11 +268,10 @@ impl<'a> External for RuntimeExt<'a> {
         &mut self,
         access_tracker: &mut dyn StorageAccessTracker,
         key: &[u8],
-        mode: StorageGetMode,
     ) -> ExtResult<bool> {
         let ttn = self.trie_update.trie().get_trie_nodes_count();
         let storage_key = self.create_storage_key(key);
-        let mode = match mode {
+        let mode = match self.storage_access_mode {
             StorageGetMode::FlatStorage => KeyLookupMode::FlatStorage,
             StorageGetMode::Trie => KeyLookupMode::Trie,
         };
@@ -485,7 +487,7 @@ impl<'a> Contract for RuntimeContractExt<'a> {
     fn hash(&self) -> CryptoHash {
         // For eth implicit accounts return the wallet contract code hash.
         // The account.code_hash() contains hash of the magic bytes, not the contract hash.
-        if checked_feature!("stable", EthImplicitAccounts, self.current_protocol_version)
+        if ProtocolFeature::EthImplicitAccounts.enabled(self.current_protocol_version)
             && self.account_id.get_account_type() == AccountType::EthImplicitAccount
         {
             // There are old eth implicit accounts without magic bytes in the code hash.
@@ -501,7 +503,7 @@ impl<'a> Contract for RuntimeContractExt<'a> {
     fn get_code(&self) -> Option<Arc<ContractCode>> {
         let account_id = self.account_id;
         let version = self.current_protocol_version;
-        if checked_feature!("stable", EthImplicitAccounts, version)
+        if ProtocolFeature::EthImplicitAccounts.enabled(version)
             && account_id.get_account_type() == AccountType::EthImplicitAccount
         {
             // Accounts that look like eth implicit accounts and have existed prior to the

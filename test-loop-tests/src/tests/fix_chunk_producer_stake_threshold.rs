@@ -11,7 +11,7 @@ use near_primitives::shard_layout::ShardLayout;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::AccountId;
 use near_primitives::types::AccountInfo;
-use near_primitives_core::version::ProtocolFeature;
+use near_primitives::version::ProtocolFeature;
 
 #[test]
 fn slow_test_fix_cp_stake_threshold() {

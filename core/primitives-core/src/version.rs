@@ -33,6 +33,28 @@ pub enum ProtocolFeature {
     /// Restore receipts that were previously stuck because of
     /// <https://github.com/near/nearcore/pull/4228>.
     RestoreReceiptsAfterFixApplyChunks,
+    /// Minimum protocol version for NEP-92
+    MinProtocolVersionNep92,
+    /// Minimum protocol version for NEP-92 fix
+    MinProtocolVersionNep92Fix,
+    /// Creates a unique random seed to be provided to `VMContext` from a given `action_hash` and a given `random_seed`
+    CorrectRandomValue,
+    /// The protocol version that enables reward on mainnet
+    EnableInflation,
+    /// Fix upgrade to use the latest voted protocol version instead of the current epoch protocol
+    /// version when there is no new change in protocol version
+    UpgradabilityFix,
+    /// Updates the way receipt ID, data ID and random seeds are constructed
+    CreateHash,
+    /// Fix the storage usage of the delete key action
+    DeleteKeyStorageUsage,
+    /// Upgrade for shard chunk header
+    ShardChunkHeaderUpgrade,
+    /// Updates the way receipt ID is constructed to use current block hash instead of last block hash
+    CreateReceiptIdSwitchToCurrentBlock,
+    /// Pessimistic gas price estimation uses a fixed value of `minimum_new_receipt_gas` to stop being
+    /// tied to the function call base cost
+    FixedMinimumNewReceiptGas,
     /// This feature switch our WASM engine implementation from wasmer 0.* to
     /// wasmer 2.*, bringing better performance and reliability.
     ///
@@ -125,7 +147,6 @@ pub enum ProtocolFeature {
     /// used to depend on the number of existing shards, which is no longer the case.
     FixChunkProducerStakingThreshold,
     /// Charge for contract loading before it happens.
-    #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
     FixContractLoadingCost,
     /// Enables rejection of blocks with outdated protocol versions.
     RejectBlocksWithOutdatedProtocolVersions,
@@ -201,7 +222,16 @@ impl ProtocolFeature {
     pub const fn protocol_version(self) -> ProtocolVersion {
         match self {
             // Stable features
+            ProtocolFeature::MinProtocolVersionNep92 => 31,
+            ProtocolFeature::MinProtocolVersionNep92Fix => 32,
+            ProtocolFeature::CorrectRandomValue => 33,
             ProtocolFeature::ImplicitAccountCreation => 35,
+            ProtocolFeature::EnableInflation => 36,
+            ProtocolFeature::UpgradabilityFix => 37,
+            ProtocolFeature::CreateHash => 38,
+            ProtocolFeature::DeleteKeyStorageUsage => 40,
+            ProtocolFeature::ShardChunkHeaderUpgrade => 41,
+            ProtocolFeature::CreateReceiptIdSwitchToCurrentBlock => 42,
             ProtocolFeature::LowerStorageCost => 42,
             ProtocolFeature::DeleteActionRestriction => 43,
             ProtocolFeature::FixApplyChunks => 44,
@@ -242,7 +272,8 @@ impl ProtocolFeature {
             | ProtocolFeature::TestnetFewerBlockProducers
             | ProtocolFeature::SimpleNightshadeV2 => 64,
             ProtocolFeature::SimpleNightshadeV3 => 65,
-            ProtocolFeature::DecreaseFunctionCallBaseCost => 66,
+            ProtocolFeature::DecreaseFunctionCallBaseCost
+            | ProtocolFeature::FixedMinimumNewReceiptGas => 66,
             ProtocolFeature::YieldExecution => 67,
             ProtocolFeature::CongestionControl
             | ProtocolFeature::RemoveAccountWithLongStorageKey => 68,
@@ -271,7 +302,6 @@ impl ProtocolFeature {
             | ProtocolFeature::ProduceOptimisticBlock => 77,
 
             // Nightly features:
-            #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
             ProtocolFeature::FixContractLoadingCost => 129,
             // TODO(#11201): When stabilizing this feature in mainnet, also remove the temporary code
             // that always enables this for mocknet (see config_mocknet function).
@@ -285,6 +315,9 @@ impl ProtocolFeature {
         protocol_version >= self.protocol_version()
     }
 }
+
+/// Minimum supported protocol version
+pub const MIN_SUPPORTED_PROTOCOL_VERSION: ProtocolVersion = 29;
 
 /// Current protocol version used on the mainnet with all stable features.
 const STABLE_PROTOCOL_VERSION: ProtocolVersion = 77;
@@ -303,43 +336,6 @@ pub const PROTOCOL_VERSION: ProtocolVersion = if cfg!(feature = "nightly_protoco
 /// protocol version is lower than this.
 /// TODO(pugachag): revert back to `- 3` after mainnet is upgraded
 pub const PEER_MIN_ALLOWED_PROTOCOL_VERSION: ProtocolVersion = STABLE_PROTOCOL_VERSION - 4;
-
-#[macro_export]
-macro_rules! checked_feature {
-    ("stable", $feature:ident, $current_protocol_version:expr) => {{ $crate::version::ProtocolFeature::$feature.protocol_version() <= $current_protocol_version }};
-    ($feature_name:tt, $feature:ident, $current_protocol_version:expr) => {{
-        #[cfg(feature = $feature_name)]
-        let is_feature_enabled = $crate::version::ProtocolFeature::$feature.protocol_version()
-            <= $current_protocol_version;
-        #[cfg(not(feature = $feature_name))]
-        let is_feature_enabled = {
-            // Workaround unused variable warning
-            let _ = $current_protocol_version;
-
-            false
-        };
-        is_feature_enabled
-    }};
-
-    ($feature_name:tt, $feature:ident, $current_protocol_version:expr, $feature_block:block) => {{ checked_feature!($feature_name, $feature, $current_protocol_version, $feature_block, {}) }};
-
-    ($feature_name:tt, $feature:ident, $current_protocol_version:expr, $feature_block:block, $non_feature_block:block) => {{
-        #[cfg(feature = $feature_name)]
-        {
-            if checked_feature!($feature_name, $feature, $current_protocol_version) {
-                $feature_block
-            } else {
-                $non_feature_block
-            }
-        }
-        // Workaround unused variable warning
-        #[cfg(not(feature = $feature_name))]
-        {
-            let _ = $current_protocol_version;
-            $non_feature_block
-        }
-    }};
-}
 
 #[cfg(test)]
 mod tests {
