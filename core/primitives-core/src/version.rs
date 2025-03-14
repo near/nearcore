@@ -273,6 +273,8 @@ impl ProtocolFeature {
             | ProtocolFeature::TestnetFewerBlockProducers
             | ProtocolFeature::SimpleNightshadeV2 => 64,
             ProtocolFeature::SimpleNightshadeV3 => 65,
+            ProtocolFeature::DecreaseFunctionCallBaseCost
+            | ProtocolFeature::FixedMinimumNewReceiptGas => 66,
             ProtocolFeature::YieldExecution => 67,
             ProtocolFeature::CongestionControl
             | ProtocolFeature::RemoveAccountWithLongStorageKey => 68,
@@ -299,8 +301,6 @@ impl ProtocolFeature {
             ProtocolFeature::GlobalContracts
             | ProtocolFeature::BlockHeightForReceiptId
             | ProtocolFeature::ProduceOptimisticBlock => 77,
-            ProtocolFeature::DecreaseFunctionCallBaseCost
-            | ProtocolFeature::FixedMinimumNewReceiptGas => 66,
 
             // Nightly features:
             #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
