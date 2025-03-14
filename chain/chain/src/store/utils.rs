@@ -204,7 +204,7 @@ pub fn get_incoming_receipts_for_shard(
                 &target_shard_layout,
                 target_shard_id,
                 receipts_proofs,
-            )),
+            )?),
         };
 
         ret.push(ReceiptProofResponse(current_block_hash, filtered_receipt_proofs));

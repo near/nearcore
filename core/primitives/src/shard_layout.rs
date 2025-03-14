@@ -593,6 +593,8 @@ impl ShardLayout {
     /// Maps an account to the shard_id that it belongs to in this shard_layout
     /// For V0, maps according to hash of account id
     /// For V1 and V2, accounts are divided to ranges, each range of account is mapped to a shard.
+    /// Note: Calling function with receipt receiver_id to determine target shard is incorrect,
+    ///       `Receipt::receiver_shard` should be used instead.
     pub fn account_id_to_shard_id(&self, account_id: &AccountId) -> ShardId {
         match self {
             ShardLayout::V0(v0) => {

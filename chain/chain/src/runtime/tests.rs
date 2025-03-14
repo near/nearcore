@@ -380,14 +380,8 @@ impl TestEnv {
         let shard_layout = self.epoch_manager.get_shard_layout_from_prev_block(&new_hash).unwrap();
         let mut new_receipts = HashMap::<_, Vec<Receipt>>::new();
         for receipt in all_receipts {
-            if receipt.send_to_all_shards() {
-                for shard_id in shard_layout.shard_ids() {
-                    new_receipts.entry(shard_id).or_default().push(receipt.clone());
-                }
-            } else {
-                let shard_id = shard_layout.account_id_to_shard_id(receipt.receiver_id());
-                new_receipts.entry(shard_id).or_default().push(receipt);
-            }
+            let shard_id = receipt.receiver_shard_id(&shard_layout).unwrap();
+            new_receipts.entry(shard_id).or_default().push(receipt);
         }
         self.last_receipts = new_receipts;
         self.last_proposals = all_proposals;

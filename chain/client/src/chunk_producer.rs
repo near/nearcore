@@ -199,7 +199,7 @@ impl ChunkProducer {
         receipts: &[Receipt],
     ) -> Result<CryptoHash, Error> {
         let shard_layout = self.epoch_manager.get_shard_layout(epoch_id)?;
-        let receipts_hashes = Chain::build_receipts_hashes(&receipts, &shard_layout);
+        let receipts_hashes = Chain::build_receipts_hashes(&receipts, &shard_layout)?;
         let (receipts_root, _) = merklize(&receipts_hashes);
         Ok(receipts_root)
     }

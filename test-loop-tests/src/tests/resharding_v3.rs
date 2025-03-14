@@ -381,7 +381,7 @@ fn setup_global_contracts(
     }
 
     // Make sure the global contract is deployed before the usage transactions.
-    env.test_loop.run_for(Duration::seconds(2));
+    env.test_loop.run_for(Duration::seconds(5));
     check_txs(&env.test_loop.data, &env.node_datas, client_account_id, &test_setup_transactions);
 
     *test_setup_transactions = vec![];

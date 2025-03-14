@@ -1,9 +1,12 @@
 use crate::action::{GlobalContractIdentifier, base64};
+use crate::errors::EpochError;
 use crate::hash::CryptoHash;
 use crate::serialize::dec_format;
+use crate::shard_layout::ShardLayout;
 use crate::transaction::{Action, TransferAction};
 use crate::types::{AccountId, Balance, BlockHeight, ShardId};
 use borsh::{BorshDeserialize, BorshSerialize};
+use itertools::Itertools;
 use near_crypto::{KeyType, PublicKey};
 use near_fmt::AbbrBytes;
 use near_primitives_core::types::{Gas, ProtocolVersion};
@@ -493,8 +496,32 @@ impl Receipt {
         *self.receipt_id()
     }
 
-    pub fn send_to_all_shards(&self) -> bool {
-        matches!(self.receipt(), ReceiptEnum::GlobalContractDistribution(..))
+    pub fn receiver_shard_id(&self, shard_layout: &ShardLayout) -> Result<ShardId, EpochError> {
+        let shard_id = match self.receipt() {
+            ReceiptEnum::Action(_)
+            | ReceiptEnum::Data(_)
+            | ReceiptEnum::PromiseYield(_)
+            | ReceiptEnum::PromiseResume(_) => {
+                shard_layout.account_id_to_shard_id(self.receiver_id())
+            }
+            ReceiptEnum::GlobalContractDistribution(receipt) => {
+                let target_shard = receipt.target_shard();
+                if shard_layout.shard_ids().contains(&target_shard) {
+                    target_shard
+                } else {
+                    let Some(children_shards) = shard_layout.get_children_shards_ids(target_shard)
+                    else {
+                        return Err(EpochError::ShardingError(format!(
+                            "Shard {target_shard} does not exist in the parent shard layout",
+                        )));
+                    };
+                    // It is enough to send the receipt to the first child shard, it will be forwarded
+                    // to the rest of the children as part the receipt processing logic
+                    children_shards[0]
+                }
+            }
+        };
+        Ok(shard_id)
     }
 
     /// Generates a receipt with a transfer from system for a given balance without a receipt_id.
@@ -586,14 +613,13 @@ impl Receipt {
 
     pub fn new_global_contract_distribution(
         predecessor_id: AccountId,
-        code: Arc<[u8]>,
-        id: GlobalContractIdentifier,
+        receipt: GlobalContractDistributionReceipt,
     ) -> Self {
         Self::V0(ReceiptV0 {
             predecessor_id,
             receiver_id: "system".parse().unwrap(),
             receipt_id: CryptoHash::default(),
-            receipt: ReceiptEnum::GlobalContractDistribution(GlobalContractData { code, id }),
+            receipt: ReceiptEnum::GlobalContractDistribution(receipt),
         })
     }
 }
@@ -615,7 +641,7 @@ pub enum ReceiptEnum {
     Data(DataReceipt),
     PromiseYield(ActionReceipt),
     PromiseResume(DataReceipt),
-    GlobalContractDistribution(GlobalContractData),
+    GlobalContractDistribution(GlobalContractDistributionReceipt),
 }
 
 /// ActionReceipt is derived from an Action from `Transaction or from Receipt`
@@ -696,6 +722,62 @@ impl fmt::Debug for ReceivedData {
     }
 }
 
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    Hash,
+    PartialEq,
+    Eq,
+    Clone,
+    Debug,
+    serde::Deserialize,
+    serde::Serialize,
+    ProtocolSchema,
+)]
+pub enum GlobalContractDistributionReceipt {
+    V1(GlobalContractDistributionReceiptV1),
+}
+
+impl GlobalContractDistributionReceipt {
+    pub fn new(
+        id: GlobalContractIdentifier,
+        target_shard: ShardId,
+        already_delivered_shards: Vec<ShardId>,
+        code: Arc<[u8]>,
+    ) -> Self {
+        Self::V1(GlobalContractDistributionReceiptV1 {
+            id,
+            target_shard,
+            already_delivered_shards,
+            code,
+        })
+    }
+
+    pub fn id(&self) -> &GlobalContractIdentifier {
+        match &self {
+            Self::V1(v1) => &v1.id,
+        }
+    }
+
+    pub fn target_shard(&self) -> ShardId {
+        match &self {
+            Self::V1(v1) => v1.target_shard,
+        }
+    }
+
+    pub fn already_delivered_shards(&self) -> &[ShardId] {
+        match &self {
+            Self::V1(v1) => &v1.already_delivered_shards,
+        }
+    }
+
+    pub fn code(&self) -> &Arc<[u8]> {
+        match &self {
+            Self::V1(v1) => &v1.code,
+        }
+    }
+}
+
 #[serde_as]
 #[derive(
     BorshSerialize,
@@ -708,17 +790,21 @@ impl fmt::Debug for ReceivedData {
     serde::Serialize,
     ProtocolSchema,
 )]
-pub struct GlobalContractData {
+pub struct GlobalContractDistributionReceiptV1 {
+    id: GlobalContractIdentifier,
+    target_shard: ShardId,
+    already_delivered_shards: Vec<ShardId>,
     #[serde_as(as = "Base64")]
-    pub code: Arc<[u8]>,
-    pub id: GlobalContractIdentifier,
+    code: Arc<[u8]>,
 }
 
-impl fmt::Debug for GlobalContractData {
+impl fmt::Debug for GlobalContractDistributionReceiptV1 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("GlobalContractData")
-            .field("code", &format_args!("{}", base64(&self.code)))
+        f.debug_struct("GlobalContractDistributionReceipt")
             .field("id", &self.id)
+            .field("target_shard", &self.target_shard)
+            .field("already_delivered_shards", &self.already_delivered_shards)
+            .field("code", &format_args!("{}", base64(&self.code)))
             .finish()
     }
 }
