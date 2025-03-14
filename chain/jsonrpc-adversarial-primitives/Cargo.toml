@@ -17,11 +17,7 @@ serde.workspace = true
 near-primitives.workspace = true
 
 [features]
-nightly_protocol = [
-  "near-primitives/nightly_protocol",
-]
 nightly = [
   "near-primitives/nightly",
-  "nightly_protocol",
 ]
 test_features = []

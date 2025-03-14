@@ -460,7 +460,7 @@ impl<'a> StoreOpener<'a> {
             store.set_db_version(version + 1)?;
         }
 
-        if cfg!(feature = "nightly") || cfg!(feature = "nightly_protocol") {
+        if cfg!(feature = "nightly") {
             let version = 10000;
             tracing::info!(target: "db_opener", path=%opener.path.display(),
             "Setting the database version to {version} for nightly");

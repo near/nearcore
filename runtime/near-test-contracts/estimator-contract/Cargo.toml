@@ -22,6 +22,4 @@ members = []
 
 [features]
 nightly = [
-    "nightly_protocol",
 ]
-nightly_protocol = []

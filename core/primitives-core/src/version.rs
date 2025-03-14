@@ -326,11 +326,8 @@ const STABLE_PROTOCOL_VERSION: ProtocolVersion = 77;
 const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 149;
 
 /// Largest protocol version supported by the current binary.
-pub const PROTOCOL_VERSION: ProtocolVersion = if cfg!(feature = "nightly_protocol") {
-    NIGHTLY_PROTOCOL_VERSION
-} else {
-    STABLE_PROTOCOL_VERSION
-};
+pub const PROTOCOL_VERSION: ProtocolVersion =
+    if cfg!(feature = "nightly") { NIGHTLY_PROTOCOL_VERSION } else { STABLE_PROTOCOL_VERSION };
 
 /// Both, outgoing and incoming tcp connections to peers, will be rejected if `peer's`
 /// protocol version is lower than this.

@@ -116,7 +116,6 @@ tar-bins-for-coverage-ci:
 python-style-checks:
     python3 scripts/check_nightly.py
     python3 scripts/check_pytests.py
-    python3 scripts/fix_nightly_feature_flags.py
     ./scripts/formatting --check
 
 install-rustc-nightly:

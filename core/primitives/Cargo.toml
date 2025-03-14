@@ -67,14 +67,6 @@ nightly = [
   "near-parameters/nightly",
   "near-primitives-core/nightly",
   "near-primitives/nightly",
-  "nightly_protocol",
-]
-
-nightly_protocol = [
-  "near-fmt/nightly_protocol",
-  "near-parameters/nightly_protocol",
-  "near-primitives-core/nightly_protocol",
-  "near-primitives/nightly_protocol",
 ]
 
 calimero_zero_storage = []
@@ -96,7 +88,6 @@ insta.workspace = true
 expect-test.workspace = true
 regex.workspace = true
 tempfile.workspace = true
-
 
 [[bench]]
 name = "serialization"
