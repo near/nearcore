@@ -300,7 +300,8 @@ impl ProtocolFeature {
             ProtocolFeature::GlobalContracts
             | ProtocolFeature::BlockHeightForReceiptId
             | ProtocolFeature::ProduceOptimisticBlock => 77,
-            ProtocolFeature::FixedMinimumNewReceiptGas => 66,
+            ProtocolFeature::DecreaseFunctionCallBaseCost
+            | ProtocolFeature::FixedMinimumNewReceiptGas => 66,
 
             // Nightly features:
             #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
