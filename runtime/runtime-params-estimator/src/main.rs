@@ -354,8 +354,8 @@ fn main_container(
         // Also add nightly protocol features to docker build if they are enabled.
         #[cfg(feature = "nightly")]
         buf.push_str(",nightly");
-        #[cfg(feature = "nightly_protocol")]
-        buf.push_str(",nightly_protocol");
+        #[cfg(feature = "nightly")]
+        buf.push_str(",nightly");
 
         buf.push_str(" --profile ");
         buf.push_str(profile);

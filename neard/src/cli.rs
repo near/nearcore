@@ -344,9 +344,8 @@ pub(super) struct InitCmd {
 /// sets) and that neither `nightly` nor `nightly_protocol` features are
 /// enabled.
 fn check_release_build(chain: &str) {
-    let is_release_build = option_env!("NEAR_RELEASE_BUILD") == Some("release")
-        && !cfg!(feature = "nightly")
-        && !cfg!(feature = "nightly_protocol");
+    let is_release_build =
+        option_env!("NEAR_RELEASE_BUILD") == Some("release") && !cfg!(feature = "nightly");
     if !is_release_build
         && [near_primitives::chains::MAINNET, near_primitives::chains::TESTNET].contains(&chain)
     {
