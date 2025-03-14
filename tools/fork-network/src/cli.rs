@@ -395,6 +395,7 @@ impl ForkNetworkCommand {
             &near_config.config.store,
             near_config.config.archival_config(),
             &unwanted_cols,
+            true,
         )
         .context("failed deleting unwanted columns")?;
         Ok(())
@@ -554,6 +555,7 @@ impl ForkNetworkCommand {
             &near_config.config.store,
             near_config.config.archival_config(),
             &unwanted_cols,
+            true,
         )
         .context("failed deleting unwanted columns")?;
         Ok(())

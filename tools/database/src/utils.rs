@@ -1,9 +1,18 @@
 use std::fs;
+use std::io::{self, Write};
 use std::path::Path;
 
 use anyhow::anyhow;
 use near_store::{DBCol, NodeStorage, Store};
 use strum::IntoEnumIterator;
+
+pub(crate) fn get_user_confirmation(message: &str) -> bool {
+    print!("{}\nAre you sure? (y/N): ", message);
+    io::stdout().flush().expect("Failed to flush stdout");
+    let mut input = String::new();
+    io::stdin().read_line(&mut input).expect("Failed to read input");
+    matches!(input.trim().to_lowercase().as_str(), "y" | "yes")
+}
 
 pub(crate) fn open_rocksdb(
     home: &Path,
