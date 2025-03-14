@@ -13,7 +13,6 @@ use near_primitives::action::{
     DeployGlobalContractAction, GlobalContractDeployMode, GlobalContractIdentifier,
     UseGlobalContractAction,
 };
-use near_primitives::checked_feature;
 use near_primitives::config::ViewConfig;
 use near_primitives::errors::{ActionError, ActionErrorKind, InvalidAccessKeyError, RuntimeError};
 use near_primitives::hash::{CryptoHash, hash};
@@ -30,8 +29,9 @@ use near_primitives::types::{
     AccountId, Balance, BlockHeight, EpochInfoProvider, Gas, StorageUsage, TrieCacheMode,
 };
 use near_primitives::utils::account_is_implicit;
-use near_primitives::version::{ProtocolFeature, ProtocolVersion};
+use near_primitives::version::ProtocolVersion;
 use near_primitives_core::account::id::AccountType;
+use near_primitives_core::version::ProtocolFeature;
 use near_store::{
     StorageError, TrieUpdate, enqueue_promise_yield_timeout, get_access_key,
     get_promise_yield_indices, remove_access_key, remove_account, set_access_key,
@@ -100,9 +100,10 @@ pub(crate) fn execute_function_call(
     // TODO (#5920): Consider using RAII for switching the state back
 
     near_vm_runner::reset_metrics();
-    let mode = match checked_feature!("stable", ChunkNodesCache, runtime_ext.protocol_version()) {
-        true => Some(TrieCacheMode::CachingChunk),
-        false => None,
+    let mode = if ProtocolFeature::ChunkNodesCache.enabled(runtime_ext.protocol_version()) {
+        Some(TrieCacheMode::CachingChunk)
+    } else {
+        None
     };
     let mode_guard = runtime_ext.trie_update.with_trie_cache_mode(mode);
     let result = near_vm_runner::run(contract, runtime_ext, &context, Arc::clone(&config.fees));
@@ -509,11 +510,8 @@ pub(crate) fn action_implicit_account_creation_transfer(
             let mut access_key = AccessKey::full_access();
             // Set default nonce for newly created access key to avoid transaction hash collision.
             // See <https://github.com/near/nearcore/issues/3779>.
-            if checked_feature!(
-                "stable",
-                AccessKeyNonceForImplicitAccounts,
-                current_protocol_version
-            ) {
+            if ProtocolFeature::AccessKeyNonceForImplicitAccounts.enabled(current_protocol_version)
+            {
                 access_key.nonce = (block_height - 1)
                     * near_primitives::account::AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER;
             }
@@ -536,7 +534,7 @@ pub(crate) fn action_implicit_account_creation_transfer(
         // Invariant: The `account_id` is implicit.
         // It holds because in the only calling site, we've checked the permissions before.
         AccountType::EthImplicitAccount => {
-            if checked_feature!("stable", EthImplicitAccounts, current_protocol_version) {
+            if ProtocolFeature::EthImplicitAccounts.enabled(current_protocol_version) {
                 let chain_id = epoch_info_provider.chain_id();
 
                 // We deploy "near[wallet contract hash]" magic bytes as the contract code,
@@ -866,7 +864,7 @@ pub(crate) fn action_add_key(
         .into());
         return Ok(());
     }
-    if checked_feature!("stable", AccessKeyNonceRange, apply_state.current_protocol_version) {
+    if ProtocolFeature::AccessKeyNonceRange.enabled(apply_state.current_protocol_version) {
         let mut access_key = add_key.access_key.clone();
         access_key.nonce = (apply_state.block_height - 1)
             * near_primitives::account::AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER;

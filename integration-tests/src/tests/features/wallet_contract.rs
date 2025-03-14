@@ -15,12 +15,11 @@ use near_primitives::transaction::{
     TransferAction,
 };
 use near_primitives::utils::derive_eth_implicit_account_id;
+use near_primitives::version::ProtocolFeature;
 use near_primitives::views::{
     FinalExecutionStatus, QueryRequest, QueryResponse, QueryResponseKind,
 };
-use near_primitives_core::{
-    account::AccessKey, checked_feature, types::BlockHeight, version::PROTOCOL_VERSION,
-};
+use near_primitives_core::{account::AccessKey, types::BlockHeight, version::PROTOCOL_VERSION};
 use near_store::ShardUId;
 use near_vm_runner::ContractCode;
 use near_wallet_contract::{wallet_contract, wallet_contract_magic_bytes};
@@ -85,7 +84,7 @@ fn view_nonce(env: &TestEnv, account: &AccountIdRef, pk: PublicKey) -> u64 {
 /// Tests that ETH-implicit account is created correctly, with Wallet Contract hash.
 #[test]
 fn test_eth_implicit_account_creation() {
-    if !checked_feature!("stable", EthImplicitAccounts, PROTOCOL_VERSION) {
+    if !ProtocolFeature::EthImplicitAccounts.enabled(PROTOCOL_VERSION) {
         return;
     }
     let genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
@@ -142,7 +141,7 @@ fn test_eth_implicit_account_creation() {
 /// Test that transactions from ETH-implicit accounts are rejected.
 #[test]
 fn test_transaction_from_eth_implicit_account_fail() {
-    if !checked_feature!("stable", EthImplicitAccounts, PROTOCOL_VERSION) {
+    if !ProtocolFeature::EthImplicitAccounts.enabled(PROTOCOL_VERSION) {
         return;
     }
     let genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
@@ -252,7 +251,7 @@ fn test_transaction_from_eth_implicit_account_fail() {
 
 #[test]
 fn test_wallet_contract_interaction() {
-    if !checked_feature!("stable", EthImplicitAccounts, PROTOCOL_VERSION) {
+    if !ProtocolFeature::EthImplicitAccounts.enabled(PROTOCOL_VERSION) {
         return;
     }
 

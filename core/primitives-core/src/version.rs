@@ -147,7 +147,6 @@ pub enum ProtocolFeature {
     /// used to depend on the number of existing shards, which is no longer the case.
     FixChunkProducerStakingThreshold,
     /// Charge for contract loading before it happens.
-    #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
     FixContractLoadingCost,
     /// Enables rejection of blocks with outdated protocol versions.
     RejectBlocksWithOutdatedProtocolVersions,
@@ -303,7 +302,6 @@ impl ProtocolFeature {
             | ProtocolFeature::ProduceOptimisticBlock => 77,
 
             // Nightly features:
-            #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
             ProtocolFeature::FixContractLoadingCost => 129,
             // TODO(#11201): When stabilizing this feature in mainnet, also remove the temporary code
             // that always enables this for mocknet (see config_mocknet function).
@@ -338,43 +336,6 @@ pub const PROTOCOL_VERSION: ProtocolVersion = if cfg!(feature = "nightly_protoco
 /// protocol version is lower than this.
 /// TODO(pugachag): revert back to `- 3` after mainnet is upgraded
 pub const PEER_MIN_ALLOWED_PROTOCOL_VERSION: ProtocolVersion = STABLE_PROTOCOL_VERSION - 4;
-
-#[macro_export]
-macro_rules! checked_feature {
-    ("stable", $feature:ident, $current_protocol_version:expr) => {{ $crate::version::ProtocolFeature::$feature.protocol_version() <= $current_protocol_version }};
-    ($feature_name:tt, $feature:ident, $current_protocol_version:expr) => {{
-        #[cfg(feature = $feature_name)]
-        let is_feature_enabled = $crate::version::ProtocolFeature::$feature.protocol_version()
-            <= $current_protocol_version;
-        #[cfg(not(feature = $feature_name))]
-        let is_feature_enabled = {
-            // Workaround unused variable warning
-            let _ = $current_protocol_version;
-
-            false
-        };
-        is_feature_enabled
-    }};
-
-    ($feature_name:tt, $feature:ident, $current_protocol_version:expr, $feature_block:block) => {{ checked_feature!($feature_name, $feature, $current_protocol_version, $feature_block, {}) }};
-
-    ($feature_name:tt, $feature:ident, $current_protocol_version:expr, $feature_block:block, $non_feature_block:block) => {{
-        #[cfg(feature = $feature_name)]
-        {
-            if checked_feature!($feature_name, $feature, $current_protocol_version) {
-                $feature_block
-            } else {
-                $non_feature_block
-            }
-        }
-        // Workaround unused variable warning
-        #[cfg(not(feature = $feature_name))]
-        {
-            let _ = $current_protocol_version;
-            $non_feature_block
-        }
-    }};
-}
 
 #[cfg(test)]
 mod tests {

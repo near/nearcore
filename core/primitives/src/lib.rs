@@ -53,7 +53,6 @@ pub mod validator_signer;
 pub mod version;
 pub mod views;
 
-pub use crate::version::checked_feature;
 pub use near_primitives_core::chains;
 
 #[cfg(fuzz)]
