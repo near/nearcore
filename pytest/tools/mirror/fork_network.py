@@ -19,6 +19,8 @@ import utils
 
 import mirror_utils
 
+# cspell:words subaccounts
+
 
 # Create a bunch of subaccounts spanning 'a' to 'z'
 def create_subaccounts(node, signer_key):

@@ -1,3 +1,5 @@
+// cspell:disable
+
 //! Target configuration
 use crate::error::ParseCpuFeatureError;
 use crate::lib::std::str::FromStr;

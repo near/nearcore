@@ -1,3 +1,5 @@
+// cspell:disable
+
 use crate::emitter_x64::*;
 use near_vm_compiler::CallingConvention;
 use near_vm_compiler::wasmparser::ValType as WpType;
