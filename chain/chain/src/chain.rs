@@ -1,3 +1,4 @@
+use near_primitives::version::ProtocolFeature;
 use crate::approval_verification::verify_approval_with_approvers_info;
 use crate::block_processing_utils::{
     ApplyChunksDoneWaiter, ApplyChunksStillApplying, BlockPreprocessInfo, BlockProcessingArtifact,
@@ -63,7 +64,6 @@ use near_primitives::challenge::{
     BlockDoubleSign, Challenge, ChallengeBody, ChallengesResult, ChunkProofs, ChunkState,
     MaybeEncodedShardChunk, SlashedValidator,
 };
-use near_primitives::checked_feature;
 use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::errors::EpochError;
@@ -93,7 +93,7 @@ use near_primitives::types::{
 };
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::MaybeValidated;
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature, ProtocolVersion};
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolVersion};
 use near_primitives::views::{
     BlockStatusView, DroppedReason, ExecutionOutcomeWithIdView, ExecutionStatusView,
     FinalExecutionOutcomeView, FinalExecutionOutcomeWithReceiptView, FinalExecutionStatus,
@@ -1017,9 +1017,7 @@ impl Chain {
         if let Ok(epoch_protocol_version) =
             self.epoch_manager.get_epoch_protocol_version(header.epoch_id())
         {
-            if checked_feature!(
-                "stable",
-                RejectBlocksWithOutdatedProtocolVersions,
+            if ProtocolFeature::RejectBlocksWithOutdatedProtocolVersions.enabled(
                 epoch_protocol_version
             ) {
                 if header.latest_protocol_version() < epoch_protocol_version {
@@ -1202,7 +1200,7 @@ impl Chain {
 
         // Check that block body hash matches the block body. This makes sure that the block body
         // content is not tampered
-        if checked_feature!("stable", BlockHeaderV4, epoch_protocol_version) {
+        if ProtocolFeature::BlockHeaderV4.enabled(epoch_protocol_version) {
             let block_body_hash = block.compute_block_body_hash();
             if block_body_hash.is_none() {
                 tracing::warn!("Block version too old for block: {:?}", block.hash());
@@ -2951,7 +2949,7 @@ impl Chain {
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(prev_block_header.hash())?;
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
         let relaxed_chunk_validation =
-            checked_feature!("stable", RelaxedChunkValidation, protocol_version);
+            ProtocolFeature::RelaxedChunkValidation.enabled(protocol_version);
 
         if !relaxed_chunk_validation {
             if !validate_transactions_order(chunk.transactions()) {
@@ -3380,7 +3378,7 @@ impl Chain {
             self.epoch_manager.get_next_epoch_id_from_prev_block(block_header.prev_hash())?;
         let next_protocol_version =
             self.epoch_manager.get_epoch_protocol_version(&next_epoch_id)?;
-        if !checked_feature!("stable", StatelessValidation, next_protocol_version) {
+        if !ProtocolFeature::StatelessValidation.enabled(next_protocol_version) {
             // Chunk validation not enabled yet.
             return Ok(false);
         }

@@ -13,10 +13,10 @@ use near_o11y::testonly::init_test_logger;
 use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::num_rational::Rational32;
 use near_primitives::test_utils::create_test_signer;
+use near_primitives::version::ProtocolFeature;
 use near_primitives::types::AccountId;
 use near_primitives::types::AccountInfo;
 use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
-use near_primitives_core::version::ProtocolFeature;
 
 // TODO(resharding) - Implement this test for the stable protocol version. The
 // original implementation was not compatible with the two shard layout changes

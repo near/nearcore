@@ -16,8 +16,8 @@ use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::AccountId;
 use near_primitives::types::AccountInfo;
 use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
+use near_primitives::version::ProtocolFeature;
 use near_primitives_core::num_rational::Rational32;
-use near_primitives_core::version::ProtocolFeature;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 static NEXT: AtomicU64 = AtomicU64::new(12345);

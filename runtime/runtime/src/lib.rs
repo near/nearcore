@@ -1,3 +1,4 @@
+use near_primitives_core::version::ProtocolFeature;
 use crate::actions::*;
 use crate::balance_checker::check_balance;
 use crate::config::{
@@ -23,7 +24,6 @@ pub use near_primitives;
 use near_primitives::account::{AccessKey, Account, AccountContract};
 use near_primitives::action::GlobalContractIdentifier;
 use near_primitives::bandwidth_scheduler::{BandwidthRequests, BlockBandwidthRequests};
-use near_primitives::checked_feature;
 use near_primitives::chunk_apply_stats::{BalanceStats, ChunkApplyStatsV0};
 use near_primitives::congestion_info::{BlockCongestionInfo, CongestionInfo};
 use near_primitives::errors::{
@@ -53,7 +53,7 @@ use near_primitives::utils::{
     create_action_hash_from_receipt_id, create_receipt_id_from_receipt_id,
     create_receipt_id_from_transaction,
 };
-use near_primitives::version::{ProtocolFeature, ProtocolVersion};
+use near_primitives::version::{ProtocolVersion};
 use near_primitives_core::apply::ApplyChunkReason;
 use near_store::trie::receipts_column_helper::DelayedReceiptQueue;
 use near_store::trie::update::TrieUpdateResult;
@@ -773,9 +773,7 @@ impl Runtime {
             // We will set gas_burnt for refund receipts to be 0 when we calculate tx_burnt_amount
             // Here we don't set result.gas_burnt to be zero if CountRefundReceiptsInGasLimit is
             // enabled because we want it to be counted in gas limit calculation later
-            if !checked_feature!(
-                "stable",
-                CountRefundReceiptsInGasLimit,
+            if !ProtocolFeature::CountRefundReceiptsInGasLimit.enabled(
                 apply_state.current_protocol_version
             ) {
                 result.gas_burnt = 0;
@@ -1683,7 +1681,7 @@ impl Runtime {
         protocol_version: ProtocolVersion,
         reason: &str,
     ) -> Result<(), RuntimeError> {
-        if checked_feature!("stable", RelaxedChunkValidation, protocol_version) {
+        if ProtocolFeature::RelaxedChunkValidation.enabled(protocol_version) {
             tracing::debug!(
                 target: "runtime",
                 "invalid transaction ignored ({}) => tx_hash: {}, error: {:?}",
@@ -1755,7 +1753,7 @@ impl Runtime {
                     let compute =
                         compute.expect("`process_transaction` must populate compute usage");
                     total.add(outcome_with_id.outcome.gas_burnt, compute)?;
-                    if !checked_feature!("stable", ComputeCosts, processing_state.protocol_version)
+                    if !ProtocolFeature::ComputeCosts.enabled(processing_state.protocol_version)
                     {
                         assert_eq!(total.compute, total.gas, "Compute usage must match burnt gas");
                     }
@@ -1845,7 +1843,7 @@ impl Runtime {
             span.record("gas_burnt", gas_burnt);
             span.record("compute_usage", compute_usage);
 
-            if !checked_feature!("stable", ComputeCosts, processing_state.protocol_version) {
+            if !ProtocolFeature::ComputeCosts.enabled(processing_state.protocol_version) {
                 assert_eq!(total.compute, total.gas, "Compute usage must match burnt gas");
             }
             processing_state.outcomes.push(outcome_with_id);

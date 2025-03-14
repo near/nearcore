@@ -1,3 +1,4 @@
+use near_primitives::version::ProtocolFeature;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_async::time::{Duration, Utc};
 use near_chain_configs::GenesisConfig;
@@ -13,7 +14,6 @@ use near_primitives::bandwidth_scheduler::BandwidthRequests;
 use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
 pub use near_primitives::block::{Block, BlockHeader, Tip};
 use near_primitives::challenge::ChallengesResult;
-use near_primitives::checked_feature;
 use near_primitives::chunk_apply_stats::ChunkApplyStatsV0;
 use near_primitives::congestion_info::BlockCongestionInfo;
 use near_primitives::congestion_info::CongestionInfo;
@@ -177,7 +177,7 @@ impl BlockEconomicsConfig {
     }
 
     pub fn max_gas_price(&self, protocol_version: ProtocolVersion) -> Balance {
-        if checked_feature!("stable", CapMaxGasPrice, protocol_version) {
+        if ProtocolFeature::CapMaxGasPrice.enabled(protocol_version) {
             std::cmp::min(
                 self.genesis_max_gas_price,
                 Self::MAX_GAS_MULTIPLIER * self.min_gas_price(protocol_version),

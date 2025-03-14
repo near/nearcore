@@ -1,3 +1,4 @@
+use near_primitives_core::version::ProtocolFeature;
 use borsh::{BorshDeserialize, BorshSerialize};
 use smart_default::SmartDefault;
 use std::collections::{BTreeMap, HashMap};
@@ -9,9 +10,7 @@ use crate::types::{AccountId, ValidatorKickoutReason, ValidatorStakeV1};
 use crate::validator_mandates::ValidatorMandates;
 use crate::version::PROTOCOL_VERSION;
 use near_primitives_core::types::{Balance, EpochHeight, ProtocolVersion, ValidatorId};
-use near_primitives_core::version::ProtocolFeature;
 use near_primitives_core::{
-    checked_feature,
     hash::hash,
     types::{BlockHeight, ShardId},
 };
@@ -184,7 +183,7 @@ impl EpochInfo {
         rng_seed: RngSeed,
         validator_mandates: ValidatorMandates,
     ) -> Self {
-        if checked_feature!("stable", AliasValidatorSelectionAlgorithm, protocol_version) {
+        if ProtocolFeature::AliasValidatorSelectionAlgorithm.enabled(protocol_version) {
             let stake_weights = |ids: &[ValidatorId]| -> WeightedIndex {
                 WeightedIndex::new(
                     ids.iter()
@@ -630,8 +629,8 @@ impl EpochInfo {
         height: BlockHeight,
         shard_id: ShardId,
     ) -> [u8; 32] {
-        if checked_feature!("stable", SynchronizeBlockChunkProduction, protocol_version)
-            && !checked_feature!("stable", ChunkOnlyProducers, protocol_version)
+        if ProtocolFeature::SynchronizeBlockChunkProduction.enabled(protocol_version)
+            && !ProtocolFeature::ChunkOnlyProducers.enabled(protocol_version)
         {
             // This is same seed that used for determining block
             // producer. This seed does not contain the shard id

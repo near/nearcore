@@ -1,3 +1,4 @@
+use near_primitives::version::ProtocolFeature;
 use crate::chain::{
     NewChunkData, NewChunkResult, OldChunkData, OldChunkResult, ShardContext, StorageContext,
     apply_new_chunk, apply_old_chunk,
@@ -22,7 +23,6 @@ use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_pool::TransactionGroupIteratorWrapper;
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::block::{Block, BlockHeader};
-use near_primitives::checked_feature;
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::merkle::merklize;
 use near_primitives::receipt::Receipt;
@@ -378,7 +378,7 @@ pub fn pre_validate_chunk_state_witness(
     let current_protocol_version =
         epoch_manager.get_epoch_protocol_version(&state_witness.epoch_id)?;
     let transaction_validity_check_results =
-        if checked_feature!("stable", RelaxedChunkValidation, current_protocol_version) {
+        if ProtocolFeature::RelaxedChunkValidation.enabled(current_protocol_version) {
             if !state_witness.new_transactions.is_empty() {
                 return Err(Error::InvalidChunkStateWitness(format!(
                     "Witness new_transactions must be empty",
