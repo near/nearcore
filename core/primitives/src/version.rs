@@ -27,7 +27,7 @@ pub const _UNUSED_MIN_PROTOCOL_VERSION_NEP_92: ProtocolVersion = 31;
 
 /// Minimum gas price proposed in NEP 92 (fixed) and the associated protocol version
 pub const MIN_GAS_PRICE_NEP_92_FIX: Balance = 100_000_000;
-pub const _UNUSED_MIN_PROTOCOL_VERSION_NEP_92_FIX: ProtocolVersion = 32;
+pub const MIN_PROTOCOL_VERSION_NEP_92_FIX: ProtocolVersion = 32;
 
 pub const _UNUSED_CORRECT_RANDOM_VALUE_PROTOCOL_VERSION: ProtocolVersion = 33;
 

@@ -37,7 +37,7 @@ use near_primitives::types::{
 };
 use near_primitives::utils::to_timestamp;
 use near_primitives::version::{
-    _UNUSED_MIN_PROTOCOL_VERSION_NEP_92_FIX, MIN_GAS_PRICE_NEP_92_FIX, ProtocolVersion,
+    MIN_GAS_PRICE_NEP_92_FIX, MIN_PROTOCOL_VERSION_NEP_92_FIX, ProtocolVersion,
 };
 use near_primitives::views::{QueryRequest, QueryResponse};
 use near_schema_checker_lib::ProtocolSchema;
@@ -156,7 +156,7 @@ impl BlockEconomicsConfig {
     /// version higher than those changes are not overwritten and will instead
     /// respect the value defined in genesis.
     pub fn min_gas_price(&self) -> Balance {
-        if self.genesis_protocol_version < _UNUSED_MIN_PROTOCOL_VERSION_NEP_92_FIX {
+        if self.genesis_protocol_version < MIN_PROTOCOL_VERSION_NEP_92_FIX {
             MIN_GAS_PRICE_NEP_92_FIX
         } else {
             self.genesis_min_gas_price
