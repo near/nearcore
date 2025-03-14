@@ -2,8 +2,7 @@ use crate::config::{
     safe_add_balance, safe_add_gas, safe_gas_to_balance, total_deposit, total_prepaid_exec_fees,
     total_prepaid_gas, total_prepaid_send_fees,
 };
-use crate::safe_add_balance_apply;
-use crate::{DelayedReceiptIndices, ValidatorAccountsUpdate};
+use crate::{DelayedReceiptIndices, ValidatorAccountsUpdate, safe_add_balance_apply};
 use near_parameters::{ActionCosts, RuntimeConfig};
 use near_primitives::chunk_apply_stats::BalanceStats;
 use near_primitives::errors::{
