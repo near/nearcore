@@ -32,7 +32,7 @@ near-primitives.workspace = true
 nightly = [
   "near-chain-configs/nightly",
   "near-primitives/nightly",
-  
+
 ]
 sandbox = []
 test_features = ["near-primitives/test_features"]

@@ -34,7 +34,7 @@ insta.workspace = true
 [features]
 nightly = [
   "near-primitives-core/nightly",
-  
+
 ]
 calimero_zero_storage = []
 

@@ -57,6 +57,6 @@ nightly = [
   "near-network/nightly",
   "near-o11y/nightly",
   "near-primitives/nightly",
-  
+
 ]
 sandbox = ["near-client/sandbox", "near-o11y/sandbox"]

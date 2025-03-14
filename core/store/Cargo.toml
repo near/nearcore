@@ -93,7 +93,7 @@ nightly = [
   "near-parameters/nightly",
   "near-primitives/nightly",
   "near-vm-runner/nightly",
-  
+
   "testlib/nightly",
 ]
 protocol_schema = [

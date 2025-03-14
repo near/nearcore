@@ -67,7 +67,7 @@ nightly = [
   "near-parameters/nightly",
   "near-primitives-core/nightly",
   "near-primitives/nightly",
-  
+
 ]
 
 calimero_zero_storage = []

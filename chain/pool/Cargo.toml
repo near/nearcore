@@ -23,5 +23,5 @@ near-primitives.workspace = true
 nightly = [
   "near-o11y/nightly",
   "near-primitives/nightly",
-  
+
 ]

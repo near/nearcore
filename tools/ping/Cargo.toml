@@ -32,5 +32,5 @@ nightly = [
   "near-network/nightly",
   "near-o11y/nightly",
   "near-primitives/nightly",
-  
+
 ]

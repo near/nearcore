@@ -54,7 +54,7 @@ nightly = [
   "near-pool/nightly",
   "near-primitives/nightly",
   "near-store/nightly",
-  
+
 ]
 byzantine_asserts = ["near-chain/byzantine_asserts"]
 expensive_tests = []

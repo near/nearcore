@@ -92,7 +92,7 @@ nightly = [
   "near-store/nightly",
   "near-undo-block/nightly",
   "nearcore/nightly",
-  
+
 ]
 shadow_chunk_validation = [
   "near-client/shadow_chunk_validation",

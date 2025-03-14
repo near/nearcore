@@ -15,7 +15,7 @@ nightly = [
   "near-client/nightly",
   "near-network/nightly",
   "near-primitives/nightly",
-  
+
   "node-runtime/nightly",
 ]
 default = ["with_actix"]

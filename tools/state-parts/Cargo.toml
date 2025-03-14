@@ -34,5 +34,5 @@ nightly = [
   "near-o11y/nightly",
   "near-ping/nightly",
   "near-primitives/nightly",
-  
+
 ]

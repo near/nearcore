@@ -66,6 +66,6 @@ nightly = [
   "near-store/nightly",
   "near-vm-runner/nightly",
   "nearcore/nightly",
-  
+
   "testlib/nightly",
 ]

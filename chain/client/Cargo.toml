@@ -101,7 +101,7 @@ nightly = [
   "near-store/nightly",
   "near-telemetry/nightly",
   "near-vm-runner/nightly",
-  
+
 ]
 sandbox = [
   "near-client-primitives/sandbox",

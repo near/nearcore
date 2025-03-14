@@ -51,6 +51,6 @@ nightly = [
   "near-primitives-core/nightly",
   "near-primitives/nightly",
   "near-store/nightly",
-  
+
 ]
 sandbox = ["near-jsonrpc/sandbox", "near-o11y/sandbox"]

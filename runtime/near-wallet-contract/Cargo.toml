@@ -23,5 +23,5 @@ anyhow.workspace = true
 nightly = [
   "near-primitives-core/nightly",
   "near-vm-runner/nightly",
-  
+
 ]

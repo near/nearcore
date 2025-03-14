@@ -132,7 +132,7 @@ nightly = [
   "near-telemetry/nightly",
   "near-transactions-generator/nightly",
   "near-vm-runner/nightly",
-  
+
   "node-runtime/nightly",
   "testlib/nightly",
 ]
