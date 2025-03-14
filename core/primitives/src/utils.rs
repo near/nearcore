@@ -309,7 +309,6 @@ pub fn create_random_seed(
     random_seed: CryptoHash,
 ) -> Vec<u8> {
     let res = if protocol_version < CREATE_HASH_PROTOCOL_VERSION {
-        // Protocol version is always >= CORRECT_RANDOM_VALUE_PROTOCOL_VERSION
         random_seed
     } else {
         // Generates random seed from random_seed and action_hash.
