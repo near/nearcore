@@ -51,9 +51,7 @@ pub fn proposals_to_epoch_info(
 ) -> Result<EpochInfo, EpochError> {
     // For this protocol feature, switch happened two epochs after protocol upgrade.
     // Keeping it this way for replayability.
-    if ProtocolFeature::AliasValidatorSelectionAlgorithm.enabled(
-        prev_prev_epoch_protocol_version
-    ) {
+    if ProtocolFeature::AliasValidatorSelectionAlgorithm.enabled(prev_prev_epoch_protocol_version) {
         crate::validator_selection::proposals_to_epoch_info(
             epoch_config,
             rng_seed,

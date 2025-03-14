@@ -1,4 +1,3 @@
-use near_primitives_core::version::ProtocolFeature;
 use crate::bandwidth_scheduler::BandwidthRequests;
 use crate::congestion_info::CongestionInfo;
 use crate::hash::{CryptoHash, hash};
@@ -13,6 +12,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::Signature;
 use near_fmt::AbbrBytes;
 use near_primitives_core::version::PROTOCOL_VERSION;
+use near_primitives_core::version::ProtocolFeature;
 use near_schema_checker_lib::ProtocolSchema;
 use shard_chunk_header_inner::ShardChunkHeaderInnerV4;
 use std::cmp::Ordering;

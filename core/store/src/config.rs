@@ -1,5 +1,3 @@
-
-use near_primitives::version::ProtocolFeature;
 use crate::DBCol;
 use crate::trie::{
     DEFAULT_SHARD_CACHE_DELETIONS_QUEUE_CAPACITY, DEFAULT_SHARD_CACHE_TOTAL_SIZE_LIMIT,
@@ -8,7 +6,8 @@ use near_primitives::chains::MAINNET;
 use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::types::AccountId;
-use near_primitives::version::{PROTOCOL_VERSION};
+use near_primitives::version::PROTOCOL_VERSION;
+use near_primitives::version::ProtocolFeature;
 use near_time::Duration;
 use std::{collections::HashMap, str::FromStr};
 

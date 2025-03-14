@@ -1,4 +1,3 @@
-use near_primitives_core::version::ProtocolFeature;
 use crate::receipt_manager::ReceiptManager;
 use near_parameters::vm::StorageGetMode;
 use near_primitives::account::Account;
@@ -9,6 +8,7 @@ use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{AccountId, Balance, BlockHeight, EpochId, EpochInfoProvider, Gas};
 use near_primitives::utils::create_receipt_id_from_action_hash;
 use near_primitives::version::ProtocolVersion;
+use near_primitives_core::version::ProtocolFeature;
 use near_store::contract::ContractStorage;
 use near_store::{KeyLookupMode, TrieUpdate, TrieUpdateValuePtr, has_promise_yield_receipt};
 use near_vm_runner::logic::errors::{AnyError, InconsistentStateError, VMLogicError};

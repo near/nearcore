@@ -1,5 +1,3 @@
-use near_primitives_core::version::{PROTOCOL_VERSION};
-use near_primitives_core::version::ProtocolFeature;
 use crate::num_rational::Rational32;
 use crate::shard_layout::ShardLayout;
 use crate::types::validator_stake::ValidatorStake;
@@ -10,6 +8,8 @@ use crate::types::{
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::serialize::dec_format;
+use near_primitives_core::version::PROTOCOL_VERSION;
+use near_primitives_core::version::ProtocolFeature;
 use near_schema_checker_lib::ProtocolSchema;
 use std::collections::{BTreeMap, HashMap};
 use std::fs;

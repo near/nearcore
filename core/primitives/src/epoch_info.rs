@@ -1,5 +1,5 @@
-use near_primitives_core::version::ProtocolFeature;
 use borsh::{BorshDeserialize, BorshSerialize};
+use near_primitives_core::version::ProtocolFeature;
 use smart_default::SmartDefault;
 use std::collections::{BTreeMap, HashMap};
 

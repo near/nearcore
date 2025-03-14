@@ -1,4 +1,3 @@
-use near_primitives_core::version::ProtocolFeature;
 use crate::bandwidth_scheduler::BlockBandwidthRequests;
 use crate::block::BlockValidityError::{
     InvalidChallengeRoot, InvalidChunkHeaderRoot, InvalidChunkMask, InvalidReceiptRoot,
@@ -17,6 +16,7 @@ use crate::types::{Balance, BlockHeight, EpochId, Gas};
 use crate::version::{ProtocolVersion, SHARD_CHUNK_HEADER_UPGRADE_VERSION};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives_core::types::ShardIndex;
+use near_primitives_core::version::ProtocolFeature;
 use near_schema_checker_lib::ProtocolSchema;
 use near_time::Utc;
 use primitive_types::U256;

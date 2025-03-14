@@ -3,7 +3,7 @@ use crate::tests::standard_cases::*;
 use near_chain_configs::Genesis;
 use near_crypto::SecretKey;
 use near_primitives::state_record::StateRecord;
-use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use std::sync::Arc;
 use testlib::runtime_utils::{add_test_contract, alice_account, bob_account};
 

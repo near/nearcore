@@ -11,8 +11,8 @@ use near_primitives::shard_layout::ShardLayout;
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::types::{AccountId, EpochId, ShardId};
 use near_primitives::utils::from_timestamp;
-use near_primitives_core::version::PROTOCOL_VERSION;
 use near_primitives::version::ProtocolFeature;
+use near_primitives_core::version::PROTOCOL_VERSION;
 use std::collections::HashSet;
 use tracing::log::debug;
 

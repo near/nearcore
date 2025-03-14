@@ -1,4 +1,3 @@
-use near_primitives_core::version::ProtocolFeature;
 use crate::challenge::Challenges;
 use crate::sharding::ShardChunkHeader;
 use borsh::{BorshDeserialize, BorshSerialize};
@@ -6,6 +5,7 @@ use near_crypto::Signature;
 use near_crypto::vrf::{Proof, Value};
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::ProtocolVersion;
+use near_primitives_core::version::ProtocolFeature;
 use near_schema_checker_lib::ProtocolSchema;
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq, ProtocolSchema)]

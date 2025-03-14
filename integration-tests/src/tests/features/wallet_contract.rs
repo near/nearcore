@@ -15,13 +15,11 @@ use near_primitives::transaction::{
     TransferAction,
 };
 use near_primitives::utils::derive_eth_implicit_account_id;
+use near_primitives::version::ProtocolFeature;
 use near_primitives::views::{
     FinalExecutionStatus, QueryRequest, QueryResponse, QueryResponseKind,
 };
-use near_primitives_core::{
-    account::AccessKey, types::BlockHeight, version::PROTOCOL_VERSION,
-};
-use near_primitives::version::ProtocolFeature;
+use near_primitives_core::{account::AccessKey, types::BlockHeight, version::PROTOCOL_VERSION};
 use near_store::ShardUId;
 use near_vm_runner::ContractCode;
 use near_wallet_contract::{wallet_contract, wallet_contract_magic_bytes};

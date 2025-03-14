@@ -1,4 +1,3 @@
-use near_primitives_core::version::ProtocolFeature;
 use crate::config::{
     safe_add_compute, safe_add_gas, total_prepaid_exec_fees, total_prepaid_gas,
     total_prepaid_send_fees,
@@ -30,10 +29,9 @@ use near_primitives::types::{
     AccountId, Balance, BlockHeight, EpochInfoProvider, Gas, StorageUsage, TrieCacheMode,
 };
 use near_primitives::utils::account_is_implicit;
-use near_primitives::version::{
-    DELETE_KEY_STORAGE_USAGE_PROTOCOL_VERSION, ProtocolVersion,
-};
+use near_primitives::version::{DELETE_KEY_STORAGE_USAGE_PROTOCOL_VERSION, ProtocolVersion};
 use near_primitives_core::account::id::AccountType;
+use near_primitives_core::version::ProtocolFeature;
 use near_store::{
     StorageError, TrieUpdate, enqueue_promise_yield_timeout, get_access_key,
     get_promise_yield_indices, remove_access_key, remove_account, set_access_key,
@@ -512,9 +510,8 @@ pub(crate) fn action_implicit_account_creation_transfer(
             let mut access_key = AccessKey::full_access();
             // Set default nonce for newly created access key to avoid transaction hash collision.
             // See <https://github.com/near/nearcore/issues/3779>.
-            if ProtocolFeature::AccessKeyNonceForImplicitAccounts.enabled(
-                current_protocol_version
-            ) {
+            if ProtocolFeature::AccessKeyNonceForImplicitAccounts.enabled(current_protocol_version)
+            {
                 access_key.nonce = (block_height - 1)
                     * near_primitives::account::AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER;
             }

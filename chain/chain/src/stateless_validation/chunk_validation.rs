@@ -1,4 +1,3 @@
-use near_primitives::version::ProtocolFeature;
 use crate::chain::{
     NewChunkData, NewChunkResult, OldChunkData, OldChunkResult, ShardContext, StorageContext,
     apply_new_chunk, apply_old_chunk,
@@ -35,6 +34,7 @@ use near_primitives::transaction::{SignedTransaction, ValidatedTransaction};
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{AccountId, ProtocolVersion, ShardId, ShardIndex};
 use near_primitives::utils::compression::CompressedData;
+use near_primitives::version::ProtocolFeature;
 use near_store::flat::BlockInfo;
 use near_store::trie::ops::resharding::RetainMode;
 use near_store::{PartialStorage, Trie};

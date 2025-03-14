@@ -1,4 +1,3 @@
-use near_primitives::version::ProtocolFeature;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_async::time::{Duration, Utc};
 use near_chain_configs::GenesisConfig;
@@ -36,6 +35,7 @@ use near_primitives::types::{
     StateRoot, StateRootNode,
 };
 use near_primitives::utils::to_timestamp;
+use near_primitives::version::ProtocolFeature;
 use near_primitives::version::{
     MIN_GAS_PRICE_NEP_92, MIN_GAS_PRICE_NEP_92_FIX, MIN_PROTOCOL_VERSION_NEP_92,
     MIN_PROTOCOL_VERSION_NEP_92_FIX, ProtocolVersion,

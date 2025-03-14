@@ -1,4 +1,3 @@
-use near_primitives::version::ProtocolFeature;
 use crate::approval_verification::verify_approval_with_approvers_info;
 use crate::block_processing_utils::{
     ApplyChunksDoneWaiter, ApplyChunksStillApplying, BlockPreprocessInfo, BlockProcessingArtifact,
@@ -93,6 +92,7 @@ use near_primitives::types::{
 };
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::MaybeValidated;
+use near_primitives::version::ProtocolFeature;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolVersion};
 use near_primitives::views::{
     BlockStatusView, DroppedReason, ExecutionOutcomeWithIdView, ExecutionStatusView,
@@ -1017,9 +1017,9 @@ impl Chain {
         if let Ok(epoch_protocol_version) =
             self.epoch_manager.get_epoch_protocol_version(header.epoch_id())
         {
-            if ProtocolFeature::RejectBlocksWithOutdatedProtocolVersions.enabled(
-                epoch_protocol_version
-            ) {
+            if ProtocolFeature::RejectBlocksWithOutdatedProtocolVersions
+                .enabled(epoch_protocol_version)
+            {
                 if header.latest_protocol_version() < epoch_protocol_version {
                     error!(
                         "header protocol version {} smaller than epoch protocol version {}",

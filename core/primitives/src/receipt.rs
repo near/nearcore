@@ -1,4 +1,3 @@
-use near_primitives_core::version::ProtocolFeature;
 use crate::action::{GlobalContractIdentifier, base64};
 use crate::hash::CryptoHash;
 use crate::serialize::dec_format;
@@ -8,6 +7,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::{KeyType, PublicKey};
 use near_fmt::AbbrBytes;
 use near_primitives_core::types::{Gas, ProtocolVersion};
+use near_primitives_core::version::ProtocolFeature;
 use near_schema_checker_lib::ProtocolSchema;
 use serde_with::base64::Base64;
 use serde_with::serde_as;

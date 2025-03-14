@@ -1,4 +1,3 @@
-use near_primitives_core::version::ProtocolFeature;
 use crate::challenge::ChallengesResult;
 use crate::hash::{CryptoHash, hash};
 use crate::merkle::combine_hash;
@@ -10,6 +9,7 @@ use crate::validator_signer::ValidatorSigner;
 use crate::version::ProtocolVersion;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::{KeyType, PublicKey, Signature};
+use near_primitives_core::version::ProtocolFeature;
 use near_schema_checker_lib::ProtocolSchema;
 use near_time::Utc;
 use std::sync::Arc;
