@@ -349,6 +349,11 @@ impl ChunkProducer {
             "produced_chunk");
 
         metrics::CHUNK_PRODUCED_TOTAL.inc();
+
+        metrics::CHUNK_TRANSACTIONS_TOTAL
+            .with_label_values(&[&shard_id.to_string()])
+            .inc_by(num_filtered_transactions as u64);
+
         self.chunk_production_info.put(
             (next_height, shard_id),
             ChunkProduction {
