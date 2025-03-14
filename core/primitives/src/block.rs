@@ -14,7 +14,8 @@ use crate::num_rational::Rational32;
 use crate::optimistic_block::OptimisticBlock;
 use crate::sharding::{ChunkHashHeight, ShardChunkHeader, ShardChunkHeaderV1};
 use crate::types::{Balance, BlockHeight, EpochId, Gas};
-use crate::version::{ProtocolVersion, SHARD_CHUNK_HEADER_UPGRADE_VERSION};
+use crate::version::ProtocolVersion;
+use near_primitives_core::version::ProtocolFeature;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives_core::types::ShardIndex;
 use near_schema_checker_lib::ProtocolSchema;
@@ -180,7 +181,7 @@ impl Block {
         header: BlockHeader,
         body: BlockBody,
     ) -> Block {
-        if next_epoch_protocol_version < SHARD_CHUNK_HEADER_UPGRADE_VERSION {
+        if !ProtocolFeature::ShardChunkHeaderUpgrade.enabled(next_epoch_protocol_version) {
             let legacy_chunks = body
                 .chunks()
                 .iter()

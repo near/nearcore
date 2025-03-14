@@ -23,35 +23,9 @@ pub use near_primitives_core::version::ProtocolFeature;
 
 /// Minimum gas price proposed in NEP 92 and the associated protocol version
 pub const MIN_GAS_PRICE_NEP_92: Balance = 1_000_000_000;
-pub const MIN_PROTOCOL_VERSION_NEP_92: ProtocolVersion = 31;
 
 /// Minimum gas price proposed in NEP 92 (fixed) and the associated protocol version
 pub const MIN_GAS_PRICE_NEP_92_FIX: Balance = 100_000_000;
-pub const MIN_PROTOCOL_VERSION_NEP_92_FIX: ProtocolVersion = 32;
-
-pub const CORRECT_RANDOM_VALUE_PROTOCOL_VERSION: ProtocolVersion = 33;
-
-/// The protocol version that enables reward on mainnet.
-pub const ENABLE_INFLATION_PROTOCOL_VERSION: ProtocolVersion = 36;
-
-/// Fix upgrade to use the latest voted protocol version instead of the current epoch protocol
-/// version when there is no new change in protocol version.
-pub const UPGRADABILITY_FIX_PROTOCOL_VERSION: ProtocolVersion = 37;
-
-/// Updates the way receipt ID, data ID and random seeds are constructed.
-pub const CREATE_HASH_PROTOCOL_VERSION: ProtocolVersion = 38;
-
-/// Fix the storage usage of the delete key action.
-pub const DELETE_KEY_STORAGE_USAGE_PROTOCOL_VERSION: ProtocolVersion = 40;
-
-pub const SHARD_CHUNK_HEADER_UPGRADE_VERSION: ProtocolVersion = 41;
-
-/// Updates the way receipt ID is constructed to use current block hash instead of last block hash.
-pub const CREATE_RECEIPT_ID_SWITCH_TO_CURRENT_BLOCK_VERSION: ProtocolVersion = 42;
-
-/// Pessimistic gas price estimation uses a fixed value of `minimum_new_receipt_gas` to stop being
-/// tied to the function call base cost.
-pub const FIXED_MINIMUM_NEW_RECEIPT_GAS_VERSION: ProtocolVersion = 66;
 
 /// The points in time after which the voting for the latest protocol version
 /// should start.

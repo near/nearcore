@@ -13,10 +13,7 @@ use crate::block::BlockHeader;
 use crate::hash::{CryptoHash, hash};
 use crate::transaction::SignedTransaction;
 use crate::types::{NumSeats, NumShards, ShardId};
-use crate::version::{
-    CORRECT_RANDOM_VALUE_PROTOCOL_VERSION, CREATE_HASH_PROTOCOL_VERSION,
-    CREATE_RECEIPT_ID_SWITCH_TO_CURRENT_BLOCK_VERSION, ProtocolVersion,
-};
+use crate::version::ProtocolVersion;
 
 use near_crypto::{ED25519PublicKey, Secp256K1PublicKey};
 use near_primitives_core::account::id::{AccountId, AccountType};
@@ -308,9 +305,9 @@ pub fn create_random_seed(
     action_hash: CryptoHash,
     random_seed: CryptoHash,
 ) -> Vec<u8> {
-    let res = if protocol_version < CORRECT_RANDOM_VALUE_PROTOCOL_VERSION {
+    let res = if !ProtocolFeature::CorrectRandomValue.enabled(protocol_version) {
         action_hash
-    } else if protocol_version < CREATE_HASH_PROTOCOL_VERSION {
+    } else if !ProtocolFeature::CreateHash.enabled(protocol_version) {
         random_seed
     } else {
         // Generates random seed from random_seed and action_hash.
@@ -340,7 +337,7 @@ fn create_hash_upgradable(
     block_height: BlockHeight,
     salt: u64,
 ) -> CryptoHash {
-    if protocol_version < CREATE_HASH_PROTOCOL_VERSION {
+    if !ProtocolFeature::CreateHash.enabled(protocol_version) {
         create_nonce_with_nonce(base, salt)
     } else {
         const BYTES_LEN: usize =
@@ -349,7 +346,7 @@ fn create_hash_upgradable(
         bytes.extend_from_slice(base.as_ref());
         if ProtocolFeature::BlockHeightForReceiptId.enabled(protocol_version) {
             bytes.extend_from_slice(block_height.to_le_bytes().as_ref())
-        } else if protocol_version >= CREATE_RECEIPT_ID_SWITCH_TO_CURRENT_BLOCK_VERSION {
+        } else if ProtocolFeature::CreateReceiptIdSwitchToCurrentBlock.enabled(protocol_version) {
             bytes.extend_from_slice(extra_hash.as_ref())
         } else {
             bytes.extend_from_slice(extra_hash_old.as_ref())
@@ -582,7 +579,7 @@ mod tests {
         assert_eq!(
             create_nonce_with_nonce(&base, salt),
             create_hash_upgradable(
-                CREATE_HASH_PROTOCOL_VERSION - 1,
+                ProtocolFeature::CreateHash.protocol_version() - 1,
                 &base,
                 &extra_base,
                 &extra_base,
@@ -593,7 +590,7 @@ mod tests {
         assert_ne!(
             create_nonce_with_nonce(&base, salt),
             create_hash_upgradable(
-                CREATE_HASH_PROTOCOL_VERSION,
+                ProtocolFeature::CreateHash.protocol_version(),
                 &base,
                 &extra_base,
                 &extra_base,
@@ -603,7 +600,7 @@ mod tests {
         );
         assert_ne!(
             create_hash_upgradable(
-                CREATE_HASH_PROTOCOL_VERSION,
+                ProtocolFeature::CreateHash.protocol_version(),
                 &base,
                 &extra_base,
                 &extra_base,
@@ -611,7 +608,7 @@ mod tests {
                 salt,
             ),
             create_hash_upgradable(
-                CREATE_HASH_PROTOCOL_VERSION,
+                ProtocolFeature::CreateHash.protocol_version(),
                 &base,
                 &other_extra_base,
                 &other_extra_base,
@@ -621,7 +618,7 @@ mod tests {
         );
         assert_ne!(
             create_hash_upgradable(
-                CREATE_RECEIPT_ID_SWITCH_TO_CURRENT_BLOCK_VERSION - 1,
+                ProtocolFeature::CreateReceiptIdSwitchToCurrentBlock.protocol_version() - 1,
                 &base,
                 &extra_base,
                 &other_extra_base,
@@ -629,7 +626,7 @@ mod tests {
                 salt,
             ),
             create_hash_upgradable(
-                CREATE_RECEIPT_ID_SWITCH_TO_CURRENT_BLOCK_VERSION,
+                ProtocolFeature::CreateReceiptIdSwitchToCurrentBlock.protocol_version(),
                 &base,
                 &extra_base,
                 &other_extra_base,
@@ -639,7 +636,7 @@ mod tests {
         );
         assert_eq!(
             create_hash_upgradable(
-                CREATE_RECEIPT_ID_SWITCH_TO_CURRENT_BLOCK_VERSION,
+                ProtocolFeature::CreateReceiptIdSwitchToCurrentBlock.protocol_version(),
                 &base,
                 &extra_base,
                 &other_extra_base,
@@ -647,7 +644,7 @@ mod tests {
                 salt,
             ),
             create_hash_upgradable(
-                CREATE_RECEIPT_ID_SWITCH_TO_CURRENT_BLOCK_VERSION,
+                ProtocolFeature::CreateReceiptIdSwitchToCurrentBlock.protocol_version(),
                 &base,
                 &other_extra_base,
                 &other_extra_base,
