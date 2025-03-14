@@ -82,7 +82,7 @@ impl DatabaseCommand {
             SubCommand::ChangeDbKind(cmd) => cmd.run(home, genesis_validation),
             SubCommand::CompactDatabase(cmd) => cmd.run(home),
             SubCommand::CorruptStateSnapshot(cmd) => cmd.run(home),
-            SubCommand::DropColumn(cmd) => cmd.run(home),
+            SubCommand::DropColumn(cmd) => cmd.run(home, genesis_validation),
             SubCommand::MakeSnapshot(cmd) => {
                 let near_config = load_config(home, genesis_validation);
                 cmd.run(home, &near_config.config.store, near_config.config.archival_config())

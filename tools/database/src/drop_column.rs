@@ -1,37 +1,35 @@
-use crate::utils::{open_rocksdb, resolve_column};
+use crate::utils::resolve_column;
 use clap::Parser;
-use dialoguer::Confirm;
+use near_chain_configs::GenesisValidationMode;
+use near_store::DBCol;
+use nearcore::load_config;
 use std::path::PathBuf;
 
 // TODO: remove this cmd once we have a proper way to rollback migration
 #[derive(Parser)]
 pub(crate) struct DropColumnCommand {
     /// Column name, e.g. 'ChunkApplyStats'.
-    #[clap(long)]
-    column: String,
+    #[clap(long, required = true)]
+    column: Vec<String>,
 }
 
 impl DropColumnCommand {
-    pub(crate) fn run(&self, home: &PathBuf) -> anyhow::Result<()> {
-        if !Confirm::new()
-            .with_prompt(format!(
-                "WARNING: You are about to drop the column '{}'.\n\
-                That would break the database, unless you know what you are doing.\n\
-                Also, the column may be automatically restored (empty) the next time you run neard.\n\
-                Are you sure?",
-                self.column
-            ))
-            .default(false)
-            .interact()?
-        {
-            println!("Operation canceled.");
-            return Ok(());
-        }
+    pub(crate) fn run(&self, home_dir: &PathBuf, genesis_validation: GenesisValidationMode) -> anyhow::Result<()> {
+        let unwanted_columns: Vec<DBCol> = self.column.iter()
+            .map(|col| resolve_column(col))
+            .collect::<Result<Vec<_>, _>>()?;
 
-        let mut db = open_rocksdb(home, near_store::Mode::ReadWrite)?;
-        let column = resolve_column(&self.column)?;
-        db.drop_column(column)?;
-        println!("Dropped column: {}", self.column);
+        println!("Dropping columns: {unwanted_columns:?}");
+        let near_config = load_config(home_dir, genesis_validation)
+            .unwrap_or_else(|e| panic!("Error loading config: {e:#}"));
+
+        near_store::clear_columns(
+            home_dir,
+            &near_config.config.store,
+            near_config.config.archival_config(),
+            &unwanted_columns,
+            false,
+        )?;
         Ok(())
     }
 }
