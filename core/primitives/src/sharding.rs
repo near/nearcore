@@ -7,7 +7,7 @@ use crate::transaction::SignedTransaction;
 use crate::types::validator_stake::{ValidatorStake, ValidatorStakeIter, ValidatorStakeV1};
 use crate::types::{Balance, BlockHeight, Gas, MerkleHash, ShardId, StateRoot};
 use crate::validator_signer::{EmptyValidatorSigner, ValidatorSigner};
-use crate::version::{ProtocolFeature, ProtocolVersion, SHARD_CHUNK_HEADER_UPGRADE_VERSION};
+use crate::version::{ProtocolFeature, ProtocolVersion};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::Signature;
 use near_fmt::AbbrBytes;
@@ -586,9 +586,10 @@ impl ShardChunkHeader {
             ProtocolFeature::BandwidthScheduler.protocol_version();
 
         let is_valid = match &self {
-            ShardChunkHeader::V1(_) => version < SHARD_CHUNK_HEADER_UPGRADE_VERSION,
+            ShardChunkHeader::V1(_) => !ProtocolFeature::ShardChunkHeaderUpgrade.enabled(version),
             ShardChunkHeader::V2(_) => {
-                SHARD_CHUNK_HEADER_UPGRADE_VERSION <= version && version < BLOCK_HEADER_V3_VERSION
+                ProtocolFeature::ShardChunkHeaderUpgrade.enabled(version)
+                    && version < BLOCK_HEADER_V3_VERSION
             }
             ShardChunkHeader::V3(header) => match header.inner {
                 ShardChunkHeaderInner::V1(_) => {
@@ -796,8 +797,10 @@ impl PartialEncodedChunk {
     /// Returns whether the check is valid for given `ProtocolVersion`.
     pub fn valid_for(&self, version: ProtocolVersion) -> bool {
         match &self {
-            PartialEncodedChunk::V1(_) => version < SHARD_CHUNK_HEADER_UPGRADE_VERSION,
-            PartialEncodedChunk::V2(_) => SHARD_CHUNK_HEADER_UPGRADE_VERSION <= version,
+            PartialEncodedChunk::V1(_) => {
+                !ProtocolFeature::ShardChunkHeaderUpgrade.enabled(version)
+            }
+            PartialEncodedChunk::V2(_) => ProtocolFeature::ShardChunkHeaderUpgrade.enabled(version),
         }
     }
 
@@ -1207,7 +1210,7 @@ impl EncodedShardChunk {
         total_parts: usize,
         protocol_version: ProtocolVersion,
     ) -> Self {
-        if protocol_version < SHARD_CHUNK_HEADER_UPGRADE_VERSION {
+        if !ProtocolFeature::ShardChunkHeaderUpgrade.enabled(protocol_version) {
             if let ShardChunkHeader::V1(header) = header {
                 let chunk = EncodedShardChunkV1 {
                     header,
@@ -1270,7 +1273,7 @@ impl EncodedShardChunk {
 
         let block_header_v3_version = Some(ProtocolFeature::BlockHeaderV3.protocol_version());
 
-        if protocol_version < SHARD_CHUNK_HEADER_UPGRADE_VERSION {
+        if !ProtocolFeature::ShardChunkHeaderUpgrade.enabled(protocol_version) {
             let prev_validator_proposals =
                 prev_validator_proposals.into_iter().map(|v| v.into_v1()).collect();
             let header = ShardChunkHeaderV1::new(

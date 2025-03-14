@@ -6,7 +6,7 @@ use primitive_types::{U256, U512};
 use near_chain_configs::GenesisConfig;
 use near_primitives::checked_feature;
 use near_primitives::types::{AccountId, Balance, BlockChunkValidatorStats};
-use near_primitives::version::{ENABLE_INFLATION_PROTOCOL_VERSION, ProtocolVersion};
+use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 
 use crate::validator_stats::get_validator_online_ratio;
 
@@ -65,7 +65,7 @@ impl RewardCalculator {
         let mut res = HashMap::new();
         let num_validators = validator_block_chunk_stats.len();
         let use_hardcoded_value = genesis_protocol_version < protocol_version
-            && protocol_version >= ENABLE_INFLATION_PROTOCOL_VERSION;
+            && ProtocolFeature::EnableInflation.enabled(protocol_version);
         let max_inflation_rate =
             if use_hardcoded_value { Rational32::new_raw(1, 20) } else { self.max_inflation_rate };
         let protocol_reward_rate = if use_hardcoded_value {
