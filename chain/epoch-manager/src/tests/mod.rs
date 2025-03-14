@@ -2430,7 +2430,10 @@ fn test_protocol_version_switch_after_switch() {
                 ProtocolFeature::UpgradabilityFix.protocol_version() + 1,
             );
         } else {
-            set_block_info_protocol_version(&mut block_info, ProtocolFeature::UpgradabilityFix.protocol_version());
+            set_block_info_protocol_version(
+                &mut block_info,
+                ProtocolFeature::UpgradabilityFix.protocol_version(),
+            );
         }
         epoch_manager.record_block_info(block_info, [0; 32]).unwrap();
     }
@@ -2441,9 +2444,15 @@ fn test_protocol_version_switch_after_switch() {
 
     let epoch_infos = get_epoch_infos(&mut epoch_manager);
 
-    assert_eq!(epoch_infos[1].protocol_version(), ProtocolFeature::UpgradabilityFix.protocol_version() + 1);
+    assert_eq!(
+        epoch_infos[1].protocol_version(),
+        ProtocolFeature::UpgradabilityFix.protocol_version() + 1
+    );
 
-    assert_eq!(epoch_infos[2].protocol_version(), ProtocolFeature::UpgradabilityFix.protocol_version() + 1);
+    assert_eq!(
+        epoch_infos[2].protocol_version(),
+        ProtocolFeature::UpgradabilityFix.protocol_version() + 1
+    );
 
     // if there are enough votes to use the old version, it should be allowed
     for i in (2 * epoch_length + 1)..(4 * epoch_length - 1) {
@@ -2457,13 +2466,19 @@ fn test_protocol_version_switch_after_switch() {
             vec![],
             DEFAULT_TOTAL_SUPPLY,
         );
-        set_block_info_protocol_version(&mut block_info, ProtocolFeature::UpgradabilityFix.protocol_version());
+        set_block_info_protocol_version(
+            &mut block_info,
+            ProtocolFeature::UpgradabilityFix.protocol_version(),
+        );
         epoch_manager.record_block_info(block_info, [0; 32]).unwrap();
     }
 
     let epoch_infos = get_epoch_infos(&mut epoch_manager);
 
-    assert_eq!(epoch_infos[3].protocol_version(), ProtocolFeature::UpgradabilityFix.protocol_version());
+    assert_eq!(
+        epoch_infos[3].protocol_version(),
+        ProtocolFeature::UpgradabilityFix.protocol_version()
+    );
 }
 
 /// Epoch aggregator should not need to be recomputed under the following scenario
