@@ -1,8 +1,6 @@
-use std::cmp::min;
-
-use near_async::time;
-
 use crate::tests::network::runner::*;
+use near_async::time;
+use std::cmp::min;
 
 /// Check that a node is able to connect to the network, even if the number
 /// of active peers of every node is high.

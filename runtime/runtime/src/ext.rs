@@ -1,9 +1,7 @@
-// Standard library imports
-use std::sync::Arc;
-
-// External crate imports
+use crate::receipt_manager::ReceiptManager;
 use near_parameters::vm::StorageGetMode;
-use near_primitives::account::{Account, id::AccountType};
+use near_primitives::account::Account;
+use near_primitives::account::id::AccountType;
 use near_primitives::errors::{EpochError, StorageError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::trie_key::TrieKey;
@@ -18,9 +16,7 @@ use near_vm_runner::logic::types::ReceiptIndex;
 use near_vm_runner::logic::{External, StorageAccessTracker, ValuePtr};
 use near_vm_runner::{Contract, ContractCode};
 use near_wallet_contract::wallet_contract;
-
-// Local crate imports
-use crate::receipt_manager::ReceiptManager;
+use std::sync::Arc;
 
 pub struct RuntimeExt<'a> {
     pub(crate) trie_update: &'a mut TrieUpdate,

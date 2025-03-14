@@ -1,4 +1,3 @@
-// External crate imports
 use assert_matches::assert_matches;
 use near_chain::Provenance;
 use near_chain_configs::Genesis;
@@ -12,7 +11,6 @@ use near_primitives::transaction::{Action, FunctionCallAction, Transaction, Tran
 use near_primitives::types::BlockHeight;
 use near_primitives::views::FinalExecutionStatus;
 
-// Local crate imports
 use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
 use crate::env::test_env::TestEnv;
 use crate::utils::process_blocks::{

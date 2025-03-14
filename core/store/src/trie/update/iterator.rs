@@ -2,8 +2,9 @@ use std::iter::Peekable;
 use std::ops::Bound;
 
 use crate::StorageError;
-use crate::trie::TrieIterator;
 use crate::trie::{TrieWithReadLock, update::*};
+
+use crate::trie::TrieIterator;
 
 struct MergeIter<'a> {
     left: Peekable<Box<dyn Iterator<Item = (&'a [u8], Option<&'a [u8]>)> + 'a>>,

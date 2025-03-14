@@ -1,8 +1,7 @@
-use std::collections::HashSet;
-use std::path::Path;
-
 use near_chain_configs::{ExternalStorageLocation, SyncConfig};
 use near_config_utils::{ValidationError, ValidationErrors};
+use std::collections::HashSet;
+use std::path::Path;
 
 use crate::config::Config;
 

@@ -16,12 +16,9 @@
 
 //! Nibble-orientated view onto byte-slice, allowing nibble-precision offsets.
 
-// Standard library imports
+use smallvec::SmallVec;
 use std::cmp::*;
 use std::fmt;
-
-// External crate imports
-use smallvec::SmallVec;
 
 /// cspell:words nibbleslice
 /// Nibble-orientated view onto byte-slice, allowing nibble-precision offsets.

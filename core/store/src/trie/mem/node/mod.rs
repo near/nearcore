@@ -1,17 +1,12 @@
-// Standard library imports
-use std::fmt::{Debug, Formatter};
-
-// External crate imports
-use derive_where::derive_where;
-use near_primitives::hash::CryptoHash;
-use near_primitives::state::FlatStateValue;
-
-// Local crate imports
 use super::arena::{ArenaMemory, ArenaMut, ArenaPos, ArenaPtr};
 use super::flexible_data::children::ChildrenView;
 use super::flexible_data::value::ValueView;
 use crate::trie::{Children, TRIE_COSTS};
 use crate::{RawTrieNode, RawTrieNodeWithSize};
+use derive_where::derive_where;
+use near_primitives::hash::CryptoHash;
+use near_primitives::state::FlatStateValue;
+use std::fmt::{Debug, Formatter};
 
 mod encoding;
 #[cfg(test)]

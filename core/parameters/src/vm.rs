@@ -1,12 +1,10 @@
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
-
+use crate::cost::{ExtCostsConfig, ParameterCost};
 use borsh::BorshSerialize;
 use near_primitives_core::config::AccountIdValidityRulesVersion;
 use near_primitives_core::types::Gas;
 use near_schema_checker_lib::ProtocolSchema;
-
-use crate::cost::{ExtCostsConfig, ParameterCost};
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 
 // NOTE that VMKind is part of serialization protocol, so we cannot remove entries from this list
 // if particular VM reached publicly visible networks.
