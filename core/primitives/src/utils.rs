@@ -14,7 +14,7 @@ use crate::hash::{CryptoHash, hash};
 use crate::transaction::SignedTransaction;
 use crate::types::{NumSeats, NumShards, ShardId};
 use crate::version::{
-    CREATE_HASH_PROTOCOL_VERSION, CREATE_RECEIPT_ID_SWITCH_TO_CURRENT_BLOCK_VERSION, 
+    CREATE_HASH_PROTOCOL_VERSION, CREATE_RECEIPT_ID_SWITCH_TO_CURRENT_BLOCK_VERSION,
     ProtocolVersion,
 };
 
