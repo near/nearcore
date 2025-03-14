@@ -67,7 +67,8 @@ impl Client {
         }
         let chunk_header = chunk.cloned_header();
         let shard_id = chunk_header.shard_id();
-        let _span = tracing::debug_span!(target: "client", "send_chunk_state_witness", chunk_hash=?chunk_header.chunk_hash(), ?shard_id).entered();
+        let _span = tracing::debug_span!(target: "client", "send_chunk_state_witness", chunk_hash=?chunk_header.chunk_hash(), height_created=chunk_header.height_created(),
+        ?shard_id).entered();
 
         let my_signer = validator_signer
             .as_ref()
