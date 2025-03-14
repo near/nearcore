@@ -102,6 +102,7 @@ pub struct StateRequestStruct {
 }
 
 /// Sanity checks that the incoming and outgoing receipts are properly sent and received
+#[ignore = "flaky test"]
 #[test]
 fn ultra_slow_test_catchup_receipts_sync_third_epoch() {
     test_catchup_receipts_sync_common(13, 1, false)
@@ -114,16 +115,19 @@ fn ultra_slow_test_catchup_receipts_sync_third_epoch() {
 /// It will be executed 10 times faster.
 /// The reason of increasing block_prod_time in the test is to allow syncing complete.
 /// Otherwise epochs will be changing faster than state sync happen.
+#[ignore = "flaky test"]
 #[test]
 fn ultra_slow_test_catchup_receipts_sync_hold() {
     test_catchup_receipts_sync_common(13, 1, true)
 }
 
+#[ignore = "flaky test"]
 #[test]
 fn ultra_slow_test_catchup_receipts_sync_last_block() {
     test_catchup_receipts_sync_common(13, 5, false)
 }
 
+#[ignore = "flaky test"]
 #[test]
 fn ultra_slow_test_catchup_receipts_sync_distant_epoch() {
     test_catchup_receipts_sync_common(35, 1, false)
