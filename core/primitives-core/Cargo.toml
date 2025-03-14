@@ -39,7 +39,6 @@ nightly = [
   
 ]
 
-
 protocol_schema = [
   "near-schema-checker-lib/protocol_schema",
 ]

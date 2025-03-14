@@ -127,7 +127,6 @@ no_cpu_compatibility_checks = []
 
 metrics = ["prometheus", "near-o11y"]
 
-
 nightly = [
   "near-o11y/nightly",
   "near-parameters/nightly",

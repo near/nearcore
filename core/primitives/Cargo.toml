@@ -70,7 +70,6 @@ nightly = [
   
 ]
 
-
 calimero_zero_storage = []
 
 protocol_schema = ["near-schema-checker-lib/protocol_schema"]
@@ -90,7 +89,6 @@ insta.workspace = true
 expect-test.workspace = true
 regex.workspace = true
 tempfile.workspace = true
-
 
 [[bench]]
 name = "serialization"
