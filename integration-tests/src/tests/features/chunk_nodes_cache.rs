@@ -13,7 +13,6 @@ use near_primitives::types::{BlockHeightDelta, Gas};
 use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use near_primitives::views::FinalExecutionStatus;
 use near_store::trie::TrieNodesCount;
-
 use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
 use crate::env::test_env::TestEnv;
 use crate::utils::process_blocks::{deploy_test_contract, set_block_protocol_version};
