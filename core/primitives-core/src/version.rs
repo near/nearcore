@@ -273,7 +273,6 @@ impl ProtocolFeature {
             | ProtocolFeature::TestnetFewerBlockProducers
             | ProtocolFeature::SimpleNightshadeV2 => 64,
             ProtocolFeature::SimpleNightshadeV3 => 65,
-            ProtocolFeature::DecreaseFunctionCallBaseCost => 66,
             ProtocolFeature::YieldExecution => 67,
             ProtocolFeature::CongestionControl
             | ProtocolFeature::RemoveAccountWithLongStorageKey => 68,
