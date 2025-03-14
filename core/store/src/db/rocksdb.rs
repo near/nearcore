@@ -298,13 +298,6 @@ impl RocksDB {
         Ok(())
     }
 
-    pub fn drop_column(&mut self, col: DBCol) -> io::Result<()> {
-        tracing::info!(target: "store::db::rocksdb", col = ?col, "RocksDB::drop_column");
-        self.db.drop_cf(col_name(col)).map_err(io::Error::other)?;
-        self.cf_handles[col] = None;
-        Ok(())
-    }
-
     #[tracing::instrument(
         target = "store::db::rocksdb",
         level = "trace",
@@ -680,7 +673,7 @@ impl RocksDB {
                 })
                 .collect::<Vec<_>>();
             if !values.is_empty() {
-                // TODO(mina86): Once const_str_from_utf8 is stabilized we might
+                // TODO(mina86): Once const_str_from_utf8 is stabilised we might
                 // be able convert this runtime UTF-8 validation into const.
                 let stat_name = prop_name.to_str().unwrap();
                 result.data.push((stat_name.to_string(), values));
