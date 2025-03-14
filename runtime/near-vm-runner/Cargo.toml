@@ -130,10 +130,6 @@ prepare = [
 
 no_cpu_compatibility_checks = []
 
-protocol_feature_fix_contract_loading_cost = [
-  "near-primitives-core/protocol_feature_fix_contract_loading_cost",
-]
-
 metrics = ["prometheus", "near-o11y"]
 
 
@@ -142,7 +138,6 @@ nightly = [
   "near-parameters/nightly",
   "near-primitives-core/nightly",
   "nightly_protocol",
-  "protocol_feature_fix_contract_loading_cost",
 ]
 sandbox = ["near-o11y/sandbox"]
 test_features = []
