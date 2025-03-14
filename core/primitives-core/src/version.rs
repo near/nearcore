@@ -125,7 +125,6 @@ pub enum ProtocolFeature {
     /// used to depend on the number of existing shards, which is no longer the case.
     FixChunkProducerStakingThreshold,
     /// Charge for contract loading before it happens.
-    #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
     FixContractLoadingCost,
     /// Enables rejection of blocks with outdated protocol versions.
     RejectBlocksWithOutdatedProtocolVersions,
@@ -271,7 +270,6 @@ impl ProtocolFeature {
             | ProtocolFeature::ProduceOptimisticBlock => 77,
 
             // Nightly features:
-            #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
             ProtocolFeature::FixContractLoadingCost => 129,
             // TODO(#11201): When stabilizing this feature in mainnet, also remove the temporary code
             // that always enables this for mocknet (see config_mocknet function).
