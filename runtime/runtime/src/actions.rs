@@ -29,7 +29,7 @@ use near_primitives::types::{
     AccountId, Balance, BlockHeight, EpochInfoProvider, Gas, StorageUsage, TrieCacheMode,
 };
 use near_primitives::utils::account_is_implicit;
-use near_primitives::version::{ProtocolFeature, ProtocolVersion};
+use near_primitives::version::ProtocolVersion;
 use near_primitives_core::account::id::AccountType;
 use near_primitives_core::version::ProtocolFeature;
 use near_store::{
