@@ -83,8 +83,10 @@ skip = [
     { name = "windows_x86_64_msvc", version = "<0.59" },
     { name = "windows-targets", version = "<0.52" },
 
-    # ed25519-dalek uses older versions of rand and rand_core
-    { name = "rand_core", version = "=0.5.1" },
+    # ed25519-dalek, bolero uses older versions of rand and rand_core
+    { name = "rand", version = "<0.9" },
+    { name = "rand_core", version = "<0.9" },
+    { name = "rand_chacha", version = "<0.9" },
     { name = "getrandom", version = "=0.1.16" },
     { name = "getrandom", version = "^0.2" },
 
@@ -100,13 +102,11 @@ skip = [
     { name = "hashbrown", version = "0.12.0" },
     { name = "hashbrown", version = "0.13.2" },
     { name = "hashbrown", version = "0.14.5" },
+    { name = "zerocopy", version = "^0.7" },
 
     # Bolero requires a newer version and the rest of the ecosystem hasn't caught up yet.
     { name = "bitflags", version = "=1.3.2" },
     { name = "indexmap", version = "=1.9.2" },
-
-    # prometheus depends on an old version of protobuf
-    { name = "protobuf", version = "=2.27.1" },
 
     # Various packages haven’t upgraded to 0.base64 21 yet.
     { name = "base64", version = "=0.13.0" },
@@ -114,13 +114,10 @@ skip = [
 
     # ark-ec, criterion,
     { name = "itertools", version = "0.10" },
+    { name = "itertools", version = "0.12" },
 
     # actix-http hasn't upgraded iminz_oxide/flate2 yet.
     { name = "miniz_oxide", version = "=0.5.1" },
-
-    # cloud-storage
-    { name = "base64", version = "=0.12.3" },
-    { name = "num-bigint", version = "=0.2.6" },
 
     # Everything depends on this...
     { name = "lru", version = "=0.7.8" },
@@ -137,4 +134,18 @@ skip = [
 
     # indicatif brings in a newer version
     { name = "unicode-width", version = "<0.2" },
+
+    # http ecosystem split.
+    { name = "reqwest", version = "^0.11" },
+    { name = "winreg", version = "^0.50" },
+    { name = "socket2", version = "^0.4" },
+    { name = "rustls-pemfile", version = "^1" },
+    { name = "nix", version = "^0.24" },
+    { name = "mio", version = "^0.8" },
+    { name = "hyper-tls", version = "^0.5" },
+    { name = "hyper", version = "^0.14" },
+    { name = "http-body", version = "^0.4" },
+    { name = "http", version = "^0.2" },
+    { name = "h2", version = "^0.3" },
+    { name = "base64", version = "^0.21" },
 ]

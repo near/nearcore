@@ -84,7 +84,7 @@ impl StateSyncDumper {
                     tracing::info!(target: "state_sync_dump", "Set the environment variable 'SERVICE_ACCOUNT' to '{credentials_file:?}'");
                 }
                 ExternalConnection::GCS {
-                    gcs_client: Arc::new(cloud_storage::Client::default()),
+                    gcs_client: Arc::new(object_store::gcp::GoogleCloudStorageBuilder::new().with_bucket_name(&bucket).build().unwrap()),
                     reqwest_client: Arc::new(reqwest::Client::default()),
                     bucket,
                 }
