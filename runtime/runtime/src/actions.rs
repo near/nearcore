@@ -30,9 +30,7 @@ use near_primitives::types::{
     AccountId, Balance, BlockHeight, EpochInfoProvider, Gas, StorageUsage, TrieCacheMode,
 };
 use near_primitives::utils::account_is_implicit;
-use near_primitives::version::{
-    DELETE_KEY_STORAGE_USAGE_PROTOCOL_VERSION, ProtocolFeature, ProtocolVersion,
-};
+use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use near_primitives_core::account::id::AccountType;
 use near_store::{
     StorageError, TrieUpdate, enqueue_promise_yield_timeout, get_access_key,
@@ -829,16 +827,16 @@ pub(crate) fn action_delete_key(
     let access_key = get_access_key(state_update, account_id, &delete_key.public_key)?;
     if let Some(access_key) = access_key {
         let storage_usage_config = &fee_config.storage_usage_config;
-        let storage_usage = if current_protocol_version >= DELETE_KEY_STORAGE_USAGE_PROTOCOL_VERSION
-        {
-            borsh::object_length(&delete_key.public_key).unwrap() as u64
-                + borsh::object_length(&access_key).unwrap() as u64
-                + storage_usage_config.num_extra_bytes_record
-        } else {
-            borsh::object_length(&delete_key.public_key).unwrap() as u64
-                + borsh::object_length(&Some(access_key)).unwrap() as u64
-                + storage_usage_config.num_extra_bytes_record
-        };
+        let storage_usage =
+            if ProtocolFeature::DeleteKeyStorageUsage.enabled(current_protocol_version) {
+                borsh::object_length(&delete_key.public_key).unwrap() as u64
+                    + borsh::object_length(&access_key).unwrap() as u64
+                    + storage_usage_config.num_extra_bytes_record
+            } else {
+                borsh::object_length(&delete_key.public_key).unwrap() as u64
+                    + borsh::object_length(&Some(access_key)).unwrap() as u64
+                    + storage_usage_config.num_extra_bytes_record
+            };
         // Remove access key
         remove_access_key(state_update, account_id.clone(), delete_key.public_key.clone());
         account.set_storage_usage(account.storage_usage().saturating_sub(storage_usage));

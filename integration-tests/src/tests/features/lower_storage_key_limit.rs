@@ -86,7 +86,10 @@ fn protocol_upgrade() {
         })
         .sign(&signer);
         let tx_hash = signed_tx.get_hash();
-        assert_eq!(env.clients[0].process_tx(signed_tx, false, false), ProcessTxResponse::ValidTx);
+        assert_eq!(
+            env.tx_request_handlers[0].process_tx(signed_tx, false, false),
+            ProcessTxResponse::ValidTx
+        );
         produce_blocks_from_height_with_protocol_version(
             &mut env,
             epoch_length,
@@ -109,7 +112,10 @@ fn protocol_upgrade() {
         })
         .sign(&signer);
         let tx_hash = signed_tx.get_hash();
-        assert_eq!(env.clients[0].process_tx(signed_tx, false, false), ProcessTxResponse::ValidTx);
+        assert_eq!(
+            env.tx_request_handlers[0].process_tx(signed_tx, false, false),
+            ProcessTxResponse::ValidTx
+        );
         for i in 0..epoch_length {
             let block = env.clients[0].produce_block(tip.height + i + 1).unwrap().unwrap();
             env.process_block(0, block.clone(), Provenance::PRODUCED);
@@ -149,7 +155,10 @@ fn protocol_upgrade() {
         })
         .sign(&signer);
         let tx_hash = signed_tx.get_hash();
-        assert_eq!(env.clients[0].process_tx(signed_tx, false, false), ProcessTxResponse::ValidTx);
+        assert_eq!(
+            env.tx_request_handlers[0].process_tx(signed_tx, false, false),
+            ProcessTxResponse::ValidTx
+        );
         for i in 0..epoch_length {
             let block = env.clients[0].produce_block(tip.height + i + 1).unwrap().unwrap();
             env.process_block(0, block.clone(), Provenance::PRODUCED);

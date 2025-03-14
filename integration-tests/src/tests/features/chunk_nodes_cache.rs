@@ -54,7 +54,7 @@ fn process_transaction(
         0,
     );
     let tx_hash = tx.get_hash();
-    assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
+    assert_eq!(env.tx_request_handlers[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
 
     for i in next_height..next_height + num_blocks {
         let mut block = env.clients[0].produce_block(i).unwrap().unwrap();

@@ -37,8 +37,7 @@ use near_primitives::types::{
 };
 use near_primitives::utils::to_timestamp;
 use near_primitives::version::{
-    MIN_GAS_PRICE_NEP_92, MIN_GAS_PRICE_NEP_92_FIX, MIN_PROTOCOL_VERSION_NEP_92,
-    MIN_PROTOCOL_VERSION_NEP_92_FIX, ProtocolVersion,
+    MIN_GAS_PRICE_NEP_92, MIN_GAS_PRICE_NEP_92_FIX, ProtocolFeature, ProtocolVersion,
 };
 use near_primitives::views::{QueryRequest, QueryResponse};
 use near_schema_checker_lib::ProtocolSchema;
@@ -157,16 +156,18 @@ impl BlockEconomicsConfig {
     /// version higher than those changes are not overwritten and will instead
     /// respect the value defined in genesis.
     pub fn min_gas_price(&self, protocol_version: ProtocolVersion) -> Balance {
-        if self.genesis_protocol_version < MIN_PROTOCOL_VERSION_NEP_92 {
-            if protocol_version >= MIN_PROTOCOL_VERSION_NEP_92_FIX {
+        if !ProtocolFeature::MinProtocolVersionNep92.enabled(self.genesis_protocol_version) {
+            if ProtocolFeature::MinProtocolVersionNep92Fix.enabled(protocol_version) {
                 MIN_GAS_PRICE_NEP_92_FIX
-            } else if protocol_version >= MIN_PROTOCOL_VERSION_NEP_92 {
+            } else if ProtocolFeature::MinProtocolVersionNep92.enabled(protocol_version) {
                 MIN_GAS_PRICE_NEP_92
             } else {
                 self.genesis_min_gas_price
             }
-        } else if self.genesis_protocol_version < MIN_PROTOCOL_VERSION_NEP_92_FIX {
-            if protocol_version >= MIN_PROTOCOL_VERSION_NEP_92_FIX {
+        } else if !ProtocolFeature::MinProtocolVersionNep92Fix
+            .enabled(self.genesis_protocol_version)
+        {
+            if ProtocolFeature::MinProtocolVersionNep92Fix.enabled(protocol_version) {
                 MIN_GAS_PRICE_NEP_92_FIX
             } else {
                 MIN_GAS_PRICE_NEP_92

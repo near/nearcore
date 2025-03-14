@@ -58,6 +58,7 @@ pub fn start_all_with_validity_period(
         TEST_GENESIS_CONFIG.clone(),
         actor_handles.client_actor.clone().with_auto_span_context().into_multi_sender(),
         actor_handles.view_client_actor.clone().with_auto_span_context().into_multi_sender(),
+        actor_handles.tx_processor_actor.clone().with_auto_span_context().into_multi_sender(),
         noop().into_multi_sender(),
         #[cfg(feature = "test_features")]
         noop().into_multi_sender(),

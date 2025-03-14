@@ -28,7 +28,7 @@ use near_store::ShardUId;
 use near_store::adapter::chain_store::ChainStoreAdapter;
 use reed_solomon_erasure::galois_8::ReedSolomon;
 use std::num::NonZeroUsize;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use time::ext::InstantExt as _;
 use tracing::{debug, instrument};
 
@@ -70,7 +70,8 @@ pub struct ChunkProducer {
     chain: ChainStoreAdapter,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
     runtime_adapter: Arc<dyn RuntimeAdapter>,
-    pub sharded_tx_pool: ShardedTransactionPool,
+    // TODO: put mutex on individual shards instead of the complete pool
+    pub sharded_tx_pool: Arc<Mutex<ShardedTransactionPool>>,
     /// A ReedSolomon instance to encode shard chunks.
     reed_solomon_encoder: ReedSolomon,
     /// Chunk production timing information. Used only for debug purposes.
@@ -102,7 +103,10 @@ impl ChunkProducer {
             chain: chain_store.clone(),
             epoch_manager,
             runtime_adapter,
-            sharded_tx_pool: ShardedTransactionPool::new(rng_seed, transaction_pool_size_limit),
+            sharded_tx_pool: Arc::new(Mutex::new(ShardedTransactionPool::new(
+                rng_seed,
+                transaction_pool_size_limit,
+            ))),
             reed_solomon_encoder: ReedSolomon::new(data_parts, parity_parts).unwrap(),
             chunk_production_info: lru::LruCache::new(
                 NonZeroUsize::new(PRODUCTION_TIMES_CACHE_SIZE).unwrap(),
@@ -380,8 +384,8 @@ impl ChunkProducer {
         chain_validate: &dyn Fn(&SignedTransaction) -> bool,
     ) -> Result<PreparedTransactions, Error> {
         let shard_id = shard_uid.shard_id();
-        let prepared_transactions = if let Some(mut iter) =
-            self.sharded_tx_pool.get_pool_iterator(shard_uid)
+        let mut pool_guard = self.sharded_tx_pool.lock().unwrap();
+        let prepared_transactions = if let Some(mut iter) = pool_guard.get_pool_iterator(shard_uid)
         {
             let storage_config = RuntimeStorageConfig {
                 state_root: *chunk_extra.state_root(),
@@ -418,9 +422,9 @@ impl ChunkProducer {
         };
         // Reintroduce valid transactions back to the pool. They will be removed when the chunk is
         // included into the block.
-        let reintroduced_count = self
-            .sharded_tx_pool
+        let reintroduced_count = pool_guard
             .reintroduce_transactions(shard_uid, prepared_transactions.transactions.clone());
+
         if reintroduced_count < prepared_transactions.transactions.len() {
             debug!(target: "client", reintroduced_count, num_tx = prepared_transactions.transactions.len(), "Reintroduced transactions");
         }

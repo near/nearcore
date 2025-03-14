@@ -115,7 +115,7 @@ fn slow_test_repro_1183() {
                             // cast ShardId to ShardIndex.
                             let shard_id = account_id_to_shard_id(&from, 4);
                             let shard_index: ShardIndex = shard_id.into();
-                            connectors1.write().unwrap()[shard_index].client_actor.do_send(
+                            connectors1.write().unwrap()[shard_index].tx_processor_actor.do_send(
                                 ProcessTxRequest {
                                     transaction: SignedTransaction::send_money(
                                         block.header().height() * 16 + nonce_delta,

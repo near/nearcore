@@ -173,7 +173,7 @@ fn test_execution_outcome_for_chunk() {
             );
             let tx_hash = transaction.get_hash();
             let res = actor_handles
-                .client_actor
+                .tx_processor_actor
                 .send(
                     ProcessTxRequest { transaction, is_forwarded: false, check_only: false }
                         .with_span_context(),
