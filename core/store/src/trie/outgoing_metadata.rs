@@ -1,3 +1,5 @@
+
+use near_primitives::version::ProtocolFeature;
 use std::collections::BTreeMap;
 
 use borsh::{BorshDeserialize, BorshSerialize};
@@ -6,7 +8,7 @@ use near_primitives::errors::StorageError;
 use near_primitives::receipt::TrieQueueIndices;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{Gas, ShardId};
-use near_primitives::version::ProtocolFeature;
+
 use near_schema_checker_lib::ProtocolSchema;
 use near_vm_runner::logic::ProtocolVersion;
 

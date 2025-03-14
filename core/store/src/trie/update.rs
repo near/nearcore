@@ -1,3 +1,5 @@
+
+use near_primitives::version::ProtocolFeature;
 pub use self::iterator::TrieUpdateIterator;
 use super::accounting_cache::TrieAccountingCacheSwitch;
 use super::{OptimizedValueRef, Trie, TrieWithReadLock};
@@ -14,7 +16,7 @@ use near_primitives::types::{
     AccountId, RawStateChange, RawStateChanges, RawStateChangesWithTrieKey, StateChangeCause,
     StateRoot, TrieCacheMode,
 };
-use near_primitives::version::ProtocolFeature;
+
 use near_vm_runner::ContractCode;
 use near_vm_runner::logic::ProtocolVersion;
 use std::collections::BTreeMap;

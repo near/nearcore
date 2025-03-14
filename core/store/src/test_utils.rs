@@ -1,3 +1,5 @@
+
+use near_primitives::version::ProtocolFeature;
 use crate::adapter::{StoreAdapter, StoreUpdateAdapter};
 use crate::db::TestDB;
 use crate::flat::{BlockInfo, FlatStorageManager, FlatStorageReadyStatus, FlatStorageStatus};
@@ -17,7 +19,7 @@ use near_primitives::state::FlatStateValue;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::StateRoot;
 use near_primitives::types::chunk_extra::ChunkExtra;
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
+use near_primitives::version::{PROTOCOL_VERSION};
 use rand::Rng;
 use rand::seq::SliceRandom;
 use std::collections::HashMap;
