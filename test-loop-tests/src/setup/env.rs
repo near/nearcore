@@ -5,6 +5,7 @@ use near_async::test_loop::data::TestLoopData;
 use near_async::time::Duration;
 use near_client::SetNetworkInfo;
 use near_network::types::NetworkInfo;
+use near_primitives::types::AccountId;
 use near_store::adapter::StoreAdapter;
 use std::sync::atomic::Ordering;
 
@@ -157,5 +158,12 @@ impl TestLoopEnv {
         }
 
         self.test_loop.shutdown_and_drain_remaining_events(timeout);
+    }
+
+    pub fn get_node_data_by_account_id(
+        &self,
+        account_id: &AccountId,
+    ) -> Option<&NodeExecutionData> {
+        self.node_datas.iter().find(|data| &data.account_id == account_id)
     }
 }
