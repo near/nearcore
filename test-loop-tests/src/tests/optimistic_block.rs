@@ -1,17 +1,16 @@
-use std::borrow::BorrowMut;
-use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, Mutex};
+#[cfg(feature = "test_features")]
+use std::sync::Arc;
 
 use itertools::Itertools;
 use near_async::time::Duration;
 #[cfg(feature = "test_features")]
 use near_chain::chain::Chain;
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
+#[cfg(feature = "test_features")]
 use near_network::types::NetworkRequests;
 use near_o11y::testonly::init_test_logger;
-use near_primitives::optimistic_block::OptimisticBlock;
 #[cfg(feature = "test_features")]
-use near_primitives::optimistic_block::OptimisticBlockAdvType;
+use near_primitives::optimistic_block::{OptimisticBlock, OptimisticBlockAdvType};
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{AccountId, BlockHeight};
@@ -29,7 +28,7 @@ fn get_builder(num_shards: usize) -> TestLoopBuilder {
 
     let epoch_length = 100;
     let accounts =
-        (0..3).map(|i| format!("account{}", i).parse().unwrap()).collect::<Vec<AccountId>>();
+        (0..4).map(|i| format!("account{}", i).parse().unwrap()).collect::<Vec<AccountId>>();
     let clients = accounts.iter().cloned().collect_vec();
     let validators_spec = ValidatorsSpec::desired_roles(
         &accounts.iter().map(|account_id| account_id.as_str()).collect_vec(),
@@ -181,7 +180,7 @@ fn get_height_to_skip_and_producers(
         .get_estimated_next_epoch_start(&&epoch_manager.get_block_info(parent_hash).unwrap())
         .unwrap();
 
-    let start_height = head.height + 5;
+    let start_height = head.height + 3;
     let mut prev_block_producer =
         epoch_manager.get_block_producer_info(&epoch_id, start_height - 1).unwrap();
     for height in start_height..(epoch_end_height - 1) {
@@ -196,51 +195,26 @@ fn get_height_to_skip_and_producers(
     );
 }
 
-/// Register a handler to track optimistic blocks received by the producers.
-fn track_optimistic_blocks(
-    env: &mut TestLoopEnv,
-    produced_optimistic_blocks: Arc<Mutex<HashMap<BlockHeight, OptimisticBlock>>>,
-) {
-    for data in &env.node_datas {
-        let peer_actor = env.test_loop.data.get_mut(&data.peer_manager_sender.actor_handle());
-        peer_actor.register_override_handler(Box::new({
-            let ob_store = produced_optimistic_blocks.clone();
-            move |request: NetworkRequests| {
-                if let NetworkRequests::OptimisticBlock { optimistic_block } = &request {
-                    ob_store
-                        .lock()
-                        .unwrap()
-                        .insert(optimistic_block.height(), optimistic_block.clone());
-                };
-                Some(request)
-            }
-        }));
-    }
-}
-
 #[test]
 /// Test that the optimistic block production does not break after a missing block.
 fn test_optimistic_block_after_missing_block() {
-    let num_shards = 4;
+    let num_shards = 3;
     let mut env: TestLoopEnv = get_builder(num_shards).build().warmup();
-
-    // Hash of optimistic blocks by height
-    let producer_optimistic_blocks: Arc<Mutex<HashMap<BlockHeight, OptimisticBlock>>> =
-        Arc::new(Mutex::new(HashMap::new()));
-    track_optimistic_blocks(env.borrow_mut(), producer_optimistic_blocks.clone());
 
     env.test_loop.run_for(Duration::seconds(10));
 
-    let (height_to_skip, producer, _) = get_height_to_skip_and_producers(&env);
+    let (height_to_skip, producer, next_producer) = get_height_to_skip_and_producers(&env);
     tracing::info!(target: "test", ?height_to_skip, ?producer, "Skipping block at height");
     env = env.drop(DropCondition::BlocksByHeight([height_to_skip].into_iter().collect()));
 
-    let client_handle = env.node_datas[0].client_sender.actor_handle();
+    let client_handle = &env
+        .get_node_data_by_account_id(next_producer.account_id())
+        .unwrap()
+        .client_sender
+        .actor_handle();
 
-    let (hit_count_before_skip, height_before_skip) = {
-        let chain = &env.test_loop.data.get(&client_handle).client.chain;
-        (chain.apply_chunk_results_cache.hits(), chain.head().unwrap().height)
-    };
+    let (hit_count_before_skip, height_before_skip) =
+        get_hit_count_and_height(&env, &next_producer);
 
     // Wait for a few blocks after the missed block for optimistic blocks to be used again.
     let wait_blocks_after_skip = 5;
@@ -249,28 +223,19 @@ fn test_optimistic_block_after_missing_block() {
             test_loop_data.get(&client_handle).client.chain.head().unwrap().height
                 > (height_to_skip + wait_blocks_after_skip)
         },
-        Duration::seconds(20),
+        Duration::seconds(10),
     );
 
-    let hit_count_after_skip = {
-        let chain = &env.test_loop.data.get(&client_handle).client.chain;
-        chain.apply_chunk_results_cache.hits()
-    };
+    let (hit_count_after_skip, height_after_skip) = get_hit_count_and_height(&env, &next_producer);
 
-    // Remove the hits before the skip happened.
-    let blocks_before_skip = (height_to_skip - height_before_skip) as usize;
-    let hits_after_skip = hit_count_after_skip - hit_count_before_skip - blocks_before_skip;
-    assert!(hits_after_skip > 0, "Optimistic block not used after a missing block");
+    let hit_delta = hit_count_after_skip - hit_count_before_skip;
+    let height_delta = (height_after_skip - height_before_skip) as usize;
+    assert!(
+        height_delta == hit_delta + 2,
+        "OptimisticBlock was not supposed to be used on 2 heights"
+    );
 
     env.shutdown_and_drain_remaining_events(Duration::seconds(20));
-
-    {
-        let optimistic_block_heights =
-            producer_optimistic_blocks.lock().unwrap().keys().cloned().collect::<HashSet<_>>();
-        tracing::info!(target: "test_loop", ?optimistic_block_heights, "Optimistic block received");
-        ((height_to_skip + 2)..(height_to_skip + wait_blocks_after_skip))
-            .for_each(|height| assert!(optimistic_block_heights.contains(&height)));
-    }
 }
 
 #[cfg(feature = "test_features")]
@@ -324,6 +289,7 @@ fn get_hit_count_and_height(env: &TestLoopEnv, producer: &ValidatorStake) -> (us
 /// is shared with the other nodes.
 fn test_optimistic_block_with_invalidated_outcome() {
     use near_primitives::optimistic_block;
+    use std::borrow::BorrowMut;
 
     let num_shards = 3;
     let mut env: TestLoopEnv = get_builder(num_shards).build().warmup();
