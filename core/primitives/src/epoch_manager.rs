@@ -6,7 +6,6 @@ use crate::types::{
     ValidatorKickoutReason,
 };
 use borsh::{BorshDeserialize, BorshSerialize};
-use near_primitives_core::checked_feature;
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::serialize::dec_format;
 use near_primitives_core::version::{PROTOCOL_VERSION, ProtocolFeature};
@@ -373,33 +372,33 @@ impl AllEpochConfig {
     fn config_validator_selection(config: &mut EpochConfig, protocol_version: ProtocolVersion) {
         // Shuffle shard assignments every epoch, to trigger state sync more
         // frequently to exercise that code path.
-        if checked_feature!("stable", ShuffleShardAssignments, protocol_version) {
+        if ProtocolFeature::ShuffleShardAssignments.enabled(protocol_version) {
             config.shuffle_shard_assignment_for_chunk_producers = true;
         }
     }
 
     fn config_nightshade(config: &mut EpochConfig, protocol_version: ProtocolVersion) {
-        if checked_feature!("stable", SimpleNightshadeV5, protocol_version) {
+        if ProtocolFeature::SimpleNightshadeV5.enabled(protocol_version) {
             Self::config_nightshade_impl(config, ShardLayout::get_simple_nightshade_layout_v5());
             return;
         }
 
-        if checked_feature!("stable", SimpleNightshadeV4, protocol_version) {
+        if ProtocolFeature::SimpleNightshadeV4.enabled(protocol_version) {
             Self::config_nightshade_impl(config, ShardLayout::get_simple_nightshade_layout_v4());
             return;
         }
 
-        if checked_feature!("stable", SimpleNightshadeV3, protocol_version) {
+        if ProtocolFeature::SimpleNightshadeV3.enabled(protocol_version) {
             Self::config_nightshade_impl(config, ShardLayout::get_simple_nightshade_layout_v3());
             return;
         }
 
-        if checked_feature!("stable", SimpleNightshadeV2, protocol_version) {
+        if ProtocolFeature::SimpleNightshadeV2.enabled(protocol_version) {
             Self::config_nightshade_impl(config, ShardLayout::get_simple_nightshade_layout_v2());
             return;
         }
 
-        if checked_feature!("stable", SimpleNightshade, protocol_version) {
+        if ProtocolFeature::SimpleNightshade.enabled(protocol_version) {
             Self::config_nightshade_impl(config, ShardLayout::get_simple_nightshade_layout());
             return;
         }
@@ -418,7 +417,7 @@ impl AllEpochConfig {
         chain_id: &str,
         protocol_version: u32,
     ) {
-        if checked_feature!("stable", ChunkOnlyProducers, protocol_version) {
+        if ProtocolFeature::ChunkOnlyProducers.enabled(protocol_version) {
             // On testnet, genesis config set num_block_producer_seats to 200
             // This is to bring it back to 100 to be the same as on mainnet
             config.num_block_producer_seats = 100;
@@ -433,7 +432,7 @@ impl AllEpochConfig {
 
         // Adjust the number of block and chunk producers for testnet, to make it easier to test the change.
         if chain_id == near_primitives_core::chains::TESTNET
-            && checked_feature!("stable", TestnetFewerBlockProducers, protocol_version)
+            && ProtocolFeature::TestnetFewerBlockProducers.enabled(protocol_version)
         {
             let shard_ids = config.shard_layout.shard_ids();
             // Decrease the number of block and chunk producers from 100 to 20.
@@ -456,13 +455,13 @@ impl AllEpochConfig {
     }
 
     fn config_max_kickout_stake(config: &mut EpochConfig, protocol_version: u32) {
-        if checked_feature!("stable", MaxKickoutStake, protocol_version) {
+        if ProtocolFeature::MaxKickoutStake.enabled(protocol_version) {
             config.validator_max_kickout_stake_perc = 30;
         }
     }
 
     fn config_fix_min_stake_ratio(config: &mut EpochConfig, protocol_version: u32) {
-        if checked_feature!("stable", FixMinStakeRatio, protocol_version) {
+        if ProtocolFeature::FixMinStakeRatio.enabled(protocol_version) {
             config.minimum_stake_ratio = Rational32::new(1, 62_500);
         }
     }

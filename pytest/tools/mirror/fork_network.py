@@ -1,5 +1,7 @@
 # Checks that creating a forked network with the neard fork-network commands works
 
+# cspell:words subaccounts
+
 import base58
 import os
 import json

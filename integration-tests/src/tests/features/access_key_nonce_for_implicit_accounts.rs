@@ -38,7 +38,7 @@ fn check_tx_processing(
     blocks_number: u64,
 ) -> BlockHeight {
     let tx_hash = tx.get_hash();
-    assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
+    assert_eq!(env.tx_request_handlers[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
     let next_height = produce_blocks_from_height(env, blocks_number, height);
     let final_outcome = env.clients[0].chain.get_final_transaction_result(&tx_hash).unwrap();
     assert_matches!(final_outcome.status, FinalExecutionStatus::SuccessValue(_));
@@ -74,11 +74,11 @@ fn test_transaction_hash_collision() {
     );
 
     assert_eq!(
-        env.clients[0].process_tx(send_money_tx.clone(), false, false),
+        env.tx_request_handlers[0].process_tx(send_money_tx.clone(), false, false),
         ProcessTxResponse::ValidTx
     );
     assert_eq!(
-        env.clients[0].process_tx(delete_account_tx, false, false),
+        env.tx_request_handlers[0].process_tx(delete_account_tx, false, false),
         ProcessTxResponse::ValidTx
     );
 
@@ -96,7 +96,7 @@ fn test_transaction_hash_collision() {
         *genesis_block.hash(),
     );
     assert_eq!(
-        env.clients[0].process_tx(create_account_tx, false, false),
+        env.tx_request_handlers[0].process_tx(create_account_tx, false, false),
         ProcessTxResponse::ValidTx
     );
     for i in 4..8 {
@@ -104,7 +104,7 @@ fn test_transaction_hash_collision() {
     }
 
     assert_matches!(
-        env.clients[0].process_tx(send_money_tx, false, false),
+        env.tx_request_handlers[0].process_tx(send_money_tx, false, false),
         ProcessTxResponse::InvalidTx(_)
     );
 }
@@ -175,8 +175,11 @@ fn get_status_of_tx_hash_collision_for_near_implicit_account(
         100,
         *block.hash(),
     );
-    let response =
-        env.clients[0].process_tx(send_money_from_near_implicit_account_tx, false, false);
+    let response = env.tx_request_handlers[0].process_tx(
+        send_money_from_near_implicit_account_tx,
+        false,
+        false,
+    );
 
     // Check that sending money from NEAR-implicit account with correct nonce is still valid.
     let send_money_from_near_implicit_account_tx = SignedTransaction::send_money(
@@ -282,7 +285,7 @@ fn test_transaction_nonce_too_large() {
     let epoch_length = 5;
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
-    let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
+    let env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
     let signer = InMemorySigner::test_signer(&"test0".parse().unwrap());
     let large_nonce = AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER + 1;
@@ -295,7 +298,7 @@ fn test_transaction_nonce_too_large() {
         *genesis_block.hash(),
     );
     assert_matches!(
-        env.clients[0].process_tx(tx, false, false),
+        env.tx_request_handlers[0].process_tx(tx, false, false),
         ProcessTxResponse::InvalidTx(InvalidTxError::InvalidAccessKeyError(_))
     );
 }

@@ -216,7 +216,7 @@ impl BorshDeserialize for Transaction {
 /// guaranteed to have various checks performed on it.  In particular, ensure
 /// that the signature is verified and the max transaction size checks have been
 /// conducted.
-#[derive(Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ValidatedTransaction(SignedTransaction);
 
 impl ValidatedTransaction {
@@ -254,6 +254,26 @@ impl ValidatedTransaction {
         Self(signed_tx)
     }
 
+    /// Builds a list of ValidatedTransactions from an iterator of
+    /// SignedTransactions.
+    ///
+    /// Note that the if a subset of SignedTransactions pass validation and then
+    /// one fails, then this function will drop the validated txs.  Currently,
+    /// this is not problematic for any of the callers of this function. It is
+    /// possible to improve this function to never drop any txs if callers
+    /// require such functionality in the future.
+    #[allow(clippy::result_large_err)]
+    pub fn new_list(
+        config: &RuntimeConfig,
+        signed_txs: impl IntoIterator<Item = SignedTransaction>,
+    ) -> Result<Vec<ValidatedTransaction>, (InvalidTxError, SignedTransaction)> {
+        let mut validated_txs = vec![];
+        for signed_tx in signed_txs {
+            validated_txs.push(ValidatedTransaction::new(&config, signed_tx)?);
+        }
+        Ok(validated_txs)
+    }
+
     pub fn to_signed_tx(&self) -> &SignedTransaction {
         &self.0
     }
@@ -268,6 +288,26 @@ impl ValidatedTransaction {
 
     pub fn get_hash(&self) -> CryptoHash {
         self.0.get_hash()
+    }
+
+    pub fn get_size(&self) -> u64 {
+        self.0.get_size()
+    }
+
+    pub fn signer_id(&self) -> &AccountId {
+        self.to_tx().signer_id()
+    }
+
+    pub fn receiver_id(&self) -> &AccountId {
+        self.to_tx().receiver_id()
+    }
+
+    pub fn nonce(&self) -> Nonce {
+        self.to_tx().nonce()
+    }
+
+    pub fn public_key(&self) -> &PublicKey {
+        self.to_tx().public_key()
     }
 }
 

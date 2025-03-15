@@ -12,7 +12,9 @@ use crate::utils::genesis_helpers::genesis_hash;
 use crate::utils::test_helpers::heavy_test;
 use near_actix_test_utils::run_actix;
 use near_chain_configs::{Genesis, NEAR_BASE};
-use near_client::{ClientActor, GetBlock, ProcessTxRequest, Query, Status, ViewClientActor};
+use near_client::{
+    ClientActor, GetBlock, ProcessTxRequest, Query, Status, TxRequestHandlerActor, ViewClientActor,
+};
 use near_crypto::{InMemorySigner, Signer};
 use near_network::tcp;
 use near_network::test_utils::{WaitOrTimeoutActor, convert_boot_nodes};
@@ -33,6 +35,7 @@ struct TestNode {
     config: NearConfig,
     client: Addr<ClientActor>,
     view_client: Addr<ViewClientActor>,
+    tx_processor: Addr<TxRequestHandlerActor>,
     genesis_hash: CryptoHash,
 }
 
@@ -87,11 +90,11 @@ fn init_test_staking(
         .enumerate()
         .map(|(i, config)| {
             let genesis_hash = genesis_hash(&config.genesis);
-            let nearcore::NearNode { client, view_client, .. } =
+            let nearcore::NearNode { client, view_client, tx_processor, .. } =
                 start_with_config(paths[i], config.clone()).expect("start_with_config");
             let account_id = format!("near.{}", i).parse::<AccountId>().unwrap();
             let signer = Arc::new(InMemorySigner::test_signer(&account_id));
-            TestNode { account_id, signer, config, client, view_client, genesis_hash }
+            TestNode { account_id, signer, config, client, view_client, tx_processor, genesis_hash }
         })
         .collect()
 }
@@ -130,7 +133,7 @@ fn ultra_slow_test_stake_nodes() {
             );
             actix::spawn(
                 test_nodes[0]
-                    .client
+                    .tx_processor
                     .send(
                         ProcessTxRequest {
                             transaction: tx,
@@ -222,7 +225,7 @@ fn ultra_slow_test_validator_kickout() {
                 let test_node = &test_nodes[i];
                 actix::spawn(
                     test_node
-                        .client
+                        .tx_processor
                         .send(
                             ProcessTxRequest {
                                 transaction: stake_transaction,
@@ -375,7 +378,7 @@ fn ultra_slow_test_validator_join() {
 
             actix::spawn(
                 test_nodes[1]
-                    .client
+                    .tx_processor
                     .send(
                         ProcessTxRequest {
                             transaction: unstake_transaction,
@@ -388,7 +391,7 @@ fn ultra_slow_test_validator_join() {
             );
             actix::spawn(
                 test_nodes[0]
-                    .client
+                    .tx_processor
                     .send(
                         ProcessTxRequest {
                             transaction: stake_transaction,

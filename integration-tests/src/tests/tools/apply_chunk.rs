@@ -31,7 +31,10 @@ fn send_txs(env: &mut TestEnv, signers: &[Signer], height: u64, hash: CryptoHash
             100,
             hash,
         );
-        assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
+        assert_eq!(
+            env.tx_request_handlers[0].process_tx(tx, false, false),
+            ProcessTxResponse::ValidTx
+        );
     }
 }
 

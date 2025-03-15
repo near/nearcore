@@ -28,7 +28,7 @@ use near_store::ShardUId;
 use near_store::adapter::chain_store::ChainStoreAdapter;
 use reed_solomon_erasure::galois_8::ReedSolomon;
 use std::num::NonZeroUsize;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use time::ext::InstantExt as _;
 use tracing::{debug, instrument};
 
@@ -70,7 +70,8 @@ pub struct ChunkProducer {
     chain: ChainStoreAdapter,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
     runtime_adapter: Arc<dyn RuntimeAdapter>,
-    pub sharded_tx_pool: ShardedTransactionPool,
+    // TODO: put mutex on individual shards instead of the complete pool
+    pub sharded_tx_pool: Arc<Mutex<ShardedTransactionPool>>,
     /// A ReedSolomon instance to encode shard chunks.
     reed_solomon_encoder: ReedSolomon,
     /// Chunk production timing information. Used only for debug purposes.
@@ -102,7 +103,10 @@ impl ChunkProducer {
             chain: chain_store.clone(),
             epoch_manager,
             runtime_adapter,
-            sharded_tx_pool: ShardedTransactionPool::new(rng_seed, transaction_pool_size_limit),
+            sharded_tx_pool: Arc::new(Mutex::new(ShardedTransactionPool::new(
+                rng_seed,
+                transaction_pool_size_limit,
+            ))),
             reed_solomon_encoder: ReedSolomon::new(data_parts, parity_parts).unwrap(),
             chunk_production_info: lru::LruCache::new(
                 NonZeroUsize::new(PRODUCTION_TIMES_CACHE_SIZE).unwrap(),
@@ -157,7 +161,7 @@ impl ChunkProducer {
         insert: bool,
     ) -> PreparedTransactions {
         if insert {
-            txs.transactions.push(SignedTransaction::new(
+            let signed_tx = SignedTransaction::new(
                 near_crypto::Signature::empty(near_crypto::KeyType::ED25519),
                 near_primitives::transaction::Transaction::new_v1(
                     "test".parse().unwrap(),
@@ -167,7 +171,10 @@ impl ChunkProducer {
                     prev_block_hash,
                     0,
                 ),
-            ));
+            );
+            let validated_tx =
+                near_primitives::transaction::ValidatedTransaction::new_for_test(signed_tx);
+            txs.transactions.push(validated_tx);
             if txs.storage_proof.is_none() {
                 txs.storage_proof = Some(Default::default());
             }
@@ -284,7 +291,14 @@ impl ChunkProducer {
             self.produce_invalid_tx_in_chunks,
         );
         let num_filtered_transactions = prepared_transactions.transactions.len();
-        let (tx_root, _) = merklize(&prepared_transactions.transactions);
+        let (tx_root, _) = merklize(
+            &prepared_transactions
+                .transactions
+                .iter()
+                .cloned()
+                .map(|vt| vt.into_signed_tx())
+                .collect::<Vec<_>>(),
+        );
         let outgoing_receipts = ChainStore::get_outgoing_receipts_for_shard_from_store(
             &self.chain,
             self.epoch_manager.as_ref(),
@@ -310,7 +324,11 @@ impl ChunkProducer {
             chunk_extra.gas_limit(),
             chunk_extra.balance_burnt(),
             chunk_extra.validator_proposals().collect(),
-            prepared_transactions.transactions,
+            prepared_transactions
+                .transactions
+                .into_iter()
+                .map(|vt| vt.into_signed_tx())
+                .collect::<Vec<_>>(),
             &outgoing_receipts,
             outgoing_receipts_root,
             tx_root,
@@ -331,6 +349,11 @@ impl ChunkProducer {
             "produced_chunk");
 
         metrics::CHUNK_PRODUCED_TOTAL.inc();
+
+        metrics::CHUNK_TRANSACTIONS_TOTAL
+            .with_label_values(&[&shard_id.to_string()])
+            .inc_by(num_filtered_transactions as u64);
+
         self.chunk_production_info.put(
             (next_height, shard_id),
             ChunkProduction {
@@ -366,8 +389,8 @@ impl ChunkProducer {
         chain_validate: &dyn Fn(&SignedTransaction) -> bool,
     ) -> Result<PreparedTransactions, Error> {
         let shard_id = shard_uid.shard_id();
-        let prepared_transactions = if let Some(mut iter) =
-            self.sharded_tx_pool.get_pool_iterator(shard_uid)
+        let mut pool_guard = self.sharded_tx_pool.lock().unwrap();
+        let prepared_transactions = if let Some(mut iter) = pool_guard.get_pool_iterator(shard_uid)
         {
             let storage_config = RuntimeStorageConfig {
                 state_root: *chunk_extra.state_root(),
@@ -404,9 +427,9 @@ impl ChunkProducer {
         };
         // Reintroduce valid transactions back to the pool. They will be removed when the chunk is
         // included into the block.
-        let reintroduced_count = self
-            .sharded_tx_pool
+        let reintroduced_count = pool_guard
             .reintroduce_transactions(shard_uid, prepared_transactions.transactions.clone());
+
         if reintroduced_count < prepared_transactions.transactions.len() {
             debug!(target: "client", reintroduced_count, num_tx = prepared_transactions.transactions.len(), "Reintroduced transactions");
         }

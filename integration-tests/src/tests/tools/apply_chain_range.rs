@@ -85,7 +85,7 @@ fn test_apply_chain_range() {
         signer.public_key(),
         genesis_hash,
     );
-    assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
+    assert_eq!(env.tx_request_handlers[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
 
     safe_produce_blocks(&mut env, 1, epoch_length * 2 + 1, None);
 
@@ -128,7 +128,7 @@ fn test_apply_chain_range_no_chunks() {
         signer.public_key(),
         genesis_hash,
     );
-    assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
+    assert_eq!(env.tx_request_handlers[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
 
     safe_produce_blocks(&mut env, 1, epoch_length * 2 + 1, Some(5));
 

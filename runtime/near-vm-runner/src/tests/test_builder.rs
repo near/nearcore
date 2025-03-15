@@ -1,10 +1,10 @@
-use crate::ContractCode;
 use crate::logic::{
     ProtocolVersion, ReturnData, VMContext, VMOutcome, mocks::mock_external::MockedExternal,
 };
 use crate::runner::VMKindExt;
 use near_parameters::vm::{ContractPrepareVersion, VMKind};
 use near_parameters::{RuntimeConfig, RuntimeConfigStore, RuntimeFeesConfig};
+use near_primitives_core::code::ContractCode;
 use near_primitives_core::types::Gas;
 use near_primitives_core::version::ProtocolFeature;
 use std::{collections::HashSet, fmt::Write, sync::Arc};

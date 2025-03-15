@@ -15,7 +15,9 @@ use near_chunks::shards_manager_actor::ShardsManagerActor;
 use near_client::client_actor::ClientActorInner;
 use near_client::gc_actor::GCActor;
 use near_client::sync_jobs_actor::SyncJobsActor;
-use near_client::{Client, PartialWitnessActor, ViewClientActorInner};
+use near_client::{
+    Client, PartialWitnessActor, TxRequestHandler, TxRequestHandlerConfig, ViewClientActorInner,
+};
 use near_epoch_manager::EpochManager;
 use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
 use near_primitives::network::PeerId;
@@ -52,6 +54,7 @@ pub fn setup_client(
     } = shared_state;
 
     let client_adapter = LateBoundSender::new();
+    let tx_processor_adapter = LateBoundSender::new();
     let network_adapter = LateBoundSender::new();
     let state_snapshot_adapter = LateBoundSender::new();
     let partial_witness_adapter = LateBoundSender::new();
@@ -210,6 +213,23 @@ pub fn setup_client(
     )
     .unwrap();
 
+    let tx_processor_config = TxRequestHandlerConfig {
+        handler_threads: client_config.transaction_request_handler_threads,
+        tx_routing_height_horizon: client_config.tx_routing_height_horizon,
+        epoch_length: client_config.epoch_length,
+        transaction_validity_period: genesis.config.transaction_validity_period,
+    };
+    let tx_processor = TxRequestHandler::new(
+        tx_processor_config,
+        client_actor.client.chunk_producer.sharded_tx_pool.clone(),
+        epoch_manager.clone(),
+        shard_tracker.clone(),
+        validator_signer.clone(),
+        runtime_adapter.clone(),
+        network_adapter.as_multi_sender(),
+    )
+    .unwrap();
+
     let partial_witness_actor = PartialWitnessActor::new(
         test_loop.clock(),
         network_adapter.as_multi_sender(),
@@ -259,6 +279,8 @@ pub fn setup_client(
     let client_sender =
         test_loop.data.register_actor(identifier, client_actor, Some(client_adapter));
     let view_client_sender = test_loop.data.register_actor(identifier, view_client_actor, None);
+    let tx_processor_sender =
+        test_loop.data.register_actor(identifier, tx_processor, Some(tx_processor_adapter));
     let shards_manager_sender =
         test_loop.data.register_actor(identifier, shards_manager, Some(shards_manager_adapter));
     let partial_witness_sender = test_loop.data.register_actor(
@@ -285,6 +307,7 @@ pub fn setup_client(
         peer_id,
         client_sender,
         view_client_sender,
+        tx_processor_sender,
         shards_manager_sender,
         partial_witness_sender,
         peer_manager_sender,

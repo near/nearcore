@@ -222,7 +222,10 @@ fn slow_test_make_state_snapshot() {
             &signer,
             genesis_hash,
         );
-        assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
+        assert_eq!(
+            env.tx_request_handlers[0].process_tx(tx, false, false),
+            ProcessTxResponse::ValidTx
+        );
         let block = env.clients[0].produce_block(i).unwrap().unwrap();
         blocks.push(block.clone());
         env.process_block(0, block.clone(), Provenance::PRODUCED);
