@@ -1635,6 +1635,7 @@ impl Client {
                     Ok(()) => (),
                     Err(err) => {
                         tracing::debug!(
+                            target: "client",
                             "validator {}: removing txs for block {:?} failed with {:?}",
                             validator_id,
                             block,
@@ -1682,6 +1683,7 @@ impl Client {
                             Ok(()) => (),
                             Err(err) => {
                                 tracing::debug!(
+                                    target: "client",
                                     "validator {}: reintroducing txs for block {:?} failed with {:?}",
                                     validator_id,
                                     block,
@@ -1697,7 +1699,8 @@ impl Client {
                         match self.remove_transactions_for_block(&validator_id, &block) {
                             Ok(()) => (),
                             Err(err) => {
-                                tracing::warn!(
+                                tracing::debug!(
+                                    target: "client",
                                     "validator {}: removing txs for block {:?} failed with {:?}",
                                     validator_id,
                                     block,
