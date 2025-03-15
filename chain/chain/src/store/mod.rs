@@ -1836,9 +1836,9 @@ impl<'a> ChainStoreUpdate<'a> {
                         .get_all_block_hashes_by_height(block.header().height())?
                         .as_ref(),
                 );
-                map.entry(block.header().epoch_id().clone())
+                map.entry(*block.header().epoch_id())
                     .or_insert_with(|| HashSet::new())
-                    .insert(block.hash().clone());
+                    .insert(*block.hash());
                 store_update.set_ser(
                     DBCol::BlockPerHeight,
                     &index_to_bytes(block.header().height()),
