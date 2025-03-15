@@ -197,14 +197,14 @@ fn all_touched_accounts(
         .map(|vt| vt.signer_id().clone());
     let mut all_account_ids = receipts_account_ids.chain(txs_account_ids).collect::<HashSet<_>>();
     if let Some(update) = validator_accounts_update {
-        let validate_accounts = update
+        let accounts = update
             .stake_info
             .keys()
             .chain(update.validator_rewards.keys())
             .chain(update.last_proposals.keys())
             .chain(update.slashing_info.keys())
             .cloned();
-        all_account_ids.extend(validate_accounts);
+        all_account_ids.extend(accounts);
         if let Some(account) = &update.protocol_treasury_account_id {
             all_account_ids.insert(account.clone());
         }
