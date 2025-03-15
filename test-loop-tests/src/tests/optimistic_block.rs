@@ -3,8 +3,6 @@ use std::sync::Arc;
 
 use itertools::Itertools;
 use near_async::time::Duration;
-#[cfg(feature = "test_features")]
-use near_chain::chain::Chain;
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
 #[cfg(feature = "test_features")]
 use near_network::types::NetworkRequests;
@@ -27,6 +25,7 @@ fn get_builder(num_shards: usize) -> TestLoopBuilder {
     let builder = TestLoopBuilder::new();
 
     let epoch_length = 100;
+    // Keep it above 3 to prevent missing blocks from stalling the network.
     let accounts =
         (0..4).map(|i| format!("account{}", i).parse().unwrap()).collect::<Vec<AccountId>>();
     let clients = accounts.iter().cloned().collect_vec();
@@ -283,14 +282,11 @@ fn get_hit_count_and_height(env: &TestLoopEnv, producer: &ValidatorStake) -> (us
 
 #[test]
 #[cfg(feature = "test_features")]
-/// Test that the optimistic block outcome is dropeed on other nodes whem
+/// Test that the optimistic block outcome is dropped on other nodes when
 /// the optimistic block content is different than the block.
 /// In this test we change the block timestamp of the optimistic block that
 /// is shared with the other nodes.
 fn test_optimistic_block_with_invalidated_outcome() {
-    use near_primitives::optimistic_block;
-    use std::borrow::BorrowMut;
-
     let num_shards = 3;
     let mut env: TestLoopEnv = get_builder(num_shards).build().warmup();
 
@@ -312,8 +308,8 @@ fn test_optimistic_block_with_invalidated_outcome() {
         .actor_handle();
 
     let client = &env.test_loop.data.get(&producer_client_handle).client;
-    let signer = client.validator_signer.get().unwrap().clone();
-    alter_optimistic_block_at_height(env.borrow_mut(), height_to_skip, signer);
+    let signer = client.validator_signer.get().unwrap();
+    alter_optimistic_block_at_height(&mut env, height_to_skip, signer);
 
     // Wait for a few blocks after the invalid OB to confirm the miss.
     let (producer_node_ob_hit_count_before, producer_node_height_before) =
@@ -350,7 +346,7 @@ fn test_optimistic_block_with_invalidated_outcome() {
         (producer_node_height_after - producer_node_height_before) as usize;
     assert!(
         producer_node_hit_delta >= producer_node_height_delta,
-        "Producer of the invalid OptimisticBlock has the right outcome. No miss expexcted"
+        "Producer of the invalid OptimisticBlock has the right outcome. No miss expected"
     );
 
     env.shutdown_and_drain_remaining_events(Duration::seconds(20));
