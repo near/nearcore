@@ -430,7 +430,7 @@ impl Runtime {
                         err,
                         &validated_tx.get_hash(),
                         current_protocol_version,
-                        "transaction cost calculation failed",
+                        "transaction verification failed",
                     )?;
                 }
             }
@@ -1806,7 +1806,7 @@ impl Runtime {
 
         let tx_batches = TransactionBatches::new(processing_state.transactions.transactions);
 
-        let mut batch_outcomes = tx_batches
+        let batch_outcomes = tx_batches
             .par_batches()
             .map(|group| {
                 self.process_grouped_transactions(
@@ -1819,78 +1819,79 @@ impl Runtime {
                     None,
                 )
             })
-            .collect::<Result<Vec<_>, _>>()?;
+            .collect_vec_list();
 
-        batch_outcomes.retain(|batch| !batch.processed_transactions.is_empty());
-        batch_outcomes.sort_by_key(|batch| batch.processed_transactions[0].index);
+        let mut all_processed: Vec<(usize, ProcessedTransaction)> = Vec::new();
 
-        for batch_outcome in batch_outcomes {
-            if let Some((account, access_key)) = batch_outcome.final_state {
-                set_account(state_update, batch_outcome.signer_id.clone(), &account);
-                set_access_key(
-                    state_update,
-                    batch_outcome.signer_id.clone(),
-                    batch_outcome.public_key.clone(),
-                    &access_key,
-                );
-
-                let last_tx_hash = batch_outcome
-                    .processed_transactions
-                    .last()
-                    .map(|pt| pt.transaction.get_hash())
-                    .unwrap_or_default();
-                state_update
-                    .commit(StateChangeCause::TransactionProcessing { tx_hash: last_tx_hash });
-            } else {
-                unreachable!(
-                    "invariant violated: final_state must be present for a valid batch outcome"
-                );
-            }
-
-            for processed in batch_outcome.processed_transactions {
-                match safe_add_balance(
-                    processing_state.stats.balance.tx_burnt_amount,
-                    processed.verification_result.burnt_amount,
-                ) {
-                    Ok(new_balance) => {
-                        processing_state.stats.balance.tx_burnt_amount = new_balance;
-                    }
-                    Err(err) => {
-                        Self::handle_invalid_transaction(
-                            err,
-                            &processed.transaction.get_hash(),
-                            processing_state.protocol_version,
-                            "failed to add burnt amount to balance",
-                        )?;
-                        continue;
-                    }
+        for batch_vec in batch_outcomes {
+            for batch_result in batch_vec {
+                let batch_outcome = batch_result?;
+                if let Some((account, access_key)) = batch_outcome.final_state {
+                    set_account(state_update, batch_outcome.signer_id.clone(), &account);
+                    set_access_key(
+                        state_update,
+                        batch_outcome.signer_id.clone(),
+                        batch_outcome.public_key.clone(),
+                        &access_key,
+                    );
+                    let last_tx_hash = batch_outcome
+                        .processed_transactions
+                        .last()
+                        .map(|pt| pt.transaction.get_hash())
+                        .unwrap_or_default();
+                    state_update
+                        .commit(StateChangeCause::TransactionProcessing { tx_hash: last_tx_hash });
                 }
+                for processed in batch_outcome.processed_transactions {
+                    all_processed.push((processed.index, processed));
+                }
+            }
+        }
 
-                // Add the produced receipt either to the new local receipts if
-                // the signer is the same as receiver or to the new outgoing receipts.
-                if processed.receipt.receiver_id() == processed.transaction.to_tx().signer_id() {
-                    processing_state.local_receipts.push_back(processed.receipt);
-                } else if let Err(_) = receipt_sink.forward_or_buffer_receipt(
-                    processed.receipt,
-                    apply_state,
-                    state_update,
-                    processing_state.epoch_info_provider,
-                ) {
+        all_processed.sort_by_key(|(index, _)| *index);
+        for (_, processed) in all_processed {
+            match safe_add_balance(
+                processing_state.stats.balance.tx_burnt_amount,
+                processed.verification_result.burnt_amount,
+            ) {
+                Ok(new_balance) => {
+                    processing_state.stats.balance.tx_burnt_amount = new_balance;
+                }
+                Err(err) => {
+                    Self::handle_invalid_transaction(
+                        err,
+                        &processed.transaction.get_hash(),
+                        processing_state.protocol_version,
+                        "failed to add burnt amount to balance",
+                    )?;
                     continue;
                 }
-
-                // Update usage/outcome
-                let compute = processed
-                    .outcome
-                    .outcome
-                    .compute_usage
-                    .expect("`process_transaction` must populate compute usage");
-                total.add(processed.outcome.outcome.gas_burnt, compute)?;
-                if !ProtocolFeature::ComputeCosts.enabled(processing_state.protocol_version) {
-                    assert_eq!(total.compute, total.gas, "Compute usage must match burnt gas");
-                }
-                processing_state.outcomes.push(processed.outcome);
             }
+
+            // Add the produced receipt either to the new local receipts if
+            // the signer is the same as receiver or to the new outgoing receipts.
+            if processed.receipt.receiver_id() == processed.transaction.to_tx().signer_id() {
+                processing_state.local_receipts.push_back(processed.receipt);
+            } else if let Err(_) = receipt_sink.forward_or_buffer_receipt(
+                processed.receipt,
+                apply_state,
+                state_update,
+                processing_state.epoch_info_provider,
+            ) {
+                continue;
+            }
+
+            // Update usage/outcome
+            let compute = processed
+                .outcome
+                .outcome
+                .compute_usage
+                .expect("`process_transaction` must populate compute usage");
+            total.add(processed.outcome.outcome.gas_burnt, compute)?;
+            if !ProtocolFeature::ComputeCosts.enabled(processing_state.protocol_version) {
+                assert_eq!(total.compute, total.gas, "Compute usage must match burnt gas");
+            }
+            processing_state.outcomes.push(processed.outcome);
         }
 
         processing_state.metrics.tx_processing_done(total.gas, total.compute);
