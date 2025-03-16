@@ -1979,7 +1979,7 @@ impl From<Receipt> for ReceiptView {
 
         ReceiptView {
             predecessor_id: receipt.predecessor_id().clone(),
-            receiver_id: receipt.receiver_id().clone(),
+            receiver_id: receipt.receiver_account_id().clone(),
             receipt_id: *receipt.receipt_id(),
             receipt: match receipt.take_receipt() {
                 ReceiptEnum::Action(action_receipt) | ReceiptEnum::PromiseYield(action_receipt) => {

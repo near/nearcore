@@ -201,13 +201,13 @@ pub fn state_record_to_shard_id(state_record: &StateRecord, shard_layout: &Shard
     }
 }
 
-pub fn state_record_to_account_id(state_record: &StateRecord) -> &AccountId {
+pub fn state_record_to_account_id(state_record: &StateRecord) -> Option<&AccountId> {
     match state_record {
         StateRecord::Account { account_id, .. }
         | StateRecord::AccessKey { account_id, .. }
         | StateRecord::Contract { account_id, .. }
         | StateRecord::ReceivedData { account_id, .. }
-        | StateRecord::Data { account_id, .. } => account_id,
+        | StateRecord::Data { account_id, .. } => Some(account_id),
         StateRecord::PostponedReceipt(receipt) => receipt.receiver_id(),
         StateRecord::DelayedReceipt(receipt) => receipt.receipt.receiver_id(),
     }

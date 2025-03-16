@@ -291,8 +291,8 @@ pub(crate) fn validate_receipt(
             account_id: receipt.predecessor_id().to_string(),
         }
     })?;
-    AccountId::validate(receipt.receiver_id().as_ref()).map_err(|_| {
-        ReceiptValidationError::InvalidReceiverId { account_id: receipt.receiver_id().to_string() }
+    AccountId::validate(receipt.receiver_account_id().as_ref()).map_err(|_| {
+        ReceiptValidationError::InvalidReceiverId { account_id: receipt.receiver_account_id().to_string() }
     })?;
 
     match receipt.receipt() {

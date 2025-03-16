@@ -883,7 +883,7 @@ fn receipt_required_gas(apply_state: &ApplyState, receipt: &Receipt) -> Result<G
                 total_prepaid_exec_fees(
                     &apply_state.config,
                     &action_receipt.actions,
-                    receipt.receiver_id(),
+                    receipt.receiver_account_id(),
                 )?,
                 total_prepaid_gas(&action_receipt.actions)?,
             )?;

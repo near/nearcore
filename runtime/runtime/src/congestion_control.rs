@@ -721,7 +721,7 @@ pub(crate) fn compute_receipt_congestion_gas(
         ReceiptEnum::Action(action_receipt) => {
             // account for gas guaranteed to be used for executing the receipts
             let prepaid_exec_gas = safe_add_gas(
-                total_prepaid_exec_fees(config, &action_receipt.actions, receipt.receiver_id())?,
+                total_prepaid_exec_fees(config, &action_receipt.actions, receipt.receiver_account_id())?,
                 config.fees.fee(ActionCosts::new_action_receipt).exec_fee(),
             )?;
             // account for gas guaranteed to be used for creating new receipts

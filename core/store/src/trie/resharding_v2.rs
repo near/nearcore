@@ -621,7 +621,7 @@ mod tests {
                     &all_receipts[new_start_index..],
                     state_roots,
                     &|receipt| ShardUId {
-                        shard_id: (hash(receipt.receiver_id().as_bytes()).0[0] as NumShards
+                        shard_id: (hash(receipt.receiver_id().unwrap().as_bytes()).0[0] as NumShards
                             % num_shards) as u32,
                         version: 1,
                     },

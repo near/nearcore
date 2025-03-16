@@ -121,7 +121,7 @@ impl ReceiptPreparationPipeline {
         state_update: &TrieUpdate,
         view_config: Option<ViewConfig>,
     ) -> bool {
-        let account_id = receipt.receiver_id();
+        let account_id = receipt.receiver_account_id();
         if self.block_accounts.contains(account_id) {
             return false;
         }
@@ -267,7 +267,7 @@ impl ReceiptPreparationPipeline {
         action_index: usize,
         view_config: Option<ViewConfig>,
     ) -> Box<dyn PreparedContract> {
-        let account_id = receipt.receiver_id();
+        let account_id = receipt.receiver_account_id();
         let action = match receipt.receipt() {
             ReceiptEnum::Action(r) | ReceiptEnum::PromiseYield(r) => r
                 .actions

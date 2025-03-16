@@ -402,6 +402,35 @@ pub enum ReceiptPriority {
     NoPriority,
 }
 
+pub enum ReceiptReceiver<'a> {
+    UserAccount(&'a AccountId),
+    System(&'a AccountId),
+}
+
+impl <'a> ReceiptReceiver<'a> {
+    pub fn new(receiver_id: &'a AccountId) -> Self {
+        if receiver_id.is_system() {
+            Self::System(receiver_id)
+        } else {
+            Self::UserAccount(receiver_id)
+        }
+    }
+
+    pub fn as_account_id(&self) -> &AccountId {
+        match self {
+            Self::UserAccount(account_id) => account_id,
+            Self::System(system) => system,
+        }
+    }
+
+    pub fn user_account(&self) -> Option<&AccountId> {
+        match self {
+            Self::UserAccount(account_id) => Some(account_id),
+            Self::System(_) => None,
+        }
+    }
+}
+
 impl ReceiptPriority {
     pub fn value(&self) -> u64 {
         match self {
@@ -421,10 +450,27 @@ impl Borrow<CryptoHash> for Receipt {
 }
 
 impl Receipt {
-    pub fn receiver_id(&self) -> &AccountId {
+    pub fn receiver_account_id(&self) -> &AccountId {
         match self {
             Receipt::V0(receipt) => &receipt.receiver_id,
             Receipt::V1(receipt) => &receipt.receiver_id,
+        }
+    }
+
+    pub fn receiver_id(&self) -> Option<&AccountId> {
+        let account_id = self.receiver_account_id();
+        match self.receipt() {
+            ReceiptEnum::Action(_)
+            | ReceiptEnum::Data(_)
+            | ReceiptEnum::PromiseYield(_)
+            | ReceiptEnum::PromiseResume(_) => {
+                debug_assert!(!account_id.is_system());
+                Some(account_id)
+            }
+            ReceiptEnum::GlobalContractDistribution(_) => {
+                debug_assert!(account_id.is_system());
+                None
+            }
         }
     }
 
@@ -502,7 +548,7 @@ impl Receipt {
             | ReceiptEnum::Data(_)
             | ReceiptEnum::PromiseYield(_)
             | ReceiptEnum::PromiseResume(_) => {
-                shard_layout.account_id_to_shard_id(self.receiver_id())
+                shard_layout.account_id_to_shard_id(self.receiver_account_id())
             }
             ReceiptEnum::GlobalContractDistribution(receipt) => {
                 let target_shard = receipt.target_shard();

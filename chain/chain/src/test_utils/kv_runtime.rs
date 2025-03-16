@@ -1062,7 +1062,7 @@ impl RuntimeAdapter for KeyValueRuntime {
                 receipt.receipt()
             {
                 assert_eq!(
-                    account_id_to_shard_id(receipt.receiver_id(), self.num_shards),
+                    account_id_to_shard_id(receipt.receiver_account_id(), self.num_shards),
                     shard_id
                 );
                 if !state.receipt_nonces.contains(receipt.receipt_id()) {
@@ -1071,7 +1071,7 @@ impl RuntimeAdapter for KeyValueRuntime {
                         balance_transfers.push((
                             receipt.get_hash(),
                             receipt.predecessor_id().clone(),
-                            receipt.receiver_id().clone(),
+                            receipt.receiver_account_id().clone(),
                             deposit,
                             0,
                         ));

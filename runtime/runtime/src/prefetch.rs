@@ -103,7 +103,7 @@ impl TriePrefetcher {
                     continue;
                 }
             };
-            let account_id = receipt.receiver_id().clone();
+            let account_id = receipt.receiver_account_id().clone();
 
             // general-purpose account prefetching
             if self.prefetch_api.enable_receipt_prefetching {

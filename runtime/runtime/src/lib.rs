@@ -461,13 +461,13 @@ impl Runtime {
             "apply_action",
         )
         .entered();
-        let exec_fees = exec_fee(&apply_state.config, action, receipt.receiver_id());
+        let exec_fees = exec_fee(&apply_state.config, action, receipt.receiver_account_id());
         let mut result = ActionResult::default();
         result.gas_used = exec_fees;
         result.gas_burnt = exec_fees;
         // TODO(#8806): Support compute costs for actions. For now they match burnt gas.
         result.compute_usage = exec_fees;
-        let account_id = receipt.receiver_id();
+        let account_id = receipt.receiver_account_id();
         let is_refund = receipt.predecessor_id().is_system();
         let is_the_only_action = actions.len() == 1;
         let implicit_account_creation_eligible = is_the_only_action && !is_refund;
@@ -496,7 +496,7 @@ impl Runtime {
                     &apply_state.config.account_creation_config,
                     account,
                     actor_id,
-                    receipt.receiver_id(),
+                    receipt.receiver_account_id(),
                     receipt.predecessor_id(),
                     &mut result,
                 );
@@ -677,7 +677,7 @@ impl Runtime {
             }
             _ => unreachable!("given receipt should be an action receipt"),
         };
-        let account_id = receipt.receiver_id();
+        let account_id = receipt.receiver_account_id();
         // Collecting input data and removing it from the state
         let promise_results = action_receipt
             .input_data_ids
@@ -990,7 +990,7 @@ impl Runtime {
             total_prepaid_send_fees(config, &action_receipt.actions)?,
         )?;
         let prepaid_exec_gas = safe_add_gas(
-            total_prepaid_exec_fees(config, &action_receipt.actions, receipt.receiver_id())?,
+            total_prepaid_exec_fees(config, &action_receipt.actions, receipt.receiver_account_id())?,
             config.fees.fee(ActionCosts::new_action_receipt).exec_fee(),
         )?;
         let deposit_refund = if result.result.is_err() { total_deposit } else { 0 };
@@ -1064,9 +1064,9 @@ impl Runtime {
             ref mut stats,
             ..
         } = *processing_state;
-        let account_id = receipt.receiver_id();
         match receipt.receipt() {
             ReceiptEnum::Data(data_receipt) => {
+                let account_id = receipt.receiver_account_id();
                 // Received a new data receipt.
                 // Saving the data into the state keyed by the data_id.
                 set_received_data(
@@ -1154,6 +1154,7 @@ impl Runtime {
                 }
             }
             ReceiptEnum::Action(action_receipt) => {
+                let account_id = receipt.receiver_account_id();
                 // Received a new action receipt. We'll first check how many input data items
                 // were already received before and saved in the state.
                 // And if we have all input data, then we can immediately execute the receipt.
@@ -1210,6 +1211,7 @@ impl Runtime {
                 set_promise_yield_receipt(state_update, receipt);
             }
             ReceiptEnum::PromiseResume(data_receipt) => {
+                let account_id = receipt.receiver_account_id();
                 // Received a new PromiseResume receipt delivering input data for a PromiseYield.
                 // It is guaranteed that the PromiseYield has exactly one input data dependency
                 // and that it arrives first, so we can simply find and execute it.
@@ -1707,7 +1709,7 @@ impl Runtime {
                             continue;
                         }
                     };
-                    if receipt.receiver_id() == validated_tx.signer_id() {
+                    if receipt.receiver_account_id() == validated_tx.signer_id() {
                         processing_state.local_receipts.push_back(receipt);
                     } else {
                         receipt_sink.forward_or_buffer_receipt(
@@ -1754,7 +1756,7 @@ impl Runtime {
             "process_receipt",
             receipt_id = %receipt.receipt_id(),
             predecessor = %receipt.predecessor_id(),
-            receiver = %receipt.receiver_id(),
+            receiver = %receipt.receiver_account_id(),
             gas_burnt = tracing::field::Empty,
             compute_usage = tracing::field::Empty,
         )
@@ -2335,10 +2337,11 @@ fn action_transfer_or_implicit_account_creation(
     Ok(if let Some(account) = account.as_mut() {
         action_transfer(account, deposit)?;
         // Check if this is a gas refund, then try to refund the access key allowance.
-        if is_refund && &action_receipt.signer_id == receipt.receiver_id() {
+        let receiver_account_id = receipt.receiver_account_id();
+        if is_refund && &action_receipt.signer_id == receiver_account_id {
             try_refund_allowance(
                 state_update,
-                receipt.receiver_id(),
+                receiver_account_id,
                 &action_receipt.signer_public_key,
                 deposit,
             )?;
@@ -2353,7 +2356,7 @@ fn action_transfer_or_implicit_account_creation(
             &apply_state.config.fees,
             account,
             actor_id,
-            receipt.receiver_id(),
+            receipt.receiver_account_id(),
             deposit,
             apply_state.block_height,
             apply_state.current_protocol_version,
@@ -2712,7 +2715,7 @@ fn schedule_contract_preparation<'b, R: MaybeRefReceipt>(
 ) -> Option<usize> {
     let scheduled_receipt_offset = iterator.position(|peek| {
         let peek = peek.as_ref();
-        let account_id = peek.receiver_id();
+        let account_id = peek.receiver_account_id();
         // We need to inspect each receipt recursively in case these are data receipts, thus a
         // function.
         fn handle_receipt(

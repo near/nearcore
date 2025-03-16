@@ -53,7 +53,7 @@ fn receipt_cost(
                     total_prepaid_exec_fees(
                         config,
                         &action_receipt.actions,
-                        receipt.receiver_id(),
+                        receipt.receiver_account_id(),
                     )?,
                 )?;
                 total_gas = safe_add_gas(total_gas, total_prepaid_gas(&action_receipt.actions)?)?;
@@ -188,9 +188,9 @@ fn all_touched_accounts(
     let mut all_accounts_ids: HashSet<AccountId> = transactions
         .iter_nonexpired_transactions()
         .map(|tx| tx.transaction.signer_id().clone())
-        .chain(incoming_receipts.iter().map(|r| r.receiver_id().clone()))
-        .chain(yield_timeout_receipts.iter().map(|r| r.receiver_id().clone()))
-        .chain(processed_delayed_receipts.iter().map(|r| r.receiver_id().clone()))
+        .chain(incoming_receipts.iter().filter_map(|r| r.receiver_id().cloned()))
+        .chain(yield_timeout_receipts.iter().filter_map(|r| r.receiver_id().cloned()))
+        .chain(processed_delayed_receipts.iter().filter_map(|r| r.receiver_id().cloned()))
         .collect();
     if let Some(validator_accounts_update) = validator_accounts_update {
         all_accounts_ids.extend(validator_accounts_update.stake_info.keys().cloned());
@@ -228,7 +228,7 @@ fn potential_postponed_receipt_ids(
         .chain(processed_delayed_receipts.iter())
         .chain(yield_timeout_receipts.iter())
         .filter_map(|receipt| {
-            let account_id = receipt.receiver_id();
+            let account_id = receipt.receiver_account_id();
             match receipt.receipt() {
                 ReceiptEnum::Action(_) => Some(Ok((
                     PostponedReceiptType::Action,

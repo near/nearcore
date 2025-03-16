@@ -179,7 +179,9 @@ impl GenesisStateApplier {
             "processing records…"
         );
         genesis.for_each_record(|record: &StateRecord| {
-            if !account_ids.contains(state_record_to_account_id(record)) {
+            if !state_record_to_account_id(record)
+                .is_some_and(|account_id| account_ids.contains(account_id))
+            {
                 return;
             }
             storage_computer.process_record(record);
@@ -273,12 +275,11 @@ impl GenesisStateApplier {
             "processing postponed receipts…"
         );
         for receipt in postponed_receipts {
-            let account_id = receipt.receiver_id();
-
             // Logic similar to `apply_receipt`
             match receipt.receipt() {
                 ReceiptEnum::Action(action_receipt) => {
                     let mut pending_data_count: u32 = 0;
+                    let account_id = receipt.receiver_account_id();
                     for data_id in &action_receipt.input_data_ids {
                         storage.modify(|state_update| {
                             if !has_received_data(state_update, account_id, *data_id)
