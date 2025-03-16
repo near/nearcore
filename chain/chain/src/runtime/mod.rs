@@ -828,11 +828,31 @@ impl RuntimeAdapter for NightshadeRuntime {
     }
 
     fn get_gc_stop_height(&self, block_hash: &CryptoHash) -> BlockHeight {
+        use std::sync::atomic::{AtomicI64, Ordering};
+        use std::time::{SystemTime, UNIX_EPOCH};
+
+        // Use AtomicI64 to store unix timestamp in seconds
+        static LAST_LOG_TIME: AtomicI64 = AtomicI64::new(0);
+        // Log throttling interval (10 seconds)
+        const LOG_THROTTLE_INTERVAL: i64 = 10;
+
         let result = self.get_gc_stop_height_impl(block_hash);
         match result {
             Ok(gc_stop_height) => gc_stop_height,
             Err(error) => {
-                info!(target: "runtime", "Error when getting the gc stop height. This error may naturally occur after the gc_num_epochs_to_keep config is increased. It should disappear as soon as the node builds up all epochs it wants. Error: {}", error);
+                // Get current time as Unix timestamp in seconds
+                let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs()
+                    as i64;
+
+                // Only log if LOG_THROTTLE_INTERVAL has passed since the last log
+                let last_log = LAST_LOG_TIME.load(Ordering::Relaxed);
+                if now - last_log >= LOG_THROTTLE_INTERVAL {
+                    // Update the last log time before logging to prevent race conditions
+                    LAST_LOG_TIME.store(now, Ordering::Relaxed);
+
+                    info!(target: "runtime", "Error when getting the gc stop height. This error may naturally occur after the gc_num_epochs_to_keep config is increased. It should disappear as soon as the node builds up all epochs it wants. Error: {}", error);
+                }
+
                 self.genesis_config.genesis_height
             }
         }
