@@ -361,6 +361,8 @@ impl Runtime {
         let mut processed_transactions = Vec::with_capacity(group.indices.len());
 
         for idx in group.indices {
+            metrics::TRANSACTION_PROCESSED_TOTAL.inc();
+
             let validated_tx = match validate_transaction(
                 &apply_state.config,
                 group.signed_txs[*idx].clone(),
@@ -406,6 +408,8 @@ impl Runtime {
                 temp_state.take(),
             ) {
                 Ok(vr) => {
+                    metrics::TRANSACTION_PROCESSED_SUCCESSFULLY_TOTAL.inc();
+
                     // store ephemeral updates for next transaction
                     temp_state = Some((vr.signer.clone(), vr.access_key.clone()));
                     let (receipt, outcome) =
@@ -1769,6 +1773,7 @@ impl Runtime {
         protocol_version: ProtocolVersion,
         reason: &str,
     ) -> Result<(), RuntimeError> {
+        metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
         if checked_feature!("stable", RelaxedChunkValidation, protocol_version) {
             tracing::debug!(
                 target: "runtime",
