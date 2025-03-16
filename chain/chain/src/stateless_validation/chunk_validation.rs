@@ -22,7 +22,6 @@ use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_pool::TransactionGroupIteratorWrapper;
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::block::{Block, BlockHeader};
-use near_primitives::checked_feature;
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::merkle::merklize;
 use near_primitives::receipt::Receipt;
@@ -35,6 +34,7 @@ use near_primitives::transaction::{SignedTransaction, ValidatedTransaction};
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{AccountId, ProtocolVersion, ShardId, ShardIndex};
 use near_primitives::utils::compression::CompressedData;
+use near_primitives::version::ProtocolFeature;
 use near_store::flat::BlockInfo;
 use near_store::trie::ops::resharding::RetainMode;
 use near_store::{PartialStorage, Trie};
@@ -378,7 +378,7 @@ pub fn pre_validate_chunk_state_witness(
     let current_protocol_version =
         epoch_manager.get_epoch_protocol_version(&state_witness.epoch_id)?;
     let transaction_validity_check_results =
-        if checked_feature!("stable", RelaxedChunkValidation, current_protocol_version) {
+        if ProtocolFeature::RelaxedChunkValidation.enabled(current_protocol_version) {
             if !state_witness.new_transactions.is_empty() {
                 return Err(Error::InvalidChunkStateWitness(format!(
                     "Witness new_transactions must be empty",

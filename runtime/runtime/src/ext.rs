@@ -2,13 +2,13 @@ use crate::receipt_manager::ReceiptManager;
 use near_parameters::vm::StorageGetMode;
 use near_primitives::account::Account;
 use near_primitives::account::id::AccountType;
-use near_primitives::checked_feature;
 use near_primitives::errors::{EpochError, StorageError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{AccountId, Balance, BlockHeight, EpochId, EpochInfoProvider, Gas};
 use near_primitives::utils::create_receipt_id_from_action_hash;
 use near_primitives::version::ProtocolVersion;
+use near_primitives_core::version::ProtocolFeature;
 use near_store::contract::ContractStorage;
 use near_store::{KeyLookupMode, TrieUpdate, TrieUpdateValuePtr, has_promise_yield_receipt};
 use near_vm_runner::logic::errors::{AnyError, InconsistentStateError, VMLogicError};
@@ -487,7 +487,7 @@ impl<'a> Contract for RuntimeContractExt<'a> {
     fn hash(&self) -> CryptoHash {
         // For eth implicit accounts return the wallet contract code hash.
         // The account.code_hash() contains hash of the magic bytes, not the contract hash.
-        if checked_feature!("stable", EthImplicitAccounts, self.current_protocol_version)
+        if ProtocolFeature::EthImplicitAccounts.enabled(self.current_protocol_version)
             && self.account_id.get_account_type() == AccountType::EthImplicitAccount
         {
             // There are old eth implicit accounts without magic bytes in the code hash.
@@ -503,7 +503,7 @@ impl<'a> Contract for RuntimeContractExt<'a> {
     fn get_code(&self) -> Option<Arc<ContractCode>> {
         let account_id = self.account_id;
         let version = self.current_protocol_version;
-        if checked_feature!("stable", EthImplicitAccounts, version)
+        if ProtocolFeature::EthImplicitAccounts.enabled(version)
             && account_id.get_account_type() == AccountType::EthImplicitAccount
         {
             // Accounts that look like eth implicit accounts and have existed prior to the

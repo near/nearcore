@@ -95,6 +95,7 @@ pub struct Indexer {
     near_config: nearcore::NearConfig,
     view_client: actix::Addr<near_client::ViewClientActor>,
     client: actix::Addr<near_client::ClientActor>,
+    tx_processor: actix::Addr<near_client::TxRequestHandlerActor>,
     shard_tracker: ShardTracker,
 }
 
@@ -123,10 +124,10 @@ impl Indexer {
             or `\"tracked_accounts\": [\"some_account.near\"]` (which tracks whatever shard the account is on)",
             indexer_config.home_dir.join("config.json").display()
         );
-        let nearcore::NearNode { client, view_client, shard_tracker, .. } =
+        let nearcore::NearNode { client, view_client, tx_processor, shard_tracker, .. } =
             nearcore::start_with_config(&indexer_config.home_dir, near_config.clone())
                 .with_context(|| "start_with_config")?;
-        Ok(Self { view_client, client, near_config, indexer_config, shard_tracker })
+        Ok(Self { view_client, client, tx_processor, near_config, indexer_config, shard_tracker })
     }
 
     /// Boots up `near_indexer::streamer`, so it monitors the new blocks with chunks, transactions, receipts, and execution outcomes inside. The returned stream handler should be drained and handled on the user side.
@@ -151,8 +152,12 @@ impl Indexer {
     /// Internal client actors just in case. Use on your own risk, backward compatibility is not guaranteed
     pub fn client_actors(
         &self,
-    ) -> (actix::Addr<near_client::ViewClientActor>, actix::Addr<near_client::ClientActor>) {
-        (self.view_client.clone(), self.client.clone())
+    ) -> (
+        actix::Addr<near_client::ViewClientActor>,
+        actix::Addr<near_client::ClientActor>,
+        actix::Addr<near_client::TxRequestHandlerActor>,
+    ) {
+        (self.view_client.clone(), self.client.clone(), self.tx_processor.clone())
     }
 }
 

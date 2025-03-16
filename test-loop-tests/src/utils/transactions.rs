@@ -13,8 +13,7 @@ use near_async::test_loop::futures::TestLoopFutureSpawner;
 use near_async::test_loop::sender::TestLoopSender;
 use near_async::time::Duration;
 use near_chain::Error;
-use near_client::client_actor::ClientActorInner;
-use near_client::{Client, ProcessTxResponse};
+use near_client::{Client, ProcessTxResponse, TxRequestHandler};
 use near_crypto::Signer;
 use near_network::client::ProcessTxRequest;
 use near_primitives::action::{GlobalContractDeployMode, GlobalContractIdentifier};
@@ -143,7 +142,7 @@ pub(crate) fn execute_money_transfers(
                 );
                 let process_tx_request =
                     ProcessTxRequest { transaction: tx, is_forwarded: false, check_only: false };
-                node_data[i % num_clients].client_sender.send(process_tx_request);
+                node_data[i % num_clients].tx_processor_sender.send(process_tx_request);
             },
         );
     }
@@ -413,7 +412,7 @@ pub fn submit_tx(node_datas: &[NodeExecutionData], rpc_id: &AccountId, tx: Signe
         ProcessTxRequest { transaction: tx, is_forwarded: false, check_only: false };
 
     let rpc_node_data = get_node_data(node_datas, rpc_id);
-    let rpc_node_data_sender = &rpc_node_data.client_sender;
+    let rpc_node_data_sender = &rpc_node_data.tx_processor_sender;
 
     let future = rpc_node_data_sender.send_async(process_tx_request);
     drop(future);
@@ -500,7 +499,7 @@ pub fn run_txs_parallel(
 ) {
     let mut tx_runners = txs.into_iter().map(|tx| TransactionRunner::new(tx, true)).collect_vec();
 
-    let client_sender = &node_datas[0].client_sender;
+    let tx_processor_sender = &node_datas[0].tx_processor_sender;
     let future_spawner = test_loop.future_spawner("TransactionRunner");
 
     test_loop.run_until(
@@ -508,7 +507,7 @@ pub fn run_txs_parallel(
             let client = &tl_data.get(&node_datas[0].client_sender.actor_handle()).client;
             let mut all_ready = true;
             for runner in tx_runners.iter_mut() {
-                match runner.poll_assert_success(client_sender, client, &future_spawner) {
+                match runner.poll_assert_success(tx_processor_sender, client, &future_spawner) {
                     Poll::Pending => all_ready = false,
                     Poll::Ready(_) => {}
                 }
@@ -531,6 +530,7 @@ pub fn execute_tx(
     maximum_duration: Duration,
 ) -> Result<FinalExecutionOutcomeView, InvalidTxError> {
     let client_sender = &get_node_data(node_datas, rpc_id).client_sender;
+    let tx_processor_sender = &get_node_data(node_datas, rpc_id).tx_processor_sender;
     let future_spawner = test_loop.future_spawner("TransactionRunner");
 
     let mut tx_runner = TransactionRunner::new(tx, true);
@@ -539,7 +539,7 @@ pub fn execute_tx(
     test_loop.run_until(
         |tl_data| {
             let client = &tl_data.get(&client_sender.actor_handle()).client;
-            match tx_runner.poll(client_sender, client, &future_spawner) {
+            match tx_runner.poll(tx_processor_sender, client, &future_spawner) {
                 Poll::Pending => false,
                 Poll::Ready(tx_res) => {
                     res = Some(tx_res);
@@ -582,7 +582,7 @@ impl TransactionRunner {
     /// because of shard congestion.
     pub fn new(transaction: SignedTransaction, retry_when_congested: bool) -> Self {
         Self {
-            transaction: transaction,
+            transaction,
             tx_sent: false,
             process_tx_result: Arc::new(Mutex::new(None)),
             retry_when_congested,
@@ -599,7 +599,7 @@ impl TransactionRunner {
     /// It's meant to be called in `run_until`.
     pub fn poll(
         &mut self,
-        client_sender: &TestLoopSender<ClientActorInner>,
+        client_sender: &TestLoopSender<TxRequestHandler>,
         client: &Client,
         future_spawner: &TestLoopFutureSpawner,
     ) -> Poll<Result<FinalExecutionOutcomeView, InvalidTxError>> {
@@ -648,7 +648,7 @@ impl TransactionRunner {
     /// Useful for tests where the transaction is expected to be executed successfully.
     pub fn poll_assert_success(
         &mut self,
-        client_sender: &TestLoopSender<ClientActorInner>,
+        client_sender: &TestLoopSender<TxRequestHandler>,
         client: &Client,
         future_spawner: &TestLoopFutureSpawner,
     ) -> Poll<Vec<u8>> {
@@ -667,7 +667,7 @@ impl TransactionRunner {
     /// Send the transaction to the network.
     fn send_tx(
         &mut self,
-        client_sender: &TestLoopSender<ClientActorInner>,
+        client_sender: &TestLoopSender<TxRequestHandler>,
         future_spawner: &TestLoopFutureSpawner,
     ) {
         let process_tx_request = ProcessTxRequest {

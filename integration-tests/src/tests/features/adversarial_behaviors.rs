@@ -11,7 +11,7 @@ use near_primitives::shard_layout::ShardLayout;
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::types::{AccountId, EpochId, ShardId};
 use near_primitives::utils::from_timestamp;
-use near_primitives_core::checked_feature;
+use near_primitives::version::ProtocolFeature;
 use near_primitives_core::version::PROTOCOL_VERSION;
 use std::collections::HashSet;
 use tracing::log::debug;
@@ -214,8 +214,7 @@ fn slow_test_non_adversarial_case() {
 fn test_banning_chunk_producer_when_seeing_invalid_chunk_base(
     mut test: AdversarialBehaviorTestData,
 ) {
-    let uses_stateless_validation =
-        checked_feature!("stable", StatelessValidation, PROTOCOL_VERSION);
+    let uses_stateless_validation = ProtocolFeature::StatelessValidation.enabled(PROTOCOL_VERSION);
     let epoch_manager = test.env.clients[0].epoch_manager.clone();
     let bad_chunk_producer =
         test.env.clients[7].validator_signer.get().unwrap().validator_id().clone();
@@ -375,7 +374,7 @@ fn slow_test_banning_chunk_producer_when_seeing_invalid_chunk() {
 #[cfg(feature = "test_features")]
 fn test_banning_chunk_producer_when_seeing_invalid_tx_in_chunk() {
     let relaxed_chunk_validation =
-        checked_feature!("stable", RelaxedChunkValidation, PROTOCOL_VERSION);
+        ProtocolFeature::RelaxedChunkValidation.enabled(PROTOCOL_VERSION);
     if !relaxed_chunk_validation {
         init_test_logger();
         let mut test = AdversarialBehaviorTestData::new();

@@ -20,9 +20,7 @@ use near_primitives::types::{
     EpochInfoProvider, NumSeats, ShardId, ValidatorId, ValidatorInfoIdentifier,
     ValidatorKickoutReason, ValidatorStats,
 };
-use near_primitives::version::{
-    ProtocolFeature, ProtocolVersion, UPGRADABILITY_FIX_PROTOCOL_VERSION,
-};
+use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use near_primitives::views::{
     CurrentEpochValidatorInfo, EpochValidatorInfo, NextEpochValidatorInfo, ValidatorKickoutView,
 };
@@ -659,7 +657,7 @@ impl EpochManager {
         }
 
         let protocol_version =
-            if epoch_info.protocol_version() >= UPGRADABILITY_FIX_PROTOCOL_VERSION {
+            if ProtocolFeature::UpgradabilityFix.enabled(epoch_info.protocol_version()) {
                 next_epoch_info.protocol_version()
             } else {
                 epoch_info.protocol_version()

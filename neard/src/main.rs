@@ -2,7 +2,7 @@ mod cli;
 
 use self::cli::NeardCmd;
 use anyhow::Context;
-use near_primitives::version::{PROTOCOL_VERSION, Version};
+use near_primitives::version::{MIN_SUPPORTED_PROTOCOL_VERSION, PROTOCOL_VERSION, Version};
 use near_store::metadata::DB_VERSION;
 use nearcore::get_default_home;
 use std::env;
@@ -18,11 +18,12 @@ static NEARD_FEATURES: &str = env!("NEARD_FEATURES");
 
 static NEARD_VERSION_STRING: LazyLock<String> = LazyLock::new(|| {
     format!(
-        "(release {}) (build {}) (commit {}) (rustc {}) (protocol {}) (db {})\nfeatures: [{}]",
+        "(release {}) (build {}) (commit {}) (rustc {}) (min_protocol {}) (protocol {}) (db {})\nfeatures: [{}]",
         NEARD_VERSION,
         NEARD_BUILD,
         NEARD_COMMIT,
         RUSTC_VERSION,
+        MIN_SUPPORTED_PROTOCOL_VERSION,
         PROTOCOL_VERSION,
         DB_VERSION,
         NEARD_FEATURES
