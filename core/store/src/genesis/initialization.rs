@@ -135,9 +135,9 @@ fn genesis_state_from_genesis(
     info!(target: "store","distributing records to shards");
 
     genesis.for_each_record(|record: &StateRecord| {
-        let shard_id = state_record_to_shard_id(record, &shard_layout);
         let account_id = state_record_to_account_id(record).clone();
         if !account_id.is_system() {
+            let shard_id = state_record_to_shard_id(record, &shard_layout);
             shard_account_ids.get_mut(&shard_id).unwrap().insert(account_id);
         }
         if let StateRecord::Account { account_id, .. } = record {
