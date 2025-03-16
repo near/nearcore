@@ -1801,7 +1801,7 @@ impl Runtime {
 
         let tx_batches = TransactionBatches::new(processing_state.transactions.transactions);
 
-        let batch_outcomes: Vec<Result<BatchResult, RuntimeError>> = tx_batches
+        let mut batch_outcomes = tx_batches
             .par_batches()
             .map(|group| {
                 self.process_grouped_transactions(
@@ -1814,33 +1814,35 @@ impl Runtime {
                     None,
                 )
             })
-            .collect();
+            .collect::<Result<Vec<_>, _>>()?;
+
+        batch_outcomes.retain(|batch| !batch.processed_transactions.is_empty());
+        batch_outcomes.sort_by_key(|batch| batch.processed_transactions[0].index);
 
         for batch_outcome in batch_outcomes {
-            let batch_result = match batch_outcome {
-                Ok(batch_result) => batch_result,
-                Err(e) => return Err(e),
-            };
-
-            if let Some((account, access_key)) = batch_result.final_state {
-                set_account(state_update, batch_result.signer_id.clone(), &account);
+            if let Some((account, access_key)) = batch_outcome.final_state {
+                set_account(state_update, batch_outcome.signer_id.clone(), &account);
                 set_access_key(
                     state_update,
-                    batch_result.signer_id.clone(),
-                    batch_result.public_key.clone(),
+                    batch_outcome.signer_id.clone(),
+                    batch_outcome.public_key.clone(),
                     &access_key,
                 );
 
-                let last_tx_hash = batch_result
+                let last_tx_hash = batch_outcome
                     .processed_transactions
                     .last()
                     .map(|pt| pt.transaction.get_hash())
                     .unwrap_or_default();
                 state_update
                     .commit(StateChangeCause::TransactionProcessing { tx_hash: last_tx_hash });
+            } else {
+                unreachable!(
+                    "invariant violated: final_state must be present for a valid batch outcome"
+                );
             }
 
-            for processed in batch_result.processed_transactions {
+            for processed in batch_outcome.processed_transactions {
                 match safe_add_balance(
                     processing_state.stats.balance.tx_burnt_amount,
                     processed.verification_result.burnt_amount,
