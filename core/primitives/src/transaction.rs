@@ -309,6 +309,10 @@ impl ValidatedTransaction {
     pub fn public_key(&self) -> &PublicKey {
         self.to_tx().public_key()
     }
+
+    pub fn actions(&self) -> &[Action] {
+        self.to_tx().actions()
+    }
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Eq, Debug, Clone, ProtocolSchema)]
