@@ -29,14 +29,9 @@ near-crypto.workspace = true
 near-primitives.workspace = true
 
 [features]
-nightly_protocol = [
-  "near-chain-configs/nightly_protocol",
-  "near-primitives/nightly_protocol",
-]
 nightly = [
   "near-chain-configs/nightly",
   "near-primitives/nightly",
-  "nightly_protocol",
 ]
 sandbox = []
 test_features = ["near-primitives/test_features"]
