@@ -186,42 +186,35 @@ the new protocol version.</p>
 <p>To make protocol upgrades more robust, we introduce the concept of a nightly
 protocol version together with the protocol feature flags to allow easy testing
 of the cutting-edge protocol changes without jeopardizing the stability of the
-codebase overall. The use of the nightly and nightly_protocol for new features
+codebase overall. The use of the <code>nightly</code> feature for new protocol features
 is mandatory while the use of dedicated rust features for new protocol features
 is optional and only recommended when necessary. Adding rust features leads to
 conditional compilation which is generally not developer friendly. In <code>Cargo.toml</code>
-file of the crates we have in nearcore, we introduce rust compile-time features
-<code>nightly_protocol</code> and <code>nightly</code>:</p>
-<pre><code class="language-toml">nightly_protocol = []
-nightly = [
-    &quot;nightly_protocol&quot;,
+file of the crates we have in nearcore, we introduce the rust compile-time feature
+<code>nightly</code>:</p>
+<pre><code class="language-toml">nightly = [
     ...
 ]
 </code></pre>
-<p>where <code>nightly_protocol</code> is a marker feature that indicates that we are on
-nightly protocol whereas <code>nightly</code> is a collection of new protocol features
-which also implies <code>nightly_protocol</code>.</p>
+<p>where <code>nightly</code> is a collection of new protocol features that indicates we are using
+the nightly protocol version.</p>
 <p>When it is not necessary to use a rust feature for the new protocol feature
 the Cargo.toml file will remain unchanged.</p>
 <p>When it is necessary to use a rust feature for the new protocol feature, it
 can be added to the Cargo.toml, to the nightly features. For example, when
 we introduce EVM as a new protocol change, suppose the current protocol
 version is 40, then we would do the following change in Cargo.toml:</p>
-<pre><code class="language-toml">nightly_protocol = []
-nightly = [
-    &quot;nightly_protocol&quot;,
+<pre><code class="language-toml">nightly = [
     &quot;protocol_features_evm&quot;,
     ...
 ]
 </code></pre>
-<p>In <a href="https://github.com/near/nearcore/blob/master/core/primitives/src/version.rs">core/primitives/src/version.rs</a>, we would
+<p>In <a href="https://github.com/near/nearcore/blob/master/core/primitives-core/src/version.rs">core/primitives-core/src/version.rs</a>, we would
 change the protocol version by:</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
-</span>#[cfg(feature = “nightly_protocol”)]
-pub const PROTOCOL_VERSION: u32 = 100;
-#[cfg(not(feature = “nightly_protocol”)]
-pub const PROTOCOL_VERSION: u32 = 40;
+</span>pub const PROTOCOL_VERSION: ProtocolVersion = 
+    if cfg!(feature = &quot;nightly&quot;) { NIGHTLY_PROTOCOL_VERSION } else { STABLE_PROTOCOL_VERSION };
 <span class="boring">}
 </span></code></pre></pre>
 <p>This way the stable versions remain unaffected after the change. Note that
@@ -262,7 +255,7 @@ testing environments. We can choose to enable all nightly protocol features by</
 <p>or enable some specific protocol feature by</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
-</span>cargo build -p neard --release --features nightly_protocol,&lt;protocol_feature&gt;
+</span>cargo build -p neard --release --features nightly,&lt;protocol_feature&gt;
 <span class="boring">}
 </span></code></pre></pre>
 <p>In practice, we have all nightly protocol features enabled for Nayduck tests and
