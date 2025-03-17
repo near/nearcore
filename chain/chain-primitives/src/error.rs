@@ -71,6 +71,10 @@ pub enum Error {
     /// Chunks missing with header info.
     #[error("Chunks Missing: {0:?}")]
     ChunksMissing(Vec<ShardChunkHeader>),
+    /// Some chunks are missing but block can be partially processed.
+    /// Contains information about which chunks are missing.
+    #[error("Some Chunks Missing (partial processing allowed): {0:?}")]
+    SomeChunksMissing(Vec<ShardChunkHeader>),
     /// Block time is before parent block time.
     #[error("Invalid Block Time: block time {1} before previous {0}")]
     InvalidBlockPastTime(Utc, Utc),
@@ -279,6 +283,7 @@ impl Error {
             | Error::Orphan
             | Error::ChunkMissing(_)
             | Error::ChunksMissing(_)
+            | Error::SomeChunksMissing(_)
             | Error::InvalidChunkHeight
             | Error::IOErr(_)
             | Error::Other(_)
@@ -363,6 +368,7 @@ impl Error {
             Error::Orphan => "orphan",
             Error::ChunkMissing(_) => "chunk_missing",
             Error::ChunksMissing(_) => "chunks_missing",
+            Error::SomeChunksMissing(_) => "some_chunks_missing",
             Error::InvalidChunkHeight => "invalid_chunk_height",
             Error::IOErr(_) => "io_err",
             Error::Other(_) => "other",

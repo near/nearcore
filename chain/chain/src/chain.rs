@@ -1364,6 +1364,7 @@ impl Chain {
             return Ok(());
         }
         let mut missing = vec![];
+        let mut critical_missing = vec![];
         let block_height = block.header().height();
 
         let epoch_id = block.header().epoch_id();
@@ -1392,7 +1393,24 @@ impl Chain {
                 let chunk_hash = chunk_header.chunk_hash();
 
                 if let Err(_) = self.chain_store.get_partial_chunk(&chunk_header.chunk_hash()) {
-                    missing.push(chunk_header.clone());
+                    // If this is a shard that this validator is responsible for tracking,
+                    // consider it a critical missing chunk
+                    if self.shard_tracker.cares_about_shard(
+                        me.as_ref(),
+                        &parent_hash,
+                        shard_id,
+                        true,
+                    ) || self.shard_tracker.will_care_about_shard(
+                        me.as_ref(),
+                        &parent_hash,
+                        shard_id,
+                        true,
+                    ) {
+                        critical_missing.push(chunk_header.clone());
+                    } else {
+                        // For shards we don't track, we can process the block partially
+                        missing.push(chunk_header.clone());
+                    }
                 } else if self.shard_tracker.cares_about_shard(
                     me.as_ref(),
                     &parent_hash,
@@ -1405,14 +1423,22 @@ impl Chain {
                     true,
                 ) {
                     if let Err(_) = self.chain_store.get_chunk(&chunk_hash) {
-                        missing.push(chunk_header.clone());
+                        critical_missing.push(chunk_header.clone());
                     }
                 }
             }
         }
-        if !missing.is_empty() {
-            return Err(Error::ChunksMissing(missing));
+
+        // If there are critical missing chunks, we can't process the block at all
+        if !critical_missing.is_empty() {
+            return Err(Error::ChunksMissing(critical_missing));
         }
+
+        // If there are only non-critical missing chunks, we can process the block partially
+        if !missing.is_empty() {
+            return Err(Error::SomeChunksMissing(missing));
+        }
+
         Ok(())
     }
 
@@ -2027,8 +2053,99 @@ impl Chain {
                             target: "chain",
                             ?block_hash,
                             chunk_hashes=missing_chunk_hashes.iter().map(|h| format!("{:?}", h)).join(","),
-                            "Process block: missing chunks"
+                            "Process block: critical chunks missing, cannot process"
                         );
+                    }
+                    Error::SomeChunksMissing(missing_chunks) => {
+                        // This is a case where some chunks are missing but they're not critical
+                        // for this validator, so we can process the block partially
+                        let block_hash = *block.hash();
+                        let missing_chunk_hashes: Vec<_> =
+                            missing_chunks.iter().map(|header| header.chunk_hash()).collect();
+
+                        // Still track the missing chunks for debugging and metrics
+                        block_processing_artifact.blocks_missing_chunks.push(BlockMissingChunks {
+                            prev_hash: *block.header().prev_hash(),
+                            missing_chunks: missing_chunks.clone(),
+                        });
+
+                        // Mark that this block has some missing chunks, but we'll process it anyway
+                        self.blocks_delay_tracker.mark_block_has_missing_chunks(block.hash());
+
+                        info!(
+                            target: "chain",
+                            ?block_hash,
+                            chunk_hashes=missing_chunk_hashes.iter().map(|h| format!("{:?}", h)).join(","),
+                            "Process block: non-critical chunks missing, proceeding with partial processing"
+                        );
+
+                        // Continue with block processing despite missing chunks
+                        // Skip the missing chunks during preprocessing
+                        let state_patch = self.pending_state_patch.take();
+                        let missing_chunk_hashes: std::collections::HashSet<_> =
+                            missing_chunks.iter().map(|header| header.chunk_hash()).collect();
+
+                        // Use the standard preprocess_block function but filter out missing chunks in apply_chunks_preprocessing
+                        match self.preprocess_block(
+                            me,
+                            &block,
+                            &provenance,
+                            &mut block_processing_artifact.challenges,
+                            &mut block_processing_artifact.invalid_chunks,
+                            block_received_time,
+                            state_patch,
+                        ) {
+                            Ok(preprocess_res) => {
+                                let (
+                                    apply_chunk_work,
+                                    block_preprocess_info,
+                                    apply_chunks_still_applying,
+                                ) = preprocess_res;
+
+                                if self
+                                    .epoch_manager
+                                    .is_next_block_epoch_start(block.header().prev_hash())?
+                                {
+                                    // This is the end of the epoch. Next epoch we will generate new state parts. We can drop the old ones.
+                                    self.clear_all_downloaded_parts()?;
+                                }
+
+                                let block_hash = *block.hash();
+                                let block_height = block.header().height();
+                                self.blocks_in_processing.add(block, block_preprocess_info)?;
+
+                                // Filter out jobs for missing chunks
+                                let filtered_work: Vec<_> = apply_chunk_work
+                                    .into_iter()
+                                    .filter(|job| {
+                                        // Skip chunks that are in the missing_chunks list
+                                        !missing_chunk_hashes
+                                            .contains(&job.next_chunk_header.chunk_hash())
+                                    })
+                                    .collect();
+
+                                // Schedule apply chunks, which will be executed in the rayon thread pool
+                                self.schedule_apply_chunks(
+                                    BlockToApply::Normal(block_hash),
+                                    block_height,
+                                    filtered_work,
+                                    apply_chunks_still_applying,
+                                    apply_chunks_done_sender,
+                                );
+
+                                return Ok(());
+                            }
+                            Err(e) => {
+                                // If partial processing fails, we still need to handle the error
+                                warn!(
+                                    target: "chain",
+                                    ?block_hash,
+                                    error=?e,
+                                    "Failed to partially process block with missing chunks"
+                                );
+                                return Err(e);
+                            }
+                        }
                     }
                     Error::EpochOutOfBounds(epoch_id) => {
                         // Possibly block arrived before we finished processing all of the blocks for epoch before last.
