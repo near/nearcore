@@ -174,13 +174,7 @@ pub fn verify_and_charge_tx_ephemeral(
 
     access_key.nonce = tx.nonce();
 
-    signer.set_amount(signer.amount().checked_sub(total_cost).ok_or_else(|| {
-        InvalidTxError::NotEnoughBalance {
-            signer_id: signer_id.clone(),
-            balance: signer.amount(),
-            cost: total_cost,
-        }
-    })?);
+    signer.set_amount(signer.amount().saturating_sub(total_cost));
 
     if let AccessKeyPermission::FunctionCall(ref mut function_call_permission) =
         access_key.permission
