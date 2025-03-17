@@ -682,7 +682,7 @@ fn internal_recurse(n: u64) -> u64 {
         n
     } else {
         let a = internal_recurse(n - 1) + 1;
-        if a % 2 == 1 {
+        if a % 2 == 1 { 
             (a + n) / 2
         } else {
             a
@@ -1612,7 +1612,7 @@ pub unsafe fn sanity_check_panic_utf8() {
 }
 
 /// Generate a single large receipt that has many FunctionCall actions with large args.
-/// Accepts json parmeters:
+/// Accepts json parameters:
 /// account_id - the account id to send the FunctionCall actions to.
 /// method_name - the method name to call in FunctionCalls.
 /// total_args_size - the total size of the arguments to send in the FunctionCalls.

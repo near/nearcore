@@ -1,3 +1,5 @@
+// cspell:disable
+
 use crate::address_map::get_function_address_map;
 use crate::{config::Singlepass, emitter_x64::*, machine::Machine, x64_decl::*};
 use dynasmrt::{DynamicLabel, VecAssembler, x64::X64Relocation};
@@ -1309,19 +1311,19 @@ impl<'a> FuncGen<'a> {
 
         let align = memarg.align;
         if check_alignment && align != 1 {
-            let tmp_aligncheck = self.machine.acquire_temp_gpr().unwrap();
+            let tmp_align_check = self.machine.acquire_temp_gpr().unwrap();
             self.assembler.emit_mov(
                 Size::S32,
                 Location::GPR(tmp_addr),
-                Location::GPR(tmp_aligncheck),
+                Location::GPR(tmp_align_check),
             );
             self.assembler.emit_and(
                 Size::S64,
                 Location::Imm32((align - 1).into()),
-                Location::GPR(tmp_aligncheck),
+                Location::GPR(tmp_align_check),
             );
             self.assembler.emit_jmp(Condition::NotEqual, self.special_labels.heap_access_oob);
-            self.machine.release_temp_gpr(tmp_aligncheck);
+            self.machine.release_temp_gpr(tmp_align_check);
         }
 
         cb(self, tmp_addr).unwrap();
@@ -1747,7 +1749,7 @@ impl<'a> FuncGen<'a> {
 
     /// Introduce additional local variables to this function.
     ///
-    /// Calling this after [`emit_head`](Self::emit_head) has been invoked is non-sensical.
+    /// Calling this after [`emit_head`](Self::emit_head) has been invoked is nonsensical.
     pub(crate) fn feed_local(&mut self, local_count: u32, local_type: WpType) {
         // FIXME: somehow verify that we haven't invoked `emit_head` yet? Doing so could lead us to
         // generate code that accesses the stack buffer out of bounds.
