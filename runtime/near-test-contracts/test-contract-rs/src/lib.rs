@@ -682,7 +682,7 @@ fn internal_recurse(n: u64) -> u64 {
         n
     } else {
         let a = internal_recurse(n - 1) + 1;
-        if a % 2 == 1 { 
+        if a % 2 == 1 {
             (a + n) / 2
         } else {
             a
