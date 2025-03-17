@@ -383,25 +383,24 @@ impl Runtime {
                 state_update.commit(StateChangeCause::TransactionProcessing {
                     tx_hash: validated_tx.get_hash(),
                 });
-                let transaction = validated_tx.to_tx();
                 let receipt_id = create_receipt_id_from_transaction(
                     apply_state.current_protocol_version,
-                    validated_tx.to_signed_tx(),
+                    validated_tx.to_hash(),
                     &apply_state.prev_block_hash,
                     &apply_state.block_hash,
                     apply_state.block_height,
                 );
                 let receipt = Receipt::V0(ReceiptV0 {
-                    predecessor_id: transaction.signer_id().clone(),
-                    receiver_id: transaction.receiver_id().clone(),
+                    predecessor_id: validated_tx.signer_id().clone(),
+                    receiver_id: validated_tx.receiver_id().clone(),
                     receipt_id,
                     receipt: ReceiptEnum::Action(ActionReceipt {
-                        signer_id: transaction.signer_id().clone(),
-                        signer_public_key: transaction.public_key().clone(),
+                        signer_id: validated_tx.signer_id().clone(),
+                        signer_public_key: validated_tx.public_key().clone(),
                         gas_price: verification_result.receipt_gas_price,
                         output_data_receivers: vec![],
                         input_data_ids: vec![],
-                        actions: transaction.actions().to_vec(),
+                        actions: validated_tx.actions().to_vec(),
                     }),
                 });
                 stats.balance.tx_burnt_amount = safe_add_balance(
@@ -421,7 +420,7 @@ impl Runtime {
                         // TODO(#8806): Support compute costs for actions. For now they match burnt gas.
                         compute_usage: Some(compute_usage),
                         tokens_burnt: verification_result.burnt_amount,
-                        executor_id: transaction.signer_id().clone(),
+                        executor_id: validated_tx.signer_id().clone(),
                         // TODO: profile data is only counted in apply_action, which only happened at process_receipt
                         // VerificationResult needs updates to incorporate profile data to support profile data of txns
                         metadata: ExecutionMetadata::V1,
