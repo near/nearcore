@@ -341,6 +341,7 @@
         "Wasmtime",
         "webfonts",
         "webrtc",
+        "welford",
         "wmem",
         "Xarrow",
         "xarrows",
