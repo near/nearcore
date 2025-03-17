@@ -79,9 +79,10 @@ pub static NUM_PENDING_BLOCKS: LazyLock<IntGauge> = LazyLock::new(|| {
     .unwrap()
 });
 pub static BLOCK_PENDING_EXECUTION_DELAY: LazyLock<Histogram> = LazyLock::new(|| {
-    try_create_histogram(
+    try_create_histogram_with_buckets(
         "near_block_pending_execution_delay",
         "Time taken for a block to wait in pending execution pool",
+        exponential_buckets(0.001, 1.6, 20).unwrap(),
     )
     .unwrap()
 });
