@@ -3,6 +3,50 @@
 # Set default compute zone
 # export CLOUDSDK_COMPUTE_ZONE=europe-west4-a
 
+# Function to extract IP addresses of all validators and save to a file
+extract_validator_ips() {
+    # Check if UNIQUE_ID is set
+    if [ -z "$UNIQUE_ID" ]; then
+        echo "Error: UNIQUE_ID environment variable is not set"
+        echo "Please set it with: export UNIQUE_ID=<network_name>"
+        exit 1
+    fi
+    
+    echo "Extracting IP addresses of all validators for network: $UNIQUE_ID"
+    
+    # Get all validator nodes (not archiv, not dumper, not traffic)
+    ALL_VALIDATORS_INFO=$(gcloud compute instances list | cat | grep -i "$UNIQUE_ID" | grep -v "archiv" | grep -v "dumper" | grep -v "traffic")
+    
+    if [ -z "$ALL_VALIDATORS_INFO" ]; then
+        echo "Error: No validator nodes found for network $UNIQUE_ID"
+        exit 1
+    fi
+    
+    # Create a file to store validator IPs
+    local validator_ips_file="/tmp/validator_ips_${UNIQUE_ID}"
+    > "$validator_ips_file"  # Clear file if it exists
+    
+    # Extract IP addresses and save to file
+    echo "# Validator IPs for network $UNIQUE_ID" > "$validator_ips_file"
+    echo "# Format: node_name|zone|ip" >> "$validator_ips_file"
+    
+    while read -r validator_line; do
+        local validator=$(echo "$validator_line" | awk '{print $1}')
+        local validator_zone=$(echo "$validator_line" | awk '{print $2}')
+        local validator_ip=$(echo "$validator_line" | awk '{print $5}')
+        
+        if [ -n "$validator_ip" ]; then
+            echo "${validator}|${validator_zone}|${validator_ip}" >> "$validator_ips_file"
+            echo "  Added validator: $validator (IP: $validator_ip, Zone: $validator_zone)"
+        fi
+    done <<< "$ALL_VALIDATORS_INFO"
+    
+    local validator_count=$(grep -v "^#" "$validator_ips_file" | wc -l)
+    echo "Extracted $validator_count validator IPs and saved to $validator_ips_file"
+    
+    return 0
+}
+
 # Function to list nodes and select validators
 select_validators() {
     # Check if UNIQUE_ID is set
@@ -68,6 +112,9 @@ select_validators() {
     
     echo -e "\nSelected RPC node:"
     echo "  $RPC_NODE (Zone: $RPC_ZONE)"
+    
+    # Extract IP addresses of all validators
+    extract_validator_ips
 }
 
 # Function to check benchmark status on a specific node
@@ -124,10 +171,16 @@ run_prepare() {
     
     local nodes_file="/tmp/benchmark_nodes_${UNIQUE_ID}"
     local rpc_file="/tmp/benchmark_rpc_${UNIQUE_ID}"
+    local validator_ips_file="/tmp/validator_ips_${UNIQUE_ID}"
     
     if [ ! -f "$nodes_file" ] || [ ! -f "$rpc_file" ]; then
         echo "Error: Missing benchmark nodes or RPC node files. Run select command first."
         exit 1
+    fi
+    
+    if [ ! -f "$validator_ips_file" ]; then
+        echo "Validator IPs file not found. Extracting validator IPs..."
+        extract_validator_ips
     fi
     
     # Read the RPC node
@@ -180,11 +233,18 @@ run_prepare() {
         local node_num=$4
         
         echo "Configuring RPC URL on $node (as $short_name, Zone: $zone)..."
+        
+        # Copy validator IPs file to the node
+        echo "Copying validator IPs file to $node..."
+        gcloud compute scp "$validator_ips_file" ubuntu@"$short_name":/tmp/validator_ips --zone="$zone" 2>/dev/null
+        
         gcloud compute ssh ubuntu@"$short_name" --zone="$zone" --command="
             sudo sed -i '/^RPC_URL=/d' /etc/environment && \
             sudo sed -i '/^UNIQUE_ID=/d' /etc/environment && \
+            sudo sed -i '/^VALIDATOR_IPS_FILE=/d' /etc/environment && \
             sudo sh -c 'echo \"RPC_URL=http://${rpc_host}:3030\" >> /etc/environment' && \
-            sudo sh -c 'echo \"UNIQUE_ID=${UNIQUE_ID}\" >> /etc/environment'" 2>/dev/null
+            sudo sh -c 'echo \"UNIQUE_ID=${UNIQUE_ID}\" >> /etc/environment' && \
+            sudo sh -c 'echo \"VALIDATOR_IPS_FILE=/tmp/validator_ips\" >> /etc/environment'" 2>/dev/null
         
         # If direct connection failed, try to find the node in the validator list
         if [ $? -ne 0 ]; then
@@ -195,11 +255,18 @@ run_prepare() {
                 
                 if [[ "$validator" == *"$node"* || "$node" == *"$validator"* ]]; then
                     echo "Found matching validator: $validator (Zone: $validator_zone), trying to connect..."
+                    
+                    # Copy validator IPs file to the node
+                    echo "Copying validator IPs file to $validator..."
+                    gcloud compute scp "$validator_ips_file" ubuntu@"$validator":/tmp/validator_ips --zone="$validator_zone" 2>/dev/null
+                    
                     gcloud compute ssh ubuntu@"$validator" --zone="$validator_zone" --command="
                         sudo sed -i '/^RPC_URL=/d' /etc/environment && \
                         sudo sed -i '/^UNIQUE_ID=/d' /etc/environment && \
+                        sudo sed -i '/^VALIDATOR_IPS_FILE=/d' /etc/environment && \
                         sudo sh -c 'echo \"RPC_URL=http://${rpc_host}:3030\" >> /etc/environment' && \
-                        sudo sh -c 'echo \"UNIQUE_ID=${UNIQUE_ID}\" >> /etc/environment'" 2>/dev/null && \
+                        sudo sh -c 'echo \"UNIQUE_ID=${UNIQUE_ID}\" >> /etc/environment' && \
+                        sudo sh -c 'echo \"VALIDATOR_IPS_FILE=/tmp/validator_ips\" >> /etc/environment'" 2>/dev/null && \
                         echo "Successfully configured $validator" && \
                         # Update the node name for future use
                         if [ "$node_num" -eq 1 ]; then
@@ -230,11 +297,11 @@ run_prepare() {
     
     # Start prepare phase on nodes with different modes
     echo "Starting prepare on $node1 (Mode 1, Zone: $zone1)..."
-    gcloud compute ssh ubuntu@"$short_name1" --zone="$zone1" --command="source /etc/environment && /home/ubuntu/benchmark.sh --mode 1 --operation prepare --rpc-url http://${rpc_host}:3030 $nonce_arg > /tmp/err 2>&1 &" 2>/dev/null || \
+    gcloud compute ssh ubuntu@"$short_name1" --zone="$zone1" --command="source /etc/environment && /home/ubuntu/benchmark.sh --mode 1 --operation prepare --rpc-url http://${rpc_host}:3030 --validator-ips-file \$VALIDATOR_IPS_FILE $nonce_arg > /tmp/err 2>&1 &" 2>/dev/null || \
         echo "Failed to start prepare on $short_name1"
     
     echo "Starting prepare on $node2 (Mode 2, Zone: $zone2)..."
-    gcloud compute ssh ubuntu@"$short_name2" --zone="$zone2" --command="source /etc/environment && /home/ubuntu/benchmark.sh --mode 2 --operation prepare --rpc-url http://${rpc_host}:3030 $nonce_arg > /tmp/err 2>&1 &" 2>/dev/null || \
+    gcloud compute ssh ubuntu@"$short_name2" --zone="$zone2" --command="source /etc/environment && /home/ubuntu/benchmark.sh --mode 2 --operation prepare --rpc-url http://${rpc_host}:3030 --validator-ips-file \$VALIDATOR_IPS_FILE $nonce_arg > /tmp/err 2>&1 &" 2>/dev/null || \
         echo "Failed to start prepare on $short_name2"
     
     echo "Preparation started on all nodes. Monitoring status..."
@@ -303,10 +370,16 @@ run_benchmark() {
     
     local nodes_file="/tmp/benchmark_nodes_${UNIQUE_ID}"
     local rpc_file="/tmp/benchmark_rpc_${UNIQUE_ID}"
+    local validator_ips_file="/tmp/validator_ips_${UNIQUE_ID}"
     
     if [ ! -f "$nodes_file" ] || [ ! -f "$rpc_file" ]; then
         echo "Error: Missing benchmark nodes or RPC node files. Run select command first."
         exit 1
+    fi
+    
+    if [ ! -f "$validator_ips_file" ]; then
+        echo "Validator IPs file not found. Extracting validator IPs..."
+        extract_validator_ips
     fi
     
     # Read the RPC node
@@ -355,7 +428,17 @@ run_benchmark() {
         local mode=$4
         
         echo "Starting Mode $mode benchmark on $node (as $short_name, Zone: $zone)..."
-        gcloud compute ssh ubuntu@"$short_name" --zone="$zone" --command="source /etc/environment && /home/ubuntu/benchmark.sh --mode $mode --operation run --rpc-url http://${rpc_host}:3030 > /tmp/err 2>&1 &" 2>/dev/null
+        
+        # Ensure validator IPs file is present
+        echo "Checking validator IPs file on $node..."
+        local file_exists=$(gcloud compute ssh ubuntu@"$short_name" --zone="$zone" --command="[ -f /tmp/validator_ips ] && echo 'exists' || echo 'missing'" 2>/dev/null)
+        
+        if [ "$file_exists" = "missing" ]; then
+            echo "Validator IPs file not found on $node. Copying file..."
+            gcloud compute scp "$validator_ips_file" ubuntu@"$short_name":/tmp/validator_ips --zone="$zone" 2>/dev/null
+        fi
+        
+        gcloud compute ssh ubuntu@"$short_name" --zone="$zone" --command="source /etc/environment && /home/ubuntu/benchmark.sh --mode $mode --operation run --rpc-url http://${rpc_host}:3030 --validator-ips-file /tmp/validator_ips --use-random-validators > /tmp/err 2>&1 &" 2>/dev/null
         
         # If direct connection failed, try to find the node in the validator list
         if [ $? -ne 0 ]; then
@@ -366,7 +449,17 @@ run_benchmark() {
                 
                 if [[ "$validator" == *"$node"* || "$node" == *"$validator"* ]]; then
                     echo "Found matching validator: $validator (Zone: $validator_zone), trying to connect..."
-                    gcloud compute ssh ubuntu@"$validator" --zone="$validator_zone" --command="source /etc/environment && /home/ubuntu/benchmark.sh --mode $mode --operation run --rpc-url http://${rpc_host}:3030 > /tmp/err 2>&1 &" 2>/dev/null && \
+                    
+                    # Ensure validator IPs file is present
+                    echo "Checking validator IPs file on $validator..."
+                    local file_exists=$(gcloud compute ssh ubuntu@"$validator" --zone="$validator_zone" --command="[ -f /tmp/validator_ips ] && echo 'exists' || echo 'missing'" 2>/dev/null)
+                    
+                    if [ "$file_exists" = "missing" ]; then
+                        echo "Validator IPs file not found on $validator. Copying file..."
+                        gcloud compute scp "$validator_ips_file" ubuntu@"$validator":/tmp/validator_ips --zone="$validator_zone" 2>/dev/null
+                    fi
+                    
+                    gcloud compute ssh ubuntu@"$validator" --zone="$validator_zone" --command="source /etc/environment && /home/ubuntu/benchmark.sh --mode $mode --operation run --rpc-url http://${rpc_host}:3030 --validator-ips-file /tmp/validator_ips --use-random-validators > /tmp/err 2>&1 &" 2>/dev/null && \
                         echo "Successfully started benchmark on $validator" || \
                         echo "Failed to connect to $validator"
                     break
@@ -455,13 +548,17 @@ case "$1" in
     "stop")
         stop_benchmark
         ;;
+    "extract-ips")
+        extract_validator_ips
+        ;;
     *)
-        echo "Usage: $0 {select|prepare [nonce]|run|status|stop}"
+        echo "Usage: $0 {select|prepare [nonce]|run|status|stop|extract-ips}"
         echo "  select: Select validator nodes for benchmarking based on UNIQUE_ID"
         echo "  prepare [nonce]: Start preparation phase with optional nonce"
         echo "  run: Start the benchmark execution"
         echo "  status: Check current status of all nodes"
         echo "  stop: Stop all benchmark processes on nodes"
+        echo "  extract-ips: Extract IP addresses of all validators and save to a file"
         echo ""
         echo "Before running any command, set the UNIQUE_ID environment variable:"
         echo "  export UNIQUE_ID=<network_name>"

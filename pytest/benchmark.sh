@@ -6,14 +6,18 @@ SCRIPT_MODE=""
 OPERATION=""
 NODE_RPC="http://127.0.0.1:3030"
 NONCE=""
+VALIDATOR_IPS_FILE=""
+USE_RANDOM_VALIDATORS=false
 
 # Function to show usage
 usage() {
-    echo "Usage: $0 [--mode 1|2] [--operation prepare|run|stop] [--rpc-url URL] [--nonce NUMBER]"
+    echo "Usage: $0 [--mode 1|2] [--operation prepare|run|stop] [--rpc-url URL] [--nonce NUMBER] [--validator-ips-file FILE] [--use-random-validators]"
     echo "  --mode: Select benchmark mode (1 for native transfers, 2 for sweat benchmark)"
     echo "  --operation: Select operation type (prepare, run, or stop)"
     echo "  --rpc-url: RPC URL (optional, defaults to http://127.0.0.1:3030)"
     echo "  --nonce: Starting nonce for prepare mode (optional)"
+    echo "  --validator-ips-file: Path to file containing validator IPs (optional)"
+    echo "  --use-random-validators: Send transactions to random validators (optional)"
     exit 1
 }
 
@@ -35,6 +39,14 @@ while [[ $# -gt 0 ]]; do
         --nonce)
             NONCE="$2"
             shift 2
+            ;;
+        --validator-ips-file)
+            VALIDATOR_IPS_FILE="$2"
+            shift 2
+            ;;
+        --use-random-validators)
+            USE_RANDOM_VALIDATORS=true
+            shift
             ;;
         *)
             usage
@@ -63,6 +75,12 @@ fi
 if [[ "$OPERATION" == "prepare" && -n "$NONCE" && ! "$NONCE" =~ ^[0-9]+$ ]]; then
     echo "Error: Nonce must be a number"
     usage
+fi
+
+# Check if validator IPs file exists when using random validators
+if [[ "$USE_RANDOM_VALIDATORS" == true && -n "$VALIDATOR_IPS_FILE" && ! -f "$VALIDATOR_IPS_FILE" ]]; then
+    echo "Error: Validator IPs file not found: $VALIDATOR_IPS_FILE"
+    exit 1
 fi
 
 # Function to run command in background with logging
@@ -119,6 +137,34 @@ stop_benchmark() {
     echo "Benchmark stopped successfully"
 }
 
+# Function to prepare RPC URLs for random validators
+prepare_rpc_urls() {
+    if [[ "$USE_RANDOM_VALIDATORS" == true && -n "$VALIDATOR_IPS_FILE" && -f "$VALIDATOR_IPS_FILE" ]]; then
+        echo "Preparing RPC URLs from validator IPs file: $VALIDATOR_IPS_FILE"
+        
+        # Create a temporary file to store RPC URLs
+        local rpc_urls_file="/tmp/rpc_urls_${NETWORK_NAME}"
+        > "$rpc_urls_file"  # Clear file if it exists
+        
+        # Extract IPs from validator IPs file and create RPC URLs
+        grep -v "^#" "$VALIDATOR_IPS_FILE" | while read -r line; do
+            local validator_ip=$(echo "$line" | cut -d'|' -f3)
+            if [ -n "$validator_ip" ]; then
+                echo "http://${validator_ip}:3030" >> "$rpc_urls_file"
+            fi
+        done
+        
+        local url_count=$(wc -l < "$rpc_urls_file")
+        echo "Created $url_count RPC URLs for random selection"
+        
+        # Return the path to the RPC URLs file
+        echo "$rpc_urls_file"
+    else
+        # If not using random validators, return empty string
+        echo ""
+    fi
+}
+
 # Mode 1: Native Transfers
 run_mode_1() {
     local operation=$1
@@ -131,6 +177,13 @@ run_mode_1() {
     else
         nonce_arg="--nonce 10"
     fi
+    
+    # Prepare RPC URLs for random validators if needed
+    # local rpc_urls_file=""
+    # if [ "$operation" == "run" ] && [ "$USE_RANDOM_VALIDATORS" == true ]; then
+    #     rpc_urls_file=$(prepare_rpc_urls)
+    #     echo "Using RPC URLs from file: $rpc_urls_file"
+    # fi
     
     if [ "$operation" == "prepare" ]; then
         run_background "RUST_LOG=debug /home/ubuntu/near-synth-bm create-sub-accounts \
@@ -145,8 +198,14 @@ run_mode_1() {
             --user-data-dir user-data && \
             echo 'Mode 1 preparation complete'" "$log_file" "mode1"
     else
+        local random_validators_arg=""
+        if [ -n "/tmp/validator_ips" ]; then
+            random_validators_arg="--rpc-urls-file /tmp/validator_ips"
+        fi
+        
         run_background "RUST_LOG=info /home/ubuntu/near-synth-bm benchmark-native-transfers \
             --rpc-url $rpc_url \
+            $random_validators_arg \
             --user-data-dir /home/ubuntu/user-data/ \
             --read-nonces-from-network \
             --num-transfers 90000000 \
@@ -169,6 +228,13 @@ run_mode_2() {
         nonce_arg="--nonce 10"
     fi
     
+    # Prepare RPC URLs for random validators if needed
+    # local rpc_urls_file=""
+    # if [ "$operation" == "run" ] && [ "$USE_RANDOM_VALIDATORS" == true ]; then
+    #     rpc_urls_file=$(prepare_rpc_urls)
+    #     echo "Using RPC URLs from file: $rpc_urls_file"
+    # fi
+    
     if [ "$operation" == "prepare" ]; then
         run_background "RUST_LOG=info /home/ubuntu/near-synth-bm \
             benchmark-sweat create-contracts \
@@ -188,9 +254,15 @@ run_mode_2() {
             --deposit 953060601875000000010000 && \
             echo 'Mode 2 preparation complete'" "$log_file" "mode2"
     else
+        local random_validators_arg=""
+        if [ -n "/tmp/validator_ips" ]; then
+            random_validators_arg="--rpc-urls-file /tmp/validator_ips"
+        fi
+        
         run_background "RUST_LOG=info /home/ubuntu/near-synth-bm \
             benchmark-sweat run-benchmark \
             --rpc-url $rpc_url \
+            $random_validators_arg \
             --oracle-data-dir /home/ubuntu/oracles/ \
             --user-data-dir /home/ubuntu/users/ \
             --batch-size 750 \
