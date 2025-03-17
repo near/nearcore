@@ -10,7 +10,7 @@ use near_chain_primitives::error::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::block::Tip;
 use near_primitives::chunk_apply_stats::{ChunkApplyStats, ChunkApplyStatsV0};
-use near_primitives::errors::InvalidTxError;
+use near_primitives::errors::{EpochError, InvalidTxError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{MerklePath, PartialMerkleTree};
 use near_primitives::receipt::Receipt;
@@ -248,16 +248,13 @@ pub fn filter_incoming_receipts_for_shard(
     target_shard_layout: &ShardLayout,
     target_shard_id: ShardId,
     receipt_proofs: Arc<Vec<ReceiptProof>>,
-) -> Vec<ReceiptProof> {
+) -> Result<Vec<ReceiptProof>, EpochError> {
     let mut filtered_receipt_proofs = vec![];
     for receipt_proof in receipt_proofs.iter() {
         let mut filtered_receipts = vec![];
         let ReceiptProof(receipts, shard_proof) = receipt_proof.clone();
         for receipt in receipts {
-            if receipt.send_to_all_shards()
-                || target_shard_layout.account_id_to_shard_id(receipt.receiver_id())
-                    == target_shard_id
-            {
+            if receipt.receiver_shard_id(target_shard_layout)? == target_shard_id {
                 tracing::trace!(target: "chain", receipt_id=?receipt.receipt_id(), "including receipt");
                 filtered_receipts.push(receipt);
             } else {
@@ -267,7 +264,7 @@ pub fn filter_incoming_receipts_for_shard(
         let receipt_proof = ReceiptProof(filtered_receipts, shard_proof);
         filtered_receipt_proofs.push(receipt_proof);
     }
-    filtered_receipt_proofs
+    Ok(filtered_receipt_proofs)
 }
 
 /// All chain-related database operations.
