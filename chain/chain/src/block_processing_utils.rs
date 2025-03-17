@@ -6,9 +6,9 @@ use near_async::time::Instant;
 use near_primitives::block::Block;
 use near_primitives::challenge::{ChallengeBody, ChallengesResult};
 use near_primitives::hash::CryptoHash;
-use near_primitives::optimistic_block::{BlockToApply, OptimisticBlock};
+use near_primitives::optimistic_block::{BlockToApply, CachedShardUpdateKey, OptimisticBlock};
 use near_primitives::sharding::{ReceiptProof, ShardChunkHeader, StateSyncInfo};
-use near_primitives::types::ShardId;
+use near_primitives::types::{BlockHeight, ShardId};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -43,18 +43,18 @@ pub(crate) struct BlockPreprocessInfo {
 
 pub(crate) struct OptimisticBlockInfo {
     /// Used to get notified when the applying chunks of a block finishes.
-    #[allow(unused)]
     pub(crate) apply_chunks_done_waiter: ApplyChunksDoneWaiter,
     /// This is used to calculate block processing time metric
     #[allow(unused)]
     pub(crate) block_start_processing_time: Instant,
+    pub(crate) shard_update_keys: Vec<CachedShardUpdateKey>,
 }
 
 /// Blocks which finished pre-processing and are now being applied asynchronously
 pub(crate) struct BlocksInProcessing {
     // A map that stores all blocks in processing
     preprocessed_blocks: HashMap<CryptoHash, (Block, BlockPreprocessInfo)>,
-    optimistic_blocks: HashMap<CryptoHash, (OptimisticBlock, OptimisticBlockInfo)>,
+    optimistic_blocks: HashMap<BlockHeight, (OptimisticBlock, OptimisticBlockInfo)>,
 }
 
 #[derive(Debug)]
@@ -120,16 +120,18 @@ impl BlocksInProcessing {
         block: OptimisticBlock,
         preprocess_info: OptimisticBlockInfo,
     ) -> Result<(), AddError> {
-        self.add_dry_run(&BlockToApply::Optimistic(*block.hash()))?;
+        self.add_dry_run(&BlockToApply::Optimistic(block.height()))?;
 
-        self.optimistic_blocks.insert(*block.hash(), (block, preprocess_info));
+        self.optimistic_blocks.insert(block.height(), (block, preprocess_info));
         Ok(())
     }
 
     pub(crate) fn contains(&self, block_to_apply: &BlockToApply) -> bool {
         match block_to_apply {
             BlockToApply::Normal(block_hash) => self.preprocessed_blocks.contains_key(block_hash),
-            BlockToApply::Optimistic(block_hash) => self.optimistic_blocks.contains_key(block_hash),
+            BlockToApply::Optimistic(block_height) => {
+                self.optimistic_blocks.contains_key(block_height)
+            }
         }
     }
 
@@ -142,9 +144,9 @@ impl BlocksInProcessing {
 
     pub(crate) fn remove_optimistic(
         &mut self,
-        optimistic_block_hash: &CryptoHash,
+        block_height: &BlockHeight,
     ) -> Option<(OptimisticBlock, OptimisticBlockInfo)> {
-        self.optimistic_blocks.remove(optimistic_block_hash)
+        self.optimistic_blocks.remove(block_height)
     }
 
     /// This function does NOT add the block, it simply checks if the block can be added
@@ -162,6 +164,19 @@ impl BlocksInProcessing {
         }
     }
 
+    pub fn has_matching_optimistic_block(
+        &self,
+        block_height: BlockHeight,
+        shard_update_keys: &[&CachedShardUpdateKey],
+    ) -> bool {
+        let Some((_, optimistic_block_info)) = self.optimistic_blocks.get(&block_height) else {
+            return false;
+        };
+        let info_keys: Vec<&CachedShardUpdateKey> =
+            optimistic_block_info.shard_update_keys.iter().collect();
+        shard_update_keys == info_keys.as_slice()
+    }
+
     pub(crate) fn has_blocks_to_catch_up(&self, prev_hash: &CryptoHash) -> bool {
         self.preprocessed_blocks
             .iter()
@@ -174,7 +189,10 @@ impl BlocksInProcessing {
         for (_, (_, block_preprocess_info)) in self.preprocessed_blocks.iter() {
             let _ = block_preprocess_info.apply_chunks_done_waiter.wait();
         }
-        !self.preprocessed_blocks.is_empty()
+        for (_, (_, block_preprocess_info)) in self.optimistic_blocks.iter() {
+            let _ = block_preprocess_info.apply_chunks_done_waiter.wait();
+        }
+        !self.preprocessed_blocks.is_empty() || !self.optimistic_blocks.is_empty()
     }
 
     /// This function waits until apply_chunks_done is marked as true for block `block_hash`
