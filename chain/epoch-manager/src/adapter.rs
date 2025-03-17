@@ -68,7 +68,33 @@ pub trait EpochManagerAdapter: Send + Sync {
     fn get_part_owner(&self, epoch_id: &EpochId, part_id: u64) -> Result<AccountId, EpochError> {
         let epoch_info = self.get_epoch_info(&epoch_id)?;
         let settlement = epoch_info.block_producers_settlement();
-        let validator_id = settlement[part_id as usize % settlement.len()];
+
+        // Calculate total stake to distribute parts proportionally to stake
+        let mut total_stake = 0;
+        let mut validator_stakes = Vec::with_capacity(settlement.len());
+        for &validator_id in settlement.iter() {
+            let stake = epoch_info.get_validator(validator_id).stake();
+            total_stake += stake;
+            validator_stakes.push((validator_id, stake));
+        }
+
+        // Sort validators by stake in descending order to ensure high-stake validators
+        // get proportionally more parts, preventing targeted attacks
+        validator_stakes.sort_by(|a, b| b.1.cmp(&a.1));
+
+        // Distribute parts based on stake proportion
+        let mut cumulative_stake = 0;
+        let target_stake = (part_id as u128 * total_stake) / (self.num_total_parts() as u128);
+
+        for (validator_id, stake) in validator_stakes {
+            cumulative_stake += stake;
+            if cumulative_stake > target_stake {
+                return Ok(epoch_info.get_validator(validator_id).account_id().clone());
+            }
+        }
+
+        // Fallback to the highest stake validator if we somehow didn't find one
+        let validator_id = validator_stakes.first().map(|(id, _)| *id).unwrap_or(settlement[0]);
         Ok(epoch_info.get_validator(validator_id).account_id().clone())
     }
 
