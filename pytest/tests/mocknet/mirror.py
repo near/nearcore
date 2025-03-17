@@ -501,6 +501,8 @@ def run_remote_upload_file(args, traffic_generator, nodes):
 
 
 def run_env_cmd(args, traffic_generator, nodes):
+    print(args.key_value)
+    exit(0)
     if args.clear_all:
         func = lambda node: node.neard_clear_env()
     else:
