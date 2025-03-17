@@ -132,7 +132,7 @@ fn test_validator_rotation() {
     assert_current_validators(&env, &original_validators);
 
     // At the end of epoch T we define epoch_info (which defines validator set) for epoch T+2 using
-    // current staking. Because of this validator reassigment would have 1 epoch lag compared to
+    // current staking. Because of this validator reassignment would have 1 epoch lag compared to
     // staking distribution.
 
     stake_alternative(&mut env);
