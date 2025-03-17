@@ -588,6 +588,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             None,
             current_protocol_version,
             None,
+            None,
         )
         .map(|_vr| ())
     }
@@ -780,6 +781,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                         &cost,
                         Some(next_block_height),
                         protocol_version,
+                        None,
                         None,
                     )
                 })

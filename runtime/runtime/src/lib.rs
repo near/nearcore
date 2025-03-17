@@ -158,8 +158,8 @@ pub struct ApplyState {
 /// Represents a batch of transactions sharing the same (signer_id, public_key),
 /// sorted by ascending nonce.
 struct TransactionBatch<'a> {
-    pub indices: &'a [usize],
-    pub signed_txs: &'a [SignedTransaction],
+    indices: &'a [usize],
+    signed_txs: &'a [SignedTransaction],
 }
 
 impl<'a> TransactionBatch<'a> {
@@ -211,12 +211,13 @@ struct ProcessedTransaction {
 }
 
 #[derive(Debug)]
-struct BatchResult {
+struct BatchOutput {
     processed_transactions: Vec<ProcessedTransaction>,
-    final_state: Option<(Account, AccessKey)>,
+    cached_account: Option<Account>,
+    cached_access_key: Option<AccessKey>,
 }
 
-impl BatchResult {
+impl BatchOutput {
     /// Returns the signer_id of the first processed transaction in this batch, if any.
     pub fn signer_id(&self) -> Option<&AccountId> {
         self.processed_transactions.first().map(|pt| pt.transaction.to_tx().signer_id())
@@ -384,7 +385,7 @@ impl Runtime {
     /// and, if `RelaxedChunkValidation` is enabled, skips to the next transaction without failing
     /// the whole batch. The resulting state (`final_state`) contains `Account` and `AccessKey` after
     /// the last successful transaction in the batch to be committed to the `state_update`.
-    /// Returns a `BatchResult` containing verified transactions, final state, and signer_id.
+    /// Returns a `BatchOutput` containing verified transactions, final state, and signer_id.
     fn process_batched_transactions(
         &self,
         batch: TransactionBatch,
@@ -393,8 +394,9 @@ impl Runtime {
         gas_price: Balance,
         block_height: BlockHeight,
         current_protocol_version: ProtocolVersion,
-        mut temp_state: Option<(Account, AccessKey)>,
-    ) -> Result<BatchResult, RuntimeError> {
+    ) -> Result<BatchOutput, RuntimeError> {
+        let mut cached_account = None;
+        let mut cached_access_key = None;
         let mut processed_transactions = Vec::with_capacity(batch.indices.len());
 
         for (idx, transaction) in batch.iter() {
@@ -442,13 +444,15 @@ impl Runtime {
                 &cost,
                 Some(block_height),
                 current_protocol_version,
-                temp_state.take(),
+                cached_account.take(),
+                cached_access_key.take(),
             ) {
                 Ok(vr) => {
                     metrics::TRANSACTION_PROCESSED_SUCCESSFULLY_TOTAL.inc();
 
                     // store ephemeral updates for next transaction
-                    temp_state = Some((vr.signer.clone(), vr.access_key.clone()));
+                    cached_account = Some(vr.signer.clone());
+                    cached_access_key = Some(vr.access_key.clone());
                     let (receipt, outcome) =
                         self.process_transaction(apply_state, &validated_tx, &vr);
 
@@ -471,7 +475,7 @@ impl Runtime {
             }
         }
 
-        Ok(BatchResult { processed_transactions, final_state: temp_state })
+        Ok(BatchOutput { processed_transactions, cached_account, cached_access_key })
     }
 
     /// Converts a validated and verified transaction into a receipt
@@ -1790,18 +1794,18 @@ impl Runtime {
                     apply_state.gas_price,
                     apply_state.block_height,
                     apply_state.current_protocol_version,
-                    None,
                 )
             })
             .collect_vec_list();
 
-        let mut all_processed: Vec<(usize, ProcessedTransaction)> = Vec::new();
+        let mut all_processed = Vec::new();
 
         for batch_vec in batch_outcomes {
             for batch_result in batch_vec {
                 let batch_outcome = batch_result?;
-                if let (Some((account, access_key)), Some(signer_id), Some(public_key)) = (
-                    batch_outcome.final_state.as_ref(),
+                if let (Some(account), Some(access_key), Some(signer_id), Some(public_key)) = (
+                    batch_outcome.cached_account.as_ref(),
+                    batch_outcome.cached_access_key.as_ref(),
                     batch_outcome.signer_id(),
                     batch_outcome.public_key(),
                 ) {

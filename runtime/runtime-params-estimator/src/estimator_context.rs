@@ -473,6 +473,7 @@ impl Testbed<'_> {
             block_height,
             PROTOCOL_VERSION,
             None,
+            None,
         )
         .expect("tx verification should not fail in estimator");
         commit_charging_for_tx(&mut state_update, &validated_tx, &vr.signer, &vr.access_key);

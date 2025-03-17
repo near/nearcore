@@ -6,8 +6,7 @@ use crate::tests::{
     set_sha256_cost,
 };
 use crate::{ApplyResult, ApplyState, Runtime, ValidatorAccountsUpdate};
-use crate::{SignedValidPeriodTransactions, total_prepaid_exec_fees};
-use crate::{TransactionBatch, TransactionBatches};
+use crate::{SignedValidPeriodTransactions, TransactionBatches, total_prepaid_exec_fees};
 use assert_matches::assert_matches;
 use near_crypto::{InMemorySigner, KeyType, PublicKey, Signer};
 use near_o11y::testonly::init_test_logger;
@@ -2858,10 +2857,10 @@ fn test_transaction_batches_with_apply() {
 
     // Construct transaction batches
     let batches = TransactionBatches::new(&txs);
-    let batch_vec: Vec<TransactionBatch> = batches.par_batches().collect();
+    let batch_vec = batches.par_batches().collect::<Vec<_>>();
 
     // Verify expected batch sizes
-    let mut sizes: Vec<usize> = batch_vec.iter().map(|b| b.indices.len()).collect();
+    let mut sizes: Vec<_> = batch_vec.iter().map(|b| b.indices.len()).collect();
     sizes.sort();
     assert_eq!(sizes, vec![1, 2, 3], "batches must have sizes 1, 2, and 3");
 
