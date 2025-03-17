@@ -181,27 +181,29 @@ impl TxGenerator {
             anyhow::bail!("No active accounts available");
         }
 
+        let (tx, _) = tokio::sync::broadcast::channel(1);
         let sender = view_client_sender.clone();
-        let accounts = Arc::new(
-            std::thread::spawn(move || {
-                let rt = tokio::runtime::Runtime::new().unwrap();
-                rt.block_on(async move {
-                    for account in accounts.iter_mut() {
-                        let (id, pk) = (account.id.clone(), account.public_key.clone());
-                        if let Ok(nonce) = Self::get_client_nonce(sender.clone(), id, pk).await {
-                            account.nonce = nonce.into();
-                        }
+        let txs = tx.clone();
+        tokio::spawn(async move {
+            for account in accounts.iter_mut() {
+                let (id, pk) = (account.id.clone(), account.public_key.clone());
+                match Self::get_client_nonce(sender.clone(), id, pk).await {
+                    Ok(nonce) => {
+                        account.nonce = nonce.into();
                     }
-                    accounts
-                })
-            })
-            .join()
-            .unwrap(),
-        );
+                    Err(err) => {
+                        tracing::debug!(target: "transaction-generator",
+                            nonce_update_failed=?err);
+                    }
+                }
+            }
+            txs.send(Arc::new(accounts)).unwrap();
+        });
 
         let mut tasks = Vec::<task::JoinHandle<()>>::new();
         for _ in 0..config.thread_count {
-            let accounts = accounts.clone();
+            let mut rx = tx.subscribe();
+            // let accounts = Arc::clone(accounts);
             let client_sender = client_sender.clone();
             let view_client_sender = view_client_sender.clone();
             let runner_state = runner_state.clone();
@@ -220,6 +222,7 @@ impl TxGenerator {
                         tracing::error!("failed initializing the block hash: {err}");
                     }
                 }
+                let accounts = rx.recv().await.unwrap();
 
                 let block_hash = runner_state.block_hash.clone();
                 loop {
