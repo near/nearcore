@@ -21,4 +21,5 @@ mod reject_outdated_blocks;
 mod resharding_v3;
 mod state_sync;
 mod syncing;
+mod unavailable_chunk_tests;
 mod view_requests_to_archival_node;
