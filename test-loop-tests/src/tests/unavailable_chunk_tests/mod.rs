@@ -1,5 +1,7 @@
 #![cfg(feature = "test_features")] // required for adversarial behaviors
 
+mod partial_processing;
+
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
 use crate::utils::ONE_NEAR;
