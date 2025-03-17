@@ -388,7 +388,7 @@ impl Client {
 
     pub fn remove_transactions_for_block(
         &mut self,
-        me: AccountId,
+        me: &AccountId,
         block: &Block,
     ) -> Result<(), Error> {
         let epoch_id = self.epoch_manager.get_epoch_id(block.hash())?;
@@ -399,7 +399,7 @@ impl Client {
             let shard_uid = shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, &epoch_id)?;
             if block.header().height() == chunk_header.height_included() {
                 if self.shard_tracker.cares_about_shard_this_or_next_epoch(
-                    Some(&me),
+                    Some(me),
                     block.header().prev_hash(),
                     shard_id,
                     true,
@@ -420,7 +420,7 @@ impl Client {
 
     pub fn reintroduce_transactions_for_block(
         &mut self,
-        me: AccountId,
+        me: &AccountId,
         block: &Block,
     ) -> Result<(), Error> {
         let epoch_id = self.epoch_manager.get_epoch_id(block.hash())?;
@@ -436,7 +436,7 @@ impl Client {
 
             if block.header().height() == chunk_header.height_included() {
                 if self.shard_tracker.cares_about_shard_this_or_next_epoch(
-                    Some(&me),
+                    Some(me),
                     block.header().prev_hash(),
                     shard_id,
                     false,
@@ -1631,7 +1631,18 @@ impl Client {
             BlockStatus::Next => {
                 // If this block immediately follows the current tip, remove
                 // transactions from the tx pool.
-                self.remove_transactions_for_block(validator_id, block).unwrap_or_default();
+                match self.remove_transactions_for_block(&validator_id, block) {
+                    Ok(()) => (),
+                    Err(err) => {
+                        tracing::debug!(
+                            target: "client",
+                            "validator {}: removing txs for block {:?} failed with {:?}",
+                            validator_id,
+                            block,
+                            err
+                        );
+                    }
+                }
             }
             BlockStatus::Fork => {
                 // If it's a fork, no need to reconcile transactions or produce chunks.
@@ -1668,17 +1679,35 @@ impl Client {
 
                 for to_reintroduce_hash in to_reintroduce {
                     if let Ok(block) = self.chain.get_block(&to_reintroduce_hash) {
-                        let block = block.clone();
-                        self.reintroduce_transactions_for_block(validator_id.clone(), &block)
-                            .unwrap_or_default();
+                        match self.reintroduce_transactions_for_block(&validator_id, &block) {
+                            Ok(()) => (),
+                            Err(err) => {
+                                tracing::debug!(
+                                    target: "client",
+                                    "validator {}: reintroducing txs for block {:?} failed with {:?}",
+                                    validator_id,
+                                    block,
+                                    err
+                                );
+                            }
+                        }
                     }
                 }
 
                 for to_remove_hash in to_remove {
                     if let Ok(block) = self.chain.get_block(&to_remove_hash) {
-                        let block = block.clone();
-                        self.remove_transactions_for_block(validator_id.clone(), &block)
-                            .unwrap_or_default();
+                        match self.remove_transactions_for_block(&validator_id, &block) {
+                            Ok(()) => (),
+                            Err(err) => {
+                                tracing::debug!(
+                                    target: "client",
+                                    "validator {}: removing txs for block {:?} failed with {:?}",
+                                    validator_id,
+                                    block,
+                                    err
+                                );
+                            }
+                        }
                     }
                 }
             }

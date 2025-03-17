@@ -22,7 +22,6 @@ thiserror.workspace = true
 borsh.workspace = true
 clap = { workspace = true, optional = true }
 
-
 # FIXME: this ideally should not depend on near-primitives-core...
 near-primitives-core.workspace = true
 near-account-id.workspace = true
@@ -35,10 +34,6 @@ insta.workspace = true
 [features]
 nightly = [
   "near-primitives-core/nightly",
-  "nightly_protocol",
-]
-nightly_protocol = [
-  "near-primitives-core/nightly_protocol",
 ]
 calimero_zero_storage = []
 

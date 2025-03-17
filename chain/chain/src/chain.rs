@@ -4229,27 +4229,20 @@ impl Chain {
     pub fn group_receipts_by_shard(
         receipts: Vec<Receipt>,
         shard_layout: &ShardLayout,
-    ) -> HashMap<ShardId, Vec<Receipt>> {
+    ) -> Result<HashMap<ShardId, Vec<Receipt>>, EpochError> {
         let mut result = HashMap::new();
         for receipt in receipts {
-            if receipt.send_to_all_shards() {
-                for shard_id in shard_layout.shard_ids() {
-                    let entry = result.entry(shard_id).or_insert_with(Vec::new);
-                    entry.push(receipt.clone());
-                }
-            } else {
-                let shard_id = shard_layout.account_id_to_shard_id(receipt.receiver_id());
-                let entry = result.entry(shard_id).or_insert_with(Vec::new);
-                entry.push(receipt);
-            }
+            let shard_id = receipt.receiver_shard_id(shard_layout)?;
+            let entry = result.entry(shard_id).or_insert_with(Vec::new);
+            entry.push(receipt);
         }
-        result
+        Ok(result)
     }
 
     pub fn build_receipts_hashes(
         receipts: &[Receipt],
         shard_layout: &ShardLayout,
-    ) -> Vec<CryptoHash> {
+    ) -> Result<Vec<CryptoHash>, EpochError> {
         // Using a BTreeMap instead of HashMap to enable in order iteration
         // below. It's important here to use the ShardIndexes, rather than
         // ShardIds since the latter are not guaranteed to be in order.
@@ -4260,24 +4253,12 @@ impl Chain {
         for shard_info in shard_layout.shard_infos() {
             result_map.insert(shard_info.shard_index(), (shard_info.shard_id(), vec![]));
         }
-        let mut cache = HashMap::new();
         for receipt in receipts {
-            if receipt.send_to_all_shards() {
-                for shard_id in shard_layout.shard_ids() {
-                    // This unwrap should be safe as we pre-populated the map with all
-                    // valid shard ids.
-                    let shard_index = shard_layout.get_shard_index(shard_id).unwrap();
-                    result_map.get_mut(&shard_index).unwrap().1.push(receipt);
-                }
-            } else {
-                let &mut shard_id = cache
-                    .entry(receipt.receiver_id())
-                    .or_insert_with(|| shard_layout.account_id_to_shard_id(receipt.receiver_id()));
-                // This unwrap should be safe as we pre-populated the map with all
-                // valid shard ids.
-                let shard_index = shard_layout.get_shard_index(shard_id).unwrap();
-                result_map.get_mut(&shard_index).unwrap().1.push(receipt);
-            }
+            let shard_id = receipt.receiver_shard_id(shard_layout)?;
+            // This unwrap should be safe as we pre-populated the map with all
+            // valid shard ids.
+            let shard_index = shard_layout.get_shard_index(shard_id).unwrap();
+            result_map.get_mut(&shard_index).unwrap().1.push(receipt);
         }
 
         let mut result_vec = vec![];
@@ -4285,7 +4266,7 @@ impl Chain {
             let bytes = borsh::to_vec(&(shard_id, receipts)).unwrap();
             result_vec.push(hash(&bytes));
         }
-        result_vec
+        Ok(result_vec)
     }
 }
 

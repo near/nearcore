@@ -1,3 +1,6 @@
+// cspell:ignore NDSAXO, kajdlfkjalkfjaklfjdkladjfkljadsk, utjz
+// cspell:ignore noooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooop
+
 #![no_std]
 #![allow(non_snake_case)]
 #![allow(clippy::all)]
