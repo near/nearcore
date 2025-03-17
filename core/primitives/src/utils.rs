@@ -1,6 +1,6 @@
 use crate::block::BlockHeader;
 use crate::hash::{CryptoHash, hash};
-use crate::transaction::ValidatedTransaction;
+use crate::transaction::ValidatedTransactionHash;
 use crate::types::{NumSeats, NumShards, ShardId};
 use crate::version::ProtocolVersion;
 use chrono;
@@ -214,14 +214,14 @@ pub fn get_outcome_id_block_hash_rev(key: &[u8]) -> std::io::Result<(CryptoHash,
 /// This method is backward compatible, so it takes the current protocol version.
 pub fn create_receipt_id_from_transaction(
     protocol_version: ProtocolVersion,
-    validated_tx: &ValidatedTransaction,
+    tx_hash: ValidatedTransactionHash,
     prev_block_hash: &CryptoHash,
     block_hash: &CryptoHash,
     block_height: BlockHeight,
 ) -> CryptoHash {
     create_hash_upgradable(
         protocol_version,
-        &validated_tx.get_hash(),
+        &tx_hash.get_hash(),
         prev_block_hash,
         block_hash,
         block_height,

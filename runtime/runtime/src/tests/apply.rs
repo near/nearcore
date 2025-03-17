@@ -530,21 +530,21 @@ fn test_apply_delayed_receipts_local_tx() {
             local_transactions[3].get_hash(), // tx 3 - the TX is processed, but the receipt is delayed
             create_receipt_id_from_transaction(
                 PROTOCOL_VERSION,
-                &ValidatedTransaction::new_for_test(local_transactions[0].clone()),
+                ValidatedTransaction::new_for_test(local_transactions[0].clone()).to_hash(),
                 &apply_state.prev_block_hash,
                 &apply_state.block_hash,
                 apply_state.block_height,
             ), // receipt for tx 0
             create_receipt_id_from_transaction(
                 PROTOCOL_VERSION,
-                &ValidatedTransaction::new_for_test(local_transactions[1].clone()),
+                ValidatedTransaction::new_for_test(local_transactions[1].clone()).to_hash(),
                 &apply_state.prev_block_hash,
                 &apply_state.block_hash,
                 apply_state.block_height,
             ), // receipt for tx 1
             create_receipt_id_from_transaction(
                 PROTOCOL_VERSION,
-                &ValidatedTransaction::new_for_test(local_transactions[2].clone()),
+                ValidatedTransaction::new_for_test(local_transactions[2].clone()).to_hash(),
                 &apply_state.prev_block_hash,
                 &apply_state.block_hash,
                 apply_state.block_height,
@@ -578,14 +578,14 @@ fn test_apply_delayed_receipts_local_tx() {
             local_transactions[4].get_hash(), // tx 4
             create_receipt_id_from_transaction(
                 PROTOCOL_VERSION,
-                &ValidatedTransaction::new_for_test(local_transactions[4].clone()),
+                ValidatedTransaction::new_for_test(local_transactions[4].clone()).to_hash(),
                 &apply_state.prev_block_hash,
                 &apply_state.block_hash,
                 apply_state.block_height,
             ), // receipt for tx 4
             create_receipt_id_from_transaction(
                 PROTOCOL_VERSION,
-                &ValidatedTransaction::new_for_test(local_transactions[3].clone()),
+                ValidatedTransaction::new_for_test(local_transactions[3].clone()).to_hash(),
                 &apply_state.prev_block_hash,
                 &apply_state.block_hash,
                 apply_state.block_height,
@@ -623,21 +623,21 @@ fn test_apply_delayed_receipts_local_tx() {
             local_transactions[8].get_hash(), // tx 8
             create_receipt_id_from_transaction(
                 PROTOCOL_VERSION,
-                &ValidatedTransaction::new_for_test(local_transactions[5].clone()),
+                ValidatedTransaction::new_for_test(local_transactions[5].clone()).to_hash(),
                 &apply_state.prev_block_hash,
                 &apply_state.block_hash,
                 apply_state.block_height,
             ), // receipt for tx 5
             create_receipt_id_from_transaction(
                 PROTOCOL_VERSION,
-                &ValidatedTransaction::new_for_test(local_transactions[6].clone()),
+                ValidatedTransaction::new_for_test(local_transactions[6].clone()).to_hash(),
                 &apply_state.prev_block_hash,
                 &apply_state.block_hash,
                 apply_state.block_height,
             ), // receipt for tx 6
             create_receipt_id_from_transaction(
                 PROTOCOL_VERSION,
-                &ValidatedTransaction::new_for_test(local_transactions[7].clone()),
+                ValidatedTransaction::new_for_test(local_transactions[7].clone()).to_hash(),
                 &apply_state.prev_block_hash,
                 &apply_state.block_hash,
                 apply_state.block_height,
@@ -672,7 +672,7 @@ fn test_apply_delayed_receipts_local_tx() {
             *receipts[2].receipt_id(), // receipt #2
             create_receipt_id_from_transaction(
                 PROTOCOL_VERSION,
-                &ValidatedTransaction::new_for_test(local_transactions[8].clone()),
+                ValidatedTransaction::new_for_test(local_transactions[8].clone()).to_hash(),
                 &apply_state.prev_block_hash,
                 &apply_state.block_hash,
                 apply_state.block_height,
