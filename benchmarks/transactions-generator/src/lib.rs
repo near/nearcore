@@ -203,7 +203,6 @@ impl TxGenerator {
         let mut tasks = Vec::<task::JoinHandle<()>>::new();
         for _ in 0..config.thread_count {
             let mut rx = tx.subscribe();
-            // let accounts = Arc::clone(accounts);
             let client_sender = client_sender.clone();
             let view_client_sender = view_client_sender.clone();
             let runner_state = runner_state.clone();
@@ -219,7 +218,8 @@ impl TxGenerator {
                         *block_hash = new_hash;
                     }
                     Err(err) => {
-                        tracing::error!("failed initializing the block hash: {err}");
+                        tracing::error!(target:"transaction-generator",
+                            "failed initializing the block hash: {err}");
                     }
                 }
                 let accounts = rx.recv().await.unwrap();
