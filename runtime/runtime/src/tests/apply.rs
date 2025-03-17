@@ -2807,7 +2807,7 @@ fn test_transaction_batches_with_apply() {
         1,
         alice_account(),
         alice_account(),
-        &alice_key2,
+        &alice_key2, // invalid access key, tx should be dropped
         100,
         CryptoHash::default(),
     );
@@ -2854,7 +2854,7 @@ fn test_transaction_batches_with_apply() {
         CryptoHash::default(),
     );
 
-    let txs = vec![tx4.clone(), tx1.clone(), tx2.clone(), tx5.clone(), tx3.clone(), tx6.clone()];
+    let txs = vec![tx4.clone(), tx1, tx2.clone(), tx5.clone(), tx3.clone(), tx6.clone()];
 
     // Construct transaction batches
     let batches = TransactionBatches::new(&txs);

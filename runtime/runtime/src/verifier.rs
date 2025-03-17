@@ -134,6 +134,7 @@ pub fn verify_and_charge_tx_ephemeral(
     let tx = validated_tx.to_tx();
     let signer_id = tx.signer_id();
 
+    // TODO(miloserdow): Move the logic of calling `get_account`/`get_access_key` to the caller(s).
     let (mut signer, mut access_key) = match ephemeral_state {
         Some((ephemeral_signer, ephemeral_access_key)) => (ephemeral_signer, ephemeral_access_key),
         None => {

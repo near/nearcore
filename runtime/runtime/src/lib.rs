@@ -20,6 +20,7 @@ pub use congestion_control::bootstrap_congestion_info;
 use itertools::Itertools;
 use metrics::ApplyMetrics;
 pub use near_crypto;
+use near_crypto::PublicKey;
 use near_parameters::{ActionCosts, RuntimeConfig};
 pub use near_primitives;
 use near_primitives::account::{AccessKey, Account, AccountContract};
@@ -156,6 +157,12 @@ struct TransactionBatch<'a> {
     pub signed_txs: &'a [SignedTransaction],
 }
 
+impl<'a> TransactionBatch<'a> {
+    fn iter(&self) -> impl Iterator<Item = (usize, &SignedTransaction)> {
+        self.indices.iter().map(|idx| (*idx, &self.signed_txs[*idx]))
+    }
+}
+
 /// Represents a collection of transaction batches. Provides a parallel iterator.
 struct TransactionBatches<'a> {
     signed_txs: &'a [SignedTransaction],
@@ -174,7 +181,7 @@ impl<'a> TransactionBatches<'a> {
         Self { signed_txs, indices }
     }
 
-    /// Returns a parallel iterator over transaction batches grouped by (signer_id, public_key).
+    /// Returns a parallel iterator over transaction batches batched by (signer_id, public_key).
     pub fn par_batches(
         &'a self,
     ) -> impl rayon::iter::ParallelIterator<Item = TransactionBatch<'a>> {
@@ -202,8 +209,18 @@ struct ProcessedTransaction {
 struct BatchResult {
     processed_transactions: Vec<ProcessedTransaction>,
     final_state: Option<(Account, AccessKey)>,
-    signer_id: AccountId,
-    public_key: near_crypto::PublicKey,
+}
+
+impl BatchResult {
+    /// Returns the signer_id of the first processed transaction in this batch, if any.
+    pub fn signer_id(&self) -> Option<&AccountId> {
+        self.processed_transactions.first().map(|pt| pt.transaction.to_tx().signer_id())
+    }
+
+    /// Returns the public_key of the first processed transaction in this batch, if any.
+    pub fn public_key(&self) -> Option<&PublicKey> {
+        self.processed_transactions.first().map(|pt| pt.transaction.to_tx().public_key())
+    }
 }
 
 /// Contains information to update validators accounts at the first block of a new epoch.
@@ -339,16 +356,16 @@ impl Runtime {
         debug!(target: "runtime", "{}", log_str);
     }
 
-    /// Processes a group of transactions (same signer_id and public_key), sorted by ascending nonce.
+    /// Processes a batch of transactions (same signer_id and public_key), sorted by ascending nonce.
     /// Validates, calculates cost, and performs checks sequentially.
     /// If a transaction fails validation or verification, it invokes handle_invalid_transaction
     /// and, if `RelaxedChunkValidation` is enabled, skips to the next transaction without failing
-    /// the whole group. The resulting state (`final_state`) contains `Account` and `AccessKey` after
-    /// the last successful transaction in the group to be committed to the `state_update`.
+    /// the whole batch. The resulting state (`final_state`) contains `Account` and `AccessKey` after
+    /// the last successful transaction in the batch to be committed to the `state_update`.
     /// Returns a `BatchResult` containing verified transactions, final state, and signer_id.
-    fn process_grouped_transactions(
+    fn process_batched_transactions(
         &self,
-        group: TransactionBatch,
+        batch: TransactionBatch,
         apply_state: &ApplyState,
         state_update: &TrieUpdate,
         gas_price: Balance,
@@ -356,18 +373,14 @@ impl Runtime {
         current_protocol_version: ProtocolVersion,
         mut temp_state: Option<(Account, AccessKey)>,
     ) -> Result<BatchResult, RuntimeError> {
-        let first_idx = group.indices[0];
-        let signer_id = group.signed_txs[first_idx].transaction.signer_id().clone();
-        let public_key = group.signed_txs[first_idx].transaction.public_key();
+        let mut processed_transactions = Vec::with_capacity(batch.indices.len());
 
-        let mut processed_transactions = Vec::with_capacity(group.indices.len());
-
-        for idx in group.indices {
+        for (idx, transaction) in batch.iter() {
             metrics::TRANSACTION_PROCESSED_TOTAL.inc();
 
             let validated_tx = match validate_transaction(
                 &apply_state.config,
-                group.signed_txs[*idx].clone(),
+                transaction.clone(),
                 current_protocol_version,
             ) {
                 Ok(validated_tx) => validated_tx,
@@ -418,7 +431,7 @@ impl Runtime {
                         self.process_transaction(apply_state, &validated_tx, &vr);
 
                     processed_transactions.push(ProcessedTransaction {
-                        index: *idx,
+                        index: idx,
                         transaction: validated_tx,
                         verification_result: vr,
                         receipt,
@@ -436,12 +449,7 @@ impl Runtime {
             }
         }
 
-        Ok(BatchResult {
-            processed_transactions,
-            final_state: temp_state,
-            signer_id,
-            public_key: public_key.clone(),
-        })
+        Ok(BatchResult { processed_transactions, final_state: temp_state })
     }
 
     /// Converts a validated and verified transaction into a receipt
@@ -1808,9 +1816,9 @@ impl Runtime {
 
         let batch_outcomes = tx_batches
             .par_batches()
-            .map(|group| {
-                self.process_grouped_transactions(
-                    group,
+            .map(|batch| {
+                self.process_batched_transactions(
+                    batch,
                     &apply_state,
                     state_update,
                     apply_state.gas_price,
@@ -1826,12 +1834,16 @@ impl Runtime {
         for batch_vec in batch_outcomes {
             for batch_result in batch_vec {
                 let batch_outcome = batch_result?;
-                if let Some((account, access_key)) = batch_outcome.final_state {
-                    set_account(state_update, batch_outcome.signer_id.clone(), &account);
+                if let (Some((account, access_key)), Some(signer_id), Some(public_key)) = (
+                    batch_outcome.final_state.as_ref(),
+                    batch_outcome.signer_id(),
+                    batch_outcome.public_key(),
+                ) {
+                    set_account(state_update, signer_id.clone(), &account);
                     set_access_key(
                         state_update,
-                        batch_outcome.signer_id.clone(),
-                        batch_outcome.public_key.clone(),
+                        signer_id.clone(),
+                        public_key.clone(),
                         &access_key,
                     );
                     let last_tx_hash = batch_outcome
@@ -1841,6 +1853,11 @@ impl Runtime {
                         .unwrap_or_default();
                     state_update
                         .commit(StateChangeCause::TransactionProcessing { tx_hash: last_tx_hash });
+                } else {
+                    debug_assert!(
+                        batch_outcome.processed_transactions.is_empty(),
+                        "must be an empty batch result"
+                    );
                 }
                 for processed in batch_outcome.processed_transactions {
                     all_processed.push((processed.index, processed));
