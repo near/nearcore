@@ -7,7 +7,7 @@
     "num_transfers": 100000,
     "tx_generator": {
         "enabled": true,
-        "tps": 1500,
+        "tps": 2100,
         "volume": 0
     },
     "forknet": {

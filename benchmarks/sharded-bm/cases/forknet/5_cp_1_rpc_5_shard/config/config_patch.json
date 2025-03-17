@@ -1,8 +1,4 @@
 {
-    "produce_chunk_add_transactions_time_limit": {
-        "secs": 0,
-        "nanos": 600000000
-    },
     "consensus": {
         "min_block_production_delay": {
           "secs": 0,

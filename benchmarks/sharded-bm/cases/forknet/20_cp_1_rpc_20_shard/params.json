@@ -1,7 +1,7 @@
 {
-    "chunk_producers": 10,
+    "chunk_producers": 20,
     "rpcs": 1,
-    "num_accounts": 100,
+    "num_accounts": 20,
     "channel_buffer_size": 30000,
     "requests_per_second": 500,
     "num_transfers": 100000,
@@ -12,8 +12,8 @@
     },
     "forknet": {
         "name": "tpsnet",
-        "start_height": "138038233",
+        "start_height": "138038232",
         "binary_url": "https://s3-us-west-1.amazonaws.com/build.nearprotocol.com/nearcore/Linux/tx-generator-neard/neard",
-        "rpc": "mocknet-mainnet-138038233-tpsnet-e98e"
+        "rpc": "mocknet-mainnet-138038232-tpsnet-f5a1"
     }
 }

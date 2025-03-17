@@ -228,20 +228,32 @@ init() {
 edit_genesis() {
     echo "editing ${1}"
     jq 'del(.shard_layout.V1)' ${1} >tmp.$$.json && mv tmp.$$.json ${1} || rm tmp.$$.json
-    jq -s 'reduce .[] as $item ({}; . * $item)' \
-        ${1} ${BASE_GENESIS_PATCH} >tmp.$$.json && mv tmp.$$.json ${1} || rm tmp.$$.json
-    jq -s 'reduce .[] as $item ({}; . * $item)' \
-        ${1} ${GENESIS_PATCH} >tmp.$$.json && mv tmp.$$.json ${1} || rm tmp.$$.json
+    
+    if [ -f "${BASE_GENESIS_PATCH}" ]; then
+        jq -s 'reduce .[] as $item ({}; . * $item)' \
+            ${1} ${BASE_GENESIS_PATCH} >tmp.$$.json && mv tmp.$$.json ${1} || rm tmp.$$.json
+    fi
+    
+    if [ -f "${GENESIS_PATCH}" ]; then
+        jq -s 'reduce .[] as $item ({}; . * $item)' \
+            ${1} ${GENESIS_PATCH} >tmp.$$.json && mv tmp.$$.json ${1} || rm tmp.$$.json
+    fi
+    
     # remove quotes around "gas_limit" (workaround for jq 1.6 bigint bug)
     sed -i'.bak' -e 's/"gas_limit": "\(.*\)"/"gas_limit": \1/' ${1} && rm "${1}.bak"
 }
 
 edit_config() {
     echo "editing ${1}"
-    jq -s 'reduce .[] as $item ({}; . * $item)' \
-        ${1} ${BASE_CONFIG_PATCH} >tmp.$$.json && mv tmp.$$.json ${1} || rm tmp.$$.json
-    jq -s 'reduce .[] as $item ({}; . * $item)' \
-        ${1} ${CONFIG_PATCH} >tmp.$$.json && mv tmp.$$.json ${1} || rm tmp.$$.json
+    if [ -f "${BASE_CONFIG_PATCH}" ]; then
+        jq -s 'reduce .[] as $item ({}; . * $item)' \
+            ${1} ${BASE_CONFIG_PATCH} >tmp.$$.json && mv tmp.$$.json ${1} || rm tmp.$$.json
+    fi
+    
+    if [ -f "${CONFIG_PATCH}" ]; then
+        jq -s 'reduce .[] as $item ({}; . * $item)' \
+            ${1} ${CONFIG_PATCH} >tmp.$$.json && mv tmp.$$.json ${1} || rm tmp.$$.json
+    fi
 }
 
 edit_log_config() {
@@ -309,13 +321,21 @@ tweak_config_local() {
             mv tmp.$$.json ${NEAR_HOMES[NUM_NODES - 1]}/config.json || rm tmp.$$.json
     fi
 
-    # Copy epoch_configs directory if it exists
     if [ -d "${CASE}/epoch_configs" ]; then
+        # Copy epoch_configs directory if it exists
         if [ "${NUM_NODES}" -eq "1" ]; then
+            local protocol_version=$(jq -r '.protocol_version' ${GENESIS})
             cp -r "${CASE}/epoch_configs" "${NEAR_HOME}/"
+            if [ -f "${NEAR_HOME}/epoch_configs/template.json" ]; then
+                mv "${NEAR_HOME}/epoch_configs/template.json" "${NEAR_HOME}/epoch_configs/${protocol_version}.json"
+            fi
         else
+            local protocol_version=$(jq -r '.protocol_version' ${NEAR_HOMES[0]}/genesis.json)
             for node in "${NEAR_HOMES[@]}"; do
                 cp -r "${CASE}/epoch_configs" "${node}/"
+                if [ -f "${node}/epoch_configs/template.json" ]; then
+                    mv "${node}/epoch_configs/template.json" "${node}/epoch_configs/${protocol_version}.json"
+                fi
             done
         fi
     fi
