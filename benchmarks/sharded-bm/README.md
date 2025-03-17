@@ -117,11 +117,11 @@ gcloud compute instances list --project=nearone-mocknet --filter <UNIQUE ID>
 
 ### Forknet - Run benchmark
 
-1. Set the correct values in the test case `params.json`. Most importantly, `forknet.name` and `forknet.start_height` to match the infrastructure deployed with terraform, and `forknet.rpc` to select one of your nodes as RPC. Keep in mind that:
-   - Benchmarks require one RPC node exactly.
+1. Set the correct values in the test case `params.json`. Keep in mind that:
+   - Benchmarks require one RPC node exactly. RPC node will be selected automatically and it will be the 'last' GCP instance.
    - The number of nodes deployed in terraform must match the number of nodes expected in the benchmark scenario.
 
-2. Make sure you have a `near-synth-bm` binary that can be run in a mainnet node. To achieve that you compile nearcore on a mainnet node, or local VM.
+2. Make sure you have a `near-synth-bm` and a `neard` binary that can be run in a mainnet node. To achieve that you compile nearcore on a mainnet node, or local VM.
 
 3. Follow these instructions (they work on macOS as well):
 
@@ -132,6 +132,8 @@ export VIRTUAL_ENV=<absolute path to virtual env bin directory>
 export SYNTH_BM_BIN=<absolute path to near-synth-bm binary>
 export GEN_NODES_DIR=<absolute path to directory of your choice to store nodes configs>
 export NEARD=<absolute path to neard binary>
+export FORKNET_NAME=<unique name of forknet> 
+export FORKNET_START_HEIGHT=<forknet start height>
 
 BENCHNET_DIR=$GEN_NODES_DIR ./bench.sh init cases/forknet/10_cp_1_rpc_10_shard/config
 

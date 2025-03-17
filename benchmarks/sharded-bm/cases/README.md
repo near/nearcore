@@ -24,6 +24,9 @@ Keep shared configuration overrides in the base directory, example `base_config_
     "num_accounts": 20,
     // synth-bm configuration
     // OPTIONAL: not necessary for tx generator
+    "channel_buffer_size": 30000,
+    // synth-bm configuration
+    // OPTIONAL: not necessary for tx generator
     "requests_per_second": 6000,
     // synth-bm configuration
     // OPTIONAL: not necessary for tx generator
@@ -37,14 +40,8 @@ Keep shared configuration overrides in the base directory, example `base_config_
     }
     // OPTIONAL: required only for forknet runs
     "forknet": {
-        // forknet unique name
-        "name": "foo",
-        // forknet height (used in combination with unique name)
-        "start_height": "138038233",
         // neard binary url 
         "binary_url": "https://s3-us-west-1.amazonaws.com/build.nearprotocol.com/nearcore/Linux/master/neard",
-        // name or suffix of RPC node
-        "rpc": "60b4",
     }
 }
 ```

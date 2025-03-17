@@ -1,5 +1,5 @@
 {
-    "chunk_producers": 20,
+    "chunk_producers": 30,
     "rpcs": 1,
     "num_accounts": 20,
     "tx_generator": {

@@ -5,9 +5,9 @@
     "store": {
        "load_mem_tries_for_tracked_shards": true
     },
-    "view_client_threads": 8,
+    "view_client_threads": 4,
     "produce_chunk_add_transactions_time_limit": {
         "secs": 0,
-        "nanos": 400000000
+        "nanos": 00000000
     }
 }

@@ -65,16 +65,20 @@ fi
 
 if [ "${RUN_ON_FORKNET}" = true ]; then
     GEN_NODES_DIR="${GEN_NODES_DIR:-/home/ubuntu/bench}"
-    FORKNET_NAME=$(jq -r '.forknet.name' ${BM_PARAMS})
-    FORKNET_START_HEIGHT=$(jq -r '.forknet.start_height' ${BM_PARAMS})
-    FORKNET_RPC_NODE_ID=$(jq -r ".forknet.rpc" ${BM_PARAMS})
+    if [ -z "${FORKNET_NAME}" ] || [ -z "${FORKNET_START_HEIGHT}" ]; then
+        echo "Error: Required environment variables not set"
+        echo "Please set: FORKNET_NAME, FORKNET_START_HEIGHT"
+        exit 1
+    fi
+    FORKNET_ENV="FORKNET_NAME=${FORKNET_NAME} FORKNET_START_HEIGHT=${FORKNET_START_HEIGHT}"
     FORKNET_NEARD_LOG="/home/ubuntu/neard-logs/logs.txt"
     FORKNET_NEARD_PATH="${NEAR_HOME}/neard-runner/binaries/neard0"
     UPDATE_BINARIES="${UPDATE_BINARIES:-false}"
     NUM_SHARDS=$(jq '.shard_layout.V2.shard_ids | length' ${GENESIS} 2>/dev/null) || true
     NODE_BINARY_URL=$(jq -r '.forknet.binary_url' ${BM_PARAMS})
     VALIDATOR_KEY=${NEAR_HOME}/validator_key.json
-    MIRROR="${VIRTUAL_ENV}/python3 tests/mocknet/MIRROR.py --chain-id mainnet --start-height ${FORKNET_START_HEIGHT} --unique-id ${FORKNET_NAME}"
+    MIRROR="${VIRTUAL_ENV}/python3 tests/mocknet/MIRROR.py --chain-id mainnet --start-height ${FORKNET_START_HEIGHT} \
+        --unique-id ${FORKNET_NAME}"
     echo "Forknet name: ${FORKNET_NAME}"
 else
     NEARD="${NEARD:-/home/ubuntu/neard}"
@@ -85,7 +89,7 @@ RPC_URL="http://${RPC_ADDR}"
 
 start_nodes_forknet() {
     cd ${PYTEST_PATH}
-    $MIRROR --host-type nodes run-cmd --cmd "cd ${BENCHNET_DIR}; ./bench.sh start-neard0 ${CASE}"
+    $MIRROR --host-type nodes run-cmd --cmd "cd ${BENCHNET_DIR}; ${FORKNET_ENV} ./bench.sh start-neard0 ${CASE}"
     cd -
 }
 
@@ -142,9 +146,12 @@ stop_nodes() {
 
 reset_forknet() {
     cd ${PYTEST_PATH}
-    $MIRROR --host-type nodes run-cmd --cmd "find ${NEAR_HOME}/data -mindepth 1 -delete ; rm -rf ${BENCHNET_DIR}/${USERS_DATA_DIR}"
+    $MIRROR --host-type nodes run-cmd --cmd \
+        "find ${NEAR_HOME}/data -mindepth 1 -delete ; rm -rf ${BENCHNET_DIR}/${USERS_DATA_DIR}"
     if [ "${TX_GENERATOR}" = true ]; then
-        $MIRROR --host-type nodes run-cmd --cmd "jq 'del(.tx_generator)' ${CONFIG} > tmp.$$.json && mv tmp.$$.json ${CONFIG} || rm tmp.$$.json"
+        $MIRROR --host-type nodes run-cmd --cmd \
+            "jq 'del(.tx_generator)' ${CONFIG} > tmp.$$.json && \
+            mv tmp.$$.json ${CONFIG} || rm tmp.$$.json"
     fi
     cd -
 }
@@ -170,25 +177,35 @@ reset() {
 }
 
 fetch_forknet_details() {
-    # Retrieve the internal IP of the node using gcloud command
-    FORKNET_RPC_INTERNAL_IP=$(gcloud compute instances list \
-        --project=nearone-mocknet --filter="name=${FORKNET_RPC_NODE_ID}" --format="get(networkInterfaces[0].networkIP)")
+    # Get all instances for this forknet
+    local instances=$(gcloud compute instances list \
+        --project=nearone-mocknet \
+        --filter="name~'${FORKNET_NAME}' AND -name~'traffic'" \
+        --format="get(name,networkInterfaces[0].networkIP)")    
+    local total_lines=$(echo "$instances" | wc -l | tr -d ' ')
+    local num_cp_instances=$((total_lines - 1))
+    # Get the last instance (RPC node)
+    FORKNET_RPC_NODE_ID=$(echo "$instances" | tail -n1 | awk '{print $1}')
+    FORKNET_RPC_INTERNAL_IP=$(echo "$instances" | tail -n1 | awk '{print $2}')
     if [ -z "$FORKNET_RPC_INTERNAL_IP" ]; then
-        echo "FORKNET_RPC_INTERNAL_IP is not set or empty. Check the value of forknet.rpc in params.json!"
+        echo "FORKNET_RPC_INTERNAL_IP is empty! something went wrong while listing GCP instances"
         exit 1
     fi
     # Extract the public key from the node_key.json file
     NODE_PUBLIC_KEY=$(jq -r '.public_key' ${GEN_NODES_DIR}/node${NUM_CHUNK_PRODUCERS}/node_key.json)
     FORKNET_BOOT_NODES="${NODE_PUBLIC_KEY}@${FORKNET_RPC_INTERNAL_IP}:24567"
-    # Retrieve the list of chunk producers by excluding the RPC node and the traffic node
-    FORKNET_CP_NODES=$(gcloud compute instances list \
-        --project=nearone-mocknet \
-        --filter="name~'${FORKNET_NAME}' AND -name~'${FORKNET_RPC_NODE_ID}' AND -name~'traffic'" \
-        --format="get(name)")
+    # Verify we have the correct number of chunk producers
+    if [ "$num_cp_instances" -ne "$NUM_CHUNK_PRODUCERS" ]; then
+        echo "Error: Expected ${NUM_CHUNK_PRODUCERS} chunk producers but found ${num_cp_instances}"
+        exit 1
+    fi
+    # Get chunk producer nodes using head instead of sed
+    FORKNET_CP_NODES=$(echo "$instances" | head -n "$num_cp_instances" | awk '{print $1}')
     FORKNET_RPC_ADDR="${FORKNET_RPC_INTERNAL_IP}:3030"
     RPC_ADDR=${FORKNET_RPC_ADDR}
     RPC_URL="http://${RPC_ADDR}"
     echo "Forknet RPC address: ${FORKNET_RPC_ADDR}"
+    echo "Forknet RPC node: ${FORKNET_RPC_NODE_ID}"
     echo "Forknet CP nodes: ${FORKNET_CP_NODES}"
 }
 
@@ -210,7 +227,8 @@ init_local() {
         rm -f ${CONFIG} ${GENESIS}
         /${NEARD} --home ${NEAR_HOME} init --chain-id localnet
     else
-        /${NEARD} --home ${BENCHNET_DIR} localnet -v ${NUM_CHUNK_PRODUCERS} --non-validators-rpc ${NUM_RPCS} --tracked-shards=none
+        /${NEARD} --home ${BENCHNET_DIR} localnet -v ${NUM_CHUNK_PRODUCERS} --non-validators-rpc ${NUM_RPCS} \
+            --tracked-shards=none
     fi
 }
 
@@ -274,7 +292,7 @@ tweak_config_forknet() {
     local node_index=0
     for node in ${FORKNET_CP_NODES}; do
         local cmd="cp -r ${BENCHNET_DIR}/nodes/node${node_index}/* ${NEAR_HOME}/ && cd ${BENCHNET_DIR};"
-        cmd="${cmd} ./bench.sh tweak-config-forknet-node ${CASE} ${FORKNET_BOOT_NODES}"
+        cmd="${cmd} ${FORKNET_ENV} ./bench.sh tweak-config-forknet-node ${CASE} ${FORKNET_BOOT_NODES}"
         cd ${PYTEST_PATH}
         $MIRROR --host-filter ".*${node}" run-cmd --cmd "${cmd}"
         cd -
@@ -283,7 +301,7 @@ tweak_config_forknet() {
 
     cd ${PYTEST_PATH}
     local cmd="cp -r ${BENCHNET_DIR}/nodes/node${NUM_CHUNK_PRODUCERS}/* ${NEAR_HOME}/ && cd ${BENCHNET_DIR};"
-    cmd="${cmd} ./bench.sh tweak-config-forknet-node ${CASE}"
+    cmd="${cmd} ${FORKNET_ENV} ./bench.sh tweak-config-forknet-node ${CASE}"
     $MIRROR --host-filter ".*${FORKNET_RPC_NODE_ID}" run-cmd --cmd "${cmd}"
     cd -
 }
@@ -354,15 +372,16 @@ tweak_config() {
 create_accounts_forknet() {
     fetch_forknet_details
     cd ${PYTEST_PATH}
-    
     if [ "${TX_GENERATOR}" = false ]; then
-        $MIRROR --host-filter ".*${FORKNET_RPC_NODE_ID}" run-cmd --cmd "cd ${BENCHNET_DIR}; ./bench.sh create-accounts-local ${CASE} ${RPC_URL}"
+        $MIRROR --host-filter ".*${FORKNET_RPC_NODE_ID}" run-cmd --cmd \
+            "cd ${BENCHNET_DIR}; \
+            ${FORKNET_ENV} ./bench.sh create-accounts-local ${CASE} ${RPC_URL}"
     else
         for node in ${FORKNET_CP_NODES}; do
-            $MIRROR --host-filter ".*${node}" run-cmd --cmd "cd ${BENCHNET_DIR}; ./bench.sh create-accounts-on-tracked-shard ${CASE} ${RPC_URL}"
+            $MIRROR --host-filter ".*${node}" run-cmd --cmd \
+                "cd ${BENCHNET_DIR}; ${FORKNET_ENV} ./bench.sh create-accounts-on-tracked-shard ${CASE} ${RPC_URL}"
         done
     fi
-    
     cd -
 }
 
@@ -430,7 +449,9 @@ create_accounts() {
 native_transfers_forknet() {
     fetch_forknet_details
     cd ${PYTEST_PATH}
-    $MIRROR --host-filter ".*${FORKNET_RPC_NODE_ID}" run-cmd --cmd "cd ${BENCHNET_DIR}; ./bench.sh native-transfers-local ${CASE} ${RPC_URL}"
+    $MIRROR --host-filter ".*${FORKNET_RPC_NODE_ID}" run-cmd --cmd \
+        "cd ${BENCHNET_DIR}; \
+        ${FORKNET_ENV} ./bench.sh native-transfers-local ${CASE} ${RPC_URL}"
     cd -
 }
 
@@ -484,7 +505,9 @@ native_transfers_injection() {
         \"accounts_path\": \"${accounts_path}\", \"thread_count\": 2}' ${CONFIG} > tmp.$$.json && \
         mv tmp.$$.json ${CONFIG} || rm tmp.$$.json"
     # Restart neard on all chunk producer nodes
-    $MIRROR --host-filter ".*(${host_filter})" run-cmd --cmd "cd ${BENCHNET_DIR}; ./bench.sh start-neard0 ${CASE}"
+    $MIRROR --host-filter ".*(${host_filter})" run-cmd --cmd \
+        "cd ${BENCHNET_DIR}; \
+        ${FORKNET_ENV} ./bench.sh start-neard0 ${CASE}"
     cd -
 }
 
@@ -522,7 +545,10 @@ monitor() {
     while true; do
         date
         local now=$(date +%s%3N)
-        local processed=$(curl -s localhost:3030/metrics | grep near_transaction_processed_successfully_total | grep -v "#" | awk '{ print $2 }')
+        local processed=$(curl -s localhost:3030/metrics | \
+            grep near_transaction_processed_successfully_total | \
+            grep -v "#" | \
+            awk '{ print $2 }')
 
         if [ $old_now -ne 0 ]; then
             local elapsed=$((now - old_now))
