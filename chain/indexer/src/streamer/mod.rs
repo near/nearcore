@@ -322,7 +322,7 @@ async fn lookup_delayed_local_receipt_in_previous_blocks(
             Ok(block) => block,
             Err(err) => {
                 tracing::warn!("Unable to get previous block: {:?}", err);
-                return Err(FailedToFetchData::String(err.to_string()));
+                return Err(FailedToFetchData::String(format!("{:?}", err)));
             }
         };
 
