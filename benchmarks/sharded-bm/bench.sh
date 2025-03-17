@@ -411,7 +411,7 @@ create_sub_accounts() {
         --rpc-url ${url} \
         --signer-key-path ${VALIDATOR_KEY} \
         --nonce ${nonce} \
-        --sub-account-prefix ${prefix} \
+        --sub-account-prefixes ${prefix} \
         --num-sub-accounts ${num_accounts} \
         --deposit 9530606018750000000100000000 \
         --channel-buffer-size 1200 \
