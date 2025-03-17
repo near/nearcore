@@ -1,3 +1,5 @@
+<!-- cspell:words frontends, CLIF, regalloc, Relatedly, sandboxed -->
+
 This document describes the considerations that go into picking a Wasm runtime as well as the
 conclusions we made after evaluating a number of VM backends and frontends.
 
@@ -42,7 +44,7 @@ considered correct. Typically the Wasm code will be generated as an output by co
 implemented in a higher level programming language. Often the compiler will optimize the produced
 Wasm code with the understanding that Wasm instructions behave as specified in the specification.
 Were a VM implementation to deviate from specification in some way, there's a non-negligible risk
-that a contract would invoke behaviours not intended by the contract authors (for example allow
+that a contract would invoke behaviors not intended by the contract authors (for example allow
 unauthorized users to transfer tokens.)
 
 In addition to this, the NEAR protocol adds a requirement that all executions of a Wasm program
