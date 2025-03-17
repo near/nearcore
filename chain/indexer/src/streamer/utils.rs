@@ -26,7 +26,7 @@ pub(crate) async fn convert_transactions_sir_into_local_receipts(
 
     let local_receipts: Vec<views::ReceiptView> = txs
         .into_iter()
-        .map(|indexer_tx| {
+        .filter_map(|indexer_tx| {
             assert_eq!(indexer_tx.transaction.signer_id, indexer_tx.transaction.receiver_id);
             let tx = near_primitives::transaction::Transaction::V0(
                 near_primitives::transaction::TransactionV0 {
@@ -48,12 +48,22 @@ pub(crate) async fn convert_transactions_sir_into_local_receipts(
             );
             let signer = InMemorySigner::test_signer(&indexer_tx.transaction.signer_id);
             let signed_tx = tx.sign(&signer);
-            let validated_tx = ValidatedTransaction::new(runtime_config, signed_tx).unwrap();
-
+            let validated_tx = match ValidatedTransaction::new(runtime_config, signed_tx) {
+                Ok(tx) => tx,
+                Err((err, signed_tx)) => {
+                    tracing::warn!(
+                        target: "mirror",
+                        "Transaction {} failed to validate: {}",
+                        indexer_tx.transaction.hash,
+                        err
+                    );
+                    return None;
+                }
+            };
             let cost =
                 tx_cost(&runtime_config, &validated_tx, prev_block_gas_price, protocol_version)
                     .unwrap();
-            views::ReceiptView {
+            Some(views::ReceiptView {
                 predecessor_id: indexer_tx.transaction.signer_id.clone(),
                 receiver_id: indexer_tx.transaction.receiver_id.clone(),
                 receipt_id: *indexer_tx
@@ -73,7 +83,7 @@ pub(crate) async fn convert_transactions_sir_into_local_receipts(
                     is_promise_yield: false,
                 },
                 priority: 0,
-            }
+            })
         })
         .collect();
 
