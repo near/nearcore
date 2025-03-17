@@ -48,18 +48,7 @@ pub(crate) async fn convert_transactions_sir_into_local_receipts(
             );
             let signer = InMemorySigner::test_signer(&indexer_tx.transaction.signer_id);
             let signed_tx = tx.sign(&signer);
-            let validated_tx = match ValidatedTransaction::new_for_test(signed_tx) {
-                Ok(tx) => tx,
-                Err((err, signed_tx)) => {
-                    tracing::warn!(
-                        target: "mirror",
-                        "Transaction {} failed to validate: {}",
-                        signed_tx.transaction.get_hash_and_size().0,
-                        err
-                    );
-                    return None;
-                }
-            };
+            let validated_tx = ValidatedTransaction::new_for_test(signed_tx);
             let cost =
                 tx_cost(&runtime_config, &validated_tx, prev_block_gas_price, protocol_version)
                     .unwrap();
