@@ -19,7 +19,8 @@ use crate::hash::{CryptoHash, hash};
 use crate::merkle::{MerklePath, combine_hash};
 use crate::network::PeerId;
 use crate::receipt::{
-    ActionReceipt, DataReceipt, DataReceiver, GlobalContractData, Receipt, ReceiptEnum, ReceiptV1,
+    ActionReceipt, DataReceipt, DataReceiver, GlobalContractDistributionReceipt, Receipt,
+    ReceiptEnum, ReceiptV1,
 };
 use crate::serialize::dec_format;
 use crate::sharding::shard_chunk_header_inner::ShardChunkHeaderInnerV4;
@@ -1959,7 +1960,11 @@ pub enum ReceiptEnumView {
         is_promise_resume: bool,
     },
     GlobalContractDistribution {
-        data: GlobalContractData,
+        id: GlobalContractIdentifier,
+        target_shard: ShardId,
+        already_delivered_shards: Vec<ShardId>,
+        #[serde_as(as = "Base64")]
+        code: Vec<u8>,
     },
 }
 
@@ -2010,8 +2015,13 @@ impl From<Receipt> for ReceiptView {
                         is_promise_resume,
                     }
                 }
-                ReceiptEnum::GlobalContractDistribution(data) => {
-                    ReceiptEnumView::GlobalContractDistribution { data }
+                ReceiptEnum::GlobalContractDistribution(receipt) => {
+                    ReceiptEnumView::GlobalContractDistribution {
+                        id: receipt.id().clone(),
+                        target_shard: receipt.target_shard(),
+                        already_delivered_shards: receipt.already_delivered_shards().to_vec(),
+                        code: hash(receipt.code()).as_bytes().to_vec(),
+                    }
                 }
             },
             priority,
@@ -2070,8 +2080,18 @@ impl TryFrom<ReceiptView> for Receipt {
                         ReceiptEnum::Data(data_receipt)
                     }
                 }
-                ReceiptEnumView::GlobalContractDistribution { data } => {
-                    ReceiptEnum::GlobalContractDistribution(data)
+                ReceiptEnumView::GlobalContractDistribution {
+                    id,
+                    target_shard,
+                    already_delivered_shards,
+                    code,
+                } => {
+                    ReceiptEnum::GlobalContractDistribution(GlobalContractDistributionReceipt::new(
+                        id,
+                        target_shard,
+                        already_delivered_shards,
+                        code.into(),
+                    ))
                 }
             },
             priority: receipt_view.priority,

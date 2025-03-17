@@ -7,6 +7,7 @@ use crate::Chain;
 use near_chain_configs::{MutableConfigValue, ReshardingConfig, ReshardingHandle};
 use near_chain_primitives::error::Error;
 use near_primitives::hash::CryptoHash;
+use near_primitives::receipt::Receipt;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{AccountId, ShardId, StateRoot};
@@ -96,6 +97,30 @@ fn get_checked_account_id_to_shard_uid_fn(
     }
 }
 
+fn get_checked_receipt_to_shard_uid_fn(
+    shard_uid: ShardUId,
+    new_shards: Vec<ShardUId>,
+    next_epoch_shard_layout: ShardLayout,
+) -> impl Fn(&Receipt) -> ShardUId {
+    let split_shard_ids: HashSet<_> = new_shards.into_iter().collect();
+    move |receipt: &Receipt| {
+        let new_shard_id = match receipt.receiver_shard_id(&next_epoch_shard_layout) {
+            Ok(shard_id) => shard_id,
+            Err(err) => panic!("Failed to determine shard id for receipt {receipt:?}: {err}"),
+        };
+        let new_shard_uid =
+            ShardUId::from_shard_id_and_layout(new_shard_id, &next_epoch_shard_layout);
+        assert!(
+            split_shard_ids.contains(&new_shard_uid),
+            "Inconsistent shard_layout specs. Receipt {:?} in shard {:?} and in shard {:?}, but the former is not parent shard for the latter",
+            receipt,
+            shard_uid,
+            new_shard_uid,
+        );
+        new_shard_uid
+    }
+}
+
 // Format of the trie key, value pair that is used in tries.add_values_to_children_states() function
 type TrieEntry = (Vec<u8>, Option<Vec<u8>>);
 
@@ -128,7 +153,7 @@ fn apply_delayed_receipts<'a>(
     orig_shard_uid: ShardUId,
     orig_state_root: StateRoot,
     state_roots: HashMap<ShardUId, StateRoot>,
-    account_id_to_shard_uid: &(dyn Fn(&AccountId) -> ShardUId + 'a),
+    receipt_to_shard_uid: &(dyn Fn(&Receipt) -> ShardUId + 'a),
 ) -> Result<HashMap<ShardUId, StateRoot>, Error> {
     let mut total_count = 0;
     let orig_trie_update = tries.new_trie_update_view(orig_shard_uid, orig_state_root);
@@ -142,7 +167,7 @@ fn apply_delayed_receipts<'a>(
         let (store_update, updated_state_roots) = tries.apply_delayed_receipts_to_children_states(
             &new_state_roots,
             &receipts,
-            account_id_to_shard_uid,
+            receipt_to_shard_uid,
         )?;
         new_state_roots = updated_state_roots;
         start_index = Some(next_index);
@@ -283,8 +308,13 @@ impl Chain {
             new_shards.iter().map(|shard_uid| (*shard_uid, Trie::EMPTY_ROOT)).collect();
 
         // function to map account id to shard uid in range of child shards
-        let checked_account_id_to_shard_uid =
-            get_checked_account_id_to_shard_uid_fn(shard_uid, new_shards, next_epoch_shard_layout);
+        let checked_account_id_to_shard_uid = get_checked_account_id_to_shard_uid_fn(
+            shard_uid,
+            new_shards.clone(),
+            next_epoch_shard_layout.clone(),
+        );
+        let checked_receipt_to_shard_uid =
+            get_checked_receipt_to_shard_uid_fn(shard_uid, new_shards, next_epoch_shard_layout);
 
         if !on_demand {
             panic!("Resharding V2 can be triggered only on-demand")
@@ -317,7 +347,7 @@ impl Chain {
             shard_uid,
             state_root,
             state_roots,
-            &checked_account_id_to_shard_uid,
+            &checked_receipt_to_shard_uid,
         )?;
 
         state_roots = apply_promise_yield_timeouts(

@@ -199,7 +199,7 @@ impl ChunkProducer {
         receipts: &[Receipt],
     ) -> Result<CryptoHash, Error> {
         let shard_layout = self.epoch_manager.get_shard_layout(epoch_id)?;
-        let receipts_hashes = Chain::build_receipts_hashes(&receipts, &shard_layout);
+        let receipts_hashes = Chain::build_receipts_hashes(&receipts, &shard_layout)?;
         let (receipts_root, _) = merklize(&receipts_hashes);
         Ok(receipts_root)
     }
@@ -349,6 +349,11 @@ impl ChunkProducer {
             "produced_chunk");
 
         metrics::CHUNK_PRODUCED_TOTAL.inc();
+
+        metrics::CHUNK_TRANSACTIONS_TOTAL
+            .with_label_values(&[&shard_id.to_string()])
+            .inc_by(num_filtered_transactions as u64);
+
         self.chunk_production_info.put(
             (next_height, shard_id),
             ChunkProduction {

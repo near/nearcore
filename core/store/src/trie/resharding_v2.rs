@@ -90,14 +90,14 @@ impl ShardTries {
         &self,
         state_roots: &HashMap<ShardUId, StateRoot>,
         receipts: &[Receipt],
-        account_id_to_shard_uid: &dyn Fn(&AccountId) -> ShardUId,
+        receipt_to_shard_uid: &dyn Fn(&Receipt) -> ShardUId,
     ) -> Result<(TrieStoreUpdateAdapter<'static>, HashMap<ShardUId, StateRoot>), StorageError> {
         let mut trie_updates: HashMap<_, _> = self.get_trie_updates(state_roots);
         apply_delayed_receipts_to_children_states_impl(
             &mut trie_updates,
             receipts,
             &[],
-            account_id_to_shard_uid,
+            receipt_to_shard_uid,
         )?;
         self.finalize_and_apply_trie_updates(trie_updates)
     }
@@ -139,7 +139,7 @@ fn apply_delayed_receipts_to_children_states_impl(
     trie_updates: &mut HashMap<ShardUId, TrieUpdate>,
     insert_receipts: &[Receipt],
     delete_receipts: &[Receipt],
-    account_id_to_shard_uid: &dyn Fn(&AccountId) -> ShardUId,
+    receipt_to_shard_uid: &dyn Fn(&Receipt) -> ShardUId,
 ) -> Result<(), StorageError> {
     let mut delayed_receipts_indices_by_shard = HashMap::new();
     for (shard_uid, update) in trie_updates.iter() {
@@ -147,11 +147,11 @@ fn apply_delayed_receipts_to_children_states_impl(
     }
 
     for receipt in insert_receipts {
-        let new_shard_uid: ShardUId = account_id_to_shard_uid(receipt.receiver_id());
+        let new_shard_uid: ShardUId = receipt_to_shard_uid(receipt);
         if !trie_updates.contains_key(&new_shard_uid) {
             let err = format!(
-                "Account {} is in new shard {:?} but state_roots only contains {:?}",
-                receipt.receiver_id(),
+                "Delayed receipt {:?} is in new shard {:?} but state_roots only contains {:?}",
+                receipt,
                 new_shard_uid,
                 trie_updates.keys(),
             );
@@ -176,11 +176,11 @@ fn apply_delayed_receipts_to_children_states_impl(
     }
 
     for receipt in delete_receipts {
-        let new_shard_uid: ShardUId = account_id_to_shard_uid(receipt.receiver_id());
+        let new_shard_uid: ShardUId = receipt_to_shard_uid(receipt);
         if !trie_updates.contains_key(&new_shard_uid) {
             let err = format!(
-                "Account {} is in new shard {:?} but state_roots only contains {:?}",
-                receipt.receiver_id(),
+                "Delayed receipt {:?} is in new shard {:?} but state_roots only contains {:?}",
+                receipt,
                 new_shard_uid,
                 trie_updates.keys(),
             );
@@ -563,14 +563,14 @@ mod tests {
         delete_receipts: &[Receipt],
         expected_all_receipts: &[Receipt],
         state_roots: HashMap<ShardUId, StateRoot>,
-        account_id_to_shard_id: &dyn Fn(&AccountId) -> ShardUId,
+        receipt_to_shard_id: &dyn Fn(&Receipt) -> ShardUId,
     ) -> HashMap<ShardUId, StateRoot> {
         let mut trie_updates: HashMap<_, _> = tries.get_trie_updates(&state_roots);
         apply_delayed_receipts_to_children_states_impl(
             &mut trie_updates,
             new_receipts,
             delete_receipts,
-            account_id_to_shard_id,
+            receipt_to_shard_id,
         )
         .unwrap();
         let (state_update, new_state_roots) =
@@ -588,7 +588,7 @@ mod tests {
         let mut expected_receipts_by_shard: HashMap<_, _> =
             state_roots.iter().map(|(shard_uid, _)| (shard_uid, vec![])).collect();
         for receipt in expected_all_receipts {
-            let shard_uid = account_id_to_shard_id(receipt.receiver_id());
+            let shard_uid = receipt_to_shard_id(receipt);
             expected_receipts_by_shard.get_mut(&shard_uid).unwrap().push(receipt.clone());
         }
         assert_eq!(expected_receipts_by_shard, receipts_by_shard);
@@ -620,9 +620,9 @@ mod tests {
                     &all_receipts[start_index..new_start_index],
                     &all_receipts[new_start_index..],
                     state_roots,
-                    &|account_id| ShardUId {
-                        shard_id: (hash(account_id.as_bytes()).0[0] as NumShards % num_shards)
-                            as u32,
+                    &|receipt| ShardUId {
+                        shard_id: (hash(receipt.receiver_id().as_bytes()).0[0] as NumShards
+                            % num_shards) as u32,
                         version: 1,
                     },
                 );
