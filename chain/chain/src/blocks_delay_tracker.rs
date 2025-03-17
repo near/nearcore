@@ -55,10 +55,14 @@ pub struct BlockTrackingStats {
     pub orphaned_timestamp: Option<Instant>,
     /// Timestamp when block was put to the missing chunks pool
     pub missing_chunks_timestamp: Option<Instant>,
+    /// Timestamp when block was put to the pending execution pool
+    pub pending_execution_timestamp: Option<Instant>,
     /// Timestamp when block was moved out of the orphan pool
     pub removed_from_orphan_timestamp: Option<Instant>,
     /// Timestamp when block was moved out of the missing chunks pool
     pub removed_from_missing_chunks_timestamp: Option<Instant>,
+    /// Timestamp when block was moved out of the pending execution pool
+    pub removed_from_pending_timestamp: Option<Instant>,
     /// Timestamp when block was done processing
     pub processed_timestamp: Option<Instant>,
     /// Whether the block is not processed because of different reasons
@@ -220,8 +224,10 @@ impl BlocksDelayTracker {
             received_utc_timestamp: self.clock.now_utc(),
             orphaned_timestamp: None,
             missing_chunks_timestamp: None,
+            pending_execution_timestamp: None,
             removed_from_orphan_timestamp: None,
             removed_from_missing_chunks_timestamp: None,
+            removed_from_pending_timestamp: None,
             processed_timestamp: None,
             dropped: None,
             error: None,
@@ -273,6 +279,22 @@ impl BlocksDelayTracker {
             block_entry.missing_chunks_timestamp = Some(self.clock.now());
         } else {
             error!(target:"blocks_delay_tracker", "block {:?} was marked as having missing chunks but was not marked received", block_hash);
+        }
+    }
+
+    pub fn mark_block_pending_execution(&mut self, block_hash: &CryptoHash) {
+        if let Some(block_entry) = self.blocks.get_mut(block_hash) {
+            block_entry.pending_execution_timestamp = Some(self.clock.now());
+        } else {
+            error!(target:"blocks_delay_tracker", "block {:?} was marked as pending execution but was not marked received", block_hash);
+        }
+    }
+
+    pub fn mark_block_completed_pending_execution(&mut self, block_hash: &CryptoHash) {
+        if let Some(block_entry) = self.blocks.get_mut(block_hash) {
+            block_entry.removed_from_pending_timestamp = Some(self.clock.now());
+        } else {
+            error!(target:"blocks_delay_tracker", "block {:?} was marked as completed pending execution but was not marked received", block_hash);
         }
     }
 
@@ -404,6 +426,14 @@ impl BlocksDelayTracker {
             }
         } else {
             metrics::BLOCK_MISSING_CHUNKS_DELAY.observe(0.);
+        }
+        if let Some(start) = block.pending_execution_timestamp {
+            if let Some(end) = block.removed_from_pending_timestamp.or(block.processed_timestamp) {
+                metrics::BLOCK_PENDING_EXECUTION_DELAY
+                    .observe((end.signed_duration_since(start)).as_seconds_f64().max(0.0));
+            }
+        } else {
+            metrics::BLOCK_PENDING_EXECUTION_DELAY.observe(0.);
         }
     }
 
