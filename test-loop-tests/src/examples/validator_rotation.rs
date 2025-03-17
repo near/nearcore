@@ -5,7 +5,6 @@ use near_async::time::Duration;
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
 use near_crypto::Signer;
 use near_o11y::testonly::init_test_logger;
-use near_primitives::action::{Action, StakeAction};
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
@@ -162,17 +161,13 @@ struct Validator {
 impl Validator {
     fn stake_tx(&self, env: &mut TestLoopEnv, stake: Balance) -> SignedTransaction {
         let block_hash = transactions::get_shared_block_hash(&env.node_datas, &env.test_loop.data);
-        SignedTransaction::from_actions(
+        SignedTransaction::stake(
             nonce(),
             self.account.clone(),
-            self.account.clone(),
             &self.signer,
-            vec![Action::Stake(Box::new(StakeAction {
-                stake,
-                public_key: self.signer.public_key(),
-            }))],
+            stake,
+            self.signer.public_key(),
             block_hash,
-            0,
         )
     }
 }
