@@ -51,20 +51,5 @@ nightly = [
   "near-primitives-core/nightly",
   "near-primitives/nightly",
   "near-store/nightly",
-  "nightly_protocol",
-]
-nightly_protocol = [
-  "integration-tests/nightly_protocol",
-  "near-actix-test-utils/nightly_protocol",
-  "near-async/nightly_protocol",
-  "near-chain-configs/nightly_protocol",
-  "near-client/nightly_protocol",
-  "near-jsonrpc-primitives/nightly_protocol",
-  "near-jsonrpc/nightly_protocol",
-  "near-network/nightly_protocol",
-  "near-o11y/nightly_protocol",
-  "near-primitives-core/nightly_protocol",
-  "near-primitives/nightly_protocol",
-  "near-store/nightly_protocol",
 ]
 sandbox = ["near-jsonrpc/sandbox", "near-o11y/sandbox"]

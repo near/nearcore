@@ -38,14 +38,4 @@ nightly = [
   "near-primitives/nightly",
   "near-store/nightly",
   "nearcore/nightly",
-  "nightly_protocol",
-]
-nightly_protocol = [
-  "near-client/nightly_protocol",
-  "near-jsonrpc/nightly_protocol",
-  "near-o11y/nightly_protocol",
-  "near-primitives-core/nightly_protocol",
-  "near-primitives/nightly_protocol",
-  "near-store/nightly_protocol",
-  "nearcore/nightly_protocol",
 ]

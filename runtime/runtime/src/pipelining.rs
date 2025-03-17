@@ -128,7 +128,7 @@ impl ReceiptPreparationPipeline {
         let actions = match receipt.receipt() {
             ReceiptEnum::Action(a) | ReceiptEnum::PromiseYield(a) => &a.actions,
             ReceiptEnum::GlobalContractDistribution(global_contract_data) => {
-                self.block_global_contracts.insert(global_contract_data.id.clone());
+                self.block_global_contracts.insert(global_contract_data.id().clone());
                 return false;
             }
             ReceiptEnum::Data(_) | ReceiptEnum::PromiseResume(_) => return false,

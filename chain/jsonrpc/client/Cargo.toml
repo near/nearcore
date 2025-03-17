@@ -25,9 +25,4 @@ near-primitives.workspace = true
 nightly = [
   "near-jsonrpc-primitives/nightly",
   "near-primitives/nightly",
-  "nightly_protocol",
-]
-nightly_protocol = [
-  "near-jsonrpc-primitives/nightly_protocol",
-  "near-primitives/nightly_protocol",
 ]
