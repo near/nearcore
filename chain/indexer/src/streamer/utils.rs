@@ -54,7 +54,7 @@ pub(crate) async fn convert_transactions_sir_into_local_receipts(
                     tracing::warn!(
                         target: "mirror",
                         "Transaction {} failed to validate: {}",
-                        indexer_tx.transaction.hash,
+                        signed_tx.transaction.hash,
                         err
                     );
                     return None;
