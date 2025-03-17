@@ -4,20 +4,21 @@ use near_primitives::types::AccountId;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
+use std::sync::atomic::AtomicU64;
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct Account {
     #[serde(rename = "account_id")]
     pub id: AccountId,
     pub public_key: PublicKey,
     pub secret_key: SecretKey,
     // New transaction must have a nonce bigger than this.
-    pub nonce: u64,
+    pub nonce: AtomicU64,
 }
 
 impl Account {
     pub fn new(id: AccountId, secret_key: SecretKey, nonce: u64) -> Self {
-        Self { id, public_key: secret_key.public_key(), secret_key, nonce }
+        Self { id, public_key: secret_key.public_key(), secret_key, nonce: nonce.into() }
     }
 
     pub fn from_file(path: &Path) -> anyhow::Result<Account> {
