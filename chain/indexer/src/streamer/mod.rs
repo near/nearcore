@@ -197,14 +197,21 @@ pub async fn build_streamer_message(
                         "Receipt {} is missing in block and in DELAYED_LOCAL_RECEIPTS_CACHE, looking for it in up to 1000 blocks back in time",
                         execution_outcome.id,
                     );
-                    lookup_delayed_local_receipt_in_previous_blocks(
+                    match lookup_delayed_local_receipt_in_previous_blocks(
                         &client,
                         &runtime_config,
                         block.clone(),
                         execution_outcome.id,
                         shard_tracker,
                     )
-                    .await?
+                    .await
+                    {
+                        Ok(receipt) => receipt,
+                        Err(err) => {
+                            tracing::warn!("Unable to lookup delayed local receipt: {:?}", err);
+                            continue;
+                        }
+                    }
                 }
             };
             receipt_execution_outcomes
@@ -313,7 +320,10 @@ async fn lookup_delayed_local_receipt_in_previous_blocks(
         }
         let prev_block = match fetch_block(&client, prev_block_hash).await {
             Ok(block) => block,
-            Err(err) => panic!("Unable to get previous block: {:?}", err),
+            Err(err) => {
+                tracing::warn!("Unable to get previous block: {:?}", err);
+                return Err(FailedToFetchData::String(err.to_string()));
+            }
         };
 
         prev_block_hash = prev_block.header.prev_hash;
