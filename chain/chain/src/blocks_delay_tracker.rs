@@ -428,7 +428,7 @@ impl BlocksDelayTracker {
             metrics::BLOCK_MISSING_CHUNKS_DELAY.observe(0.);
         }
         if let Some(start) = block.pending_execution_timestamp {
-            if let Some(end) = block.removed_from_pending_timestamp.or(block.processed_timestamp) {
+            if let Some(end) = block.removed_from_pending_timestamp {
                 metrics::BLOCK_PENDING_EXECUTION_DELAY
                     .observe((end.signed_duration_since(start)).as_seconds_f64().max(0.0));
             }
