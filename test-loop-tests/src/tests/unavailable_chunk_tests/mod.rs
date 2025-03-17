@@ -13,7 +13,7 @@ use near_primitives::types::AccountId;
 
 /// Test that verifies the chain continues processing when a malicious chunk producer
 /// withholds chunk parts strategically to make the chunk unavailable.
-/// 
+///
 /// This test simulates a scenario where a malicious chunk producer sends only a subset
 /// of chunk parts, making the chunk unavailable for full reconstruction, but the chain
 /// should continue processing blocks for shards that are not affected.
@@ -69,10 +69,7 @@ fn test_producer_withholds_chunk_parts() {
     for node in &node_datas[1..] {
         let client = &test_loop.data.get(&node.client_sender.actor_handle()).client;
         let head = client.chain.head().unwrap();
-        assert!(
-            head.height > 10025,
-            "Chain should make progress despite missing chunks"
-        );
+        assert!(head.height > 10025, "Chain should make progress despite missing chunks");
     }
 
     test_loop_env.shutdown_and_drain_remaining_events(Duration::seconds(20));
