@@ -430,10 +430,16 @@ create_accounts_local() {
 
 create_accounts_on_tracked_shard() {
     set_create_accounts_vars ${1}
-    local i=$(curl -s localhost:3030/metrics | grep near_client_tracked_shards | awk -F'[="}]' '$5 == 1 {print $3; exit}')
-    local prefix=$(printf "a%02d" ${i})
+    local shard=$(curl -s localhost:3030/metrics | grep near_client_tracked_shards | awk -F'[="}]' '$5 == 1 {print $3; exit}')
+    # Check if i exists and is an integer
+    if [ -z "${shard}" ] || ! [[ "${shard}" =~ ^[0-9]+$ ]]; then
+        echo "Error: Failed to get valid shard index from metrics"
+        echo "shard=${shard}"
+        exit 1
+    fi
+    local prefix=$(printf "a%02d" ${shard})
     local data_dir="${USERS_DATA_DIR}/shard"
-    create_sub_accounts ${i} ${prefix} ${data_dir}
+    create_sub_accounts ${shard} ${prefix} ${data_dir}
 }
 
 create_accounts() {
