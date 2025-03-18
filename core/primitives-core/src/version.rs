@@ -316,7 +316,10 @@ impl ProtocolFeature {
     }
 }
 
-/// Minimum supported protocol version
+/// The protocol version of the genesis block on mainnet and testnet.
+pub const PROD_GENESIS_PROTOCOL_VERSION: ProtocolVersion = 29;
+
+/// Minimum supported protocol version for the current binary
 pub const MIN_SUPPORTED_PROTOCOL_VERSION: ProtocolVersion = 29;
 
 /// Current protocol version used on the mainnet with all stable features.
