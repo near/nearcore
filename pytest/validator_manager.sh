@@ -85,7 +85,7 @@ select_validators() {
     fi
     
     # Find validator nodes (not archiv, not dumper, not traffic)
-    VALIDATOR_LINES=$(echo "$ALL_NODES_INFO" | grep -v "archiv" | grep -v "dumper" | grep -v "traffic" | shuf | head -n 2)
+    VALIDATOR_LINES=$(echo "$ALL_NODES_INFO" | grep -v "archiv" | grep -v "dumper" | grep -v "tracing" | grep -v "traffic" | shuf | head -n 2)
     
     if [ -z "$VALIDATOR_LINES" ]; then
         echo "Error: No suitable validator nodes found"
