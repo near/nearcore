@@ -64,7 +64,7 @@ pub async fn benchmark(args: &BenchmarkArgs) -> anyhow::Result<()> {
     let client = JsonRpcClient::connect(&args.rpc_url);
 
     // Initialize a vector containing all RPC clients, starting with the primary one
-    let mut all_rpc_clients = vec![client.clone()];
+    let mut all_rpc_clients = vec![];
 
     // Read additional RPC URLs if provided
     if let Some(ref rpc_urls_file) = args.rpc_urls_file {
@@ -84,6 +84,7 @@ pub async fn benchmark(args: &BenchmarkArgs) -> anyhow::Result<()> {
             }
             Err(e) => {
                 error!("Failed to read RPC URLs from {}: {}", rpc_urls_file.display(), e);
+                all_rpc_clients.push(client.clone());
                 // Continue with just the primary client
             }
         }

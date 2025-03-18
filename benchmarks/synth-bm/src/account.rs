@@ -191,7 +191,7 @@ pub async fn update_account_nonces(
         let nonce = response?.nonce;
         let account = accounts.get_mut(idx).unwrap();
         if account.nonce != nonce {
-            debug!(name: "nonce updated",
+            info!(name: "nonce updated",
                 user = account.id.to_string(),
                 nonce.old = account.nonce,
                 nonce.new = nonce,
