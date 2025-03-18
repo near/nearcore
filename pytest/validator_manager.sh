@@ -219,7 +219,7 @@ run_prepare() {
     local short_name2=$(echo "$node2" | cut -d'.' -f1)
     
     # Get all validator nodes that are ready (for fallback)
-    local all_validators_info=$(gcloud compute instances list | cat | grep -i "$UNIQUE_ID" | grep -v "archiv" | grep -v "dumper" | grep -v "traffic")
+    local all_validators_info=$(gcloud compute instances list | cat | grep -i "$UNIQUE_ID" | grep -v "archiv" | grep -v "dumper" | grep -v "tracing" | grep -v "traffic")
     local all_validators=$(echo "$all_validators_info" | awk '{print $1}')
     
     # First set up RPC URL on both nodes
@@ -418,7 +418,7 @@ run_benchmark() {
     local short_name2=$(echo "$node2" | cut -d'.' -f1)
     
     # Get all validator nodes that are ready (for fallback)
-    local all_validators_info=$(gcloud compute instances list | cat | grep -i "$UNIQUE_ID" | grep -v "archiv" | grep -v "dumper" | grep -v "traffic")
+    local all_validators_info=$(gcloud compute instances list | cat | grep -i "$UNIQUE_ID" | grep -v "archiv" | grep -v "dumper" | grep -v "tracing" | grep -v "traffic")
     
     # Function to start benchmark on a node
     start_benchmark() {
