@@ -777,7 +777,7 @@ async fn run_benchmark(args: &RunBenchmarkArgs) -> anyhow::Result<()> {
     // Channel for handling responses
     let (channel_tx, channel_rx) = mpsc::channel(1000);
 
-    let wait_until = TxExecutionStatus::ExecutedOptimistic;
+    let wait_until = TxExecutionStatus::None;
     let wait_until_channel = wait_until.clone();
     let num_expected_responses = args.total_batches;
     let response_handler_task = tokio::task::spawn(async move {
