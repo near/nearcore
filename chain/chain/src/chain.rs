@@ -2121,7 +2121,7 @@ impl Chain {
             self.should_produce_state_witness_for_this_or_next_epoch(me, block.header())?;
         let mut chain_update = self.chain_update();
         let new_head = chain_update.postprocess_block(
-            &block,
+            block,
             block_preprocess_info,
             apply_results,
             should_save_state_transition_data,
