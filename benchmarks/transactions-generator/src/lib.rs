@@ -239,7 +239,7 @@ impl TxGenerator {
 
                     let mut stats = runner_state.stats.lock().unwrap();
                     if ok {
-                        stats.pool_accepted += 1;
+                        // stats.pool_accepted += 1;
                     } else {
                         stats.pool_rejected += 1;
                     }
@@ -293,12 +293,17 @@ impl TxGenerator {
             loop {
                 report_interval.tick().await;
                 let stats = {
+                    let accepted = near_client::metrics::TRANSACTIONS_ACCEPTED_POOL.get();
                     let processed = TRANSACTION_PROCESSED_SUCCESSFULLY_TOTAL.get();
                     let failed = TRANSACTION_PROCESSED_FAILED_TOTAL.get();
+
+                    // let chunk_tx_total = near_client::metrics::CHUNK_TRANSACTIONS_TOTAL.with_label_values(&["0",]);
+                    // let included_in_chunk = chunk_tx_total.get();
 
                     let mut stats = runner_state.stats.lock().unwrap();
                     stats.processed = processed;
                     stats.failed = failed;
+                    stats.pool_accepted = accepted as u64;
                     stats.clone()
                 };
                 tracing::info!(target: "transaction-generator", total=format!("{stats:?}"),);

@@ -14,7 +14,8 @@ init-localnet:
     jq '.rpc.addr="0.0.0.0:4040"' {{near_config_file}} > tmp_config.json && mv tmp_config.json {{near_config_file}}
 
 
-run-localnet loglevel="info":
+# run-localnet loglevel="info":
+run-localnet loglevel="debug":
     RUST_LOG={{loglevel}} \
     {{neard}} --home {{near_localnet_home}} run
 

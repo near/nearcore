@@ -30,7 +30,7 @@ pub(crate) static CHUNK_PRODUCED_TOTAL: LazyLock<IntCounter> = LazyLock::new(|| 
     .unwrap()
 });
 
-pub(crate) static CHUNK_TRANSACTIONS_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
+pub static CHUNK_TRANSACTIONS_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
     try_create_int_counter_vec(
         "near_chunk_transactions_total",
         "Total number of transactions included in chunks produced by this node",
@@ -365,6 +365,14 @@ static NODE_BUILD_INFO: LazyLock<IntCounterVec> = LazyLock::new(|| {
         "Metric whose labels indicate node’s version; see \
              <https://www.robustperception.io/exposing-the-software-version-to-prometheus>.",
         &["release", "build", "rustc_version"],
+    )
+    .unwrap()
+});
+
+pub static TRANSACTIONS_ACCEPTED_POOL: LazyLock<IntGauge> = LazyLock::new(|| {
+    try_create_int_gauge(
+        "near_transaction_accepted_pool",
+        "number of transactions accepted to the pool",
     )
     .unwrap()
 });

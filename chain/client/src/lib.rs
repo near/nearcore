@@ -41,7 +41,7 @@ mod config_updater;
 pub mod debug;
 pub mod gc_actor;
 mod info;
-mod metrics;
+pub mod metrics;
 mod stateless_validation;
 pub mod sync;
 pub mod sync_jobs_actor;

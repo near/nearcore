@@ -362,6 +362,8 @@ impl Runtime {
         stats: &mut ChunkApplyStatsV0,
     ) -> Result<(Receipt, ExecutionOutcomeWithId), InvalidTxError> {
         let span = tracing::Span::current();
+        static PROCESSED_TXS: std::sync::LazyLock<std::sync::Mutex<HashSet<CryptoHash>>> =
+            std::sync::LazyLock::new(|| std::sync::Mutex::new(HashSet::<CryptoHash>::default()));
         metrics::TRANSACTION_PROCESSED_TOTAL.inc();
 
         match verify_and_charge_tx_ephemeral(
@@ -373,6 +375,9 @@ impl Runtime {
             apply_state.current_protocol_version,
         ) {
             Ok(verification_result) => {
+                if !PROCESSED_TXS.lock().unwrap().insert(validated_tx.get_hash()) {
+                    tracing::warn!(target: "runtime", tx_double_entry=?validated_tx.get_hash());
+                }
                 metrics::TRANSACTION_PROCESSED_SUCCESSFULLY_TOTAL.inc();
                 commit_charging_for_tx(
                     state_update,

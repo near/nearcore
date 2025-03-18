@@ -3589,6 +3589,11 @@ impl Chain {
             // Validate new chunk and collect incoming receipts for it.
             let prev_chunk_extra = self.get_chunk_extra(prev_hash, &shard_context.shard_uid)?;
             let chunk = get_chunk_clone_from_header(&self.chain_store, &chunk_header)?;
+            static PROCESSED_CHUNKS: std::sync::LazyLock<std::sync::Mutex<HashSet<ChunkHash>>> =
+                std::sync::LazyLock::new(|| std::sync::Mutex::new(HashSet::<ChunkHash>::default()));
+            if !PROCESSED_CHUNKS.lock().unwrap().insert(chunk.chunk_hash()) {
+                tracing::warn!(target: "chain", chunk_double_entry=?chunk.chunk_hash());
+            }
             let prev_chunk_height_included = prev_chunk_header.height_included();
 
             // Validate that all next chunk information matches previous chunk extra.

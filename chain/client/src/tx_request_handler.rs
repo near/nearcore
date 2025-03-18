@@ -215,6 +215,7 @@ impl TxRequestHandler {
                 let mut pool = self.tx_pool.lock().unwrap();
                 match pool.insert_transaction(shard_uid, validated_tx) {
                     InsertTransactionResult::Success => {
+                        metrics::TRANSACTIONS_ACCEPTED_POOL.inc();
                         tracing::trace!(target: "client", ?shard_uid, tx_hash = ?signed_tx.get_hash(), "Recorded a transaction.");
                     }
                     InsertTransactionResult::Duplicate => {
@@ -239,7 +240,6 @@ impl TxRequestHandler {
             if self.active_validator(shard_id, signer)? {
                 tracing::trace!(target: "client", account = ?me, ?shard_id, tx_hash = ?signed_tx.get_hash(), is_forwarded, "Recording a transaction.");
                 metrics::TRANSACTION_RECEIVED_VALIDATOR.inc();
-
                 if !is_forwarded {
                     self.possibly_forward_tx_to_next_epoch(signed_tx, signer)?;
                 }
