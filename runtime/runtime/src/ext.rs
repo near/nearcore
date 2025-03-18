@@ -189,7 +189,7 @@ impl<'a> External for RuntimeExt<'a> {
         let ttn = self.trie_update.trie().get_trie_nodes_count();
         let storage_key = self.create_storage_key(key);
         let mode = match self.storage_access_mode {
-            StorageGetMode::FlatStorage => KeyLookupMode::MemFlatTrie,
+            StorageGetMode::FlatStorage => KeyLookupMode::MemOrFlatOrTrie,
             StorageGetMode::Trie => KeyLookupMode::MemOrTrie,
         };
         // SUBTLE: unlike `write` or `remove` which does not record TTN fees if the read operations
@@ -272,7 +272,7 @@ impl<'a> External for RuntimeExt<'a> {
         let ttn = self.trie_update.trie().get_trie_nodes_count();
         let storage_key = self.create_storage_key(key);
         let mode = match self.storage_access_mode {
-            StorageGetMode::FlatStorage => KeyLookupMode::MemFlatTrie,
+            StorageGetMode::FlatStorage => KeyLookupMode::MemOrFlatOrTrie,
             StorageGetMode::Trie => KeyLookupMode::MemOrTrie,
         };
         let result = self
