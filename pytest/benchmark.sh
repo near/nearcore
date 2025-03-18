@@ -203,7 +203,7 @@ run_mode_1() {
             random_validators_arg="--rpc-urls-file /tmp/validator_ips"
         fi
         
-        run_background "RUST_LOG=info /home/ubuntu/near-synth-bm benchmark-native-transfers \
+        run_background "RUST_LOG=debug /home/ubuntu/near-synth-bm benchmark-native-transfers \
             --rpc-url $rpc_url \
             $random_validators_arg \
             --user-data-dir /home/ubuntu/user-data/ \
@@ -236,7 +236,7 @@ run_mode_2() {
     # fi
     
     if [ "$operation" == "prepare" ]; then
-        run_background "RUST_LOG=info /home/ubuntu/near-synth-bm \
+        run_background "RUST_LOG=debug /home/ubuntu/near-synth-bm \
             benchmark-sweat create-contracts \
             --rpc-url $rpc_url \
             --num-oracles 5 \
@@ -245,7 +245,7 @@ run_mode_2() {
             --signer-key-path /home/ubuntu/.near/validator_key.json \
             --wasm-file /home/ubuntu/sweat.wasm \
             $nonce_arg && \
-        RUST_LOG=info /home/ubuntu/near-synth-bm \
+        RUST_LOG=debug /home/ubuntu/near-synth-bm \
             benchmark-sweat create-users \
             --rpc-url $rpc_url \
             --oracle-data-dir /home/ubuntu/oracles/ \
@@ -259,7 +259,7 @@ run_mode_2() {
             random_validators_arg="--rpc-urls-file /tmp/validator_ips"
         fi
         
-        run_background "RUST_LOG=info /home/ubuntu/near-synth-bm \
+        run_background "RUST_LOG=debug /home/ubuntu/near-synth-bm \
             benchmark-sweat run-benchmark \
             --rpc-url $rpc_url \
             $random_validators_arg \
