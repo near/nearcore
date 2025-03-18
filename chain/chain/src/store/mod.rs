@@ -418,15 +418,67 @@ impl ChainStore {
     }
 
     pub fn reassign_outgoing_receipts_for_resharding(
-        _receipts: &mut Vec<Receipt>,
+        receipts: &mut Vec<Receipt>,
         protocol_version: ProtocolVersion,
-        _shard_layout: &ShardLayout,
+        shard_layout: &ShardLayout,
         shard_id: ShardId,
         receipts_shard_id: ShardId,
     ) -> Result<(), Error> {
         tracing::trace!(target: "resharding", ?protocol_version, ?shard_id, ?receipts_shard_id, "reassign_outgoing_receipts_for_resharding");
-
+        // If simple nightshade v2 is enabled and stable use that.
+        // Same reassignment of outgoing receipts works for simple nightshade v3
+        if ProtocolFeature::SimpleNightshadeV2.enabled(protocol_version) {
+            Self::reassign_outgoing_receipts_for_resharding_impl(
+                receipts,
+                shard_layout,
+                shard_id,
+                receipts_shard_id,
+            )?;
+            return Ok(());
+        }
         Ok(())
+    }
+
+    /// Reassign the outgoing receipts from the parent shard to the children
+    /// shards.
+    ///
+    /// This method does it based on the "lowest child index" approach where it
+    /// assigns all the receipts from parent to the child shard with the lowest
+    /// index. It's meant to be used for the resharding from simple nightshade
+    /// with 4 shards to simple nightshade v2 with 5 shards and subsequent
+    /// reshardings.
+    ///
+    /// e.g. in the following resharding
+    /// 0->0', 1->1', 2->2', 3->3',4'
+    /// 0' will get all outgoing receipts from its parent 0
+    /// 1' will get all outgoing receipts from its parent 1
+    /// 2' will get all outgoing receipts from its parent 2
+    /// 3' will get all outgoing receipts from its parent 3
+    /// 4' will get no outgoing receipts from its parent 3
+    /// All receipts are distributed to children, each exactly once.
+    fn reassign_outgoing_receipts_for_resharding_impl(
+        receipts: &mut Vec<Receipt>,
+        shard_layout: &ShardLayout,
+        shard_id: ShardId,
+        receipts_shard_id: ShardId,
+    ) -> Result<(), Error> {
+        let split_shard_ids = shard_layout.get_children_shards_ids(receipts_shard_id);
+        let split_shard_ids =
+            split_shard_ids.ok_or(Error::InvalidSplitShardsIds(shard_id, receipts_shard_id))?;
+
+        // The target shard id is the split shard with the lowest shard id.
+        let target_shard_id = split_shard_ids.iter().min();
+        let target_shard_id =
+            *target_shard_id.ok_or(Error::InvalidSplitShardsIds(shard_id, receipts_shard_id))?;
+
+        if shard_id == target_shard_id {
+            // This shard_id is the lowest index child, it gets all the receipts.
+            Ok(())
+        } else {
+            // This shard_id is not the lowest index child, it gets no receipts.
+            receipts.clear();
+            Ok(())
+        }
     }
 
     /// For a given transaction, it expires if the block that the chunk points to is more than `validity_period`
