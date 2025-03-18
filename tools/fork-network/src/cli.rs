@@ -1139,7 +1139,7 @@ impl ForkNetworkCommand {
             protocol_version: genesis_protocol_version,
             validators: new_validator_accounts,
             gas_price_adjustment_rate: Rational32::from_integer(0),
-            gas_limit: original_config.gas_limit,
+            gas_limit: 2500000000000000,
             max_gas_price: original_config.max_gas_price,
             max_inflation_rate: original_config.max_inflation_rate,
             min_gas_price: original_config.min_gas_price,
