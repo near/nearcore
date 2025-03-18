@@ -23,7 +23,7 @@ use near_primitives::{
     types::AccountId,
 };
 use serde::{Deserialize, Serialize};
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 #[derive(Args, Debug)]
 pub struct CreateSubAccountsArgs {
@@ -159,50 +159,98 @@ pub async fn update_account_nonces(
 ) -> anyhow::Result<Vec<Account>> {
     let mut tasks = JoinSet::new();
 
+    // Group accounts by client to avoid creating too many connections
+    let client_count = clients.len();
+    if client_count == 0 {
+        return Err(anyhow::anyhow!("No RPC clients provided"));
+    }
+
+    // Create a shared Arc wrapper around the clients vector to avoid cloning all clients
+    let clients = Arc::new(clients);
+
     let mut interval = time::interval(Duration::from_micros(1_000_000u64 / rps_limit));
     for (i, account) in accounts.iter().enumerate() {
         interval.tick().await;
-        let clients = clients.clone();
+        // Select a client based on account index to distribute load
+        let client_idx = i % client_count;
+        let clients = Arc::clone(&clients); // Just clone the Arc, not the underlying clients
         let (id, pk) = (account.id.clone(), account.public_key.clone());
         tasks.spawn(async move {
-            // Try each client until one succeeds
-            for client in clients {
-                match view_access_key(&client, id.clone(), pk.clone()).await {
-                    Ok(result) => return (i, Ok(result)),
+            // First try the assigned client
+            match view_access_key(&clients[client_idx], id.clone(), pk.clone()).await {
+                Ok(result) => {
+                    debug!("Successfully queried nonce for account {}", id);
+                    return (i, Ok(result));
+                }
+                Err(e) => {
+                    debug!("Primary client #{} failed to query account nonce: {}", client_idx, e);
+                    // Continue to other clients on failure
+                }
+            }
+
+            // Try other clients if the first one failed
+            for idx in 0..clients.len() {
+                // Skip the client we already tried
+                if idx == client_idx {
+                    continue;
+                }
+
+                match view_access_key(&clients[idx], id.clone(), pk.clone()).await {
+                    Ok(result) => {
+                        debug!(
+                            "Successfully queried nonce for account {} with fallback client #{}",
+                            id, idx
+                        );
+                        return (i, Ok(result));
+                    }
                     Err(e) => {
-                        debug!("Failed to query account nonce from client: {}", e);
+                        debug!("Fallback client #{} failed to query account nonce: {}", idx, e);
                         // Continue to next client
-                        continue;
                     }
                 }
             }
+
             // All clients failed
             (
                 i,
                 Err(anyhow::anyhow!(
-                    "Failed to query account nonce from all available RPC clients"
+                    "Failed to query account nonce from all {} available RPC clients",
+                    clients.len()
                 )),
             )
         });
     }
 
+    let mut success_count = 0;
+    let mut error_count = 0;
     while let Some(res) = tasks.join_next().await {
         let (idx, response) = res.expect("join should succeed");
-        let nonce = response?.nonce;
-        let account = accounts.get_mut(idx).unwrap();
-        if account.nonce != nonce {
-            info!(name: "nonce updated",
-                user = account.id.to_string(),
-                nonce.old = account.nonce,
-                nonce.new = nonce,
-            );
-            account.nonce = nonce;
-            if let Some(path) = accounts_path {
-                account.write_to_dir(path)?;
+        match response {
+            Ok(access_key) => {
+                success_count += 1;
+                let nonce = access_key.nonce;
+                let account = accounts.get_mut(idx).unwrap();
+                if account.nonce != nonce {
+                    info!(name: "nonce updated",
+                        user = account.id.to_string(),
+                        nonce.old = account.nonce,
+                        nonce.new = nonce,
+                    );
+                    account.nonce = nonce;
+                    if let Some(path) = accounts_path {
+                        account.write_to_dir(path)?;
+                    }
+                }
+            }
+            Err(e) => {
+                error_count += 1;
+                let account = &accounts[idx];
+                warn!("Failed to update nonce for account {}: {}", account.id, e);
             }
         }
     }
 
+    info!("Nonce update complete: {} successful, {} failed", success_count, error_count);
     Ok(accounts)
 }
 

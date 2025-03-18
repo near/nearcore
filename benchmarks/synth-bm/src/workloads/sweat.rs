@@ -1,22 +1,22 @@
 use crate::account::{
-    accounts_from_dir, create_sub_accounts, update_account_nonces, Account, CreateSubAccountsArgs,
+    Account, CreateSubAccountsArgs, accounts_from_dir, create_sub_accounts, update_account_nonces,
 };
 use crate::block_service::{BlockService, read_rpc_urls};
-use crate::rpc::{check_response, check_tx_response, ResponseCheckSeverity, RpcResponseHandler};
+use crate::rpc::{ResponseCheckSeverity, RpcResponseHandler, check_response, check_tx_response};
 use clap::{Args, Subcommand};
 use near_crypto::{InMemorySigner, KeyType, SecretKey};
-use near_jsonrpc_client::methods::send_tx::RpcSendTransactionRequest;
 use near_jsonrpc_client::JsonRpcClient;
+use near_jsonrpc_client::methods::send_tx::RpcSendTransactionRequest;
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::AccountId;
 use near_primitives::views::TxExecutionStatus;
+use rand::distributions::{Distribution, Uniform};
 use rand::seq::SliceRandom;
-use rand::{thread_rng, Rng};
+use rand::{Rng, thread_rng};
 use serde::Serialize;
 use serde_json::json;
 use std::path::PathBuf;
-use rand::distributions::{Distribution, Uniform};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
@@ -100,7 +100,7 @@ pub struct RunBenchmarkArgs {
 
     #[arg(long)]
     pub total_batches: u64,
-    
+
     /// File containing a list of RPC URLs to use for sending transactions
     #[arg(long)]
     pub rpc_urls_file: Option<PathBuf>,
@@ -331,7 +331,8 @@ pub async fn create_users(args: &CreateUsersArgs) -> anyhow::Result<()> {
 
     // Load oracle accounts
     let mut oracles = accounts_from_dir(&args.oracle_data_dir)?;
-    oracles = update_account_nonces(vec![client.clone()], oracles, 10, Some(&args.user_data_dir)).await?;
+    oracles =
+        update_account_nonces(vec![client.clone()], oracles, 10, Some(&args.user_data_dir)).await?;
 
     // Create users for all oracles in parallel
     let mut handles = Vec::new();
@@ -406,7 +407,10 @@ async fn create_passive_users(
     deposit: u128,
     user_data_dir: &PathBuf,
 ) -> anyhow::Result<Vec<Account>> {
-    info!("Starting to create {} users for oracle {} with deposit {}", num_users, oracle.id, deposit);
+    info!(
+        "Starting to create {} users for oracle {} with deposit {}",
+        num_users, oracle.id, deposit
+    );
     let mut users = Vec::with_capacity(num_users as usize);
 
     // Track states for each account
@@ -461,7 +465,10 @@ async fn create_passive_users(
             // Create the transaction based on tx_to_send type
             let tx = match &tx_to_send {
                 TxToSend::CreateAccount(account) => {
-                    info!("Creating create_account transaction for {} with deposit {}", account.id, deposit);
+                    info!(
+                        "Creating create_account transaction for {} with deposit {}",
+                        account.id, deposit
+                    );
                     SignedTransaction::create_account(
                         current_nonce + 1,
                         oracle.id.clone(),
@@ -471,10 +478,13 @@ async fn create_passive_users(
                         &oracle.as_signer(),
                         block_service.get_block_hash(),
                     )
-                },
+                }
                 TxToSend::StorageDeposit(account) => {
                     let deposit = 1_250_000_000_000_000_000_000;
-                    info!("Creating storage_deposit transaction for {} with amount {}", account.id, deposit);
+                    info!(
+                        "Creating storage_deposit transaction for {} with amount {}",
+                        account.id, deposit
+                    );
                     SignedTransaction::call(
                         current_nonce + 1,
                         oracle.id.clone(),
@@ -486,7 +496,7 @@ async fn create_passive_users(
                         300_000_000_000_000,
                         block_service.get_block_hash(),
                     )
-                },
+                }
             };
 
             let request = RpcSendTransactionRequest {
@@ -718,10 +728,10 @@ async fn run_benchmark(args: &RunBenchmarkArgs) -> anyhow::Result<()> {
     assert!(!oracles.is_empty(), "at least one oracle required");
 
     let primary_client = JsonRpcClient::connect(&args.rpc_url);
-    
+
     // Initialize a vector containing all RPC clients, starting with the primary one
     let mut all_rpc_clients = vec![];
-    
+
     // Read additional RPC URLs if provided
     if let Some(ref rpc_urls_file) = args.rpc_urls_file {
         match read_rpc_urls(rpc_urls_file) {
@@ -733,7 +743,10 @@ async fn run_benchmark(args: &RunBenchmarkArgs) -> anyhow::Result<()> {
                     urls
                 );
                 all_rpc_clients.extend(urls.into_iter().map(|url| JsonRpcClient::connect(&url)));
-                info!("Using {} validators for random transaction distribution", all_rpc_clients.len());
+                info!(
+                    "Using {} validators for random transaction distribution",
+                    all_rpc_clients.len()
+                );
             }
             Err(e) => {
                 error!("Failed to read RPC URLs from {}: {}", rpc_urls_file.display(), e);
@@ -744,10 +757,10 @@ async fn run_benchmark(args: &RunBenchmarkArgs) -> anyhow::Result<()> {
     } else {
         info!("Using single RPC endpoint: {}", args.rpc_url);
     }
-    
+
     // Create a uniform distribution for selecting random validators
     let validator_between = Uniform::from(0..all_rpc_clients.len());
-    
+
     // Update oracle nonces from network before starting - using all available clients
     oracles = update_account_nonces(
         all_rpc_clients.clone(),
@@ -765,7 +778,7 @@ async fn run_benchmark(args: &RunBenchmarkArgs) -> anyhow::Result<()> {
     let mut rng = thread_rng();
     let idx = validator_between.sample(&mut rng);
     let random_client = all_rpc_clients[idx].clone();
-    
+
     let block_service = Arc::new(BlockService::new(random_client).await);
     block_service.clone().start().await;
 
@@ -844,7 +857,7 @@ async fn run_benchmark(args: &RunBenchmarkArgs) -> anyhow::Result<()> {
         };
 
         let permit = channel_tx.clone().reserve_owned().await.unwrap();
-        
+
         // Select a random validator client if available
         let selected_client = if !all_rpc_clients.is_empty() {
             let idx = validator_between.sample(&mut rng);
@@ -852,7 +865,7 @@ async fn run_benchmark(args: &RunBenchmarkArgs) -> anyhow::Result<()> {
         } else {
             primary_client.clone()
         };
-        
+
         tokio::spawn(async move {
             let res = selected_client.call(request).await;
             permit.send(res);
