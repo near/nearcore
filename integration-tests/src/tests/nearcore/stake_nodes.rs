@@ -11,7 +11,7 @@ use rand::Rng;
 use crate::utils::genesis_helpers::genesis_hash;
 use crate::utils::test_helpers::heavy_test;
 use near_actix_test_utils::run_actix;
-use near_chain_configs::{Genesis, NEAR_BASE};
+use near_chain_configs::{Genesis, NEAR_BASE, TrackedConfig};
 use near_client::{
     ClientActor, GetBlock, ProcessTxRequest, Query, Status, TxRequestHandlerActor, ViewClientActor,
 };
@@ -21,7 +21,7 @@ use near_network::test_utils::{WaitOrTimeoutActor, convert_boot_nodes};
 use near_o11y::testonly::init_integration_logger;
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, BlockHeightDelta, BlockReference, NumSeats, ShardId};
+use near_primitives::types::{AccountId, BlockHeightDelta, BlockReference, NumSeats};
 use near_primitives::views::{QueryRequest, QueryResponseKind, ValidatorInfo};
 use nearcore::{NearConfig, load_test_config, start_with_config};
 
@@ -76,8 +76,8 @@ fn init_test_staking(
         // And they are not needed in these tests.
         config.config.store.state_snapshot_enabled = state_snapshot_enabled;
         if track_all_shards {
-            config.config.tracked_shards = vec![ShardId::new(0)];
-            config.client_config.tracked_shards = vec![ShardId::new(0)];
+            config.config.tracked_config = Some(TrackedConfig::AllShards);
+            config.client_config.tracked_config = TrackedConfig::AllShards;
         }
         if i != 0 {
             config.network_config.peer_store.boot_nodes =

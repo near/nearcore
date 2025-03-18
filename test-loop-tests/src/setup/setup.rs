@@ -19,7 +19,7 @@ use near_client::{
     Client, PartialWitnessActor, TxRequestHandler, TxRequestHandlerConfig, ViewClientActorInner,
 };
 use near_epoch_manager::EpochManager;
-use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
+use near_epoch_manager::shard_tracker::ShardTracker;
 use near_primitives::network::PeerId;
 use near_primitives::test_utils::create_test_signer;
 use near_store::adapter::StoreAdapter;
@@ -78,7 +78,7 @@ pub fn setup_client(
         epoch_config_store.clone(),
     );
     let shard_tracker =
-        ShardTracker::new(TrackedConfig::from_config(&client_config), epoch_manager.clone());
+        ShardTracker::new(client_config.tracked_config.clone(), epoch_manager.clone());
 
     let contract_cache = FilesystemContractRuntimeCache::test().expect("filesystem contract cache");
     let runtime_adapter = NightshadeRuntime::test_with_trie_config(
@@ -148,31 +148,30 @@ pub fn setup_client(
     // If this is an archival node and split storage is initialized, then create view-specific
     // versions of EpochManager, ShardTracker and RuntimeAdapter and use them to initialize the
     // ViewClientActorInner. Otherwise, we use the regular versions created above.
-    let (view_epoch_manager, view_shard_tracker, view_runtime_adapter) = if let Some(split_store) =
-        &split_store
-    {
-        let view_epoch_manager = EpochManager::new_arc_handle_from_epoch_config_store(
-            split_store.clone(),
-            &genesis.config,
-            epoch_config_store.clone(),
-        );
-        let view_shard_tracker =
-            ShardTracker::new(TrackedConfig::from_config(&client_config), epoch_manager.clone());
-        let view_runtime_adapter = NightshadeRuntime::test_with_trie_config(
-            &homedir,
-            split_store.clone(),
-            ContractRuntimeCache::handle(&contract_cache),
-            &genesis.config,
-            view_epoch_manager.clone(),
-            runtime_config_store.clone(),
-            TrieConfig::from_store_config(&store_config),
-            StateSnapshotType::EveryEpoch,
-            client_config.gc.gc_num_epochs_to_keep,
-        );
-        (view_epoch_manager, view_shard_tracker, view_runtime_adapter)
-    } else {
-        (epoch_manager.clone(), shard_tracker.clone(), runtime_adapter.clone())
-    };
+    let (view_epoch_manager, view_shard_tracker, view_runtime_adapter) =
+        if let Some(split_store) = &split_store {
+            let view_epoch_manager = EpochManager::new_arc_handle_from_epoch_config_store(
+                split_store.clone(),
+                &genesis.config,
+                epoch_config_store.clone(),
+            );
+            let view_shard_tracker =
+                ShardTracker::new(client_config.tracked_config.clone(), epoch_manager.clone());
+            let view_runtime_adapter = NightshadeRuntime::test_with_trie_config(
+                &homedir,
+                split_store.clone(),
+                ContractRuntimeCache::handle(&contract_cache),
+                &genesis.config,
+                view_epoch_manager.clone(),
+                runtime_config_store.clone(),
+                TrieConfig::from_store_config(&store_config),
+                StateSnapshotType::EveryEpoch,
+                client_config.gc.gc_num_epochs_to_keep,
+            );
+            (view_epoch_manager, view_shard_tracker, view_runtime_adapter)
+        } else {
+            (epoch_manager.clone(), shard_tracker.clone(), runtime_adapter.clone())
+        };
     let view_client_actor = ViewClientActorInner::new(
         test_loop.clock(),
         validator_signer.clone(),
