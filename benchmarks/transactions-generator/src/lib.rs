@@ -130,11 +130,11 @@ impl TxGenerator {
         block_hash: &CryptoHash,
         client_sender: &ClientSender,
     ) -> bool {
-        const AMOUNT: near_primitives::types::Balance = 1_000;
+        const AMOUNT: near_primitives::types::Balance = 1; // each transaction will transfer this amount
 
         let idx = rand::seq::index::sample(rnd, accounts.len(), 2);
         let sender = &accounts[idx.index(0)];
-        let nonce = sender.nonce.fetch_add(1, atomic::Ordering::Relaxed);
+        let nonce = sender.nonce.fetch_add(1, atomic::Ordering::Relaxed) + 1;
         let sender_id = sender.id.clone();
         let signer = sender.as_signer();
 
