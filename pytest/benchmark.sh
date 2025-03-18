@@ -210,7 +210,7 @@ run_mode_1() {
             --read-nonces-from-network \
             --num-transfers 90000000 \
             --channel-buffer-size 30000 \
-            --requests-per-second 3000 \
+            --requests-per-second 6000 \
             --amount 1" "$log_file" "mode1"
     fi
 }
@@ -266,8 +266,8 @@ run_mode_2() {
             --oracle-data-dir /home/ubuntu/oracles/ \
             --user-data-dir /home/ubuntu/users/ \
             --batch-size 750 \
-            --requests-per-second 10 \
-            --total-batches 2000000" "$log_file" "mode2"
+            --requests-per-second 20 \
+            --total-batches 20000000" "$log_file" "mode2"
     fi
 }
 
