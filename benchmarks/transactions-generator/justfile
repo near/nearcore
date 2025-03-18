@@ -18,17 +18,17 @@ run-localnet loglevel="info":
     RUST_LOG={{loglevel}} \
     {{neard}} --home {{near_localnet_home}} run
 
-create-accounts:
+create-accounts num="10000":
     RUST_LOG=info \
     ../synth-bm/target/release/near-synth-bm create-sub-accounts \
         --rpc-url {{rpc_url}} \
         --signer-key-path {{near_localnet_home}}/validator_key.json \
         --nonce 1 \
         --sub-account-prefix 'a' \
-        --num-sub-accounts 100 \
+        --num-sub-accounts {{num}} \
         --deposit 953060601875000000010000 \
         --channel-buffer-size 1200 \
-        --requests-per-second 1250 \
+        --requests-per-second 500  \
         --user-data-dir user-data
 
 enable-tx tps:
