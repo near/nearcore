@@ -1,3 +1,5 @@
+// cspell:ignore cpuid, enumset, LZCNT, POPCNT, SSSE
+
 //! Target configuration
 use crate::error::ParseCpuFeatureError;
 use crate::lib::std::str::FromStr;

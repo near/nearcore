@@ -104,19 +104,6 @@ impl tcp::Tier {
             | RoutedMessageBody::_UnusedEpochSyncResponse(..) => unreachable!(),
         }
     }
-
-    pub(crate) fn is_allowed_send(self, body: &RoutedMessageBody) -> bool {
-        // With release 2.5 we had changed VersionedChunkEndorsement to be allowed on T1.
-        // This lead to a compatibility issue with 2.4 nodes, which were expecting
-        // VersionedChunkEndorsement to be allowed only on T2.
-        // To fix this problem, with release 2.5 we allow to receive VersionedChunkEndorsement
-        // on T1 but send on VersionedChunkEndorsement T2.
-        // TODO: With release 2.6 remove this hack.
-        if let RoutedMessageBody::VersionedChunkEndorsement(..) = body {
-            return self == tcp::Tier::T2;
-        }
-        self.is_allowed_routed(body)
-    }
 }
 
 #[derive(Default)]

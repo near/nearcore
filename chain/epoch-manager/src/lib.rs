@@ -20,9 +20,7 @@ use near_primitives::types::{
     EpochInfoProvider, NumSeats, ShardId, ValidatorId, ValidatorInfoIdentifier,
     ValidatorKickoutReason, ValidatorStats,
 };
-use near_primitives::version::{
-    ProtocolFeature, ProtocolVersion, UPGRADABILITY_FIX_PROTOCOL_VERSION,
-};
+use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use near_primitives::views::{
     CurrentEpochValidatorInfo, EpochValidatorInfo, NextEpochValidatorInfo, ValidatorKickoutView,
 };
@@ -53,6 +51,8 @@ mod reward_calculator;
 pub mod shard_assignment;
 pub mod shard_tracker;
 pub mod test_utils;
+pub mod validate;
+
 #[cfg(test)]
 mod tests;
 mod validator_selection;
@@ -657,7 +657,7 @@ impl EpochManager {
         }
 
         let protocol_version =
-            if epoch_info.protocol_version() >= UPGRADABILITY_FIX_PROTOCOL_VERSION {
+            if ProtocolFeature::UpgradabilityFix.enabled(epoch_info.protocol_version()) {
                 next_epoch_info.protocol_version()
             } else {
                 epoch_info.protocol_version()
@@ -1567,8 +1567,14 @@ impl EpochManager {
 
     pub fn get_shard_layout(&self, epoch_id: &EpochId) -> Result<ShardLayout, EpochError> {
         let protocol_version = self.get_epoch_info(epoch_id)?.protocol_version();
-        let shard_layout = self.config.for_protocol_version(protocol_version).shard_layout;
-        Ok(shard_layout)
+        Ok(self.get_shard_layout_from_protocol_version(protocol_version))
+    }
+
+    pub fn get_shard_layout_from_protocol_version(
+        &self,
+        protocol_version: ProtocolVersion,
+    ) -> ShardLayout {
+        self.config.for_protocol_version(protocol_version).shard_layout
     }
 
     pub fn get_epoch_info(&self, epoch_id: &EpochId) -> Result<Arc<EpochInfo>, EpochError> {

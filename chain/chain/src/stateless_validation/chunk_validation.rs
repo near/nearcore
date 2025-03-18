@@ -22,7 +22,6 @@ use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_pool::TransactionGroupIteratorWrapper;
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::block::{Block, BlockHeader};
-use near_primitives::checked_feature;
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::merkle::merklize;
 use near_primitives::receipt::Receipt;
@@ -31,10 +30,11 @@ use near_primitives::sharding::{ChunkHash, ReceiptProof, ShardChunkHeader};
 use near_primitives::stateless_validation::state_witness::{
     ChunkStateWitness, EncodedChunkStateWitness,
 };
-use near_primitives::transaction::SignedTransaction;
+use near_primitives::transaction::{SignedTransaction, ValidatedTransaction};
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{AccountId, ProtocolVersion, ShardId, ShardIndex};
 use near_primitives::utils::compression::CompressedData;
+use near_primitives::version::ProtocolFeature;
 use near_store::flat::BlockInfo;
 use near_store::trie::ops::resharding::RetainMode;
 use near_store::{PartialStorage, Trie};
@@ -93,7 +93,7 @@ pub fn validate_prepared_transactions(
     runtime_adapter: &dyn RuntimeAdapter,
     chunk_header: &ShardChunkHeader,
     storage_config: RuntimeStorageConfig,
-    transactions: &[SignedTransaction],
+    validated_txs: impl IntoIterator<Item = ValidatedTransaction>,
     last_chunk_transactions: &[SignedTransaction],
 ) -> Result<PreparedTransactions, Error> {
     let parent_block = chain.chain_store().get_block(chunk_header.prev_block_hash())?;
@@ -106,7 +106,7 @@ pub fn validate_prepared_transactions(
             last_chunk_transactions_size,
         },
         (&parent_block).into(),
-        &mut TransactionGroupIteratorWrapper::new(transactions),
+        &mut TransactionGroupIteratorWrapper::new(validated_txs),
         &mut chain.transaction_validity_check(parent_block.header().clone()),
         None,
     )
@@ -378,7 +378,7 @@ pub fn pre_validate_chunk_state_witness(
     let current_protocol_version =
         epoch_manager.get_epoch_protocol_version(&state_witness.epoch_id)?;
     let transaction_validity_check_results =
-        if checked_feature!("stable", RelaxedChunkValidation, current_protocol_version) {
+        if ProtocolFeature::RelaxedChunkValidation.enabled(current_protocol_version) {
             if !state_witness.new_transactions.is_empty() {
                 return Err(Error::InvalidChunkStateWitness(format!(
                     "Witness new_transactions must be empty",
@@ -393,8 +393,7 @@ pub fn pre_validate_chunk_state_witness(
                 state_witness.transactions.iter().map(|t| check(t)).collect::<Vec<_>>()
             }
         } else {
-            let new_transactions = &state_witness.new_transactions;
-            let (new_tx_root_from_state_witness, _) = merklize(&new_transactions);
+            let (new_tx_root_from_state_witness, _) = merklize(&state_witness.new_transactions);
             let chunk_tx_root = state_witness.chunk_header.tx_root();
             if new_tx_root_from_state_witness != chunk_tx_root {
                 return Err(Error::InvalidChunkStateWitness(format!(
@@ -403,7 +402,7 @@ pub fn pre_validate_chunk_state_witness(
                 )));
             }
             // Verify that all proposed transactions are valid.
-            if !new_transactions.is_empty() {
+            if !state_witness.new_transactions.is_empty() {
                 let transactions_validation_storage_config = RuntimeStorageConfig {
                     state_root: state_witness.chunk_header.prev_state_root(),
                     use_flat_storage: true,
@@ -412,22 +411,30 @@ pub fn pre_validate_chunk_state_witness(
                     }),
                     state_patch: Default::default(),
                 };
-
+                let config = runtime_adapter.get_runtime_config(protocol_version);
+                let validated_txs =
+                    ValidatedTransaction::new_list(&config, state_witness.new_transactions.clone())
+                        .map_err(|(err, signed_tx)| {
+                            Error::InvalidChunkStateWitness(format!(
+                                "Validating signed tx ({:?}) failed with {:?}",
+                                signed_tx, err
+                            ))
+                        })?;
                 match validate_prepared_transactions(
                     chain,
                     runtime_adapter,
                     &state_witness.chunk_header,
                     transactions_validation_storage_config,
-                    &new_transactions,
+                    validated_txs,
                     &state_witness.transactions,
                 ) {
                     Ok(result) => {
-                        if result.transactions.len() != new_transactions.len() {
+                        if result.transactions.len() != state_witness.new_transactions.len() {
                             return Err(Error::InvalidChunkStateWitness(format!(
                                 "New transactions validation failed. \
                          {} transactions out of {} proposed transactions were valid.",
                                 result.transactions.len(),
-                                new_transactions.len(),
+                                state_witness.new_transactions.len(),
                             )));
                         }
                     }
@@ -544,7 +551,7 @@ fn validate_source_receipt_proofs(
             &target_shard_layout,
             target_chunk_shard_id,
             Arc::new(block_receipt_proofs),
-        );
+        )?;
 
         // Arrange the receipts in the order in which they should be applied.
         let receipts_shuffle_salt = get_receipts_shuffle_salt(epoch_manager, block)?;
@@ -674,7 +681,7 @@ pub fn validate_chunk_state_witness(
                 shard_id,
             )?;
         }
-        Chain::build_receipts_hashes(&outgoing_receipts, &witness_shard_layout)
+        Chain::build_receipts_hashes(&outgoing_receipts, &witness_shard_layout)?
     };
     // Save main state transition result to cache.
     {

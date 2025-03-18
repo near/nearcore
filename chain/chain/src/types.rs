@@ -13,7 +13,6 @@ use near_primitives::bandwidth_scheduler::BandwidthRequests;
 use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
 pub use near_primitives::block::{Block, BlockHeader, Tip};
 use near_primitives::challenge::ChallengesResult;
-use near_primitives::checked_feature;
 use near_primitives::chunk_apply_stats::ChunkApplyStatsV0;
 use near_primitives::congestion_info::BlockCongestionInfo;
 use near_primitives::congestion_info::CongestionInfo;
@@ -28,6 +27,7 @@ use near_primitives::shard_layout::ShardUId;
 use near_primitives::state::PartialState;
 use near_primitives::state_part::PartId;
 use near_primitives::stateless_validation::contract_distribution::ContractUpdates;
+use near_primitives::transaction::ValidatedTransaction;
 use near_primitives::transaction::{ExecutionOutcomeWithId, SignedTransaction};
 use near_primitives::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
 use near_primitives::types::{
@@ -36,8 +36,7 @@ use near_primitives::types::{
 };
 use near_primitives::utils::to_timestamp;
 use near_primitives::version::{
-    MIN_GAS_PRICE_NEP_92, MIN_GAS_PRICE_NEP_92_FIX, MIN_PROTOCOL_VERSION_NEP_92,
-    MIN_PROTOCOL_VERSION_NEP_92_FIX, ProtocolVersion,
+    MIN_GAS_PRICE_NEP_92, MIN_GAS_PRICE_NEP_92_FIX, ProtocolFeature, ProtocolVersion,
 };
 use near_primitives::views::{QueryRequest, QueryResponse};
 use near_schema_checker_lib::ProtocolSchema;
@@ -156,16 +155,18 @@ impl BlockEconomicsConfig {
     /// version higher than those changes are not overwritten and will instead
     /// respect the value defined in genesis.
     pub fn min_gas_price(&self, protocol_version: ProtocolVersion) -> Balance {
-        if self.genesis_protocol_version < MIN_PROTOCOL_VERSION_NEP_92 {
-            if protocol_version >= MIN_PROTOCOL_VERSION_NEP_92_FIX {
+        if !ProtocolFeature::MinProtocolVersionNep92.enabled(self.genesis_protocol_version) {
+            if ProtocolFeature::MinProtocolVersionNep92Fix.enabled(protocol_version) {
                 MIN_GAS_PRICE_NEP_92_FIX
-            } else if protocol_version >= MIN_PROTOCOL_VERSION_NEP_92 {
+            } else if ProtocolFeature::MinProtocolVersionNep92.enabled(protocol_version) {
                 MIN_GAS_PRICE_NEP_92
             } else {
                 self.genesis_min_gas_price
             }
-        } else if self.genesis_protocol_version < MIN_PROTOCOL_VERSION_NEP_92_FIX {
-            if protocol_version >= MIN_PROTOCOL_VERSION_NEP_92_FIX {
+        } else if !ProtocolFeature::MinProtocolVersionNep92Fix
+            .enabled(self.genesis_protocol_version)
+        {
+            if ProtocolFeature::MinProtocolVersionNep92Fix.enabled(protocol_version) {
                 MIN_GAS_PRICE_NEP_92_FIX
             } else {
                 MIN_GAS_PRICE_NEP_92
@@ -176,7 +177,7 @@ impl BlockEconomicsConfig {
     }
 
     pub fn max_gas_price(&self, protocol_version: ProtocolVersion) -> Balance {
-        if checked_feature!("stable", CapMaxGasPrice, protocol_version) {
+        if ProtocolFeature::CapMaxGasPrice.enabled(protocol_version) {
             std::cmp::min(
                 self.genesis_max_gas_price,
                 Self::MAX_GAS_MULTIPLIER * self.min_gas_price(protocol_version),
@@ -347,10 +348,10 @@ pub struct ApplyChunkShardContext<'a> {
 
 /// Contains transactions that were fetched from the transaction pool
 /// and prepared for adding them to a new chunk that is being produced.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct PreparedTransactions {
     /// Prepared transactions
-    pub transactions: Vec<SignedTransaction>,
+    pub transactions: Vec<ValidatedTransaction>,
     /// Describes which limit was hit when preparing the transactions.
     pub limited_by: Option<PrepareTransactionsLimit>,
     /// May contain partial state that was used to verify transactions when preparing.
@@ -426,26 +427,23 @@ pub trait RuntimeAdapter: Send + Sync {
 
     fn get_flat_storage_manager(&self) -> FlatStorageManager;
 
-    fn get_shard_layout(&self, epoch_id: &EpochId) -> Result<ShardLayout, Error>;
+    fn get_shard_layout(&self, protocol_version: ProtocolVersion) -> ShardLayout;
 
+    #[allow(clippy::result_large_err)]
     fn validate_tx(
         &self,
         shard_layout: &ShardLayout,
-        transaction: &SignedTransaction,
+        signed_tx: SignedTransaction,
         current_protocol_version: ProtocolVersion,
         receiver_congestion_info: Option<ExtendedCongestionInfo>,
-    ) -> Result<(), InvalidTxError>;
+    ) -> Result<ValidatedTransaction, (InvalidTxError, SignedTransaction)>;
 
-    /// It is assumed that this function is only called if `validate_tx` was
-    /// called successfully earlier. TODO: introduce some type safety to ensure
-    /// that this function can only be called if `validate_tx` was successfully
-    /// called.
     fn can_verify_and_charge_tx(
         &self,
         shard_layout: &ShardLayout,
         gas_price: Balance,
         state_root: StateRoot,
-        transaction: &SignedTransaction,
+        validated_tx: &ValidatedTransaction,
         current_protocol_version: ProtocolVersion,
     ) -> Result<(), InvalidTxError>;
 
@@ -544,8 +542,7 @@ pub trait RuntimeAdapter: Send + Sync {
 
     fn get_protocol_config(&self, epoch_id: &EpochId) -> Result<ProtocolConfig, Error>;
 
-    fn get_runtime_config(&self, protocol_version: ProtocolVersion)
-    -> Result<RuntimeConfig, Error>;
+    fn get_runtime_config(&self, protocol_version: ProtocolVersion) -> &RuntimeConfig;
 
     fn compiled_contract_cache(&self) -> &dyn ContractRuntimeCache;
 

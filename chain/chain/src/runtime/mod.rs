@@ -25,7 +25,7 @@ use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::state_part::PartId;
-use near_primitives::transaction::SignedTransaction;
+use near_primitives::transaction::{SignedTransaction, ValidatedTransaction};
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, EpochHeight, EpochId, EpochInfoProvider, Gas, MerkleHash,
@@ -54,6 +54,8 @@ use node_runtime::{
 };
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{SystemTime, UNIX_EPOCH};
 use tracing::{debug, error, info, instrument};
 
 pub mod errors;
@@ -519,18 +521,18 @@ impl RuntimeAdapter for NightshadeRuntime {
         self.tries.get_flat_storage_manager()
     }
 
-    fn get_shard_layout(&self, epoch_id: &EpochId) -> Result<ShardLayout, Error> {
+    fn get_shard_layout(&self, protocol_version: ProtocolVersion) -> ShardLayout {
         let epoch_manager = self.epoch_manager.read();
-        Ok(epoch_manager.get_shard_layout(epoch_id)?)
+        epoch_manager.get_shard_layout_from_protocol_version(protocol_version)
     }
 
     fn validate_tx(
         &self,
         shard_layout: &ShardLayout,
-        transaction: &SignedTransaction,
+        signed_tx: SignedTransaction,
         current_protocol_version: ProtocolVersion,
         receiver_congestion_info: Option<ExtendedCongestionInfo>,
-    ) -> Result<(), InvalidTxError> {
+    ) -> Result<ValidatedTransaction, (InvalidTxError, SignedTransaction)> {
         let runtime_config = self.runtime_config_store.get_config(current_protocol_version);
 
         if let Some(congestion_info) = receiver_congestion_info {
@@ -542,9 +544,8 @@ impl RuntimeAdapter for NightshadeRuntime {
             if let ShardAcceptsTransactions::No(reason) =
                 congestion_control.shard_accepts_transactions()
             {
-                let shard_id = shard_layout
-                    .account_id_to_shard_id(transaction.transaction.receiver_id())
-                    .into();
+                let shard_id =
+                    shard_layout.account_id_to_shard_id(signed_tx.transaction.receiver_id()).into();
                 let err = match reason {
                     RejectTransactionReason::IncomingCongestion { congestion_level }
                     | RejectTransactionReason::OutgoingCongestion { congestion_level }
@@ -555,11 +556,11 @@ impl RuntimeAdapter for NightshadeRuntime {
                         InvalidTxError::ShardStuck { shard_id, missed_chunks }
                     }
                 };
-                return Err(err);
+                return Err((err, signed_tx));
             }
         }
 
-        validate_transaction(runtime_config, transaction, current_protocol_version)
+        validate_transaction(runtime_config, signed_tx, current_protocol_version)
     }
 
     fn can_verify_and_charge_tx(
@@ -567,20 +568,20 @@ impl RuntimeAdapter for NightshadeRuntime {
         shard_layout: &ShardLayout,
         gas_price: Balance,
         state_root: StateRoot,
-        transaction: &SignedTransaction,
+        validated_tx: &ValidatedTransaction,
         current_protocol_version: ProtocolVersion,
     ) -> Result<(), InvalidTxError> {
         let runtime_config = self.runtime_config_store.get_config(current_protocol_version);
 
-        let cost =
-            tx_cost(runtime_config, &transaction.transaction, gas_price, current_protocol_version)?;
-        let shard_uid = shard_layout.account_id_to_shard_uid(transaction.transaction.signer_id());
+        let cost = tx_cost(runtime_config, &validated_tx, gas_price, current_protocol_version)?;
+        let shard_uid = shard_layout
+            .account_id_to_shard_uid(validated_tx.to_signed_tx().transaction.signer_id());
         let state_update = self.tries.new_trie_update(shard_uid, state_root);
 
         verify_and_charge_tx_ephemeral(
             runtime_config,
             &state_update,
-            transaction,
+            validated_tx,
             &cost,
             // here we do not know which block the transaction will be included
             // and therefore skip the check on the nonce upper bound.
@@ -738,7 +739,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                 // the transaction may still be rejected in which case it will
                 // not be returned to the pool. Most notably this may happen
                 // under congestion.
-                let tx = transaction_group_iter
+                let validated_tx = transaction_group_iter
                     .next()
                     .expect("peek_next() returned Some, so next() should return Some as well");
                 num_checked_transactions += 1;
@@ -749,62 +750,59 @@ impl RuntimeAdapter for NightshadeRuntime {
                     &runtime_config,
                     &epoch_id,
                     &prev_block,
-                    &tx,
+                    &validated_tx,
                 )? {
-                    tracing::trace!(target: "runtime", tx=?tx.get_hash(), "discarding transaction due to congestion");
+                    tracing::trace!(target: "runtime", tx=?validated_tx.get_hash(), "discarding transaction due to congestion");
                     rejected_due_to_congestion += 1;
                     continue;
                 }
 
                 // Verifying the transaction is on the same chain and hasn't expired yet.
-                if !chain_validate(&tx) {
-                    tracing::trace!(target: "runtime", tx=?tx.get_hash(), "discarding transaction that failed chain validation");
+                if !chain_validate(&validated_tx.to_signed_tx()) {
+                    tracing::trace!(target: "runtime", tx=?validated_tx.get_hash(), "discarding transaction that failed chain validation");
                     rejected_invalid_for_chain += 1;
                     continue;
                 }
 
-                let verify_result = validate_transaction(runtime_config, &tx, protocol_version)
-                    .and_then(|()| {
-                        tx_cost(
-                            runtime_config,
-                            &tx.transaction,
-                            prev_block.next_gas_price,
-                            protocol_version,
-                        )
-                        .map_err(InvalidTxError::from)
-                    })
-                    .and_then(|cost| {
-                        verify_and_charge_tx_ephemeral(
-                            runtime_config,
-                            &state_update,
-                            &tx,
-                            &cost,
-                            Some(next_block_height),
-                            protocol_version,
-                        )
-                    })
-                    .map(|vr| {
-                        commit_charging_for_tx(
-                            &mut state_update,
-                            &tx.transaction,
-                            &vr.signer,
-                            &vr.access_key,
-                        );
-                        vr
-                    });
+                let verify_result = tx_cost(
+                    runtime_config,
+                    &validated_tx,
+                    prev_block.next_gas_price,
+                    protocol_version,
+                )
+                .map_err(InvalidTxError::from)
+                .and_then(|cost| {
+                    verify_and_charge_tx_ephemeral(
+                        runtime_config,
+                        &state_update,
+                        &validated_tx,
+                        &cost,
+                        Some(next_block_height),
+                        protocol_version,
+                    )
+                })
+                .and_then(|verification_res| {
+                    commit_charging_for_tx(
+                        &mut state_update,
+                        &validated_tx,
+                        &verification_res.signer,
+                        &verification_res.access_key,
+                    );
+                    Ok(verification_res)
+                });
 
                 match verify_result {
                     Ok(cost) => {
-                        tracing::trace!(target: "runtime", tx=?tx.get_hash(), "including transaction that passed validation and verification");
+                        tracing::trace!(target: "runtime", tx=?validated_tx.get_hash(), "including transaction that passed validation and verification");
                         state_update.commit(StateChangeCause::NotWritableToDisk);
                         total_gas_burnt += cost.gas_burnt;
-                        total_size += tx.get_size();
-                        result.transactions.push(tx);
+                        total_size += validated_tx.get_size();
+                        result.transactions.push(validated_tx);
                         // Take one transaction from this group, no more.
                         break;
                     }
                     Err(err) => {
-                        tracing::trace!(target: "runtime", tx=?tx.get_hash(), ?err, "discarding transaction that failed verification or verification");
+                        tracing::trace!(target: "runtime", tx=?validated_tx.get_hash(), ?err, "discarding transaction that failed verification or verification");
                         rejected_invalid_tx += 1;
                         state_update.rollback();
                     }
@@ -832,11 +830,23 @@ impl RuntimeAdapter for NightshadeRuntime {
     }
 
     fn get_gc_stop_height(&self, block_hash: &CryptoHash) -> BlockHeight {
+        static LAST_LOG_TIME: AtomicU64 = AtomicU64::new(0);
+        const LOG_THROTTLE_INTERVAL: u64 = 10;
+
         let result = self.get_gc_stop_height_impl(block_hash);
         match result {
             Ok(gc_stop_height) => gc_stop_height,
             Err(error) => {
-                info!(target: "runtime", "Error when getting the gc stop height. This error may naturally occur after the gc_num_epochs_to_keep config is increased. It should disappear as soon as the node builds up all epochs it wants. Error: {}", error);
+                let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+
+                // Only log if LOG_THROTTLE_INTERVAL has passed since the last log
+                let last_log = LAST_LOG_TIME.load(Ordering::Relaxed);
+                if now - last_log >= LOG_THROTTLE_INTERVAL {
+                    LAST_LOG_TIME.store(now, Ordering::Relaxed);
+
+                    info!(target: "runtime", "Error when getting the gc stop height. This error may naturally occur after the gc_num_epochs_to_keep config is increased. It should disappear as soon as the node builds up all epochs it wants. Error: {}", error);
+                }
+
                 self.genesis_config.genesis_height
             }
         }
@@ -1180,12 +1190,8 @@ impl RuntimeAdapter for NightshadeRuntime {
         }
     }
 
-    fn get_runtime_config(
-        &self,
-        protocol_version: ProtocolVersion,
-    ) -> Result<RuntimeConfig, Error> {
-        let runtime_config = self.runtime_config_store.get_config(protocol_version);
-        Ok(runtime_config.as_ref().clone())
+    fn get_runtime_config(&self, protocol_version: ProtocolVersion) -> &RuntimeConfig {
+        self.runtime_config_store.get_config(protocol_version)
     }
 
     fn get_protocol_config(&self, epoch_id: &EpochId) -> Result<ProtocolConfig, Error> {
@@ -1335,7 +1341,7 @@ fn calculate_transactions_size_limit(
 ) -> u64 {
     // Checking feature WitnessTransactionLimits
     if ProtocolFeature::StatelessValidation.enabled(protocol_version) {
-        if near_primitives::checked_feature!("stable", RelaxedChunkValidation, protocol_version) {
+        if ProtocolFeature::RelaxedChunkValidation.enabled(protocol_version) {
             last_chunk_transactions_size = 0;
         }
         // Sum of transactions in the previous and current chunks should not exceed the limit.
@@ -1372,12 +1378,12 @@ fn congestion_control_accepts_transaction(
     runtime_config: &RuntimeConfig,
     epoch_id: &EpochId,
     prev_block: &PrepareTransactionsBlockContext,
-    tx: &SignedTransaction,
+    validated_tx: &ValidatedTransaction,
 ) -> Result<bool, Error> {
     if !ProtocolFeature::CongestionControl.enabled(protocol_version) {
         return Ok(true);
     }
-    let receiver_id = tx.transaction.receiver_id();
+    let receiver_id = validated_tx.receiver_id();
     let receiving_shard = account_id_to_shard_id(epoch_manager, receiver_id, &epoch_id)?;
     let congestion_info = prev_block.congestion_info.get(&receiving_shard);
     let Some(congestion_info) = congestion_info else {

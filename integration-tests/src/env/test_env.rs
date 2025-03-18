@@ -8,10 +8,10 @@ use near_chain::stateless_validation::processing_tracker::{
 use near_chain::test_utils::ValidatorSchedule;
 use near_chain::types::Tip;
 use near_chain::{ChainGenesis, ChainStoreAccess, Provenance};
-use near_chain_configs::GenesisConfig;
+use near_chain_configs::{Genesis, GenesisConfig};
 use near_chunks::client::ShardsManagerResponse;
 use near_chunks::test_utils::{MockClientAdapterForShardsManager, SynchronousShardsManagerAdapter};
-use near_client::{Client, DistributeStateWitnessRequest};
+use near_client::{Client, DistributeStateWitnessRequest, TxRequestHandler};
 use near_crypto::{InMemorySigner, Signer};
 use near_epoch_manager::shard_assignment::{account_id_to_shard_id, shard_id_to_uid};
 use near_network::client::ProcessTxResponse;
@@ -65,6 +65,7 @@ pub struct TestEnv {
     pub partial_witness_adapters: Vec<MockPartialWitnessAdapter>,
     pub shards_manager_adapters: Vec<SynchronousShardsManagerAdapter>,
     pub clients: Vec<Client>,
+    pub tx_request_handlers: Vec<TxRequestHandler>,
     pub(crate) account_indices: AccountIndices,
     pub(crate) paused_blocks: Arc<Mutex<HashMap<CryptoHash, Arc<OnceCell<()>>>>>,
     // random seed to be inject in each client according to AccountId
@@ -88,6 +89,15 @@ impl TestEnv {
 
     pub fn builder(genesis_config: &GenesisConfig) -> TestEnvBuilder {
         TestEnvBuilder::new(genesis_config.clone())
+    }
+
+    pub fn default_builder_with_genesis() -> TestEnvBuilder {
+        let genesis = Genesis::test(vec!["test0".parse().unwrap()], 1);
+        TestEnvBuilder::from_genesis(genesis)
+    }
+
+    pub fn builder_from_genesis(genesis: &Genesis) -> TestEnvBuilder {
+        TestEnvBuilder::from_genesis(genesis.clone())
     }
 
     /// Process a given block in the client with index `id`.
@@ -207,6 +217,10 @@ impl TestEnv {
 
     pub fn client(&mut self, account_id: &AccountId) -> &mut Client {
         self.account_indices.lookup_mut(&mut self.clients, account_id)
+    }
+
+    pub fn tx_processor(&self, account_id: &AccountId) -> &TxRequestHandler {
+        self.account_indices.lookup(&self.tx_request_handlers, account_id)
     }
 
     pub fn shards_manager(&self, account: &AccountId) -> &SynchronousShardsManagerAdapter {
@@ -518,7 +532,7 @@ impl TestEnv {
             100,
             self.clients[id].chain.head().unwrap().last_block_hash,
         );
-        self.clients[id].process_tx(tx, false, false)
+        self.tx_request_handlers[id].process_tx(tx, false, false)
     }
 
     /// This function used to be able to upgrade to a specific protocol version
@@ -803,7 +817,7 @@ impl TestEnv {
         tx: SignedTransaction,
     ) -> Result<FinalExecutionOutcomeView, InvalidTxError> {
         let tx_hash = tx.get_hash();
-        let response = self.clients[0].process_tx(tx, false, false);
+        let response = self.tx_request_handlers[0].process_tx(tx, false, false);
         // Check if the transaction got rejected
         match response {
             ProcessTxResponse::NoResponse

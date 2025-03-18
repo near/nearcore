@@ -55,6 +55,7 @@ use near_chain_primitives::error::{BlockKnownError, Error};
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_epoch_manager::shard_tracker::ShardTracker;
+use near_epoch_manager::validate::validate_optimistic_block_relevant;
 use near_primitives::bandwidth_scheduler::BandwidthRequests;
 use near_primitives::block::{Block, BlockValidityError, Chunks, MaybeNew, Tip, genesis_chunks};
 use near_primitives::block_header::BlockHeader;
@@ -62,7 +63,6 @@ use near_primitives::challenge::{
     BlockDoubleSign, Challenge, ChallengeBody, ChallengesResult, ChunkProofs, ChunkState,
     MaybeEncodedShardChunk, SlashedValidator,
 };
-use near_primitives::checked_feature;
 use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::errors::EpochError;
@@ -1016,11 +1016,9 @@ impl Chain {
         if let Ok(epoch_protocol_version) =
             self.epoch_manager.get_epoch_protocol_version(header.epoch_id())
         {
-            if checked_feature!(
-                "stable",
-                RejectBlocksWithOutdatedProtocolVersions,
-                epoch_protocol_version
-            ) {
+            if ProtocolFeature::RejectBlocksWithOutdatedProtocolVersions
+                .enabled(epoch_protocol_version)
+            {
                 if header.latest_protocol_version() < epoch_protocol_version {
                     error!(
                         "header protocol version {} smaller than epoch protocol version {}",
@@ -1201,7 +1199,7 @@ impl Chain {
 
         // Check that block body hash matches the block body. This makes sure that the block body
         // content is not tampered
-        if checked_feature!("stable", BlockHeaderV4, epoch_protocol_version) {
+        if ProtocolFeature::BlockHeaderV4.enabled(epoch_protocol_version) {
             let block_body_hash = block.compute_block_body_hash();
             if block_body_hash.is_none() {
                 tracing::warn!("Block version too old for block: {:?}", block.hash());
@@ -1539,12 +1537,64 @@ impl Chain {
         res
     }
 
+    /// Preprocess an optimistic block.
+    pub fn preprocess_optimistic_block(
+        &mut self,
+        block: OptimisticBlock,
+        me: &Option<AccountId>,
+        apply_chunks_done_sender: Option<near_async::messaging::Sender<ApplyChunksDoneMessage>>,
+    ) {
+        // Validate the optimistic block.
+        // Discard the block if it is old or not created by the right producer.
+        if let Err(e) = self.check_optimistic_block(&block) {
+            metrics::NUM_INVALID_OPTIMISTIC_BLOCKS.inc();
+            debug!(target: "client", ?e, "Optimistic block is invalid");
+            return;
+        }
+
+        self.optimistic_block_chunks.add_block(block);
+        self.maybe_process_optimistic_block(me, apply_chunks_done_sender);
+    }
+
+    pub fn maybe_process_optimistic_block(
+        &mut self,
+        me: &Option<AccountId>,
+        apply_chunks_done_sender: Option<near_async::messaging::Sender<ApplyChunksDoneMessage>>,
+    ) {
+        let Some((block, chunks)) = self.optimistic_block_chunks.take_latest_ready_block() else {
+            return;
+        };
+
+        self.blocks_delay_tracker.record_optimistic_block_ready(block.height());
+
+        let prev_block_hash = *block.prev_block_hash();
+        let block_hash = *block.hash();
+        let block_height = block.height();
+        match self.process_optimistic_block(me, block, chunks, apply_chunks_done_sender) {
+            Ok(()) => {
+                debug!(
+                    target: "chain", prev_block_hash = ?prev_block_hash,
+                    hash = ?block_hash, height = block_height,
+                    "Processed optimistic block"
+                );
+            }
+            Err(err) => {
+                warn!(
+                    target: "chain", err = ?err,
+                    prev_block_hash = ?prev_block_hash,
+                    hash = ?block_hash, height = block_height,
+                    "Failed to process optimistic block"
+                );
+            }
+        }
+    }
+
     pub fn process_optimistic_block(
         &mut self,
         me: &Option<AccountId>,
         block: OptimisticBlock,
         chunk_headers: Vec<ShardChunkHeader>,
-        apply_chunks_done_sender: near_async::messaging::Sender<ApplyChunksDoneMessage>,
+        apply_chunks_done_sender: Option<near_async::messaging::Sender<ApplyChunksDoneMessage>>,
     ) -> Result<(), Error> {
         let _span = debug_span!(
             target: "chain",
@@ -1647,7 +1697,7 @@ impl Chain {
             block_height,
             jobs,
             apply_chunks_still_applying,
-            Some(apply_chunks_done_sender),
+            apply_chunks_done_sender,
         );
 
         Ok(())
@@ -2392,8 +2442,7 @@ impl Chain {
         Ok(())
     }
 
-    /// Check if optimistic block is valid and relevant to the current chain.
-    pub fn check_optimistic_block(&self, block: &OptimisticBlock) -> Result<(), Error> {
+    pub fn pre_check_optimistic_block(&self, block: &OptimisticBlock) -> Result<(), Error> {
         // Refuse blocks from the too distant future.
         let ob_timestamp =
             OffsetDateTime::from_unix_timestamp_nanos(block.block_timestamp().into())
@@ -2404,16 +2453,23 @@ impl Chain {
             return Err(Error::InvalidBlockFutureTime(ob_timestamp));
         };
 
-        let head = self.head()?;
-        if head.height >= block.height() {
-            return Err(Error::InvalidBlockHeight(block.height()));
+        if !validate_optimistic_block_relevant(
+            self.epoch_manager.as_ref(),
+            block,
+            &self.chain_store.store(),
+        )? {
+            return Err(Error::InvalidSignature);
         }
 
-        // A heuristic to prevent block height to jump too fast towards BlockHeight::max and cause
-        // overflow-related problems
-        if block.height() > head.height + self.epoch_length * 20 {
-            return Err(Error::InvalidBlockHeight(block.height()));
-        }
+        Ok(())
+    }
+
+    /// Check if optimistic block is valid and relevant to the current chain.
+    pub fn check_optimistic_block(&self, block: &OptimisticBlock) -> Result<(), Error> {
+        // Refuse blocks from the too distant future.
+        let ob_timestamp =
+            OffsetDateTime::from_unix_timestamp_nanos(block.block_timestamp().into())
+                .map_err(|e| Error::Other(e.to_string()))?;
 
         // Check source of the optimistic block.
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&block.prev_block_hash())?;
@@ -2426,11 +2482,6 @@ impl Chain {
 
         let prev = self.get_block_header(&block.prev_block_hash())?;
         let prev_random_value = *prev.random_value();
-        let prev_height = prev.height();
-
-        if prev_height + 1 != block.height() {
-            return Err(Error::InvalidBlockHeight(block.height()));
-        }
 
         // Prevent time warp attacks and some timestamp manipulations by forcing strict
         // time progression.
@@ -2897,7 +2948,7 @@ impl Chain {
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(prev_block_header.hash())?;
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
         let relaxed_chunk_validation =
-            checked_feature!("stable", RelaxedChunkValidation, protocol_version);
+            ProtocolFeature::RelaxedChunkValidation.enabled(protocol_version);
 
         if !relaxed_chunk_validation {
             if !validate_transactions_order(chunk.transactions()) {
@@ -3326,7 +3377,7 @@ impl Chain {
             self.epoch_manager.get_next_epoch_id_from_prev_block(block_header.prev_hash())?;
         let next_protocol_version =
             self.epoch_manager.get_epoch_protocol_version(&next_epoch_id)?;
-        if !checked_feature!("stable", StatelessValidation, next_protocol_version) {
+        if !ProtocolFeature::StatelessValidation.enabled(next_protocol_version) {
             // Chunk validation not enabled yet.
             return Ok(false);
         }
@@ -3842,8 +3893,8 @@ fn get_genesis_congestion_info(
     // Get the view trie because it's possible that the chain is ahead of
     // genesis and doesn't have this block in flat state and memtrie.
     let trie = runtime.get_view_trie_for_shard(shard_id, prev_hash, state_root)?;
-    let runtime_config = runtime.get_runtime_config(protocol_version)?;
-    let congestion_info = bootstrap_congestion_info(&trie, &runtime_config, shard_id)?;
+    let runtime_config = runtime.get_runtime_config(protocol_version);
+    let congestion_info = bootstrap_congestion_info(&trie, runtime_config, shard_id)?;
     tracing::debug!(target: "chain", ?shard_id, ?state_root, ?congestion_info, "Computed genesis congestion info.");
     Ok(congestion_info)
 }
@@ -3970,7 +4021,7 @@ impl Chain {
     /// Get previous block header.
     #[inline]
     pub fn get_previous_header(&self, header: &BlockHeader) -> Result<BlockHeader, Error> {
-        self.chain_store.get_previous_header(header).map_err(|e| match e {
+        self.chain_store.get_previous_header(header).map_err(|e: Error| match e {
             Error::DBNotFoundErr(_) => Error::Orphan,
             other => other,
         })
@@ -4178,27 +4229,20 @@ impl Chain {
     pub fn group_receipts_by_shard(
         receipts: Vec<Receipt>,
         shard_layout: &ShardLayout,
-    ) -> HashMap<ShardId, Vec<Receipt>> {
+    ) -> Result<HashMap<ShardId, Vec<Receipt>>, EpochError> {
         let mut result = HashMap::new();
         for receipt in receipts {
-            if receipt.send_to_all_shards() {
-                for shard_id in shard_layout.shard_ids() {
-                    let entry = result.entry(shard_id).or_insert_with(Vec::new);
-                    entry.push(receipt.clone());
-                }
-            } else {
-                let shard_id = shard_layout.account_id_to_shard_id(receipt.receiver_id());
-                let entry = result.entry(shard_id).or_insert_with(Vec::new);
-                entry.push(receipt);
-            }
+            let shard_id = receipt.receiver_shard_id(shard_layout)?;
+            let entry = result.entry(shard_id).or_insert_with(Vec::new);
+            entry.push(receipt);
         }
-        result
+        Ok(result)
     }
 
     pub fn build_receipts_hashes(
         receipts: &[Receipt],
         shard_layout: &ShardLayout,
-    ) -> Vec<CryptoHash> {
+    ) -> Result<Vec<CryptoHash>, EpochError> {
         // Using a BTreeMap instead of HashMap to enable in order iteration
         // below. It's important here to use the ShardIndexes, rather than
         // ShardIds since the latter are not guaranteed to be in order.
@@ -4209,24 +4253,12 @@ impl Chain {
         for shard_info in shard_layout.shard_infos() {
             result_map.insert(shard_info.shard_index(), (shard_info.shard_id(), vec![]));
         }
-        let mut cache = HashMap::new();
         for receipt in receipts {
-            if receipt.send_to_all_shards() {
-                for shard_id in shard_layout.shard_ids() {
-                    // This unwrap should be safe as we pre-populated the map with all
-                    // valid shard ids.
-                    let shard_index = shard_layout.get_shard_index(shard_id).unwrap();
-                    result_map.get_mut(&shard_index).unwrap().1.push(receipt);
-                }
-            } else {
-                let &mut shard_id = cache
-                    .entry(receipt.receiver_id())
-                    .or_insert_with(|| shard_layout.account_id_to_shard_id(receipt.receiver_id()));
-                // This unwrap should be safe as we pre-populated the map with all
-                // valid shard ids.
-                let shard_index = shard_layout.get_shard_index(shard_id).unwrap();
-                result_map.get_mut(&shard_index).unwrap().1.push(receipt);
-            }
+            let shard_id = receipt.receiver_shard_id(shard_layout)?;
+            // This unwrap should be safe as we pre-populated the map with all
+            // valid shard ids.
+            let shard_index = shard_layout.get_shard_index(shard_id).unwrap();
+            result_map.get_mut(&shard_index).unwrap().1.push(receipt);
         }
 
         let mut result_vec = vec![];
@@ -4234,7 +4266,7 @@ impl Chain {
             let bytes = borsh::to_vec(&(shard_id, receipts)).unwrap();
             result_vec.push(hash(&bytes));
         }
-        result_vec
+        Ok(result_vec)
     }
 }
 

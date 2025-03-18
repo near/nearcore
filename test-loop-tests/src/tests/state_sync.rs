@@ -17,8 +17,10 @@ use near_primitives::types::{
 };
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 
-use crate::builder::TestLoopBuilder;
-use crate::env::{TestData, TestLoopEnv};
+use crate::setup::builder::TestLoopBuilder;
+use crate::setup::drop_condition::DropCondition;
+use crate::setup::env::TestLoopEnv;
+use crate::setup::state::NodeExecutionData;
 use crate::utils::ONE_NEAR;
 use crate::utils::transactions::{get_anchor_hash, get_smallest_height_head};
 
@@ -158,6 +160,9 @@ fn setup_initial_blockchain(
     let epoch_config_store =
         EpochConfigStore::test(BTreeMap::from([(PROTOCOL_VERSION, Arc::new(epoch_config))]));
 
+    let mut env =
+        builder.genesis(genesis).epoch_config_store(epoch_config_store).clients(clients).build();
+
     let skip_block_height = if let Some(delta) = skip_block_sync_height_delta {
         // It would probably be better not to rely on this height calculation, since that makes
         // some assumptions about the state sync protocol that ideally tests wouldn't make. In the future
@@ -174,18 +179,13 @@ fn setup_initial_blockchain(
         } else {
             sync_height.saturating_sub(-delta as BlockHeight)
         };
-        builder = builder.drop_blocks_by_height([height].into_iter().collect());
+        env = env.drop(DropCondition::BlocksByHeight([height].into_iter().collect()));
         Some(height)
     } else {
         None
     };
-    let env = builder
-        .genesis(genesis)
-        .epoch_config_store(epoch_config_store)
-        .clients(clients)
-        .drop_chunks_by_height(chunks_produced)
-        .build();
 
+    let env = env.drop(DropCondition::ChunksProducedByHeight(chunks_produced)).warmup();
     TestState { env, accounts, skip_block_height }
 }
 
@@ -200,10 +200,10 @@ fn get_wrapped_mut<T>(s: &mut [T], idx: usize) -> &mut T {
 /// tries to generate transactions between lots of different pairs of shards (accounts for shard i are in accounts[i])
 fn send_txs_between_shards(
     test_loop: &mut TestLoopV2,
-    node_data: &[TestData],
+    node_datas: &[NodeExecutionData],
     accounts: &mut [Vec<(AccountId, Nonce)>],
 ) {
-    let clients = node_data
+    let clients = node_datas
         .iter()
         .map(|data| &test_loop.data.get(&data.client_sender.actor_handle()).client)
         .collect_vec();
@@ -235,8 +235,8 @@ fn send_txs_between_shards(
         );
         *nonce += 1;
 
-        let future = get_wrapped(node_data, client_idx)
-            .client_sender
+        let future = get_wrapped(node_datas, client_idx)
+            .tx_processor_sender
             .clone()
             //.with_delay(Duration::milliseconds(300 * txs_sent as i64))
             .send_async(ProcessTxRequest {
@@ -260,7 +260,7 @@ fn send_txs_between_shards(
 // what we think we should be.
 fn assert_fork_happened(env: &TestLoopEnv, skip_block_height: BlockHeight) {
     let client_handles =
-        env.datas.iter().map(|data| data.client_sender.actor_handle()).collect_vec();
+        env.node_datas.iter().map(|data| data.client_sender.actor_handle()).collect_vec();
     let clients =
         client_handles.iter().map(|handle| &env.test_loop.data.get(handle).client).collect_vec();
 
@@ -293,7 +293,7 @@ fn produce_chunks(
     mut accounts: Option<Vec<Vec<(AccountId, Nonce)>>>,
     skip_block_height: Option<BlockHeight>,
 ) {
-    let handle = env.datas[0].client_sender.actor_handle();
+    let handle = env.node_datas[0].client_sender.actor_handle();
     let client = &env.test_loop.data.get(&handle).client;
     let mut tip = client.chain.head().unwrap();
     // TODO: make this more precise. We don't have to wait 20 whole seconds, but the amount we wait will
@@ -305,7 +305,7 @@ fn produce_chunks(
         env.test_loop.run_until(
             |data| {
                 let clients = env
-                    .datas
+                    .node_datas
                     .iter()
                     .map(|test_data| &data.get(&test_data.client_sender.actor_handle()).client)
                     .collect_vec();
@@ -316,7 +316,7 @@ fn produce_chunks(
         );
 
         let clients = env
-            .datas
+            .node_datas
             .iter()
             .map(|test_data| {
                 &env.test_loop.data.get(&test_data.client_sender.actor_handle()).client
@@ -333,7 +333,7 @@ fn produce_chunks(
                 break;
             }
             if let Some(accounts) = accounts.as_mut() {
-                send_txs_between_shards(&mut env.test_loop, &env.datas, accounts);
+                send_txs_between_shards(&mut env.test_loop, &env.node_datas, accounts);
             }
         }
         tip = new_tip;
@@ -346,19 +346,19 @@ fn produce_chunks(
 
 fn run_test(state: TestState) {
     let TestState { mut env, mut accounts, skip_block_height } = state;
-    let handle = env.datas[0].client_sender.actor_handle();
+    let handle = env.node_datas[0].client_sender.actor_handle();
     let client = &env.test_loop.data.get(&handle).client;
     let first_epoch_time = client.config.min_block_production_delay
         * u32::try_from(EPOCH_LENGTH).unwrap_or(u32::MAX)
         + Duration::seconds(2);
 
     if let Some(accounts) = accounts.as_mut() {
-        send_txs_between_shards(&mut env.test_loop, &env.datas, accounts);
+        send_txs_between_shards(&mut env.test_loop, &env.node_datas, accounts);
     }
 
     env.test_loop.run_until(
         |data| {
-            let handle = env.datas[0].client_sender.actor_handle();
+            let handle = env.node_datas[0].client_sender.actor_handle();
             let client = &data.get(&handle).client;
             let tip = client.chain.head().unwrap();
             tip.epoch_id != Default::default()
@@ -674,7 +674,7 @@ fn slow_test_state_sync_fork_before_sync() {
 fn await_sync_hash(env: &mut TestLoopEnv) -> CryptoHash {
     env.test_loop.run_until(
         |data| {
-            let handle = env.datas[0].client_sender.actor_handle();
+            let handle = env.node_datas[0].client_sender.actor_handle();
             let client = &data.get(&handle).client;
             let tip = client.chain.head().unwrap();
             if tip.epoch_id == Default::default() {
@@ -684,7 +684,7 @@ fn await_sync_hash(env: &mut TestLoopEnv) -> CryptoHash {
         },
         Duration::seconds(20),
     );
-    let client_handle = env.datas[0].client_sender.actor_handle();
+    let client_handle = env.node_datas[0].client_sender.actor_handle();
     let client = &env.test_loop.data.get(&client_handle).client;
     let tip = client.chain.head().unwrap();
     client.chain.get_sync_hash(&tip.last_block_hash).unwrap().unwrap()
@@ -694,7 +694,7 @@ fn await_sync_hash(env: &mut TestLoopEnv) -> CryptoHash {
 fn spam_state_sync_header_reqs(env: &mut TestLoopEnv) {
     let sync_hash = await_sync_hash(env);
 
-    let view_client_handle = env.datas[0].view_client_sender.actor_handle();
+    let view_client_handle = env.node_datas[0].view_client_sender.actor_handle();
     let view_client = env.test_loop.data.get_mut(&view_client_handle);
 
     for _ in 0..30 {
@@ -710,7 +710,7 @@ fn spam_state_sync_header_reqs(env: &mut TestLoopEnv) {
     env.test_loop.run_for(Duration::seconds(40));
 
     let sync_hash = await_sync_hash(env);
-    let view_client_handle = env.datas[0].view_client_sender.actor_handle();
+    let view_client_handle = env.node_datas[0].view_client_sender.actor_handle();
     let view_client = env.test_loop.data.get_mut(&view_client_handle);
 
     let res = view_client.handle(StateRequestHeader { shard_id, sync_hash });

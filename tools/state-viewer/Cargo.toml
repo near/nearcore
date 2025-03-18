@@ -77,22 +77,6 @@ nightly = [
   "near-primitives/nightly",
   "near-store/nightly",
   "nearcore/nightly",
-  "nightly_protocol",
   "node-runtime/nightly",
   "testlib/nightly",
-]
-nightly_protocol = [
-  "near-chain-configs/nightly_protocol",
-  "near-chain/nightly_protocol",
-  "near-client/nightly_protocol",
-  "near-epoch-manager/nightly_protocol",
-  "near-jsonrpc/nightly_protocol",
-  "near-network/nightly_protocol",
-  "near-o11y/nightly_protocol",
-  "near-primitives-core/nightly_protocol",
-  "near-primitives/nightly_protocol",
-  "near-store/nightly_protocol",
-  "nearcore/nightly_protocol",
-  "node-runtime/nightly_protocol",
-  "testlib/nightly_protocol",
 ]

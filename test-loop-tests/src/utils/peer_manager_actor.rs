@@ -1,28 +1,29 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-use crate::client::{
-    BlockApproval, BlockHeadersRequest, BlockHeadersResponse, BlockRequest, BlockResponse,
-    ChunkEndorsementMessage, EpochSyncRequestMessage, EpochSyncResponseMessage,
-    OptimisticBlockMessage, ProcessTxRequest, ProcessTxResponse,
-};
-use crate::shards_manager::ShardsManagerRequestFromNetwork;
-use crate::state_witness::{
-    ChunkContractAccessesMessage, ChunkStateWitnessAckMessage, ContractCodeRequestMessage,
-    ContractCodeResponseMessage, PartialEncodedContractDeploysMessage,
-    PartialEncodedStateWitnessForwardMessage, PartialEncodedStateWitnessMessage,
-    PartialWitnessSenderForNetwork,
-};
-use crate::types::{
-    NetworkRequests, NetworkResponses, PeerManagerMessageRequest, PeerManagerMessageResponse,
-    SetChainInfo, StateSyncEvent, Tier3Request,
-};
 use itertools::Itertools;
 use near_async::actix::ActixResult;
 use near_async::futures::{FutureSpawner, FutureSpawnerExt};
 use near_async::messaging::{Actor, AsyncSender, CanSend, Handler, SendAsync, Sender};
 use near_async::time::Clock;
 use near_async::{MultiSend, MultiSenderFrom};
+use near_client::{BlockApproval, BlockResponse};
+use near_network::client::{
+    BlockHeadersRequest, BlockHeadersResponse, BlockRequest, ChunkEndorsementMessage,
+    EpochSyncRequestMessage, EpochSyncResponseMessage, OptimisticBlockMessage, ProcessTxRequest,
+    ProcessTxResponse,
+};
+use near_network::shards_manager::ShardsManagerRequestFromNetwork;
+use near_network::state_witness::{
+    ChunkContractAccessesMessage, ChunkStateWitnessAckMessage, ContractCodeRequestMessage,
+    ContractCodeResponseMessage, PartialEncodedContractDeploysMessage,
+    PartialEncodedStateWitnessForwardMessage, PartialEncodedStateWitnessMessage,
+    PartialWitnessSenderForNetwork,
+};
+use near_network::types::{
+    NetworkRequests, NetworkResponses, PeerManagerMessageRequest, PeerManagerMessageResponse,
+    SetChainInfo, StateSyncEvent, Tier3Request,
+};
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
 use near_primitives::types::AccountId;
@@ -34,11 +35,15 @@ pub struct ClientSenderForTestLoopNetwork {
     pub block: AsyncSender<BlockResponse, ()>,
     pub block_headers: AsyncSender<BlockHeadersResponse, ActixResult<BlockHeadersResponse>>,
     pub block_approval: AsyncSender<BlockApproval, ()>,
-    pub transaction: AsyncSender<ProcessTxRequest, ProcessTxResponse>,
     pub chunk_endorsement: AsyncSender<ChunkEndorsementMessage, ()>,
     pub epoch_sync_request: Sender<EpochSyncRequestMessage>,
     pub epoch_sync_response: Sender<EpochSyncResponseMessage>,
     pub optimistic_block_receiver: Sender<OptimisticBlockMessage>,
+}
+
+#[derive(Clone, MultiSend, MultiSenderFrom)]
+pub struct TxRequestHandleSenderForTestLoopNetwork {
+    pub transaction: AsyncSender<ProcessTxRequest, ProcessTxResponse>,
 }
 
 #[derive(Clone, MultiSend, MultiSenderFrom)]
@@ -127,6 +132,7 @@ struct TestLoopNetworkSharedStateInner {
 struct OneClientSenders {
     client_sender: ClientSenderForTestLoopNetwork,
     view_client_sender: ViewClientSenderForTestLoopNetwork,
+    tx_processor_sender: TxRequestHandleSenderForTestLoopNetwork,
     partial_witness_sender: PartialWitnessSenderForNetwork,
     shards_manager_sender: Sender<ShardsManagerRequestFromNetwork>,
 }
@@ -147,6 +153,7 @@ impl TestLoopNetworkSharedState {
         PeerId: From<&'a D>,
         ClientSenderForTestLoopNetwork: From<&'a D>,
         ViewClientSenderForTestLoopNetwork: From<&'a D>,
+        TxRequestHandleSenderForTestLoopNetwork: From<&'a D>,
         PartialWitnessSenderForNetwork: From<&'a D>,
         Sender<ShardsManagerRequestFromNetwork>: From<&'a D>,
     {
@@ -160,6 +167,7 @@ impl TestLoopNetworkSharedState {
             Arc::new(OneClientSenders {
                 client_sender: ClientSenderForTestLoopNetwork::from(data),
                 view_client_sender: ViewClientSenderForTestLoopNetwork::from(data),
+                tx_processor_sender: TxRequestHandleSenderForTestLoopNetwork::from(data),
                 partial_witness_sender: PartialWitnessSenderForNetwork::from(data),
                 shards_manager_sender: Sender::<ShardsManagerRequestFromNetwork>::from(data),
             }),
@@ -285,7 +293,7 @@ fn network_message_to_client_handler(
         }
         NetworkRequests::ForwardTx(account, transaction) => {
             assert_ne!(account, my_account_id, "Sending message to self not supported.");
-            let future = shared_state.senders_for_account(&account).client_sender.send_async(
+            let future = shared_state.senders_for_account(&account).tx_processor_sender.send_async(
                 ProcessTxRequest { transaction, is_forwarded: true, check_only: false },
             );
             drop(future);

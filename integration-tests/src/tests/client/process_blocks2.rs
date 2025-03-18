@@ -1,6 +1,7 @@
 use assert_matches::assert_matches;
 use near_chain::validate::validate_chunk_with_chunk_extra;
 use near_chain::{Provenance, test_utils};
+use near_chain_configs::Genesis;
 use near_crypto::vrf::Value;
 use near_crypto::{KeyType, PublicKey, Signature};
 use near_network::types::{NetworkRequests, PeerManagerMessageRequest};
@@ -18,13 +19,14 @@ use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_store::ShardUId;
 
 use crate::env::test_env::TestEnv;
+use crate::env::test_env_builder::TestEnvBuilder;
 
 /// Only process one block per height
 /// Test that if a node receives two blocks at the same height, it doesn't process the second one
 /// if the second block is not requested
 #[test]
 fn test_not_process_height_twice() {
-    let mut env = TestEnv::default_builder().mock_epoch_managers().build();
+    let mut env = TestEnv::default_builder_with_genesis().build();
     let block = env.clients[0].produce_block(1).unwrap().unwrap();
     // modify the block and resign it
     let mut duplicate_block = block.clone();
@@ -61,7 +63,10 @@ fn test_not_process_height_twice() {
 /// Test that if a block contains chunks with invalid shard_ids, the client will return error.
 #[test]
 fn test_bad_shard_id() {
-    let mut env = TestEnv::default_builder().num_shards(4).mock_epoch_managers().build();
+    let accounts = TestEnvBuilder::make_accounts(1);
+    let genesis = Genesis::test_sharded_new_version(accounts, 1, vec![1, 1, 1, 1]);
+    let mut env = TestEnv::builder_from_genesis(&genesis).build();
+
     let prev_block = env.clients[0].produce_block(1).unwrap().unwrap();
     env.process_block(0, prev_block, Provenance::PRODUCED);
     let mut block = env.clients[0].produce_block(2).unwrap().unwrap(); // modify the block and resign it
@@ -116,7 +121,10 @@ fn test_bad_shard_id() {
 /// Test that if a block's content (vrf_value) is corrupted, the invalid block will not affect the node's block processing
 #[test]
 fn test_bad_block_content_vrf() {
-    let mut env = TestEnv::default_builder().num_shards(4).mock_epoch_managers().build();
+    let accounts = TestEnvBuilder::make_accounts(1);
+    let genesis = Genesis::test_sharded_new_version(accounts, 1, vec![1, 1, 1, 1]);
+    let mut env = TestEnv::builder_from_genesis(&genesis).build();
+
     let prev_block = env.clients[0].produce_block(1).unwrap().unwrap();
     env.process_block(0, prev_block, Provenance::PRODUCED);
     let block = env.clients[0].produce_block(2).unwrap().unwrap();
@@ -142,7 +150,10 @@ fn test_bad_block_content_vrf() {
 /// Test that if a block's signature is corrupted, the invalid block will not affect the node's block processing
 #[test]
 fn test_bad_block_signature() {
-    let mut env = TestEnv::default_builder().num_shards(4).mock_epoch_managers().build();
+    let accounts = TestEnvBuilder::make_accounts(1);
+    let genesis = Genesis::test_sharded_new_version(accounts, 1, vec![1, 1, 1, 1]);
+    let mut env = TestEnv::builder_from_genesis(&genesis).build();
+
     let prev_block = env.clients[0].produce_block(1).unwrap().unwrap();
     env.process_block(0, prev_block, Provenance::PRODUCED);
     let block = env.clients[0].produce_block(2).unwrap().unwrap();
@@ -208,7 +219,10 @@ fn test_bad_congestion_info_impl(mode: BadCongestionInfoMode) {
         return;
     }
 
-    let mut env = TestEnv::default_builder().num_shards(4).mock_epoch_managers().build();
+    let accounts = TestEnvBuilder::make_accounts(1);
+    let genesis = Genesis::test_sharded_new_version(accounts, 1, vec![1, 1, 1, 1]);
+    let mut env = TestEnv::builder_from_genesis(&genesis).build();
+
     let prev_block = env.clients[0].produce_block(1).unwrap().unwrap();
     env.process_block(0, prev_block, Provenance::PRODUCED);
     let block = env.clients[0].produce_block(2).unwrap().unwrap();
@@ -244,7 +258,7 @@ fn test_bad_congestion_info_impl(mode: BadCongestionInfoMode) {
 
     let modified_chunk = ShardChunkHeader::V3(modified_chunk_header);
 
-    let shard_uid = ShardUId { shard_id: 0, version: 0 };
+    let shard_uid = ShardUId { shard_id: chunk.shard_id().into(), version: 1 };
     let prev_block_hash = block.header().prev_hash();
     let client = &env.clients[0];
     let prev_chunk_extra = client.chain.get_chunk_extra(prev_block_hash, &shard_uid).unwrap();
@@ -305,7 +319,10 @@ fn check_block_produced_from_optimistic_block(block: &Block, optimistic_block: &
 // Testing the production and application of optimistic blocks
 #[test]
 fn test_process_optimistic_block() {
-    let mut env = TestEnv::default_builder().num_shards(4).mock_epoch_managers().build();
+    let accounts = TestEnvBuilder::make_accounts(1);
+    let genesis = Genesis::test_sharded_new_version(accounts, 1, vec![1, 1, 1, 1]);
+    let mut env = TestEnv::builder_from_genesis(&genesis).build();
+
     let prev_block = env.clients[0].produce_block(1).unwrap().unwrap();
     env.process_block(0, prev_block, Provenance::PRODUCED);
     assert!(!env.clients[0].is_optimistic_block_done(2), "Optimistic block should not be ready");

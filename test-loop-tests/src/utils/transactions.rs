@@ -1,6 +1,11 @@
-use crate::env::{TestData, TestLoopEnv};
+use std::cell::Cell;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
+use std::task::Poll;
+
 use assert_matches::assert_matches;
 use itertools::Itertools;
+use near_async::futures::FutureSpawnerExt;
 use near_async::messaging::{AsyncSendError, CanSend, SendAsync};
 use near_async::test_loop::TestLoopV2;
 use near_async::test_loop::data::TestLoopData;
@@ -8,11 +13,10 @@ use near_async::test_loop::futures::TestLoopFutureSpawner;
 use near_async::test_loop::sender::TestLoopSender;
 use near_async::time::Duration;
 use near_chain::Error;
-use near_client::client_actor::ClientActorInner;
-use near_client::test_utils::test_loop::ClientQueries;
-use near_client::{Client, ProcessTxResponse};
+use near_client::{Client, ProcessTxResponse, TxRequestHandler};
 use near_crypto::Signer;
 use near_network::client::ProcessTxRequest;
+use near_primitives::action::{GlobalContractDeployMode, GlobalContractIdentifier};
 use near_primitives::block::Tip;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
@@ -22,13 +26,13 @@ use near_primitives::types::{AccountId, BlockHeight};
 use near_primitives::views::{
     FinalExecutionOutcomeView, FinalExecutionStatus, QueryRequest, QueryResponseKind,
 };
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
-use std::task::Poll;
 
-use super::{ONE_NEAR, TGAS, get_node_data};
-use near_async::futures::FutureSpawnerExt;
-use std::cell::Cell;
+use crate::setup::env::TestLoopEnv;
+use crate::setup::state::NodeExecutionData;
+use crate::utils::TGAS;
+
+use super::client_queries::ClientQueries;
+use super::{ONE_NEAR, get_node_data};
 
 /// See `execute_money_transfers`. Debug is implemented so .unwrap() can print
 /// the error.
@@ -61,7 +65,7 @@ pub(crate) fn get_anchor_hash(clients: &[&Client]) -> CryptoHash {
 /// Get next available nonce for the account's public key.
 pub fn get_next_nonce(
     test_loop_data: &TestLoopData,
-    node_datas: &[TestData],
+    node_datas: &[NodeExecutionData],
     account_id: &AccountId,
 ) -> u64 {
     let signer: Signer = create_user_test_signer(&account_id);
@@ -93,10 +97,10 @@ pub fn get_next_nonce(
 /// missing chunks.
 pub(crate) fn execute_money_transfers(
     test_loop: &mut TestLoopV2,
-    node_data: &[TestData],
+    node_datas: &[NodeExecutionData],
     accounts: &[AccountId],
 ) -> Result<(), BalanceMismatchError> {
-    let clients = node_data
+    let clients = node_datas
         .iter()
         .map(|data| &test_loop.data.get(&data.client_sender.actor_handle()).client)
         .collect_vec();
@@ -107,7 +111,7 @@ pub(crate) fn execute_money_transfers(
     let num_clients = clients.len();
     drop(clients);
 
-    let node_data = Arc::new(node_data.to_vec());
+    let node_data = Arc::new(node_datas.to_vec());
 
     for i in 0..accounts.len() {
         let amount = ONE_NEAR * (i as u128 + 1);
@@ -138,7 +142,7 @@ pub(crate) fn execute_money_transfers(
                 );
                 let process_tx_request =
                     ProcessTxRequest { transaction: tx, is_forwarded: false, check_only: false };
-                node_data[i % num_clients].client_sender.send(process_tx_request);
+                node_data[i % num_clients].tx_processor_sender.send(process_tx_request);
             },
         );
     }
@@ -169,10 +173,10 @@ pub fn do_create_account(
     amount: u128,
 ) {
     tracing::info!(target: "test", "Creating account.");
-    let nonce = get_next_nonce(&env.test_loop.data, &env.datas, originator);
+    let nonce = get_next_nonce(&env.test_loop.data, &env.node_datas, originator);
     let tx = create_account(env, rpc_id, originator, new_account_id, amount, nonce);
     env.test_loop.run_for(Duration::seconds(5));
-    check_txs(&env.test_loop.data, &env.datas, rpc_id, &[tx]);
+    check_txs(&env.test_loop.data, &env.node_datas, rpc_id, &[tx]);
 }
 
 pub fn do_delete_account(
@@ -182,9 +186,10 @@ pub fn do_delete_account(
     beneficiary_id: &AccountId,
 ) {
     tracing::info!(target: "test", "Deleting account.");
-    let tx = delete_account(&env.test_loop.data, &env.datas, rpc_id, account_id, beneficiary_id);
+    let tx =
+        delete_account(&env.test_loop.data, &env.node_datas, rpc_id, account_id, beneficiary_id);
     env.test_loop.run_for(Duration::seconds(5));
-    check_txs(&env.test_loop.data, &env.datas, rpc_id, &[tx]);
+    check_txs(&env.test_loop.data, &env.node_datas, rpc_id, &[tx]);
 }
 
 pub fn do_deploy_contract(
@@ -194,10 +199,10 @@ pub fn do_deploy_contract(
     code: Vec<u8>,
 ) {
     tracing::info!(target: "test", "Deploying contract.");
-    let nonce = get_next_nonce(&env.test_loop.data, &env.datas, contract_id);
-    let tx = deploy_contract(&mut env.test_loop, &env.datas, rpc_id, contract_id, code, nonce);
+    let nonce = get_next_nonce(&env.test_loop.data, &env.node_datas, contract_id);
+    let tx = deploy_contract(&mut env.test_loop, &env.node_datas, rpc_id, contract_id, code, nonce);
     env.test_loop.run_for(Duration::seconds(2));
-    check_txs(&env.test_loop.data, &env.datas, rpc_id, &[tx]);
+    check_txs(&env.test_loop.data, &env.node_datas, rpc_id, &[tx]);
 }
 
 pub fn do_call_contract(
@@ -209,10 +214,10 @@ pub fn do_call_contract(
     args: Vec<u8>,
 ) {
     tracing::info!(target: "test", "Calling contract.");
-    let nonce = get_next_nonce(&env.test_loop.data, &env.datas, contract_id);
+    let nonce = get_next_nonce(&env.test_loop.data, &env.node_datas, contract_id);
     let tx = call_contract(
         &mut env.test_loop,
-        &env.datas,
+        &env.node_datas,
         rpc_id,
         sender_id,
         contract_id,
@@ -221,7 +226,7 @@ pub fn do_call_contract(
         nonce,
     );
     env.test_loop.run_for(Duration::seconds(2));
-    check_txs(&env.test_loop.data, &env.datas, rpc_id, &[tx]);
+    check_txs(&env.test_loop.data, &env.node_datas, rpc_id, &[tx]);
 }
 
 pub fn create_account(
@@ -232,7 +237,7 @@ pub fn create_account(
     amount: u128,
     nonce: u64,
 ) -> CryptoHash {
-    let block_hash = get_shared_block_hash(&env.datas, &env.test_loop.data);
+    let block_hash = get_shared_block_hash(&env.node_datas, &env.test_loop.data);
     let signer = create_user_test_signer(&originator);
     let new_signer: Signer = create_user_test_signer(&new_account_id);
 
@@ -247,14 +252,14 @@ pub fn create_account(
     );
 
     let tx_hash = tx.get_hash();
-    submit_tx(&env.datas, rpc_id, tx);
+    submit_tx(&env.node_datas, rpc_id, tx);
     tracing::debug!(target: "test", ?originator, ?new_account_id, ?tx_hash, "created account");
     tx_hash
 }
 
 pub fn delete_account(
     test_loop_data: &TestLoopData,
-    node_datas: &[TestData],
+    node_datas: &[NodeExecutionData],
     rpc_id: &AccountId,
     account_id: &AccountId,
     beneficiary_id: &AccountId,
@@ -285,7 +290,7 @@ pub fn delete_account(
 /// This function does not wait until the transactions is executed.
 pub fn deploy_contract(
     test_loop: &mut TestLoopV2,
-    node_datas: &[TestData],
+    node_datas: &[NodeExecutionData],
     rpc_id: &AccountId,
     contract_id: &AccountId,
     code: Vec<u8>,
@@ -303,12 +308,73 @@ pub fn deploy_contract(
     tx_hash
 }
 
+/// Deploy a test global contract using the corresponding deploy_mode.
+///
+/// This function does not wait until the transactions is executed.
+pub fn deploy_global_contract(
+    test_loop: &mut TestLoopV2,
+    node_datas: &[NodeExecutionData],
+    rpc_id: &AccountId,
+    deployer_id: AccountId,
+    code: Vec<u8>,
+    nonce: u64,
+    deploy_mode: GlobalContractDeployMode,
+) -> CryptoHash {
+    let block_hash = get_shared_block_hash(node_datas, &test_loop.data);
+
+    let signer = create_user_test_signer(&deployer_id);
+
+    let tx = SignedTransaction::deploy_global_contract(
+        nonce,
+        deployer_id.clone(),
+        code,
+        &signer,
+        block_hash,
+        deploy_mode.clone(),
+    );
+    let tx_hash = tx.get_hash();
+    submit_tx(node_datas, rpc_id, tx);
+
+    tracing::debug!(target: "test", ?deployer_id, ?tx_hash, ?deploy_mode, "deployed global contract");
+    tx_hash
+}
+
+/// Use a test global contract to the provided user_id account.
+/// The contract account should already exist.
+///
+/// This function does not wait until the transactions is executed.
+pub fn use_global_contract(
+    test_loop: &mut TestLoopV2,
+    node_datas: &[NodeExecutionData],
+    rpc_id: &AccountId,
+    user_id: AccountId,
+    nonce: u64,
+    identifier: GlobalContractIdentifier,
+) -> CryptoHash {
+    let block_hash = get_shared_block_hash(node_datas, &test_loop.data);
+
+    let signer = create_user_test_signer(&user_id);
+
+    let tx = SignedTransaction::use_global_contract(
+        nonce,
+        &user_id,
+        &signer,
+        block_hash,
+        identifier.clone(),
+    );
+    let tx_hash = tx.get_hash();
+    submit_tx(node_datas, rpc_id, tx);
+
+    tracing::debug!(target: "test", ?user_id, ?tx_hash, ?identifier, "use global contract");
+    tx_hash
+}
+
 /// Call the contract deployed at contract id from the sender id.
 ///
 /// This function does not wait until the transactions is executed.
 pub fn call_contract(
     test_loop: &mut TestLoopV2,
-    node_datas: &[TestData],
+    node_datas: &[NodeExecutionData],
     rpc_id: &AccountId,
     sender_id: &AccountId,
     contract_id: &AccountId,
@@ -341,12 +407,12 @@ pub fn call_contract(
 
 /// Submit a transaction to the rpc node with the given account id.
 /// Doesn't wait for the result, it must be requested separately.
-pub fn submit_tx(node_datas: &[TestData], rpc_id: &AccountId, tx: SignedTransaction) {
+pub fn submit_tx(node_datas: &[NodeExecutionData], rpc_id: &AccountId, tx: SignedTransaction) {
     let process_tx_request =
         ProcessTxRequest { transaction: tx, is_forwarded: false, check_only: false };
 
     let rpc_node_data = get_node_data(node_datas, rpc_id);
-    let rpc_node_data_sender = &rpc_node_data.client_sender;
+    let rpc_node_data_sender = &rpc_node_data.tx_processor_sender;
 
     let future = rpc_node_data_sender.send_async(process_tx_request);
     drop(future);
@@ -358,7 +424,7 @@ pub fn submit_tx(node_datas: &[TestData], rpc_id: &AccountId, tx: SignedTransact
 /// Otherwise, the transactions may not be found.
 pub fn check_txs(
     test_loop_data: &TestLoopData,
-    node_datas: &[TestData],
+    node_datas: &[NodeExecutionData],
     rpc_id: &AccountId,
     txs: &[CryptoHash],
 ) {
@@ -376,7 +442,7 @@ pub fn check_txs(
 /// Get the client for the provided rpd node account id.
 fn rpc_client<'a>(
     test_loop_data: &'a TestLoopData,
-    node_datas: &'a [TestData],
+    node_datas: &'a [NodeExecutionData],
     rpc_id: &AccountId,
 ) -> &'a Client {
     let node_data = get_node_data(node_datas, rpc_id);
@@ -386,7 +452,10 @@ fn rpc_client<'a>(
 }
 
 /// Finds a block that all clients have on their chain and return its hash.
-pub fn get_shared_block_hash(node_datas: &[TestData], test_loop_data: &TestLoopData) -> CryptoHash {
+pub fn get_shared_block_hash(
+    node_datas: &[NodeExecutionData],
+    test_loop_data: &TestLoopData,
+) -> CryptoHash {
     let clients = node_datas
         .iter()
         .map(|data| &test_loop_data.get(&data.client_sender.actor_handle()).client)
@@ -409,7 +478,7 @@ pub fn run_tx(
     test_loop: &mut TestLoopV2,
     rpc_id: &AccountId,
     tx: SignedTransaction,
-    node_datas: &[TestData],
+    node_datas: &[NodeExecutionData],
     maximum_duration: Duration,
 ) -> Vec<u8> {
     let tx_res = execute_tx(test_loop, rpc_id, tx, node_datas, maximum_duration).unwrap();
@@ -425,12 +494,12 @@ pub fn run_tx(
 pub fn run_txs_parallel(
     test_loop: &mut TestLoopV2,
     txs: Vec<SignedTransaction>,
-    node_datas: &[TestData],
+    node_datas: &[NodeExecutionData],
     maximum_duration: Duration,
 ) {
     let mut tx_runners = txs.into_iter().map(|tx| TransactionRunner::new(tx, true)).collect_vec();
 
-    let client_sender = &node_datas[0].client_sender;
+    let tx_processor_sender = &node_datas[0].tx_processor_sender;
     let future_spawner = test_loop.future_spawner("TransactionRunner");
 
     test_loop.run_until(
@@ -438,7 +507,7 @@ pub fn run_txs_parallel(
             let client = &tl_data.get(&node_datas[0].client_sender.actor_handle()).client;
             let mut all_ready = true;
             for runner in tx_runners.iter_mut() {
-                match runner.poll_assert_success(client_sender, client, &future_spawner) {
+                match runner.poll_assert_success(tx_processor_sender, client, &future_spawner) {
                     Poll::Pending => all_ready = false,
                     Poll::Ready(_) => {}
                 }
@@ -457,10 +526,11 @@ pub fn execute_tx(
     test_loop: &mut TestLoopV2,
     rpc_id: &AccountId,
     tx: SignedTransaction,
-    node_datas: &[TestData],
+    node_datas: &[NodeExecutionData],
     maximum_duration: Duration,
 ) -> Result<FinalExecutionOutcomeView, InvalidTxError> {
     let client_sender = &get_node_data(node_datas, rpc_id).client_sender;
+    let tx_processor_sender = &get_node_data(node_datas, rpc_id).tx_processor_sender;
     let future_spawner = test_loop.future_spawner("TransactionRunner");
 
     let mut tx_runner = TransactionRunner::new(tx, true);
@@ -469,7 +539,7 @@ pub fn execute_tx(
     test_loop.run_until(
         |tl_data| {
             let client = &tl_data.get(&client_sender.actor_handle()).client;
-            match tx_runner.poll(client_sender, client, &future_spawner) {
+            match tx_runner.poll(tx_processor_sender, client, &future_spawner) {
                 Poll::Pending => false,
                 Poll::Ready(tx_res) => {
                     res = Some(tx_res);
@@ -512,7 +582,7 @@ impl TransactionRunner {
     /// because of shard congestion.
     pub fn new(transaction: SignedTransaction, retry_when_congested: bool) -> Self {
         Self {
-            transaction: transaction,
+            transaction,
             tx_sent: false,
             process_tx_result: Arc::new(Mutex::new(None)),
             retry_when_congested,
@@ -529,7 +599,7 @@ impl TransactionRunner {
     /// It's meant to be called in `run_until`.
     pub fn poll(
         &mut self,
-        client_sender: &TestLoopSender<ClientActorInner>,
+        client_sender: &TestLoopSender<TxRequestHandler>,
         client: &Client,
         future_spawner: &TestLoopFutureSpawner,
     ) -> Poll<Result<FinalExecutionOutcomeView, InvalidTxError>> {
@@ -578,7 +648,7 @@ impl TransactionRunner {
     /// Useful for tests where the transaction is expected to be executed successfully.
     pub fn poll_assert_success(
         &mut self,
-        client_sender: &TestLoopSender<ClientActorInner>,
+        client_sender: &TestLoopSender<TxRequestHandler>,
         client: &Client,
         future_spawner: &TestLoopFutureSpawner,
     ) -> Poll<Vec<u8>> {
@@ -597,7 +667,7 @@ impl TransactionRunner {
     /// Send the transaction to the network.
     fn send_tx(
         &mut self,
-        client_sender: &TestLoopSender<ClientActorInner>,
+        client_sender: &TestLoopSender<TxRequestHandler>,
         future_spawner: &TestLoopFutureSpawner,
     ) {
         let process_tx_request = ProcessTxRequest {
@@ -657,7 +727,7 @@ enum TxProcessingResult {
 
 /// Stores a transaction hash into a vector of `(transaction, block_height)` and then submits the transaction.
 pub fn store_and_submit_tx(
-    node_datas: &[TestData],
+    node_datas: &[NodeExecutionData],
     rpc_id: &AccountId,
     txs: &Cell<Vec<(CryptoHash, BlockHeight)>>,
     signer_id: &AccountId,

@@ -1,16 +1,16 @@
 #![cfg(feature = "test_features")] // required for adversarial behaviors
 //! Test behaviors of the network when the chunk producer is malicious or misbehaving.
 
-use crate::builder::TestLoopBuilder;
-use crate::env::TestLoopEnv;
+use crate::setup::builder::TestLoopBuilder;
+use crate::setup::env::TestLoopEnv;
 use crate::utils::ONE_NEAR;
+use crate::utils::client_queries::ClientQueries;
 use crate::utils::transactions::get_anchor_hash;
 use near_async::messaging::CanSend as _;
 use near_async::time::Duration;
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
 use near_client::ProcessTxRequest;
 use near_client::client_actor::{AdvProduceChunksMode, NetworkAdversarialMessage};
-use near_client::test_utils::test_loop::ClientQueries;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
@@ -37,8 +37,9 @@ fn test_producer_with_expired_transactions() {
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .clients(accounts.clone())
-        .build();
-    let TestLoopEnv { test_loop, datas: node_datas, .. } = &mut test_loop_env;
+        .build()
+        .warmup();
+    let TestLoopEnv { test_loop, node_datas, .. } = &mut test_loop_env;
 
     // First we're gonna ask the chunk producer to keep producing empty chunks and send some
     // transactions as well. This will keep transactions in the transaction pool for more blocks
@@ -78,7 +79,7 @@ fn test_producer_with_expired_transactions() {
             );
             let process_tx_request =
                 ProcessTxRequest { transaction: tx, is_forwarded: false, check_only: false };
-            chunk_producer.client_sender.send(process_tx_request);
+            chunk_producer.tx_processor_sender.send(process_tx_request);
         });
     }
 

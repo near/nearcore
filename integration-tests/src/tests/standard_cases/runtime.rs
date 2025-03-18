@@ -2,9 +2,8 @@ use crate::node::RuntimeNode;
 use crate::tests::standard_cases::*;
 use near_chain_configs::Genesis;
 use near_crypto::SecretKey;
-use near_primitives::checked_feature;
 use near_primitives::state_record::StateRecord;
-use near_primitives::version::PROTOCOL_VERSION;
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use std::sync::Arc;
 use testlib::runtime_utils::{add_test_contract, alice_account, bob_account};
 
@@ -126,7 +125,7 @@ fn test_transfer_tokens_near_implicit_account_runtime() {
 
 #[test]
 fn test_transfer_tokens_eth_implicit_account_runtime() {
-    if !checked_feature!("stable", EthImplicitAccounts, PROTOCOL_VERSION) {
+    if !ProtocolFeature::EthImplicitAccounts.enabled(PROTOCOL_VERSION) {
         return;
     }
     let node = create_runtime_node();
@@ -143,7 +142,7 @@ fn test_trying_to_create_near_implicit_account_runtime() {
 
 #[test]
 fn test_trying_to_create_eth_implicit_account_runtime() {
-    if !checked_feature!("stable", EthImplicitAccounts, PROTOCOL_VERSION) {
+    if !ProtocolFeature::EthImplicitAccounts.enabled(PROTOCOL_VERSION) {
         return;
     }
     let node = create_runtime_node();

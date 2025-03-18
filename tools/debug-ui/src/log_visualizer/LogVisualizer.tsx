@@ -182,10 +182,11 @@ export const LogVisualizer = () => {
 
                 {/* Render all the events (other than attachments). */}
                 {events.getAllNonAttachedItems().map((event) => {
+                    const className = event.ignored ? 'event ignored' : event.id == selectedEventId ? 'event selected' : 'event';
                     return (
                         <div
                             key={`event ${event.id}`}
-                            className={'event' + (event.id == selectedEventId ? ' selected' : '')}
+                            className={className}
                             style={{
                                 left: layouts.getItemXOffset(event.columnNumber),
                                 top: layouts.getItemYOffset(event.rowNumber),

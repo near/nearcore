@@ -1,5 +1,4 @@
 use crate::shard_assignment::assign_chunk_producers_to_shards;
-use near_primitives::checked_feature;
 use near_primitives::epoch_info::{EpochInfo, RngSeed};
 use near_primitives::epoch_manager::EpochConfig;
 use near_primitives::errors::EpochError;
@@ -247,7 +246,7 @@ pub fn proposals_to_epoch_info(
             &validator_roles,
             use_stable_shard_assignment,
         )?
-    } else if checked_feature!("stable", ChunkOnlyProducers, protocol_version) {
+    } else if ProtocolFeature::ChunkOnlyProducers.enabled(protocol_version) {
         old_validator_selection::assign_chunk_producers_to_shards_chunk_only(
             epoch_config,
             validator_roles.chunk_producers,
@@ -374,7 +373,7 @@ fn select_chunk_producers(
     protocol_version: ProtocolVersion,
 ) -> (Vec<ValidatorStake>, BinaryHeap<OrderedValidatorStake>, Balance) {
     let min_stake_ratio =
-        if checked_feature!("stable", FixChunkProducerStakingThreshold, protocol_version) {
+        if ProtocolFeature::FixChunkProducerStakingThreshold.enabled(protocol_version) {
             min_stake_ratio
         } else {
             min_stake_ratio * Ratio::new(1, num_shards as u128)
@@ -416,7 +415,7 @@ fn select_validators(
         // the stake ratio condition prevented all slots from being filled,
         // or there were fewer proposals than available slots,
         // so the threshold stake is whatever amount pass the stake ratio condition
-        if checked_feature!("stable", FixStakingThreshold, protocol_version) {
+        if ProtocolFeature::FixStakingThreshold.enabled(protocol_version) {
             (min_stake_ratio * Ratio::from_integer(total_stake)
                 / (Ratio::from_integer(1u128) - min_stake_ratio))
                 .ceil()
@@ -474,7 +473,7 @@ mod old_validator_selection {
             protocol_version,
         );
         let (chunk_producer_proposals, chunk_producers, cp_stake_threshold) =
-            if checked_feature!("stable", ChunkOnlyProducers, protocol_version) {
+            if ProtocolFeature::ChunkOnlyProducers.enabled(protocol_version) {
                 let chunk_producer_proposals = order_proposals(proposals.into_values());
                 let max_cp_selected =
                     max_bp_selected + (epoch_config.num_chunk_only_producer_seats as usize);
@@ -773,7 +772,7 @@ mod tests {
     fn test_validator_assignment_with_chunk_only_producers_with_shard_shuffling() {
         // Don't run test without stateless validation because it has slight
         // changes in validator epoch indexing.
-        if !checked_feature!("stable", StatelessValidation, PROTOCOL_VERSION) {
+        if !ProtocolFeature::StatelessValidation.enabled(PROTOCOL_VERSION) {
             return;
         }
 
@@ -1034,7 +1033,7 @@ mod tests {
     /// [`ValidatorMandates`].
     #[test]
     fn test_chunk_validators_sampling() {
-        if !checked_feature!("stable", StatelessValidation, PROTOCOL_VERSION) {
+        if !ProtocolFeature::StatelessValidation.enabled(PROTOCOL_VERSION) {
             return;
         }
 
@@ -1052,7 +1051,7 @@ mod tests {
 
     #[test]
     fn test_deterministic_chunk_validators_sampling() {
-        if !checked_feature!("stable", StatelessValidation, PROTOCOL_VERSION) {
+        if !ProtocolFeature::StatelessValidation.enabled(PROTOCOL_VERSION) {
             return;
         }
 

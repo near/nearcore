@@ -14,7 +14,7 @@ use near_parameters::RuntimeConfigStore;
 use near_primitives::{
     epoch_manager::EpochConfig,
     shard_layout::ShardLayout,
-    state_record::{StateRecord, state_record_to_account_id},
+    state_record::{StateRecord, state_record_to_account_id, state_record_to_shard_id},
     types::{AccountId, NumShards, ShardId, StateRoot},
 };
 use tracing::{error, info, warn};
@@ -135,9 +135,11 @@ fn genesis_state_from_genesis(
     info!(target: "store","distributing records to shards");
 
     genesis.for_each_record(|record: &StateRecord| {
-        let shard_id = state_record_to_shard_id(record, &shard_layout);
         let account_id = state_record_to_account_id(record).clone();
-        shard_account_ids.get_mut(&shard_id).unwrap().insert(account_id);
+        if !account_id.is_system() {
+            let shard_id = state_record_to_shard_id(record, &shard_layout);
+            shard_account_ids.get_mut(&shard_id).unwrap().insert(account_id);
+        }
         if let StateRecord::Account { account_id, .. } = record {
             if account_id == &genesis.config.protocol_treasury_account {
                 has_protocol_account = true;
@@ -186,8 +188,4 @@ fn genesis_state_from_genesis(
             )
         })
         .collect()
-}
-
-fn state_record_to_shard_id(state_record: &StateRecord, shard_layout: &ShardLayout) -> ShardId {
-    shard_layout.account_id_to_shard_id(state_record_to_account_id(state_record))
 }

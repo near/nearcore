@@ -6,14 +6,6 @@ use near_o11y::metrics::{
 };
 use std::sync::LazyLock;
 
-pub(crate) static NUM_INVALID_OPTIMISTIC_BLOCKS: LazyLock<IntCounter> = LazyLock::new(|| {
-    try_create_int_counter(
-        "near_num_invalid_optimistic_blocks",
-        "Number of invalid optimistic blocks",
-    )
-    .unwrap()
-});
-
 pub(crate) static BLOCK_PRODUCED_TOTAL: LazyLock<IntCounter> = LazyLock::new(|| {
     try_create_int_counter(
         "near_block_produced_total",
@@ -34,6 +26,15 @@ pub(crate) static CHUNK_PRODUCED_TOTAL: LazyLock<IntCounter> = LazyLock::new(|| 
     try_create_int_counter(
         "near_chunk_produced_total",
         "Total number of chunks produced since starting this node",
+    )
+    .unwrap()
+});
+
+pub(crate) static CHUNK_TRANSACTIONS_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
+    try_create_int_counter_vec(
+        "near_chunk_transactions_total",
+        "Total number of transactions included in chunks produced by this node",
+        &["shard_id"],
     )
     .unwrap()
 });

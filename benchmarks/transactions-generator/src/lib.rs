@@ -1,34 +1,37 @@
 use near_async::messaging::AsyncSender;
-use near_client::GetBlock;
+use near_client::{GetBlock, Query, QueryError};
 use near_client_primitives::types::GetBlockError;
+use near_crypto::PublicKey;
 use near_network::client::{ProcessTxRequest, ProcessTxResponse};
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::BlockReference;
-use near_primitives::views::BlockView;
+use near_primitives::types::{AccountId, BlockReference};
+use near_primitives::views::{BlockView, QueryRequest, QueryResponse, QueryResponseKind};
 use node_runtime::metrics::TRANSACTION_PROCESSED_FAILED_TOTAL;
 use node_runtime::metrics::TRANSACTION_PROCESSED_SUCCESSFULLY_TOTAL;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, atomic};
 use std::time::Duration;
 use tokio::task;
 
 pub mod account;
 #[cfg(feature = "with_actix")]
 pub mod actix_actor;
+mod welford;
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 pub struct TxGeneratorConfig {
     tps: u64,
     volume: u64,
+    thread_count: u64,
     accounts_path: PathBuf,
 }
 
 impl Default for TxGeneratorConfig {
     fn default() -> Self {
-        Self { tps: 0, volume: 0, accounts_path: "".into() }
+        Self { tps: 0, volume: 0, thread_count: 1, accounts_path: "".into() }
     }
 }
 
@@ -40,13 +43,14 @@ pub struct ClientSender {
 #[derive(Clone, near_async::MultiSend, near_async::MultiSenderFrom)]
 pub struct ViewClientSender {
     pub block_request_sender: AsyncSender<GetBlock, Result<BlockView, GetBlockError>>,
+    pub query_sender: AsyncSender<Query, Result<QueryResponse, QueryError>>,
 }
 
 pub struct TxGenerator {
     pub params: TxGeneratorConfig,
     client_sender: ClientSender,
     view_client_sender: ViewClientSender,
-    runner: Option<(task::JoinHandle<()>, task::JoinHandle<()>, task::JoinHandle<()>)>,
+    tasks: Vec<task::JoinHandle<()>>,
 }
 
 #[derive(Clone)]
@@ -82,11 +86,11 @@ impl TxGenerator {
         client_sender: ClientSender,
         view_client_sender: ViewClientSender,
     ) -> anyhow::Result<Self> {
-        Ok(Self { params, client_sender, view_client_sender, runner: None })
+        Ok(Self { params, client_sender, view_client_sender, tasks: Vec::new() })
     }
 
     pub fn start(self: &mut Self) -> anyhow::Result<()> {
-        if self.runner.is_some() {
+        if !self.tasks.is_empty() {
             anyhow::bail!("attempt to (re)start the running transaction generator");
         }
         let client_sender = self.client_sender.clone();
@@ -106,34 +110,31 @@ impl TxGenerator {
             })),
         };
 
-        let transactions = Self::start_transactions_loop(
+        self.tasks = Self::start_transactions_loop(
             &self.params,
             client_sender,
             view_client_sender.clone(),
             runner_state.clone(),
         )?;
 
-        let block_updates = Self::start_block_updates(view_client_sender, runner_state.clone());
+        self.tasks.push(Self::start_block_updates(view_client_sender, runner_state.clone()));
+        self.tasks.push(Self::start_report_updates(runner_state));
 
-        let report_updates = Self::start_report_updates(runner_state);
-
-        self.runner = Some((transactions, block_updates, report_updates));
         Ok(())
     }
 
     /// Generates a transaction between two random (but different) accounts and pushes it to the `client_sender`
     async fn generate_send_transaction(
         rnd: &mut StdRng,
-        accounts: &mut [account::Account],
+        accounts: &[account::Account],
         block_hash: &CryptoHash,
         client_sender: &ClientSender,
     ) -> bool {
         const AMOUNT: near_primitives::types::Balance = 1_000;
 
         let idx = rand::seq::index::sample(rnd, accounts.len(), 2);
-        let sender = &mut accounts[idx.index(0)];
-        sender.nonce += 1;
-        let nonce = sender.nonce;
+        let sender = &accounts[idx.index(0)];
+        let nonce = sender.nonce.fetch_add(1, atomic::Ordering::Relaxed);
         let sender_id = sender.id.clone();
         let signer = sender.as_signer();
 
@@ -156,7 +157,7 @@ impl TxGenerator {
                 ProcessTxResponse::ValidTx => true,
                 _ => {
                     tracing::debug!(target: "transaction-generator",
-                        request_rsp=format!("res?:"));
+                        request_rsp=?res);
                     false
                 }
             },
@@ -169,51 +170,83 @@ impl TxGenerator {
     }
 
     fn start_transactions_loop(
-        params: &TxGeneratorConfig,
+        config: &TxGeneratorConfig,
         client_sender: ClientSender,
         view_client_sender: ViewClientSender,
         runner_state: RunnerState,
-    ) -> anyhow::Result<task::JoinHandle<()>> {
-        let mut tx_interval = tokio::time::interval(Duration::from_micros(1_000_000 / params.tps));
+    ) -> anyhow::Result<Vec<task::JoinHandle<()>>> {
         // TODO(slavas): generate accounts on the fly?
-        let mut accounts = account::accounts_from_dir(&params.accounts_path)?;
+        let mut accounts = account::accounts_from_dir(&config.accounts_path)?;
         if accounts.is_empty() {
             anyhow::bail!("No active accounts available");
         }
 
-        Ok(tokio::spawn(async move {
-            let mut rnd: StdRng = SeedableRng::from_entropy();
-
-            match Self::get_latest_block(&view_client_sender).await {
-                Ok(new_hash) => {
-                    let mut block_hash = runner_state.block_hash.lock().unwrap();
-                    *block_hash = new_hash;
-                }
-                Err(err) => {
-                    tracing::error!("failed initializing the block hash: {err}");
-                }
-            }
-
-            let block_hash = runner_state.block_hash.clone();
-            loop {
-                tx_interval.tick().await;
-                let block_hash = *block_hash.lock().unwrap();
-                let ok = Self::generate_send_transaction(
-                    &mut rnd,
-                    &mut accounts,
-                    &block_hash,
-                    &client_sender,
-                )
-                .await;
-
-                let mut stats = runner_state.stats.lock().unwrap();
-                if ok {
-                    stats.pool_accepted += 1;
-                } else {
-                    stats.pool_rejected += 1;
+        let (tx, _) = tokio::sync::broadcast::channel(1);
+        let sender = view_client_sender.clone();
+        let txs = tx.clone();
+        tokio::spawn(async move {
+            for account in accounts.iter_mut() {
+                let (id, pk) = (account.id.clone(), account.public_key.clone());
+                match Self::get_client_nonce(sender.clone(), id, pk).await {
+                    Ok(nonce) => {
+                        account.nonce = nonce.into();
+                    }
+                    Err(err) => {
+                        tracing::debug!(target: "transaction-generator",
+                            nonce_update_failed=?err);
+                    }
                 }
             }
-        }))
+            txs.send(Arc::new(accounts)).unwrap();
+        });
+
+        let mut tasks = Vec::<task::JoinHandle<()>>::new();
+        for _ in 0..config.thread_count {
+            let mut rx = tx.subscribe();
+            let client_sender = client_sender.clone();
+            let view_client_sender = view_client_sender.clone();
+            let runner_state = runner_state.clone();
+            let mut tx_interval = tokio::time::interval(Duration::from_micros(
+                1_000_000 * config.thread_count / config.tps,
+            ));
+            tasks.push(tokio::spawn(async move {
+                let mut rnd: StdRng = SeedableRng::from_entropy();
+
+                match Self::get_latest_block(&view_client_sender).await {
+                    Ok(new_hash) => {
+                        let mut block_hash = runner_state.block_hash.lock().unwrap();
+                        *block_hash = new_hash;
+                    }
+                    Err(err) => {
+                        tracing::error!(target:"transaction-generator",
+                            "failed initializing the block hash: {err}");
+                    }
+                }
+                let accounts = rx.recv().await.unwrap();
+
+                let block_hash = runner_state.block_hash.clone();
+                loop {
+                    tx_interval.tick().await;
+                    let block_hash = *block_hash.lock().unwrap();
+                    let ok = Self::generate_send_transaction(
+                        &mut rnd,
+                        &accounts,
+                        &block_hash,
+                        &client_sender,
+                    )
+                    .await;
+
+                    let mut stats = runner_state.stats.lock().unwrap();
+                    if ok {
+                        stats.pool_accepted += 1;
+                    } else {
+                        stats.pool_rejected += 1;
+                    }
+                }
+            }));
+        }
+
+        Ok(tasks)
     }
 
     async fn get_latest_block(view_client_sender: &ViewClientSender) -> anyhow::Result<CryptoHash> {
@@ -255,6 +288,7 @@ impl TxGenerator {
         let mut report_interval = tokio::time::interval(Duration::from_secs(1));
         tokio::spawn(async move {
             let mut stats_prev = runner_state.stats.lock().unwrap().clone();
+            let mut mean_diff = welford::Mean::<i64>::new();
             loop {
                 report_interval.tick().await;
                 let stats = {
@@ -266,12 +300,40 @@ impl TxGenerator {
                     stats.failed = failed;
                     stats.clone()
                 };
+                tracing::info!(target: "transaction-generator", total=format!("{stats:?}"),);
+                let diff = stats.clone() - stats_prev;
+                mean_diff.add_measurement(diff.processed as i64);
                 tracing::info!(target: "transaction-generator",
-                    total=format!("{stats:?}"),);
-                tracing::info!(target: "transaction-generator",
-                    diff=format!("{:?}", stats.clone() - stats_prev),);
+                    diff=format!("{:?}", diff),
+                    rate_processed=mean_diff.mean(),
+                );
                 stats_prev = stats.clone();
             }
         })
+    }
+
+    async fn get_client_nonce(
+        view_client: ViewClientSender,
+        account_id: AccountId,
+        public_key: PublicKey,
+    ) -> anyhow::Result<u64> {
+        let q = Query {
+            block_reference: BlockReference::latest(),
+            request: QueryRequest::ViewAccessKey { account_id, public_key },
+        };
+
+        match view_client.query_sender.send_async(q).await {
+            Ok(Ok(QueryResponse { kind, .. })) => {
+                if let QueryResponseKind::AccessKey(access_key) = kind {
+                    Ok(access_key.nonce)
+                } else {
+                    panic!("wrong response type received from neard");
+                }
+            }
+            Ok(Err(err)) => Err(err.into()),
+            Err(err) => {
+                anyhow::bail!("request to ViewAccessKey failed: {err}");
+            }
+        }
     }
 }

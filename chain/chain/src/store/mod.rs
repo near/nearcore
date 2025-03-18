@@ -9,9 +9,8 @@ use chrono::Utc;
 use near_chain_primitives::error::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::block::Tip;
-use near_primitives::checked_feature;
 use near_primitives::chunk_apply_stats::{ChunkApplyStats, ChunkApplyStatsV0};
-use near_primitives::errors::InvalidTxError;
+use near_primitives::errors::{EpochError, InvalidTxError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{MerklePath, PartialMerkleTree};
 use near_primitives::receipt::Receipt;
@@ -38,7 +37,7 @@ use near_primitives::utils::{
     get_block_shard_id, get_outcome_id_block_hash, get_outcome_id_block_hash_rev, index_to_bytes,
     to_timestamp,
 };
-use near_primitives::version::ProtocolVersion;
+use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use near_primitives::views::LightClientBlockView;
 use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
@@ -47,7 +46,7 @@ use near_store::{
     KeyForStateChanges, LARGEST_TARGET_HEIGHT_KEY, LATEST_KNOWN_KEY, PartialStorage, Store,
     StoreUpdate, TAIL_KEY, WrappedTrieChanges,
 };
-use utils::get_block_header_on_chain_by_height;
+use utils::check_transaction_validity_period;
 
 use crate::types::{Block, BlockHeader, LatestKnown};
 use near_store::db::{STATE_SYNC_DUMP_KEY, StoreStatistics};
@@ -249,16 +248,13 @@ pub fn filter_incoming_receipts_for_shard(
     target_shard_layout: &ShardLayout,
     target_shard_id: ShardId,
     receipt_proofs: Arc<Vec<ReceiptProof>>,
-) -> Vec<ReceiptProof> {
+) -> Result<Vec<ReceiptProof>, EpochError> {
     let mut filtered_receipt_proofs = vec![];
     for receipt_proof in receipt_proofs.iter() {
         let mut filtered_receipts = vec![];
         let ReceiptProof(receipts, shard_proof) = receipt_proof.clone();
         for receipt in receipts {
-            if receipt.send_to_all_shards()
-                || target_shard_layout.account_id_to_shard_id(receipt.receiver_id())
-                    == target_shard_id
-            {
+            if receipt.receiver_shard_id(target_shard_layout)? == target_shard_id {
                 tracing::trace!(target: "chain", receipt_id=?receipt.receipt_id(), "including receipt");
                 filtered_receipts.push(receipt);
             } else {
@@ -268,7 +264,7 @@ pub fn filter_incoming_receipts_for_shard(
         let receipt_proof = ReceiptProof(filtered_receipts, shard_proof);
         filtered_receipt_proofs.push(receipt_proof);
     }
-    filtered_receipt_proofs
+    Ok(filtered_receipt_proofs)
 }
 
 /// All chain-related database operations.
@@ -431,7 +427,7 @@ impl ChainStore {
         tracing::trace!(target: "resharding", ?protocol_version, ?shard_id, ?receipts_shard_id, "reassign_outgoing_receipts_for_resharding");
         // If simple nightshade v2 is enabled and stable use that.
         // Same reassignment of outgoing receipts works for simple nightshade v3
-        if checked_feature!("stable", SimpleNightshadeV2, protocol_version) {
+        if ProtocolFeature::SimpleNightshadeV2.enabled(protocol_version) {
             Self::reassign_outgoing_receipts_for_resharding_v2(
                 receipts,
                 shard_layout,
@@ -492,57 +488,12 @@ impl ChainStore {
         prev_block_header: &BlockHeader,
         base_block_hash: &CryptoHash,
     ) -> Result<(), InvalidTxError> {
-        // if both are on the canonical chain, comparing height is sufficient
-        // we special case this because it is expected that this scenario will happen in most cases.
-        let base_height =
-            self.get_block_header(base_block_hash).map_err(|_| InvalidTxError::Expired)?.height();
-        let prev_height = prev_block_header.height();
-        if let Ok(base_block_hash_by_height) = self.get_block_hash_by_height(base_height) {
-            if &base_block_hash_by_height == base_block_hash {
-                if let Ok(prev_hash) = self.get_block_hash_by_height(prev_height) {
-                    if &prev_hash == prev_block_header.hash() {
-                        if prev_height <= base_height + self.transaction_validity_period {
-                            return Ok(());
-                        } else {
-                            return Err(InvalidTxError::Expired);
-                        }
-                    }
-                }
-            }
-        }
-
-        // if the base block height is smaller than `last_final_height` we only need to check
-        // whether the base block is the same as the one with that height on the canonical fork.
-        // Otherwise we walk back the chain to check whether base block is on the same chain.
-        let last_final_height = self
-            .get_block_height(prev_block_header.last_final_block())
-            .map_err(|_| InvalidTxError::InvalidChain)?;
-
-        if prev_height > base_height + self.transaction_validity_period {
-            Err(InvalidTxError::Expired)
-        } else if last_final_height >= base_height {
-            let base_block_hash_by_height = self
-                .get_block_hash_by_height(base_height)
-                .map_err(|_| InvalidTxError::InvalidChain)?;
-            if &base_block_hash_by_height == base_block_hash {
-                if prev_height <= base_height + self.transaction_validity_period {
-                    Ok(())
-                } else {
-                    Err(InvalidTxError::Expired)
-                }
-            } else {
-                Err(InvalidTxError::InvalidChain)
-            }
-        } else {
-            let header =
-                get_block_header_on_chain_by_height(self, prev_block_header.hash(), base_height)
-                    .map_err(|_| InvalidTxError::InvalidChain)?;
-            if header.hash() == base_block_hash {
-                Ok(())
-            } else {
-                Err(InvalidTxError::InvalidChain)
-            }
-        }
+        check_transaction_validity_period(
+            &self.store,
+            prev_block_header,
+            base_block_hash,
+            self.transaction_validity_period,
+        )
     }
 
     pub fn compute_transaction_validity(
@@ -552,8 +503,8 @@ impl ChainStore {
         chunk: &ShardChunk,
     ) -> Result<Vec<bool>, Error> {
         let relaxed_chunk_validation =
-            near_primitives::checked_feature!("stable", RelaxedChunkValidation, protocol_version);
-        if near_primitives::checked_feature!("stable", AccessKeyNonceRange, protocol_version) {
+            ProtocolFeature::RelaxedChunkValidation.enabled(protocol_version);
+        if ProtocolFeature::AccessKeyNonceRange.enabled(protocol_version) {
             let mut valid_txs = Vec::with_capacity(chunk.transactions().len());
             if relaxed_chunk_validation {
                 for transaction in chunk.transactions() {
