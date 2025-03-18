@@ -253,13 +253,13 @@ mod tests {
             let actual_value_ref = memtrie_lookup(root, key, Some(&mut nodes_accessed))
                 .map(|v| v.to_optimized_value_ref());
             let expected_value_ref =
-                trie.get_optimized_ref(key, KeyLookupMode::FlatStorage).unwrap();
+                trie.get_optimized_ref(key, KeyLookupMode::MemOrFlatOrTrie).unwrap();
             assert_eq!(actual_value_ref, expected_value_ref, "{:?}", NibbleSlice::new(key));
 
             // Do another access with the trie to see how many nodes we're supposed to
             // have accessed.
             let temp_trie = shard_tries.get_trie_for_shard(shard_uid, state_root);
-            temp_trie.get_optimized_ref(key, KeyLookupMode::Trie).unwrap();
+            temp_trie.get_optimized_ref(key, KeyLookupMode::MemOrTrie).unwrap();
             assert_eq!(
                 temp_trie.get_trie_nodes_count().db_reads,
                 nodes_accessed.len() as u64,
