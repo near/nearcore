@@ -1984,11 +1984,16 @@ mod tests {
         let root = test_populate_trie(&tries, &Trie::EMPTY_ROOT, sid, initial);
         let trie = tries.get_trie_with_block_hash_for_shard(sid, root, &bid, false);
         assert!(trie.has_flat_storage_chunk_view());
-        assert!(trie.contains_key_mode(&[99, 44, 100, 58, 58, 49], KeyLookupMode::MemOrTrie).unwrap());
         assert!(
-            trie.contains_key_mode(&[99, 44, 100, 58, 58, 49], KeyLookupMode::MemOrFlatOrTrie).unwrap()
+            trie.contains_key_mode(&[99, 44, 100, 58, 58, 49], KeyLookupMode::MemOrTrie).unwrap()
         );
-        assert!(!trie.contains_key_mode(&[99, 44, 100, 58, 58, 48], KeyLookupMode::MemOrTrie).unwrap());
+        assert!(
+            trie.contains_key_mode(&[99, 44, 100, 58, 58, 49], KeyLookupMode::MemOrFlatOrTrie)
+                .unwrap()
+        );
+        assert!(
+            !trie.contains_key_mode(&[99, 44, 100, 58, 58, 48], KeyLookupMode::MemOrTrie).unwrap()
+        );
         assert!(
             !trie
                 .contains_key_mode(&[99, 44, 100, 58, 58, 48], KeyLookupMode::MemOrFlatOrTrie)
@@ -1999,16 +2004,21 @@ mod tests {
         let root = test_populate_trie(&tries, &root, sid, changes);
         let trie = tries.get_trie_with_block_hash_for_shard(sid, root, &bid, false);
         assert!(trie.has_flat_storage_chunk_view());
-        assert!(trie.contains_key_mode(&[99, 44, 100, 58, 58, 50], KeyLookupMode::MemOrTrie).unwrap());
         assert!(
-            trie.contains_key_mode(&[99, 44, 100, 58, 58, 50], KeyLookupMode::MemOrFlatOrTrie).unwrap()
+            trie.contains_key_mode(&[99, 44, 100, 58, 58, 50], KeyLookupMode::MemOrTrie).unwrap()
+        );
+        assert!(
+            trie.contains_key_mode(&[99, 44, 100, 58, 58, 50], KeyLookupMode::MemOrFlatOrTrie)
+                .unwrap()
         );
         assert!(
             !trie
                 .contains_key_mode(&[99, 44, 100, 58, 58, 49], KeyLookupMode::MemOrFlatOrTrie)
                 .unwrap()
         );
-        assert!(!trie.contains_key_mode(&[99, 44, 100, 58, 58, 49], KeyLookupMode::MemOrTrie).unwrap());
+        assert!(
+            !trie.contains_key_mode(&[99, 44, 100, 58, 58, 49], KeyLookupMode::MemOrTrie).unwrap()
+        );
     }
 
     #[test]
