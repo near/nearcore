@@ -3136,7 +3136,7 @@ dependencies = [
  "httpdate",
  "itoa",
  "pin-project-lite",
- "socket2 0.5.8",
+ "socket2 0.4.9",
  "tokio",
  "tower-service",
  "tracing",
@@ -4966,7 +4966,7 @@ dependencies = [
  "tokio-util",
  "tracing",
  "turn",
- "webrtc-util 0.7.0",
+ "webrtc-util",
 ]
 
 [[package]]
@@ -8278,7 +8278,7 @@ dependencies = [
  "thiserror 1.0.50",
  "tokio",
  "url",
- "webrtc-util 0.10.0",
+ "webrtc-util",
 ]
 
 [[package]]
@@ -9010,7 +9010,7 @@ dependencies = [
  "thiserror 1.0.50",
  "tokio",
  "tokio-util",
- "webrtc-util 0.10.0",
+ "webrtc-util",
 ]
 
 [[package]]
@@ -9727,27 +9727,6 @@ checksum = "5a6580f308b1fad9207618087a65c04e7a10bc77e02c8e84e9b00dd4b12fa0bb"
 dependencies = [
  "js-sys",
  "wasm-bindgen",
-]
-
-[[package]]
-name = "webrtc-util"
-version = "0.7.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "93f1db1727772c05cf7a2cfece52c3aca8045ca1e176cd517d323489aa3c6d87"
-dependencies = [
- "async-trait",
- "bitflags 1.3.2",
- "bytes",
- "cc",
- "ipnet",
- "lazy_static",
- "libc",
- "log",
- "nix 0.24.3",
- "rand 0.8.5",
- "thiserror 1.0.50",
- "tokio",
- "winapi",
 ]
 
 [[package]]

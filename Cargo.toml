@@ -410,7 +410,7 @@ wasmtime = { version = "30.0.2", default-features = false, features = [
 ] }
 wast = "40.0"
 wat = "1.0.40"
-webrtc-util = "0.7"
+webrtc-util = "0.10"
 winapi = { version = "0.3", features = [
     "winbase",
     "memoryapi",
