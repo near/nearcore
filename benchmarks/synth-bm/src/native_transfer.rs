@@ -1,22 +1,22 @@
-use std::fs::File;
-use std::io::{self, BufRead};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use crate::account::{accounts_from_dir, update_account_nonces};
-use crate::block_service::{BlockService, read_rpc_urls};
-use crate::metrics::TransactionStatisticsService;
-use crate::rpc::{ResponseCheckSeverity, RpcResponseHandler};
 use clap::Args;
 use near_jsonrpc_client::JsonRpcClient;
 use near_jsonrpc_client::methods::send_tx::RpcSendTransactionRequest;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::views::TxExecutionStatus;
-use rand::distributions::{Distribution, Uniform};
 use tokio::sync::mpsc;
 use tokio::time;
 use tracing::{error, info};
+
+use crate::account::{accounts_from_dir, update_account_nonces};
+use crate::block_service::{BlockService, read_rpc_urls};
+use crate::metrics::TransactionStatisticsService;
+use crate::rpc::{ResponseCheckSeverity, RpcResponseHandler};
+use rand::distributions::{Distribution, Uniform};
+use rand::thread_rng;
 
 #[derive(Args, Debug)]
 pub struct BenchmarkArgs {
@@ -59,13 +59,15 @@ pub async fn benchmark(args: &BenchmarkArgs) -> anyhow::Result<()> {
     let timer = Instant::now();
 
     let between = Uniform::from(0..accounts.len());
-    let mut rng = rand::thread_rng();
 
     // Create the primary RPC client
     let client = JsonRpcClient::connect(&args.rpc_url);
 
+    // Initialize a vector containing all RPC clients, starting with the primary one
+    let mut all_rpc_clients = vec![client.clone()];
+
     // Read additional RPC URLs if provided
-    let rpc_clients = if let Some(ref rpc_urls_file) = args.rpc_urls_file {
+    if let Some(ref rpc_urls_file) = args.rpc_urls_file {
         match read_rpc_urls(rpc_urls_file) {
             Ok(urls) => {
                 info!(
@@ -74,30 +76,35 @@ pub async fn benchmark(args: &BenchmarkArgs) -> anyhow::Result<()> {
                     rpc_urls_file.display(),
                     urls
                 );
-                urls.into_iter().map(|url| JsonRpcClient::connect(&url)).collect::<Vec<_>>()
+                all_rpc_clients.extend(urls.into_iter().map(|url| JsonRpcClient::connect(&url)));
+                info!(
+                    "Using {} validators for random transaction distribution",
+                    all_rpc_clients.len()
+                );
             }
             Err(e) => {
                 error!("Failed to read RPC URLs from {}: {}", rpc_urls_file.display(), e);
-                Vec::new()
+                // Continue with just the primary client
             }
         }
-    } else {
-        Vec::new()
-    };
-
-    // If we have additional RPC clients, use them
-    let use_random_validators = !rpc_clients.is_empty();
-    if use_random_validators {
-        info!("Using {} validators for random transaction distribution", rpc_clients.len());
     } else {
         info!("Using single RPC endpoint: {}", args.rpc_url);
     }
 
-    let block_service = Arc::new(BlockService::new(client.clone()).await);
+    // Create a uniform distribution for selecting random validators
+    let validator_between = Uniform::from(0..all_rpc_clients.len());
+
+    // Pick a random validator for block service
+    let mut rng = thread_rng();
+    let idx = validator_between.sample(&mut rng);
+    let random_client = all_rpc_clients[idx].clone();
+
+    // Use a random validator for the block service
+    let block_service = Arc::new(BlockService::new(random_client).await);
 
     if args.read_nonces_from_network {
         accounts = update_account_nonces(
-            client.clone(),
+            all_rpc_clients.clone(), // Pass all clients here
             accounts,
             args.requests_per_second,
             Some(&args.user_data_dir),
@@ -133,9 +140,7 @@ pub async fn benchmark(args: &BenchmarkArgs) -> anyhow::Result<()> {
         None
     };
 
-    // Create a uniform distribution for selecting random validators
-    let validator_between =
-        if use_random_validators { Some(Uniform::from(0..rpc_clients.len())) } else { None };
+    let mut rng = thread_rng();
 
     for i in 0..args.num_transfers {
         let idx_sender = usize::try_from(i % u64::try_from(accounts.len()).unwrap()).unwrap();
@@ -171,12 +176,7 @@ pub async fn benchmark(args: &BenchmarkArgs) -> anyhow::Result<()> {
         interval.tick().await;
 
         // Select a random validator client if available
-        let selected_client = if use_random_validators && validator_between.is_some() {
-            let idx = validator_between.as_ref().unwrap().sample(&mut rng);
-            rpc_clients[idx].clone()
-        } else {
-            client.clone()
-        };
+        let selected_client = all_rpc_clients[validator_between.sample(&mut rng)].clone();
 
         // Await permit before sending the request to make channel buffer size a limit for the
         // number of outstanding requests.

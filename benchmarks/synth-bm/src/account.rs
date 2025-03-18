@@ -8,7 +8,7 @@ use tokio::task::JoinSet;
 use tokio::time;
 
 use crate::block_service::BlockService;
-use crate::rpc::{new_request, view_access_key, ResponseCheckSeverity, RpcResponseHandler};
+use crate::rpc::{ResponseCheckSeverity, RpcResponseHandler, new_request, view_access_key};
 use clap::Args;
 use near_crypto::{InMemorySigner, KeyType, SecretKey};
 use near_crypto::{PublicKey, Signer};
@@ -152,7 +152,7 @@ pub fn accounts_from_dir(dir: &Path) -> anyhow::Result<Vec<Account>> {
 
 /// Updates accounts with the nonce values requested from the network and optionally writes the updated values to the disk.
 pub async fn update_account_nonces(
-    client: JsonRpcClient,
+    clients: Vec<JsonRpcClient>,
     mut accounts: Vec<Account>,
     rps_limit: u64,
     accounts_path: Option<&PathBuf>,
@@ -162,9 +162,28 @@ pub async fn update_account_nonces(
     let mut interval = time::interval(Duration::from_micros(1_000_000u64 / rps_limit));
     for (i, account) in accounts.iter().enumerate() {
         interval.tick().await;
-        let client = client.clone();
+        let clients = clients.clone();
         let (id, pk) = (account.id.clone(), account.public_key.clone());
-        tasks.spawn(async move { (i, view_access_key(&client, id, pk).await) });
+        tasks.spawn(async move {
+            // Try each client until one succeeds
+            for client in clients {
+                match view_access_key(&client, id.clone(), pk.clone()).await {
+                    Ok(result) => return (i, Ok(result)),
+                    Err(e) => {
+                        debug!("Failed to query account nonce from client: {}", e);
+                        // Continue to next client
+                        continue;
+                    }
+                }
+            }
+            // All clients failed
+            (
+                i,
+                Err(anyhow::anyhow!(
+                    "Failed to query account nonce from all available RPC clients"
+                )),
+            )
+        });
     }
 
     while let Some(res) = tasks.join_next().await {
@@ -268,7 +287,8 @@ pub async fn create_sub_accounts(args: &CreateSubAccountsArgs) -> anyhow::Result
     // Nonces of new access keys are set by nearcore: https://github.com/near/nearcore/pull/4064
     // Query them from the rpc to write `Accounts` with valid nonces to disk
     sub_accounts =
-        update_account_nonces(client.clone(), sub_accounts, args.requests_per_second, None).await?;
+        update_account_nonces(vec![client.clone()], sub_accounts, args.requests_per_second, None)
+            .await?;
 
     for account in sub_accounts.iter() {
         account.write_to_dir(&args.user_data_dir)?;

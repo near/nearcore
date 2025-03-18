@@ -2,23 +2,23 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use crate::account::{accounts_from_dir, update_account_nonces, Account};
-use crate::block_service::BlockService;
+use crate::account::{Account, accounts_from_dir, update_account_nonces};
+use crate::block_service::{BlockService, read_rpc_urls};
 use crate::rpc::{ResponseCheckSeverity, RpcResponseHandler};
 use clap::Args;
-use near_jsonrpc_client::methods::send_tx::RpcSendTransactionRequest;
 use near_jsonrpc_client::JsonRpcClient;
+use near_jsonrpc_client::methods::send_tx::RpcSendTransactionRequest;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::AccountId;
 use near_primitives::views::TxExecutionStatus;
-use rand::distributions::{Alphanumeric, DistString};
+use rand::distributions::{Alphanumeric, DistString, Distribution, Uniform};
 use rand::rngs::ThreadRng;
-use rand::{thread_rng, Rng};
+use rand::{Rng, thread_rng};
 use serde::Serialize;
 use serde_json::json;
 use tokio::sync::mpsc;
 use tokio::time;
-use tracing::info;
+use tracing::{error, info};
 
 #[derive(Args, Debug)]
 pub struct BenchmarkMpcSignArgs {
@@ -54,6 +54,10 @@ pub struct BenchmarkMpcSignArgs {
     /// If set, this flag updates the nonce values from the network.
     #[arg(default_value_t = false, long)]
     pub read_nonces_from_network: bool,
+
+    /// If set, this flag reads additional RPC URLs from a file.
+    #[arg(long)]
+    pub rpc_urls_file: Option<PathBuf>,
 }
 
 pub async fn benchmark_mpc_sign_impl(
@@ -144,17 +148,47 @@ pub async fn benchmark_mpc_sign_impl(
 }
 
 pub async fn benchmark_mpc_sign(args: &BenchmarkMpcSignArgs) -> anyhow::Result<()> {
-    let mut accounts = accounts_from_dir(&args.user_data_dir)?;
+    let mut accounts: Vec<_> = accounts_from_dir(&args.user_data_dir)?.into_iter().collect();
     assert!(
-        accounts.len() > 0,
+        !accounts.is_empty(),
         "at least one account required in {:?} to send transactions",
         args.user_data_dir
     );
 
+    // Create the primary RPC client
     let client = JsonRpcClient::connect(&args.rpc_url);
+
+    // Initialize a vector containing all RPC clients, starting with the primary one
+    let mut all_rpc_clients = vec![client.clone()];
+
+    // Read additional RPC URLs if provided
+    if let Some(ref rpc_urls_file) = args.rpc_urls_file {
+        match read_rpc_urls(rpc_urls_file) {
+            Ok(urls) => {
+                info!(
+                    "Loaded {} additional RPC URLs from {}: {:?}",
+                    urls.len(),
+                    rpc_urls_file.display(),
+                    urls
+                );
+                all_rpc_clients.extend(urls.into_iter().map(|url| JsonRpcClient::connect(&url)));
+                info!(
+                    "Using {} validators for random transaction distribution",
+                    all_rpc_clients.len()
+                );
+            }
+            Err(e) => {
+                error!("Failed to read RPC URLs from {}: {}", rpc_urls_file.display(), e);
+                // Continue with just the primary client
+            }
+        }
+    } else {
+        info!("Using single RPC endpoint: {}", args.rpc_url);
+    }
+
     if args.read_nonces_from_network {
         accounts = update_account_nonces(
-            client.clone(),
+            all_rpc_clients.clone(),
             accounts.to_vec(),
             args.requests_per_second,
             Some(&args.user_data_dir),
@@ -162,7 +196,13 @@ pub async fn benchmark_mpc_sign(args: &BenchmarkMpcSignArgs) -> anyhow::Result<(
         .await?;
     }
 
-    let result = benchmark_mpc_sign_impl(args, client, &mut accounts).await;
+    // Pick a random validator for block service
+    let mut rng = thread_rng();
+    let validator_between = Uniform::from(0..all_rpc_clients.len());
+    let idx = validator_between.sample(&mut rng);
+    let random_client = all_rpc_clients[idx].clone();
+
+    let result = benchmark_mpc_sign_impl(args, random_client, &mut accounts).await;
 
     info!("Writing updated nonces to {:?}", args.user_data_dir);
     for account in accounts.iter() {

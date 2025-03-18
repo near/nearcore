@@ -21,9 +21,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 use tokio::time;
-use std::fs::File;
-use std::io::{self, BufRead};
-use tracing::{debug, error, info, warn};
+use tracing::{error, info};
 
 #[derive(Subcommand, Debug)]
 pub enum SweatCommand {
@@ -185,9 +183,9 @@ pub async fn create_contracts(args: &CreateContractsArgs) -> anyhow::Result<()> 
     info!("Loaded {} oracle accounts", oracles.len());
     let master_signer = InMemorySigner::from_file(&args.signer_key_path)?;
 
-    // Update nonces from network before deployment
+    // Update nonces from network before deployment - pass client in a vector
     oracles = update_account_nonces(
-        client.clone(),
+        vec![client.clone()],
         oracles,
         10, // Lower RPS for deployment
         Some(&args.user_data_dir),
@@ -320,7 +318,7 @@ pub async fn create_contracts(args: &CreateContractsArgs) -> anyhow::Result<()> 
     }
 
     info!("Updating nonces after deployment");
-    update_account_nonces(client.clone(), oracles, 10, Some(&args.user_data_dir)).await?;
+    update_account_nonces(vec![client.clone()], oracles, 10, Some(&args.user_data_dir)).await?;
 
     info!("Contract creation completed successfully");
     Ok(())
@@ -333,7 +331,7 @@ pub async fn create_users(args: &CreateUsersArgs) -> anyhow::Result<()> {
 
     // Load oracle accounts
     let mut oracles = accounts_from_dir(&args.oracle_data_dir)?;
-    oracles = update_account_nonces(client.clone(), oracles, 10, Some(&args.user_data_dir)).await?;
+    oracles = update_account_nonces(vec![client.clone()], oracles, 10, Some(&args.user_data_dir)).await?;
 
     // Create users for all oracles in parallel
     let mut handles = Vec::new();
@@ -392,7 +390,7 @@ pub async fn create_users(args: &CreateUsersArgs) -> anyhow::Result<()> {
     info!("Loading oracle accounts for final nonce update");
     let oracles = accounts_from_dir(&args.oracle_data_dir)?;
     info!("Updating final nonces for {} oracle accounts", oracles.len());
-    update_account_nonces(client.clone(), oracles, 10, Some(&args.oracle_data_dir)).await?;
+    update_account_nonces(vec![client.clone()], oracles, 10, Some(&args.oracle_data_dir)).await?;
     info!("User creation completed successfully");
 
     Ok(())
@@ -719,10 +717,13 @@ async fn run_benchmark(args: &RunBenchmarkArgs) -> anyhow::Result<()> {
     let mut oracles = accounts_from_dir(&args.oracle_data_dir)?;
     assert!(!oracles.is_empty(), "at least one oracle required");
 
-    let client = JsonRpcClient::connect(&args.rpc_url);
+    let primary_client = JsonRpcClient::connect(&args.rpc_url);
+    
+    // Initialize a vector containing all RPC clients, starting with the primary one
+    let mut all_rpc_clients = vec![primary_client.clone()];
     
     // Read additional RPC URLs if provided
-    let rpc_clients = if let Some(ref rpc_urls_file) = args.rpc_urls_file {
+    if let Some(ref rpc_urls_file) = args.rpc_urls_file {
         match read_rpc_urls(rpc_urls_file) {
             Ok(urls) => {
                 info!(
@@ -731,32 +732,24 @@ async fn run_benchmark(args: &RunBenchmarkArgs) -> anyhow::Result<()> {
                     rpc_urls_file.display(),
                     urls
                 );
-                urls.into_iter().map(|url| JsonRpcClient::connect(&url)).collect::<Vec<_>>()
+                all_rpc_clients.extend(urls.into_iter().map(|url| JsonRpcClient::connect(&url)));
+                info!("Using {} validators for random transaction distribution", all_rpc_clients.len());
             }
             Err(e) => {
                 error!("Failed to read RPC URLs from {}: {}", rpc_urls_file.display(), e);
-                Vec::new()
+                // Continue with just the primary client
             }
         }
-    } else {
-        Vec::new()
-    };
-
-    // If we have additional RPC clients, use them
-    let use_random_validators = !rpc_clients.is_empty();
-    if use_random_validators {
-        info!("Using {} validators for random transaction distribution", rpc_clients.len());
     } else {
         info!("Using single RPC endpoint: {}", args.rpc_url);
     }
     
     // Create a uniform distribution for selecting random validators
-    let validator_between = 
-        if use_random_validators { Some(Uniform::from(0..rpc_clients.len())) } else { None };
-
-    // Update oracle nonces from network before starting
+    let validator_between = Uniform::from(0..all_rpc_clients.len());
+    
+    // Update oracle nonces from network before starting - using all available clients
     oracles = update_account_nonces(
-        client.clone(),
+        all_rpc_clients.clone(),
         oracles,
         10, // Lower RPS for nonce updates
         Some(&args.oracle_data_dir),
@@ -767,7 +760,12 @@ async fn run_benchmark(args: &RunBenchmarkArgs) -> anyhow::Result<()> {
     let users = accounts_from_dir(&args.user_data_dir)?;
     assert!(users.len() >= args.batch_size as usize, "need at least as many users as batch_size");
 
-    let block_service = Arc::new(BlockService::new(client.clone()).await);
+    // Pick a random validator for block service
+    let mut rng = thread_rng();
+    let idx = validator_between.sample(&mut rng);
+    let random_client = all_rpc_clients[idx].clone();
+    
+    let block_service = Arc::new(BlockService::new(random_client).await);
     block_service.clone().start().await;
 
     let mut interval = time::interval(Duration::from_micros(1_000_000 / args.requests_per_second));
@@ -847,11 +845,11 @@ async fn run_benchmark(args: &RunBenchmarkArgs) -> anyhow::Result<()> {
         let permit = channel_tx.clone().reserve_owned().await.unwrap();
         
         // Select a random validator client if available
-        let selected_client = if use_random_validators && validator_between.is_some() {
-            let idx = validator_between.as_ref().unwrap().sample(&mut rng);
-            rpc_clients[idx].clone()
+        let selected_client = if !all_rpc_clients.is_empty() {
+            let idx = validator_between.sample(&mut rng);
+            all_rpc_clients[idx].clone()
         } else {
-            client.clone()
+            primary_client.clone()
         };
         
         tokio::spawn(async move {
