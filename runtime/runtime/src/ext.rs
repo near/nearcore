@@ -154,7 +154,7 @@ impl<'a> External for RuntimeExt<'a> {
         let storage_key = self.create_storage_key(key);
         let evicted_ptr = self
             .trie_update
-            .get_ref(&storage_key, KeyLookupMode::Trie)
+            .get_ref(&storage_key, KeyLookupMode::MemOrTrie)
             .map_err(wrap_storage_error)?;
         let evicted = match evicted_ptr {
             None => None,
@@ -189,8 +189,8 @@ impl<'a> External for RuntimeExt<'a> {
         let ttn = self.trie_update.trie().get_trie_nodes_count();
         let storage_key = self.create_storage_key(key);
         let mode = match self.storage_access_mode {
-            StorageGetMode::FlatStorage => KeyLookupMode::FlatStorage,
-            StorageGetMode::Trie => KeyLookupMode::Trie,
+            StorageGetMode::FlatStorage => KeyLookupMode::MemOrFlatOrTrie,
+            StorageGetMode::Trie => KeyLookupMode::MemOrTrie,
         };
         // SUBTLE: unlike `write` or `remove` which does not record TTN fees if the read operations
         // fail for the evicted values, this will record the TTN fees unconditionally.
@@ -236,7 +236,7 @@ impl<'a> External for RuntimeExt<'a> {
         let storage_key = self.create_storage_key(key);
         let removed = self
             .trie_update
-            .get_ref(&storage_key, KeyLookupMode::Trie)
+            .get_ref(&storage_key, KeyLookupMode::MemOrTrie)
             .map_err(wrap_storage_error)?;
         let removed = match removed {
             None => None,
@@ -272,8 +272,8 @@ impl<'a> External for RuntimeExt<'a> {
         let ttn = self.trie_update.trie().get_trie_nodes_count();
         let storage_key = self.create_storage_key(key);
         let mode = match self.storage_access_mode {
-            StorageGetMode::FlatStorage => KeyLookupMode::FlatStorage,
-            StorageGetMode::Trie => KeyLookupMode::Trie,
+            StorageGetMode::FlatStorage => KeyLookupMode::MemOrFlatOrTrie,
+            StorageGetMode::Trie => KeyLookupMode::MemOrTrie,
         };
         let result = self
             .trie_update

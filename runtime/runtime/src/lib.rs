@@ -546,7 +546,7 @@ impl Runtime {
                         let identifier = GlobalContractIdentifier::AccountId(account_id.clone());
                         let key = TrieKey::GlobalContractCode { identifier: identifier.into() };
                         let value_ref = state_update
-                            .get_ref(&key, KeyLookupMode::FlatStorage)?
+                            .get_ref(&key, KeyLookupMode::MemOrFlatOrTrie)?
                             .ok_or_else(|| {
                                 let TrieKey::GlobalContractCode { identifier } = key else {
                                     unreachable!()
