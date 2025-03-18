@@ -131,7 +131,7 @@ impl TxGenerator {
         client_sender: &ClientSender,
     ) -> bool {
         // each transaction will transfer this amount
-        const AMOUNT: near_primitives::types::Balance = 1; 
+        const AMOUNT: near_primitives::types::Balance = 1;
 
         let idx = rand::seq::index::sample(rnd, accounts.len(), 2);
         let sender = &accounts[idx.index(0)];
