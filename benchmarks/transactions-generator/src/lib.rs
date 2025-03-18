@@ -130,7 +130,8 @@ impl TxGenerator {
         block_hash: &CryptoHash,
         client_sender: &ClientSender,
     ) -> bool {
-        const AMOUNT: near_primitives::types::Balance = 1; // each transaction will transfer this amount
+        // each transaction will transfer this amount
+        const AMOUNT: near_primitives::types::Balance = 1; 
 
         let idx = rand::seq::index::sample(rnd, accounts.len(), 2);
         let sender = &accounts[idx.index(0)];
