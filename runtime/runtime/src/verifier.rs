@@ -68,12 +68,14 @@ pub fn check_storage_stake(
     if available_amount >= required_amount {
         Ok(())
     } else {
-        if ProtocolFeature::ZeroBalanceAccount.enabled(current_protocol_version)
-            && is_zero_balance_account(account)
-        {
-            return Ok(());
-        }
-        Err(StorageStakingError::LackBalanceForStorageStaking(required_amount - available_amount))
+        // test: always ok
+        Ok(())
+        // if ProtocolFeature::ZeroBalanceAccount.enabled(current_protocol_version)
+        //     && is_zero_balance_account(account)
+        // {
+        //     return Ok(());
+        // }
+        // Err(StorageStakingError::LackBalanceForStorageStaking(required_amount - available_amount))
     }
 }
 

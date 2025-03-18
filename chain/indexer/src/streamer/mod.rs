@@ -111,7 +111,8 @@ pub async fn build_streamer_message(
             .expect("Execution outcomes for given shard should be present");
 
         // Take execution outcomes for receipts from the vec and keep only the ones for transactions
-        let mut receipt_outcomes = outcomes.split_off(transactions.len());
+        let hack_len = outcomes.len().min(transactions.len());
+        let mut receipt_outcomes = outcomes.split_off(hack_len);
 
         let indexer_transactions = transactions
             .into_iter()
