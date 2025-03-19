@@ -147,7 +147,8 @@ check-protocol-schema:
     #
     # If there is an issue with the env var, fall back to `cargo +nightly ...`.
     env {{protocol_schema_env}} cargo test -p protocol-schema-check --profile dev-artifacts
-    env {{protocol_schema_env}} cargo run -p protocol-schema-check --profile dev-artifacts ; diff tools/protocol-schema-check/res/protocol_schema.toml target/protocol_schema.toml
+    env {{protocol_schema_env}} cargo run -p protocol-schema-check --profile dev-artifacts ;
+    diff tools/protocol-schema-check/res/protocol_schema.toml target/schema-check/protocol_schema.toml
     
 
 publishable := "cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.publish == null or (.publish | length > 0)) | .name'"
