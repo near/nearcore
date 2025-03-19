@@ -150,7 +150,7 @@ impl BlockEconomicsConfig {
     /// been overwritten at specific protocol versions. Chains with a genesis
     /// version higher than those changes are not overwritten and will instead
     /// respect the value defined in genesis.
-    pub fn min_gas_price(&self, _protocol_version: ProtocolVersion) -> Balance {
+    pub fn min_gas_price(&self) -> Balance {
         // Since MIN_SUPPORTED_PROTOCOL_VERSION is now 37, we always use the NEP-92 fix value
         MIN_GAS_PRICE_NEP_92_FIX
     }
@@ -159,14 +159,14 @@ impl BlockEconomicsConfig {
         if ProtocolFeature::CapMaxGasPrice.enabled(protocol_version) {
             std::cmp::min(
                 self.genesis_max_gas_price,
-                Self::MAX_GAS_MULTIPLIER * self.min_gas_price(protocol_version),
+                Self::MAX_GAS_MULTIPLIER * self.min_gas_price(),
             )
         } else {
             self.genesis_max_gas_price
         }
     }
 
-    pub fn gas_price_adjustment_rate(&self, _protocol_version: ProtocolVersion) -> Rational32 {
+    pub fn gas_price_adjustment_rate(&self) -> Rational32 {
         self.gas_price_adjustment_rate
     }
 }
