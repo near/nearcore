@@ -184,7 +184,7 @@ impl ReceiptPreparationPipeline {
                                 ),
                             };
                             let Ok(Some(value_ref)) = state_update
-                                .get_ref_no_side_effects(&key, KeyLookupMode::FlatStorage)
+                                .get_ref_no_side_effects(&key, KeyLookupMode::MemOrFlatOrTrie)
                             else {
                                 continue;
                             };

@@ -28,13 +28,16 @@ mod doomslug;
 pub mod flat_storage_init;
 pub mod flat_storage_resharder;
 mod garbage_collection;
+pub mod genesis;
 mod lightclient;
 pub mod metrics;
 pub mod migrations;
 pub mod missing_chunks;
 pub mod orphan;
+pub mod rayon_spawner;
 pub mod resharding;
 pub mod runtime;
+pub mod sharding;
 pub mod signature_verification;
 pub mod state_snapshot_actor;
 mod state_sync;
@@ -42,14 +45,11 @@ pub mod stateless_validation;
 mod store;
 pub mod store_validator;
 pub mod test_utils;
-pub mod types;
-pub mod validate;
-
-pub mod rayon_spawner;
-pub mod sharding;
 #[cfg(test)]
 mod tests;
+pub mod types;
 pub mod update_shard;
+pub mod validate;
 
 #[cfg(feature = "byzantine_asserts")]
 #[macro_export]
