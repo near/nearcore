@@ -16,8 +16,8 @@ use near_primitives::trie_key::trie_key_parsers::parse_account_id_from_raw_key;
 use near_primitives::types::{StateChangeCause, StateRoot};
 use std::collections::HashMap;
 
-use super::update::TrieUpdateResult;
 use super::OperationOptions;
+use super::update::TrieUpdateResult;
 
 impl ShardTries {
     /// add `values` (key-value pairs of items stored in states) to build states for new shards
@@ -67,8 +67,9 @@ impl ShardTries {
             FlatStateChanges::from_raw_key_value(&changes)
                 .apply_to_flat_state(&mut store_update.flat_store_update(), shard_uid);
             // Here we assume that state_roots contains shard_uid, the caller of this method will guarantee that.
-            let trie_changes =
-                self.get_trie_for_shard(shard_uid, state_roots[&shard_uid]).update(changes, OperationOptions::DEFAULT)?;
+            let trie_changes = self
+                .get_trie_for_shard(shard_uid, state_roots[&shard_uid])
+                .update(changes, OperationOptions::DEFAULT)?;
             let state_root = self.apply_all(&trie_changes, shard_uid, &mut store_update);
             new_state_roots.insert(shard_uid, state_root);
         }

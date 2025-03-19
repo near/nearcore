@@ -185,7 +185,7 @@ mod nodes_counter_tests {
             (create_trie_key(&[1, 0, 0]), Some(vec![2])),
         ];
         let mut trie = create_trie(&trie_items);
-        trie.charge_gas_for_trie_node_access = true;
+        trie.use_trie_accounting_cache = true;
         assert_eq!(get_touched_nodes_numbers(&trie, &trie_items), vec![5, 5, 4]);
     }
 
@@ -200,7 +200,7 @@ mod nodes_counter_tests {
             (create_trie_key(&[1, 1]), Some(vec![1])),
         ];
         let mut trie = create_trie(&trie_items);
-        trie.charge_gas_for_trie_node_access = true;
+        trie.use_trie_accounting_cache = true;
         assert_eq!(get_touched_nodes_numbers(&trie, &trie_items), vec![4, 4]);
     }
 }

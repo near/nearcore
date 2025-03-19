@@ -115,7 +115,10 @@ pub struct OperationOptions {
     /// implications on gas fees charged and thus affects the protoocl.
     ///
     /// For the most part this should only be enabled in the context of contract execution.
+    ///
+    /// If `Trie::use_trie_accounting_cache` is `false`, this has no effect either way.
     enable_trie_accounting_cache_insertion: bool,
+
     /// Whether a storage operation should record intermediate accesses to the state witness.
     ///
     /// This usually should be true, but in certain situations such as transparent optimizations
@@ -265,12 +268,22 @@ pub struct Trie {
     /// the captured result.
     // FIXME: make `TrieRecorder` internally MT-safe, instead of locking the entire structure.
     recorder: Option<RwLock<TrieRecorder>>,
-    /// If true, access to trie nodes (not values) charges gas and affects the
-    /// accounting cache. If false, access to trie nodes will not charge gas or
-    /// affect the accounting cache. Value accesses always charge gas no matter
-    /// what, and lookups done via get_ref with `KeyLookupMode::Trie` will
-    /// also charge gas no matter what.
-    charge_gas_for_trie_node_access: bool,
+    /// If true, access to trie nodes count towards the TTN counters.
+    ///
+    /// NOTE that the "cache" does not necessarily get populated based on this variable. That
+    /// behaviour is controlled entirely by the
+    /// [`OperationOptions::enable_trie_accounting_cache_insertion`] argument passed into separate
+    /// methods.
+    ///
+    /// Further, note that regardless of this variable, lookups with `KeyLookupMode::MemOrTrie`
+    /// will count towards TTN regardless of this field's value. The logic here is ultra-subtle:
+    /// it is possible for lookups with `KeyLokupMode::MemOrFlatOrTrie` to get served from either
+    /// memtries, flat storage or regular trie depending on which of the storage types are loaded.
+    /// However flat storage will only increase TTNs for dereference of a non-inlined value
+    /// (and will do so regardless of this setting.) So the exact count of TTNs recorded will
+    /// depend not only on this field, but also on which types of storage are loaded, which
+    /// `KeyLookupMode` is used and probably some other subtle factors.
+    use_trie_accounting_cache: bool,
 }
 
 /// Trait for reading data from a trie.
@@ -610,13 +623,13 @@ impl Trie {
         // on the flat storage protocol feature. When flat storage is enabled
         // the trie node access should be free and the charge flag should be set
         // to false.
-        let charge_gas_for_trie_node_access = false;
+        let use_trie_accounting_cache = false;
         Trie {
             storage,
             memtries,
             children_memtries,
             root,
-            charge_gas_for_trie_node_access,
+            use_trie_accounting_cache,
             flat_storage_chunk_view,
             accounting_cache: Mutex::new(accounting_cache),
             recorder: None,
@@ -629,8 +642,8 @@ impl Trie {
     }
 
     /// Helper to simulate gas costs as if flat storage was present.
-    pub fn set_charge_gas_for_trie_node_access(&mut self, value: bool) {
-        self.charge_gas_for_trie_node_access = value;
+    pub fn set_use_trie_accounting_cache(&mut self, value: bool) {
+        self.use_trie_accounting_cache = value;
     }
 
     /// Makes a new trie that has everything the same except that access
@@ -657,7 +670,7 @@ impl Trie {
             self.flat_storage_chunk_view.clone(),
         );
         trie.recorder = Some(recorder);
-        trie.charge_gas_for_trie_node_access = self.charge_gas_for_trie_node_access;
+        trie.use_trie_accounting_cache = self.use_trie_accounting_cache;
         trie
     }
 
@@ -713,7 +726,7 @@ impl Trie {
         let recorded_storage = nodes.into_iter().map(|value| (hash(&value), value)).collect();
         let storage = Arc::new(TrieMemoryPartialStorage::new(recorded_storage));
         let mut trie = Self::new(storage, root, None);
-        trie.charge_gas_for_trie_node_access = !flat_storage_used;
+        trie.use_trie_accounting_cache = !flat_storage_used;
         trie
     }
 
@@ -1271,19 +1284,19 @@ impl Trie {
     /// `DBCol::State` column in the database (but still going through
     /// applicable caches).
     ///
-    /// The `charge_gas_for_trie_node_access` parameter controls whether the
+    /// The `use_trie_accounting_cache` parameter controls whether the
     /// lookup incurs any gas.
     fn lookup_from_state_column(
         &self,
         mut key: NibbleSlice<'_>,
-        charge_gas_for_trie_node_access: bool,
+        use_trie_accounting_cache: bool,
         operation_options: OperationOptions,
     ) -> Result<Option<ValueRef>, StorageError> {
         let mut hash = self.root;
         loop {
             let node = match self.retrieve_raw_node(
                 &hash,
-                charge_gas_for_trie_node_access,
+                use_trie_accounting_cache,
                 operation_options,
             )? {
                 None => return Ok(None),
@@ -1336,9 +1349,9 @@ impl Trie {
     /// to the state column. This method will return whichever the in-memory trie has.
     /// Refer to `get_optimized_ref` for the semantics of using the returned type.
     ///
-    /// `charge_gas_for_trie_node_access` is used to control whether Trie node
-    /// accesses incur any gas. Note that access to values is never charged here;
-    /// it is only charged when the returned ref is dereferenced.
+    /// `use_trie_accounting_cache` is used to control whether Trie node
+    /// accesses accumulate TTN counters and potentially store data into the `TrieAccountingCache`
+    /// so that future accesses count towards TTN counters.
     ///
     /// The storage of memtries and the data therein are behind a lock, as thus unlike many other
     /// functions here, the access to the value reference is provided as an argument to the
@@ -1483,7 +1496,7 @@ impl Trie {
         opts: OperationOptions,
     ) -> Result<bool, StorageError> {
         let use_trie_accounting_cache =
-            mode == KeyLookupMode::MemOrTrie || self.charge_gas_for_trie_node_access;
+            mode == KeyLookupMode::MemOrTrie || self.use_trie_accounting_cache;
         if self.memtries.is_some() {
             return Ok(self
                 .lookup_from_memory(key, use_trie_accounting_cache, opts, |_| ())?
@@ -1529,7 +1542,7 @@ impl Trie {
         opts: OperationOptions,
     ) -> Result<Option<OptimizedValueRef>, StorageError> {
         let use_trie_accounting_cache =
-            mode == KeyLookupMode::MemOrTrie || self.charge_gas_for_trie_node_access;
+            mode == KeyLookupMode::MemOrTrie || self.use_trie_accounting_cache;
         if self.memtries.is_some() {
             self.lookup_from_memory(key, use_trie_accounting_cache, opts, |v| {
                 v.to_optimized_value_ref()
@@ -1845,7 +1858,7 @@ pub struct TrieNodesCount {
 }
 
 impl TrieNodesCount {
-    /// Used to determine the number of trie nodes charged during some operation.
+    /// Used to determine the number of trie nodes touched during some operation.
     pub fn checked_sub(self, other: &Self) -> Option<Self> {
         Some(Self {
             db_reads: self.db_reads.checked_sub(other.db_reads)?,
