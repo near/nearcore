@@ -37,6 +37,11 @@ pub fn initialize_sharded_genesis_state(
     let state_roots = if let Some(state_roots) =
         get_genesis_state_roots(&store).expect("Store failed on genesis initialization")
     {
+        // TODO: with 2.6 release, remove storing genesis height
+        let mut store_update: crate::StoreUpdate = store.store_update();
+        set_genesis_height(&mut store_update, &genesis.config.genesis_height);
+        store_update.commit().expect("Store failed on genesis initialization");
+
         let genesis_height = get_genesis_height(&store)
             .expect("Store failed on genesis initialization")
             .expect("Genesis height not found in storage");
