@@ -270,7 +270,7 @@ mod trie_storage_tests {
             let result = accounting_cache.retrieve_raw_bytes_with_accounting(
                 &key,
                 &trie_caching_storage,
-                false,
+                OperationOptions::DEFAULT,
             );
             let count_delta =
                 accounting_cache.get_trie_nodes_count().checked_sub(&count_before).unwrap();
@@ -312,14 +312,14 @@ mod trie_storage_tests {
             TrieCachingStorage::new(store, trie_cache.clone(), shard_uid, false, None);
         let mut accounting_cache = TrieAccountingCache::new(None);
         let key = hash(&value);
+        let opts = OperationOptions::contract_runtime(u32::MAX);
 
-        accounting_cache.enable_switch().set(true);
         let _ =
-            accounting_cache.retrieve_raw_bytes_with_accounting(&key, &trie_caching_storage, true);
+            accounting_cache.retrieve_raw_bytes_with_accounting(&key, &trie_caching_storage, opts);
 
         let count_before: TrieNodesCount = accounting_cache.get_trie_nodes_count();
         let result =
-            accounting_cache.retrieve_raw_bytes_with_accounting(&key, &trie_caching_storage, true);
+            accounting_cache.retrieve_raw_bytes_with_accounting(&key, &trie_caching_storage, opts);
         let count_delta =
             accounting_cache.get_trie_nodes_count().checked_sub(&count_before).unwrap();
         assert_eq!(trie_cache.get(&key), None);
@@ -340,6 +340,7 @@ mod trie_storage_tests {
         let mut accounting_cache = TrieAccountingCache::new(None);
         let value = &values[0];
         let key = hash(&value);
+        let opts = OperationOptions::contract_runtime(u32::MAX);
 
         // In the beginning, we are in the CachingShard mode and item is not present in cache.
         assert_eq!(trie_cache.get(&key), None);
@@ -350,10 +351,9 @@ mod trie_storage_tests {
 
         // Move to CachingChunk mode. Retrieval should increment the counter, because it is the first time we accessed
         // item while caching chunk.
-        accounting_cache.enable_switch().set(true);
         let count_before = accounting_cache.get_trie_nodes_count();
         let result =
-            accounting_cache.retrieve_raw_bytes_with_accounting(&key, &trie_caching_storage, true);
+            accounting_cache.retrieve_raw_bytes_with_accounting(&key, &trie_caching_storage, opts);
         let count_delta =
             accounting_cache.get_trie_nodes_count().checked_sub(&count_before).unwrap();
         assert_eq!(result.unwrap().as_ref(), value);
@@ -363,7 +363,7 @@ mod trie_storage_tests {
         // After previous retrieval, item must be copied to accounting cache. Retrieval shouldn't increment the counter.
         let count_before = accounting_cache.get_trie_nodes_count();
         let result =
-            accounting_cache.retrieve_raw_bytes_with_accounting(&key, &trie_caching_storage, true);
+            accounting_cache.retrieve_raw_bytes_with_accounting(&key, &trie_caching_storage, opts);
         let count_delta =
             accounting_cache.get_trie_nodes_count().checked_sub(&count_before).unwrap();
         assert_eq!(result.unwrap().as_ref(), value);
@@ -372,10 +372,9 @@ mod trie_storage_tests {
 
         // Even if we switch to caching shard, retrieval shouldn't increment the counter. Accounting cache only grows and is
         // dropped only when trie caching storage is dropped.
-        accounting_cache.enable_switch().set(true);
         let count_before = accounting_cache.get_trie_nodes_count();
         let result =
-            accounting_cache.retrieve_raw_bytes_with_accounting(&key, &trie_caching_storage, true);
+            accounting_cache.retrieve_raw_bytes_with_accounting(&key, &trie_caching_storage, opts);
         let count_delta =
             accounting_cache.get_trie_nodes_count().checked_sub(&count_before).unwrap();
         assert_eq!(result.unwrap().as_ref(), value);
@@ -387,6 +386,7 @@ mod trie_storage_tests {
     /// it stays in the accounting cache.
     #[test]
     fn test_accounting_cache_presence() {
+        let opts = OperationOptions::contract_runtime(u32::MAX);
         let shard_cache_size = 5;
         let values: Vec<Vec<u8>> = (0..shard_cache_size as u8 + 1).map(|i| vec![i]).collect();
         let shard_uid = ShardUId::single_shard();
@@ -404,17 +404,15 @@ mod trie_storage_tests {
         let value = &values[0];
         let key = hash(&value);
 
-        accounting_cache.enable_switch().set(true);
         let result =
-            accounting_cache.retrieve_raw_bytes_with_accounting(&key, &trie_caching_storage, true);
+            accounting_cache.retrieve_raw_bytes_with_accounting(&key, &trie_caching_storage, opts);
         assert_eq!(result.unwrap().as_ref(), value);
 
-        accounting_cache.enable_switch().set(true);
         for value in values[1..].iter() {
             let result = accounting_cache.retrieve_raw_bytes_with_accounting(
                 &hash(value),
                 &trie_caching_storage,
-                true,
+                opts,
             );
             assert_eq!(result.unwrap().as_ref(), value);
         }
@@ -423,7 +421,7 @@ mod trie_storage_tests {
         assert_eq!(trie_cache.get(&key), None);
         let count_before = accounting_cache.get_trie_nodes_count();
         let result =
-            accounting_cache.retrieve_raw_bytes_with_accounting(&key, &trie_caching_storage, true);
+            accounting_cache.retrieve_raw_bytes_with_accounting(&key, &trie_caching_storage, opts);
         let count_delta =
             accounting_cache.get_trie_nodes_count().checked_sub(&count_before).unwrap();
         assert_eq!(result.unwrap().as_ref(), value);

@@ -121,16 +121,27 @@ pub struct OperationOptions {
     /// This usually should be true, but in certain situations such as transparent optimizations
     /// that mustn't have an effect on the protocol this can be set to `false`.
     enable_state_witness_recording: bool,
+
+    /// Flag that indicates that this storage operation comes from the contract runtime.
+    ///
+    /// Used for debug assertions around the code base. Should only be set to true by
+    /// `Self::contract_runtime`.
+    #[cfg(debug_assertions)]
+    from_contract_runtime: bool,
 }
 
 impl OperationOptions {
     pub const DEFAULT: Self = Self {
         enable_trie_accounting_cache_insertion: false,
         enable_state_witness_recording: true,
+        #[cfg(debug_assertions)]
+        from_contract_runtime: false,
     };
     pub const NO_SIDE_EFFECTS: Self = Self {
         enable_trie_accounting_cache_insertion: false,
         enable_state_witness_recording: false,
+        #[cfg(debug_assertions)]
+        from_contract_runtime: false,
     };
 
     pub fn contract_runtime(protocol_version: ProtocolVersion) -> Self {
@@ -138,6 +149,7 @@ impl OperationOptions {
         Self {
             enable_trie_accounting_cache_insertion: enable_tac_insert,
             enable_state_witness_recording: true,
+            from_contract_runtime: true,
         }
     }
 }
@@ -786,7 +798,7 @@ impl Trie {
             self.accounting_cache.lock().unwrap().retrieve_raw_bytes_with_accounting(
                 hash,
                 &*self.storage,
-                operation_options.enable_trie_accounting_cache_insertion,
+                operation_options,
             )?
         } else {
             self.storage.retrieve_raw_bytes(hash)?
@@ -1355,7 +1367,7 @@ impl Trie {
                     self.accounting_cache.lock().unwrap().retroactively_account(
                         *node_hash,
                         serialized_node.clone(),
-                        operation_options.enable_trie_accounting_cache_insertion,
+                        operation_options,
                     );
                 }
             }
@@ -1570,7 +1582,7 @@ impl Trie {
                 self.accounting_cache.lock().unwrap().retroactively_account(
                     value_hash,
                     arc_value.clone(),
-                    operation_options.enable_trie_accounting_cache_insertion,
+                    operation_options,
                 );
                 if operation_options.enable_state_witness_recording {
                     if let Some(recorder) = &self.recorder {

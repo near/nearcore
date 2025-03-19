@@ -1,5 +1,6 @@
-use super::TrieNodesCount;
+use super::{OperationOptions, TrieNodesCount};
 use crate::{TrieStorage, metrics};
+use imp::CrtContextGuard;
 use near_o11y::metrics::prometheus;
 use near_o11y::metrics::prometheus::core::{GenericCounter, GenericGauge};
 use near_primitives::errors::StorageError;
@@ -7,19 +8,31 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::sync::atomic;
 
-/// Switch that controls whether the `TrieAccountingCache` is enabled.
-pub struct TrieAccountingCacheSwitch(Arc<thread_local::ThreadLocal<atomic::AtomicBool>>);
+#[cfg(debug_assertions)]
+thread_local! {
+    static INSIDE_CONTRACT_RUNTIME: std::cell::Cell<bool>  = Default::default();
+}
 
-impl TrieAccountingCacheSwitch {
-    pub fn set(&self, enabled: bool) {
-        self.0.get_or(Default::default).store(enabled, atomic::Ordering::Relaxed);
+mod imp {
+    pub struct CrtContextGuard;
+
+    impl Drop for CrtContextGuard {
+        fn drop(&mut self) {
+            #[cfg(debug_assertions)]
+            super::INSIDE_CONTRACT_RUNTIME.set(false);
+        }
     }
+}
 
-    pub fn enabled(&self) -> bool {
-        self.0.get_or(Default::default).load(atomic::Ordering::Relaxed)
+#[inline(always)]
+pub fn debug_assertions_crt_context() -> imp::CrtContextGuard {
+    #[cfg(debug_assertions)]
+    {
+        assert!(!INSIDE_CONTRACT_RUNTIME.get(), "nested entry to crt context");
+        INSIDE_CONTRACT_RUNTIME.set(true);
     }
+    CrtContextGuard
 }
 
 /// Deterministic cache to store trie nodes that have been accessed so far
@@ -53,9 +66,6 @@ impl TrieAccountingCacheSwitch {
 /// db read or mem read. It can also be a flat storage read, which is not
 /// tracked via TrieAccountingCache.
 pub struct TrieAccountingCache {
-    /// Whether the cache is enabled. By default it is not, but it can be
-    /// turned on or off on the fly.
-    enable: TrieAccountingCacheSwitch,
     /// Cache of trie node hash -> trie node body, or a leaf value hash ->
     /// leaf value.
     cache: HashMap<CryptoHash, Arc<[u8]>>,
@@ -92,18 +102,12 @@ impl TrieAccountingCache {
                 accounting_cache_size: metrics::CHUNK_CACHE_SIZE.with_label_values(&metrics_labels),
             }
         });
-        let switch = TrieAccountingCacheSwitch(Default::default());
         Self {
-            enable: switch,
             cache: Default::default(),
             db_read_nodes: Default::default(),
             mem_read_nodes: Default::default(),
             metrics,
         }
-    }
-
-    pub fn enable_switch(&self) -> TrieAccountingCacheSwitch {
-        TrieAccountingCacheSwitch(Arc::clone(&self.enable.0))
     }
 
     /// Retrieve raw bytes from the cache if it exists, otherwise retrieve it
@@ -112,8 +116,13 @@ impl TrieAccountingCache {
         &mut self,
         hash: &CryptoHash,
         storage: &dyn TrieStorage,
-        allow_insert: bool,
+        opts: OperationOptions,
     ) -> Result<Arc<[u8]>, StorageError> {
+        #[cfg(debug_assertions)]
+        if INSIDE_CONTRACT_RUNTIME.get() && !opts.from_contract_runtime {
+            panic!("all contract storage accesses should use OperationOpts::contract_runtime");
+        }
+
         if let Some(node) = self.cache.get(hash) {
             self.mem_read_nodes += 1;
             if let Some(metrics) = &self.metrics {
@@ -127,8 +136,7 @@ impl TrieAccountingCache {
             }
             let node = storage.retrieve_raw_bytes(hash)?;
 
-            assert_eq!(self.enable.enabled(), allow_insert);
-            if allow_insert {
+            if opts.enable_trie_accounting_cache_insertion {
                 self.cache.insert(*hash, node.clone());
                 if let Some(metrics) = &self.metrics {
                     metrics.accounting_cache_size.set(self.cache.len() as i64);
@@ -140,14 +148,22 @@ impl TrieAccountingCache {
 
     /// Used to retroactively account for a node or value that was already accessed
     /// through other means (e.g. flat storage read).
-    pub fn retroactively_account(&mut self, hash: CryptoHash, data: Arc<[u8]>, allow_insert: bool) {
+    pub fn retroactively_account(
+        &mut self,
+        hash: CryptoHash,
+        data: Arc<[u8]>,
+        opts: OperationOptions,
+    ) {
+        #[cfg(debug_assertions)]
+        if INSIDE_CONTRACT_RUNTIME.get() && !opts.from_contract_runtime {
+            panic!("all contract storage accesses should use OperationOpts::contract_runtime");
+        }
         if self.cache.contains_key(&hash) {
             self.mem_read_nodes += 1;
         } else {
             self.db_read_nodes += 1;
         }
-        assert_eq!(self.enable.enabled(), allow_insert);
-        if allow_insert {
+        if opts.enable_trie_accounting_cache_insertion {
             self.cache.insert(hash, data);
             if let Some(metrics) = &self.metrics {
                 metrics.accounting_cache_size.set(self.cache.len() as i64);

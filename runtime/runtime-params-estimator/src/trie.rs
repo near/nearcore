@@ -4,6 +4,7 @@ use crate::utils::{aggregate_per_block_measurements, overhead_per_measured_block
 use near_parameters::ExtCosts;
 use near_primitives::hash::hash;
 use near_store::TrieCachingStorage;
+use near_store::trie::OperationOptions;
 use near_store::trie::accounting_cache::TrieAccountingCache;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -249,11 +250,12 @@ fn read_node_from_accounting_cache_ext(
             // Create a new cache and load nodes into it as preparation.
             let caching_storage = testbed.trie_caching_storage();
             let mut accounting_cache = TrieAccountingCache::new(None);
-            accounting_cache.enable_switch().set(true);
+            let opts = OperationOptions::contract_runtime(u32::MAX);
             let _dummy_sum = read_raw_nodes_from_storage(
                 &caching_storage,
                 &mut accounting_cache,
                 &all_value_hashes,
+                opts,
             );
 
             // Remove trie nodes from CPU caches by filling the caches with useless data.
@@ -270,6 +272,7 @@ fn read_node_from_accounting_cache_ext(
                 &caching_storage,
                 &mut accounting_cache,
                 unmeasured_value_hashes,
+                opts,
             );
             SINK.fetch_add(dummy_sum, Ordering::SeqCst);
 
@@ -278,6 +281,7 @@ fn read_node_from_accounting_cache_ext(
                 &caching_storage,
                 &mut accounting_cache,
                 &measured_value_hashes,
+                opts,
             );
             let cost = start.elapsed();
             SINK.fetch_add(dummy_sum, Ordering::SeqCst);
@@ -295,11 +299,12 @@ fn read_raw_nodes_from_storage(
     caching_storage: &TrieCachingStorage,
     accounting_cache: &mut TrieAccountingCache,
     keys: &[near_primitives::hash::CryptoHash],
+    opts: OperationOptions,
 ) -> usize {
     keys.iter()
         .map(|key| {
             let bytes = accounting_cache
-                .retrieve_raw_bytes_with_accounting(key, caching_storage, true)
+                .retrieve_raw_bytes_with_accounting(key, caching_storage, opts)
                 .unwrap();
             near_store::estimator::decode_extension_node(&bytes).len()
         })

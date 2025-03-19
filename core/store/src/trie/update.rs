@@ -1,5 +1,4 @@
 pub use self::iterator::TrieUpdateIterator;
-use super::accounting_cache::TrieAccountingCacheSwitch;
 use super::{OperationOptions, OptimizedValueRef, Trie, TrieWithReadLock};
 use crate::StorageError;
 use crate::contract::ContractStorage;
@@ -12,7 +11,7 @@ use near_primitives::stateless_validation::contract_distribution::ContractUpdate
 use near_primitives::trie_key::{GlobalContractCodeIdentifier, TrieKey};
 use near_primitives::types::{
     AccountId, RawStateChange, RawStateChanges, RawStateChangesWithTrieKey, StateChangeCause,
-    StateRoot, TrieCacheMode,
+    StateRoot,
 };
 use near_primitives::version::ProtocolFeature;
 
@@ -300,20 +299,6 @@ impl TrieUpdate {
         self.trie.get_root()
     }
 
-    /// Returns a guard-style type that will reset the trie cache mode back to the initial state
-    /// once dropped.
-    ///
-    /// Only changes the cache mode if `mode` is `Some`. Will always restore the previous cache
-    /// mode upon drop. The type should not be `std::mem::forget`-ten, as it will leak memory.
-    pub fn with_trie_cache_mode(&self, mode: Option<TrieCacheMode>) -> TrieCacheModeGuard {
-        let switch = self.trie.accounting_cache.lock().unwrap().enable_switch();
-        let previous = switch.enabled();
-        if let Some(mode) = mode {
-            switch.set(mode == TrieCacheMode::CachingChunk);
-        }
-        TrieCacheModeGuard(previous, switch, Default::default())
-    }
-
     fn get_from_updates(
         &self,
         key: &TrieKey,
@@ -410,18 +395,6 @@ impl TrieAccess for TrieUpdate {
         TrieUpdate::contains_key(&self, key)
     }
 }
-
-pub struct TrieCacheModeGuard(
-    bool,
-    TrieAccountingCacheSwitch,
-    std::marker::PhantomData<std::sync::MutexGuard<'static, ()>>,
-);
-impl Drop for TrieCacheModeGuard {
-    fn drop(&mut self) {
-        self.1.set(self.0);
-    }
-}
-static_assertions::assert_not_impl_all!(TrieCacheModeGuard: Send);
 
 #[cfg(test)]
 mod tests {
