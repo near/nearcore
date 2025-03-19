@@ -4,6 +4,7 @@ use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_primitives::bandwidth_scheduler::BandwidthRequests;
 use near_primitives::block::{Block, Tip};
+use near_primitives::chains::{MAINNET, TESTNET};
 use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::genesis::genesis_chunks;
@@ -12,7 +13,7 @@ use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::ShardChunk;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockExtra, EpochId, Gas, ShardId, StateRoot};
-use near_primitives::version::{PROD_GENESIS_PROTOCOL_VERSION, ProtocolFeature};
+use near_primitives::version::ProtocolFeature;
 use near_store::adapter::StoreUpdateAdapter;
 use near_store::get_genesis_state_roots;
 use near_vm_runner::logic::ProtocolVersion;
@@ -49,18 +50,14 @@ impl Chain {
             Chain::compute_bp_hash(epoch_manager, EpochId::default(), EpochId::default())?,
         );
 
-        if chain_genesis.protocol_version == PROD_GENESIS_PROTOCOL_VERSION {
-            // verify that the genesis block hash matches either mainnet or testnet
-            assert!(
-                [
-                    "EPnLgE7iEq9s7yTkos96M3cWymH5avBAPm3qx3NXqR8H", // mainnet
-                    "FWJ9kR6KFWoyMoNjpLXXGHeuiy7tEY6GmoFeCA5yuc6b", // testnet
-                    "93CRibQrTXr4eGB1zBCdVqrCNS3jFwwmx8oQ6wFxsx5j", // magic hash for test
-                ]
-                .contains(&genesis_block.hash().to_string().as_str()),
-                "Unexpected genesis hash {}",
-                genesis_block.hash()
-            );
+        // verify that the genesis block hash matches either mainnet or testnet
+        let hash = genesis_block.hash().to_string();
+        if &chain_genesis.chain_id == MAINNET {
+            assert_eq!(hash, "EPnLgE7iEq9s7yTkos96M3cWymH5avBAPm3qx3NXqR8H");
+        }
+
+        if &chain_genesis.chain_id == TESTNET {
+            assert_eq!(hash, "FWJ9kR6KFWoyMoNjpLXXGHeuiy7tEY6GmoFeCA5yuc6b");
         }
 
         Ok((genesis_block, genesis_chunks))

@@ -68,12 +68,12 @@ pub fn initialize_sharded_genesis_state(
     };
 
     // Some hardcoded checks for mainnet and testnet
-    if genesis.config.chain_id.as_str() == MAINNET {
-        assert_eq!(format!("{:?}", state_roots), "[8EhZRfDTYujfZoUZtZ3eSMB9gJyFo5zjscR12dEcaxGU]");
+    if &genesis.config.chain_id == MAINNET {
+        assert_eq!(format!("{state_roots:?}"), "[8EhZRfDTYujfZoUZtZ3eSMB9gJyFo5zjscR12dEcaxGU]");
     }
 
-    if genesis.config.chain_id.as_str() == TESTNET {
-        assert_eq!(format!("{:?}", state_roots), "[7EAgMRCrBWcb3ZS6SZJ7Dm71VZ1jaBpgGiewAEvFqPT1]");
+    if &genesis.config.chain_id == TESTNET {
+        assert_eq!(format!("{state_roots:?}"), "[7EAgMRCrBWcb3ZS6SZJ7Dm71VZ1jaBpgGiewAEvFqPT1]");
     }
 
     assert_eq!(
