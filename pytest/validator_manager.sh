@@ -15,7 +15,7 @@ extract_validator_ips() {
     echo "Extracting IP addresses of all validators for network: $UNIQUE_ID"
     
     # Get all validator nodes (not archiv, not dumper, not traffic)
-    ALL_VALIDATORS_INFO=$(gcloud compute instances list | cat | grep -i "$UNIQUE_ID" | grep -v "archiv" | grep -v "dumper" | grep -v "traffic")
+    ALL_VALIDATORS_INFO=$(gcloud compute instances list | cat | grep -i "$UNIQUE_ID" | grep -v "archiv" | grep -v "dumper" | grep -v "tracing" | grep -v "traffic")
     
     if [ -z "$ALL_VALIDATORS_INFO" ]; then
         echo "Error: No validator nodes found for network $UNIQUE_ID"
