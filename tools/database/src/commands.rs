@@ -13,6 +13,7 @@ use crate::reset_version::ResetVersionCommand;
 use crate::resharding_v2::ReshardingV2Command;
 use crate::run_migrations::RunMigrationsCommand;
 use crate::state_perf::StatePerfCommand;
+use crate::strorage_proof::StorageProofCommand;
 use crate::write_to_db::WriteCryptoHashCommand;
 use clap::Parser;
 use near_chain_configs::GenesisValidationMode;
@@ -72,6 +73,7 @@ enum SubCommand {
 
     /// Perform on demand resharding V2
     Resharding(ReshardingV2Command),
+    StorageProof(StorageProofCommand),
 }
 
 impl DatabaseCommand {
@@ -103,6 +105,9 @@ impl DatabaseCommand {
                 let near_config = load_config(home, genesis_validation);
                 cmd.run(near_config, home)
             }
+            SubCommand::StorageProof(storage_proof_command) => {
+                storage_proof_command.run()
+            },
         }
     }
 }

@@ -17,3 +17,4 @@ mod run_migrations;
 mod state_perf;
 mod utils;
 mod write_to_db;
+mod strorage_proof;
