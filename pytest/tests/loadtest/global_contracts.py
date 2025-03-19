@@ -3,6 +3,7 @@ from concurrent.futures import ThreadPoolExecutor
 import sys
 import time
 import pathlib
+import os
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
@@ -16,7 +17,7 @@ from messages.tx import GlobalContractDeployMode
 from utils import load_test_contract
 
 def create_sized_contract(size_mb: int) -> bytes:
-    """minimal WASM contract of exactly size_mb megabytes."""
+    """minimal WASM contract of exactly size_mb megabytes with random data."""
     size_bytes = size_mb * 1024 * 1024
     wasm_header = bytes([
         0x00, 0x61, 0x73, 0x6d,
@@ -34,7 +35,8 @@ def create_sized_contract(size_mb: int) -> bytes:
         data_length >>= 7
     data_length_bytes = bytes(data_length_bytes)
 
-    wasm = wasm_header + data_length_bytes + bytes([0x00, 0x41, 0x00, 0x0b]) + b'x' * size_bytes
+    random_data = os.urandom(size_bytes)
+    wasm = wasm_header + data_length_bytes + bytes([0x00, 0x41, 0x00, 0x0b]) + random_data
 
     return wasm
 
@@ -79,7 +81,6 @@ if __name__ == '__main__':
 
         def send_tx(i, receiver):
             # sleeping here to make best-effort ordering of transactions so nonces are valid
-
             start = time.time()
             time.sleep(i / 20)
             signed_tx = sign_deploy_global_contract_tx(
@@ -97,7 +98,7 @@ if __name__ == '__main__':
                                 rpc_addr, rpc_port)
                 logger.info(f"Transactions to {receiver} sent: {resp}")
             except Exception as ex:
-                logger.error(f"Failed to send tx: {ex}")
+                logger.info(f"QQP Failed to send tx: {ex}")
 
         start = time.time()
         list(
@@ -105,8 +106,6 @@ if __name__ == '__main__':
                          enumerate(receivers)))
         elapsed = time.time() - start
         logger.info(f"Sent global contract deployment transaction in {elapsed:.2f} seconds")
-        # if elapsed < 1:
-        #     time.sleep(1 - elapsed)
         if elapsed < 0.5:
             time.sleep(0.5 - elapsed)
         nonce += 1
