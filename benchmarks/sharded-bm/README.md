@@ -8,8 +8,7 @@ The main objective is to make the benchmarks easy to run and reproducible.
 
 - `cargo` to build synthetic benchmark tools
 - `gcloud`, `python` for forknet benchmarks
-
-I advice running localnet benchmarks on a linux machine.
+- a linux VM or machine to run benchmark and build binaries 
 
 ## Benchmark cases definition
 
@@ -18,6 +17,18 @@ Benchmark cases or scenarios are defined in the directory `cases`.
 Each scenario has a set of overrides for the node configuration and genesis configuration, plus a parameters config file to customize the load generation.
 
 ## Localnet
+
+### TL;DR - run a localnet benchmark
+
+In this directory, on a linux machine, run:
+
+```sh
+export CASE=cases/local/1_node_5_shard
+./bench.sh init
+./bench.sh start-nodes
+./bench.sh create-accounts
+./bench.sh native-transfers
+```
 
 ### Localnet - Usage
 
@@ -76,16 +87,6 @@ The basic flow is the following:
     ./bench.sh stop-nodes <BENCH CASE>
     ```
 
-### TL;DR - run a benchmark
-
-```sh
-export CASE=cases/local/1_node_5_shard
-./bench.sh init
-./bench.sh start-nodes
-./bench.sh create-accounts
-./bench.sh native-transfers
-```
-
 ### Localnet - Monitoring
 
 `neard` logs are inside `logs` for a localnet or in `journalctl` for a single node.
@@ -96,34 +97,74 @@ Debug UI works, just use the machine public IP.
 
 ## Forknet
 
-### Forknet - Usage
+### Forknet - Setup infrastructure
+
+The first step is to create VMs to run the nodes.
 
 You should be able to use any valid forknet image with [forknet terraform recipes](https://docs.nearone.org/doc/mocknet-guide-7VnYUXjs2A).
+This [commit](https://github.com/Near-One/infra-ops/commit/f293a6b9ff4d8918925e4fd34a306f4cb7b0144d) is an example infra suitable for the benchmark. You can do something similar and deploy it with:
 
-Remember to set the correct values inside the `forknet` object in `params.json`.
+```sh
+terraform init
+terraform plan
+```
+
+See all the nodes and their IPs with
+
+```sh
+gcloud compute instances list --project=nearone-mocknet --filter <UNIQUE ID>
+```
+
+### Forknet - Run benchmark
+
+1. Set the correct values in the test case `params.json`. Keep in mind that:
+   - Benchmarks require one RPC node exactly. RPC node will be selected automatically and it will be the 'last' GCP instance.
+   - The number of nodes deployed in terraform must match the number of nodes expected in the benchmark scenario.
+
+2. Make sure you have a `near-synth-bm` and a `neard` binary that can be run in a mainnet node. To achieve that you compile nearcore on a mainnet node, or local VM.
+
+3. Follow these instructions (they work on macOS as well):
 
 <!-- cspell:words BENCHNET -->
 ```sh
-export CASE=cases/forknet/5_cp_1_rpc_5_shard/
+export CASE=cases/forknet/10_cp_1_rpc_10_shard/
 export VIRTUAL_ENV=<absolute path to virtual env bin directory>
-export SYNTH_BM_BIN=<absolute path to near-synth-bm>
+export SYNTH_BM_BIN=<absolute path to near-synth-bm binary>
+export GEN_NODES_DIR=<absolute path to directory of your choice to store nodes configs>
+export NEARD=<absolute path to neard binary>
+export FORKNET_NAME=<unique name of forknet> 
+export FORKNET_START_HEIGHT=<forknet start height>
 
-# either run this command or export an env variable (GEN_NODES_DIR) with the path to its output, 
-# which is a directory containing config for node0, node1, etc 
-./bench.sh init cases/forknet/5_cp_1_rpc_5_shard/config
-# or on macOS
-NEARD=<path-to-neard> BENCHNET_DIR=$GEN_NODES_DIR ./bench.sh init cases/forknet/5_cp_1_rpc_5_shard/config
+BENCHNET_DIR=$GEN_NODES_DIR ./bench.sh init cases/forknet/10_cp_1_rpc_10_shard/config
 
 ./bench.sh init
 ./bench.sh start-nodes
+
+# Check that the network started properly, you can use debug UI with the external IP of the RPC node
+# http://debug.nearone.org/<IP>/last_blocks
+
 ./bench.sh create-accounts
 ./bench.sh native-transfers
+
+# If you are using transaction generator and want to stop it
+./bench.sh stop-injection
 ```
 
 ### Forknet - Monitoring
 
-Grafana mostly, [Blockchain utilization dashboard](https://grafana.nearone.org/goto/hfimt-pHg?orgId=1).
+Grafana mostly, [Blockchain utilization dashboard](https://grafana.nearone.org/goto/8nMSy52Hg?orgId=1).
 
 ### Known issues
 
-- generating nodes config and keys beforehand with another `init` is suboptimal
+- generating nodes config and keys beforehand with `init` is suboptimal
+- sometimes forknet commands fail, and they must be issues again
+
+## Transaction injection
+
+Transaction injection with `transactions-generator` works slightly different from `synth-bm`. When using the generator, the node creates transactions automatically as long as `neard` runs.
+
+To use transaction injection you must enable it in `params.json`. To stop the injection run:
+
+```sh
+./bench.sh stop-injection
+```

@@ -5,28 +5,15 @@
     "store": {
        "load_mem_tries_for_tracked_shards": true
     },
-    "view_client_threads": 8,
+    "view_client_threads": 4,
     "produce_chunk_add_transactions_time_limit": {
         "secs": 0,
         "nanos": 400000000
     },
     "consensus": {
-        "min_num_peers": 3,
-        "block_production_tracking_delay": {
-          "secs": 0,
-          "nanos": 100000000
-        },
         "min_block_production_delay": {
-          "secs": 1,
-          "nanos": 300000000
-        },
-        "max_block_production_delay": {
-          "secs": 3,
-          "nanos": 0
-        },
-        "max_block_wait_delay": {
-          "secs": 6,
-          "nanos": 0
+            "secs": 0,
+            "nanos": 600000000
         }
     }
 }

@@ -1,11 +1,10 @@
 {
-    "chunk_producers": 5,
+    "chunk_producers": 30,
     "rpcs": 1,
-    "num_accounts": 100,
-    "": 30000,
+    "num_accounts": 20,
     "tx_generator": {
         "enabled": true,
-        "tps": 16000,
+        "tps": 1900,
         "volume": 0
     },
     "forknet": {
