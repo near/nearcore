@@ -298,8 +298,9 @@ fn read_raw_nodes_from_storage(
 ) -> usize {
     keys.iter()
         .map(|key| {
-            let bytes =
-                accounting_cache.retrieve_raw_bytes_with_accounting(key, caching_storage).unwrap();
+            let bytes = accounting_cache
+                .retrieve_raw_bytes_with_accounting(key, caching_storage, true)
+                .unwrap();
             near_store::estimator::decode_extension_node(&bytes).len()
         })
         .sum()

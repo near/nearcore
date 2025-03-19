@@ -2,8 +2,8 @@
 extern crate bencher;
 
 use bencher::Bencher;
+use near_store::trie::OperationOptions;
 use rand::random;
-
 use near_primitives::shard_layout::ShardUId;
 use near_store::Trie;
 use near_store::test_utils::TestTriesBuilder;
@@ -23,7 +23,7 @@ fn trie_lookup(bench: &mut Bencher) {
         }
         let changed_keys =
             changes.iter().map(|(key, _value)| key.clone()).collect::<Vec<Vec<u8>>>();
-        let trie_changes = trie.update(changes).unwrap();
+        let trie_changes = trie.update(changes, OperationOptions::DEFAULT).unwrap();
         let mut state_update = tries.store_update();
         let root = tries.apply_all(&trie_changes, ShardUId::single_shard(), &mut state_update);
         state_update.commit().expect("Failed to commit");
@@ -35,7 +35,7 @@ fn trie_lookup(bench: &mut Bencher) {
     bench.iter(|| {
         for _ in 0..1 {
             for key in changed_keys.iter() {
-                trie.get(key).unwrap();
+                trie.get(key, OperationOptions::DEFAULT).unwrap();
             }
         }
     });
@@ -50,7 +50,7 @@ fn trie_update(bench: &mut Bencher) {
     }
 
     bench.iter(|| {
-        let _ = trie.update(changes.iter().cloned());
+        let _ = trie.update(changes.iter().cloned(), OperationOptions::DEFAULT);
     });
 }
 

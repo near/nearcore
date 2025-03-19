@@ -14,6 +14,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::thread;
 
+use super::OperationOptions;
+
 const MAX_QUEUED_WORK_ITEMS: usize = 16 * 1024;
 const MAX_PREFETCH_STAGING_MEMORY: usize = 200 * 1024 * 1024;
 /// How much memory capacity is reserved for each prefetch request before
@@ -476,7 +478,7 @@ impl PrefetchApi {
                             Trie::new(Arc::new(prefetcher_storage.clone()), trie_root, None);
                         let storage_key = trie_key.to_vec();
                         metric_prefetch_sent.inc();
-                        match prefetcher_trie.get(&storage_key) {
+                        match prefetcher_trie.get(&storage_key, OperationOptions::DEFAULT) {
                             Ok(_maybe_value) => {
                                 near_o11y::io_trace!(count: "prefetch");
                             }

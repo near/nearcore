@@ -61,6 +61,7 @@ use near_primitives::utils::{
 use near_primitives::version::ProtocolVersion;
 use near_primitives_core::apply::ApplyChunkReason;
 use near_primitives_core::version::ProtocolFeature;
+use near_store::trie::OperationOptions;
 use near_store::trie::receipts_column_helper::DelayedReceiptQueue;
 use near_store::trie::update::TrieUpdateResult;
 use near_store::{
@@ -649,7 +650,11 @@ impl Runtime {
                         let identifier = GlobalContractIdentifier::AccountId(account_id.clone());
                         let key = TrieKey::GlobalContractCode { identifier: identifier.into() };
                         let value_ref = state_update
-                            .get_ref(&key, KeyLookupMode::MemOrFlatOrTrie)?
+                            .get_ref(
+                                &key,
+                                KeyLookupMode::MemOrFlatOrTrie,
+                                OperationOptions::DEFAULT,
+                            )?
                             .ok_or_else(|| {
                                 let TrieKey::GlobalContractCode { identifier } = key else {
                                     unreachable!()

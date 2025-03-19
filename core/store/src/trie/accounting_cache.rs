@@ -112,6 +112,7 @@ impl TrieAccountingCache {
         &mut self,
         hash: &CryptoHash,
         storage: &dyn TrieStorage,
+        allow_insert: bool,
     ) -> Result<Arc<[u8]>, StorageError> {
         if let Some(node) = self.cache.get(hash) {
             self.mem_read_nodes += 1;
@@ -126,7 +127,8 @@ impl TrieAccountingCache {
             }
             let node = storage.retrieve_raw_bytes(hash)?;
 
-            if self.enable.enabled() {
+            assert_eq!(self.enable.enabled(), allow_insert);
+            if allow_insert {
                 self.cache.insert(*hash, node.clone());
                 if let Some(metrics) = &self.metrics {
                     metrics.accounting_cache_size.set(self.cache.len() as i64);
@@ -138,13 +140,14 @@ impl TrieAccountingCache {
 
     /// Used to retroactively account for a node or value that was already accessed
     /// through other means (e.g. flat storage read).
-    pub fn retroactively_account(&mut self, hash: CryptoHash, data: Arc<[u8]>) {
+    pub fn retroactively_account(&mut self, hash: CryptoHash, data: Arc<[u8]>, allow_insert: bool) {
         if self.cache.contains_key(&hash) {
             self.mem_read_nodes += 1;
         } else {
             self.db_read_nodes += 1;
         }
-        if self.enable.enabled() {
+        assert_eq!(self.enable.enabled(), allow_insert);
+        if allow_insert {
             self.cache.insert(hash, data);
             if let Some(metrics) = &self.metrics {
                 metrics.accounting_cache_size.set(self.cache.len() as i64);

@@ -1,6 +1,6 @@
 pub use self::iterator::TrieUpdateIterator;
 use super::accounting_cache::TrieAccountingCacheSwitch;
-use super::{OptimizedValueRef, Trie, TrieWithReadLock};
+use super::{OperationOptions, OptimizedValueRef, Trie, TrieWithReadLock};
 use crate::StorageError;
 use crate::contract::ContractStorage;
 use crate::trie::TrieAccess;
@@ -64,10 +64,10 @@ impl<'a> TrieUpdateValuePtr<'a> {
         }
     }
 
-    pub fn deref_value(&self) -> Result<Vec<u8>, StorageError> {
+    pub fn deref_value(&self, opts: OperationOptions) -> Result<Vec<u8>, StorageError> {
         match self {
             TrieUpdateValuePtr::MemoryRef(value) => Ok(value.to_vec()),
-            TrieUpdateValuePtr::Ref(trie, value_ref) => Ok(trie.deref_optimized(value_ref)?),
+            TrieUpdateValuePtr::Ref(trie, value_ref) => Ok(trie.deref_optimized(opts, value_ref)?),
         }
     }
 }
@@ -105,6 +105,7 @@ impl TrieUpdate {
         &self,
         key: &TrieKey,
         mode: KeyLookupMode,
+        opts: OperationOptions,
     ) -> Result<Option<TrieUpdateValuePtr<'_>>, StorageError> {
         let key = key.to_vec();
         if let Some(value_ref) = self.get_ref_from_updates(&key) {
@@ -113,7 +114,7 @@ impl TrieUpdate {
 
         let result = self
             .trie
-            .get_optimized_ref(&key, mode)?
+            .get_optimized_ref(&key, mode, opts)?
             .map(|optimized_value_ref| TrieUpdateValuePtr::Ref(&self.trie, optimized_value_ref));
         Ok(result)
     }
@@ -202,7 +203,8 @@ impl TrieUpdate {
         code_hash: CryptoHash,
     ) -> Result<Option<usize>, StorageError> {
         let key = TrieKey::ContractCode { account_id };
-        let value_ptr = self.get_ref(&key, KeyLookupMode::MemOrFlatOrTrie)?;
+        let value_ptr =
+            self.get_ref(&key, KeyLookupMode::MemOrFlatOrTrie, OperationOptions::DEFAULT)?;
         if let Some(value_ptr) = value_ptr {
             debug_assert_eq!(
                 code_hash,
@@ -259,8 +261,8 @@ impl TrieUpdate {
         let TrieUpdate { trie, committed, contract_storage, .. } = self;
         let start_counts = trie.accounting_cache.lock().unwrap().get_trie_nodes_count();
         let mut state_changes = Vec::with_capacity(committed.len());
-        let trie_changes =
-            trie.update(committed.into_iter().map(|(k, changes_with_trie_key)| {
+        let trie_changes = trie.update(
+            committed.into_iter().map(|(k, changes_with_trie_key)| {
                 let data = changes_with_trie_key
                     .changes
                     .last()
@@ -269,7 +271,9 @@ impl TrieUpdate {
                     .clone();
                 state_changes.push(changes_with_trie_key);
                 (k, data)
-            }))?;
+            }),
+            OperationOptions::DEFAULT,
+        )?;
         let end_counts = trie.accounting_cache.lock().unwrap().get_trie_nodes_count();
         if let Some(iops_delta) = end_counts.checked_sub(&start_counts) {
             span.record("mem_reads", iops_delta.mem_reads);
@@ -395,11 +399,11 @@ impl TrieUpdate {
 
 impl TrieAccess for TrieUpdate {
     fn get(&self, key: &TrieKey) -> Result<Option<Vec<u8>>, StorageError> {
-        self.get_from_updates(key, |k| self.trie.get(k))
+        self.get_from_updates(key, |_| TrieAccess::get(&self.trie, key))
     }
 
     fn get_no_side_effects(&self, key: &TrieKey) -> Result<Option<Vec<u8>>, StorageError> {
-        self.get_from_updates(key, |_| self.trie.get_no_side_effects(&key))
+        self.get_from_updates(key, |_| TrieAccess::get_no_side_effects(&self.trie, key))
     }
 
     fn contains_key(&self, key: &TrieKey) -> Result<bool, StorageError> {

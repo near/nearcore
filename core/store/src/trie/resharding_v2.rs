@@ -17,6 +17,7 @@ use near_primitives::types::{StateChangeCause, StateRoot};
 use std::collections::HashMap;
 
 use super::update::TrieUpdateResult;
+use super::OperationOptions;
 
 impl ShardTries {
     /// add `values` (key-value pairs of items stored in states) to build states for new shards
@@ -67,7 +68,7 @@ impl ShardTries {
                 .apply_to_flat_state(&mut store_update.flat_store_update(), shard_uid);
             // Here we assume that state_roots contains shard_uid, the caller of this method will guarantee that.
             let trie_changes =
-                self.get_trie_for_shard(shard_uid, state_roots[&shard_uid]).update(changes)?;
+                self.get_trie_for_shard(shard_uid, state_roots[&shard_uid]).update(changes, OperationOptions::DEFAULT)?;
             let state_root = self.apply_all(&trie_changes, shard_uid, &mut store_update);
             new_state_roots.insert(shard_uid, state_root);
         }

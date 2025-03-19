@@ -296,8 +296,8 @@ mod trie_recording_tests {
         TestTriesBuilder, gen_larger_changes, simplify_changes, test_populate_flat_storage,
         test_populate_trie,
     };
-    use crate::trie::TrieNodesCount;
     use crate::trie::mem::metrics::MEMTRIE_NUM_LOOKUPS;
+    use crate::trie::{OperationOptions, TrieNodesCount};
     use crate::{DBCol, KeyLookupMode, PartialStorage, ShardTries, Store, Trie};
     use borsh::BorshDeserialize;
     use near_primitives::bandwidth_scheduler::BandwidthRequests;
@@ -507,10 +507,14 @@ mod trie_recording_tests {
     /// regardless of whether we're operating on the real storage (with or without chunk
     /// cache), while recording reads, or when operating on recorded partial storage.
     fn test_trie_recording_consistency(
-        enable_accounting_cache: bool,
+        enable_trie_accounting_cache_insertion: bool,
         use_missing_keys: bool,
         use_flat_storage: bool,
     ) {
+        let opts = OperationOptions {
+            enable_trie_accounting_cache_insertion,
+            enable_state_witness_recording: true,
+        };
         for _ in 0..NUM_ITERATIONS_PER_TEST {
             let p_existing_key = thread_rng().gen_range(0.3..1.0);
             let p_missing_key = thread_rng().gen_range(0.7..1.0);
@@ -540,7 +544,7 @@ mod trie_recording_tests {
             if use_flat_storage {
                 let trie = get_trie_for_shard(&tries, shard_uid, state_root, use_flat_storage);
                 for key in data_in_trie.keys() {
-                    trie.get_optimized_ref(key, lookup_mode).unwrap();
+                    trie.get_optimized_ref(key, lookup_mode, opts).unwrap();
                 }
                 assert_eq!(
                     trie.get_trie_nodes_count(),
@@ -551,13 +555,20 @@ mod trie_recording_tests {
             // Let's capture the baseline node counts - this is what will happen
             // in production.
             let trie = get_trie_for_shard(&tries, shard_uid, state_root, use_flat_storage);
-            trie.accounting_cache.lock().unwrap().enable_switch().set(enable_accounting_cache);
+            trie.accounting_cache
+                .lock()
+                .unwrap()
+                .enable_switch()
+                .set(enable_trie_accounting_cache_insertion);
             for key in &keys_to_get {
-                assert_eq!(trie.get(key).unwrap(), data_in_trie.get(key).cloned());
+                assert_eq!(
+                    trie.get(key, opts).unwrap(),
+                    data_in_trie.get(key).cloned()
+                );
             }
             for key in &keys_to_get_ref {
                 assert_eq!(
-                    trie.get_optimized_ref(key, lookup_mode)
+                    trie.get_optimized_ref(key, lookup_mode, opts)
                         .unwrap()
                         .map(|value| value.into_value_ref()),
                     data_in_trie.get(key).map(|value| ValueRef::new(&value))
@@ -565,26 +576,34 @@ mod trie_recording_tests {
             }
             let baseline_trie_nodes_count = trie.get_trie_nodes_count();
             println!("Baseline trie nodes count: {:?}", baseline_trie_nodes_count);
-            trie.update(updates.iter().cloned()).unwrap();
+            trie.update(updates.iter().cloned(), opts).unwrap();
 
             // Now let's do this again while recording, and make sure that the counters
             // we get are exactly the same.
             let trie = get_trie_for_shard(&tries, shard_uid, state_root, use_flat_storage)
                 .recording_reads_new_recorder();
-            trie.accounting_cache.lock().unwrap().enable_switch().set(enable_accounting_cache);
+            trie.accounting_cache
+                .lock()
+                .unwrap()
+                .enable_switch()
+                .set(enable_trie_accounting_cache_insertion);
             for key in &keys_to_get {
-                assert_eq!(trie.get(key).unwrap(), data_in_trie.get(key).cloned());
+                assert_eq!(
+                    trie.get(key, opts).unwrap(),
+                    data_in_trie.get(key).cloned()
+                );
             }
             for key in &keys_to_get_ref {
                 assert_eq!(
-                    trie.get_optimized_ref(key, lookup_mode)
+                    trie.get_optimized_ref(key, lookup_mode, opts)
                         .unwrap()
                         .map(|value| value.into_value_ref()),
                     data_in_trie.get(key).map(|value| ValueRef::new(&value))
                 );
             }
             assert_eq!(trie.get_trie_nodes_count(), baseline_trie_nodes_count);
-            trie.update(updates.iter().cloned()).unwrap();
+            println!("enable_tac_insertion = {:?}", enable_trie_accounting_cache_insertion);
+            trie.update(updates.iter().cloned(), opts).unwrap();
             let baseline_partial_storage = trie.recorded_storage().unwrap();
 
             // Now let's do this again with memtries enabled. Check that counters
@@ -596,20 +615,27 @@ mod trie_recording_tests {
             destructively_delete_in_memory_state_from_disk(&store.trie_store(), &data_in_trie);
             let trie = get_trie_for_shard(&tries, shard_uid, state_root, use_flat_storage)
                 .recording_reads_new_recorder();
-            trie.accounting_cache.lock().unwrap().enable_switch().set(enable_accounting_cache);
+            trie.accounting_cache
+                .lock()
+                .unwrap()
+                .enable_switch()
+                .set(enable_trie_accounting_cache_insertion);
             for key in &keys_to_get {
-                assert_eq!(trie.get(key).unwrap(), data_in_trie.get(key).cloned());
+                assert_eq!(
+                    trie.get(key, opts).unwrap(),
+                    data_in_trie.get(key).cloned()
+                );
             }
             for key in &keys_to_get_ref {
                 assert_eq!(
-                    trie.get_optimized_ref(key, lookup_mode)
+                    trie.get_optimized_ref(key, lookup_mode, opts)
                         .unwrap()
                         .map(|value| value.into_value_ref()),
                     data_in_trie.get(key).map(|value| ValueRef::new(&value))
                 );
             }
             assert_eq!(trie.get_trie_nodes_count(), baseline_trie_nodes_count);
-            trie.update(updates.iter().cloned()).unwrap();
+            trie.update(updates.iter().cloned(), opts).unwrap();
 
             // Now, let's check that when doing the same lookups with the captured partial storage,
             // we still get the same counters.
@@ -622,38 +648,52 @@ mod trie_recording_tests {
             );
             let trie =
                 Trie::from_recorded_storage(partial_storage.clone(), state_root, use_flat_storage);
-            trie.accounting_cache.lock().unwrap().enable_switch().set(enable_accounting_cache);
+            trie.accounting_cache
+                .lock()
+                .unwrap()
+                .enable_switch()
+                .set(enable_trie_accounting_cache_insertion);
             for key in &keys_to_get {
-                assert_eq!(trie.get(key).unwrap(), data_in_trie.get(key).cloned());
+                assert_eq!(
+                    trie.get(key, opts).unwrap(),
+                    data_in_trie.get(key).cloned()
+                );
             }
             for key in &keys_to_get_ref {
                 assert_eq!(
-                    trie.get_optimized_ref(key, lookup_mode)
+                    trie.get_optimized_ref(key, lookup_mode, opts)
                         .unwrap()
                         .map(|value| value.into_value_ref()),
                     data_in_trie.get(key).map(|value| ValueRef::new(&value))
                 );
             }
             assert_eq!(trie.get_trie_nodes_count(), baseline_trie_nodes_count);
-            trie.update(updates.iter().cloned()).unwrap();
+            trie.update(updates.iter().cloned(), opts).unwrap();
 
             // Build a Trie using recorded storage and enable recording_reads on this Trie
             let trie = Trie::from_recorded_storage(partial_storage, state_root, use_flat_storage)
                 .recording_reads_new_recorder();
-            trie.accounting_cache.lock().unwrap().enable_switch().set(enable_accounting_cache);
+            trie.accounting_cache
+                .lock()
+                .unwrap()
+                .enable_switch()
+                .set(enable_trie_accounting_cache_insertion);
             for key in &keys_to_get {
-                assert_eq!(trie.get(key).unwrap(), data_in_trie.get(key).cloned());
+                assert_eq!(
+                    trie.get(key, opts).unwrap(),
+                    data_in_trie.get(key).cloned()
+                );
             }
             for key in &keys_to_get_ref {
                 assert_eq!(
-                    trie.get_optimized_ref(key, lookup_mode)
+                    trie.get_optimized_ref(key, lookup_mode, opts)
                         .unwrap()
                         .map(|value| value.into_value_ref()),
                     data_in_trie.get(key).map(|value| ValueRef::new(&value))
                 );
             }
             assert_eq!(trie.get_trie_nodes_count(), baseline_trie_nodes_count);
-            trie.update(updates.iter().cloned()).unwrap();
+            trie.update(updates.iter().cloned(), opts).unwrap();
             assert_partial_storage(&baseline_partial_storage, &trie.recorded_storage().unwrap());
 
             if !keys_to_get.is_empty() || !keys_to_get_ref.is_empty() {

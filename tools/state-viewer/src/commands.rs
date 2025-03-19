@@ -45,6 +45,7 @@ use near_primitives::trie_key::col::COLUMNS_WITH_ACCOUNT_ID_IN_KEY;
 use near_primitives::types::{BlockHeight, EpochId, ShardId};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives_core::types::{Balance, EpochHeight};
+use near_store::trie::OperationOptions;
 use near_store::TrieStorage;
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::trie_store::TrieStoreAdapter;
@@ -392,7 +393,7 @@ pub(crate) fn dump_account_storage(
             key: storage_key.as_bytes().to_vec(),
         };
         let key = key.to_vec();
-        let item = trie.get(&key);
+        let item = trie.get(&key, OperationOptions::DEFAULT);
         let value = item.unwrap();
         if let Some(value) = value {
             let record = StateRecord::from_raw_key_value(&key, value).unwrap();

@@ -10,6 +10,7 @@ use near_primitives::utils::create_receipt_id_from_action_hash;
 use near_primitives::version::ProtocolVersion;
 use near_primitives_core::version::ProtocolFeature;
 use near_store::contract::ContractStorage;
+use near_store::trie::OperationOptions;
 use near_store::{KeyLookupMode, TrieUpdate, TrieUpdateValuePtr, has_promise_yield_receipt};
 use near_vm_runner::logic::errors::{AnyError, InconsistentStateError, VMLogicError};
 use near_vm_runner::logic::types::ReceiptIndex;
@@ -50,7 +51,7 @@ impl From<ExternalError> for VMLogicError {
     }
 }
 
-pub struct RuntimeExtValuePtr<'a>(TrieUpdateValuePtr<'a>);
+pub struct RuntimeExtValuePtr<'a>(TrieUpdateValuePtr<'a>, OperationOptions);
 
 impl<'a> ValuePtr for RuntimeExtValuePtr<'a> {
     fn len(&self) -> u32 {
@@ -62,7 +63,7 @@ impl<'a> ValuePtr for RuntimeExtValuePtr<'a> {
             TrieUpdateValuePtr::MemoryRef(data) => Ok(data.to_vec()),
             TrieUpdateValuePtr::Ref(trie, optimized_value_ref) => {
                 let ttn = trie.get_trie_nodes_count();
-                let result = trie.deref_optimized(&optimized_value_ref);
+                let result = trie.deref_optimized(self.1, &optimized_value_ref);
                 let delta = trie
                     .get_trie_nodes_count()
                     .checked_sub(&ttn)
@@ -152,15 +153,16 @@ impl<'a> External for RuntimeExt<'a> {
         // Trie.
         let ttn = self.trie_update.trie().get_trie_nodes_count();
         let storage_key = self.create_storage_key(key);
+        let options = OperationOptions::contract_runtime(self.protocol_version());
         let evicted_ptr = self
             .trie_update
-            .get_ref(&storage_key, KeyLookupMode::MemOrTrie)
+            .get_ref(&storage_key, KeyLookupMode::MemOrTrie, options)
             .map_err(wrap_storage_error)?;
         let evicted = match evicted_ptr {
             None => None,
             Some(ptr) => {
                 access_tracker.deref_write_evicted_value_bytes(u64::from(ptr.len()))?;
-                Some(ptr.deref_value().map_err(wrap_storage_error)?)
+                Some(ptr.deref_value(options).map_err(wrap_storage_error)?)
             }
         };
         let ttn2 = self.trie_update.trie().get_trie_nodes_count();
@@ -192,12 +194,16 @@ impl<'a> External for RuntimeExt<'a> {
             StorageGetMode::FlatStorage => KeyLookupMode::MemOrFlatOrTrie,
             StorageGetMode::Trie => KeyLookupMode::MemOrTrie,
         };
+        let options = OperationOptions::contract_runtime(self.protocol_version());
         // SUBTLE: unlike `write` or `remove` which does not record TTN fees if the read operations
         // fail for the evicted values, this will record the TTN fees unconditionally.
-        let result =
-            self.trie_update.get_ref(&storage_key, mode).map_err(wrap_storage_error).map(
-                |option| option.map(|ptr| Box::new(RuntimeExtValuePtr(ptr)) as Box<dyn ValuePtr>),
-            );
+        let result = self
+            .trie_update
+            .get_ref(&storage_key, mode, options)
+            .map_err(wrap_storage_error)
+            .map(|option| {
+                option.map(|ptr| Box::new(RuntimeExtValuePtr(ptr, options)) as Box<dyn ValuePtr>)
+            });
         let delta = self
             .trie_update
             .trie()
@@ -234,15 +240,16 @@ impl<'a> External for RuntimeExt<'a> {
         // Trie.
         let ttn = self.trie_update.trie().get_trie_nodes_count();
         let storage_key = self.create_storage_key(key);
+        let options = OperationOptions::contract_runtime(self.protocol_version());
         let removed = self
             .trie_update
-            .get_ref(&storage_key, KeyLookupMode::MemOrTrie)
+            .get_ref(&storage_key, KeyLookupMode::MemOrTrie, options)
             .map_err(wrap_storage_error)?;
         let removed = match removed {
             None => None,
             Some(ptr) => {
                 access_tracker.deref_removed_value_bytes(u64::from(ptr.len()))?;
-                Some(ptr.deref_value().map_err(wrap_storage_error)?)
+                Some(ptr.deref_value(options).map_err(wrap_storage_error)?)
             }
         };
         self.trie_update.remove(storage_key);
@@ -277,7 +284,11 @@ impl<'a> External for RuntimeExt<'a> {
         };
         let result = self
             .trie_update
-            .get_ref(&storage_key, mode)
+            .get_ref(
+                &storage_key,
+                mode,
+                OperationOptions::contract_runtime(self.protocol_version()),
+            )
             .map(|x| x.is_some())
             .map_err(wrap_storage_error);
         let delta = self

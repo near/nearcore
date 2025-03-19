@@ -3,9 +3,9 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::state::FlatStateValue;
 
 use crate::Trie;
-use crate::trie::OptimizedValueRef;
 use crate::trie::ops::interface::GenericTrieInternalStorage;
 use crate::trie::ops::iter::TrieIteratorImpl;
+use crate::trie::{OperationOptions, OptimizedValueRef};
 
 use super::arena::Arena;
 use super::memtrie_update::MemTrieNode;
@@ -50,7 +50,7 @@ impl<'a> GenericTrieInternalStorage<MemTrieNodeId, FlatStateValue> for MemTrieIt
 
     fn get_and_record_value(&self, value_ref: FlatStateValue) -> Result<Vec<u8>, StorageError> {
         let optimized_value_ref = OptimizedValueRef::from_flat_value(value_ref);
-        let value = self.trie.deref_optimized(&optimized_value_ref)?;
+        let value = self.trie.deref_optimized(OperationOptions::DEFAULT, &optimized_value_ref)?;
         if let Some(recorder) = &self.trie.recorder {
             let value_hash = optimized_value_ref.into_value_ref().hash;
             recorder.write().expect("no poison").record(&value_hash, value.clone().into());

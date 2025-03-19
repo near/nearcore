@@ -1,5 +1,6 @@
 use near_primitives::errors::StorageError;
 
+use crate::trie::OperationOptions;
 use crate::NibbleSlice;
 
 use super::interface::{
@@ -41,6 +42,7 @@ where
         mut node_id: UpdatedNodeId,
         key: &[u8],
         value: GenericTrieValue,
+        opts: OperationOptions,
     ) -> Result<(), StorageError> {
         let mut partial = NibbleSlice::new(key);
         // Path to the key being inserted.
@@ -88,7 +90,7 @@ where
                         let mut new_children = children;
                         let child = &mut new_children[partial.at(0) as usize];
                         let new_node_id = match child.take() {
-                            Some(node_id) => self.ensure_updated(node_id)?,
+                            Some(node_id) => self.ensure_updated(node_id, opts)?,
                             None => self.place_node(GenericUpdatedTrieNodeWithSize::empty()),
                         };
                         *child = Some(GenericNodeOrIndex::Updated(new_node_id));
@@ -233,7 +235,7 @@ where
                         continue;
                     } else if common_prefix == existing_key.len() {
                         // Dereference child and descend into it.
-                        let child_id = self.ensure_updated(old_child)?;
+                        let child_id = self.ensure_updated(old_child, opts)?;
                         let node = GenericUpdatedTrieNode::Extension {
                             extension,
                             child: GenericNodeOrIndex::Updated(child_id),
@@ -306,6 +308,7 @@ where
         &mut self,
         mut node_id: UpdatedNodeId,
         key: &[u8],
+        opts: OperationOptions,
     ) -> Result<(), StorageError> {
         let mut partial = NibbleSlice::new(key);
         // Path to find the key to delete.
@@ -377,7 +380,7 @@ where
                                 break;
                             }
                         };
-                        let new_child_id = self.ensure_updated(old_child_id)?;
+                        let new_child_id = self.ensure_updated(old_child_id, opts)?;
                         *child = Some(GenericNodeOrIndex::Updated(new_child_id));
                         self.calc_memory_usage_and_store(
                             node_id,
@@ -397,7 +400,7 @@ where
                         (extension_nibbles.common_prefix(&partial), extension_nibbles.len())
                     };
                     if common_prefix == existing_len {
-                        let new_child_id = self.ensure_updated(child)?;
+                        let new_child_id = self.ensure_updated(child, opts)?;
                         self.calc_memory_usage_and_store(
                             node_id,
                             children_memory_usage,
@@ -438,7 +441,7 @@ where
             // type if needed. If `key_deleted` is false, trie structure is
             // untouched.
             if key_deleted {
-                self.squash_node(node_id)?;
+                self.squash_node(node_id, opts)?;
             }
 
             child_memory_usage = self.get_node_ref(node_id).memory_usage;
