@@ -527,8 +527,11 @@ mod trie_recording_tests {
                 .with_store(store.clone())
                 .with_flat_storage(use_flat_storage)
                 .build();
-            let lookup_mode =
-                if use_flat_storage { KeyLookupMode::FlatStorage } else { KeyLookupMode::Trie };
+            let lookup_mode = if use_flat_storage {
+                KeyLookupMode::MemOrFlatOrTrie
+            } else {
+                KeyLookupMode::MemOrTrie
+            };
             let memtrie_lookup_counts_before = MEMTRIE_NUM_LOOKUPS.get();
 
             // Check that while using flat storage counters are all zero.
