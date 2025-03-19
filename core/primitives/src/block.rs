@@ -18,19 +18,10 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives_core::types::ShardIndex;
 use near_primitives_core::version::ProtocolFeature;
 use near_schema_checker_lib::ProtocolSchema;
-use near_time::Utc;
 use primitive_types::U256;
 use std::collections::BTreeMap;
 use std::ops::Index;
 use std::sync::Arc;
-
-#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, Eq, PartialEq, Default)]
-pub struct GenesisId {
-    /// Chain Id
-    pub chain_id: String,
-    /// Hash of genesis block
-    pub hash: CryptoHash,
-}
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum BlockValidityError {
@@ -88,93 +79,8 @@ pub enum Block {
     BlockV4(Arc<BlockV4>),
 }
 
-#[cfg(feature = "solomon")]
-type ShardChunkReedSolomon = reed_solomon_erasure::galois_8::ReedSolomon;
-
-/// The shard_ids, state_roots and congestion_infos must be in the same order.
-#[cfg(feature = "solomon")]
-pub fn genesis_chunks(
-    state_roots: Vec<crate::types::StateRoot>,
-    congestion_infos: Vec<Option<crate::congestion_info::CongestionInfo>>,
-    shard_ids: &[crate::types::ShardId],
-    initial_gas_limit: Gas,
-    genesis_height: BlockHeight,
-    genesis_protocol_version: ProtocolVersion,
-) -> Vec<crate::sharding::ShardChunk> {
-    let rs = ShardChunkReedSolomon::new(1, 2).unwrap();
-    let state_roots = if state_roots.len() == shard_ids.len() {
-        state_roots
-    } else {
-        assert_eq!(state_roots.len(), 1);
-        std::iter::repeat(state_roots[0]).take(shard_ids.len()).collect()
-    };
-
-    let mut chunks = vec![];
-
-    let num = shard_ids.len();
-    assert_eq!(state_roots.len(), num);
-
-    for (shard_index, &shard_id) in shard_ids.iter().enumerate() {
-        let state_root = state_roots[shard_index];
-        let congestion_info = congestion_infos[shard_index];
-
-        let encoded_chunk = genesis_chunk(
-            &rs,
-            genesis_protocol_version,
-            genesis_height,
-            initial_gas_limit,
-            shard_id,
-            state_root,
-            congestion_info,
-        );
-        let mut chunk = encoded_chunk.decode_chunk(1).expect("Failed to decode genesis chunk");
-        chunk.set_height_included(genesis_height);
-        chunks.push(chunk);
-    }
-
-    chunks
-}
-
-// Creates the genesis encoded shard chunk. The genesis chunks have most of the
-// fields set to defaults. The remaining fields are set to the provided values.
-#[cfg(feature = "solomon")]
-fn genesis_chunk(
-    rs: &ShardChunkReedSolomon,
-    genesis_protocol_version: u32,
-    genesis_height: u64,
-    initial_gas_limit: u64,
-    shard_id: crate::types::ShardId,
-    state_root: CryptoHash,
-    congestion_info: Option<crate::congestion_info::CongestionInfo>,
-) -> crate::sharding::EncodedShardChunk {
-    use crate::bandwidth_scheduler::BandwidthRequests;
-
-    let (encoded_chunk, _) = crate::sharding::EncodedShardChunk::new(
-        CryptoHash::default(),
-        state_root,
-        CryptoHash::default(),
-        genesis_height,
-        shard_id,
-        rs,
-        0,
-        initial_gas_limit,
-        0,
-        CryptoHash::default(),
-        vec![],
-        vec![],
-        &[],
-        CryptoHash::default(),
-        congestion_info,
-        BandwidthRequests::default_for_protocol_version(genesis_protocol_version),
-        &crate::validator_signer::EmptyValidatorSigner::default().into(),
-        genesis_protocol_version,
-    )
-    .expect("Failed to decode genesis chunk");
-    encoded_chunk
-}
-
 impl Block {
-    fn block_from_protocol_version(
+    pub(crate) fn block_from_protocol_version(
         this_epoch_protocol_version: ProtocolVersion,
         next_epoch_protocol_version: ProtocolVersion,
         header: BlockHeader,
@@ -229,55 +135,6 @@ impl Block {
                 _ => Block::BlockV4(Arc::new(BlockV4 { header, body })),
             }
         }
-    }
-
-    /// Returns genesis block for given genesis date and state root.
-    pub fn genesis(
-        genesis_protocol_version: ProtocolVersion,
-        chunks: Vec<ShardChunkHeader>,
-        timestamp: Utc,
-        height: BlockHeight,
-        initial_gas_price: Balance,
-        initial_total_supply: Balance,
-        next_bp_hash: CryptoHash,
-    ) -> Self {
-        let challenges = vec![];
-        let chunk_endorsements = vec![];
-        for chunk in &chunks {
-            assert_eq!(chunk.height_included(), height);
-        }
-        let vrf_value = near_crypto::vrf::Value([0; 32]);
-        let vrf_proof = near_crypto::vrf::Proof([0; 64]);
-        let body = BlockBody::new(
-            genesis_protocol_version,
-            chunks,
-            challenges,
-            vrf_value,
-            vrf_proof,
-            chunk_endorsements,
-        );
-        let header = BlockHeader::genesis(
-            genesis_protocol_version,
-            height,
-            Block::compute_state_root(body.chunks()),
-            body.compute_hash(),
-            Block::compute_chunk_prev_outgoing_receipts_root(body.chunks()),
-            Block::compute_chunk_headers_root(body.chunks()).0,
-            Block::compute_chunk_tx_root(body.chunks()),
-            body.chunks().len() as u64,
-            Block::compute_challenges_root(body.challenges()),
-            timestamp,
-            initial_gas_price,
-            initial_total_supply,
-            next_bp_hash,
-        );
-
-        Self::block_from_protocol_version(
-            genesis_protocol_version,
-            genesis_protocol_version,
-            header,
-            body,
-        )
     }
 
     /// Produces new block from header of previous block, current state root and set of transactions.
