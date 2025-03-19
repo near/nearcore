@@ -69,7 +69,7 @@ use futures::{TestLoopAsyncComputationSpawner, TestLoopFutureSpawner};
 use near_time::{Clock, Duration, FakeClock};
 use pending_events_sender::{CallbackEvent, PendingEventsSender, RawPendingEventsSender};
 use serde::Serialize;
-use std::collections::BinaryHeap;
+use std::collections::{BinaryHeap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use time::ext::InstantExt;
@@ -103,6 +103,8 @@ pub struct TestLoopV2 {
     /// If present, a function to call to print something every time an event is
     /// handled. Intended only for debugging.
     every_event_callback: Option<Box<dyn FnMut(&TestLoopData)>>,
+    /// All events with this identifier are ignored in testloop execution environment.
+    denylisted_identifiers: HashSet<String>,
 }
 
 /// An event waiting to be executed, ordered by the due time and then by ID.
@@ -177,6 +179,8 @@ struct EventStartLogOutput {
     current_event: String,
     /// The current virtual time.
     current_time_ms: u64,
+    /// Whether this event is executed or not
+    event_ignored: bool,
 }
 
 #[derive(Serialize)]
@@ -208,6 +212,7 @@ impl TestLoopV2 {
             clock: FakeClock::default(),
             shutting_down,
             every_event_callback: None,
+            denylisted_identifiers: HashSet::new(),
         }
     }
 
@@ -251,6 +256,12 @@ impl TestLoopV2 {
             Box::new(callback),
             delay,
         );
+    }
+
+    /// This function is used to filter out all events that belong to a certain identifier.
+    /// The use case is while shutting down a node, we would like to not execute any more events from that node.
+    pub fn remove_events_with_identifier(&mut self, identifier: &str) {
+        self.denylisted_identifiers.insert(identifier.to_string());
     }
 
     /// Returns a clock that will always return the current virtual time.
@@ -335,23 +346,27 @@ impl TestLoopV2 {
 
     /// Processes the given event, by logging a line first and then finding a handler to run it.
     fn process_event(&mut self, event: EventInHeap) {
+        let event_ignored = self.denylisted_identifiers.contains(&event.event.identifier);
         let start_json = serde_json::to_string(&EventStartLogOutput {
             current_index: event.id,
             total_events: self.next_event_index,
-            identifier: event.event.identifier,
+            identifier: event.event.identifier.clone(),
             current_event: event.event.description,
             current_time_ms: event.due.whole_milliseconds() as u64,
+            event_ignored,
         })
         .unwrap();
         tracing::info!(target: "test_loop", "TEST_LOOP_EVENT_START {}", start_json);
         assert_eq!(self.current_time, event.due);
 
-        if let Some(callback) = &mut self.every_event_callback {
-            callback(&self.data);
-        }
+        if !event_ignored {
+            if let Some(callback) = &mut self.every_event_callback {
+                callback(&self.data);
+            }
 
-        let callback = event.event.callback;
-        callback(&mut self.data);
+            let callback = event.event.callback;
+            callback(&mut self.data);
+        }
 
         // Push any new events into the queue. Do this before emitting the end log line,
         // so that it contains the correct new total number of events.

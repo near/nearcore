@@ -1,7 +1,7 @@
 use std::cell::Cell;
 
-use crate::builder::TestLoopBuilder;
-use crate::env::TestLoopEnv;
+use crate::setup::builder::TestLoopBuilder;
+use crate::setup::env::TestLoopEnv;
 use crate::utils::ONE_NEAR;
 use crate::utils::validators::get_epoch_all_validators;
 use itertools::Itertools;
@@ -66,14 +66,15 @@ fn slow_test_fix_validator_stake_threshold_protocol_upgrade() {
         .add_user_accounts_simple(&accounts, initial_balance)
         .build();
 
-    let TestLoopEnv { mut test_loop, datas: node_data, tempdir } = test_loop_builder
+    let TestLoopEnv { mut test_loop, node_datas, shared_state } = test_loop_builder
         .genesis(genesis)
         .epoch_config_store(epoch_config_store.clone())
         .protocol_upgrade_schedule(protocol_upgrade_schedule)
         .clients(clients)
-        .build();
+        .build()
+        .warmup();
 
-    let sender = node_data[0].client_sender.clone();
+    let sender = node_datas[0].client_sender.clone();
     let handle = sender.actor_handle();
     let client = &test_loop.data.get(&handle).client;
 
@@ -139,6 +140,6 @@ fn slow_test_fix_validator_stake_threshold_protocol_upgrade() {
         Duration::seconds(4 * epoch_length as i64),
     );
 
-    TestLoopEnv { test_loop, datas: node_data, tempdir }
+    TestLoopEnv { test_loop, node_datas, shared_state }
         .shutdown_and_drain_remaining_events(Duration::seconds(20));
 }

@@ -6,8 +6,8 @@ use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::AccountId;
 use near_vm_runner::ContractCode;
 
-use crate::builder::TestLoopBuilder;
-use crate::env::TestLoopEnv;
+use crate::setup::builder::TestLoopBuilder;
+use crate::setup::env::TestLoopEnv;
 use crate::utils::contract_distribution::{
     assert_all_chunk_endorsements_received, clear_compiled_contract_caches,
     run_until_caches_contain_contract,
@@ -238,7 +238,10 @@ fn setup(accounts: &Vec<AccountId>) -> TestLoopEnv {
         .shuffle_shard_assignment_for_chunk_producers(true)
         .build_store_for_genesis_protocol_version();
 
-    let env =
-        builder.genesis(genesis).epoch_config_store(epoch_config_store).clients(clients).build();
-    env
+    builder
+        .genesis(genesis)
+        .epoch_config_store(epoch_config_store)
+        .clients(clients)
+        .build()
+        .warmup()
 }

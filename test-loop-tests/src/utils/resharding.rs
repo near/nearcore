@@ -33,7 +33,7 @@ use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha20Rng;
 
 use super::sharding::{next_epoch_has_new_shard_layout, this_block_has_new_shard_layout};
-use crate::env::TestData;
+use crate::setup::state::TestData;
 use crate::utils::loop_action::LoopAction;
 use crate::utils::sharding::{get_memtrie_for_shard, next_block_has_new_shard_layout};
 use crate::utils::transactions::{

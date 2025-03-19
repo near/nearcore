@@ -1,5 +1,5 @@
-use crate::builder::TestLoopBuilder;
-use crate::env::TestLoopEnv;
+use crate::setup::builder::TestLoopBuilder;
+use crate::setup::env::TestLoopEnv;
 use crate::utils::ONE_NEAR;
 use crate::utils::validators::get_epoch_all_validators;
 use itertools::Itertools;
@@ -85,8 +85,12 @@ fn slow_test_fix_min_stake_ratio() {
         .add_user_accounts_simple(&accounts, initial_balance)
         .build();
 
-    let TestLoopEnv { mut test_loop, datas: node_datas, tempdir } =
-        builder.genesis(genesis).epoch_config_store(epoch_config_store).clients(clients).build();
+    let TestLoopEnv { mut test_loop, node_datas, shared_state } = builder
+        .genesis(genesis)
+        .epoch_config_store(epoch_config_store)
+        .clients(clients)
+        .build()
+        .warmup();
 
     let client_sender = node_datas[0].client_sender.clone();
     let client_handle = node_datas[0].client_sender.actor_handle();
@@ -153,6 +157,6 @@ fn slow_test_fix_min_stake_ratio() {
         Duration::seconds((5 * epoch_length) as i64),
     );
 
-    TestLoopEnv { test_loop, datas: node_datas, tempdir }
+    TestLoopEnv { test_loop, node_datas, shared_state }
         .shutdown_and_drain_remaining_events(Duration::seconds(20));
 }

@@ -108,47 +108,65 @@ pub trait ValuePtr {
     /// Takes a box because currently runtime code uses dynamic dispatch.
     /// # Errors
     /// StorageError if reading from storage fails
-    fn deref(&self) -> Result<Vec<u8>>;
+    fn deref(&self, storage_tracker: &mut dyn StorageAccessTracker) -> Result<Vec<u8>>;
 }
 
-/// Counts trie nodes reads during tx/receipt execution for proper storage costs charging.
+pub(super) mod sealed {
+    pub trait StorageAccessTrackerSeal {}
+}
+
+/// This trait encapsulates the logic of charging gas fees for storage access operations.
 ///
-/// NB: this is the near-vm-runner copy of the type. It should not be deduplicated by adding
-/// dependency edges. Convert between various versions of this type in a common crate, if needed.
-#[derive(Debug, PartialEq)]
-pub struct TrieNodesCount {
-    /// Potentially expensive trie node reads which are served from disk in the worst case.
-    pub db_reads: u64,
-    /// Cheap trie node reads which are guaranteed to be served from RAM.
-    pub mem_reads: u64,
-}
+/// The trait is sealed and is only implementable by types inside the the contract runtime
+/// implementation.
+pub trait StorageAccessTracker: sealed::StorageAccessTrackerSeal {
+    /// Indicate to the contract runtime that a trie node in database has been touched.
+    ///
+    /// Calling this method will charge the `touching_trie_node` fee.
+    fn trie_node_touched(&mut self, count: u64) -> Result<()>;
 
-impl TrieNodesCount {
-    /// Used to determine the number of trie nodes charged during some operation.
-    pub fn checked_sub(self, other: &Self) -> Option<Self> {
-        Some(Self {
-            db_reads: self.db_reads.checked_sub(other.db_reads)?,
-            mem_reads: self.mem_reads.checked_sub(other.mem_reads)?,
-        })
-    }
+    /// Indicate to the contract runtime that a cached trie node has been accessed.
+    ///
+    /// Calling this method will charge the `read_cached_trie_node` fee.
+    fn cached_trie_node_access(&mut self, count: u64) -> Result<()>;
+
+    /// Indicate to the contract runtime that the specified number of storage bytes are being
+    /// dereferenced as a result of a previous value being evicted during write.
+    ///
+    /// Calling this method will charge the `cost_per_byte` fee.
+    fn deref_write_evicted_value_bytes(&mut self, bytes: u64) -> Result<()>;
+
+    /// Indicate to the contract runtime that the specified number of storage bytes are being
+    /// dereferenced as a result of storage key removal.
+    ///
+    /// Calling this method will charge the `cost_per_byte` fee.
+    fn deref_removed_value_bytes(&mut self, bytes: u64) -> Result<()>;
 }
 
 /// An external blockchain interface for the Runtime logic
 pub trait External {
     /// Write `value` to the `key` of the storage trie associated with the current account.
     ///
+    /// Returns the previous value for the key, if present.
+    ///
     /// # Example
     ///
     /// ```
     /// # use near_vm_runner::logic::mocks::mock_external::MockedExternal;
     /// # use near_vm_runner::logic::External;
+    /// # use near_vm_runner::logic::gas_counter::FreeGasCounter;
     ///
     /// # let mut external = MockedExternal::new();
-    /// assert_eq!(external.storage_set(b"key42", b"value1337"), Ok(()));
+    /// assert_eq!(external.storage_set(&mut FreeGasCounter, b"key42", b"value1337"), Ok(None));
     /// // Should return an old value if the key exists
-    /// assert_eq!(external.storage_set(b"key42", b"new_value"), Ok(()));
+    /// assert_eq!(external.storage_set(&mut FreeGasCounter, b"key42", b"new_value"), Ok(Some(b"value1337".to_vec())));
     /// ```
-    fn storage_set(&mut self, key: &[u8], value: &[u8]) -> Result<()>;
+    fn storage_set<'a>(
+        &'a mut self,
+        access_tracker: &mut dyn StorageAccessTracker,
+        key: &[u8],
+        value: &[u8],
+    ) -> Result<Option<Vec<u8>>>;
 
     /// Read `key` from the storage trie associated with the current account.
     ///
@@ -166,15 +184,18 @@ pub trait External {
     /// # use near_vm_runner::logic::mocks::mock_external::MockedExternal;
     /// # use near_vm_runner::logic::{External, ValuePtr};
     /// # use near_parameters::vm::StorageGetMode;
+    /// # use near_vm_runner::logic::gas_counter::FreeGasCounter;
     ///
     /// # let mut external = MockedExternal::new();
-    /// external.storage_set(b"key42", b"value1337").unwrap();
-    /// assert_eq!(external.storage_get(b"key42", StorageGetMode::Trie).unwrap().map(|ptr| ptr.deref().unwrap()), Some(b"value1337".to_vec()));
+    /// let mut gas = FreeGasCounter;
+    /// external.storage_set(&mut gas, b"key42", b"value1337").unwrap();
+    /// assert_eq!(external.storage_get(&mut gas, b"key42", StorageGetMode::Trie).unwrap().map(|ptr| ptr.deref(&mut gas).unwrap()), Some(b"value1337".to_vec()));
     /// // Returns Ok(None) if there is no value for a key
-    /// assert_eq!(external.storage_get(b"no_key", StorageGetMode::Trie).unwrap().map(|ptr| ptr.deref().unwrap()), None);
+    /// assert_eq!(external.storage_get(&mut gas, b"no_key", StorageGetMode::Trie).unwrap().map(|ptr| ptr.deref(&mut gas).unwrap()), None);
     /// ```
     fn storage_get<'a>(
         &'a self,
+        access_tracker: &mut dyn StorageAccessTracker,
         key: &[u8],
         mode: StorageGetMode,
     ) -> Result<Option<Box<dyn ValuePtr + 'a>>>;
@@ -191,42 +212,20 @@ pub trait External {
     /// ```
     /// # use near_vm_runner::logic::mocks::mock_external::MockedExternal;
     /// # use near_vm_runner::logic::External;
+    /// # use near_vm_runner::logic::gas_counter::FreeGasCounter;
     ///
     /// # let mut external = MockedExternal::new();
-    /// external.storage_set(b"key42", b"value1337").unwrap();
+    /// external.storage_set(&mut FreeGasCounter, b"key42", b"value1337").unwrap();
     /// // Returns Ok if exists
-    /// assert_eq!(external.storage_remove(b"key42"), Ok(()));
+    /// assert_eq!(external.storage_remove(&mut FreeGasCounter, b"key42"), Ok(Some(b"value1337".to_vec())));
     /// // Returns Ok if there was no value
-    /// assert_eq!(external.storage_remove(b"no_value_key"), Ok(()));
+    /// assert_eq!(external.storage_remove(&mut FreeGasCounter, b"no_value_key"), Ok(None));
     /// ```
-    fn storage_remove(&mut self, key: &[u8]) -> Result<()>;
-
-    /// Note: The method is currently unused and untested.
-    ///
-    /// Removes all keys with a given `prefix` from the storage trie associated with current
-    /// account.
-    ///
-    /// # Arguments
-    ///
-    /// * `prefix` - a prefix for all keys to remove
-    ///
-    /// # Errors
-    ///
-    /// This function could return [`near_vm_runner::logic::VMError`].
-    ///
-    /// # Example
-    /// ```
-    /// # use near_vm_runner::logic::mocks::mock_external::MockedExternal;
-    /// # use near_vm_runner::logic::{External, StorageGetMode};
-    ///
-    /// # let mut external = MockedExternal::new();
-    /// external.storage_set(b"key1", b"value1337").unwrap();
-    /// external.storage_set(b"key2", b"value1337").unwrap();
-    /// assert_eq!(external.storage_remove_subtree(b"key"), Ok(()));
-    /// assert!(!external.storage_has_key(b"key1", StorageGetMode::Trie).unwrap());
-    /// assert!(!external.storage_has_key(b"key2", StorageGetMode::Trie).unwrap());
-    /// ```
-    fn storage_remove_subtree(&mut self, prefix: &[u8]) -> Result<()>;
+    fn storage_remove(
+        &mut self,
+        access_tracker: &mut dyn StorageAccessTracker,
+        key: &[u8],
+    ) -> Result<Option<Vec<u8>>>;
 
     /// Check whether the `key` is present in the storage trie associated with the current account.
     ///
@@ -244,21 +243,24 @@ pub trait External {
     /// # Example
     /// ```
     /// # use near_vm_runner::logic::mocks::mock_external::MockedExternal;
+    /// # use near_vm_runner::logic::gas_counter::FreeGasCounter;
     /// # use near_vm_runner::logic::{External, StorageGetMode};
     ///
     /// # let mut external = MockedExternal::new();
-    /// external.storage_set(b"key42", b"value1337").unwrap();
+    /// external.storage_set(&mut FreeGasCounter, b"key42", b"value1337").unwrap();
     /// // Returns value if exists
-    /// assert_eq!(external.storage_has_key(b"key42", StorageGetMode::Trie), Ok(true));
+    /// assert_eq!(external.storage_has_key(&mut FreeGasCounter, b"key42", StorageGetMode::Trie), Ok(true));
     /// // Returns None if there was no value
-    /// assert_eq!(external.storage_has_key(b"no_value_key", StorageGetMode::Trie), Ok(false));
+    /// assert_eq!(external.storage_has_key(&mut FreeGasCounter, b"no_value_key", StorageGetMode::Trie), Ok(false));
     /// ```
-    fn storage_has_key(&mut self, key: &[u8], mode: StorageGetMode) -> Result<bool>;
+    fn storage_has_key(
+        &mut self,
+        access_tracker: &mut dyn StorageAccessTracker,
+        key: &[u8],
+        mode: StorageGetMode,
+    ) -> Result<bool>;
 
     fn generate_data_id(&mut self) -> CryptoHash;
-
-    /// Returns amount of touched trie nodes by storage operations
-    fn get_trie_nodes_count(&self) -> TrieNodesCount;
 
     /// Size of the recorded trie storage proof.
     fn get_recorded_storage_size(&self) -> usize;

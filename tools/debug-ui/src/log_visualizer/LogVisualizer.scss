@@ -41,6 +41,12 @@
                 background-color: #cfc;
             }
 
+            &.ignored {
+                border: 1px solid red;
+                box-shadow: 0 0 2px 0 rgba(255, 0, 0, 0.5);
+                background-color: rgb(255, 204, 204);
+            }
+
             .content {
                 overflow: hidden;
 

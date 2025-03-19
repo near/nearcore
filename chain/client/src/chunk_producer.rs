@@ -410,7 +410,7 @@ impl ChunkProducer {
         // included into the block.
         let reintroduced_count = self
             .sharded_tx_pool
-            .reintroduce_transactions(shard_uid, &prepared_transactions.transactions);
+            .reintroduce_transactions(shard_uid, prepared_transactions.transactions.clone());
         if reintroduced_count < prepared_transactions.transactions.len() {
             debug!(target: "client", reintroduced_count, num_tx = prepared_transactions.transactions.len(), "Reintroduced transactions");
         }

@@ -20,8 +20,8 @@ use near_primitives::views::{
 };
 use near_vm_runner::ContractCode;
 
-use crate::builder::TestLoopBuilder;
-use crate::env::TestLoopEnv;
+use crate::setup::builder::TestLoopBuilder;
+use crate::setup::env::TestLoopEnv;
 use crate::utils::transactions::{self};
 use crate::utils::{ONE_NEAR, TGAS};
 
@@ -193,7 +193,8 @@ impl GlobalContractsTestEnv {
             .clients(clients)
             .epoch_config_store(epoch_config_store)
             .runtime_config_store(runtime_config_store.clone())
-            .build();
+            .build()
+            .warmup();
         let contract = ContractCode::new(near_test_contracts::rs_contract().to_vec(), None);
 
         Self {
@@ -327,7 +328,7 @@ impl GlobalContractsTestEnv {
         self.env.test_loop.run_for(Duration::seconds(2));
         let clients: Vec<&Client> = self
             .env
-            .datas
+            .node_datas
             .iter()
             .map(|data| &self.env.test_loop.data.get(&data.client_sender.actor_handle()).client)
             .collect();
@@ -344,7 +345,7 @@ impl GlobalContractsTestEnv {
     }
 
     fn get_tx_block_hash(&self) -> CryptoHash {
-        transactions::get_shared_block_hash(&self.env.datas, &self.env.test_loop.data)
+        transactions::get_shared_block_hash(&self.env.node_datas, &self.env.test_loop.data)
     }
 
     fn execute_tx(&mut self, tx: SignedTransaction) -> FinalExecutionOutcomeView {
@@ -352,7 +353,7 @@ impl GlobalContractsTestEnv {
             &mut self.env.test_loop,
             &self.rpc,
             tx,
-            &self.env.datas,
+            &self.env.node_datas,
             Duration::seconds(5),
         )
         .unwrap()
@@ -363,7 +364,7 @@ impl GlobalContractsTestEnv {
             &mut self.env.test_loop,
             &self.rpc,
             tx,
-            &self.env.datas,
+            &self.env.node_datas,
             Duration::seconds(5),
         );
     }

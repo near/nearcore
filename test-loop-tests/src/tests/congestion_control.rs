@@ -10,8 +10,9 @@ use near_o11y::testonly::init_test_logger;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::{AccountId, BlockHeight};
 
-use crate::builder::TestLoopBuilder;
-use crate::env::{TestData, TestLoopEnv};
+use crate::setup::builder::TestLoopBuilder;
+use crate::setup::env::TestLoopEnv;
+use crate::setup::state::TestData;
 use crate::utils::transactions::{call_contract, check_txs, deploy_contract, make_accounts};
 use crate::utils::{ONE_NEAR, TGAS};
 
@@ -35,7 +36,7 @@ fn slow_test_congestion_control_simple() {
     accounts.push(contract_id.clone());
 
     let (env, rpc_id) = setup(&accounts);
-    let TestLoopEnv { mut test_loop, datas: node_datas, tempdir } = env;
+    let TestLoopEnv { mut test_loop, node_datas, shared_state } = env;
 
     // Test
 
@@ -54,7 +55,7 @@ fn slow_test_congestion_control_simple() {
 
     // Give the test a chance to finish off remaining events in the event loop, which can
     // be important for properly shutting down the nodes.
-    TestLoopEnv { test_loop, datas: node_datas, tempdir }
+    TestLoopEnv { test_loop, node_datas, shared_state }
         .shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
@@ -92,7 +93,8 @@ fn setup(accounts: &Vec<AccountId>) -> (TestLoopEnv, AccountId) {
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .clients(clients)
-        .build();
+        .build()
+        .warmup();
     (env, rpc_id.clone())
 }
 
