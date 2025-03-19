@@ -15,7 +15,7 @@ use crate::utils::contract_distribution::{
 use crate::utils::transactions::{
     do_call_contract, do_delete_account, do_deploy_contract, make_account, make_accounts,
 };
-use crate::utils::{ONE_NEAR, get_head_height};
+use crate::utils::{ONE_NEAR, get_node_head_height};
 
 const EPOCH_LENGTH: u64 = 10;
 const GENESIS_HEIGHT: u64 = 1000;
@@ -39,7 +39,7 @@ fn test_contract_distribution_single_account(wait_cache_populate: bool, clear_ca
     let method_name = "main".to_owned();
     let args = vec![];
 
-    let start_height = get_head_height(&mut env);
+    let start_height = get_node_head_height(&mut env, &accounts[0]);
 
     do_deploy_contract(&mut env, &rpc_id, &contract_id, contract.code().to_vec());
 
@@ -63,7 +63,7 @@ fn test_contract_distribution_single_account(wait_cache_populate: bool, clear_ca
 
     do_delete_account(&mut env, &rpc_id, &contract_id, &rpc_id);
 
-    let end_height = get_head_height(&mut env);
+    let end_height = get_node_head_height(&env, &accounts[0]);
     assert_all_chunk_endorsements_received(&mut env, start_height, end_height);
 
     env.shutdown_and_drain_remaining_events(Duration::seconds(20));
@@ -106,7 +106,7 @@ fn test_contract_distribution_different_accounts(wait_cache_populate: bool, clea
     let method_name = "main".to_owned();
     let args = vec![];
 
-    let start_height = get_head_height(&mut env);
+    let start_height = get_node_head_height(&env, &accounts[0]);
 
     do_deploy_contract(&mut env, &rpc_id, &contract_id1, contract.code().to_vec());
     do_deploy_contract(&mut env, &rpc_id, &contract_id2, contract.code().to_vec());
@@ -132,7 +132,7 @@ fn test_contract_distribution_different_accounts(wait_cache_populate: bool, clea
     do_delete_account(&mut env, &rpc_id, &contract_id1, &rpc_id);
     do_delete_account(&mut env, &rpc_id, &contract_id2, &rpc_id);
 
-    let end_height = get_head_height(&mut env);
+    let end_height = get_node_head_height(&env, &accounts[0]);
     assert_all_chunk_endorsements_received(&mut env, start_height, end_height);
 
     env.shutdown_and_drain_remaining_events(Duration::seconds(20));
@@ -177,7 +177,7 @@ fn test_contract_distribution_deploy_and_call_multiple_contracts() {
     let method_name = "main".to_owned();
     let args = vec![];
 
-    let start_height = get_head_height(&mut env);
+    let start_height = get_node_head_height(&env, &accounts[0]);
 
     for contract in contracts.iter() {
         do_deploy_contract(&mut env, &rpc_id, &contract_id, contract.code().to_vec());
@@ -204,7 +204,7 @@ fn test_contract_distribution_deploy_and_call_multiple_contracts() {
 
     do_delete_account(&mut env, &rpc_id, &contract_id, &rpc_id);
 
-    let end_height = get_head_height(&mut env);
+    let end_height = get_node_head_height(&env, &accounts[0]);
     assert_all_chunk_endorsements_received(&mut env, start_height, end_height);
 
     env.shutdown_and_drain_remaining_events(Duration::seconds(20));

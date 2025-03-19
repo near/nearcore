@@ -1,3 +1,4 @@
+mod missing_chunk;
 mod multinode;
 mod restart_node;
 mod simple;
