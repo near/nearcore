@@ -9,7 +9,7 @@ pub use crate::trie::{
     PrefetchApi, PrefetchError, RawTrieNode, RawTrieNodeWithSize, STATE_SNAPSHOT_COLUMNS,
     ShardTries, StateSnapshot, StateSnapshotConfig, Trie, TrieAccess, TrieCache,
     TrieCachingStorage, TrieChanges, TrieConfig, TrieDBStorage, TrieStorage, WrappedTrieChanges,
-    estimator, resharding_v2,
+    estimator,
 };
 use adapter::{StoreAdapter, StoreUpdateAdapter};
 use borsh::{BorshDeserialize, BorshSerialize};

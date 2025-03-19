@@ -156,11 +156,6 @@ fn convert_cause_to_transaction_id(
         StateChangeCauseView::Migration => {
             Ok((TransactionIdentifier::block_event("migration", block_hash), None))
         }
-        StateChangeCauseView::ReshardingV2 => {
-            Err(crate::errors::ErrorKind::InternalInvariantError(
-                "State Change 'ReshardingV2' should never be observed".to_string(),
-            ))
-        }
         StateChangeCauseView::BandwidthSchedulerStateUpdate => {
             Err(crate::errors::ErrorKind::InternalInvariantError(
                 "State Change 'BandwidthSchedulerStateUpdate' should never be observed".to_string(),

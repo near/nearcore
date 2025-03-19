@@ -10,9 +10,8 @@ use crate::drop_column::DropColumnCommand;
 use crate::make_snapshot::MakeSnapshotCommand;
 use crate::memtrie::LoadMemTrieCommand;
 use crate::reset_version::ResetVersionCommand;
-use crate::resharding_v2::ReshardingV2Command;
-use crate::rollback_to_25::RollbackTo25Command;
 use crate::run_migrations::RunMigrationsCommand;
+
 use crate::state_perf::StatePerfCommand;
 use crate::write_to_db::WriteCryptoHashCommand;
 use clap::Parser;
@@ -70,13 +69,6 @@ enum SubCommand {
 
     /// Reset the database to the version used by the binary.
     ResetVersion(ResetVersionCommand),
-
-    /// Perform on demand resharding V2
-    Resharding(ReshardingV2Command),
-
-    /// Rollback the database from format used by neard 2.6 to the format used by neard 2.5.
-    /// Removes ChunkApplyStats column and sets DB version to 43.
-    RollbackTo25(RollbackTo25Command),
 }
 
 impl DatabaseCommand {
@@ -104,11 +96,6 @@ impl DatabaseCommand {
             SubCommand::AnalyzeDelayedReceipt(cmd) => cmd.run(home, genesis_validation),
             SubCommand::AnalyzeContractSizes(cmd) => cmd.run(home, genesis_validation),
             SubCommand::ResetVersion(cmd) => cmd.run(home, genesis_validation),
-            SubCommand::Resharding(cmd) => {
-                let near_config = load_config(home, genesis_validation);
-                cmd.run(near_config, home)
-            }
-            SubCommand::RollbackTo25(cmd) => cmd.run(home, genesis_validation),
         }
     }
 }

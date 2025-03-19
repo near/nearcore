@@ -428,7 +428,7 @@ impl ChainStore {
         // If simple nightshade v2 is enabled and stable use that.
         // Same reassignment of outgoing receipts works for simple nightshade v3
         if ProtocolFeature::SimpleNightshadeV2.enabled(protocol_version) {
-            Self::reassign_outgoing_receipts_for_resharding_v2(
+            Self::reassign_outgoing_receipts_for_resharding_impl(
                 receipts,
                 shard_layout,
                 shard_id,
@@ -456,7 +456,7 @@ impl ChainStore {
     /// 3' will get all outgoing receipts from its parent 3
     /// 4' will get no outgoing receipts from its parent 3
     /// All receipts are distributed to children, each exactly once.
-    fn reassign_outgoing_receipts_for_resharding_v2(
+    fn reassign_outgoing_receipts_for_resharding_impl(
         receipts: &mut Vec<Receipt>,
         shard_layout: &ShardLayout,
         shard_id: ShardId,
