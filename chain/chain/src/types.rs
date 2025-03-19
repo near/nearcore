@@ -35,9 +35,7 @@ use near_primitives::types::{
     StateRoot, StateRootNode,
 };
 use near_primitives::utils::to_timestamp;
-use near_primitives::version::{
-    MIN_GAS_PRICE_NEP_92_FIX, ProtocolFeature, ProtocolVersion,
-};
+use near_primitives::version::{MIN_GAS_PRICE_NEP_92_FIX, ProtocolFeature, ProtocolVersion};
 use near_primitives::views::{QueryRequest, QueryResponse};
 use near_schema_checker_lib::ProtocolSchema;
 use near_store::flat::FlatStorageManager;
@@ -139,10 +137,7 @@ impl ApplyChunkResult {
 /// Block economics config taken from genesis config
 pub struct BlockEconomicsConfig {
     gas_price_adjustment_rate: Rational32,
-    genesis_min_gas_price: Balance,
     genesis_max_gas_price: Balance,
-    #[allow(dead_code)]
-    genesis_protocol_version: ProtocolVersion,
 }
 
 impl BlockEconomicsConfig {
@@ -155,12 +150,9 @@ impl BlockEconomicsConfig {
     /// been overwritten at specific protocol versions. Chains with a genesis
     /// version higher than those changes are not overwritten and will instead
     /// respect the value defined in genesis.
-    pub fn min_gas_price(&self, protocol_version: ProtocolVersion) -> Balance {
-        if ProtocolFeature::_DeprecatedMinProtocolVersionNep92Fix.enabled(protocol_version) {
-            MIN_GAS_PRICE_NEP_92_FIX
-        } else {
-            self.genesis_min_gas_price
-        }
+    pub fn min_gas_price(&self, _protocol_version: ProtocolVersion) -> Balance {
+        // Since MIN_SUPPORTED_PROTOCOL_VERSION is now 37, we always use the NEP-92 fix value
+        MIN_GAS_PRICE_NEP_92_FIX
     }
 
     pub fn max_gas_price(&self, protocol_version: ProtocolVersion) -> Balance {
@@ -183,9 +175,7 @@ impl From<&ChainGenesis> for BlockEconomicsConfig {
     fn from(chain_genesis: &ChainGenesis) -> Self {
         BlockEconomicsConfig {
             gas_price_adjustment_rate: chain_genesis.gas_price_adjustment_rate,
-            genesis_min_gas_price: chain_genesis.min_gas_price,
             genesis_max_gas_price: chain_genesis.max_gas_price,
-            genesis_protocol_version: chain_genesis.protocol_version,
         }
     }
 }
