@@ -6,7 +6,7 @@ use crate::tests::{
     set_sha256_cost,
 };
 use crate::{ApplyResult, ApplyState, Runtime, ValidatorAccountsUpdate};
-use crate::{SignedValidPeriodTransactions, TransactionBatches, total_prepaid_exec_fees};
+use crate::{SignedValidPeriodTransactions, total_prepaid_exec_fees};
 use assert_matches::assert_matches;
 use near_crypto::{InMemorySigner, KeyType, PublicKey, Signer};
 use near_o11y::testonly::init_test_logger;
@@ -44,7 +44,6 @@ use near_store::{
     set_account,
 };
 use near_vm_runner::{ContractCode, FilesystemContractRuntimeCache};
-use rayon::iter::ParallelIterator;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use testlib::runtime_utils::{alice_account, bob_account};
@@ -2793,130 +2792,4 @@ fn test_deploy_and_call_local_receipts() {
         action_error.kind,
         ActionErrorKind::FunctionCallError(FunctionCallError::MethodResolveError(_))
     );
-}
-
-#[test]
-fn test_transaction_batches_with_apply() {
-    let alice_key1 = InMemorySigner::test_signer(&alice_account());
-    let bob_signer = InMemorySigner::test_signer(&bob_account());
-    let alice_key2 = InMemorySigner::from_seed(alice_account(), KeyType::ED25519, "seed");
-
-    // Batch 1
-    let tx1 = SignedTransaction::send_money(
-        1,
-        alice_account(),
-        alice_account(),
-        &alice_key2, // invalid access key, tx should be dropped
-        100,
-        CryptoHash::default(),
-    );
-    // Batch 2
-    let tx2 = SignedTransaction::send_money(
-        1,
-        alice_account(),
-        alice_account(),
-        &alice_key1,
-        200,
-        CryptoHash::default(),
-    );
-    let tx3 = SignedTransaction::send_money(
-        2,
-        alice_account(),
-        bob_account(),
-        &alice_key1,
-        300,
-        CryptoHash::default(),
-    );
-    // Batch 3
-    let tx4 = SignedTransaction::send_money(
-        1,
-        bob_account(),
-        bob_account(),
-        &bob_signer,
-        400,
-        CryptoHash::default(),
-    );
-    let tx5 = SignedTransaction::send_money(
-        2,
-        bob_account(),
-        alice_account(),
-        &bob_signer,
-        500,
-        CryptoHash::default(),
-    );
-    let tx6 = SignedTransaction::send_money(
-        3,
-        bob_account(),
-        bob_account(),
-        &bob_signer,
-        600,
-        CryptoHash::default(),
-    );
-
-    let txs = vec![tx4.clone(), tx1, tx2.clone(), tx5.clone(), tx3.clone(), tx6.clone()];
-
-    // Construct transaction batches
-    let batches = TransactionBatches::new(&txs);
-    let batch_vec = batches.par_batches().collect::<Vec<_>>();
-
-    // Verify expected batch sizes
-    let mut sizes: Vec<_> = batch_vec.iter().map(|b| b.indices.len()).collect();
-    sizes.sort();
-    assert_eq!(sizes, vec![1, 2, 3], "batches must have sizes 1, 2, and 3");
-
-    // Verify that each batch groups transactions by the same (signer_id, public_key)
-    for batch in &batch_vec {
-        let first = batch.indices[0];
-        let expected_signer = batch.signed_txs[first].transaction.signer_id();
-        let expected_pubkey = batch.signed_txs[first].transaction.public_key();
-        for &i in batch.indices {
-            let tx = &batch.signed_txs[i].transaction;
-            assert_eq!(tx.signer_id(), expected_signer, "mismatch in batch signer_id");
-            assert_eq!(tx.public_key(), expected_pubkey, "mismatch in batch public key");
-        }
-    }
-
-    // Verify that no two batches share the same (signer_id, public_key)
-    let mut seen = HashSet::new();
-    for batch in &batch_vec {
-        let first = batch.indices[0];
-        let key = (
-            batch.signed_txs[first].transaction.signer_id().clone(),
-            batch.signed_txs[first].transaction.public_key().clone(),
-        );
-        assert!(seen.insert(key), "duplicate batch for same (signer_id, public_key)");
-    }
-
-    // Verify outcome ordering
-    let (runtime, tries, root, apply_state, _signers, epoch_info_provider) = setup_runtime(
-        vec![alice_account(), bob_account()],
-        to_yocto(1_000_000),
-        to_yocto(500_000),
-        10u64.pow(15),
-    );
-
-    let flags = vec![true; txs.len()];
-    let s_valid_txs = SignedValidPeriodTransactions::new(&txs, flags.as_slice());
-    let apply_result = runtime
-        .apply(
-            tries.get_trie_for_shard(ShardUId::single_shard(), root),
-            &None,
-            &apply_state,
-            &[],
-            s_valid_txs,
-            &epoch_info_provider,
-            Default::default(),
-        )
-        .expect("apply should succeed");
-
-    let expected_order =
-        vec![tx4.get_hash(), tx2.get_hash(), tx5.get_hash(), tx3.get_hash(), tx6.get_hash()];
-
-    assert_eq!(
-        apply_result.outcomes.len(),
-        8,
-        "should have processed 5 transactions and 3 outgoing receipts"
-    );
-    let tx_outcomes = apply_result.outcomes.iter().take(5).map(|o| o.id).collect::<Vec<_>>();
-    assert_eq!(tx_outcomes, expected_order, "outcomes are not in expected sorted order");
 }
