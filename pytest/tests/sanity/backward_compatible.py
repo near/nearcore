@@ -22,7 +22,7 @@ import utils
 
 def main():
     node_root = utils.get_near_tempdir('backward', clean=True)
-    executables = branches.prepare_ab_test()
+    executables = branches.prepare_ab_test("testnet")
 
     # Setup local network.
     subprocess.check_call((executables.stable.neard, f'--home={node_root}',
