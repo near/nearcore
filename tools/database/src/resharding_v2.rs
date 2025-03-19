@@ -11,7 +11,7 @@ use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode};
 use near_chain_configs::MutableConfigValue;
 use near_epoch_manager::EpochManager;
 use near_epoch_manager::EpochManagerAdapter;
-use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
+use near_epoch_manager::shard_tracker::ShardTracker;
 use near_primitives::types::EpochId;
 use near_primitives::types::{BlockHeight, ShardId};
 use near_store::db::{MixedDB, ReadOrder, RecoveryDB, RocksDB};
@@ -138,10 +138,8 @@ impl ReshardingV2Command {
             &genesis_epoch_config,
             Some(home_dir),
         );
-        let shard_tracker = ShardTracker::new(
-            TrackedConfig::from_config(&config.client_config),
-            epoch_manager.clone(),
-        );
+        let shard_tracker =
+            ShardTracker::new(config.client_config.tracked_config.clone(), epoch_manager.clone());
         let runtime_adapter =
             NightshadeRuntime::from_config(home_dir, store, &config, epoch_manager.clone())?;
         let chain_genesis = ChainGenesis::new(&config.genesis.config);

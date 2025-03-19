@@ -1,51 +1,21 @@
 use std::sync::Arc;
 
 use crate::EpochManagerAdapter;
+use crate::shard_assignment::shard_id_to_uid;
 use itertools::Itertools;
 use near_cache::SyncLruCache;
-use near_chain_configs::ClientConfig;
+use near_chain_configs::TrackedConfig;
 use near_chain_primitives::Error;
 use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::StateSyncInfo;
 use near_primitives::types::{AccountId, EpochId, ShardId};
 
-#[derive(Clone)]
-pub enum TrackedConfig {
-    /// Tracks shards that contain one of the given account.
-    Accounts(Vec<AccountId>),
-    /// Tracks shards that are assigned to given validator account.
-    ShadowValidator(AccountId),
-    /// Tracks all shards.
-    AllShards,
-    /// Rotates between sets of shards to track.
-    Schedule(Vec<Vec<ShardId>>),
-}
-
-impl TrackedConfig {
-    pub fn new_empty() -> Self {
-        TrackedConfig::Accounts(vec![])
-    }
-
-    pub fn from_config(config: &ClientConfig) -> Self {
-        if !config.tracked_shards.is_empty() {
-            TrackedConfig::AllShards
-        } else if !config.tracked_shard_schedule.is_empty() {
-            TrackedConfig::Schedule(config.tracked_shard_schedule.clone())
-        } else if let Some(account_id) = config.tracked_shadow_validator.as_ref() {
-            TrackedConfig::ShadowValidator(account_id.clone())
-        } else {
-            TrackedConfig::Accounts(config.tracked_accounts.clone())
-        }
-    }
-}
-
 // bit mask for which shard to track
 type BitMask = Vec<bool>;
 
-/// Tracker that tracks shard ids and accounts. Right now, it only supports two modes
-/// TrackedConfig::Accounts(accounts): track the shards where `accounts` belong to
-/// TrackedConfig::AllShards: track all shards
+/// A module responsible for determining which shards are tracked across epochs.
+/// For supported configurations, see the `TrackedConfig` documentation.
 #[derive(Clone)]
 pub struct ShardTracker {
     tracked_config: TrackedConfig,
@@ -67,7 +37,7 @@ impl ShardTracker {
     }
 
     pub fn new_empty(epoch_manager: Arc<dyn EpochManagerAdapter>) -> Self {
-        Self::new(TrackedConfig::new_empty(), epoch_manager)
+        Self::new(TrackedConfig::LightClient, epoch_manager)
     }
 
     fn tracks_shard_at_epoch(
@@ -76,6 +46,16 @@ impl ShardTracker {
         epoch_id: &EpochId,
     ) -> Result<bool, EpochError> {
         match &self.tracked_config {
+            TrackedConfig::LightClient => Ok(false),
+            TrackedConfig::AllShards => Ok(true),
+            TrackedConfig::Shards(tracked_shards) => {
+                let shard_uid = shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, epoch_id)?;
+                if tracked_shards.contains(&shard_uid) {
+                    return Ok(true);
+                }
+                // TODO(archival_v2) Handle the case of resharding, e.g. look up the `shard_uid` in previous shard layouts.
+                Ok(false)
+            }
             TrackedConfig::Accounts(tracked_accounts) => {
                 let shard_layout = self.epoch_manager.get_shard_layout(epoch_id)?;
                 let tracking_mask = self.tracking_shards_cache.get_or_try_put(
@@ -94,7 +74,6 @@ impl ShardTracker {
                 let shard_index = shard_layout.get_shard_index(shard_id)?;
                 Ok(tracking_mask.get(shard_index).copied().unwrap_or(false))
             }
-            TrackedConfig::AllShards => Ok(true),
             TrackedConfig::Schedule(schedule) => {
                 assert_ne!(schedule.len(), 0);
                 let epoch_info = self.epoch_manager.get_epoch_info(epoch_id)?;
@@ -168,6 +147,10 @@ impl ShardTracker {
             }
         }
         match self.tracked_config {
+            TrackedConfig::LightClient => {
+                // Avoid looking up EpochId as a performance optimization.
+                false
+            }
             TrackedConfig::AllShards => {
                 // Avoid looking up EpochId as a performance optimization.
                 true
@@ -184,6 +167,7 @@ impl ShardTracker {
     /// * If `account_id` is not None, it is supposed to be a validator
     /// account and `is_me` indicates whether we check what shards
     /// the client tracks.
+    // TODO: Eliminate code duplication with `cared_about_shard_in_prev_epoch`.
     pub fn cares_about_shard(
         &self,
         account_id: Option<&AccountId>,
@@ -211,6 +195,10 @@ impl ShardTracker {
             }
         }
         match self.tracked_config {
+            TrackedConfig::LightClient => {
+                // Avoid looking up EpochId as a performance optimization.
+                false
+            }
             TrackedConfig::AllShards => {
                 // Avoid looking up EpochId as a performance optimization.
                 true
@@ -228,6 +216,7 @@ impl ShardTracker {
     /// * If `account_id` is not None, it is supposed to be a validator
     /// account and `is_me` indicates whether we check what shards
     /// the client will track.
+    // TODO: Eliminate code duplication with `cared_about_shard_in_prev_epoch`.
     pub fn will_care_about_shard(
         &self,
         account_id: Option<&AccountId>,
@@ -254,6 +243,10 @@ impl ShardTracker {
             }
         }
         match self.tracked_config {
+            TrackedConfig::LightClient => {
+                // Avoid looking up EpochId as a performance optimization.
+                false
+            }
             TrackedConfig::AllShards => {
                 // Avoid looking up EpochId as a performance optimization.
                 true
@@ -278,7 +271,7 @@ impl ShardTracker {
 
     /// Returns whether the node is configured for all shards tracking.
     pub fn tracks_all_shards(&self) -> bool {
-        matches!(self.tracked_config, TrackedConfig::AllShards)
+        self.tracked_config.tracks_all_shards()
     }
 
     /// Return all shards that whose states need to be caught up
