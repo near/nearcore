@@ -36,7 +36,7 @@ use near_epoch_manager::EpochManager;
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
 use near_network::PeerManagerActor;
-use near_primitives::block::GenesisId;
+use near_primitives::genesis::GenesisId;
 use near_primitives::types::EpochId;
 use near_store::genesis::initialize_sharded_genesis_state;
 use near_store::metadata::DbKind;

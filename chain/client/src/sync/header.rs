@@ -401,7 +401,8 @@ mod test {
     use near_network::types::{
         BlockInfo, FullPeerInfo, HighestHeightPeerInfo, NetworkRequests, PeerInfo,
     };
-    use near_primitives::block::{Approval, Block, GenesisId};
+    use near_primitives::block::{Approval, Block};
+    use near_primitives::genesis::GenesisId;
     use near_primitives::merkle::PartialMerkleTree;
     use near_primitives::network::PeerId;
     use near_primitives::test_utils::TestBlockBuilder;

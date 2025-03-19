@@ -567,7 +567,8 @@ pub struct LatestKnown {
 #[cfg(test)]
 mod tests {
     use near_async::time::{Clock, Utc};
-    use near_primitives::block::{Approval, genesis_chunks};
+    use near_primitives::block::Approval;
+    use near_primitives::genesis::genesis_chunks;
     use near_primitives::hash::hash;
     use near_primitives::merkle::verify_path;
     use near_primitives::test_utils::{TestBlockBuilder, create_test_signer};

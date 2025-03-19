@@ -4,7 +4,7 @@ use super::*;
 use crate::network_protocol::proto;
 use crate::network_protocol::{Handshake, HandshakeFailureReason};
 use crate::network_protocol::{PeerChainInfoV2, PeerInfo};
-use near_primitives::block::GenesisId;
+use near_primitives::genesis::GenesisId;
 use protobuf::MessageField as MF;
 
 impl From<&GenesisId> for proto::GenesisId {
