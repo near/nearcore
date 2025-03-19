@@ -155,22 +155,8 @@ impl BlockEconomicsConfig {
     /// version higher than those changes are not overwritten and will instead
     /// respect the value defined in genesis.
     pub fn min_gas_price(&self, protocol_version: ProtocolVersion) -> Balance {
-        if !ProtocolFeature::MinProtocolVersionNep92.enabled(self.genesis_protocol_version) {
-            if ProtocolFeature::MinProtocolVersionNep92Fix.enabled(protocol_version) {
-                MIN_GAS_PRICE_NEP_92_FIX
-            } else if ProtocolFeature::MinProtocolVersionNep92.enabled(protocol_version) {
-                MIN_GAS_PRICE_NEP_92
-            } else {
-                self.genesis_min_gas_price
-            }
-        } else if !ProtocolFeature::MinProtocolVersionNep92Fix
-            .enabled(self.genesis_protocol_version)
-        {
-            if ProtocolFeature::MinProtocolVersionNep92Fix.enabled(protocol_version) {
-                MIN_GAS_PRICE_NEP_92_FIX
-            } else {
-                MIN_GAS_PRICE_NEP_92
-            }
+        if ProtocolFeature::MinProtocolVersionNep92Fix.enabled(protocol_version) {
+            MIN_GAS_PRICE_NEP_92_FIX
         } else {
             self.genesis_min_gas_price
         }

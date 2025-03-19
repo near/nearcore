@@ -10,7 +10,7 @@ use crate::types::ProtocolVersion;
 #[derive(Hash, PartialEq, Eq, Clone, Copy, Debug)]
 pub enum ProtocolFeature {
     // stable features
-    ImplicitAccountCreation,
+    _DeprecatedImplicitAccountCreation,
     RectifyInflation,
     /// Add `AccessKey` nonce range by setting nonce to `(block_height - 1) * 1e6`, see
     /// <https://github.com/near/nearcore/issues/3779>.
@@ -34,13 +34,13 @@ pub enum ProtocolFeature {
     /// <https://github.com/near/nearcore/pull/4228>.
     RestoreReceiptsAfterFixApplyChunks,
     /// Minimum protocol version for NEP-92
-    MinProtocolVersionNep92,
+    _DeprecatedMinProtocolVersionNep92,
     /// Minimum protocol version for NEP-92 fix
-    MinProtocolVersionNep92Fix,
+    _DeprecatedMinProtocolVersionNep92Fix,
     /// Creates a unique random seed to be provided to `VMContext` from a given `action_hash` and a given `random_seed`
-    CorrectRandomValue,
+    _DeprecatedCorrectRandomValue,
     /// The protocol version that enables reward on mainnet
-    EnableInflation,
+    _DeprecatedEnableInflation,
     /// Fix upgrade to use the latest voted protocol version instead of the current epoch protocol
     /// version when there is no new change in protocol version
     UpgradabilityFix,
@@ -222,11 +222,11 @@ impl ProtocolFeature {
     pub const fn protocol_version(self) -> ProtocolVersion {
         match self {
             // Stable features
-            ProtocolFeature::MinProtocolVersionNep92 => 31,
-            ProtocolFeature::MinProtocolVersionNep92Fix => 32,
-            ProtocolFeature::CorrectRandomValue => 33,
-            ProtocolFeature::ImplicitAccountCreation => 35,
-            ProtocolFeature::EnableInflation => 36,
+            ProtocolFeature::_DeprecatedMinProtocolVersionNep92 => 31,
+            ProtocolFeature::_DeprecatedMinProtocolVersionNep92Fix => 32,
+            ProtocolFeature::_DeprecatedCorrectRandomValue => 33,
+            ProtocolFeature::_DeprecatedImplicitAccountCreation => 35,
+            ProtocolFeature::_DeprecatedEnableInflation => 36,
             ProtocolFeature::UpgradabilityFix => 37,
             ProtocolFeature::CreateHash => 38,
             ProtocolFeature::DeleteKeyStorageUsage => 40,
@@ -320,7 +320,7 @@ impl ProtocolFeature {
 pub const PROD_GENESIS_PROTOCOL_VERSION: ProtocolVersion = 29;
 
 /// Minimum supported protocol version for the current binary
-pub const MIN_SUPPORTED_PROTOCOL_VERSION: ProtocolVersion = 29;
+pub const MIN_SUPPORTED_PROTOCOL_VERSION: ProtocolVersion = 37;
 
 /// Current protocol version used on the mainnet with all stable features.
 const STABLE_PROTOCOL_VERSION: ProtocolVersion = 77;
