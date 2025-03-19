@@ -12,7 +12,7 @@ use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::ShardChunk;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockExtra, EpochId, Gas, ShardId, StateRoot};
-use near_primitives::version::ProtocolFeature;
+use near_primitives::version::{PROD_GENESIS_PROTOCOL_VERSION, ProtocolFeature};
 use near_store::adapter::StoreUpdateAdapter;
 use near_store::get_genesis_state_roots;
 use near_vm_runner::logic::ProtocolVersion;
@@ -48,6 +48,18 @@ impl Chain {
             chain_genesis.total_supply,
             Chain::compute_bp_hash(epoch_manager, EpochId::default(), EpochId::default())?,
         );
+
+        if chain_genesis.protocol_version == PROD_GENESIS_PROTOCOL_VERSION {
+            // verify that the genesis block hash matches either mainnet or testnet
+            assert!(
+                vec![
+                    "EPnLgE7iEq9s7yTkos96M3cWymH5avBAPm3qx3NXqR8H", // mainnet
+                    "FWJ9kR6KFWoyMoNjpLXXGHeuiy7tEY6GmoFeCA5yuc6b"  // testnet
+                ]
+                .contains(&genesis_block.hash().to_string().as_str())
+            );
+        }
+
         Ok((genesis_block, genesis_chunks))
     }
 
