@@ -216,12 +216,6 @@ fn get_genesis_congestion_infos_impl(
         return Ok(std::iter::repeat(None).take(state_roots.len()).collect());
     }
 
-    // Check we had already computed the congestion infos from the genesis state roots.
-    if let Some(saved_infos) = near_store::get_genesis_congestion_infos(runtime.store())? {
-        tracing::debug!(target: "chain", "Reading genesis congestion infos from database.");
-        return Ok(saved_infos.into_iter().map(Option::Some).collect());
-    }
-
     let mut new_infos = vec![];
     for (shard_index, &state_root) in state_roots.iter().enumerate() {
         let shard_id = genesis_shard_layout.get_shard_id(shard_index)?;
@@ -234,14 +228,6 @@ fn get_genesis_congestion_infos_impl(
         )?;
         new_infos.push(congestion_info);
     }
-
-    // Store it in DB so that we can read it later, instead of recomputing from genesis state roots.
-    // Note that this is necessary because genesis state roots will be garbage-collected and will not
-    // be available, for example, when the node restarts later.
-    tracing::debug!(target: "chain", "Saving genesis congestion infos to database.");
-    let mut store_update = runtime.store().store_update();
-    near_store::set_genesis_congestion_infos(&mut store_update, &new_infos);
-    store_update.commit()?;
 
     Ok(new_infos.into_iter().map(Option::Some).collect())
 }

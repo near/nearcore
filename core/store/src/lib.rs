@@ -20,13 +20,12 @@ pub use db::{
     GENESIS_STATE_ROOTS_KEY, HEAD_KEY, HEADER_HEAD_KEY, LARGEST_TARGET_HEIGHT_KEY,
     LATEST_KNOWN_KEY, STATE_SNAPSHOT_KEY, STATE_SYNC_DUMP_KEY, TAIL_KEY,
 };
-use db::{GENESIS_CONGESTION_INFO_KEY, GENESIS_HEIGHT_KEY, SplitDB};
+use db::{GENESIS_HEIGHT_KEY, SplitDB};
 use metadata::{DbKind, DbVersion, KIND_KEY, VERSION_KEY};
 use near_crypto::PublicKey;
 use near_fmt::{AbbrBytes, StorageKey};
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::bandwidth_scheduler::BandwidthSchedulerState;
-use near_primitives::congestion_info::CongestionInfo;
 pub use near_primitives::errors::{MissingTrieValueContext, StorageError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{
@@ -1081,10 +1080,6 @@ pub fn get_genesis_state_roots(store: &Store) -> io::Result<Option<Vec<StateRoot
     store.get_ser::<Vec<StateRoot>>(DBCol::BlockMisc, GENESIS_STATE_ROOTS_KEY)
 }
 
-pub fn get_genesis_congestion_infos(store: &Store) -> io::Result<Option<Vec<CongestionInfo>>> {
-    store.get_ser::<Vec<CongestionInfo>>(DBCol::BlockMisc, GENESIS_CONGESTION_INFO_KEY)
-}
-
 pub fn get_genesis_hash(store: &Store) -> io::Result<Option<CryptoHash>> {
     store.get_ser::<CryptoHash>(DBCol::BlockMisc, GENESIS_JSON_HASH_KEY)
 }
@@ -1098,15 +1093,6 @@ pub fn set_genesis_hash(store_update: &mut StoreUpdate, genesis_hash: &CryptoHas
 pub fn set_genesis_state_roots(store_update: &mut StoreUpdate, genesis_roots: &[StateRoot]) {
     store_update
         .set_ser(DBCol::BlockMisc, GENESIS_STATE_ROOTS_KEY, genesis_roots)
-        .expect("Borsh cannot fail");
-}
-
-pub fn set_genesis_congestion_infos(
-    store_update: &mut StoreUpdate,
-    congestion_infos: &[CongestionInfo],
-) {
-    store_update
-        .set_ser(DBCol::BlockMisc, GENESIS_CONGESTION_INFO_KEY, &congestion_infos)
         .expect("Borsh cannot fail");
 }
 

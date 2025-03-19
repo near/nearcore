@@ -11,7 +11,6 @@ use near_jsonrpc_primitives::types::entity_debug::{
     EntityDataStruct, EntityDataValue, EntityDebugHandler, EntityQuery, EntityQueryWithParams,
 };
 use near_primitives::block::Tip;
-use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::epoch_manager::AGGREGATOR_KEY;
 use near_primitives::errors::EpochError;
@@ -36,7 +35,7 @@ use near_primitives::views::{
 };
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::flat_store::encode_flat_state_db_key;
-use near_store::db::GENESIS_CONGESTION_INFO_KEY;
+use near_store::db::GENESIS_HEIGHT_KEY;
 use near_store::epoch_info_aggregator::EpochInfoAggregator;
 use near_store::flat::delta::KeyForFlatStateDelta;
 use near_store::flat::{FlatStateChanges, FlatStateDeltaMetadata, FlatStorageStatus};
@@ -811,8 +810,8 @@ struct BlockMiscData {
     latest_known: Option<LatestKnown>,
     largest_target_height: Option<BlockHeight>,
     genesis_json_hash: Option<CryptoHash>,
+    genesis_height: Option<BlockHeight>,
     genesis_state_roots: Option<Vec<StateRoot>>,
-    genesis_congestion_info: Option<Vec<CongestionInfo>>,
     cold_head: Option<Tip>,
     state_sync_dump: Option<StateSyncDumpProgress>,
     state_snapshot: Option<CryptoHash>,
@@ -830,9 +829,8 @@ impl BlockMiscData {
             latest_known: store.get_ser(DBCol::BlockMisc, LATEST_KNOWN_KEY)?,
             largest_target_height: store.get_ser(DBCol::BlockMisc, LARGEST_TARGET_HEIGHT_KEY)?,
             genesis_json_hash: store.get_ser(DBCol::BlockMisc, GENESIS_JSON_HASH_KEY)?,
+            genesis_height: store.get_ser(DBCol::BlockMisc, GENESIS_HEIGHT_KEY)?,
             genesis_state_roots: store.get_ser(DBCol::BlockMisc, GENESIS_STATE_ROOTS_KEY)?,
-            genesis_congestion_info: store
-                .get_ser(DBCol::BlockMisc, GENESIS_CONGESTION_INFO_KEY)?,
             cold_head: store.get_ser(DBCol::BlockMisc, COLD_HEAD_KEY)?,
             state_sync_dump: store.get_ser(DBCol::BlockMisc, STATE_SYNC_DUMP_KEY)?,
             state_snapshot: store.get_ser(DBCol::BlockMisc, STATE_SNAPSHOT_KEY)?,
