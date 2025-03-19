@@ -52,11 +52,14 @@ impl Chain {
         if chain_genesis.protocol_version == PROD_GENESIS_PROTOCOL_VERSION {
             // verify that the genesis block hash matches either mainnet or testnet
             assert!(
-                vec![
+                [
                     "EPnLgE7iEq9s7yTkos96M3cWymH5avBAPm3qx3NXqR8H", // mainnet
-                    "FWJ9kR6KFWoyMoNjpLXXGHeuiy7tEY6GmoFeCA5yuc6b"  // testnet
+                    "FWJ9kR6KFWoyMoNjpLXXGHeuiy7tEY6GmoFeCA5yuc6b", // testnet
+                    "93CRibQrTXr4eGB1zBCdVqrCNS3jFwwmx8oQ6wFxsx5j", // magic hash for test
                 ]
-                .contains(&genesis_block.hash().to_string().as_str())
+                .contains(&genesis_block.hash().to_string().as_str()),
+                "Unexpected genesis hash {}",
+                genesis_block.hash()
             );
         }
 
@@ -272,4 +275,67 @@ fn get_genesis_congestion_info(
     let congestion_info = bootstrap_congestion_info(&trie, runtime_config, shard_id)?;
     tracing::debug!(target: "chain", ?shard_id, ?state_root, ?congestion_info, "Computed genesis congestion info.");
     Ok(congestion_info)
+}
+
+#[cfg(test)]
+mod test {
+    use std::str::FromStr;
+
+    use near_async::time::FakeClock;
+    use near_chain_configs::test_genesis::{TestEpochConfigBuilder, TestGenesisBuilder};
+    use near_epoch_manager::EpochManager;
+    use near_primitives::hash::CryptoHash;
+    use near_primitives::types::Balance;
+    use near_primitives::version::PROD_GENESIS_PROTOCOL_VERSION;
+    use near_store::test_utils::create_test_store;
+    use num_rational::Rational32;
+
+    use crate::test_utils::{KeyValueRuntime, MockEpochManager};
+    use crate::{Chain, ChainGenesis};
+
+    #[test]
+    fn test_prod_genesis_protocol_version_block_consistency() {
+        // Create a genesis that closely resembles the mainnet genesis.
+        // It should have the protocol version set as PROD_GENESIS_PROTOCOL_VERSION (29)
+        // It's great to have parameters like epoch_length, gas_prices, etc. to be the same as mainnet genesis.
+        let genesis = TestGenesisBuilder::new()
+            .protocol_version(PROD_GENESIS_PROTOCOL_VERSION)
+            .genesis_height(9820210)
+            .genesis_time_from_clock(&FakeClock::default().clock())
+            .epoch_length(43200)
+            .gas_prices(1e9 as Balance, 1e22 as Balance)
+            .gas_limit_one_petagas()
+            .transaction_validity_period(86400)
+            .max_inflation_rate(Rational32::new(0, 1))
+            .protocol_reward_rate(Rational32::new(0, 1))
+            .add_user_account_simple("alice".parse().unwrap(), 1_000_000)
+            .build();
+
+        let epoch_config_store = TestEpochConfigBuilder::from_genesis(&genesis)
+            .build_store_for_genesis_protocol_version();
+
+        let store = create_test_store();
+        let epoch_manager = EpochManager::new_arc_handle_from_epoch_config_store(
+            store.clone(),
+            &genesis.config,
+            epoch_config_store,
+        );
+
+        // The runtime isn't used at all for the production of genesis block at protocol version PROD_GENESIS_PROTOCOL_VERSION.
+        // It should be fine for us to use KeyValueRuntime here.
+        let runtime = KeyValueRuntime::new(store.clone(), &MockEpochManager::new(store, 43200));
+
+        // Create the genesis block. Use a random state root.
+        let (genesis_block, _) = Chain::make_genesis_block(
+            epoch_manager.as_ref(),
+            runtime.as_ref(),
+            &ChainGenesis::new(&genesis.config),
+            vec![CryptoHash::from_str("8EhZRfDTYujfZoUZtZ3eSMB9gJyFo5zjscR12dEcaxGU").unwrap()],
+        )
+        .unwrap();
+
+        // In case this test fails, please make sure the changes do not change the structure of the genesis block.
+        let hash = genesis_block.hash().to_string();
+        assert_eq!(hash, "93CRibQrTXr4eGB1zBCdVqrCNS3jFwwmx8oQ6wFxsx5j");
+    }
 }
