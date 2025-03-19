@@ -91,11 +91,6 @@ wasm-smith.workspace = true
 wat.workspace = true
 
 [features]
-nightly_protocol = [
-  "near-o11y/nightly_protocol",
-  "near-parameters/nightly_protocol",
-  "near-primitives-core/nightly_protocol",
-]
 wasmer0_vm = ["wasmer-runtime", "wasmer-runtime-core", "prepare"]
 wasmtime_vm = ["wasmtime", "anyhow", "prepare"]
 wasmer2_vm = [
@@ -130,19 +125,12 @@ prepare = [
 
 no_cpu_compatibility_checks = []
 
-protocol_feature_fix_contract_loading_cost = [
-  "near-primitives-core/protocol_feature_fix_contract_loading_cost",
-]
-
 metrics = ["prometheus", "near-o11y"]
-
 
 nightly = [
   "near-o11y/nightly",
   "near-parameters/nightly",
   "near-primitives-core/nightly",
-  "nightly_protocol",
-  "protocol_feature_fix_contract_loading_cost",
 ]
 sandbox = ["near-o11y/sandbox"]
 test_features = []

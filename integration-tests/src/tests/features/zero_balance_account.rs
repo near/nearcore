@@ -70,7 +70,7 @@ fn test_zero_balance_account_creation() {
         *genesis_block.hash(),
     );
     assert_eq!(
-        env.clients[0].process_tx(create_account_tx, false, false),
+        env.tx_request_handlers[0].process_tx(create_account_tx, false, false),
         ProcessTxResponse::ValidTx
     );
     for i in 1..5 {
@@ -94,7 +94,7 @@ fn test_zero_balance_account_creation() {
     );
     let tx_hash = create_account_tx.get_hash();
     assert_eq!(
-        env.clients[0].process_tx(create_account_tx, false, false),
+        env.tx_request_handlers[0].process_tx(create_account_tx, false, false),
         ProcessTxResponse::ValidTx
     );
     for i in 5..10 {
@@ -153,7 +153,7 @@ fn test_zero_balance_account_add_key() {
         *genesis_block.hash(),
     );
     assert_eq!(
-        env.clients[0].process_tx(create_account_tx, false, false),
+        env.tx_request_handlers[0].process_tx(create_account_tx, false, false),
         ProcessTxResponse::ValidTx
     );
     for i in 1..5 {
@@ -198,7 +198,10 @@ fn test_zero_balance_account_add_key() {
         *genesis_block.hash(),
         0,
     );
-    assert_eq!(env.clients[0].process_tx(add_key_tx, false, false), ProcessTxResponse::ValidTx);
+    assert_eq!(
+        env.tx_request_handlers[0].process_tx(add_key_tx, false, false),
+        ProcessTxResponse::ValidTx
+    );
     for i in 5..10 {
         env.produce_block(0, i);
     }
@@ -214,7 +217,7 @@ fn test_zero_balance_account_add_key() {
         *genesis_block.hash(),
     );
     assert_matches!(
-        env.clients[0].process_tx(send_money_tx.clone(), false, false),
+        env.tx_request_handlers[0].process_tx(send_money_tx.clone(), false, false),
         ProcessTxResponse::InvalidTx(InvalidTxError::LackBalanceForState { .. })
     );
 
@@ -229,11 +232,17 @@ fn test_zero_balance_account_add_key() {
         *genesis_block.hash(),
         0,
     );
-    assert_eq!(env.clients[0].process_tx(delete_key_tx, false, false), ProcessTxResponse::ValidTx);
+    assert_eq!(
+        env.tx_request_handlers[0].process_tx(delete_key_tx, false, false),
+        ProcessTxResponse::ValidTx
+    );
     for i in 10..15 {
         env.produce_block(0, i);
     }
-    assert_eq!(env.clients[0].process_tx(send_money_tx, false, false), ProcessTxResponse::ValidTx);
+    assert_eq!(
+        env.tx_request_handlers[0].process_tx(send_money_tx, false, false),
+        ProcessTxResponse::ValidTx
+    );
     for i in 15..20 {
         env.produce_block(0, i);
     }
@@ -274,7 +283,7 @@ fn test_zero_balance_account_upgrade() {
     );
     let first_tx_hash = first_create_account_tx.get_hash();
     assert_eq!(
-        env.clients[0].process_tx(first_create_account_tx, false, false),
+        env.tx_request_handlers[0].process_tx(first_create_account_tx, false, false),
         ProcessTxResponse::ValidTx
     );
     for i in 1..12 {
@@ -300,7 +309,7 @@ fn test_zero_balance_account_upgrade() {
     );
     let second_tx_hash = second_create_account_tx.get_hash();
     assert_eq!(
-        env.clients[0].process_tx(second_create_account_tx, false, false),
+        env.tx_request_handlers[0].process_tx(second_create_account_tx, false, false),
         ProcessTxResponse::ValidTx
     );
     for i in 12..20 {

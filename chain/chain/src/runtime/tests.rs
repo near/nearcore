@@ -380,14 +380,8 @@ impl TestEnv {
         let shard_layout = self.epoch_manager.get_shard_layout_from_prev_block(&new_hash).unwrap();
         let mut new_receipts = HashMap::<_, Vec<Receipt>>::new();
         for receipt in all_receipts {
-            if receipt.send_to_all_shards() {
-                for shard_id in shard_layout.shard_ids() {
-                    new_receipts.entry(shard_id).or_default().push(receipt.clone());
-                }
-            } else {
-                let shard_id = shard_layout.account_id_to_shard_id(receipt.receiver_id());
-                new_receipts.entry(shard_id).or_default().push(receipt);
-            }
+            let shard_id = receipt.receiver_shard_id(&shard_layout).unwrap();
+            new_receipts.entry(shard_id).or_default().push(receipt);
         }
         self.last_receipts = new_receipts;
         self.last_proposals = all_proposals;
@@ -1578,7 +1572,8 @@ fn generate_transaction_pool(signers: &Vec<Signer>, block_hash: CryptoHash) -> T
                 round.try_into().unwrap(),
                 block_hash,
             );
-            transactions.push(transaction);
+            let validated_tx = ValidatedTransaction::new_for_test(transaction);
+            transactions.push(validated_tx);
         }
     }
     transactions.shuffle(&mut rng);
@@ -1705,7 +1700,7 @@ fn test_prepare_transactions_storage_proof() {
     let validated_transactions = prepare_transactions(
         &env,
         &chain,
-        &mut TransactionGroupIteratorWrapper::new(&proposed_transactions.transactions),
+        &mut TransactionGroupIteratorWrapper::new(proposed_transactions.transactions.clone()),
         validator_storage_config,
     )
     .unwrap();
@@ -1825,7 +1820,7 @@ fn test_precompile_contracts_updates_cache() {
     for code_hash in code_hashes.iter() {
         let cache_key = get_contract_cache_key(
             *code_hash,
-            &runtime.get_runtime_config(PROTOCOL_VERSION).unwrap().wasm_config,
+            &runtime.get_runtime_config(PROTOCOL_VERSION).wasm_config,
         );
         let contract = contract_cache.get(&cache_key).unwrap();
         assert!(contract.is_none());
@@ -1838,7 +1833,7 @@ fn test_precompile_contracts_updates_cache() {
     for code_hash in code_hashes.into_iter() {
         let cache_key = get_contract_cache_key(
             code_hash,
-            &runtime.get_runtime_config(PROTOCOL_VERSION).unwrap().wasm_config,
+            &runtime.get_runtime_config(PROTOCOL_VERSION).wasm_config,
         );
 
         let contract = contract_cache.get(&cache_key).unwrap();

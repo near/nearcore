@@ -8,7 +8,6 @@ use near_chain::{
 use near_chain_primitives::Error;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_o11y::log_assert_fail;
-use near_primitives::checked_feature;
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{ChunkHash, ReceiptProof, ShardChunk, ShardChunkHeader};
@@ -63,7 +62,7 @@ impl Client {
         validator_signer: &Option<Arc<ValidatorSigner>>,
     ) -> Result<(), Error> {
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(epoch_id)?;
-        if !checked_feature!("stable", StatelessValidation, protocol_version) {
+        if !ProtocolFeature::StatelessValidation.enabled(protocol_version) {
             return Ok(());
         }
         let chunk_header = chunk.cloned_header();
@@ -138,7 +137,7 @@ impl Client {
         } = self.collect_state_transition_data(&chunk_header, prev_chunk_header)?;
 
         let (new_transactions, new_transactions_validation_state) =
-            if checked_feature!("stable", RelaxedChunkValidation, protocol_version) {
+            if ProtocolFeature::RelaxedChunkValidation.enabled(protocol_version) {
                 (Vec::new(), PartialState::default())
             } else {
                 let new_transactions = chunk.transactions().to_vec();

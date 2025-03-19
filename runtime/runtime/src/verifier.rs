@@ -6,7 +6,6 @@ use near_parameters::RuntimeConfig;
 use near_primitives::account::{AccessKey, AccessKeyPermission};
 use near_primitives::action::DeployGlobalContractAction;
 use near_primitives::action::delegate::SignedDelegateAction;
-use near_primitives::checked_feature;
 use near_primitives::errors::{
     ActionsValidationError, InvalidAccessKeyError, InvalidTxError, ReceiptValidationError,
 };
@@ -69,7 +68,7 @@ pub fn check_storage_stake(
     if available_amount >= required_amount {
         Ok(())
     } else {
-        if checked_feature!("stable", ZeroBalanceAccount, current_protocol_version)
+        if ProtocolFeature::ZeroBalanceAccount.enabled(current_protocol_version)
             && is_zero_balance_account(account)
         {
             return Ok(());
@@ -125,8 +124,10 @@ pub fn verify_and_charge_tx_ephemeral(
     transaction_cost: &TransactionCost,
     block_height: Option<BlockHeight>,
     current_protocol_version: ProtocolVersion,
+    cached_account: Option<Account>,
+    cached_access_key: Option<AccessKey>,
 ) -> Result<VerificationResult, InvalidTxError> {
-    let _span = tracing::debug_span!(target: "runtime", "verify_and_charge_transaction").entered();
+    let _span = tracing::debug_span!(target: "runtime", "verify_and_charge_tx_ephemeral").entered();
 
     let TransactionCost { gas_burnt, gas_remaining, receipt_gas_price, total_cost, burnt_amount } =
         *transaction_cost;
@@ -134,24 +135,31 @@ pub fn verify_and_charge_tx_ephemeral(
     let tx = validated_tx.to_tx();
     let signer_id = tx.signer_id();
 
-    let mut signer = match get_account(state_update, signer_id)? {
-        Some(signer) => signer,
-        None => {
-            return Err(InvalidTxError::SignerDoesNotExist { signer_id: signer_id.clone() });
-        }
+    // TODO(miloserdow): Move the logic of calling `get_account`/`get_access_key` to the caller(s).
+    let mut signer = match cached_account {
+        Some(account) => account,
+        None => match get_account(state_update, signer_id)? {
+            Some(account) => account,
+            None => {
+                return Err(InvalidTxError::SignerDoesNotExist { signer_id: signer_id.clone() });
+            }
+        },
     };
 
-    let mut access_key = match get_access_key(state_update, signer_id, tx.public_key())? {
+    let mut access_key = match cached_access_key {
         Some(access_key) => access_key,
-        None => {
-            return Err(InvalidTxError::InvalidAccessKeyError(
-                InvalidAccessKeyError::AccessKeyNotFound {
-                    account_id: signer_id.clone(),
-                    public_key: tx.public_key().clone().into(),
-                },
-            )
-            .into());
-        }
+        None => match get_access_key(state_update, signer_id, tx.public_key())? {
+            Some(access_key) => access_key,
+            None => {
+                return Err(InvalidTxError::InvalidAccessKeyError(
+                    InvalidAccessKeyError::AccessKeyNotFound {
+                        account_id: signer_id.clone(),
+                        public_key: tx.public_key().clone().into(),
+                    },
+                )
+                .into());
+            }
+        },
     };
 
     if tx.nonce() <= access_key.nonce {
@@ -161,7 +169,7 @@ pub fn verify_and_charge_tx_ephemeral(
         }
         .into());
     }
-    if checked_feature!("stable", AccessKeyNonceRange, current_protocol_version) {
+    if ProtocolFeature::AccessKeyNonceRange.enabled(current_protocol_version) {
         if let Some(height) = block_height {
             let upper_bound =
                 height * near_primitives::account::AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER;
@@ -381,7 +389,7 @@ pub(crate) fn validate_actions(
             }
         } else {
             if let Action::Delegate(_) = action {
-                if !checked_feature!("stable", DelegateAction, current_protocol_version) {
+                if !ProtocolFeature::DelegateAction.enabled(current_protocol_version) {
                     return Err(ActionsValidationError::UnsupportedProtocolFeature {
                         protocol_feature: String::from("DelegateAction"),
                         version: ProtocolFeature::DelegateAction.protocol_version(),
@@ -591,7 +599,7 @@ fn truncate_string(s: &str, limit: usize) -> String {
 fn check_global_contracts_enabled(
     current_protocol_version: ProtocolVersion,
 ) -> Result<(), ActionsValidationError> {
-    if !checked_feature!("stable", GlobalContracts, current_protocol_version) {
+    if !ProtocolFeature::GlobalContracts.enabled(current_protocol_version) {
         return Err(ActionsValidationError::UnsupportedProtocolFeature {
             protocol_feature: "GlobalContracts".to_owned(),
             version: current_protocol_version,
@@ -761,6 +769,8 @@ mod tests {
             &cost,
             None,
             PROTOCOL_VERSION,
+            None,
+            None,
         )
         .expect_err("expected an error");
         assert_eq!(err, expected_err);
@@ -786,6 +796,8 @@ mod tests {
             &transaction_cost,
             block_height,
             current_protocol_version,
+            None,
+            None,
         )?;
         commit_charging_for_tx(state_update, &validated_tx, &vr.signer, &vr.access_key);
         Ok(vr)

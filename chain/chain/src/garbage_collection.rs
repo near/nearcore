@@ -586,54 +586,12 @@ impl<'a> ChainStoreUpdate<'a> {
 
         tracing::debug!(target: "garbage_collection", ?gc_mode, ?block_hash, "GC block_hash");
 
-        // 1. Apply revert insertions or deletions from DBCol::TrieChanges for Trie
-        {
-            let shard_uids_to_gc: Vec<_> = self.get_shard_uids_to_gc(epoch_manager, &block_hash);
-            match gc_mode.clone() {
-                GCMode::Fork(tries) => {
-                    // If the block is on a fork, we delete the state that's the result of applying this block
-                    for shard_uid in shard_uids_to_gc {
-                        let trie_changes = self.store().get_ser(
-                            DBCol::TrieChanges,
-                            &get_block_shard_uid(&block_hash, &shard_uid),
-                        )?;
-                        if let Some(trie_changes) = trie_changes {
-                            tries.revert_insertions(&trie_changes, shard_uid, &mut store_update);
-                            self.gc_col(
-                                DBCol::TrieChanges,
-                                &get_block_shard_uid(&block_hash, &shard_uid),
-                            );
-                        }
-                    }
-                }
-                GCMode::Canonical(tries) => {
-                    // If the block is on canonical chain, we delete the state that's before applying this block
-                    for shard_uid in shard_uids_to_gc {
-                        let trie_changes = self.store().get_ser(
-                            DBCol::TrieChanges,
-                            &get_block_shard_uid(&block_hash, &shard_uid),
-                        )?;
-                        if let Some(trie_changes) = trie_changes {
-                            tries.apply_deletions(&trie_changes, shard_uid, &mut store_update);
-                            self.gc_col(
-                                DBCol::TrieChanges,
-                                &get_block_shard_uid(&block_hash, &shard_uid),
-                            );
-                        }
-                    }
-                    // Set `block_hash` on previous one
-                    block_hash = *self.get_block_header(&block_hash)?.prev_hash();
-                }
-                GCMode::StateSync { .. } => {
-                    // Not apply the data from DBCol::TrieChanges
-                    for shard_uid in shard_uids_to_gc {
-                        self.gc_col(
-                            DBCol::TrieChanges,
-                            &get_block_shard_uid(&block_hash, &shard_uid),
-                        );
-                    }
-                }
-            }
+        // 1. Garbage collect TrieChanges.
+        self.gc_trie_changes(epoch_manager, block_hash, &gc_mode, &mut store_update)?;
+
+        if matches!(gc_mode, GCMode::Canonical(_)) {
+            // If you know why do we do this in case of canonical chain please add a comment here.
+            block_hash = *self.get_block_header(&block_hash)?.prev_hash();
         }
 
         let block =
@@ -718,6 +676,40 @@ impl<'a> ChainStoreUpdate<'a> {
             }
         };
         self.merge(store_update.into());
+        Ok(())
+    }
+
+    fn gc_trie_changes(
+        &mut self,
+        epoch_manager: &dyn EpochManagerAdapter,
+        block_hash: CryptoHash,
+        gc_mode: &GCMode,
+        store_update: &mut near_store::adapter::trie_store::TrieStoreUpdateAdapter<'_>,
+    ) -> Result<(), Error> {
+        let shard_uids_to_gc = self.get_shard_uids_to_gc(epoch_manager, &block_hash);
+        for shard_uid in shard_uids_to_gc {
+            let trie_changes_key = get_block_shard_uid(&block_hash, &shard_uid);
+            let trie_changes = self.store().get_ser(DBCol::TrieChanges, &trie_changes_key)?;
+
+            let Some(trie_changes) = trie_changes else {
+                continue;
+            };
+            match gc_mode.clone() {
+                GCMode::Fork(tries) => {
+                    // If the block is on a fork, we delete the state that's the result of applying this block
+                    tries.revert_insertions(&trie_changes, shard_uid, store_update);
+                }
+                GCMode::Canonical(tries) => {
+                    // If the block is on canonical chain, we delete the state that's before applying this block
+                    tries.apply_deletions(&trie_changes, shard_uid, store_update);
+                }
+                GCMode::StateSync { .. } => {
+                    // Not apply the data from DBCol::TrieChanges
+                }
+            }
+
+            self.gc_col(DBCol::TrieChanges, &trie_changes_key);
+        }
         Ok(())
     }
 

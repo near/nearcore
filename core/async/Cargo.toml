@@ -34,8 +34,4 @@ tokio-util.workspace = true
 [features]
 nightly = [
   "near-o11y/nightly",
-  "nightly_protocol",
-]
-nightly_protocol = [
-  "near-o11y/nightly_protocol",
 ]

@@ -1,26 +1,18 @@
-use std::cmp::max;
-use std::convert::AsRef;
-use std::fmt;
-
+use crate::block::BlockHeader;
+use crate::hash::{CryptoHash, hash};
+use crate::transaction::ValidatedTransactionHash;
+use crate::types::{NumSeats, NumShards, ShardId};
+use crate::version::ProtocolVersion;
 use chrono;
 use chrono::DateTime;
-
+use near_crypto::{ED25519PublicKey, Secp256K1PublicKey};
+use near_primitives_core::account::id::{AccountId, AccountType};
 use near_primitives_core::types::BlockHeight;
 use near_primitives_core::version::ProtocolFeature;
 use serde;
-
-use crate::block::BlockHeader;
-use crate::hash::{CryptoHash, hash};
-use crate::transaction::SignedTransaction;
-use crate::types::{NumSeats, NumShards, ShardId};
-use crate::version::{
-    CORRECT_RANDOM_VALUE_PROTOCOL_VERSION, CREATE_HASH_PROTOCOL_VERSION,
-    CREATE_RECEIPT_ID_SWITCH_TO_CURRENT_BLOCK_VERSION, ProtocolVersion,
-};
-
-use near_crypto::{ED25519PublicKey, Secp256K1PublicKey};
-use near_primitives_core::account::id::{AccountId, AccountType};
-
+use std::cmp::max;
+use std::convert::AsRef;
+use std::fmt;
 use std::mem::size_of;
 use std::ops::Deref;
 
@@ -222,14 +214,14 @@ pub fn get_outcome_id_block_hash_rev(key: &[u8]) -> std::io::Result<(CryptoHash,
 /// This method is backward compatible, so it takes the current protocol version.
 pub fn create_receipt_id_from_transaction(
     protocol_version: ProtocolVersion,
-    signed_transaction: &SignedTransaction,
+    tx_hash: ValidatedTransactionHash,
     prev_block_hash: &CryptoHash,
     block_hash: &CryptoHash,
     block_height: BlockHeight,
 ) -> CryptoHash {
     create_hash_upgradable(
         protocol_version,
-        &signed_transaction.get_hash(),
+        &tx_hash.get_hash(),
         prev_block_hash,
         block_hash,
         block_height,
@@ -308,9 +300,9 @@ pub fn create_random_seed(
     action_hash: CryptoHash,
     random_seed: CryptoHash,
 ) -> Vec<u8> {
-    let res = if protocol_version < CORRECT_RANDOM_VALUE_PROTOCOL_VERSION {
+    let res = if !ProtocolFeature::CorrectRandomValue.enabled(protocol_version) {
         action_hash
-    } else if protocol_version < CREATE_HASH_PROTOCOL_VERSION {
+    } else if !ProtocolFeature::CreateHash.enabled(protocol_version) {
         random_seed
     } else {
         // Generates random seed from random_seed and action_hash.
@@ -340,7 +332,7 @@ fn create_hash_upgradable(
     block_height: BlockHeight,
     salt: u64,
 ) -> CryptoHash {
-    if protocol_version < CREATE_HASH_PROTOCOL_VERSION {
+    if !ProtocolFeature::CreateHash.enabled(protocol_version) {
         create_nonce_with_nonce(base, salt)
     } else {
         const BYTES_LEN: usize =
@@ -349,7 +341,7 @@ fn create_hash_upgradable(
         bytes.extend_from_slice(base.as_ref());
         if ProtocolFeature::BlockHeightForReceiptId.enabled(protocol_version) {
             bytes.extend_from_slice(block_height.to_le_bytes().as_ref())
-        } else if protocol_version >= CREATE_RECEIPT_ID_SWITCH_TO_CURRENT_BLOCK_VERSION {
+        } else if ProtocolFeature::CreateReceiptIdSwitchToCurrentBlock.enabled(protocol_version) {
             bytes.extend_from_slice(extra_hash.as_ref())
         } else {
             bytes.extend_from_slice(extra_hash_old.as_ref())
@@ -541,7 +533,6 @@ pub fn get_block_metadata(
 mod tests {
     use super::*;
     use near_crypto::{KeyType, PublicKey};
-    use near_primitives_core::version::ProtocolFeature;
 
     #[test]
     fn test_derive_near_implicit_account_id() {
@@ -582,7 +573,7 @@ mod tests {
         assert_eq!(
             create_nonce_with_nonce(&base, salt),
             create_hash_upgradable(
-                CREATE_HASH_PROTOCOL_VERSION - 1,
+                ProtocolFeature::CreateHash.protocol_version() - 1,
                 &base,
                 &extra_base,
                 &extra_base,
@@ -593,7 +584,7 @@ mod tests {
         assert_ne!(
             create_nonce_with_nonce(&base, salt),
             create_hash_upgradable(
-                CREATE_HASH_PROTOCOL_VERSION,
+                ProtocolFeature::CreateHash.protocol_version(),
                 &base,
                 &extra_base,
                 &extra_base,
@@ -603,7 +594,7 @@ mod tests {
         );
         assert_ne!(
             create_hash_upgradable(
-                CREATE_HASH_PROTOCOL_VERSION,
+                ProtocolFeature::CreateHash.protocol_version(),
                 &base,
                 &extra_base,
                 &extra_base,
@@ -611,7 +602,7 @@ mod tests {
                 salt,
             ),
             create_hash_upgradable(
-                CREATE_HASH_PROTOCOL_VERSION,
+                ProtocolFeature::CreateHash.protocol_version(),
                 &base,
                 &other_extra_base,
                 &other_extra_base,
@@ -621,7 +612,7 @@ mod tests {
         );
         assert_ne!(
             create_hash_upgradable(
-                CREATE_RECEIPT_ID_SWITCH_TO_CURRENT_BLOCK_VERSION - 1,
+                ProtocolFeature::CreateReceiptIdSwitchToCurrentBlock.protocol_version() - 1,
                 &base,
                 &extra_base,
                 &other_extra_base,
@@ -629,7 +620,7 @@ mod tests {
                 salt,
             ),
             create_hash_upgradable(
-                CREATE_RECEIPT_ID_SWITCH_TO_CURRENT_BLOCK_VERSION,
+                ProtocolFeature::CreateReceiptIdSwitchToCurrentBlock.protocol_version(),
                 &base,
                 &extra_base,
                 &other_extra_base,
@@ -639,7 +630,7 @@ mod tests {
         );
         assert_eq!(
             create_hash_upgradable(
-                CREATE_RECEIPT_ID_SWITCH_TO_CURRENT_BLOCK_VERSION,
+                ProtocolFeature::CreateReceiptIdSwitchToCurrentBlock.protocol_version(),
                 &base,
                 &extra_base,
                 &other_extra_base,
@@ -647,7 +638,7 @@ mod tests {
                 salt,
             ),
             create_hash_upgradable(
-                CREATE_RECEIPT_ID_SWITCH_TO_CURRENT_BLOCK_VERSION,
+                ProtocolFeature::CreateReceiptIdSwitchToCurrentBlock.protocol_version(),
                 &base,
                 &other_extra_base,
                 &other_extra_base,

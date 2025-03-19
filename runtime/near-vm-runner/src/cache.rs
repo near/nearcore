@@ -1,3 +1,5 @@
+// cspell:ignore mikan
+
 use crate::ContractCode;
 use crate::errors::ContractPrecompilatonResult;
 use crate::logic::Config;
@@ -693,7 +695,7 @@ mod tests {
             assert_eq!(cache.has(contract2.hash()).unwrap(), false);
         };
 
-        // Insert the keys, and then ckear the cache, and assert that keys no longer exist after clear.
+        // Insert the keys, and then clear the cache, and assert that keys no longer exist after clear.
         insert_and_assert_keys_exist();
         cache.test_only_clear().unwrap();
         assert_keys_absent();

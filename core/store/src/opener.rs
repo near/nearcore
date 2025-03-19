@@ -254,6 +254,14 @@ impl<'a> StoreOpener<'a> {
         self.open_in_mode(Mode::ReadWrite)
     }
 
+    pub fn open_unsafe(&self) -> Result<crate::NodeStorage, StoreOpenerError> {
+        let mode = Mode::ReadWrite;
+        let hot_db = self.hot.open_unsafe(mode)?;
+        let cold_db = self.cold.as_ref().map(|cold| cold.open_unsafe(mode)).transpose()?;
+        let storage = NodeStorage::from_rocksdb(hot_db, cold_db);
+        Ok(storage)
+    }
+
     fn open_dbs(
         &self,
         mode: Mode,
@@ -460,7 +468,7 @@ impl<'a> StoreOpener<'a> {
             store.set_db_version(version + 1)?;
         }
 
-        if cfg!(feature = "nightly") || cfg!(feature = "nightly_protocol") {
+        if cfg!(feature = "nightly") {
             let version = 10000;
             tracing::info!(target: "db_opener", path=%opener.path.display(),
             "Setting the database version to {version} for nightly");
@@ -652,6 +660,7 @@ pub fn clear_columns<'a>(
     config: &StoreConfig,
     archival_config: Option<ArchivalConfig<'a>>,
     cols: &[DBCol],
+    recreate_dropped_columns: bool,
 ) -> anyhow::Result<()> {
     let opener = StoreOpener::new(home_dir, config, archival_config);
     let (mut hot_db, _hot_snapshot, cold_db, _cold_snapshot) =
@@ -661,8 +670,10 @@ pub fn clear_columns<'a>(
         cold.clear_cols(cols)?;
     }
     drop(hot_db);
-    // Here we call open_dbs() to recreate the dropped columns, which should now be empty.
-    let _ = opener.open_dbs(Mode::ReadWriteExisting)?;
+    if recreate_dropped_columns {
+        // Here we call open_dbs() to recreate the dropped columns, which should now be empty.
+        let _ = opener.open_dbs(Mode::ReadWriteExisting)?;
+    }
     Ok(())
 }
 

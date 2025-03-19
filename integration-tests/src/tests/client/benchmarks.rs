@@ -5,7 +5,7 @@
 //! note the wall-clock time.
 
 use near_chain_configs::Genesis;
-use near_client::test_utils::client::create_chunk_on_height;
+use near_client::test_utils::create_chunk_on_height;
 use near_client::{ProcessTxResponse, ProduceChunkResult};
 use near_crypto::InMemorySigner;
 use near_primitives::transaction::{Action, DeployContractAction, SignedTransaction};
@@ -45,7 +45,10 @@ fn benchmark_large_chunk_production_time() {
             last_block_hash,
             0,
         );
-        assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
+        assert_eq!(
+            env.tx_request_handlers[0].process_tx(tx, false, false),
+            ProcessTxResponse::ValidTx
+        );
     }
 
     let t = std::time::Instant::now();

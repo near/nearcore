@@ -56,15 +56,12 @@ use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::validate::validate_optimistic_block_relevant;
-use near_primitives::bandwidth_scheduler::BandwidthRequests;
-use near_primitives::block::{Block, BlockValidityError, Chunks, MaybeNew, Tip, genesis_chunks};
+use near_primitives::block::{Block, BlockValidityError, Chunks, MaybeNew, Tip};
 use near_primitives::block_header::BlockHeader;
 use near_primitives::challenge::{
     BlockDoubleSign, Challenge, ChallengeBody, ChallengesResult, ChunkProofs, ChunkState,
     MaybeEncodedShardChunk, SlashedValidator,
 };
-use near_primitives::checked_feature;
-use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::errors::EpochError;
 use near_primitives::hash::{CryptoHash, hash};
@@ -88,8 +85,8 @@ use near_primitives::transaction::{ExecutionOutcomeWithIdAndProof, SignedTransac
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
-    AccountId, Balance, BlockExtra, BlockHeight, BlockHeightDelta, EpochId, Gas, MerkleHash,
-    NumBlocks, ShardId, ShardIndex, StateRoot,
+    AccountId, Balance, BlockExtra, BlockHeight, BlockHeightDelta, EpochId, MerkleHash, NumBlocks,
+    ShardId, ShardIndex,
 };
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::MaybeValidated;
@@ -100,11 +97,9 @@ use near_primitives::views::{
     LightClientBlockView, SignedTransactionView,
 };
 use near_store::DBCol;
-use near_store::adapter::StoreUpdateAdapter;
 use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::config::StateSnapshotType;
 use near_store::get_genesis_state_roots;
-use node_runtime::bootstrap_congestion_info;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use std::cell::Cell;
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -304,7 +299,7 @@ pub struct Chain {
     pub(crate) orphans: OrphanBlockPool,
     pub blocks_with_missing_chunks: MissingChunksPool<Orphan>,
     pub optimistic_block_chunks: OptimisticBlockChunksPool,
-    genesis: Block,
+    pub(crate) genesis: Block,
     pub epoch_length: BlockHeightDelta,
     /// Block economics, relevant to changes when new block must be produced.
     pub block_economics_config: BlockEconomicsConfig,
@@ -385,35 +380,6 @@ enum SnapshotAction {
 }
 
 impl Chain {
-    /// Builds genesis block and chunks from the current configuration obtained through the arguments.
-    pub fn make_genesis_block(
-        epoch_manager: &dyn EpochManagerAdapter,
-        runtime_adapter: &dyn RuntimeAdapter,
-        chain_genesis: &ChainGenesis,
-        state_roots: Vec<CryptoHash>,
-    ) -> Result<(Block, Vec<ShardChunk>), Error> {
-        let congestion_infos =
-            get_genesis_congestion_infos(epoch_manager, runtime_adapter, &state_roots)?;
-        let genesis_chunks = genesis_chunks(
-            state_roots,
-            congestion_infos,
-            &epoch_manager.shard_ids(&EpochId::default())?,
-            chain_genesis.gas_limit,
-            chain_genesis.height,
-            chain_genesis.protocol_version,
-        );
-        let genesis_block = Block::genesis(
-            chain_genesis.protocol_version,
-            genesis_chunks.iter().map(|chunk| chunk.cloned_header()).collect(),
-            chain_genesis.time,
-            chain_genesis.height,
-            chain_genesis.min_gas_price,
-            chain_genesis.total_supply,
-            Chain::compute_bp_hash(epoch_manager, EpochId::default(), EpochId::default())?,
-        );
-        Ok((genesis_block, genesis_chunks))
-    }
-
     pub fn new_for_view_client(
         clock: Clock,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
@@ -496,7 +462,7 @@ impl Chain {
             epoch_manager.as_ref(),
             runtime_adapter.as_ref(),
             chain_genesis,
-            state_roots.clone(),
+            state_roots,
         )?;
         let transaction_validity_period = chain_genesis.transaction_validity_period;
 
@@ -512,11 +478,10 @@ impl Chain {
             epoch_manager.clone(),
             runtime_adapter.clone(),
         );
-        let mut store_update = chain_store.store_update();
-        let (block_head, header_head) = match store_update.head() {
+        let (block_head, header_head) = match chain_store.head() {
             Ok(block_head) => {
                 // Check that genesis in the store is the same as genesis given in the config.
-                let genesis_hash = store_update.get_block_hash_by_height(chain_genesis.height)?;
+                let genesis_hash = chain_store.get_block_hash_by_height(chain_genesis.height)?;
                 if &genesis_hash != genesis.hash() {
                     return Err(Error::Other(format!(
                         "Genesis mismatch between storage and config: {:?} vs {:?}",
@@ -526,10 +491,12 @@ impl Chain {
                 }
 
                 // Check we have the header corresponding to the header_head.
-                let mut header_head = store_update.header_head()?;
-                if store_update.get_block_header(&header_head.last_block_hash).is_err() {
+                let mut header_head = chain_store.header_head()?;
+                if chain_store.get_block_header(&header_head.last_block_hash).is_err() {
                     // Reset header head and "sync" head to be consistent with current block head.
+                    let mut store_update = chain_store.store_update();
                     store_update.save_header_head_if_not_challenged(&block_head)?;
+                    store_update.commit()?;
                     header_head = block_head.clone();
                 }
 
@@ -538,57 +505,18 @@ impl Chain {
                 (block_head, header_head)
             }
             Err(Error::DBNotFoundErr(_)) => {
-                for chunk in genesis_chunks {
-                    store_update.save_chunk(chunk.clone());
-                }
-                store_update.merge(epoch_manager.add_validator_proposals(
-                    BlockInfo::from_header(
-                        genesis.header(),
-                        // genesis height is considered final
-                        chain_genesis.height,
-                    ),
-                    *genesis.header().random_value(),
-                )?);
-                store_update.save_block_header(genesis.header().clone())?;
-                store_update.save_block(genesis.clone());
-                store_update
-                    .save_block_extra(genesis.hash(), BlockExtra { challenges_result: vec![] });
-                Self::save_genesis_chunk_extras(
-                    &chain_genesis,
-                    &genesis,
-                    &state_roots,
+                Self::save_genesis_block_and_chunks(
                     epoch_manager.as_ref(),
-                    &mut store_update,
+                    runtime_adapter.as_ref(),
+                    &mut chain_store,
+                    &genesis,
+                    &genesis_chunks,
                 )?;
-
-                let block_head = Tip::from_header(genesis.header());
-                let header_head = block_head.clone();
-                store_update.save_head(&block_head)?;
-                store_update.save_final_head(&header_head)?;
-
-                // Set the root block of flat state to be the genesis block. Later, when we
-                // init FlatStorages, we will read the from this column in storage, so it
-                // must be set here.
-                let flat_storage_manager = runtime_adapter.get_flat_storage_manager();
-                let genesis_epoch_id = genesis.header().epoch_id();
-                let mut tmp_store_update = store_update.store().store_update();
-                for shard_uid in epoch_manager.get_shard_layout(genesis_epoch_id)?.shard_uids() {
-                    flat_storage_manager.set_flat_storage_for_genesis(
-                        &mut tmp_store_update.flat_store_update(),
-                        shard_uid,
-                        genesis.hash(),
-                        genesis.header().height(),
-                    )
-                }
-                store_update.merge(tmp_store_update);
-
-                info!(target: "chain", "Init: saved genesis: #{} {} / {:?}", block_head.height, block_head.last_block_hash, state_roots);
-
-                (block_head, header_head)
+                let genesis_head = Tip::from_header(genesis.header());
+                (genesis_head.clone(), genesis_head)
             }
             Err(err) => return Err(err),
         };
-        store_update.commit()?;
 
         // We must load in-memory tries here, and not inside runtime, because
         // if we were initializing from genesis, the runtime would be
@@ -704,91 +632,6 @@ impl Chain {
 
     pub fn get_last_time_head_updated(&self) -> Instant {
         self.last_time_head_updated
-    }
-
-    fn create_genesis_chunk_extra(
-        state_root: &StateRoot,
-        gas_limit: Gas,
-        genesis_protocol_version: ProtocolVersion,
-        congestion_info: Option<CongestionInfo>,
-    ) -> ChunkExtra {
-        ChunkExtra::new(
-            genesis_protocol_version,
-            state_root,
-            CryptoHash::default(),
-            vec![],
-            0,
-            gas_limit,
-            0,
-            congestion_info,
-            BandwidthRequests::default_for_protocol_version(genesis_protocol_version),
-        )
-    }
-
-    pub fn genesis_chunk_extra(
-        &self,
-        shard_layout: &ShardLayout,
-        shard_id: ShardId,
-        genesis_protocol_version: ProtocolVersion,
-        congestion_info: Option<CongestionInfo>,
-    ) -> Result<ChunkExtra, Error> {
-        let shard_index = shard_layout.get_shard_index(shard_id)?;
-        let state_root = *get_genesis_state_roots(&self.chain_store.store())?
-            .ok_or_else(|| Error::Other("genesis state roots do not exist in the db".to_owned()))?
-            .get(shard_index)
-            .ok_or_else(|| {
-                Error::Other(format!("genesis state root does not exist for shard id {shard_id} shard index {shard_index}"))
-            })?;
-        let gas_limit = self
-            .genesis
-            .chunks()
-            .get(shard_index)
-            .ok_or_else(|| {
-                Error::Other(format!(
-                    "genesis chunk does not exist for shard {shard_id} shard index {shard_index}"
-                ))
-            })?
-            .gas_limit();
-        Ok(Self::create_genesis_chunk_extra(
-            &state_root,
-            gas_limit,
-            genesis_protocol_version,
-            congestion_info,
-        ))
-    }
-
-    /// Saves the `[ChunkExtra]`s for all shards in the genesis block.
-    pub fn save_genesis_chunk_extras(
-        chain_genesis: &ChainGenesis,
-        genesis: &Block,
-        state_roots: &Vec<CryptoHash>,
-        epoch_manager: &dyn EpochManagerAdapter,
-        store_update: &mut ChainStoreUpdate,
-    ) -> Result<(), Error> {
-        for (chunk_header, state_root) in genesis.chunks().iter_deprecated().zip(state_roots.iter())
-        {
-            let congestion_info =
-                if ProtocolFeature::CongestionControl.enabled(chain_genesis.protocol_version) {
-                    genesis
-                        .block_congestion_info()
-                        .get(&chunk_header.shard_id())
-                        .map(|info| info.congestion_info)
-                } else {
-                    None
-                };
-
-            store_update.save_chunk_extra(
-                genesis.hash(),
-                &shard_id_to_uid(epoch_manager, chunk_header.shard_id(), &EpochId::default())?,
-                Self::create_genesis_chunk_extra(
-                    state_root,
-                    chain_genesis.gas_limit,
-                    chain_genesis.protocol_version,
-                    congestion_info,
-                ),
-            );
-        }
-        Ok(())
     }
 
     /// Creates a light client block for the last final block from perspective of some other block
@@ -1017,11 +860,9 @@ impl Chain {
         if let Ok(epoch_protocol_version) =
             self.epoch_manager.get_epoch_protocol_version(header.epoch_id())
         {
-            if checked_feature!(
-                "stable",
-                RejectBlocksWithOutdatedProtocolVersions,
-                epoch_protocol_version
-            ) {
+            if ProtocolFeature::RejectBlocksWithOutdatedProtocolVersions
+                .enabled(epoch_protocol_version)
+            {
                 if header.latest_protocol_version() < epoch_protocol_version {
                     error!(
                         "header protocol version {} smaller than epoch protocol version {}",
@@ -1202,7 +1043,7 @@ impl Chain {
 
         // Check that block body hash matches the block body. This makes sure that the block body
         // content is not tampered
-        if checked_feature!("stable", BlockHeaderV4, epoch_protocol_version) {
+        if ProtocolFeature::BlockHeaderV4.enabled(epoch_protocol_version) {
             let block_body_hash = block.compute_block_body_hash();
             if block_body_hash.is_none() {
                 tracing::warn!("Block version too old for block: {:?}", block.hash());
@@ -2124,7 +1965,7 @@ impl Chain {
             self.should_produce_state_witness_for_this_or_next_epoch(me, block.header())?;
         let mut chain_update = self.chain_update();
         let new_head = chain_update.postprocess_block(
-            &block,
+            block,
             block_preprocess_info,
             apply_results,
             should_save_state_transition_data,
@@ -2951,7 +2792,7 @@ impl Chain {
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(prev_block_header.hash())?;
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
         let relaxed_chunk_validation =
-            checked_feature!("stable", RelaxedChunkValidation, protocol_version);
+            ProtocolFeature::RelaxedChunkValidation.enabled(protocol_version);
 
         if !relaxed_chunk_validation {
             if !validate_transactions_order(chunk.transactions()) {
@@ -3380,7 +3221,7 @@ impl Chain {
             self.epoch_manager.get_next_epoch_id_from_prev_block(block_header.prev_hash())?;
         let next_protocol_version =
             self.epoch_manager.get_epoch_protocol_version(&next_epoch_id)?;
-        if !checked_feature!("stable", StatelessValidation, next_protocol_version) {
+        if !ProtocolFeature::StatelessValidation.enabled(next_protocol_version) {
             // Chunk validation not enabled yet.
             return Ok(false);
         }
@@ -3827,81 +3668,6 @@ impl Chain {
     }
 }
 
-/// This method calculates the congestion info for the genesis chunks. It uses
-/// the congestion info bootstrapping logic. This method is just a wrapper
-/// around the [`get_genesis_congestion_infos_impl`]. It logs an error if one
-/// happens.
-pub fn get_genesis_congestion_infos(
-    epoch_manager: &dyn EpochManagerAdapter,
-    runtime: &dyn RuntimeAdapter,
-    state_roots: &Vec<CryptoHash>,
-) -> Result<Vec<Option<CongestionInfo>>, Error> {
-    get_genesis_congestion_infos_impl(epoch_manager, runtime, state_roots).map_err(|err| {
-        tracing::error!(target: "chain", ?err, "Failed to get the genesis congestion infos.");
-        err
-    })
-}
-
-fn get_genesis_congestion_infos_impl(
-    epoch_manager: &dyn EpochManagerAdapter,
-    runtime: &dyn RuntimeAdapter,
-    state_roots: &Vec<CryptoHash>,
-) -> Result<Vec<Option<CongestionInfo>>, Error> {
-    let genesis_prev_hash = CryptoHash::default();
-    let genesis_epoch_id = epoch_manager.get_epoch_id_from_prev_block(&genesis_prev_hash)?;
-    let genesis_protocol_version = epoch_manager.get_epoch_protocol_version(&genesis_epoch_id)?;
-    let genesis_shard_layout = epoch_manager.get_shard_layout(&genesis_epoch_id)?;
-    // If congestion control is not enabled at the genesis block, we return None (congestion info) for each shard.
-    if !ProtocolFeature::CongestionControl.enabled(genesis_protocol_version) {
-        return Ok(std::iter::repeat(None).take(state_roots.len()).collect());
-    }
-
-    // Check we had already computed the congestion infos from the genesis state roots.
-    if let Some(saved_infos) = near_store::get_genesis_congestion_infos(runtime.store())? {
-        tracing::debug!(target: "chain", "Reading genesis congestion infos from database.");
-        return Ok(saved_infos.into_iter().map(Option::Some).collect());
-    }
-
-    let mut new_infos = vec![];
-    for (shard_index, &state_root) in state_roots.iter().enumerate() {
-        let shard_id = genesis_shard_layout.get_shard_id(shard_index)?;
-        let congestion_info = get_genesis_congestion_info(
-            runtime,
-            genesis_protocol_version,
-            &genesis_prev_hash,
-            shard_id,
-            state_root,
-        )?;
-        new_infos.push(congestion_info);
-    }
-
-    // Store it in DB so that we can read it later, instead of recomputing from genesis state roots.
-    // Note that this is necessary because genesis state roots will be garbage-collected and will not
-    // be available, for example, when the node restarts later.
-    tracing::debug!(target: "chain", "Saving genesis congestion infos to database.");
-    let mut store_update = runtime.store().store_update();
-    near_store::set_genesis_congestion_infos(&mut store_update, &new_infos);
-    store_update.commit()?;
-
-    Ok(new_infos.into_iter().map(Option::Some).collect())
-}
-
-fn get_genesis_congestion_info(
-    runtime: &dyn RuntimeAdapter,
-    protocol_version: ProtocolVersion,
-    prev_hash: &CryptoHash,
-    shard_id: ShardId,
-    state_root: StateRoot,
-) -> Result<CongestionInfo, Error> {
-    // Get the view trie because it's possible that the chain is ahead of
-    // genesis and doesn't have this block in flat state and memtrie.
-    let trie = runtime.get_view_trie_for_shard(shard_id, prev_hash, state_root)?;
-    let runtime_config = runtime.get_runtime_config(protocol_version)?;
-    let congestion_info = bootstrap_congestion_info(&trie, &runtime_config, shard_id)?;
-    tracing::debug!(target: "chain", ?shard_id, ?state_root, ?congestion_info, "Computed genesis congestion info.");
-    Ok(congestion_info)
-}
-
 /// We want to guarantee that transactions are only applied once for each shard,
 /// even though apply_chunks may be called twice, once with
 /// ApplyChunksMode::NotCaughtUp once with ApplyChunksMode::CatchingUp. Note
@@ -4232,27 +3998,20 @@ impl Chain {
     pub fn group_receipts_by_shard(
         receipts: Vec<Receipt>,
         shard_layout: &ShardLayout,
-    ) -> HashMap<ShardId, Vec<Receipt>> {
+    ) -> Result<HashMap<ShardId, Vec<Receipt>>, EpochError> {
         let mut result = HashMap::new();
         for receipt in receipts {
-            if receipt.send_to_all_shards() {
-                for shard_id in shard_layout.shard_ids() {
-                    let entry = result.entry(shard_id).or_insert_with(Vec::new);
-                    entry.push(receipt.clone());
-                }
-            } else {
-                let shard_id = shard_layout.account_id_to_shard_id(receipt.receiver_id());
-                let entry = result.entry(shard_id).or_insert_with(Vec::new);
-                entry.push(receipt);
-            }
+            let shard_id = receipt.receiver_shard_id(shard_layout)?;
+            let entry = result.entry(shard_id).or_insert_with(Vec::new);
+            entry.push(receipt);
         }
-        result
+        Ok(result)
     }
 
     pub fn build_receipts_hashes(
         receipts: &[Receipt],
         shard_layout: &ShardLayout,
-    ) -> Vec<CryptoHash> {
+    ) -> Result<Vec<CryptoHash>, EpochError> {
         // Using a BTreeMap instead of HashMap to enable in order iteration
         // below. It's important here to use the ShardIndexes, rather than
         // ShardIds since the latter are not guaranteed to be in order.
@@ -4263,24 +4022,12 @@ impl Chain {
         for shard_info in shard_layout.shard_infos() {
             result_map.insert(shard_info.shard_index(), (shard_info.shard_id(), vec![]));
         }
-        let mut cache = HashMap::new();
         for receipt in receipts {
-            if receipt.send_to_all_shards() {
-                for shard_id in shard_layout.shard_ids() {
-                    // This unwrap should be safe as we pre-populated the map with all
-                    // valid shard ids.
-                    let shard_index = shard_layout.get_shard_index(shard_id).unwrap();
-                    result_map.get_mut(&shard_index).unwrap().1.push(receipt);
-                }
-            } else {
-                let &mut shard_id = cache
-                    .entry(receipt.receiver_id())
-                    .or_insert_with(|| shard_layout.account_id_to_shard_id(receipt.receiver_id()));
-                // This unwrap should be safe as we pre-populated the map with all
-                // valid shard ids.
-                let shard_index = shard_layout.get_shard_index(shard_id).unwrap();
-                result_map.get_mut(&shard_index).unwrap().1.push(receipt);
-            }
+            let shard_id = receipt.receiver_shard_id(shard_layout)?;
+            // This unwrap should be safe as we pre-populated the map with all
+            // valid shard ids.
+            let shard_index = shard_layout.get_shard_index(shard_id).unwrap();
+            result_map.get_mut(&shard_index).unwrap().1.push(receipt);
         }
 
         let mut result_vec = vec![];
@@ -4288,7 +4035,7 @@ impl Chain {
             let bytes = borsh::to_vec(&(shard_id, receipts)).unwrap();
             result_vec.push(hash(&bytes));
         }
-        result_vec
+        Ok(result_vec)
     }
 }
 

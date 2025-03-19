@@ -29,8 +29,10 @@ use near_client::adversarial::Controls;
 use near_client::client_actor::ClientActorInner;
 use near_client::{
     Client, ClientActor, PartialWitnessActor, PartialWitnessSenderForClient, StartClientResult,
-    SyncStatus, ViewClientActor, ViewClientActorInner, start_client,
+    SyncStatus, TxRequestHandler, TxRequestHandlerConfig, ViewClientActor, ViewClientActorInner,
+    start_client,
 };
+use near_client::{TxRequestHandlerActor, spawn_tx_request_handler_actor};
 use near_crypto::{KeyType, PublicKey};
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
@@ -52,8 +54,9 @@ use near_network::types::{
 use near_network::types::{NetworkInfo, PeerManagerMessageRequest, PeerManagerMessageResponse};
 use near_network::types::{PeerInfo, PeerType};
 use near_o11y::WithSpanContextExt;
-use near_primitives::block::{ApprovalInner, GenesisId};
+use near_primitives::block::ApprovalInner;
 use near_primitives::epoch_info::RngSeed;
+use near_primitives::genesis::GenesisId;
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::network::PeerId;
 use near_primitives::test_utils::create_test_signer;
@@ -82,7 +85,7 @@ pub const MIN_BLOCK_PROD_TIME: Duration = Duration::milliseconds(100);
 pub const MAX_BLOCK_PROD_TIME: Duration = Duration::milliseconds(200);
 
 /// Sets up ClientActor and ViewClientActor viewing the same store/runtime.
-pub fn setup(
+fn setup(
     clock: Clock,
     vs: ValidatorSchedule,
     epoch_length: BlockHeightDelta,
@@ -100,6 +103,7 @@ pub fn setup(
 ) -> (
     Addr<ClientActor>,
     Addr<ViewClientActor>,
+    Addr<TxRequestHandlerActor>,
     ShardsManagerAdapterForTest,
     PartialWitnessSenderForNetwork,
 ) {
@@ -172,18 +176,18 @@ pub fn setup(
     let resharding_sender = resharding_sender_addr.with_auto_span_context();
 
     let shards_manager_adapter_for_client = LateBoundSender::new();
-    let StartClientResult { client_actor, .. } = start_client(
+    let StartClientResult { client_actor, tx_pool, .. } = start_client(
         clock,
         config.clone(),
         chain_genesis,
         epoch_manager.clone(),
         shard_tracker.clone(),
-        runtime,
+        runtime.clone(),
         PeerId::new(PublicKey::empty(KeyType::ED25519)),
         Arc::new(ActixFutureSpawner),
         network_adapter.clone(),
         shards_manager_adapter_for_client.as_sender(),
-        signer,
+        signer.clone(),
         telemetry.with_auto_span_context().into_sender(),
         None,
         None,
@@ -194,6 +198,24 @@ pub fn setup(
         Some(TEST_SEED),
         resharding_sender.into_multi_sender(),
     );
+
+    let tx_processor_config = TxRequestHandlerConfig {
+        handler_threads: config.transaction_request_handler_threads,
+        tx_routing_height_horizon: config.tx_routing_height_horizon,
+        epoch_length: config.epoch_length,
+        transaction_validity_period,
+    };
+
+    let tx_processor_addr = spawn_tx_request_handler_actor(
+        tx_processor_config,
+        tx_pool,
+        epoch_manager.clone(),
+        shard_tracker.clone(),
+        signer,
+        runtime,
+        network_adapter.clone(),
+    );
+
     let validator_signer = Some(Arc::new(EmptyValidatorSigner::new(account_id)));
     let (shards_manager_addr, _) = start_shards_manager(
         epoch_manager.clone(),
@@ -213,97 +235,9 @@ pub fn setup(
     (
         client_actor,
         view_client_addr,
+        tx_processor_addr,
         shards_manager_adapter.into_multi_sender(),
         partial_witness_adapter.into_multi_sender(),
-    )
-}
-
-pub fn setup_only_view(
-    clock: Clock,
-    vs: ValidatorSchedule,
-    epoch_length: BlockHeightDelta,
-    account_id: AccountId,
-    skip_sync_wait: bool,
-    min_block_prod_time: u64,
-    max_block_prod_time: u64,
-    enable_doomslug: bool,
-    archive: bool,
-    state_sync_enabled: bool,
-    network_adapter: PeerManagerAdapter,
-    transaction_validity_period: NumBlocks,
-) -> Addr<ViewClientActor> {
-    let store = create_test_store();
-    let num_validator_seats = vs.all_block_producers().count() as NumSeats;
-    let epoch_manager = MockEpochManager::new_with_validators(store.clone(), vs, epoch_length);
-    let shard_tracker = ShardTracker::new_empty(epoch_manager.clone());
-    let runtime = KeyValueRuntime::new_with_no_gc(store, epoch_manager.as_ref(), archive);
-    let chain_genesis = ChainGenesis {
-        time: clock.now_utc(),
-        height: 0,
-        gas_limit: 1_000_000,
-        min_gas_price: 100,
-        max_gas_price: 1_000_000_000,
-        total_supply: 3_000_000_000_000_000_000_000_000_000_000_000,
-        gas_price_adjustment_rate: Ratio::from_integer(0),
-        transaction_validity_period,
-        epoch_length,
-        protocol_version: PROTOCOL_VERSION,
-    };
-
-    let doomslug_threshold_mode = if enable_doomslug {
-        DoomslugThresholdMode::TwoThirds
-    } else {
-        DoomslugThresholdMode::NoApprovals
-    };
-    Chain::new(
-        clock.clone(),
-        epoch_manager.clone(),
-        shard_tracker.clone(),
-        runtime.clone(),
-        &chain_genesis,
-        doomslug_threshold_mode,
-        ChainConfig {
-            save_trie_changes: true,
-            background_migration_threads: 1,
-            resharding_config: MutableConfigValue::new(
-                ReshardingConfig::default(),
-                "resharding_config",
-            ),
-        },
-        None,
-        Arc::new(RayonAsyncComputationSpawner),
-        MutableConfigValue::new(None, "validator_signer"),
-        noop().into_multi_sender(),
-    )
-    .unwrap();
-
-    let signer = MutableConfigValue::new(
-        Some(Arc::new(create_test_signer(account_id.as_str()))),
-        "validator_signer",
-    );
-    ActixWrapper::new(TelemetryActor::default()).start();
-    let config = ClientConfig::test(
-        skip_sync_wait,
-        min_block_prod_time,
-        max_block_prod_time,
-        num_validator_seats,
-        archive,
-        true,
-        state_sync_enabled,
-    );
-
-    let adv = Controls::default();
-
-    ViewClientActorInner::spawn_actix_actor(
-        clock,
-        signer,
-        chain_genesis,
-        epoch_manager,
-        shard_tracker,
-        runtime,
-        network_adapter,
-        config,
-        adv,
     )
 }
 
@@ -350,7 +284,13 @@ pub fn setup_mock_with_validity_period(
 ) -> ActorHandlesForTesting {
     let network_adapter = LateBoundSender::new();
     let vs = ValidatorSchedule::new().block_producers_per_epoch(vec![validators]);
-    let (client_addr, view_client_addr, shards_manager_adapter, partial_witness_sender) = setup(
+    let (
+        client_addr,
+        view_client_addr,
+        tx_request_handler_addr,
+        shards_manager_adapter,
+        partial_witness_sender,
+    ) = setup(
         clock.clone(),
         vs,
         10,
@@ -377,6 +317,7 @@ pub fn setup_mock_with_validity_period(
     ActorHandlesForTesting {
         client_actor: client_addr,
         view_client_actor: view_client_addr,
+        tx_processor_actor: tx_request_handler_addr,
         shards_manager_adapter,
         partial_witness_sender,
     }
@@ -386,6 +327,7 @@ pub fn setup_mock_with_validity_period(
 pub struct ActorHandlesForTesting {
     pub client_actor: Addr<ClientActor>,
     pub view_client_actor: Addr<ViewClientActor>,
+    pub tx_processor_actor: Addr<TxRequestHandlerActor>,
     pub shards_manager_adapter: ShardsManagerAdapterForTest,
     pub partial_witness_sender: PartialWitnessSenderForNetwork,
 }
@@ -971,7 +913,13 @@ pub fn setup_mock_all_validators(
         })
         .start();
 
-        let (client_addr, view_client_addr, shards_manager_adapter, partial_witness_sender) = setup(
+        let (
+            client_addr,
+            view_client_addr,
+            tx_processor_addr,
+            shards_manager_adapter,
+            partial_witness_sender,
+        ) = setup(
             clock.clone(),
             vs,
             epoch_length,
@@ -993,6 +941,7 @@ pub fn setup_mock_all_validators(
         ret.push(ActorHandlesForTesting {
             client_actor: client_addr,
             view_client_actor: view_client_addr,
+            tx_processor_actor: tx_processor_addr,
             shards_manager_adapter,
             partial_witness_sender,
         });
@@ -1159,6 +1108,34 @@ pub fn setup_synchronous_shards_manager(
         Duration::hours(1),
     );
     SynchronousShardsManagerAdapter::new(shards_manager)
+}
+
+pub fn setup_tx_request_handler(
+    chain_genesis: ChainGenesis,
+    client: &Client,
+    epoch_manager: Arc<dyn EpochManagerAdapter>,
+    shard_tracker: ShardTracker,
+    runtime: Arc<dyn RuntimeAdapter>,
+    network_adapter: PeerManagerAdapter,
+) -> TxRequestHandler {
+    let client_config = ClientConfig::test(true, 10, 20, 0, true, true, true);
+    let config = TxRequestHandlerConfig {
+        handler_threads: 1,
+        tx_routing_height_horizon: client_config.tx_routing_height_horizon,
+        epoch_length: chain_genesis.epoch_length,
+        transaction_validity_period: chain_genesis.transaction_validity_period,
+    };
+
+    TxRequestHandler::new(
+        config,
+        client.chunk_producer.sharded_tx_pool.clone(),
+        epoch_manager,
+        shard_tracker,
+        client.validator_signer.clone(),
+        runtime,
+        network_adapter,
+    )
+    .unwrap()
 }
 
 /// A multi-sender for both the client and network parts of the ShardsManager API.

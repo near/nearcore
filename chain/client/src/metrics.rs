@@ -30,6 +30,15 @@ pub(crate) static CHUNK_PRODUCED_TOTAL: LazyLock<IntCounter> = LazyLock::new(|| 
     .unwrap()
 });
 
+pub(crate) static CHUNK_TRANSACTIONS_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
+    try_create_int_counter_vec(
+        "near_chunk_transactions_total",
+        "Total number of transactions included in chunks produced by this node",
+        &["shard_id"],
+    )
+    .unwrap()
+});
+
 pub(crate) static PRODUCED_CHUNKS_SOME_POOL_TRANSACTIONS_DID_NOT_FIT: LazyLock<IntCounterVec> =
     LazyLock::new(|| {
         try_create_int_counter_vec(

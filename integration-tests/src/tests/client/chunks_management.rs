@@ -170,7 +170,7 @@ impl Test {
         let actor = actor.then(move |res| {
             let block_hash = res.unwrap().unwrap().header.hash;
             let connectors_ = connectors.write().unwrap();
-            connectors_[0].client_actor.do_send(
+            connectors_[0].tx_processor_actor.do_send(
                 ProcessTxRequest {
                     transaction: SignedTransaction::empty(block_hash),
                     is_forwarded: false,
@@ -178,7 +178,7 @@ impl Test {
                 }
                 .with_span_context(),
             );
-            connectors_[1].client_actor.do_send(
+            connectors_[1].tx_processor_actor.do_send(
                 ProcessTxRequest {
                     transaction: SignedTransaction::empty(block_hash),
                     is_forwarded: false,
@@ -186,7 +186,7 @@ impl Test {
                 }
                 .with_span_context(),
             );
-            connectors_[2].client_actor.do_send(
+            connectors_[2].tx_processor_actor.do_send(
                 ProcessTxRequest {
                     transaction: SignedTransaction::empty(block_hash),
                     is_forwarded: false,

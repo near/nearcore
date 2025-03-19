@@ -3,7 +3,7 @@ use near_chain::Provenance;
 use near_chain::test_utils::wait_for_all_blocks_in_processing;
 use near_chain_configs::{Genesis, NEAR_BASE};
 use near_client::ProcessTxResponse;
-use near_client::test_utils::client::run_catchup;
+use near_client::test_utils::run_catchup;
 use near_crypto::InMemorySigner;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::account::id::AccountId;
@@ -320,7 +320,7 @@ impl TestReshardingEnv {
         let mut response_valid_count = 0;
         let mut response_routed_count = 0;
         for j in 0..env.validators.len() {
-            let response = env.clients[j].process_tx(tx.clone(), false, false);
+            let response = env.tx_request_handlers[j].process_tx(tx.clone(), false, false);
             tracing::trace!(target: "test", client=j, tx=?tx.get_hash(), ?response, "process tx");
             match response {
                 ProcessTxResponse::ValidTx => response_valid_count += 1,

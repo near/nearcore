@@ -69,7 +69,7 @@ fn test_nearvm_upgrade() {
         })
         .sign(&signer);
         assert_eq!(
-            env.clients[0].process_tx(signed_transaction, false, false),
+            env.tx_request_handlers[0].process_tx(signed_transaction, false, false),
             ProcessTxResponse::ValidTx
         );
         for i in 0..3 {
@@ -87,7 +87,7 @@ fn test_nearvm_upgrade() {
             Transaction::V0(TransactionV0 { nonce: 11, block_hash: tip.last_block_hash, ..tx })
                 .sign(&signer);
         assert_eq!(
-            env.clients[0].process_tx(signed_transaction, false, false),
+            env.tx_request_handlers[0].process_tx(signed_transaction, false, false),
             ProcessTxResponse::ValidTx
         );
         for i in 0..3 {

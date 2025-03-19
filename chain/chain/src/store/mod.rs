@@ -9,9 +9,8 @@ use chrono::Utc;
 use near_chain_primitives::error::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::block::Tip;
-use near_primitives::checked_feature;
 use near_primitives::chunk_apply_stats::{ChunkApplyStats, ChunkApplyStatsV0};
-use near_primitives::errors::InvalidTxError;
+use near_primitives::errors::{EpochError, InvalidTxError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{MerklePath, PartialMerkleTree};
 use near_primitives::receipt::Receipt;
@@ -38,7 +37,7 @@ use near_primitives::utils::{
     get_block_shard_id, get_outcome_id_block_hash, get_outcome_id_block_hash_rev, index_to_bytes,
     to_timestamp,
 };
-use near_primitives::version::ProtocolVersion;
+use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use near_primitives::views::LightClientBlockView;
 use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
@@ -249,16 +248,13 @@ pub fn filter_incoming_receipts_for_shard(
     target_shard_layout: &ShardLayout,
     target_shard_id: ShardId,
     receipt_proofs: Arc<Vec<ReceiptProof>>,
-) -> Vec<ReceiptProof> {
+) -> Result<Vec<ReceiptProof>, EpochError> {
     let mut filtered_receipt_proofs = vec![];
     for receipt_proof in receipt_proofs.iter() {
         let mut filtered_receipts = vec![];
         let ReceiptProof(receipts, shard_proof) = receipt_proof.clone();
         for receipt in receipts {
-            if receipt.send_to_all_shards()
-                || target_shard_layout.account_id_to_shard_id(receipt.receiver_id())
-                    == target_shard_id
-            {
+            if receipt.receiver_shard_id(target_shard_layout)? == target_shard_id {
                 tracing::trace!(target: "chain", receipt_id=?receipt.receipt_id(), "including receipt");
                 filtered_receipts.push(receipt);
             } else {
@@ -268,7 +264,7 @@ pub fn filter_incoming_receipts_for_shard(
         let receipt_proof = ReceiptProof(filtered_receipts, shard_proof);
         filtered_receipt_proofs.push(receipt_proof);
     }
-    filtered_receipt_proofs
+    Ok(filtered_receipt_proofs)
 }
 
 /// All chain-related database operations.
@@ -431,7 +427,7 @@ impl ChainStore {
         tracing::trace!(target: "resharding", ?protocol_version, ?shard_id, ?receipts_shard_id, "reassign_outgoing_receipts_for_resharding");
         // If simple nightshade v2 is enabled and stable use that.
         // Same reassignment of outgoing receipts works for simple nightshade v3
-        if checked_feature!("stable", SimpleNightshadeV2, protocol_version) {
+        if ProtocolFeature::SimpleNightshadeV2.enabled(protocol_version) {
             Self::reassign_outgoing_receipts_for_resharding_v2(
                 receipts,
                 shard_layout,
@@ -507,8 +503,8 @@ impl ChainStore {
         chunk: &ShardChunk,
     ) -> Result<Vec<bool>, Error> {
         let relaxed_chunk_validation =
-            near_primitives::checked_feature!("stable", RelaxedChunkValidation, protocol_version);
-        if near_primitives::checked_feature!("stable", AccessKeyNonceRange, protocol_version) {
+            ProtocolFeature::RelaxedChunkValidation.enabled(protocol_version);
+        if ProtocolFeature::AccessKeyNonceRange.enabled(protocol_version) {
             let mut valid_txs = Vec::with_capacity(chunk.transactions().len());
             if relaxed_chunk_validation {
                 for transaction in chunk.transactions() {
@@ -1036,7 +1032,7 @@ impl ChainStoreAccess for ChainStore {
 /// Cache update for ChainStore
 #[derive(Default)]
 pub(crate) struct ChainStoreCacheUpdate {
-    blocks: HashMap<CryptoHash, Block>,
+    block: Option<Block>,
     headers: HashMap<CryptoHash, BlockHeader>,
     block_extras: HashMap<CryptoHash, Arc<BlockExtra>>,
     chunk_extras: HashMap<(CryptoHash, ShardUId), Arc<ChunkExtra>>,
@@ -1181,17 +1177,22 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
 
     /// Get full block.
     fn get_block(&self, h: &CryptoHash) -> Result<Block, Error> {
-        if let Some(block) = self.chain_store_cache_update.blocks.get(h) {
-            Ok(block.clone())
-        } else {
-            self.chain_store.get_block(h)
+        if let Some(block) = &self.chain_store_cache_update.block {
+            if block.hash() == h {
+                return Ok(block.clone());
+            }
         }
+        self.chain_store.get_block(h)
     }
 
     /// Does this full block exist?
     fn block_exists(&self, h: &CryptoHash) -> Result<bool, Error> {
-        Ok(self.chain_store_cache_update.blocks.contains_key(h)
-            || self.chain_store.block_exists(h)?)
+        if let Some(block) = &self.chain_store_cache_update.block {
+            if block.hash() == h {
+                return Ok(true);
+            }
+        }
+        self.chain_store.block_exists(h)
     }
 
     fn chunk_exists(&self, h: &ChunkHash) -> Result<bool, Error> {
@@ -1548,7 +1549,8 @@ impl<'a> ChainStoreUpdate<'a> {
 
     /// Save block.
     pub fn save_block(&mut self, block: Block) {
-        self.chain_store_cache_update.blocks.insert(*block.hash(), block);
+        debug_assert!(self.chain_store_cache_update.block.is_none());
+        self.chain_store_cache_update.block = Some(block);
     }
 
     /// Save post applying block extra info.
@@ -1825,8 +1827,7 @@ impl<'a> ChainStoreUpdate<'a> {
         }
         {
             let _span = tracing::trace_span!(target: "store", "write_block").entered();
-            debug_assert!(self.chain_store_cache_update.blocks.len() <= 1);
-            for (hash, block) in self.chain_store_cache_update.blocks.iter() {
+            if let Some(block) = &self.chain_store_cache_update.block {
                 let mut map = HashMap::clone(
                     self.chain_store
                         .get_all_block_hashes_by_height(block.header().height())?
@@ -1834,7 +1835,7 @@ impl<'a> ChainStoreUpdate<'a> {
                 );
                 map.entry(*block.header().epoch_id())
                     .or_insert_with(|| HashSet::new())
-                    .insert(*hash);
+                    .insert(*block.hash());
                 store_update.set_ser(
                     DBCol::BlockPerHeight,
                     &index_to_bytes(block.header().height()),
@@ -1843,7 +1844,7 @@ impl<'a> ChainStoreUpdate<'a> {
                 self.chain_store_cache_update
                     .block_hash_per_height
                     .insert(block.header().height(), map);
-                store_update.insert_ser(DBCol::Block, hash.as_ref(), block)?;
+                store_update.insert_ser(DBCol::Block, block.hash().as_ref(), block)?;
             }
             // This is a BTreeMap because the update_sync_hashes() calls below must be done in order of height
             let mut headers_by_height: BTreeMap<BlockHeight, Vec<&BlockHeader>> = BTreeMap::new();

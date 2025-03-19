@@ -227,10 +227,10 @@ fn encoded_chunk_to_partial_encoded_chunk(
     let shard_id = header.shard_id();
     let shard_layout = ShardLayout::get_simple_nightshade_layout_v2();
 
-    let hashes = Chain::build_receipts_hashes(&receipts, &shard_layout);
+    let hashes = Chain::build_receipts_hashes(&receipts, &shard_layout).unwrap();
     let (_root, proofs) = merklize(&hashes);
 
-    let mut receipts_by_shard = Chain::group_receipts_by_shard(receipts, &shard_layout);
+    let mut receipts_by_shard = Chain::group_receipts_by_shard(receipts, &shard_layout).unwrap();
     let receipt_proofs = proofs
         .into_iter()
         .enumerate()

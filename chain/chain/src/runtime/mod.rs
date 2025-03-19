@@ -54,6 +54,8 @@ use node_runtime::{
 };
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{SystemTime, UNIX_EPOCH};
 use tracing::{debug, error, info, instrument};
 
 pub mod errors;
@@ -585,6 +587,8 @@ impl RuntimeAdapter for NightshadeRuntime {
             // and therefore skip the check on the nonce upper bound.
             None,
             current_protocol_version,
+            None,
+            None,
         )
         .map(|_vr| ())
     }
@@ -737,7 +741,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                 // the transaction may still be rejected in which case it will
                 // not be returned to the pool. Most notably this may happen
                 // under congestion.
-                let signed_tx = transaction_group_iter
+                let validated_tx = transaction_group_iter
                     .next()
                     .expect("peek_next() returned Some, so next() should return Some as well");
                 num_checked_transactions += 1;
@@ -748,66 +752,61 @@ impl RuntimeAdapter for NightshadeRuntime {
                     &runtime_config,
                     &epoch_id,
                     &prev_block,
-                    &signed_tx,
+                    &validated_tx,
                 )? {
-                    tracing::trace!(target: "runtime", tx=?signed_tx.get_hash(), "discarding transaction due to congestion");
+                    tracing::trace!(target: "runtime", tx=?validated_tx.get_hash(), "discarding transaction due to congestion");
                     rejected_due_to_congestion += 1;
                     continue;
                 }
 
                 // Verifying the transaction is on the same chain and hasn't expired yet.
-                if !chain_validate(&signed_tx) {
-                    tracing::trace!(target: "runtime", tx=?signed_tx.get_hash(), "discarding transaction that failed chain validation");
+                if !chain_validate(&validated_tx.to_signed_tx()) {
+                    tracing::trace!(target: "runtime", tx=?validated_tx.get_hash(), "discarding transaction that failed chain validation");
                     rejected_invalid_for_chain += 1;
                     continue;
                 }
 
-                let (verify_result, signed_tx) =
-                    match validate_transaction(runtime_config, signed_tx, protocol_version) {
-                        Err((err, signed_tx)) => (Err(err), signed_tx),
-                        Ok(validated_tx) => {
-                            let res = tx_cost(
-                                runtime_config,
-                                &validated_tx,
-                                prev_block.next_gas_price,
-                                protocol_version,
-                            )
-                            .map_err(InvalidTxError::from)
-                            .and_then(|cost| {
-                                verify_and_charge_tx_ephemeral(
-                                    runtime_config,
-                                    &state_update,
-                                    &validated_tx,
-                                    &cost,
-                                    Some(next_block_height),
-                                    protocol_version,
-                                )
-                            })
-                            .and_then(|vr| {
-                                commit_charging_for_tx(
-                                    &mut state_update,
-                                    &validated_tx,
-                                    &vr.signer,
-                                    &vr.access_key,
-                                );
-                                Ok(vr)
-                            });
-                            (res, validated_tx.into_signed_tx())
-                        }
-                    };
+                let verify_result = tx_cost(
+                    runtime_config,
+                    &validated_tx,
+                    prev_block.next_gas_price,
+                    protocol_version,
+                )
+                .map_err(InvalidTxError::from)
+                .and_then(|cost| {
+                    verify_and_charge_tx_ephemeral(
+                        runtime_config,
+                        &state_update,
+                        &validated_tx,
+                        &cost,
+                        Some(next_block_height),
+                        protocol_version,
+                        None,
+                        None,
+                    )
+                })
+                .and_then(|verification_res| {
+                    commit_charging_for_tx(
+                        &mut state_update,
+                        &validated_tx,
+                        &verification_res.signer,
+                        &verification_res.access_key,
+                    );
+                    Ok(verification_res)
+                });
 
                 match verify_result {
                     Ok(cost) => {
-                        tracing::trace!(target: "runtime", tx=?signed_tx.get_hash(), "including transaction that passed validation and verification");
+                        tracing::trace!(target: "runtime", tx=?validated_tx.get_hash(), "including transaction that passed validation and verification");
                         state_update.commit(StateChangeCause::NotWritableToDisk);
                         total_gas_burnt += cost.gas_burnt;
-                        total_size += signed_tx.get_size();
-                        result.transactions.push(signed_tx);
+                        total_size += validated_tx.get_size();
+                        result.transactions.push(validated_tx);
                         // Take one transaction from this group, no more.
                         break;
                     }
                     Err(err) => {
-                        tracing::trace!(target: "runtime", tx=?signed_tx.get_hash(), ?err, "discarding transaction that failed verification or verification");
+                        tracing::trace!(target: "runtime", tx=?validated_tx.get_hash(), ?err, "discarding transaction that failed verification or verification");
                         rejected_invalid_tx += 1;
                         state_update.rollback();
                     }
@@ -835,11 +834,23 @@ impl RuntimeAdapter for NightshadeRuntime {
     }
 
     fn get_gc_stop_height(&self, block_hash: &CryptoHash) -> BlockHeight {
+        static LAST_LOG_TIME: AtomicU64 = AtomicU64::new(0);
+        const LOG_THROTTLE_INTERVAL: u64 = 10;
+
         let result = self.get_gc_stop_height_impl(block_hash);
         match result {
             Ok(gc_stop_height) => gc_stop_height,
             Err(error) => {
-                info!(target: "runtime", "Error when getting the gc stop height. This error may naturally occur after the gc_num_epochs_to_keep config is increased. It should disappear as soon as the node builds up all epochs it wants. Error: {}", error);
+                let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+
+                // Only log if LOG_THROTTLE_INTERVAL has passed since the last log
+                let last_log = LAST_LOG_TIME.load(Ordering::Relaxed);
+                if now - last_log >= LOG_THROTTLE_INTERVAL {
+                    LAST_LOG_TIME.store(now, Ordering::Relaxed);
+
+                    info!(target: "runtime", "Error when getting the gc stop height. This error may naturally occur after the gc_num_epochs_to_keep config is increased. It should disappear as soon as the node builds up all epochs it wants. Error: {}", error);
+                }
+
                 self.genesis_config.genesis_height
             }
         }
@@ -1183,12 +1194,8 @@ impl RuntimeAdapter for NightshadeRuntime {
         }
     }
 
-    fn get_runtime_config(
-        &self,
-        protocol_version: ProtocolVersion,
-    ) -> Result<RuntimeConfig, Error> {
-        let runtime_config = self.runtime_config_store.get_config(protocol_version);
-        Ok(runtime_config.as_ref().clone())
+    fn get_runtime_config(&self, protocol_version: ProtocolVersion) -> &RuntimeConfig {
+        self.runtime_config_store.get_config(protocol_version)
     }
 
     fn get_protocol_config(&self, epoch_id: &EpochId) -> Result<ProtocolConfig, Error> {
@@ -1338,7 +1345,7 @@ fn calculate_transactions_size_limit(
 ) -> u64 {
     // Checking feature WitnessTransactionLimits
     if ProtocolFeature::StatelessValidation.enabled(protocol_version) {
-        if near_primitives::checked_feature!("stable", RelaxedChunkValidation, protocol_version) {
+        if ProtocolFeature::RelaxedChunkValidation.enabled(protocol_version) {
             last_chunk_transactions_size = 0;
         }
         // Sum of transactions in the previous and current chunks should not exceed the limit.
@@ -1375,12 +1382,12 @@ fn congestion_control_accepts_transaction(
     runtime_config: &RuntimeConfig,
     epoch_id: &EpochId,
     prev_block: &PrepareTransactionsBlockContext,
-    tx: &SignedTransaction,
+    validated_tx: &ValidatedTransaction,
 ) -> Result<bool, Error> {
     if !ProtocolFeature::CongestionControl.enabled(protocol_version) {
         return Ok(true);
     }
-    let receiver_id = tx.transaction.receiver_id();
+    let receiver_id = validated_tx.receiver_id();
     let receiving_shard = account_id_to_shard_id(epoch_manager, receiver_id, &epoch_id)?;
     let congestion_info = prev_block.congestion_info.get(&receiving_shard);
     let Some(congestion_info) = congestion_info else {

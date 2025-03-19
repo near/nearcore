@@ -1,15 +1,20 @@
+use itertools::Itertools;
+use near_async::messaging::CanSend;
 use near_async::test_loop::TestLoopV2;
 use near_async::test_loop::data::TestLoopData;
 use near_async::time::Duration;
+use near_client::SetNetworkInfo;
+use near_network::types::NetworkInfo;
+use near_store::adapter::StoreAdapter;
 use std::sync::atomic::Ordering;
-use tempfile::TempDir;
 
 use super::drop_condition::DropCondition;
-use super::state::{SharedState, TestData};
+use super::setup::setup_client;
+use super::state::{NodeExecutionData, NodeSetupState, SharedState};
 
 pub struct TestLoopEnv {
     pub test_loop: TestLoopV2,
-    pub node_datas: Vec<TestData>,
+    pub node_datas: Vec<NodeExecutionData>,
     pub shared_state: SharedState,
 }
 
@@ -69,23 +74,88 @@ impl TestLoopEnv {
         Self { test_loop, node_datas: datas, shared_state }
     }
 
-    pub fn kill_node(&mut self, identifier: &str) {
+    /// Function to stop a node in test loop environment.
+    /// Calling this function immediately stops all events with the given identifier.
+    /// This function returns the NodeState of the stopped node which can be used to restart the node.
+    ///
+    /// Note that other nodes may still continue to queue network events into the peer
+    /// manager actor of the stopped node but this would not be processed.
+    pub fn kill_node(&mut self, identifier: &str) -> NodeSetupState {
+        // Make test_loop ignore all events from this node.
         self.test_loop.remove_events_with_identifier(identifier);
+
+        // Build node_state
+        let node_data = self
+            .node_datas
+            .iter()
+            .find(|data| data.identifier == identifier)
+            .expect("Node with identifier not found");
+
+        let account_id = node_data.account_id.clone();
+        let client_actor = self.test_loop.data.get(&node_data.client_sender.actor_handle());
+        let client_config = client_actor.client.config.clone();
+        let store = client_actor.client.chain.chain_store.store();
+        let split_store = if client_config.archive {
+            let view_client_actor =
+                self.test_loop.data.get(&node_data.view_client_sender.actor_handle());
+            Some(view_client_actor.chain.chain_store.store())
+        } else {
+            None
+        };
+
+        NodeSetupState { account_id, client_config, store, split_store }
+    }
+
+    /// Function to restart a node in test loop environment. This function takes in the new_identifier
+    /// and node_state of the stopped node as input.
+    ///
+    /// As long as the account_id in the node_state matches the account_id of the stopped node,
+    /// this function automatically takes care of properly redirecting all network messages to the new node.
+    ///
+    /// Additionally, we set the NetworkInfo for this node which is required for state sync to work.
+    pub fn restart_node(&mut self, new_identifier: &str, node_state: NodeSetupState) {
+        // get the HeightHeightPeerInfo from all nodes
+        let highest_height_peers = self
+            .node_datas
+            .iter()
+            .filter(|data| data.account_id != node_state.account_id)
+            .map(|data| data.get_highest_height_peer_info(&self.test_loop.data))
+            .collect_vec();
+
+        // setup_client handles adding the account_id and peer_id details to network_shared_state
+        let node_data =
+            setup_client(new_identifier, &mut self.test_loop, node_state, &self.shared_state);
+
+        // Note: TestLoopEnv does not currently propagate the network info to other peers. This is because
+        // the networking layer is completely mocked out. So in order to allow the new node to sync, we
+        // need to manually propagate the network info to the new node.
+        node_data
+            .client_sender
+            .send(SetNetworkInfo(NetworkInfo { highest_height_peers, ..NetworkInfo::default() }));
+
+        // Finally push node_data into node_datas
+        self.node_datas.push(node_data);
+    }
+
+    /// Function to add a new node in test loop environment. This function takes in the identifier
+    /// and node_state of the new node as input.
+    ///
+    /// We set the NetworkInfo for this node which is required for state sync to work.
+    pub fn add_node(&mut self, identifier: &str, node_state: NodeSetupState) {
+        // Logically this function is the same as restart_node
+        self.restart_node(identifier, node_state);
     }
 
     /// Used to finish off remaining events that are still in the loop. This can be necessary if the
     /// destructor of some components wait for certain condition to become true. Otherwise, the
     /// destructors may end up waiting forever. This also helps avoid a panic when destructing
     /// TestLoop itself, as it asserts that all events have been handled.
-    ///
-    /// Returns the test loop data dir, if the caller wishes to reuse it for another test loop.
-    pub fn shutdown_and_drain_remaining_events(mut self, timeout: Duration) -> TempDir {
+    pub fn shutdown_and_drain_remaining_events(mut self, timeout: Duration) {
         // State sync dumper is not an Actor, handle stopping separately.
         for node_data in self.node_datas {
             self.test_loop.data.get_mut(&node_data.state_sync_dumper_handle).stop();
         }
 
         self.test_loop.shutdown_and_drain_remaining_events(timeout);
-        self.shared_state.tempdir
     }
 }
