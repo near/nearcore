@@ -381,6 +381,11 @@ impl TestGenesisBuilder {
         self
     }
 
+    pub fn protocol_reward_rate(mut self, protocol_reward_rate: Rational32) -> Self {
+        self.protocol_reward_rate = protocol_reward_rate;
+        self
+    }
+
     /// Specifies the protocol treasury account. If not specified, this will
     /// pick an arbitrary account name and ensure that it is included in the
     /// genesis records.

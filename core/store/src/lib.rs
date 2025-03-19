@@ -16,9 +16,9 @@ use borsh::{BorshDeserialize, BorshSerialize};
 pub use columns::DBCol;
 use config::ArchivalConfig;
 pub use db::{
-    CHUNK_TAIL_KEY, COLD_HEAD_KEY, FINAL_HEAD_KEY, FORK_TAIL_KEY, GENESIS_JSON_HASH_KEY,
-    GENESIS_STATE_ROOTS_KEY, HEAD_KEY, HEADER_HEAD_KEY, LARGEST_TARGET_HEIGHT_KEY,
-    LATEST_KNOWN_KEY, STATE_SNAPSHOT_KEY, STATE_SYNC_DUMP_KEY, TAIL_KEY,
+    CHUNK_TAIL_KEY, COLD_HEAD_KEY, FINAL_HEAD_KEY, FORK_TAIL_KEY, GENESIS_STATE_ROOTS_KEY,
+    HEAD_KEY, HEADER_HEAD_KEY, LARGEST_TARGET_HEIGHT_KEY, LATEST_KNOWN_KEY, STATE_SNAPSHOT_KEY,
+    STATE_SYNC_DUMP_KEY, TAIL_KEY,
 };
 use db::{GENESIS_CONGESTION_INFO_KEY, GENESIS_HEIGHT_KEY, SplitDB};
 use metadata::{DbKind, DbVersion, KIND_KEY, VERSION_KEY};
@@ -1083,16 +1083,6 @@ pub fn get_genesis_state_roots(store: &Store) -> io::Result<Option<Vec<StateRoot
 
 pub fn get_genesis_congestion_infos(store: &Store) -> io::Result<Option<Vec<CongestionInfo>>> {
     store.get_ser::<Vec<CongestionInfo>>(DBCol::BlockMisc, GENESIS_CONGESTION_INFO_KEY)
-}
-
-pub fn get_genesis_hash(store: &Store) -> io::Result<Option<CryptoHash>> {
-    store.get_ser::<CryptoHash>(DBCol::BlockMisc, GENESIS_JSON_HASH_KEY)
-}
-
-pub fn set_genesis_hash(store_update: &mut StoreUpdate, genesis_hash: &CryptoHash) {
-    store_update
-        .set_ser::<CryptoHash>(DBCol::BlockMisc, GENESIS_JSON_HASH_KEY, genesis_hash)
-        .expect("Borsh cannot fail");
 }
 
 pub fn set_genesis_state_roots(store_update: &mut StoreUpdate, genesis_roots: &[StateRoot]) {
