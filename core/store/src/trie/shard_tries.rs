@@ -673,7 +673,7 @@ impl WrappedTrieChanges {
         block_hash: &CryptoHash,
         store_update: &mut TrieStoreUpdateAdapter,
     ) {
-        for mut change_with_trie_key in self.state_changes.drain(..) {
+        for change_with_trie_key in self.state_changes.drain(..) {
             assert!(
                 !change_with_trie_key.changes.iter().any(|RawStateChange { cause, .. }| matches!(
                     cause,
@@ -682,11 +682,6 @@ impl WrappedTrieChanges {
                 "NotWritableToDisk changes must never be finalized."
             );
 
-            // Resharding changes must not be finalized, however they may be introduced here when we are
-            // evaluating changes for resharding in process_resharding_results function
-            change_with_trie_key
-                .changes
-                .retain(|change| change.cause != StateChangeCause::ReshardingV2);
             if change_with_trie_key.changes.is_empty() {
                 continue;
             }

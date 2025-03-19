@@ -15,7 +15,6 @@ mod maintenance_windows;
 mod process_blocks;
 mod process_blocks2;
 mod query_client;
-mod resharding_v2;
 mod runtimes;
 #[cfg(feature = "sandbox")]
 mod sandbox;

@@ -11,7 +11,6 @@ mod corrupt;
 mod drop_column;
 mod make_snapshot;
 mod memtrie;
-mod resharding_v2;
 mod run_migrations;
 mod set_version;
 mod state_perf;

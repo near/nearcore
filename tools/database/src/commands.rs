@@ -9,7 +9,6 @@ use crate::corrupt::CorruptStateSnapshotCommand;
 use crate::drop_column::DropColumnCommand;
 use crate::make_snapshot::MakeSnapshotCommand;
 use crate::memtrie::LoadMemTrieCommand;
-use crate::resharding_v2::ReshardingV2Command;
 use crate::run_migrations::RunMigrationsCommand;
 use crate::set_version::SetVersionCommand;
 use crate::state_perf::StatePerfCommand;
@@ -69,9 +68,6 @@ enum SubCommand {
 
     /// Manually set database version
     SetVersion(SetVersionCommand),
-
-    /// Perform on demand resharding V2
-    Resharding(ReshardingV2Command),
 }
 
 impl DatabaseCommand {
@@ -99,10 +95,6 @@ impl DatabaseCommand {
             SubCommand::AnalyzeDelayedReceipt(cmd) => cmd.run(home, genesis_validation),
             SubCommand::AnalyzeContractSizes(cmd) => cmd.run(home, genesis_validation),
             SubCommand::SetVersion(cmd) => cmd.run(home, genesis_validation),
-            SubCommand::Resharding(cmd) => {
-                let near_config = load_config(home, genesis_validation);
-                cmd.run(near_config, home)
-            }
         }
     }
 }

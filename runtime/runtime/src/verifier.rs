@@ -124,10 +124,8 @@ pub fn verify_and_charge_tx_ephemeral(
     transaction_cost: &TransactionCost,
     block_height: Option<BlockHeight>,
     current_protocol_version: ProtocolVersion,
-    cached_account: Option<Account>,
-    cached_access_key: Option<AccessKey>,
 ) -> Result<VerificationResult, InvalidTxError> {
-    let _span = tracing::debug_span!(target: "runtime", "verify_and_charge_tx_ephemeral").entered();
+    let _span = tracing::debug_span!(target: "runtime", "verify_and_charge_transaction").entered();
 
     let TransactionCost { gas_burnt, gas_remaining, receipt_gas_price, total_cost, burnt_amount } =
         *transaction_cost;
@@ -135,31 +133,24 @@ pub fn verify_and_charge_tx_ephemeral(
     let tx = validated_tx.to_tx();
     let signer_id = tx.signer_id();
 
-    // TODO(miloserdow): Move the logic of calling `get_account`/`get_access_key` to the caller(s).
-    let mut signer = match cached_account {
-        Some(account) => account,
-        None => match get_account(state_update, signer_id)? {
-            Some(account) => account,
-            None => {
-                return Err(InvalidTxError::SignerDoesNotExist { signer_id: signer_id.clone() });
-            }
-        },
+    let mut signer = match get_account(state_update, signer_id)? {
+        Some(signer) => signer,
+        None => {
+            return Err(InvalidTxError::SignerDoesNotExist { signer_id: signer_id.clone() });
+        }
     };
 
-    let mut access_key = match cached_access_key {
+    let mut access_key = match get_access_key(state_update, signer_id, tx.public_key())? {
         Some(access_key) => access_key,
-        None => match get_access_key(state_update, signer_id, tx.public_key())? {
-            Some(access_key) => access_key,
-            None => {
-                return Err(InvalidTxError::InvalidAccessKeyError(
-                    InvalidAccessKeyError::AccessKeyNotFound {
-                        account_id: signer_id.clone(),
-                        public_key: tx.public_key().clone().into(),
-                    },
-                )
-                .into());
-            }
-        },
+        None => {
+            return Err(InvalidTxError::InvalidAccessKeyError(
+                InvalidAccessKeyError::AccessKeyNotFound {
+                    account_id: signer_id.clone(),
+                    public_key: tx.public_key().clone().into(),
+                },
+            )
+            .into());
+        }
     };
 
     if tx.nonce() <= access_key.nonce {
@@ -769,8 +760,6 @@ mod tests {
             &cost,
             None,
             PROTOCOL_VERSION,
-            None,
-            None,
         )
         .expect_err("expected an error");
         assert_eq!(err, expected_err);
@@ -796,8 +785,6 @@ mod tests {
             &transaction_cost,
             block_height,
             current_protocol_version,
-            None,
-            None,
         )?;
         commit_charging_for_tx(state_update, &validated_tx, &vr.signer, &vr.access_key);
         Ok(vr)
