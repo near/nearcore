@@ -500,7 +500,7 @@ impl Runtime {
         let transaction = validated_tx.to_tx();
         let receipt_id = create_receipt_id_from_transaction(
             apply_state.current_protocol_version,
-            validated_tx.to_signed_tx(),
+            validated_tx.to_hash(),
             &apply_state.prev_block_hash,
             &apply_state.block_hash,
             apply_state.block_height,
