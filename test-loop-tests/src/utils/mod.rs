@@ -1,6 +1,8 @@
 use near_async::test_loop::data::TestLoopData;
+use near_async::time::Duration;
+use near_client::Client;
 use near_client::client_actor::ClientActorInner;
-use near_primitives::types::AccountId;
+use near_primitives::types::{AccountId, BlockHeight};
 
 use crate::setup::env::TestLoopEnv;
 use crate::setup::state::NodeExecutionData;
@@ -21,11 +23,36 @@ pub(crate) mod validators;
 pub(crate) const ONE_NEAR: u128 = 1_000_000_000_000_000_000_000_000;
 pub(crate) const TGAS: u64 = 1_000_000_000_000;
 
-/// Returns the height of the chain head, by querying node at index 0.
-pub(crate) fn get_head_height(env: &mut TestLoopEnv) -> u64 {
-    let client_handle = env.node_datas[0].client_sender.actor_handle();
-    let client = &env.test_loop.data.get(&client_handle).client;
-    client.chain.head().unwrap().height
+pub(crate) fn get_node_client<'a>(
+    env: &'a TestLoopEnv,
+    client_account_id: &AccountId,
+) -> &'a Client {
+    let client_handle =
+        get_node_data(&env.node_datas, client_account_id).client_sender.actor_handle();
+    &env.test_loop.data.get(&client_handle).client
+}
+
+pub(crate) fn get_node_head_height(
+    env: &TestLoopEnv,
+    client_account_id: &AccountId,
+) -> BlockHeight {
+    get_node_client(env, client_account_id).chain.head().unwrap().height
+}
+
+pub(crate) fn run_until_node_head_height(
+    env: &mut TestLoopEnv,
+    client_account_id: &AccountId,
+    height: BlockHeight,
+    maximum_duration: Duration,
+) {
+    env.test_loop.run_until(
+        |test_loop_data| {
+            let client_actor =
+                retrieve_client_actor(&env.node_datas, test_loop_data, client_account_id);
+            client_actor.client.chain.head().unwrap().height >= height
+        },
+        maximum_duration,
+    );
 }
 
 /// Returns the test data of for the node with the given account id.
