@@ -90,6 +90,7 @@ impl<'a> near_store::StoreMigrator for Migrator<'a> {
             41 => near_store::migrations::migrate_41_to_42(store),
             42 => near_store::migrations::migrate_42_to_43(store),
             43 => Ok(()), // DBCol::ChunkApplyStats column added, no need to perform a migration
+            44 => near_store::migrations::migrate_44_to_45(store),
             DB_VERSION.. => unreachable!(),
         }
     }

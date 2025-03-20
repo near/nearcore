@@ -27,6 +27,8 @@ use super::env::TestLoopEnv;
 use super::setup::setup_client;
 use super::state::{NodeSetupState, SharedState};
 
+pub(crate) const MIN_BLOCK_PROD_TIME: u64 = 600;
+
 pub(crate) struct TestLoopBuilder {
     test_loop: TestLoopV2,
     genesis: Option<Genesis>,
@@ -281,7 +283,8 @@ impl<'a> NodeStateBuilder<'a> {
         let (store, split_store) = self.setup_store();
         let account_id = self.account_id.unwrap();
 
-        let mut client_config = ClientConfig::test(true, 600, 2000, 4, self.archive, true, false);
+        let mut client_config =
+            ClientConfig::test(true, MIN_BLOCK_PROD_TIME, 2000, 4, self.archive, true, false);
         client_config.epoch_length = self.genesis.config.epoch_length;
         client_config.max_block_wait_delay = Duration::seconds(6);
         client_config.state_sync_enabled = true;
