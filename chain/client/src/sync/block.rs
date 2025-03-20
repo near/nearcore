@@ -96,6 +96,7 @@ impl BlockSync {
             start_height,
             current_height: head.height,
             highest_height,
+            blocks_requested: self.last_request.is_some(),
         });
         Ok(false)
     }

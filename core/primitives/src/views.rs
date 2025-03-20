@@ -442,6 +442,7 @@ pub enum SyncStatusView {
         start_height: BlockHeight,
         current_height: BlockHeight,
         highest_height: BlockHeight,
+        blocks_requested: bool,
     },
 }
 
