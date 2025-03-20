@@ -16,7 +16,7 @@ use crate::utils::setups::derive_new_epoch_config_from_boundary;
 fn test_resharding() {
     init_test_logger();
 
-    let base_shard_layout = ShardLayout::multi_shard(3, 0);
+    let base_shard_layout = ShardLayout::multi_shard(3, 3);
     let epoch_length = 5;
     let chunk_producer = "cp0";
     let validators_spec = ValidatorsSpec::desired_roles(&[chunk_producer], &[]);
