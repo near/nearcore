@@ -18,7 +18,7 @@ pub enum ProtocolFeature {
     /// Don't process any receipts for shard when chunk is not present.
     /// Always use gas price computed in the previous block.
     FixApplyChunks,
-    LowerStorageCost,
+    _DeprecateLowerStorageCost,
     DeleteActionRestriction,
     /// Add versions to `Account` data structure
     AccountVersions,
@@ -51,7 +51,7 @@ pub enum ProtocolFeature {
     /// Upgrade for shard chunk header
     _DeprecatedShardChunkHeaderUpgrade,
     /// Updates the way receipt ID is constructed to use current block hash instead of last block hash
-    CreateReceiptIdSwitchToCurrentBlock,
+    _DeprecatedCreateReceiptIdSwitchToCurrentBlock,
     /// Pessimistic gas price estimation uses a fixed value of `minimum_new_receipt_gas` to stop being
     /// tied to the function call base cost
     FixedMinimumNewReceiptGas,
@@ -231,8 +231,7 @@ impl ProtocolFeature {
             ProtocolFeature::_DeprecatedCreateHash => 38,
             ProtocolFeature::_DeprecatedDeleteKeyStorageUsage => 40,
             ProtocolFeature::_DeprecatedShardChunkHeaderUpgrade => 41,
-            ProtocolFeature::CreateReceiptIdSwitchToCurrentBlock => 42,
-            ProtocolFeature::LowerStorageCost => 42,
+            ProtocolFeature::_DeprecatedCreateReceiptIdSwitchToCurrentBlock | ProtocolFeature::_DeprecateLowerStorageCost => 42,
             ProtocolFeature::DeleteActionRestriction => 43,
             ProtocolFeature::FixApplyChunks => 44,
             ProtocolFeature::RectifyInflation | ProtocolFeature::AccessKeyNonceRange => 45,
@@ -320,7 +319,7 @@ impl ProtocolFeature {
 pub const PROD_GENESIS_PROTOCOL_VERSION: ProtocolVersion = 29;
 
 /// Minimum supported protocol version for the current binary
-pub const MIN_SUPPORTED_PROTOCOL_VERSION: ProtocolVersion = 42;
+pub const MIN_SUPPORTED_PROTOCOL_VERSION: ProtocolVersion = 43;
 
 /// Current protocol version used on the mainnet with all stable features.
 const STABLE_PROTOCOL_VERSION: ProtocolVersion = 77;

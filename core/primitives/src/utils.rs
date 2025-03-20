@@ -215,18 +215,10 @@ pub fn get_outcome_id_block_hash_rev(key: &[u8]) -> std::io::Result<(CryptoHash,
 pub fn create_receipt_id_from_transaction(
     protocol_version: ProtocolVersion,
     tx_hash: ValidatedTransactionHash,
-    prev_block_hash: &CryptoHash,
     block_hash: &CryptoHash,
     block_height: BlockHeight,
 ) -> CryptoHash {
-    create_hash_upgradable(
-        protocol_version,
-        &tx_hash.get_hash(),
-        prev_block_hash,
-        block_hash,
-        block_height,
-        0,
-    )
+    create_hash_upgradable(protocol_version, &tx_hash.get_hash(), block_hash, block_height, 0)
 }
 
 /// Creates a new Receipt ID from a given receipt id, a block height or hash and a new receipt index.
@@ -234,7 +226,6 @@ pub fn create_receipt_id_from_transaction(
 pub fn create_receipt_id_from_receipt_id(
     protocol_version: ProtocolVersion,
     receipt_id: &CryptoHash,
-    prev_block_hash: &CryptoHash,
     block_hash: &CryptoHash,
     block_height: BlockHeight,
     receipt_index: usize,
@@ -242,7 +233,6 @@ pub fn create_receipt_id_from_receipt_id(
     create_hash_upgradable(
         protocol_version,
         receipt_id,
-        prev_block_hash,
         block_hash,
         block_height,
         receipt_index as u64,
@@ -254,7 +244,6 @@ pub fn create_receipt_id_from_receipt_id(
 pub fn create_action_hash_from_receipt_id(
     protocol_version: ProtocolVersion,
     receipt_id: &CryptoHash,
-    prev_block_hash: &CryptoHash,
     block_hash: &CryptoHash,
     block_height: BlockHeight,
     action_index: usize,
@@ -262,14 +251,7 @@ pub fn create_action_hash_from_receipt_id(
     // Action hash uses the same input as a new receipt ID, so to avoid hash conflicts we use the
     // salt starting from the `u64` going backward.
     let salt = u64::MAX.wrapping_sub(action_index as u64);
-    create_hash_upgradable(
-        protocol_version,
-        receipt_id,
-        prev_block_hash,
-        block_hash,
-        block_height,
-        salt,
-    )
+    create_hash_upgradable(protocol_version, receipt_id, block_hash, block_height, salt)
 }
 
 /// Creates a new Receipt ID from a given action hash, a block height or hash and a new receipt index.
@@ -277,19 +259,11 @@ pub fn create_action_hash_from_receipt_id(
 pub fn create_receipt_id_from_action_hash(
     protocol_version: ProtocolVersion,
     action_hash: &CryptoHash,
-    prev_block_hash: &CryptoHash,
     block_hash: &CryptoHash,
     block_height: BlockHeight,
     receipt_index: u64,
 ) -> CryptoHash {
-    create_hash_upgradable(
-        protocol_version,
-        action_hash,
-        prev_block_hash,
-        block_hash,
-        block_height,
-        receipt_index,
-    )
+    create_hash_upgradable(protocol_version, action_hash, block_hash, block_height, receipt_index)
 }
 
 /// Creates a unique random seed to be provided to `VMContext` from a give `action_hash` and
@@ -317,7 +291,6 @@ pub fn create_random_seed(action_hash: CryptoHash, random_seed: CryptoHash) -> V
 fn create_hash_upgradable(
     protocol_version: ProtocolVersion,
     base: &CryptoHash,
-    extra_hash_old: &CryptoHash,
     extra_hash: &CryptoHash,
     block_height: BlockHeight,
     salt: u64,
@@ -327,11 +300,9 @@ fn create_hash_upgradable(
     bytes.extend_from_slice(base.as_ref());
     if ProtocolFeature::BlockHeightForReceiptId.enabled(protocol_version) {
         bytes.extend_from_slice(block_height.to_le_bytes().as_ref())
-    } else if ProtocolFeature::CreateReceiptIdSwitchToCurrentBlock.enabled(protocol_version) {
-        bytes.extend_from_slice(extra_hash.as_ref())
     } else {
-        bytes.extend_from_slice(extra_hash_old.as_ref())
-    };
+        bytes.extend_from_slice(extra_hash.as_ref())
+    }
     bytes.extend(index_to_bytes(salt));
     hash(&bytes)
 }
@@ -549,56 +520,18 @@ mod tests {
         let other_block_height: BlockHeight = 123_123_123;
         let salt = 3;
 
-        assert_ne!(
-            create_hash_upgradable(
-                ProtocolFeature::CreateReceiptIdSwitchToCurrentBlock.protocol_version() - 1,
-                &base,
-                &extra_base,
-                &other_extra_base,
-                block_height,
-                salt,
-            ),
-            create_hash_upgradable(
-                ProtocolFeature::CreateReceiptIdSwitchToCurrentBlock.protocol_version(),
-                &base,
-                &extra_base,
-                &other_extra_base,
-                block_height,
-                salt,
-            )
-        );
-        assert_eq!(
-            create_hash_upgradable(
-                ProtocolFeature::CreateReceiptIdSwitchToCurrentBlock.protocol_version(),
-                &base,
-                &extra_base,
-                &other_extra_base,
-                block_height,
-                salt,
-            ),
-            create_hash_upgradable(
-                ProtocolFeature::CreateReceiptIdSwitchToCurrentBlock.protocol_version(),
-                &base,
-                &other_extra_base,
-                &other_extra_base,
-                block_height,
-                salt
-            )
-        );
         // Check that for protocol versions post BlockHeightForReceiptId, the hash does not depend on block hash.
         assert_eq!(
             create_hash_upgradable(
                 ProtocolFeature::BlockHeightForReceiptId.protocol_version(),
                 &base,
                 &extra_base,
-                &extra_base,
                 block_height,
                 salt,
             ),
             create_hash_upgradable(
                 ProtocolFeature::BlockHeightForReceiptId.protocol_version(),
                 &base,
-                &other_extra_base,
                 &other_extra_base,
                 block_height,
                 salt
@@ -609,7 +542,6 @@ mod tests {
             create_hash_upgradable(
                 ProtocolFeature::BlockHeightForReceiptId.protocol_version() - 1,
                 &base,
-                &extra_base,
                 &other_extra_base,
                 block_height,
                 salt,
@@ -617,7 +549,6 @@ mod tests {
             create_hash_upgradable(
                 ProtocolFeature::BlockHeightForReceiptId.protocol_version() - 1,
                 &base,
-                &extra_base,
                 &other_extra_base,
                 other_block_height,
                 salt,
@@ -628,7 +559,6 @@ mod tests {
             create_hash_upgradable(
                 ProtocolFeature::BlockHeightForReceiptId.protocol_version(),
                 &base,
-                &extra_base,
                 &other_extra_base,
                 block_height,
                 salt,
@@ -636,7 +566,6 @@ mod tests {
             create_hash_upgradable(
                 ProtocolFeature::BlockHeightForReceiptId.protocol_version(),
                 &base,
-                &extra_base,
                 &other_extra_base,
                 other_block_height,
                 salt,
