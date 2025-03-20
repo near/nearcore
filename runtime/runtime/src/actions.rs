@@ -493,7 +493,7 @@ pub(crate) fn action_implicit_account_creation_transfer(
     account_id: &AccountId,
     deposit: Balance,
     block_height: BlockHeight,
-    _current_protocol_version: ProtocolVersion,
+    current_protocol_version: ProtocolVersion,
     epoch_info_provider: &dyn EpochInfoProvider,
 ) {
     *actor_id = account_id.clone();
@@ -502,7 +502,7 @@ pub(crate) fn action_implicit_account_creation_transfer(
             let mut access_key = AccessKey::full_access();
             // Set default nonce for newly created access key to avoid transaction hash collision.
             // See <https://github.com/near/nearcore/issues/3779>.
-            if ProtocolFeature::AccessKeyNonceForImplicitAccounts.enabled(_current_protocol_version)
+            if ProtocolFeature::AccessKeyNonceForImplicitAccounts.enabled(current_protocol_version)
             {
                 access_key.nonce = (block_height - 1)
                     * near_primitives::account::AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER;
@@ -526,13 +526,13 @@ pub(crate) fn action_implicit_account_creation_transfer(
         // Invariant: The `account_id` is implicit.
         // It holds because in the only calling site, we've checked the permissions before.
         AccountType::EthImplicitAccount => {
-            if ProtocolFeature::EthImplicitAccounts.enabled(_current_protocol_version) {
+            if ProtocolFeature::EthImplicitAccounts.enabled(current_protocol_version) {
                 let chain_id = epoch_info_provider.chain_id();
 
                 // We deploy "near[wallet contract hash]" magic bytes as the contract code,
                 // to mark that this is a neard-defined contract. It will not be used on a function call.
                 // Instead, neard-defined Wallet Contract implementation will be used.
-                let magic_bytes = wallet_contract_magic_bytes(&chain_id, _current_protocol_version);
+                let magic_bytes = wallet_contract_magic_bytes(&chain_id, current_protocol_version);
 
                 let storage_usage = fee_config.storage_usage_config.num_bytes_account
                     + magic_bytes.code().len() as u64
@@ -576,14 +576,14 @@ pub(crate) fn action_deploy_contract(
     deploy_contract: &DeployContractAction,
     config: Arc<near_parameters::vm::Config>,
     cache: Option<&dyn ContractRuntimeCache>,
-    _current_protocol_version: ProtocolVersion,
+    current_protocol_version: ProtocolVersion,
 ) -> Result<(), StorageError> {
     let _span = tracing::debug_span!(target: "runtime", "action_deploy_contract").entered();
     clear_account_contract_storage_usage(
         state_update,
         account_id,
         account,
-        _current_protocol_version,
+        current_protocol_version,
     )?;
 
     let code = ContractCode::new(deploy_contract.code.clone(), None);
@@ -621,16 +621,16 @@ pub(crate) fn action_delete_account(
     result: &mut ActionResult,
     account_id: &AccountId,
     delete_account: &DeleteAccountAction,
-    _current_protocol_version: ProtocolVersion,
+    current_protocol_version: ProtocolVersion,
 ) -> Result<(), StorageError> {
-    if _current_protocol_version >= ProtocolFeature::DeleteActionRestriction.protocol_version() {
+    if current_protocol_version >= ProtocolFeature::DeleteActionRestriction.protocol_version() {
         let account = account.as_ref().unwrap();
         let mut account_storage_usage = account.storage_usage();
         let code_len = get_code_len_or_default(
             state_update,
             account_id.clone(),
             account.local_contract_hash().unwrap_or_default(),
-            _current_protocol_version,
+            current_protocol_version,
         )?;
         debug_assert!(
             code_len == 0 || account_storage_usage > code_len,
@@ -693,7 +693,7 @@ pub(crate) fn clear_account_contract_storage_usage(
     state_update: &mut TrieUpdate,
     account_id: &AccountId,
     account: &mut Account,
-    _current_protocol_version: ProtocolVersion,
+    current_protocol_version: ProtocolVersion,
 ) -> Result<(), StorageError> {
     match account.contract().as_ref() {
         AccountContract::None => {}
@@ -702,7 +702,7 @@ pub(crate) fn clear_account_contract_storage_usage(
                 state_update,
                 account_id.clone(),
                 *code_hash,
-                _current_protocol_version,
+                current_protocol_version,
             )?;
             account.set_storage_usage(account.storage_usage().saturating_sub(prev_code_len));
         }
