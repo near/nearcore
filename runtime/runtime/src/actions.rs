@@ -496,7 +496,7 @@ pub(crate) fn action_implicit_account_creation_transfer(
     account_id: &AccountId,
     deposit: Balance,
     block_height: BlockHeight,
-    current_protocol_version: ProtocolVersion,
+    _current_protocol_version: ProtocolVersion,
     epoch_info_provider: &dyn EpochInfoProvider,
 ) {
     *actor_id = account_id.clone();
@@ -505,7 +505,7 @@ pub(crate) fn action_implicit_account_creation_transfer(
             let mut access_key = AccessKey::full_access();
             // Set default nonce for newly created access key to avoid transaction hash collision.
             // See <https://github.com/near/nearcore/issues/3779>.
-            if ProtocolFeature::AccessKeyNonceForImplicitAccounts.enabled(current_protocol_version)
+            if ProtocolFeature::AccessKeyNonceForImplicitAccounts.enabled(_current_protocol_version)
             {
                 access_key.nonce = (block_height - 1)
                     * near_primitives::account::AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER;
@@ -529,13 +529,13 @@ pub(crate) fn action_implicit_account_creation_transfer(
         // Invariant: The `account_id` is implicit.
         // It holds because in the only calling site, we've checked the permissions before.
         AccountType::EthImplicitAccount => {
-            if ProtocolFeature::EthImplicitAccounts.enabled(current_protocol_version) {
+            if ProtocolFeature::EthImplicitAccounts.enabled(_current_protocol_version) {
                 let chain_id = epoch_info_provider.chain_id();
 
                 // We deploy "near[wallet contract hash]" magic bytes as the contract code,
                 // to mark that this is a neard-defined contract. It will not be used on a function call.
                 // Instead, neard-defined Wallet Contract implementation will be used.
-                let magic_bytes = wallet_contract_magic_bytes(&chain_id, current_protocol_version);
+                let magic_bytes = wallet_contract_magic_bytes(&chain_id, _current_protocol_version);
 
                 let storage_usage = fee_config.storage_usage_config.num_bytes_account
                     + magic_bytes.code().len() as u64
@@ -579,14 +579,14 @@ pub(crate) fn action_deploy_contract(
     deploy_contract: &DeployContractAction,
     config: Arc<near_parameters::vm::Config>,
     cache: Option<&dyn ContractRuntimeCache>,
-    current_protocol_version: ProtocolVersion,
+    _current_protocol_version: ProtocolVersion,
 ) -> Result<(), StorageError> {
     let _span = tracing::debug_span!(target: "runtime", "action_deploy_contract").entered();
     clear_account_contract_storage_usage(
         state_update,
         account_id,
         account,
-        current_protocol_version,
+        _current_protocol_version,
     )?;
 
     let code = ContractCode::new(deploy_contract.code.clone(), None);
@@ -624,16 +624,16 @@ pub(crate) fn action_delete_account(
     result: &mut ActionResult,
     account_id: &AccountId,
     delete_account: &DeleteAccountAction,
-    current_protocol_version: ProtocolVersion,
+    _current_protocol_version: ProtocolVersion,
 ) -> Result<(), StorageError> {
-    if current_protocol_version >= ProtocolFeature::DeleteActionRestriction.protocol_version() {
+    if _current_protocol_version >= ProtocolFeature::DeleteActionRestriction.protocol_version() {
         let account = account.as_ref().unwrap();
         let mut account_storage_usage = account.storage_usage();
         let code_len = get_code_len_or_default(
             state_update,
             account_id.clone(),
             account.local_contract_hash().unwrap_or_default(),
-            current_protocol_version,
+            _current_protocol_version,
         )?;
         debug_assert!(
             code_len == 0 || account_storage_usage > code_len,
@@ -696,7 +696,7 @@ pub(crate) fn clear_account_contract_storage_usage(
     state_update: &mut TrieUpdate,
     account_id: &AccountId,
     account: &mut Account,
-    current_protocol_version: ProtocolVersion,
+    _current_protocol_version: ProtocolVersion,
 ) -> Result<(), StorageError> {
     match account.contract().as_ref() {
         AccountContract::None => {}
@@ -705,7 +705,7 @@ pub(crate) fn clear_account_contract_storage_usage(
                 state_update,
                 account_id.clone(),
                 *code_hash,
-                current_protocol_version,
+                _current_protocol_version,
             )?;
             account.set_storage_usage(account.storage_usage().saturating_sub(prev_code_len));
         }
@@ -727,21 +727,14 @@ pub(crate) fn action_delete_key(
     result: &mut ActionResult,
     account_id: &AccountId,
     delete_key: &DeleteKeyAction,
-    current_protocol_version: ProtocolVersion,
+    _current_protocol_version: ProtocolVersion,
 ) -> Result<(), StorageError> {
     let access_key = get_access_key(state_update, account_id, &delete_key.public_key)?;
     if let Some(access_key) = access_key {
         let storage_usage_config = &fee_config.storage_usage_config;
-        let storage_usage =
-            if ProtocolFeature::DeleteKeyStorageUsage.enabled(current_protocol_version) {
-                borsh::object_length(&delete_key.public_key).unwrap() as u64
-                    + borsh::object_length(&access_key).unwrap() as u64
-                    + storage_usage_config.num_extra_bytes_record
-            } else {
-                borsh::object_length(&delete_key.public_key).unwrap() as u64
-                    + borsh::object_length(&Some(access_key)).unwrap() as u64
-                    + storage_usage_config.num_extra_bytes_record
-            };
+        let storage_usage = borsh::object_length(&delete_key.public_key).unwrap() as u64
+            + borsh::object_length(&access_key).unwrap() as u64
+            + storage_usage_config.num_extra_bytes_record;
         // Remove access key
         remove_access_key(state_update, account_id.clone(), delete_key.public_key.clone());
         account.set_storage_usage(account.storage_usage().saturating_sub(storage_usage));
@@ -1430,7 +1423,7 @@ mod tests {
             block_timestamp: 1,
             gas_limit: None,
             random_seed: CryptoHash::default(),
-            current_protocol_version: 1,
+            current_protocol_version: 1, // This is a test value, not related to the deprecated features
             config: Arc::new(RuntimeConfig::test()),
             cache: None,
             is_new_chunk: false,

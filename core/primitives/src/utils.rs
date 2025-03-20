@@ -296,13 +296,11 @@ pub fn create_receipt_id_from_action_hash(
 /// a given `random_seed`.
 /// This method is backward compatible, so it takes the current protocol version.
 pub fn create_random_seed(
-    protocol_version: ProtocolVersion,
+    _protocol_version: ProtocolVersion,
     action_hash: CryptoHash,
     random_seed: CryptoHash,
 ) -> Vec<u8> {
-    let res = if !ProtocolFeature::CreateHash.enabled(protocol_version) {
-        random_seed
-    } else {
+    let res = {
         // Generates random seed from random_seed and action_hash.
         // Since every action hash is unique, the seed will be unique per receipt and even
         // per action within a receipt.
@@ -330,9 +328,7 @@ fn create_hash_upgradable(
     block_height: BlockHeight,
     salt: u64,
 ) -> CryptoHash {
-    if !ProtocolFeature::CreateHash.enabled(protocol_version) {
-        create_nonce_with_nonce(base, salt)
-    } else {
+    {
         const BYTES_LEN: usize =
             size_of::<CryptoHash>() + size_of::<CryptoHash>() + size_of::<u64>();
         let mut bytes: Vec<u8> = Vec::with_capacity(BYTES_LEN);
@@ -350,6 +346,7 @@ fn create_hash_upgradable(
 }
 
 /// Deprecated. Please use `create_hash_upgradable`
+#[allow(dead_code)]
 fn create_nonce_with_nonce(base: &CryptoHash, salt: u64) -> CryptoHash {
     let mut nonce: Vec<u8> = base.as_ref().to_owned();
     nonce.extend(index_to_bytes(salt));
@@ -571,7 +568,7 @@ mod tests {
         assert_eq!(
             create_nonce_with_nonce(&base, salt),
             create_hash_upgradable(
-                ProtocolFeature::CreateHash.protocol_version() - 1,
+                ProtocolFeature::_DeprecatedCreateHash.protocol_version() - 1,
                 &base,
                 &extra_base,
                 &extra_base,
@@ -582,7 +579,7 @@ mod tests {
         assert_ne!(
             create_nonce_with_nonce(&base, salt),
             create_hash_upgradable(
-                ProtocolFeature::CreateHash.protocol_version(),
+                ProtocolFeature::_DeprecatedCreateHash.protocol_version(),
                 &base,
                 &extra_base,
                 &extra_base,
@@ -592,7 +589,7 @@ mod tests {
         );
         assert_ne!(
             create_hash_upgradable(
-                ProtocolFeature::CreateHash.protocol_version(),
+                ProtocolFeature::_DeprecatedCreateHash.protocol_version(),
                 &base,
                 &extra_base,
                 &extra_base,
@@ -600,7 +597,7 @@ mod tests {
                 salt,
             ),
             create_hash_upgradable(
-                ProtocolFeature::CreateHash.protocol_version(),
+                ProtocolFeature::_DeprecatedCreateHash.protocol_version(),
                 &base,
                 &other_extra_base,
                 &other_extra_base,

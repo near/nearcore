@@ -2406,7 +2406,7 @@ fn test_protocol_version_switch_after_switch() {
     let mut epoch_manager = EpochManager::new(
         store,
         config,
-        ProtocolFeature::UpgradabilityFix.protocol_version(),
+        ProtocolFeature::_DeprecatedUpgradabilityFix.protocol_version(),
         default_reward_calculator(),
         validators,
     )
@@ -2427,12 +2427,12 @@ fn test_protocol_version_switch_after_switch() {
         if i != 2 * epoch_length {
             set_block_info_protocol_version(
                 &mut block_info,
-                ProtocolFeature::UpgradabilityFix.protocol_version() + 1,
+                ProtocolFeature::_DeprecatedUpgradabilityFix.protocol_version() + 1,
             );
         } else {
             set_block_info_protocol_version(
                 &mut block_info,
-                ProtocolFeature::UpgradabilityFix.protocol_version(),
+                ProtocolFeature::_DeprecatedUpgradabilityFix.protocol_version(),
             );
         }
         epoch_manager.record_block_info(block_info, [0; 32]).unwrap();
@@ -2446,12 +2446,12 @@ fn test_protocol_version_switch_after_switch() {
 
     assert_eq!(
         epoch_infos[1].protocol_version(),
-        ProtocolFeature::UpgradabilityFix.protocol_version() + 1
+        ProtocolFeature::_DeprecatedUpgradabilityFix.protocol_version() + 1
     );
 
     assert_eq!(
         epoch_infos[2].protocol_version(),
-        ProtocolFeature::UpgradabilityFix.protocol_version() + 1
+        ProtocolFeature::_DeprecatedUpgradabilityFix.protocol_version() + 1
     );
 
     // if there are enough votes to use the old version, it should be allowed
@@ -2468,7 +2468,7 @@ fn test_protocol_version_switch_after_switch() {
         );
         set_block_info_protocol_version(
             &mut block_info,
-            ProtocolFeature::UpgradabilityFix.protocol_version(),
+            ProtocolFeature::_DeprecatedUpgradabilityFix.protocol_version(),
         );
         epoch_manager.record_block_info(block_info, [0; 32]).unwrap();
     }
@@ -2477,7 +2477,7 @@ fn test_protocol_version_switch_after_switch() {
 
     assert_eq!(
         epoch_infos[3].protocol_version(),
-        ProtocolFeature::UpgradabilityFix.protocol_version()
+        ProtocolFeature::_DeprecatedUpgradabilityFix.protocol_version()
     );
 }
 
