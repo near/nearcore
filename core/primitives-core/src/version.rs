@@ -43,11 +43,11 @@ pub enum ProtocolFeature {
     _DeprecatedEnableInflation,
     /// Fix upgrade to use the latest voted protocol version instead of the current epoch protocol
     /// version when there is no new change in protocol version
-    UpgradabilityFix,
+    _DeprecatedUpgradabilityFix,
     /// Updates the way receipt ID, data ID and random seeds are constructed
-    CreateHash,
+    _DeprecatedCreateHash,
     /// Fix the storage usage of the delete key action
-    DeleteKeyStorageUsage,
+    _DeprecatedDeleteKeyStorageUsage,
     /// Upgrade for shard chunk header
     ShardChunkHeaderUpgrade,
     /// Updates the way receipt ID is constructed to use current block hash instead of last block hash
@@ -227,9 +227,9 @@ impl ProtocolFeature {
             ProtocolFeature::_DeprecatedCorrectRandomValue => 33,
             ProtocolFeature::_DeprecatedImplicitAccountCreation => 35,
             ProtocolFeature::_DeprecatedEnableInflation => 36,
-            ProtocolFeature::UpgradabilityFix => 37,
-            ProtocolFeature::CreateHash => 38,
-            ProtocolFeature::DeleteKeyStorageUsage => 40,
+            ProtocolFeature::_DeprecatedUpgradabilityFix => 37,
+            ProtocolFeature::_DeprecatedCreateHash => 38,
+            ProtocolFeature::_DeprecatedDeleteKeyStorageUsage => 40,
             ProtocolFeature::ShardChunkHeaderUpgrade => 41,
             ProtocolFeature::CreateReceiptIdSwitchToCurrentBlock => 42,
             ProtocolFeature::LowerStorageCost => 42,
@@ -320,7 +320,7 @@ impl ProtocolFeature {
 pub const PROD_GENESIS_PROTOCOL_VERSION: ProtocolVersion = 29;
 
 /// Minimum supported protocol version for the current binary
-pub const MIN_SUPPORTED_PROTOCOL_VERSION: ProtocolVersion = 37;
+pub const MIN_SUPPORTED_PROTOCOL_VERSION: ProtocolVersion = 41;
 
 /// Current protocol version used on the mainnet with all stable features.
 const STABLE_PROTOCOL_VERSION: ProtocolVersion = 77;
