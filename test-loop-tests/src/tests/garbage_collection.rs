@@ -61,7 +61,7 @@ fn test_state_transition_data_gc() {
 }
 
 #[test]
-fn resharding() {
+fn test_state_transition_data_gc_when_resharding() {
     init_test_logger();
 
     let base_shard_layout = ShardLayout::multi_shard(3, 3);
