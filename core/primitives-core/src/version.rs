@@ -32,7 +32,7 @@ pub enum ProtocolFeature {
     _DeprecatedMathExtension,
     /// Restore receipts that were previously stuck because of
     /// <https://github.com/near/nearcore/pull/4228>.
-    RestoreReceiptsAfterFixApplyChunks,
+    _DeprecatedRestoreReceiptsAfterFixApplyChunks,
     /// Minimum protocol version for NEP-92
     _DeprecatedMinProtocolVersionNep92,
     /// Minimum protocol version for NEP-92 fix
@@ -241,7 +241,7 @@ impl ProtocolFeature {
             | ProtocolFeature::_DeprecatedCapMaxGasPrice
             | ProtocolFeature::_DeprecatedCountRefundReceiptsInGasLimit
             | ProtocolFeature::_DeprecatedMathExtension => 46,
-            ProtocolFeature::RestoreReceiptsAfterFixApplyChunks => 47,
+            ProtocolFeature::_DeprecatedRestoreReceiptsAfterFixApplyChunks => 47,
             ProtocolFeature::Wasmer2
             | ProtocolFeature::LowerDataReceiptAndEcrecoverBaseCost
             | ProtocolFeature::LowerRegularOpCost
@@ -319,7 +319,7 @@ impl ProtocolFeature {
 pub const PROD_GENESIS_PROTOCOL_VERSION: ProtocolVersion = 29;
 
 /// Minimum supported protocol version for the current binary
-pub const MIN_SUPPORTED_PROTOCOL_VERSION: ProtocolVersion = 47;
+pub const MIN_SUPPORTED_PROTOCOL_VERSION: ProtocolVersion = 48;
 
 /// Current protocol version used on the mainnet with all stable features.
 const STABLE_PROTOCOL_VERSION: ProtocolVersion = 77;
