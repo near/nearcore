@@ -240,13 +240,14 @@ pub(crate) static APPLY_CHUNK_RESULTS_CACHE_MISSES: LazyLock<IntCounterVec> = La
     .unwrap()
 });
 
-pub(crate) static STATE_TRANSITION_DATA_GC_TOTAL_ENTRIES: LazyLock<IntGauge> = LazyLock::new(|| {
-    try_create_int_gauge(
-        "near_state_transition_data_gc_total_entries",
-        "Number of entries in state transaction data store column",
-    )
-    .unwrap()
-});
+pub(crate) static STATE_TRANSITION_DATA_GC_TOTAL_ENTRIES: LazyLock<IntGauge> =
+    LazyLock::new(|| {
+        try_create_int_gauge(
+            "near_state_transition_data_gc_total_entries",
+            "Number of entries in state transaction data store column",
+        )
+        .unwrap()
+    });
 
 pub(crate) static STATE_TRANSITION_DATA_GC_CLEARED_ENTRIES: LazyLock<IntCounter> =
     LazyLock::new(|| {
