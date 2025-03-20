@@ -36,7 +36,7 @@ use near_primitives::types::{
 };
 use near_primitives::utils::to_timestamp;
 use near_primitives::version::PROD_GENESIS_PROTOCOL_VERSION;
-use near_primitives::version::{MIN_GAS_PRICE_NEP_92_FIX, ProtocolFeature, ProtocolVersion};
+use near_primitives::version::{MIN_GAS_PRICE_NEP_92_FIX, ProtocolVersion};
 use near_primitives::views::{QueryRequest, QueryResponse};
 use near_schema_checker_lib::ProtocolSchema;
 use near_store::flat::FlatStorageManager;
@@ -161,15 +161,8 @@ impl BlockEconomicsConfig {
         }
     }
 
-    pub fn max_gas_price(&self, protocol_version: ProtocolVersion) -> Balance {
-        if ProtocolFeature::CapMaxGasPrice.enabled(protocol_version) {
-            std::cmp::min(
-                self.genesis_max_gas_price,
-                Self::MAX_GAS_MULTIPLIER * self.min_gas_price(),
-            )
-        } else {
-            self.genesis_max_gas_price
-        }
+    pub fn max_gas_price(&self) -> Balance {
+        std::cmp::min(self.genesis_max_gas_price, Self::MAX_GAS_MULTIPLIER * self.min_gas_price())
     }
 
     pub fn gas_price_adjustment_rate(&self) -> Rational32 {
