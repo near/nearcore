@@ -49,7 +49,7 @@ pub enum ProtocolFeature {
     /// Fix the storage usage of the delete key action
     _DeprecatedDeleteKeyStorageUsage,
     /// Upgrade for shard chunk header
-    ShardChunkHeaderUpgrade,
+    _DeprecatedShardChunkHeaderUpgrade,
     /// Updates the way receipt ID is constructed to use current block hash instead of last block hash
     CreateReceiptIdSwitchToCurrentBlock,
     /// Pessimistic gas price estimation uses a fixed value of `minimum_new_receipt_gas` to stop being
@@ -230,7 +230,7 @@ impl ProtocolFeature {
             ProtocolFeature::_DeprecatedUpgradabilityFix => 37,
             ProtocolFeature::_DeprecatedCreateHash => 38,
             ProtocolFeature::_DeprecatedDeleteKeyStorageUsage => 40,
-            ProtocolFeature::ShardChunkHeaderUpgrade => 41,
+            ProtocolFeature::_DeprecatedShardChunkHeaderUpgrade => 41,
             ProtocolFeature::CreateReceiptIdSwitchToCurrentBlock => 42,
             ProtocolFeature::LowerStorageCost => 42,
             ProtocolFeature::DeleteActionRestriction => 43,
@@ -320,7 +320,7 @@ impl ProtocolFeature {
 pub const PROD_GENESIS_PROTOCOL_VERSION: ProtocolVersion = 29;
 
 /// Minimum supported protocol version for the current binary
-pub const MIN_SUPPORTED_PROTOCOL_VERSION: ProtocolVersion = 41;
+pub const MIN_SUPPORTED_PROTOCOL_VERSION: ProtocolVersion = 42;
 
 /// Current protocol version used on the mainnet with all stable features.
 const STABLE_PROTOCOL_VERSION: ProtocolVersion = 77;
