@@ -1582,7 +1582,7 @@ impl Runtime {
         )?;
 
         // Step 3: process transactions.
-        self.process_transactions(&mut processing_state, &mut receipt_sink)?;
+        let validated_txs = self.process_transactions(&mut processing_state, &mut receipt_sink)?;
 
         // Step 4: process receipts.
         let process_receipts_result =
@@ -1599,6 +1599,7 @@ impl Runtime {
         // Step 5: validate and apply the state update.
         self.validate_apply_state_update(
             processing_state,
+            validated_txs,
             process_receipts_result,
             validator_accounts_update,
             receipt_sink,
@@ -1668,17 +1669,18 @@ impl Runtime {
     ///
     /// Any transactions that fail to validate (e.g. invalid nonces, unknown signing keys,
     /// insufficient NEAR balance, etc.) will be skipped, producing no receipts.
-    fn process_transactions<'a>(
+    fn process_transactions(
         &self,
-        processing_state: &mut ApplyProcessingReceiptState<'a>,
+        processing_state: &mut ApplyProcessingReceiptState,
         receipt_sink: &mut ReceiptSink,
-    ) -> Result<(), RuntimeError> {
+    ) -> Result<Vec<(ValidatedTransaction, bool)>, RuntimeError> {
         let total = &mut processing_state.total;
         let apply_state = &mut processing_state.apply_state;
         let state_update = &mut processing_state.state_update;
 
         let signed_txs =
             processing_state.transactions.transactions.into_iter().cloned().collect::<Vec<_>>();
+        let mut validated_txs = Vec::with_capacity(signed_txs.len());
         for (tx_hash, result) in Self::parallel_validate_transactions(
             &apply_state.config,
             apply_state.gas_price,
@@ -1723,6 +1725,7 @@ impl Runtime {
                         assert_eq!(total.compute, total.gas, "Compute usage must match burnt gas");
                     }
                     processing_state.outcomes.push(outcome_with_id);
+                    validated_txs.push(validated_tx);
                 }
                 Err(err) => {
                     Self::handle_invalid_transaction(
@@ -1735,7 +1738,17 @@ impl Runtime {
             }
         }
         processing_state.metrics.tx_processing_done(total.gas, total.compute);
-        Ok(())
+        let validated_txs = validated_txs
+            .into_iter()
+            .zip(
+                processing_state
+                    .transactions
+                    .transaction_validity_check_passed
+                    .into_iter()
+                    .cloned(),
+            )
+            .collect();
+        Ok(validated_txs)
     }
 
     /// This function wraps [Runtime::process_receipt]. It adds a tracing span around the latter
@@ -2139,9 +2152,10 @@ impl Runtime {
         })
     }
 
-    fn validate_apply_state_update<'a>(
+    fn validate_apply_state_update(
         &self,
-        processing_state: ApplyProcessingReceiptState<'a>,
+        processing_state: ApplyProcessingReceiptState,
+        validated_txs: Vec<(ValidatedTransaction, bool)>,
         process_receipts_result: ProcessReceiptsResult,
         validator_accounts_update: &Option<ValidatorAccountsUpdate>,
         receipt_sink: ReceiptSink,
@@ -2212,7 +2226,7 @@ impl Runtime {
                 processing_state.incoming_receipts,
                 &processed_delayed_receipts,
                 &promise_yield_result.timeout_receipts,
-                processing_state.transactions,
+                validated_txs,
                 &receipt_sink.outgoing_receipts(),
                 &stats.balance,
             )?;
