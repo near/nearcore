@@ -286,8 +286,15 @@ impl ValidatedTransaction {
         &self.0.transaction
     }
 
+    /// This function should probably be deprecated in favour of `to_hash()`
+    /// below as that offers stronger type safety.
     pub fn get_hash(&self) -> CryptoHash {
         self.0.get_hash()
+    }
+
+    /// See additional documentation around `ValidatedTransactionHash`.
+    pub fn to_hash(&self) -> ValidatedTransactionHash {
+        ValidatedTransactionHash(self.get_hash())
     }
 
     pub fn get_size(&self) -> u64 {
@@ -308,6 +315,21 @@ impl ValidatedTransaction {
 
     pub fn public_key(&self) -> &PublicKey {
         self.to_tx().public_key()
+    }
+
+    pub fn actions(&self) -> &[Action] {
+        self.to_tx().actions()
+    }
+}
+
+/// Using the new type pattern, wraps a `CryptoHash` to indicate that it could
+/// have only come from a `ValidatedTransaction`.  The only way to construct
+/// this type should be by calling `ValidatedTransaction::to_transaction_hash()`.
+pub struct ValidatedTransactionHash(CryptoHash);
+
+impl ValidatedTransactionHash {
+    pub fn get_hash(&self) -> CryptoHash {
+        self.0
     }
 }
 

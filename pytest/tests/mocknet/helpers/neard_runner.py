@@ -581,7 +581,7 @@ class NeardRunner:
             with open(self.target_near_home_path('config.json'), 'r') as f:
                 config = json.load(f)
 
-            for kv in key_value.split(','):
+            for kv in key_value.split(';'):
                 [key, value] = kv.split("=", 1)
                 key_item_list = key.split(".")
 

@@ -216,6 +216,7 @@ pub struct ChainGenesis {
     pub transaction_validity_period: NumBlocks,
     pub epoch_length: BlockHeightDelta,
     pub protocol_version: ProtocolVersion,
+    pub chain_id: String,
 }
 
 #[derive(Clone)]
@@ -256,6 +257,7 @@ impl ChainGenesis {
             transaction_validity_period: genesis_config.transaction_validity_period,
             epoch_length: genesis_config.epoch_length,
             protocol_version: genesis_config.protocol_version,
+            chain_id: genesis_config.chain_id.clone(),
         }
     }
 }
@@ -567,7 +569,8 @@ pub struct LatestKnown {
 #[cfg(test)]
 mod tests {
     use near_async::time::{Clock, Utc};
-    use near_primitives::block::{Approval, genesis_chunks};
+    use near_primitives::block::Approval;
+    use near_primitives::genesis::genesis_chunks;
     use near_primitives::hash::hash;
     use near_primitives::merkle::verify_path;
     use near_primitives::test_utils::{TestBlockBuilder, create_test_signer};

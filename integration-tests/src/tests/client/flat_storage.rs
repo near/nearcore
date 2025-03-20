@@ -162,7 +162,8 @@ fn test_not_supported_block() {
         if height == flat_head_height {
             env.produce_block(0, START_HEIGHT);
         }
-        get_ref_results.push(trie.get_optimized_ref(&trie_key_bytes, KeyLookupMode::FlatStorage));
+        get_ref_results
+            .push(trie.get_optimized_ref(&trie_key_bytes, KeyLookupMode::MemOrFlatOrTrie));
     }
 
     // The first result should be FlatStorageError, because we can't read from first chunk view anymore.

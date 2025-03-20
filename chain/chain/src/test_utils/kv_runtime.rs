@@ -47,7 +47,7 @@ use near_primitives::views::{
 };
 use near_store::test_utils::TestTriesBuilder;
 use near_store::{
-    DBCol, ShardTries, Store, StoreUpdate, Trie, TrieChanges, WrappedTrieChanges, set_genesis_hash,
+    DBCol, ShardTries, Store, StoreUpdate, Trie, TrieChanges, WrappedTrieChanges,
     set_genesis_height, set_genesis_state_roots,
 };
 use near_vm_runner::{ContractCode, ContractRuntimeCache, NoContractRuntimeCache};
@@ -359,7 +359,6 @@ impl KeyValueRuntime {
         let genesis_roots: Vec<CryptoHash> =
             shard_layout.shard_ids().map(|_| Trie::EMPTY_ROOT).collect();
         set_genesis_state_roots(&mut store_update, &genesis_roots);
-        set_genesis_hash(&mut store_update, &CryptoHash::default());
         set_genesis_height(&mut store_update, &0);
         store_update.commit().expect("Store failed on genesis initialization");
 

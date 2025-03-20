@@ -1,23 +1,18 @@
+use crate::block::BlockHeader;
+use crate::hash::{CryptoHash, hash};
+use crate::transaction::ValidatedTransactionHash;
+use crate::types::{NumSeats, NumShards, ShardId};
+use crate::version::ProtocolVersion;
+use chrono;
+use chrono::DateTime;
+use near_crypto::{ED25519PublicKey, Secp256K1PublicKey};
+use near_primitives_core::account::id::{AccountId, AccountType};
+use near_primitives_core::types::BlockHeight;
 use near_primitives_core::version::ProtocolFeature;
+use serde;
 use std::cmp::max;
 use std::convert::AsRef;
 use std::fmt;
-
-use chrono;
-use chrono::DateTime;
-
-use near_primitives_core::types::BlockHeight;
-use serde;
-
-use crate::block::BlockHeader;
-use crate::hash::{CryptoHash, hash};
-use crate::transaction::SignedTransaction;
-use crate::types::{NumSeats, NumShards, ShardId};
-use crate::version::ProtocolVersion;
-
-use near_crypto::{ED25519PublicKey, Secp256K1PublicKey};
-use near_primitives_core::account::id::{AccountId, AccountType};
-
 use std::mem::size_of;
 use std::ops::Deref;
 
@@ -219,14 +214,14 @@ pub fn get_outcome_id_block_hash_rev(key: &[u8]) -> std::io::Result<(CryptoHash,
 /// This method is backward compatible, so it takes the current protocol version.
 pub fn create_receipt_id_from_transaction(
     protocol_version: ProtocolVersion,
-    signed_transaction: &SignedTransaction,
+    tx_hash: ValidatedTransactionHash,
     prev_block_hash: &CryptoHash,
     block_hash: &CryptoHash,
     block_height: BlockHeight,
 ) -> CryptoHash {
     create_hash_upgradable(
         protocol_version,
-        &signed_transaction.get_hash(),
+        &tx_hash.get_hash(),
         prev_block_hash,
         block_hash,
         block_height,

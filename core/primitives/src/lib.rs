@@ -21,6 +21,7 @@ pub mod epoch_info;
 pub mod epoch_manager;
 pub mod epoch_sync;
 pub mod errors;
+pub mod genesis;
 pub mod merkle;
 pub mod network;
 pub mod optimistic_block;

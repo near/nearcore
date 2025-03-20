@@ -428,7 +428,7 @@ impl ChainStore {
         // If simple nightshade v2 is enabled and stable use that.
         // Same reassignment of outgoing receipts works for simple nightshade v3
         if ProtocolFeature::SimpleNightshadeV2.enabled(protocol_version) {
-            Self::reassign_outgoing_receipts_for_resharding_v2(
+            Self::reassign_outgoing_receipts_for_resharding_impl(
                 receipts,
                 shard_layout,
                 shard_id,
@@ -456,7 +456,7 @@ impl ChainStore {
     /// 3' will get all outgoing receipts from its parent 3
     /// 4' will get no outgoing receipts from its parent 3
     /// All receipts are distributed to children, each exactly once.
-    fn reassign_outgoing_receipts_for_resharding_v2(
+    fn reassign_outgoing_receipts_for_resharding_impl(
         receipts: &mut Vec<Receipt>,
         shard_layout: &ShardLayout,
         shard_id: ShardId,
@@ -1032,7 +1032,7 @@ impl ChainStoreAccess for ChainStore {
 /// Cache update for ChainStore
 #[derive(Default)]
 pub(crate) struct ChainStoreCacheUpdate {
-    blocks: HashMap<CryptoHash, Block>,
+    block: Option<Block>,
     headers: HashMap<CryptoHash, BlockHeader>,
     block_extras: HashMap<CryptoHash, Arc<BlockExtra>>,
     chunk_extras: HashMap<(CryptoHash, ShardUId), Arc<ChunkExtra>>,
@@ -1177,17 +1177,22 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
 
     /// Get full block.
     fn get_block(&self, h: &CryptoHash) -> Result<Block, Error> {
-        if let Some(block) = self.chain_store_cache_update.blocks.get(h) {
-            Ok(block.clone())
-        } else {
-            self.chain_store.get_block(h)
+        if let Some(block) = &self.chain_store_cache_update.block {
+            if block.hash() == h {
+                return Ok(block.clone());
+            }
         }
+        self.chain_store.get_block(h)
     }
 
     /// Does this full block exist?
     fn block_exists(&self, h: &CryptoHash) -> Result<bool, Error> {
-        Ok(self.chain_store_cache_update.blocks.contains_key(h)
-            || self.chain_store.block_exists(h)?)
+        if let Some(block) = &self.chain_store_cache_update.block {
+            if block.hash() == h {
+                return Ok(true);
+            }
+        }
+        self.chain_store.block_exists(h)
     }
 
     fn chunk_exists(&self, h: &ChunkHash) -> Result<bool, Error> {
@@ -1544,7 +1549,8 @@ impl<'a> ChainStoreUpdate<'a> {
 
     /// Save block.
     pub fn save_block(&mut self, block: Block) {
-        self.chain_store_cache_update.blocks.insert(*block.hash(), block);
+        debug_assert!(self.chain_store_cache_update.block.is_none());
+        self.chain_store_cache_update.block = Some(block);
     }
 
     /// Save post applying block extra info.
@@ -1821,8 +1827,7 @@ impl<'a> ChainStoreUpdate<'a> {
         }
         {
             let _span = tracing::trace_span!(target: "store", "write_block").entered();
-            debug_assert!(self.chain_store_cache_update.blocks.len() <= 1);
-            for (hash, block) in self.chain_store_cache_update.blocks.iter() {
+            if let Some(block) = &self.chain_store_cache_update.block {
                 let mut map = HashMap::clone(
                     self.chain_store
                         .get_all_block_hashes_by_height(block.header().height())?
@@ -1830,7 +1835,7 @@ impl<'a> ChainStoreUpdate<'a> {
                 );
                 map.entry(*block.header().epoch_id())
                     .or_insert_with(|| HashSet::new())
-                    .insert(*hash);
+                    .insert(*block.hash());
                 store_update.set_ser(
                     DBCol::BlockPerHeight,
                     &index_to_bytes(block.header().height()),
@@ -1839,7 +1844,7 @@ impl<'a> ChainStoreUpdate<'a> {
                 self.chain_store_cache_update
                     .block_hash_per_height
                     .insert(block.header().height(), map);
-                store_update.insert_ser(DBCol::Block, hash.as_ref(), block)?;
+                store_update.insert_ser(DBCol::Block, block.hash().as_ref(), block)?;
             }
             // This is a BTreeMap because the update_sync_hashes() calls below must be done in order of height
             let mut headers_by_height: BTreeMap<BlockHeight, Vec<&BlockHeader>> = BTreeMap::new();

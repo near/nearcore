@@ -6,9 +6,11 @@ use crate::analyze_gas_usage::AnalyzeGasUsageCommand;
 use crate::analyze_high_load::HighLoadStatsCommand;
 use crate::compact::RunCompactionCommand;
 use crate::corrupt::CorruptStateSnapshotCommand;
+use crate::drop_column::DropColumnCommand;
 use crate::make_snapshot::MakeSnapshotCommand;
 use crate::memtrie::LoadMemTrieCommand;
-use crate::resharding_v2::ReshardingV2Command;
+use crate::reset_version::ResetVersionCommand;
+
 use crate::run_migrations::RunMigrationsCommand;
 use crate::state_perf::StatePerfCommand;
 use crate::write_to_db::WriteCryptoHashCommand;
@@ -40,6 +42,9 @@ enum SubCommand {
     /// Corrupt the state snapshot.
     CorruptStateSnapshot(CorruptStateSnapshotCommand),
 
+    /// Drop a column from the database.
+    DropColumn(DropColumnCommand),
+
     /// Make snapshot of the database
     MakeSnapshot(MakeSnapshotCommand),
 
@@ -62,8 +67,8 @@ enum SubCommand {
     /// Analyze size of contracts present in the current state
     AnalyzeContractSizes(AnalyzeContractSizesCommand),
 
-    /// Perform on demand resharding V2
-    Resharding(ReshardingV2Command),
+    /// Reset the database to the version used by the binary.
+    ResetVersion(ResetVersionCommand),
 }
 
 impl DatabaseCommand {
@@ -78,6 +83,7 @@ impl DatabaseCommand {
             SubCommand::ChangeDbKind(cmd) => cmd.run(home, genesis_validation),
             SubCommand::CompactDatabase(cmd) => cmd.run(home),
             SubCommand::CorruptStateSnapshot(cmd) => cmd.run(home),
+            SubCommand::DropColumn(cmd) => cmd.run(home, genesis_validation),
             SubCommand::MakeSnapshot(cmd) => {
                 let near_config = load_config(home, genesis_validation);
                 cmd.run(home, &near_config.config.store, near_config.config.archival_config())
@@ -89,10 +95,7 @@ impl DatabaseCommand {
             SubCommand::HighLoadStats(cmd) => cmd.run(home),
             SubCommand::AnalyzeDelayedReceipt(cmd) => cmd.run(home, genesis_validation),
             SubCommand::AnalyzeContractSizes(cmd) => cmd.run(home, genesis_validation),
-            SubCommand::Resharding(cmd) => {
-                let near_config = load_config(home, genesis_validation);
-                cmd.run(near_config, home)
-            }
+            SubCommand::ResetVersion(cmd) => cmd.run(home, genesis_validation),
         }
     }
 }

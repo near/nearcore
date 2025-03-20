@@ -651,7 +651,8 @@ mod tests {
                     self.disk.get_trie_for_shard(ShardUId::single_shard(), self.state_root);
                 let memtrie_result =
                     memtrie_root.and_then(|memtrie_root| memtrie_lookup(memtrie_root, key, None));
-                let disk_result = disk_trie.get_optimized_ref(key, KeyLookupMode::Trie).unwrap();
+                let disk_result =
+                    disk_trie.get_optimized_ref(key, KeyLookupMode::MemOrTrie).unwrap();
                 if let Some(value_ref) = value_ref {
                     let memtrie_value_ref = memtrie_result
                         .unwrap_or_else(|| {
