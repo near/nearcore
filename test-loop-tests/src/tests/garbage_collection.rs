@@ -23,7 +23,7 @@ use crate::utils::setups::derive_new_epoch_config_from_boundary;
 const GC_STEP_PERIOD: Duration = Duration::milliseconds(setup::builder::MIN_BLOCK_PROD_TIME as i64);
 
 #[test]
-fn test_state_transition_data_gc() {
+fn test_state_transition_data_gc_simple() {
     init_test_logger();
 
     let chunk_producer = "cp0";
@@ -108,7 +108,7 @@ fn test_state_transition_data_gc_when_resharding() {
     assert_state_transition_data_is_cleared(&chain_store, &base_shard_layout.shard_ids().collect());
 
     env.test_loop.run_until(
-        |_test_loop_data| {
+        |_| {
             let prev_hash = chain_store.final_head().unwrap().prev_block_hash;
             let prev_block = chain_store.get_block(&prev_hash).unwrap();
             let epoch_id = prev_block.header().epoch_id();

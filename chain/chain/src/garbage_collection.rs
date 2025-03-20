@@ -167,7 +167,7 @@ impl ChainStore {
         // accumulated too quickly for regular gc process.
         // If clearing state transition data fails there's no reason not to try cleaning old
         // blocks.
-        let result = self.clear_state_transition_data(epoch_manager.clone());
+        let result = self.clear_state_transition_data(epoch_manager.as_ref());
 
         result.and(self.clear_old_blocks_data(
             gc_config,
@@ -298,7 +298,7 @@ impl ChainStore {
 
     fn clear_state_transition_data(
         &self,
-        epoch_manager: Arc<dyn EpochManagerAdapter>,
+        epoch_manager: &dyn EpochManagerAdapter,
     ) -> Result<(), Error> {
         let _span =
             tracing::debug_span!(target: "garbage_collection", "clear_state_transition_data")
@@ -316,7 +316,7 @@ impl ChainStore {
             .map(|chunk| (chunk.shard_id(), chunk.height_created()))
             .collect();
 
-        let needed_shards: HashSet<_> = {
+        let relevant_shards: HashSet<_> = {
             let shard_layout = epoch_manager
                 .get_shard_layout(final_block.header().epoch_id())
                 .expect("epoch id must exist");
@@ -336,7 +336,7 @@ impl ChainStore {
             })?;
 
             let Some(final_block_height) = final_block_chunk_created_heights.get(&shard_id) else {
-                if !needed_shards.contains(&shard_id) {
+                if !relevant_shards.contains(&shard_id) {
                     store_update.delete(DBCol::StateTransitionData, key);
                 }
                 // StateTransitionData may correspond to the shard that is created in next epoch.
