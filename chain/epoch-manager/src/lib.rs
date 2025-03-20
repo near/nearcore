@@ -656,12 +656,7 @@ impl EpochManager {
             tracing::info!(target: "epoch_manager", ?version, ?stake_percent, "Protocol version voting.");
         }
 
-        let protocol_version =
-            if ProtocolFeature::UpgradabilityFix.enabled(epoch_info.protocol_version()) {
-                next_epoch_info.protocol_version()
-            } else {
-                epoch_info.protocol_version()
-            };
+        let protocol_version = next_epoch_info.protocol_version();
 
         let config = self.config.for_protocol_version(protocol_version);
         // Note: non-deterministic iteration is fine here, there can be only one

@@ -601,7 +601,6 @@ impl Runtime {
                     &mut result,
                     account_id,
                     delete_key,
-                    apply_state.current_protocol_version,
                 )?;
             }
             Action::DeleteAccount(delete_account) => {
