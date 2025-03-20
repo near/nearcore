@@ -1384,26 +1384,9 @@ impl Runtime {
     pub fn apply_migrations(
         &self,
         state_update: &mut TrieUpdate,
-        migration_data: &Arc<MigrationData>,
         migration_flags: &MigrationFlags,
         protocol_version: ProtocolVersion,
     ) -> Result<(Gas, Vec<Receipt>), StorageError> {
-        // Re-introduce receipts lost because of a bug in apply_chunks.
-        // We take the first block with existing chunk in the first epoch in which protocol feature
-        // RestoreReceiptsAfterFixApplyChunks was enabled, and put the restored receipts there.
-        // See https://github.com/near/nearcore/pull/4248/ for more details.
-        let receipts_to_restore = if ProtocolFeature::RestoreReceiptsAfterFixApplyChunks
-            .protocol_version()
-            == protocol_version
-            && migration_flags.is_first_block_with_chunk_of_version
-        {
-            // Note that receipts are restored only on mainnet so restored_receipts will be empty on
-            // other chains.
-            migration_data.restored_receipts.get(&ShardId::new(0)).cloned().unwrap_or_default()
-        } else {
-            vec![]
-        };
-
         // Remove the only testnet account with large storage key.
         if ProtocolFeature::RemoveAccountWithLongStorageKey.protocol_version() == protocol_version
             && migration_flags.is_first_block_with_chunk_of_version
@@ -1415,7 +1398,7 @@ impl Runtime {
             }
         }
 
-        Ok((0, receipts_to_restore))
+        Ok((0, vec![]))
     }
 
     /// Applies new signed transactions and incoming receipts for some chunk/shard on top of
@@ -1487,7 +1470,6 @@ impl Runtime {
         let (gas_used_for_migrations, mut receipts_to_restore) = self
             .apply_migrations(
                 &mut processing_state.state_update,
-                &apply_state.migration_data,
                 &apply_state.migration_flags,
                 processing_state.protocol_version,
             )
