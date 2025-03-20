@@ -64,11 +64,11 @@ pub enum ProtocolFeature {
     ///
     /// Although wasmer2 is faster, we don't change fees with this protocol
     /// version -- we can safely do that in a separate step.
-    Wasmer2,
-    SimpleNightshade,
-    LowerDataReceiptAndEcrecoverBaseCost,
+    _DeprecatedWasmer2,
+    _DeprecatedSimpleNightshade,
+    _DeprecatedLowerDataReceiptAndEcrecoverBaseCost,
     /// Lowers the cost of wasm instruction due to switch to wasmer2.
-    LowerRegularOpCost,
+    _DeprecatedLowerRegularOpCost,
     /// Lowers the cost of wasm instruction due to switch to faster,
     /// compiler-intrinsics based gas counter.
     LowerRegularOpCost2,
@@ -242,10 +242,10 @@ impl ProtocolFeature {
             | ProtocolFeature::_DeprecatedCountRefundReceiptsInGasLimit
             | ProtocolFeature::_DeprecatedMathExtension => 46,
             ProtocolFeature::_DeprecatedRestoreReceiptsAfterFixApplyChunks => 47,
-            ProtocolFeature::Wasmer2
-            | ProtocolFeature::LowerDataReceiptAndEcrecoverBaseCost
-            | ProtocolFeature::LowerRegularOpCost
-            | ProtocolFeature::SimpleNightshade => 48,
+            ProtocolFeature::_DeprecatedWasmer2
+            | ProtocolFeature::_DeprecatedLowerDataReceiptAndEcrecoverBaseCost
+            | ProtocolFeature::_DeprecatedLowerRegularOpCost
+            | ProtocolFeature::_DeprecatedSimpleNightshade => 48,
             ProtocolFeature::LowerRegularOpCost2
             | ProtocolFeature::LimitContractFunctionsNumber
             | ProtocolFeature::BlockHeaderV3
@@ -319,7 +319,7 @@ impl ProtocolFeature {
 pub const PROD_GENESIS_PROTOCOL_VERSION: ProtocolVersion = 29;
 
 /// Minimum supported protocol version for the current binary
-pub const MIN_SUPPORTED_PROTOCOL_VERSION: ProtocolVersion = 48;
+pub const MIN_SUPPORTED_PROTOCOL_VERSION: ProtocolVersion = 49;
 
 /// Current protocol version used on the mainnet with all stable features.
 const STABLE_PROTOCOL_VERSION: ProtocolVersion = 77;

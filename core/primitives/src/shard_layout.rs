@@ -1594,10 +1594,6 @@ mod tests {
     #[test]
     fn test_shard_layout_for_protocol_version() {
         assert_eq!(
-            ShardLayout::get_simple_nightshade_layout(),
-            ShardLayout::for_protocol_version(ProtocolFeature::SimpleNightshade.protocol_version())
-        );
-        assert_eq!(
             ShardLayout::get_simple_nightshade_layout_v2(),
             ShardLayout::for_protocol_version(
                 ProtocolFeature::SimpleNightshadeV2.protocol_version()

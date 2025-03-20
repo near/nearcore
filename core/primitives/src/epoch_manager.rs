@@ -398,10 +398,7 @@ impl AllEpochConfig {
             return;
         }
 
-        if ProtocolFeature::SimpleNightshade.enabled(protocol_version) {
-            Self::config_nightshade_impl(config, ShardLayout::get_simple_nightshade_layout());
-            return;
-        }
+        Self::config_nightshade_impl(config, ShardLayout::get_simple_nightshade_layout());
     }
 
     fn config_nightshade_impl(config: &mut EpochConfig, shard_layout: ShardLayout) {
