@@ -252,9 +252,8 @@ impl RuntimeConfigStore {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cost::ActionCosts;
     use near_primitives_core::version::ProtocolFeature::{
-        DecreaseFunctionCallBaseCost, LowerDataReceiptAndEcrecoverBaseCost, LowerStorageKeyLimit,
+        DecreaseFunctionCallBaseCost, LowerStorageKeyLimit,
     };
     use std::collections::HashSet;
 
@@ -330,6 +329,9 @@ mod tests {
     #[test]
     #[cfg(not(feature = "calimero_zero_storage"))]
     fn test_override_runtime_config() {
+        use crate::ActionCosts;
+        use near_primitives_core::version::ProtocolFeature::LowerDataReceiptAndEcrecoverBaseCost;
+
         let store = RuntimeConfigStore::new(None);
         let config = store.get_config(0);
 
