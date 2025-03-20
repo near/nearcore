@@ -1,28 +1,38 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::sync::Arc;
 
 use near_async::time::Duration;
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
+use near_o11y::testonly::init_test_logger;
 use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::{AccountId, ShardId};
-use near_primitives::utils::get_block_shard_id_rev;
+use near_primitives::utils::{get_block_shard_id, get_block_shard_id_rev};
 use near_primitives::version::ProtocolFeature;
+use near_store::DBCol;
 use near_store::adapter::StoreAdapter as _;
-use near_store::{DBCol, Store};
+use near_store::adapter::chain_store::ChainStoreAdapter;
 
-use crate::builder::TestLoopBuilder;
+use crate::setup;
+use crate::setup::builder::TestLoopBuilder;
 use crate::utils::retrieve_client_actor;
 use crate::utils::setups::derive_new_epoch_config_from_boundary;
 
+// We set small gc_step_period in tests to help make sure gc runs at least as often as blocks are
+// produced.
+const GC_STEP_PERIOD: Duration = Duration::milliseconds(setup::builder::MIN_BLOCK_PROD_TIME as i64);
+
 #[test]
 fn test_state_transition_data_gc() {
+    init_test_logger();
+
     let chunk_producer = "cp0";
     let validators_spec = ValidatorsSpec::desired_roles(&[chunk_producer], &[]);
 
+    let shard_layout = ShardLayout::single_shard();
     let genesis = TestLoopBuilder::new_genesis_builder()
         .validators_spec(validators_spec)
-        .shard_layout(ShardLayout::single_shard())
+        .shard_layout(shard_layout.clone())
         .build();
 
     let epoch_config_store = TestEpochConfigBuilder::build_store_from_genesis(&genesis);
@@ -31,134 +41,123 @@ fn test_state_transition_data_gc() {
         .genesis(genesis)
         .clients(vec![client.clone()])
         .epoch_config_store(epoch_config_store)
-        .build();
+        .config_modifier(move |config, _client_index| {
+            config.gc.gc_step_period = GC_STEP_PERIOD;
+        })
+        .build()
+        .warmup();
 
-    let store: Store = retrieve_client_actor(&env.datas, &mut env.test_loop.data, &client)
-        .client
-        .chain
-        .chain_store
-        .store()
-        .clone();
+    env.test_loop.run_for(Duration::seconds(20));
 
-    env.test_loop.run_for(Duration::seconds(100));
-    // We should clean everyhting before final block so final block with additional 2 non-final
-    // blocks in front.
-    assert_eq!(store.store().iter(DBCol::StateTransitionData).count(), 3);
+    assert_state_transition_data_is_cleared(
+        &retrieve_client_actor(&env.node_datas, &mut env.test_loop.data, &client)
+            .client
+            .chain
+            .chain_store,
+        &shard_layout.shard_ids().collect(),
+    );
 
     env.shutdown_and_drain_remaining_events(Duration::seconds(10));
 }
 
 #[test]
-fn reasharding() {
-    let mut builder = TestLoopBuilder::new();
-    // FIXME: check if required.
-    // builder = builder.config_modifier(move |config, client_index| {
-    //     // Adjust the resharding configuration to make the tests faster.
-    //     let mut resharding_config = config.resharding_config.get();
-    //     resharding_config.batch_delay = Duration::milliseconds(1);
-    //     config.resharding_config.update(resharding_config);
-    // });
+fn resharding() {
+    init_test_logger();
 
-    let base_epoch_config_store = EpochConfigStore::for_chain_id("mainnet", None).unwrap();
-    let base_protocol_version = ProtocolFeature::SimpleNightshadeV4.protocol_version() - 1;
-    let mut base_epoch_config =
-        base_epoch_config_store.get_config(base_protocol_version).as_ref().clone();
-
-    let num_producers = 3;
-    let num_validators = 2;
-    base_epoch_config.num_block_producer_seats = num_producers;
-    base_epoch_config.num_chunk_producer_seats = num_producers;
-    base_epoch_config.num_chunk_validator_seats = num_producers + num_validators;
-
-    const DEFAULT_SHARD_LAYOUT_VERSION: u64 = 2;
-    let base_shard_layout = get_base_shard_layout(DEFAULT_SHARD_LAYOUT_VERSION);
-    base_epoch_config.shard_layout = base_shard_layout.clone();
-    let new_boundary_account: AccountId = "account6".parse().unwrap();
-    let epoch_config =
-        derive_new_epoch_config_from_boundary(&base_epoch_config, &new_boundary_account);
-
-    println!(
-        "Base epoch layout: {:?}",
-        base_epoch_config.shard_layout.shard_ids().collect::<Vec<_>>()
-    );
-    println!("Epoch layout: {:?}", epoch_config.shard_layout.shard_ids().collect::<Vec<_>>());
-
-    let mut epoch_configs = vec![
-        (base_protocol_version, Arc::new(base_epoch_config.clone())),
-        (base_protocol_version + 1, Arc::new(epoch_config.clone())),
-    ];
-    let epoch_config_store = EpochConfigStore::test(BTreeMap::from_iter(epoch_configs));
-
-    let num_epochs_to_wait = DEFAULT_TESTLOOP_NUM_EPOCHS_TO_WAIT;
-    let epoch_length = DEFAULT_EPOCH_LENGTH;
-
+    let base_shard_layout = ShardLayout::multi_shard(3, 3);
+    let epoch_length = 5;
     let chunk_producer = "cp0";
     let validators_spec = ValidatorsSpec::desired_roles(&[chunk_producer], &[]);
     let genesis = TestLoopBuilder::new_genesis_builder()
-        .protocol_version(base_protocol_version)
+        .protocol_version(ProtocolFeature::SimpleNightshadeV4.protocol_version())
         .validators_spec(validators_spec)
-        .shard_layout(base_shard_layout)
+        .shard_layout(base_shard_layout.clone())
         .epoch_length(epoch_length)
         .build();
+
+    let base_epoch_config = TestEpochConfigBuilder::from_genesis(&genesis).build();
+
+    let new_epoch_config = {
+        let boundary_account: AccountId = "account6".parse().unwrap();
+        derive_new_epoch_config_from_boundary(&base_epoch_config, &boundary_account)
+    };
+    let new_shard_layout = new_epoch_config.shard_layout.clone();
+
+    let epoch_configs = vec![
+        (genesis.config.protocol_version, Arc::new(base_epoch_config)),
+        (genesis.config.protocol_version + 1, Arc::new(new_epoch_config)),
+    ];
+    let epoch_config_store = EpochConfigStore::test(BTreeMap::from_iter(epoch_configs));
 
     let client: AccountId = chunk_producer.parse().unwrap();
     let mut env = TestLoopBuilder::new()
         .genesis(genesis)
-        .clients(vec![client.clone()])
+        .clients(vec![client])
         .epoch_config_store(epoch_config_store)
         .gc_num_epochs_to_keep(5)
-        .build();
+        .config_modifier(move |config, _client_index| {
+            config.gc.gc_step_period = GC_STEP_PERIOD;
+        })
+        .build()
+        .warmup();
 
-    const DEFAULT_EPOCH_LENGTH: u64 = 7;
-    const DEFAULT_TESTLOOP_NUM_EPOCHS_TO_WAIT: u64 = 8;
+    let client_handle = env.node_datas[0].client_sender.actor_handle();
+    let chain_store = env.test_loop.data.get(&client_handle).client.chain.chain_store.clone();
+    let epoch_manager = env.test_loop.data.get(&client_handle).client.epoch_manager.clone();
 
-    let chain_store = retrieve_client_actor(&env.datas, &mut env.test_loop.data, &client)
-        .client
-        .chain
-        .chain_store
-        .clone();
+    assert_state_transition_data_is_cleared(&chain_store, &base_shard_layout.shard_ids().collect());
 
-    let store: Store = chain_store.store();
+    env.test_loop.run_until(
+        |_test_loop_data| {
+            let prev_hash = chain_store.final_head().unwrap().prev_block_hash;
+            let prev_block = chain_store.get_block(&prev_hash).unwrap();
+            let epoch_id = prev_block.header().epoch_id();
 
-    let debug = || {
-        println!("------");
-        for res in store.store().iter(DBCol::StateTransitionData) {
-            let (block_hash, shard_id) = get_block_shard_id_rev(&res.unwrap().0).unwrap();
-            let block_height = chain_store.get_block_height(&block_hash).unwrap();
-            println!("block_height: {block_height} block_hash: {block_hash} shard_id {shard_id}");
-        }
-    };
+            // Because GC is async we need to wait for one extra block after epoch changes to make
+            // sure it runs after shard layout change.
+            epoch_manager.get_epoch_config(&epoch_id).unwrap().shard_layout == new_shard_layout
+        },
+        Duration::seconds((3 * epoch_length) as i64),
+    );
 
-    debug();
-
-    assert_eq!(store.store().iter(DBCol::StateTransitionData).count(), 9);
-
-    env.test_loop.run_for(Duration::seconds(((4) * epoch_length) as i64));
-
-    debug();
-    env.test_loop.run_for(Duration::seconds(((1) * epoch_length) as i64));
-
-    debug();
-
-    assert_eq!(store.store().iter(DBCol::StateTransitionData).count(), 12);
+    assert_state_transition_data_is_cleared(&chain_store, &new_shard_layout.shard_ids().collect());
 
     env.shutdown_and_drain_remaining_events(Duration::seconds(10));
 }
 
-fn get_base_shard_layout(version: u64) -> ShardLayout {
-    let boundary_accounts = vec!["account1".parse().unwrap(), "account3".parse().unwrap()];
-    match version {
-        1 => {
-            let shards_split_map = vec![vec![ShardId::new(0), ShardId::new(1), ShardId::new(2)]];
-            #[allow(deprecated)]
-            ShardLayout::v1(boundary_accounts, Some(shards_split_map), 3)
+fn assert_state_transition_data_is_cleared(
+    chain_store: &ChainStoreAdapter,
+    expected_shard_ids: &HashSet<ShardId>,
+) {
+    let final_block_height = chain_store.final_head().unwrap().height;
+    let store = chain_store.store().store();
+    for res in store.iter(DBCol::StateTransitionData) {
+        let (block_hash, shard_id) = get_block_shard_id_rev(&res.unwrap().0).unwrap();
+        let block_height = chain_store.get_block_height(&block_hash).unwrap();
+        assert!(
+            expected_shard_ids.contains(&shard_id),
+            "StateTransitionData gc didn't clear data for shard {shard_id}"
+        );
+        // Ideally data for all blocks with height < final_block_height should be gc-ed, however gc
+        // is run async and may not run right after a new block is finalized. Because of this we're using
+        // weaker check here.
+        assert!(
+            block_height >= final_block_height - 1,
+            "StateTransitionData data contains too old block at height {block_height} while final_block_height is {final_block_height}"
+        );
+    }
+
+    let head_height = chain_store.head().unwrap().height;
+    for height in final_block_height..head_height {
+        let block_hash = chain_store.get_block_hash_by_height(height).unwrap();
+        for shard_id in expected_shard_ids {
+            assert!(
+                store
+                    .get(DBCol::StateTransitionData, &get_block_shard_id(&block_hash, *shard_id))
+                    .unwrap()
+                    .is_some(),
+                "StateTransitionData missing for shard id {shard_id} and height {height}",
+            );
         }
-        2 => {
-            let shard_ids = vec![ShardId::new(5), ShardId::new(3), ShardId::new(6)];
-            let shards_split_map = [(ShardId::new(0), shard_ids.clone())].into_iter().collect();
-            let shards_split_map = Some(shards_split_map);
-            ShardLayout::v2(boundary_accounts, shard_ids, shards_split_map)
-        }
-        _ => panic!("Unsupported shard layout version {}", version),
     }
 }

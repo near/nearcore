@@ -14,7 +14,9 @@ use near_primitives::state_sync::{StateHeaderKey, StatePartKey};
 use near_primitives::types::{
     AccountId, BlockHeight, BlockHeightDelta, EpochId, NumBlocks, ShardId,
 };
-use near_primitives::utils::{get_block_shard_id, get_outcome_id_block_hash, index_to_bytes};
+use near_primitives::utils::{
+    get_block_shard_id, get_block_shard_id_rev, get_outcome_id_block_hash, index_to_bytes,
+};
 use near_store::adapter::trie_store::get_shard_uid_mapping;
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::{DBCol, KeyForStateChanges, ShardTries, ShardUId, StoreUpdate};
@@ -93,9 +95,9 @@ impl ChainStore {
     //    by Canonical Chain Switching and always stays on Canonical Chain.
     //
     // Overall:
-    // 1. GC procedure is handled by `clear_data()` function.
-    // 2. `clear_data()` runs GC process for all blocks from the Tail to GC Stop Height provided by Epoch Manager.
-    // 3. `clear_data()` executes separately:
+    // 1. GC procedure is handled by `clear_old_blocks_data()` function.
+    // 2. `clear_old_blocks_data()` runs GC process for all blocks from the Tail to GC Stop Height provided by Epoch Manager.
+    // 3. `clear_old_blocks_data()` executes separately:
     //    a. Forks Clearing runs for each height from Tail up to GC Stop Height.
     //    b. Canonical Chain Clearing (CCC) from (Tail + 1) up to GC Stop Height.
     //       i) After CCC for the last block of an epoch, we check what shards tracked in the epoch qualify for trie State cleanup.
@@ -106,7 +108,7 @@ impl ChainStore {
     //       iii) `gc_state()` handles trie State cleanup, and it uses current tracking config (`shard_tracker` and optional validator ID),
     //            to determine what shards we care about at the Head or in the next epoch after the Head.
     // 4. Before actual clearing is started, Block Reference Map should be built.
-    // 5. `clear_data()` executes every time when block at new height is added.
+    // 5. `clear_old_blocks_data()` executes every time when block at new height is added.
     // 6. In case of State Sync, State Sync Clearing happens.
     //
     // Forks Clearing:
@@ -163,7 +165,31 @@ impl ChainStore {
         shard_tracker: &ShardTracker,
         me: Option<&AccountId>,
     ) -> Result<(), Error> {
-        let _span = tracing::debug_span!(target: "garbage_collection", "clear_data").entered();
+        // We clear state transition data separately without respecting gc configs because it gets
+        // accumulated too quickly for regular gc process.
+        // If clearing state transition data fails there's no reason not to try cleaning old
+        // blocks.
+        let result = self.clear_state_transition_data(epoch_manager.clone());
+
+        result.and(self.clear_old_blocks_data(
+            gc_config,
+            runtime_adapter,
+            epoch_manager,
+            shard_tracker,
+            me,
+        ))
+    }
+
+    fn clear_old_blocks_data(
+        &mut self,
+        gc_config: &GCConfig,
+        runtime_adapter: Arc<dyn RuntimeAdapter>,
+        epoch_manager: Arc<dyn EpochManagerAdapter>,
+        shard_tracker: &ShardTracker,
+        me: Option<&AccountId>,
+    ) -> Result<(), Error> {
+        let _span =
+            tracing::debug_span!(target: "garbage_collection", "clear_old_blocks_data").entered();
         let tries = runtime_adapter.get_tries();
         let head = self.head()?;
         if head.height == self.get_genesis_height() {
@@ -271,7 +297,63 @@ impl ChainStore {
             chain_store_update.commit()?;
         }
 
-        // FIXME: If nowhere else fits can probably do GC here.
+        Ok(())
+    }
+
+    fn clear_state_transition_data(
+        &self,
+        epoch_manager: Arc<dyn EpochManagerAdapter>,
+    ) -> Result<(), Error> {
+        let _span =
+            tracing::debug_span!(target: "garbage_collection", "clear_state_transition_data")
+                .entered();
+
+        let final_block_hash =
+            *self.get_block_header(&self.head()?.last_block_hash)?.last_final_block();
+        if final_block_hash == CryptoHash::default() {
+            return Ok(());
+        }
+        let final_block = self.get_block(&final_block_hash)?;
+        let final_block_chunk_created_heights: HashMap<_, _> = final_block
+            .chunks()
+            .iter_raw()
+            .map(|chunk| (chunk.shard_id(), chunk.height_created()))
+            .collect();
+
+        let needed_shards: HashSet<_> = {
+            let shard_layout = epoch_manager
+                .get_shard_layout(final_block.header().epoch_id())
+                .expect("epoch id must exist");
+            let next_epoch_shard_layout = epoch_manager
+                .get_shard_layout(final_block.header().next_epoch_id())
+                .expect("next epoch id must exist");
+            shard_layout.shard_ids().chain(next_epoch_shard_layout.shard_ids()).collect()
+        };
+
+        let mut store_update = self.store().store_update();
+        for res in self.store().iter(DBCol::StateTransitionData) {
+            let key = &res?.0;
+            let (block_hash, shard_id) = get_block_shard_id_rev(key).map_err(|err| {
+                Error::StorageError(near_store::StorageError::StorageInconsistentState(format!(
+                    "Invalid StateTransitionData key: {err:?}"
+                )))
+            })?;
+
+            let Some(final_block_height) = final_block_chunk_created_heights.get(&shard_id) else {
+                if !needed_shards.contains(&shard_id) {
+                    store_update.delete(DBCol::StateTransitionData, key);
+                }
+                // StateTransitionData may correspond to the shard that is created in next epoch.
+                continue;
+            };
+
+            let block_height = self.get_block_height(&block_hash)?;
+            if block_height < *final_block_height {
+                store_update.delete(DBCol::StateTransitionData, key);
+            }
+        }
+
+        store_update.commit()?;
         Ok(())
     }
 
@@ -611,7 +693,6 @@ impl<'a> ChainStoreUpdate<'a> {
             let block_shard_id = get_block_shard_id(&block_hash, shard_id);
             self.gc_outgoing_receipts(&block_hash, shard_id);
             self.gc_col(DBCol::IncomingReceipts, &block_shard_id);
-            self.gc_col(DBCol::StateTransitionData, &block_shard_id);
             self.gc_col(DBCol::ChunkApplyStats, &block_shard_id);
 
             // For incoming State Parts it's done in chain.clear_downloaded_parts()
@@ -634,16 +715,7 @@ impl<'a> ChainStoreUpdate<'a> {
             self.gc_col(DBCol::ChunkExtra, &block_shard_uid);
         }
 
-        // FIXME: Can we just clear block hashes here one by one?
-        // Should it be safe to assume that we won't gc block with StateTransitionData?
-        // Depends on when StateTransitionData written, but I would guess that likely it should be
-        // ok?
-        // Still need to delete older data though and likely because it was added hacky and
-        // we weren't deleting it before there would be no good solution.
-
         // 3. Delete block_hash-indexed data
-        // // FIXME: Interestingly, this doesn't work
-        // self.gc_col(DBCol::StateTransitionData, block_hash.as_bytes());
         self.gc_col(DBCol::Block, block_hash.as_bytes());
         self.gc_col(DBCol::BlockExtra, block_hash.as_bytes());
         self.gc_col(DBCol::NextBlockHashes, block_hash.as_bytes());
@@ -756,9 +828,6 @@ impl<'a> ChainStoreUpdate<'a> {
             // delete Receipts
             self.gc_outgoing_receipts(&block_hash, shard_id);
             self.gc_col(DBCol::IncomingReceipts, &block_shard_id);
-
-            // FIXME: This should be safe to remove.
-            // self.gc_col(DBCol::StateTransitionData, &block_shard_id);
 
             // delete DBCol::ChunkExtra based on shard_uid since it's indexed by shard_uid in the storage
             self.gc_col(DBCol::ChunkExtra, &block_shard_id);
