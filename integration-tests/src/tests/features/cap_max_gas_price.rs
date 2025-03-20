@@ -1,10 +1,11 @@
 use near_primitives::num_rational::Ratio;
-use near_primitives::version::{ProtocolFeature, ProtocolVersion};
+use near_primitives::version::PROTOCOL_VERSION;
 
 use crate::utils::process_blocks::prepare_env_with_congestion;
 
-fn does_gas_price_exceed_limit(protocol_version: ProtocolVersion) -> bool {
-    let mut env = prepare_env_with_congestion(protocol_version, Some(Ratio::new_raw(2, 1)), 7).0;
+#[test]
+fn test_capped_gas_price() {
+    let mut env = prepare_env_with_congestion(PROTOCOL_VERSION, Some(Ratio::new_raw(2, 1)), 7).0;
     let mut was_congested = false;
     let mut price_exceeded_limit = false;
 
@@ -17,15 +18,5 @@ fn does_gas_price_exceed_limit(protocol_version: ProtocolVersion) -> bool {
     }
 
     assert!(was_congested);
-    price_exceeded_limit
-}
-
-#[test]
-fn test_not_capped_gas_price() {
-    assert!(does_gas_price_exceed_limit(ProtocolFeature::CapMaxGasPrice.protocol_version() - 1));
-}
-
-#[test]
-fn test_capped_gas_price() {
-    assert!(!does_gas_price_exceed_limit(ProtocolFeature::CapMaxGasPrice.protocol_version()));
+    assert!(!price_exceeded_limit);
 }

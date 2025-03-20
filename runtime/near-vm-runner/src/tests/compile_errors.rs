@@ -384,7 +384,6 @@ pub fn test_stabilized_host_function() {
 )"#,
         )
         .protocol_features(&[
-            ProtocolFeature::MathExtension,
             ProtocolFeature::PreparationV2,
         ])
         .opaque_error()
