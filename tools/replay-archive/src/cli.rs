@@ -318,12 +318,8 @@ impl ReplayController {
             state_patch: Default::default(),
         };
 
-        let block_context = Chain::get_apply_chunk_block_context(
-            self.epoch_manager.as_ref(),
-            block,
-            prev_block.header(),
-            is_new_chunk,
-        )?;
+        let block_context =
+            Chain::get_apply_chunk_block_context(block, prev_block.header(), is_new_chunk)?;
 
         let update_reason = if is_new_chunk {
             let receipts = self.collect_incoming_receipts(

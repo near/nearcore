@@ -223,7 +223,6 @@ fn get_state_witness_block_range(
             // state transition.
             0 => {
                 let block_context = Chain::get_apply_chunk_block_context(
-                    epoch_manager,
                     &position.prev_block,
                     &store.get_block_header(&prev_prev_hash)?,
                     false,
@@ -475,7 +474,6 @@ pub fn pre_validate_chunk_state_witness(
             transaction_validity_check_results,
             receipts: receipts_to_apply,
             block: Chain::get_apply_chunk_block_context(
-                epoch_manager,
                 last_chunk_block,
                 &store.get_block_header(last_chunk_block.header().prev_hash())?,
                 true,
