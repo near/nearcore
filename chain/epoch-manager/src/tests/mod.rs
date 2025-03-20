@@ -2393,7 +2393,6 @@ fn test_protocol_version_switch_with_many_seats() {
     );
 }
 
-
 /// Epoch aggregator should not need to be recomputed under the following scenario
 ///                      /-----------h+2
 /// h-2 ---- h-1 ------ h

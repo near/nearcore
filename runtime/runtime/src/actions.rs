@@ -63,10 +63,8 @@ pub(crate) fn execute_function_call(
     } else {
         vec![]
     };
-    let random_seed = near_primitives::utils::create_random_seed(
-        *action_hash,
-        apply_state.random_seed,
-    );
+    let random_seed =
+        near_primitives::utils::create_random_seed(*action_hash, apply_state.random_seed);
     let context = VMContext {
         current_account_id: runtime_ext.account_id().clone(),
         signer_account_id: action_receipt.signer_id.clone(),

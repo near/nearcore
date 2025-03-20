@@ -295,10 +295,7 @@ pub fn create_receipt_id_from_action_hash(
 /// Creates a unique random seed to be provided to `VMContext` from a give `action_hash` and
 /// a given `random_seed`.
 /// This method is backward compatible, so it takes the current protocol version.
-pub fn create_random_seed(
-    action_hash: CryptoHash,
-    random_seed: CryptoHash,
-) -> Vec<u8> {
+pub fn create_random_seed(action_hash: CryptoHash, random_seed: CryptoHash) -> Vec<u8> {
     // Generates random seed from random_seed and action_hash.
     // Since every action hash is unique, the seed will be unique per receipt and even
     // per action within a receipt.
@@ -325,8 +322,7 @@ fn create_hash_upgradable(
     block_height: BlockHeight,
     salt: u64,
 ) -> CryptoHash {
-    const BYTES_LEN: usize =
-        size_of::<CryptoHash>() + size_of::<CryptoHash>() + size_of::<u64>();
+    const BYTES_LEN: usize = size_of::<CryptoHash>() + size_of::<CryptoHash>() + size_of::<u64>();
     let mut bytes: Vec<u8> = Vec::with_capacity(BYTES_LEN);
     bytes.extend_from_slice(base.as_ref());
     if ProtocolFeature::BlockHeightForReceiptId.enabled(protocol_version) {
@@ -553,7 +549,6 @@ mod tests {
         let block_height: BlockHeight = 123_456_789;
         let other_block_height: BlockHeight = 123_123_123;
         let salt = 3;
-
 
         assert_ne!(
             create_hash_upgradable(
