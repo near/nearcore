@@ -1759,11 +1759,9 @@ impl ShardsManagerActor {
         // If we can reconstruct the chunk, then all parts and receipts are available so we can
         // always complete the chunk.
         if can_reconstruct {
-            let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
             let mut encoded_chunk = EncodedShardChunk::from_header(
                 header.clone(),
                 self.epoch_manager.num_total_parts(),
-                protocol_version,
             );
 
             for (part_ord, part_entry) in entry.parts.iter() {

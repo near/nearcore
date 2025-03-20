@@ -86,12 +86,7 @@ impl Block {
             next_bp_hash,
         );
 
-        Self::block_from_protocol_version(
-            genesis_protocol_version,
-            genesis_protocol_version,
-            header,
-            body,
-        )
+        Self::block_from_protocol_version(genesis_protocol_version, header, body)
     }
 
     fn prod_genesis(
