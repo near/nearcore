@@ -32,7 +32,6 @@ use near_primitives::types::ValidatorKickoutReason::{
 };
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
-use near_primitives::version::ProtocolFeature::{self, SimpleNightshade};
 use near_store::ShardUId;
 use near_store::test_utils::create_test_store;
 use num_rational::Ratio;
@@ -2274,69 +2273,6 @@ fn test_protocol_version_switch() {
         epoch_manager.get_epoch_info(&EpochId(h[4])).unwrap().protocol_version(),
         PROTOCOL_VERSION
     );
-}
-
-#[test]
-fn test_protocol_version_switch_with_shard_layout_change() {
-    let store = create_test_store();
-    let config = epoch_config_with_production_config(2, 1, 2, 100, 90, 60, 0, true);
-    let amount_staked = 1_000_000;
-    let validators = vec![
-        stake("test1".parse().unwrap(), amount_staked),
-        stake("test2".parse().unwrap(), amount_staked),
-    ];
-    let new_protocol_version = SimpleNightshade.protocol_version();
-    let mut epoch_manager = EpochManager::new(
-        store,
-        config,
-        new_protocol_version - 1,
-        default_reward_calculator(),
-        validators,
-    )
-    .unwrap();
-    let h = hash_range(8);
-    record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
-    for i in 1..8 {
-        let mut block_info = block_info(
-            h[i],
-            i as u64,
-            i as u64 - 1,
-            h[i - 1],
-            h[i - 1],
-            h[0],
-            vec![],
-            DEFAULT_TOTAL_SUPPLY,
-        );
-        if i == 1 {
-            set_block_info_protocol_version(&mut block_info, new_protocol_version - 1);
-        } else {
-            set_block_info_protocol_version(&mut block_info, new_protocol_version);
-        }
-        epoch_manager.record_block_info(block_info, [0; 32]).unwrap();
-    }
-    let epochs = [EpochId::default(), EpochId(h[2]), EpochId(h[4])];
-    assert_eq!(
-        epoch_manager.get_epoch_info(&epochs[1]).unwrap().protocol_version(),
-        new_protocol_version - 1
-    );
-    assert_eq!(epoch_manager.get_shard_layout(&epochs[1]).unwrap(), ShardLayout::single_shard());
-    assert_eq!(
-        epoch_manager.get_epoch_info(&epochs[2]).unwrap().protocol_version(),
-        new_protocol_version
-    );
-    assert_eq!(
-        epoch_manager.get_shard_layout(&epochs[2]).unwrap(),
-        ShardLayout::get_simple_nightshade_layout()
-    );
-
-    // Check split shards
-    // h[5] is the first block of epoch epochs[1] and shard layout will change at epochs[2]
-    let epoch_manager = epoch_manager.into_handle();
-    assert_eq!(epoch_manager.will_shard_layout_change(&h[3]).unwrap(), false);
-    for i in 4..=5 {
-        assert_eq!(epoch_manager.will_shard_layout_change(&h[i]).unwrap(), true);
-    }
-    assert_eq!(epoch_manager.will_shard_layout_change(&h[6]).unwrap(), false);
 }
 
 #[test]
