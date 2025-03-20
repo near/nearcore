@@ -1,3 +1,4 @@
+#[cfg(feature = "test_features")]
 mod missing_chunk;
 mod multinode;
 mod restart_node;

@@ -10,9 +10,9 @@ use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
 use crate::utils::{get_node_client, get_node_data, run_until_node_head_height};
 
-/// This test demonstrates how to trigger missing chunk at a certain height
+/// This test demonstrates how to trigger missing chunk at a certain height.
+/// Requires "test_features" feature to be enabled.
 #[test]
-#[cfg_attr(not(feature = "test_features"), ignore)]
 fn missing_chunk_example_test() {
     let validators = ["validator0", "validator1"];
     let missing_chunk_heigh = 8;
