@@ -531,21 +531,18 @@ fn test_apply_delayed_receipts_local_tx() {
             create_receipt_id_from_transaction(
                 PROTOCOL_VERSION,
                 ValidatedTransaction::new_for_test(local_transactions[0].clone()).to_hash(),
-                &apply_state.prev_block_hash,
                 &apply_state.block_hash,
                 apply_state.block_height,
             ), // receipt for tx 0
             create_receipt_id_from_transaction(
                 PROTOCOL_VERSION,
                 ValidatedTransaction::new_for_test(local_transactions[1].clone()).to_hash(),
-                &apply_state.prev_block_hash,
                 &apply_state.block_hash,
                 apply_state.block_height,
             ), // receipt for tx 1
             create_receipt_id_from_transaction(
                 PROTOCOL_VERSION,
                 ValidatedTransaction::new_for_test(local_transactions[2].clone()).to_hash(),
-                &apply_state.prev_block_hash,
                 &apply_state.block_hash,
                 apply_state.block_height,
             ), // receipt for tx 2
@@ -579,14 +576,12 @@ fn test_apply_delayed_receipts_local_tx() {
             create_receipt_id_from_transaction(
                 PROTOCOL_VERSION,
                 ValidatedTransaction::new_for_test(local_transactions[4].clone()).to_hash(),
-                &apply_state.prev_block_hash,
                 &apply_state.block_hash,
                 apply_state.block_height,
             ), // receipt for tx 4
             create_receipt_id_from_transaction(
                 PROTOCOL_VERSION,
                 ValidatedTransaction::new_for_test(local_transactions[3].clone()).to_hash(),
-                &apply_state.prev_block_hash,
                 &apply_state.block_hash,
                 apply_state.block_height,
             ), // receipt for tx 3
@@ -624,21 +619,18 @@ fn test_apply_delayed_receipts_local_tx() {
             create_receipt_id_from_transaction(
                 PROTOCOL_VERSION,
                 ValidatedTransaction::new_for_test(local_transactions[5].clone()).to_hash(),
-                &apply_state.prev_block_hash,
                 &apply_state.block_hash,
                 apply_state.block_height,
             ), // receipt for tx 5
             create_receipt_id_from_transaction(
                 PROTOCOL_VERSION,
                 ValidatedTransaction::new_for_test(local_transactions[6].clone()).to_hash(),
-                &apply_state.prev_block_hash,
                 &apply_state.block_hash,
                 apply_state.block_height,
             ), // receipt for tx 6
             create_receipt_id_from_transaction(
                 PROTOCOL_VERSION,
                 ValidatedTransaction::new_for_test(local_transactions[7].clone()).to_hash(),
-                &apply_state.prev_block_hash,
                 &apply_state.block_hash,
                 apply_state.block_height,
             ), // receipt for tx 7
@@ -673,7 +665,6 @@ fn test_apply_delayed_receipts_local_tx() {
             create_receipt_id_from_transaction(
                 PROTOCOL_VERSION,
                 ValidatedTransaction::new_for_test(local_transactions[8].clone()).to_hash(),
-                &apply_state.prev_block_hash,
                 &apply_state.block_hash,
                 apply_state.block_height,
             ), // receipt for tx 8

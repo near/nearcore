@@ -252,10 +252,8 @@ impl RuntimeConfigStore {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cost::{ActionCosts, ExtCosts};
     use near_primitives_core::version::ProtocolFeature::{
-        DecreaseFunctionCallBaseCost, LowerDataReceiptAndEcrecoverBaseCost, LowerStorageCost,
-        LowerStorageKeyLimit,
+        DecreaseFunctionCallBaseCost, LowerStorageKeyLimit,
     };
     use std::collections::HashSet;
 
@@ -311,15 +309,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg(not(feature = "calimero_zero_storage"))]
-    fn test_lower_storage_cost() {
-        let store = RuntimeConfigStore::new(None);
-        let base_cfg = store.get_config(GENESIS_PROTOCOL_VERSION);
-        let new_cfg = store.get_config(LowerStorageCost.protocol_version());
-        assert!(base_cfg.storage_amount_per_byte() > new_cfg.storage_amount_per_byte());
-    }
-
-    #[test]
     fn test_override_account_length() {
         // Check that default value is 32.
         let base_store = RuntimeConfigStore::new(None);
@@ -335,73 +324,33 @@ mod tests {
         assert_eq!(new_cfg.account_creation_config.min_allowed_top_level_account_length, 0);
     }
 
-    #[test]
-    fn test_lower_data_receipt_cost() {
-        let store = RuntimeConfigStore::new(None);
-        let base_cfg = store.get_config(LowerStorageCost.protocol_version());
-        let new_cfg = store.get_config(LowerDataReceiptAndEcrecoverBaseCost.protocol_version());
-        assert!(
-            base_cfg.fees.fee(ActionCosts::new_data_receipt_base).send_sir
-                > new_cfg.fees.fee(ActionCosts::new_data_receipt_base).send_sir
-        );
-        assert!(
-            base_cfg.fees.fee(ActionCosts::new_data_receipt_byte).send_sir
-                > new_cfg.fees.fee(ActionCosts::new_data_receipt_byte).send_sir
-        );
-    }
-
     // Check that for protocol version with lowered data receipt cost, runtime config passed to
     // config store is overridden.
     #[test]
     #[cfg(not(feature = "calimero_zero_storage"))]
     fn test_override_runtime_config() {
+        use crate::ActionCosts;
+        use near_primitives_core::version::ProtocolFeature::LowerDataReceiptAndEcrecoverBaseCost;
+
         let store = RuntimeConfigStore::new(None);
         let config = store.get_config(0);
 
         let mut base_params = BASE_CONFIG.parse().unwrap();
         let base_config = RuntimeConfig::new(&base_params).unwrap();
         assert_eq!(config.as_ref(), &base_config);
-
-        let config = store.get_config(LowerStorageCost.protocol_version());
         assert_eq!(base_config.storage_amount_per_byte(), 100_000_000_000_000_000_000u128);
-        assert_eq!(config.storage_amount_per_byte(), 10_000_000_000_000_000_000u128);
-        assert_eq!(config.fees.fee(ActionCosts::new_data_receipt_base).send_sir, 4_697_339_419_375);
-        assert_ne!(config.as_ref(), &base_config);
-        assert_ne!(
-            config.as_ref(),
-            store.get_config(LowerStorageCost.protocol_version() - 1).as_ref()
-        );
-
-        for (ver, diff) in &CONFIG_DIFFS[..] {
-            if *ver <= LowerStorageCost.protocol_version() {
-                base_params.apply_diff(diff.parse().unwrap()).unwrap();
-            }
-        }
         let expected_config = RuntimeConfig::new(&base_params).unwrap();
         assert_eq!(**config, expected_config);
 
         let config = store.get_config(LowerDataReceiptAndEcrecoverBaseCost.protocol_version());
         assert_eq!(config.fees.fee(ActionCosts::new_data_receipt_base).send_sir, 36_486_732_312);
         for (ver, diff) in &CONFIG_DIFFS[..] {
-            if *ver <= LowerStorageCost.protocol_version() {
-                continue;
-            } else if *ver <= LowerDataReceiptAndEcrecoverBaseCost.protocol_version() {
+            if *ver <= LowerDataReceiptAndEcrecoverBaseCost.protocol_version() {
                 base_params.apply_diff(diff.parse().unwrap()).unwrap();
             }
         }
         let expected_config = RuntimeConfig::new(&base_params).unwrap();
         assert_eq!(config.as_ref(), &expected_config);
-    }
-
-    #[test]
-    fn test_lower_ecrecover_base_cost() {
-        let store = RuntimeConfigStore::new(None);
-        let base_cfg = store.get_config(LowerStorageCost.protocol_version());
-        let new_cfg = store.get_config(LowerDataReceiptAndEcrecoverBaseCost.protocol_version());
-        assert!(
-            base_cfg.wasm_config.ext_costs.gas_cost(ExtCosts::ecrecover_base)
-                > new_cfg.wasm_config.ext_costs.gas_cost(ExtCosts::ecrecover_base)
-        );
     }
 
     #[test]
