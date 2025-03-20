@@ -61,8 +61,41 @@ fn setup_runtime(
     let epoch_info_provider = MockEpochInfoProvider::default();
     let shard_layout = epoch_info_provider.shard_layout(&EpochId::default()).unwrap();
     let shard_uid = shard_layout.shard_uids().next().unwrap();
+
+    let accounts_with_keys: Vec<(AccountId, Vec<Arc<Signer>>)> = initial_accounts
+        .into_iter()
+        .map(|account_id| {
+            let signer = Arc::new(InMemorySigner::test_signer(&account_id));
+            (account_id, vec![signer])
+        })
+        .collect();
+
     let (runtime, tries, state_root, apply_state, signers) = setup_runtime_for_shard(
-        initial_accounts,
+        accounts_with_keys,
+        initial_balance,
+        initial_locked,
+        gas_limit,
+        shard_uid,
+        &shard_layout,
+    );
+
+    (runtime, tries, state_root, apply_state, signers, epoch_info_provider)
+}
+
+/// Same general idea as `setup_runtime`, but you can pass multiple keys
+/// for each account.
+fn setup_runtime_with_keys(
+    accounts_with_keys: Vec<(AccountId, Vec<Arc<Signer>>)>,
+    initial_balance: Balance,
+    initial_locked: Balance,
+    gas_limit: Gas,
+) -> (Runtime, ShardTries, CryptoHash, ApplyState, Vec<Arc<Signer>>, impl EpochInfoProvider) {
+    let epoch_info_provider = MockEpochInfoProvider::default();
+    let shard_layout = epoch_info_provider.shard_layout(&EpochId::default()).unwrap();
+    let shard_uid = shard_layout.shard_uids().next().unwrap();
+
+    let (runtime, tries, state_root, apply_state, signers) = setup_runtime_for_shard(
+        accounts_with_keys,
         initial_balance,
         initial_locked,
         gas_limit,
@@ -74,7 +107,7 @@ fn setup_runtime(
 }
 
 fn setup_runtime_for_shard(
-    initial_accounts: Vec<AccountId>,
+    accounts_with_keys: Vec<(AccountId, Vec<Arc<Signer>>)>,
     initial_balance: Balance,
     initial_locked: Balance,
     gas_limit: Gas,
@@ -86,20 +119,22 @@ fn setup_runtime_for_shard(
     let runtime = Runtime::new();
     let mut signers = vec![];
     let mut initial_state = tries.new_trie_update(shard_uid, root);
-    for account_id in initial_accounts.into_iter() {
-        let signer: Arc<Signer> = Arc::new(InMemorySigner::test_signer(&account_id));
+    for (account_id, signers_for_account) in accounts_with_keys.into_iter() {
         let mut initial_account = account_new(initial_balance, CryptoHash::default());
         // For the account and a full access key
         initial_account.set_storage_usage(182);
         initial_account.set_locked(initial_locked);
+
         set_account(&mut initial_state, account_id.clone(), &initial_account);
-        set_access_key(
-            &mut initial_state,
-            account_id,
-            signer.public_key(),
-            &AccessKey::full_access(),
-        );
-        signers.push(signer);
+        for signer in signers_for_account {
+            set_access_key(
+                &mut initial_state,
+                account_id.clone(),
+                signer.public_key(),
+                &AccessKey::full_access(),
+            );
+            signers.push(signer);
+        }
     }
     initial_state.commit(StateChangeCause::InitialState);
     let trie_changes = initial_state.finalize().unwrap().trie_changes;
@@ -2433,8 +2468,17 @@ fn test_congestion_buffering() {
     let deposit = to_yocto(10_000);
     // execute a single receipt per chunk
     let gas_limit = 1;
+
+    let accounts_with_keys: Vec<(AccountId, Vec<Arc<Signer>>)> = accounts
+        .into_iter()
+        .map(|account| {
+            let signer = Arc::new(InMemorySigner::test_signer(&account));
+            (account, vec![signer])
+        })
+        .collect();
+
     let (runtime, tries, mut root, mut apply_state, _) = setup_runtime_for_shard(
-        accounts,
+        accounts_with_keys,
         initial_balance,
         initial_locked,
         gas_limit,
@@ -2783,4 +2827,170 @@ fn test_deploy_and_call_local_receipts() {
         action_error.kind,
         ActionErrorKind::FunctionCallError(FunctionCallError::MethodResolveError(_))
     );
+}
+
+#[test]
+fn test_transaction_ordering_with_apply() {
+    let alice_key1 = InMemorySigner::test_signer(&alice_account());
+    let bob_signer = InMemorySigner::test_signer(&bob_account());
+    let alice_key2 = InMemorySigner::from_seed(alice_account(), KeyType::ED25519, "seed");
+
+    let tx1 = SignedTransaction::send_money(
+        1,
+        alice_account(),
+        alice_account(),
+        &alice_key2, // invalid access key, tx should be dropped
+        100,
+        CryptoHash::default(),
+    );
+    let tx2 = SignedTransaction::send_money(
+        1,
+        alice_account(),
+        alice_account(),
+        &alice_key1,
+        200,
+        CryptoHash::default(),
+    );
+    let tx3 = SignedTransaction::send_money(
+        2,
+        alice_account(),
+        bob_account(),
+        &alice_key1,
+        300,
+        CryptoHash::default(),
+    );
+    let tx4 = SignedTransaction::send_money(
+        1,
+        bob_account(),
+        bob_account(),
+        &bob_signer,
+        400,
+        CryptoHash::default(),
+    );
+    let tx5 = SignedTransaction::send_money(
+        2,
+        bob_account(),
+        alice_account(),
+        &bob_signer,
+        500,
+        CryptoHash::default(),
+    );
+    let tx6 = SignedTransaction::send_money(
+        3,
+        bob_account(),
+        bob_account(),
+        &bob_signer,
+        600,
+        CryptoHash::default(),
+    );
+
+    let txs = vec![tx4.clone(), tx1, tx2.clone(), tx5.clone(), tx3.clone(), tx6.clone()];
+
+    let (runtime, tries, root, apply_state, _signers, epoch_info_provider) = setup_runtime(
+        vec![alice_account(), bob_account()],
+        to_yocto(1_000_000),
+        to_yocto(500_000),
+        10u64.pow(15),
+    );
+
+    let flags = vec![true; txs.len()];
+    let s_valid_txs = SignedValidPeriodTransactions::new(&txs, flags.as_slice());
+    let apply_result = runtime
+        .apply(
+            tries.get_trie_for_shard(ShardUId::single_shard(), root),
+            &None,
+            &apply_state,
+            &[],
+            s_valid_txs,
+            &epoch_info_provider,
+            Default::default(),
+        )
+        .expect("apply should succeed");
+
+    let expected_order =
+        vec![tx4.get_hash(), tx2.get_hash(), tx5.get_hash(), tx3.get_hash(), tx6.get_hash()];
+
+    assert_eq!(
+        apply_result.outcomes.len(),
+        8,
+        "should have processed 5 transactions and 3 local receipts"
+    );
+    let tx_outcomes = apply_result.outcomes.iter().take(5).map(|o| o.id).collect::<Vec<_>>();
+    assert_eq!(tx_outcomes, expected_order, "outcomes are not in expected sorted order");
+}
+
+#[test]
+fn test_transaction_multiple_access_keys_with_apply() {
+    let alice_key1 = InMemorySigner::from_seed(alice_account(), KeyType::ED25519, "seed1");
+    let alice_key2 = InMemorySigner::from_seed(alice_account(), KeyType::ED25519, "seed2");
+    let alice_key3 = InMemorySigner::from_seed(alice_account(), KeyType::ED25519, "seed3");
+    let bob_key = InMemorySigner::from_seed(bob_account(), KeyType::ED25519, "seed4");
+
+    let send_money_tx = |nonce, key| {
+        SignedTransaction::send_money(
+            nonce,
+            alice_account(),
+            bob_account(),
+            key,
+            to_yocto(1000),
+            CryptoHash::default(),
+        )
+    };
+
+    let txs = vec![
+        send_money_tx(1, &alice_key1),
+        send_money_tx(1, &alice_key2),
+        send_money_tx(1, &alice_key3),
+        send_money_tx(2, &alice_key3),
+        send_money_tx(2, &alice_key1),
+        send_money_tx(3, &alice_key1),
+    ];
+
+    let accounts_with_keys = vec![
+        (
+            alice_account(),
+            vec![
+                Arc::new(alice_key1.clone()),
+                Arc::new(alice_key2.clone()),
+                Arc::new(alice_key3.clone()),
+            ],
+        ),
+        (bob_account(), vec![Arc::new(bob_key.clone())]),
+    ];
+
+    let (runtime, tries, root, mut apply_state, _signers, epoch_info_provider) =
+        setup_runtime_with_keys(
+            accounts_with_keys,
+            to_yocto(1_000_000),
+            to_yocto(500_000),
+            10u64.pow(15),
+        );
+
+    let flags = vec![true; txs.len()];
+    let s_valid_txs = SignedValidPeriodTransactions::new(&txs, flags.as_slice());
+    let apply_result = runtime
+        .apply(
+            tries.get_trie_for_shard(ShardUId::single_shard(), root),
+            &None,
+            &apply_state,
+            &[],
+            s_valid_txs,
+            &epoch_info_provider,
+            Default::default(),
+        )
+        .expect("apply should succeed");
+
+    let expected_order = txs.iter().map(|tx| tx.get_hash()).collect::<Vec<_>>();
+
+    assert_eq!(apply_result.outcomes.len(), 6, "should have processed 6 transactions");
+    let tx_outcomes = apply_result.outcomes.iter().map(|o| o.id).collect::<Vec<_>>();
+    assert_eq!(tx_outcomes, expected_order, "outcomes are not in expected sorted order");
+
+    let shard_uid = ShardUId::single_shard();
+    let root = commit_apply_result(&apply_result, &mut apply_state, &tries, shard_uid);
+    let state = tries.new_trie_update(shard_uid, root);
+    let account = get_account(&state, &alice_account()).unwrap().unwrap();
+
+    assert!(account.amount() < to_yocto(994_000));
+    assert!(account.amount() > to_yocto(993_000));
 }
