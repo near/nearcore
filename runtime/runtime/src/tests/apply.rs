@@ -2829,37 +2829,40 @@ fn test_deploy_and_call_local_receipts() {
     );
 }
 
+/// Verifies that valid transactions from multiple accounts are processed in the correct order,
+/// while transactions with an invalid signer are dropped.
 #[test]
 fn test_transaction_ordering_with_apply() {
-    let alice_key1 = InMemorySigner::test_signer(&alice_account());
+    let alice_signer = InMemorySigner::test_signer(&alice_account());
     let bob_signer = InMemorySigner::test_signer(&bob_account());
-    let alice_key2 = InMemorySigner::from_seed(alice_account(), KeyType::ED25519, "seed");
+    let alice_invalid_signer = InMemorySigner::from_seed(alice_account(), KeyType::ED25519, "seed");
 
-    let tx1 = SignedTransaction::send_money(
+    // This transaction should be droped due to invalid signer.
+    let alice_invalid_tx = SignedTransaction::send_money(
         1,
         alice_account(),
         alice_account(),
-        &alice_key2, // invalid access key, tx should be dropped
+        &alice_invalid_signer,
         100,
         CryptoHash::default(),
     );
-    let tx2 = SignedTransaction::send_money(
+    let alice_tx1 = SignedTransaction::send_money(
         1,
         alice_account(),
         alice_account(),
-        &alice_key1,
+        &alice_signer,
         200,
         CryptoHash::default(),
     );
-    let tx3 = SignedTransaction::send_money(
+    let alice_tx2 = SignedTransaction::send_money(
         2,
         alice_account(),
         bob_account(),
-        &alice_key1,
+        &alice_signer,
         300,
         CryptoHash::default(),
     );
-    let tx4 = SignedTransaction::send_money(
+    let bob_tx1 = SignedTransaction::send_money(
         1,
         bob_account(),
         bob_account(),
@@ -2867,7 +2870,7 @@ fn test_transaction_ordering_with_apply() {
         400,
         CryptoHash::default(),
     );
-    let tx5 = SignedTransaction::send_money(
+    let bob_tx2 = SignedTransaction::send_money(
         2,
         bob_account(),
         alice_account(),
@@ -2875,7 +2878,7 @@ fn test_transaction_ordering_with_apply() {
         500,
         CryptoHash::default(),
     );
-    let tx6 = SignedTransaction::send_money(
+    let bob_tx3 = SignedTransaction::send_money(
         3,
         bob_account(),
         bob_account(),
@@ -2884,7 +2887,14 @@ fn test_transaction_ordering_with_apply() {
         CryptoHash::default(),
     );
 
-    let txs = vec![tx4.clone(), tx1, tx2.clone(), tx5.clone(), tx3.clone(), tx6.clone()];
+    let txs = vec![
+        bob_tx1.clone(),
+        alice_invalid_tx,
+        alice_tx1.clone(),
+        bob_tx2.clone(),
+        alice_tx2.clone(),
+        bob_tx3.clone(),
+    ];
 
     let (runtime, tries, root, apply_state, _signers, epoch_info_provider) = setup_runtime(
         vec![alice_account(), bob_account()],
@@ -2893,23 +2903,31 @@ fn test_transaction_ordering_with_apply() {
         10u64.pow(15),
     );
 
-    let flags = vec![true; txs.len()];
-    let s_valid_txs = SignedValidPeriodTransactions::new(&txs, flags.as_slice());
+    let validity_flags = vec![true; txs.len()];
+    let signed_valid_period_txs =
+        SignedValidPeriodTransactions::new(&txs, validity_flags.as_slice());
     let apply_result = runtime
         .apply(
             tries.get_trie_for_shard(ShardUId::single_shard(), root),
             &None,
             &apply_state,
             &[],
-            s_valid_txs,
+            signed_valid_period_txs,
             &epoch_info_provider,
             Default::default(),
         )
         .expect("apply should succeed");
 
-    let expected_order =
-        vec![tx4.get_hash(), tx2.get_hash(), tx5.get_hash(), tx3.get_hash(), tx6.get_hash()];
+    let expected_order = vec![
+        bob_tx1.get_hash(),
+        alice_tx1.get_hash(),
+        bob_tx2.get_hash(),
+        alice_tx2.get_hash(),
+        bob_tx3.get_hash(),
+    ];
 
+    // Note: The 3 local receipts are generated for valid transactions
+    // where signer_id == receiver_id - tx2, tx4, tx6 (not for tx1 as it is dropped).
     assert_eq!(
         apply_result.outcomes.len(),
         8,
@@ -2919,12 +2937,15 @@ fn test_transaction_ordering_with_apply() {
     assert_eq!(tx_outcomes, expected_order, "outcomes are not in expected sorted order");
 }
 
+/// Verifies proper ordering and balance update for transactions signed with multiple keys from one account.
+/// Alice is set up with 3 full-access keys.
+/// Six transactions from Alice to Bob are submitted using various nonces and keys.
+/// The test checks that outcomes are correctly ordered and Alice's final balance is within the expected range.
 #[test]
 fn test_transaction_multiple_access_keys_with_apply() {
-    let alice_key1 = InMemorySigner::from_seed(alice_account(), KeyType::ED25519, "seed1");
-    let alice_key2 = InMemorySigner::from_seed(alice_account(), KeyType::ED25519, "seed2");
-    let alice_key3 = InMemorySigner::from_seed(alice_account(), KeyType::ED25519, "seed3");
-    let bob_key = InMemorySigner::from_seed(bob_account(), KeyType::ED25519, "seed4");
+    let alice_signer1 = InMemorySigner::from_seed(alice_account(), KeyType::ED25519, "seed1");
+    let alice_signer2 = InMemorySigner::from_seed(alice_account(), KeyType::ED25519, "seed2");
+    let alice_signer3 = InMemorySigner::from_seed(alice_account(), KeyType::ED25519, "seed3");
 
     let send_money_tx = |nonce, key| {
         SignedTransaction::send_money(
@@ -2938,24 +2959,20 @@ fn test_transaction_multiple_access_keys_with_apply() {
     };
 
     let txs = vec![
-        send_money_tx(1, &alice_key1),
-        send_money_tx(1, &alice_key2),
-        send_money_tx(1, &alice_key3),
-        send_money_tx(2, &alice_key3),
-        send_money_tx(2, &alice_key1),
-        send_money_tx(3, &alice_key1),
+        send_money_tx(1, &alice_signer1),
+        send_money_tx(1, &alice_signer2),
+        send_money_tx(1, &alice_signer3),
+        send_money_tx(2, &alice_signer3),
+        send_money_tx(2, &alice_signer1),
+        send_money_tx(3, &alice_signer1),
     ];
 
     let accounts_with_keys = vec![
         (
             alice_account(),
-            vec![
-                Arc::new(alice_key1.clone()),
-                Arc::new(alice_key2.clone()),
-                Arc::new(alice_key3.clone()),
-            ],
+            vec![Arc::new(alice_signer1), Arc::new(alice_signer2), Arc::new(alice_signer3)],
         ),
-        (bob_account(), vec![Arc::new(bob_key.clone())]),
+        (bob_account(), vec![]),
     ];
 
     let (runtime, tries, root, mut apply_state, _signers, epoch_info_provider) =
