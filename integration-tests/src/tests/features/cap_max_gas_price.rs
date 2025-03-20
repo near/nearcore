@@ -11,12 +11,7 @@ fn does_gas_price_exceed_limit(protocol_version: ProtocolVersion) -> bool {
     for i in 3..20 {
         env.produce_block(0, i);
         let block = env.clients[0].chain.get_block_by_height(i).unwrap().clone();
-        let protocol_version = env.clients[0]
-            .epoch_manager
-            .get_epoch_protocol_version(block.header().epoch_id())
-            .unwrap();
-        let min_gas_price =
-            env.clients[0].chain.block_economics_config.min_gas_price(protocol_version);
+        let min_gas_price = env.clients[0].chain.block_economics_config.min_gas_price();
         was_congested |= block.chunks()[0].prev_gas_used() >= block.chunks()[0].gas_limit();
         price_exceeded_limit |= block.header().next_gas_price() > 20 * min_gas_price;
     }
