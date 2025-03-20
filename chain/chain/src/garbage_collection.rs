@@ -101,8 +101,6 @@ impl ChainStore {
     //    a. Forks Clearing runs for each height from Tail up to GC Stop Height.
     //    b. Canonical Chain Clearing (CCC) from (Tail + 1) up to GC Stop Height.
     //       i) After CCC for the last block of an epoch, we check what shards tracked in the epoch qualify for trie State cleanup.
-    //       // FIXME: Note: could probably depend on this (if this was done right away), but it
-    //       would remove old data.
     //       ii) A shard qualify for trie State cleanup, if we did not care about it up to the Head,
     //           and we won't care about it in the next epoch after the Head.
     //       iii) `gc_state()` handles trie State cleanup, and it uses current tracking config (`shard_tracker` and optional validator ID),
@@ -238,7 +236,6 @@ impl ChainStore {
         }
 
         // Canonical Chain Clearing
-        // FIXME: Should we care about gc_stop_height?
         for height in tail + 1..gc_stop_height {
             if gc_blocks_remaining == 0 {
                 return Ok(());
@@ -267,7 +264,6 @@ impl ChainStore {
                 debug_assert_eq!(blocks_current_height.len(), 1);
 
                 // Do not clean up immediately, as we still need the State in order to run gc for this block.
-                // FIXME: Note: this aren't shards that should be cleaned up.
                 let potential_shards_for_cleanup = get_potential_shards_for_cleanup(
                     &chain_store_update,
                     &epoch_manager,
@@ -1205,10 +1201,6 @@ fn gc_state(
     let last_block_hash = chain_store_update.head()?.last_block_hash;
     let last_block_info = epoch_manager.get_block_info(&last_block_hash)?;
     let current_shard_layout = epoch_manager.get_shard_layout(last_block_info.epoch_id())?;
-    // FIXME: Would we want to do similar checks to find shards that may be still required?
-    // Especially unclear about following from below and or last_block_hash_in_gced_epoch:
-    // > Do not clean up shards that were tracked in any epoch after the gc-ed epoch.
-    //
     // Do not clean up shards that we care about in the current or the next epoch.
     // Most of the time, `potential_shards_to_cleanup` will become empty as we do not change tracked shards often.
     for shard_uid in current_shard_layout.shard_uids() {

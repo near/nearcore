@@ -277,8 +277,6 @@ impl ReshardingManager {
                 child_congestion_info;
 
             chain_store_update.save_chunk_extra(block_hash, &new_shard_uid, child_chunk_extra);
-            // FIXME: So here do we save this data on resharding for block
-            // which is final - 1
             chain_store_update.save_state_transition_data(
                 *block_hash,
                 new_shard_uid.shard_id(),

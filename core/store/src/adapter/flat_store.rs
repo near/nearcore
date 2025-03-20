@@ -278,9 +278,6 @@ impl<'a> FlatStoreUpdateAdapter<'a> {
     }
 
     // helper
-    // FIXME: Likely can use an approach similar to this one to delete information about shards
-    // that are no longer relevant - actually cannot because we use block_hash,shard as key with
-    // block first; so we need info about all block hashes :'(
     fn remove_range_by_shard_uid(&mut self, shard_uid: ShardUId, col: DBCol) {
         assert!(col != DBCol::State, "can't range delete State column");
         let key_from = shard_uid.to_bytes();
