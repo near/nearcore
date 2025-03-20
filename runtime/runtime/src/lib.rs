@@ -164,7 +164,6 @@ impl ApplyState {
         create_receipt_id_from_receipt_id(
             self.current_protocol_version,
             parent_receipt_id,
-            &self.prev_block_hash,
             &self.block_hash,
             self.block_height,
             receipt_index,
@@ -386,7 +385,6 @@ impl Runtime {
                 let receipt_id = create_receipt_id_from_transaction(
                     apply_state.current_protocol_version,
                     validated_tx.to_hash(),
-                    &apply_state.prev_block_hash,
                     &apply_state.block_hash,
                     apply_state.block_height,
                 );
@@ -718,7 +716,6 @@ impl Runtime {
             let action_hash = create_action_hash_from_receipt_id(
                 apply_state.current_protocol_version,
                 receipt.receipt_id(),
-                &apply_state.prev_block_hash,
                 &apply_state.block_hash,
                 apply_state.block_height,
                 action_index,
@@ -2457,7 +2454,6 @@ fn resolve_promise_yield_timeouts(
             let new_receipt_id = create_receipt_id_from_receipt_id(
                 processing_state.protocol_version,
                 &queue_entry.data_id,
-                &apply_state.prev_block_hash,
                 &apply_state.block_hash,
                 apply_state.block_height,
                 new_receipt_index,
