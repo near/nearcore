@@ -8,7 +8,6 @@ use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockReference};
 use near_primitives::views::{BlockView, QueryRequest, QueryResponse, QueryResponseKind};
 use node_runtime::metrics::TRANSACTION_PROCESSED_FAILED_TOTAL;
-use node_runtime::metrics::TRANSACTION_PROCESSED_SUCCESSFULLY_TOTAL;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use std::path::PathBuf;
@@ -63,7 +62,7 @@ struct RunnerState {
 struct Stats {
     pool_accepted: u64,
     pool_rejected: u64,
-    processed: u64,
+    included_in_chunk: u64,
     failed: u64,
 }
 
@@ -74,7 +73,7 @@ impl std::ops::Sub for Stats {
         Self {
             pool_accepted: self.pool_accepted - other.pool_accepted,
             pool_rejected: self.pool_rejected - other.pool_rejected,
-            processed: self.processed - other.processed,
+            included_in_chunk: self.included_in_chunk - other.included_in_chunk,
             failed: self.failed - other.failed,
         }
     }
@@ -105,7 +104,7 @@ impl TxGenerator {
             stats: Arc::new(std::sync::Mutex::new(Stats {
                 pool_accepted: 0,
                 pool_rejected: 0,
-                processed: 0,
+                included_in_chunk: 0,
                 failed: 0,
             })),
         };
@@ -293,17 +292,20 @@ impl TxGenerator {
             loop {
                 report_interval.tick().await;
                 let stats = {
-                    let processed = TRANSACTION_PROCESSED_SUCCESSFULLY_TOTAL.get();
+                    let chunk_tx_total =
+                        near_client::metrics::CHUNK_TRANSACTIONS_TOTAL.with_label_values(&["0"]);
+                    let included_in_chunk = chunk_tx_total.get();
+
                     let failed = TRANSACTION_PROCESSED_FAILED_TOTAL.get();
 
                     let mut stats = runner_state.stats.lock().unwrap();
-                    stats.processed = processed;
+                    stats.included_in_chunk = included_in_chunk;
                     stats.failed = failed;
                     stats.clone()
                 };
                 tracing::info!(target: "transaction-generator", total=format!("{stats:?}"),);
                 let diff = stats.clone() - stats_prev;
-                mean_diff.add_measurement(diff.processed as i64);
+                mean_diff.add_measurement(diff.included_in_chunk as i64);
                 tracing::info!(target: "transaction-generator",
                     diff=format!("{:?}", diff),
                     rate_processed=mean_diff.mean(),
