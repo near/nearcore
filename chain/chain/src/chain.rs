@@ -2087,10 +2087,6 @@ impl Chain {
             self.runtime_adapter.get_tries().retain_memtries(&shards_cares_this_or_next_epoch);
         }
 
-        if let Err(err) = self.garbage_collect_state_transition_data(&block) {
-            tracing::error!(target: "chain", ?err, "failed to garbage collect state transition data");
-        }
-
         self.pending_state_patch.clear();
 
         if let Some(tip) = &new_head {

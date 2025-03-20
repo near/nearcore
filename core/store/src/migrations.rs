@@ -516,3 +516,15 @@ pub fn migrate_42_to_43(store: &Store) -> anyhow::Result<()> {
     update.commit()?;
     Ok(())
 }
+
+/// Migrates the database from version 44 to 45.
+///
+/// Removes STATE_TRANSITION_START_HEIGHTS key from DBCol::Misc that is no longer needed.
+pub fn migrate_44_to_45(store: &Store) -> anyhow::Result<()> {
+    pub const STATE_TRANSITION_START_HEIGHTS: &[u8] = b"STATE_TRANSITION_START_HEIGHTS";
+
+    let mut update = store.store_update();
+    update.delete(DBCol::Misc, STATE_TRANSITION_START_HEIGHTS);
+    update.commit()?;
+    Ok(())
+}
