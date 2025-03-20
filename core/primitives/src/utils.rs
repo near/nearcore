@@ -300,9 +300,7 @@ pub fn create_random_seed(
     action_hash: CryptoHash,
     random_seed: CryptoHash,
 ) -> Vec<u8> {
-    let res = if !ProtocolFeature::CorrectRandomValue.enabled(protocol_version) {
-        action_hash
-    } else if !ProtocolFeature::CreateHash.enabled(protocol_version) {
+    let res = if !ProtocolFeature::CreateHash.enabled(protocol_version) {
         random_seed
     } else {
         // Generates random seed from random_seed and action_hash.

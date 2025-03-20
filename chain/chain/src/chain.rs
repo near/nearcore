@@ -2466,9 +2466,9 @@ impl Chain {
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(header.epoch_id())?;
         if !block.verify_gas_price(
             gas_price,
-            self.block_economics_config.min_gas_price(protocol_version),
+            self.block_economics_config.min_gas_price(),
             self.block_economics_config.max_gas_price(protocol_version),
-            self.block_economics_config.gas_price_adjustment_rate(protocol_version),
+            self.block_economics_config.gas_price_adjustment_rate(),
         ) {
             byzantine_assert!(false);
             return Err(Error::InvalidGasPrice);
