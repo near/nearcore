@@ -15,8 +15,8 @@ use near_primitives::types::{
 use near_store::adapter::StoreUpdateAdapter;
 use near_store::adapter::flat_store::FlatStoreAdapter;
 use near_store::flat::{BlockInfo, FlatStateChanges, FlatStorageReadyStatus, FlatStorageStatus};
-use near_store::trie::update::TrieUpdateResult;
 use near_store::trie::OperationOptions;
+use near_store::trie::update::TrieUpdateResult;
 use near_store::{DBCol, ShardTries};
 
 use anyhow::Context;

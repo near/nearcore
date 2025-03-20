@@ -556,10 +556,7 @@ mod trie_recording_tests {
             // in production.
             let trie = get_trie_for_shard(&tries, shard_uid, state_root, use_flat_storage);
             for key in &keys_to_get {
-                assert_eq!(
-                    trie.get(key, opts).unwrap(),
-                    data_in_trie.get(key).cloned()
-                );
+                assert_eq!(trie.get(key, opts).unwrap(), data_in_trie.get(key).cloned());
             }
             for key in &keys_to_get_ref {
                 assert_eq!(
@@ -578,10 +575,7 @@ mod trie_recording_tests {
             let trie = get_trie_for_shard(&tries, shard_uid, state_root, use_flat_storage)
                 .recording_reads_new_recorder();
             for key in &keys_to_get {
-                assert_eq!(
-                    trie.get(key, opts).unwrap(),
-                    data_in_trie.get(key).cloned()
-                );
+                assert_eq!(trie.get(key, opts).unwrap(), data_in_trie.get(key).cloned());
             }
             for key in &keys_to_get_ref {
                 assert_eq!(
@@ -606,10 +600,7 @@ mod trie_recording_tests {
             let trie = get_trie_for_shard(&tries, shard_uid, state_root, use_flat_storage)
                 .recording_reads_new_recorder();
             for key in &keys_to_get {
-                assert_eq!(
-                    trie.get(key, opts).unwrap(),
-                    data_in_trie.get(key).cloned()
-                );
+                assert_eq!(trie.get(key, opts).unwrap(), data_in_trie.get(key).cloned());
             }
             for key in &keys_to_get_ref {
                 assert_eq!(
@@ -634,10 +625,7 @@ mod trie_recording_tests {
             let trie =
                 Trie::from_recorded_storage(partial_storage.clone(), state_root, use_flat_storage);
             for key in &keys_to_get {
-                assert_eq!(
-                    trie.get(key, opts).unwrap(),
-                    data_in_trie.get(key).cloned()
-                );
+                assert_eq!(trie.get(key, opts).unwrap(), data_in_trie.get(key).cloned());
             }
             for key in &keys_to_get_ref {
                 assert_eq!(
@@ -654,10 +642,7 @@ mod trie_recording_tests {
             let trie = Trie::from_recorded_storage(partial_storage, state_root, use_flat_storage)
                 .recording_reads_new_recorder();
             for key in &keys_to_get {
-                assert_eq!(
-                    trie.get(key, opts).unwrap(),
-                    data_in_trie.get(key).cloned()
-                );
+                assert_eq!(trie.get(key, opts).unwrap(), data_in_trie.get(key).cloned());
             }
             for key in &keys_to_get_ref {
                 assert_eq!(

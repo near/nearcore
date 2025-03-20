@@ -320,7 +320,7 @@ pub fn get_delayed_receipts(
         && delayed_receipt_indices.first_index < delayed_receipt_indices.next_available_index
     {
         let key = TrieKey::DelayedReceipt { index: delayed_receipt_indices.first_index };
-        let data = state_update.get(&key)?.ok_or_else(|| {
+        let data = state_update.get(&key, OperationOptions::DEFAULT)?.ok_or_else(|| {
             StorageError::StorageInconsistentState(format!(
                 "Delayed receipt #{} should be in the state",
                 delayed_receipt_indices.first_index
@@ -362,7 +362,7 @@ pub fn get_promise_yield_timeouts(
         && promise_yield_indices.first_index < promise_yield_indices.next_available_index
     {
         let key = TrieKey::PromiseYieldTimeout { index: promise_yield_indices.first_index };
-        let data = state_update.get(&key)?.ok_or_else(|| {
+        let data = state_update.get(&key, OperationOptions::DEFAULT)?.ok_or_else(|| {
             StorageError::StorageInconsistentState(format!(
                 "PromiseYield timeout #{} should be in the state",
                 promise_yield_indices.first_index

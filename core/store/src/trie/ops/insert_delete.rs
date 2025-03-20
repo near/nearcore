@@ -1,7 +1,7 @@
 use near_primitives::errors::StorageError;
 
-use crate::trie::OperationOptions;
 use crate::NibbleSlice;
+use crate::trie::OperationOptions;
 
 use super::interface::{
     GenericNodeOrIndex, GenericTrieUpdate, GenericTrieValue, GenericUpdatedTrieNode,

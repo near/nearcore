@@ -44,6 +44,7 @@ use std::sync::Arc;
 use std::sync::LazyLock;
 use std::{fmt, io};
 use strum;
+use trie::OperationOptions;
 
 pub mod adapter;
 pub mod archive;
@@ -782,7 +783,7 @@ pub fn get<T: BorshDeserialize>(
     trie: &dyn TrieAccess,
     key: &TrieKey,
 ) -> Result<Option<T>, StorageError> {
-    match trie.get(key)? {
+    match trie.get(key, OperationOptions::DEFAULT)? {
         None => Ok(None),
         Some(data) => match T::try_from_slice(&data) {
             Err(err) => Err(StorageError::StorageInconsistentState(format!(
@@ -798,7 +799,7 @@ pub fn get_pure<T: BorshDeserialize>(
     trie: &dyn TrieAccess,
     key: &TrieKey,
 ) -> Result<Option<T>, StorageError> {
-    match trie.get_no_side_effects(key)? {
+    match trie.get(key, OperationOptions::NO_SIDE_EFFECTS)? {
         None => Ok(None),
         Some(data) => match T::try_from_slice(&data) {
             Err(_err) => {
@@ -848,7 +849,10 @@ pub fn has_received_data(
     receiver_id: &AccountId,
     data_id: CryptoHash,
 ) -> Result<bool, StorageError> {
-    trie.contains_key(&TrieKey::ReceivedData { receiver_id: receiver_id.clone(), data_id })
+    trie.contains_key(
+        &TrieKey::ReceivedData { receiver_id: receiver_id.clone(), data_id },
+        OperationOptions::DEFAULT,
+    )
 }
 
 pub fn set_postponed_receipt(state_update: &mut TrieUpdate, receipt: &Receipt) {
@@ -966,7 +970,10 @@ pub fn has_promise_yield_receipt(
     receiver_id: AccountId,
     data_id: CryptoHash,
 ) -> Result<bool, StorageError> {
-    trie.contains_key(&TrieKey::PromiseYieldReceipt { receiver_id, data_id })
+    trie.contains_key(
+        &TrieKey::PromiseYieldReceipt { receiver_id, data_id },
+        OperationOptions::DEFAULT,
+    )
 }
 
 pub fn get_buffered_receipt_indices(

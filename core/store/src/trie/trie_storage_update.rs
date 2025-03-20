@@ -96,10 +96,9 @@ impl<'a> GenericTrieUpdate<'a, TrieStorageNodePtr, ValueHandle> for TrieStorageU
         opts: OperationOptions,
     ) -> Result<UpdatedNodeId, StorageError> {
         match node {
-            GenericNodeOrIndex::Old(node_hash) => self
-                .trie
-                .move_node_to_mutable(self, &node_hash, opts)
-                .map(|handle| handle.0),
+            GenericNodeOrIndex::Old(node_hash) => {
+                self.trie.move_node_to_mutable(self, &node_hash, opts).map(|handle| handle.0)
+            }
             GenericNodeOrIndex::Updated(node_id) => Ok(node_id),
         }
     }

@@ -38,8 +38,8 @@ use near_primitives::types::{
 use near_primitives::utils::create_receipt_id_from_transaction;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_store::test_utils::TestTriesBuilder;
-use near_store::trie::receipts_column_helper::ShardsOutgoingReceiptBuffer;
 use near_store::trie::OperationOptions;
+use near_store::trie::receipts_column_helper::ShardsOutgoingReceiptBuffer;
 use near_store::{
     MissingTrieValueContext, ShardTries, StorageError, Trie, get_account, set_access_key,
     set_account,

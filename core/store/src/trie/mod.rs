@@ -294,15 +294,12 @@ pub trait TrieAccess {
     /// different shards or different blocks).  That is, the shard and state
     /// root are already known by the object rather than being passed as
     /// argument.
-    fn get(&self, key: &TrieKey) -> Result<Option<Vec<u8>>, StorageError>;
-
-    /// Retrieves value with given key without incurring any side-effects.
-    fn get_no_side_effects(&self, key: &TrieKey) -> Result<Option<Vec<u8>>, StorageError>;
+    fn get(&self, key: &TrieKey, opts: OperationOptions) -> Result<Option<Vec<u8>>, StorageError>;
 
     /// Check if the key is present.
     ///
     /// Equivalent to `Self::get(k)?.is_some()`, but avoids reading out the value.
-    fn contains_key(&self, key: &TrieKey) -> Result<bool, StorageError>;
+    fn contains_key(&self, key: &TrieKey, opts: OperationOptions) -> Result<bool, StorageError>;
 }
 
 /// Stores reference count addition for some key-value pair in DB.
@@ -1481,8 +1478,8 @@ impl Trie {
     ///
     /// This method is guaranteed to not inspect the value stored for this key, which would
     /// otherwise have potential gas cost implications.
-    pub fn contains_key(&self, key: &[u8]) -> Result<bool, StorageError> {
-        self.contains_key_mode(key, KeyLookupMode::MemOrFlatOrTrie, OperationOptions::DEFAULT)
+    pub fn contains_key(&self, key: &[u8], opts: OperationOptions) -> Result<bool, StorageError> {
+        self.contains_key_mode(key, KeyLookupMode::MemOrFlatOrTrie, opts)
     }
 
     /// Check if the column contains a value with the given `key`.
@@ -1552,26 +1549,6 @@ impl Trie {
         } else {
             Ok(self
                 .lookup_from_state_column(NibbleSlice::new(key), use_trie_accounting_cache, opts)?
-                .map(OptimizedValueRef::Ref))
-        }
-    }
-
-    /// Retrieves an `OptimizedValueRef`` for the given key. See `OptimizedValueRef`.
-    ///
-    /// This method is similar to `get_optimized` but has no side effects (not charging gas or recording trie nodes).
-    fn get_optimized_ref_no_side_effects(
-        &self,
-        key: &[u8],
-        mode: KeyLookupMode,
-    ) -> Result<Option<OptimizedValueRef>, StorageError> {
-        let opts = OperationOptions::NO_SIDE_EFFECTS;
-        if self.memtries.is_some() {
-            self.lookup_from_memory(&key, false, opts, |v| v.to_optimized_value_ref())
-        } else if mode == KeyLookupMode::MemOrFlatOrTrie && self.flat_storage_chunk_view.is_some() {
-            self.lookup_from_flat_storage(&key, opts)
-        } else {
-            Ok(self
-                .lookup_from_state_column(NibbleSlice::new(&key), false, opts)?
                 .map(OptimizedValueRef::Ref))
         }
     }
@@ -1821,30 +1798,12 @@ impl<'a> TrieWithReadLock<'a> {
 }
 
 impl TrieAccess for Trie {
-    fn get(&self, key: &TrieKey) -> Result<Option<Vec<u8>>, StorageError> {
-        Trie::get(self, &key.to_vec(), OperationOptions::DEFAULT)
+    fn get(&self, key: &TrieKey, opts: OperationOptions) -> Result<Option<Vec<u8>>, StorageError> {
+        Trie::get(self, &key.to_vec(), opts)
     }
 
-    fn get_no_side_effects(&self, key: &TrieKey) -> Result<Option<Vec<u8>>, StorageError> {
-        match Trie::get_optimized_ref_no_side_effects(
-            self,
-            &key.to_vec(),
-            KeyLookupMode::MemOrFlatOrTrie,
-        )? {
-            Some(optimized_ref) => Ok(Some(match &optimized_ref {
-                OptimizedValueRef::Ref(value_ref) => {
-                    let opts = OperationOptions::NO_SIDE_EFFECTS;
-                    let bytes = self.internal_retrieve_trie_node(&value_ref.hash, false, opts)?;
-                    bytes.to_vec()
-                }
-                OptimizedValueRef::AvailableValue(ValueAccessToken { value }) => value.clone(),
-            })),
-            None => Ok(None),
-        }
-    }
-
-    fn contains_key(&self, key: &TrieKey) -> Result<bool, StorageError> {
-        Trie::contains_key(&self, &key.to_vec())
+    fn contains_key(&self, key: &TrieKey, opts: OperationOptions) -> Result<bool, StorageError> {
+        Trie::contains_key(&self, &key.to_vec(), opts)
     }
 }
 

@@ -5,6 +5,7 @@ use near_o11y::testonly::init_test_logger;
 use near_primitives::types::ShardId;
 use near_primitives::version::ProtocolFeature;
 use near_primitives::{trie_key::TrieKey, types::AccountId};
+use near_store::trie::OperationOptions;
 use near_store::{ShardUId, TrieAccess, TrieUpdate};
 
 use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
@@ -45,13 +46,19 @@ fn process_blocks_with_storage_usage_fix(
         let state_update = TrieUpdate::new(trie);
         use near_primitives::account::Account;
         let mut account_near_raw = state_update
-            .get(&TrieKey::Account { account_id: "near".parse().unwrap() })
+            .get(
+                &TrieKey::Account { account_id: "near".parse().unwrap() },
+                OperationOptions::DEFAULT,
+            )
             .unwrap()
             .unwrap()
             .clone();
         let account_near = Account::try_from_slice(&mut account_near_raw).unwrap();
         let mut account_test0_raw = state_update
-            .get(&TrieKey::Account { account_id: "test0".parse().unwrap() })
+            .get(
+                &TrieKey::Account { account_id: "test0".parse().unwrap() },
+                OperationOptions::DEFAULT,
+            )
             .unwrap()
             .unwrap()
             .clone();

@@ -118,24 +118,6 @@ impl TrieUpdate {
         Ok(result)
     }
 
-    pub fn get_ref_no_side_effects(
-        &self,
-        key: &TrieKey,
-        mode: KeyLookupMode,
-    ) -> Result<Option<TrieUpdateValuePtr<'_>>, StorageError> {
-        let key = key.to_vec();
-        if let Some(value_ref) = self.get_ref_from_updates(&key) {
-            return Ok(value_ref);
-        }
-
-        let result = self
-            .trie
-            .get_optimized_ref_no_side_effects(&key, mode)?
-            .map(|optimized_value_ref| TrieUpdateValuePtr::Ref(&self.trie, optimized_value_ref));
-
-        Ok(result)
-    }
-
     fn get_ref_from_updates(&self, key: &[u8]) -> Option<Option<TrieUpdateValuePtr<'_>>> {
         if let Some(key_value) = self.prospective.get(key) {
             return Some(key_value.value.as_deref().map(TrieUpdateValuePtr::MemoryRef));
@@ -147,7 +129,11 @@ impl TrieUpdate {
         None
     }
 
-    pub fn contains_key(&self, key: &TrieKey) -> Result<bool, StorageError> {
+    pub fn contains_key(
+        &self,
+        key: &TrieKey,
+        opts: OperationOptions,
+    ) -> Result<bool, StorageError> {
         let key = key.to_vec();
         if self.prospective.contains_key(&key) {
             return Ok(true);
@@ -156,7 +142,7 @@ impl TrieUpdate {
                 return Ok(data.is_some());
             }
         }
-        self.trie.contains_key(&key)
+        self.trie.contains_key(&key, opts)
     }
 
     pub fn set(&mut self, trie_key: TrieKey, value: Vec<u8>) {
@@ -189,7 +175,8 @@ impl TrieUpdate {
         code_hash: CryptoHash,
     ) -> Result<Option<ContractCode>, StorageError> {
         let key = TrieKey::ContractCode { account_id };
-        self.get(&key).map(|opt| opt.map(|code| ContractCode::new(code, Some(code_hash))))
+        self.get(&key, OperationOptions::DEFAULT)
+            .map(|opt| opt.map(|code| ContractCode::new(code, Some(code_hash))))
     }
 
     /// Returns the size (in num bytes) of the contract code for the given account.
@@ -363,7 +350,11 @@ impl TrieUpdate {
         };
         let contract_ref = self
             .trie
-            .get_optimized_ref_no_side_effects(&trie_key.to_vec(), KeyLookupMode::MemOrFlatOrTrie)
+            .get_optimized_ref(
+                &trie_key.to_vec(),
+                KeyLookupMode::MemOrFlatOrTrie,
+                OperationOptions::NO_SIDE_EFFECTS,
+            )
             .or_else(|err| {
                 // If the value for the trie key is not found, we treat it as if the contract does not exist.
                 // In this case, we ignore the error and skip recording the contract call below.
@@ -383,16 +374,12 @@ impl TrieUpdate {
 }
 
 impl TrieAccess for TrieUpdate {
-    fn get(&self, key: &TrieKey) -> Result<Option<Vec<u8>>, StorageError> {
-        self.get_from_updates(key, |_| TrieAccess::get(&self.trie, key))
+    fn get(&self, key: &TrieKey, opts: OperationOptions) -> Result<Option<Vec<u8>>, StorageError> {
+        self.get_from_updates(key, |_| TrieAccess::get(&self.trie, key, opts))
     }
 
-    fn get_no_side_effects(&self, key: &TrieKey) -> Result<Option<Vec<u8>>, StorageError> {
-        self.get_from_updates(key, |_| TrieAccess::get_no_side_effects(&self.trie, key))
-    }
-
-    fn contains_key(&self, key: &TrieKey) -> Result<bool, StorageError> {
-        TrieUpdate::contains_key(&self, key)
+    fn contains_key(&self, key: &TrieKey, opts: OperationOptions) -> Result<bool, StorageError> {
+        TrieUpdate::contains_key(&self, key, opts)
     }
 }
 
@@ -427,7 +414,10 @@ mod tests {
         let new_root = tries.apply_all(&trie_changes, shard_uid, &mut store_update);
         store_update.commit().unwrap();
         let trie_update2 = tries.new_trie_update(shard_uid, new_root);
-        assert_eq!(trie_update2.get(&test_key(b"dog".to_vec())), Ok(Some(b"puppy".to_vec())));
+        assert_eq!(
+            trie_update2.get(&test_key(b"dog".to_vec()), OperationOptions::DEFAULT),
+            Ok(Some(b"puppy".to_vec()))
+        );
         let values = trie_update2
             .iter(&test_key(b"dog".to_vec()).to_vec())
             .unwrap()
