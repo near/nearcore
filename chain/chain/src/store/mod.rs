@@ -504,30 +504,26 @@ impl ChainStore {
     ) -> Result<Vec<bool>, Error> {
         let relaxed_chunk_validation =
             ProtocolFeature::RelaxedChunkValidation.enabled(protocol_version);
-        if ProtocolFeature::AccessKeyNonceRange.enabled(protocol_version) {
-            let mut valid_txs = Vec::with_capacity(chunk.transactions().len());
-            if relaxed_chunk_validation {
-                for transaction in chunk.transactions() {
-                    let is_valid = self.check_transaction_validity_period(
-                        prev_block_header,
-                        transaction.transaction.block_hash(),
-                    );
-                    valid_txs.push(is_valid.is_ok());
-                }
-            } else {
-                for transaction in chunk.transactions() {
-                    self.check_transaction_validity_period(
-                        prev_block_header,
-                        transaction.transaction.block_hash(),
-                    )
-                    .map_err(|_| Error::from(Error::InvalidTransactions))?;
-                    valid_txs.push(true);
-                }
+        let mut valid_txs = Vec::with_capacity(chunk.transactions().len());
+        if relaxed_chunk_validation {
+            for transaction in chunk.transactions() {
+                let is_valid = self.check_transaction_validity_period(
+                    prev_block_header,
+                    transaction.transaction.block_hash(),
+                );
+                valid_txs.push(is_valid.is_ok());
             }
-            Ok(valid_txs)
         } else {
-            Ok(vec![true; chunk.transactions().len()])
+            for transaction in chunk.transactions() {
+                self.check_transaction_validity_period(
+                    prev_block_header,
+                    transaction.transaction.block_hash(),
+                )
+                .map_err(|_| Error::from(Error::InvalidTransactions))?;
+                valid_txs.push(true);
+            }
         }
+        Ok(valid_txs)
     }
 }
 

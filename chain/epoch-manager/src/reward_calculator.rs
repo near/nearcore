@@ -71,23 +71,13 @@ impl RewardCalculator {
         } else {
             self.protocol_reward_rate
         };
-        let epoch_total_reward: u128 =
-            if ProtocolFeature::RectifyInflation.enabled(protocol_version) {
-                (U256::from(*max_inflation_rate.numer() as u64)
-                    * U256::from(total_supply)
-                    * U256::from(epoch_duration)
-                    / (U256::from(self.num_seconds_per_year)
-                        * U256::from(*max_inflation_rate.denom() as u64)
-                        * U256::from(NUM_NS_IN_SECOND)))
-                .as_u128()
-            } else {
-                (U256::from(*max_inflation_rate.numer() as u64)
-                    * U256::from(total_supply)
-                    * U256::from(self.epoch_length)
-                    / (U256::from(self.num_blocks_per_year)
-                        * U256::from(*max_inflation_rate.denom() as u64)))
-                .as_u128()
-            };
+        let epoch_total_reward: u128 = (U256::from(*max_inflation_rate.numer() as u64)
+            * U256::from(total_supply)
+            * U256::from(epoch_duration)
+            / (U256::from(self.num_seconds_per_year)
+                * U256::from(*max_inflation_rate.denom() as u64)
+                * U256::from(NUM_NS_IN_SECOND)))
+        .as_u128();
         let epoch_protocol_treasury = (U256::from(epoch_total_reward)
             * U256::from(*protocol_reward_rate.numer() as u64)
             / U256::from(*protocol_reward_rate.denom() as u64))
