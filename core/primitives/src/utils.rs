@@ -336,7 +336,6 @@ fn create_hash_upgradable(
     hash(&bytes)
 }
 
-/// Deprecated. Please use `create_hash_upgradable`
 pub fn index_to_bytes(index: u64) -> [u8; 8] {
     index.to_le_bytes()
 }

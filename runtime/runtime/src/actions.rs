@@ -724,7 +724,6 @@ pub(crate) fn action_delete_key(
     result: &mut ActionResult,
     account_id: &AccountId,
     delete_key: &DeleteKeyAction,
-    _current_protocol_version: ProtocolVersion,
 ) -> Result<(), StorageError> {
     let access_key = get_access_key(state_update, account_id, &delete_key.public_key)?;
     if let Some(access_key) = access_key {
