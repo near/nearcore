@@ -43,13 +43,10 @@ pub enum ProtocolFeature {
     _DeprecatedEnableInflation,
     /// Fix upgrade to use the latest voted protocol version instead of the current epoch protocol
     /// version when there is no new change in protocol version
-    /// @deprecated This feature is deprecated and always enabled for protocol version >= 41
     _DeprecatedUpgradabilityFix,
     /// Updates the way receipt ID, data ID and random seeds are constructed
-    /// @deprecated This feature is deprecated and always enabled for protocol version >= 41
     _DeprecatedCreateHash,
     /// Fix the storage usage of the delete key action
-    /// @deprecated This feature is deprecated and always enabled for protocol version >= 41
     _DeprecatedDeleteKeyStorageUsage,
     /// Upgrade for shard chunk header
     ShardChunkHeaderUpgrade,

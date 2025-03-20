@@ -64,7 +64,6 @@ pub(crate) fn execute_function_call(
         vec![]
     };
     let random_seed = near_primitives::utils::create_random_seed(
-        apply_state.current_protocol_version,
         *action_hash,
         apply_state.random_seed,
     );
@@ -1423,7 +1422,7 @@ mod tests {
             block_timestamp: 1,
             gas_limit: None,
             random_seed: CryptoHash::default(),
-            current_protocol_version: 1, // This is a test value, not related to the deprecated features
+            current_protocol_version: 1,
             config: Arc::new(RuntimeConfig::test()),
             cache: None,
             is_new_chunk: false,
