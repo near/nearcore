@@ -1641,10 +1641,15 @@ impl Runtime {
         let apply_state = &mut processing_state.apply_state;
         let state_update = &mut processing_state.state_update;
 
+        let signed_txs = processing_state
+            .transactions
+            .iter_nonexpired_transactions()
+            .cloned()
+            .collect::<Vec<_>>();
         for (signed_transaction, maybe_cost) in Self::parallel_validate_transactions(
             &apply_state.config,
             apply_state.gas_price,
-            &processing_state.transactions.transactions,
+            &signed_txs[..],
             apply_state.current_protocol_version,
         ) {
             let tx_hash = signed_transaction.get_hash();
@@ -2586,7 +2591,8 @@ impl<'a> ApplyProcessingState<'a> {
 
 #[derive(Clone, Copy)]
 pub struct SignedValidPeriodTransactions<'a> {
-    transactions: &'a [SignedTransaction],
+    /// Use `iter_nonexpired_transactions` instead.
+    you_dont_want_to_use_this_field_transactions: &'a [SignedTransaction],
     /// List of the transactions that are valid and should be processed by `apply`.
     ///
     /// This list is exactly the length of the corresponding `Self::transactions` field. Element at
@@ -2602,7 +2608,10 @@ pub struct SignedValidPeriodTransactions<'a> {
 impl<'a> SignedValidPeriodTransactions<'a> {
     pub fn new(transactions: &'a [SignedTransaction], validity_check_results: &'a [bool]) -> Self {
         assert_eq!(transactions.len(), validity_check_results.len());
-        Self { transactions, transaction_validity_check_passed: validity_check_results }
+        Self {
+            you_dont_want_to_use_this_field_transactions: transactions,
+            transaction_validity_check_passed: validity_check_results,
+        }
     }
 
     pub fn empty() -> Self {
@@ -2610,14 +2619,14 @@ impl<'a> SignedValidPeriodTransactions<'a> {
     }
 
     pub fn iter_nonexpired_transactions(&self) -> impl Iterator<Item = &'a SignedTransaction> {
-        self.transactions
+        self.you_dont_want_to_use_this_field_transactions
             .into_iter()
             .zip(self.transaction_validity_check_passed.into_iter())
             .filter_map(|(t, v)| v.then_some(t))
     }
 
     pub fn len(&self) -> usize {
-        self.transactions.len()
+        self.you_dont_want_to_use_this_field_transactions.len()
     }
 }
 
