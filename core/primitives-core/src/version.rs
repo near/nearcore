@@ -18,7 +18,7 @@ pub enum ProtocolFeature {
     /// Don't process any receipts for shard when chunk is not present.
     /// Always use gas price computed in the previous block.
     FixApplyChunks,
-    LowerStorageCost,
+    _DeprecateLowerStorageCost,
     DeleteActionRestriction,
     /// Add versions to `Account` data structure
     AccountVersions,
@@ -231,8 +231,7 @@ impl ProtocolFeature {
             ProtocolFeature::_DeprecatedCreateHash => 38,
             ProtocolFeature::_DeprecatedDeleteKeyStorageUsage => 40,
             ProtocolFeature::_DeprecatedShardChunkHeaderUpgrade => 41,
-            ProtocolFeature::_DeprecatedCreateReceiptIdSwitchToCurrentBlock => 42,
-            ProtocolFeature::LowerStorageCost => 42,
+            ProtocolFeature::_DeprecatedCreateReceiptIdSwitchToCurrentBlock | ProtocolFeature::_DeprecateLowerStorageCost => 42,
             ProtocolFeature::DeleteActionRestriction => 43,
             ProtocolFeature::FixApplyChunks => 44,
             ProtocolFeature::RectifyInflation | ProtocolFeature::AccessKeyNonceRange => 45,
