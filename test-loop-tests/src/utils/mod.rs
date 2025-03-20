@@ -39,6 +39,7 @@ pub(crate) fn get_node_head_height(
     get_node_client(env, client_account_id).chain.head().unwrap().height
 }
 
+#[allow(dead_code)]
 pub(crate) fn run_until_node_head_height(
     env: &mut TestLoopEnv,
     client_account_id: &AccountId,
