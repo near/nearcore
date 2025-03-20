@@ -60,7 +60,7 @@ near-dump-test-contract.workspace = true
 
 [build-dependencies]
 anyhow.workspace = true
-rustc_version = "0.4"
+rustc_version = { workspace = true }
 
 [features]
 default = ["json_rpc", "rosetta_rpc"]

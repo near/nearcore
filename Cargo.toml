@@ -424,6 +424,7 @@ yansi = "0.5.1"
 zstd = "0.13.1"
 
 stdx = { package = "near-stdx", path = "utils/stdx" }
+rustc_version = "0.4"
 
 [patch.crates-io]
 protobuf = { git = "https://github.com/near/rust-protobuf.git", branch = "3.0.2-patch" }
