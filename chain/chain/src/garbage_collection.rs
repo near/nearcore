@@ -825,6 +825,8 @@ impl<'a> ChainStoreUpdate<'a> {
             self.gc_outgoing_receipts(&block_hash, shard_id);
             self.gc_col(DBCol::IncomingReceipts, &block_shard_id);
 
+            self.gc_col(DBCol::StateTransitionData, &block_shard_id);
+
             // delete DBCol::ChunkExtra based on shard_uid since it's indexed by shard_uid in the storage
             self.gc_col(DBCol::ChunkExtra, &block_shard_id);
 
