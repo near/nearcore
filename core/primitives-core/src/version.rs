@@ -11,10 +11,10 @@ use crate::types::ProtocolVersion;
 pub enum ProtocolFeature {
     // stable features
     _DeprecatedImplicitAccountCreation,
-    RectifyInflation,
+    _DeprecatedRectifyInflation,
     /// Add `AccessKey` nonce range by setting nonce to `(block_height - 1) * 1e6`, see
     /// <https://github.com/near/nearcore/issues/3779>.
-    AccessKeyNonceRange,
+    _DeprecatedAccessKeyNonceRange,
     /// Don't process any receipts for shard when chunk is not present.
     /// Always use gas price computed in the previous block.
     _DeprecatedFixApplyChunks,
@@ -234,7 +234,7 @@ impl ProtocolFeature {
             ProtocolFeature::_DeprecatedCreateReceiptIdSwitchToCurrentBlock | ProtocolFeature::_DeprecatedLowerStorageCost => 42,
             ProtocolFeature::_DeprecatedDeleteActionRestriction => 43,
             ProtocolFeature::_DeprecatedFixApplyChunks => 44,
-            ProtocolFeature::RectifyInflation | ProtocolFeature::AccessKeyNonceRange => 45,
+            ProtocolFeature::_DeprecatedRectifyInflation | ProtocolFeature::_DeprecatedAccessKeyNonceRange => 45,
             ProtocolFeature::AccountVersions
             | ProtocolFeature::TransactionSizeLimit
             | ProtocolFeature::FixStorageUsage
@@ -319,7 +319,7 @@ impl ProtocolFeature {
 pub const PROD_GENESIS_PROTOCOL_VERSION: ProtocolVersion = 29;
 
 /// Minimum supported protocol version for the current binary
-pub const MIN_SUPPORTED_PROTOCOL_VERSION: ProtocolVersion = 45;
+pub const MIN_SUPPORTED_PROTOCOL_VERSION: ProtocolVersion = 46;
 
 /// Current protocol version used on the mainnet with all stable features.
 const STABLE_PROTOCOL_VERSION: ProtocolVersion = 77;
