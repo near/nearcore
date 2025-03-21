@@ -1386,7 +1386,7 @@ impl Runtime {
         state_update: &mut TrieUpdate,
         migration_flags: &MigrationFlags,
         protocol_version: ProtocolVersion,
-    ) -> Result<(Gas, Vec<Receipt>), StorageError> {
+    ) -> Result<(), StorageError> {
         // Remove the only testnet account with large storage key.
         if ProtocolFeature::RemoveAccountWithLongStorageKey.protocol_version() == protocol_version
             && migration_flags.is_first_block_with_chunk_of_version
@@ -1398,7 +1398,7 @@ impl Runtime {
             }
         }
 
-        Ok((0, vec![]))
+        Ok(())
     }
 
     /// Applies new signed transactions and incoming receipts for some chunk/shard on top of
@@ -1467,14 +1467,12 @@ impl Runtime {
         }
 
         // Step 2: apply migrations.
-        let (gas_used_for_migrations, mut receipts_to_restore) = self
-            .apply_migrations(
-                &mut processing_state.state_update,
-                &apply_state.migration_flags,
-                processing_state.protocol_version,
-            )
-            .map_err(RuntimeError::StorageError)?;
-        processing_state.total.add(gas_used_for_migrations, gas_used_for_migrations)?;
+        self.apply_migrations(
+            &mut processing_state.state_update,
+            &apply_state.migration_flags,
+            processing_state.protocol_version,
+        )
+        .map_err(RuntimeError::StorageError)?;
 
         let delayed_receipts = DelayedReceiptQueueWrapper::new(
             DelayedReceiptQueue::load(&processing_state.state_update)?,
@@ -1502,14 +1500,6 @@ impl Runtime {
                 &bandwidth_scheduler_output,
             );
         }
-
-        // If we have receipts that need to be restored, prepend them to the list of incoming receipts
-        let incoming_receipts = if receipts_to_restore.is_empty() {
-            incoming_receipts
-        } else {
-            receipts_to_restore.extend_from_slice(incoming_receipts);
-            receipts_to_restore.as_slice()
-        };
 
         let mut processing_state =
             processing_state.into_processing_receipt_state(incoming_receipts, delayed_receipts);
