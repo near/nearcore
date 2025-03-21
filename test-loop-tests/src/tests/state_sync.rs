@@ -17,7 +17,7 @@ use near_primitives::types::{
 };
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 
-use crate::setup::builder::TestLoopBuilder;
+use crate::setup::builder::{NodeStateBuilder, TestLoopBuilder};
 use crate::setup::drop_condition::DropCondition;
 use crate::setup::env::TestLoopEnv;
 use crate::setup::state::NodeExecutionData;
@@ -28,7 +28,9 @@ use itertools::Itertools;
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
-const EPOCH_LENGTH: BlockHeightDelta = 40;
+const GENESIS_HEIGHT: BlockHeight = 10000;
+
+const EPOCH_LENGTH: BlockHeightDelta = 10;
 
 fn get_boundary_accounts(num_shards: usize) -> Vec<String> {
     if num_shards > 27 {
@@ -75,6 +77,19 @@ struct TestState {
     skip_block_height: Option<BlockHeight>,
 }
 
+fn sync_height() -> BlockHeight {
+    // It would probably be better not to rely on this height calculation, since that makes
+    // some assumptions about the state sync protocol that ideally tests wouldn't make. In the future
+    // it would be nice to modify `drop_blocks_by_height()` to allow for more complex logic to decide
+    // whether to drop the block, and be more robust to state sync protocol changes. But for now this
+    // will trigger the behavior we want and it's quite a bit easier.
+    if ProtocolFeature::CurrentEpochStateSync.enabled(PROTOCOL_VERSION) {
+        GENESIS_HEIGHT + EPOCH_LENGTH + 4
+    } else {
+        GENESIS_HEIGHT + EPOCH_LENGTH + 1
+    }
+}
+
 fn setup_initial_blockchain(
     num_validators: usize,
     num_block_producer_seats: usize,
@@ -119,8 +134,6 @@ fn setup_initial_blockchain(
     let accounts =
         if generate_shard_accounts { Some(generate_accounts(&boundary_accounts)) } else { None };
 
-    let epoch_length = 10;
-    let genesis_height = 10000;
     let shard_layout =
         ShardLayout::simple_v1(&boundary_accounts.iter().map(|s| s.as_str()).collect::<Vec<_>>());
     let validators_spec = ValidatorsSpec::raw(
@@ -133,8 +146,8 @@ fn setup_initial_blockchain(
     let mut genesis_builder = TestGenesisBuilder::new()
         .genesis_time_from_clock(&builder.clock())
         .protocol_version(PROTOCOL_VERSION)
-        .genesis_height(genesis_height)
-        .epoch_length(epoch_length)
+        .genesis_height(GENESIS_HEIGHT)
+        .epoch_length(EPOCH_LENGTH)
         .shard_layout(shard_layout.clone())
         .transaction_validity_period(1000)
         .validators_spec(validators_spec.clone());
@@ -149,7 +162,7 @@ fn setup_initial_blockchain(
     let genesis = genesis_builder.build();
 
     let epoch_config = TestEpochConfigBuilder::new()
-        .epoch_length(epoch_length)
+        .epoch_length(EPOCH_LENGTH)
         .shard_layout(shard_layout)
         .validators_spec(validators_spec)
         // shuffle the shard assignment so that nodes will have to state sync to catch up future tracked shards.
@@ -164,16 +177,7 @@ fn setup_initial_blockchain(
         builder.genesis(genesis).epoch_config_store(epoch_config_store).clients(clients).build();
 
     let skip_block_height = if let Some(delta) = skip_block_sync_height_delta {
-        // It would probably be better not to rely on this height calculation, since that makes
-        // some assumptions about the state sync protocol that ideally tests wouldn't make. In the future
-        // it would be nice to modify `drop_blocks_by_height()` to allow for more complex logic to decide
-        // whether to drop the block, and be more robust to state sync protocol changes. But for now this
-        // will trigger the behavior we want and it's quite a bit easier.
-        let sync_height = if ProtocolFeature::CurrentEpochStateSync.enabled(PROTOCOL_VERSION) {
-            genesis_height + epoch_length + 4
-        } else {
-            genesis_height + epoch_length + 1
-        };
+        let sync_height = sync_height();
         let height = if delta >= 0 {
             sync_height.saturating_add(delta as BlockHeight)
         } else {
@@ -310,7 +314,7 @@ fn produce_chunks(
                     .map(|test_data| &data.get(&test_data.client_sender.actor_handle()).client)
                     .collect_vec();
                 let new_tip = get_smallest_height_head(&clients);
-                new_tip.height != tip.height
+                new_tip.height > tip.height
             },
             timeout,
         );
@@ -367,6 +371,48 @@ fn run_test(state: TestState) {
     );
 
     produce_chunks(&mut env, accounts, skip_block_height);
+
+    env.shutdown_and_drain_remaining_events(Duration::seconds(3));
+}
+
+fn run_test_with_added_node(state: TestState, add_node_after_height: u64) {
+    let TestState { mut env, mut accounts, skip_block_height } = state;
+    let handle = env.node_datas[0].client_sender.actor_handle();
+    let client = &env.test_loop.data.get(&handle).client;
+    let timeout = client.config.min_block_production_delay
+        * u32::try_from(add_node_after_height).unwrap_or(u32::MAX)
+        + Duration::seconds(2);
+
+    if let Some(accounts) = accounts.as_mut() {
+        send_txs_between_shards(&mut env.test_loop, &env.node_datas, accounts);
+    }
+
+    env.test_loop.run_until(
+        |data| {
+            let handle = env.node_datas[0].client_sender.actor_handle();
+            let client = &data.get(&handle).client;
+            let tip = client.chain.head().unwrap();
+            tip.height >= add_node_after_height
+        },
+        timeout,
+    );
+
+    // Add new node which will sync from scratch.
+    let genesis = env.shared_state.genesis.clone();
+    let tempdir_path = env.shared_state.tempdir.path().to_path_buf();
+    let account_id: AccountId = "sync-from-scratch".parse().unwrap();
+    let new_node_state = NodeStateBuilder::new(genesis, tempdir_path)
+        .account_id(account_id.clone())
+        .config_modifier(move |config| {
+            // Lower the threshold at which state sync is chosen over block sync
+            config.block_fetch_horizon = 5;
+            config.tracked_shards = vec![ShardId::new(0)];
+        })
+        .build();
+    env.add_node(account_id.as_str(), new_node_state);
+
+    produce_chunks(&mut env, accounts.clone(), skip_block_height);
+
     env.shutdown_and_drain_remaining_events(Duration::seconds(3));
 }
 
@@ -669,6 +715,38 @@ fn slow_test_state_sync_fork_before_sync() {
         &params.extra_node_shard_schedule,
     );
     run_test(state);
+}
+
+#[test]
+fn slow_test_state_sync_fork_before_sync_add_node() {
+    init_test_logger();
+
+    let params = StateSyncTest {
+        num_validators: 6,
+        num_block_producer_seats: 6,
+        num_chunk_producer_seats: 4,
+        num_shards: 5,
+        generate_shard_accounts: true,
+        chunks_produced: &[],
+        skip_block_sync_height_delta: Some(-1),
+        extra_node_shard_schedule: None,
+    };
+    let state = setup_initial_blockchain(
+        params.num_validators,
+        params.num_block_producer_seats,
+        params.num_chunk_producer_seats,
+        params.num_shards,
+        params.generate_shard_accounts,
+        params
+            .chunks_produced
+            .iter()
+            .map(|(shard_id, produced)| (*shard_id, produced.to_vec()))
+            .collect(),
+        params.skip_block_sync_height_delta,
+        &params.extra_node_shard_schedule,
+    );
+
+    run_test_with_added_node(state, sync_height() + 3);
 }
 
 fn await_sync_hash(env: &mut TestLoopEnv) -> CryptoHash {
