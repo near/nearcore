@@ -433,16 +433,16 @@ pub fn inject_gas_counter<R: Rules>(
     gas_module_name: &str,
 ) -> Result<elements::Module, elements::Module> {
     // Injecting gas counting external
-    let mut mbuilder = builder::from_module(module);
+    let mut model_builder = builder::from_module(module);
     let import_sig =
-        mbuilder.push_signature(builder::signature().with_param(ValueType::I32).build_sig());
+        model_builder.push_signature(builder::signature().with_param(ValueType::I32).build_sig());
 
-    mbuilder.push_import(
+    model_builder.push_import(
         builder::import().module(gas_module_name).field("gas").external().func(import_sig).build(),
     );
 
     // back to plain module
-    let mut module = mbuilder.build();
+    let mut module = model_builder.build();
 
     // calculate actual function index of the imported definition
     //    (subtract all imports that are NOT functions)
