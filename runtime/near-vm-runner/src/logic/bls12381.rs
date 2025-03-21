@@ -1,3 +1,5 @@
+// cspell:ignore bendian, blst, cneg
+
 use crate::logic::{HostError, VMLogicError};
 use std::ptr::null;
 
