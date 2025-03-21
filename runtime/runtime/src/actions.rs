@@ -757,19 +757,11 @@ pub(crate) fn action_add_key(
         .into());
         return Ok(());
     }
-    if ProtocolFeature::AccessKeyNonceRange.enabled(apply_state.current_protocol_version) {
-        let mut access_key = add_key.access_key.clone();
-        access_key.nonce = (apply_state.block_height - 1)
-            * near_primitives::account::AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER;
-        set_access_key(state_update, account_id.clone(), add_key.public_key.clone(), &access_key);
-    } else {
-        set_access_key(
-            state_update,
-            account_id.clone(),
-            add_key.public_key.clone(),
-            &add_key.access_key,
-        );
-    };
+    let mut access_key = add_key.access_key.clone();
+    access_key.nonce = (apply_state.block_height - 1)
+        * near_primitives::account::AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER;
+    set_access_key(state_update, account_id.clone(), add_key.public_key.clone(), &access_key);
+
     let storage_config = &apply_state.config.fees.storage_usage_config;
     account.set_storage_usage(
         account
