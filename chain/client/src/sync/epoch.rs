@@ -14,12 +14,13 @@ use near_network::types::{
     HighestHeightPeerInfo, NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest,
 };
 use near_performance_metrics_macros::perf;
-use near_primitives::block::{Approval, ApprovalInner};
+use near_primitives::block::{Approval, ApprovalInner, compute_bp_hash_from_validator_stakes};
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::epoch_info::EpochInfo;
 use near_primitives::epoch_sync::{
     CompressedEpochSyncProof, EpochSyncProof, EpochSyncProofCurrentEpochData,
     EpochSyncProofEpochData, EpochSyncProofLastEpochData, EpochSyncProofV1,
+    should_use_versioned_bp_hash_format,
 };
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
@@ -28,7 +29,6 @@ use near_primitives::types::{
     AccountId, ApprovalStake, Balance, BlockHeight, BlockHeightDelta, EpochId,
 };
 use near_primitives::utils::compression::CompressedData;
-use near_primitives::version::ProtocolFeature;
 use near_store::Store;
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use rand::seq::SliceRandom;
@@ -389,11 +389,12 @@ impl EpochSync {
                         &this_epoch_block_producers,
                         &next_epoch_block_producers,
                     );
+                let use_versioned_bp_hash_format =
+                    should_use_versioned_bp_hash_format(prev_epoch_info.protocol_version());
 
                 Ok(EpochSyncProofEpochData {
                     block_producers: Self::get_epoch_info_block_producers(epoch_info),
-                    use_versioned_bp_hash_format: ProtocolFeature::BlockHeaderV3
-                        .enabled(prev_epoch_info.protocol_version()),
+                    use_versioned_bp_hash_format,
                     last_final_block_header,
                     this_epoch_endorsements_for_last_final_block:
                         approvals_for_this_epoch_block_producers,
@@ -794,6 +795,7 @@ impl EpochSync {
 
         Ok(())
     }
+
     /// Verifies that EpochSyncProofPastEpochData's block_producers is valid,
     /// returning true if it is.
     fn verify_block_producer_handoff(
@@ -801,10 +803,8 @@ impl EpochSync {
         use_versioned_bp_hash_format: bool,
         prev_epoch_next_bp_hash: &CryptoHash,
     ) -> Result<bool, Error> {
-        let bp_hash = Chain::compute_bp_hash_from_validator_stakes(
-            block_producers,
-            use_versioned_bp_hash_format,
-        )?;
+        let bp_hash =
+            compute_bp_hash_from_validator_stakes(block_producers, use_versioned_bp_hash_format);
         Ok(bp_hash == *prev_epoch_next_bp_hash)
     }
 
