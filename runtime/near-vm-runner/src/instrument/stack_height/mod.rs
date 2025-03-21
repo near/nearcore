@@ -49,6 +49,9 @@
 //!   between the frames.
 //! - upon entry into the function entire stack frame is allocated.
 
+// cspell:words postamble
+// cspell:ignore Wabt
+
 use parity_wasm::{
     builder,
     elements::{self, Instruction, Instructions, Type},

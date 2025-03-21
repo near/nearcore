@@ -8,6 +8,8 @@
 //! searching through all paths, which may take exponential time in the size of the function body in
 //! the worst case.
 
+// cspell:words Binaryen
+
 use super::MeteredBlock;
 use super::rules::Rules;
 use super::rules::Set as RuleSet;

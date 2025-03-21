@@ -63,7 +63,7 @@ pub(crate) fn generate_thunks(
     // Save current func_idx
     let mut next_func_idx = module.functions_space() as u32;
 
-    let mut mbuilder = builder::from_module(module);
+    let mut module_builder = builder::from_module(module);
     for (func_idx, thunk) in replacement_map.iter_mut() {
         let instrumented_call = instrument_call!(
             *func_idx,
@@ -86,7 +86,7 @@ pub(crate) fn generate_thunks(
 
         // TODO: Don't generate a signature, but find an existing one.
 
-        mbuilder = mbuilder
+        module_builder = module_builder
             .function()
             // Signature of the thunk should match the original function signature.
             .signature()
@@ -101,7 +101,7 @@ pub(crate) fn generate_thunks(
         thunk.idx = Some(next_func_idx);
         next_func_idx += 1;
     }
-    let mut module = mbuilder.build();
+    let mut module = module_builder.build();
 
     // And finally, fixup thunks in export and table sections.
 
