@@ -733,20 +733,29 @@ pub fn display_sync_status(
                 current_height
             )
         }
-        SyncStatus::BlockSync { start_height, current_height, highest_height } => {
-            let percent = if highest_height <= start_height {
-                0.0
+        SyncStatus::BlockSync {
+            start_height,
+            current_height,
+            highest_height,
+            blocks_requested,
+        } => {
+            if !blocks_requested {
+                format!("#{:>8} Waiting for block sync to start", head.height)
             } else {
-                ((current_height - start_height) * 100) as f64
-                    / ((highest_height - start_height) as f64)
-            };
-            format!(
-                "#{:>8} Downloading blocks {:.2}% ({} left; at {})",
-                head.height,
-                percent,
-                highest_height - current_height,
-                current_height
-            )
+                let percent = if highest_height <= start_height {
+                    0.0
+                } else {
+                    ((current_height - start_height) * 100) as f64
+                        / ((highest_height - start_height) as f64)
+                };
+                format!(
+                    "#{:>8} Downloading blocks {:.2}% ({} left; at {})",
+                    head.height,
+                    percent,
+                    highest_height - current_height,
+                    current_height
+                )
+            }
         }
         SyncStatus::StateSync(StateSyncStatus {
             sync_hash,

@@ -147,6 +147,8 @@ pub enum SyncStatus {
         current_height: BlockHeight,
         /// Highest height of our peers.
         highest_height: BlockHeight,
+        /// Flag indicating whether block sync has actually started.
+        blocks_requested: bool,
     },
 }
 
@@ -223,9 +225,17 @@ impl From<SyncStatus> for SyncStatusView {
                 })
             }
             SyncStatus::StateSyncDone => SyncStatusView::StateSyncDone,
-            SyncStatus::BlockSync { start_height, current_height, highest_height } => {
-                SyncStatusView::BlockSync { start_height, current_height, highest_height }
-            }
+            SyncStatus::BlockSync {
+                start_height,
+                current_height,
+                highest_height,
+                blocks_requested,
+            } => SyncStatusView::BlockSync {
+                start_height,
+                current_height,
+                highest_height,
+                blocks_requested,
+            },
         }
     }
 }
