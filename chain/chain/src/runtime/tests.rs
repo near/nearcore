@@ -8,9 +8,7 @@ use near_chain_configs::test_utils::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use near_epoch_manager::EpochManager;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_epoch_manager::shard_tracker::ShardTracker;
-use near_pool::{
-    InsertTransactionResult, PoolIteratorWrapper, TransactionGroupIteratorWrapper, TransactionPool,
-};
+use near_pool::{InsertTransactionResult, PoolIteratorWrapper, TransactionPool};
 use near_primitives::action::FunctionCallAction;
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
@@ -1645,7 +1643,6 @@ fn prepare_transactions(
         PrepareTransactionsChunkContext {
             shard_id,
             gas_limit: env.runtime.genesis_config.gas_limit,
-            last_chunk_transactions_size: 0,
         },
         PrepareTransactionsBlockContext {
             next_gas_price: env.runtime.genesis_config.min_gas_price,
@@ -1662,50 +1659,6 @@ fn prepare_transactions(
         },
         default_produce_chunk_add_transactions_time_limit(),
     )
-}
-
-/// Check that transactions validation works the same when using recorded storage proof instead of db.
-#[test]
-fn test_prepare_transactions_storage_proof() {
-    let (env, chain, mut transaction_pool) = get_test_env_with_chain_and_pool();
-    let transactions_count = transaction_pool.len();
-
-    let storage_config = RuntimeStorageConfig {
-        state_root: env.state_roots[0],
-        use_flat_storage: true,
-        source: StorageDataSource::Db,
-        state_patch: Default::default(),
-    };
-
-    let proposed_transactions = prepare_transactions(
-        &env,
-        &chain,
-        &mut PoolIteratorWrapper::new(&mut transaction_pool),
-        storage_config,
-    )
-    .unwrap();
-
-    assert_eq!(proposed_transactions.transactions.len(), transactions_count);
-    assert!(proposed_transactions.storage_proof.is_some());
-
-    let validator_storage_config = RuntimeStorageConfig {
-        state_root: env.state_roots[0],
-        use_flat_storage: true,
-        source: StorageDataSource::Recorded(PartialStorage {
-            nodes: proposed_transactions.storage_proof.unwrap(),
-        }),
-        state_patch: Default::default(),
-    };
-
-    let validated_transactions = prepare_transactions(
-        &env,
-        &chain,
-        &mut TransactionGroupIteratorWrapper::new(proposed_transactions.transactions.clone()),
-        validator_storage_config,
-    )
-    .unwrap();
-
-    assert_eq!(validated_transactions.transactions, proposed_transactions.transactions);
 }
 
 /// Check that transactions validation fails if provided empty storage proof.
@@ -1730,7 +1683,6 @@ fn test_prepare_transactions_empty_storage_proof() {
     .unwrap();
 
     assert_eq!(proposed_transactions.transactions.len(), transactions_count);
-    assert!(proposed_transactions.storage_proof.is_some());
 
     let validator_storage_config = RuntimeStorageConfig {
         state_root: env.state_roots[0],

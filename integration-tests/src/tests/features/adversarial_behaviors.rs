@@ -369,17 +369,3 @@ fn slow_test_banning_chunk_producer_when_seeing_invalid_chunk() {
     test.env.clients[7].chunk_producer.produce_invalid_chunks = true;
     test_banning_chunk_producer_when_seeing_invalid_chunk_base(test);
 }
-
-#[test]
-#[cfg(feature = "test_features")]
-fn test_banning_chunk_producer_when_seeing_invalid_tx_in_chunk() {
-    let relaxed_chunk_validation =
-        ProtocolFeature::RelaxedChunkValidation.enabled(PROTOCOL_VERSION);
-    if !relaxed_chunk_validation {
-        init_test_logger();
-        let mut test = AdversarialBehaviorTestData::new();
-        test.env.clients[7].chunk_producer.produce_invalid_tx_in_chunks = true;
-        test_banning_chunk_producer_when_seeing_invalid_chunk_base(test);
-    }
-    // Otherwise the chunks aren't considered invalid and there will be no banning.
-}

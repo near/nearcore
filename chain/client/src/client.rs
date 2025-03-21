@@ -1796,7 +1796,6 @@ impl Client {
                         block.header(),
                         &last_header,
                         &shard_chunk,
-                        result.transactions_storage_proof,
                         &Some(signer.clone()),
                     ) {
                         tracing::error!(target: "client", ?err, "Failed to send chunk state witness to chunk validators");
