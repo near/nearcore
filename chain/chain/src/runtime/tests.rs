@@ -1645,7 +1645,6 @@ fn prepare_transactions(
         PrepareTransactionsChunkContext {
             shard_id,
             gas_limit: env.runtime.genesis_config.gas_limit,
-            last_chunk_transactions_size: 0,
         },
         PrepareTransactionsBlockContext {
             next_gas_price: env.runtime.genesis_config.min_gas_price,
@@ -1686,14 +1685,11 @@ fn test_prepare_transactions_storage_proof() {
     .unwrap();
 
     assert_eq!(proposed_transactions.transactions.len(), transactions_count);
-    assert!(proposed_transactions.storage_proof.is_some());
 
     let validator_storage_config = RuntimeStorageConfig {
         state_root: env.state_roots[0],
         use_flat_storage: true,
-        source: StorageDataSource::Recorded(PartialStorage {
-            nodes: proposed_transactions.storage_proof.unwrap(),
-        }),
+        source: StorageDataSource::Recorded(PartialStorage::default()),
         state_patch: Default::default(),
     };
 
@@ -1730,7 +1726,6 @@ fn test_prepare_transactions_empty_storage_proof() {
     .unwrap();
 
     assert_eq!(proposed_transactions.transactions.len(), transactions_count);
-    assert!(proposed_transactions.storage_proof.is_some());
 
     let validator_storage_config = RuntimeStorageConfig {
         state_root: env.state_roots[0],

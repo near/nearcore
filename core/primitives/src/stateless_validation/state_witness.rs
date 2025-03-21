@@ -146,13 +146,10 @@ pub struct ChunkStateWitness {
     /// After these are applied as well, we should arrive at the pre-state-root
     /// of the chunk that this witness is for.
     pub implicit_transitions: Vec<ChunkStateTransition>,
-    /// Finally, we need to be able to verify that the new transitions proposed
-    /// by the chunk (that this witness is for) are valid. For that, we need
-    /// the transactions as well as another partial storage (based on the
-    /// pre-state-root of this chunk) in order to verify that the sender
-    /// accounts have appropriate balances, access keys, nonces, etc.
-    pub new_transactions: Vec<SignedTransaction>,
-    pub new_transactions_validation_state: PartialState,
+    /// The following two field is deprecated and should not be use anymore
+    pub deprecated_new_transactions: Vec<SignedTransaction>,
+    /// The following two field is deprecated and should not be use anymore
+    pub deprecated_new_transactions_validation_state: PartialState,
     // TODO(stateless_validation): Deprecate this field in the next version of the state witness.
     signature_differentiator: SignatureDifferentiator,
 }
@@ -167,8 +164,6 @@ impl ChunkStateWitness {
         applied_receipts_hash: CryptoHash,
         transactions: Vec<SignedTransaction>,
         implicit_transitions: Vec<ChunkStateTransition>,
-        new_transactions: Vec<SignedTransaction>,
-        new_transactions_validation_state: PartialState,
     ) -> Self {
         Self {
             chunk_producer,
@@ -179,9 +174,9 @@ impl ChunkStateWitness {
             applied_receipts_hash,
             transactions,
             implicit_transitions,
-            new_transactions,
-            new_transactions_validation_state,
             signature_differentiator: "ChunkStateWitness".to_owned(),
+            deprecated_new_transactions: vec![],
+            deprecated_new_transactions_validation_state: PartialState::default(),
         }
     }
 
@@ -199,8 +194,6 @@ impl ChunkStateWitness {
             "alice.near".parse().unwrap(),
             EpochId::default(),
             header,
-            Default::default(),
-            Default::default(),
             Default::default(),
             Default::default(),
             Default::default(),

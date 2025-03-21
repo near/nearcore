@@ -1604,28 +1604,6 @@ impl Runtime {
         state_update.commit(StateChangeCause::Migration);
     }
 
-    /// Helper function that checks `RelaxedChunkValidation`. If it is enabled, we log a debug
-    /// message and return `Ok(())` to skip the transaction. Otherwise, we return `Err(e.into())`.
-    fn handle_invalid_transaction<E: std::fmt::Debug + Clone + Into<RuntimeError>>(
-        e: E,
-        tx_hash: &CryptoHash,
-        protocol_version: ProtocolVersion,
-        reason: &str,
-    ) -> Result<(), RuntimeError> {
-        if ProtocolFeature::RelaxedChunkValidation.enabled(protocol_version) {
-            tracing::debug!(
-                target: "runtime",
-                "invalid transaction ignored ({}) => tx_hash: {}, error: {:?}",
-                reason,
-                tx_hash,
-                e
-            );
-            Ok(())
-        } else {
-            Err(e.into())
-        }
-    }
-
     /// Processes a collection of transactions.
     ///
     /// Fills the `processing_state` with local receipts generated during processing of the
@@ -1661,12 +1639,12 @@ impl Runtime {
                     ) {
                         Ok(outcome) => outcome,
                         Err(err) => {
-                            Self::handle_invalid_transaction(
-                                err,
-                                &tx_hash,
-                                processing_state.protocol_version,
-                                "process_transaction error",
-                            )?;
+                            tracing::debug!(
+                                target: "runtime",
+                                "invalid transaction ignored (process_transaction error) => tx_hash: {}, error: {:?}",
+                                tx_hash,
+                                err
+                            );
                             continue;
                         }
                     };
@@ -1690,12 +1668,12 @@ impl Runtime {
                     processing_state.outcomes.push(outcome_with_id);
                 }
                 Err(err) => {
-                    Self::handle_invalid_transaction(
-                        err,
-                        &tx_hash,
-                        processing_state.protocol_version,
-                        "parallel validation error",
-                    )?;
+                    tracing::debug!(
+                        target: "runtime",
+                        "invalid transaction ignored (parallel validation error) => tx_hash: {}, error: {:?}",
+                        tx_hash,
+                        err
+                    );
                 }
             }
         }
