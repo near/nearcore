@@ -17,7 +17,7 @@ pub enum ProtocolFeature {
     AccessKeyNonceRange,
     /// Don't process any receipts for shard when chunk is not present.
     /// Always use gas price computed in the previous block.
-    FixApplyChunks,
+    _DeprecatedFixApplyChunks,
     _DeprecatedLowerStorageCost,
     _DeprecatedDeleteActionRestriction,
     /// Add versions to `Account` data structure
@@ -233,7 +233,7 @@ impl ProtocolFeature {
             ProtocolFeature::_DeprecatedShardChunkHeaderUpgrade => 41,
             ProtocolFeature::_DeprecatedCreateReceiptIdSwitchToCurrentBlock | ProtocolFeature::_DeprecatedLowerStorageCost => 42,
             ProtocolFeature::_DeprecatedDeleteActionRestriction => 43,
-            ProtocolFeature::FixApplyChunks => 44,
+            ProtocolFeature::_DeprecatedFixApplyChunks => 44,
             ProtocolFeature::RectifyInflation | ProtocolFeature::AccessKeyNonceRange => 45,
             ProtocolFeature::AccountVersions
             | ProtocolFeature::TransactionSizeLimit
