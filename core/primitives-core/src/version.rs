@@ -221,7 +221,7 @@ pub enum ProtocolFeature {
     /// should no longer be the first block of the epoch, but a couple blocks after that in order
     /// to sync the current epoch's state. This is not strictly a protocol feature, but is included
     /// here to coordinate among nodes
-    CurrentEpochStateSync,
+    _DeprecatedCurrentEpochStateSync,
     /// Relaxed validation of transactions included in a chunk.
     ///
     /// Chunks no longer become entirely invalid in case invalid transactions are included in the
@@ -268,10 +268,12 @@ impl ProtocolFeature {
             ProtocolFeature::_DeprecatedCreateHash => 38,
             ProtocolFeature::_DeprecatedDeleteKeyStorageUsage => 40,
             ProtocolFeature::_DeprecatedShardChunkHeaderUpgrade => 41,
-            ProtocolFeature::_DeprecatedCreateReceiptIdSwitchToCurrentBlock | ProtocolFeature::_DeprecatedLowerStorageCost => 42,
+            ProtocolFeature::_DeprecatedCreateReceiptIdSwitchToCurrentBlock
+            | ProtocolFeature::_DeprecatedLowerStorageCost => 42,
             ProtocolFeature::_DeprecatedDeleteActionRestriction => 43,
             ProtocolFeature::_DeprecatedFixApplyChunks => 44,
-            ProtocolFeature::_DeprecatedRectifyInflation | ProtocolFeature::_DeprecatedAccessKeyNonceRange => 45,
+            ProtocolFeature::_DeprecatedRectifyInflation
+            | ProtocolFeature::_DeprecatedAccessKeyNonceRange => 45,
             ProtocolFeature::_DeprecatedAccountVersions
             | ProtocolFeature::_DeprecatedTransactionSizeLimit
             | ProtocolFeature::_DeprecatedFixStorageUsage
@@ -326,11 +328,8 @@ impl ProtocolFeature {
             | ProtocolFeature::FixChunkProducerStakingThreshold
             | ProtocolFeature::_DeprecatedRelaxedChunkValidation
             | ProtocolFeature::_DeprecatedRemoveCheckBalance
-            // BandwidthScheduler and CurrentEpochStateSync must be enabled
-            // before ReshardingV3! When releasing this feature please make sure
-            // to schedule separate protocol upgrades for these features.
             | ProtocolFeature::BandwidthScheduler
-            | ProtocolFeature::CurrentEpochStateSync => 74,
+            | ProtocolFeature::_DeprecatedCurrentEpochStateSync => 74,
             ProtocolFeature::SimpleNightshadeV4 => 75,
             ProtocolFeature::SimpleNightshadeV5 => 76,
             ProtocolFeature::GlobalContracts
@@ -372,18 +371,3 @@ pub const PROTOCOL_VERSION: ProtocolVersion =
 /// protocol version is lower than this.
 /// TODO(pugachag): revert back to `- 3` after mainnet is upgraded
 pub const PEER_MIN_ALLOWED_PROTOCOL_VERSION: ProtocolVersion = STABLE_PROTOCOL_VERSION - 4;
-
-#[cfg(test)]
-mod tests {
-    use super::ProtocolFeature;
-
-    #[test]
-    fn test_resharding_dependencies() {
-        let state_sync = ProtocolFeature::CurrentEpochStateSync.protocol_version();
-        let bandwidth_scheduler = ProtocolFeature::BandwidthScheduler.protocol_version();
-        let resharding_v3 = ProtocolFeature::SimpleNightshadeV4.protocol_version();
-
-        assert!(state_sync < resharding_v3);
-        assert!(bandwidth_scheduler < resharding_v3);
-    }
-}

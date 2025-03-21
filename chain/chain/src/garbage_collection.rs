@@ -310,7 +310,11 @@ impl ChainStore {
         if final_block_hash == CryptoHash::default() {
             return Ok(());
         }
-        let final_block = self.get_block(&final_block_hash)?;
+        let Ok(final_block) = self.get_block(&final_block_hash) else {
+            // This can happen if the node just did state sync.
+            tracing::debug!(target: "garbage_collection", ?final_block_hash, "Could not get final block");
+            return Ok(());
+        };
         let final_block_chunk_created_heights: HashMap<_, _> = final_block
             .chunks()
             .iter_raw()
@@ -456,27 +460,13 @@ impl ChainStore {
         // Get header we were syncing into.
         let header = self.get_block_header(&sync_hash)?;
         let prev_hash = *header.prev_hash();
+        let prev_header = self.get_block_header(&prev_hash)?;
         let sync_height = header.height();
-        // TODO(current_epoch_state_sync): fix this when syncing to the current epoch's state
-        // The congestion control added a dependency on the prev block when
-        // applying chunks in a block. This means that we need to keep the
-        // blocks at sync hash, prev hash and prev prev hash. The heigh of that
-        // block is sync_height - 2.
-        let mut gc_height = std::cmp::min(head.height + 1, sync_height - 2);
+        let prev_height = prev_header.height();
 
-        // In case there are missing chunks we need to keep more than just the
-        // sync hash block. The logic below adjusts the gc_height so that every
-        // shard is guaranteed to have at least one new chunk in the blocks
-        // leading to the sync hash block.
-        let prev_block = self.get_block(&prev_hash);
-        if let Ok(prev_block) = prev_block {
-            let min_height_included =
-                prev_block.chunks().iter_deprecated().map(|chunk| chunk.height_included()).min();
-            if let Some(min_height_included) = min_height_included {
-                tracing::debug!(target: "sync", ?min_height_included, ?gc_height, "adjusting gc_height for missing chunks");
-                gc_height = std::cmp::min(gc_height, min_height_included - 1);
-            };
-        }
+        // After state sync we may need a few additional blocks leading up to the sync prev block.
+        // For simplicity we'll GC them and allow state sync to re-download exactly what it needs.
+        let gc_height = std::cmp::min(head.height + 1, prev_height);
 
         // GC all the data from current tail up to `gc_height`. In case tail points to a height where
         // there is no block, we need to make sure that the last block before tail is cleaned.

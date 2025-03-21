@@ -1741,12 +1741,11 @@ impl ClientActorInner {
 
     /// Checks if the node is syncing its State and applies special logic in
     /// that case. A node usually ignores blocks that are too far ahead, but in
-    /// case of a node syncing its state it is looking for 2 specific blocks:
-    /// * The first block of the new epoch
-    /// * The last block of the prev epoch
+    /// case of a node syncing its state it is looking for specific blocks:
     ///
-    /// Additionally if there were missing chunks in the blocks leading to the
-    /// sync hash block we need to store extra blocks.
+    /// - The sync hash block
+    /// - The prev block
+    /// - Extra blocks before the prev block needed for incoming receipts
     ///
     /// Returns whether the node is syncing its state.
     fn maybe_receive_state_sync_blocks(&mut self, block: &Block) -> bool {
@@ -1763,14 +1762,15 @@ impl ClientActorInner {
         let block: MaybeValidated<Block> = (*block).clone().into();
         let block_hash = *block.hash();
 
-        let extra_block_hashes = self.client.chain.get_extra_sync_block_hashes(*header.prev_hash());
-        tracing::trace!(target: "sync", ?extra_block_hashes, "maybe_receive_state_sync_blocks: Extra block hashes for state sync");
-
-        // Notice that two blocks are saved differently:
+        // Notice that the blocks are saved differently:
         // * save_orphan() for the sync hash block
         // * save_block() for the prev block and all the extra blocks
-        // TODO why is that the case? Shouldn't the block without a parent block
-        // be the orphan?
+        //
+        // The sync hash block is saved to the orphan pool where it will
+        // wait to be processed after state sync is completed.
+        //
+        // The other blocks do not need to be processed and are saved
+        // directly to storage.
 
         if block_hash == sync_hash {
             // The first block of the new epoch.
@@ -1796,6 +1796,9 @@ impl ClientActorInner {
             }
             return true;
         }
+
+        let extra_block_hashes = self.client.chain.get_extra_sync_block_hashes(&header.prev_hash());
+        tracing::trace!(target: "sync", ?extra_block_hashes, "maybe_receive_state_sync_blocks: Extra block hashes for state sync");
 
         if extra_block_hashes.contains(&block_hash) {
             if let Err(err) = self.client.chain.validate_block(&block) {
