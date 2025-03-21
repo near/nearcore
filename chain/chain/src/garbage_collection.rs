@@ -300,6 +300,7 @@ impl ChainStore {
         &self,
         epoch_manager: &dyn EpochManagerAdapter,
     ) -> Result<(), Error> {
+        let _metric_timer = metrics::STATE_TRANSITION_DATA_GC_TIME.start_timer();
         let _span =
             tracing::debug_span!(target: "garbage_collection", "clear_state_transition_data")
                 .entered();
@@ -326,8 +327,11 @@ impl ChainStore {
             shard_layout.shard_ids().chain(next_epoch_shard_layout.shard_ids()).collect()
         };
 
+        let mut total_entries = 0;
+        let mut entries_cleared = 0;
         let mut store_update = self.store().store_update();
         for res in self.store().iter(DBCol::StateTransitionData) {
+            total_entries += 1;
             let key = &res?.0;
             let (block_hash, shard_id) = get_block_shard_id_rev(key).map_err(|err| {
                 Error::StorageError(near_store::StorageError::StorageInconsistentState(format!(
@@ -338,6 +342,7 @@ impl ChainStore {
             let Some(final_block_height) = final_block_chunk_created_heights.get(&shard_id) else {
                 if !relevant_shards.contains(&shard_id) {
                     store_update.delete(DBCol::StateTransitionData, key);
+                    entries_cleared += 1;
                 }
                 // StateTransitionData may correspond to the shard that is created in next epoch.
                 continue;
@@ -346,10 +351,13 @@ impl ChainStore {
             let block_height = self.get_block_height(&block_hash)?;
             if block_height < *final_block_height {
                 store_update.delete(DBCol::StateTransitionData, key);
+                entries_cleared += 1;
             }
         }
 
+        metrics::STATE_TRANSITION_DATA_GC_TOTAL_ENTRIES.set(total_entries);
         store_update.commit()?;
+        metrics::STATE_TRANSITION_DATA_GC_CLEARED_ENTRIES.inc_by(entries_cleared);
         Ok(())
     }
 
