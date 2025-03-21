@@ -13,7 +13,7 @@ on:
 jobs:
   run-tx-injection-single-node:
     name: "tx injections single-node benchmark"
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-16core
     environment: development
     timeout-minutes: 60
     # if: github.event_name == 'merge_group' || github.event_name == 'workflow_dispatch'
@@ -42,5 +42,4 @@ jobs:
         run: |
           cd benchmarks/transactions-generator
           ln -s ../../target/release/neard
-          timeout --preserve-status 3m just do-it 20000
-          [ $? -eq 130 ] || exit 1
+          [ $(timeout --preserve-status 3m just do-it 20000) -eq 130 ] || exit 1
