@@ -1539,10 +1539,7 @@ impl Runtime {
         )?;
 
         // If the chunk is missing, exit early and don't process any receipts.
-        if !apply_state.is_new_chunk
-            && processing_state.protocol_version
-                >= ProtocolFeature::FixApplyChunks.protocol_version()
-        {
+        if !apply_state.is_new_chunk {
             return missing_chunk_apply_result(
                 &delayed_receipts,
                 processing_state,

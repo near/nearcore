@@ -91,7 +91,7 @@ use near_primitives::types::{
 };
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::MaybeValidated;
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature, ProtocolVersion};
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::{
     BlockStatusView, DroppedReason, ExecutionOutcomeWithIdView, ExecutionStatusView,
     FinalExecutionOutcomeView, FinalExecutionOutcomeWithReceiptView, FinalExecutionStatus,
@@ -2810,12 +2810,10 @@ impl Chain {
         chunks: &Chunks,
         prev_block_header: &BlockHeader,
         is_new_chunk: bool,
-        protocol_version: ProtocolVersion,
     ) -> Result<ApplyChunkBlockContext, Error> {
         // Before `FixApplyChunks` feature, gas price was taken from current
         // block by mistake. Preserve it for backwards compatibility.
-        let gas_price = if ProtocolFeature::FixApplyChunks.enabled(protocol_version) || is_new_chunk
-        {
+        let gas_price = if is_new_chunk {
             prev_block_header.next_gas_price()
         } else {
             // TODO(#10584): next_gas_price should be Some() if derived from
@@ -2836,19 +2834,15 @@ impl Chain {
     }
 
     pub fn get_apply_chunk_block_context(
-        epoch_manager: &dyn EpochManagerAdapter,
         block: &Block,
         prev_block_header: &BlockHeader,
         is_new_chunk: bool,
     ) -> Result<ApplyChunkBlockContext, Error> {
-        let epoch_id = block.header().epoch_id();
-        let protocol_version = epoch_manager.get_epoch_protocol_version(epoch_id)?;
         Self::get_apply_chunk_block_context_from_block_header(
             block.header(),
             &block.chunks(),
             prev_block_header,
             is_new_chunk,
-            protocol_version,
         )
     }
 
@@ -3234,7 +3228,6 @@ impl Chain {
 
         let epoch_id = block.header().epoch_id();
         let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
-        let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
 
         let mut maybe_jobs = vec![];
         let chunk_headers = &block.chunks();
@@ -3252,7 +3245,6 @@ impl Chain {
                 &chunk_headers,
                 prev_block.header(),
                 is_new_chunk,
-                protocol_version,
             )?;
             let incoming_receipts = incoming_receipts.get(&shard_id);
             let storage_context =
