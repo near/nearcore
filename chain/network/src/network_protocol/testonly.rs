@@ -37,7 +37,7 @@ pub fn make_genesis_block(clock: &time::Clock, chunks: Vec<ShardChunk>) -> Block
         0,
         1000,
         1000,
-        CryptoHash::default(),
+        &vec![],
     )
 }
 

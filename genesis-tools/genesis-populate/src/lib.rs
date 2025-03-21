@@ -6,7 +6,7 @@ use crate::state_dump::StateDump;
 use indicatif::{ProgressBar, ProgressStyle};
 use near_chain::genesis::get_genesis_congestion_infos;
 use near_chain::types::RuntimeAdapter;
-use near_chain::{Block, Chain, ChainStore};
+use near_chain::{Block, ChainStore};
 use near_chain_configs::Genesis;
 use near_crypto::InMemorySigner;
 use near_epoch_manager::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
@@ -239,6 +239,8 @@ impl GenesisBuilder {
             self.genesis.config.genesis_height,
             self.genesis.config.protocol_version,
         );
+        let validator_stakes =
+            self.epoch_manager.get_epoch_block_producers_ordered(&EpochId::default())?;
         let genesis = Block::genesis(
             self.genesis.config.protocol_version,
             genesis_chunks.into_iter().map(|chunk| chunk.take_header()).collect(),
@@ -247,11 +249,7 @@ impl GenesisBuilder {
             self.genesis.config.genesis_height,
             self.genesis.config.min_gas_price,
             self.genesis.config.total_supply,
-            Chain::compute_bp_hash(
-                self.epoch_manager.as_ref(),
-                EpochId::default(),
-                EpochId::default(),
-            )?,
+            &validator_stakes,
         );
 
         let mut store = ChainStore::new(
