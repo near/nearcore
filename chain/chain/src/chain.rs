@@ -56,7 +56,9 @@ use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::validate::validate_optimistic_block_relevant;
-use near_primitives::block::{Block, BlockValidityError, Chunks, MaybeNew, Tip};
+use near_primitives::block::{
+    Block, BlockValidityError, Chunks, MaybeNew, Tip, compute_bp_hash_from_validator_stakes,
+};
 use near_primitives::block_header::BlockHeader;
 use near_primitives::challenge::{
     BlockDoubleSign, Challenge, ChallengeBody, ChallengesResult, ChunkProofs, ChunkState,
@@ -83,7 +85,6 @@ use near_primitives::stateless_validation::state_witness::{
 };
 use near_primitives::transaction::{ExecutionOutcomeWithIdAndProof, SignedTransaction};
 use near_primitives::types::chunk_extra::ChunkExtra;
-use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
     AccountId, Balance, BlockExtra, BlockHeight, BlockHeightDelta, EpochId, MerkleHash, NumBlocks,
     ShardId, ShardIndex,
@@ -612,22 +613,11 @@ impl Chain {
     ) -> Result<CryptoHash, Error> {
         let validator_stakes = epoch_manager.get_epoch_block_producers_ordered(&epoch_id)?;
         let protocol_version = epoch_manager.get_epoch_protocol_version(&prev_epoch_id)?;
-        Self::compute_bp_hash_from_validator_stakes(
+        let bp_hash = compute_bp_hash_from_validator_stakes(
             &validator_stakes,
             ProtocolFeature::BlockHeaderV3.enabled(protocol_version),
-        )
-    }
-
-    pub fn compute_bp_hash_from_validator_stakes(
-        validator_stakes: &Vec<ValidatorStake>,
-        use_versioned_bp_hash_format: bool,
-    ) -> Result<CryptoHash, Error> {
-        if use_versioned_bp_hash_format {
-            Ok(CryptoHash::hash_borsh_iter(validator_stakes))
-        } else {
-            let stakes = validator_stakes.into_iter().map(|stake| stake.clone().into_v1());
-            Ok(CryptoHash::hash_borsh_iter(stakes))
-        }
+        );
+        Ok(bp_hash)
     }
 
     pub fn get_last_time_head_updated(&self) -> Instant {

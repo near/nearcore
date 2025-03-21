@@ -584,7 +584,7 @@ mod tests {
             0,
             100,
             1_000_000_000,
-            CryptoHash::hash_borsh(genesis_bps),
+            &genesis_bps,
         );
         let signer = Arc::new(create_test_signer("other"));
         let b1 = TestBlockBuilder::new(Clock::real(), &genesis, signer.clone()).build();

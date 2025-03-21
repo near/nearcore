@@ -56,7 +56,7 @@ fn create_block() -> Block {
         0,
         1_000,
         1_000,
-        CryptoHash::default(),
+        &vec![],
     );
     let signer = InMemoryValidatorSigner::from_random("test".parse().unwrap(), KeyType::ED25519);
     Block::produce(

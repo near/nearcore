@@ -40,6 +40,8 @@ impl Chain {
             chain_genesis.height,
             chain_genesis.protocol_version,
         );
+        let validator_stakes =
+            epoch_manager.get_epoch_block_producers_ordered(&EpochId::default())?;
         let genesis_block = Block::genesis(
             chain_genesis.protocol_version,
             genesis_chunks.iter().map(|chunk| chunk.cloned_header()).collect(),
@@ -47,7 +49,7 @@ impl Chain {
             chain_genesis.height,
             chain_genesis.min_gas_price,
             chain_genesis.total_supply,
-            Chain::compute_bp_hash(epoch_manager, EpochId::default(), EpochId::default())?,
+            &validator_stakes,
         );
 
         // verify that the genesis block hash matches either mainnet or testnet

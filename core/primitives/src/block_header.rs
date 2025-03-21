@@ -1494,3 +1494,15 @@ impl BlockHeader {
         }
     }
 }
+
+pub fn compute_bp_hash_from_validator_stakes(
+    validator_stakes: &Vec<ValidatorStake>,
+    use_versioned_bp_hash_format: bool,
+) -> CryptoHash {
+    if use_versioned_bp_hash_format {
+        CryptoHash::hash_borsh_iter(validator_stakes)
+    } else {
+        let stakes = validator_stakes.into_iter().map(|stake| stake.clone().into_v1());
+        CryptoHash::hash_borsh_iter(stakes)
+    }
+}

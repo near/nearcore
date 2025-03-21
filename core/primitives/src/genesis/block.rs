@@ -3,15 +3,17 @@ use std::sync::Arc;
 use near_crypto::{KeyType, Signature};
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::{Balance, BlockHeight, MerkleHash, ProtocolVersion};
-use near_primitives_core::version::PROD_GENESIS_PROTOCOL_VERSION;
+use near_primitives_core::version::{PROD_GENESIS_PROTOCOL_VERSION, ProtocolFeature};
 use near_time::Utc;
 
 use crate::block::{
     Block, BlockHeader, BlockHeaderInnerLite, BlockHeaderInnerRest, BlockHeaderV1, BlockV1,
+    compute_bp_hash_from_validator_stakes,
 };
 use crate::block_body::{BlockBody, BlockBodyV1};
 use crate::sharding::ShardChunkHeader;
 use crate::types::EpochId;
+use crate::types::validator_stake::ValidatorStake;
 
 impl Block {
     /// Returns genesis block for given genesis date and state root.
@@ -22,7 +24,7 @@ impl Block {
         height: BlockHeight,
         initial_gas_price: Balance,
         initial_total_supply: Balance,
-        next_bp_hash: CryptoHash,
+        validator_stakes: &Vec<ValidatorStake>,
     ) -> Self {
         if genesis_protocol_version == PROD_GENESIS_PROTOCOL_VERSION {
             Self::prod_genesis(
@@ -31,7 +33,7 @@ impl Block {
                 height,
                 initial_gas_price,
                 initial_total_supply,
-                next_bp_hash,
+                compute_bp_hash_from_validator_stakes(validator_stakes, false),
             )
         } else {
             Self::latest_genesis(
@@ -41,7 +43,10 @@ impl Block {
                 height,
                 initial_gas_price,
                 initial_total_supply,
-                next_bp_hash,
+                compute_bp_hash_from_validator_stakes(
+                    validator_stakes,
+                    ProtocolFeature::BlockHeaderV3.enabled(genesis_protocol_version),
+                ),
             )
         }
     }
