@@ -41,4 +41,4 @@ jobs:
         run: |
           cd benchmarks/transactions-generator
           ln -s ../../target/release/neard
-          [ $(timeout --preserve-status 3m just do-it 20000) -eq 130 ] || exit 1
+          timeout --preserve-status 3m just do-it 20000 && exit 0
