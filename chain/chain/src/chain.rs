@@ -2453,7 +2453,7 @@ impl Chain {
         if !block.verify_gas_price(
             gas_price,
             self.block_economics_config.min_gas_price(),
-            self.block_economics_config.max_gas_price(protocol_version),
+            self.block_economics_config.max_gas_price(),
             self.block_economics_config.gas_price_adjustment_rate(),
         ) {
             byzantine_assert!(false);

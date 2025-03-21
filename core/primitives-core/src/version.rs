@@ -21,15 +21,15 @@ pub enum ProtocolFeature {
     _DeprecatedLowerStorageCost,
     _DeprecatedDeleteActionRestriction,
     /// Add versions to `Account` data structure
-    AccountVersions,
-    TransactionSizeLimit,
+    _DeprecatedAccountVersions,
+    _DeprecatedTransactionSizeLimit,
     /// Fix a bug in `storage_usage` for account caused by #3824
-    FixStorageUsage,
+    _DeprecatedFixStorageUsage,
     /// Cap maximum gas price to 2,000,000,000 yoctoNEAR
-    CapMaxGasPrice,
-    CountRefundReceiptsInGasLimit,
+    _DeprecatedCapMaxGasPrice,
+    _DeprecatedCountRefundReceiptsInGasLimit,
     /// Add `ripemd60` and `ecrecover` host function
-    MathExtension,
+    _DeprecatedMathExtension,
     /// Restore receipts that were previously stuck because of
     /// <https://github.com/near/nearcore/pull/4228>.
     RestoreReceiptsAfterFixApplyChunks,
@@ -235,12 +235,12 @@ impl ProtocolFeature {
             ProtocolFeature::_DeprecatedDeleteActionRestriction => 43,
             ProtocolFeature::_DeprecatedFixApplyChunks => 44,
             ProtocolFeature::_DeprecatedRectifyInflation | ProtocolFeature::_DeprecatedAccessKeyNonceRange => 45,
-            ProtocolFeature::AccountVersions
-            | ProtocolFeature::TransactionSizeLimit
-            | ProtocolFeature::FixStorageUsage
-            | ProtocolFeature::CapMaxGasPrice
-            | ProtocolFeature::CountRefundReceiptsInGasLimit
-            | ProtocolFeature::MathExtension => 46,
+            ProtocolFeature::_DeprecatedAccountVersions
+            | ProtocolFeature::_DeprecatedTransactionSizeLimit
+            | ProtocolFeature::_DeprecatedFixStorageUsage
+            | ProtocolFeature::_DeprecatedCapMaxGasPrice
+            | ProtocolFeature::_DeprecatedCountRefundReceiptsInGasLimit
+            | ProtocolFeature::_DeprecatedMathExtension => 46,
             ProtocolFeature::RestoreReceiptsAfterFixApplyChunks => 47,
             ProtocolFeature::Wasmer2
             | ProtocolFeature::LowerDataReceiptAndEcrecoverBaseCost
@@ -319,7 +319,7 @@ impl ProtocolFeature {
 pub const PROD_GENESIS_PROTOCOL_VERSION: ProtocolVersion = 29;
 
 /// Minimum supported protocol version for the current binary
-pub const MIN_SUPPORTED_PROTOCOL_VERSION: ProtocolVersion = 46;
+pub const MIN_SUPPORTED_PROTOCOL_VERSION: ProtocolVersion = 47;
 
 /// Current protocol version used on the mainnet with all stable features.
 const STABLE_PROTOCOL_VERSION: ProtocolVersion = 77;

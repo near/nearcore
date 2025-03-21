@@ -789,17 +789,6 @@ impl Runtime {
         }
 
         let gas_deficit_amount = if receipt.predecessor_id().is_system() {
-            // We will set gas_burnt for refund receipts to be 0 when we calculate tx_burnt_amount
-            // Here we don't set result.gas_burnt to be zero if CountRefundReceiptsInGasLimit is
-            // enabled because we want it to be counted in gas limit calculation later
-            if !ProtocolFeature::CountRefundReceiptsInGasLimit
-                .enabled(apply_state.current_protocol_version)
-            {
-                result.gas_burnt = 0;
-                result.compute_usage = 0;
-                result.gas_used = 0;
-            }
-
             // If the refund fails tokens are burned.
             if result.result.is_err() {
                 stats.balance.other_burnt_amount = safe_add_balance(
@@ -1399,24 +1388,6 @@ impl Runtime {
         migration_flags: &MigrationFlags,
         protocol_version: ProtocolVersion,
     ) -> Result<(Gas, Vec<Receipt>), StorageError> {
-        let mut gas_used: Gas = 0;
-        if ProtocolFeature::FixStorageUsage.protocol_version() == protocol_version
-            && migration_flags.is_first_block_of_version
-        {
-            for (account_id, delta) in &migration_data.storage_usage_delta {
-                // Account could have been deleted in the meantime, so we check if it is still Some
-                if let Some(mut account) = get_account(state_update, account_id)? {
-                    // Storage usage is saved in state, hence it is nowhere close to max value
-                    // of u64, and maximal delta is 4196, se we can add here without checking
-                    // for overflow
-                    account.set_storage_usage(account.storage_usage() + delta);
-                    set_account(state_update, account_id.clone(), &account);
-                }
-            }
-            gas_used += migration_data.storage_usage_fix_gas;
-            state_update.commit(StateChangeCause::Migration);
-        }
-
         // Re-introduce receipts lost because of a bug in apply_chunks.
         // We take the first block with existing chunk in the first epoch in which protocol feature
         // RestoreReceiptsAfterFixApplyChunks was enabled, and put the restored receipts there.
@@ -1444,7 +1415,7 @@ impl Runtime {
             }
         }
 
-        Ok((gas_used, receipts_to_restore))
+        Ok((0, receipts_to_restore))
     }
 
     /// Applies new signed transactions and incoming receipts for some chunk/shard on top of
