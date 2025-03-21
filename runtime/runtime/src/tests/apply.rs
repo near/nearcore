@@ -514,7 +514,7 @@ fn test_apply_delayed_receipts_local_tx() {
             &None,
             &apply_state,
             &receipts[0..2],
-            SignedValidPeriodTransactions::new(&local_transactions[0..4], &[true; 4]),
+            SignedValidPeriodTransactions::new(local_transactions[0..4].to_vec(), vec![true; 4]),
             &epoch_info_provider,
             Default::default(),
         )
@@ -560,7 +560,7 @@ fn test_apply_delayed_receipts_local_tx() {
             &None,
             &apply_state,
             &receipts[2..3],
-            SignedValidPeriodTransactions::new(&local_transactions[4..5], &[true]),
+            SignedValidPeriodTransactions::new(local_transactions[4..5].to_vec(), vec![true]),
             &epoch_info_provider,
             Default::default(),
         )
@@ -600,7 +600,7 @@ fn test_apply_delayed_receipts_local_tx() {
             &None,
             &apply_state,
             &receipts[3..4],
-            SignedValidPeriodTransactions::new(&local_transactions[5..9], &[true; 4]),
+            SignedValidPeriodTransactions::new(local_transactions[5..9].to_vec(), vec![true; 4]),
             &epoch_info_provider,
             Default::default(),
         )
@@ -2691,7 +2691,7 @@ fn test_deploy_and_call_local_receipt() {
             &None,
             &apply_state,
             &[],
-            SignedValidPeriodTransactions::new(&[tx], &[true]),
+            SignedValidPeriodTransactions::new(vec![tx], vec![true]),
             &epoch_info_provider,
             Default::default(),
         )
@@ -2762,7 +2762,7 @@ fn test_deploy_and_call_local_receipts() {
             &None,
             &apply_state,
             &[],
-            SignedValidPeriodTransactions::new(&[tx1, tx2], &[true; 2]),
+            SignedValidPeriodTransactions::new(vec![tx1, tx2], vec![true; 2]),
             &epoch_info_provider,
             Default::default(),
         )

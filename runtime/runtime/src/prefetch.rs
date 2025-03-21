@@ -197,7 +197,7 @@ impl TriePrefetcher {
     /// for some transactions may have been initiated.
     pub(crate) fn prefetch_transactions_data(
         &mut self,
-        transactions: SignedValidPeriodTransactions<'_>,
+        transactions: &SignedValidPeriodTransactions,
     ) -> Result<(), PrefetchError> {
         if self.prefetch_api.enable_receipt_prefetching {
             for t in transactions.iter_nonexpired_transactions() {

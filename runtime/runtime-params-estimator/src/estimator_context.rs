@@ -360,7 +360,10 @@ impl Testbed<'_> {
                 &None,
                 &self.apply_state,
                 &self.prev_receipts,
-                SignedValidPeriodTransactions::new(transactions, &vec![true; transactions.len()]),
+                SignedValidPeriodTransactions::new(
+                    transactions.to_vec(),
+                    vec![true; transactions.len()],
+                ),
                 &self.epoch_info_provider,
                 Default::default(),
             )
