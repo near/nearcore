@@ -18,8 +18,8 @@ pub enum ProtocolFeature {
     /// Don't process any receipts for shard when chunk is not present.
     /// Always use gas price computed in the previous block.
     FixApplyChunks,
-    _DeprecateLowerStorageCost,
-    DeleteActionRestriction,
+    _DeprecatedLowerStorageCost,
+    _DeprecatedDeleteActionRestriction,
     /// Add versions to `Account` data structure
     AccountVersions,
     TransactionSizeLimit,
@@ -231,8 +231,8 @@ impl ProtocolFeature {
             ProtocolFeature::_DeprecatedCreateHash => 38,
             ProtocolFeature::_DeprecatedDeleteKeyStorageUsage => 40,
             ProtocolFeature::_DeprecatedShardChunkHeaderUpgrade => 41,
-            ProtocolFeature::_DeprecatedCreateReceiptIdSwitchToCurrentBlock | ProtocolFeature::_DeprecateLowerStorageCost => 42,
-            ProtocolFeature::DeleteActionRestriction => 43,
+            ProtocolFeature::_DeprecatedCreateReceiptIdSwitchToCurrentBlock | ProtocolFeature::_DeprecatedLowerStorageCost => 42,
+            ProtocolFeature::_DeprecatedDeleteActionRestriction => 43,
             ProtocolFeature::FixApplyChunks => 44,
             ProtocolFeature::RectifyInflation | ProtocolFeature::AccessKeyNonceRange => 45,
             ProtocolFeature::AccountVersions
@@ -319,7 +319,7 @@ impl ProtocolFeature {
 pub const PROD_GENESIS_PROTOCOL_VERSION: ProtocolVersion = 29;
 
 /// Minimum supported protocol version for the current binary
-pub const MIN_SUPPORTED_PROTOCOL_VERSION: ProtocolVersion = 43;
+pub const MIN_SUPPORTED_PROTOCOL_VERSION: ProtocolVersion = 44;
 
 /// Current protocol version used on the mainnet with all stable features.
 const STABLE_PROTOCOL_VERSION: ProtocolVersion = 77;

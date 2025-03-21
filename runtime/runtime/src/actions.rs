@@ -623,32 +623,29 @@ pub(crate) fn action_delete_account(
     delete_account: &DeleteAccountAction,
     current_protocol_version: ProtocolVersion,
 ) -> Result<(), StorageError> {
-    if current_protocol_version >= ProtocolFeature::DeleteActionRestriction.protocol_version() {
-        let account = account.as_ref().unwrap();
-        let mut account_storage_usage = account.storage_usage();
-        let code_len = get_code_len_or_default(
-            state_update,
-            account_id.clone(),
-            account.local_contract_hash().unwrap_or_default(),
-            current_protocol_version,
-        )?;
-        debug_assert!(
-            code_len == 0 || account_storage_usage > code_len,
-            "Account storage usage should be larger than code size. Storage usage: {}, code size: {}",
-            account_storage_usage,
-            code_len
-        );
-        account_storage_usage = account_storage_usage.saturating_sub(code_len);
-        if account_storage_usage > Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE {
-            result.result = Err(ActionErrorKind::DeleteAccountWithLargeState {
-                account_id: account_id.clone(),
-            }
-            .into());
-            return Ok(());
-        }
+    let account_ref = account.as_ref().unwrap();
+    let mut account_storage_usage = account_ref.storage_usage();
+    let code_len = get_code_len_or_default(
+        state_update,
+        account_id.clone(),
+        account_ref.local_contract_hash().unwrap_or_default(),
+        current_protocol_version,
+    )?;
+    debug_assert!(
+        code_len == 0 || account_storage_usage > code_len,
+        "Account storage usage should be larger than code size. Storage usage: {}, code size: {}",
+        account_storage_usage,
+        code_len
+    );
+    account_storage_usage = account_storage_usage.saturating_sub(code_len);
+    if account_storage_usage > Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE {
+        result.result =
+            Err(ActionErrorKind::DeleteAccountWithLargeState { account_id: account_id.clone() }
+                .into());
+        return Ok(());
     }
     // We use current amount as a pay out to beneficiary.
-    let account_balance = account.as_ref().unwrap().amount();
+    let account_balance = account_ref.amount();
     if account_balance > 0 {
         result.new_receipts.push(Receipt::new_balance_refund(
             &delete_account.beneficiary_id,
@@ -1165,6 +1162,7 @@ mod tests {
     use near_primitives::runtime::migration_data::MigrationFlags;
     use near_primitives::transaction::CreateAccountAction;
     use near_primitives::types::{EpochId, StateChangeCause};
+    use near_primitives::version::PROTOCOL_VERSION;
     use near_store::set_account;
     use near_store::test_utils::TestTriesBuilder;
     use std::sync::Arc;
@@ -1294,7 +1292,7 @@ mod tests {
             &mut action_result,
             account_id,
             &DeleteAccountAction { beneficiary_id: "bob".parse().unwrap() },
-            ProtocolFeature::DeleteActionRestriction.protocol_version(),
+            PROTOCOL_VERSION,
         );
         assert!(res.is_ok());
         action_result
