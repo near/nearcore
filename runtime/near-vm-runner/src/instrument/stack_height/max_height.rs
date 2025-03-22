@@ -1,3 +1,6 @@
+// cspell:words arities
+// cspell:ignore Copysign, Popcnt, Rotr, Trunc
+
 use super::{Error, ModuleCtx};
 use parity_wasm::elements::{BlockType, Type};
 
@@ -12,10 +15,10 @@ struct Frame {
     /// from the current block.
     end_arity: u32,
 
-    /// Count of values which should be poped upon a branch to
+    /// Count of values which should be popped upon a branch to
     /// this frame.
     ///
-    /// This might be diffirent from `end_arity` since branch
+    /// This might be different from `end_arity` since branch
     /// to the loop header can't take any values.
     branch_arity: u32,
 
@@ -316,7 +319,7 @@ pub(crate) fn compute(func_idx: u32, module_ctx: &ModuleCtx<'_>) -> Result<u32, 
             | I64Load32S(_, _)
             | I64Load32U(_, _) => {
                 // These instructions pop the address and pushes the result,
-                // which effictively don't modify the stack height.
+                // which effectively don't modify the stack height.
                 stack.pop_values(1)?;
                 stack.push_values(1)?;
             }
