@@ -107,7 +107,6 @@ impl Client {
             chunk: encoded_chunk,
             encoded_chunk_parts_paths: merkle_paths,
             receipts,
-            transactions_storage_proof,
         } = create_chunk_on_height_for_shard(self, height, shard_id);
         let signer = self.validator_signer.get();
         let shard_chunk = self
@@ -130,7 +129,6 @@ impl Client {
             prev_block.header(),
             &prev_chunk_header,
             &shard_chunk,
-            transactions_storage_proof,
             &signer,
         )
         .unwrap();
@@ -183,24 +181,20 @@ pub fn create_chunk(
     let last_block = client.chain.get_block_by_height(client.chain.head().unwrap().height).unwrap();
     let next_height = last_block.header().height() + 1;
     let signer = client.validator_signer.get().unwrap();
-    let ProduceChunkResult {
-        mut chunk,
-        encoded_chunk_parts_paths: mut merkle_paths,
-        receipts,
-        transactions_storage_proof,
-    } = client
-        .chunk_producer
-        .produce_chunk(
-            &last_block,
-            last_block.header().epoch_id(),
-            last_block.chunks()[0].clone(),
-            next_height,
-            ShardId::new(0),
-            &signer,
-            &client.chain.transaction_validity_check(last_block.header().clone()),
-        )
-        .unwrap()
-        .unwrap();
+    let ProduceChunkResult { mut chunk, encoded_chunk_parts_paths: mut merkle_paths, receipts } =
+        client
+            .chunk_producer
+            .produce_chunk(
+                &last_block,
+                last_block.header().epoch_id(),
+                last_block.chunks()[0].clone(),
+                next_height,
+                ShardId::new(0),
+                &signer,
+                &client.chain.transaction_validity_check(last_block.header().clone()),
+            )
+            .unwrap()
+            .unwrap();
     let should_replace = replace_transactions.is_some() || replace_tx_root.is_some();
     let transactions = replace_transactions.unwrap_or_else(Vec::new);
     let tx_root = match replace_tx_root {
@@ -283,15 +277,7 @@ pub fn create_chunk(
         None,
         None,
     );
-    (
-        ProduceChunkResult {
-            chunk,
-            encoded_chunk_parts_paths: merkle_paths,
-            receipts,
-            transactions_storage_proof,
-        },
-        block,
-    )
+    (ProduceChunkResult { chunk, encoded_chunk_parts_paths: merkle_paths, receipts }, block)
 }
 
 /// Keep running catchup until there is no more catchup work that can be done

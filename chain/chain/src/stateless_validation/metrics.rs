@@ -131,28 +131,6 @@ pub(crate) static CHUNK_STATE_WITNESS_MAIN_STATE_TRANSITION_SIZE: LazyLock<Histo
             .unwrap()
     });
 
-pub(crate) static CHUNK_STATE_WITNESS_NEW_TRANSACTIONS_SIZE: LazyLock<HistogramVec> =
-    LazyLock::new(|| {
-        try_create_histogram_vec(
-            "near_chunk_state_witness_new_transactions_size",
-            "Size of ChunkStateWitness::new_transactions (new proposed transactions)",
-            &["shard_id"],
-            Some(buckets_for_witness_field_size()),
-        )
-        .unwrap()
-    });
-
-pub(crate) static CHUNK_STATE_WITNESS_NEW_TRANSACTIONS_STATE_SIZE: LazyLock<HistogramVec> =
-    LazyLock::new(|| {
-        try_create_histogram_vec(
-            "near_chunk_state_witness_new_transactions_state_size",
-            "Size of ChunkStateWitness::new_transactions_validation_state (storage proof to validate new proposed transactions)",
-            &["shard_id"],
-            Some(buckets_for_witness_field_size()),
-        )
-            .unwrap()
-    });
-
 pub(crate) static CHUNK_STATE_WITNESS_SOURCE_RECEIPT_PROOFS_SIZE: LazyLock<HistogramVec> =
     LazyLock::new(|| {
         try_create_histogram_vec(
@@ -189,12 +167,6 @@ fn record_witness_size_metrics_fallible(
     CHUNK_STATE_WITNESS_MAIN_STATE_TRANSITION_SIZE
         .with_label_values(&[shard_id.as_str()])
         .observe(borsh::to_vec(&witness.main_state_transition)?.len() as f64);
-    CHUNK_STATE_WITNESS_NEW_TRANSACTIONS_SIZE
-        .with_label_values(&[&shard_id.as_str()])
-        .observe(borsh::to_vec(&witness.new_transactions)?.len() as f64);
-    CHUNK_STATE_WITNESS_NEW_TRANSACTIONS_STATE_SIZE
-        .with_label_values(&[&shard_id.as_str()])
-        .observe(borsh::to_vec(&witness.new_transactions_validation_state)?.len() as f64);
     CHUNK_STATE_WITNESS_SOURCE_RECEIPT_PROOFS_SIZE
         .with_label_values(&[&shard_id.as_str()])
         .observe(borsh::to_vec(&witness.source_receipt_proofs)?.len() as f64);

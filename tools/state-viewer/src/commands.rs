@@ -107,13 +107,7 @@ pub(crate) fn apply_block(
         .unwrap();
 
         let transactions = chunk.transactions();
-        let valid_txs = chain_store
-            .compute_transaction_validity(
-                block.header().latest_protocol_version(),
-                prev_block.header(),
-                &chunk,
-            )
-            .unwrap();
+        let valid_txs = chain_store.compute_transaction_validity(prev_block.header(), &chunk);
         runtime
             .apply_chunk(
                 storage.create_runtime_storage(*chunk_inner.prev_state_root()),
