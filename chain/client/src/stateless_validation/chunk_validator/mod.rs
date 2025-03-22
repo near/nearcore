@@ -198,7 +198,7 @@ pub(crate) fn send_chunk_endorsement_to_block_producers(
     epoch_manager: &dyn EpochManagerAdapter,
     signer: &ValidatorSigner,
     network_sender: &Sender<PeerManagerMessageRequest>,
-) {
+) -> Option<ChunkEndorsement> {
     let epoch_id =
         epoch_manager.get_epoch_id_from_prev_block(chunk_header.prev_block_hash()).unwrap();
 
@@ -223,11 +223,16 @@ pub(crate) fn send_chunk_endorsement_to_block_producers(
     );
 
     let endorsement = ChunkEndorsement::new(epoch_id, chunk_header, signer);
+    let mut send_to_itself = None;
     for block_producer in block_producers {
+        if &block_producer == signer.validator_id() {
+            send_to_itself = Some(endorsement.clone());
+        }
         network_sender.send(PeerManagerMessageRequest::NetworkRequests(
             NetworkRequests::ChunkEndorsement(block_producer, endorsement.clone()),
         ));
     }
+    send_to_itself
 }
 
 impl Client {
