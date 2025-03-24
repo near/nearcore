@@ -140,7 +140,7 @@ BENCHNET_DIR=$GEN_NODES_DIR ./bench.sh init cases/forknet/10_cp_1_rpc_10_shard/c
 ./bench.sh init
 ./bench.sh start-nodes
 
-# Check that the network started properly, you can use debug UI with the external IP of the RPC node
+# Check that the network started properly, you can use debug UI with the external IP of any node
 # http://debug.nearone.org/<IP>/last_blocks
 
 ./bench.sh create-accounts
@@ -152,7 +152,7 @@ BENCHNET_DIR=$GEN_NODES_DIR ./bench.sh init cases/forknet/10_cp_1_rpc_10_shard/c
 
 ### Forknet - Monitoring
 
-Grafana mostly, [Blockchain utilization dashboard](https://grafana.nearone.org/goto/8nMSy52Hg?orgId=1).
+Grafana mostly, [Blockchain utilization dashboard](https://grafana.nearone.org/goto/3bS1Lr2Ng?orgId=1).
 
 ### Known issues
 
