@@ -188,11 +188,11 @@ mod tests {
         TestTriesBuilder, create_test_store, simplify_changes, test_populate_flat_storage,
         test_populate_trie,
     };
-    use crate::trie::AccessOptions;
     use crate::trie::mem::loading::load_trie_from_flat_state;
     use crate::trie::mem::lookup::memtrie_lookup;
     use crate::trie::mem::nibbles_utils::{all_two_nibble_nibbles, multi_hex_to_nibbles};
     use crate::trie::update::TrieUpdateResult;
+    use crate::trie::{AccessOptions, AccessTracker};
     use crate::{DBCol, KeyLookupMode, NibbleSlice, ShardTries, Store, Trie, TrieUpdate};
     use near_primitives::bandwidth_scheduler::BandwidthRequests;
     use near_primitives::congestion_info::CongestionInfo;
@@ -206,78 +206,88 @@ mod tests {
     use rand::rngs::StdRng;
     use rand::{Rng, SeedableRng};
 
-    // fn check_maybe_parallelize(keys: Vec<Vec<u8>>, parallelize: bool) {
-    //     let (shard_tries, shard_layout) = TestTriesBuilder::new().with_flat_storage(true).build2();
-    //     let shard_uid = shard_layout.shard_uids().next().unwrap();
+    fn check_maybe_parallelize(keys: Vec<Vec<u8>>, parallelize: bool) {
+        let (shard_tries, shard_layout) = TestTriesBuilder::new().with_flat_storage(true).build2();
+        let shard_uid = shard_layout.shard_uids().next().unwrap();
 
-    //     let changes = keys.iter().map(|key| (key.to_vec(), Some(key.to_vec()))).collect::<Vec<_>>();
-    //     let changes = simplify_changes(&changes);
-    //     test_populate_flat_storage(
-    //         &shard_tries,
-    //         shard_uid,
-    //         &CryptoHash::default(),
-    //         &CryptoHash::default(),
-    //         &changes,
-    //     );
-    //     let state_root = test_populate_trie(&shard_tries, &Trie::EMPTY_ROOT, shard_uid, changes);
+        let changes = keys.iter().map(|key| (key.to_vec(), Some(key.to_vec()))).collect::<Vec<_>>();
+        let changes = simplify_changes(&changes);
+        test_populate_flat_storage(
+            &shard_tries,
+            shard_uid,
+            &CryptoHash::default(),
+            &CryptoHash::default(),
+            &changes,
+        );
+        let state_root = test_populate_trie(&shard_tries, &Trie::EMPTY_ROOT, shard_uid, changes);
 
-    //     eprintln!("Trie and flat storage populated");
-    //     let in_memory_trie = load_trie_from_flat_state(
-    //         &shard_tries.store().store(),
-    //         shard_uid,
-    //         state_root,
-    //         123,
-    //         parallelize,
-    //     )
-    //     .unwrap();
-    //     eprintln!("In memory trie loaded");
+        eprintln!("Trie and flat storage populated");
+        let in_memory_trie = load_trie_from_flat_state(
+            &shard_tries.store().store(),
+            shard_uid,
+            state_root,
+            123,
+            parallelize,
+        )
+        .unwrap();
+        eprintln!("In memory trie loaded");
 
-    //     if keys.is_empty() {
-    //         assert_eq!(in_memory_trie.num_roots(), 0);
-    //         return;
-    //     }
+        if keys.is_empty() {
+            assert_eq!(in_memory_trie.num_roots(), 0);
+            return;
+        }
 
-    //     let trie_update = TrieUpdate::new(shard_tries.get_trie_with_block_hash_for_shard(
-    //         shard_uid,
-    //         state_root,
-    //         &CryptoHash::default(),
-    //         false,
-    //     ));
-    //     let opts = AccessOptions {
-    //         enable_trie_accounting_cache_insertion: true,
-    //         ..AccessOptions::default
-    //     };
-    //     let trie = trie_update.trie();
-    //     let root = in_memory_trie.get_root(&state_root).unwrap();
+        let trie_update = TrieUpdate::new(shard_tries.get_trie_with_block_hash_for_shard(
+            shard_uid,
+            state_root,
+            &CryptoHash::default(),
+            false,
+        ));
 
-    //     // Check access to each key to make sure the in-memory trie is consistent with
-    //     // real trie. Check non-existent keys too.
-    //     for key in keys.iter().chain([b"not in trie".to_vec()].iter()) {
-    //         let mut nodes_accessed = Vec::new();
-    //         let actual_value_ref = memtrie_lookup(root, key, Some(&mut nodes_accessed))
-    //             .map(|v| v.to_optimized_value_ref());
-    //         let expected_value_ref =
-    //             trie.get_optimized_ref(key, KeyLookupMode::MemOrFlatOrTrie, opts).unwrap();
-    //         assert_eq!(actual_value_ref, expected_value_ref, "{:?}", NibbleSlice::new(key));
+        #[derive(Debug, Default)]
+        struct Tracker(std::cell::Cell<u64>);
+        impl AccessTracker for Tracker {
+            fn track_mem_lookup(&self, _: &CryptoHash) -> Option<std::sync::Arc<[u8]>> {
+                None
+            }
 
-    //         // Do another access with the trie to see how many nodes we're supposed to
-    //         // have accessed.
-    //         let temp_trie = shard_tries.get_trie_for_shard(shard_uid, state_root);
-    //         temp_trie.get_optimized_ref(key, KeyLookupMode::MemOrTrie, opts).unwrap();
-    //         assert_eq!(
-    //             temp_trie.get_trie_nodes_count().db_reads,
-    //             nodes_accessed.len() as u64,
-    //             "Number of accessed nodes does not equal number of trie nodes along the way"
-    //         );
+            fn track_disk_lookup(&self, _: CryptoHash, _: std::sync::Arc<[u8]>) {
+                self.0.set(self.0.get() + 1);
+            }
+        }
+        let trie = trie_update.trie();
+        let root = in_memory_trie.get_root(&state_root).unwrap();
+        let opts = AccessOptions::DEFAULT;
+        // Check access to each key to make sure the in-memory trie is consistent with
+        // real trie. Check non-existent keys too.
+        for key in keys.iter().chain([b"not in trie".to_vec()].iter()) {
+            let mut nodes_accessed = Vec::new();
+            let actual_value_ref = memtrie_lookup(root, key, Some(&mut nodes_accessed))
+                .map(|v| v.to_optimized_value_ref());
+            let expected_value_ref =
+                trie.get_optimized_ref(key, KeyLookupMode::MemOrFlatOrTrie, opts).unwrap();
+            assert_eq!(actual_value_ref, expected_value_ref, "{:?}", NibbleSlice::new(key));
 
-    //         // Check that the accessed nodes are consistent with those from disk.
-    //         for (node_hash, serialized_node) in nodes_accessed {
-    //             let expected_serialized_node =
-    //                 trie.internal_retrieve_trie_node(&node_hash, false, opts).unwrap();
-    //             assert_eq!(expected_serialized_node, serialized_node);
-    //         }
-    //     }
-    // }
+            // Do another access with the trie to see how many nodes we're supposed to
+            // have accessed.
+            let trk = Tracker::default();
+            let track_opts = AccessOptions { trie_access_tracker: &trk, ..AccessOptions::DEFAULT };
+            let temp_trie = shard_tries.get_trie_for_shard(shard_uid, state_root);
+            temp_trie.get_optimized_ref(key, KeyLookupMode::MemOrTrie, track_opts).unwrap();
+            assert_eq!(
+                trk.0.get(),
+                nodes_accessed.len() as u64,
+                "Number of accessed nodes does not equal number of trie nodes along the way"
+            );
+
+            // Check that the accessed nodes are consistent with those from disk.
+            for (node_hash, serialized_node) in nodes_accessed {
+                let expected_serialized_node =
+                    trie.internal_retrieve_trie_node(&node_hash, false, opts).unwrap();
+                assert_eq!(expected_serialized_node, serialized_node);
+            }
+        }
+    }
 
     fn check_random(max_key_len: usize, max_keys_count: usize, test_count: usize) {
         let mut rng = StdRng::seed_from_u64(42);
@@ -298,8 +308,8 @@ mod tests {
     }
 
     fn check(keys: Vec<Vec<u8>>) {
-        // check_maybe_parallelize(keys.clone(), false);
-        // check_maybe_parallelize(keys, true);
+        check_maybe_parallelize(keys.clone(), false);
+        check_maybe_parallelize(keys, true);
     }
 
     #[test]

@@ -12,7 +12,7 @@ use crate::trie::ops::interface::{
 };
 use crate::trie::ops::resharding::{GenericTrieUpdateRetain, RetainMode};
 use crate::trie::trie_recording::TrieRecorder;
-use crate::trie::{Children, MemTrieChanges, AccessOptions, TrieRefcountDeltaMap};
+use crate::trie::{AccessOptions, Children, MemTrieChanges, TrieRefcountDeltaMap};
 use crate::{RawTrieNode, RawTrieNodeWithSize, TrieChanges};
 
 use super::arena::{ArenaMemory, ArenaMut};
@@ -264,12 +264,7 @@ impl<'a, M: ArenaMemory> MemTrieUpdate<'a, M> {
 
     /// Inserts the given key value pair into the trie.
     pub fn insert(&mut self, key: &[u8], value: Vec<u8>) -> Result<(), StorageError> {
-        self.generic_insert(
-            0,
-            key,
-            GenericTrieValue::MemtrieAndDisk(value),
-            AccessOptions::DEFAULT,
-        )
+        self.generic_insert(0, key, GenericTrieValue::MemtrieAndDisk(value), AccessOptions::DEFAULT)
     }
 
     /// Inserts the given key value pair into the trie, but the value may be a reference.
@@ -539,7 +534,7 @@ mod tests {
     use crate::trie::mem::lookup::memtrie_lookup;
     use crate::trie::mem::memtrie_update::GenericTrieUpdateInsertDelete;
     use crate::trie::mem::memtries::MemTries;
-    use crate::trie::{MemTrieChanges, AccessOptions};
+    use crate::trie::{AccessOptions, MemTrieChanges};
     use crate::{KeyLookupMode, ShardTries, TrieChanges};
     use near_primitives::hash::CryptoHash;
     use near_primitives::shard_layout::ShardUId;

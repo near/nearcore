@@ -104,7 +104,10 @@ pub enum KeyLookupMode {
 
 #[derive(Clone, Copy, Debug)]
 pub struct AccessOptions<'access_tracker> {
+    /// The interface through which TTNs are tracked.
     ///
+    /// This also allows for some cache implementations, though the plan is to remove that
+    /// functionality eventually.
     trie_access_tracker: &'access_tracker dyn AccessTracker,
 
     /// Whether a storage operation should record intermediate accesses to the state witness.
@@ -136,22 +139,15 @@ impl AccessTracker for NoAccessTracker {
 }
 
 impl AccessOptions<'static> {
-    pub const DEFAULT: Self = Self {
-        trie_access_tracker: &NoAccessTracker,
-        enable_state_witness_recording: true,
-    };
-    pub const NO_SIDE_EFFECTS: Self = Self {
-        trie_access_tracker: &NoAccessTracker,
-        enable_state_witness_recording: false,
-    };
+    pub const DEFAULT: Self =
+        Self { trie_access_tracker: &NoAccessTracker, enable_state_witness_recording: true };
+    pub const NO_SIDE_EFFECTS: Self =
+        Self { trie_access_tracker: &NoAccessTracker, enable_state_witness_recording: false };
 }
 
 impl<'a> AccessOptions<'a> {
     pub fn contract_runtime(access_tracker: &'a dyn AccessTracker) -> Self {
-        Self {
-            trie_access_tracker: access_tracker,
-            enable_state_witness_recording: true,
-        }
+        Self { trie_access_tracker: access_tracker, enable_state_witness_recording: true }
     }
 }
 
@@ -260,22 +256,23 @@ pub struct Trie {
     /// the captured result.
     // FIXME: make `TrieRecorder` internally MT-safe, instead of locking the entire structure.
     recorder: Option<RwLock<TrieRecorder>>,
-    /// If true, access to trie nodes count towards the TTN counters.
+    /// If true, accesses to trie nodes are recorded with node access tracker, thus counting TTNs.
     ///
-    /// NOTE that the "cache" does not necessarily get populated based on this variable. That
-    /// behaviour is controlled entirely by the
-    /// [`AccessOptions::enable_trie_accounting_cache_insertion`] argument passed into separate
-    /// methods.
+    /// NOTE that depending on the implementation of the tracker the lookups may get cached and
+    /// later served from the storage from memory.
     ///
-    /// Further, note that regardless of this variable, lookups with `KeyLookupMode::MemOrTrie`
-    /// will count towards TTN regardless of this field's value. The logic here is ultra-subtle:
-    /// it is possible for lookups with `KeyLokupMode::MemOrFlatOrTrie` to get served from either
-    /// memtries, flat storage or regular trie depending on which of the storage types are loaded.
-    /// However flat storage will only increase TTNs for dereference of a non-inlined value
-    /// (and will do so regardless of this setting.) So the exact count of TTNs recorded will
-    /// depend not only on this field, but also on which types of storage are loaded, which
-    /// `KeyLookupMode` is used and probably some other subtle factors.
-    use_trie_accounting_cache: bool,
+    /// Further, NOTE that regardless of this variable, lookups with `KeyLookupMode::MemOrTrie`
+    /// will record node accesses with the access tracker regardless of this field's value. The
+    /// logic here is ultra-subtle: it is possible for lookups with `KeyLokupMode::MemOrFlatOrTrie`
+    /// to get served from either memtries, flat storage or regular trie depending on which of the
+    /// storage types are loaded at the time `Trie` is constructed. However flat storage will only
+    /// record accesses for dereference of a non-inlined value (and will do so regardless of this
+    /// setting.) So the exact count accesses recorded will depend not only on this field, but also
+    /// on which types of storage are loaded, which `KeyLookupMode` is used and probably some other
+    /// subtle factors.
+    // FIXME(nagisa): lets get rid of this field somehow? it seems to be utilized mostly for/in
+    // tests.
+    use_access_tracker: bool,
 }
 
 /// Trait for reading data from a trie.
@@ -611,7 +608,7 @@ impl Trie {
             memtries,
             children_memtries,
             root,
-            use_trie_accounting_cache,
+            use_access_tracker: use_trie_accounting_cache,
             flat_storage_chunk_view,
             recorder: None,
         }
@@ -624,7 +621,7 @@ impl Trie {
 
     /// Helper to simulate gas costs as if flat storage was present.
     pub fn set_use_trie_accounting_cache(&mut self, value: bool) {
-        self.use_trie_accounting_cache = value;
+        self.use_access_tracker = value;
     }
 
     /// Makes a new trie that has everything the same except that access
@@ -651,7 +648,7 @@ impl Trie {
             self.flat_storage_chunk_view.clone(),
         );
         trie.recorder = Some(recorder);
-        trie.use_trie_accounting_cache = self.use_trie_accounting_cache;
+        trie.use_access_tracker = self.use_access_tracker;
         trie
     }
 
@@ -707,7 +704,7 @@ impl Trie {
         let recorded_storage = nodes.into_iter().map(|value| (hash(&value), value)).collect();
         let storage = Arc::new(TrieMemoryPartialStorage::new(recorded_storage));
         let mut trie = Self::new(storage, root, None);
-        trie.use_trie_accounting_cache = !flat_storage_used;
+        trie.use_access_tracker = !flat_storage_used;
         trie
     }
 
@@ -793,9 +790,7 @@ impl Trie {
                 Some(v) => v,
                 None => {
                     let v = self.storage.retrieve_raw_bytes(hash)?;
-                    access_options
-                        .trie_access_tracker
-                        .track_disk_lookup(hash.clone(), Arc::clone(&v));
+                    access_options.trie_access_tracker.track_disk_lookup(*hash, Arc::clone(&v));
                     v
                 }
             }
@@ -1366,7 +1361,7 @@ impl Trie {
                     if access_options.trie_access_tracker.track_mem_lookup(node_hash).is_none() {
                         access_options
                             .trie_access_tracker
-                            .track_disk_lookup(node_hash.clone(), Arc::clone(serialized_node));
+                            .track_disk_lookup(*node_hash, Arc::clone(serialized_node));
                     }
                 }
             }
@@ -1481,8 +1476,7 @@ impl Trie {
         mode: KeyLookupMode,
         opts: AccessOptions,
     ) -> Result<bool, StorageError> {
-        let use_trie_accounting_cache =
-            mode == KeyLookupMode::MemOrTrie || self.use_trie_accounting_cache;
+        let use_trie_accounting_cache = mode == KeyLookupMode::MemOrTrie || self.use_access_tracker;
         if self.memtries.is_some() {
             return Ok(self
                 .lookup_from_memory(key, use_trie_accounting_cache, opts, |_| ())?
@@ -1527,8 +1521,7 @@ impl Trie {
         mode: KeyLookupMode,
         opts: AccessOptions,
     ) -> Result<Option<OptimizedValueRef>, StorageError> {
-        let use_trie_accounting_cache =
-            mode == KeyLookupMode::MemOrTrie || self.use_trie_accounting_cache;
+        let use_trie_accounting_cache = mode == KeyLookupMode::MemOrTrie || self.use_access_tracker;
         if self.memtries.is_some() {
             self.lookup_from_memory(key, use_trie_accounting_cache, opts, |v| {
                 v.to_optimized_value_ref()

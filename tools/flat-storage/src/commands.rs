@@ -463,8 +463,8 @@ impl FlatStorageCommand {
                         None => None,
                         Some(value_ref) => {
                             if value_ref.len() <= FlatStateValue::INLINE_DISK_VALUE_THRESHOLD {
-                                let value = trie
-                                    .retrieve_value(&value_ref.hash, AccessOptions::DEFAULT)?;
+                                let value =
+                                    trie.retrieve_value(&value_ref.hash, AccessOptions::DEFAULT)?;
                                 Some(FlatStateValue::Inlined(value))
                             } else {
                                 Some(FlatStateValue::Ref(value_ref))

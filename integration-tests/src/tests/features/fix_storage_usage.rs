@@ -46,19 +46,13 @@ fn process_blocks_with_storage_usage_fix(
         let state_update = TrieUpdate::new(trie);
         use near_primitives::account::Account;
         let mut account_near_raw = state_update
-            .get(
-                &TrieKey::Account { account_id: "near".parse().unwrap() },
-                AccessOptions::DEFAULT,
-            )
+            .get(&TrieKey::Account { account_id: "near".parse().unwrap() }, AccessOptions::DEFAULT)
             .unwrap()
             .unwrap()
             .clone();
         let account_near = Account::try_from_slice(&mut account_near_raw).unwrap();
         let mut account_test0_raw = state_update
-            .get(
-                &TrieKey::Account { account_id: "test0".parse().unwrap() },
-                AccessOptions::DEFAULT,
-            )
+            .get(&TrieKey::Account { account_id: "test0".parse().unwrap() }, AccessOptions::DEFAULT)
             .unwrap()
             .unwrap()
             .clone();
