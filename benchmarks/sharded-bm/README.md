@@ -137,6 +137,7 @@ export FORKNET_START_HEIGHT=<forknet start height>
 
 BENCHNET_DIR=$GEN_NODES_DIR ./bench.sh init cases/forknet/10_cp_1_rpc_10_shard/config
 
+# Export UPDATE_BINARIES=true if you want to force neard binary update during init
 ./bench.sh init
 ./bench.sh start-nodes
 

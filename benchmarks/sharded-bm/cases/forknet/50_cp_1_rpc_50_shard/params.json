@@ -4,7 +4,7 @@
     "num_accounts": 20,
     "tx_generator": {
         "enabled": true,
-        "tps": 2100,
+        "tps": 1300,
         "volume": 0
     },
     "forknet": {
