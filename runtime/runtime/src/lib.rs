@@ -1641,9 +1641,9 @@ impl Runtime {
                         Err(err) => {
                             tracing::debug!(
                                 target: "runtime",
-                                "invalid transaction ignored (process_transaction error) => tx_hash: {}, error: {:?}",
-                                tx_hash,
-                                err
+                                ?tx_hash,
+                                ?err,
+                                "invalid transaction ignored (process_transaction error)",
                             );
                             continue;
                         }
@@ -1670,9 +1670,9 @@ impl Runtime {
                 Err(err) => {
                     tracing::debug!(
                         target: "runtime",
-                        "invalid transaction ignored (parallel validation error) => tx_hash: {}, error: {:?}",
-                        tx_hash,
-                        err
+                        ?tx_hash,
+                        ?err,
+                        "invalid transaction ignored (parallel validation error)",
                     );
                 }
             }
