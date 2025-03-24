@@ -31,7 +31,7 @@
   - [Parameter Definitions](./architecture/gas/parameter_definition.md)
   - [Gas Profile](./architecture/gas/gas_profile.md)
   - [Runtime Parameter Estimator](./architecture/gas/estimator.md)
-
+i
 # Practices
 
 - [Overview](./practices/README.md)
@@ -43,6 +43,7 @@
   - [Localnet on many machines](./practices/workflows/localnet_on_many_machines.md)
   - [IO tracing](./practices/workflows/io_trace.md)
   - [Profiling](./practices/workflows/profiling.md)
+  - [Benchmarks](.practices/workflows/benchmarks.md)
   - [Working with OpenTelemetry Traces](./practices/workflows/otel_traces.md)
 - [Code Style](./practices/style.md)
 - [Documentation](./practices/docs.md)
