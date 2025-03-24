@@ -12,6 +12,7 @@ mod fix_min_stake_ratio;
 mod fix_stake_threshold;
 mod garbage_collection;
 mod global_contracts;
+mod global_contracts_distribution;
 mod in_memory_tries;
 mod malicious_chunk_producer;
 mod max_receipt_size;
