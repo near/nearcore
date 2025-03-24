@@ -278,6 +278,7 @@ fn get_genesis_congestion_info(
 
 #[cfg(test)]
 mod test {
+    use std::path::Path;
     use std::str::FromStr;
 
     use near_async::time::FakeClock;
@@ -289,7 +290,7 @@ mod test {
     use near_store::test_utils::create_test_store;
     use num_rational::Rational32;
 
-    use crate::test_utils::{KeyValueRuntime, MockEpochManager};
+    use crate::runtime::NightshadeRuntime;
     use crate::{Chain, ChainGenesis};
 
     #[test]
@@ -319,10 +320,8 @@ mod test {
             &genesis.config,
             epoch_config_store,
         );
-
-        // The runtime isn't used at all for the production of genesis block at protocol version PROD_GENESIS_PROTOCOL_VERSION.
-        // It should be fine for us to use KeyValueRuntime here.
-        let runtime = KeyValueRuntime::new(store.clone(), &MockEpochManager::new(store, 43200));
+        let runtime =
+            NightshadeRuntime::test(Path::new("."), store, &genesis.config, epoch_manager.clone());
 
         // Create the genesis block. Use a random state root.
         let (genesis_block, _) = Chain::make_genesis_block(
