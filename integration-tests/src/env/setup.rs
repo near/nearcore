@@ -163,6 +163,18 @@ fn setup_with_real_epoch_manager(
     let store = create_test_store();
 
     let num_validator_seats = validators.len() as NumSeats;
+
+    let mut validators = validators;
+
+    // Certain tests depend on these accounts existing so we make them available here.
+    // This is mostly due to historical reasons - those tests used to use heavily mocked testing
+    // environment that didn't check account existence.
+    for account in ["test2", "test"].into_iter().map(|acc| acc.parse().unwrap()) {
+        if !validators.contains(&account) {
+            validators.push(account);
+        }
+    }
+
     let genesis = Genesis::test(validators, num_validator_seats);
     initialize_genesis_state(store.clone(), &genesis, None);
 

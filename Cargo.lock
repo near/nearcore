@@ -4848,6 +4848,7 @@ dependencies = [
  "near-primitives",
  "near-primitives-core",
  "near-store",
+ "near-test-contracts",
  "near-time",
  "serde",
  "serde_json",
