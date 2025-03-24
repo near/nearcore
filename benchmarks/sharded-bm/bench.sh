@@ -48,6 +48,7 @@ SYNTH_BM_BIN="${SYNTH_BM_BIN:-/home/ubuntu/nearcore/benchmarks/synth-bm/target/r
 RUN_ON_FORKNET=$(jq 'has("forknet")' ${BM_PARAMS})
 PYTEST_PATH="../../pytest/"
 TX_GENERATOR=$(jq -r '.tx_generator.enabled // false' ${BM_PARAMS})
+CREATE_ACCOUNTS_RPS=$(jq -r '.account_rps // 100' ${BM_PARAMS})
 
 echo "Test case: ${CASE}"
 echo "Num nodes: ${NUM_NODES}"
@@ -199,7 +200,7 @@ fetch_forknet_details() {
         echo "Error: Expected ${NUM_CHUNK_PRODUCERS} chunk producers but found ${num_cp_instances}"
         exit 1
     fi
-    # Get chunk producer nodes using head instead of sed
+    # Get chunk producer nodes
     FORKNET_CP_NODES=$(echo "$instances" | head -n "$num_cp_instances" | awk '{print $1}')
     FORKNET_RPC_ADDR="${FORKNET_RPC_INTERNAL_IP}:3030"
     RPC_ADDR=${FORKNET_RPC_ADDR}
@@ -415,7 +416,7 @@ create_sub_accounts() {
         --num-sub-accounts ${num_accounts} \
         --deposit 9530606018750000000100000000 \
         --channel-buffer-size 1200 \
-        --requests-per-second 100 \
+        --requests-per-second ${CREATE_ACCOUNTS_RPS} \
         --user-data-dir ${data_dir}
 }
 
