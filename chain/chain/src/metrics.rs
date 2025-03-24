@@ -262,7 +262,12 @@ pub(crate) static STATE_TRANSITION_DATA_GC_TIME: LazyLock<Histogram> = LazyLock:
     try_create_histogram_with_buckets(
         "near_state_transition_data_gc_time",
         "Time taken to do garbage collection of state transaction data",
-        exponential_buckets(0.001, 1.6, 20).unwrap(),
+        // This is relatively not important metrics we are adding only just in case for ease
+        // of debugging, so we only use small amounts of buckets to reduce it's impact on total
+        // size of all metrics.
+        // Generally since gc runs each second we want state transition data gc to take less than
+        // that.
+        vec![0.100, 0.5, 1.0, 5.0],
     )
     .unwrap()
 });
