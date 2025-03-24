@@ -146,15 +146,25 @@ pub struct ChunkStateWitness {
     /// After these are applied as well, we should arrive at the pre-state-root
     /// of the chunk that this witness is for.
     pub implicit_transitions: Vec<ChunkStateTransition>,
+    #[deprecated(
+        note = "Was used for protocol versions without relaxed chunk validation which is not supported anymore."
+    )]
+    pub _deprecated_new_transactions: Vec<SignedTransaction>,
     /// The following two field is deprecated and should not be use anymore
-    pub deprecated_new_transactions: Vec<SignedTransaction>,
-    /// The following two field is deprecated and should not be use anymore
-    pub deprecated_new_transactions_validation_state: PartialState,
+    #[deprecated(
+        note = "Was used for protocol versions without relaxed chunk validation which is not supported anymore."
+    )]
+    pub _deprecated_new_transactions_validation_state: PartialState,
     // TODO(stateless_validation): Deprecate this field in the next version of the state witness.
     signature_differentiator: SignatureDifferentiator,
 }
 
 impl ChunkStateWitness {
+    // The constructor must initialize all fields of the struct but some fields
+    // are deprecated.  So unfortunately, we need this attribute here.  A better
+    // fix is being discussed on
+    // https://github.com/rust-lang/rust/issues/102777.
+    #[allow(deprecated)]
     pub fn new(
         chunk_producer: AccountId,
         epoch_id: EpochId,
@@ -174,9 +184,9 @@ impl ChunkStateWitness {
             applied_receipts_hash,
             transactions,
             implicit_transitions,
-            signature_differentiator: "ChunkStateWitness".to_owned(),
-            deprecated_new_transactions: vec![],
-            deprecated_new_transactions_validation_state: PartialState::default(),
+            signature_differentiator: "ChunkStateWitness".to_string(),
+            _deprecated_new_transactions: vec![],
+            _deprecated_new_transactions_validation_state: PartialState::default(),
         }
     }
 
