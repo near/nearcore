@@ -290,45 +290,46 @@ impl Chain {
         Ok(Some(sync_hash))
     }
 
-    /// Returns the list of extra block hashes for blocks that should be
-    /// downloaded before the state sync. The extra blocks are needed when there
-    /// are missing chunks in blocks leading to the sync hash block. We need to
-    /// ensure that for every shard we have at least one new chunk.
+    /// Returns the hashes of all extra blocks which must be downloaded for state sync.
     ///
-    /// This is implemented by finding the minimum height included of the sync
-    /// hash block and finding all blocks till that height.
-    pub fn get_extra_sync_block_hashes(&self, block_hash: CryptoHash) -> Vec<CryptoHash> {
-        // Get the block. It's possible that the block is not yet available.
+    /// The sync hash block is the first block to be processed after state sync. The
+    /// node will need enough block history so that the incoming receipts leading up
+    /// to the sync hash block can be collected.
+    ///
+    /// "Extra" excludes the sync hash block itself and its prev block.
+    ///
+    pub fn get_extra_sync_block_hashes(&self, sync_prev_hash: &CryptoHash) -> Vec<CryptoHash> {
+        // Get the sync prev block. It's possible that the block is not yet available.
         // It's ok because we will retry this method later.
-        let block = self.get_block(&block_hash);
-        let Ok(block) = block else {
+        let Ok(sync_prev_block) = self.get_block(&sync_prev_hash) else {
             return vec![];
         };
 
+        // To apply a new chunk after state sync, the node will need incoming receipts
+        // from all blocks after the previous height at which a new chunk got included.
         let min_height_included =
-            block.chunks().iter_deprecated().map(|chunk| chunk.height_included()).min();
+            sync_prev_block.chunks().iter_deprecated().map(|chunk| chunk.height_included()).min();
         let Some(min_height_included) = min_height_included else {
-            tracing::warn!(target: "sync", ?block_hash, "get_extra_sync_block_hashes: Cannot find the min block height");
+            tracing::warn!(target: "sync", ?sync_prev_hash, "get_sync_needed_block_hashes: Cannot find the min block height");
             return vec![];
         };
 
         let mut extra_block_hashes = vec![];
-        let mut next_hash = *block.header().prev_hash();
+        let mut next_hash = *sync_prev_block.header().prev_hash();
         loop {
             let next_header = self.get_block_header(&next_hash);
             let Ok(next_header) = next_header else {
-                tracing::error!(target: "sync", hash=?next_hash, "get_extra_sync_block_hashes: Cannot get block header");
+                tracing::error!(target: "sync", hash=?next_hash, "get_sync_needed_block_hashes: Cannot get block header");
                 break;
             };
 
-            if next_header.height() + 1 < min_height_included {
+            if next_header.height() <= min_height_included {
                 break;
             }
 
             extra_block_hashes.push(next_hash);
             next_hash = *next_header.prev_hash();
         }
-
         extra_block_hashes
     }
 }

@@ -1694,37 +1694,24 @@ impl Chain {
         let prev_hash = *header.prev_hash();
         let prev_block = self.get_block(&prev_hash)?;
 
-        // TODO(current_epoch_state_sync): fix this when syncing to the current epoch's state
-        // The congestion control added a dependency on the prev block when
-        // applying chunks in a block. This means that we need to keep the
-        // blocks at sync hash, prev hash and prev prev hash.
-        // Due to epoch finalization restrictions these blocks have consecutive heights,
-        // so the height of the prev prev block is sync_height - 2.
-        let mut new_tail = prev_block.header().height().saturating_sub(1);
+        // Check which blocks were downloaded during state sync
+        // and set the tail and chunk tail accordingly
+        let tail_block_hash = self
+            .get_extra_sync_block_hashes(&prev_hash)
+            .into_iter()
+            .min_by_key(|block_hash| self.get_block_header(block_hash).unwrap().height())
+            .unwrap_or(prev_hash);
+        let tail_block = self.get_block(&tail_block_hash)?;
 
-        // In case there are missing chunks we need to keep more than just the
-        // sync hash block. The logic below adjusts the new_tail so that every
-        // shard is guaranteed to have at least one new chunk in the blocks
-        // leading to the sync hash block.
-        let min_height_included = prev_block
+        let new_tail = tail_block.header().height();
+        let new_chunk_tail = tail_block
             .chunks()
             .iter_deprecated()
             .map(|chunk| chunk.height_included())
             .min()
             .unwrap();
 
-        tracing::debug!(target: "sync", ?min_height_included, ?new_tail, "adjusting tail for missing chunks");
-        new_tail = std::cmp::min(new_tail, min_height_included.saturating_sub(1));
-
-        // In order to find the right new_chunk_tail we need to find the minimum
-        // of chunk height_created for chunks in the new tail block.
-        let new_tail_block = self.get_block_by_height(new_tail)?;
-        let new_chunk_tail = new_tail_block
-            .chunks()
-            .iter_deprecated()
-            .map(|chunk| chunk.height_created())
-            .min()
-            .unwrap();
+        tracing::debug!(target: "sync", ?new_tail, ?new_chunk_tail, "adjusting tail for missing chunks");
 
         let tip = Tip::from_header(prev_block.header());
         let final_head = Tip::from_header(self.genesis.header());
@@ -2167,7 +2154,13 @@ impl Chain {
 
         let shard_layout = self.epoch_manager.get_shard_layout(epoch_id)?;
 
-        let last_final_block = self.get_block(&last_final_block_hash)?;
+        // If the full block is not available, skip getting candidate.
+        // This is possible if the node just went through state sync.
+        let Ok(last_final_block) = self.get_block(&last_final_block_hash) else {
+            tracing::warn!("get_new_flat_storage_head could not get last final block {}", last_final_block_hash);
+            return Ok(None);
+        };
+
         let last_final_block_epoch_id = last_final_block.header().epoch_id();
         // If shard layout was changed, the update is impossible so we skip
         // getting candidate.

@@ -329,7 +329,7 @@ fn produce_chunks(
         let new_tip = get_smallest_height_head(&clients);
 
         let header = clients[0].chain.get_block_header(&tip.last_block_hash).unwrap();
-        tracing::debug!("chunk mask for #{} {:?}", header.height(), header.chunk_mask());
+        tracing::debug!("chunk mask for #{} {:?} {} {:?}", header.height(), header.chunk_mask(), tip.last_block_hash, tip.epoch_id);
 
         if new_tip.epoch_id != tip.epoch_id {
             epoch_id_switches += 1;
@@ -392,6 +392,10 @@ fn run_test_with_added_node(state: TestState, add_node_after_height: u64) {
             let handle = env.node_datas[0].client_sender.actor_handle();
             let client = &data.get(&handle).client;
             let tip = client.chain.head().unwrap();
+
+            let header = client.chain.get_block_header(&tip.last_block_hash).unwrap();
+            tracing::debug!("chunk mask for #{} {:?} {} {:?}", header.height(), header.chunk_mask(), tip.last_block_hash, tip.epoch_id);
+
             tip.height >= add_node_after_height
         },
         timeout,

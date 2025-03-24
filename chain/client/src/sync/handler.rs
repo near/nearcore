@@ -151,7 +151,7 @@ impl SyncHandler {
         // Waiting for all the sync blocks to be available because they are
         // needed to finalize state sync.
         if !blocks_to_request.is_empty() {
-            tracing::debug!(target: "sync", "waiting for sync blocks");
+            tracing::debug!(target: "sync", "waiting for sync blocks {:?}", blocks_to_request);
             return Some(SyncHandlerRequest::NeedRequestBlocks(blocks_to_request));
         }
 
@@ -323,7 +323,7 @@ impl SyncHandler {
         let prev_hash = *block_header.prev_hash();
 
         let mut needed_block_hashes = vec![prev_hash, sync_hash];
-        let mut extra_block_hashes = chain.get_extra_sync_block_hashes(prev_hash);
+        let mut extra_block_hashes = chain.get_extra_sync_block_hashes(&prev_hash);
         tracing::trace!(target: "sync", ?needed_block_hashes, ?extra_block_hashes, "request_sync_blocks: block hashes for state sync");
         needed_block_hashes.append(&mut extra_block_hashes);
         let mut blocks_to_request = vec![];
