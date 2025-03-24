@@ -175,7 +175,8 @@ fn setup_with_real_epoch_manager(
         }
     }
 
-    let genesis = Genesis::test(validators, num_validator_seats);
+    let mut genesis = Genesis::test(validators, num_validator_seats);
+    genesis.config.epoch_length = epoch_length;
     initialize_genesis_state(store.clone(), &genesis, None);
 
     let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
