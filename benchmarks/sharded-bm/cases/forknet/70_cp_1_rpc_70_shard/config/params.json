@@ -1,0 +1,6 @@
+{
+    "chunk_producers": 70,
+    "rpcs": 1,
+    "base_config_patch": "../../../base_config_patch.json",
+    "base_genesis_patch": "../../../70_shards_genesis_patch.json"
+}

@@ -22,6 +22,9 @@ Keep shared configuration overrides in the base directory, example `base_config_
     "base_genesis_patch": "../../50_shards_genesis_patch.json",
     // num accounts per shard
     "num_accounts": 20,
+    // RPS for account creation transactions
+    // OPTIONAL: default is 100
+    "account_rps": 100,
     // synth-bm configuration
     // OPTIONAL: not necessary for tx generator
     "channel_buffer_size": 30000,
