@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::sync::Arc;
 
 use itertools::Itertools;
@@ -28,6 +28,7 @@ const EPOCH_LENGTH: BlockHeightDelta = 5;
 #[test]
 #[cfg_attr(not(feature = "nightly"), ignore)]
 fn test_global_receipt_distribution_at_resharding_boundary() {
+    init_test_logger();
     let mut env = GlobalContractsReshardingTestEnv::setup();
     let expected_new_shard_layout_height = EPOCH_LENGTH * 2 + 2;
     // This height is picked so that the first global contract distribution receipt reaches
@@ -47,6 +48,12 @@ fn test_global_receipt_distribution_at_resharding_boundary() {
     // is user's shard, this way we ensure that we hit the shard that is
     // split at resharding.
     let deploy_user = env.users[0].clone();
+    assert!(
+        !env.new_shard_layout
+            .shard_ids()
+            .contains(&env.base_shard_layout.account_id_to_shard_id(&deploy_user)),
+        "Expected deploy user to be in the split shard"
+    );
     let code = ContractCode::new(near_test_contracts::rs_contract().to_vec(), None);
     let deploy_tx = deploy_global_contract(
         &mut env.env.test_loop,
@@ -84,15 +91,17 @@ fn test_global_receipt_distribution_at_resharding_boundary() {
             panic!("expected new chunk");
         };
         let chunk = env.client().chain.get_chunk(&chunk_header.compute_hash()).unwrap();
-        let distribution_receipt = chunk
+        let [distribution_receipt] = chunk
             .prev_outgoing_receipts()
             .iter()
             .filter_map(|r| match r.receipt() {
                 ReceiptEnum::GlobalContractDistribution(r) => Some(r),
                 _ => None,
             })
-            .next()
-            .unwrap();
+            .collect_vec()[..]
+        else {
+            panic!("Expected exactly one global contract distribution receipt");
+        };
         let target_shard = distribution_receipt.target_shard();
         assert!(!block_shard_layout.shard_ids().contains(&target_shard));
     };
@@ -129,10 +138,8 @@ struct GlobalContractsReshardingTestEnv {
 
 impl GlobalContractsReshardingTestEnv {
     fn setup() -> Self {
-        init_test_logger();
-
         let base_boundary_accounts: Vec<AccountId> = parse_accounts(&["user2", "user3", "user4"]);
-        let split_boundary_account: AccountId = "user0".parse().unwrap();
+        let split_boundary_account: AccountId = "user1".parse().unwrap();
         let base_shard_layout = ShardLayout::multi_shard_custom(base_boundary_accounts, 3);
         let chunk_producer: AccountId = "cp0".parse().unwrap();
         let users: Vec<AccountId> = parse_accounts(&["user0", "user1", "user2", "user3", "user4"]);
@@ -149,6 +156,15 @@ impl GlobalContractsReshardingTestEnv {
         let new_epoch_config =
             derive_new_epoch_config_from_boundary(&base_epoch_config, &split_boundary_account);
         let new_shard_layout = new_epoch_config.shard_layout.clone();
+
+        assert_eq!(
+            users
+                .iter()
+                .map(|acc| new_shard_layout.account_id_to_shard_id(acc))
+                .collect::<HashSet<_>>(),
+            new_shard_layout.shard_ids().collect::<HashSet<_>>(),
+            "Expected to have users for all shards"
+        );
 
         let epoch_configs = vec![
             (genesis.config.protocol_version, Arc::new(base_epoch_config)),
