@@ -181,7 +181,7 @@ fn setup_with_real_epoch_manager(
     let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
 
     let runtime = NightshadeRuntime::test(
-        Path::new("."),
+        Path::new("testdir"),
         store.clone(),
         &genesis.config,
         epoch_manager.clone(),
