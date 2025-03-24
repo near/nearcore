@@ -1,4 +1,3 @@
-use self::accounting_cache::TrieAccountingCache;
 use self::mem::flexible_data::value::ValueView;
 use self::trie_storage::TrieMemoryPartialStorage;
 use crate::StorageError;
@@ -28,10 +27,8 @@ use near_primitives::state_record::StateRecord;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::trie_key::trie_key_parsers::parse_account_id_prefix;
 use near_primitives::types::{AccountId, StateRoot, StateRootNode};
-use near_primitives::version::ProtocolFeature;
 use near_schema_checker_lib::ProtocolSchema;
 use near_vm_runner::ContractCode;
-use near_vm_runner::logic::ProtocolVersion;
 use ops::insert_delete::GenericTrieUpdateInsertDelete;
 #[cfg(test)]
 use ops::interface::{GenericNodeOrIndex, GenericTrieNode, GenericTrieUpdate};
@@ -43,13 +40,12 @@ use std::fmt::Write;
 use std::hash::Hash;
 use std::ops::DerefMut;
 use std::str;
-use std::sync::{Arc, Mutex, RwLock, RwLockReadGuard};
+use std::sync::{Arc, RwLock, RwLockReadGuard};
 pub use trie_recording::{SubtreeSize, TrieRecorder, TrieRecorderStats};
 use trie_storage_update::{
     TrieStorageNodeWithSize, TrieStorageUpdate, UpdatedTrieStorageNodeWithSize,
 };
 
-pub mod accounting_cache;
 mod config;
 mod from_flat;
 pub mod iterator;
@@ -107,52 +103,54 @@ pub enum KeyLookupMode {
 }
 
 #[derive(Clone, Copy, Debug)]
-pub struct OperationOptions {
-    /// Whether to allow result of the look-up to be stored in the TrieAccountingCache.
+pub struct AccessOptions<'access_tracker> {
     ///
-    /// Setting this to true has the effect of making the lookups after the first one for the same
-    /// keys increment the `mem_read_nodes` TTN instead of the `db_read_nodes`. This in turn has
-    /// implications on gas fees charged and thus affects the protoocl.
-    ///
-    /// For the most part this should only be enabled in the context of contract execution.
-    ///
-    /// If `Trie::use_trie_accounting_cache` is `false`, this has no effect either way.
-    enable_trie_accounting_cache_insertion: bool,
+    trie_access_tracker: &'access_tracker dyn AccessTracker,
 
     /// Whether a storage operation should record intermediate accesses to the state witness.
     ///
     /// This usually should be true, but in certain situations such as transparent optimizations
     /// that mustn't have an effect on the protocol this can be set to `false`.
     enable_state_witness_recording: bool,
-
-    /// Flag that indicates that this storage operation comes from the contract runtime.
-    ///
-    /// Used for debug assertions around the code base. Should only be set to true by
-    /// `Self::contract_runtime`.
-    #[cfg(debug_assertions)]
-    from_contract_runtime: bool,
 }
 
-impl OperationOptions {
+pub trait AccessTracker: std::fmt::Debug {
+    /// Lookup a value in the in-memory store.
+    ///
+    /// If result is `Some`, implementations should increment memory TTN counter.
+    fn track_mem_lookup(&self, key: &CryptoHash) -> Option<Arc<[u8]>>;
+
+    /// Insert the value into the in-memory store.
+    ///
+    /// Implementations should increment the disk TTN counter.
+    fn track_disk_lookup(&self, key: CryptoHash, value: Arc<[u8]>);
+}
+
+#[derive(Debug)]
+struct NoAccessTracker;
+impl AccessTracker for NoAccessTracker {
+    fn track_mem_lookup(&self, _: &CryptoHash) -> Option<Arc<[u8]>> {
+        None
+    }
+    fn track_disk_lookup(&self, _: CryptoHash, _: Arc<[u8]>) {}
+}
+
+impl AccessOptions<'static> {
     pub const DEFAULT: Self = Self {
-        enable_trie_accounting_cache_insertion: false,
+        trie_access_tracker: &NoAccessTracker,
         enable_state_witness_recording: true,
-        #[cfg(debug_assertions)]
-        from_contract_runtime: false,
     };
     pub const NO_SIDE_EFFECTS: Self = Self {
-        enable_trie_accounting_cache_insertion: false,
+        trie_access_tracker: &NoAccessTracker,
         enable_state_witness_recording: false,
-        #[cfg(debug_assertions)]
-        from_contract_runtime: false,
     };
+}
 
-    pub fn contract_runtime(protocol_version: ProtocolVersion) -> Self {
-        let enable_tac_insert = ProtocolFeature::ChunkNodesCache.enabled(protocol_version);
+impl<'a> AccessOptions<'a> {
+    pub fn contract_runtime(access_tracker: &'a dyn AccessTracker) -> Self {
         Self {
-            enable_trie_accounting_cache_insertion: enable_tac_insert,
+            trie_access_tracker: access_tracker,
             enable_state_witness_recording: true,
-            from_contract_runtime: true,
         }
     }
 }
@@ -256,12 +254,6 @@ pub struct Trie {
     /// If present, flat storage is used to look up keys (if asked for).
     /// Otherwise, we would crawl through the trie.
     flat_storage_chunk_view: Option<FlatStorageChunkView>,
-    /// This is the deterministic accounting cache, meaning that for the
-    /// lifetime of this Trie struct, whenever the accounting cache is enabled
-    /// (which can be toggled on the fly), trie nodes that have been looked up
-    /// once will be guaranteed to be cached, and further reads to these nodes
-    /// will encounter less gas cost.
-    accounting_cache: Mutex<TrieAccountingCache>,
     /// If present, we're capturing all trie nodes that have been accessed
     /// during the lifetime of this Trie struct. This is used to produce a
     /// state proof so that the same access pattern can be replayed using only
@@ -272,7 +264,7 @@ pub struct Trie {
     ///
     /// NOTE that the "cache" does not necessarily get populated based on this variable. That
     /// behaviour is controlled entirely by the
-    /// [`OperationOptions::enable_trie_accounting_cache_insertion`] argument passed into separate
+    /// [`AccessOptions::enable_trie_accounting_cache_insertion`] argument passed into separate
     /// methods.
     ///
     /// Further, note that regardless of this variable, lookups with `KeyLookupMode::MemOrTrie`
@@ -294,12 +286,12 @@ pub trait TrieAccess {
     /// different shards or different blocks).  That is, the shard and state
     /// root are already known by the object rather than being passed as
     /// argument.
-    fn get(&self, key: &TrieKey, opts: OperationOptions) -> Result<Option<Vec<u8>>, StorageError>;
+    fn get(&self, key: &TrieKey, opts: AccessOptions) -> Result<Option<Vec<u8>>, StorageError>;
 
     /// Check if the key is present.
     ///
     /// Equivalent to `Self::get(k)?.is_some()`, but avoids reading out the value.
-    fn contains_key(&self, key: &TrieKey, opts: OperationOptions) -> Result<bool, StorageError>;
+    fn contains_key(&self, key: &TrieKey, opts: AccessOptions) -> Result<bool, StorageError>;
 }
 
 /// Stores reference count addition for some key-value pair in DB.
@@ -610,16 +602,9 @@ impl Trie {
         root: StateRoot,
         flat_storage_chunk_view: Option<FlatStorageChunkView>,
     ) -> Self {
-        let accounting_cache = match storage.as_caching_storage() {
-            Some(caching_storage) => {
-                TrieAccountingCache::new(Some((caching_storage.shard_uid, caching_storage.is_view)))
-            }
-            None => TrieAccountingCache::new(None),
-        };
-        // Technically the charge_gas_for_trie_node_access should be set based
-        // on the flat storage protocol feature. When flat storage is enabled
-        // the trie node access should be free and the charge flag should be set
-        // to false.
+        // Technically the use_trie_accounting_cache should be set based on the flat storage
+        // protocol feature. When flat storage is enabled the trie node access should be free and
+        // the charge flag should be set to false.
         let use_trie_accounting_cache = false;
         Trie {
             storage,
@@ -628,7 +613,6 @@ impl Trie {
             root,
             use_trie_accounting_cache,
             flat_storage_chunk_view,
-            accounting_cache: Mutex::new(accounting_cache),
             recorder: None,
         }
     }
@@ -766,7 +750,7 @@ impl Trie {
         let value_ref = self.get_optimized_ref(
             &key.to_vec(),
             KeyLookupMode::MemOrFlatOrTrie,
-            OperationOptions::DEFAULT,
+            AccessOptions::DEFAULT,
         );
         if let Ok(Some(value_ref)) = value_ref {
             let mut r = recorder.write().expect("no poison");
@@ -802,18 +786,23 @@ impl Trie {
         &self,
         hash: &CryptoHash,
         use_accounting_cache: bool,
-        operation_options: OperationOptions,
+        access_options: AccessOptions,
     ) -> Result<Arc<[u8]>, StorageError> {
         let result = if use_accounting_cache {
-            self.accounting_cache.lock().unwrap().retrieve_raw_bytes_with_accounting(
-                hash,
-                &*self.storage,
-                operation_options,
-            )?
+            match access_options.trie_access_tracker.track_mem_lookup(hash) {
+                Some(v) => v,
+                None => {
+                    let v = self.storage.retrieve_raw_bytes(hash)?;
+                    access_options
+                        .trie_access_tracker
+                        .track_disk_lookup(hash.clone(), Arc::clone(&v));
+                    v
+                }
+            }
         } else {
             self.storage.retrieve_raw_bytes(hash)?
         };
-        if operation_options.enable_state_witness_recording {
+        if access_options.enable_state_witness_recording {
             if let Some(recorder) = &self.recorder {
                 recorder.write().expect("no poison").record(hash, result.clone());
             }
@@ -842,7 +831,7 @@ impl Trie {
             GenericNodeOrIndex::Updated(h) => trie_update.get_node_ref(h).clone(),
             GenericNodeOrIndex::Old(h) => {
                 let raw_node = self
-                    .retrieve_raw_node(&h, false, OperationOptions::NO_SIDE_EFFECTS)
+                    .retrieve_raw_node(&h, false, AccessOptions::NO_SIDE_EFFECTS)
                     .expect("storage failure")
                     .expect("node cannot be Empty")
                     .1;
@@ -1076,7 +1065,7 @@ impl Trie {
         }
         *limit -= 1;
 
-        let opts = OperationOptions::DEFAULT;
+        let opts = AccessOptions::DEFAULT;
 
         let (bytes, raw_node, mem_usage) = match self.retrieve_raw_node(hash, true, opts) {
             Ok(Some((bytes, raw_node))) => (bytes, raw_node.node, raw_node.memory_usage),
@@ -1185,7 +1174,7 @@ impl Trie {
         &self,
         hash: &CryptoHash,
         use_accounting_cache: bool,
-        operation_options: OperationOptions,
+        operation_options: AccessOptions,
     ) -> Result<Option<(Arc<[u8]>, RawTrieNodeWithSize)>, StorageError> {
         if hash == &Self::EMPTY_ROOT {
             return Ok(None);
@@ -1205,7 +1194,7 @@ impl Trie {
         &self,
         hash: &CryptoHash,
     ) -> Result<NodeOrValue, StorageError> {
-        let op_opts = OperationOptions::DEFAULT;
+        let op_opts = AccessOptions::DEFAULT;
         let bytes = self.internal_retrieve_trie_node(hash, true, op_opts)?;
         match RawTrieNodeWithSize::try_from_slice(&bytes) {
             Ok(_) => Ok(NodeOrValue::Node),
@@ -1217,7 +1206,7 @@ impl Trie {
         &self,
         trie_update: &mut TrieStorageUpdate,
         hash: &CryptoHash,
-        opts: OperationOptions,
+        opts: AccessOptions,
     ) -> Result<StorageHandle, StorageError> {
         match self.retrieve_raw_node(hash, true, opts)? {
             None => Ok(trie_update.store(UpdatedTrieStorageNodeWithSize::empty())),
@@ -1231,7 +1220,7 @@ impl Trie {
     }
 
     pub fn retrieve_root_node(&self) -> Result<StateRootNode, StorageError> {
-        let opts = OperationOptions::DEFAULT;
+        let opts = AccessOptions::DEFAULT;
         match self.retrieve_raw_node(&self.root, true, opts)? {
             None => Ok(StateRootNode::empty()),
             Some((bytes, node)) => {
@@ -1258,7 +1247,7 @@ impl Trie {
     fn lookup_from_flat_storage(
         &self,
         key: &[u8],
-        operation_options: OperationOptions,
+        operation_options: AccessOptions,
     ) -> Result<Option<OptimizedValueRef>, StorageError> {
         let flat_storage_chunk_view = self.flat_storage_chunk_view.as_ref().unwrap();
         let value = flat_storage_chunk_view.get_value(key)?;
@@ -1287,7 +1276,7 @@ impl Trie {
         &self,
         mut key: NibbleSlice<'_>,
         use_trie_accounting_cache: bool,
-        operation_options: OperationOptions,
+        operation_options: AccessOptions,
     ) -> Result<Option<ValueRef>, StorageError> {
         let mut hash = self.root;
         loop {
@@ -1359,7 +1348,7 @@ impl Trie {
         &self,
         key: &[u8],
         use_trie_accounting_cache: bool,
-        operation_options: OperationOptions,
+        access_options: AccessOptions,
         map_result: impl FnOnce(ValueView<'_>) -> R,
     ) -> Result<Option<R>, StorageError> {
         if self.root == Self::EMPTY_ROOT {
@@ -1368,20 +1357,20 @@ impl Trie {
 
         let lock = self.memtries.as_ref().unwrap().read().unwrap();
         let mem_value = if use_trie_accounting_cache
-            || operation_options.enable_state_witness_recording
+            || access_options.enable_state_witness_recording
         {
             let mut accessed_nodes = Vec::new();
             let mem_value = lock.lookup(&self.root, key, Some(&mut accessed_nodes))?;
             if use_trie_accounting_cache {
                 for (node_hash, serialized_node) in &accessed_nodes {
-                    self.accounting_cache.lock().unwrap().retroactively_account(
-                        *node_hash,
-                        serialized_node.clone(),
-                        operation_options,
-                    );
+                    if access_options.trie_access_tracker.track_mem_lookup(node_hash).is_none() {
+                        access_options
+                            .trie_access_tracker
+                            .track_disk_lookup(node_hash.clone(), Arc::clone(serialized_node));
+                    }
                 }
             }
-            if operation_options.enable_state_witness_recording {
+            if access_options.enable_state_witness_recording {
                 if let Some(recorder) = &self.recorder {
                     for (node_hash, serialized_node) in accessed_nodes {
                         recorder.write().expect("no poison").record(&node_hash, serialized_node);
@@ -1425,7 +1414,7 @@ impl Trie {
 
         // The rest of the logic is very similar to the standard lookup() function, except
         // we return the raw node and don't expect to hit a leaf.
-        let opts = OperationOptions::DEFAULT;
+        let opts = AccessOptions::DEFAULT;
         let mut node = self.retrieve_raw_node(&self.root, true, opts)?;
         while !key.is_empty() {
             match node {
@@ -1468,7 +1457,7 @@ impl Trie {
     pub fn retrieve_value(
         &self,
         hash: &CryptoHash,
-        opts: OperationOptions,
+        opts: AccessOptions,
     ) -> Result<Vec<u8>, StorageError> {
         let bytes = self.internal_retrieve_trie_node(hash, true, opts)?;
         Ok(bytes.to_vec())
@@ -1478,7 +1467,7 @@ impl Trie {
     ///
     /// This method is guaranteed to not inspect the value stored for this key, which would
     /// otherwise have potential gas cost implications.
-    pub fn contains_key(&self, key: &[u8], opts: OperationOptions) -> Result<bool, StorageError> {
+    pub fn contains_key(&self, key: &[u8], opts: AccessOptions) -> Result<bool, StorageError> {
         self.contains_key_mode(key, KeyLookupMode::MemOrFlatOrTrie, opts)
     }
 
@@ -1490,7 +1479,7 @@ impl Trie {
         &self,
         key: &[u8],
         mode: KeyLookupMode,
-        opts: OperationOptions,
+        opts: AccessOptions,
     ) -> Result<bool, StorageError> {
         let use_trie_accounting_cache =
             mode == KeyLookupMode::MemOrTrie || self.use_trie_accounting_cache;
@@ -1536,7 +1525,7 @@ impl Trie {
         &self,
         key: &[u8],
         mode: KeyLookupMode,
-        opts: OperationOptions,
+        opts: AccessOptions,
     ) -> Result<Option<OptimizedValueRef>, StorageError> {
         let use_trie_accounting_cache =
             mode == KeyLookupMode::MemOrTrie || self.use_trie_accounting_cache;
@@ -1559,7 +1548,7 @@ impl Trie {
     /// `OptimizedValueRef` contains an already available value.
     pub fn deref_optimized(
         &self,
-        operation_options: OperationOptions,
+        operation_options: AccessOptions,
         optimized_value_ref: &OptimizedValueRef,
     ) -> Result<Vec<u8>, StorageError> {
         match optimized_value_ref {
@@ -1569,11 +1558,11 @@ impl Trie {
             OptimizedValueRef::AvailableValue(ValueAccessToken { value }) => {
                 let value_hash = hash(value);
                 let arc_value: Arc<[u8]> = value.clone().into();
-                self.accounting_cache.lock().unwrap().retroactively_account(
-                    value_hash,
-                    arc_value.clone(),
-                    operation_options,
-                );
+                if operation_options.trie_access_tracker.track_mem_lookup(&value_hash).is_none() {
+                    operation_options
+                        .trie_access_tracker
+                        .track_disk_lookup(value_hash, arc_value.clone());
+                }
                 if operation_options.enable_state_witness_recording {
                     if let Some(recorder) = &self.recorder {
                         recorder.write().expect("no poison").record(&value_hash, arc_value);
@@ -1585,14 +1574,14 @@ impl Trie {
     }
 
     /// Retrieves the full value for the given key.
-    pub fn get(&self, key: &[u8], opts: OperationOptions) -> Result<Option<Vec<u8>>, StorageError> {
+    pub fn get(&self, key: &[u8], opts: AccessOptions) -> Result<Option<Vec<u8>>, StorageError> {
         match self.get_optimized_ref(key, KeyLookupMode::MemOrFlatOrTrie, opts)? {
             Some(optimized_ref) => Ok(Some(self.deref_optimized(opts, &optimized_ref)?)),
             None => Ok(None),
         }
     }
 
-    pub fn update<I>(&self, changes: I, opts: OperationOptions) -> Result<TrieChanges, StorageError>
+    pub fn update<I>(&self, changes: I, opts: AccessOptions) -> Result<TrieChanges, StorageError>
     where
         I: IntoIterator<Item = (Vec<u8>, Option<Vec<u8>>)>,
     {
@@ -1621,7 +1610,7 @@ impl Trie {
     fn update_with_memtrie<I>(
         &self,
         changes: I,
-        opts: OperationOptions,
+        opts: AccessOptions,
     ) -> Result<TrieChanges, StorageError>
     where
         I: IntoIterator<Item = (Vec<u8>, Option<Vec<u8>>)>,
@@ -1690,7 +1679,7 @@ impl Trie {
     fn update_with_trie_storage<I>(
         &self,
         changes: I,
-        opts: OperationOptions,
+        opts: AccessOptions,
     ) -> Result<TrieChanges, StorageError>
     where
         I: IntoIterator<Item = (Vec<u8>, Option<Vec<u8>>)>,
@@ -1749,10 +1738,6 @@ impl Trie {
         TrieWithReadLock { trie: self, memtries: self.memtries.as_ref().map(|m| m.read().unwrap()) }
     }
 
-    pub fn get_trie_nodes_count(&self) -> TrieNodesCount {
-        self.accounting_cache.lock().unwrap().get_trie_nodes_count()
-    }
-
     /// Splits the trie, separating entries by the boundary account.
     /// Leaves the left or right part of the trie, depending on the retain mode.
     ///
@@ -1761,7 +1746,7 @@ impl Trie {
         &self,
         boundary_account: &AccountId,
         retain_mode: RetainMode,
-        opts: OperationOptions,
+        opts: AccessOptions,
     ) -> Result<StateRoot, StorageError> {
         let mut trie_update = TrieStorageUpdate::new(&self);
         let root_node = self.move_node_to_mutable(&mut trie_update, &self.root, opts)?;
@@ -1798,15 +1783,16 @@ impl<'a> TrieWithReadLock<'a> {
 }
 
 impl TrieAccess for Trie {
-    fn get(&self, key: &TrieKey, opts: OperationOptions) -> Result<Option<Vec<u8>>, StorageError> {
+    fn get(&self, key: &TrieKey, opts: AccessOptions) -> Result<Option<Vec<u8>>, StorageError> {
         Trie::get(self, &key.to_vec(), opts)
     }
 
-    fn contains_key(&self, key: &TrieKey, opts: OperationOptions) -> Result<bool, StorageError> {
+    fn contains_key(&self, key: &TrieKey, opts: AccessOptions) -> Result<bool, StorageError> {
         Trie::contains_key(&self, &key.to_vec(), opts)
     }
 }
 
+// FIXME(nagisa): this doesn't have to be inside near-store anymore.
 /// Counts trie nodes reads during tx/receipt execution for proper storage costs charging.
 #[derive(Debug, PartialEq)]
 pub struct TrieNodesCount {
@@ -1879,14 +1865,14 @@ mod tests {
             changes.iter().map(|(key, _)| (key.clone(), None)).collect();
         let trie_changes = tries
             .get_trie_for_shard(shard_uid, *root)
-            .update(delete_changes, OperationOptions::DEFAULT)
+            .update(delete_changes, AccessOptions::DEFAULT)
             .unwrap();
         let mut store_update = tries.store_update();
         let root = tries.apply_all(&trie_changes, shard_uid, &mut store_update);
         let trie = tries.get_trie_for_shard(shard_uid, root);
         store_update.commit().unwrap();
         for (key, _) in changes {
-            assert_eq!(trie.get(&key, OperationOptions::DEFAULT), Ok(None));
+            assert_eq!(trie.get(&key, AccessOptions::DEFAULT), Ok(None));
         }
         root
     }
@@ -1899,7 +1885,7 @@ mod tests {
 
         let tries = TestTriesBuilder::new().with_shard_layout(shard_layout).build();
         let trie = tries.get_trie_for_shard(shard_uid, Trie::EMPTY_ROOT);
-        assert_eq!(trie.get(&[122], OperationOptions::DEFAULT), Ok(None));
+        assert_eq!(trie.get(&[122], AccessOptions::DEFAULT), Ok(None));
         let changes = vec![
             (b"doge".to_vec(), Some(b"coin".to_vec())),
             (b"docu".to_vec(), Some(b"value".to_vec())),
@@ -2047,7 +2033,7 @@ mod tests {
         let sid = ShardUId::single_shard();
         let bid = CryptoHash::default();
         let tries = TestTriesBuilder::new().with_flat_storage(true).build();
-        let opts = OperationOptions::DEFAULT;
+        let opts = AccessOptions::DEFAULT;
         let initial = vec![
             (vec![99, 44, 100, 58, 58, 49], Some(vec![1])),
             (vec![99, 44, 100, 58, 58, 50], Some(vec![1])),
@@ -2142,9 +2128,9 @@ mod tests {
             let simplified_changes = simplify_changes(&trie_changes);
 
             let trie_changes1 =
-                trie.update(trie_changes.iter().cloned(), OperationOptions::DEFAULT).unwrap();
+                trie.update(trie_changes.iter().cloned(), AccessOptions::DEFAULT).unwrap();
             let trie_changes2 =
-                trie.update(simplified_changes.iter().cloned(), OperationOptions::DEFAULT).unwrap();
+                trie.update(simplified_changes.iter().cloned(), AccessOptions::DEFAULT).unwrap();
             if trie_changes1.new_root != trie_changes2.new_root {
                 eprintln!("{:?}", trie_changes);
                 eprintln!("{:?}", simplified_changes);
@@ -2247,7 +2233,7 @@ mod tests {
 
         let tries2 = TestTriesBuilder::new().with_store(store).build();
         let trie2 = tries2.get_trie_for_shard(ShardUId::single_shard(), root);
-        assert_eq!(trie2.get(b"doge", OperationOptions::DEFAULT), Ok(Some(b"coin".to_vec())));
+        assert_eq!(trie2.get(b"doge", AccessOptions::DEFAULT), Ok(Some(b"coin".to_vec())));
     }
 
     // TODO: somehow also test that we don't record unnecessary nodes
@@ -2267,16 +2253,16 @@ mod tests {
 
         let trie2 =
             tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads_new_recorder();
-        trie2.get(b"dog", OperationOptions::DEFAULT).unwrap();
-        trie2.get(b"horse", OperationOptions::DEFAULT).unwrap();
+        trie2.get(b"dog", AccessOptions::DEFAULT).unwrap();
+        trie2.get(b"horse", AccessOptions::DEFAULT).unwrap();
         let partial_storage = trie2.recorded_storage();
 
         let trie3 = Trie::from_recorded_storage(partial_storage.unwrap(), root, false);
 
-        assert_eq!(trie3.get(b"dog", OperationOptions::DEFAULT), Ok(Some(b"puppy".to_vec())));
-        assert_eq!(trie3.get(b"horse", OperationOptions::DEFAULT), Ok(Some(b"stallion".to_vec())));
+        assert_eq!(trie3.get(b"dog", AccessOptions::DEFAULT), Ok(Some(b"puppy".to_vec())));
+        assert_eq!(trie3.get(b"horse", AccessOptions::DEFAULT), Ok(Some(b"stallion".to_vec())));
         assert_matches!(
-            trie3.get(b"doge", OperationOptions::DEFAULT),
+            trie3.get(b"doge", AccessOptions::DEFAULT),
             Err(StorageError::MissingTrieValue(
                 MissingTrieValueContext::TrieMemoryPartialStorage,
                 _
@@ -2298,7 +2284,7 @@ mod tests {
             let trie2 = tries
                 .get_trie_for_shard(ShardUId::single_shard(), root)
                 .recording_reads_new_recorder();
-            trie2.get(b"doge", OperationOptions::DEFAULT).unwrap();
+            trie2.get(b"doge", AccessOptions::DEFAULT).unwrap();
             // record extension, branch and one leaf with value, but not the other
             assert_eq!(trie2.recorded_storage().unwrap().nodes.len(), 4);
         }
@@ -2308,7 +2294,7 @@ mod tests {
                 .get_trie_for_shard(ShardUId::single_shard(), root)
                 .recording_reads_new_recorder();
             let updates = vec![(b"doge".to_vec(), None)];
-            trie2.update(updates, OperationOptions::DEFAULT).unwrap();
+            trie2.update(updates, AccessOptions::DEFAULT).unwrap();
             // record extension, branch and both leaves, but not the value.
             assert_eq!(trie2.recorded_storage().unwrap().nodes.len(), 4);
         }
@@ -2318,7 +2304,7 @@ mod tests {
                 .get_trie_for_shard(ShardUId::single_shard(), root)
                 .recording_reads_new_recorder();
             let updates = vec![(b"dodo".to_vec(), Some(b"asdf".to_vec()))];
-            trie2.update(updates, OperationOptions::DEFAULT).unwrap();
+            trie2.update(updates, AccessOptions::DEFAULT).unwrap();
             // record extension and branch, but not leaves
             assert_eq!(trie2.recorded_storage().unwrap().nodes.len(), 2);
         }
@@ -2340,7 +2326,7 @@ mod tests {
         store2.load_state_from_file(&dir.path().join("test.bin")).unwrap();
         let tries2 = TestTriesBuilder::new().with_store(store2).build();
         let trie2 = tries2.get_trie_for_shard(ShardUId::single_shard(), root);
-        assert_eq!(trie2.get(b"doge", OperationOptions::DEFAULT).unwrap().unwrap(), b"coin");
+        assert_eq!(trie2.get(b"doge", AccessOptions::DEFAULT).unwrap().unwrap(), b"coin");
     }
 }
 

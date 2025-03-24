@@ -1,3 +1,5 @@
+use super::AccessOptions;
+use super::update::TrieUpdateResult;
 use crate::adapter::StoreUpdateAdapter;
 use crate::adapter::trie_store::TrieStoreUpdateAdapter;
 use crate::flat::FlatStateChanges;
@@ -15,9 +17,6 @@ use near_primitives::trie_key::TrieKey;
 use near_primitives::trie_key::trie_key_parsers::parse_account_id_from_raw_key;
 use near_primitives::types::{StateChangeCause, StateRoot};
 use std::collections::HashMap;
-
-use super::OperationOptions;
-use super::update::TrieUpdateResult;
 
 impl ShardTries {
     /// add `values` (key-value pairs of items stored in states) to build states for new shards
@@ -69,7 +68,7 @@ impl ShardTries {
             // Here we assume that state_roots contains shard_uid, the caller of this method will guarantee that.
             let trie_changes = self
                 .get_trie_for_shard(shard_uid, state_roots[&shard_uid])
-                .update(changes, OperationOptions::DEFAULT)?;
+                .update(changes, AccessOptions::DEFAULT)?;
             let state_root = self.apply_all(&trie_changes, shard_uid, &mut store_update);
             new_state_roots.insert(shard_uid, state_root);
         }
@@ -320,7 +319,7 @@ pub fn get_delayed_receipts(
         && delayed_receipt_indices.first_index < delayed_receipt_indices.next_available_index
     {
         let key = TrieKey::DelayedReceipt { index: delayed_receipt_indices.first_index };
-        let data = state_update.get(&key, OperationOptions::DEFAULT)?.ok_or_else(|| {
+        let data = state_update.get(&key, AccessOptions::DEFAULT)?.ok_or_else(|| {
             StorageError::StorageInconsistentState(format!(
                 "Delayed receipt #{} should be in the state",
                 delayed_receipt_indices.first_index
@@ -362,7 +361,7 @@ pub fn get_promise_yield_timeouts(
         && promise_yield_indices.first_index < promise_yield_indices.next_available_index
     {
         let key = TrieKey::PromiseYieldTimeout { index: promise_yield_indices.first_index };
-        let data = state_update.get(&key, OperationOptions::DEFAULT)?.ok_or_else(|| {
+        let data = state_update.get(&key, AccessOptions::DEFAULT)?.ok_or_else(|| {
             StorageError::StorageInconsistentState(format!(
                 "PromiseYield timeout #{} should be in the state",
                 promise_yield_indices.first_index

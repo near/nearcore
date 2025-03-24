@@ -44,7 +44,7 @@ use std::sync::Arc;
 use std::sync::LazyLock;
 use std::{fmt, io};
 use strum;
-use trie::OperationOptions;
+use trie::AccessOptions;
 
 pub mod adapter;
 pub mod archive;
@@ -783,7 +783,7 @@ pub fn get<T: BorshDeserialize>(
     trie: &dyn TrieAccess,
     key: &TrieKey,
 ) -> Result<Option<T>, StorageError> {
-    match trie.get(key, OperationOptions::DEFAULT)? {
+    match trie.get(key, AccessOptions::DEFAULT)? {
         None => Ok(None),
         Some(data) => match T::try_from_slice(&data) {
             Err(err) => Err(StorageError::StorageInconsistentState(format!(
@@ -799,7 +799,7 @@ pub fn get_pure<T: BorshDeserialize>(
     trie: &dyn TrieAccess,
     key: &TrieKey,
 ) -> Result<Option<T>, StorageError> {
-    match trie.get(key, OperationOptions::NO_SIDE_EFFECTS)? {
+    match trie.get(key, AccessOptions::NO_SIDE_EFFECTS)? {
         None => Ok(None),
         Some(data) => match T::try_from_slice(&data) {
             Err(_err) => {
@@ -851,7 +851,7 @@ pub fn has_received_data(
 ) -> Result<bool, StorageError> {
     trie.contains_key(
         &TrieKey::ReceivedData { receiver_id: receiver_id.clone(), data_id },
-        OperationOptions::DEFAULT,
+        AccessOptions::DEFAULT,
     )
 }
 
@@ -972,7 +972,7 @@ pub fn has_promise_yield_receipt(
 ) -> Result<bool, StorageError> {
     trie.contains_key(
         &TrieKey::PromiseYieldReceipt { receiver_id, data_id },
-        OperationOptions::DEFAULT,
+        AccessOptions::DEFAULT,
     )
 }
 

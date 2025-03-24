@@ -18,7 +18,7 @@ use crate::trie::mem::nibbles_utils::{
 use crate::trie::trie_recording::TrieRecorder;
 use crate::trie::trie_storage::TrieMemoryPartialStorage;
 use crate::trie::trie_storage_update::TrieStorageUpdate;
-use crate::trie::{OperationOptions, Trie};
+use crate::trie::{AccessOptions, Trie};
 
 use super::resharding::retain_split_shard_custom_ranges;
 
@@ -83,7 +83,7 @@ fn retain_split_shard_custom_ranges_for_trie(
 ) -> CryptoHash {
     let mut trie_update = TrieStorageUpdate::new(trie);
     let root_node =
-        trie.move_node_to_mutable(&mut trie_update, &trie.root, OperationOptions::DEFAULT).unwrap();
+        trie.move_node_to_mutable(&mut trie_update, &trie.root, AccessOptions::DEFAULT).unwrap();
     retain_split_shard_custom_ranges(&mut trie_update, retain_multi_ranges);
     let result = trie_update.flatten_nodes(&trie.root, root_node.0).unwrap();
     result.new_root

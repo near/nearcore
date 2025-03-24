@@ -26,7 +26,7 @@ use near_primitives::version::PROTOCOL_VERSION;
 use near_store::config::StateSnapshotType;
 use near_store::flat::{FlatStateChanges, FlatStateDelta, FlatStateDeltaMetadata};
 use near_store::genesis::initialize_genesis_state;
-use near_store::trie::OperationOptions;
+use near_store::trie::AccessOptions;
 use near_vm_runner::{
     CompiledContract, CompiledContractInfo, FilesystemContractRuntimeCache, get_contract_cache_key,
 };
@@ -1499,11 +1499,11 @@ fn test_trie_and_flat_state_equality() {
     let trie_key = TrieKey::Account { account_id: validators[1].clone() };
     let key = trie_key.to_vec();
 
-    let state_value = state.get(&key, OperationOptions::DEFAULT).unwrap().unwrap();
+    let state_value = state.get(&key, AccessOptions::DEFAULT).unwrap().unwrap();
     let account = Account::try_from_slice(&state_value).unwrap();
     assert_eq!(account.amount(), TESTING_INIT_BALANCE - TESTING_INIT_STAKE + 10);
 
-    let view_state_value = view_state.get(&key, OperationOptions::DEFAULT).unwrap().unwrap();
+    let view_state_value = view_state.get(&key, AccessOptions::DEFAULT).unwrap().unwrap();
     assert_eq!(state_value, view_state_value);
 }
 

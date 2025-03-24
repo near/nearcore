@@ -1,5 +1,5 @@
 use near_async::time::Clock;
-use near_store::trie::OperationOptions;
+use near_store::trie::AccessOptions;
 use rand::Rng;
 use std::sync::Arc;
 
@@ -114,7 +114,7 @@ fn do_fork(
             let state_root = prev_state_roots[shard_id as usize];
             let trie = tries.get_trie_for_shard(shard_uid, state_root);
             let trie_changes =
-                trie.update(trie_changes_data.iter().cloned(), OperationOptions::DEFAULT).unwrap();
+                trie.update(trie_changes_data.iter().cloned(), AccessOptions::DEFAULT).unwrap();
             if verbose {
                 println!("state new {:?} {:?}", block.header().height(), trie_changes_data);
             }
@@ -229,7 +229,7 @@ fn gc_fork_common(simple_chains: Vec<SimpleChain>, max_changes: usize) {
                 .get_trie_for_shard(shard_uid, state_root2)
                 .update(
                     changes1[shard_to_check_trie as usize].iter().cloned(),
-                    OperationOptions::DEFAULT,
+                    AccessOptions::DEFAULT,
                 )
                 .unwrap();
             // i == gc_height is the only height should be processed here

@@ -40,7 +40,7 @@ use near_store::db::GENESIS_CONGESTION_INFO_KEY;
 use near_store::epoch_info_aggregator::EpochInfoAggregator;
 use near_store::flat::delta::KeyForFlatStateDelta;
 use near_store::flat::{FlatStateChanges, FlatStateDeltaMetadata, FlatStorageStatus};
-use near_store::trie::OperationOptions;
+use near_store::trie::AccessOptions;
 use near_store::{
     CHUNK_TAIL_KEY, COLD_HEAD_KEY, DBCol, FINAL_HEAD_KEY, FORK_TAIL_KEY, GENESIS_JSON_HASH_KEY,
     GENESIS_STATE_ROOTS_KEY, HEAD_KEY, HEADER_HEAD_KEY, LARGEST_TARGET_HEIGHT_KEY,
@@ -499,7 +499,7 @@ fn serialize_trie_node(
                 .copied()
                 .chain(extension_nibbles.0.iter())
                 .collect::<Vec<_>>();
-            let data = trie.retrieve_value(&value.hash, OperationOptions::DEFAULT)?;
+            let data = trie.retrieve_value(&value.hash, AccessOptions::DEFAULT)?;
             entity_data.add_string("leaf_path", &TriePath::nibbles_to_hex(&leaf_nibbles));
             entity_data.add_string("value", &hex::encode(&data))
         }
@@ -516,7 +516,7 @@ fn serialize_trie_node(
             }
         }
         near_store::RawTrieNode::BranchWithValue(value, children) => {
-            let data = trie.retrieve_value(&value.hash, OperationOptions::DEFAULT)?;
+            let data = trie.retrieve_value(&value.hash, AccessOptions::DEFAULT)?;
             entity_data.add_string("leaf_path", &TriePath::nibbles_to_hex(&trie_path.path));
             entity_data.add_string("value", &hex::encode(&data));
             for index in 0..16 {

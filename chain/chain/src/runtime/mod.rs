@@ -299,6 +299,7 @@ impl NightshadeRuntime {
             },
             congestion_info,
             bandwidth_requests,
+            trie_access_tracker_state: Default::default(),
         };
 
         let instant = Instant::now();

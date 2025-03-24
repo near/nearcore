@@ -15,7 +15,7 @@ use near_primitives::version::ProtocolFeature;
 use near_primitives_core::types::BlockHeight;
 use near_store::adapter::StoreAdapter;
 use near_store::test_utils::create_test_store;
-use near_store::trie::OperationOptions;
+use near_store::trie::AccessOptions;
 use near_store::{KeyLookupMode, Store};
 
 use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
@@ -166,7 +166,7 @@ fn test_not_supported_block() {
         get_ref_results.push(trie.get_optimized_ref(
             &trie_key_bytes,
             KeyLookupMode::MemOrFlatOrTrie,
-            OperationOptions::DEFAULT,
+            AccessOptions::DEFAULT,
         ));
     }
 

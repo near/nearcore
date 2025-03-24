@@ -7,7 +7,7 @@ use near_primitives::trie_key::col;
 use near_primitives::types::AccountId;
 
 use crate::NibbleSlice;
-use crate::trie::OperationOptions;
+use crate::trie::AccessOptions;
 
 use super::interface::{
     GenericNodeOrIndex, GenericUpdatedTrieNode, GenericUpdatedTrieNodeWithSize, HasValueLength,
@@ -154,7 +154,7 @@ where
         node_id: UpdatedNodeId,
         key_nibbles: Vec<u8>,
         intervals_nibbles: &[Range<Vec<u8>>],
-        opts: OperationOptions,
+        opts: AccessOptions,
     ) -> Result<(), StorageError> {
         let decision = retain_decision(&key_nibbles, intervals_nibbles);
         match decision {
@@ -302,7 +302,7 @@ where
         &mut self,
         boundary_account: &AccountId,
         retain_mode: RetainMode,
-        opts: OperationOptions,
+        opts: AccessOptions,
     );
 }
 
@@ -316,7 +316,7 @@ where
         &mut self,
         boundary_account: &AccountId,
         retain_mode: RetainMode,
-        opts: OperationOptions,
+        opts: AccessOptions,
     ) {
         let intervals = boundary_account_to_intervals(boundary_account, retain_mode);
         let intervals_nibbles = intervals_to_nibbles(&intervals);
@@ -336,7 +336,7 @@ pub fn retain_split_shard_custom_ranges<'a, N, V>(
 {
     let intervals_nibbles = intervals_to_nibbles(retain_multi_ranges);
     update
-        .retain_multi_range_recursive(0, vec![], &intervals_nibbles, OperationOptions::DEFAULT)
+        .retain_multi_range_recursive(0, vec![], &intervals_nibbles, AccessOptions::DEFAULT)
         .unwrap();
 }
 

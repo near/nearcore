@@ -1,11 +1,10 @@
-use near_primitives::errors::StorageError;
-
-use crate::{NibbleSlice, trie::OperationOptions};
-
 use super::interface::{
     GenericNodeOrIndex, GenericTrieUpdate, GenericUpdatedTrieNode, GenericUpdatedTrieNodeWithSize,
     HasValueLength, UpdatedNodeId,
 };
+use crate::NibbleSlice;
+use crate::trie::AccessOptions;
+use near_primitives::errors::StorageError;
 
 pub(crate) trait GenericTrieUpdateSquash<'a, N, V>: GenericTrieUpdate<'a, N, V>
 where
@@ -30,7 +29,7 @@ where
     fn squash_node(
         &mut self,
         node_id: UpdatedNodeId,
-        opts: OperationOptions,
+        opts: AccessOptions,
     ) -> Result<(), StorageError> {
         let GenericUpdatedTrieNodeWithSize { node, memory_usage } = self.take_node(node_id);
         match node {
@@ -116,7 +115,7 @@ where
         extension: Box<[u8]>,
         // The current child.
         child_id: GenericNodeOrIndex<N>,
-        opts: OperationOptions,
+        opts: AccessOptions,
     ) -> Result<(), StorageError> {
         let child_id = self.ensure_updated(child_id, opts)?;
         let GenericUpdatedTrieNodeWithSize { node, memory_usage } = self.take_node(child_id);

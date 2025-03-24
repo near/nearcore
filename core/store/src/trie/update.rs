@@ -1,5 +1,5 @@
 pub use self::iterator::TrieUpdateIterator;
-use super::{OperationOptions, OptimizedValueRef, Trie, TrieWithReadLock};
+use super::{AccessOptions, OptimizedValueRef, Trie, TrieWithReadLock};
 use crate::StorageError;
 use crate::contract::ContractStorage;
 use crate::trie::TrieAccess;
@@ -14,7 +14,6 @@ use near_primitives::types::{
     StateRoot,
 };
 use near_primitives::version::ProtocolFeature;
-
 use near_vm_runner::ContractCode;
 use near_vm_runner::logic::ProtocolVersion;
 use std::collections::BTreeMap;
@@ -63,7 +62,7 @@ impl<'a> TrieUpdateValuePtr<'a> {
         }
     }
 
-    pub fn deref_value(&self, opts: OperationOptions) -> Result<Vec<u8>, StorageError> {
+    pub fn deref_value(&self, opts: AccessOptions) -> Result<Vec<u8>, StorageError> {
         match self {
             TrieUpdateValuePtr::MemoryRef(value) => Ok(value.to_vec()),
             TrieUpdateValuePtr::Ref(trie, value_ref) => Ok(trie.deref_optimized(opts, value_ref)?),
@@ -104,7 +103,7 @@ impl TrieUpdate {
         &self,
         key: &TrieKey,
         mode: KeyLookupMode,
-        opts: OperationOptions,
+        opts: AccessOptions,
     ) -> Result<Option<TrieUpdateValuePtr<'_>>, StorageError> {
         let key = key.to_vec();
         if let Some(value_ref) = self.get_ref_from_updates(&key) {
@@ -129,11 +128,7 @@ impl TrieUpdate {
         None
     }
 
-    pub fn contains_key(
-        &self,
-        key: &TrieKey,
-        opts: OperationOptions,
-    ) -> Result<bool, StorageError> {
+    pub fn contains_key(&self, key: &TrieKey, opts: AccessOptions) -> Result<bool, StorageError> {
         let key = key.to_vec();
         if self.prospective.contains_key(&key) {
             return Ok(true);
@@ -175,7 +170,7 @@ impl TrieUpdate {
         code_hash: CryptoHash,
     ) -> Result<Option<ContractCode>, StorageError> {
         let key = TrieKey::ContractCode { account_id };
-        self.get(&key, OperationOptions::DEFAULT)
+        self.get(&key, AccessOptions::DEFAULT)
             .map(|opt| opt.map(|code| ContractCode::new(code, Some(code_hash))))
     }
 
@@ -190,7 +185,7 @@ impl TrieUpdate {
     ) -> Result<Option<usize>, StorageError> {
         let key = TrieKey::ContractCode { account_id };
         let value_ptr =
-            self.get_ref(&key, KeyLookupMode::MemOrFlatOrTrie, OperationOptions::DEFAULT)?;
+            self.get_ref(&key, KeyLookupMode::MemOrFlatOrTrie, AccessOptions::DEFAULT)?;
         if let Some(value_ptr) = value_ptr {
             debug_assert_eq!(
                 code_hash,
@@ -235,17 +230,11 @@ impl TrieUpdate {
         target = "store::trie",
         "TrieUpdate::finalize",
         skip_all,
-        fields(
-            committed.len = self.committed.len(),
-            mem_reads = tracing::field::Empty,
-            db_reads = tracing::field::Empty
-        )
+        fields(committed.len = self.committed.len())
     )]
     pub fn finalize(self) -> Result<TrieUpdateResult, StorageError> {
         assert!(self.prospective.is_empty(), "Finalize cannot be called with uncommitted changes.");
-        let span = tracing::Span::current();
         let TrieUpdate { trie, committed, contract_storage, .. } = self;
-        let start_counts = trie.accounting_cache.lock().unwrap().get_trie_nodes_count();
         let mut state_changes = Vec::with_capacity(committed.len());
         let trie_changes = trie.update(
             committed.into_iter().map(|(k, changes_with_trie_key)| {
@@ -258,13 +247,8 @@ impl TrieUpdate {
                 state_changes.push(changes_with_trie_key);
                 (k, data)
             }),
-            OperationOptions::DEFAULT,
+            AccessOptions::DEFAULT,
         )?;
-        let end_counts = trie.accounting_cache.lock().unwrap().get_trie_nodes_count();
-        if let Some(iops_delta) = end_counts.checked_sub(&start_counts) {
-            span.record("mem_reads", iops_delta.mem_reads);
-            span.record("db_reads", iops_delta.db_reads);
-        }
         let contract_updates = contract_storage.finalize();
         Ok(TrieUpdateResult { trie, trie_changes, state_changes, contract_updates })
     }
@@ -353,7 +337,7 @@ impl TrieUpdate {
             .get_optimized_ref(
                 &trie_key.to_vec(),
                 KeyLookupMode::MemOrFlatOrTrie,
-                OperationOptions::NO_SIDE_EFFECTS,
+                AccessOptions::NO_SIDE_EFFECTS,
             )
             .or_else(|err| {
                 // If the value for the trie key is not found, we treat it as if the contract does not exist.
@@ -374,11 +358,11 @@ impl TrieUpdate {
 }
 
 impl TrieAccess for TrieUpdate {
-    fn get(&self, key: &TrieKey, opts: OperationOptions) -> Result<Option<Vec<u8>>, StorageError> {
+    fn get(&self, key: &TrieKey, opts: AccessOptions) -> Result<Option<Vec<u8>>, StorageError> {
         self.get_from_updates(key, |_| TrieAccess::get(&self.trie, key, opts))
     }
 
-    fn contains_key(&self, key: &TrieKey, opts: OperationOptions) -> Result<bool, StorageError> {
+    fn contains_key(&self, key: &TrieKey, opts: AccessOptions) -> Result<bool, StorageError> {
         TrieUpdate::contains_key(&self, key, opts)
     }
 }
@@ -415,7 +399,7 @@ mod tests {
         store_update.commit().unwrap();
         let trie_update2 = tries.new_trie_update(shard_uid, new_root);
         assert_eq!(
-            trie_update2.get(&test_key(b"dog".to_vec()), OperationOptions::DEFAULT),
+            trie_update2.get(&test_key(b"dog".to_vec()), AccessOptions::DEFAULT),
             Ok(Some(b"puppy".to_vec()))
         );
         let values = trie_update2

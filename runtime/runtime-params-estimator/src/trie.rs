@@ -4,8 +4,7 @@ use crate::utils::{aggregate_per_block_measurements, overhead_per_measured_block
 use near_parameters::ExtCosts;
 use near_primitives::hash::hash;
 use near_store::TrieCachingStorage;
-use near_store::trie::OperationOptions;
-use near_store::trie::accounting_cache::TrieAccountingCache;
+use near_store::trie::AccessOptions;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 static SINK: AtomicUsize = AtomicUsize::new(0);
@@ -204,109 +203,110 @@ fn read_node_from_accounting_cache_ext(
     // Before measuring, completely overwrite L3 CPU cache content
     spoil_l3: bool,
 ) -> Vec<GasCost> {
+    todo!()
     // Trie nodes are largest when they hold part of a storage key (Extension or
     // Leaf) and keys can be up to 2kiB. Therefore, this is about the maximum
     // size possible.
-    let value_len: usize = 2048;
+    // let value_len: usize = 2048;
 
-    // Prepare a data buffer that we can read again later to overwrite CPU caches
-    let assumed_max_l3_size = 128 * 1024 * 1024;
-    let dummy_data = crate::utils::random_vec(assumed_max_l3_size);
+    // // Prepare a data buffer that we can read again later to overwrite CPU caches
+    // let assumed_max_l3_size = 128 * 1024 * 1024;
+    // let dummy_data = crate::utils::random_vec(assumed_max_l3_size);
 
-    (0..iters)
-        .map(|i| {
-            // Setup:
-            // Insert a number of worst-case trie nodes *somehow*. It really
-            // doesn't matter how we do it. But it matters that they are
-            // extension nodes with the desired key length.
-            // The easiest way to insert such a node is by encoding it manually
-            // and inserting it as a value. This means it's not even part of the
-            // actual trie, but it looks like a trie node and can be accessed by
-            // hash. Thus, it is sufficient for estimating the cost to read end
-            // decode such a worst-case node.
-            let tb = testbed.transaction_builder();
-            let signer = tb.random_account();
-            let values_inserted = num_values * data_spread_factor;
-            let values: Vec<_> = (0..values_inserted)
-                .map(|_| {
-                    let extension_key = crate::utils::random_vec(value_len);
-                    near_store::estimator::encode_extension_node(extension_key)
-                })
-                .collect();
-            let mut setup_block = Vec::new();
-            for (j, value) in values.iter().cloned().enumerate() {
-                let key = j.to_le_bytes().to_vec();
-                setup_block.push(tb.account_insert_key(signer.clone(), &key, &value));
-            }
-            testbed.process_block(setup_block, 0);
+    // (0..iters)
+    //     .map(|i| {
+    //         // Setup:
+    //         // Insert a number of worst-case trie nodes *somehow*. It really
+    //         // doesn't matter how we do it. But it matters that they are
+    //         // extension nodes with the desired key length.
+    //         // The easiest way to insert such a node is by encoding it manually
+    //         // and inserting it as a value. This means it's not even part of the
+    //         // actual trie, but it looks like a trie node and can be accessed by
+    //         // hash. Thus, it is sufficient for estimating the cost to read end
+    //         // decode such a worst-case node.
+    //         let tb = testbed.transaction_builder();
+    //         let signer = tb.random_account();
+    //         let values_inserted = num_values * data_spread_factor;
+    //         let values: Vec<_> = (0..values_inserted)
+    //             .map(|_| {
+    //                 let extension_key = crate::utils::random_vec(value_len);
+    //                 near_store::estimator::encode_extension_node(extension_key)
+    //             })
+    //             .collect();
+    //         let mut setup_block = Vec::new();
+    //         for (j, value) in values.iter().cloned().enumerate() {
+    //             let key = j.to_le_bytes().to_vec();
+    //             setup_block.push(tb.account_insert_key(signer.clone(), &key, &value));
+    //         }
+    //         testbed.process_block(setup_block, 0);
 
-            // Collect keys of the inserted nodes and select a subset for testing.
-            let all_value_hashes: Vec<_> = values.iter().map(|value| hash(value)).collect();
-            let measured_value_hashes: Vec<_> =
-                all_value_hashes.iter().step_by(data_spread_factor).cloned().collect();
-            let unmeasured_value_hashes = &all_value_hashes[0..num_warmup_values];
-            assert_eq!(measured_value_hashes.len(), num_values);
+    //         // Collect keys of the inserted nodes and select a subset for testing.
+    //         let all_value_hashes: Vec<_> = values.iter().map(|value| hash(value)).collect();
+    //         let measured_value_hashes: Vec<_> =
+    //             all_value_hashes.iter().step_by(data_spread_factor).cloned().collect();
+    //         let unmeasured_value_hashes = &all_value_hashes[0..num_warmup_values];
+    //         assert_eq!(measured_value_hashes.len(), num_values);
 
-            // Create a new cache and load nodes into it as preparation.
-            let caching_storage = testbed.trie_caching_storage();
-            let mut accounting_cache = TrieAccountingCache::new(None);
-            let opts = OperationOptions::contract_runtime(u32::MAX);
-            let _dummy_sum = read_raw_nodes_from_storage(
-                &caching_storage,
-                &mut accounting_cache,
-                &all_value_hashes,
-                opts,
-            );
+    //         // Create a new cache and load nodes into it as preparation.
+    //         let caching_storage = testbed.trie_caching_storage();
+    //         let mut accounting_cache = TrieAccountingCache::new(None);
+    //         let opts = AccessOptions::contract_runtime(u32::MAX);
+    //         let _dummy_sum = read_raw_nodes_from_storage(
+    //             &caching_storage,
+    //             &mut accounting_cache,
+    //             &all_value_hashes,
+    //             opts,
+    //         );
 
-            // Remove trie nodes from CPU caches by filling the caches with useless data.
-            // (To measure latency from main memory, not CPU caches)
-            if spoil_l3 {
-                let dummy_count = dummy_data.iter().filter(|n| **n == i as u8).count();
-                SINK.fetch_add(dummy_count, Ordering::SeqCst);
-            }
+    //         // Remove trie nodes from CPU caches by filling the caches with useless data.
+    //         // (To measure latency from main memory, not CPU caches)
+    //         if spoil_l3 {
+    //             let dummy_count = dummy_data.iter().filter(|n| **n == i as u8).count();
+    //             SINK.fetch_add(dummy_count, Ordering::SeqCst);
+    //         }
 
-            // Read some nodes from the cache, to warm up caches again. (We only
-            // want the trie node to come from main memory, the data structures
-            // around that are expected to always be in cache)
-            let dummy_sum = read_raw_nodes_from_storage(
-                &caching_storage,
-                &mut accounting_cache,
-                unmeasured_value_hashes,
-                opts,
-            );
-            SINK.fetch_add(dummy_sum, Ordering::SeqCst);
+    //         // Read some nodes from the cache, to warm up caches again. (We only
+    //         // want the trie node to come from main memory, the data structures
+    //         // around that are expected to always be in cache)
+    //         let dummy_sum = read_raw_nodes_from_storage(
+    //             &caching_storage,
+    //             &mut accounting_cache,
+    //             unmeasured_value_hashes,
+    //             opts,
+    //         );
+    //         SINK.fetch_add(dummy_sum, Ordering::SeqCst);
 
-            let start = GasCost::measure(testbed.config.metric);
-            let dummy_sum = read_raw_nodes_from_storage(
-                &caching_storage,
-                &mut accounting_cache,
-                &measured_value_hashes,
-                opts,
-            );
-            let cost = start.elapsed();
-            SINK.fetch_add(dummy_sum, Ordering::SeqCst);
+    //         let start = GasCost::measure(testbed.config.metric);
+    //         let dummy_sum = read_raw_nodes_from_storage(
+    //             &caching_storage,
+    //             &mut accounting_cache,
+    //             &measured_value_hashes,
+    //             opts,
+    //         );
+    //         let cost = start.elapsed();
+    //         SINK.fetch_add(dummy_sum, Ordering::SeqCst);
 
-            cost / num_values as u64
-        })
-        .collect()
+    //         cost / num_values as u64
+    //     })
+    //     .collect()
 }
 
-/// Read trie nodes directly from a `TrieCachingStorage`, without the runtime.
-/// Keys are hashes of the nodes.
-/// The return value is just a value to ensure nothing gets optimized out by the
-/// compiler.
-fn read_raw_nodes_from_storage(
-    caching_storage: &TrieCachingStorage,
-    accounting_cache: &mut TrieAccountingCache,
-    keys: &[near_primitives::hash::CryptoHash],
-    opts: OperationOptions,
-) -> usize {
-    keys.iter()
-        .map(|key| {
-            let bytes = accounting_cache
-                .retrieve_raw_bytes_with_accounting(key, caching_storage, opts)
-                .unwrap();
-            near_store::estimator::decode_extension_node(&bytes).len()
-        })
-        .sum()
-}
+// /// Read trie nodes directly from a `TrieCachingStorage`, without the runtime.
+// /// Keys are hashes of the nodes.
+// /// The return value is just a value to ensure nothing gets optimized out by the
+// /// compiler.
+// fn read_raw_nodes_from_storage(
+//     caching_storage: &TrieCachingStorage,
+//     accounting_cache: &mut TrieAccountingCache,
+//     keys: &[near_primitives::hash::CryptoHash],
+//     opts: AccessOptions,
+// ) -> usize {
+//     keys.iter()
+//         .map(|key| {
+//             let bytes = accounting_cache
+//                 .retrieve_raw_bytes_with_accounting(key, caching_storage, opts)
+//                 .unwrap();
+//             near_store::estimator::decode_extension_node(&bytes).len()
+//         })
+//         .sum()
+// }

@@ -19,7 +19,7 @@ use near_store::flat::BlockInfo;
 use near_store::trie::mem::memtrie_update::TrackingMode;
 use near_store::trie::ops::resharding::RetainMode;
 use near_store::trie::outgoing_metadata::ReceiptGroupsQueue;
-use near_store::trie::{OperationOptions, TrieRecorder};
+use near_store::trie::{AccessOptions, TrieRecorder};
 use near_store::{DBCol, ShardTries, ShardUId, Store, TrieAccess};
 use std::io;
 use std::num::NonZero;
@@ -236,7 +236,7 @@ impl ReshardingManager {
             let trie_changes = memtrie_update.retain_split_shard(
                 &boundary_account,
                 retain_mode,
-                OperationOptions::DEFAULT,
+                AccessOptions::DEFAULT,
             );
             Self::duplicate_nodes_at_split_boundary(
                 &mut trie_store_update.trie_store_update(),

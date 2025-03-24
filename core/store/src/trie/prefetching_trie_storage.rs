@@ -1,3 +1,4 @@
+use super::AccessOptions;
 use crate::adapter::trie_store::TrieStoreAdapter;
 use crate::config::PrefetchConfig;
 use crate::sync_utils::Monitor;
@@ -13,8 +14,6 @@ use near_primitives::types::{AccountId, ShardId, StateRoot};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::thread;
-
-use super::OperationOptions;
 
 const MAX_QUEUED_WORK_ITEMS: usize = 16 * 1024;
 const MAX_PREFETCH_STAGING_MEMORY: usize = 200 * 1024 * 1024;
@@ -478,7 +477,7 @@ impl PrefetchApi {
                             Trie::new(Arc::new(prefetcher_storage.clone()), trie_root, None);
                         let storage_key = trie_key.to_vec();
                         metric_prefetch_sent.inc();
-                        match prefetcher_trie.get(&storage_key, OperationOptions::DEFAULT) {
+                        match prefetcher_trie.get(&storage_key, AccessOptions::DEFAULT) {
                             Ok(_maybe_value) => {
                                 near_o11y::io_trace!(count: "prefetch");
                             }

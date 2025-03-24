@@ -36,7 +36,7 @@ use near_primitives::types::{AccountId, ProtocolVersion, ShardId, ShardIndex};
 use near_primitives::utils::compression::CompressedData;
 use near_primitives::version::ProtocolFeature;
 use near_store::flat::BlockInfo;
-use near_store::trie::OperationOptions;
+use near_store::trie::AccessOptions;
 use near_store::trie::ops::resharding::RetainMode;
 use near_store::{PartialStorage, Trie};
 use std::collections::HashMap;
@@ -769,7 +769,7 @@ pub fn validate_chunk_state_witness(
                 let new_root = parent_trie.retain_split_shard(
                     &boundary_account,
                     retain_mode,
-                    OperationOptions::DEFAULT,
+                    AccessOptions::DEFAULT,
                 )?;
 
                 (child_shard_uid, new_root, child_congestion_info)

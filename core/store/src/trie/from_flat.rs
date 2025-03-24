@@ -1,6 +1,6 @@
 use crate::adapter::StoreAdapter;
 use crate::flat::{FlatStorageError, FlatStorageManager};
-use crate::trie::OperationOptions;
+use crate::trie::AccessOptions;
 use crate::{ShardTries, StateSnapshotConfig, Store, Trie, TrieConfig, TrieDBStorage, TrieStorage};
 use near_primitives::{shard_layout::ShardUId, state::FlatStateValue};
 use std::time::Instant;
@@ -44,7 +44,7 @@ pub fn construct_trie_from_flat(store: Store, write_store: Store, shard_uid: Sha
         // Apply and commit changes
         let batch_size = batch.len();
         let new_trie = tries.get_trie_for_shard(shard_uid, trie_root);
-        let trie_changes = new_trie.update(batch, OperationOptions::DEFAULT).unwrap();
+        let trie_changes = new_trie.update(batch, AccessOptions::DEFAULT).unwrap();
         let mut store_update = tries.store_update();
         tries.apply_all(&trie_changes, shard_uid, &mut store_update);
         store_update.commit().unwrap();

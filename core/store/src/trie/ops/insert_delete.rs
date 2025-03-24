@@ -1,13 +1,11 @@
-use near_primitives::errors::StorageError;
-
-use crate::NibbleSlice;
-use crate::trie::OperationOptions;
-
 use super::interface::{
     GenericNodeOrIndex, GenericTrieUpdate, GenericTrieValue, GenericUpdatedTrieNode,
     GenericUpdatedTrieNodeWithSize, HasValueLength, UpdatedNodeId,
 };
 use super::squash::GenericTrieUpdateSquash;
+use crate::NibbleSlice;
+use crate::trie::AccessOptions;
+use near_primitives::errors::StorageError;
 
 pub(crate) trait GenericTrieUpdateInsertDelete<'a, N, V>:
     GenericTrieUpdateSquash<'a, N, V>
@@ -42,7 +40,7 @@ where
         mut node_id: UpdatedNodeId,
         key: &[u8],
         value: GenericTrieValue,
-        opts: OperationOptions,
+        opts: AccessOptions,
     ) -> Result<(), StorageError> {
         let mut partial = NibbleSlice::new(key);
         // Path to the key being inserted.
@@ -308,7 +306,7 @@ where
         &mut self,
         mut node_id: UpdatedNodeId,
         key: &[u8],
-        opts: OperationOptions,
+        opts: AccessOptions,
     ) -> Result<(), StorageError> {
         let mut partial = NibbleSlice::new(key);
         // Path to find the key to delete.

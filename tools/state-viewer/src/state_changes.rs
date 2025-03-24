@@ -12,7 +12,7 @@ use near_primitives::types::{
     StateRoot,
 };
 use near_primitives_core::types::BlockHeight;
-use near_store::trie::OperationOptions;
+use near_store::trie::AccessOptions;
 use near_store::{KeyForStateChanges, Store, WrappedTrieChanges};
 use nearcore::{NearConfig, NightshadeRuntime, NightshadeRuntimeExt};
 use std::path::{Path, PathBuf};
@@ -193,7 +193,7 @@ fn apply_state_changes(
                             raw_state_changes_with_trie_key.changes.last().unwrap().data.clone();
                         (raw_key, data)
                     }),
-                    OperationOptions::DEFAULT,
+                    AccessOptions::DEFAULT,
                 )
                 .unwrap();
 

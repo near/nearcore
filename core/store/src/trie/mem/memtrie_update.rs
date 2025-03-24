@@ -12,7 +12,7 @@ use crate::trie::ops::interface::{
 };
 use crate::trie::ops::resharding::{GenericTrieUpdateRetain, RetainMode};
 use crate::trie::trie_recording::TrieRecorder;
-use crate::trie::{Children, MemTrieChanges, OperationOptions, TrieRefcountDeltaMap};
+use crate::trie::{Children, MemTrieChanges, AccessOptions, TrieRefcountDeltaMap};
 use crate::{RawTrieNode, RawTrieNodeWithSize, TrieChanges};
 
 use super::arena::{ArenaMemory, ArenaMut};
@@ -157,7 +157,7 @@ impl<'a, M: ArenaMemory> GenericTrieUpdate<'a, MemTrieNodeId, FlatStateValue>
     fn ensure_updated(
         &mut self,
         node: GenericNodeOrIndex<MemTrieNodeId>,
-        _opts: OperationOptions,
+        _opts: AccessOptions,
     ) -> Result<UpdatedNodeId, StorageError> {
         Ok(match node {
             GenericNodeOrIndex::Old(node_id) => self.convert_existing_to_updated(Some(node_id)),
@@ -268,7 +268,7 @@ impl<'a, M: ArenaMemory> MemTrieUpdate<'a, M> {
             0,
             key,
             GenericTrieValue::MemtrieAndDisk(value),
-            OperationOptions::DEFAULT,
+            AccessOptions::DEFAULT,
         )
     }
 
@@ -279,7 +279,7 @@ impl<'a, M: ArenaMemory> MemTrieUpdate<'a, M> {
         key: &[u8],
         value: FlatStateValue,
     ) -> Result<(), StorageError> {
-        self.generic_insert(0, key, GenericTrieValue::MemtrieOnly(value), OperationOptions::DEFAULT)
+        self.generic_insert(0, key, GenericTrieValue::MemtrieOnly(value), AccessOptions::DEFAULT)
     }
 }
 
@@ -472,7 +472,7 @@ impl<'a, M: ArenaMemory> MemTrieUpdate<'a, M> {
         mut self,
         boundary_account: &AccountId,
         retain_mode: RetainMode,
-        opts: OperationOptions,
+        opts: AccessOptions,
     ) -> TrieChanges {
         GenericTrieUpdateRetain::retain_split_shard(&mut self, boundary_account, retain_mode, opts);
         self.to_trie_changes()
@@ -539,7 +539,7 @@ mod tests {
     use crate::trie::mem::lookup::memtrie_lookup;
     use crate::trie::mem::memtrie_update::GenericTrieUpdateInsertDelete;
     use crate::trie::mem::memtries::MemTries;
-    use crate::trie::{MemTrieChanges, OperationOptions};
+    use crate::trie::{MemTrieChanges, AccessOptions};
     use crate::{KeyLookupMode, ShardTries, TrieChanges};
     use near_primitives::hash::CryptoHash;
     use near_primitives::shard_layout::ShardUId;
@@ -580,7 +580,7 @@ mod tests {
                 if let Some(value) = value {
                     update.insert(&key, value).unwrap();
                 } else {
-                    update.generic_delete(0, &key, OperationOptions::DEFAULT).unwrap();
+                    update.generic_delete(0, &key, AccessOptions::DEFAULT).unwrap();
                 }
             }
             update.to_trie_changes()
@@ -598,7 +598,7 @@ mod tests {
                 if let Some(value) = value {
                     update.insert_memtrie_only(&key, FlatStateValue::on_disk(&value)).unwrap();
                 } else {
-                    update.generic_delete(0, &key, OperationOptions::DEFAULT).unwrap();
+                    update.generic_delete(0, &key, AccessOptions::DEFAULT).unwrap();
                 }
             }
             update.to_memtrie_changes_only()
@@ -609,7 +609,7 @@ mod tests {
             changes: Vec<(Vec<u8>, Option<Vec<u8>>)>,
         ) -> TrieChanges {
             let trie = self.disk.get_trie_for_shard(ShardUId::single_shard(), self.state_root);
-            trie.update(changes, OperationOptions::DEFAULT).unwrap()
+            trie.update(changes, AccessOptions::DEFAULT).unwrap()
         }
 
         fn check_consistency_across_all_changes_and_apply(
@@ -659,7 +659,7 @@ mod tests {
                 let memtrie_result =
                     memtrie_root.and_then(|memtrie_root| memtrie_lookup(memtrie_root, key, None));
                 let disk_result = disk_trie
-                    .get_optimized_ref(key, KeyLookupMode::MemOrTrie, OperationOptions::DEFAULT)
+                    .get_optimized_ref(key, KeyLookupMode::MemOrTrie, AccessOptions::DEFAULT)
                     .unwrap();
                 if let Some(value_ref) = value_ref {
                     let memtrie_value_ref = memtrie_result
@@ -980,7 +980,7 @@ mod tests {
             if let Some(value) = value {
                 update.insert_memtrie_only(&key, FlatStateValue::on_disk(&value)).unwrap();
             } else {
-                update.generic_delete(0, &key, OperationOptions::DEFAULT).unwrap();
+                update.generic_delete(0, &key, AccessOptions::DEFAULT).unwrap();
             }
         }
 

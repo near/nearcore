@@ -90,9 +90,7 @@ pub(crate) fn execute_function_call(
     };
 
     near_vm_runner::reset_metrics();
-    let mode_guard = near_store::trie::accounting_cache::debug_assertions_crt_context();
     let result = near_vm_runner::run(contract, runtime_ext, &context, Arc::clone(&config.fees));
-    drop(mode_guard);
     near_vm_runner::report_metrics(
         &apply_state.shard_id.to_string(),
         &apply_state.apply_reason.to_string(),
@@ -197,6 +195,7 @@ pub(crate) fn action_function_call(
         epoch_info_provider,
         apply_state.current_protocol_version,
         config.wasm_config.storage_get_mode,
+        Arc::clone(&apply_state.trie_access_tracker_state),
     );
     let outcome = execute_function_call(
         contract,
@@ -1428,6 +1427,7 @@ mod tests {
             migration_flags: MigrationFlags::default(),
             congestion_info: BlockCongestionInfo::default(),
             bandwidth_requests: BlockBandwidthRequests::empty(),
+            trie_access_tracker_state: Default::default(),
         }
     }
 
