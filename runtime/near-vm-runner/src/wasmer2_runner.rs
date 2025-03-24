@@ -783,7 +783,7 @@ impl<'e, 'l, 'lr> Resolver for Wasmer2Imports<'e, 'l, 'lr> {
                             // SAFETY: here we erase the lifetime of the `vmlogic` reference,
                             // but we believe that the lifetimes on `Wasmer2Imports` enforce
                             // sufficiently that it isn't possible to call this exported
-                            // function when vmlogic is no loger live.
+                            // function when vmlogic is no logger live.
                             vmctx: wasmer_vm::VMFunctionEnvironment {
                                 host_env: self.vmlogic as *const _ as *mut _
                             },
