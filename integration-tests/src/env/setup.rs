@@ -19,7 +19,7 @@ use near_chain::test_utils::{KeyValueRuntime, MockEpochManager, ValidatorSchedul
 use near_chain::types::{ChainConfig, RuntimeAdapter};
 use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode};
 use near_chain_configs::{
-    ChunkDistributionNetworkConfig, ClientConfig, MutableConfigValue, ReshardingConfig,
+    ChunkDistributionNetworkConfig, ClientConfig, Genesis, MutableConfigValue, ReshardingConfig,
 };
 use near_chunks::adapter::ShardsManagerRequestFromClient;
 use near_chunks::client::ShardsManagerResponse;
@@ -34,8 +34,8 @@ use near_client::{
 };
 use near_client::{TxRequestHandlerActor, spawn_tx_request_handler_actor};
 use near_crypto::{KeyType, PublicKey};
-use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
+use near_epoch_manager::{EpochManager, EpochManagerAdapter};
 use near_network::client::{
     AnnounceAccountRequest, BlockApproval, BlockHeadersRequest, BlockHeadersResponse, BlockRequest,
     BlockResponse, ChunkEndorsementMessage, OptimisticBlockMessage, SetNetworkInfo,
@@ -64,14 +64,17 @@ use near_primitives::types::{AccountId, BlockHeightDelta, EpochId, NumBlocks, Nu
 use near_primitives::validator_signer::{EmptyValidatorSigner, ValidatorSigner};
 use near_primitives::version::{PROTOCOL_UPGRADE_SCHEDULE, PROTOCOL_VERSION};
 use near_store::adapter::StoreAdapter;
+use near_store::genesis::initialize_genesis_state;
 use near_store::test_utils::create_test_store;
 use near_telemetry::TelemetryActor;
+use nearcore::NightshadeRuntime;
 use num_rational::Ratio;
 use once_cell::sync::OnceCell;
 use rand::{Rng, thread_rng};
 use std::cmp::max;
 use std::collections::{HashMap, HashSet};
 use std::ops::DerefMut;
+use std::path::Path;
 use std::sync::{Arc, RwLock};
 
 use crate::utils::block_stats::BlockStats;
@@ -85,7 +88,7 @@ pub const MIN_BLOCK_PROD_TIME: Duration = Duration::milliseconds(100);
 pub const MAX_BLOCK_PROD_TIME: Duration = Duration::milliseconds(200);
 
 /// Sets up ClientActor and ViewClientActor viewing the same store/runtime.
-fn setup(
+fn setup_with_mock_epoch_manager(
     clock: Clock,
     vs: ValidatorSchedule,
     epoch_length: BlockHeightDelta,
@@ -110,8 +113,137 @@ fn setup(
     let store = create_test_store();
     let num_validator_seats = vs.all_block_producers().count() as NumSeats;
     let epoch_manager = MockEpochManager::new_with_validators(store.clone(), vs, epoch_length);
-    let shard_tracker = ShardTracker::new(TrackedConfig::AllShards, epoch_manager.clone());
     let runtime = KeyValueRuntime::new_with_no_gc(store.clone(), epoch_manager.as_ref(), archive);
+
+    setup(SetupOptions {
+        epoch_manager,
+        genesis_time,
+        transaction_validity_period,
+        epoch_length,
+        account_id,
+        skip_sync_wait,
+        min_block_prod_time,
+        max_block_prod_time,
+        num_validator_seats,
+        archive,
+        state_sync_enabled,
+        chunk_distribution_config,
+        clock,
+        runtime,
+        network_adapter,
+        store,
+        enable_doomslug,
+    })
+}
+
+/// Sets up ClientActor and ViewClientActor viewing the same store/runtime using real epoch
+/// manager.
+fn setup_with_real_epoch_manager(
+    clock: Clock,
+    validators: Vec<AccountId>,
+    epoch_length: BlockHeightDelta,
+    account_id: AccountId,
+    skip_sync_wait: bool,
+    min_block_prod_time: u64,
+    max_block_prod_time: u64,
+    enable_doomslug: bool,
+    archive: bool,
+    state_sync_enabled: bool,
+    network_adapter: PeerManagerAdapter,
+    transaction_validity_period: NumBlocks,
+    genesis_time: Utc,
+    chunk_distribution_config: Option<ChunkDistributionNetworkConfig>,
+) -> (
+    Addr<ClientActor>,
+    Addr<ViewClientActor>,
+    Addr<TxRequestHandlerActor>,
+    ShardsManagerAdapterForTest,
+    PartialWitnessSenderForNetwork,
+) {
+    let store = create_test_store();
+
+    let num_validator_seats = validators.len() as NumSeats;
+    let genesis = Genesis::test(validators, num_validator_seats);
+    initialize_genesis_state(store.clone(), &genesis, None);
+
+    let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
+
+    let runtime = NightshadeRuntime::test(
+        Path::new("."),
+        store.clone(),
+        &genesis.config,
+        epoch_manager.clone(),
+    );
+
+    setup(SetupOptions {
+        epoch_manager,
+        genesis_time,
+        transaction_validity_period,
+        epoch_length,
+        account_id,
+        skip_sync_wait,
+        min_block_prod_time,
+        max_block_prod_time,
+        num_validator_seats,
+        archive,
+        state_sync_enabled,
+        chunk_distribution_config,
+        clock,
+        runtime,
+        network_adapter,
+        store,
+        enable_doomslug,
+    })
+}
+
+struct SetupOptions {
+    epoch_manager: Arc<dyn EpochManagerAdapter>,
+    genesis_time: time::OffsetDateTime,
+    transaction_validity_period: u64,
+    epoch_length: u64,
+    account_id: AccountId,
+    skip_sync_wait: bool,
+    min_block_prod_time: u64,
+    max_block_prod_time: u64,
+    num_validator_seats: u64,
+    archive: bool,
+    state_sync_enabled: bool,
+    chunk_distribution_config: Option<ChunkDistributionNetworkConfig>,
+    clock: Clock,
+    runtime: Arc<dyn RuntimeAdapter>,
+    network_adapter: PeerManagerAdapter,
+    store: near_store::Store,
+    enable_doomslug: bool,
+}
+
+fn setup(
+    SetupOptions {
+        epoch_manager,
+        genesis_time,
+        transaction_validity_period,
+        epoch_length,
+        account_id,
+        skip_sync_wait,
+        min_block_prod_time,
+        max_block_prod_time,
+        num_validator_seats,
+        archive,
+        state_sync_enabled,
+        chunk_distribution_config,
+        clock,
+        runtime,
+        network_adapter,
+        store,
+        enable_doomslug,
+    }: SetupOptions,
+) -> (
+    Addr<ActixWrapper<ClientActorInner>>,
+    Addr<near_async::actix_wrapper::SyncActixWrapper<ViewClientActorInner>>,
+    Addr<near_async::actix_wrapper::SyncActixWrapper<TxRequestHandler>>,
+    ShardsManagerAdapterForTest,
+    PartialWitnessSenderForNetwork,
+) {
+    let shard_tracker = ShardTracker::new(TrackedConfig::AllShards, epoch_manager.clone());
     let chain_genesis = ChainGenesis {
         time: genesis_time,
         height: 0,
@@ -284,16 +416,15 @@ pub fn setup_mock_with_validity_period(
     transaction_validity_period: NumBlocks,
 ) -> ActorHandlesForTesting {
     let network_adapter = LateBoundSender::new();
-    let vs = ValidatorSchedule::new().block_producers_per_epoch(vec![validators]);
     let (
         client_addr,
         view_client_addr,
         tx_request_handler_addr,
         shards_manager_adapter,
         partial_witness_sender,
-    ) = setup(
+    ) = setup_with_real_epoch_manager(
         clock.clone(),
-        vs,
+        validators,
         10,
         account_id,
         skip_sync_wait,
@@ -920,7 +1051,7 @@ pub fn setup_mock_all_validators(
             tx_processor_addr,
             shards_manager_adapter,
             partial_witness_sender,
-        ) = setup(
+        ) = setup_with_mock_epoch_manager(
             clock.clone(),
             vs,
             epoch_length,
