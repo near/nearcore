@@ -259,9 +259,10 @@ pub(crate) static STATE_TRANSITION_DATA_GC_CLEARED_ENTRIES: LazyLock<IntCounter>
     });
 
 pub(crate) static STATE_TRANSITION_DATA_GC_TIME: LazyLock<Histogram> = LazyLock::new(|| {
-    try_create_histogram(
+    try_create_histogram_with_buckets(
         "near_state_transition_data_gc_time",
         "Time taken to do garbage collection of state transaction data",
+        exponential_buckets(0.001, 1.6, 20).unwrap(),
     )
     .unwrap()
 });
