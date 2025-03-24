@@ -1,3 +1,5 @@
+// cspell:ignore regs
+
 use super::dependencies::{MemSlice, MemoryLike};
 use super::errors::{HostError, VMLogicError};
 use super::gas_counter::GasCounter;

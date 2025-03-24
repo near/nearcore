@@ -518,7 +518,7 @@ impl<S: AsRef<str>, T> Import<S, T> {
 /// accessor and describes what names are exported from a wasm module
 /// and the type of the item that is exported.
 ///
-/// The `<T>` refefers to `ExternType`, however it can also refer to use
+/// The `<T>` refers to `ExternType`, however it can also refer to use
 /// `MemoryType`, `TableType`, `FunctionType` and `GlobalType` for ease of
 /// use.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

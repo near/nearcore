@@ -206,13 +206,13 @@ macro_rules! get_memory_or_register {
 /// This exists for historical reasons because we must maintain when errors are
 /// returned.  In the old days, between reading the public key and decoding it
 /// we could return unrelated error.  Because of that we cannot change the code
-/// to return deserialisation errors immediately after reading the public key.
+/// to return deserialization errors immediately after reading the public key.
 ///
-/// This struct abstracts away the fact that we’re deserialising the key
+/// This struct abstracts away the fact that we’re deserializing the key
 /// immediately.  Decoding errors are detected as soon as this object is created
 /// but they are communicated to the user only once they call [`Self::decode`].
 ///
-/// Why not just keep the old ways without this noise?  By doing deserialisation
+/// Why not just keep the old ways without this noise? By doing deserialization
 /// immediately we’re copying the data onto the stack without having to allocate
 /// a temporary vector.
 struct PublicKeyBuffer(Result<near_crypto::PublicKey, ()>);
@@ -868,6 +868,8 @@ impl<'a> VMLogic<'a> {
     /// `base + write_register_base + write_register_byte * num_bytes +
     ///  alt_bn128_g1_multiexp_base +
     ///  alt_bn128_g1_multiexp_element * num_elements`
+    ///
+    /// cspell:words Pippenger
     pub fn alt_bn128_g1_multiexp(
         &mut self,
         value_len: u64,
@@ -2987,7 +2989,7 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
         // We return an illegally constructed AccountId here for the sake of ensuring
         // backwards compatibility. For paths previously involving validation, like receipts
         // we retain validation further down the line in node-runtime/verifier.rs#fn(validate_receipt)
-        // mimicing previous behaviour.
+        // mimicking previous behaviour.
         let account_id = String::from_utf8(buf.into_owned())
             .map(
                 #[allow(deprecated)]
