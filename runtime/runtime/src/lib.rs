@@ -1384,26 +1384,9 @@ impl Runtime {
     pub fn apply_migrations(
         &self,
         state_update: &mut TrieUpdate,
-        migration_data: &Arc<MigrationData>,
         migration_flags: &MigrationFlags,
         protocol_version: ProtocolVersion,
-    ) -> Result<(Gas, Vec<Receipt>), StorageError> {
-        // Re-introduce receipts lost because of a bug in apply_chunks.
-        // We take the first block with existing chunk in the first epoch in which protocol feature
-        // RestoreReceiptsAfterFixApplyChunks was enabled, and put the restored receipts there.
-        // See https://github.com/near/nearcore/pull/4248/ for more details.
-        let receipts_to_restore = if ProtocolFeature::RestoreReceiptsAfterFixApplyChunks
-            .protocol_version()
-            == protocol_version
-            && migration_flags.is_first_block_with_chunk_of_version
-        {
-            // Note that receipts are restored only on mainnet so restored_receipts will be empty on
-            // other chains.
-            migration_data.restored_receipts.get(&ShardId::new(0)).cloned().unwrap_or_default()
-        } else {
-            vec![]
-        };
-
+    ) -> Result<(), StorageError> {
         // Remove the only testnet account with large storage key.
         if ProtocolFeature::RemoveAccountWithLongStorageKey.protocol_version() == protocol_version
             && migration_flags.is_first_block_with_chunk_of_version
@@ -1415,7 +1398,7 @@ impl Runtime {
             }
         }
 
-        Ok((0, receipts_to_restore))
+        Ok(())
     }
 
     /// Applies new signed transactions and incoming receipts for some chunk/shard on top of
@@ -1484,15 +1467,12 @@ impl Runtime {
         }
 
         // Step 2: apply migrations.
-        let (gas_used_for_migrations, mut receipts_to_restore) = self
-            .apply_migrations(
-                &mut processing_state.state_update,
-                &apply_state.migration_data,
-                &apply_state.migration_flags,
-                processing_state.protocol_version,
-            )
-            .map_err(RuntimeError::StorageError)?;
-        processing_state.total.add(gas_used_for_migrations, gas_used_for_migrations)?;
+        self.apply_migrations(
+            &mut processing_state.state_update,
+            &apply_state.migration_flags,
+            processing_state.protocol_version,
+        )
+        .map_err(RuntimeError::StorageError)?;
 
         let delayed_receipts = DelayedReceiptQueueWrapper::new(
             DelayedReceiptQueue::load(&processing_state.state_update)?,
@@ -1517,14 +1497,6 @@ impl Runtime {
                 &bandwidth_scheduler_output,
             );
         }
-
-        // If we have receipts that need to be restored, prepend them to the list of incoming receipts
-        let incoming_receipts = if receipts_to_restore.is_empty() {
-            incoming_receipts
-        } else {
-            receipts_to_restore.extend_from_slice(incoming_receipts);
-            receipts_to_restore.as_slice()
-        };
 
         let mut processing_state =
             processing_state.into_processing_receipt_state(incoming_receipts, delayed_receipts);
