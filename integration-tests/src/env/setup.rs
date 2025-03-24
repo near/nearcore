@@ -182,6 +182,8 @@ fn setup_with_real_epoch_manager(
     let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
 
     let runtime = NightshadeRuntime::test(
+        // It would be good to use tempdir here however with some tests it would be difficult to
+        // make sure that tempdir isn't cleaned up before the test finishes.
         Path::new("testdir"),
         store.clone(),
         &genesis.config,
