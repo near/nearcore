@@ -40,7 +40,7 @@ pub fn test_memory_like(factory: impl FnOnce() -> Box<dyn MemoryLike>) {
 
     let mut ctx = TestContext { mem: factory(), buf: [0; PAGE as usize + 1] };
 
-    // Test memory is initialised to zero.
+    // Test memory is initialized to zero.
     ctx.test_read(0, PAGE, 0);
     ctx.test_read(PAGE, 0, 0);
     ctx.test_read(0, PAGE / 2, 0);
