@@ -10,7 +10,7 @@ jobs:
     name: "tx injections single-node benchmark"
     runs-on: ubuntu-22.04-16core
     timeout-minutes: 60
-    # if: github.event_name == 'merge_group' || github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'merge_group' || github.event_name == 'workflow_dispatch'
 
     steps:
       - name: Install jq json processor
@@ -36,4 +36,4 @@ jobs:
         run: |
           cd benchmarks/transactions-generator
           ln -s ../../target/release/neard
-          just do-it 20000 2m
+          just do-it 10000 2m
