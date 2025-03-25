@@ -155,7 +155,7 @@ pub struct ApplyState {
     pub bandwidth_requests: BlockBandwidthRequests,
 }
 
-/// Represents a batch of transactions sharing the same (signer_id, public_key),
+/// Represents a batch of transactions sharing the same `signer_id`,
 /// sorted by ascending nonce.
 struct TransactionBatch<'a> {
     indices: &'a [usize],
@@ -376,13 +376,12 @@ impl Runtime {
         debug!(target: "runtime", "{}", log_str);
     }
 
-    /// Processes a batch of transactions (same signer_id and public_key), sorted by ascending nonce.
+    /// Processes a batch of transactions (same signer_id), sorted by ascending nonce.
     /// Validates, calculates cost, and performs checks sequentially.
-    /// If a transaction fails validation or verification, it invokes handle_invalid_transaction
-    /// and, if `RelaxedChunkValidation` is enabled, skips to the next transaction without failing
-    /// the whole batch. The resulting state (`final_state`) contains `Account` and `AccessKey` after
+    /// If a transaction fails validation or verification, it is skipped.
+    /// The resulting state contains `Account` and set of `AccessKey` after
     /// the last successful transaction in the batch to be committed to the `state_update`.
-    /// Returns a `BatchOutput` containing verified transactions, final state, and signer_id.
+    /// Returns a `BatchOutput` containing verified transactions, updated `Account`, and access keys.
     fn process_batched_transactions(
         &self,
         batch: TransactionBatch,
@@ -419,7 +418,7 @@ impl Runtime {
 
             let cost = match tx_cost(
                 &apply_state.config,
-                &validated_tx,
+                &validated_tx.to_tx(),
                 gas_price,
                 current_protocol_version,
             ) {
@@ -1766,12 +1765,12 @@ impl Runtime {
                     processing_state.stats.balance.tx_burnt_amount = new_balance;
                 }
                 Err(err) => {
-                    Self::handle_invalid_transaction(
-                        err,
-                        &processed.transaction.get_hash(),
-                        processing_state.protocol_version,
-                        "failed to add burnt amount to balance",
-                    )?;
+                    tracing::debug!(
+                        target: "runtime",
+                        "invalid transaction ignored (burnt gas overflow) => tx_hash: {}, error: {:?}",
+                        processed.transaction.get_hash(),
+                        err
+                    );
                     continue;
                 }
             }
