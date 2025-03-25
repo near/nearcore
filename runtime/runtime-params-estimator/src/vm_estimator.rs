@@ -93,7 +93,7 @@ fn precompilation_cost(
 
     // We multiply `b` by 5/4 to accommodate for the fact that test contracts are typically 80% code,
     // so in the worst case it could grow to 100% and our costs still give better upper estimation.
-    // Safety muliplication with 5/4.
+    // Safety multiplication with 5/4.
     let safety_numer = 5u64;
     let safety_denom = 4u64;
     let (corrected_a, corrected_b) =
