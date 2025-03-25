@@ -1,5 +1,6 @@
 use borsh::BorshDeserialize;
 use near_chain::types::LatestKnown;
+use near_epoch_manager::epoch_info_aggregator::EpochInfoAggregator;
 use near_primitives::block::{Block, BlockHeader, Tip};
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::epoch_info::EpochInfo;
@@ -18,7 +19,6 @@ use near_primitives::utils::{get_block_shard_id_rev, get_outcome_id_block_hash_r
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::BlockHeight;
 use near_store::adapter::flat_store::decode_flat_state_db_key;
-use near_store::epoch_info_aggregator::EpochInfoAggregator;
 use near_store::flat::delta::KeyForFlatStateDelta;
 use near_store::flat::{FlatStateChanges, FlatStateDeltaMetadata};
 use near_store::{DBCol, RawTrieNodeWithSize, Store, TrieChanges};

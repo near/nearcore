@@ -39,7 +39,7 @@ use near_primitives::views::{
     StateItem,
 };
 use near_store::ShardUId;
-use near_store::metadata::DbKind;
+use near_store::db::metadata::DbKind;
 use near_vm_runner::logic::ProtocolVersion;
 use once_cell::sync::OnceCell;
 use std::collections::{HashMap, HashSet};
