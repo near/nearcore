@@ -1,9 +1,7 @@
 use actix::Addr;
 
-use near_crypto::InMemorySigner;
 use near_indexer_primitives::IndexerTransactionWithOutcome;
 use near_parameters::RuntimeConfig;
-use near_primitives::transaction::ValidatedTransaction;
 use near_primitives::version::ProtocolVersion;
 use near_primitives::views;
 use node_runtime::config::tx_cost;
