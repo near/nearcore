@@ -176,17 +176,18 @@ struct TransactionBatches<'a> {
 
 impl<'a> TransactionBatches<'a> {
     /// Constructs TransactionBatches from a slice of SignedTransaction.
-    /// Transactions are sorted by (signer_id, public_key, nonce).
+    /// Transactions are sorted by (signer_id, original order) so that for the same account
+    /// the input order is preserved.
     pub fn new(signed_txs: &'a [SignedTransaction]) -> Self {
         let mut indices: Vec<usize> = (0..signed_txs.len()).collect();
         indices.sort_by_key(|&i| {
             let tx = &signed_txs[i].transaction;
-            (tx.signer_id(), tx.public_key(), tx.nonce())
+            (tx.signer_id().clone(), i)
         });
         Self { signed_txs, indices }
     }
 
-    /// Returns a parallel iterator over transaction batches batched by (signer_id, public_key).
+    /// Returns a parallel iterator over transaction batches grouped by signer_id.
     pub fn par_batches(
         &'a self,
     ) -> impl rayon::iter::ParallelIterator<Item = TransactionBatch<'a>> {
@@ -195,7 +196,6 @@ impl<'a> TransactionBatches<'a> {
                 let left_tx = &self.signed_txs[left].transaction;
                 let right_tx = &self.signed_txs[right].transaction;
                 left_tx.signer_id() == right_tx.signer_id()
-                    && left_tx.public_key() == right_tx.public_key()
             })
             .map(|chunk| TransactionBatch { indices: chunk, signed_txs: self.signed_txs })
     }
@@ -213,19 +213,17 @@ struct ProcessedTransaction {
 #[derive(Debug)]
 struct BatchOutput {
     processed_transactions: Vec<ProcessedTransaction>,
-    cached_account: Option<Account>,
-    cached_access_key: Option<AccessKey>,
+    updated_account: Account,
+    updated_keys: Vec<(PublicKey, AccessKey)>,
 }
 
 impl BatchOutput {
-    /// Returns the signer_id of the first processed transaction in this batch, if any.
-    pub fn signer_id(&self) -> Option<&AccountId> {
-        self.processed_transactions.first().map(|pt| pt.transaction.to_tx().signer_id())
-    }
-
-    /// Returns the public_key of the first processed transaction in this batch, if any.
-    pub fn public_key(&self) -> Option<&PublicKey> {
-        self.processed_transactions.first().map(|pt| pt.transaction.to_tx().public_key())
+    /// Returns the signer_id for this batch
+    pub fn signer_id(&self) -> &AccountId {
+        self.processed_transactions
+            .first()
+            .map(|pt| pt.transaction.to_tx().signer_id())
+            .unwrap() // BatchOutput should not be empty
     }
 }
 
@@ -395,9 +393,9 @@ impl Runtime {
         current_protocol_version: ProtocolVersion,
     ) -> Result<BatchOutput, RuntimeError> {
         let mut cached_account = None;
-        let mut cached_access_key = None;
         let mut processed_transactions = Vec::with_capacity(batch.indices.len());
 
+        let mut keys_used: HashMap<PublicKey, AccessKey> = HashMap::new();
         for (idx, transaction) in batch.iter() {
             metrics::TRANSACTION_PROCESSED_TOTAL.inc();
 
@@ -436,6 +434,12 @@ impl Runtime {
                 }
             };
 
+            let public_key = transaction.transaction.public_key();
+            let mut cached_access_key = match keys_used.get(public_key) {
+                Some(access_key) => Some(access_key.clone()),
+                None => None,
+            };
+
             match verify_and_charge_tx_ephemeral(
                 &apply_state.config,
                 state_update,
@@ -451,7 +455,8 @@ impl Runtime {
 
                     // store ephemeral updates for next transaction
                     cached_account = Some(vr.signer.clone());
-                    cached_access_key = Some(vr.access_key.clone());
+                    keys_used.insert(public_key.clone(), vr.access_key.clone());
+
                     let (receipt, outcome) =
                         self.process_transaction(apply_state, &validated_tx, &vr);
 
@@ -474,7 +479,16 @@ impl Runtime {
             }
         }
 
-        Ok(BatchOutput { processed_transactions, cached_account, cached_access_key })
+        let updated_keys = keys_used.into_iter().collect();
+        let updated_account = match cached_account {
+            Some(account) => account,
+            None => {
+                return Err(RuntimeError::StorageError(StorageError::StorageInconsistentState(
+                    "TODO: not return an error on empty BatchOutput".to_string(),
+                )))
+            }
+        };
+        Ok(BatchOutput { processed_transactions, updated_account, updated_keys })
     }
 
     /// Converts a validated and verified transaction into a receipt
@@ -1717,32 +1731,21 @@ impl Runtime {
         for batch_vec in batch_outcomes {
             for batch_result in batch_vec {
                 let batch_outcome = batch_result?;
-                if let (Some(account), Some(access_key), Some(signer_id), Some(public_key)) = (
-                    batch_outcome.cached_account.as_ref(),
-                    batch_outcome.cached_access_key.as_ref(),
-                    batch_outcome.signer_id(),
-                    batch_outcome.public_key(),
-                ) {
-                    set_account(state_update, signer_id.clone(), &account);
-                    set_access_key(
-                        state_update,
-                        signer_id.clone(),
-                        public_key.clone(),
-                        &access_key,
-                    );
-                    let last_tx_hash = batch_outcome
-                        .processed_transactions
-                        .last()
-                        .map(|pt| pt.transaction.get_hash())
-                        .unwrap_or_default();
-                    state_update
-                        .commit(StateChangeCause::TransactionProcessing { tx_hash: last_tx_hash });
-                } else {
-                    debug_assert!(
-                        batch_outcome.processed_transactions.is_empty(),
-                        "must be an empty batch result"
-                    );
+                for (key, access_key) in &batch_outcome.updated_keys {
+                    set_access_key(state_update, batch_outcome.signer_id().clone(), key.clone(), access_key);
                 }
+
+                let signer_id = batch_outcome.signer_id().clone();
+                let account = batch_outcome.updated_account;
+                set_account(state_update, signer_id.clone(), &account);
+
+                let last_tx_hash = batch_outcome
+                    .processed_transactions
+                    .last()
+                    .map(|pt| pt.transaction.get_hash())
+                    .unwrap_or_default();
+                state_update
+                        .commit(StateChangeCause::TransactionProcessing { tx_hash: last_tx_hash });
                 for processed in batch_outcome.processed_transactions {
                     all_processed.push((processed.index, processed));
                 }
