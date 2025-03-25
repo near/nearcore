@@ -34,7 +34,7 @@ pub struct Instance {
 /// host environments.
 #[derive(Error, Debug)]
 pub enum InstantiationError {
-    /// A linking ocurred during instantiation.
+    /// A linking occurred during instantiation.
     #[error(transparent)]
     Link(LinkError),
 
