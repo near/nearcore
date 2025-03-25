@@ -15,12 +15,12 @@ const DB_VERSION_WITH_KIND: DbVersion = 34;
 /// a backwards-incompatible change to the database is required.  Increasing the
 /// version involves performing a migration since node can only open databases
 /// with version they was built for (see [`DB_VERSION`]).
-pub(super) const VERSION_KEY: &[u8; 7] = b"VERSION";
+pub(crate) const VERSION_KEY: &[u8; 7] = b"VERSION";
 
 /// Key for the database kind entry in DBCol::DbVersion.
 ///
 /// The key holds a [`DbKind`] value serialized to a string.
-pub(super) const KIND_KEY: &[u8; 4] = b"KIND";
+pub(crate) const KIND_KEY: &[u8; 4] = b"KIND";
 
 /// Describes what kind the storage is.
 #[derive(
@@ -43,7 +43,7 @@ pub enum DbKind {
 
 /// Metadata about a database.
 #[derive(Clone, Copy)]
-pub(super) struct DbMetadata {
+pub(crate) struct DbMetadata {
     /// Version of the database.
     pub version: DbVersion,
 
@@ -61,7 +61,7 @@ impl DbMetadata {
     /// If the database version is not present, returns an error.  Similarly, if
     /// database version is ≥ [`DB_VERSION_WITH_KIND`] but the kind is not
     /// specified, returns an error.
-    pub(super) fn read(db: &dyn crate::Database) -> std::io::Result<Self> {
+    pub(crate) fn read(db: &dyn crate::Database) -> std::io::Result<Self> {
         let version = read("DbVersion", db, VERSION_KEY)?;
         let kind = if version < DB_VERSION_WITH_KIND {
             // If database is at version less than DB_VERSION_WITH_KIND then it
@@ -76,7 +76,7 @@ impl DbMetadata {
     /// Reads the version from the db. If version is not set returns None. This
     /// method doesn't enforce the invariant that version must always be set so
     /// it should only be used when setting the version for the first time.
-    pub(super) fn maybe_read_version(
+    pub(crate) fn maybe_read_version(
         db: &dyn crate::Database,
     ) -> std::io::Result<Option<DbVersion>> {
         maybe_read("DbVersion", db, VERSION_KEY)
@@ -85,7 +85,7 @@ impl DbMetadata {
     /// Reads the kind from the db. If kind is not set returns None. This method
     /// doesn't enforce the invariant that kind must always be set so it should
     /// only be used when setting the kind for the first time.
-    pub(super) fn maybe_read_kind(db: &dyn crate::Database) -> std::io::Result<Option<DbKind>> {
+    pub(crate) fn maybe_read_kind(db: &dyn crate::Database) -> std::io::Result<Option<DbKind>> {
         maybe_read("DbKind", db, KIND_KEY)
     }
 }

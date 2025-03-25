@@ -16,8 +16,7 @@ use near_store::archive::cold_storage::{
     copy_all_data_to_cold, test_cold_genesis_update, test_get_store_initial_writes,
     test_get_store_reads, update_cold_db, update_cold_head,
 };
-use near_store::metadata::DB_VERSION;
-use near_store::metadata::DbKind;
+use near_store::db::metadata::{DB_VERSION, DbKind};
 use near_store::test_utils::create_test_node_storage_with_cold;
 use near_store::{COLD_HEAD_KEY, DBCol, HEAD_KEY, Store};
 use nearcore::{NearConfig, cold_storage::spawn_cold_store_loop};

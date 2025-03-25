@@ -3,7 +3,7 @@ mod cli;
 use self::cli::NeardCmd;
 use anyhow::Context;
 use near_primitives::version::{MIN_SUPPORTED_PROTOCOL_VERSION, PROTOCOL_VERSION, Version};
-use near_store::metadata::DB_VERSION;
+use near_store::db::metadata::DB_VERSION;
 use nearcore::get_default_home;
 use std::env;
 use std::path::PathBuf;

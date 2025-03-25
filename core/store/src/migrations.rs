@@ -1,4 +1,4 @@
-use crate::metadata::DbKind;
+use crate::db::metadata::{DbKind, KIND_KEY};
 use crate::{DBCol, Store, StoreUpdate};
 use anyhow::{Context, anyhow};
 use borsh::{BorshDeserialize, BorshSerialize};
@@ -178,7 +178,7 @@ pub fn migrate_33_to_34(store: &Store, mut is_node_archival: bool) -> anyhow::Re
         update.delete(DBCol::BlockMisc, IS_ARCHIVE_KEY);
     }
     let kind = if is_node_archival { DbKind::Archive } else { DbKind::RPC };
-    update.set(DBCol::DbVersion, crate::metadata::KIND_KEY, <&str>::from(kind).as_bytes());
+    update.set(DBCol::DbVersion, KIND_KEY, <&str>::from(kind).as_bytes());
     update.delete_all(DBCol::_GCCount);
     update.commit()?;
     Ok(())

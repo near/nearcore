@@ -5,6 +5,7 @@ use borsh::BorshDeserialize;
 use near_chain::types::{LatestKnown, RuntimeAdapter};
 use near_chain::{Block, BlockHeader};
 use near_epoch_manager::EpochManagerAdapter;
+use near_epoch_manager::epoch_info_aggregator::EpochInfoAggregator;
 use near_epoch_manager::shard_assignment::{account_id_to_shard_id, shard_id_to_uid};
 use near_jsonrpc_primitives::errors::RpcError;
 use near_jsonrpc_primitives::types::entity_debug::{
@@ -37,7 +38,6 @@ use near_primitives::views::{
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::flat_store::encode_flat_state_db_key;
 use near_store::db::GENESIS_CONGESTION_INFO_KEY;
-use near_store::epoch_info_aggregator::EpochInfoAggregator;
 use near_store::flat::delta::KeyForFlatStateDelta;
 use near_store::flat::{FlatStateChanges, FlatStateDeltaMetadata, FlatStorageStatus};
 use near_store::{

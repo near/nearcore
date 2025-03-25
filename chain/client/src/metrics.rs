@@ -4,6 +4,7 @@ use near_o11y::metrics::{
     try_create_gauge, try_create_histogram, try_create_histogram_vec, try_create_int_counter,
     try_create_int_counter_vec, try_create_int_gauge, try_create_int_gauge_vec,
 };
+use near_store::db::metadata::DB_VERSION;
 use std::sync::LazyLock;
 
 pub(crate) static BLOCK_PRODUCED_TOTAL: LazyLock<IntCounter> = LazyLock::new(|| {
@@ -459,7 +460,7 @@ pub(crate) fn export_version(neard_version: &near_primitives::version::Version) 
             .with_label_values(&[&protocol_version.to_string()])
             .set(datetime.timestamp());
     }
-    NODE_DB_VERSION.set(near_store::metadata::DB_VERSION.into());
+    NODE_DB_VERSION.set(DB_VERSION.into());
     NODE_BUILD_INFO.reset();
     NODE_BUILD_INFO
         .with_label_values(&[

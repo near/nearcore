@@ -34,7 +34,7 @@ static ROCKSDB_METRICS: LazyLock<Mutex<RocksDBMetrics>> =
 
 #[derive(Default, Debug)]
 /// Creates prometheus metrics on-demand for exporting RocksDB statistics.
-pub(crate) struct RocksDBMetrics {
+struct RocksDBMetrics {
     // Contains counters and sums, which are integer statistics in RocksDB.
     int_gauges: HashMap<String, IntGauge>,
     // Contains integer statistics with labels.
