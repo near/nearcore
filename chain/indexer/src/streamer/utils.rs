@@ -44,6 +44,7 @@ pub(crate) async fn convert_transactions_sir_into_local_receipts(
                         .collect(),
                 },
             );
+            // Can't use ValidatedTransaction here because transactions in a chunk can be invalid (RelaxedChunkValidation feature)
             let cost =
                 tx_cost(&runtime_config, &tx, prev_block_gas_price, protocol_version).unwrap();
             views::ReceiptView {
