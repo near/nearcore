@@ -11,7 +11,7 @@
 
 ## Reference implementation of NEAR Protocol
 
-[![Buildkite](https://img.shields.io/buildkite/0eae07525f8e44a19b48fa937813e2c21ee04aa351361cd851)][buildkite]
+[![Buildkite](https://github.com/near/nearcore/actions/workflows/nayduck_ci.yml/badge.svg)][buildkite]
 ![Stable Status][stable-release]
 ![Prerelease Status][prerelease]
 [![codecov][codecov-badge]][codecov-url]
