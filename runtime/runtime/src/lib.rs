@@ -406,12 +406,13 @@ impl Runtime {
             ) {
                 Ok(validated_tx) => validated_tx,
                 Err((e, tx)) => {
-                    Self::handle_invalid_transaction(
-                        e,
-                        &tx.get_hash(),
-                        current_protocol_version,
-                        "transaction validation failed",
-                    )?;
+                    metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
+                    tracing::debug!(
+                        target: "runtime",
+                        "invalid transaction ignored (validation error) => tx_hash: {}, error: {:?}",
+                        tx.get_hash(),
+                        e
+                    );
                     continue;
                 }
             };
@@ -424,12 +425,13 @@ impl Runtime {
             ) {
                 Ok(cost) => cost,
                 Err(e) => {
-                    Self::handle_invalid_transaction(
-                        e,
+                    metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
+                    tracing::debug!(
+                        target: "runtime",
+                        "invalid transaction ignored (cost overflow) => tx_hash: {}, error: {:?}",
                         &validated_tx.get_hash(),
-                        current_protocol_version,
-                        "transaction cost calculation failed",
-                    )?;
+                        e
+                    );
                     continue;
                 }
             };
@@ -468,13 +470,15 @@ impl Runtime {
                         outcome,
                     });
                 }
-                Err(err) => {
-                    Self::handle_invalid_transaction(
-                        err,
+                Err(e) => {
+                    metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
+                    tracing::debug!(
+                        target: "runtime",
+                        "invalid transaction ignored (verification error) => tx_hash: {}, error: {:?}",
                         &validated_tx.get_hash(),
-                        current_protocol_version,
-                        "transaction verification failed",
-                    )?;
+                        e
+                    );
+                    continue;
                 }
             }
         }
