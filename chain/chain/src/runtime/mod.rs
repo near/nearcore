@@ -37,8 +37,8 @@ use near_primitives::views::{
     QueryResponseKind, ViewStateResult,
 };
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
+use near_store::db::metadata::DbKind;
 use near_store::flat::FlatStorageManager;
-use near_store::metadata::DbKind;
 use near_store::{
     ApplyStatePartResult, COLD_HEAD_KEY, DBCol, ShardTries, StateSnapshotConfig, Store, Trie,
     TrieConfig, TrieUpdate, WrappedTrieChanges,

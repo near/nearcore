@@ -177,7 +177,7 @@ impl GasCost {
         GasCost { time_ns, qemu, uncertain: None }
     }
 
-    /// Does nothing if `GasCost` is already uncertain, otherise copies
+    /// Does nothing if `GasCost` is already uncertain, otherwise copies
     /// uncertain from other `GasCost`.
     fn combine_uncertain(&mut self, rhs: &Self) {
         if !self.is_uncertain() {

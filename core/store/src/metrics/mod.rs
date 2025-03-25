@@ -1,4 +1,5 @@
-use crate::rocksdb_metrics::export_stats_as_metrics;
+mod rocksdb_metrics;
+
 use crate::{NodeStorage, Store, Temperature};
 use actix_rt::ArbiterHandle;
 use near_o11y::metrics::{
@@ -8,6 +9,7 @@ use near_o11y::metrics::{
     try_create_int_gauge_vec,
 };
 use near_time::Duration;
+use rocksdb_metrics::export_stats_as_metrics;
 use std::sync::LazyLock;
 
 pub(crate) static DATABASE_OP_LATENCY_HIST: LazyLock<HistogramVec> = LazyLock::new(|| {
@@ -611,6 +613,7 @@ pub fn spawn_db_metrics_loop(
 mod test {
     use crate::db::{StatsValue, StoreStatistics};
     use crate::metadata::{DB_VERSION, DbKind};
+    use crate::metrics::rocksdb_metrics;
     use crate::test_utils::create_test_node_storage_with_cold;
     use actix;
     use near_o11y::testonly::init_test_logger;
@@ -642,7 +645,7 @@ mod test {
 
         actix::clock::sleep(period.unsigned_abs()).await;
         for _ in 0..10 {
-            let int_gauges = crate::rocksdb_metrics::get_int_gauges();
+            let int_gauges = rocksdb_metrics::get_int_gauges();
 
             let has_hot_gauge = int_gauges.contains_key(&hot_gauge_name);
             let has_cold_gauge = int_gauges.contains_key(&cold_gauge_name);
@@ -652,7 +655,7 @@ mod test {
             actix::clock::sleep(period.unsigned_abs() / 10).await;
         }
 
-        let int_gauges = crate::rocksdb_metrics::get_int_gauges();
+        let int_gauges = rocksdb_metrics::get_int_gauges();
         tracing::debug!("int_gauges {int_gauges:#?}");
 
         let hot_gauge = int_gauges.get(&hot_gauge_name);

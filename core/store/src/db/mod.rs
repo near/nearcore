@@ -2,29 +2,26 @@ use crate::DBCol;
 use near_fmt::{AbbrBytes, StorageKey};
 use std::collections::HashSet;
 use std::io;
-
-pub(crate) mod rocksdb;
+use std::sync::Arc;
 
 mod colddb;
+mod database_tests;
+pub mod metadata;
 mod mixeddb;
 mod recoverydb;
-mod splitdb;
-
 pub mod refcount;
+pub(crate) mod rocksdb;
 mod slice;
+mod splitdb;
 mod testdb;
-
-mod database_tests;
 
 pub use self::colddb::ColdDB;
 pub use self::mixeddb::{MixedDB, ReadOrder};
 pub use self::recoverydb::RecoveryDB;
 pub use self::rocksdb::RocksDB;
-pub use self::splitdb::SplitDB;
-
 pub use self::slice::DBSlice;
+pub use self::splitdb::SplitDB;
 pub use self::testdb::TestDB;
-use std::sync::Arc;
 
 // `DBCol::BlockMisc` keys
 pub const HEAD_KEY: &[u8; 4] = b"HEAD";
