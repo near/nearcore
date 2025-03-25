@@ -398,6 +398,8 @@
         "xarrows",
         "xoraddr",
         "xorshift",
+        "wasmprinter",
+        "wasmtime",
         "xshell",
         "Xwrapper",
         "yansi",
