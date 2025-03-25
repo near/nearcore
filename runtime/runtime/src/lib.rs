@@ -319,7 +319,7 @@ impl Runtime {
                         Ok(validated_tx) => {
                             match tx_cost(
                                 config,
-                                &validated_tx,
+                                &validated_tx.to_tx(),
                                 gas_price,
                                 current_protocol_version,
                             ) {
