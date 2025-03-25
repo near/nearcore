@@ -24,7 +24,6 @@ use near_primitives::receipt::{PromiseYieldTimeout, Receipt};
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::shard_layout::ShardUId;
-use near_primitives::state::PartialState;
 use near_primitives::state_part::PartId;
 use near_primitives::stateless_validation::contract_distribution::ContractUpdates;
 use near_primitives::transaction::ValidatedTransaction;
@@ -334,8 +333,6 @@ pub struct PreparedTransactions {
     pub transactions: Vec<ValidatedTransaction>,
     /// Describes which limit was hit when preparing the transactions.
     pub limited_by: Option<PrepareTransactionsLimit>,
-    /// May contain partial state that was used to verify transactions when preparing.
-    pub storage_proof: Option<PartialState>,
 }
 
 /// Chunk producer prepares transactions from the transaction pool
@@ -371,9 +368,6 @@ impl From<&Block> for PrepareTransactionsBlockContext {
 pub struct PrepareTransactionsChunkContext {
     pub shard_id: ShardId,
     pub gas_limit: Gas,
-    /// Size of transactions added in the last existing chunk.
-    /// Used to calculate the allowed size of transactions in a newly produced chunk.
-    pub last_chunk_transactions_size: usize,
 }
 
 /// Bridge between the chain and the runtime.

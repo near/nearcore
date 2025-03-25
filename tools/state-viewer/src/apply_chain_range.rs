@@ -155,8 +155,7 @@ fn apply_block_from_range(
         let transactions = chunk.transactions();
         let valid_txs = chain_store_update
             .chain_store()
-            .compute_transaction_validity(protocol_version, prev_block.header(), &chunk)
-            .expect("valid transaction calculation");
+            .compute_transaction_validity(prev_block.header(), &chunk);
         let shard_layout =
             epoch_manager.get_shard_layout_from_prev_block(block.header().prev_hash()).unwrap();
         let receipt_proof_response = get_incoming_receipts_for_shard(

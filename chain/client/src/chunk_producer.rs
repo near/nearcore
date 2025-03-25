@@ -16,14 +16,12 @@ use near_primitives::epoch_info::RngSeed;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{MerklePath, merklize};
 use near_primitives::receipt::Receipt;
-use near_primitives::sharding::{EncodedShardChunk, ShardChunk, ShardChunkHeader};
-use near_primitives::state::PartialState;
+use near_primitives::sharding::{EncodedShardChunk, ShardChunkHeader};
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, EpochId, ShardId};
 use near_primitives::validator_signer::ValidatorSigner;
-use near_primitives::version::ProtocolFeature;
 use near_store::ShardUId;
 use near_store::adapter::chain_store::ChainStoreAdapter;
 use reed_solomon_erasure::galois_8::ReedSolomon;
@@ -49,7 +47,6 @@ pub struct ProduceChunkResult {
     pub chunk: EncodedShardChunk,
     pub encoded_chunk_parts_paths: Vec<MerklePath>,
     pub receipts: Vec<Receipt>,
-    pub transactions_storage_proof: Option<PartialState>,
 }
 
 /// Handles chunk production.
@@ -175,9 +172,6 @@ impl ChunkProducer {
             let validated_tx =
                 near_primitives::transaction::ValidatedTransaction::new_for_test(signed_tx);
             txs.transactions.push(validated_tx);
-            if txs.storage_proof.is_none() {
-                txs.storage_proof = Some(Default::default());
-            }
         }
         txs
     }
@@ -248,40 +242,21 @@ impl ChunkProducer {
             .get_chunk_extra(&prev_block_hash, &shard_uid)
             .map_err(|err| Error::ChunkProducer(format!("No chunk extra available: {}", err)))?;
 
-        let (_, prev_shard_id, prev_shard_index) =
-            self.epoch_manager.get_prev_shard_id_from_prev_hash(prev_block.hash(), shard_id)?;
-        let last_chunk_header =
-            prev_block.chunks().get(prev_shard_index).cloned().ok_or_else(|| {
-                Error::ChunkProducer(format!(
-                    "No last chunk in prev_block_hash {:?}, prev_shard_id: {}",
-                    prev_block_hash, prev_shard_id
-                ))
-            })?;
-        let last_chunk = self.chain.get_chunk(&last_chunk_header.chunk_hash())?;
         let prepared_transactions = {
             #[cfg(feature = "test_features")]
             match self.adv_produce_chunks {
-                Some(AdvProduceChunksMode::ProduceWithoutTx) => PreparedTransactions {
-                    transactions: Vec::new(),
-                    limited_by: None,
-                    storage_proof: None,
-                },
+                Some(AdvProduceChunksMode::ProduceWithoutTx) => {
+                    PreparedTransactions { transactions: Vec::new(), limited_by: None }
+                }
                 _ => self.prepare_transactions(
                     shard_uid,
                     prev_block,
-                    &last_chunk,
                     chunk_extra.as_ref(),
                     chain_validate,
                 )?,
             }
             #[cfg(not(feature = "test_features"))]
-            self.prepare_transactions(
-                shard_uid,
-                prev_block,
-                &last_chunk,
-                chunk_extra.as_ref(),
-                chain_validate,
-            )?
+            self.prepare_transactions(shard_uid, prev_block, chunk_extra.as_ref(), chain_validate)?
         };
 
         #[cfg(feature = "test_features")]
@@ -375,7 +350,6 @@ impl ChunkProducer {
             chunk: encoded_chunk,
             encoded_chunk_parts_paths: merkle_paths,
             receipts: outgoing_receipts,
-            transactions_storage_proof: prepared_transactions.storage_proof,
         }))
     }
 
@@ -384,7 +358,6 @@ impl ChunkProducer {
         &mut self,
         shard_uid: ShardUId,
         prev_block: &Block,
-        last_chunk: &ShardChunk,
         chunk_extra: &ChunkExtra,
         chain_validate: &dyn Fn(&SignedTransaction) -> bool,
     ) -> Result<PreparedTransactions, Error> {
@@ -398,32 +371,16 @@ impl ChunkProducer {
                 source: near_chain::types::StorageDataSource::Db,
                 state_patch: Default::default(),
             };
-            let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&prev_block.hash())?;
-            let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
-            let last_chunk_transactions_size =
-                if ProtocolFeature::StatelessValidation.enabled(protocol_version) {
-                    borsh::to_vec(last_chunk.transactions())
-                        .map_err(|e| {
-                            Error::ChunkProducer(format!("Failed to serialize transactions: {e}"))
-                        })?
-                        .len()
-                } else {
-                    0
-                };
             self.runtime_adapter.prepare_transactions(
                 storage_config,
-                PrepareTransactionsChunkContext {
-                    shard_id,
-                    gas_limit: chunk_extra.gas_limit(),
-                    last_chunk_transactions_size,
-                },
+                PrepareTransactionsChunkContext { shard_id, gas_limit: chunk_extra.gas_limit() },
                 prev_block.into(),
                 &mut iter,
                 chain_validate,
                 self.chunk_transactions_time_limit.get(),
             )?
         } else {
-            PreparedTransactions { transactions: Vec::new(), limited_by: None, storage_proof: None }
+            PreparedTransactions { transactions: Vec::new(), limited_by: None }
         };
         // Reintroduce valid transactions back to the pool. They will be removed when the chunk is
         // included into the block.

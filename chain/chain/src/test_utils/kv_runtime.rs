@@ -1035,8 +1035,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         while let Some(iter) = transaction_groups.next() {
             res.push(iter.next().unwrap());
         }
-        let storage_proof = Some(Default::default());
-        Ok(PreparedTransactions { transactions: res, limited_by: None, storage_proof })
+        Ok(PreparedTransactions { transactions: res, limited_by: None })
     }
 
     fn apply_chunk(

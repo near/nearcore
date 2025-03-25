@@ -30,11 +30,10 @@ use near_primitives::sharding::{ChunkHash, ReceiptProof, ShardChunkHeader};
 use near_primitives::stateless_validation::state_witness::{
     ChunkStateWitness, EncodedChunkStateWitness,
 };
-use near_primitives::transaction::{SignedTransaction, ValidatedTransaction};
+use near_primitives::transaction::ValidatedTransaction;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{AccountId, ProtocolVersion, ShardId, ShardIndex};
 use near_primitives::utils::compression::CompressedData;
-use near_primitives::version::ProtocolFeature;
 use near_store::flat::BlockInfo;
 use near_store::trie::ops::resharding::RetainMode;
 use near_store::{PartialStorage, Trie};
@@ -94,16 +93,13 @@ pub fn validate_prepared_transactions(
     chunk_header: &ShardChunkHeader,
     storage_config: RuntimeStorageConfig,
     validated_txs: impl IntoIterator<Item = ValidatedTransaction>,
-    last_chunk_transactions: &[SignedTransaction],
 ) -> Result<PreparedTransactions, Error> {
     let parent_block = chain.chain_store().get_block(chunk_header.prev_block_hash())?;
-    let last_chunk_transactions_size = borsh::to_vec(last_chunk_transactions)?.len();
     runtime_adapter.prepare_transactions(
         storage_config,
         crate::types::PrepareTransactionsChunkContext {
             shard_id: chunk_header.shard_id(),
             gas_limit: chunk_header.gas_limit(),
-            last_chunk_transactions_size,
         },
         (&parent_block).into(),
         &mut TransactionGroupIteratorWrapper::new(validated_txs),
@@ -328,7 +324,6 @@ pub fn pre_validate_chunk_state_witness(
     state_witness: &ChunkStateWitness,
     chain: &Chain,
     epoch_manager: &dyn EpochManagerAdapter,
-    runtime_adapter: &dyn RuntimeAdapter,
 ) -> Result<PreValidationOutput, Error> {
     let store = chain.chain_store();
 
@@ -374,79 +369,16 @@ pub fn pre_validate_chunk_state_witness(
         )));
     }
 
-    let current_protocol_version =
-        epoch_manager.get_epoch_protocol_version(&state_witness.epoch_id)?;
-    let transaction_validity_check_results =
-        if ProtocolFeature::RelaxedChunkValidation.enabled(current_protocol_version) {
-            if !state_witness.new_transactions.is_empty() {
-                return Err(Error::InvalidChunkStateWitness(format!(
-                    "Witness new_transactions must be empty",
-                )));
-            }
-            if last_chunk_block.header().is_genesis() {
-                vec![true; state_witness.transactions.len()]
-            } else {
-                let prev_block_header =
-                    store.get_block_header(last_chunk_block.header().prev_hash())?;
-                let check = chain.transaction_validity_check(prev_block_header);
-                state_witness.transactions.iter().map(|t| check(t)).collect::<Vec<_>>()
-            }
-        } else {
-            let (new_tx_root_from_state_witness, _) = merklize(&state_witness.new_transactions);
-            let chunk_tx_root = state_witness.chunk_header.tx_root();
-            if new_tx_root_from_state_witness != chunk_tx_root {
-                return Err(Error::InvalidChunkStateWitness(format!(
-                    "Witness new transactions root {:?} does not match chunk {:?}",
-                    new_tx_root_from_state_witness, chunk_tx_root
-                )));
-            }
-            // Verify that all proposed transactions are valid.
-            if !state_witness.new_transactions.is_empty() {
-                let transactions_validation_storage_config = RuntimeStorageConfig {
-                    state_root: state_witness.chunk_header.prev_state_root(),
-                    use_flat_storage: true,
-                    source: StorageDataSource::Recorded(PartialStorage {
-                        nodes: state_witness.new_transactions_validation_state.clone(),
-                    }),
-                    state_patch: Default::default(),
-                };
-                let config = runtime_adapter.get_runtime_config(protocol_version);
-                let validated_txs =
-                    ValidatedTransaction::new_list(&config, state_witness.new_transactions.clone())
-                        .map_err(|(err, signed_tx)| {
-                            Error::InvalidChunkStateWitness(format!(
-                                "Validating signed tx ({:?}) failed with {:?}",
-                                signed_tx, err
-                            ))
-                        })?;
-                match validate_prepared_transactions(
-                    chain,
-                    runtime_adapter,
-                    &state_witness.chunk_header,
-                    transactions_validation_storage_config,
-                    validated_txs,
-                    &state_witness.transactions,
-                ) {
-                    Ok(result) => {
-                        if result.transactions.len() != state_witness.new_transactions.len() {
-                            return Err(Error::InvalidChunkStateWitness(format!(
-                                "New transactions validation failed. \
-                         {} transactions out of {} proposed transactions were valid.",
-                                result.transactions.len(),
-                                state_witness.new_transactions.len(),
-                            )));
-                        }
-                    }
-                    Err(error) => {
-                        return Err(Error::InvalidChunkStateWitness(format!(
-                            "New transactions validation failed: {}",
-                            error,
-                        )));
-                    }
-                };
-            }
+    let transaction_validity_check_results = {
+        if last_chunk_block.header().is_genesis() {
             vec![true; state_witness.transactions.len()]
-        };
+        } else {
+            let prev_block_header =
+                store.get_block_header(last_chunk_block.header().prev_hash())?;
+            let check = chain.transaction_validity_check(prev_block_header);
+            state_witness.transactions.iter().map(|t| check(t)).collect::<Vec<_>>()
+        }
+    };
 
     let main_transition_params = if last_chunk_block.header().is_genesis() {
         let epoch_id = last_chunk_block.header().epoch_id();
@@ -821,7 +753,6 @@ impl Chain {
         &self,
         witness: ChunkStateWitness,
         epoch_manager: &dyn EpochManagerAdapter,
-        runtime_adapter: &dyn RuntimeAdapter,
         processing_done_tracker: Option<ProcessingDoneTracker>,
     ) -> Result<(), Error> {
         let shard_id = witness.chunk_header.shard_id();
@@ -852,7 +783,7 @@ impl Chain {
         };
         let pre_validation_start = Instant::now();
         let pre_validation_result =
-            pre_validate_chunk_state_witness(&witness, &self, epoch_manager, runtime_adapter)?;
+            pre_validate_chunk_state_witness(&witness, &self, epoch_manager)?;
         tracing::debug!(
             parent: &parent_span,
             ?shard_id,
