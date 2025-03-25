@@ -35,9 +35,8 @@ use near_primitives::types::{
     StateRoot, StateRootNode,
 };
 use near_primitives::utils::to_timestamp;
-use near_primitives::version::{
-    MIN_GAS_PRICE_NEP_92, MIN_GAS_PRICE_NEP_92_FIX, ProtocolFeature, ProtocolVersion,
-};
+use near_primitives::version::PROD_GENESIS_PROTOCOL_VERSION;
+use near_primitives::version::{MIN_GAS_PRICE_NEP_92_FIX, ProtocolVersion};
 use near_primitives::views::{QueryRequest, QueryResponse};
 use near_schema_checker_lib::ProtocolSchema;
 use near_store::flat::FlatStorageManager;
@@ -154,40 +153,19 @@ impl BlockEconomicsConfig {
     /// been overwritten at specific protocol versions. Chains with a genesis
     /// version higher than those changes are not overwritten and will instead
     /// respect the value defined in genesis.
-    pub fn min_gas_price(&self, protocol_version: ProtocolVersion) -> Balance {
-        if !ProtocolFeature::MinProtocolVersionNep92.enabled(self.genesis_protocol_version) {
-            if ProtocolFeature::MinProtocolVersionNep92Fix.enabled(protocol_version) {
-                MIN_GAS_PRICE_NEP_92_FIX
-            } else if ProtocolFeature::MinProtocolVersionNep92.enabled(protocol_version) {
-                MIN_GAS_PRICE_NEP_92
-            } else {
-                self.genesis_min_gas_price
-            }
-        } else if !ProtocolFeature::MinProtocolVersionNep92Fix
-            .enabled(self.genesis_protocol_version)
-        {
-            if ProtocolFeature::MinProtocolVersionNep92Fix.enabled(protocol_version) {
-                MIN_GAS_PRICE_NEP_92_FIX
-            } else {
-                MIN_GAS_PRICE_NEP_92
-            }
+    pub fn min_gas_price(&self) -> Balance {
+        if self.genesis_protocol_version == PROD_GENESIS_PROTOCOL_VERSION {
+            MIN_GAS_PRICE_NEP_92_FIX
         } else {
             self.genesis_min_gas_price
         }
     }
 
-    pub fn max_gas_price(&self, protocol_version: ProtocolVersion) -> Balance {
-        if ProtocolFeature::CapMaxGasPrice.enabled(protocol_version) {
-            std::cmp::min(
-                self.genesis_max_gas_price,
-                Self::MAX_GAS_MULTIPLIER * self.min_gas_price(protocol_version),
-            )
-        } else {
-            self.genesis_max_gas_price
-        }
+    pub fn max_gas_price(&self) -> Balance {
+        std::cmp::min(self.genesis_max_gas_price, Self::MAX_GAS_MULTIPLIER * self.min_gas_price())
     }
 
-    pub fn gas_price_adjustment_rate(&self, _protocol_version: ProtocolVersion) -> Rational32 {
+    pub fn gas_price_adjustment_rate(&self) -> Rational32 {
         self.gas_price_adjustment_rate
     }
 }
@@ -216,6 +194,7 @@ pub struct ChainGenesis {
     pub transaction_validity_period: NumBlocks,
     pub epoch_length: BlockHeightDelta,
     pub protocol_version: ProtocolVersion,
+    pub chain_id: String,
 }
 
 #[derive(Clone)]
@@ -256,6 +235,7 @@ impl ChainGenesis {
             transaction_validity_period: genesis_config.transaction_validity_period,
             epoch_length: genesis_config.epoch_length,
             protocol_version: genesis_config.protocol_version,
+            chain_id: genesis_config.chain_id.clone(),
         }
     }
 }
@@ -597,7 +577,7 @@ mod tests {
             0,
             100,
             1_000_000_000,
-            CryptoHash::hash_borsh(genesis_bps),
+            &genesis_bps,
         );
         let signer = Arc::new(create_test_signer("other"));
         let b1 = TestBlockBuilder::new(Clock::real(), &genesis, signer.clone()).build();

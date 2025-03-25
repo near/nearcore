@@ -428,7 +428,7 @@ impl ChainStore {
         // If simple nightshade v2 is enabled and stable use that.
         // Same reassignment of outgoing receipts works for simple nightshade v3
         if ProtocolFeature::SimpleNightshadeV2.enabled(protocol_version) {
-            Self::reassign_outgoing_receipts_for_resharding_v2(
+            Self::reassign_outgoing_receipts_for_resharding_impl(
                 receipts,
                 shard_layout,
                 shard_id,
@@ -456,7 +456,7 @@ impl ChainStore {
     /// 3' will get all outgoing receipts from its parent 3
     /// 4' will get no outgoing receipts from its parent 3
     /// All receipts are distributed to children, each exactly once.
-    fn reassign_outgoing_receipts_for_resharding_v2(
+    fn reassign_outgoing_receipts_for_resharding_impl(
         receipts: &mut Vec<Receipt>,
         shard_layout: &ShardLayout,
         shard_id: ShardId,
@@ -504,30 +504,26 @@ impl ChainStore {
     ) -> Result<Vec<bool>, Error> {
         let relaxed_chunk_validation =
             ProtocolFeature::RelaxedChunkValidation.enabled(protocol_version);
-        if ProtocolFeature::AccessKeyNonceRange.enabled(protocol_version) {
-            let mut valid_txs = Vec::with_capacity(chunk.transactions().len());
-            if relaxed_chunk_validation {
-                for transaction in chunk.transactions() {
-                    let is_valid = self.check_transaction_validity_period(
-                        prev_block_header,
-                        transaction.transaction.block_hash(),
-                    );
-                    valid_txs.push(is_valid.is_ok());
-                }
-            } else {
-                for transaction in chunk.transactions() {
-                    self.check_transaction_validity_period(
-                        prev_block_header,
-                        transaction.transaction.block_hash(),
-                    )
-                    .map_err(|_| Error::from(Error::InvalidTransactions))?;
-                    valid_txs.push(true);
-                }
+        let mut valid_txs = Vec::with_capacity(chunk.transactions().len());
+        if relaxed_chunk_validation {
+            for transaction in chunk.transactions() {
+                let is_valid = self.check_transaction_validity_period(
+                    prev_block_header,
+                    transaction.transaction.block_hash(),
+                );
+                valid_txs.push(is_valid.is_ok());
             }
-            Ok(valid_txs)
         } else {
-            Ok(vec![true; chunk.transactions().len()])
+            for transaction in chunk.transactions() {
+                self.check_transaction_validity_period(
+                    prev_block_header,
+                    transaction.transaction.block_hash(),
+                )
+                .map_err(|_| Error::from(Error::InvalidTransactions))?;
+                valid_txs.push(true);
+            }
         }
+        Ok(valid_txs)
     }
 }
 

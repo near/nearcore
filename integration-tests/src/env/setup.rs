@@ -123,6 +123,7 @@ fn setup(
         transaction_validity_period,
         epoch_length,
         protocol_version: PROTOCOL_VERSION,
+        chain_id: "integration_test".to_string(),
     };
 
     let signer = MutableConfigValue::new(

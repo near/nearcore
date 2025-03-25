@@ -18,7 +18,6 @@ use near_vm_runner::*;
 
 use near_schema_checker_lib::{FieldName, FieldTypeInfo, ProtocolSchema, ProtocolSchemaInfo};
 use near_stable_hasher::StableHasher;
-use near_store::epoch_info_aggregator::EpochInfoAggregator;
 use std::any::TypeId;
 use std::collections::{BTreeMap, HashSet};
 use std::fs;
@@ -95,16 +94,13 @@ const PROTOCOL_SCHEMA_FILE: &str = "protocol_schema.toml";
 fn main() {
     #[cfg(enable_const_type_id)]
     {
-        // For some reason, `EpochInfoAggregator` is not picked up by `inventory`
-        // crate at all. In addition to that, `Latest*` structs are not picked up
+        // For some reason, `LatestWitnessesInfo` structs is not picked up
         // on macos. This is a workaround around that. It is enough to put only
-        // `LatestKnown` and `ServerError` here but I don't know why as well.
+        // `LatestWitnessesInfo` and `ServerError` here but I don't know why as well.
         // The issue may be related to the large size of crates. Other workaround
         // is to move these types to smaller crates.
         // TODO (#11755): find the reason and remove this workaround.
-        LatestKnown::ensure_registration();
         LatestWitnessesInfo::ensure_registration();
-        EpochInfoAggregator::ensure_registration();
         ServerError::ensure_registration();
     }
 

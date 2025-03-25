@@ -1,4 +1,5 @@
-// cspell:ignore mikan
+// cspell:ignore NOENT, RDONLY, RGRP, RUSR, TRUNC, WGRP, WRONLY, WUSR
+// cspell:ignore mikan, fstat, openat, renameat
 
 use crate::ContractCode;
 use crate::errors::ContractPrecompilatonResult;
@@ -377,7 +378,7 @@ impl ContractRuntimeCache for FilesystemContractRuntimeCache {
             Ok(file) => file,
         };
         let stat = rustix::fs::fstat(&file)?;
-        // TODO: explore mmaping the file and lending the map to the caller via a closure callback.
+        // TODO: explore mmap-ing the file and lending the map to the caller via a closure callback.
         // This would require some additional refactor work, but would likely help us to reduce the
         // system call overhead in this area.
         let mut buffer = Vec::with_capacity(stat.st_size.try_into().unwrap());

@@ -37,8 +37,8 @@ use near_primitives::views::{
     QueryResponseKind, ViewStateResult,
 };
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
+use near_store::db::metadata::DbKind;
 use near_store::flat::FlatStorageManager;
-use near_store::metadata::DbKind;
 use near_store::{
     ApplyStatePartResult, COLD_HEAD_KEY, DBCol, ShardTries, StateSnapshotConfig, Store, Trie,
     TrieConfig, TrieUpdate, WrappedTrieChanges,
@@ -588,8 +588,6 @@ impl RuntimeAdapter for NightshadeRuntime {
             // and therefore skip the check on the nonce upper bound.
             None,
             current_protocol_version,
-            None,
-            None,
         )
         .map(|_vr| ())
     }
@@ -782,8 +780,6 @@ impl RuntimeAdapter for NightshadeRuntime {
                         &cost,
                         Some(next_block_height),
                         protocol_version,
-                        None,
-                        None,
                     )
                 })
                 .and_then(|verification_res| {

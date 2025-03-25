@@ -173,7 +173,7 @@ impl<'a> External for RuntimeExt<'a> {
                 Some(ptr.deref_value(options).map_err(wrap_storage_error)?)
             }
         };
-        let delta =
+        let _delta =
             self.trie_access_tracker.state.commit_counts_since(start_ttn, access_tracker)?;
         #[cfg(feature = "io_trace")]
         tracing::trace!(
@@ -182,8 +182,8 @@ impl<'a> External for RuntimeExt<'a> {
             key = base64(&key),
             size = value.len(),
             evicted_len = evicted.as_ref().map(Vec::len),
-            tn_mem_reads = delta.mem_reads,
-            tn_db_reads = delta.db_reads,
+            tn_mem_reads = _delta.mem_reads,
+            tn_db_reads = _delta.db_reads,
         );
         self.trie_update.set(storage_key, Vec::from(value));
         Ok(evicted)
@@ -215,7 +215,7 @@ impl<'a> External for RuntimeExt<'a> {
                     })
                 },
             );
-        let delta =
+        let _delta =
             self.trie_access_tracker.state.commit_counts_since(start_ttn, access_tracker)?;
         #[cfg(feature = "io_trace")]
         if let Ok(read) = &result {
@@ -224,8 +224,8 @@ impl<'a> External for RuntimeExt<'a> {
                 storage_op = "read",
                 key = base64(&key),
                 size = read.as_ref().map(|v| v.len()),
-                tn_db_reads = delta.db_reads,
-                tn_mem_reads = delta.mem_reads,
+                tn_db_reads = _delta.db_reads,
+                tn_mem_reads = _delta.mem_reads,
             );
         }
 
@@ -258,7 +258,7 @@ impl<'a> External for RuntimeExt<'a> {
             }
         };
         self.trie_update.remove(storage_key);
-        let delta =
+        let _delta =
             self.trie_access_tracker.state.commit_counts_since(start_ttn, access_tracker)?;
         #[cfg(feature = "io_trace")]
         tracing::trace!(
@@ -266,8 +266,8 @@ impl<'a> External for RuntimeExt<'a> {
             storage_op = "remove",
             key = base64(&key),
             evicted_len = removed.as_ref().map(Vec::len),
-            tn_mem_reads = delta.mem_reads,
-            tn_db_reads = delta.db_reads,
+            tn_mem_reads = _delta.mem_reads,
+            tn_db_reads = _delta.db_reads,
         );
 
         Ok(removed)
@@ -289,15 +289,15 @@ impl<'a> External for RuntimeExt<'a> {
             .get_ref(&storage_key, mode, AccessOptions::contract_runtime(&self.trie_access_tracker))
             .map(|x| x.is_some())
             .map_err(wrap_storage_error);
-        let delta =
+        let _delta =
             self.trie_access_tracker.state.commit_counts_since(start_ttn, access_tracker)?;
         #[cfg(feature = "io_trace")]
         tracing::trace!(
             target: "io_tracer",
             storage_op = "exists",
             key = base64(&key),
-            tn_mem_reads = delta.mem_reads,
-            tn_db_reads = delta.db_reads,
+            tn_mem_reads = _delta.mem_reads,
+            tn_db_reads = _delta.db_reads,
         );
         Ok(result?)
     }
@@ -306,7 +306,6 @@ impl<'a> External for RuntimeExt<'a> {
         let data_id = create_receipt_id_from_action_hash(
             self.current_protocol_version,
             &self.action_hash,
-            &self.prev_block_hash,
             &self.last_block_hash,
             self.block_height,
             self.data_count,

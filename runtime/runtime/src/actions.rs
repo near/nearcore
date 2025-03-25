@@ -63,11 +63,8 @@ pub(crate) fn execute_function_call(
     } else {
         vec![]
     };
-    let random_seed = near_primitives::utils::create_random_seed(
-        apply_state.current_protocol_version,
-        *action_hash,
-        apply_state.random_seed,
-    );
+    let random_seed =
+        near_primitives::utils::create_random_seed(*action_hash, apply_state.random_seed);
     let context = VMContext {
         current_account_id: runtime_ext.account_id().clone(),
         signer_account_id: action_receipt.signer_id.clone(),
@@ -615,32 +612,29 @@ pub(crate) fn action_delete_account(
     delete_account: &DeleteAccountAction,
     current_protocol_version: ProtocolVersion,
 ) -> Result<(), StorageError> {
-    if current_protocol_version >= ProtocolFeature::DeleteActionRestriction.protocol_version() {
-        let account = account.as_ref().unwrap();
-        let mut account_storage_usage = account.storage_usage();
-        let code_len = get_code_len_or_default(
-            state_update,
-            account_id.clone(),
-            account.local_contract_hash().unwrap_or_default(),
-            current_protocol_version,
-        )?;
-        debug_assert!(
-            code_len == 0 || account_storage_usage > code_len,
-            "Account storage usage should be larger than code size. Storage usage: {}, code size: {}",
-            account_storage_usage,
-            code_len
-        );
-        account_storage_usage = account_storage_usage.saturating_sub(code_len);
-        if account_storage_usage > Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE {
-            result.result = Err(ActionErrorKind::DeleteAccountWithLargeState {
-                account_id: account_id.clone(),
-            }
-            .into());
-            return Ok(());
-        }
+    let account_ref = account.as_ref().unwrap();
+    let mut account_storage_usage = account_ref.storage_usage();
+    let code_len = get_code_len_or_default(
+        state_update,
+        account_id.clone(),
+        account_ref.local_contract_hash().unwrap_or_default(),
+        current_protocol_version,
+    )?;
+    debug_assert!(
+        code_len == 0 || account_storage_usage > code_len,
+        "Account storage usage should be larger than code size. Storage usage: {}, code size: {}",
+        account_storage_usage,
+        code_len
+    );
+    account_storage_usage = account_storage_usage.saturating_sub(code_len);
+    if account_storage_usage > Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE {
+        result.result =
+            Err(ActionErrorKind::DeleteAccountWithLargeState { account_id: account_id.clone() }
+                .into());
+        return Ok(());
     }
     // We use current amount as a pay out to beneficiary.
-    let account_balance = account.as_ref().unwrap().amount();
+    let account_balance = account_ref.amount();
     if account_balance > 0 {
         result.new_receipts.push(Receipt::new_balance_refund(
             &delete_account.beneficiary_id,
@@ -716,21 +710,13 @@ pub(crate) fn action_delete_key(
     result: &mut ActionResult,
     account_id: &AccountId,
     delete_key: &DeleteKeyAction,
-    current_protocol_version: ProtocolVersion,
 ) -> Result<(), StorageError> {
     let access_key = get_access_key(state_update, account_id, &delete_key.public_key)?;
     if let Some(access_key) = access_key {
         let storage_usage_config = &fee_config.storage_usage_config;
-        let storage_usage =
-            if ProtocolFeature::DeleteKeyStorageUsage.enabled(current_protocol_version) {
-                borsh::object_length(&delete_key.public_key).unwrap() as u64
-                    + borsh::object_length(&access_key).unwrap() as u64
-                    + storage_usage_config.num_extra_bytes_record
-            } else {
-                borsh::object_length(&delete_key.public_key).unwrap() as u64
-                    + borsh::object_length(&Some(access_key)).unwrap() as u64
-                    + storage_usage_config.num_extra_bytes_record
-            };
+        let storage_usage = borsh::object_length(&delete_key.public_key).unwrap() as u64
+            + borsh::object_length(&access_key).unwrap() as u64
+            + storage_usage_config.num_extra_bytes_record;
         // Remove access key
         remove_access_key(state_update, account_id.clone(), delete_key.public_key.clone());
         account.set_storage_usage(account.storage_usage().saturating_sub(storage_usage));
@@ -760,19 +746,11 @@ pub(crate) fn action_add_key(
         .into());
         return Ok(());
     }
-    if ProtocolFeature::AccessKeyNonceRange.enabled(apply_state.current_protocol_version) {
-        let mut access_key = add_key.access_key.clone();
-        access_key.nonce = (apply_state.block_height - 1)
-            * near_primitives::account::AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER;
-        set_access_key(state_update, account_id.clone(), add_key.public_key.clone(), &access_key);
-    } else {
-        set_access_key(
-            state_update,
-            account_id.clone(),
-            add_key.public_key.clone(),
-            &add_key.access_key,
-        );
-    };
+    let mut access_key = add_key.access_key.clone();
+    access_key.nonce = (apply_state.block_height - 1)
+        * near_primitives::account::AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER;
+    set_access_key(state_update, account_id.clone(), add_key.public_key.clone(), &access_key);
+
     let storage_config = &apply_state.config.fees.storage_usage_config;
     account.set_storage_usage(
         account
@@ -1165,6 +1143,7 @@ mod tests {
     use near_primitives::runtime::migration_data::MigrationFlags;
     use near_primitives::transaction::CreateAccountAction;
     use near_primitives::types::{EpochId, StateChangeCause};
+    use near_primitives::version::PROTOCOL_VERSION;
     use near_store::set_account;
     use near_store::test_utils::TestTriesBuilder;
     use std::sync::Arc;
@@ -1294,7 +1273,7 @@ mod tests {
             &mut action_result,
             account_id,
             &DeleteAccountAction { beneficiary_id: "bob".parse().unwrap() },
-            ProtocolFeature::DeleteActionRestriction.protocol_version(),
+            PROTOCOL_VERSION,
         );
         assert!(res.is_ok());
         action_result

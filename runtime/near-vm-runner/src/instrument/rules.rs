@@ -1,3 +1,5 @@
+//cspell:ignore Copysign, Popcnt, Rotr, Trunc
+
 use parity_wasm::elements::Instruction;
 use std::collections::HashMap as Map;
 use std::num::NonZeroU32;

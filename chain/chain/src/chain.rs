@@ -56,7 +56,9 @@ use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::validate::validate_optimistic_block_relevant;
-use near_primitives::block::{Block, BlockValidityError, Chunks, MaybeNew, Tip};
+use near_primitives::block::{
+    Block, BlockValidityError, Chunks, MaybeNew, Tip, compute_bp_hash_from_validator_stakes,
+};
 use near_primitives::block_header::BlockHeader;
 use near_primitives::challenge::{
     BlockDoubleSign, Challenge, ChallengeBody, ChallengesResult, ChunkProofs, ChunkState,
@@ -83,14 +85,13 @@ use near_primitives::stateless_validation::state_witness::{
 };
 use near_primitives::transaction::{ExecutionOutcomeWithIdAndProof, SignedTransaction};
 use near_primitives::types::chunk_extra::ChunkExtra;
-use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
     AccountId, Balance, BlockExtra, BlockHeight, BlockHeightDelta, EpochId, MerkleHash, NumBlocks,
     ShardId, ShardIndex,
 };
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::MaybeValidated;
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature, ProtocolVersion};
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::{
     BlockStatusView, DroppedReason, ExecutionOutcomeWithIdView, ExecutionStatusView,
     FinalExecutionOutcomeView, FinalExecutionOutcomeWithReceiptView, FinalExecutionStatus,
@@ -612,22 +613,11 @@ impl Chain {
     ) -> Result<CryptoHash, Error> {
         let validator_stakes = epoch_manager.get_epoch_block_producers_ordered(&epoch_id)?;
         let protocol_version = epoch_manager.get_epoch_protocol_version(&prev_epoch_id)?;
-        Self::compute_bp_hash_from_validator_stakes(
+        let bp_hash = compute_bp_hash_from_validator_stakes(
             &validator_stakes,
             ProtocolFeature::BlockHeaderV3.enabled(protocol_version),
-        )
-    }
-
-    pub fn compute_bp_hash_from_validator_stakes(
-        validator_stakes: &Vec<ValidatorStake>,
-        use_versioned_bp_hash_format: bool,
-    ) -> Result<CryptoHash, Error> {
-        if use_versioned_bp_hash_format {
-            Ok(CryptoHash::hash_borsh_iter(validator_stakes))
-        } else {
-            let stakes = validator_stakes.into_iter().map(|stake| stake.clone().into_v1());
-            Ok(CryptoHash::hash_borsh_iter(stakes))
-        }
+        );
+        Ok(bp_hash)
     }
 
     pub fn get_last_time_head_updated(&self) -> Instant {
@@ -2087,10 +2077,6 @@ impl Chain {
             self.runtime_adapter.get_tries().retain_memtries(&shards_cares_this_or_next_epoch);
         }
 
-        if let Err(err) = self.garbage_collect_state_transition_data(&block) {
-            tracing::error!(target: "chain", ?err, "failed to garbage collect state transition data");
-        }
-
         self.pending_state_patch.clear();
 
         if let Some(tip) = &new_head {
@@ -2466,9 +2452,9 @@ impl Chain {
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(header.epoch_id())?;
         if !block.verify_gas_price(
             gas_price,
-            self.block_economics_config.min_gas_price(protocol_version),
-            self.block_economics_config.max_gas_price(protocol_version),
-            self.block_economics_config.gas_price_adjustment_rate(protocol_version),
+            self.block_economics_config.min_gas_price(),
+            self.block_economics_config.max_gas_price(),
+            self.block_economics_config.gas_price_adjustment_rate(),
         ) {
             byzantine_assert!(false);
             return Err(Error::InvalidGasPrice);
@@ -2824,12 +2810,10 @@ impl Chain {
         chunks: &Chunks,
         prev_block_header: &BlockHeader,
         is_new_chunk: bool,
-        protocol_version: ProtocolVersion,
     ) -> Result<ApplyChunkBlockContext, Error> {
         // Before `FixApplyChunks` feature, gas price was taken from current
         // block by mistake. Preserve it for backwards compatibility.
-        let gas_price = if ProtocolFeature::FixApplyChunks.enabled(protocol_version) || is_new_chunk
-        {
+        let gas_price = if is_new_chunk {
             prev_block_header.next_gas_price()
         } else {
             // TODO(#10584): next_gas_price should be Some() if derived from
@@ -2850,19 +2834,15 @@ impl Chain {
     }
 
     pub fn get_apply_chunk_block_context(
-        epoch_manager: &dyn EpochManagerAdapter,
         block: &Block,
         prev_block_header: &BlockHeader,
         is_new_chunk: bool,
     ) -> Result<ApplyChunkBlockContext, Error> {
-        let epoch_id = block.header().epoch_id();
-        let protocol_version = epoch_manager.get_epoch_protocol_version(epoch_id)?;
         Self::get_apply_chunk_block_context_from_block_header(
             block.header(),
             &block.chunks(),
             prev_block_header,
             is_new_chunk,
-            protocol_version,
         )
     }
 
@@ -3248,7 +3228,6 @@ impl Chain {
 
         let epoch_id = block.header().epoch_id();
         let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
-        let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
 
         let mut maybe_jobs = vec![];
         let chunk_headers = &block.chunks();
@@ -3266,7 +3245,6 @@ impl Chain {
                 &chunk_headers,
                 prev_block.header(),
                 is_new_chunk,
-                protocol_version,
             )?;
             let incoming_receipts = incoming_receipts.get(&shard_id);
             let storage_context =

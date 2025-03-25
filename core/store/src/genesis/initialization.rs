@@ -1,28 +1,28 @@
 //! This file contains helper functions for initialization of genesis data in store
-//! We first check if store has the genesis hash and state_roots, if not, we go ahead with initialization
+//! We first check if store has the genesis state_roots, if not, we go ahead with initialization
 
-use rayon::prelude::*;
-use std::{
-    collections::{BTreeMap, HashSet},
-    fs,
-    path::Path,
-};
+use std::collections::{BTreeMap, HashSet};
+use std::fs;
+use std::path::Path;
 
 use borsh::BorshDeserialize;
 use near_chain_configs::{Genesis, GenesisContents};
 use near_parameters::RuntimeConfigStore;
-use near_primitives::{
-    epoch_manager::EpochConfig,
-    shard_layout::ShardLayout,
-    state_record::{StateRecord, state_record_to_account_id, state_record_to_shard_id},
-    types::{AccountId, NumShards, ShardId, StateRoot},
+use near_primitives::chains::{MAINNET, TESTNET};
+use near_primitives::epoch_manager::EpochConfig;
+use near_primitives::shard_layout::ShardLayout;
+use near_primitives::state_record::{
+    StateRecord, state_record_to_account_id, state_record_to_shard_id,
 };
-use tracing::{error, info, warn};
+use near_primitives::types::{AccountId, ShardId, StateRoot};
+use rayon::iter::{IntoParallelIterator, ParallelIterator};
 
+use crate::adapter::StoreAdapter;
+use crate::flat::FlatStorageManager;
+use crate::genesis::GenesisStateApplier;
 use crate::{
-    ShardTries, StateSnapshotConfig, Store, TrieConfig, adapter::StoreAdapter,
-    flat::FlatStorageManager, genesis::GenesisStateApplier, get_genesis_hash, get_genesis_height,
-    get_genesis_state_roots, set_genesis_hash, set_genesis_height, set_genesis_state_roots,
+    ShardTries, StateSnapshotConfig, Store, TrieConfig, get_genesis_height,
+    get_genesis_state_roots, set_genesis_height, set_genesis_state_roots,
 };
 
 const STATE_DUMP_FILE: &str = "state_dump";
@@ -34,18 +34,14 @@ pub fn initialize_sharded_genesis_state(
     genesis_epoch_config: &EpochConfig,
     home_dir: Option<&Path>,
 ) {
-    // Ignore initialization if we already have genesis hash and state roots in store
-    let stored_hash = get_genesis_hash(&store).expect("Store failed on genesis initialization");
-    if let Some(_hash) = stored_hash {
-        // TODO: re-enable this check (#4447)
-        //assert_eq!(hash, genesis_hash, "Storage already exists, but has a different genesis");
-        get_genesis_state_roots(&store)
-            .expect("Store failed on genesis initialization")
-            .expect("Genesis state roots not found in storage");
+    let state_roots = if let Some(state_roots) =
+        get_genesis_state_roots(&store).expect("Store failed on genesis initialization")
+    {
         // TODO: with 2.6 release, remove storing genesis height
         let mut store_update: crate::StoreUpdate = store.store_update();
         set_genesis_height(&mut store_update, &genesis.config.genesis_height);
         store_update.commit().expect("Store failed on genesis initialization");
+
         let genesis_height = get_genesis_height(&store)
             .expect("Store failed on genesis initialization")
             .expect("Genesis height not found in storage");
@@ -53,32 +49,37 @@ pub fn initialize_sharded_genesis_state(
             genesis_height, genesis.config.genesis_height,
             "Genesis height in store is different from the one in genesis config"
         );
-        return;
+        state_roots
     } else {
         let has_dump = home_dir.is_some_and(|dir| dir.join(STATE_DUMP_FILE).exists());
         let state_roots = if has_dump {
             if let GenesisContents::Records { .. } = &genesis.contents {
-                warn!(target: "store", "Found both records in genesis config and the state dump file. Will ignore the records.");
+                tracing::warn!(target: "store", "Found both records in genesis config and the state dump file. Will ignore the records.");
             }
             genesis_state_from_dump(store.clone(), home_dir.unwrap())
         } else {
             genesis_state_from_genesis(store.clone(), genesis, &genesis_epoch_config.shard_layout)
         };
-        let genesis_hash = genesis.json_hash();
         let mut store_update = store.store_update();
-        set_genesis_hash(&mut store_update, &genesis_hash);
         set_genesis_state_roots(&mut store_update, &state_roots);
         set_genesis_height(&mut store_update, &genesis.config.genesis_height);
         store_update.commit().expect("Store failed on genesis initialization");
+        state_roots
+    };
+
+    // Some hardcoded checks for mainnet and testnet
+    if &genesis.config.chain_id == MAINNET {
+        assert_eq!(format!("{state_roots:?}"), "[8EhZRfDTYujfZoUZtZ3eSMB9gJyFo5zjscR12dEcaxGU]");
     }
 
-    let num_shards = genesis_epoch_config.shard_layout.shard_ids().count() as NumShards;
+    if &genesis.config.chain_id == TESTNET {
+        assert_eq!(format!("{state_roots:?}"), "[7EAgMRCrBWcb3ZS6SZJ7Dm71VZ1jaBpgGiewAEvFqPT1]");
+    }
+
     assert_eq!(
-        num_shards,
-        genesis_epoch_config.num_block_producer_seats_per_shard.len() as NumShards,
-        "genesis config shard_layout and num_block_producer_seats_per_shard indicate inconsistent number of shards {} vs {}",
-        num_shards,
-        genesis_epoch_config.num_block_producer_seats_per_shard.len() as NumShards,
+        genesis_epoch_config.shard_layout.shard_ids().count(),
+        genesis_epoch_config.num_block_producer_seats_per_shard.len(),
+        "genesis config shard_layout and num_block_producer_seats_per_shard indicate inconsistent number of shards",
     );
 }
 
@@ -87,7 +88,7 @@ pub fn initialize_genesis_state(store: Store, genesis: &Genesis, home_dir: Optio
 }
 
 fn genesis_state_from_dump(store: Store, home_dir: &Path) -> Vec<StateRoot> {
-    error!(target: "near", "Loading genesis from a state dump file. Do not use this outside of genesis-tools");
+    tracing::error!(target: "near", "Loading genesis from a state dump file. Do not use this outside of genesis-tools");
     let mut state_file = home_dir.to_path_buf();
     state_file.push(STATE_DUMP_FILE);
     store.load_state_from_file(state_file.as_path()).expect("Failed to read state dump");
@@ -106,14 +107,14 @@ fn genesis_state_from_genesis(
 ) -> Vec<StateRoot> {
     match &genesis.contents {
         GenesisContents::Records { records } => {
-            info!(
+            tracing::info!(
                 target: "runtime",
                 "genesis state has {} records, computing state roots",
                 records.0.len(),
             )
         }
         GenesisContents::RecordsFile { records_file } => {
-            info!(
+            tracing::info!(
                 target: "runtime",
                 path=%records_file.display(),
                 message="computing state roots from records",
@@ -132,7 +133,7 @@ fn genesis_state_from_genesis(
     let mut shard_account_ids: BTreeMap<ShardId, HashSet<AccountId>> =
         shard_ids.iter().map(|&shard_id| (shard_id, HashSet::new())).collect();
     let mut has_protocol_account = false;
-    info!(target: "store","distributing records to shards");
+    tracing::info!(target: "store","distributing records to shards");
 
     genesis.for_each_record(|record: &StateRecord| {
         let account_id = state_record_to_account_id(record).clone();

@@ -384,15 +384,10 @@ pub fn test_stabilized_host_function() {
 )"#,
         )
         .protocol_features(&[
-            ProtocolFeature::MathExtension,
             ProtocolFeature::PreparationV2,
         ])
         .opaque_error()
         .expects(&[
-            expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 54519963 used gas 54519963
-                Err: ...
-            "#]],
             expect![[r#"
                 VMOutcome: balance 4 storage_usage 12 return data None burnt gas 7143010623 used gas 7143010623
             "#]],
