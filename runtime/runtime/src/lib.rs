@@ -220,10 +220,7 @@ struct BatchOutput {
 impl BatchOutput {
     /// Returns the signer_id for this batch
     pub fn signer_id(&self) -> &AccountId {
-        self.processed_transactions
-            .first()
-            .map(|pt| pt.transaction.to_tx().signer_id())
-            .unwrap() // BatchOutput should not be empty
+        self.processed_transactions.first().map(|pt| pt.transaction.to_tx().signer_id()).unwrap() // BatchOutput should not be empty
     }
 }
 
@@ -488,7 +485,7 @@ impl Runtime {
             None => {
                 return Err(RuntimeError::StorageError(StorageError::StorageInconsistentState(
                     "TODO: not return an error on empty BatchOutput".to_string(),
-                )))
+                )));
             }
         };
         Ok(BatchOutput { processed_transactions, updated_account, updated_keys })
@@ -1735,7 +1732,12 @@ impl Runtime {
             for batch_result in batch_vec {
                 let batch_outcome = batch_result?;
                 for (key, access_key) in &batch_outcome.updated_keys {
-                    set_access_key(state_update, batch_outcome.signer_id().clone(), key.clone(), access_key);
+                    set_access_key(
+                        state_update,
+                        batch_outcome.signer_id().clone(),
+                        key.clone(),
+                        access_key,
+                    );
                 }
 
                 let signer_id = batch_outcome.signer_id().clone();
@@ -1748,7 +1750,7 @@ impl Runtime {
                     .map(|pt| pt.transaction.get_hash())
                     .unwrap_or_default();
                 state_update
-                        .commit(StateChangeCause::TransactionProcessing { tx_hash: last_tx_hash });
+                    .commit(StateChangeCause::TransactionProcessing { tx_hash: last_tx_hash });
                 for processed in batch_outcome.processed_transactions {
                     all_processed.push((processed.index, processed));
                 }
