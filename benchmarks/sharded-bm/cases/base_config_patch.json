@@ -1,6 +1,12 @@
 {
     "rpc": {
-        "enable_debug_rpc": true
+        "enable_debug_rpc": true,
+        "polling_config": {
+            "polling_timeout": {
+                "secs": 30,
+                "nanos": 0
+            }
+        }
     },
     "store": {
        "load_mem_tries_for_tracked_shards": true
