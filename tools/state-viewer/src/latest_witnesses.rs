@@ -133,7 +133,7 @@ impl ValidateWitnessCmd {
             Clock::real(),
             epoch_manager.clone(),
             shard_tracker,
-            runtime_adapter.clone(),
+            runtime_adapter,
             &chain_genesis,
             DoomslugThresholdMode::TwoThirds,
             false,
@@ -145,7 +145,6 @@ impl ValidateWitnessCmd {
             .shadow_validate_state_witness(
                 witness,
                 epoch_manager.as_ref(),
-                runtime_adapter.as_ref(),
                 Some(processing_done_tracker),
             )
             .unwrap();
