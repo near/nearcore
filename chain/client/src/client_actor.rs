@@ -1718,8 +1718,11 @@ impl ClientActorInner {
                     self.client.request_block(block_hash, peer_id);
                 }
             }
+            // This is the last step of state sync that is not in handle_sync_needed because it
+            // needs access to the client.
             SyncHandlerRequest::NeedProcessBlockArtifact(block_processing_artifacts) => {
                 self.client.process_block_processing_artifact(block_processing_artifacts, signer);
+                self.client.sync_handler.sync_status.update(SyncStatus::StateSyncDone);
             }
         }
     }
