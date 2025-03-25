@@ -1,5 +1,6 @@
 use crate::debug::PRODUCTION_TIMES_CACHE_SIZE;
 use crate::metrics;
+use itertools::Itertools;
 use near_async::time::{Clock, Duration, Instant};
 use near_chain::types::{
     PrepareTransactionsChunkContext, PreparedTransactions, RuntimeAdapter, RuntimeStorageConfig,
@@ -267,12 +268,7 @@ impl ChunkProducer {
         );
         let num_filtered_transactions = prepared_transactions.transactions.len();
         let (tx_root, _) = merklize(
-            &prepared_transactions
-                .transactions
-                .iter()
-                .cloned()
-                .map(|vt| vt.into_signed_tx())
-                .collect::<Vec<_>>(),
+            &prepared_transactions.transactions.iter().map(|vt| vt.to_signed_tx()).collect_vec(),
         );
         let outgoing_receipts = ChainStore::get_outgoing_receipts_for_shard_from_store(
             &self.chain,
