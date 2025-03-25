@@ -200,8 +200,8 @@ impl GenesisBuilder {
 
         // Compute storage usage and update accounts.
         for (account_id, storage_usage) in compute_storage_usage(&records, &storage_usage_config) {
-            let mut account =
-                get_account(&state_update, &account_id)?.expect("We should've created account");
+            let mut account = get_account(&state_update, account_id.clone())?
+                .expect("We should've created account");
             account.set_storage_usage(storage_usage);
             set_account(&mut state_update, account_id, &account);
         }

@@ -66,9 +66,9 @@ pub fn set_account(state_update: &mut TrieUpdate, account_id: AccountId, account
 
 pub fn get_account(
     trie: &dyn TrieAccess,
-    account_id: &AccountId,
+    account_id: AccountId,
 ) -> Result<Option<Account>, StorageError> {
-    get(trie, &TrieKey::Account { account_id: account_id.clone() })
+    get(trie, &TrieKey::Account { account_id: account_id })
 }
 
 pub fn set_received_data(

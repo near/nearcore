@@ -702,7 +702,7 @@ impl Runtime {
             receipt_hash: receipt.get_hash(),
         });
 
-        let mut account = get_account(state_update, account_id)?;
+        let mut account = get_account(state_update, account_id.clone())?;
         let mut actor_id = receipt.predecessor_id().clone();
         let mut result = ActionResult::default();
         let exec_fees = apply_state.config.fees.fee(ActionCosts::new_action_receipt).exec_fee();
@@ -843,7 +843,7 @@ impl Runtime {
         let receiver_reward = safe_gas_to_balance(apply_state.gas_price, receiver_gas_reward)?
             .saturating_sub(gas_deficit_amount);
         if receiver_reward > 0 {
-            let mut account = get_account(state_update, account_id)?;
+            let mut account = get_account(state_update, account_id.clone())?;
             if let Some(ref mut account) = account {
                 // Validators receive the remaining execution reward that was not given to the
                 // account holder. If the account doesn't exist by the end of the execution, the
@@ -1259,7 +1259,7 @@ impl Runtime {
         stats: &mut BalanceStats,
     ) -> Result<(), RuntimeError> {
         for (account_id, max_of_stakes) in &validator_accounts_update.stake_info {
-            if let Some(mut account) = get_account(state_update, account_id)? {
+            if let Some(mut account) = get_account(state_update, account_id.clone())? {
                 if let Some(reward) = validator_accounts_update.validator_rewards.get(account_id) {
                     debug!(target: "runtime", "account {} adding reward {} to stake {}", account_id, reward, account.locked());
                     account.set_locked(account.locked().checked_add(*reward).ok_or_else(|| {
@@ -1317,7 +1317,7 @@ impl Runtime {
         }
 
         for (account_id, stake) in validator_accounts_update.slashing_info.iter() {
-            if let Some(mut account) = get_account(state_update, account_id)? {
+            if let Some(mut account) = get_account(state_update, account_id.clone())? {
                 let amount_to_slash = stake.unwrap_or(account.locked());
                 debug!(target: "runtime", "slashing {} of {} from {}", amount_to_slash, account.locked(), account_id);
                 if account.locked() < amount_to_slash {
@@ -1351,12 +1351,13 @@ impl Runtime {
         if let Some(account_id) = &validator_accounts_update.protocol_treasury_account_id {
             // If protocol treasury stakes, then the rewards was already distributed above.
             if !validator_accounts_update.stake_info.contains_key(account_id) {
-                let mut account = get_account(state_update, account_id)?.ok_or_else(|| {
-                    StorageError::StorageInconsistentState(format!(
-                        "Protocol treasury account {} is not found",
-                        account_id
-                    ))
-                })?;
+                let mut account =
+                    get_account(state_update, account_id.clone())?.ok_or_else(|| {
+                        StorageError::StorageInconsistentState(format!(
+                            "Protocol treasury account {} is not found",
+                            account_id
+                        ))
+                    })?;
                 let treasury_reward = *validator_accounts_update
                     .validator_rewards
                     .get(account_id)
@@ -1391,8 +1392,8 @@ impl Runtime {
         if ProtocolFeature::RemoveAccountWithLongStorageKey.protocol_version() == protocol_version
             && migration_flags.is_first_block_with_chunk_of_version
         {
-            let account_id = "contractregistry.testnet".parse().unwrap();
-            if get_account(state_update, &account_id)?.is_some() {
+            let account_id = "contractregistry.testnet".parse::<AccountId>().unwrap();
+            if get_account(state_update, account_id.clone())?.is_some() {
                 remove_account(state_update, &account_id)?;
                 state_update.commit(StateChangeCause::Migration);
             }
@@ -1559,7 +1560,7 @@ impl Runtime {
                     );
                 }
                 StateRecord::Contract { account_id, code } => {
-                    let acc = get_account(state_update, &account_id).expect("Failed to read state").expect("Code state record should be preceded by the corresponding account record");
+                    let acc = get_account(state_update, account_id.clone()).expect("Failed to read state").expect("Code state record should be preceded by the corresponding account record");
                     // Recompute contract code hash.
                     let code = ContractCode::new(code, None);
                     state_update.set_code(account_id, &code);

@@ -133,7 +133,7 @@ pub fn verify_and_charge_tx_ephemeral(
     let tx = validated_tx.to_tx();
     let signer_id = tx.signer_id();
 
-    let mut signer = match get_account(state_update, signer_id)? {
+    let mut signer = match get_account(state_update, signer_id.clone())? {
         Some(signer) => signer,
         None => {
             return Err(InvalidTxError::SignerDoesNotExist { signer_id: signer_id.clone() });
@@ -825,7 +825,7 @@ mod tests {
                 false,
                 false,
             )]);
-            let account = get_account(&state_update, account_id).unwrap().unwrap();
+            let account = get_account(&state_update, account_id.clone()).unwrap().unwrap();
             (account, state_update)
         }
 
@@ -879,7 +879,7 @@ mod tests {
                 false,
                 false,
             )]);
-            let account = get_account(&state_update, &account_id).unwrap().unwrap();
+            let account = get_account(&state_update, account_id).unwrap().unwrap();
             assert!(!is_zero_balance_account(&account));
         }
     }
@@ -919,7 +919,7 @@ mod tests {
             Balance::from(verification_result.gas_burnt) * gas_price
         );
 
-        let account = get_account(&state_update, &alice_account()).unwrap().unwrap();
+        let account = get_account(&state_update, alice_account()).unwrap().unwrap();
         // Balance is decreased by (TX fees + transfer balance).
         assert_eq!(
             account.amount(),
@@ -1286,7 +1286,7 @@ mod tests {
             PROTOCOL_VERSION,
         )
         .expect_err("expected an error");
-        let account = get_account(&state_update, &account_id).unwrap().unwrap();
+        let account = get_account(&state_update, account_id.clone()).unwrap().unwrap();
 
         assert_eq!(
             err,

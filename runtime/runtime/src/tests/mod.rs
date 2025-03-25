@@ -100,7 +100,7 @@ fn test_get_and_set_accounts() {
     let test_account = account_new(to_yocto(10), hash(&[]));
     let account_id = bob_account();
     set_account(&mut state_update, account_id.clone(), &test_account);
-    let get_res = get_account(&state_update, &account_id).unwrap().unwrap();
+    let get_res = get_account(&state_update, account_id).unwrap().unwrap();
     assert_eq!(test_account, get_res);
 }
 
@@ -118,6 +118,6 @@ fn test_get_account_from_trie() {
     let new_root = tries.apply_all(&trie_changes, ShardUId::single_shard(), &mut store_update);
     store_update.commit().unwrap();
     let new_state_update = tries.new_trie_update(ShardUId::single_shard(), new_root);
-    let get_res = get_account(&new_state_update, &account_id).unwrap().unwrap();
+    let get_res = get_account(&new_state_update, account_id).unwrap().unwrap();
     assert_eq!(test_account, get_res);
 }

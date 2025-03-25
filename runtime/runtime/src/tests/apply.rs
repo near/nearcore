@@ -261,7 +261,7 @@ fn test_apply_refund_receipts() {
             .unwrap();
         root = commit_apply_result(&apply_result, &mut apply_state, &tries, shard_uid);
         let state = tries.new_trie_update(shard_uid, root);
-        let account = get_account(&state, &alice_account()).unwrap().unwrap();
+        let account = get_account(&state, alice_account()).unwrap().unwrap();
         let capped_i = std::cmp::min(i, n);
         assert_eq!(
             account.amount(),
@@ -306,7 +306,7 @@ fn test_apply_delayed_receipts_feed_all_at_once() {
         root = commit_apply_result(&apply_result, &mut apply_state, &tries, shard_uid);
 
         let state = tries.new_trie_update(shard_uid, root);
-        let account = get_account(&state, &alice_account()).unwrap().unwrap();
+        let account = get_account(&state, alice_account()).unwrap().unwrap();
         let capped_i = std::cmp::min(i, n);
         assert_eq!(
             account.amount(),
@@ -350,7 +350,7 @@ fn test_apply_delayed_receipts_add_more_using_chunks() {
             .unwrap();
         root = commit_apply_result(&apply_result, &mut apply_state, &tries, shard_uid);
         let state = tries.new_trie_update(shard_uid, root);
-        let account = get_account(&state, &alice_account()).unwrap().unwrap();
+        let account = get_account(&state, alice_account()).unwrap().unwrap();
         let capped_i = std::cmp::min(i * 3, n);
         assert_eq!(
             account.amount(),
@@ -404,7 +404,7 @@ fn test_apply_delayed_receipts_adjustable_gas_limit() {
         root = commit_apply_result(&apply_result, &mut apply_state, &tries, shard_uid);
         let state = tries.new_trie_update(shard_uid, root);
         num_receipts_processed += apply_result.outcomes.len() as u64;
-        let account = get_account(&state, &alice_account()).unwrap().unwrap();
+        let account = get_account(&state, alice_account()).unwrap().unwrap();
         assert_eq!(
             account.amount(),
             initial_balance
@@ -908,7 +908,7 @@ fn test_delete_key_add_key() {
         setup_runtime(vec![alice_account()], to_yocto(1_000_000), initial_locked, 10u64.pow(15));
 
     let state_update = tries.new_trie_update(ShardUId::single_shard(), root);
-    let initial_account_state = get_account(&state_update, &alice_account()).unwrap().unwrap();
+    let initial_account_state = get_account(&state_update, alice_account()).unwrap().unwrap();
 
     let actions = vec![
         Action::DeleteKey(Box::new(DeleteKeyAction { public_key: signers[0].public_key() })),
@@ -937,7 +937,7 @@ fn test_delete_key_add_key() {
     store_update.commit().unwrap();
 
     let state_update = tries.new_trie_update(ShardUId::single_shard(), root);
-    let final_account_state = get_account(&state_update, &alice_account()).unwrap().unwrap();
+    let final_account_state = get_account(&state_update, alice_account()).unwrap().unwrap();
 
     assert_eq!(initial_account_state.storage_usage(), final_account_state.storage_usage());
 }
@@ -949,7 +949,7 @@ fn test_delete_key_underflow() {
         setup_runtime(vec![alice_account()], to_yocto(1_000_000), initial_locked, 10u64.pow(15));
 
     let mut state_update = tries.new_trie_update(ShardUId::single_shard(), root);
-    let mut initial_account_state = get_account(&state_update, &alice_account()).unwrap().unwrap();
+    let mut initial_account_state = get_account(&state_update, alice_account()).unwrap().unwrap();
     initial_account_state.set_storage_usage(10);
     set_account(&mut state_update, alice_account(), &initial_account_state);
     state_update.commit(StateChangeCause::InitialState);
@@ -980,7 +980,7 @@ fn test_delete_key_underflow() {
     store_update.commit().unwrap();
 
     let state_update = tries.new_trie_update(ShardUId::single_shard(), root);
-    let final_account_state = get_account(&state_update, &alice_account()).unwrap().unwrap();
+    let final_account_state = get_account(&state_update, alice_account()).unwrap().unwrap();
 
     assert_eq!(final_account_state.storage_usage(), 0);
 }
@@ -3013,7 +3013,7 @@ fn test_transaction_multiple_access_keys_with_apply() {
     let shard_uid = ShardUId::single_shard();
     let root = commit_apply_result(&apply_result, &mut apply_state, &tries, shard_uid);
     let state = tries.new_trie_update(shard_uid, root);
-    let account = get_account(&state, &alice_account()).unwrap().unwrap();
+    let account = get_account(&state, alice_account()).unwrap().unwrap();
 
     assert!(account.amount() < to_yocto(994_000));
     assert!(account.amount() > to_yocto(993_000));

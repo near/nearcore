@@ -79,7 +79,7 @@ impl TrieViewer {
         state_update: &TrieUpdate,
         account_id: &AccountId,
     ) -> Result<Account, errors::ViewAccountError> {
-        get_account(state_update, account_id)?.ok_or_else(|| {
+        get_account(state_update, account_id.clone())?.ok_or_else(|| {
             errors::ViewAccountError::AccountDoesNotExist {
                 requested_account_id: account_id.clone(),
             }
@@ -147,7 +147,7 @@ impl TrieViewer {
         prefix: &[u8],
         include_proof: bool,
     ) -> Result<ViewStateResult, errors::ViewStateError> {
-        match get_account(state_update, account_id)? {
+        match get_account(state_update, account_id.clone())? {
             Some(account) => {
                 let code_len = state_update
                     .get_code_len(
@@ -196,7 +196,7 @@ impl TrieViewer {
     ) -> Result<Vec<u8>, errors::CallFunctionError> {
         let now = Instant::now();
         let root = *state_update.get_root();
-        let account = get_account(&state_update, contract_id)?.ok_or_else(|| {
+        let account = get_account(&state_update, contract_id.clone())?.ok_or_else(|| {
             errors::CallFunctionError::AccountDoesNotExist {
                 requested_account_id: contract_id.clone(),
             }

@@ -202,8 +202,8 @@ impl GenesisStateApplier {
                     storage.modify(|state_update| {
                         // Recompute contract code hash.
                         let code = ContractCode::new(code.clone(), None);
-                        if let Some(acc) =
-                            get_account(state_update, account_id).expect("Failed to read state")
+                        if let Some(acc) = get_account(state_update, account_id.clone())
+                            .expect("Failed to read state")
                         {
                             state_update.set_code(account_id.clone(), &code);
                             assert_eq!(
@@ -258,7 +258,7 @@ impl GenesisStateApplier {
         );
         for (account_id, storage_usage) in storage_computer.finalize() {
             storage.modify(|state_update| {
-                let mut account = get_account(state_update, &account_id)
+                let mut account = get_account(state_update, account_id.clone())
                     .expect("Genesis storage error")
                     .expect("Account must exist");
                 account.set_storage_usage(storage_usage);
@@ -330,7 +330,7 @@ impl GenesisStateApplier {
                 continue;
             }
             storage.modify(|state_update| {
-                let mut account: Account = get_account(state_update, account_id)
+                let mut account: Account = get_account(state_update, account_id.clone())
                     .expect("Genesis storage error")
                     .expect("account must exist");
                 account.set_locked(*amount);
