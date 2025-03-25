@@ -21,10 +21,8 @@
     "funcs",
     "Ggas",
     "Greenwasm",
-    "hashbrown",
     "hypercall",
     "importobject",
-    "indexmap",
     "Kgas",
     "libcall",
     "libcalls",
@@ -45,7 +43,6 @@
     "reftypes",
     "reloc",
     "relocs",
-    "rusqlite",
     "seccomp",
     "singlepass",
     "spectest",
@@ -69,12 +66,10 @@
     "vmstate",
     "wasi",
     "wasmer",
-    "wasmparser",
     "wasmprinter",
     "wasms",
     "wasmtime",
     "webassembly",
-    "zulipchat",
     "BADF",
     "Chipset",
     "Downcasting",
@@ -176,8 +171,7 @@
     "vmtable",
     "winapi",
     "wptype",
-    "xmms",
-    "xshell"
+    "xmms"
   ],
   "import": []
 }
