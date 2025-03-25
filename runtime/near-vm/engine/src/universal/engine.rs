@@ -549,7 +549,7 @@ impl UniversalEngineInner {
         let function_bodies =
             call_trampolines.chain(local_functions).chain(dynamic_trampolines).collect::<Vec<_>>();
 
-        // TOOD: this shouldn't be necessary....
+        // TODO: this shouldn't be necessary....
         let mut section_types = Vec::with_capacity(custom_sections.len());
         let mut executable_sections = Vec::new();
         let mut data_sections = Vec::new();
