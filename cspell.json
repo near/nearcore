@@ -430,6 +430,7 @@
         "mprotect",
         "mremap",
         "multivalue",
+        "munmap",
         "Nebulet",
         "nondet",
         "pipefail",
