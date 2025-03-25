@@ -1,6 +1,6 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 
-use near_primitives::hash::hash;
+use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::state::{FlatStateValue, ValueRef};
 use near_primitives::types::{BlockHeight, RawStateChangesWithTrieKey};
@@ -10,7 +10,6 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use super::BlockInfo;
-use crate::CryptoHash;
 use crate::adapter::flat_store::FlatStoreUpdateAdapter;
 
 #[derive(Debug)]

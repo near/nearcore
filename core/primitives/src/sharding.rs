@@ -586,11 +586,8 @@ impl ShardChunkHeader {
             ProtocolFeature::BandwidthScheduler.protocol_version();
 
         let is_valid = match &self {
-            ShardChunkHeader::V1(_) => !ProtocolFeature::ShardChunkHeaderUpgrade.enabled(version),
-            ShardChunkHeader::V2(_) => {
-                ProtocolFeature::ShardChunkHeaderUpgrade.enabled(version)
-                    && version < BLOCK_HEADER_V3_VERSION
-            }
+            ShardChunkHeader::V1(_) => false,
+            ShardChunkHeader::V2(_) => version < BLOCK_HEADER_V3_VERSION,
             ShardChunkHeader::V3(header) => match header.inner {
                 ShardChunkHeaderInner::V1(_) => {
                     version >= BLOCK_HEADER_V3_VERSION && version < CONGESTION_CONTROL_VERSION
@@ -791,16 +788,6 @@ impl PartialEncodedChunk {
         match &self {
             PartialEncodedChunk::V1(chunk) => &chunk.header.inner.prev_block_hash,
             PartialEncodedChunk::V2(chunk) => chunk.header.prev_block_hash(),
-        }
-    }
-
-    /// Returns whether the check is valid for given `ProtocolVersion`.
-    pub fn valid_for(&self, version: ProtocolVersion) -> bool {
-        match &self {
-            PartialEncodedChunk::V1(_) => {
-                !ProtocolFeature::ShardChunkHeaderUpgrade.enabled(version)
-            }
-            PartialEncodedChunk::V2(_) => ProtocolFeature::ShardChunkHeaderUpgrade.enabled(version),
         }
     }
 
@@ -1205,28 +1192,12 @@ impl EncodedShardChunk {
         }
     }
 
-    pub fn from_header(
-        header: ShardChunkHeader,
-        total_parts: usize,
-        protocol_version: ProtocolVersion,
-    ) -> Self {
-        if !ProtocolFeature::ShardChunkHeaderUpgrade.enabled(protocol_version) {
-            if let ShardChunkHeader::V1(header) = header {
-                let chunk = EncodedShardChunkV1 {
-                    header,
-                    content: EncodedShardChunkBody { parts: vec![None; total_parts] },
-                };
-                Self::V1(chunk)
-            } else {
-                panic!("Attempted to include ShardChunkHeader::V2 in old protocol version");
-            }
-        } else {
-            let chunk = EncodedShardChunkV2 {
-                header,
-                content: EncodedShardChunkBody { parts: vec![None; total_parts] },
-            };
-            Self::V2(chunk)
-        }
+    pub fn from_header(header: ShardChunkHeader, total_parts: usize) -> Self {
+        let chunk = EncodedShardChunkV2 {
+            header,
+            content: EncodedShardChunkBody { parts: vec![None; total_parts] },
+        };
+        Self::V2(chunk)
     }
 
     fn decode_transaction_receipts(
@@ -1273,29 +1244,7 @@ impl EncodedShardChunk {
 
         let block_header_v3_version = Some(ProtocolFeature::BlockHeaderV3.protocol_version());
 
-        if !ProtocolFeature::ShardChunkHeaderUpgrade.enabled(protocol_version) {
-            let prev_validator_proposals =
-                prev_validator_proposals.into_iter().map(|v| v.into_v1()).collect();
-            let header = ShardChunkHeaderV1::new(
-                prev_block_hash,
-                prev_state_root,
-                prev_outcome_root,
-                encoded_merkle_root,
-                encoded_length as u64,
-                height,
-                shard_id,
-                prev_gas_used,
-                gas_limit,
-                prev_balance_burnt,
-                prev_outgoing_receipts_root,
-                tx_root,
-                prev_validator_proposals,
-                signer,
-            );
-            let chunk = EncodedShardChunkV1 { header, content };
-            Ok((Self::V1(chunk), merkle_paths))
-        } else if block_header_v3_version.is_none()
-            || protocol_version < block_header_v3_version.unwrap()
+        if block_header_v3_version.is_none() || protocol_version < block_header_v3_version.unwrap()
         {
             let validator_proposals =
                 prev_validator_proposals.into_iter().map(|v| v.into_v1()).collect();

@@ -160,17 +160,13 @@ pub fn verify_and_charge_tx_ephemeral(
         }
         .into());
     }
-    if ProtocolFeature::AccessKeyNonceRange.enabled(current_protocol_version) {
-        if let Some(height) = block_height {
-            let upper_bound =
-                height * near_primitives::account::AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER;
-            if tx.nonce() >= upper_bound {
-                return Err(
-                    InvalidTxError::NonceTooLarge { tx_nonce: tx.nonce(), upper_bound }.into()
-                );
-            }
+    if let Some(height) = block_height {
+        let upper_bound =
+            height * near_primitives::account::AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER;
+        if tx.nonce() >= upper_bound {
+            return Err(InvalidTxError::NonceTooLarge { tx_nonce: tx.nonce(), upper_bound }.into());
         }
-    };
+    }
 
     access_key.nonce = tx.nonce();
 

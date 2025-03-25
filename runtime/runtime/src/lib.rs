@@ -164,7 +164,6 @@ impl ApplyState {
         create_receipt_id_from_receipt_id(
             self.current_protocol_version,
             parent_receipt_id,
-            &self.prev_block_hash,
             &self.block_hash,
             self.block_height,
             receipt_index,
@@ -386,7 +385,6 @@ impl Runtime {
                 let receipt_id = create_receipt_id_from_transaction(
                     apply_state.current_protocol_version,
                     validated_tx.to_hash(),
-                    &apply_state.prev_block_hash,
                     &apply_state.block_hash,
                     apply_state.block_height,
                 );
@@ -623,7 +621,6 @@ impl Runtime {
                     &mut result,
                     account_id,
                     delete_key,
-                    apply_state.current_protocol_version,
                 )?;
             }
             Action::DeleteAccount(delete_account) => {
@@ -719,7 +716,6 @@ impl Runtime {
             let action_hash = create_action_hash_from_receipt_id(
                 apply_state.current_protocol_version,
                 receipt.receipt_id(),
-                &apply_state.prev_block_hash,
                 &apply_state.block_hash,
                 apply_state.block_height,
                 action_index,
@@ -793,17 +789,6 @@ impl Runtime {
         }
 
         let gas_deficit_amount = if receipt.predecessor_id().is_system() {
-            // We will set gas_burnt for refund receipts to be 0 when we calculate tx_burnt_amount
-            // Here we don't set result.gas_burnt to be zero if CountRefundReceiptsInGasLimit is
-            // enabled because we want it to be counted in gas limit calculation later
-            if !ProtocolFeature::CountRefundReceiptsInGasLimit
-                .enabled(apply_state.current_protocol_version)
-            {
-                result.gas_burnt = 0;
-                result.compute_usage = 0;
-                result.gas_used = 0;
-            }
-
             // If the refund fails tokens are burned.
             if result.result.is_err() {
                 stats.balance.other_burnt_amount = safe_add_balance(
@@ -1399,44 +1384,9 @@ impl Runtime {
     pub fn apply_migrations(
         &self,
         state_update: &mut TrieUpdate,
-        migration_data: &Arc<MigrationData>,
         migration_flags: &MigrationFlags,
         protocol_version: ProtocolVersion,
-    ) -> Result<(Gas, Vec<Receipt>), StorageError> {
-        let mut gas_used: Gas = 0;
-        if ProtocolFeature::FixStorageUsage.protocol_version() == protocol_version
-            && migration_flags.is_first_block_of_version
-        {
-            for (account_id, delta) in &migration_data.storage_usage_delta {
-                // Account could have been deleted in the meantime, so we check if it is still Some
-                if let Some(mut account) = get_account(state_update, account_id)? {
-                    // Storage usage is saved in state, hence it is nowhere close to max value
-                    // of u64, and maximal delta is 4196, se we can add here without checking
-                    // for overflow
-                    account.set_storage_usage(account.storage_usage() + delta);
-                    set_account(state_update, account_id.clone(), &account);
-                }
-            }
-            gas_used += migration_data.storage_usage_fix_gas;
-            state_update.commit(StateChangeCause::Migration);
-        }
-
-        // Re-introduce receipts lost because of a bug in apply_chunks.
-        // We take the first block with existing chunk in the first epoch in which protocol feature
-        // RestoreReceiptsAfterFixApplyChunks was enabled, and put the restored receipts there.
-        // See https://github.com/near/nearcore/pull/4248/ for more details.
-        let receipts_to_restore = if ProtocolFeature::RestoreReceiptsAfterFixApplyChunks
-            .protocol_version()
-            == protocol_version
-            && migration_flags.is_first_block_with_chunk_of_version
-        {
-            // Note that receipts are restored only on mainnet so restored_receipts will be empty on
-            // other chains.
-            migration_data.restored_receipts.get(&ShardId::new(0)).cloned().unwrap_or_default()
-        } else {
-            vec![]
-        };
-
+    ) -> Result<(), StorageError> {
         // Remove the only testnet account with large storage key.
         if ProtocolFeature::RemoveAccountWithLongStorageKey.protocol_version() == protocol_version
             && migration_flags.is_first_block_with_chunk_of_version
@@ -1448,7 +1398,7 @@ impl Runtime {
             }
         }
 
-        Ok((gas_used, receipts_to_restore))
+        Ok(())
     }
 
     /// Applies new signed transactions and incoming receipts for some chunk/shard on top of
@@ -1517,15 +1467,12 @@ impl Runtime {
         }
 
         // Step 2: apply migrations.
-        let (gas_used_for_migrations, mut receipts_to_restore) = self
-            .apply_migrations(
-                &mut processing_state.state_update,
-                &apply_state.migration_data,
-                &apply_state.migration_flags,
-                processing_state.protocol_version,
-            )
-            .map_err(RuntimeError::StorageError)?;
-        processing_state.total.add(gas_used_for_migrations, gas_used_for_migrations)?;
+        self.apply_migrations(
+            &mut processing_state.state_update,
+            &apply_state.migration_flags,
+            processing_state.protocol_version,
+        )
+        .map_err(RuntimeError::StorageError)?;
 
         let delayed_receipts = DelayedReceiptQueueWrapper::new(
             DelayedReceiptQueue::load(&processing_state.state_update)?,
@@ -1543,24 +1490,13 @@ impl Runtime {
         )?;
 
         // If the chunk is missing, exit early and don't process any receipts.
-        if !apply_state.is_new_chunk
-            && processing_state.protocol_version
-                >= ProtocolFeature::FixApplyChunks.protocol_version()
-        {
+        if !apply_state.is_new_chunk {
             return missing_chunk_apply_result(
                 &delayed_receipts,
                 processing_state,
                 &bandwidth_scheduler_output,
             );
         }
-
-        // If we have receipts that need to be restored, prepend them to the list of incoming receipts
-        let incoming_receipts = if receipts_to_restore.is_empty() {
-            incoming_receipts
-        } else {
-            receipts_to_restore.extend_from_slice(incoming_receipts);
-            receipts_to_restore.as_slice()
-        };
 
         let mut processing_state =
             processing_state.into_processing_receipt_state(incoming_receipts, delayed_receipts);
@@ -2458,7 +2394,6 @@ fn resolve_promise_yield_timeouts(
             let new_receipt_id = create_receipt_id_from_receipt_id(
                 processing_state.protocol_version,
                 &queue_entry.data_id,
-                &apply_state.prev_block_hash,
                 &apply_state.block_hash,
                 apply_state.block_height,
                 new_receipt_index,

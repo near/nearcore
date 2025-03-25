@@ -461,7 +461,7 @@ fn link<'a, 'b>(
                     tracing::trace_span!(target: "vm::host_function", stringify!($name)).entered()
                 });
                 // the below is bad. don't do this at home. it probably works thanks to the exact way the system is setup.
-                // Thanksfully, this doesn't run in production, and hopefully should be possible to remove before we even
+                // Thankfully, this doesn't run in production, and hopefully should be possible to remove before we even
                 // consider doing so.
                 let data = CALLER_CONTEXT.with(|caller_context| {
                     unsafe {

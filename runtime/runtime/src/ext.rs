@@ -303,7 +303,6 @@ impl<'a> External for RuntimeExt<'a> {
         let data_id = create_receipt_id_from_action_hash(
             self.current_protocol_version,
             &self.action_hash,
-            &self.prev_block_hash,
             &self.last_block_hash,
             self.block_height,
             self.data_count,
