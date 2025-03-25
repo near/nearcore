@@ -497,7 +497,7 @@ pub struct UniversalEngineInner {
     /// The features to compile the Wasm module with
     features: Features,
     /// The signature registry is used mainly to operate with trampolines
-    /// performantly.
+    /// that is performant.
     pub(crate) signatures: SignatureRegistry,
     /// The backing storage of `VMFuncRef`s. This centralized store ensures that 2
     /// functions with the same `VMCallerCheckedAnyfunc` will have the same `VMFuncRef`.
