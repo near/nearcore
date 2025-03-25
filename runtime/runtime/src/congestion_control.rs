@@ -189,13 +189,6 @@ impl ReceiptSink {
         }
     }
 
-    pub(crate) fn outgoing_receipts(&self) -> &[Receipt] {
-        match self {
-            ReceiptSink::V1(inner) => &inner.outgoing_receipts,
-            ReceiptSink::V2(inner) => &inner.outgoing_receipts,
-        }
-    }
-
     /// Consumes receipt sink, finalizes ReceiptSinkStats and returns the outgoing receipts.
     /// Called at the end of chunk application.
     pub(crate) fn finalize_stats_get_outgoing_receipts(
