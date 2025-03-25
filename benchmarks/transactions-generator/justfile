@@ -18,9 +18,9 @@ run-localnet loglevel="info":
     RUST_LOG={{loglevel}} \
     {{neard}} --home {{near_localnet_home}} run
 
-create-accounts num_accounts="1000":
+create-accounts num_accounts="10000":
     #!/bin/bash
-    nohup {{neard}} --home {{near_localnet_home}} run &
+    {{neard}} --home {{near_localnet_home}} run &
     NEARD_PID=$!
     sleep 5
     RUST_LOG=info \
