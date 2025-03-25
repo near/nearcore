@@ -62,13 +62,13 @@ fn setup_runtime(
     let shard_layout = epoch_info_provider.shard_layout(&EpochId::default()).unwrap();
     let shard_uid = shard_layout.shard_uids().next().unwrap();
 
-    let accounts_with_keys: Vec<(AccountId, Vec<Arc<Signer>>)> = initial_accounts
+    let accounts_with_keys = initial_accounts
         .into_iter()
         .map(|account_id| {
             let signer = Arc::new(InMemorySigner::test_signer(&account_id));
             (account_id, vec![signer])
         })
-        .collect();
+        .collect::<Vec<_>>();
 
     let (runtime, tries, state_root, apply_state, signers) = setup_runtime_for_shard(
         accounts_with_keys,
@@ -117,25 +117,33 @@ fn setup_runtime_for_shard(
     let tries = TestTriesBuilder::new().build();
     let root = MerkleHash::default();
     let runtime = Runtime::new();
-    let mut signers = vec![];
     let mut initial_state = tries.new_trie_update(shard_uid, root);
-    for (account_id, signers_for_account) in accounts_with_keys.into_iter() {
-        let mut initial_account = account_new(initial_balance, CryptoHash::default());
-        // For the account and a full access key
-        initial_account.set_storage_usage(182);
-        initial_account.set_locked(initial_locked);
 
-        set_account(&mut initial_state, account_id.clone(), &initial_account);
-        for signer in signers_for_account {
-            set_access_key(
-                &mut initial_state,
-                account_id.clone(),
-                signer.public_key(),
-                &AccessKey::full_access(),
-            );
-            signers.push(signer);
-        }
-    }
+    let signers = accounts_with_keys
+        .into_iter()
+        .flat_map(|(account_id, signers_for_account)| {
+            let mut initial_account = account_new(initial_balance, CryptoHash::default());
+
+            initial_account.set_storage_usage(182);
+            initial_account.set_locked(initial_locked);
+
+            set_account(&mut initial_state, account_id.clone(), &initial_account);
+
+            signers_for_account
+                .into_iter()
+                .map(|signer| {
+                    set_access_key(
+                        &mut initial_state,
+                        account_id.clone(),
+                        signer.public_key(),
+                        &AccessKey::full_access(),
+                    );
+                    signer
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect::<Vec<_>>();
+
     initial_state.commit(StateChangeCause::InitialState);
     let trie_changes = initial_state.finalize().unwrap().trie_changes;
     let mut store_update = tries.store_update();
@@ -2469,13 +2477,13 @@ fn test_congestion_buffering() {
     // execute a single receipt per chunk
     let gas_limit = 1;
 
-    let accounts_with_keys: Vec<(AccountId, Vec<Arc<Signer>>)> = accounts
+    let accounts_with_keys = accounts
         .into_iter()
         .map(|account| {
             let signer = Arc::new(InMemorySigner::test_signer(&account));
             (account, vec![signer])
         })
-        .collect();
+        .collect::<Vec<_>>();
 
     let (runtime, tries, mut root, mut apply_state, _) = setup_runtime_for_shard(
         accounts_with_keys,
@@ -2904,8 +2912,7 @@ fn test_transaction_ordering_with_apply() {
     );
 
     let validity_flags = vec![true; txs.len()];
-    let signed_valid_period_txs =
-        SignedValidPeriodTransactions::new(&txs, validity_flags.as_slice());
+    let signed_valid_period_txs = SignedValidPeriodTransactions::new(&txs, &validity_flags);
     let apply_result = runtime
         .apply(
             tries.get_trie_for_shard(ShardUId::single_shard(), root),
@@ -2983,15 +2990,15 @@ fn test_transaction_multiple_access_keys_with_apply() {
             10u64.pow(15),
         );
 
-    let flags = vec![true; txs.len()];
-    let s_valid_txs = SignedValidPeriodTransactions::new(&txs, flags.as_slice());
+    let validity_flags = vec![true; txs.len()];
+    let signed_valid_period_txs = SignedValidPeriodTransactions::new(&txs, &validity_flags);
     let apply_result = runtime
         .apply(
             tries.get_trie_for_shard(ShardUId::single_shard(), root),
             &None,
             &apply_state,
             &[],
-            s_valid_txs,
+            signed_valid_period_txs,
             &epoch_info_provider,
             Default::default(),
         )
@@ -2999,7 +3006,7 @@ fn test_transaction_multiple_access_keys_with_apply() {
 
     let expected_order = txs.iter().map(|tx| tx.get_hash()).collect::<Vec<_>>();
 
-    assert_eq!(apply_result.outcomes.len(), 6, "should have processed 6 transactions");
+    assert_eq!(apply_result.outcomes.len(), txs.len(), "should have processed 6 transactions");
     let tx_outcomes = apply_result.outcomes.iter().map(|o| o.id).collect::<Vec<_>>();
     assert_eq!(tx_outcomes, expected_order, "outcomes are not in expected sorted order");
 
