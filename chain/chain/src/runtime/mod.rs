@@ -656,11 +656,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         let transactions_gas_limit =
             chunk_tx_gas_limit(protocol_version, runtime_config, &prev_block, shard_id, gas_limit);
 
-        let mut result = PreparedTransactions {
-            transactions: Vec::new(),
-            limited_by: None,
-            storage_proof: None,
-        };
+        let mut result = PreparedTransactions { transactions: Vec::new(), limited_by: None };
         let mut num_checked_transactions = 0;
 
         // To avoid limiting the throughput of the network, we want to include enough receipts to
@@ -678,7 +674,6 @@ impl RuntimeAdapter for NightshadeRuntime {
         let size_limit: u64 = calculate_transactions_size_limit(
             protocol_version,
             &runtime_config,
-            chunk.last_chunk_transactions_size,
             transactions_gas_limit,
         );
         // for metrics only
@@ -826,7 +821,6 @@ impl RuntimeAdapter for NightshadeRuntime {
         metrics::CONGESTION_PREPARE_TX_GAS_LIMIT
             .with_label_values(&[&shard_label])
             .set(i64::try_from(transactions_gas_limit).unwrap_or(i64::MAX));
-        result.storage_proof = state_update.trie.recorded_storage().map(|s| s.nodes);
         Ok(result)
     }
 
@@ -1337,20 +1331,15 @@ fn chunk_tx_gas_limit(
 fn calculate_transactions_size_limit(
     protocol_version: ProtocolVersion,
     runtime_config: &RuntimeConfig,
-    mut last_chunk_transactions_size: usize,
     transactions_gas_limit: Gas,
 ) -> u64 {
     // Checking feature WitnessTransactionLimits
     if ProtocolFeature::StatelessValidation.enabled(protocol_version) {
-        if ProtocolFeature::RelaxedChunkValidation.enabled(protocol_version) {
-            last_chunk_transactions_size = 0;
-        }
         // Sum of transactions in the previous and current chunks should not exceed the limit.
         // Witness keeps transactions from both previous and current chunk, so we have to limit the sum of both.
         runtime_config
             .witness_config
             .combined_transactions_size_limit
-            .saturating_sub(last_chunk_transactions_size)
             .try_into()
             .expect("Can't convert usize to u64!")
     } else {
