@@ -159,7 +159,6 @@ impl StandaloneRuntime {
                 receipts,
                 transactions,
                 &self.epoch_info_provider,
-                Default::default(),
             )
             .unwrap();
 

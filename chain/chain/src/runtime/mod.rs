@@ -22,7 +22,6 @@ use near_primitives::errors::{InvalidTxError, RuntimeError, StorageError};
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::receipt::{DelayedReceiptIndices, Receipt};
 use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
-use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::state_part::PartId;
 use near_primitives::transaction::{SignedTransaction, ValidatedTransaction};
@@ -165,7 +164,6 @@ impl NightshadeRuntime {
         block: ApplyChunkBlockContext,
         receipts: &[Receipt],
         transactions: node_runtime::SignedValidPeriodTransactions<'_>,
-        state_patch: SandboxStatePatch,
     ) -> Result<ApplyChunkResult, Error> {
         let ApplyChunkBlockContext {
             height: block_height,
@@ -311,7 +309,6 @@ impl NightshadeRuntime {
                 receipts,
                 transactions,
                 self.epoch_manager.as_ref(),
-                state_patch,
             )
             .map_err(|e| match e {
                 RuntimeError::InvalidTxError(err) => {
@@ -907,15 +904,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             trie = trie.recording_reads_with_proof_size_limit(proof_limit);
         }
 
-        match self.process_state_update(
-            trie,
-            apply_reason,
-            chunk,
-            block,
-            receipts,
-            transactions,
-            storage_config.state_patch,
-        ) {
+        match self.process_state_update(trie, apply_reason, chunk, block, receipts, transactions) {
             Ok(result) => Ok(result),
             Err(e) => match e {
                 Error::StorageError(err) => match &err {

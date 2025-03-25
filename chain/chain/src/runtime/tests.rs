@@ -1671,7 +1671,6 @@ fn test_prepare_transactions_empty_storage_proof() {
         state_root: env.state_roots[0],
         use_flat_storage: true,
         source: StorageDataSource::Db,
-        state_patch: Default::default(),
     };
 
     let proposed_transactions = prepare_transactions(
@@ -1690,7 +1689,6 @@ fn test_prepare_transactions_empty_storage_proof() {
         source: StorageDataSource::Recorded(PartialStorage {
             nodes: PartialState::default(), // We use empty storage proof here.
         }),
-        state_patch: Default::default(),
     };
 
     let validation_result = prepare_transactions(

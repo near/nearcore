@@ -369,7 +369,6 @@ impl ChunkProducer {
                 state_root: *chunk_extra.state_root(),
                 use_flat_storage: true,
                 source: near_chain::types::StorageDataSource::Db,
-                state_patch: Default::default(),
             };
             self.runtime_adapter.prepare_transactions(
                 storage_config,

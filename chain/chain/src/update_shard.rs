@@ -142,7 +142,6 @@ pub fn apply_new_chunk(
         state_root: chunk_header.prev_state_root(),
         use_flat_storage: true,
         source: storage_context.storage_data_source,
-        state_patch: storage_context.state_patch,
     };
     match runtime.apply_chunk(
         storage_config,
@@ -189,7 +188,6 @@ pub fn apply_old_chunk(
         state_root: *prev_chunk_extra.state_root(),
         use_flat_storage: true,
         source: storage_context.storage_data_source,
-        state_patch: storage_context.state_patch,
     };
     match runtime.apply_chunk(
         storage_config,

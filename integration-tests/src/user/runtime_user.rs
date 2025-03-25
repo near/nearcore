@@ -117,7 +117,6 @@ impl RuntimeUser {
                     &receipts,
                     SignedValidPeriodTransactions::new(&txs, &vec![true; txs.len()]),
                     &self.epoch_info_provider,
-                    Default::default(),
                 )
                 .map_err(|e| match e {
                     RuntimeError::InvalidTxError(e) => {

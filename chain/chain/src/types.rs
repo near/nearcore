@@ -21,7 +21,6 @@ use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{MerklePath, merklize};
 use near_primitives::receipt::{PromiseYieldTimeout, Receipt};
-use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::state_part::PartId;
@@ -256,17 +255,11 @@ pub struct RuntimeStorageConfig {
     pub state_root: StateRoot,
     pub use_flat_storage: bool,
     pub source: StorageDataSource,
-    pub state_patch: SandboxStatePatch,
 }
 
 impl RuntimeStorageConfig {
     pub fn new(state_root: StateRoot, use_flat_storage: bool) -> Self {
-        Self {
-            state_root,
-            use_flat_storage,
-            source: StorageDataSource::Db,
-            state_patch: Default::default(),
-        }
+        Self { state_root, use_flat_storage, source: StorageDataSource::Db }
     }
 
     /// Creates a [RuntimeStorageConfig] with [StorageDataSource::DbTrieOnly].
@@ -274,12 +267,7 @@ impl RuntimeStorageConfig {
     ///
     /// This's meant to be used only to replay blocks.
     pub fn new_with_db_trie_only(state_root: StateRoot) -> Self {
-        Self {
-            state_root,
-            use_flat_storage: false,
-            source: StorageDataSource::DbTrieOnly,
-            state_patch: Default::default(),
-        }
+        Self { state_root, use_flat_storage: false, source: StorageDataSource::DbTrieOnly }
     }
 }
 

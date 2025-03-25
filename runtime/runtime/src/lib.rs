@@ -41,8 +41,6 @@ use near_primitives::receipt::{
     Receipt, ReceiptEnum, ReceiptOrStateStoredReceipt, ReceiptV0, ReceivedData,
 };
 use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
-use near_primitives::sandbox::state_patch::SandboxStatePatch;
-use near_primitives::state_record::StateRecord;
 use near_primitives::stateless_validation::contract_distribution::ContractUpdates;
 use near_primitives::transaction::{
     Action, ExecutionMetadata, ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus, LogEntry,
@@ -67,10 +65,8 @@ use near_store::{
     KeyLookupMode, PartialStorage, StorageError, Trie, TrieAccess, TrieChanges, TrieUpdate, get,
     get_account, get_postponed_receipt, get_promise_yield_receipt, get_pure, get_received_data,
     has_received_data, remove_account, remove_postponed_receipt, remove_promise_yield_receipt, set,
-    set_access_key, set_account, set_postponed_receipt, set_promise_yield_receipt,
-    set_received_data,
+    set_account, set_postponed_receipt, set_promise_yield_receipt, set_received_data,
 };
-use near_vm_runner::ContractCode;
 use near_vm_runner::ContractRuntimeCache;
 use near_vm_runner::ProfileDataV3;
 use near_vm_runner::logic::ReturnData;
@@ -1428,15 +1424,8 @@ impl Runtime {
         incoming_receipts: &[Receipt],
         transactions: SignedValidPeriodTransactions<'_>,
         epoch_info_provider: &dyn EpochInfoProvider,
-        state_patch: SandboxStatePatch,
     ) -> Result<ApplyResult, RuntimeError> {
         metrics::TRANSACTION_APPLIED_TOTAL.inc_by(transactions.len() as u64);
-
-        // state_patch must be empty unless this is sandbox build.  Thanks to
-        // conditional compilation this always resolves to true so technically
-        // the check is not necessary.  It’s defense in depth to make sure any
-        // future refactoring won’t break the condition.
-        assert!(cfg!(feature = "sandbox") || state_patch.is_empty());
 
         // What this function does can be broken down conceptually into the following steps:
         // 1. Update validator accounts.
@@ -1539,41 +1528,7 @@ impl Runtime {
             process_receipts_result,
             validator_accounts_update,
             receipt_sink,
-            state_patch,
         )
-    }
-
-    fn apply_state_patch(&self, state_update: &mut TrieUpdate, state_patch: SandboxStatePatch) {
-        if state_patch.is_empty() {
-            return;
-        }
-        for record in state_patch {
-            match record {
-                StateRecord::Account { account_id, account } => {
-                    set_account(state_update, account_id, &account);
-                }
-                StateRecord::Data { account_id, data_key, value } => {
-                    state_update.set(
-                        TrieKey::ContractData { key: data_key.into(), account_id },
-                        value.into(),
-                    );
-                }
-                StateRecord::Contract { account_id, code } => {
-                    let acc = get_account(state_update, &account_id).expect("Failed to read state").expect("Code state record should be preceded by the corresponding account record");
-                    // Recompute contract code hash.
-                    let code = ContractCode::new(code, None);
-                    state_update.set_code(account_id, &code);
-                    assert_eq!(*code.hash(), acc.contract().local_code().unwrap_or_default());
-                }
-                StateRecord::AccessKey { account_id, public_key, access_key } => {
-                    set_access_key(state_update, account_id, public_key, &access_key);
-                }
-                _ => unimplemented!(
-                    "patch_state can only patch Account, AccessKey, Contract and Data kind of StateRecord"
-                ),
-            }
-        }
-        state_update.commit(StateChangeCause::Migration);
     }
 
     /// Processes a collection of transactions.
@@ -2060,7 +2015,6 @@ impl Runtime {
         process_receipts_result: ProcessReceiptsResult,
         validator_accounts_update: &Option<ValidatorAccountsUpdate>,
         receipt_sink: ReceiptSink,
-        state_patch: SandboxStatePatch,
     ) -> Result<ApplyResult, RuntimeError> {
         let _span = tracing::debug_span!(target: "runtime", "apply_commit").entered();
         let apply_state = processing_state.apply_state;
@@ -2134,7 +2088,6 @@ impl Runtime {
         }
 
         state_update.commit(StateChangeCause::UpdatedDelayedReceipts);
-        self.apply_state_patch(&mut state_update, state_patch);
         let chunk_recorded_size_upper_bound =
             state_update.trie.recorded_storage_size_upper_bound() as f64;
         let shard_id_str = apply_state.shard_id.to_string();
