@@ -1,7 +1,7 @@
 use near_primitives::errors::StorageError;
 use near_primitives::state::FlatStateValue;
 
-use crate::trie::{TRIE_COSTS, ValueHandle};
+use crate::trie::{AccessOptions, TRIE_COSTS, ValueHandle};
 
 /// For updated nodes, the ID is simply the index into the array of updated nodes we keep.
 pub type UpdatedNodeId = usize;
@@ -209,6 +209,7 @@ pub(crate) trait GenericTrieUpdate<'a, GenericTrieNodePtr, GenericValueHandle> {
     fn ensure_updated(
         &mut self,
         node: GenericNodeOrIndex<GenericTrieNodePtr>,
+        operation_options: AccessOptions,
     ) -> Result<UpdatedNodeId, StorageError>;
 
     /// Takes a node from the set of updated nodes, setting it to None.

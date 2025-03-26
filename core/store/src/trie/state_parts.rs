@@ -16,6 +16,9 @@
 //! Moreover, we include all left siblings for each path, because they are
 //! necessary to prove its position in the list of prefix sums.
 
+use super::ops::iter::TrieTraversalItem;
+use super::trie_storage_update::{TrieStorageNode, TrieStorageNodeWithSize};
+use super::{AccessOptions, TrieRefcountDeltaMap};
 use crate::flat::{FlatStateChanges, FlatStateIterator};
 use crate::trie::nibble_slice::NibbleSlice;
 use crate::trie::trie_storage::TrieMemoryPartialStorage;
@@ -31,10 +34,6 @@ use near_primitives::types::{ShardId, StateRoot};
 use near_vm_runner::ContractCode;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
-
-use super::TrieRefcountDeltaMap;
-use super::ops::iter::TrieTraversalItem;
-use super::trie_storage_update::{TrieStorageNode, TrieStorageNodeWithSize};
 
 /// Trie key in nibbles corresponding to the right boundary for the last state part.
 /// Guaranteed to be bigger than any existing trie key.
@@ -231,7 +230,12 @@ impl Trie {
             .start_timer();
         let looked_up_value_refs: Vec<_> = value_refs
             .iter()
-            .map(|(k, hash)| Ok((k.clone(), Some(state_trie.retrieve_value(hash)?.to_vec()))))
+            .map(|(k, hash)| {
+                Ok((
+                    k.clone(),
+                    Some(state_trie.retrieve_value(hash, AccessOptions::DEFAULT)?.to_vec()),
+                ))
+            })
             .collect::<Result<_, StorageError>>()
             .unwrap();
         all_state_part_items.extend(looked_up_value_refs.iter().cloned());
@@ -243,8 +247,9 @@ impl Trie {
             .start_timer();
         let local_state_part_trie =
             Trie::new(Arc::new(TrieMemoryPartialStorage::default()), StateRoot::new(), None);
-        let local_state_part_nodes =
-            local_state_part_trie.update(all_state_part_items.into_iter())?.insertions;
+        let local_state_part_nodes = local_state_part_trie
+            .update(all_state_part_items.into_iter(), AccessOptions::DEFAULT)?
+            .insertions;
         let local_trie_creation_duration = local_trie_creation_timer.stop_and_record();
 
         // 4. Unite all nodes in memory, traverse trie based on them, return set of visited nodes.
@@ -456,7 +461,7 @@ impl Trie {
         let mut flat_state_delta = FlatStateChanges::default();
         let mut contract_codes = Vec::new();
         for TrieTraversalItem { hash, key } in trie_traversal_items {
-            let value = trie.retrieve_value(&hash)?;
+            let value = trie.retrieve_value(&hash, AccessOptions::DEFAULT)?;
             refcount_changes.add(hash, value.to_vec(), 1);
             if let Some(trie_key) = key {
                 let flat_state_value = FlatStateValue::on_disk(&value);
@@ -502,7 +507,8 @@ impl Trie {
         &self,
         hash: &CryptoHash,
     ) -> Result<TrieStorageNodeWithSize, StorageError> {
-        Ok(match self.retrieve_raw_node(hash, true, true)?.map(|node| node.1) {
+        let node = self.retrieve_raw_node(hash, true, AccessOptions::DEFAULT)?;
+        Ok(match node.map(|node| node.1) {
             Some(node) => TrieStorageNodeWithSize::from_raw_trie_node_with_size(node),
             None => Default::default(),
         })
@@ -564,7 +570,7 @@ mod tests {
         for part_id in 1..num_parts {
             let nibbles_boundary = trie.find_state_part_boundary(part_id, num_parts).unwrap();
             let key_boundary = NibbleSlice::nibbles_to_bytes(&nibbles_boundary);
-            assert_matches!(trie.get(&key_boundary), Ok(Some(_)));
+            assert_matches!(trie.get(&key_boundary, AccessOptions::DEFAULT), Ok(Some(_)));
         }
 
         let nibbles_boundary = trie.find_state_part_boundary(num_parts, num_parts).unwrap();
@@ -632,7 +638,7 @@ mod tests {
                 if let Some((_bytes, rc)) = insertions.get_mut(hash) {
                     *rc += 1;
                 } else {
-                    let bytes = trie.retrieve_value(hash)?;
+                    let bytes = trie.retrieve_value(hash, AccessOptions::DEFAULT)?;
                     insertions.insert(*hash, (bytes.to_vec(), 1));
                 }
                 Ok(())
@@ -839,7 +845,10 @@ mod tests {
                     trie_recording.find_state_part_boundary(part_id, num_parts).unwrap();
                 let left_key_boundary = NibbleSlice::nibbles_to_bytes(&left_nibbles_boundary);
                 if part_id != 0 {
-                    assert_matches!(trie.get(&left_key_boundary), Ok(Some(_)));
+                    assert_matches!(
+                        trie.get(&left_key_boundary, AccessOptions::DEFAULT),
+                        Ok(Some(_))
+                    );
                 }
                 let PartialState::TrieValues(proof_nodes) =
                     trie_recording.recorded_storage().unwrap().nodes;
@@ -1054,7 +1063,7 @@ mod tests {
         ];
 
         let changes_for_trie = state_items.iter().cloned().map(|(k, v)| (k, Some(v)));
-        let trie_changes = trie.update(changes_for_trie).unwrap();
+        let trie_changes = trie.update(changes_for_trie, AccessOptions::DEFAULT).unwrap();
         let mut store_update = tries.store_update();
         let root = tries.apply_all(&trie_changes, shard_uid, &mut store_update);
         store_update.commit().unwrap();
@@ -1169,7 +1178,7 @@ mod tests {
             (b"cb".to_vec(), vec![9; value_len]),
         ];
         let changes_for_trie = state_items.iter().cloned().map(|(k, v)| (k, Some(v)));
-        let trie_changes = trie.update(changes_for_trie).unwrap();
+        let trie_changes = trie.update(changes_for_trie, AccessOptions::DEFAULT).unwrap();
         let mut store_update = tries.store_update();
         let root = tries.apply_all(&trie_changes, shard_uid, &mut store_update);
         store_update.commit().unwrap();

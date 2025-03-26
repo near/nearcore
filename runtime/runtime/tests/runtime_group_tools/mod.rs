@@ -125,6 +125,7 @@ impl StandaloneRuntime {
             migration_flags: MigrationFlags::default(),
             congestion_info,
             bandwidth_requests: BlockBandwidthRequests::empty(),
+            trie_access_tracker_state: Default::default(),
         };
 
         Self {

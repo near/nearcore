@@ -8,7 +8,7 @@ use super::mem::iter::STMemTrieIterator;
 use super::ops::interface::GenericTrieInternalStorage;
 use super::ops::iter::{TrieItem, TrieIteratorImpl};
 use super::trie_storage_update::{TrieStorageNode, TrieStorageNodePtr};
-use super::{Trie, ValueHandle};
+use super::{AccessOptions, Trie, ValueHandle};
 
 pub struct DiskTrieIteratorInner<'a> {
     trie: &'a Trie,
@@ -44,18 +44,22 @@ impl<'a> GenericTrieInternalStorage<TrieStorageNodePtr, ValueHandle> for DiskTri
         &self,
         ptr: TrieStorageNodePtr,
     ) -> Result<TrieStorageNode, StorageError> {
-        let node = self.trie.retrieve_raw_node(&ptr, true, true)?.map(|(bytes, node)| {
-            if let Some(ref visited_nodes) = self.visited_nodes {
-                visited_nodes.borrow_mut().push(bytes);
-            }
-            TrieStorageNode::from_raw_trie_node(node.node)
-        });
+        let node = self.trie.retrieve_raw_node(&ptr, true, AccessOptions::DEFAULT)?.map(
+            |(bytes, node)| {
+                if let Some(ref visited_nodes) = self.visited_nodes {
+                    visited_nodes.borrow_mut().push(bytes);
+                }
+                TrieStorageNode::from_raw_trie_node(node.node)
+            },
+        );
         Ok(node.unwrap_or_default())
     }
 
     fn get_and_record_value(&self, value_ref: ValueHandle) -> Result<Vec<u8>, StorageError> {
         match value_ref {
-            ValueHandle::HashAndSize(value) => self.trie.retrieve_value(&value.hash),
+            ValueHandle::HashAndSize(value) => {
+                self.trie.retrieve_value(&value.hash, AccessOptions::DEFAULT)
+            }
             ValueHandle::InMemory(value) => panic!("Unexpected in-memory value: {:?}", value),
         }
     }

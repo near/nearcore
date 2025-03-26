@@ -1,16 +1,15 @@
-use borsh::BorshSerialize;
-use near_primitives::errors::StorageError;
-use near_primitives::hash::{CryptoHash, hash};
-use near_primitives::state::ValueRef;
-
 use super::ops::interface::{
     GenericNodeOrIndex, GenericTrieNode, GenericTrieNodeWithSize, GenericTrieUpdate,
     GenericTrieValue, GenericUpdatedTrieNode, GenericUpdatedTrieNodeWithSize, UpdatedNodeId,
 };
 use super::{
-    Children, RawTrieNode, RawTrieNodeWithSize, StorageHandle, StorageValueHandle, Trie,
-    TrieChanges, TrieRefcountDeltaMap, ValueHandle,
+    AccessOptions, Children, RawTrieNode, RawTrieNodeWithSize, StorageHandle, StorageValueHandle,
+    Trie, TrieChanges, TrieRefcountDeltaMap, ValueHandle,
 };
+use borsh::BorshSerialize;
+use near_primitives::errors::StorageError;
+use near_primitives::hash::{CryptoHash, hash};
+use near_primitives::state::ValueRef;
 
 const INVALID_STORAGE_HANDLE: &str = "invalid storage handle";
 
@@ -93,10 +92,11 @@ impl<'a> GenericTrieUpdate<'a, TrieStorageNodePtr, ValueHandle> for TrieStorageU
     fn ensure_updated(
         &mut self,
         node: GenericNodeOrIndex<TrieStorageNodePtr>,
+        opts: AccessOptions,
     ) -> Result<UpdatedNodeId, StorageError> {
         match node {
             GenericNodeOrIndex::Old(node_hash) => {
-                self.trie.move_node_to_mutable(self, &node_hash).map(|handle| handle.0)
+                self.trie.move_node_to_mutable(self, &node_hash, opts).map(|handle| handle.0)
             }
             GenericNodeOrIndex::Updated(node_id) => Ok(node_id),
         }

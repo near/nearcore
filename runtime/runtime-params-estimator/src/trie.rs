@@ -2,9 +2,12 @@ use crate::estimator_context::{EstimatorContext, Testbed};
 use crate::gas_cost::{GasCost, NonNegativeTolerance};
 use crate::utils::{aggregate_per_block_measurements, overhead_per_measured_block, percentiles};
 use near_parameters::ExtCosts;
-use near_primitives::hash::hash;
-use near_store::TrieCachingStorage;
-use near_store::trie::accounting_cache::TrieAccountingCache;
+use near_primitives::hash::{CryptoHash, hash};
+use near_store::trie::AccessTracker;
+use near_store::{TrieCachingStorage, TrieStorage};
+use std::cell::RefCell;
+use std::collections::BTreeMap;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 static SINK: AtomicUsize = AtomicUsize::new(0);
@@ -189,6 +192,25 @@ pub(crate) fn read_node_from_accounting_cache(testbed: &mut Testbed) -> GasCost 
     base_case
 }
 
+#[derive(Debug, Default)]
+struct EstimatorAccessTracker(RefCell<BTreeMap<CryptoHash, Arc<[u8]>>>);
+impl AccessTracker for EstimatorAccessTracker {
+    fn track_mem_lookup(
+        &self,
+        key: &near_primitives::hash::CryptoHash,
+    ) -> Option<std::sync::Arc<[u8]>> {
+        self.0.borrow().get(key).cloned()
+    }
+
+    fn track_disk_lookup(
+        &self,
+        key: near_primitives::hash::CryptoHash,
+        value: std::sync::Arc<[u8]>,
+    ) {
+        self.0.borrow_mut().insert(key, value);
+    }
+}
+
 fn read_node_from_accounting_cache_ext(
     testbed: &mut Testbed,
     iters: usize,
@@ -248,13 +270,9 @@ fn read_node_from_accounting_cache_ext(
 
             // Create a new cache and load nodes into it as preparation.
             let caching_storage = testbed.trie_caching_storage();
-            let mut accounting_cache = TrieAccountingCache::new(None);
-            accounting_cache.enable_switch().set(true);
-            let _dummy_sum = read_raw_nodes_from_storage(
-                &caching_storage,
-                &mut accounting_cache,
-                &all_value_hashes,
-            );
+            let access_tracker = EstimatorAccessTracker::default();
+            let _dummy_sum =
+                read_raw_nodes_from_storage(&caching_storage, &access_tracker, &all_value_hashes);
 
             // Remove trie nodes from CPU caches by filling the caches with useless data.
             // (To measure latency from main memory, not CPU caches)
@@ -268,7 +286,7 @@ fn read_node_from_accounting_cache_ext(
             // around that are expected to always be in cache)
             let dummy_sum = read_raw_nodes_from_storage(
                 &caching_storage,
-                &mut accounting_cache,
+                &access_tracker,
                 unmeasured_value_hashes,
             );
             SINK.fetch_add(dummy_sum, Ordering::SeqCst);
@@ -276,7 +294,7 @@ fn read_node_from_accounting_cache_ext(
             let start = GasCost::measure(testbed.config.metric);
             let dummy_sum = read_raw_nodes_from_storage(
                 &caching_storage,
-                &mut accounting_cache,
+                &access_tracker,
                 &measured_value_hashes,
             );
             let cost = start.elapsed();
@@ -293,13 +311,17 @@ fn read_node_from_accounting_cache_ext(
 /// compiler.
 fn read_raw_nodes_from_storage(
     caching_storage: &TrieCachingStorage,
-    accounting_cache: &mut TrieAccountingCache,
+    accounting_cache: &EstimatorAccessTracker,
     keys: &[near_primitives::hash::CryptoHash],
 ) -> usize {
     keys.iter()
         .map(|key| {
-            let bytes =
-                accounting_cache.retrieve_raw_bytes_with_accounting(key, caching_storage).unwrap();
+            let bytes = accounting_cache.track_mem_lookup(&key).or_else(|| {
+                let value = caching_storage.retrieve_raw_bytes(key).ok()?;
+                accounting_cache.track_disk_lookup(*key, Arc::clone(&value));
+                Some(value)
+            });
+            let Some(bytes) = bytes else { return 0 };
             near_store::estimator::decode_extension_node(&bytes).len()
         })
         .sum()
