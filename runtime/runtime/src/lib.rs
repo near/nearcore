@@ -361,77 +361,75 @@ impl Runtime {
         let span = tracing::Span::current();
         metrics::TRANSACTION_PROCESSED_TOTAL.inc();
 
-        match verify_and_charge_tx_ephemeral(
+        let verification_result = verify_and_charge_tx_ephemeral(
             &apply_state.config,
             state_update,
             validated_tx,
             transaction_cost,
             Some(apply_state.block_height),
             apply_state.current_protocol_version,
-        ) {
-            Ok(verification_result) => {
-                metrics::TRANSACTION_PROCESSED_SUCCESSFULLY_TOTAL.inc();
-                commit_charging_for_tx(
-                    state_update,
-                    validated_tx,
-                    &verification_result.signer,
-                    &verification_result.access_key,
-                );
-                state_update.commit(StateChangeCause::TransactionProcessing {
-                    tx_hash: validated_tx.get_hash(),
-                });
-                let receipt_id = create_receipt_id_from_transaction(
-                    apply_state.current_protocol_version,
-                    validated_tx.to_hash(),
-                    &apply_state.block_hash,
-                    apply_state.block_height,
-                );
-                let receipt = Receipt::V0(ReceiptV0 {
-                    predecessor_id: validated_tx.signer_id().clone(),
-                    receiver_id: validated_tx.receiver_id().clone(),
-                    receipt_id,
-                    receipt: ReceiptEnum::Action(ActionReceipt {
-                        signer_id: validated_tx.signer_id().clone(),
-                        signer_public_key: validated_tx.public_key().clone(),
-                        gas_price: verification_result.receipt_gas_price,
-                        output_data_receivers: vec![],
-                        input_data_ids: vec![],
-                        actions: validated_tx.actions().to_vec(),
-                    }),
-                });
-                stats.balance.tx_burnt_amount = safe_add_balance(
-                    stats.balance.tx_burnt_amount,
-                    verification_result.burnt_amount,
-                )
-                .map_err(|_| InvalidTxError::CostOverflow)?;
-                let gas_burnt = verification_result.gas_burnt;
-                let compute_usage = verification_result.gas_burnt;
-                let outcome = ExecutionOutcomeWithId {
-                    id: validated_tx.get_hash(),
-                    outcome: ExecutionOutcome {
-                        status: ExecutionStatus::SuccessReceiptId(*receipt.receipt_id()),
-                        logs: vec![],
-                        receipt_ids: vec![*receipt.receipt_id()],
-                        gas_burnt,
-                        // TODO(#8806): Support compute costs for actions. For now they match burnt gas.
-                        compute_usage: Some(compute_usage),
-                        tokens_burnt: verification_result.burnt_amount,
-                        executor_id: validated_tx.signer_id().clone(),
-                        // TODO: profile data is only counted in apply_action, which only happened at process_receipt
-                        // VerificationResult needs updates to incorporate profile data to support profile data of txns
-                        metadata: ExecutionMetadata::V1,
-                    },
-                };
-                span.record("gas_burnt", gas_burnt);
-                span.record("compute_usage", compute_usage);
-                Ok((receipt, outcome))
-            }
+        );
+        let verification_result = match verification_result {
+            Ok(ok) => ok,
             Err(e) => {
                 metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
                 state_update.rollback();
-                Err(e)
+                return Err(e);
             }
-        }
+        };
+
+        metrics::TRANSACTION_PROCESSED_SUCCESSFULLY_TOTAL.inc();
+        commit_charging_for_tx(
+            state_update,
+            validated_tx,
+            &verification_result.signer,
+            &verification_result.access_key,
+        );
+        state_update
+            .commit(StateChangeCause::TransactionProcessing { tx_hash: validated_tx.get_hash() });
+        let receipt_id = create_receipt_id_from_transaction(
+            apply_state.current_protocol_version,
+            validated_tx.to_hash(),
+            &apply_state.block_hash,
+            apply_state.block_height,
+        );
+        let receipt = Receipt::V0(ReceiptV0 {
+            predecessor_id: validated_tx.signer_id().clone(),
+            receiver_id: validated_tx.receiver_id().clone(),
+            receipt_id,
+            receipt: ReceiptEnum::Action(ActionReceipt {
+                signer_id: validated_tx.signer_id().clone(),
+                signer_public_key: validated_tx.public_key().clone(),
+                gas_price: verification_result.receipt_gas_price,
+                output_data_receivers: vec![],
+                input_data_ids: vec![],
+                actions: validated_tx.actions().to_vec(),
+            }),
+        });
+        stats.balance.tx_burnt_amount =
+            safe_add_balance(stats.balance.tx_burnt_amount, verification_result.burnt_amount)
+                .map_err(|_| InvalidTxError::CostOverflow)?;
+        let gas_burnt = verification_result.gas_burnt;
+        let compute_usage = verification_result.gas_burnt;
+        let outcome = ExecutionOutcomeWithId {
+            id: validated_tx.get_hash(),
+            outcome: ExecutionOutcome {
+                status: ExecutionStatus::SuccessReceiptId(*receipt.receipt_id()),
+                logs: vec![],
+                receipt_ids: vec![*receipt.receipt_id()],
+                gas_burnt,
+                // TODO(#8806): Support compute costs for actions. For now they match burnt gas.
+                compute_usage: Some(compute_usage),
+                tokens_burnt: verification_result.burnt_amount,
+                executor_id: validated_tx.signer_id().clone(),
+                // TODO: profile data is only counted in apply_action, which only happened at process_receipt
+                // VerificationResult needs updates to incorporate profile data to support profile data of txns
+                metadata: ExecutionMetadata::V1,
+            },
+        };
+        span.record("gas_burnt", gas_burnt);
+        span.record("compute_usage", compute_usage);
+        Ok((receipt, outcome))
     }
 
     fn apply_action(
