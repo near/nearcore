@@ -23,7 +23,6 @@ use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
 use near_primitives::version::PROTOCOL_VERSION;
-use near_store::config::StateSnapshotType;
 use near_store::flat::{FlatStateChanges, FlatStateDelta, FlatStateDeltaMetadata};
 use near_store::genesis::initialize_genesis_state;
 use near_vm_runner::{
@@ -146,7 +145,7 @@ impl TestEnv {
             DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
             Default::default(),
             StateSnapshotConfig {
-                state_snapshot_type: StateSnapshotType::EveryEpoch,
+                enabled: true,
                 home_dir: PathBuf::from(dir.path()),
                 hot_store_path: PathBuf::from("data"),
                 state_snapshot_subdir: PathBuf::from("state_snapshot"),
@@ -1525,7 +1524,7 @@ fn test_genesis_hash() {
         &genesis.config,
         epoch_manager.clone(),
         RuntimeConfigStore::new(None),
-        StateSnapshotType::EveryEpoch,
+        true,
     );
 
     let state_roots =
@@ -1806,7 +1805,7 @@ fn test_precompile_contracts_updates_cache() {
         &genesis.config,
         epoch_manager,
         RuntimeConfigStore::new(None),
-        StateSnapshotType::EveryEpoch,
+        true,
     );
 
     let contracts = vec![

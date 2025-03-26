@@ -113,29 +113,7 @@ pub struct StoreConfig {
     #[serde(skip_serializing_if = "MigrationSnapshot::is_default")]
     pub migration_snapshot: MigrationSnapshot,
 
-    /// State Snapshot configuration
-    pub state_snapshot_config: StateSnapshotConfig,
-
-    // TODO (#9989): To be phased out in favor of state_snapshot_config
     pub state_snapshot_enabled: bool,
-}
-
-/// Config used to control state snapshot creation. This is used for state sync and resharding.
-#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
-#[serde(default)]
-pub struct StateSnapshotConfig {
-    pub state_snapshot_type: StateSnapshotType,
-}
-
-#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
-pub enum StateSnapshotType {
-    /// Consider this as the default "disabled" option. We need to have snapshotting enabled for resharding
-    /// State snapshots involve filesystem operations and costly IO operations.
-    ForReshardingOnly,
-    /// This is the "enabled" option where we create a snapshot at the beginning of every epoch.
-    /// Needed if a node wants to be able to respond to state part requests.
-    #[default]
-    EveryEpoch,
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -297,9 +275,6 @@ impl Default for StoreConfig {
 
             migration_snapshot: Default::default(),
 
-            state_snapshot_config: Default::default(),
-
-            // TODO: To be phased out in favor of state_snapshot_config
             state_snapshot_enabled: false,
         }
     }

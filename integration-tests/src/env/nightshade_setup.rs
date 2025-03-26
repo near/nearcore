@@ -42,7 +42,7 @@ impl TestEnvNightshadeSetupExt for TestEnvBuilder {
         genesis: &Genesis,
         runtime_configs: Vec<RuntimeConfigStore>,
     ) -> Self {
-        let state_snapshot_type = self.state_snapshot_type();
+        let state_snapshot_enabled = self.state_snapshot_enabled();
         let nightshade_runtime_creator = |home_dir: PathBuf,
                                           store: Store,
                                           contract_cache: Box<dyn ContractRuntimeCache>,
@@ -61,7 +61,7 @@ impl TestEnvNightshadeSetupExt for TestEnvBuilder {
                 &genesis.config,
                 epoch_manager,
                 runtime_config,
-                state_snapshot_type.clone(),
+                state_snapshot_enabled,
             )
         };
         let dummy_trie_configs = vec![TrieConfig::default(); self.num_clients()];
@@ -77,7 +77,7 @@ impl TestEnvNightshadeSetupExt for TestEnvBuilder {
         genesis: &Genesis,
         trie_configs: Vec<TrieConfig>,
     ) -> Self {
-        let state_snapshot_type = self.state_snapshot_type();
+        let state_snapshot_enabled = self.state_snapshot_enabled();
         let nightshade_runtime_creator =
             |home_dir: PathBuf,
              store: Store,
@@ -98,7 +98,7 @@ impl TestEnvNightshadeSetupExt for TestEnvBuilder {
                     epoch_manager,
                     Some(runtime_config_store),
                     trie_config,
-                    state_snapshot_type.clone(),
+                    state_snapshot_enabled,
                     DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
                 )
             };
