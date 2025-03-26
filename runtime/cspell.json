@@ -1,7 +1,13 @@
 {
   "version": "0.2",
   "language": "en",
-  "words": [],
+  "ignorePaths": [
+    "runtime-params-estimator/res/**",
+    "runtime-params-estimator/emu-cost/counter_plugin/**.patch"
+  ],
+  "words": [
+    "wasitests"
+  ],
   "ignoreWords": [
     "anyfunc",
     "argty",
