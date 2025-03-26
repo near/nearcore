@@ -553,7 +553,7 @@ impl<'a> Contract for RuntimeContractExt<'a> {
 /// Note that in general, it is NOT true that all storage access is either a db read or mem read.
 /// It can also be a flat storage read, which is not tracked via `AccountingAccessTracker`, except
 /// for value dereferences that ultimately go out to trie anyway.
-// FIXME(nagisa): equalize fees for different types of accesseses and eventually remove this code.
+// FIXME(nagisa): equalize fees for different types of accesses and eventually remove this code.
 struct AccountingAccessTracker {
     allow_insert: bool,
     state: Arc<AccountingState>,

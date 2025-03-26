@@ -262,13 +262,13 @@ pub struct Trie {
     ///
     /// Further, NOTE that regardless of this variable, lookups with `KeyLookupMode::MemOrTrie`
     /// will record node accesses with the access tracker regardless of this field's value. The
-    /// logic here is ultra-subtle: it is possible for lookups with `KeyLokupMode::MemOrFlatOrTrie`
-    /// to get served from either memtries, flat storage or regular trie depending on which of the
-    /// storage types are loaded at the time `Trie` is constructed. However flat storage will only
-    /// record accesses for dereference of a non-inlined value (and will do so regardless of this
-    /// setting.) So the exact count accesses recorded will depend not only on this field, but also
-    /// on which types of storage are loaded, which `KeyLookupMode` is used and probably some other
-    /// subtle factors.
+    /// logic here is ultra-subtle: it is possible for lookups with
+    /// `KeyLookupMode::MemOrFlatOrTrie` to get served from either memtries, flat storage or
+    /// regular trie depending on which of the storage types are loaded at the time `Trie` is
+    /// constructed. However flat storage will only record accesses for dereference of a
+    /// non-inlined value (and will do so regardless of this setting.) So the exact count accesses
+    /// recorded will depend not only on this field, but also on which types of storage are loaded,
+    /// which `KeyLookupMode` is used and probably some other subtle factors.
     // FIXME(nagisa): lets get rid of this field somehow? it seems to be utilized mostly for/in
     // tests.
     use_access_tracker: bool,
