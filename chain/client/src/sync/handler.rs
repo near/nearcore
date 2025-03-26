@@ -176,11 +176,7 @@ impl SyncHandler {
             apply_chunks_done_sender,
         );
         unwrap_and_report_state_sync_result!(reset_heads_result);
-        self.sync_status.update(SyncStatus::BlockSync {
-            start_height: 0,
-            current_height: 0,
-            highest_height: 0,
-        });
+        self.sync_status.update(SyncStatus::StateSyncDone);
 
         Some(SyncHandlerRequest::NeedProcessBlockArtifact(block_processing_artifacts))
     }
