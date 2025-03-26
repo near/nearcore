@@ -4852,6 +4852,7 @@ dependencies = [
  "near-time",
  "serde",
  "serde_json",
+ "tempfile",
 ]
 
 [[package]]

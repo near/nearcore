@@ -74,7 +74,7 @@ use rand::{Rng, thread_rng};
 use std::cmp::max;
 use std::collections::{HashMap, HashSet};
 use std::ops::DerefMut;
-use std::path::Path;
+use std::rc::Rc;
 use std::sync::{Arc, RwLock};
 
 use crate::utils::block_stats::BlockStats;
@@ -154,11 +154,14 @@ fn setup_with_real_epoch_manager(
     genesis_time: Utc,
     chunk_distribution_config: Option<ChunkDistributionNetworkConfig>,
 ) -> (
-    Addr<ClientActor>,
-    Addr<ViewClientActor>,
-    Addr<TxRequestHandlerActor>,
-    ShardsManagerAdapterForTest,
-    PartialWitnessSenderForNetwork,
+    (
+        Addr<ClientActor>,
+        Addr<ViewClientActor>,
+        Addr<TxRequestHandlerActor>,
+        ShardsManagerAdapterForTest,
+        PartialWitnessSenderForNetwork,
+    ),
+    tempfile::TempDir,
 ) {
     let store = create_test_store();
 
@@ -181,34 +184,37 @@ fn setup_with_real_epoch_manager(
 
     let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
 
+    let tempdir = tempfile::TempDir::new().unwrap();
+
     let runtime = NightshadeRuntime::test(
-        // It would be good to use tempdir here however with some tests it would be difficult to
-        // make sure that tempdir isn't cleaned up before the test finishes.
-        Path::new("testdir"),
+        tempdir.path(),
         store.clone(),
         &genesis.config,
         epoch_manager.clone(),
     );
 
-    setup(SetupOptions {
-        epoch_manager,
-        genesis_time,
-        transaction_validity_period,
-        epoch_length,
-        account_id,
-        skip_sync_wait,
-        min_block_prod_time,
-        max_block_prod_time,
-        num_validator_seats,
-        archive,
-        state_sync_enabled,
-        chunk_distribution_config,
-        clock,
-        runtime,
-        network_adapter,
-        store,
-        enable_doomslug,
-    })
+    (
+        setup(SetupOptions {
+            epoch_manager,
+            genesis_time,
+            transaction_validity_period,
+            epoch_length,
+            account_id,
+            skip_sync_wait,
+            min_block_prod_time,
+            max_block_prod_time,
+            num_validator_seats,
+            archive,
+            state_sync_enabled,
+            chunk_distribution_config,
+            clock,
+            runtime,
+            network_adapter,
+            store,
+            enable_doomslug,
+        }),
+        tempdir,
+    )
 }
 
 struct SetupOptions {
@@ -432,11 +438,14 @@ pub fn setup_mock_with_validity_period(
 ) -> ActorHandlesForTesting {
     let network_adapter = LateBoundSender::new();
     let (
-        client_addr,
-        view_client_addr,
-        tx_request_handler_addr,
-        shards_manager_adapter,
-        partial_witness_sender,
+        (
+            client_addr,
+            view_client_addr,
+            tx_request_handler_addr,
+            shards_manager_adapter,
+            partial_witness_sender,
+        ),
+        runtime_tempdir,
     ) = setup_with_real_epoch_manager(
         clock.clone(),
         validators,
@@ -467,6 +476,7 @@ pub fn setup_mock_with_validity_period(
         tx_processor_actor: tx_request_handler_addr,
         shards_manager_adapter,
         partial_witness_sender,
+        runtime_tempdir: Some(runtime_tempdir.into()),
     }
 }
 
@@ -477,6 +487,10 @@ pub struct ActorHandlesForTesting {
     pub tx_processor_actor: Addr<TxRequestHandlerActor>,
     pub shards_manager_adapter: ShardsManagerAdapterForTest,
     pub partial_witness_sender: PartialWitnessSenderForNetwork,
+    // If testing something with runtime that needs runtime home dir users should make sure that
+    // this TempDir isn't dropped before test finishes, but is dropped after to avoid leaking temp
+    // dirs.
+    pub runtime_tempdir: Option<Rc<tempfile::TempDir>>,
 }
 
 fn send_chunks<T, I, F>(
@@ -1091,6 +1105,7 @@ pub fn setup_mock_all_validators(
             tx_processor_actor: tx_processor_addr,
             shards_manager_adapter,
             partial_witness_sender,
+            runtime_tempdir: None,
         });
     }
     hash_to_height.write().unwrap().insert(CryptoHash::default(), 0);

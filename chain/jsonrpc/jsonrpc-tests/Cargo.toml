@@ -31,6 +31,7 @@ near-o11y.workspace = true
 near-network.workspace = true
 near-jsonrpc.workspace = true
 near-jsonrpc-primitives.workspace = true
+tempfile.workspace = true
 
 [dev-dependencies]
 near-actix-test-utils.workspace = true

@@ -414,7 +414,8 @@ fn test_status_fail() {
     init_test_logger();
 
     run_actix(async {
-        let (_, addr) = test_utils::start_all(Clock::real(), test_utils::NodeType::NonValidator);
+        let (_, addr, _runtime_temp_dir) =
+            test_utils::start_all(Clock::real(), test_utils::NodeType::NonValidator);
 
         let client = new_client(&format!("http://{}", addr));
         wait_or_timeout(100, 10000, || async {
@@ -451,7 +452,8 @@ fn test_health_fail_no_blocks() {
     init_test_logger();
 
     run_actix(async {
-        let (_, addr) = test_utils::start_all(Clock::real(), test_utils::NodeType::NonValidator);
+        let (_, addr, _runtime_temp_dir) =
+            test_utils::start_all(Clock::real(), test_utils::NodeType::NonValidator);
 
         let client = new_client(&format!("http://{}", addr));
         wait_or_timeout(300, 10000, || async {
