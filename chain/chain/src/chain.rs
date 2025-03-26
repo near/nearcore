@@ -2392,8 +2392,6 @@ impl Chain {
                 return Err(Error::InvalidSignature);
             }
             block.check_validity()?;
-            // TODO: enable after #3729 and #3863
-            // self.verify_orphan_header_approvals(&header)?;
             return Err(Error::Orphan);
         }
 
