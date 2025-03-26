@@ -6,7 +6,23 @@
     "runtime-params-estimator/emu-cost/counter_plugin/**.patch"
   ],
   "words": [
-    "wasitests"
+    "clippy",
+    "CODEGEN",
+    "cstring",
+    "nearcore",
+    "neard",
+    "popd",
+    "println",
+    "pushd",
+    "rustup",
+    "SQLI",
+    "subprojects",
+    "syscall",
+    "userland",
+    "venv",
+    "VMKIND",
+    "wasitests",
+    "wasmtime"
   ],
   "ignoreWords": [
     "anyfunc",
@@ -173,5 +189,7 @@
     "wptype",
     "xmms"
   ],
-  "import": []
+  "import": [
+    "../cspell.json"
+  ]
 }

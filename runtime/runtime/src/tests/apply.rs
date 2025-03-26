@@ -2845,7 +2845,7 @@ fn test_transaction_ordering_with_apply() {
     let bob_signer = InMemorySigner::test_signer(&bob_account());
     let alice_invalid_signer = InMemorySigner::from_seed(alice_account(), KeyType::ED25519, "seed");
 
-    // This transaction should be droped due to invalid signer.
+    // This transaction should be dropped due to invalid signer.
     let alice_invalid_tx = SignedTransaction::send_money(
         1,
         alice_account(),
