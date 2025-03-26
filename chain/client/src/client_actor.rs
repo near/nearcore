@@ -1722,7 +1722,6 @@ impl ClientActorInner {
             // needs access to the client.
             SyncHandlerRequest::NeedProcessBlockArtifact(block_processing_artifacts) => {
                 self.client.process_block_processing_artifact(block_processing_artifacts, signer);
-                self.client.sync_handler.sync_status.update(SyncStatus::StateSyncDone);
             }
         }
     }
