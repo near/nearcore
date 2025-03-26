@@ -1521,11 +1521,7 @@ impl Runtime {
         );
 
         // Step 5: validate and apply the state update.
-        self.validate_apply_state_update(
-            processing_state,
-            process_receipts_result,
-            receipt_sink,
-        )
+        self.validate_apply_state_update(processing_state, process_receipts_result, receipt_sink)
     }
 
     /// Processes a collection of transactions.
