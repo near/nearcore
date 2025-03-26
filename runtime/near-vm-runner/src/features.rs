@@ -1,3 +1,4 @@
+#[allow(dead_code)]
 mod opts {
     pub(super) const REFERENCE_TYPES: bool = false;
     pub(super) const MULTI_VALUE: bool = false;
