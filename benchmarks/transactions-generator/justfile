@@ -18,19 +18,24 @@ run-localnet loglevel="info":
     RUST_LOG={{loglevel}} \
     {{neard}} --home {{near_localnet_home}} run
 
-create-accounts num="10000":
+create-accounts num_accounts="10000":
+    #!/bin/bash
+    {{neard}} --home {{near_localnet_home}} run &
+    NEARD_PID=$!
+    sleep 5
     RUST_LOG=info \
     ../synth-bm/target/release/near-synth-bm create-sub-accounts \
         --rpc-url {{rpc_url}} \
         --signer-key-path {{near_localnet_home}}/validator_key.json \
         --nonce 1 \
         --sub-account-prefix 'a' \
-        --num-sub-accounts {{num}} \
+        --num-sub-accounts {{num_accounts}} \
         --deposit 953060601875000000010000 \
         --channel-buffer-size 1200 \
-        --requests-per-second 500  \
+        --requests-per-second 100  \
         --user-data-dir user-data
-
+    kill ${NEARD_PID}
+    
 enable-tx tps:
     jq '.tx_generator={"tps": {{tps}}, "volume": 0, "accounts_path": "{{near_accounts_path}}", "thread_count": 2}' {{near_config_file}} > tmp_config.json
     mv tmp_config.json {{near_config_file}}
@@ -39,17 +44,15 @@ unlimit:
     jq '.gas_limit=20000000000000000' {{near_genesis_file}} > tmp_genesis.json && mv tmp_genesis.json {{near_genesis_file}}
     jq '.view_client_threads=8 \
      | .store.load_mem_tries_for_tracked_shards=true \
-     | .produce_chunk_add_transactions_time_limit={"secs": 0, "nanos": 800000000} \
+     | .produce_chunk_add_transactions_time_limit={"secs": 0, "nanos": 500000000} \
      | .transaction_request_handler_threads = 4' {{near_config_file}} > tmp_config.json \
     && mv tmp_config.json {{near_config_file}}
 
-do-it tps:
+do-it tps="20000" timeout="2m":
+    #!/usr/bin/env bash
     just init-localnet
     just unlimit
-    killall neard || echo "all clear!"
-    nohup {{neard}} --home {{near_localnet_home}} run &
-    sleep 5
     just create-accounts
-    killall neard
     just enable-tx {{tps}}
-    just run-localnet
+    timeout {{timeout}} just run-localnet
+    [ $? -eq 124 ] && exit 0 || exit $?
