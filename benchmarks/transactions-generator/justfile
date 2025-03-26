@@ -49,7 +49,7 @@ unlimit:
     && mv tmp_config.json {{near_config_file}}
 
 do-it tps="20000" timeout="2m":
-    #!/bin/bash
+    #!/usr/bin/env bash
     just init-localnet
     just unlimit
     just create-accounts
