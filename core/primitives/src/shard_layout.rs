@@ -106,11 +106,6 @@ fn new_shards_split_map(shards_split_map: Vec<Vec<u64>>) -> ShardsSplitMap {
     shards_split_map.into_iter().map(new_shard_ids_vec).collect()
 }
 
-#[allow(dead_code)]
-fn new_shards_split_map_v2(shards_split_map: BTreeMap<u64, Vec<u64>>) -> ShardsSplitMapV2 {
-    shards_split_map.into_iter().map(|(k, v)| (k.into(), new_shard_ids_vec(v))).collect()
-}
-
 #[derive(
     BorshSerialize,
     BorshDeserialize,
@@ -1115,7 +1110,7 @@ mod tests {
     use rand::{Rng, SeedableRng};
     use std::collections::{BTreeMap, HashMap};
 
-    use super::{ShardVersion, ShardsSplitMap, new_shards_split_map_v2};
+    use super::{ShardVersion, ShardsSplitMap};
 
     // The old ShardLayoutV1, before fixed shards were removed. tests only
     #[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq, Eq)]
@@ -1310,7 +1305,8 @@ mod tests {
         // the mapping from parent to the child
         // shard 1 is split into shards 7 & 8 while other shards stay the same
         let shards_split_map = BTreeMap::from([(1, vec![7, 8]), (3, vec![3]), (4, vec![4])]);
-        let shards_split_map = new_shards_split_map_v2(shards_split_map);
+        let shards_split_map: BTreeMap<ShardId, Vec<ShardId>> =
+            shards_split_map.into_iter().map(|(k, v)| (k.into(), new_shard_ids_vec(v))).collect();
         let shards_split_map = Some(shards_split_map);
 
         ShardLayout::v2(boundary_accounts, shard_ids, shards_split_map)

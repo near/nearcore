@@ -1,4 +1,4 @@
-use crate::approval_verification::verify_approvals_and_threshold_orphan;
+use crate::Chain;
 use crate::block_processing_utils::BlockPreprocessInfo;
 use crate::chain::collect_receipts_from_response;
 use crate::metrics::{SHARD_LAYOUT_NUM_SHARDS, SHARD_LAYOUT_VERSION};
@@ -9,7 +9,6 @@ use crate::types::{
     RuntimeStorageConfig,
 };
 use crate::update_shard::{NewChunkResult, OldChunkResult, ShardUpdateResult};
-use crate::{Chain, Doomslug};
 use crate::{DoomslugThresholdMode, metrics};
 use near_chain_primitives::error::Error;
 use near_epoch_manager::EpochManagerAdapter;
@@ -37,6 +36,7 @@ pub struct ChainUpdate<'a> {
     epoch_manager: Arc<dyn EpochManagerAdapter>,
     runtime_adapter: Arc<dyn RuntimeAdapter>,
     chain_store_update: ChainStoreUpdate<'a>,
+    #[allow(dead_code)]
     doomslug_threshold_mode: DoomslugThresholdMode,
 }
 
@@ -326,37 +326,6 @@ impl<'a> ChainUpdate<'a> {
             header,
             self.epoch_manager.as_ref(),
             &mut self.chain_store_update,
-        )
-    }
-
-    #[allow(dead_code)]
-    fn verify_orphan_header_approvals(&mut self, header: &BlockHeader) -> Result<(), Error> {
-        let prev_hash = header.prev_hash();
-        let prev_height = match header.prev_height() {
-            None => {
-                // this will accept orphans of V1 and V2
-                // TODO: reject header V1 and V2 after a certain height
-                return Ok(());
-            }
-            Some(prev_height) => prev_height,
-        };
-        let height = header.height();
-        let epoch_id = header.epoch_id();
-        let approvals = header.approvals();
-        let epoch_info = self.epoch_manager.get_epoch_info(epoch_id)?;
-        verify_approvals_and_threshold_orphan(
-            &|approvals, stakes| {
-                Doomslug::can_approved_block_be_produced(
-                    self.doomslug_threshold_mode,
-                    approvals,
-                    stakes,
-                )
-            },
-            prev_hash,
-            prev_height,
-            height,
-            approvals,
-            epoch_info,
         )
     }
 
