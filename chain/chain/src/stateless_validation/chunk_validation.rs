@@ -8,10 +8,7 @@ use crate::resharding::manager::ReshardingManager;
 use crate::sharding::{get_receipts_shuffle_salt, shuffle_receipt_proofs};
 use crate::stateless_validation::processing_tracker::ProcessingDoneTracker;
 use crate::store::filter_incoming_receipts_for_shard;
-use crate::types::{
-    ApplyChunkBlockContext, ApplyChunkResult, PreparedTransactions, RuntimeAdapter,
-    RuntimeStorageConfig, StorageDataSource,
-};
+use crate::types::{ApplyChunkBlockContext, ApplyChunkResult, RuntimeAdapter, StorageDataSource};
 use crate::validate::validate_chunk_with_chunk_extra_and_receipts_root;
 use crate::{Chain, ChainStore, ChainStoreAccess};
 use lru::LruCache;
@@ -19,7 +16,6 @@ use near_async::futures::AsyncComputationSpawnerExt;
 use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
-use near_pool::TransactionGroupIteratorWrapper;
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::block::{Block, BlockHeader};
 use near_primitives::hash::{CryptoHash, hash};
@@ -30,7 +26,6 @@ use near_primitives::sharding::{ChunkHash, ReceiptProof, ShardChunkHeader};
 use near_primitives::stateless_validation::state_witness::{
     ChunkStateWitness, EncodedChunkStateWitness,
 };
-use near_primitives::transaction::ValidatedTransaction;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{AccountId, ProtocolVersion, ShardId, ShardIndex};
 use near_primitives::utils::compression::CompressedData;
@@ -84,29 +79,6 @@ pub type MainStateTransitionCache =
 /// The number of state witness validation results to cache per shard.
 /// This number needs to be small because result contains outgoing receipts, which can be large.
 const NUM_WITNESS_RESULT_CACHE_ENTRIES: usize = 20;
-
-/// Checks that proposed `transactions` are valid for a chunk with `chunk_header`.
-/// Uses `storage_config` to possibly record reads or use recorded storage.
-pub fn validate_prepared_transactions(
-    chain: &Chain,
-    runtime_adapter: &dyn RuntimeAdapter,
-    chunk_header: &ShardChunkHeader,
-    storage_config: RuntimeStorageConfig,
-    validated_txs: impl IntoIterator<Item = ValidatedTransaction>,
-) -> Result<PreparedTransactions, Error> {
-    let parent_block = chain.chain_store().get_block(chunk_header.prev_block_hash())?;
-    runtime_adapter.prepare_transactions(
-        storage_config,
-        crate::types::PrepareTransactionsChunkContext {
-            shard_id: chunk_header.shard_id(),
-            gas_limit: chunk_header.gas_limit(),
-        },
-        (&parent_block).into(),
-        &mut TransactionGroupIteratorWrapper::new(validated_txs),
-        &mut chain.transaction_validity_check(parent_block.header().clone()),
-        None,
-    )
-}
 
 /// Parameters of implicit state transition, which is not resulted by
 /// application of new chunk.
