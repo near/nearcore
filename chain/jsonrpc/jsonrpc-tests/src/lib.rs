@@ -1,4 +1,4 @@
-use std::{rc::Rc, sync::Arc};
+use std::sync::Arc;
 
 use actix::Addr;
 use futures::{FutureExt, TryFutureExt, future, future::LocalBoxFuture};
@@ -32,7 +32,7 @@ pub enum NodeType {
 pub fn start_all(
     clock: Clock,
     node_type: NodeType,
-) -> (Addr<ViewClientActor>, tcp::ListenerAddr, Rc<tempfile::TempDir>) {
+) -> (Addr<ViewClientActor>, tcp::ListenerAddr, Arc<tempfile::TempDir>) {
     start_all_with_validity_period(clock, node_type, 100, false)
 }
 
@@ -41,7 +41,7 @@ pub fn start_all_with_validity_period(
     node_type: NodeType,
     transaction_validity_period: NumBlocks,
     enable_doomslug: bool,
-) -> (Addr<ViewClientActor>, tcp::ListenerAddr, Rc<tempfile::TempDir>) {
+) -> (Addr<ViewClientActor>, tcp::ListenerAddr, Arc<tempfile::TempDir>) {
     let actor_handles = setup_no_network_with_validity_period(
         clock,
         vec!["test1".parse().unwrap()],
