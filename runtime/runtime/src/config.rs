@@ -60,14 +60,6 @@ pub fn safe_add_compute(a: Compute, b: Compute) -> Result<Compute, IntegerOverfl
     a.checked_add(b).ok_or(IntegerOverflowError {})
 }
 
-#[macro_export]
-macro_rules! safe_add_balance_apply {
-    ($x: expr) => {$x};
-    ($x: expr, $($rest: expr),+) => {
-        safe_add_balance($x, safe_add_balance_apply!($($rest),+))?
-    }
-}
-
 /// Total sum of gas that needs to be burnt to send these actions.
 pub fn total_send_fees(
     config: &RuntimeConfig,

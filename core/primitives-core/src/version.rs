@@ -212,7 +212,7 @@ pub enum ProtocolFeature {
     )]
     _DeprecatedRelaxedChunkValidation,
     /// This enables us to remove the expensive check_balance call from the runtime.
-    RemoveCheckBalance,
+    _DeprecatedRemoveCheckBalance,
     /// Exclude existing contract code in deploy-contract and delete-account actions from the chunk state witness.
     /// Instead of sending code in the witness, the code checks the code-size using the internal trie nodes.
     ExcludeExistingCodeFromWitnessForCodeLen,
@@ -298,7 +298,7 @@ impl ProtocolFeature {
             | ProtocolFeature::RejectBlocksWithOutdatedProtocolVersions
             | ProtocolFeature::FixChunkProducerStakingThreshold
             | ProtocolFeature::_DeprecatedRelaxedChunkValidation
-            | ProtocolFeature::RemoveCheckBalance
+            | ProtocolFeature::_DeprecatedRemoveCheckBalance
             // BandwidthScheduler and CurrentEpochStateSync must be enabled
             // before ReshardingV3! When releasing this feature please make sure
             // to schedule separate protocol upgrades for these features.
