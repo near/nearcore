@@ -29,7 +29,10 @@ pub enum NodeType {
     NonValidator,
 }
 
-pub fn start_all(clock: Clock, node_type: NodeType) -> (Addr<ViewClientActor>, tcp::ListenerAddr) {
+pub fn start_all(
+    clock: Clock,
+    node_type: NodeType,
+) -> (Addr<ViewClientActor>, tcp::ListenerAddr, Arc<tempfile::TempDir>) {
     start_all_with_validity_period(clock, node_type, 100, false)
 }
 
@@ -38,7 +41,7 @@ pub fn start_all_with_validity_period(
     node_type: NodeType,
     transaction_validity_period: NumBlocks,
     enable_doomslug: bool,
-) -> (Addr<ViewClientActor>, tcp::ListenerAddr) {
+) -> (Addr<ViewClientActor>, tcp::ListenerAddr, Arc<tempfile::TempDir>) {
     let actor_handles = setup_no_network_with_validity_period(
         clock,
         vec!["test1".parse().unwrap()],
@@ -64,7 +67,8 @@ pub fn start_all_with_validity_period(
         noop().into_multi_sender(),
         Arc::new(DummyEntityDebugHandler {}),
     );
-    (actor_handles.view_client_actor, addr)
+    // setup_no_network_with_validity_period should use runtime_tempdir together with real runtime.
+    (actor_handles.view_client_actor, addr, actor_handles.runtime_tempdir.unwrap())
 }
 
 #[macro_export]
@@ -73,12 +77,14 @@ macro_rules! test_with_client {
         init_test_logger();
 
         near_actix_test_utils::run_actix(async {
-            let (_view_client_addr, addr) =
+            let (_view_client_addr, addr, _runtime_tempdir) =
                 test_utils::start_all(near_time::Clock::real(), $node_type);
 
             let $client = new_client(&format!("http://{}", addr));
 
             actix::spawn(async move {
+                // If runtime tempdir is dropped some parts of the runtime would stop working.
+                let _runtime_tempdir = _runtime_tempdir;
                 $block.await;
                 System::current().stop();
             });

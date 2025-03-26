@@ -4,19 +4,23 @@ use std::str::FromStr;
 use actix::System;
 use awc::http::StatusCode;
 use futures::{FutureExt, future};
+use near_chain_configs::test_utils::TESTING_INIT_BALANCE;
+use near_primitives::transaction::SignedTransaction;
 use serde_json::json;
 
 use near_actix_test_utils::run_actix;
-use near_crypto::{KeyType, PublicKey, Signature};
-use near_jsonrpc::client::{ChunkId, new_client};
+use near_crypto::{InMemorySigner, Signature};
+use near_jsonrpc::client::{ChunkId, JsonRpcClient, new_client};
 use near_jsonrpc_primitives::types::query::QueryResponseKind;
 use near_jsonrpc_primitives::types::validator::RpcValidatorsOrderedRequest;
 use near_network::test_utils::wait_or_timeout;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::account::{AccessKey, AccessKeyPermission};
 use near_primitives::hash::CryptoHash;
-use near_primitives::types::{BlockId, BlockReference, EpochId, ShardId, SyncCheckpoint};
-use near_primitives::views::QueryRequest;
+use near_primitives::types::{
+    AccountId, BlockId, BlockReference, EpochId, ShardId, SyncCheckpoint,
+};
+use near_primitives::views::{FinalExecutionStatus, QueryRequest};
 use near_time::Clock;
 
 use near_jsonrpc_tests::{self as test_utils, test_with_client};
@@ -33,7 +37,7 @@ fn test_block_by_id_height() {
         assert_eq!(block.header.prev_hash.0.as_ref(), &[0; 32]);
         assert_eq!(
             block.header.prev_state_root,
-            CryptoHash::from_str("7tkzFg8RHBmMw1ncRJZCCZAizgq4rwCftTKYLce8RU8t").unwrap()
+            CryptoHash::from_str("CfKJ4CZqCCtLAESUk1RnWSrXvwenMVooWYrvoMsDrCAH").unwrap()
         );
         assert!(block.header.timestamp > 0);
         assert_eq!(block.header.validator_proposals.len(), 0);
@@ -78,7 +82,7 @@ fn test_block_query() {
             assert_eq!(block.header.prev_hash.as_ref(), &[0; 32]);
             assert_eq!(
                 block.header.prev_state_root,
-                CryptoHash::from_str("7tkzFg8RHBmMw1ncRJZCCZAizgq4rwCftTKYLce8RU8t").unwrap()
+                CryptoHash::from_str("CfKJ4CZqCCtLAESUk1RnWSrXvwenMVooWYrvoMsDrCAH").unwrap()
             );
             assert!(block.header.timestamp > 0);
             assert_eq!(block.header.validator_proposals.len(), 0);
@@ -146,11 +150,10 @@ fn test_query_by_path_account() {
         } else {
             panic!("queried account, but received something else: {:?}", query_response.kind);
         };
-        assert_eq!(account_info.amount, 0);
+        assert_eq!(account_info.amount, TESTING_INIT_BALANCE);
         assert_eq!(account_info.code_hash, CryptoHash::default());
         assert_eq!(account_info.locked, 0);
         assert_eq!(account_info.storage_paid_at, 0);
-        assert_eq!(account_info.storage_usage, 0);
         assert_eq!(account_info.global_contract_hash, None);
         assert_eq!(account_info.global_contract_account_id, None);
     });
@@ -193,11 +196,10 @@ fn test_query_account() {
             } else {
                 panic!("queried account, but received something else: {:?}", query_response.kind);
             };
-            assert_eq!(account_info.amount, 0);
+            assert_eq!(account_info.amount, TESTING_INIT_BALANCE);
             assert_eq!(account_info.code_hash, CryptoHash::default());
             assert_eq!(account_info.locked, 0);
             assert_eq!(account_info.storage_paid_at, 0);
-            assert_eq!(account_info.storage_usage, 0);
             assert_eq!(account_info.global_contract_hash, None);
             assert_eq!(account_info.global_contract_account_id, None);
         }
@@ -208,6 +210,8 @@ fn test_query_account() {
 #[test]
 fn test_query_by_path_access_keys() {
     test_with_client!(test_utils::NodeType::NonValidator, client, async move {
+        let account = "test".parse().unwrap();
+        let signer = InMemorySigner::test_signer(&account);
         let query_response =
             client.query_by_path("access_key/test".to_string(), "".to_string()).await.unwrap();
         assert_eq!(query_response.block_height, 0);
@@ -219,7 +223,7 @@ fn test_query_by_path_access_keys() {
         };
         assert_eq!(access_keys.keys.len(), 1);
         assert_eq!(access_keys.keys[0].access_key, AccessKey::full_access().into());
-        assert_eq!(access_keys.keys[0].public_key, PublicKey::empty(KeyType::ED25519));
+        assert_eq!(access_keys.keys[0].public_key, signer.public_key());
     });
 }
 
@@ -241,9 +245,10 @@ fn test_query_access_keys() {
         } else {
             panic!("queried access keys, but received something else: {:?}", query_response.kind);
         };
+        let signer = InMemorySigner::test_signer(&"test".parse().unwrap());
         assert_eq!(access_keys.keys.len(), 1);
         assert_eq!(access_keys.keys[0].access_key, AccessKey::full_access().into());
-        assert_eq!(access_keys.keys[0].public_key, PublicKey::empty(KeyType::ED25519));
+        assert_eq!(access_keys.keys[0].public_key, signer.public_key());
     });
 }
 
@@ -251,11 +256,10 @@ fn test_query_access_keys() {
 #[test]
 fn test_query_by_path_access_key() {
     test_with_client!(test_utils::NodeType::NonValidator, client, async move {
+        let account = "test".parse().unwrap();
+        let signer = InMemorySigner::test_signer(&account);
         let query_response = client
-            .query_by_path(
-                "access_key/test/ed25519:23vYngy8iL7q94jby3gszBnZ9JptpMf5Hgf7KVVa2yQ2".to_string(),
-                "".to_string(),
-            )
+            .query_by_path(format!("access_key/test/{}", signer.public_key()), "".to_string())
             .await
             .unwrap();
         assert_eq!(query_response.block_height, 0);
@@ -273,14 +277,14 @@ fn test_query_by_path_access_key() {
 #[test]
 fn test_query_access_key() {
     test_with_client!(test_utils::NodeType::NonValidator, client, async move {
+        let account = "test".parse().unwrap();
+        let signer = InMemorySigner::test_signer(&account);
         let query_response = client
             .query(near_jsonrpc_primitives::types::query::RpcQueryRequest {
                 block_reference: BlockReference::latest(),
                 request: QueryRequest::ViewAccessKey {
-                    account_id: "test".parse().unwrap(),
-                    public_key: "ed25519:23vYngy8iL7q94jby3gszBnZ9JptpMf5Hgf7KVVa2yQ2"
-                        .parse()
-                        .unwrap(),
+                    account_id: account.clone(),
+                    public_key: signer.public_key(),
                 },
             })
             .await
@@ -324,19 +328,22 @@ fn test_query_state() {
 /// Connect to json rpc and call function
 #[test]
 fn test_query_call_function() {
-    test_with_client!(test_utils::NodeType::NonValidator, client, async move {
+    test_with_client!(test_utils::NodeType::Validator, client, async move {
+        let account = "test".parse().unwrap();
+        let code = near_test_contracts::rs_contract().to_vec();
+        deploy_contract(&client, &account, code.clone()).await;
+
         let query_response = client
             .query(near_jsonrpc_primitives::types::query::RpcQueryRequest {
                 block_reference: BlockReference::latest(),
                 request: QueryRequest::CallFunction {
                     account_id: "test".parse().unwrap(),
-                    method_name: "method".to_string(),
+                    method_name: "run_test".to_string(),
                     args: vec![].into(),
                 },
             })
             .await
             .unwrap();
-        assert_eq!(query_response.block_height, 0);
         let call_result = if let QueryResponseKind::CallResult(call_result) = query_response.kind {
             call_result
         } else {
@@ -345,7 +352,7 @@ fn test_query_call_function() {
                 query_response.kind
             );
         };
-        assert_eq!(call_result.result.len(), 0);
+        assert_eq!(call_result.result, 10i32.to_le_bytes());
         assert_eq!(call_result.logs.len(), 0);
     });
 }
@@ -353,23 +360,39 @@ fn test_query_call_function() {
 /// query contract code
 #[test]
 fn test_query_contract_code() {
-    test_with_client!(test_utils::NodeType::NonValidator, client, async move {
+    test_with_client!(test_utils::NodeType::Validator, client, async move {
+        let account = "test".parse().unwrap();
+        let code = near_test_contracts::rs_contract().to_vec();
+        deploy_contract(&client, &account, code.clone()).await;
+
         let query_response = client
             .query(near_jsonrpc_primitives::types::query::RpcQueryRequest {
                 block_reference: BlockReference::latest(),
-                request: QueryRequest::ViewCode { account_id: "test".parse().unwrap() },
+                request: QueryRequest::ViewCode { account_id: account.clone() },
             })
             .await
             .unwrap();
-        assert_eq!(query_response.block_height, 0);
-        let code = if let QueryResponseKind::ViewCode(code) = query_response.kind {
+        let response_code = if let QueryResponseKind::ViewCode(code) = query_response.kind {
             code
         } else {
             panic!("queried code, but received something else: {:?}", query_response.kind);
         };
-        assert_eq!(code.code, Vec::<u8>::new());
-        assert_eq!(code.hash.to_string(), "11111111111111111111111111111111");
+        assert_eq!(response_code.code, code);
+        assert_eq!(response_code.hash, CryptoHash::hash_bytes(&code));
     });
+}
+
+async fn deploy_contract(client: &JsonRpcClient, account: &AccountId, code: Vec<u8>) {
+    let block_hash = client.block(BlockReference::latest()).await.unwrap().header.hash;
+    let signer = InMemorySigner::test_signer(&account);
+    let tx = SignedTransaction::deploy_contract(1, &account, code, &signer, block_hash);
+    let bytes = borsh::to_vec(&tx).unwrap();
+    let result =
+        client.broadcast_tx_commit(near_primitives::serialize::to_base64(&bytes)).await.unwrap();
+    assert_eq!(
+        result.final_execution_outcome.unwrap().into_outcome().status,
+        FinalExecutionStatus::SuccessValue(Vec::new())
+    );
 }
 
 /// Retrieve client status via JSON RPC.
@@ -391,7 +414,8 @@ fn test_status_fail() {
     init_test_logger();
 
     run_actix(async {
-        let (_, addr) = test_utils::start_all(Clock::real(), test_utils::NodeType::NonValidator);
+        let (_, addr, _runtime_temp_dir) =
+            test_utils::start_all(Clock::real(), test_utils::NodeType::NonValidator);
 
         let client = new_client(&format!("http://{}", addr));
         wait_or_timeout(100, 10000, || async {
@@ -428,7 +452,8 @@ fn test_health_fail_no_blocks() {
     init_test_logger();
 
     run_actix(async {
-        let (_, addr) = test_utils::start_all(Clock::real(), test_utils::NodeType::NonValidator);
+        let (_, addr, _runtime_temp_dir) =
+            test_utils::start_all(Clock::real(), test_utils::NodeType::NonValidator);
 
         let client = new_client(&format!("http://{}", addr));
         wait_or_timeout(300, 10000, || async {
