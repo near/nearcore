@@ -72,7 +72,6 @@ impl TestBuilder {
         self.code.code()
     }
 
-
     pub(crate) fn method(mut self, method: &str) -> Self {
         self.method = method.to_string();
         self
