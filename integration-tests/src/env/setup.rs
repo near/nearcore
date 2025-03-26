@@ -74,7 +74,6 @@ use rand::{Rng, thread_rng};
 use std::cmp::max;
 use std::collections::{HashMap, HashSet};
 use std::ops::DerefMut;
-use std::rc::Rc;
 use std::sync::{Arc, RwLock};
 
 use crate::utils::block_stats::BlockStats;
@@ -490,7 +489,7 @@ pub struct ActorHandlesForTesting {
     // If testing something with runtime that needs runtime home dir users should make sure that
     // this TempDir isn't dropped before test finishes, but is dropped after to avoid leaking temp
     // dirs.
-    pub runtime_tempdir: Option<Rc<tempfile::TempDir>>,
+    pub runtime_tempdir: Option<Arc<tempfile::TempDir>>,
 }
 
 fn send_chunks<T, I, F>(
