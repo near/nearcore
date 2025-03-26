@@ -205,9 +205,14 @@ pub enum ProtocolFeature {
     ///
     /// Chunks no longer become entirely invalid in case invalid transactions are included in the
     /// chunk. Instead the transactions are discarded during their conversion to receipts.
-    RelaxedChunkValidation,
+    ///
+    /// support for code that does not do relaxed chunk validation has now been removed.
+    #[deprecated(
+        note = "Was used for protocol versions without relaxed chunk validation which is not supported anymore."
+    )]
+    _DeprecatedRelaxedChunkValidation,
     /// This enables us to remove the expensive check_balance call from the runtime.
-    RemoveCheckBalance,
+    _DeprecatedRemoveCheckBalance,
     /// Exclude existing contract code in deploy-contract and delete-account actions from the chunk state witness.
     /// Instead of sending code in the witness, the code checks the code-size using the internal trie nodes.
     ExcludeExistingCodeFromWitnessForCodeLen,
@@ -219,6 +224,11 @@ pub enum ProtocolFeature {
 }
 
 impl ProtocolFeature {
+    // The constructor must initialize all fields of the struct but some fields
+    // are deprecated.  So unfortunately, we need this attribute here.  A better
+    // fix is being discussed on
+    // https://github.com/rust-lang/rust/issues/102777.
+    #[allow(deprecated)]
     pub const fn protocol_version(self) -> ProtocolVersion {
         match self {
             // Stable features
@@ -287,8 +297,8 @@ impl ProtocolFeature {
             ProtocolFeature::FixStakingThreshold
             | ProtocolFeature::RejectBlocksWithOutdatedProtocolVersions
             | ProtocolFeature::FixChunkProducerStakingThreshold
-            | ProtocolFeature::RelaxedChunkValidation
-            | ProtocolFeature::RemoveCheckBalance
+            | ProtocolFeature::_DeprecatedRelaxedChunkValidation
+            | ProtocolFeature::_DeprecatedRemoveCheckBalance
             // BandwidthScheduler and CurrentEpochStateSync must be enabled
             // before ReshardingV3! When releasing this feature please make sure
             // to schedule separate protocol upgrades for these features.
@@ -319,7 +329,7 @@ impl ProtocolFeature {
 pub const PROD_GENESIS_PROTOCOL_VERSION: ProtocolVersion = 29;
 
 /// Minimum supported protocol version for the current binary
-pub const MIN_SUPPORTED_PROTOCOL_VERSION: ProtocolVersion = 48;
+pub const MIN_SUPPORTED_PROTOCOL_VERSION: ProtocolVersion = 75;
 
 /// Current protocol version used on the mainnet with all stable features.
 const STABLE_PROTOCOL_VERSION: ProtocolVersion = 77;

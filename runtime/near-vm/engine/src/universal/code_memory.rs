@@ -31,7 +31,7 @@ impl<'a> CodeMemoryWriter<'a> {
     /// Write the contents from the provided buffer into the location of `self.memory` aligned to
     /// provided `alignment`.
     ///
-    /// The `alignment` actually used may be greater than the spepcified value. This is relevant,
+    /// The `alignment` actually used may be greater than the specified value. This is relevant,
     /// for example, when calling this function after a sequence of [`Self::write_executable`]
     /// calls.
     ///

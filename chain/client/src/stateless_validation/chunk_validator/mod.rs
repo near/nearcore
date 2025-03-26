@@ -91,7 +91,6 @@ impl ChunkValidator {
             &state_witness,
             chain,
             self.epoch_manager.as_ref(),
-            self.runtime_adapter.as_ref(),
         )?;
 
         let chunk_header = state_witness.chunk_header.clone();

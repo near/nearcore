@@ -24,13 +24,13 @@ pub trait Instantiatable: Artifact {
     ) -> Result<InstanceHandle, Self::Error>;
 }
 
-/// A predecesor of a full module Instance.
+/// A predecessor of a full module Instance.
 ///
 /// This type represents parts of a compiled WASM module ([`Executable`](crate::Executable)) that
 /// are pre-allocated in within some Engine's store.
 ///
 /// Some other operations such as linking, relocating and similar may also be performed during
-/// constructon of the Artifact, making this type particularly well suited for caching in-memory.
+/// construction of the Artifact, making this type particularly well suited for caching in-memory.
 pub trait Artifact: Send + Sync {
     /// The information about offsets into the VM context table.
     fn offsets(&self) -> &crate::VMOffsets;

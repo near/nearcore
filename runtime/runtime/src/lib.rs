@@ -1,7 +1,6 @@
 // cspell:ignore contractregistry
 
 use crate::actions::*;
-use crate::balance_checker::check_balance;
 use crate::config::{
     exec_fee, safe_add_balance, safe_add_compute, safe_add_gas, safe_gas_to_balance, total_deposit,
     total_prepaid_exec_fees, total_prepaid_gas,
@@ -37,8 +36,8 @@ use near_primitives::errors::{
 };
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{
-    ActionReceipt, DataReceipt, DelayedReceiptIndices, PromiseYieldIndices, PromiseYieldTimeout,
-    Receipt, ReceiptEnum, ReceiptOrStateStoredReceipt, ReceiptV0, ReceivedData,
+    ActionReceipt, DataReceipt, PromiseYieldIndices, PromiseYieldTimeout, Receipt, ReceiptEnum,
+    ReceiptOrStateStoredReceipt, ReceiptV0, ReceivedData,
 };
 use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
@@ -86,7 +85,6 @@ use verifier::ValidateReceiptMode;
 
 mod actions;
 pub mod adapter;
-mod balance_checker;
 mod bandwidth_scheduler;
 pub mod config;
 mod congestion_control;
@@ -319,7 +317,7 @@ impl Runtime {
                         Ok(validated_tx) => {
                             match tx_cost(
                                 config,
-                                &validated_tx,
+                                &validated_tx.to_tx(),
                                 gas_price,
                                 current_protocol_version,
                             ) {
@@ -1537,7 +1535,6 @@ impl Runtime {
         self.validate_apply_state_update(
             processing_state,
             process_receipts_result,
-            validator_accounts_update,
             receipt_sink,
             state_patch,
         )
@@ -1576,28 +1573,6 @@ impl Runtime {
         state_update.commit(StateChangeCause::Migration);
     }
 
-    /// Helper function that checks `RelaxedChunkValidation`. If it is enabled, we log a debug
-    /// message and return `Ok(())` to skip the transaction. Otherwise, we return `Err(e.into())`.
-    fn handle_invalid_transaction<E: std::fmt::Debug + Clone + Into<RuntimeError>>(
-        e: E,
-        tx_hash: &CryptoHash,
-        protocol_version: ProtocolVersion,
-        reason: &str,
-    ) -> Result<(), RuntimeError> {
-        if ProtocolFeature::RelaxedChunkValidation.enabled(protocol_version) {
-            tracing::debug!(
-                target: "runtime",
-                "invalid transaction ignored ({}) => tx_hash: {}, error: {:?}",
-                reason,
-                tx_hash,
-                e
-            );
-            Ok(())
-        } else {
-            Err(e.into())
-        }
-    }
-
     /// Processes a collection of transactions.
     ///
     /// Fills the `processing_state` with local receipts generated during processing of the
@@ -1633,12 +1608,12 @@ impl Runtime {
                     ) {
                         Ok(outcome) => outcome,
                         Err(err) => {
-                            Self::handle_invalid_transaction(
-                                err,
-                                &tx_hash,
-                                processing_state.protocol_version,
-                                "process_transaction error",
-                            )?;
+                            tracing::debug!(
+                                target: "runtime",
+                                ?tx_hash,
+                                ?err,
+                                "invalid transaction ignored (process_transaction error)",
+                            );
                             continue;
                         }
                     };
@@ -1662,12 +1637,12 @@ impl Runtime {
                     processing_state.outcomes.push(outcome_with_id);
                 }
                 Err(err) => {
-                    Self::handle_invalid_transaction(
-                        err,
-                        &tx_hash,
-                        processing_state.protocol_version,
-                        "parallel validation error",
-                    )?;
+                    tracing::debug!(
+                        target: "runtime",
+                        ?tx_hash,
+                        ?err,
+                        "invalid transaction ignored (parallel validation error)",
+                    );
                 }
             }
         }
@@ -2080,7 +2055,6 @@ impl Runtime {
         &self,
         processing_state: ApplyProcessingReceiptState<'a>,
         process_receipts_result: ProcessReceiptsResult,
-        validator_accounts_update: &Option<ValidatorAccountsUpdate>,
         receipt_sink: ReceiptSink,
         state_patch: SandboxStatePatch,
     ) -> Result<ApplyResult, RuntimeError> {
@@ -2140,20 +2114,6 @@ impl Runtime {
             true,
             &mut stats,
         )?;
-
-        if !ProtocolFeature::RemoveCheckBalance.enabled(protocol_version) {
-            check_balance(
-                &apply_state.config,
-                &state_update,
-                validator_accounts_update,
-                processing_state.incoming_receipts,
-                &processed_delayed_receipts,
-                &promise_yield_result.timeout_receipts,
-                processing_state.transactions,
-                &receipt_sink.outgoing_receipts(),
-                &stats.balance,
-            )?;
-        }
 
         state_update.commit(StateChangeCause::UpdatedDelayedReceipts);
         self.apply_state_patch(&mut state_update, state_patch);
@@ -2437,7 +2397,6 @@ fn resolve_promise_yield_timeouts(
         total.compute,
     );
     Ok(ResolvePromiseYieldTimeoutsResult {
-        timeout_receipts,
         initial_promise_yield_indices,
         promise_yield_indices,
         processed_yield_timeouts,
@@ -2472,7 +2431,6 @@ struct ProcessReceiptsResult {
 }
 
 struct ResolvePromiseYieldTimeoutsResult {
-    timeout_receipts: Vec<Receipt>,
     initial_promise_yield_indices: PromiseYieldIndices,
     promise_yield_indices: PromiseYieldIndices,
     processed_yield_timeouts: Vec<PromiseYieldTimeout>,
