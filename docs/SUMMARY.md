@@ -31,7 +31,7 @@
   - [Parameter Definitions](./architecture/gas/parameter_definition.md)
   - [Gas Profile](./architecture/gas/gas_profile.md)
   - [Runtime Parameter Estimator](./architecture/gas/estimator.md)
-i
+
 # Practices
 
 - [Overview](./practices/README.md)
