@@ -168,6 +168,8 @@ fn bootstrap_node_via_epoch_sync(mut env: TestLoopEnv, source_node: usize) -> Te
             "HeaderSync",
             // State sync downloads the state from state dumps.
             "StateSync",
+            // State sync is done.
+            "StateSyncDone",
             // Block sync picks up from where StateSync left off, and finishes the sync.
             "BlockSync",
             // NoSync means we're up to date.
