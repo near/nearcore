@@ -55,6 +55,9 @@ pub struct CreateContractsArgs {
 
     #[arg(long, default_value = "1")]
     pub nonce: u64,
+
+    #[arg(long, use_value_delimiter = true)]
+    pub sub_account_prefixes: Option<Vec<String>>,
 }
 
 #[derive(Args, Debug)]
@@ -158,13 +161,7 @@ pub async fn create_contracts(args: &CreateContractsArgs) -> anyhow::Result<()> 
         rpc_url: args.rpc_url.clone(),
         num_sub_accounts: args.num_oracles,
         deposit: args.oracle_deposit,
-        sub_account_prefixes: Some(
-            // ["test0", "test1", "test2", "test3", "test4", "test5"]
-            //     .into_iter()
-            //     .map(|s| s.to_string())
-            //     .collect(),
-            ["2", "c", "h", "m", "x"].into_iter().map(|s| s.to_string()).collect(),
-        ),
+        sub_account_prefixes: args.sub_account_prefixes.clone(),
         user_data_dir: args.user_data_dir.clone(),
         channel_buffer_size: 1000,
         requests_per_second: 10,
