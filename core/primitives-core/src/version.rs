@@ -9,48 +9,69 @@ use crate::types::ProtocolVersion;
 ///
 #[derive(Hash, PartialEq, Eq, Clone, Copy, Debug)]
 pub enum ProtocolFeature {
-    // stable features
+    #[deprecated]
     _DeprecatedImplicitAccountCreation,
+    #[deprecated]
     _DeprecatedRectifyInflation,
     /// Add `AccessKey` nonce range by setting nonce to `(block_height - 1) * 1e6`, see
     /// <https://github.com/near/nearcore/issues/3779>.
+    #[deprecated]
     _DeprecatedAccessKeyNonceRange,
     /// Don't process any receipts for shard when chunk is not present.
     /// Always use gas price computed in the previous block.
+    #[deprecated]
     _DeprecatedFixApplyChunks,
+    #[deprecated]
     _DeprecatedLowerStorageCost,
+    #[deprecated]
     _DeprecatedDeleteActionRestriction,
     /// Add versions to `Account` data structure
+    #[deprecated]
     _DeprecatedAccountVersions,
+    #[deprecated]
     _DeprecatedTransactionSizeLimit,
     /// Fix a bug in `storage_usage` for account caused by #3824
+    #[deprecated]
     _DeprecatedFixStorageUsage,
     /// Cap maximum gas price to 2,000,000,000 yoctoNEAR
+    #[deprecated]
     _DeprecatedCapMaxGasPrice,
+    #[deprecated]
     _DeprecatedCountRefundReceiptsInGasLimit,
     /// Add `ripemd60` and `ecrecover` host function
+    #[deprecated]
     _DeprecatedMathExtension,
     /// Restore receipts that were previously stuck because of
     /// <https://github.com/near/nearcore/pull/4228>.
+    #[deprecated]
     _DeprecatedRestoreReceiptsAfterFixApplyChunks,
     /// Minimum protocol version for NEP-92
+    #[deprecated]
     _DeprecatedMinProtocolVersionNep92,
     /// Minimum protocol version for NEP-92 fix
+    #[deprecated]
     _DeprecatedMinProtocolVersionNep92Fix,
     /// Creates a unique random seed to be provided to `VMContext` from a given `action_hash` and a given `random_seed`
+    #[deprecated]
     _DeprecatedCorrectRandomValue,
     /// The protocol version that enables reward on mainnet
+    #[deprecated]
     _DeprecatedEnableInflation,
     /// Fix upgrade to use the latest voted protocol version instead of the current epoch protocol
     /// version when there is no new change in protocol version
+    #[deprecated]
     _DeprecatedUpgradabilityFix,
     /// Updates the way receipt ID, data ID and random seeds are constructed
+    #[deprecated]
     _DeprecatedCreateHash,
     /// Fix the storage usage of the delete key action
+    #[deprecated]
     _DeprecatedDeleteKeyStorageUsage,
     /// Upgrade for shard chunk header
+    #[deprecated]
     _DeprecatedShardChunkHeaderUpgrade,
     /// Updates the way receipt ID is constructed to use current block hash instead of last block hash
+    #[deprecated]
     _DeprecatedCreateReceiptIdSwitchToCurrentBlock,
     /// Pessimistic gas price estimation uses a fixed value of `minimum_new_receipt_gas` to stop being
     /// tied to the function call base cost
@@ -211,7 +232,13 @@ pub enum ProtocolFeature {
         note = "Was used for protocol versions without relaxed chunk validation which is not supported anymore."
     )]
     _DeprecatedRelaxedChunkValidation,
-    /// This enables us to remove the expensive check_balance call from the runtime.
+    /// This enables us to remove the expensive check_balance call from the
+    /// runtime.
+    ///
+    /// Support for code that does check balances has now been removed.
+    #[deprecated(
+        note = "Was used for protocol versions where we checked balances which is not supported anymore."
+    )]
     _DeprecatedRemoveCheckBalance,
     /// Exclude existing contract code in deploy-contract and delete-account actions from the chunk state witness.
     /// Instead of sending code in the witness, the code checks the code-size using the internal trie nodes.
