@@ -45,8 +45,6 @@ struct StakeFirstShardAssignmentItem {
     shard_index: ShardIndex,
 }
 
-type StakeFirstShardAssignment = MinHeap<StakeFirstShardAssignmentItem>;
-
 impl From<ValidatorsFirstShardAssignmentItem> for StakeFirstShardAssignmentItem {
     fn from(v: ValidatorsFirstShardAssignmentItem) -> Self {
         Self { validators: v.validators, stake: v.stake, shard_index: v.shard_index }
@@ -342,14 +340,16 @@ pub(crate) fn assign_chunk_producers_to_shards(
     Ok(result)
 }
 
-pub(crate) mod old_validator_selection {
-    use crate::shard_assignment::{HasStake, NotEnoughValidators, assign_to_satisfy_shards_inner};
-    use near_primitives::types::NumShards;
-
+mod old_validator_selection {
     use super::{
-        StakeFirstShardAssignment, StakeFirstShardAssignmentItem, ValidatorsFirstShardAssignment,
+        StakeFirstShardAssignmentItem, ValidatorsFirstShardAssignment,
         ValidatorsFirstShardAssignmentItem,
     };
+    use crate::shard_assignment::{HasStake, NotEnoughValidators, assign_to_satisfy_shards_inner};
+    use near_primitives::types::NumShards;
+    use near_primitives::utils::min_heap::MinHeap;
+
+    type StakeFirstShardAssignment = MinHeap<StakeFirstShardAssignmentItem>;
 
     /// Assign chunk producers (a.k.a. validators) to shards.  The i-th element
     /// of the output corresponds to the validators assigned to the i-th shard.

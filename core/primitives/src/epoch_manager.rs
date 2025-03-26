@@ -438,9 +438,7 @@ impl AllEpochConfig {
             // Decrease the number of block and chunk producers from 100 to 20.
             config.num_block_producer_seats = 20;
             // Checking feature NoChunkOnlyProducers in stateless validation
-            if ProtocolFeature::StatelessValidation.enabled(protocol_version) {
-                config.num_chunk_producer_seats = 20;
-            }
+            config.num_chunk_producer_seats = 20;
             config.num_block_producer_seats_per_shard =
                 shard_ids.map(|_| config.num_block_producer_seats).collect();
             // Decrease the number of chunk producers.
@@ -448,10 +446,8 @@ impl AllEpochConfig {
         }
 
         // Checking feature NoChunkOnlyProducers in stateless validation
-        if ProtocolFeature::StatelessValidation.enabled(protocol_version) {
-            // Make sure there is no chunk only producer in stateless validation
-            config.num_chunk_only_producer_seats = 0;
-        }
+        // Make sure there is no chunk only producer in stateless validation
+        config.num_chunk_only_producer_seats = 0;
     }
 
     fn config_max_kickout_stake(config: &mut EpochConfig, protocol_version: u32) {

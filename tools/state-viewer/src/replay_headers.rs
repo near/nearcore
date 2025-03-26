@@ -1,7 +1,3 @@
-use std::collections::HashMap;
-use std::collections::HashSet;
-use std::path::Path;
-
 use itertools::Itertools;
 use near_chain::BlockHeader;
 use near_chain::ChainStore;
@@ -15,11 +11,13 @@ use near_primitives::stateless_validation::chunk_endorsements_bitmap::ChunkEndor
 use near_primitives::types::AccountId;
 use near_primitives::types::ValidatorKickoutReason;
 use near_primitives::types::{BlockHeight, ValidatorInfoIdentifier};
-use near_primitives::version::ProtocolFeature;
 use near_primitives::views::EpochValidatorInfo;
 use near_store::db::{MixedDB, ReadOrder, TestDB};
 use near_store::{Mode, NodeStorage, Store, Temperature};
 use nearcore::NearConfig;
+use std::collections::HashMap;
+use std::collections::HashSet;
+use std::path::Path;
 
 /// Replays the headers for the blocks between `start_height` and `end-height`.
 /// If `start_height` is not set, uses the genesis height. If `end_height` is not set, uses the chain head.
@@ -222,11 +220,8 @@ fn get_block_info(
     // Note(#11900): Until the chunk endorsements in block header are enabled, we generate the chunk endorsement bitmap
     // in the following from the chunk endorsement signatures in the block body.
     // TODO(#11900): Remove this code after ChunkEndorsementsInBlockHeader is stabilized.
-    let protocol_version = epoch_manager.get_epoch_protocol_version(header.epoch_id())?;
     let chunk_endorsements_bitmap: Option<ChunkEndorsementsBitmap> =
-        if ProtocolFeature::StatelessValidation.enabled(protocol_version)
-            && header.chunk_endorsements().is_none()
-        {
+        if header.chunk_endorsements().is_none() {
             let block = chain_store.get_block(header.hash())?;
             let chunks = block.chunks();
             let epoch_id = block.header().epoch_id();
