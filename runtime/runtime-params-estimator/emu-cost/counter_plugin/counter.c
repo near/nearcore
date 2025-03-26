@@ -152,3 +152,5 @@ QEMU_PLUGIN_EXPORT int qemu_plugin_install(qemu_plugin_id_t id,
     qemu_plugin_register_vcpu_syscall_ret_cb(id, vcpu_ret_syscall);
     return 0;
 }
+
+// cspell:ignore gchar

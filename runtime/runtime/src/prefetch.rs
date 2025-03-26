@@ -462,7 +462,7 @@ mod tests {
     #[test]
     fn test_prefetch_non_existing_account() {
         let existing_accounts = ["alice.near", "bob.near"];
-        let non_existing_account = ["charlotta.near"];
+        let non_existing_account = ["charlotte.near"];
         // Most importantly, it should not crash.
         // Secondly, it should prefetch the root extension + the first branch.
         let expected_prefetched = 2;
