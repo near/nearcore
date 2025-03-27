@@ -137,9 +137,9 @@ pub struct StateSnapshotConfig {
 pub enum StateSnapshotType {
     /// This is the "enabled" option where we create a snapshot at the beginning of every epoch.
     #[default]
-    #[serde(alias = "EveryEpoch")]
+    #[serde(alias = "EveryEpoch")] // TODO: Remove after 2.8 release
     Enabled,
-    #[serde(alias = "ForReshardingOnly")]
+    #[serde(alias = "ForReshardingOnly")] // TODO: Remove after 2.8 release
     Disabled,
 }
 
