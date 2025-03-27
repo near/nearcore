@@ -293,10 +293,7 @@ mod test {
         for shard_id in shard_layout.shard_ids() {
             let shard_receipts: Vec<Receipt> = receipts
                 .iter()
-                .filter(|&receipt| {
-                    receipt.send_to_all_shards()
-                        || shard_layout.account_id_to_shard_id(receipt.receiver_id()) == shard_id
-                })
+                .filter(|&receipt| receipt.receiver_shard_id(shard_layout).unwrap() == shard_id)
                 .cloned()
                 .collect();
             receipts_hashes.push(CryptoHash::hash_borsh(ReceiptList(shard_id, &shard_receipts)));
@@ -321,7 +318,7 @@ mod test {
         let naive_result = naive_build_receipt_hashes(&receipts, &shard_layout);
         let naive_duration = start.elapsed();
         let start = Clock::real().now();
-        let prod_result = Chain::build_receipts_hashes(&receipts, &shard_layout);
+        let prod_result = Chain::build_receipts_hashes(&receipts, &shard_layout).unwrap();
         let prod_duration = start.elapsed();
         assert_eq!(naive_result, prod_result);
         // production implementation is at least 50% faster

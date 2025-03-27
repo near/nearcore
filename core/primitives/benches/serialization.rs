@@ -6,7 +6,8 @@ use bencher::{Bencher, black_box};
 use borsh::BorshDeserialize;
 use near_crypto::{KeyType, PublicKey, Signature};
 use near_primitives::account::Account;
-use near_primitives::block::{Block, genesis_chunks};
+use near_primitives::block::Block;
+use near_primitives::genesis::genesis_chunks;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::combine_hash;
 use near_primitives::test_utils::account_new;
@@ -55,7 +56,7 @@ fn create_block() -> Block {
         0,
         1_000,
         1_000,
-        CryptoHash::default(),
+        &vec![],
     );
     let signer = InMemoryValidatorSigner::from_random("test".parse().unwrap(), KeyType::ED25519);
     Block::produce(

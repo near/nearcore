@@ -9,49 +9,70 @@ use crate::types::ProtocolVersion;
 ///
 #[derive(Hash, PartialEq, Eq, Clone, Copy, Debug)]
 pub enum ProtocolFeature {
-    // stable features
-    ImplicitAccountCreation,
-    RectifyInflation,
+    #[deprecated]
+    _DeprecatedImplicitAccountCreation,
+    #[deprecated]
+    _DeprecatedRectifyInflation,
     /// Add `AccessKey` nonce range by setting nonce to `(block_height - 1) * 1e6`, see
     /// <https://github.com/near/nearcore/issues/3779>.
-    AccessKeyNonceRange,
+    #[deprecated]
+    _DeprecatedAccessKeyNonceRange,
     /// Don't process any receipts for shard when chunk is not present.
     /// Always use gas price computed in the previous block.
-    FixApplyChunks,
-    LowerStorageCost,
-    DeleteActionRestriction,
+    #[deprecated]
+    _DeprecatedFixApplyChunks,
+    #[deprecated]
+    _DeprecatedLowerStorageCost,
+    #[deprecated]
+    _DeprecatedDeleteActionRestriction,
     /// Add versions to `Account` data structure
-    AccountVersions,
-    TransactionSizeLimit,
+    #[deprecated]
+    _DeprecatedAccountVersions,
+    #[deprecated]
+    _DeprecatedTransactionSizeLimit,
     /// Fix a bug in `storage_usage` for account caused by #3824
-    FixStorageUsage,
+    #[deprecated]
+    _DeprecatedFixStorageUsage,
     /// Cap maximum gas price to 2,000,000,000 yoctoNEAR
-    CapMaxGasPrice,
-    CountRefundReceiptsInGasLimit,
+    #[deprecated]
+    _DeprecatedCapMaxGasPrice,
+    #[deprecated]
+    _DeprecatedCountRefundReceiptsInGasLimit,
     /// Add `ripemd60` and `ecrecover` host function
-    MathExtension,
+    #[deprecated]
+    _DeprecatedMathExtension,
     /// Restore receipts that were previously stuck because of
     /// <https://github.com/near/nearcore/pull/4228>.
-    RestoreReceiptsAfterFixApplyChunks,
+    #[deprecated]
+    _DeprecatedRestoreReceiptsAfterFixApplyChunks,
     /// Minimum protocol version for NEP-92
-    MinProtocolVersionNep92,
+    #[deprecated]
+    _DeprecatedMinProtocolVersionNep92,
     /// Minimum protocol version for NEP-92 fix
-    MinProtocolVersionNep92Fix,
+    #[deprecated]
+    _DeprecatedMinProtocolVersionNep92Fix,
     /// Creates a unique random seed to be provided to `VMContext` from a given `action_hash` and a given `random_seed`
-    CorrectRandomValue,
+    #[deprecated]
+    _DeprecatedCorrectRandomValue,
     /// The protocol version that enables reward on mainnet
-    EnableInflation,
+    #[deprecated]
+    _DeprecatedEnableInflation,
     /// Fix upgrade to use the latest voted protocol version instead of the current epoch protocol
     /// version when there is no new change in protocol version
-    UpgradabilityFix,
+    #[deprecated]
+    _DeprecatedUpgradabilityFix,
     /// Updates the way receipt ID, data ID and random seeds are constructed
-    CreateHash,
+    #[deprecated]
+    _DeprecatedCreateHash,
     /// Fix the storage usage of the delete key action
-    DeleteKeyStorageUsage,
+    #[deprecated]
+    _DeprecatedDeleteKeyStorageUsage,
     /// Upgrade for shard chunk header
-    ShardChunkHeaderUpgrade,
+    #[deprecated]
+    _DeprecatedShardChunkHeaderUpgrade,
     /// Updates the way receipt ID is constructed to use current block hash instead of last block hash
-    CreateReceiptIdSwitchToCurrentBlock,
+    #[deprecated]
+    _DeprecatedCreateReceiptIdSwitchToCurrentBlock,
     /// Pessimistic gas price estimation uses a fixed value of `minimum_new_receipt_gas` to stop being
     /// tied to the function call base cost
     FixedMinimumNewReceiptGas,
@@ -147,7 +168,6 @@ pub enum ProtocolFeature {
     /// used to depend on the number of existing shards, which is no longer the case.
     FixChunkProducerStakingThreshold,
     /// Charge for contract loading before it happens.
-    #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
     FixContractLoadingCost,
     /// Enables rejection of blocks with outdated protocol versions.
     RejectBlocksWithOutdatedProtocolVersions,
@@ -206,9 +226,20 @@ pub enum ProtocolFeature {
     ///
     /// Chunks no longer become entirely invalid in case invalid transactions are included in the
     /// chunk. Instead the transactions are discarded during their conversion to receipts.
-    RelaxedChunkValidation,
-    /// This enables us to remove the expensive check_balance call from the runtime.
-    RemoveCheckBalance,
+    ///
+    /// support for code that does not do relaxed chunk validation has now been removed.
+    #[deprecated(
+        note = "Was used for protocol versions without relaxed chunk validation which is not supported anymore."
+    )]
+    _DeprecatedRelaxedChunkValidation,
+    /// This enables us to remove the expensive check_balance call from the
+    /// runtime.
+    ///
+    /// Support for code that does check balances has now been removed.
+    #[deprecated(
+        note = "Was used for protocol versions where we checked balances which is not supported anymore."
+    )]
+    _DeprecatedRemoveCheckBalance,
     /// Exclude existing contract code in deploy-contract and delete-account actions from the chunk state witness.
     /// Instead of sending code in the witness, the code checks the code-size using the internal trie nodes.
     ExcludeExistingCodeFromWitnessForCodeLen,
@@ -220,30 +251,34 @@ pub enum ProtocolFeature {
 }
 
 impl ProtocolFeature {
+    // The constructor must initialize all fields of the struct but some fields
+    // are deprecated.  So unfortunately, we need this attribute here.  A better
+    // fix is being discussed on
+    // https://github.com/rust-lang/rust/issues/102777.
+    #[allow(deprecated)]
     pub const fn protocol_version(self) -> ProtocolVersion {
         match self {
             // Stable features
-            ProtocolFeature::MinProtocolVersionNep92 => 31,
-            ProtocolFeature::MinProtocolVersionNep92Fix => 32,
-            ProtocolFeature::CorrectRandomValue => 33,
-            ProtocolFeature::ImplicitAccountCreation => 35,
-            ProtocolFeature::EnableInflation => 36,
-            ProtocolFeature::UpgradabilityFix => 37,
-            ProtocolFeature::CreateHash => 38,
-            ProtocolFeature::DeleteKeyStorageUsage => 40,
-            ProtocolFeature::ShardChunkHeaderUpgrade => 41,
-            ProtocolFeature::CreateReceiptIdSwitchToCurrentBlock => 42,
-            ProtocolFeature::LowerStorageCost => 42,
-            ProtocolFeature::DeleteActionRestriction => 43,
-            ProtocolFeature::FixApplyChunks => 44,
-            ProtocolFeature::RectifyInflation | ProtocolFeature::AccessKeyNonceRange => 45,
-            ProtocolFeature::AccountVersions
-            | ProtocolFeature::TransactionSizeLimit
-            | ProtocolFeature::FixStorageUsage
-            | ProtocolFeature::CapMaxGasPrice
-            | ProtocolFeature::CountRefundReceiptsInGasLimit
-            | ProtocolFeature::MathExtension => 46,
-            ProtocolFeature::RestoreReceiptsAfterFixApplyChunks => 47,
+            ProtocolFeature::_DeprecatedMinProtocolVersionNep92 => 31,
+            ProtocolFeature::_DeprecatedMinProtocolVersionNep92Fix => 32,
+            ProtocolFeature::_DeprecatedCorrectRandomValue => 33,
+            ProtocolFeature::_DeprecatedImplicitAccountCreation => 35,
+            ProtocolFeature::_DeprecatedEnableInflation => 36,
+            ProtocolFeature::_DeprecatedUpgradabilityFix => 37,
+            ProtocolFeature::_DeprecatedCreateHash => 38,
+            ProtocolFeature::_DeprecatedDeleteKeyStorageUsage => 40,
+            ProtocolFeature::_DeprecatedShardChunkHeaderUpgrade => 41,
+            ProtocolFeature::_DeprecatedCreateReceiptIdSwitchToCurrentBlock | ProtocolFeature::_DeprecatedLowerStorageCost => 42,
+            ProtocolFeature::_DeprecatedDeleteActionRestriction => 43,
+            ProtocolFeature::_DeprecatedFixApplyChunks => 44,
+            ProtocolFeature::_DeprecatedRectifyInflation | ProtocolFeature::_DeprecatedAccessKeyNonceRange => 45,
+            ProtocolFeature::_DeprecatedAccountVersions
+            | ProtocolFeature::_DeprecatedTransactionSizeLimit
+            | ProtocolFeature::_DeprecatedFixStorageUsage
+            | ProtocolFeature::_DeprecatedCapMaxGasPrice
+            | ProtocolFeature::_DeprecatedCountRefundReceiptsInGasLimit
+            | ProtocolFeature::_DeprecatedMathExtension => 46,
+            ProtocolFeature::_DeprecatedRestoreReceiptsAfterFixApplyChunks => 47,
             ProtocolFeature::Wasmer2
             | ProtocolFeature::LowerDataReceiptAndEcrecoverBaseCost
             | ProtocolFeature::LowerRegularOpCost
@@ -289,8 +324,8 @@ impl ProtocolFeature {
             ProtocolFeature::FixStakingThreshold
             | ProtocolFeature::RejectBlocksWithOutdatedProtocolVersions
             | ProtocolFeature::FixChunkProducerStakingThreshold
-            | ProtocolFeature::RelaxedChunkValidation
-            | ProtocolFeature::RemoveCheckBalance
+            | ProtocolFeature::_DeprecatedRelaxedChunkValidation
+            | ProtocolFeature::_DeprecatedRemoveCheckBalance
             // BandwidthScheduler and CurrentEpochStateSync must be enabled
             // before ReshardingV3! When releasing this feature please make sure
             // to schedule separate protocol upgrades for these features.
@@ -303,7 +338,6 @@ impl ProtocolFeature {
             | ProtocolFeature::ProduceOptimisticBlock => 77,
 
             // Nightly features:
-            #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
             ProtocolFeature::FixContractLoadingCost => 129,
             // TODO(#11201): When stabilizing this feature in mainnet, also remove the temporary code
             // that always enables this for mocknet (see config_mocknet function).
@@ -318,8 +352,11 @@ impl ProtocolFeature {
     }
 }
 
-/// Minimum supported protocol version
-pub const MIN_SUPPORTED_PROTOCOL_VERSION: ProtocolVersion = 29;
+/// The protocol version of the genesis block on mainnet and testnet.
+pub const PROD_GENESIS_PROTOCOL_VERSION: ProtocolVersion = 29;
+
+/// Minimum supported protocol version for the current binary
+pub const MIN_SUPPORTED_PROTOCOL_VERSION: ProtocolVersion = 75;
 
 /// Current protocol version used on the mainnet with all stable features.
 const STABLE_PROTOCOL_VERSION: ProtocolVersion = 77;
@@ -328,53 +365,13 @@ const STABLE_PROTOCOL_VERSION: ProtocolVersion = 77;
 const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 149;
 
 /// Largest protocol version supported by the current binary.
-pub const PROTOCOL_VERSION: ProtocolVersion = if cfg!(feature = "nightly_protocol") {
-    NIGHTLY_PROTOCOL_VERSION
-} else {
-    STABLE_PROTOCOL_VERSION
-};
+pub const PROTOCOL_VERSION: ProtocolVersion =
+    if cfg!(feature = "nightly") { NIGHTLY_PROTOCOL_VERSION } else { STABLE_PROTOCOL_VERSION };
 
 /// Both, outgoing and incoming tcp connections to peers, will be rejected if `peer's`
 /// protocol version is lower than this.
 /// TODO(pugachag): revert back to `- 3` after mainnet is upgraded
 pub const PEER_MIN_ALLOWED_PROTOCOL_VERSION: ProtocolVersion = STABLE_PROTOCOL_VERSION - 4;
-
-#[macro_export]
-macro_rules! checked_feature {
-    ("stable", $feature:ident, $current_protocol_version:expr) => {{ $crate::version::ProtocolFeature::$feature.protocol_version() <= $current_protocol_version }};
-    ($feature_name:tt, $feature:ident, $current_protocol_version:expr) => {{
-        #[cfg(feature = $feature_name)]
-        let is_feature_enabled = $crate::version::ProtocolFeature::$feature.protocol_version()
-            <= $current_protocol_version;
-        #[cfg(not(feature = $feature_name))]
-        let is_feature_enabled = {
-            // Workaround unused variable warning
-            let _ = $current_protocol_version;
-
-            false
-        };
-        is_feature_enabled
-    }};
-
-    ($feature_name:tt, $feature:ident, $current_protocol_version:expr, $feature_block:block) => {{ checked_feature!($feature_name, $feature, $current_protocol_version, $feature_block, {}) }};
-
-    ($feature_name:tt, $feature:ident, $current_protocol_version:expr, $feature_block:block, $non_feature_block:block) => {{
-        #[cfg(feature = $feature_name)]
-        {
-            if checked_feature!($feature_name, $feature, $current_protocol_version) {
-                $feature_block
-            } else {
-                $non_feature_block
-            }
-        }
-        // Workaround unused variable warning
-        #[cfg(not(feature = $feature_name))]
-        {
-            let _ = $current_protocol_version;
-            $non_feature_block
-        }
-    }};
-}
 
 #[cfg(test)]
 mod tests {

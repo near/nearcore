@@ -463,7 +463,8 @@ impl Testbed<'_> {
         )
         .expect("expected no validation error");
         let cost =
-            tx_cost(&self.apply_state.config, &validated_tx, gas_price, PROTOCOL_VERSION).unwrap();
+            tx_cost(&self.apply_state.config, &validated_tx.to_tx(), gas_price, PROTOCOL_VERSION)
+                .unwrap();
 
         let vr = verify_and_charge_tx_ephemeral(
             &self.apply_state.config,

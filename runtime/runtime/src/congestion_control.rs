@@ -189,13 +189,6 @@ impl ReceiptSink {
         }
     }
 
-    pub(crate) fn outgoing_receipts(&self) -> &[Receipt] {
-        match self {
-            ReceiptSink::V1(inner) => &inner.outgoing_receipts,
-            ReceiptSink::V2(inner) => &inner.outgoing_receipts,
-        }
-    }
-
     /// Consumes receipt sink, finalizes ReceiptSinkStats and returns the outgoing receipts.
     /// Called at the end of chunk application.
     pub(crate) fn finalize_stats_get_outgoing_receipts(
@@ -331,7 +324,7 @@ impl ReceiptSinkV2 {
             let size = receipt_size(&receipt)?;
             let should_update_outgoing_metadatas = receipt.should_update_outgoing_metadatas();
             let receipt = receipt.into_receipt();
-            let target_shard_id = shard_layout.account_id_to_shard_id(receipt.receiver_id());
+            let target_shard_id = receipt.receiver_shard_id(&shard_layout)?;
 
             match Self::try_forward(
                 receipt,
@@ -383,10 +376,8 @@ impl ReceiptSinkV2 {
         state_update: &mut TrieUpdate,
         epoch_info_provider: &dyn EpochInfoProvider,
     ) -> Result<(), RuntimeError> {
-        let shard = epoch_info_provider
-            .shard_layout(&apply_state.epoch_id)?
-            .account_id_to_shard_id(receipt.receiver_id());
-
+        let shard_layout = epoch_info_provider.shard_layout(&apply_state.epoch_id)?;
+        let shard = receipt.receiver_shard_id(&shard_layout)?;
         let size = compute_receipt_size(&receipt)?;
         let gas = compute_receipt_congestion_gas(&receipt, &apply_state.config)?;
 
@@ -904,12 +895,8 @@ impl<'a> DelayedReceiptQueueWrapper<'a> {
     // The function follows the guidelines of standard iterator filter function
     // We return true if we should retain the receipt and false if we should filter it.
     fn receipt_filter_fn(&self, receipt: &ReceiptOrStateStoredReceipt) -> bool {
-        let receiver_id = receipt.get_receipt().receiver_id();
-        let receipt_shard_id = self
-            .epoch_info_provider
-            .shard_layout(&self.epoch_id)
-            .unwrap()
-            .account_id_to_shard_id(receiver_id);
+        let shard_layout = self.epoch_info_provider.shard_layout(&self.epoch_id).unwrap();
+        let receipt_shard_id = receipt.get_receipt().receiver_shard_id(&shard_layout).unwrap();
         receipt_shard_id == self.shard_id
     }
 

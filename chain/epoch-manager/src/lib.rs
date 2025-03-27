@@ -1,6 +1,7 @@
 #![cfg_attr(enable_const_type_id, feature(const_type_id))]
 
 use crate::metrics::{PROTOCOL_VERSION_NEXT, PROTOCOL_VERSION_VOTES};
+use epoch_info_aggregator::EpochInfoAggregator;
 use itertools::Itertools;
 use near_cache::SyncLruCache;
 use near_chain_configs::{Genesis, GenesisConfig};
@@ -25,7 +26,6 @@ use near_primitives::views::{
     CurrentEpochValidatorInfo, EpochValidatorInfo, NextEpochValidatorInfo, ValidatorKickoutView,
 };
 use near_store::adapter::StoreAdapter;
-use near_store::epoch_info_aggregator::EpochInfoAggregator;
 use near_store::{DBCol, HEADER_HEAD_KEY, Store, StoreUpdate};
 use num_rational::BigRational;
 use primitive_types::U256;
@@ -45,16 +45,16 @@ pub use crate::reward_calculator::RewardCalculator;
 pub use near_primitives::shard_layout::ShardInfo;
 
 mod adapter;
+pub mod epoch_info_aggregator;
 mod metrics;
 mod proposals;
 mod reward_calculator;
 pub mod shard_assignment;
 pub mod shard_tracker;
 pub mod test_utils;
-pub mod validate;
-
 #[cfg(test)]
 mod tests;
+pub mod validate;
 mod validator_selection;
 mod validator_stats;
 
@@ -656,12 +656,7 @@ impl EpochManager {
             tracing::info!(target: "epoch_manager", ?version, ?stake_percent, "Protocol version voting.");
         }
 
-        let protocol_version =
-            if ProtocolFeature::UpgradabilityFix.enabled(epoch_info.protocol_version()) {
-                next_epoch_info.protocol_version()
-            } else {
-                epoch_info.protocol_version()
-            };
+        let protocol_version = next_epoch_info.protocol_version();
 
         let config = self.config.for_protocol_version(protocol_version);
         // Note: non-deterministic iteration is fine here, there can be only one

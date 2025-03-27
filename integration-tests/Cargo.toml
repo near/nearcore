@@ -97,9 +97,6 @@ test_features = [
   "near-vm-runner/test_features",
   "near-test-contracts/test_features",
 ]
-protocol_feature_fix_contract_loading_cost = [
-  "nearcore/protocol_feature_fix_contract_loading_cost",
-]
 
 nightly = [
   "near-actix-test-utils/nightly",
@@ -126,38 +123,8 @@ nightly = [
   "near-vm-runner/nightly",
   "near-wallet-contract/nightly",
   "nearcore/nightly",
-  "nightly_protocol",
   "node-runtime/nightly",
-  "protocol_feature_fix_contract_loading_cost",
   "testlib/nightly",
-]
-nightly_protocol = [
-  "near-actix-test-utils/nightly_protocol",
-  "near-async/nightly_protocol",
-  "near-chain-configs/nightly_protocol",
-  "near-chain/nightly_protocol",
-  "near-chunks/nightly_protocol",
-  "near-client-primitives/nightly_protocol",
-  "near-client/nightly_protocol",
-  "near-epoch-manager/nightly_protocol",
-  "near-fmt/nightly_protocol",
-  "near-jsonrpc-client-internal/nightly_protocol",
-  "near-jsonrpc-primitives/nightly_protocol",
-  "near-jsonrpc/nightly_protocol",
-  "near-network/nightly_protocol",
-  "near-o11y/nightly_protocol",
-  "near-parameters/nightly_protocol",
-  "near-primitives-core/nightly_protocol",
-  "near-primitives/nightly_protocol",
-  "near-rosetta-rpc/nightly_protocol",
-  "near-store/nightly_protocol",
-  "near-telemetry/nightly_protocol",
-  "near-undo-block/nightly_protocol",
-  "near-vm-runner/nightly_protocol",
-  "near-wallet-contract/nightly_protocol",
-  "nearcore/nightly_protocol",
-  "node-runtime/nightly_protocol",
-  "testlib/nightly_protocol",
 ]
 sandbox = [
   "near-chain/sandbox",

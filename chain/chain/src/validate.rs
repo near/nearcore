@@ -68,7 +68,7 @@ pub fn validate_chunk_proofs(
             let prev_block_hash = chunk.prev_block_hash();
             epoch_manager.get_shard_layout_from_prev_block(&prev_block_hash)?
         };
-        let outgoing_receipts_hashes = Chain::build_receipts_hashes(receipts, &shard_layout);
+        let outgoing_receipts_hashes = Chain::build_receipts_hashes(receipts, &shard_layout)?;
         let (receipts_root, _) = merklize(&outgoing_receipts_hashes);
         if receipts_root != outgoing_receipts_root {
             byzantine_assert!(false);
@@ -128,7 +128,7 @@ pub fn validate_chunk_with_chunk_extra(
     )?;
     let outgoing_receipts_hashes = {
         let shard_layout = epoch_manager.get_shard_layout_from_prev_block(prev_block_hash)?;
-        Chain::build_receipts_hashes(&outgoing_receipts, &shard_layout)
+        Chain::build_receipts_hashes(&outgoing_receipts, &shard_layout)?
     };
     let (outgoing_receipts_root, _) = merklize(&outgoing_receipts_hashes);
 

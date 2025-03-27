@@ -21,6 +21,7 @@ pub mod epoch_info;
 pub mod epoch_manager;
 pub mod epoch_sync;
 pub mod errors;
+pub mod genesis;
 pub mod merkle;
 pub mod network;
 pub mod optimistic_block;
@@ -53,7 +54,6 @@ pub mod validator_signer;
 pub mod version;
 pub mod views;
 
-pub use crate::version::checked_feature;
 pub use near_primitives_core::chains;
 
 #[cfg(fuzz)]

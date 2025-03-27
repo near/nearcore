@@ -38,5 +38,11 @@ ignore = [
 
     # The derivative package is unmaintained, but hard to replace right now
     # because ark-poly depends on it.
-    "RUSTSEC-2024-0388"
+    "RUSTSEC-2024-0388",
+
+    # burntsushi says the crate is feature complete and needs no maintenance, nagisa also doesn't
+    # see any security risk whatsoever to keeping this crate, so we'll be letting it to upgrade out
+    # of existence naturally.
+    "RUSTSEC-2024-0436"
+
 ]

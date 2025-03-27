@@ -5,7 +5,7 @@ use near_primitives::types::{
     AccountId, Balance, EpochId, NumShards, ShardId, ShardIndex, validator_stake::ValidatorStake,
 };
 use near_primitives::utils::min_heap::{MinHeap, PeekMut};
-use near_store::ShardUId;
+use near_store::trie::ShardUId;
 use rand::Rng;
 use std::collections::{BTreeSet, HashMap, HashSet};
 

@@ -203,7 +203,7 @@ where
         catch_traps(|| {
             global_results.as_mut_ptr().write(closure());
         })?;
-        // FIXME: woah here, what happens if `closure()` *does* trap?
+        // FIXME: whoa here, what happens if `closure()` *does* trap?
         Ok(global_results.assume_init())
     }
 }

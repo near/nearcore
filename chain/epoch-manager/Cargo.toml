@@ -43,13 +43,6 @@ nightly = [
   "near-o11y/nightly",
   "near-primitives/nightly",
   "near-store/nightly",
-  "nightly_protocol",
-]
-nightly_protocol = [
-  "near-chain-configs/nightly_protocol",
-  "near-o11y/nightly_protocol",
-  "near-primitives/nightly_protocol",
-  "near-store/nightly_protocol",
 ]
 protocol_schema = [
   "near-schema-checker-lib/protocol_schema",

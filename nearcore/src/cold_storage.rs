@@ -5,6 +5,7 @@ use near_epoch_manager::{EpochManagerAdapter, EpochManagerHandle};
 use near_primitives::errors::EpochError;
 use near_primitives::{hash::CryptoHash, types::BlockHeight};
 use near_store::config::SplitStorageConfig;
+use near_store::db::metadata::DbKind;
 use near_store::{
     DBCol, FINAL_HEAD_KEY, NodeStorage, Store, TAIL_KEY,
     archive::cold_storage::{
@@ -282,11 +283,11 @@ fn cold_store_migration(
             tracing::error!(target: "cold_store", "Hot store DBKind not set.");
             return Err(anyhow::anyhow!("Hot store DBKind is not set"));
         }
-        Some(near_store::metadata::DbKind::Hot) => {
+        Some(DbKind::Hot) => {
             tracing::info!(target: "cold_store", "Hot store DBKind is Hot.");
             genesis_height
         }
-        Some(near_store::metadata::DbKind::Archive) => {
+        Some(DbKind::Archive) => {
             tracing::info!(target: "cold_store", "Hot store DBKind is Archive.");
             hot_store
                 .get_ser::<Tip>(DBCol::BlockMisc, FINAL_HEAD_KEY)?

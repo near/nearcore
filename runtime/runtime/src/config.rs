@@ -11,7 +11,7 @@ use num_traits::pow::Pow;
 // Just re-exporting RuntimeConfig for backwards compatibility.
 use near_parameters::{ActionCosts, RuntimeConfig, transfer_exec_fee, transfer_send_fee};
 pub use near_primitives::num_rational::Rational32;
-use near_primitives::transaction::{Action, DeployContractAction, ValidatedTransaction};
+use near_primitives::transaction::{Action, DeployContractAction, Transaction};
 use near_primitives::types::{AccountId, Balance, Compute, Gas};
 
 /// Describes the cost of converting this transaction into a receipt.
@@ -58,14 +58,6 @@ pub fn safe_add_balance(a: Balance, b: Balance) -> Result<Balance, IntegerOverfl
 
 pub fn safe_add_compute(a: Compute, b: Compute) -> Result<Compute, IntegerOverflowError> {
     a.checked_add(b).ok_or(IntegerOverflowError {})
-}
-
-#[macro_export]
-macro_rules! safe_add_balance_apply {
-    ($x: expr) => {$x};
-    ($x: expr, $($rest: expr),+) => {
-        safe_add_balance($x, safe_add_balance_apply!($($rest),+))?
-    }
 }
 
 /// Total sum of gas that needs to be burnt to send these actions.
@@ -249,11 +241,10 @@ pub fn exec_fee(config: &RuntimeConfig, action: &Action, receiver_id: &AccountId
 /// Returns transaction costs for a given transaction.
 pub fn tx_cost(
     config: &RuntimeConfig,
-    validated_tx: &ValidatedTransaction,
+    tx: &Transaction,
     gas_price: Balance,
     protocol_version: ProtocolVersion,
 ) -> Result<TransactionCost, IntegerOverflowError> {
-    let tx = validated_tx.to_tx();
     let sender_is_receiver = tx.receiver_id() == tx.signer_id();
     let fees = &config.fees;
     let mut gas_burnt: Gas = fees.fee(ActionCosts::new_action_receipt).send_fee(sender_is_receiver);

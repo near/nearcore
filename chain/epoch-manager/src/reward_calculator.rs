@@ -4,7 +4,6 @@ use num_rational::Rational32;
 use primitive_types::{U256, U512};
 
 use near_chain_configs::GenesisConfig;
-use near_primitives::checked_feature;
 use near_primitives::types::{AccountId, Balance, BlockChunkValidatorStats};
 use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 
@@ -64,8 +63,7 @@ impl RewardCalculator {
     ) -> (HashMap<AccountId, Balance>, Balance) {
         let mut res = HashMap::new();
         let num_validators = validator_block_chunk_stats.len();
-        let use_hardcoded_value = genesis_protocol_version < protocol_version
-            && ProtocolFeature::EnableInflation.enabled(protocol_version);
+        let use_hardcoded_value = genesis_protocol_version < protocol_version;
         let max_inflation_rate =
             if use_hardcoded_value { Rational32::new_raw(1, 20) } else { self.max_inflation_rate };
         let protocol_reward_rate = if use_hardcoded_value {
@@ -73,23 +71,13 @@ impl RewardCalculator {
         } else {
             self.protocol_reward_rate
         };
-        let epoch_total_reward: u128 =
-            if checked_feature!("stable", RectifyInflation, protocol_version) {
-                (U256::from(*max_inflation_rate.numer() as u64)
-                    * U256::from(total_supply)
-                    * U256::from(epoch_duration)
-                    / (U256::from(self.num_seconds_per_year)
-                        * U256::from(*max_inflation_rate.denom() as u64)
-                        * U256::from(NUM_NS_IN_SECOND)))
-                .as_u128()
-            } else {
-                (U256::from(*max_inflation_rate.numer() as u64)
-                    * U256::from(total_supply)
-                    * U256::from(self.epoch_length)
-                    / (U256::from(self.num_blocks_per_year)
-                        * U256::from(*max_inflation_rate.denom() as u64)))
-                .as_u128()
-            };
+        let epoch_total_reward: u128 = (U256::from(*max_inflation_rate.numer() as u64)
+            * U256::from(total_supply)
+            * U256::from(epoch_duration)
+            / (U256::from(self.num_seconds_per_year)
+                * U256::from(*max_inflation_rate.denom() as u64)
+                * U256::from(NUM_NS_IN_SECOND)))
+        .as_u128();
         let epoch_protocol_treasury = (U256::from(epoch_total_reward)
             * U256::from(*protocol_reward_rate.numer() as u64)
             / U256::from(*protocol_reward_rate.denom() as u64))
@@ -117,7 +105,7 @@ impl RewardCalculator {
                 U256::from(*online_thresholds.online_min_threshold.denom() as u64);
             // If average of produced blocks below online min threshold, validator gets 0 reward.
             let chunk_only_producers_enabled =
-                checked_feature!("stable", ChunkOnlyProducers, protocol_version);
+                ProtocolFeature::ChunkOnlyProducers.enabled(protocol_version);
             let reward = if average_produced_numer * online_min_denom
                 < online_min_numer * average_produced_denom
                 || (chunk_only_producers_enabled

@@ -1,6 +1,7 @@
 use assert_matches::assert_matches;
 use near_chain_configs::Genesis;
 use near_primitives::types::{AccountId, BlockHeight};
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::FinalExecutionStatus;
 
 use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
@@ -28,8 +29,10 @@ fn prepare_env_with_contract(
 /// Check that normal execution has the same gas cost after FixContractLoadingCost.
 #[test]
 fn unchanged_gas_cost() {
-    let new_protocol_version =
-        near_primitives::version::ProtocolFeature::FixContractLoadingCost.protocol_version();
+    if !ProtocolFeature::FixContractLoadingCost.enabled(PROTOCOL_VERSION) {
+        return;
+    }
+    let new_protocol_version = ProtocolFeature::FixContractLoadingCost.protocol_version();
     let old_protocol_version = new_protocol_version - 1;
 
     let contract_size = 4096;
@@ -57,8 +60,10 @@ fn unchanged_gas_cost() {
 /// Check that execution that fails during contract preparation has the updated gas cost after the update.
 #[test]
 fn preparation_error_gas_cost() {
-    let new_protocol_version =
-        near_primitives::version::ProtocolFeature::FixContractLoadingCost.protocol_version();
+    if !ProtocolFeature::FixContractLoadingCost.enabled(PROTOCOL_VERSION) {
+        return;
+    }
+    let new_protocol_version = ProtocolFeature::FixContractLoadingCost.protocol_version();
     let old_protocol_version = new_protocol_version - 1;
 
     let bad_contract = b"not-a-contract".to_vec();

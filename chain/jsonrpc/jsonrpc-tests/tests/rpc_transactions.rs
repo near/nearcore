@@ -25,7 +25,8 @@ fn test_send_tx_async() {
     init_test_logger();
 
     run_actix(async {
-        let (_, addr) = test_utils::start_all(Clock::real(), test_utils::NodeType::Validator);
+        let (_, addr, _runtime_temp_dir) =
+            test_utils::start_all(Clock::real(), test_utils::NodeType::Validator);
 
         let client = new_client(&format!("http://{}", addr));
 
@@ -119,7 +120,7 @@ fn test_send_tx_commit() {
 fn test_expired_tx() {
     init_integration_logger();
     run_actix(async {
-        let (_, addr) = test_utils::start_all_with_validity_period(
+        let (_, addr, _runtime_tempdir) = test_utils::start_all_with_validity_period(
             Clock::real(),
             test_utils::NodeType::Validator,
             1,

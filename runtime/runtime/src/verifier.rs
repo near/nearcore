@@ -6,7 +6,6 @@ use near_parameters::RuntimeConfig;
 use near_primitives::account::{AccessKey, AccessKeyPermission};
 use near_primitives::action::DeployGlobalContractAction;
 use near_primitives::action::delegate::SignedDelegateAction;
-use near_primitives::checked_feature;
 use near_primitives::errors::{
     ActionsValidationError, InvalidAccessKeyError, InvalidTxError, ReceiptValidationError,
 };
@@ -69,7 +68,7 @@ pub fn check_storage_stake(
     if available_amount >= required_amount {
         Ok(())
     } else {
-        if checked_feature!("stable", ZeroBalanceAccount, current_protocol_version)
+        if ProtocolFeature::ZeroBalanceAccount.enabled(current_protocol_version)
             && is_zero_balance_account(account)
         {
             return Ok(());
@@ -161,17 +160,13 @@ pub fn verify_and_charge_tx_ephemeral(
         }
         .into());
     }
-    if checked_feature!("stable", AccessKeyNonceRange, current_protocol_version) {
-        if let Some(height) = block_height {
-            let upper_bound =
-                height * near_primitives::account::AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER;
-            if tx.nonce() >= upper_bound {
-                return Err(
-                    InvalidTxError::NonceTooLarge { tx_nonce: tx.nonce(), upper_bound }.into()
-                );
-            }
+    if let Some(height) = block_height {
+        let upper_bound =
+            height * near_primitives::account::AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER;
+        if tx.nonce() >= upper_bound {
+            return Err(InvalidTxError::NonceTooLarge { tx_nonce: tx.nonce(), upper_bound }.into());
         }
-    };
+    }
 
     access_key.nonce = tx.nonce();
 
@@ -381,7 +376,7 @@ pub(crate) fn validate_actions(
             }
         } else {
             if let Action::Delegate(_) = action {
-                if !checked_feature!("stable", DelegateAction, current_protocol_version) {
+                if !ProtocolFeature::DelegateAction.enabled(current_protocol_version) {
                     return Err(ActionsValidationError::UnsupportedProtocolFeature {
                         protocol_feature: String::from("DelegateAction"),
                         version: ProtocolFeature::DelegateAction.protocol_version(),
@@ -591,7 +586,7 @@ fn truncate_string(s: &str, limit: usize) -> String {
 fn check_global_contracts_enabled(
     current_protocol_version: ProtocolVersion,
 ) -> Result<(), ActionsValidationError> {
-    if !checked_feature!("stable", GlobalContracts, current_protocol_version) {
+    if !ProtocolFeature::GlobalContracts.enabled(current_protocol_version) {
         return Err(ActionsValidationError::UnsupportedProtocolFeature {
             protocol_feature: "GlobalContracts".to_owned(),
             version: current_protocol_version,
@@ -745,7 +740,7 @@ mod tests {
                 return;
             }
         };
-        let cost = match tx_cost(config, &validated_tx, gas_price, PROTOCOL_VERSION) {
+        let cost = match tx_cost(config, &validated_tx.to_tx(), gas_price, PROTOCOL_VERSION) {
             Ok(c) => c,
             Err(err) => {
                 assert_eq!(InvalidTxError::from(err), expected_err);
@@ -778,7 +773,8 @@ mod tests {
             Ok(validated_tx) => validated_tx,
             Err((err, _tx)) => return Err(err),
         };
-        let transaction_cost = tx_cost(config, &validated_tx, gas_price, current_protocol_version)?;
+        let transaction_cost =
+            tx_cost(config, &validated_tx.to_tx(), gas_price, current_protocol_version)?;
         let vr = verify_and_charge_tx_ephemeral(
             config,
             state_update,

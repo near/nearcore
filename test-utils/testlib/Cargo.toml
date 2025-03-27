@@ -24,19 +24,11 @@ bytesize.workspace = true
 rand_chacha.workspace = true
 
 [features]
-nightly_protocol = [
-  "near-chain-configs/nightly_protocol",
-  "near-chain/nightly_protocol",
-  "near-parameters/nightly_protocol",
-  "near-primitives/nightly_protocol",
-  "node-runtime/nightly_protocol",
-]
 nightly = [
   "near-chain-configs/nightly",
   "near-chain/nightly",
   "near-parameters/nightly",
   "near-primitives/nightly",
-  "nightly_protocol",
   "node-runtime/nightly",
 ]
 default = []
