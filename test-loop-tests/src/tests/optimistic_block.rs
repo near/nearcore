@@ -346,7 +346,7 @@ fn test_optimistic_block_with_invalidated_outcome() {
         (producer_node_height_after - producer_node_height_before) as usize;
     assert!(
         producer_node_hit_delta >= producer_node_height_delta,
-        "Producer of the invalid OptimisticBlock has the right outcome. No miss expected"
+        "Producer of the invalid OptimisticBlock must have all hits because it itself uses correct OptimisticBlock"
     );
 
     env.shutdown_and_drain_remaining_events(Duration::seconds(20));
