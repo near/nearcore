@@ -113,7 +113,16 @@ pub struct StoreConfig {
     #[serde(skip_serializing_if = "MigrationSnapshot::is_default")]
     pub migration_snapshot: MigrationSnapshot,
 
-    pub state_snapshot_enabled: bool,
+    pub state_snapshot_config: StateSnapshotConfig,
+}
+
+/// Config used to control state snapshot creation. This is used for state sync and resharding.
+#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
+pub enum StateSnapshotConfig {
+    /// This is the "enabled" option where we create a snapshot at the beginning of every epoch.
+    #[default]
+    Enabled,
+    Disabled,
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -275,7 +284,7 @@ impl Default for StoreConfig {
 
             migration_snapshot: Default::default(),
 
-            state_snapshot_enabled: false,
+            state_snapshot_config: Default::default(),
         }
     }
 }

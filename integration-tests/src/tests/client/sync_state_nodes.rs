@@ -23,6 +23,7 @@ use near_primitives::utils::MaybeValidated;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_store::DBCol;
 use near_store::adapter::StoreUpdateAdapter;
+use near_store::config::StateSnapshotConfig;
 use nearcore::{load_test_config, start_with_config};
 use std::ops::ControlFlow;
 use std::sync::{Arc, RwLock};
@@ -340,7 +341,7 @@ fn ultra_slow_test_sync_state_dump() {
                 iteration_delay: Some(Duration::milliseconds(500)),
                 credentials_file: None,
             });
-            near1.config.store.state_snapshot_enabled = true;
+            near1.config.store.state_snapshot_config = StateSnapshotConfig::Enabled;
 
             let nearcore::NearNode {
                 view_client: view_client1,
@@ -705,7 +706,7 @@ fn slow_test_state_sync_headers() {
                 load_test_config("test1", tcp::ListenerAddr::reserve_for_test(), genesis.clone());
             near1.client_config.min_num_peers = 0;
             near1.client_config.tracked_shards = vec![ShardId::new(0)]; // Track all shards.
-            near1.config.store.state_snapshot_enabled = true;
+            near1.config.store.state_snapshot_config = StateSnapshotConfig::Enabled;
 
             let nearcore::NearNode { view_client: view_client1, .. } =
                 start_with_config(dir1.path(), near1).expect("start_with_config");
@@ -873,7 +874,7 @@ fn slow_test_state_sync_headers_no_tracked_shards() {
             let mut near1 = load_test_config("test1", port1, genesis.clone());
             near1.client_config.min_num_peers = 0;
             near1.client_config.tracked_shards = vec![ShardId::new(0)]; // Track all shards, it is a validator.
-            near1.config.store.state_snapshot_enabled = false;
+            near1.config.store.state_snapshot_config = StateSnapshotConfig::Disabled;
             near1.config.state_sync_enabled = false;
             near1.client_config.state_sync_enabled = false;
 
@@ -885,7 +886,7 @@ fn slow_test_state_sync_headers_no_tracked_shards() {
                 convert_boot_nodes(vec![("test1", *port1)]);
             near2.client_config.min_num_peers = 0;
             near2.client_config.tracked_shards = vec![]; // Track no shards.
-            near2.config.store.state_snapshot_enabled = true;
+            near2.config.store.state_snapshot_config = StateSnapshotConfig::Enabled;
             near2.config.state_sync_enabled = false;
             near2.client_config.state_sync_enabled = false;
 

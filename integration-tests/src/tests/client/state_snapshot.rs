@@ -46,7 +46,6 @@ impl StateSnapshotTestEnv {
         let flat_storage_manager = FlatStorageManager::new(store.flat_store());
         let shard_uids = [ShardUId::single_shard()];
         let state_snapshot_config = StateSnapshotConfig {
-            enabled: true,
             home_dir: home_dir.clone(),
             hot_store_path: hot_store_path.clone(),
             state_snapshot_subdir: state_snapshot_subdir.clone(),

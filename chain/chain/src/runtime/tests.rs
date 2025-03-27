@@ -143,7 +143,6 @@ impl TestEnv {
             DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
             Default::default(),
             StateSnapshotConfig {
-                enabled: true,
                 home_dir: PathBuf::from(dir.path()),
                 hot_store_path: PathBuf::from("data"),
                 state_snapshot_subdir: PathBuf::from("state_snapshot"),
@@ -1522,7 +1521,6 @@ fn test_genesis_hash() {
         &genesis.config,
         epoch_manager.clone(),
         RuntimeConfigStore::new(None),
-        true,
     );
 
     let state_roots =
@@ -1756,7 +1754,6 @@ fn test_precompile_contracts_updates_cache() {
         &genesis.config,
         epoch_manager,
         RuntimeConfigStore::new(None),
-        true,
     );
 
     let contracts = vec![

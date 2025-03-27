@@ -27,6 +27,7 @@ use near_primitives::types::{
 };
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolVersion};
 use near_store::adapter::StoreAdapter;
+use near_store::config::StateSnapshotConfig;
 use near_store::db::RocksDB;
 use near_store::flat::{BlockInfo, FlatStorageManager, FlatStorageStatus};
 use near_store::{
@@ -225,7 +226,7 @@ impl ForkNetworkCommand {
         .await
         .global();
 
-        near_config.config.store.state_snapshot_enabled = false;
+        near_config.config.store.state_snapshot_config = StateSnapshotConfig::Disabled;
 
         match &self.command {
             SubCommand::Init(InitCmd { shard_layout_file }) => {

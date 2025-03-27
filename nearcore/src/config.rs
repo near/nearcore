@@ -651,7 +651,6 @@ impl NightshadeRuntime {
         epoch_manager: Arc<EpochManagerHandle>,
     ) -> std::io::Result<Arc<NightshadeRuntime>> {
         let state_snapshot_config = StateSnapshotConfig {
-            enabled: config.config.store.state_snapshot_enabled,
             home_dir: home_dir.to_path_buf(),
             hot_store_path: config
                 .config

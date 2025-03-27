@@ -88,7 +88,6 @@ pub fn setup_client(
         epoch_manager.clone(),
         runtime_config_store.clone(),
         TrieConfig::from_store_config(&store_config),
-        true,
         client_config.gc.gc_num_epochs_to_keep,
     );
 
@@ -165,7 +164,6 @@ pub fn setup_client(
             view_epoch_manager.clone(),
             runtime_config_store.clone(),
             TrieConfig::from_store_config(&store_config),
-            true,
             client_config.gc.gc_num_epochs_to_keep,
         );
         (view_epoch_manager, view_shard_tracker, view_runtime_adapter)

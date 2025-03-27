@@ -26,6 +26,7 @@ use near_primitives::views::{QueryRequest, QueryResponseKind, ValidatorInfo};
 use nearcore::{NearConfig, load_test_config, start_with_config};
 
 use near_o11y::WithSpanContextExt;
+use near_store::config::StateSnapshotConfig;
 use {near_primitives::types::BlockId, primitive_types::U256};
 
 #[derive(Clone)]
@@ -46,7 +47,6 @@ fn init_test_staking(
     epoch_length: BlockHeightDelta,
     enable_rewards: bool,
     minimum_stake_divisor: u64,
-    state_snapshot_enabled: bool,
     track_all_shards: bool,
 ) -> Vec<TestNode> {
     init_integration_logger();
@@ -74,7 +74,7 @@ fn init_test_staking(
         );
         // Disable state snapshots, because they don't work with epochs that are too short.
         // And they are not needed in these tests.
-        config.config.store.state_snapshot_enabled = state_snapshot_enabled;
+        config.config.store.state_snapshot_config = StateSnapshotConfig::Disabled;
         if track_all_shards {
             config.config.tracked_shards = vec![ShardId::new(0)];
             config.client_config.tracked_shards = vec![ShardId::new(0)];
@@ -118,7 +118,6 @@ fn ultra_slow_test_stake_nodes() {
                 10,
                 false,
                 10,
-                false,
                 false,
             );
 
@@ -203,7 +202,6 @@ fn ultra_slow_test_validator_kickout() {
                 15,
                 false,
                 (TESTING_INIT_STAKE / NEAR_BASE) as u64 + 1,
-                false,
                 false,
             );
             let mut rng = rand::thread_rng();
@@ -354,7 +352,6 @@ fn ultra_slow_test_validator_join() {
                 false,
                 10,
                 false,
-                true,
             );
             let signer = Arc::new(InMemorySigner::test_signer(&test_nodes[1].account_id));
             let unstake_transaction = SignedTransaction::stake(
@@ -506,7 +503,6 @@ fn ultra_slow_test_inflation() {
                 epoch_length,
                 true,
                 10,
-                false,
                 false,
             );
             let initial_total_supply = test_nodes[0].config.genesis.config.total_supply;

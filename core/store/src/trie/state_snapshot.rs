@@ -136,7 +136,6 @@ impl StateSnapshot {
 /// Information needed to make a state snapshot.
 #[derive(Default)]
 pub struct StateSnapshotConfig {
-    pub enabled: bool,
     pub home_dir: PathBuf,
     pub hot_store_path: PathBuf,
     pub state_snapshot_subdir: PathBuf,
