@@ -231,7 +231,10 @@ fn test_optimistic_block_after_missing_block() {
     let height_delta = (height_after_skip - height_before_skip) as usize;
     assert!(
         height_delta == hit_delta + 2,
-        "OptimisticBlock was not supposed to be used on 2 heights"
+        "Block was skipped on height h={}. OptimisticBlock was not supposed to be used on height h and h+1. It was used {} out of {} times.",
+        height_to_skip,
+        hit_delta,
+        height_delta,
     );
 
     env.shutdown_and_drain_remaining_events(Duration::seconds(20));
