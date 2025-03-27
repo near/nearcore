@@ -103,7 +103,7 @@ pub fn validate_transaction(
 
 /// Set new `signer` and `access_key` in `state_update`.
 ///
-/// Note that this does not commit state changes to the on-disk storage.
+/// Note that this does not commit state changes to the `TrieUpdate`.
 pub fn set_tx_state_changes(
     state_update: &mut TrieUpdate,
     validated_tx: &ValidatedTransaction,
