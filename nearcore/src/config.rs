@@ -1775,9 +1775,10 @@ mod tests {
         let prefix = "node";
 
         // Validators will track 2 shards and non-validators will track all shards.
-        let tracked_shards =
-            vec![ShardUId::new(0, ShardId::new(1)), ShardUId::new(0, ShardId::new(3))];
-        let tracked_config = TrackedConfig::Shards(tracked_shards);
+        let _tracked_shards =
+            [ShardUId::new(0, ShardId::new(1)), ShardUId::new(0, ShardId::new(3))];
+        // TODO(archival_v2): When `TrackedConfig::Shards` is added, use it here together with `tracked_shards`.
+        let tracked_config = TrackedConfig::AllShards;
 
         let (configs, _validator_signers, _network_signers, genesis, _shard_keys) =
             create_localnet_configs(

@@ -661,14 +661,12 @@ impl LocalnetCmd {
         if tracked_shards.to_lowercase() == "none" {
             return TrackedConfig::LightClient;
         }
-        let tracked_shards = tracked_shards
-            .split(',')
-            .map(|shard_id| {
-                let shard_id = shard_id.parse::<ShardId>().expect("Shard id must be an integer");
-                ShardUId::new(0, shard_id)
-            })
-            .collect();
-        TrackedConfig::Shards(tracked_shards)
+        let _tracked_shards = tracked_shards.split(',').map(|shard_id| {
+            let shard_id = shard_id.parse::<ShardId>().expect("Shard id must be an integer");
+            ShardUId::new(0, shard_id)
+        });
+        // TODO(archival_v2): When `TrackedConfig::Shards` is added, use it here together with `tracked_shards`.
+        TrackedConfig::AllShards
     }
 
     pub(super) fn run(self, home_dir: &Path) {

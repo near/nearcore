@@ -322,7 +322,7 @@ fn check_validator_tracked_shards(client: &Client, validator_id: &AccountId) -> 
         && !client.config.tracked_config.tracks_all_shards()
     {
         panic!(
-            "The `chain_id` field specified in genesis is among mainnet/testnet, so validator must track all shards. Please change `tracked_config` field in `config.json` to \"AllShards\"."
+            "The `chain_id` field specified in genesis is among mainnet/testnet, so validator must track all shards. Please set `tracked_config` field in `config.json` to \"AllShards\"."
         );
     }
 
@@ -330,7 +330,7 @@ fn check_validator_tracked_shards(client: &Client, validator_id: &AccountId) -> 
         && client.config.tracked_config.tracks_all_shards()
     {
         panic!(
-            "The `chain_id` field specified in genesis is among mainnet/testnet, so validator must not track all shards. Please change `tracked_config` field in `config.json` to \"LightClient\"."
+            "The `chain_id` field specified in genesis is among mainnet/testnet, so validator must not track all shards. Please set `tracked_config` field in `config.json` to \"LightClient\"."
         );
     }
 

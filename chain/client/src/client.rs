@@ -2378,7 +2378,7 @@ impl Client {
         let tracked_shards = if self.config.tracked_config.tracks_all_shards() {
             self.epoch_manager.shard_ids(&tip.epoch_id)?
         } else {
-            // TODO(archive_v2): Revisit this to determine if improvements can be made
+            // TODO(archival_v2): Revisit this to determine if improvements can be made
             // and if the issue described above has been resolved.
             vec![]
         };

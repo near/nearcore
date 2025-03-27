@@ -1,7 +1,6 @@
 use std::sync::Arc;
 
 use crate::EpochManagerAdapter;
-use crate::shard_assignment::shard_id_to_uid;
 use itertools::Itertools;
 use near_cache::SyncLruCache;
 use near_chain_configs::TrackedConfig;
@@ -48,14 +47,6 @@ impl ShardTracker {
         match &self.tracked_config {
             TrackedConfig::LightClient => Ok(false),
             TrackedConfig::AllShards => Ok(true),
-            TrackedConfig::Shards(tracked_shards) => {
-                let shard_uid = shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, epoch_id)?;
-                if tracked_shards.contains(&shard_uid) {
-                    return Ok(true);
-                }
-                // TODO(archival_v2) Handle the case of resharding, e.g. look up the `shard_uid` in previous shard layouts.
-                Ok(false)
-            }
             TrackedConfig::Accounts(tracked_accounts) => {
                 let shard_layout = self.epoch_manager.get_shard_layout(epoch_id)?;
                 let tracking_mask = self.tracking_shards_cache.get_or_try_put(
