@@ -116,12 +116,30 @@ pub struct StoreConfig {
     pub state_snapshot_config: StateSnapshotConfig,
 }
 
+impl StoreConfig {
+    pub fn enable_state_snapshot(&mut self) {
+        self.state_snapshot_config.state_snapshot_type = StateSnapshotType::Enabled;
+    }
+
+    pub fn disable_state_snapshot(&mut self) {
+        self.state_snapshot_config.state_snapshot_type = StateSnapshotType::Disabled;
+    }
+}
+
 /// Config used to control state snapshot creation. This is used for state sync and resharding.
 #[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
-pub enum StateSnapshotConfig {
+#[serde(default)]
+pub struct StateSnapshotConfig {
+    pub state_snapshot_type: StateSnapshotType,
+}
+
+#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
+pub enum StateSnapshotType {
     /// This is the "enabled" option where we create a snapshot at the beginning of every epoch.
     #[default]
+    #[serde(alias = "EveryEpoch")]
     Enabled,
+    #[serde(alias = "ForReshardingOnly")]
     Disabled,
 }
 

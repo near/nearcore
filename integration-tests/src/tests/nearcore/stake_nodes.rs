@@ -26,7 +26,6 @@ use near_primitives::views::{QueryRequest, QueryResponseKind, ValidatorInfo};
 use nearcore::{NearConfig, load_test_config, start_with_config};
 
 use near_o11y::WithSpanContextExt;
-use near_store::config::StateSnapshotConfig;
 use {near_primitives::types::BlockId, primitive_types::U256};
 
 #[derive(Clone)]
@@ -74,7 +73,7 @@ fn init_test_staking(
         );
         // Disable state snapshots, because they don't work with epochs that are too short.
         // And they are not needed in these tests.
-        config.config.store.state_snapshot_config = StateSnapshotConfig::Disabled;
+        config.config.store.disable_state_snapshot();
         if track_all_shards {
             config.config.tracked_shards = vec![ShardId::new(0)];
             config.client_config.tracked_shards = vec![ShardId::new(0)];
