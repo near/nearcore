@@ -75,61 +75,8 @@ jobs:
         with:
           against: "https://github.com/near/nearcore.git#${{github.event.pull_request.base.sha && format('ref={0}', github.event.pull_request.base.sha) || 'branch=master' }}"
 
-  py_backward_compat:
-    name: "Backward Compatibility"
-    runs-on: ubuntu-22.04-8core
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: 3.11
-          cache: pip
-      - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
-        with:
-          tool: cargo-llvm-cov
-      - run: pip3 install --user -r pytest/requirements.txt
-      - run: cargo llvm-cov show-env | grep -v RUSTFLAGS | tr -d "'" >> "$GITHUB_ENV"
-      - run: echo "RUSTC_WORKSPACE_WRAPPER=$PWD/scripts/coverage-wrapper-rustc" >> "$GITHUB_ENV"
-      - run: echo "CARGO=1" >> "$GITHUB_ENV"
-      - run: cargo build --locked --profile dev-release -p neard --bin neard
-      - run: echo "CURRENT_NEARD=$PWD/target/dev-release/neard" >> "$GITHUB_ENV"
-      - run: cd pytest && python3 tests/sanity/backward_compatible.py
-      - run: mkdir -p coverage/codecov
-      - run: cargo llvm-cov report --profile dev-release --codecov --output-path coverage/codecov/py-backward-compat.json
-      - uses: actions/upload-artifact@v4
-        with:
-          name: coverage-codecov-${{ github.sha }}-py_backward_compat
-          path: coverage/codecov
-
-  py_db_migration:
-    name: "Database Migration"
-    runs-on: ubuntu-22.04-8core
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: 3.11
-          cache: pip
-      - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
-        with:
-          tool: cargo-llvm-cov
-      - run: pip3 install --user -r pytest/requirements.txt
-      - run: cargo llvm-cov show-env | grep -v RUSTFLAGS | tr -d "'" >> "$GITHUB_ENV"
-      - run: echo "RUSTC_WORKSPACE_WRAPPER=$PWD/scripts/coverage-wrapper-rustc" >> "$GITHUB_ENV"
-      - run: echo "CARGO=1" >> "$GITHUB_ENV"
-      - run: cargo build --locked --profile dev-release -p neard --bin neard
-      - run: echo "CURRENT_NEARD=$PWD/target/dev-release/neard" >> "$GITHUB_ENV"
-      - run: echo "NEAR_ROOT=$PWD" >> "$GITHUB_ENV"
-      - run: cd pytest && python3 tests/sanity/db_migration.py
-      - run: mkdir -p coverage/codecov
-      - run: cargo llvm-cov report --profile dev-release --codecov --output-path coverage/codecov/py-db-migration.json
-      - uses: actions/upload-artifact@v4
-        with:
-          name: coverage-codecov-${{ github.sha }}-py_db_migration
-          path: coverage/codecov
-
-  py_sanity_checks:
-    name: "Sanity Checks"
+  pytest_nightly_tests:
+    name: "Large pytest (nightly) Checks"
     runs-on: ubuntu-22.04-16core
     strategy:
       fail-fast: false
@@ -157,14 +104,14 @@ jobs:
         env:
           NEAR_ROOT: "target/dev-release"
       - run: mkdir -p coverage/codecov
-      - run: cargo llvm-cov report --profile dev-release --codecov --output-path coverage/codecov/py-sanity-checks.json
+      - run: cargo llvm-cov report --profile dev-release --codecov --output-path coverage/codecov/py-nightly.json
       - uses: actions/upload-artifact@v4
         with:
-          name: coverage-codecov-${{ github.sha }}-py_sanity_checks
+          name: coverage-codecov-${{ github.sha }}-py-nightly
           path: coverage/codecov
 
-  py_genesis_check:
-    name: "Genesis Changes"
+  pytest_tests:
+    name: "Large pytest Tests"
     runs-on: ubuntu-22.04-8core
     steps:
       - uses: actions/checkout@v4
@@ -181,13 +128,28 @@ jobs:
       - run: echo "CARGO=1" >> "$GITHUB_ENV"
       - run: cargo build --locked --profile dev-release -p neard --bin neard
       - run: echo "CURRENT_NEARD=$PWD/target/dev-release/neard" >> "$GITHUB_ENV"
+      - run: echo "NEAR_ROOT=$PWD" >> "$GITHUB_ENV"
       - run: python3 scripts/state/update_res.py check
+      - run: pushd pytest && python3 tests/sanity/upgradable.py && popd
+      - run: pushd pytest && python3 tests/sanity/db_migration.py && popd
+      - run: pushd pytest && python3 tests/sanity/backward_compatible.py && popd
+
       - run: mkdir -p coverage/codecov
-      - run: cargo llvm-cov report --profile dev-release --codecov --output-path coverage/codecov/py-genesis-check.json
+      - run: cargo llvm-cov report --profile dev-release --codecov --output-path coverage/codecov/py.json
       - uses: actions/upload-artifact@v4
         with:
-          name: coverage-codecov-${{ github.sha }}-py_genesis_check
+          name: coverage-codecov-${{ github.sha }}-py
           path: coverage/codecov
+
+  protocol_schema_check:
+    name: "Protocol Schema"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
+        with:
+          tool: just
+      - run: just check-protocol-schema
 
   py_style_check:
     name: "Style"
@@ -203,42 +165,6 @@ jobs:
           cache: pip
       - run: pip3 install --user -r pytest/requirements.txt
       - run: just python-style-checks
-
-  py_upgradability:
-    name: "Upgradability"
-    runs-on: ubuntu-22.04-8core
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: 3.11
-          cache: pip
-      - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
-        with:
-          tool: cargo-llvm-cov
-      - run: pip3 install --user -r pytest/requirements.txt
-      - run: cargo llvm-cov show-env | grep -v RUSTFLAGS | tr -d "'" >> "$GITHUB_ENV"
-      - run: echo "RUSTC_WORKSPACE_WRAPPER=$PWD/scripts/coverage-wrapper-rustc" >> "$GITHUB_ENV"
-      - run: echo "CARGO=1" >> "$GITHUB_ENV"
-      - run: cargo build --locked --profile dev-release -p neard --bin neard
-      - run: echo "CURRENT_NEARD=$PWD/target/dev-release/neard" >> "$GITHUB_ENV"
-      - run: cd pytest && python3 tests/sanity/upgradable.py
-      - run: mkdir -p coverage/codecov
-      - run: cargo llvm-cov report --profile dev-release --codecov --output-path coverage/codecov/py-upgradability.json
-      - uses: actions/upload-artifact@v4
-        with:
-          name: coverage-codecov-${{ github.sha }}-py_upgradability
-          path: coverage/codecov
-
-  protocol_schema_check:
-    name: "Protocol Schema"
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
-        with:
-          tool: just
-      - run: just check-protocol-schema
 
   check_fmt:
     name: "Cargo Fmt"
@@ -382,11 +308,8 @@ jobs:
     runs-on: ubuntu-latest
     needs:
       - cargo_nextest
-      - py_backward_compat
-      - py_db_migration
-      - py_sanity_checks
-      - py_genesis_check
-      - py_upgradability
+      - pytest_tests
+      - pytest_nightly_tests
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
@@ -407,29 +330,14 @@ jobs:
           flags: unittests,linux-nightly
       - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
         with:
-          files: py-backward-compat.json
+          files: py.json
           fail_ci_if_error: true
           flags: pytests,backward-compatibility,linux
       - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
         with:
-          files: py-db-migration.json
+          files: py-nightly.json
           fail_ci_if_error: true
           flags: pytests,db-migration,linux
-      - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
-        with:
-          files: py-sanity-checks.json
-          fail_ci_if_error: true
-          flags: pytests,sanity-checks,linux
-      - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
-        with:
-          files: py-genesis-check.json
-          fail_ci_if_error: true
-          flags: pytests,genesis-check,linux
-      - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
-        with:
-          files: py-upgradability.json
-          fail_ci_if_error: true
-          flags: pytests,upgradability,linux
 
   publishable_packages_check:
     name: "Cargo check publishable packages separately"
