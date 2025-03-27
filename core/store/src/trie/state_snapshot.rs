@@ -3,7 +3,6 @@ use crate::ShardTries;
 use crate::StoreConfig;
 use crate::adapter::StoreAdapter;
 use crate::adapter::trie_store::TrieStoreAdapter;
-use crate::config::StateSnapshotType;
 use crate::flat::{FlatStorageManager, FlatStorageStatus};
 use crate::{DBCol, NodeStorage, checkpoint_hot_storage_and_cleanup_columns, metrics};
 use near_primitives::block::Block;
@@ -135,11 +134,8 @@ impl StateSnapshot {
 }
 
 /// Information needed to make a state snapshot.
-/// Note that it's possible to override the `enabled` config and force create snapshot for resharding.
 #[derive(Default)]
 pub struct StateSnapshotConfig {
-    /// It's possible to override the `enabled` config and force create snapshot for resharding.
-    pub state_snapshot_type: StateSnapshotType,
     pub home_dir: PathBuf,
     pub hot_store_path: PathBuf,
     pub state_snapshot_subdir: PathBuf,

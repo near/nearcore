@@ -97,7 +97,6 @@ use near_primitives::views::{
 };
 use near_store::DBCol;
 use near_store::adapter::chain_store::ChainStoreAdapter;
-use near_store::config::StateSnapshotType;
 use near_store::get_genesis_state_roots;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use std::cell::Cell;
@@ -374,7 +373,6 @@ pub enum VerifyBlockHashAndSignatureResult {
 enum SnapshotAction {
     /// Make a new snapshot. Contains the prev_hash of the sync_hash that is used for state sync
     MakeSnapshot(CryptoHash),
-    DeleteSnapshot,
     None,
 }
 
@@ -2925,10 +2923,6 @@ impl Chain {
             );
         }
 
-        // Nit: it would be more elegant to only call this after resharding, not
-        // after every state sync but it doesn't hurt.
-        self.process_snapshot_after_resharding()?;
-
         Ok(())
     }
 
@@ -3515,7 +3509,7 @@ impl Chain {
     /// Function to create or delete a snapshot if necessary.
     /// TODO: this function calls head() inside of start_process_block_impl(), consider moving this to be called right after HEAD gets updated
     fn process_snapshot(&mut self) -> Result<(), Error> {
-        let snapshot_action = self.should_make_or_delete_snapshot()?;
+        let snapshot_action = self.should_make_snapshot()?;
         let Some(snapshot_callbacks) = &self.snapshot_callbacks else { return Ok(()) };
         match snapshot_action {
             SnapshotAction::MakeSnapshot(prev_hash) => {
@@ -3531,42 +3525,14 @@ impl Chain {
                 let make_snapshot_callback = &snapshot_callbacks.make_snapshot_callback;
                 make_snapshot_callback(min_chunk_prev_height, epoch_height, shard_uids, prev_block);
             }
-            SnapshotAction::DeleteSnapshot => {
-                let delete_snapshot_callback = &snapshot_callbacks.delete_snapshot_callback;
-                delete_snapshot_callback();
-            }
             SnapshotAction::None => {}
         };
         Ok(())
     }
 
-    // Similar to `process_snapshot` but only called after resharding and
-    // catchup is done. This is to speed up the snapshot removal once resharding
-    // is finished in order to minimize the storage overhead.
-    fn process_snapshot_after_resharding(&mut self) -> Result<(), Error> {
-        let Some(snapshot_callbacks) = &self.snapshot_callbacks else { return Ok(()) };
-
-        let tries = self.runtime_adapter.get_tries();
-        let snapshot_config = tries.state_snapshot_config();
-        let delete_snapshot = match snapshot_config.state_snapshot_type {
-            // Do not delete snapshot if the node is configured to snapshot every epoch.
-            StateSnapshotType::EveryEpoch => false,
-            // Delete the snapshot if it was created only for resharding.
-            StateSnapshotType::ForReshardingOnly => true,
-        };
-
-        if delete_snapshot {
-            tracing::debug!(target: "resharding", "deleting snapshot after resharding");
-            let delete_snapshot_callback = &snapshot_callbacks.delete_snapshot_callback;
-            delete_snapshot_callback();
-        }
-
-        Ok(())
-    }
-
     /// Function to check whether we need to create a new snapshot while processing the current block
     /// Note that this functions is called as a part of block preprocessing, so the head is not updated to current block
-    fn should_make_or_delete_snapshot(&mut self) -> Result<SnapshotAction, Error> {
+    fn should_make_snapshot(&mut self) -> Result<SnapshotAction, Error> {
         // head value is that of the previous block, i.e. curr_block.prev_hash
         let head = self.head()?;
         if head.prev_block_hash == CryptoHash::default() {
@@ -3576,48 +3542,25 @@ impl Chain {
 
         let is_epoch_boundary =
             self.epoch_manager.is_next_block_epoch_start(&head.last_block_hash)?;
-        let will_shard_layout_change =
-            self.epoch_manager.will_shard_layout_change(&head.last_block_hash)?;
         let next_block_epoch =
             self.epoch_manager.get_epoch_id_from_prev_block(&head.last_block_hash)?;
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(&next_block_epoch)?;
 
-        let tries = self.runtime_adapter.get_tries();
-        let snapshot_config = tries.state_snapshot_config();
-        match snapshot_config.state_snapshot_type {
-            // For every epoch, we snapshot if the next block is the state sync "sync_hash" block
-            StateSnapshotType::EveryEpoch => {
-                if !ProtocolFeature::CurrentEpochStateSync.enabled(protocol_version) {
-                    if is_epoch_boundary {
-                        // Here we return head.last_block_hash as the prev_hash of the first block of the next epoch
-                        Ok(SnapshotAction::MakeSnapshot(head.last_block_hash))
-                    } else {
-                        Ok(SnapshotAction::None)
-                    }
-                } else {
-                    let is_sync_prev = self.state_sync_adapter.is_sync_prev_hash(&head)?;
-                    if is_sync_prev {
-                        // Here the head block is the prev block of what the sync hash will be, and the previous
-                        // block is the point in the chain we want to snapshot state for
-                        Ok(SnapshotAction::MakeSnapshot(head.last_block_hash))
-                    } else {
-                        Ok(SnapshotAction::None)
-                    }
-                }
+        if !ProtocolFeature::CurrentEpochStateSync.enabled(protocol_version) {
+            if is_epoch_boundary {
+                // Here we return head.last_block_hash as the prev_hash of the first block of the next epoch
+                Ok(SnapshotAction::MakeSnapshot(head.last_block_hash))
+            } else {
+                Ok(SnapshotAction::None)
             }
-            // For resharding only, we snapshot if next block would be in a different shard layout
-            StateSnapshotType::ForReshardingOnly => {
-                if is_epoch_boundary {
-                    if will_shard_layout_change {
-                        Ok(SnapshotAction::MakeSnapshot(head.last_block_hash))
-                    } else {
-                        // We need to delete the existing snapshot at the epoch boundary if we are not making a new snapshot
-                        // This is useful for the next epoch after resharding where we don't make a snapshot but it's an epoch boundary
-                        Ok(SnapshotAction::DeleteSnapshot)
-                    }
-                } else {
-                    Ok(SnapshotAction::None)
-                }
+        } else {
+            let is_sync_prev = self.state_sync_adapter.is_sync_prev_hash(&head)?;
+            if is_sync_prev {
+                // Here the head block is the prev block of what the sync hash will be, and the previous
+                // block is the point in the chain we want to snapshot state for
+                Ok(SnapshotAction::MakeSnapshot(head.last_block_hash))
+            } else {
+                Ok(SnapshotAction::None)
             }
         }
     }
