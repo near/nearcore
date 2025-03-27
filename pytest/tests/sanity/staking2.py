@@ -156,7 +156,7 @@ def doit(seq=[]):
                                           "nanos": 0
                                       },
                                   },
-                                  "store.state_snapshot_enabled": True,
+                                  "store.state_snapshot_config": "Enabled",
                               }
                           })
 

@@ -39,7 +39,7 @@ client_config_changes['archive'] = True
 client_config_changes['tracked_shards'] = [0]  # Track all shards
 
 no_state_snapshots_config = client_config_changes
-no_state_snapshots_config['store.state_snapshot_enabled'] = False
+no_state_snapshots_config['store.state_snapshot_config'] = "Disabled"
 
 nodes = start_cluster(
     4, 0, 4, None,
