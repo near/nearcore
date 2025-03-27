@@ -337,7 +337,7 @@ fn test_optimistic_block_with_invalidated_outcome() {
         (affected_node_height_after - affected_node_height_before) as usize;
     assert!(
         affected_node_height_delta == affected_node_hit_delta + 1,
-        "Invalid OptimisticBlock outcome used on affected node"
+        "We must have one miss corresponding to the invalid OptimisticBlock outcome"
     );
 
     let producer_node_hit_delta =
