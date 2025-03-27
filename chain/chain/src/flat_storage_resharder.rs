@@ -1313,11 +1313,8 @@ mod tests {
     use std::collections::BTreeMap;
 
     use near_async::time::Clock;
-    use near_chain_configs::{Genesis, MutableConfigValue};
-    use near_epoch_manager::{
-        EpochManager,
-        shard_tracker::{ShardTracker, TrackedConfig},
-    };
+    use near_chain_configs::{Genesis, MutableConfigValue, TrackedConfig};
+    use near_epoch_manager::{EpochManager, shard_tracker::ShardTracker};
     use near_o11y::testonly::init_test_logger;
     use near_primitives::{
         hash::CryptoHash,
