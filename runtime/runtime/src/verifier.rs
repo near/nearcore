@@ -101,7 +101,10 @@ pub fn validate_transaction(
     ValidatedTransaction::new(config, signed_tx)
 }
 
-pub fn commit_charging_for_tx(
+/// Set new `signer` and `access_key` in `state_update`.
+///
+/// Note that this does not commit state changes to the `TrieUpdate`.
+pub fn set_tx_state_changes(
     state_update: &mut TrieUpdate,
     validated_tx: &ValidatedTransaction,
     signer: &Account,
@@ -167,16 +170,19 @@ pub fn verify_and_charge_tx_ephemeral(
             return Err(InvalidTxError::NonceTooLarge { tx_nonce: tx.nonce(), upper_bound }.into());
         }
     }
-
     access_key.nonce = tx.nonce();
 
-    signer.set_amount(signer.amount().checked_sub(total_cost).ok_or_else(|| {
-        InvalidTxError::NotEnoughBalance {
-            signer_id: signer_id.clone(),
-            balance: signer.amount(),
-            cost: total_cost,
+    match signer.amount().checked_sub(total_cost) {
+        Some(new_amount) => signer.set_amount(new_amount),
+        None => {
+            return Err(InvalidTxError::NotEnoughBalance {
+                signer_id: signer_id.clone(),
+                balance: signer.amount(),
+                cost: total_cost,
+            }
+            .into());
         }
-    })?);
+    }
 
     if let AccessKeyPermission::FunctionCall(ref mut function_call_permission) =
         access_key.permission
@@ -783,7 +789,7 @@ mod tests {
             block_height,
             current_protocol_version,
         )?;
-        commit_charging_for_tx(state_update, &validated_tx, &vr.signer, &vr.access_key);
+        set_tx_state_changes(state_update, &validated_tx, &vr.signer, &vr.access_key);
         Ok(vr)
     }
 
