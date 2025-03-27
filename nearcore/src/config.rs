@@ -50,9 +50,7 @@ use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner
 use near_primitives::version::PROTOCOL_VERSION;
 #[cfg(feature = "rosetta_rpc")]
 use near_rosetta_rpc::RosettaRpcConfig;
-use near_store::config::{
-    ArchivalConfig, ArchivalStoreConfig, SplitStorageConfig, StateSnapshotType,
-};
+use near_store::config::{ArchivalConfig, ArchivalStoreConfig, SplitStorageConfig};
 use near_store::{StateSnapshotConfig, Store, TrieConfig};
 use near_telemetry::TelemetryConfig;
 use near_vm_runner::{ContractRuntimeCache, FilesystemContractRuntimeCache};
@@ -652,14 +650,7 @@ impl NightshadeRuntime {
         config: &NearConfig,
         epoch_manager: Arc<EpochManagerHandle>,
     ) -> std::io::Result<Arc<NightshadeRuntime>> {
-        // TODO (#9989): directly use the new state snapshot config once the migration is done.
-        let mut state_snapshot_type =
-            config.config.store.state_snapshot_config.state_snapshot_type.clone();
-        if config.config.store.state_snapshot_enabled {
-            state_snapshot_type = StateSnapshotType::EveryEpoch;
-        }
         let state_snapshot_config = StateSnapshotConfig {
-            state_snapshot_type,
             home_dir: home_dir.to_path_buf(),
             hot_store_path: config
                 .config
