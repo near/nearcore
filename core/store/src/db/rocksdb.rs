@@ -1,6 +1,6 @@
 use crate::config::Mode;
 use crate::db::{DBIterator, DBOp, DBSlice, DBTransaction, Database, StatsValue, refcount};
-use crate::{DBCol, StoreConfig, StoreStatistics, Temperature, metadata, metrics};
+use crate::{DBCol, StoreConfig, StoreStatistics, Temperature, metrics};
 use ::rocksdb::{
     BlockBasedOptions, Cache, ColumnFamily, DB, Env, IteratorMode, Options, ReadOptions, WriteBatch,
 };
@@ -12,6 +12,8 @@ use std::path::Path;
 use std::sync::LazyLock;
 use strum::IntoEnumIterator;
 use tracing::warn;
+
+use super::metadata;
 
 mod instance_tracker;
 pub(crate) mod snapshot;

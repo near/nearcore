@@ -7,7 +7,7 @@ CREATE TABLE IF NOT EXISTS estimation (
     icount REAL,                                    -- if icount based estimation, the number of operations counted
     io_read REAL,                                   -- if icount based estimation, the number of IO read bytes counted
     io_write REAL,                                  -- if icount based estimation, the number of IO write bytes counted
-    uncertain_reason TEXT DEFAULT NULL,             -- set to a non-null value explaining the reason, if the measurment has been marked as uncertain
+    uncertain_reason TEXT DEFAULT NULL,             -- set to a non-null value explaining the reason, if the measurement has been marked as uncertain
     commit_hash TEXT NOT NULL                       -- which git commit this has been estimated on
 );
 CREATE TABLE IF NOT EXISTS parameter (

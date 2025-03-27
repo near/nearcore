@@ -15,7 +15,7 @@ use near_network::PeerManagerActor;
 use near_network::concurrency::ctx;
 use near_network::concurrency::scope;
 use near_o11y::tracing::{error, info};
-use near_primitives::block::GenesisId;
+use near_primitives::genesis::GenesisId;
 use near_primitives::hash::CryptoHash;
 use nearcore::config;
 use nearcore::config::NearConfig;

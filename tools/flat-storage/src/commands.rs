@@ -444,7 +444,7 @@ impl FlatStorageCommand {
                     // Take *previous* value for the key from trie corresponding
                     // to pre-state-root for this block.
                     let prev_value_ref = trie
-                        .get_optimized_ref(trie_key, near_store::KeyLookupMode::Trie)?
+                        .get_optimized_ref(trie_key, near_store::KeyLookupMode::MemOrTrie)?
                         .map(|value_ref| value_ref.into_value_ref());
                     let value_ref =
                         flat_store.get(shard_uid, trie_key)?.map(|val| val.to_value_ref());

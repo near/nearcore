@@ -11,7 +11,7 @@ use near_chain_configs::{GenesisConfig, MIN_GC_NUM_EPOCHS_TO_KEEP, ProtocolConfi
 use near_crypto::PublicKey;
 use near_epoch_manager::shard_assignment::account_id_to_shard_id;
 use near_epoch_manager::{EpochManagerAdapter, EpochManagerHandle};
-use near_parameters::{ActionCosts, ExtCosts, RuntimeConfig, RuntimeConfigStore};
+use near_parameters::{ExtCosts, RuntimeConfig, RuntimeConfigStore};
 use near_pool::types::TransactionGroupIterator;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::apply::ApplyChunkReason;
@@ -20,13 +20,12 @@ use near_primitives::congestion_info::{
 };
 use near_primitives::errors::{InvalidTxError, RuntimeError, StorageError};
 use near_primitives::hash::{CryptoHash, hash};
-use near_primitives::receipt::{DelayedReceiptIndices, Receipt};
+use near_primitives::receipt::Receipt;
 use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::state_part::PartId;
 use near_primitives::transaction::{SignedTransaction, ValidatedTransaction};
-use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, EpochHeight, EpochId, EpochInfoProvider, Gas, MerkleHash,
     ShardId, StateChangeCause, StateRoot, StateRootNode,
@@ -37,8 +36,8 @@ use near_primitives::views::{
     QueryResponseKind, ViewStateResult,
 };
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
+use near_store::db::metadata::DbKind;
 use near_store::flat::FlatStorageManager;
-use near_store::metadata::DbKind;
 use near_store::{
     ApplyStatePartResult, COLD_HEAD_KEY, DBCol, ShardTries, StateSnapshotConfig, Store, Trie,
     TrieConfig, TrieUpdate, WrappedTrieChanges,
@@ -573,7 +572,8 @@ impl RuntimeAdapter for NightshadeRuntime {
     ) -> Result<(), InvalidTxError> {
         let runtime_config = self.runtime_config_store.get_config(current_protocol_version);
 
-        let cost = tx_cost(runtime_config, &validated_tx, gas_price, current_protocol_version)?;
+        let cost =
+            tx_cost(runtime_config, &validated_tx.to_tx(), gas_price, current_protocol_version)?;
         let shard_uid = shard_layout
             .account_id_to_shard_uid(validated_tx.to_signed_tx().transaction.signer_id());
         let state_update = self.tries.new_trie_update(shard_uid, state_root);
@@ -655,29 +655,12 @@ impl RuntimeAdapter for NightshadeRuntime {
         let transactions_gas_limit =
             chunk_tx_gas_limit(protocol_version, runtime_config, &prev_block, shard_id, gas_limit);
 
-        let mut result = PreparedTransactions {
-            transactions: Vec::new(),
-            limited_by: None,
-            storage_proof: None,
-        };
+        let mut result = PreparedTransactions { transactions: Vec::new(), limited_by: None };
         let mut num_checked_transactions = 0;
-
-        // To avoid limiting the throughput of the network, we want to include enough receipts to
-        // saturate the capacity of the chunk even in case when all of these receipts end up using
-        // the smallest possible amount of gas, which is at least the cost of execution of action
-        // receipt.
-        // Currently, the min execution cost is ~100 GGas and the chunk capacity is 1 PGas, giving
-        // a bound of at most 10000 receipts processed in a chunk.
-        let delayed_receipts_indices: DelayedReceiptIndices =
-            near_store::get(&state_update, &TrieKey::DelayedReceiptIndices)?.unwrap_or_default();
-        let min_fee = runtime_config.fees.fee(ActionCosts::new_action_receipt).exec_fee();
-        let new_receipt_count_limit =
-            get_new_receipt_count_limit(min_fee, gas_limit, delayed_receipts_indices);
 
         let size_limit: u64 = calculate_transactions_size_limit(
             protocol_version,
             &runtime_config,
-            chunk.last_chunk_transactions_size,
             transactions_gas_limit,
         );
         // for metrics only
@@ -694,17 +677,6 @@ impl RuntimeAdapter for NightshadeRuntime {
             if total_size >= size_limit {
                 result.limited_by = Some(PrepareTransactionsLimit::Size);
                 break;
-            }
-            if !ProtocolFeature::CongestionControl.enabled(protocol_version) {
-                // Local Congestion Control.
-                // Keep this for the upgrade phase, afterwards it can be
-                // removed. It does not need to be kept because it does not
-                // affect replayability.
-                // TODO(congestion_control): remove at release CongestionControl + 1 or later
-                if result.transactions.len() >= new_receipt_count_limit {
-                    result.limited_by = Some(PrepareTransactionsLimit::ReceiptCount);
-                    break;
-                }
             }
 
             if let Some(time_limit) = &time_limit {
@@ -766,7 +738,7 @@ impl RuntimeAdapter for NightshadeRuntime {
 
                 let verify_result = tx_cost(
                     runtime_config,
-                    &validated_tx,
+                    &validated_tx.to_tx(),
                     prev_block.next_gas_price,
                     protocol_version,
                 )
@@ -825,7 +797,6 @@ impl RuntimeAdapter for NightshadeRuntime {
         metrics::CONGESTION_PREPARE_TX_GAS_LIMIT
             .with_label_values(&[&shard_label])
             .set(i64::try_from(transactions_gas_limit).unwrap_or(i64::MAX));
-        result.storage_proof = state_update.trie.recorded_storage().map(|s| s.nodes);
         Ok(result)
     }
 
@@ -1285,27 +1256,6 @@ impl RuntimeAdapter for NightshadeRuntime {
     }
 }
 
-/// Get the limit on the number of new receipts imposed by the local congestion control.
-fn get_new_receipt_count_limit(
-    min_fee: u64,
-    gas_limit: u64,
-    delayed_receipts_indices: DelayedReceiptIndices,
-) -> usize {
-    if min_fee == 0 {
-        return usize::MAX;
-    }
-    // Round up to include at least one receipt.
-    let max_processed_receipts_in_chunk = (gas_limit + min_fee - 1) / min_fee;
-    // Allow at most 2 chunks worth of delayed receipts. This way under congestion,
-    // after processing a single chunk, we will still have at least 1 chunk worth of
-    // delayed receipts, ensuring the high throughput even if the next chunk producer
-    // does not include any receipts.
-    // This buffer size is a trade-off between the max queue size and system efficiency
-    // under congestion.
-    let delayed_receipt_count_limit = max_processed_receipts_in_chunk * 2;
-    delayed_receipt_count_limit.saturating_sub(delayed_receipts_indices.len()) as usize
-}
-
 /// How much gas of the next chunk we want to spend on converting new
 /// transactions to receipts.
 fn chunk_tx_gas_limit(
@@ -1336,20 +1286,15 @@ fn chunk_tx_gas_limit(
 fn calculate_transactions_size_limit(
     protocol_version: ProtocolVersion,
     runtime_config: &RuntimeConfig,
-    mut last_chunk_transactions_size: usize,
     transactions_gas_limit: Gas,
 ) -> u64 {
     // Checking feature WitnessTransactionLimits
     if ProtocolFeature::StatelessValidation.enabled(protocol_version) {
-        if ProtocolFeature::RelaxedChunkValidation.enabled(protocol_version) {
-            last_chunk_transactions_size = 0;
-        }
         // Sum of transactions in the previous and current chunks should not exceed the limit.
         // Witness keeps transactions from both previous and current chunk, so we have to limit the sum of both.
         runtime_config
             .witness_config
             .combined_transactions_size_limit
-            .saturating_sub(last_chunk_transactions_size)
             .try_into()
             .expect("Can't convert usize to u64!")
     } else {

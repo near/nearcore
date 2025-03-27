@@ -12,7 +12,7 @@ use near_network::test_utils::{
 };
 use near_o11y::WithSpanContextExt;
 use near_o11y::testonly::init_test_logger;
-use near_primitives::block::GenesisId;
+use near_primitives::genesis::GenesisId;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 

@@ -16,7 +16,7 @@ use near_chain::validate::{
     validate_chunk_proofs, validate_chunk_with_chunk_extra, validate_transactions_order,
 };
 use near_chain::{
-    Block, BlockHeader, Chain, ChainGenesis, ChainStore, ChainStoreAccess, ReceiptFilter,
+    Block, BlockHeader, Chain, ChainStore, ChainStoreAccess, ReceiptFilter,
     get_incoming_receipts_for_shard,
 };
 use near_chain_configs::GenesisValidationMode;
@@ -96,7 +96,6 @@ struct ReplayChunkOutput {
 }
 
 struct ReplayController {
-    near_config: NearConfig,
     storage: Arc<ReplayDB>,
     chain_store: ChainStore,
     runtime: Arc<NightshadeRuntime>,
@@ -150,7 +149,6 @@ impl ReplayController {
         };
 
         Ok(Self {
-            near_config,
             storage,
             chain_store,
             runtime,
@@ -320,12 +318,8 @@ impl ReplayController {
             state_patch: Default::default(),
         };
 
-        let block_context = Chain::get_apply_chunk_block_context(
-            self.epoch_manager.as_ref(),
-            block,
-            prev_block.header(),
-            is_new_chunk,
-        )?;
+        let block_context =
+            Chain::get_apply_chunk_block_context(block, prev_block.header(), is_new_chunk)?;
 
         let update_reason = if is_new_chunk {
             let receipts = self.collect_incoming_receipts(
@@ -512,12 +506,10 @@ impl ReplayController {
     /// Note that there are no chunks in the genesis block, so we directly generate the ChunkExtras
     /// from the information in the genesis block without applying any transactions or receipts.
     fn save_genesis_chunk_extras(&mut self, genesis_block: &Block) -> Result<()> {
-        let chain_genesis = ChainGenesis::new(&self.near_config.genesis.config);
         let state_roots = get_genesis_state_roots(&self.chain_store.store())?
             .ok_or_else(|| anyhow!("genesis state roots do not exist in the db".to_owned()))?;
         let mut store_update = self.chain_store.store_update();
         Chain::save_genesis_chunk_extras(
-            &chain_genesis,
             genesis_block,
             &state_roots,
             self.epoch_manager.as_ref(),

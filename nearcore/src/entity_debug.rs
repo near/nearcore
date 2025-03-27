@@ -5,6 +5,7 @@ use borsh::BorshDeserialize;
 use near_chain::types::{LatestKnown, RuntimeAdapter};
 use near_chain::{Block, BlockHeader};
 use near_epoch_manager::EpochManagerAdapter;
+use near_epoch_manager::epoch_info_aggregator::EpochInfoAggregator;
 use near_epoch_manager::shard_assignment::{account_id_to_shard_id, shard_id_to_uid};
 use near_jsonrpc_primitives::errors::RpcError;
 use near_jsonrpc_primitives::types::entity_debug::{
@@ -37,14 +38,13 @@ use near_primitives::views::{
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::flat_store::encode_flat_state_db_key;
 use near_store::db::GENESIS_CONGESTION_INFO_KEY;
-use near_store::epoch_info_aggregator::EpochInfoAggregator;
 use near_store::flat::delta::KeyForFlatStateDelta;
 use near_store::flat::{FlatStateChanges, FlatStateDeltaMetadata, FlatStorageStatus};
 use near_store::{
-    CHUNK_TAIL_KEY, COLD_HEAD_KEY, DBCol, FINAL_HEAD_KEY, FORK_TAIL_KEY, GENESIS_JSON_HASH_KEY,
-    GENESIS_STATE_ROOTS_KEY, HEAD_KEY, HEADER_HEAD_KEY, LARGEST_TARGET_HEIGHT_KEY,
-    LATEST_KNOWN_KEY, NibbleSlice, RawTrieNode, RawTrieNodeWithSize, STATE_SNAPSHOT_KEY,
-    STATE_SYNC_DUMP_KEY, ShardUId, Store, TAIL_KEY,
+    CHUNK_TAIL_KEY, COLD_HEAD_KEY, DBCol, FINAL_HEAD_KEY, FORK_TAIL_KEY, GENESIS_STATE_ROOTS_KEY,
+    HEAD_KEY, HEADER_HEAD_KEY, LARGEST_TARGET_HEIGHT_KEY, LATEST_KNOWN_KEY, NibbleSlice,
+    RawTrieNode, RawTrieNodeWithSize, STATE_SNAPSHOT_KEY, STATE_SYNC_DUMP_KEY, ShardUId, Store,
+    TAIL_KEY,
 };
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
@@ -810,7 +810,6 @@ struct BlockMiscData {
     final_head: Option<Tip>,
     latest_known: Option<LatestKnown>,
     largest_target_height: Option<BlockHeight>,
-    genesis_json_hash: Option<CryptoHash>,
     genesis_state_roots: Option<Vec<StateRoot>>,
     genesis_congestion_info: Option<Vec<CongestionInfo>>,
     cold_head: Option<Tip>,
@@ -829,7 +828,6 @@ impl BlockMiscData {
             final_head: store.get_ser(DBCol::BlockMisc, FINAL_HEAD_KEY)?,
             latest_known: store.get_ser(DBCol::BlockMisc, LATEST_KNOWN_KEY)?,
             largest_target_height: store.get_ser(DBCol::BlockMisc, LARGEST_TARGET_HEIGHT_KEY)?,
-            genesis_json_hash: store.get_ser(DBCol::BlockMisc, GENESIS_JSON_HASH_KEY)?,
             genesis_state_roots: store.get_ser(DBCol::BlockMisc, GENESIS_STATE_ROOTS_KEY)?,
             genesis_congestion_info: store
                 .get_ser(DBCol::BlockMisc, GENESIS_CONGESTION_INFO_KEY)?,

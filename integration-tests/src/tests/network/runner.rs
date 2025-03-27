@@ -28,7 +28,7 @@ use near_network::types::{
 };
 use near_o11y::WithSpanContextExt;
 use near_o11y::testonly::init_test_logger;
-use near_primitives::block::GenesisId;
+use near_primitives::genesis::GenesisId;
 use near_primitives::network::PeerId;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::{AccountId, ValidatorId};

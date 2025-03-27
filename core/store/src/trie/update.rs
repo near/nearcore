@@ -202,7 +202,7 @@ impl TrieUpdate {
         code_hash: CryptoHash,
     ) -> Result<Option<usize>, StorageError> {
         let key = TrieKey::ContractCode { account_id };
-        let value_ptr = self.get_ref(&key, KeyLookupMode::FlatStorage)?;
+        let value_ptr = self.get_ref(&key, KeyLookupMode::MemOrFlatOrTrie)?;
         if let Some(value_ptr) = value_ptr {
             debug_assert_eq!(
                 code_hash,
@@ -374,7 +374,7 @@ impl TrieUpdate {
         };
         let contract_ref = self
             .trie
-            .get_optimized_ref_no_side_effects(&trie_key.to_vec(), KeyLookupMode::FlatStorage)
+            .get_optimized_ref_no_side_effects(&trie_key.to_vec(), KeyLookupMode::MemOrFlatOrTrie)
             .or_else(|err| {
                 // If the value for the trie key is not found, we treat it as if the contract does not exist.
                 // In this case, we ignore the error and skip recording the contract call below.
