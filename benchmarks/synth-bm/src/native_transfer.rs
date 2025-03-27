@@ -25,7 +25,7 @@ pub struct BenchmarkArgs {
     pub rpc_url: String,
     #[arg(long)]
     pub user_data_dir: PathBuf,
-    #[arg(long)]
+    #[arg(long, default_value_t = u64::MAX)]
     pub num_transfers: u64,
     /// Acts as upper bound on the number of concurrently open RPC requests.
     #[arg(long)]

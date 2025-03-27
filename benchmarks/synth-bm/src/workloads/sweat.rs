@@ -101,7 +101,7 @@ pub struct RunBenchmarkArgs {
     #[arg(long)]
     pub requests_per_second: u64,
 
-    #[arg(long)]
+    #[arg(long, default_value_t = u64::MAX)]
     pub total_batches: u64,
 
     /// File containing a list of RPC URLs to use for sending transactions
