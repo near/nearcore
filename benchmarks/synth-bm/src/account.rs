@@ -223,6 +223,8 @@ pub async fn update_account_nonces(
 
     let mut success_count = 0;
     let mut error_count = 0;
+    let mut accounts_to_write = Vec::new();
+
     while let Some(res) = tasks.join_next().await {
         let (idx, response) = res.expect("join should succeed");
         match response {
@@ -237,8 +239,9 @@ pub async fn update_account_nonces(
                         nonce.new = nonce,
                     );
                     account.nonce = nonce;
-                    if let Some(path) = accounts_path {
-                        account.write_to_dir(path)?;
+                    // Instead of writing immediately, store the index for later
+                    if accounts_path.is_some() {
+                        accounts_to_write.push(idx);
                     }
                 }
             }
@@ -247,6 +250,14 @@ pub async fn update_account_nonces(
                 let account = &accounts[idx];
                 warn!("Failed to update nonce for account {}: {}", account.id, e);
             }
+        }
+    }
+
+    // Now write to disk sequentially to avoid "too many open files" error
+    if let Some(path) = accounts_path {
+        info!("Writing {} updated accounts to disk sequentially", accounts_to_write.len());
+        for idx in accounts_to_write {
+            accounts[idx].write_to_dir(path)?;
         }
     }
 
@@ -338,8 +349,18 @@ pub async fn create_sub_accounts(args: &CreateSubAccountsArgs) -> anyhow::Result
         update_account_nonces(vec![client.clone()], sub_accounts, args.requests_per_second, None)
             .await?;
 
-    for account in sub_accounts.iter() {
-        account.write_to_dir(&args.user_data_dir)?;
+    // Write accounts to disk in batches to avoid "too many open files" errors
+    info!("Writing {} accounts to disk", sub_accounts.len());
+    // Use a reasonable batch size (100 is a common file descriptor limit on many systems)
+    const BATCH_SIZE: usize = 100;
+    for chunk in sub_accounts.chunks(BATCH_SIZE) {
+        for account in chunk {
+            account.write_to_dir(&args.user_data_dir)?;
+        }
+        // Small delay to ensure files are properly closed between batches
+        if chunk.len() == BATCH_SIZE {
+            time::sleep(Duration::from_millis(10)).await;
+        }
     }
 
     Ok(())
