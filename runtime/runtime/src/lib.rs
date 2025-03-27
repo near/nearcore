@@ -9,7 +9,7 @@ use crate::congestion_control::DelayedReceiptQueueWrapper;
 use crate::prefetch::TriePrefetcher;
 use crate::verifier::{StorageStakingError, check_storage_stake, validate_receipt};
 pub use crate::verifier::{
-    ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT, commit_charging_for_tx, validate_transaction,
+    ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT, set_tx_state_changes, validate_transaction,
     verify_and_charge_tx_ephemeral,
 };
 use bandwidth_scheduler::{BandwidthSchedulerOutput, run_bandwidth_scheduler};
@@ -379,7 +379,7 @@ impl Runtime {
         };
 
         metrics::TRANSACTION_PROCESSED_SUCCESSFULLY_TOTAL.inc();
-        commit_charging_for_tx(
+        set_tx_state_changes(
             state_update,
             validated_tx,
             &verification_result.signer,
@@ -406,9 +406,11 @@ impl Runtime {
                 actions: validated_tx.actions().to_vec(),
             }),
         });
-        stats.balance.tx_burnt_amount =
-            safe_add_balance(stats.balance.tx_burnt_amount, verification_result.burnt_amount)
-                .map_err(|_| InvalidTxError::CostOverflow)?;
+
+        match safe_add_balance(stats.balance.tx_burnt_amount, verification_result.burnt_amount) {
+            Ok(new) => stats.balance.tx_burnt_amount = new,
+            Err(_) => return Err(InvalidTxError::CostOverflow),
+        }
         let gas_burnt = verification_result.gas_burnt;
         let compute_usage = verification_result.gas_burnt;
         let outcome = ExecutionOutcomeWithId {

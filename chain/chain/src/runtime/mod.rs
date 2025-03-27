@@ -48,7 +48,7 @@ use node_runtime::adapter::ViewRuntimeAdapter;
 use node_runtime::config::tx_cost;
 use node_runtime::state_viewer::{TrieViewer, ViewApplyState};
 use node_runtime::{
-    ApplyState, Runtime, ValidatorAccountsUpdate, commit_charging_for_tx, validate_transaction,
+    ApplyState, Runtime, ValidatorAccountsUpdate, set_tx_state_changes, validate_transaction,
     verify_and_charge_tx_ephemeral,
 };
 use std::collections::HashMap;
@@ -754,7 +754,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                     )
                 })
                 .and_then(|verification_res| {
-                    commit_charging_for_tx(
+                    set_tx_state_changes(
                         &mut state_update,
                         &validated_tx,
                         &verification_res.signer,
