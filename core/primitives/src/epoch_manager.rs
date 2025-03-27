@@ -427,7 +427,7 @@ impl AllEpochConfig {
                 config.shard_layout.shard_ids().map(|_| 100).collect();
             config.block_producer_kickout_threshold = 80;
             config.chunk_producer_kickout_threshold = 80;
-            config.num_chunk_only_producer_seats = 200;
+            config.num_chunk_only_producer_seats = 0;
         }
 
         // Adjust the number of block and chunk producers for testnet, to make it easier to test the change.
