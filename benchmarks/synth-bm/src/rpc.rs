@@ -1,12 +1,12 @@
 use std::time::Instant;
 
 use near_crypto::{InMemorySigner, PublicKey, Signer};
+use near_jsonrpc_client::JsonRpcClient;
 use near_jsonrpc_client::errors::JsonRpcError;
 use near_jsonrpc_client::methods::block::RpcBlockRequest;
 use near_jsonrpc_client::methods::query::RpcQueryRequest;
 use near_jsonrpc_client::methods::send_tx::RpcSendTransactionRequest;
 use near_jsonrpc_client::methods::tx::{RpcTransactionError, RpcTransactionResponse};
-use near_jsonrpc_client::JsonRpcClient;
 use near_jsonrpc_primitives::types::query::QueryResponseKind;
 use near_primitives::{
     transaction::Transaction,
@@ -17,7 +17,7 @@ use near_primitives::{
     },
 };
 use tokio::sync::mpsc::Receiver;
-use tracing::{info, warn, debug};
+use tracing::{debug, info, warn};
 
 pub fn new_request(
     transaction: Transaction,
@@ -113,7 +113,11 @@ impl RpcResponseHandler {
 
             match response {
                 Ok(rpc_response) => {
-                    if check_tx_response(rpc_response, self.wait_until.clone(), self.response_check_severity) {
+                    if check_tx_response(
+                        rpc_response,
+                        self.wait_until.clone(),
+                        self.response_check_severity,
+                    ) {
                         num_succeeded += 1;
                     }
                 }
@@ -123,10 +127,9 @@ impl RpcResponseHandler {
                 }
             };
 
-            debug!("Received {} responses; num_success={} num_rpc_error={}",
-                num_received,
-                num_succeeded,
-                num_rpc_error
+            debug!(
+                "Received {} responses; num_success={} num_rpc_error={}",
+                num_received, num_succeeded, num_rpc_error
             );
         }
 
@@ -160,8 +163,10 @@ fn check_outcome(
         response.final_execution_outcome.expect("response should have an outcome").into_outcome();
 
     if !matches!(outcome.status, FinalExecutionStatus::SuccessValue(_)) {
-        let msg =
-            format!("got outcome.status {:#?}, expected FinalExecutionStatus::SuccessValue", outcome.status);
+        let msg = format!(
+            "got outcome.status {:#?}, expected FinalExecutionStatus::SuccessValue",
+            outcome.status
+        );
         warn_or_panic(&msg, response_check_severity);
         return false;
     }
@@ -221,10 +226,7 @@ pub fn check_tx_response(
         | TxExecutionStatus::Executed
         | TxExecutionStatus::Final => {
             // For now, only sending transactions that expect an empty success value.
-            check_outcome(
-                response,
-                response_check_severity,
-            )
+            check_outcome(response, response_check_severity)
         }
     }
 }

@@ -8,7 +8,7 @@ use tokio::task::JoinSet;
 use tokio::time;
 
 use crate::block_service::BlockService;
-use crate::rpc::{new_request, view_access_key, ResponseCheckSeverity, RpcResponseHandler};
+use crate::rpc::{ResponseCheckSeverity, RpcResponseHandler, new_request, view_access_key};
 use clap::Args;
 use near_crypto::{InMemorySigner, KeyType, SecretKey};
 use near_crypto::{PublicKey, Signer};
@@ -23,7 +23,7 @@ use near_primitives::{
     types::AccountId,
 };
 use serde::{Deserialize, Serialize};
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 #[derive(Args, Debug)]
 pub struct CreateSubAccountsArgs {
@@ -65,6 +65,9 @@ pub struct CreateSubAccountsArgs {
     /// Directory where created user account data (incl. key and nonce) is stored.
     #[arg(long)]
     pub user_data_dir: PathBuf,
+    /// Ignore RPC failures while creating accounts. If enabled, the tool will try to generate the target number of accounts, best-effort.
+    #[arg(long)]
+    pub ignore_failures: bool,
 }
 
 pub fn new_create_subaccount_actions(public_key: PublicKey, deposit: u128) -> Vec<Action> {
@@ -151,8 +154,10 @@ pub async fn update_account_nonces(
     mut accounts: Vec<Account>,
     rps_limit: u64,
     accounts_path: Option<&PathBuf>,
+    ignore_failures: bool,
 ) -> anyhow::Result<Vec<Account>> {
     let mut tasks = JoinSet::new();
+    let mut account_idxs_to_remove = Vec::new();
 
     let mut interval = time::interval(Duration::from_micros(1_000_000u64 / rps_limit));
     for (i, account) in accounts.iter().enumerate() {
@@ -164,19 +169,40 @@ pub async fn update_account_nonces(
 
     while let Some(res) = tasks.join_next().await {
         let (idx, response) = res.expect("join should succeed");
-        let nonce = response?.nonce;
-        let account = accounts.get_mut(idx).unwrap();
-        if account.nonce != nonce {
-            debug!(name: "nonce updated",
-                user = account.id.to_string(),
-                nonce.old = account.nonce,
-                nonce.new = nonce,
-            );
-            account.nonce = nonce;
-            if let Some(path) = accounts_path {
-                account.write_to_dir(path)?;
+
+        let nonce = match response {
+            Ok(resp) => Some(resp.nonce),
+            Err(err) => {
+                if ignore_failures {
+                    warn!("Error while querying account: {err}");
+                    account_idxs_to_remove.push(idx);
+                    None
+                } else {
+                    return Err(err);
+                }
+            }
+        };
+
+        if let (Some(new_nonce), account) = (nonce, accounts.get_mut(idx).unwrap()) {
+            if account.nonce != new_nonce {
+                debug!(
+                    name = "nonce updated",
+                    user = account.id.to_string(),
+                    nonce.old = account.nonce,
+                    nonce.new = new_nonce,
+                );
+                account.nonce = new_nonce;
+                if let Some(path) = accounts_path {
+                    account.write_to_dir(path)?;
+                }
             }
         }
+    }
+
+    // Remove accounts that we couldn't find in the RPC node.
+    account_idxs_to_remove.sort_unstable();
+    for idx in account_idxs_to_remove.into_iter().rev() {
+        accounts.swap_remove(idx);
     }
 
     Ok(accounts)
@@ -262,12 +288,20 @@ pub async fn create_sub_accounts(args: &CreateSubAccountsArgs) -> anyhow::Result
 
     // Nonces of new access keys are set by nearcore: https://github.com/near/nearcore/pull/4064
     // Query them from the rpc to write `Accounts` with valid nonces to disk
-    sub_accounts =
-        update_account_nonces(client.clone(), sub_accounts, args.requests_per_second, None).await?;
+    sub_accounts = update_account_nonces(
+        client.clone(),
+        sub_accounts,
+        args.requests_per_second,
+        None,
+        args.ignore_failures,
+    )
+    .await?;
 
     for account in sub_accounts.iter() {
         account.write_to_dir(&args.user_data_dir)?;
     }
+
+    info!("Written {} accounts to disk", sub_accounts.len());
 
     Ok(())
 }
