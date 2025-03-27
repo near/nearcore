@@ -111,7 +111,15 @@ impl Account {
         let mut file_name = self.id.to_string();
         file_name.push_str(".json");
         let file_path = dir.join(file_name);
-        fs::write(file_path, json)?;
+
+        // Use explicit file operations instead of fs::write to ensure proper closing
+        use std::io::Write;
+        let mut file = std::fs::File::create(&file_path)?;
+        file.write_all(json.as_bytes())?;
+        file.flush()?;
+        // Explicitly drop the file to close it
+        drop(file);
+
         Ok(())
     }
 
@@ -256,8 +264,16 @@ pub async fn update_account_nonces(
     // Now write to disk sequentially to avoid "too many open files" error
     if let Some(path) = accounts_path {
         info!("Writing {} updated accounts to disk sequentially", accounts_to_write.len());
-        for idx in accounts_to_write {
-            accounts[idx].write_to_dir(path)?;
+        // Use a smaller batch size to avoid file descriptor limits
+        const BATCH_SIZE: usize = 20;
+        for chunk in accounts_to_write.chunks(BATCH_SIZE) {
+            for idx in chunk {
+                accounts[*idx].write_to_dir(path)?;
+            }
+            // Add a longer delay between batches to ensure files are fully closed
+            if chunk.len() == BATCH_SIZE {
+                time::sleep(Duration::from_millis(50)).await;
+            }
         }
     }
 
@@ -351,15 +367,15 @@ pub async fn create_sub_accounts(args: &CreateSubAccountsArgs) -> anyhow::Result
 
     // Write accounts to disk in batches to avoid "too many open files" errors
     info!("Writing {} accounts to disk", sub_accounts.len());
-    // Use a reasonable batch size (100 is a common file descriptor limit on many systems)
-    const BATCH_SIZE: usize = 100;
+    // Use a smaller batch size to avoid file descriptor limits
+    const BATCH_SIZE: usize = 20;
     for chunk in sub_accounts.chunks(BATCH_SIZE) {
         for account in chunk {
             account.write_to_dir(&args.user_data_dir)?;
         }
-        // Small delay to ensure files are properly closed between batches
+        // Add a longer delay between batches to ensure files are fully closed
         if chunk.len() == BATCH_SIZE {
-            time::sleep(Duration::from_millis(10)).await;
+            time::sleep(Duration::from_millis(50)).await;
         }
     }
 
