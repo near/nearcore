@@ -36,7 +36,7 @@ impl ShardTracker {
     }
 
     pub fn new_empty(epoch_manager: Arc<dyn EpochManagerAdapter>) -> Self {
-        Self::new(TrackedConfig::LightClient, epoch_manager)
+        Self::new(TrackedConfig::NoShards, epoch_manager)
     }
 
     fn tracks_shard_at_epoch(
@@ -45,7 +45,7 @@ impl ShardTracker {
         epoch_id: &EpochId,
     ) -> Result<bool, EpochError> {
         match &self.tracked_config {
-            TrackedConfig::LightClient => Ok(false),
+            TrackedConfig::NoShards => Ok(false),
             TrackedConfig::AllShards => Ok(true),
             TrackedConfig::Accounts(tracked_accounts) => {
                 let shard_layout = self.epoch_manager.get_shard_layout(epoch_id)?;
@@ -138,7 +138,7 @@ impl ShardTracker {
             }
         }
         match self.tracked_config {
-            TrackedConfig::LightClient => {
+            TrackedConfig::NoShards => {
                 // Avoid looking up EpochId as a performance optimization.
                 false
             }
@@ -186,7 +186,7 @@ impl ShardTracker {
             }
         }
         match self.tracked_config {
-            TrackedConfig::LightClient => {
+            TrackedConfig::NoShards => {
                 // Avoid looking up EpochId as a performance optimization.
                 false
             }
@@ -234,7 +234,7 @@ impl ShardTracker {
             }
         }
         match self.tracked_config {
-            TrackedConfig::LightClient => {
+            TrackedConfig::NoShards => {
                 // Avoid looking up EpochId as a performance optimization.
                 false
             }

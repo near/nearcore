@@ -54,11 +54,8 @@ pub fn csv_to_json_configs(home: &Path, chain_id: String, tracked_shards: Vec<Sh
     // Construct `config.json`.
     let mut config = Config::default();
     // TODO: Revisit this file and assess whether the tracked_shards parameter is appropriate here.
-    let tracked_config = if tracked_shards.is_empty() {
-        TrackedConfig::LightClient
-    } else {
-        TrackedConfig::AllShards
-    };
+    let tracked_config =
+        if tracked_shards.is_empty() { TrackedConfig::NoShards } else { TrackedConfig::AllShards };
     config.tracked_config = Some(tracked_config);
 
     // Construct genesis config.

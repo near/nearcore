@@ -41,8 +41,8 @@ pub const DEFAULT_EXTERNAL_STORAGE_FALLBACK_THRESHOLD: u64 = 3;
 /// If the node is an active validator, it will also track the shards it is responsible for as a validator.
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum TrackedConfig {
-    /// Tracks no shards.
-    LightClient,
+    /// Tracks no shards (light client).
+    NoShards,
     /// Tracks all shards.
     AllShards,
     /// Tracks shards that are assigned to given validator account.
@@ -56,7 +56,7 @@ pub enum TrackedConfig {
 
 impl TrackedConfig {
     pub fn new_empty() -> Self {
-        TrackedConfig::LightClient
+        TrackedConfig::NoShards
     }
 
     pub fn tracks_all_shards(&self) -> bool {
@@ -690,7 +690,7 @@ impl ClientConfig {
             doomslug_step_period: Duration::milliseconds(100),
             block_header_fetch_horizon: 50,
             gc: GCConfig { gc_blocks_limit: 100, ..GCConfig::default() },
-            tracked_config: TrackedConfig::LightClient,
+            tracked_config: TrackedConfig::NoShards,
             archive,
             save_trie_changes,
             log_summary_style: LogSummaryStyle::Colored,

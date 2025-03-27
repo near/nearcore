@@ -659,7 +659,7 @@ impl LocalnetCmd {
             return TrackedConfig::AllShards;
         }
         if tracked_shards.to_lowercase() == "none" {
-            return TrackedConfig::LightClient;
+            return TrackedConfig::NoShards;
         }
         let _tracked_shards = tracked_shards.split(',').map(|shard_id| {
             let shard_id = shard_id.parse::<ShardId>().expect("Shard id must be an integer");

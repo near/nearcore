@@ -381,7 +381,7 @@ impl Default for Config {
             telemetry: TelemetryConfig::default(),
             network: Default::default(),
             consensus: Consensus::default(),
-            tracked_config: Some(TrackedConfig::LightClient),
+            tracked_config: Some(TrackedConfig::NoShards),
             tracked_accounts: None,
             tracked_shadow_validator: None,
             tracked_shards: None,
@@ -1708,7 +1708,7 @@ mod tests {
                 num_non_validators,
                 prefix,
                 // Validators will track single shard but archival and RPC nodes will track all shards.
-                TrackedConfig::LightClient,
+                TrackedConfig::NoShards,
             );
         assert_eq!(
             configs.len() as u64,
@@ -1724,7 +1724,7 @@ mod tests {
             assert_eq!(config.archive, false);
             assert!(config.cold_store.is_none());
             assert!(config.split_storage.is_none());
-            assert_eq!(config.tracked_config.as_ref().unwrap(), &TrackedConfig::LightClient);
+            assert_eq!(config.tracked_config.as_ref().unwrap(), &TrackedConfig::NoShards);
         }
 
         // Check non-validator archival nodes.
@@ -1758,7 +1758,7 @@ mod tests {
             assert_eq!(config.archive, false);
             assert!(config.cold_store.is_none());
             assert!(config.split_storage.is_none());
-            assert_eq!(config.tracked_config.as_ref().unwrap(), &TrackedConfig::LightClient);
+            assert_eq!(config.tracked_config.as_ref().unwrap(), &TrackedConfig::NoShards);
         }
 
         assert_eq!(genesis.config.validators.len() as u64, num_shards);

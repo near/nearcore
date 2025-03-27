@@ -148,15 +148,8 @@ fn near_configs_to_node_configs(
 }
 
 pub fn create_nodes(num_nodes: usize, prefix: &str) -> Vec<NodeConfig> {
-    let (configs, validator_signers, network_signers, genesis, _) = create_localnet_configs(
-        1,
-        num_nodes as NumSeats,
-        0,
-        0,
-        0,
-        prefix,
-        TrackedConfig::LightClient,
-    );
+    let (configs, validator_signers, network_signers, genesis, _) =
+        create_localnet_configs(1, num_nodes as NumSeats, 0, 0, 0, prefix, TrackedConfig::NoShards);
     near_configs_to_node_configs(configs, validator_signers, network_signers, genesis)
 }
 
@@ -170,7 +163,7 @@ pub fn create_nodes_from_seeds(seeds: Vec<String>) -> Vec<NodeConfig> {
             0,
             0,
             0,
-            TrackedConfig::LightClient,
+            TrackedConfig::NoShards,
         );
     genesis.config.gas_price_adjustment_rate = Ratio::from_integer(0);
     for seed in seeds {

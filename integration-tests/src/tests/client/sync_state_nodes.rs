@@ -884,7 +884,7 @@ fn slow_test_state_sync_headers_no_tracked_shards() {
             near2.network_config.peer_store.boot_nodes =
                 convert_boot_nodes(vec![("test1", *port1)]);
             near2.client_config.min_num_peers = 0;
-            near2.client_config.tracked_config = TrackedConfig::LightClient; // Track no shards.
+            near2.client_config.tracked_config = TrackedConfig::NoShards; // Track no shards.
             near2.config.store.state_snapshot_enabled = true;
             near2.config.state_sync_enabled = false;
             near2.client_config.state_sync_enabled = false;
