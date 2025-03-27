@@ -1,6 +1,8 @@
 use std::fs;
 use std::fs::create_dir;
+use std::io::{Error, ErrorKind};
 use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
@@ -158,6 +160,55 @@ pub fn accounts_from_dir(dir: &Path) -> anyhow::Result<Vec<Account>> {
     Ok(accounts)
 }
 
+pub fn check_and_increase_file_limits() -> anyhow::Result<()> {
+    // First, let's check current limits
+    let output = match Command::new("ulimit").arg("-n").output() {
+        Ok(output) => {
+            if output.status.success() {
+                String::from_utf8_lossy(&output.stdout).trim().to_string()
+            } else {
+                info!("Failed to get ulimit: {}", String::from_utf8_lossy(&output.stderr));
+                "unknown".to_string()
+            }
+        }
+        Err(e) => {
+            info!("Failed to execute ulimit command: {}", e);
+            "unknown".to_string()
+        }
+    };
+
+    info!("Current file descriptor limit: {}", output);
+
+    // Attempt to increase limit if running on Linux/Unix
+    #[cfg(unix)]
+    {
+        use std::os::unix::io::AsRawFd;
+
+        // Determine current system-wide limits
+        match Command::new("sh").arg("-c").arg("ulimit -Hn").output() {
+            Ok(output) => {
+                let hard_limit = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                info!("Hard file descriptor limit: {}", hard_limit);
+            }
+            Err(e) => {
+                info!("Could not determine hard file descriptor limit: {}", e);
+            }
+        }
+
+        // Try to increase our process limit
+        if let Err(e) = rlimit::increase_nofile_limit(8192) {
+            info!("Failed to increase file descriptor limit: {}", e);
+        } else {
+            // Get the new limit
+            if let Ok((soft, hard)) = rlimit::getrlimit(rlimit::Resource::NOFILE) {
+                info!("Updated file descriptor limits - soft: {}, hard: {}", soft, hard);
+            }
+        }
+    }
+
+    Ok(())
+}
+
 /// Updates accounts with the nonce values requested from the network and optionally writes the updated values to the disk.
 pub async fn update_account_nonces(
     clients: Vec<JsonRpcClient>,
@@ -165,6 +216,9 @@ pub async fn update_account_nonces(
     rps_limit: u64,
     accounts_path: Option<&PathBuf>,
 ) -> anyhow::Result<Vec<Account>> {
+    // Check limits here too
+    check_and_increase_file_limits()?;
+
     let mut tasks = JoinSet::new();
 
     // Group accounts by client to avoid creating too many connections
@@ -264,15 +318,47 @@ pub async fn update_account_nonces(
     // Now write to disk sequentially to avoid "too many open files" error
     if let Some(path) = accounts_path {
         info!("Writing {} updated accounts to disk sequentially", accounts_to_write.len());
-        // Use a smaller batch size to avoid file descriptor limits
-        const BATCH_SIZE: usize = 20;
+        // Use an extremely small batch size to avoid file descriptor limits
+        const BATCH_SIZE: usize = 5;
+
         for chunk in accounts_to_write.chunks(BATCH_SIZE) {
             for idx in chunk {
-                accounts[*idx].write_to_dir(path)?;
+                info!("Writing {}", idx);
+
+                // Add retry logic for file operations
+                let mut retries = 0;
+                while retries < 3 {
+                    match accounts[*idx].write_to_dir(path) {
+                        Ok(_) => break,
+                        Err(e) => {
+                            if retries == 2 {
+                                // On last retry, propagate the error
+                                return Err(anyhow::anyhow!(
+                                    "Failed to write account after 3 attempts: {}",
+                                    e
+                                ));
+                            }
+
+                            warn!("Failed to write account (attempt {}): {}", retries + 1, e);
+                            // Force garbage collection and wait longer
+                            let _ = chunk;
+                            time::sleep(Duration::from_millis(200)).await;
+                            retries += 1;
+                        }
+                    }
+                }
             }
-            // Add a longer delay between batches to ensure files are fully closed
-            if chunk.len() == BATCH_SIZE {
-                time::sleep(Duration::from_millis(50)).await;
+
+            // Add a much longer delay between batches to ensure files are fully closed
+            time::sleep(Duration::from_millis(200)).await;
+
+            // Let the OS handle any pending I/O
+            #[cfg(unix)]
+            {
+                // Force sync to disk
+                if let Err(e) = Command::new("sync").status() {
+                    warn!("Failed to sync files to disk: {}", e);
+                }
             }
         }
     }
@@ -282,6 +368,9 @@ pub async fn update_account_nonces(
 }
 
 pub async fn create_sub_accounts(args: &CreateSubAccountsArgs) -> anyhow::Result<()> {
+    // Check and try to increase file limits before doing anything else
+    check_and_increase_file_limits()?;
+
     let signer = InMemorySigner::from_file(&args.signer_key_path)?;
 
     let client = JsonRpcClient::connect(&args.rpc_url);
