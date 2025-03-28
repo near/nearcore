@@ -106,7 +106,7 @@ This [commit](https://github.com/Near-One/infra-ops/commit/f293a6b9ff4d8918925e4
 
 ```sh
 terraform init
-terraform plan
+terraform apply
 ```
 
 See all the nodes and their IPs with

@@ -67,4 +67,15 @@ The detailed description of it is provided in the [profiling](./profiling.md) se
 To evaluate the number of rate of processing the transactions one may query the stats as described above.
 
 ### Multi-Node setup
-TBD
+For benchmarking multi-node sharded networks, there is a comprehensive toolset in the [sharded-bm](https://github.com/near/nearcore/tree/master/benchmarks/sharded-bm) directory. This framework allows testing various network configurations with different numbers of shards, validators and traffic profiles.
+
+The sharded benchmark framework supports both localnet testing on a single machine and forknet deployments. Forknet is particularly useful as it allows creating a network running on multiple VMs, providing real-world conditions for performance testing.
+
+To run sharded benchmarks on a forknet, you'll need to:
+1. Set up the required infrastructure using terraform
+2. Configure environment variables for the benchmark
+3. Initialize and start the network
+4. Create test accounts and run the benchmark
+
+For detailed instructions and configuration options, refer to the [README](https://github.com/near/nearcore/tree/master/benchmarks/sharded-bm/README.md#forknet).
+
