@@ -75,6 +75,7 @@ if [ "${RUN_ON_FORKNET}" = true ]; then
     FORKNET_NEARD_LOG="/home/ubuntu/neard-logs/logs.txt"
     FORKNET_NEARD_PATH="${NEAR_HOME}/neard-runner/binaries/neard0"
     if [ "${UPDATE_BINARIES,,}" = "true" ] || [ "${UPDATE_BINARIES}" = "1" ]; then
+        echo "Updating binaries"
         $MIRROR --host-type nodes update-binaries || true
     fi
     NUM_SHARDS=$(jq '.shard_layout.V2.shard_ids | length' ${GENESIS} 2>/dev/null) || true
