@@ -25,12 +25,12 @@ jobs:
         include:
           - name: Linux
             id: linux
-            os: ubuntu-22.04-16core
+            os: warp-ubuntu-2204-x64-16x
             type: stable
             upload_profraws: true
           - name: Linux Nightly
             id: linux-nightly
-            os: ubuntu-22.04-16core
+            os: warp-ubuntu-2204-x64-16x
             type: nightly
             upload_profraws: true
     timeout-minutes: 90
