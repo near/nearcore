@@ -2794,7 +2794,7 @@ impl Chain {
         prev_block_header: &BlockHeader,
         is_new_chunk: bool,
     ) -> Result<ApplyChunkBlockContext, Error> {
-        // Beforeee `FixApplyChunks` feature, gas price was taken from current
+        // Before `FixApplyChunks` feature, gas price was taken from current
         // block by mistake. Preserve it for backwards compatibility.
         let gas_price = if is_new_chunk {
             prev_block_header.next_gas_price()
