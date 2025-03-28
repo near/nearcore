@@ -120,8 +120,9 @@ gcloud compute instances list --project=nearone-mocknet --filter <UNIQUE ID>
 1. Set the correct values in the test case `params.json`. Keep in mind that:
    - Benchmarks require one RPC node exactly. RPC node will be selected automatically and it will be the 'last' GCP instance.
    - The number of nodes deployed in terraform must match the number of nodes expected in the benchmark scenario.
+   - Nodes will run the `neard` binary specified in `forknet.binary_url`
 
-2. Make sure you have a `near-synth-bm` and a `neard` binary that can be run in a mainnet node. To achieve that you compile nearcore on a mainnet node, or local VM.
+2. Make sure you have a `near-synth-bm` binary that can be run on a mainnet node.
 
 3. Follow these instructions (they work on macOS as well):
 
@@ -134,8 +135,6 @@ export GEN_NODES_DIR=<absolute path to directory of your choice to store nodes c
 export NEARD=<absolute path to neard binary>
 export FORKNET_NAME=<unique name of forknet> 
 export FORKNET_START_HEIGHT=<forknet start height>
-
-BENCHNET_DIR=$GEN_NODES_DIR ./bench.sh init cases/forknet/10_cp_1_rpc_10_shard/config
 
 # Export UPDATE_BINARIES=true if you want to force neard binary update during init
 ./bench.sh init
@@ -157,7 +156,7 @@ Grafana mostly, [Blockchain utilization dashboard](https://grafana.nearone.org/g
 
 ### Known issues
 
-- generating nodes config and keys beforehand with `init` is suboptimal
+- starting and stopping `neard` in forknet could be done with `mirror` commands
 - sometimes forknet commands fail, and they must be issues again
 
 ## Transaction injection
