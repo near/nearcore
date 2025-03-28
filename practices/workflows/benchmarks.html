@@ -204,7 +204,16 @@ When the latter starts to grow that means the network no longer sustains the loa
 The detailed description of it is provided in the <a href="./profiling.html">profiling</a> section, <code>Runtime::apply</code> subsection.
 To evaluate the number of rate of processing the transactions one may query the stats as described above.</p>
 <h3 id="multi-node-setup"><a class="header" href="#multi-node-setup">Multi-Node setup</a></h3>
-<p>TBD</p>
+<p>For benchmarking multi-node sharded networks, there is a comprehensive toolset in the <a href="https://github.com/near/nearcore/tree/master/benchmarks/sharded-bm">sharded-bm</a> directory. This framework allows testing various network configurations with different numbers of shards, validators and traffic profiles.</p>
+<p>The sharded benchmark framework supports both localnet testing on a single machine and forknet deployments. Forknet is particularly useful as it allows creating a network running on multiple VMs, providing real-world conditions for performance testing.</p>
+<p>To run sharded benchmarks on a forknet, you'll need to:</p>
+<ol>
+<li>Set up the required infrastructure using terraform</li>
+<li>Configure environment variables for the benchmark</li>
+<li>Initialize and start the network</li>
+<li>Create test accounts and run the benchmark</li>
+</ol>
+<p>For detailed instructions and configuration options, refer to the <a href="https://github.com/near/nearcore/tree/master/benchmarks/sharded-bm/README.md#forknet">README</a>.</p>
 
                     </main>
 
