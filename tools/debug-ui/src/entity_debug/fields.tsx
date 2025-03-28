@@ -183,6 +183,11 @@ const epochInfoAggregator = {
     },
 };
 
+const epochConfig = {
+    struct: {
+    }
+}
+
 const executionOutcome = {
     struct: {
         receipt_ids: { array: receiptId },
@@ -357,6 +362,7 @@ export const fieldSemantics: Record<EntityType, FieldSemantic> = {
     ChunkExtra: chunkExtra,
     EpochInfo: epochInfo,
     EpochInfoAggregator: epochInfoAggregator,
+    EpochConfig: epochConfig,
     ExecutionOutcome: executionOutcome,
     FlatState: undefined,
     FlatStateChanges: flatStateChanges,
