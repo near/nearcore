@@ -181,7 +181,7 @@ fetch_forknet_details() {
     # Get all instances for this forknet
     local instances=$(gcloud compute instances list \
         --project=nearone-mocknet \
-        --filter="name~'${FORKNET_NAME}' AND -name~'traffic'" \
+        --filter="name~'-${FORKNET_NAME}-' AND -name~'traffic'" \
         --format="get(name,networkInterfaces[0].networkIP)")    
     local total_lines=$(echo "$instances" | wc -l | tr -d ' ')
     local num_cp_instances=$((total_lines - 1))
@@ -417,7 +417,8 @@ create_sub_accounts() {
         --deposit 9530606018750000000100000000 \
         --channel-buffer-size 1200 \
         --requests-per-second ${CREATE_ACCOUNTS_RPS} \
-        --user-data-dir ${data_dir}
+        --user-data-dir ${data_dir} \
+        --ignore-failures
 }
 
 create_accounts_local() {
