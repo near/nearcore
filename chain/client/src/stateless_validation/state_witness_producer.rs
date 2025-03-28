@@ -60,9 +60,6 @@ impl Client {
         validator_signer: &Option<Arc<ValidatorSigner>>,
     ) -> Result<(), Error> {
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(epoch_id)?;
-        if !ProtocolFeature::StatelessValidation.enabled(protocol_version) {
-            return Ok(());
-        }
         let chunk_header = chunk.cloned_header();
         let shard_id = chunk_header.shard_id();
         let _span = tracing::debug_span!(target: "client", "send_chunk_state_witness", chunk_hash=?chunk_header.chunk_hash(), ?shard_id).entered();

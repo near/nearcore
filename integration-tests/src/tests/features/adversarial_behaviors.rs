@@ -1,3 +1,5 @@
+use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
+use crate::env::test_env::TestEnv;
 use near_async::messaging::CanSend;
 use near_async::time::{FakeClock, Utc};
 use near_chain::Provenance;
@@ -11,13 +13,8 @@ use near_primitives::shard_layout::ShardLayout;
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::types::{AccountId, EpochId, ShardId};
 use near_primitives::utils::from_timestamp;
-use near_primitives::version::ProtocolFeature;
-use near_primitives_core::version::PROTOCOL_VERSION;
 use std::collections::HashSet;
 use tracing::log::debug;
-
-use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
-use crate::env::test_env::TestEnv;
 
 struct AdversarialBehaviorTestData {
     num_validators: usize,
@@ -214,7 +211,6 @@ fn slow_test_non_adversarial_case() {
 fn test_banning_chunk_producer_when_seeing_invalid_chunk_base(
     mut test: AdversarialBehaviorTestData,
 ) {
-    let uses_stateless_validation = ProtocolFeature::StatelessValidation.enabled(PROTOCOL_VERSION);
     let epoch_manager = test.env.clients[0].epoch_manager.clone();
     let bad_chunk_producer =
         test.env.clients[7].validator_signer.get().unwrap().validator_id().clone();
@@ -235,7 +231,7 @@ fn test_banning_chunk_producer_when_seeing_invalid_chunk_base(
         assert_eq!(block.header().height(), height);
 
         let mut invalid_chunks_in_this_block: HashSet<ShardId> = HashSet::new();
-        let mut this_block_should_be_skipped = false;
+        let this_block_should_be_skipped = false;
         if height > 1 {
             if last_block_skipped {
                 assert_eq!(block.header().prev_height().unwrap(), height - 2);
@@ -268,9 +264,6 @@ fn test_banning_chunk_producer_when_seeing_invalid_chunk_base(
                         // With stateless validation the block usually isn't skipped. Chunk validators
                         // won't send chunk endorsements for this chunk, which means that it won't be
                         // included in the block at all.
-                        if !uses_stateless_validation {
-                            this_block_should_be_skipped = true;
-                        }
                     }
                 }
             }

@@ -93,14 +93,6 @@ impl Block {
                 vrf_value: *body.vrf_value(),
                 vrf_proof: *body.vrf_proof(),
             }))
-        } else if !ProtocolFeature::StatelessValidation.enabled(this_epoch_protocol_version) {
-            // BlockV3 should only have BlockBodyV1
-            match body {
-                BlockBody::V1(body) => Block::BlockV3(Arc::new(BlockV3 { header, body })),
-                _ => {
-                    panic!("Attempted to include newer BlockBody version in old protocol version")
-                }
-            }
         } else {
             // BlockV4 and BlockBodyV2 were introduced in the same protocol version `ChunkValidation`
             // We should not expect BlockV4 to have BlockBodyV1
@@ -233,14 +225,7 @@ impl Block {
             None
         };
 
-        let body = BlockBody::new(
-            this_epoch_protocol_version,
-            chunks,
-            challenges,
-            vrf_value,
-            vrf_proof,
-            chunk_endorsements,
-        );
+        let body = BlockBody::new(chunks, challenges, vrf_value, vrf_proof, chunk_endorsements);
         let header = BlockHeader::new(
             this_epoch_protocol_version,
             next_epoch_protocol_version,
