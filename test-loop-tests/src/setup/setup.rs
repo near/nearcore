@@ -23,7 +23,6 @@ use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
 use near_primitives::network::PeerId;
 use near_primitives::test_utils::create_test_signer;
 use near_store::adapter::StoreAdapter;
-use near_store::config::StateSnapshotType;
 use near_store::{StoreConfig, TrieConfig};
 use near_vm_runner::{ContractRuntimeCache, FilesystemContractRuntimeCache};
 use nearcore::state_sync::StateSyncDumper;
@@ -89,7 +88,6 @@ pub fn setup_client(
         epoch_manager.clone(),
         runtime_config_store.clone(),
         TrieConfig::from_store_config(&store_config),
-        StateSnapshotType::EveryEpoch,
         client_config.gc.gc_num_epochs_to_keep,
     );
 
@@ -166,7 +164,6 @@ pub fn setup_client(
             view_epoch_manager.clone(),
             runtime_config_store.clone(),
             TrieConfig::from_store_config(&store_config),
-            StateSnapshotType::EveryEpoch,
             client_config.gc.gc_num_epochs_to_keep,
         );
         (view_epoch_manager, view_shard_tracker, view_runtime_adapter)

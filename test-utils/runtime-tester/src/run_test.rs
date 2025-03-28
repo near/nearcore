@@ -9,7 +9,6 @@ use near_parameters::RuntimeConfigStore;
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::{Action, SignedTransaction};
 use near_primitives::types::{AccountId, BlockHeight, BlockHeightDelta, Gas, Nonce};
-use near_store::config::StateSnapshotType;
 use near_store::genesis::initialize_genesis_state;
 use near_store::test_utils::create_test_store;
 use near_vm_runner::{ContractRuntimeCache, FilesystemContractRuntimeCache};
@@ -66,7 +65,6 @@ impl Scenario {
             &genesis.config,
             epoch_manager.clone(),
             runtime_config_store,
-            StateSnapshotType::ForReshardingOnly,
         );
 
         let mut env = TestEnv::builder(&genesis.config)

@@ -29,7 +29,7 @@ use near_vm_runner::FilesystemContractRuntimeCache;
 use near_vm_runner::logic::LimitConfig;
 use node_runtime::config::tx_cost;
 use node_runtime::{
-    ApplyState, Runtime, SignedValidPeriodTransactions, commit_charging_for_tx,
+    ApplyState, Runtime, SignedValidPeriodTransactions, set_tx_state_changes,
     verify_and_charge_tx_ephemeral,
 };
 use std::collections::HashMap;
@@ -475,7 +475,7 @@ impl Testbed<'_> {
             PROTOCOL_VERSION,
         )
         .expect("tx verification should not fail in estimator");
-        commit_charging_for_tx(&mut state_update, &validated_tx, &vr.signer, &vr.access_key);
+        set_tx_state_changes(&mut state_update, &validated_tx, &vr.signer, &vr.access_key);
         clock.elapsed()
     }
 

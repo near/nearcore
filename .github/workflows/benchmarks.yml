@@ -1,0 +1,39 @@
+name: Benchmarks
+
+on:
+  pull_request:
+  merge_group:
+  workflow_dispatch:
+
+jobs:
+  tx-injection-single-node:
+    name: "tx injections single-node benchmark"
+    runs-on: ubuntu-22.04-16core
+    timeout-minutes: 60
+    if: github.event_name == 'merge_group' || github.event_name == 'workflow_dispatch'
+
+    steps:
+      - name: Install jq json processor
+        run: sudo apt install jq
+
+      - uses: actions/checkout@v4
+
+      # Install all the required tools
+      - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
+        with:
+          tool: just
+
+      - name: Build neard
+        run:
+          cargo build --release --features tx_generator --config .cargo/config.profiling.toml
+
+      - name: Build synth-bm
+        run: |
+          cd benchmarks/synth-bm
+          cargo build --release
+
+      - name: Run Transactions Generator
+        run: |
+          cd benchmarks/transactions-generator
+          ln -s ../../target/release/neard
+          just do-it 10000 2m

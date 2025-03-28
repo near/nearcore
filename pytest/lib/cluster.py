@@ -1025,8 +1025,7 @@ def apply_config_changes(node_dir: str,
         'consensus.state_sync_p2p_timeout', 'expected_shutdown',
         'log_summary_period', 'max_gas_burnt_view', 'rosetta_rpc',
         'save_trie_changes', 'split_storage', 'state_sync',
-        'state_sync_enabled', 'store.state_snapshot_enabled',
-        'store.state_snapshot_config.state_snapshot_type',
+        'state_sync_enabled', 'store.state_snapshot_config.state_snapshot_type',
         'tracked_shard_schedule', 'cold_store',
         'store.load_mem_tries_for_tracked_shards')
 
