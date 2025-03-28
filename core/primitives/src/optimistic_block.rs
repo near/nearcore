@@ -84,20 +84,17 @@ impl OptimisticBlock {
         sandbox_delta_time: Option<near_time::Duration>,
         adv_type: OptimisticBlockAdvType,
     ) -> Self {
-        use crate::utils::get_block_metadata;
-        let prev_block_hash = *prev_block_header.hash();
-        let (time, vrf_value, vrf_proof, random_value) =
-            get_block_metadata(prev_block_header, signer, clock, sandbox_delta_time);
+        let original = Self::produce(prev_block_header, height, signer, clock, sandbox_delta_time);
+        Self::alter(&original, signer, adv_type)
+    }
 
-        let mut inner = OptimisticBlockInner {
-            prev_block_hash,
-            block_height: height,
-            block_timestamp: time,
-            random_value,
-            vrf_value,
-            vrf_proof,
-            signature_differentiator: "OptimisticBlock".to_owned(),
-        };
+    #[cfg(all(feature = "clock", feature = "test_features"))]
+    pub fn alter(
+        original: &OptimisticBlock,
+        signer: &crate::validator_signer::ValidatorSigner,
+        adv_type: OptimisticBlockAdvType,
+    ) -> Self {
+        let mut inner = original.inner.clone();
         match adv_type {
             OptimisticBlockAdvType::Normal => {}
             OptimisticBlockAdvType::InvalidVrfValue => {
