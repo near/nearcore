@@ -92,6 +92,10 @@ fn default_chunk_producer_assignment_changes_limit() -> u64 {
     5
 }
 
+fn default_num_chunk_only_producer_seats() -> u64 {
+    300
+}
+
 fn default_use_production_config() -> bool {
     false
 }
@@ -196,6 +200,10 @@ pub struct GenesisConfig {
     #[serde(default = "default_minimum_validators_per_shard")]
     #[default(1)]
     pub minimum_validators_per_shard: NumSeats,
+    #[serde(default = "default_num_chunk_only_producer_seats")]
+    #[default(300)]
+    /// Deprecated.
+    pub num_chunk_only_producer_seats: NumSeats,
     #[serde(default = "default_max_kickout_stake_threshold")]
     #[default(100)]
     /// Max stake percentage of the validators we will kick out.

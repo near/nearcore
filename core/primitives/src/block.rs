@@ -80,28 +80,14 @@ pub enum Block {
 }
 
 impl Block {
-    pub(crate) fn block_from_protocol_version(
-        this_epoch_protocol_version: ProtocolVersion,
-        header: BlockHeader,
-        body: BlockBody,
-    ) -> Block {
-        if !ProtocolFeature::BlockHeaderV4.enabled(this_epoch_protocol_version) {
-            Block::BlockV2(Arc::new(BlockV2 {
-                header,
-                chunks: body.chunks().to_vec(),
-                challenges: body.challenges().to_vec(),
-                vrf_value: *body.vrf_value(),
-                vrf_proof: *body.vrf_proof(),
-            }))
-        } else {
-            // BlockV4 and BlockBodyV2 were introduced in the same protocol version `ChunkValidation`
-            // We should not expect BlockV4 to have BlockBodyV1
-            match body {
-                BlockBody::V1(_) => {
-                    panic!("Attempted to include BlockBodyV1 in new protocol version")
-                }
-                _ => Block::BlockV4(Arc::new(BlockV4 { header, body })),
+    pub(crate) fn block_from_protocol_version(header: BlockHeader, body: BlockBody) -> Block {
+        // BlockV4 and BlockBodyV2 were introduced in the same protocol version `ChunkValidation`
+        // We should not expect BlockV4 to have BlockBodyV1
+        match body {
+            BlockBody::V1(_) => {
+                panic!("Attempted to include BlockBodyV1 in new protocol version")
             }
+            _ => Block::BlockV4(Arc::new(BlockV4 { header, body })),
         }
     }
 
@@ -260,7 +246,7 @@ impl Block {
             chunk_endorsements_bitmap,
         );
 
-        Self::block_from_protocol_version(this_epoch_protocol_version, header, body)
+        Self::block_from_protocol_version(header, body)
     }
 
     pub fn verify_total_supply(

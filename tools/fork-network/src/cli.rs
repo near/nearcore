@@ -1139,6 +1139,7 @@ impl ForkNetworkCommand {
             num_chunk_validator_seats: epoch_config.num_chunk_validator_seats,
             chunk_producer_assignment_changes_limit: epoch_config
                 .chunk_producer_assignment_changes_limit,
+            num_chunk_only_producer_seats: 300,
         };
 
         let genesis = Genesis::new_from_state_roots(new_config, new_state_roots);
