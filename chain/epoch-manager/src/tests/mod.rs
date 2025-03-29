@@ -2360,7 +2360,6 @@ fn test_protocol_version_switch_with_many_seats() {
         shard_layout: ShardLayout::single_shard(),
         num_chunk_producer_seats: 100,
         num_chunk_validator_seats: 300,
-        num_chunk_only_producer_seats: 300,
         minimum_validators_per_shard: 1,
         minimum_stake_ratio: Ratio::new(160i32, 1_000_000i32),
         chunk_producer_assignment_changes_limit: 5,

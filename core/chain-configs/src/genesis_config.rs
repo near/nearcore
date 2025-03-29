@@ -92,10 +92,6 @@ fn default_chunk_producer_assignment_changes_limit() -> u64 {
     5
 }
 
-fn default_num_chunk_only_producer_seats() -> u64 {
-    300
-}
-
 fn default_use_production_config() -> bool {
     false
 }
@@ -196,10 +192,6 @@ pub struct GenesisConfig {
     #[serde(default = "default_shard_layout")]
     #[default(default_shard_layout())]
     pub shard_layout: ShardLayout,
-    #[serde(default = "default_num_chunk_only_producer_seats")]
-    #[default(300)]
-    /// Deprecated.
-    pub num_chunk_only_producer_seats: NumSeats,
     /// The minimum number of validators each shard must have
     #[serde(default = "default_minimum_validators_per_shard")]
     #[default(1)]
@@ -271,7 +263,6 @@ impl From<&GenesisConfig> for EpochConfig {
             shard_layout: config.shard_layout.clone(),
             num_chunk_producer_seats: config.num_chunk_producer_seats,
             num_chunk_validator_seats: config.num_chunk_validator_seats,
-            num_chunk_only_producer_seats: config.num_chunk_only_producer_seats,
             minimum_validators_per_shard: config.minimum_validators_per_shard,
             minimum_stake_ratio: config.minimum_stake_ratio,
             chunk_producer_assignment_changes_limit: config.chunk_producer_assignment_changes_limit,
@@ -874,8 +865,6 @@ pub struct ProtocolConfigView {
     pub shuffle_shard_assignment_for_chunk_producers: bool,
     /// The minimum number of validators each shard must have
     pub minimum_validators_per_shard: NumSeats,
-    /// Number of validator seats for chunk only producers.
-    pub num_chunk_only_producer_seats: NumSeats,
     /// Layout information regarding how to split accounts to shards
     pub shard_layout: ShardLayout,
 }
@@ -925,7 +914,6 @@ impl From<ProtocolConfig> for ProtocolConfigView {
             shuffle_shard_assignment_for_chunk_producers: genesis_config
                 .shuffle_shard_assignment_for_chunk_producers,
             minimum_validators_per_shard: genesis_config.minimum_validators_per_shard,
-            num_chunk_only_producer_seats: genesis_config.num_chunk_only_producer_seats,
             shard_layout: genesis_config.shard_layout,
         }
     }

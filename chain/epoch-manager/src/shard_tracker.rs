@@ -403,7 +403,6 @@ mod tests {
             shard_layout: ShardLayout::multi_shard(num_shards, 0),
             num_chunk_producer_seats: 100,
             num_chunk_validator_seats: 300,
-            num_chunk_only_producer_seats: 300,
             minimum_validators_per_shard: 1,
             minimum_stake_ratio: Ratio::new(160i32, 1_000_000i32),
             chunk_producer_assignment_changes_limit: 5,

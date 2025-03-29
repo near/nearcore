@@ -59,10 +59,6 @@ pub struct EpochConfig {
     pub num_chunk_producer_seats: NumSeats,
     // #[default(300)]
     pub num_chunk_validator_seats: NumSeats,
-    // TODO (#11267): deprecate after StatelessValidationV0 is in place.
-    // Use 300 for older protocol versions.
-    // #[default(300)]
-    pub num_chunk_only_producer_seats: NumSeats,
     // #[default(1)]
     pub minimum_validators_per_shard: NumSeats,
     // #[default(Rational32::new(160, 1_000_000))]
@@ -119,7 +115,6 @@ impl EpochConfig {
             shard_layout,
             num_chunk_producer_seats: 100,
             num_chunk_validator_seats: 300,
-            num_chunk_only_producer_seats: 300,
             minimum_validators_per_shard: 1,
             minimum_stake_ratio: Rational32::new(160i32, 1_000_000i32),
             chunk_producer_assignment_changes_limit: 5,
@@ -147,7 +142,6 @@ impl EpochConfig {
             shard_layout: ShardLayout::get_simple_nightshade_layout(),
             num_chunk_producer_seats: 100,
             num_chunk_validator_seats: 300,
-            num_chunk_only_producer_seats: 300,
             minimum_validators_per_shard: 1,
             minimum_stake_ratio: Rational32::new(160i32, 1_000_000i32),
             chunk_producer_assignment_changes_limit: 5,
@@ -174,7 +168,6 @@ impl EpochConfig {
             shard_layout,
             num_chunk_producer_seats: 100,
             num_chunk_validator_seats: 300,
-            num_chunk_only_producer_seats: 300,
             minimum_validators_per_shard: 1,
             minimum_stake_ratio: Rational32::new(160i32, 1_000_000i32),
             chunk_producer_assignment_changes_limit: 5,
@@ -427,7 +420,6 @@ impl AllEpochConfig {
                 config.shard_layout.shard_ids().map(|_| 100).collect();
             config.block_producer_kickout_threshold = 80;
             config.chunk_producer_kickout_threshold = 80;
-            config.num_chunk_only_producer_seats = 200;
         }
 
         // Adjust the number of block and chunk producers for testnet, to make it easier to test the change.
@@ -441,13 +433,7 @@ impl AllEpochConfig {
             config.num_chunk_producer_seats = 20;
             config.num_block_producer_seats_per_shard =
                 shard_ids.map(|_| config.num_block_producer_seats).collect();
-            // Decrease the number of chunk producers.
-            config.num_chunk_only_producer_seats = 100;
         }
-
-        // Checking feature NoChunkOnlyProducers in stateless validation
-        // Make sure there is no chunk only producer in stateless validation
-        config.num_chunk_only_producer_seats = 0;
     }
 
     fn config_max_kickout_stake(config: &mut EpochConfig, protocol_version: u32) {
