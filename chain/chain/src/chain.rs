@@ -36,7 +36,7 @@ pub use crate::update_shard::{
     apply_new_chunk, apply_old_chunk,
 };
 use crate::update_shard::{ShardUpdateReason, ShardUpdateResult, process_shard_update};
-use crate::validate::{validate_challenge, validate_chunk_with_chunk_extra};
+use crate::validate::validate_chunk_with_chunk_extra;
 use crate::{
     BlockStatus, ChainGenesis, Doomslug, Provenance, byzantine_assert,
     create_light_client_block_view,
@@ -60,7 +60,7 @@ use near_primitives::block::{
 use near_primitives::block_header::BlockHeader;
 use near_primitives::challenge::{
     BlockDoubleSign, Challenge, ChallengeBody, ChallengesResult, ChunkProofs, ChunkState,
-    MaybeEncodedShardChunk, SlashedValidator,
+    MaybeEncodedShardChunk,
 };
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::errors::EpochError;
@@ -1062,45 +1062,10 @@ impl Chain {
     /// upgrade.
     pub fn verify_challenges(
         &self,
-        challenges: &[Challenge],
-        epoch_id: &EpochId,
+        _challenges: &[Challenge],
+        _epoch_id: &EpochId,
     ) -> Result<(ChallengesResult, Vec<CryptoHash>), Error> {
-        let _span = tracing::debug_span!(
-            target: "chain",
-            "verify_challenges",
-            ?challenges)
-        .entered();
-        let mut result = vec![];
-        let mut challenged_blocks = vec![];
-        for challenge in challenges.iter() {
-            match validate_challenge(
-                self.epoch_manager.as_ref(),
-                self.runtime_adapter.as_ref(),
-                epoch_id,
-                challenge,
-            ) {
-                Ok((hash, account_ids)) => {
-                    let is_double_sign = match challenge.body {
-                        // If it's double signed block, we don't invalidate blocks just slash.
-                        ChallengeBody::BlockDoubleSign(_) => true,
-                        _ => {
-                            challenged_blocks.push(hash);
-                            false
-                        }
-                    };
-                    let slash_validators: Vec<_> = account_ids
-                        .into_iter()
-                        .map(|id| SlashedValidator::new(id, is_double_sign))
-                        .collect();
-                    result.extend(slash_validators);
-                }
-                Err(Error::MaliciousChallenge) => {
-                    result.push(SlashedValidator::new(challenge.account_id.clone(), false));
-                }
-                Err(err) => return Err(err),
-            }
-        }
-        Ok((result, challenged_blocks))
+        Ok((vec![], vec![]))
     }
 
     /// Do basic validation of the information that we can get from the chunk headers in `block`
