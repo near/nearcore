@@ -12,9 +12,7 @@ use near_chain::stateless_validation::chunk_endorsement::validate_chunk_endorsem
 use near_chain::stateless_validation::chunk_validation::apply_result_to_chunk_extra;
 use near_chain::types::StorageDataSource;
 use near_chain::update_shard::{ShardUpdateReason, ShardUpdateResult, process_shard_update};
-use near_chain::validate::{
-    validate_chunk_proofs, validate_chunk_with_chunk_extra, validate_transactions_order,
-};
+use near_chain::validate::{validate_chunk_proofs, validate_chunk_with_chunk_extra};
 use near_chain::{
     Block, BlockHeader, Chain, ChainStore, ChainStoreAccess, ReceiptFilter,
     get_incoming_receipts_for_shard,
@@ -439,11 +437,8 @@ impl ReplayController {
         {
             bail!("Failed to validate chunk proofs");
         }
-        // FIXME: this should be using Chain::validate_chunk_transactions instead of doing its own
-        // thing?
-        if !validate_transactions_order(chunk.transactions()) {
-            bail!("Failed to validate transactions order in the chunk");
-        }
+        // FIXME: should we be calling Chain::validate_chunk_transactions here as well?
+
         Ok(())
     }
 
