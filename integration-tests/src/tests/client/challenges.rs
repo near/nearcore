@@ -31,15 +31,3 @@ fn test_invalid_chunk_state() {
     let result = env.clients[0].process_block_test(block.into(), Provenance::NONE);
     assert_matches!(result.unwrap_err(), Error::InvalidChunkState(_));
 }
-
-/// Receive invalid state transition in chunk as a validator / non-producer.
-#[test]
-fn test_receive_invalid_chunk_as_validator() {}
-
-/// Receive two different chunks from the same chunk producer.
-#[test]
-fn test_receive_two_chunks_from_one_producer() {}
-
-/// Receive two different blocks from the same block producer.
-#[test]
-fn test_receive_two_blocks_from_one_producer() {}
