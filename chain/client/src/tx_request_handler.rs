@@ -59,8 +59,7 @@ pub fn spawn_tx_request_handler_actor(
         validator_signer,
         runtime,
         network_adapter,
-    )
-    .unwrap();
+    );
     actix::SyncArbiter::start(config.handler_threads, move || SyncActixWrapper::new(actor.clone()))
 }
 
@@ -94,9 +93,9 @@ impl TxRequestHandler {
         validator_signer: MutableValidatorSigner,
         runtime: Arc<dyn RuntimeAdapter>,
         network_adapter: PeerManagerAdapter,
-    ) -> Result<Self, near_client_primitives::types::Error> {
+    ) -> Self {
         let chain_store = runtime.store().chain_store();
-        Ok(Self {
+        Self {
             config,
             tx_pool,
             validator_signer,
@@ -105,7 +104,7 @@ impl TxRequestHandler {
             runtime,
             shard_tracker,
             network_adapter,
-        })
+        }
     }
 
     /// Submits the transaction for future inclusion into the chain.
