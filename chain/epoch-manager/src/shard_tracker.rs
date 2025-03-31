@@ -108,7 +108,7 @@ impl ShardTracker {
     /// * If `account_id` is not None, it is supposed to be a validator
     /// account and `is_me` indicates whether we check what shards
     /// the client tracks.
-    // TODO: consolidate all these cares_about_shard() functions. This could all be one
+    // TODO(#13221): consolidate all these cares_about_shard() functions. This could all be one
     // function with an enum arg that tells what epoch we want to check, and one that allows
     // passing an epoch ID or a prev hash, or current hash, or whatever.
     pub fn cared_about_shard_in_prev_epoch(
@@ -158,7 +158,7 @@ impl ShardTracker {
     /// * If `account_id` is not None, it is supposed to be a validator
     /// account and `is_me` indicates whether we check what shards
     /// the client tracks.
-    // TODO: Eliminate code duplication with `cared_about_shard_in_prev_epoch`.
+    // TODO(#13221): Eliminate code duplication with `cared_about_shard_in_prev_epoch`.
     pub fn cares_about_shard(
         &self,
         account_id: Option<&AccountId>,
@@ -207,7 +207,7 @@ impl ShardTracker {
     /// * If `account_id` is not None, it is supposed to be a validator
     /// account and `is_me` indicates whether we check what shards
     /// the client will track.
-    // TODO: Eliminate code duplication with `cared_about_shard_in_prev_epoch`.
+    // TODO(#13221): Eliminate code duplication with `cared_about_shard_in_prev_epoch`.
     pub fn will_care_about_shard(
         &self,
         account_id: Option<&AccountId>,

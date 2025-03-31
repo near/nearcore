@@ -81,6 +81,7 @@ impl TrackedConfig {
     ) -> Self {
         if let Some(tracked_shards) = tracked_shards {
             // Historically, a non-empty `tracked_shards` list indicated tracking all shards, regardless of its contents.
+            // For more details, see https://github.com/near/nearcore/pull/4668.
             if !tracked_shards.is_empty() {
                 return TrackedConfig::AllShards;
             }
@@ -96,7 +97,8 @@ impl TrackedConfig {
         if let Some(accounts) = tracked_accounts {
             return TrackedConfig::Accounts(accounts);
         }
-        panic!("Shard tracking configuration is missing. Please set the `tracked_config` field.")
+        TrackedConfig::NoShards
+        //panic!("Shard tracking configuration is missing. Please set the `tracked_config` field.")
     }
 }
 
