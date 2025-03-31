@@ -59,17 +59,16 @@ impl BlockBody {
     pub fn new(
         protocol_version: ProtocolVersion,
         chunks: Vec<ShardChunkHeader>,
-        challenges: Challenges,
         vrf_value: Value,
         vrf_proof: Proof,
         chunk_endorsements: Vec<ChunkEndorsementSignatures>,
     ) -> Self {
         if !ProtocolFeature::StatelessValidation.enabled(protocol_version) {
-            BlockBody::V1(BlockBodyV1 { chunks, challenges, vrf_value, vrf_proof })
+            BlockBody::V1(BlockBodyV1 { chunks, challenges: vec![], vrf_value, vrf_proof })
         } else {
             BlockBody::V2(BlockBodyV2 {
                 chunks,
-                challenges,
+                challenges: vec![],
                 vrf_value,
                 vrf_proof,
                 chunk_endorsements,

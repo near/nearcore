@@ -85,8 +85,6 @@ fn build_chain_with_orphans() {
         0,
         100,
         Some(0),
-        vec![],
-        vec![],
         &*signer,
         *last_block.header().next_bp_hash(),
         CryptoHash::default(),

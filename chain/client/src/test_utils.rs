@@ -268,8 +268,6 @@ pub fn create_chunk(
         0,
         100,
         None,
-        vec![],
-        vec![],
         &*client.validator_signer.get().unwrap(),
         *last_block.header().next_bp_hash(),
         block_merkle_tree.root(),

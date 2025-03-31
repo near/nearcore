@@ -1,20 +1,15 @@
-use std::collections::{BTreeMap, HashMap};
-
-use near_primitives::types::EpochId;
-use near_primitives::types::ProtocolVersion;
-use near_store::Store;
-use num_rational::Ratio;
-
 use crate::RewardCalculator;
 use crate::RngSeed;
 use crate::proposals::find_threshold;
 use crate::{BlockInfo, EpochManager};
 use near_crypto::{KeyType, SecretKey};
-use near_primitives::challenge::SlashedValidator;
 use near_primitives::epoch_block_info::BlockInfoV2;
 use near_primitives::epoch_info::EpochInfo;
 use near_primitives::epoch_manager::{AllEpochConfig, EpochConfig};
 use near_primitives::hash::{CryptoHash, hash};
+use near_primitives::shard_layout::ShardLayout;
+use near_primitives::types::EpochId;
+use near_primitives::types::ProtocolVersion;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, BlockHeightDelta, EpochHeight, NumSeats, NumShards,
@@ -23,9 +18,10 @@ use near_primitives::types::{
 use near_primitives::utils::get_num_seats_per_shard;
 use near_primitives::validator_mandates::{ValidatorMandates, ValidatorMandatesConfig};
 use near_primitives::version::PROTOCOL_VERSION;
+use near_store::Store;
 use near_store::test_utils::create_test_store;
-
-use near_primitives::shard_layout::ShardLayout;
+use num_rational::Ratio;
+use std::collections::{BTreeMap, HashMap};
 use {crate::NUM_SECONDS_IN_A_YEAR, crate::reward_calculator::NUM_NS_IN_SECOND};
 
 pub const DEFAULT_GAS_PRICE: u128 = 100;
@@ -326,38 +322,6 @@ pub fn record_block_with_final_block_hash(
                 prev_h,
                 proposals,
                 vec![],
-                vec![],
-                DEFAULT_TOTAL_SUPPLY,
-                PROTOCOL_VERSION,
-                height * NUM_NS_IN_SECOND,
-                None,
-            ),
-            [0; 32],
-        )
-        .unwrap()
-        .commit()
-        .unwrap();
-}
-
-pub fn record_block_with_slashes(
-    epoch_manager: &mut EpochManager,
-    prev_h: CryptoHash,
-    cur_h: CryptoHash,
-    height: BlockHeight,
-    proposals: Vec<ValidatorStake>,
-    slashed: Vec<SlashedValidator>,
-) {
-    epoch_manager
-        .record_block_info(
-            BlockInfo::new(
-                cur_h,
-                height,
-                height.saturating_sub(2),
-                prev_h,
-                prev_h,
-                proposals,
-                vec![],
-                slashed,
                 DEFAULT_TOTAL_SUPPLY,
                 PROTOCOL_VERSION,
                 height * NUM_NS_IN_SECOND,
@@ -378,7 +342,26 @@ pub fn record_block(
     height: BlockHeight,
     proposals: Vec<ValidatorStake>,
 ) {
-    record_block_with_slashes(epoch_manager, prev_h, cur_h, height, proposals, vec![]);
+    epoch_manager
+        .record_block_info(
+            BlockInfo::new(
+                cur_h,
+                height,
+                height.saturating_sub(2),
+                prev_h,
+                prev_h,
+                proposals,
+                vec![],
+                DEFAULT_TOTAL_SUPPLY,
+                PROTOCOL_VERSION,
+                height * NUM_NS_IN_SECOND,
+                None,
+            ),
+            [0; 32],
+        )
+        .unwrap()
+        .commit()
+        .unwrap();
 }
 
 // TODO(#11900): Start using BlockInfoV3 in the tests.
@@ -392,6 +375,7 @@ pub fn block_info(
     chunk_mask: Vec<bool>,
     total_supply: Balance,
 ) -> BlockInfo {
+    #[allow(deprecated)]
     BlockInfo::V2(BlockInfoV2 {
         hash,
         height,

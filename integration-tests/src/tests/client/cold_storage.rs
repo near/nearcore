@@ -197,12 +197,14 @@ fn test_storage_after_commit_of_cold_update() {
         let client_store = env.clients[0].runtime_adapter.store();
         let cold_store = &storage.get_cold_store().unwrap();
         let num_checks = check_iter(client_store, cold_store, col, &no_check_rules);
-        // assert that this test actually checks something
-        // apart from StateChangesForSplitStates, StateHeaders, and StateShardUIdMapping, that are empty
+        // assert that this test actually checks something.  Some columns are
+        // expected to be empty, the others should have a non-zero number of
+        // checks.
         assert!(
             col == DBCol::StateChangesForSplitStates
                 || col == DBCol::StateHeaders
                 || col == DBCol::StateShardUIdMapping
+                || col == DBCol::BlockExtra
                 || num_checks > 0
         );
     }
@@ -389,10 +391,11 @@ fn test_initial_copy_to_cold(batch_size: usize) {
             continue;
         }
         let num_checks = check_iter(&client_store, &cold_store, col, &vec![]);
-        // StateChangesForSplitStates, StateHeaders, and StateShardUIdMapping are empty
+        // Some columns are expected to be empty
         if col == DBCol::StateChangesForSplitStates
             || col == DBCol::StateHeaders
             || col == DBCol::StateShardUIdMapping
+            || col == DBCol::BlockExtra
         {
             continue;
         }

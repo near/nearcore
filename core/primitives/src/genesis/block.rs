@@ -60,7 +60,6 @@ impl Block {
         initial_total_supply: Balance,
         next_bp_hash: CryptoHash,
     ) -> Self {
-        let challenges = vec![];
         let chunk_endorsements = vec![];
         for chunk in &chunks {
             assert_eq!(chunk.height_included(), height);
@@ -70,7 +69,6 @@ impl Block {
         let body = BlockBody::new(
             genesis_protocol_version,
             chunks,
-            challenges,
             vrf_value,
             vrf_proof,
             chunk_endorsements,
@@ -141,6 +139,7 @@ impl Block {
 }
 
 impl BlockHeader {
+    #[allow(deprecated)]
     pub fn prod_genesis(
         height: BlockHeight,
         state_root: MerkleHash,

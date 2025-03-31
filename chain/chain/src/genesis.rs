@@ -12,7 +12,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::ShardChunk;
 use near_primitives::types::chunk_extra::ChunkExtra;
-use near_primitives::types::{BlockExtra, EpochId, Gas, ShardId, StateRoot};
+use near_primitives::types::{EpochId, Gas, ShardId, StateRoot};
 use near_primitives::version::ProtocolFeature;
 use near_store::adapter::StoreUpdateAdapter;
 use near_store::get_genesis_state_roots;
@@ -87,7 +87,6 @@ impl Chain {
         )?);
         store_update.save_block_header(genesis.header().clone())?;
         store_update.save_block(genesis.clone());
-        store_update.save_block_extra(genesis.hash(), BlockExtra { challenges_result: vec![] });
         Self::save_genesis_chunk_extras(&genesis, &state_roots, epoch_manager, &mut store_update)?;
 
         let block_head = Tip::from_header(genesis.header());

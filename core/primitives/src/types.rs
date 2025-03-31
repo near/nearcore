@@ -1,11 +1,11 @@
 use crate::account::{AccessKey, Account};
-use crate::challenge::ChallengesResult;
 use crate::errors::EpochError;
 use crate::hash::CryptoHash;
 use crate::serialize::dec_format;
 use crate::shard_layout::ShardLayout;
 use crate::trie_key::TrieKey;
 use borsh::{BorshDeserialize, BorshSerialize};
+pub use chunk_validator_stats::ChunkStats;
 use near_crypto::PublicKey;
 /// Reexport primitive types
 pub use near_primitives_core::types::*;
@@ -16,8 +16,6 @@ use std::sync::Arc;
 use std::sync::LazyLock;
 
 mod chunk_validator_stats;
-
-pub use chunk_validator_stats::ChunkStats;
 
 /// Hash used by to store state root.
 pub type StateRoot = CryptoHash;
@@ -730,12 +728,6 @@ pub struct ValidatorStakeV1 {
     pub stake: Balance,
 }
 
-/// Information after block was processed.
-#[derive(Debug, PartialEq, BorshSerialize, BorshDeserialize, Clone, Eq, ProtocolSchema)]
-pub struct BlockExtra {
-    pub challenges_result: ChallengesResult,
-}
-
 pub mod chunk_extra {
     use crate::bandwidth_scheduler::BandwidthRequests;
     use crate::congestion_info::CongestionInfo;
@@ -1170,16 +1162,11 @@ pub trait EpochInfoProvider: Send + Sync {
     fn validator_stake(
         &self,
         epoch_id: &EpochId,
-        last_block_hash: &CryptoHash,
         account_id: &AccountId,
     ) -> Result<Option<Balance>, EpochError>;
 
     /// Get the total stake of the given epoch.
-    fn validator_total_stake(
-        &self,
-        epoch_id: &EpochId,
-        last_block_hash: &CryptoHash,
-    ) -> Result<Balance, EpochError>;
+    fn validator_total_stake(&self, epoch_id: &EpochId) -> Result<Balance, EpochError>;
 
     fn minimum_stake(&self, prev_block_hash: &CryptoHash) -> Result<Balance, EpochError>;
 

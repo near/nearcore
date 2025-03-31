@@ -1,7 +1,8 @@
-use std::collections::{HashMap, HashSet};
-use std::io;
-use std::sync::Arc;
-
+use super::{StoreAdapter, StoreUpdateAdapter, StoreUpdateHolder};
+use crate::{
+    CHUNK_TAIL_KEY, DBCol, FINAL_HEAD_KEY, FORK_TAIL_KEY, HEAD_KEY, HEADER_HEAD_KEY,
+    LARGEST_TARGET_HEIGHT_KEY, Store, StoreUpdate, TAIL_KEY, get_genesis_height,
+};
 use near_chain_primitives::Error;
 use near_primitives::block::{Block, BlockHeader, Tip};
 use near_primitives::chunk_apply_stats::ChunkApplyStats;
@@ -15,16 +16,12 @@ use near_primitives::sharding::{
 use near_primitives::state_sync::{ShardStateSyncResponseHeader, StateHeaderKey};
 use near_primitives::transaction::{ExecutionOutcomeWithProof, SignedTransaction};
 use near_primitives::types::chunk_extra::ChunkExtra;
-use near_primitives::types::{BlockExtra, BlockHeight, EpochId, NumBlocks, ShardId};
+use near_primitives::types::{BlockHeight, EpochId, NumBlocks, ShardId};
 use near_primitives::utils::{get_block_shard_id, get_outcome_id_block_hash, index_to_bytes};
 use near_primitives::views::LightClientBlockView;
-
-use crate::{
-    CHUNK_TAIL_KEY, DBCol, FINAL_HEAD_KEY, FORK_TAIL_KEY, HEAD_KEY, HEADER_HEAD_KEY,
-    LARGEST_TARGET_HEIGHT_KEY, Store, StoreUpdate, TAIL_KEY, get_genesis_height,
-};
-
-use super::{StoreAdapter, StoreUpdateAdapter, StoreUpdateHolder};
+use std::collections::{HashMap, HashSet};
+use std::io;
+use std::sync::Arc;
 
 #[derive(Clone)]
 pub struct ChainStoreAdapter {
@@ -208,14 +205,6 @@ impl ChainStoreAdapter {
         )
     }
 
-    /// Information from applying block.
-    pub fn get_block_extra(&self, block_hash: &CryptoHash) -> Result<Arc<BlockExtra>, Error> {
-        option_to_not_found(
-            self.store.get_ser(DBCol::BlockExtra, block_hash.as_ref()),
-            format_args!("BLOCK EXTRA: {}", block_hash),
-        )
-    }
-
     /// Get full chunk.
     pub fn get_chunk(&self, chunk_hash: &ChunkHash) -> Result<Arc<ShardChunk>, Error> {
         match self.store.get_ser(DBCol::Chunks, chunk_hash.as_ref()) {
@@ -291,11 +280,6 @@ impl ChainStoreAdapter {
             self.store.get_ser(DBCol::IncomingReceipts, &get_block_shard_id(block_hash, shard_id)),
             format_args!("INCOMING RECEIPT: {} {}", block_hash, shard_id),
         )
-    }
-
-    /// Returns whether the block with the given hash was challenged
-    pub fn is_block_challenged(&self, hash: &CryptoHash) -> Result<bool, Error> {
-        Ok(self.store.get_ser(DBCol::ChallengedBlocks, hash.as_ref())?.unwrap_or_default())
     }
 
     pub fn get_blocks_to_catchup(&self, prev_hash: &CryptoHash) -> Result<Vec<CryptoHash>, Error> {

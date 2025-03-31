@@ -813,8 +813,6 @@ mod test {
                 0,
                 100,
                 Some(0),
-                vec![],
-                vec![],
                 signer2.as_ref(),
                 *last_block.header().next_bp_hash(),
                 block_merkle_tree.root(),

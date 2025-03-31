@@ -69,6 +69,7 @@ pub struct BlockHeaderInnerRest {
     /// Total supply of tokens in the system
     pub total_supply: Balance,
     /// List of challenges result from previous block.
+    #[deprecated]
     pub challenges_result: ChallengesResult,
 
     /// Last block that has full BFT finality
@@ -107,6 +108,7 @@ pub struct BlockHeaderInnerRestV2 {
     /// Total supply of tokens in the system
     pub total_supply: Balance,
     /// List of challenges result from previous block.
+    #[deprecated]
     pub challenges_result: ChallengesResult,
 
     /// Last block that has full BFT finality
@@ -148,6 +150,7 @@ pub struct BlockHeaderInnerRestV3 {
     /// Total supply of tokens in the system
     pub total_supply: Balance,
     /// List of challenges result from previous block.
+    #[deprecated]
     pub challenges_result: ChallengesResult,
 
     /// Last block that has full BFT finality
@@ -203,6 +206,7 @@ pub struct BlockHeaderInnerRestV4 {
     /// Total supply of tokens in the system
     pub total_supply: Balance,
     /// List of challenges result from previous block.
+    #[deprecated]
     pub challenges_result: ChallengesResult,
 
     /// Last block that has full BFT finality
@@ -258,6 +262,7 @@ pub struct BlockHeaderInnerRestV5 {
     /// Total supply of tokens in the system
     pub total_supply: Balance,
     /// List of challenges result from previous block.
+    #[deprecated]
     pub challenges_result: ChallengesResult,
 
     /// Last block that has full BFT finality
@@ -594,7 +599,6 @@ impl BlockHeader {
         next_epoch_id: EpochId,
         next_gas_price: Balance,
         total_supply: Balance,
-        challenges_result: ChallengesResult,
         signer: &ValidatorSigner,
         last_final_block: CryptoHash,
         last_ds_final_block: CryptoHash,
@@ -627,7 +631,6 @@ impl BlockHeader {
             next_epoch_id,
             next_gas_price,
             total_supply,
-            challenges_result,
             SignatureSource::Signer(signer),
             last_final_block,
             last_ds_final_block,
@@ -662,7 +665,6 @@ impl BlockHeader {
         next_epoch_id: EpochId,
         next_gas_price: Balance,
         total_supply: Balance,
-        challenges_result: ChallengesResult,
         signature: Signature,
         last_final_block: CryptoHash,
         last_ds_final_block: CryptoHash,
@@ -695,7 +697,6 @@ impl BlockHeader {
             next_epoch_id,
             next_gas_price,
             total_supply,
-            challenges_result,
             SignatureSource::Signature(signature),
             last_final_block,
             last_ds_final_block,
@@ -716,6 +717,7 @@ impl BlockHeader {
     }
 
     /// Common logic for generating BlockHeader for different purposes, including new blocks, from views, and for genesis block
+    #[allow(deprecated)]
     fn new_impl(
         this_epoch_protocol_version: ProtocolVersion,
         next_epoch_protocol_version: ProtocolVersion,
@@ -738,7 +740,6 @@ impl BlockHeader {
         next_epoch_id: EpochId,
         next_gas_price: Balance,
         total_supply: Balance,
-        challenges_result: ChallengesResult,
         signature_source: SignatureSource,
         last_final_block: CryptoHash,
         last_ds_final_block: CryptoHash,
@@ -776,7 +777,7 @@ impl BlockHeader {
                 next_gas_price,
                 block_ordinal,
                 total_supply,
-                challenges_result,
+                challenges_result: vec![],
                 last_final_block,
                 last_ds_final_block,
                 prev_height,
@@ -807,7 +808,7 @@ impl BlockHeader {
                 next_gas_price,
                 block_ordinal,
                 total_supply,
-                challenges_result,
+                challenges_result: vec![],
                 last_final_block,
                 last_ds_final_block,
                 prev_height,
@@ -842,7 +843,6 @@ impl BlockHeader {
                 block_ordinal,
                 next_gas_price,
                 total_supply,
-                challenges_result,
                 signature_source,
                 last_final_block,
                 last_ds_final_block,
@@ -857,6 +857,7 @@ impl BlockHeader {
     /// This function still preserves code for old block header versions. These code are no longer
     /// used in production, but we still have features tests in the code that uses them.
     /// So we still keep the old code here.
+    #[allow(deprecated)]
     fn old_impl(
         inner_lite: BlockHeaderInnerLite,
         this_epoch_protocol_version: ProtocolVersion,
@@ -873,7 +874,6 @@ impl BlockHeader {
         block_ordinal: NumBlocks,
         next_gas_price: Balance,
         total_supply: Balance,
-        challenges_result: ChallengesResult,
         signature_source: SignatureSource,
         last_final_block: CryptoHash,
         last_ds_final_block: CryptoHash,
@@ -900,7 +900,7 @@ impl BlockHeader {
                 chunk_mask,
                 next_gas_price,
                 total_supply,
-                challenges_result,
+                challenges_result: vec![],
                 last_final_block,
                 last_ds_final_block,
                 approvals,
@@ -929,7 +929,7 @@ impl BlockHeader {
                 chunk_mask,
                 next_gas_price,
                 total_supply,
-                challenges_result,
+                challenges_result: vec![],
                 last_final_block,
                 last_ds_final_block,
                 approvals,
@@ -956,7 +956,7 @@ impl BlockHeader {
                 next_gas_price,
                 block_ordinal,
                 total_supply,
-                challenges_result,
+                challenges_result: vec![],
                 last_final_block,
                 last_ds_final_block,
                 prev_height,
@@ -1038,7 +1038,6 @@ impl BlockHeader {
             EpochId::default(), // next_epoch_id
             initial_gas_price,
             initial_total_supply,
-            vec![], // challenges_result
             SignatureSource::Signature(Signature::empty(KeyType::ED25519)),
             CryptoHash::default(), // last_final_block
             CryptoHash::default(), // last_ds_final_block
@@ -1337,17 +1336,6 @@ impl BlockHeader {
             BlockHeader::BlockHeaderV3(header) => &header.inner_rest.last_ds_final_block,
             BlockHeader::BlockHeaderV4(header) => &header.inner_rest.last_ds_final_block,
             BlockHeader::BlockHeaderV5(header) => &header.inner_rest.last_ds_final_block,
-        }
-    }
-
-    #[inline]
-    pub fn challenges_result(&self) -> &ChallengesResult {
-        match self {
-            BlockHeader::BlockHeaderV1(header) => &header.inner_rest.challenges_result,
-            BlockHeader::BlockHeaderV2(header) => &header.inner_rest.challenges_result,
-            BlockHeader::BlockHeaderV3(header) => &header.inner_rest.challenges_result,
-            BlockHeader::BlockHeaderV4(header) => &header.inner_rest.challenges_result,
-            BlockHeader::BlockHeaderV5(header) => &header.inner_rest.challenges_result,
         }
     }
 

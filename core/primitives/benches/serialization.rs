@@ -76,8 +76,6 @@ fn create_block() -> Block {
         0,
         0,
         Some(0),
-        vec![],
-        vec![],
         &signer,
         CryptoHash::default(),
         CryptoHash::default(),

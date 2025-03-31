@@ -779,6 +779,7 @@ pub struct BlockHeaderView {
     pub validator_reward: Balance,
     #[serde(with = "dec_format")]
     pub total_supply: Balance,
+    #[deprecated]
     pub challenges_result: ChallengesResult,
     pub last_final_block: CryptoHash,
     pub last_ds_final_block: CryptoHash,
@@ -792,6 +793,7 @@ pub struct BlockHeaderView {
 }
 
 impl From<BlockHeader> for BlockHeaderView {
+    #[allow(deprecated)]
     fn from(header: BlockHeader) -> Self {
         Self {
             height: header.height(),
@@ -822,7 +824,7 @@ impl From<BlockHeader> for BlockHeaderView {
             rent_paid: 0,
             validator_reward: 0,
             total_supply: header.total_supply(),
-            challenges_result: header.challenges_result().clone(),
+            challenges_result: vec![],
             last_final_block: *header.last_final_block(),
             last_ds_final_block: *header.last_ds_final_block(),
             next_bp_hash: *header.next_bp_hash(),
@@ -859,7 +861,6 @@ impl From<BlockHeaderView> for BlockHeader {
             EpochId(view.next_epoch_id),
             view.gas_price,
             view.total_supply,
-            view.challenges_result,
             view.signature,
             view.last_final_block,
             view.last_ds_final_block,

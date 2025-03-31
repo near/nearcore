@@ -91,8 +91,6 @@ fn query_status_not_crash() {
                 0,
                 100,
                 None,
-                vec![],
-                vec![],
                 &signer,
                 block.header.next_bp_hash,
                 block_merkle_tree.root(),

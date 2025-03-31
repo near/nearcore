@@ -916,8 +916,6 @@ impl TestBlockBuilder {
             0,
             0,
             Some(0),
-            vec![],
-            vec![],
             self.signer.as_ref(),
             self.next_bp_hash,
             self.block_merkle_root,
@@ -1072,17 +1070,12 @@ impl EpochInfoProvider for MockEpochInfoProvider {
     fn validator_stake(
         &self,
         _epoch_id: &EpochId,
-        _last_block_hash: &CryptoHash,
         account_id: &AccountId,
     ) -> Result<Option<Balance>, EpochError> {
         Ok(self.validators.get(account_id).cloned())
     }
 
-    fn validator_total_stake(
-        &self,
-        _epoch_id: &EpochId,
-        _last_block_hash: &CryptoHash,
-    ) -> Result<Balance, EpochError> {
+    fn validator_total_stake(&self, _epoch_id: &EpochId) -> Result<Balance, EpochError> {
         Ok(self.validators.values().sum())
     }
 
