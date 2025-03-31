@@ -83,7 +83,7 @@ jobs:
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
-      - uses: WarpBuilds/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: 3.11
           cache: pip
@@ -115,7 +115,7 @@ jobs:
     runs-on: warp-ubuntu-2204-x64-8x
     steps:
       - uses: actions/checkout@v4
-      - uses: WarpBuilds/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: 3.11
           cache: pip
@@ -159,7 +159,7 @@ jobs:
       - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
         with:
           tool: just
-      - uses: WarpBuilds/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: 3.11
           cache: pip
