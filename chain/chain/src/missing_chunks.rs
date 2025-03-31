@@ -323,7 +323,6 @@ impl OptimisticBlockChunksPool {
         if block.height() <= self.block_height_threshold {
             return;
         }
-
         tracing::info!(
             target: "chunks",
             ?prev_block_hash,

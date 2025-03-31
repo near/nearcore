@@ -1408,17 +1408,16 @@ impl Chain {
         let Some((block, chunks)) = self.optimistic_block_chunks.take_latest_ready_block() else {
             return;
         };
-
         let prev_block_hash = *block.prev_block_hash();
         let block_hash = *block.hash();
         let block_height = block.height();
 
         self.blocks_delay_tracker.record_optimistic_block_ready(block_height);
-        if self.is_height_processed(block_height)? {
+        if let Ok(true) = self.is_height_processed(block_height) {
             debug!(
                 target: "chain", prev_block_hash = ?prev_block_hash,
                 hash = ?block_hash, height = block_height,
-                "Dropping optimistic block, the height was already preprocessed"
+                "Dropping optimistic block, the height was already processed"
             );
             return;
         }
