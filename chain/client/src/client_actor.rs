@@ -13,6 +13,7 @@ use crate::client::{CatchupState, Client, EPOCH_START_INFO_BLOCKS};
 use crate::config_updater::ConfigUpdater;
 use crate::debug::new_network_info_view;
 use crate::info::{InfoHelper, display_sync_status};
+use crate::stateless_validation::chunk_endorsement::ChunkEndorsementTracker;
 use crate::stateless_validation::partial_witness::partial_witness_actor::PartialWitnessSenderForClient;
 use crate::sync::handler::SyncHandlerRequest;
 use crate::sync::state::chain_requests::{
@@ -119,6 +120,7 @@ pub struct StartClientResult {
     pub client_arbiter_handle: actix::ArbiterHandle,
     pub resharding_handle: ReshardingHandle,
     pub tx_pool: Arc<Mutex<ShardedTransactionPool>>,
+    pub chunk_endorsement_tracker: Arc<Mutex<ChunkEndorsementTracker>>,
 }
 
 /// Starts client in a separate Arbiter (thread).
@@ -192,7 +194,8 @@ pub fn start_client(
     )
     .unwrap();
     let tx_pool = client_actor_inner.client.chunk_producer.sharded_tx_pool.clone();
-
+    let chunk_endorsement_tracker =
+        Arc::clone(&client_actor_inner.client.chunk_endorsement_tracker);
     let client_addr = ClientActor::start_in_arbiter(&client_arbiter_handle, move |_| {
         ActixWrapper::new(client_actor_inner)
     });
@@ -208,6 +211,7 @@ pub fn start_client(
         client_arbiter_handle,
         resharding_handle,
         tx_pool,
+        chunk_endorsement_tracker,
     }
 }
 
@@ -1124,10 +1128,12 @@ impl ClientActorInner {
                 continue;
             }
 
-            self.client.chunk_inclusion_tracker.prepare_chunk_headers_ready_for_inclusion(
-                prev_block_hash,
-                &mut self.client.chunk_endorsement_tracker,
-            )?;
+            {
+                let mut tracker = self.client.chunk_endorsement_tracker.lock().unwrap();
+                self.client
+                    .chunk_inclusion_tracker
+                    .prepare_chunk_headers_ready_for_inclusion(prev_block_hash, &mut tracker)?;
+            }
             let num_chunks = self
                 .client
                 .chunk_inclusion_tracker
@@ -1969,7 +1975,8 @@ impl Handler<ChunkStateWitnessMessage> for ClientActorInner {
 impl Handler<ChunkEndorsementMessage> for ClientActorInner {
     #[perf]
     fn handle(&mut self, msg: ChunkEndorsementMessage) {
-        if let Err(err) = self.client.chunk_endorsement_tracker.process_chunk_endorsement(msg.0) {
+        let mut tracker = self.client.chunk_endorsement_tracker.lock().unwrap();
+        if let Err(err) = tracker.process_chunk_endorsement(msg.0) {
             tracing::error!(target: "client", ?err, "Error processing chunk endorsement");
         }
     }
