@@ -1,5 +1,7 @@
 name: Neard binary and Docker image release
 
+# cspell:ignore dockerhub Warpbuilds
+
 on:
   # Run when a new release or rc is created
   release:
