@@ -152,7 +152,9 @@ check-protocol-schema:
 publishable := "cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.publish == null or (.publish | length > 0)) | .name'"
 check-publishable-separately *OPTIONS:
     #!/usr/bin/env bash
+    set -e
     for pkg in $({{ publishable }}); do
         echo "Checking $pkg..."
-        cargo check -p $pkg {{ OPTIONS }}
+        env RUSTFLAGS="-D warnings" \
+        cargo check -p $pkg --examples --tests {{ OPTIONS }}
     done
