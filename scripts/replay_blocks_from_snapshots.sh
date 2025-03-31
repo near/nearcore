@@ -159,22 +159,22 @@ for SNAP_HEAD in "${CANDIDATES[@]}"; do
   VIEW_CHAIN_OUT="$("$NEARD_PATH" --home "$CURRENT_SNAPSHOT" \
       view_state view_chain --height "$CURRENT_START" 2>&1 || true)"
 
-  SHARD_LIST="$(echo "$VIEW_CHAIN_OUT" \
+  SHARD_IDS="$(echo "$VIEW_CHAIN_OUT" \
     | grep -oE '^shard [0-9]+,' \
     | sed 's/^shard //; s/,//')"
 
-  if [[ -z "$SHARD_LIST" ]]; then
-    NUM_SHARDS=1
-  else
-    # Find highest
-    MAX_SHARD_ID="$(echo "$SHARD_LIST" | sort -n | tail -1)"
-    NUM_SHARDS=$((MAX_SHARD_ID + 1))
+  mapfile -t SHARD_ARRAY <<< "$SHARD_IDS"
+
+  if [[ ${#SHARD_ARRAY[@]} -eq 0 ]]; then
+    echo "[WARN] No shard lines found in view_chain output!"
+    echo "       Possibly 1 default shard: 0"
+    SHARD_ARRAY=(0)
   fi
 
-  echo "HEAD=$SNAP_HEAD => found $NUM_SHARDS shard(s)."
+  echo "Shards found: ${SHARD_ARRAY[*]}"
 
   # 7) apply_range for each shard
-  for (( SHARD_ID=0; SHARD_ID<NUM_SHARDS; SHARD_ID++ )); do
+  for SHARD_ID in "${SHARD_ARRAY[@]}"; do
     CSV_FILE="$CSV_OUTPUT_DIR/apply_range_${SNAP_HEAD}_shard${SHARD_ID}.csv"
     APPLY_CMD="\"$NEARD_PATH\" --home \"$CURRENT_SNAPSHOT\" view_state apply_range \
       --shard-id=\"$SHARD_ID\" \
