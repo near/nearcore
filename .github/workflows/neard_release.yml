@@ -90,7 +90,7 @@ jobs:
 
   docker-release:
     name: "Build and publish nearcore Docker image"
-    runs-on: warp-ubuntu-2204-x64-8x
+    runs-on: warp-ubuntu-2204-x64-2x
     environment: deploy
     steps:
       - name: Checkout ${{ github.event.inputs.branch }} branch
