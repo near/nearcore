@@ -13,7 +13,7 @@ use near_async::test_loop::futures::TestLoopFutureSpawner;
 use near_async::test_loop::sender::TestLoopSender;
 use near_async::time::Duration;
 use near_chain::Error;
-use near_client::{Client, ProcessTxResponse, TxRequestHandler};
+use near_client::{Client, ProcessTxResponse, RpcHandler};
 use near_crypto::Signer;
 use near_network::client::ProcessTxRequest;
 use near_primitives::action::{GlobalContractDeployMode, GlobalContractIdentifier};
@@ -599,7 +599,7 @@ impl TransactionRunner {
     /// It's meant to be called in `run_until`.
     pub fn poll(
         &mut self,
-        client_sender: &TestLoopSender<TxRequestHandler>,
+        client_sender: &TestLoopSender<RpcHandler>,
         client: &Client,
         future_spawner: &TestLoopFutureSpawner,
     ) -> Poll<Result<FinalExecutionOutcomeView, InvalidTxError>> {
@@ -648,7 +648,7 @@ impl TransactionRunner {
     /// Useful for tests where the transaction is expected to be executed successfully.
     pub fn poll_assert_success(
         &mut self,
-        client_sender: &TestLoopSender<TxRequestHandler>,
+        client_sender: &TestLoopSender<RpcHandler>,
         client: &Client,
         future_spawner: &TestLoopFutureSpawner,
     ) -> Poll<Vec<u8>> {
@@ -667,7 +667,7 @@ impl TransactionRunner {
     /// Send the transaction to the network.
     fn send_tx(
         &mut self,
-        client_sender: &TestLoopSender<TxRequestHandler>,
+        client_sender: &TestLoopSender<RpcHandler>,
         future_spawner: &TestLoopFutureSpawner,
     ) {
         let process_tx_request = ProcessTxRequest {

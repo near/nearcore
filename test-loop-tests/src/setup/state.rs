@@ -8,7 +8,7 @@ use near_async::time::Duration;
 use near_chain_configs::{ClientConfig, Genesis};
 use near_chunks::shards_manager_actor::ShardsManagerActor;
 use near_client::client_actor::ClientActorInner;
-use near_client::{PartialWitnessActor, TxRequestHandler, ViewClientActorInner};
+use near_client::{PartialWitnessActor, RpcHandler, ViewClientActorInner};
 use near_jsonrpc::ViewClientSenderForRpc;
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_network::state_witness::PartialWitnessSenderForNetwork;
@@ -72,7 +72,7 @@ pub struct NodeExecutionData {
     pub peer_id: PeerId,
     pub client_sender: TestLoopSender<ClientActorInner>,
     pub view_client_sender: TestLoopSender<ViewClientActorInner>,
-    pub tx_processor_sender: TestLoopSender<TxRequestHandler>,
+    pub tx_processor_sender: TestLoopSender<RpcHandler>,
     pub shards_manager_sender: TestLoopSender<ShardsManagerActor>,
     pub partial_witness_sender: TestLoopSender<PartialWitnessActor>,
     pub peer_manager_sender: TestLoopSender<TestLoopPeerManagerActor>,

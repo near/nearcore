@@ -11,7 +11,7 @@ use near_chain::{ChainGenesis, ChainStoreAccess, Provenance};
 use near_chain_configs::{Genesis, GenesisConfig};
 use near_chunks::client::ShardsManagerResponse;
 use near_chunks::test_utils::{MockClientAdapterForShardsManager, SynchronousShardsManagerAdapter};
-use near_client::{Client, DistributeStateWitnessRequest, TxRequestHandler};
+use near_client::{Client, DistributeStateWitnessRequest, RpcHandler};
 use near_crypto::{InMemorySigner, Signer};
 use near_epoch_manager::shard_assignment::{account_id_to_shard_id, shard_id_to_uid};
 use near_network::client::ProcessTxResponse;
@@ -65,7 +65,7 @@ pub struct TestEnv {
     pub partial_witness_adapters: Vec<MockPartialWitnessAdapter>,
     pub shards_manager_adapters: Vec<SynchronousShardsManagerAdapter>,
     pub clients: Vec<Client>,
-    pub tx_request_handlers: Vec<TxRequestHandler>,
+    pub tx_request_handlers: Vec<RpcHandler>,
     pub(crate) account_indices: AccountIndices,
     pub(crate) paused_blocks: Arc<Mutex<HashMap<CryptoHash, Arc<OnceCell<()>>>>>,
     // random seed to be inject in each client according to AccountId
@@ -220,7 +220,7 @@ impl TestEnv {
         self.account_indices.lookup_mut(&mut self.clients, account_id)
     }
 
-    pub fn tx_processor(&self, account_id: &AccountId) -> &TxRequestHandler {
+    pub fn tx_processor(&self, account_id: &AccountId) -> &RpcHandler {
         self.account_indices.lookup(&self.tx_request_handlers, account_id)
     }
 
@@ -465,10 +465,8 @@ impl TestEnv {
                         tracing::warn!(target: "test", "Client not found for account_id {}", account_id);
                         return None;
                     }
-                    let processing_result = self
-                        .client(&account_id)
-                        .chunk_endorsement_tracker
-                        .process_chunk_endorsement(endorsement);
+                    let mut tracker = self.client(&account_id).chunk_endorsement_tracker.lock().unwrap();
+                    let processing_result = tracker.process_chunk_endorsement(endorsement);
                     if !allow_errors {
                         processing_result.unwrap();
                     }

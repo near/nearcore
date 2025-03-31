@@ -12,7 +12,7 @@ use near_chain_configs::{ClientConfig, Genesis, GenesisConfig, MutableConfigValu
 use near_chunks::shards_manager_actor::start_shards_manager;
 use near_client::adapter::client_sender_for_network;
 use near_client::{
-    PartialWitnessActor, StartClientResult, TxRequestHandlerConfig, ViewClientActorInner,
+    PartialWitnessActor, RpcHandlerConfig, StartClientResult, ViewClientActorInner,
     spawn_tx_request_handler_actor, start_client,
 };
 use near_epoch_manager::EpochManager;
@@ -99,7 +99,7 @@ fn setup_network_node(
     let network_adapter = LateBoundSender::new();
     let shards_manager_adapter = LateBoundSender::new();
     let adv = near_client::adversarial::Controls::default();
-    let StartClientResult { client_actor, tx_pool, .. } = start_client(
+    let StartClientResult { client_actor, tx_pool, chunk_endorsement_tracker, .. } = start_client(
         Clock::real(),
         client_config.clone(),
         chain_genesis.clone(),
@@ -132,7 +132,7 @@ fn setup_network_node(
         client_config.clone(),
         adv,
     );
-    let tx_processor_config = TxRequestHandlerConfig {
+    let tx_processor_config = RpcHandlerConfig {
         handler_threads: client_config.transaction_request_handler_threads,
         tx_routing_height_horizon: client_config.tx_routing_height_horizon,
         epoch_length: client_config.epoch_length,
@@ -141,6 +141,7 @@ fn setup_network_node(
     let tx_processor = spawn_tx_request_handler_actor(
         tx_processor_config,
         tx_pool,
+        chunk_endorsement_tracker,
         epoch_manager.clone(),
         shard_tracker.clone(),
         validator_signer.clone(),

@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_chain_configs::GenesisValidationMode;
 use near_chain_primitives::error::QueryError as RuntimeQueryError;
-use near_client::{ClientActor, TxRequestHandlerActor, ViewClientActor};
+use near_client::{ClientActor, RpcHandlerActor, ViewClientActor};
 use near_client::{ProcessTxRequest, ProcessTxResponse};
 use near_client_primitives::types::{
     GetBlock, GetBlockError, GetChunkError, GetExecutionOutcomeError, GetReceiptError, Query,
@@ -870,7 +870,7 @@ impl<T: ChainAccess> TxMirror<T> {
     }
 
     async fn send_transactions<'a, I: Iterator<Item = &'a mut TargetChainTx>>(
-        target_client: &Addr<TxRequestHandlerActor>,
+        target_client: &Addr<RpcHandlerActor>,
         txs: I,
     ) -> anyhow::Result<()> {
         for tx in txs {
@@ -1654,7 +1654,7 @@ impl<T: ChainAccess> TxMirror<T> {
         &mut self,
         tracker: &Mutex<crate::chain_tracker::TxTracker>,
         tx_block_queue: &Mutex<VecDeque<MappedBlock>>,
-        target_client: &Addr<TxRequestHandlerActor>,
+        target_client: &Addr<RpcHandlerActor>,
         target_view_client: &Addr<ViewClientActor>,
         stakes: HashMap<(AccountId, PublicKey), AccountId>,
         source_hash: &CryptoHash,
@@ -1697,7 +1697,7 @@ impl<T: ChainAccess> TxMirror<T> {
         tx_block_queue: Arc<Mutex<VecDeque<MappedBlock>>>,
         mut send_time: Pin<Box<tokio::time::Sleep>>,
         send_delay: Arc<Mutex<Duration>>,
-        target_client: Addr<TxRequestHandlerActor>,
+        target_client: Addr<RpcHandlerActor>,
     ) -> anyhow::Result<()> {
         let mut sent_source_height = None;
 
@@ -1761,7 +1761,7 @@ impl<T: ChainAccess> TxMirror<T> {
         clients_tx: tokio::sync::oneshot::Sender<(
             Addr<ClientActor>,
             Addr<ViewClientActor>,
-            Addr<TxRequestHandlerActor>,
+            Addr<RpcHandlerActor>,
         )>,
         accounts_to_unstake: mpsc::Sender<HashMap<(AccountId, PublicKey), AccountId>>,
         target_height: Arc<RwLock<BlockHeight>>,
@@ -1820,7 +1820,7 @@ impl<T: ChainAccess> TxMirror<T> {
         &mut self,
         tracker: Arc<Mutex<crate::chain_tracker::TxTracker>>,
         tx_block_queue: Arc<Mutex<VecDeque<MappedBlock>>>,
-        target_client: Addr<TxRequestHandlerActor>,
+        target_client: Addr<RpcHandlerActor>,
         target_view_client: Addr<ViewClientActor>,
         mut blocks_sent: mpsc::Receiver<TxBatch>,
         mut accounts_to_unstake: mpsc::Receiver<HashMap<(AccountId, PublicKey), AccountId>>,

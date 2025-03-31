@@ -95,7 +95,7 @@ pub struct Indexer {
     near_config: nearcore::NearConfig,
     view_client: actix::Addr<near_client::ViewClientActor>,
     client: actix::Addr<near_client::ClientActor>,
-    tx_processor: actix::Addr<near_client::TxRequestHandlerActor>,
+    tx_processor: actix::Addr<near_client::RpcHandlerActor>,
     shard_tracker: ShardTracker,
 }
 
@@ -155,7 +155,7 @@ impl Indexer {
     ) -> (
         actix::Addr<near_client::ViewClientActor>,
         actix::Addr<near_client::ClientActor>,
-        actix::Addr<near_client::TxRequestHandlerActor>,
+        actix::Addr<near_client::RpcHandlerActor>,
     ) {
         (self.view_client.clone(), self.client.clone(), self.tx_processor.clone())
     }

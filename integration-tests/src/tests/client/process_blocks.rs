@@ -91,7 +91,7 @@ fn produce_two_blocks() {
             "test".parse().unwrap(),
             true,
             false,
-            Box::new(move |msg, _ctx, _| {
+            Box::new(move |msg, _ctx, _, _| {
                 if let NetworkRequests::Block { .. } = msg.as_network_requests_ref() {
                     count.fetch_add(1, Ordering::Relaxed);
                     if count.load(Ordering::Relaxed) >= 2 {
@@ -120,7 +120,7 @@ fn receive_network_block() {
             "test2".parse().unwrap(),
             true,
             false,
-            Box::new(move |msg, _ctx, _| {
+            Box::new(move |msg, _ctx, _, _| {
                 if let NetworkRequests::Approval { .. } = msg.as_network_requests_ref() {
                     let mut first_header_announce = first_header_announce.write().unwrap();
                     if *first_header_announce {
@@ -198,7 +198,7 @@ fn produce_block_with_approvals() {
             block_producer.parse().unwrap(),
             true,
             false,
-            Box::new(move |msg, _ctx, _| {
+            Box::new(move |msg, _ctx, _, _| {
                 if let NetworkRequests::Block { block } = msg.as_network_requests_ref() {
                     // Below we send approvals from all the block producers except for test1 and test2
                     // test1 will only create their approval for height 10 after their doomslug timer
@@ -396,7 +396,7 @@ fn invalid_blocks_common(is_requested: bool) {
             "other".parse().unwrap(),
             true,
             false,
-            Box::new(move |msg, _ctx, _client_actor| {
+            Box::new(move |msg, _ctx, _client_actor, _rpc_handler| {
                 match msg.as_network_requests_ref() {
                     NetworkRequests::Block { block } => {
                         if is_requested {
@@ -731,7 +731,7 @@ fn skip_block_production() {
             "test2".parse().unwrap(),
             true,
             false,
-            Box::new(move |msg, _ctx, _client_actor| {
+            Box::new(move |msg, _ctx, _client_actor, _rpc_handler| {
                 match msg.as_network_requests_ref() {
                     NetworkRequests::Block { block } => {
                         if block.header().height() > 3 {
@@ -760,16 +760,18 @@ fn client_sync_headers() {
             "other".parse().unwrap(),
             false,
             false,
-            Box::new(move |msg, _ctx, _client_actor| match msg.as_network_requests_ref() {
-                NetworkRequests::BlockHeadersRequest { hashes, peer_id } => {
-                    assert_eq!(*peer_id, peer_info1.id);
-                    assert_eq!(hashes.len(), 1);
-                    // TODO: check it requests correct hashes.
-                    System::current().stop();
+            Box::new(move |msg, _ctx, _client_actor, _rpc_handler| {
+                match msg.as_network_requests_ref() {
+                    NetworkRequests::BlockHeadersRequest { hashes, peer_id } => {
+                        assert_eq!(*peer_id, peer_info1.id);
+                        assert_eq!(hashes.len(), 1);
+                        // TODO: check it requests correct hashes.
+                        System::current().stop();
 
-                    PeerManagerMessageResponse::NetworkResponses(NetworkResponses::NoResponse)
+                        PeerManagerMessageResponse::NetworkResponses(NetworkResponses::NoResponse)
+                    }
+                    _ => PeerManagerMessageResponse::NetworkResponses(NetworkResponses::NoResponse),
                 }
-                _ => PeerManagerMessageResponse::NetworkResponses(NetworkResponses::NoResponse),
             }),
         );
         actor_handles.client_actor.do_send(
@@ -2274,13 +2276,13 @@ fn test_validate_chunk_extra() {
     // Produce a block on top of block1.
     // Validate that result of chunk execution in `block1` is legit.
     let client = &mut env.clients[0];
-    client
-        .chunk_inclusion_tracker
-        .prepare_chunk_headers_ready_for_inclusion(
-            block1.hash(),
-            &mut client.chunk_endorsement_tracker,
-        )
-        .unwrap();
+    {
+        let mut tracker = client.chunk_endorsement_tracker.lock().unwrap();
+        client
+            .chunk_inclusion_tracker
+            .prepare_chunk_headers_ready_for_inclusion(block1.hash(), &mut tracker)
+            .unwrap();
+    }
     let block = client.produce_block_on(next_height + 2, *block1.hash()).unwrap().unwrap();
     let epoch_id = *block.header().epoch_id();
     client.process_block_test(block.into(), Provenance::PRODUCED).unwrap();

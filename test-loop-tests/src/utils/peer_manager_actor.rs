@@ -35,7 +35,6 @@ pub struct ClientSenderForTestLoopNetwork {
     pub block: AsyncSender<BlockResponse, ()>,
     pub block_headers: AsyncSender<BlockHeadersResponse, ActixResult<BlockHeadersResponse>>,
     pub block_approval: AsyncSender<BlockApproval, ()>,
-    pub chunk_endorsement: AsyncSender<ChunkEndorsementMessage, ()>,
     pub epoch_sync_request: Sender<EpochSyncRequestMessage>,
     pub epoch_sync_response: Sender<EpochSyncResponseMessage>,
     pub optimistic_block_receiver: Sender<OptimisticBlockMessage>,
@@ -44,6 +43,7 @@ pub struct ClientSenderForTestLoopNetwork {
 #[derive(Clone, MultiSend, MultiSenderFrom)]
 pub struct TxRequestHandleSenderForTestLoopNetwork {
     pub transaction: AsyncSender<ProcessTxRequest, ProcessTxResponse>,
+    pub chunk_endorsement: AsyncSender<ChunkEndorsementMessage, ()>,
 }
 
 #[derive(Clone, MultiSend, MultiSenderFrom)]
@@ -132,7 +132,7 @@ struct TestLoopNetworkSharedStateInner {
 struct OneClientSenders {
     client_sender: ClientSenderForTestLoopNetwork,
     view_client_sender: ViewClientSenderForTestLoopNetwork,
-    tx_processor_sender: TxRequestHandleSenderForTestLoopNetwork,
+    rpc_processor_sender: TxRequestHandleSenderForTestLoopNetwork,
     partial_witness_sender: PartialWitnessSenderForNetwork,
     shards_manager_sender: Sender<ShardsManagerRequestFromNetwork>,
 }
@@ -167,7 +167,7 @@ impl TestLoopNetworkSharedState {
             Arc::new(OneClientSenders {
                 client_sender: ClientSenderForTestLoopNetwork::from(data),
                 view_client_sender: ViewClientSenderForTestLoopNetwork::from(data),
-                tx_processor_sender: TxRequestHandleSenderForTestLoopNetwork::from(data),
+                rpc_processor_sender: TxRequestHandleSenderForTestLoopNetwork::from(data),
                 partial_witness_sender: PartialWitnessSenderForNetwork::from(data),
                 shards_manager_sender: Sender::<ShardsManagerRequestFromNetwork>::from(data),
             }),
@@ -293,16 +293,17 @@ fn network_message_to_client_handler(
         }
         NetworkRequests::ForwardTx(account, transaction) => {
             assert_ne!(account, my_account_id, "Sending message to self not supported.");
-            let future = shared_state.senders_for_account(&account).tx_processor_sender.send_async(
-                ProcessTxRequest { transaction, is_forwarded: true, check_only: false },
-            );
+            let future =
+                shared_state.senders_for_account(&account).rpc_processor_sender.send_async(
+                    ProcessTxRequest { transaction, is_forwarded: true, check_only: false },
+                );
             drop(future);
             None
         }
         NetworkRequests::ChunkEndorsement(target, endorsement) => {
             let future = shared_state
                 .senders_for_account(&target)
-                .client_sender
+                .rpc_processor_sender
                 .send_async(ChunkEndorsementMessage(endorsement));
             drop(future);
             None

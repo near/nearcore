@@ -13,7 +13,7 @@ use crate::utils::test_helpers::heavy_test;
 use near_actix_test_utils::run_actix;
 use near_chain_configs::{Genesis, NEAR_BASE};
 use near_client::{
-    ClientActor, GetBlock, ProcessTxRequest, Query, Status, TxRequestHandlerActor, ViewClientActor,
+    ClientActor, GetBlock, ProcessTxRequest, Query, RpcHandlerActor, Status, ViewClientActor,
 };
 use near_crypto::{InMemorySigner, Signer};
 use near_network::tcp;
@@ -35,7 +35,7 @@ struct TestNode {
     config: NearConfig,
     client: Addr<ClientActor>,
     view_client: Addr<ViewClientActor>,
-    tx_processor: Addr<TxRequestHandlerActor>,
+    tx_processor: Addr<RpcHandlerActor>,
     genesis_hash: CryptoHash,
 }
 
