@@ -67,7 +67,7 @@ jobs:
 
   protobuf_backward_compat:
     name: "Protobuf Backward Compatibility"
-    runs-on: warp-ubuntu-2204-x64-2x
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: bufbuild/buf-setup-action@1158f4fa81bc02e1ff62abcca6d516c9e24c77da
@@ -143,7 +143,7 @@ jobs:
 
   protocol_schema_check:
     name: "Protocol Schema"
-    runs-on: warp-ubuntu-2204-x64-2x
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
@@ -153,7 +153,7 @@ jobs:
 
   py_style_check:
     name: "Style"
-    runs-on: warp-ubuntu-2204-x64-2x
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
@@ -168,7 +168,7 @@ jobs:
 
   check_fmt:
     name: "Cargo Fmt"
-    runs-on: warp-ubuntu-2204-x64-2x
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
@@ -197,14 +197,14 @@ jobs:
       - run: just doctests
 
   spellcheck:
-    runs-on: warp-ubuntu-2204-x64-2x
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: streetsidesoftware/cspell-action@v6
 
   check_cargo_deny:
     name: "Cargo Deny"
-    runs-on: warp-ubuntu-2204-x64-2x
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
@@ -214,7 +214,7 @@ jobs:
 
   check_themis:
     name: "Themis"
-    runs-on: warp-ubuntu-2204-x64-2x
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
@@ -224,7 +224,7 @@ jobs:
 
   check_non_default:
     name: "Non-default Configuration Builds"
-    runs-on: warp-ubuntu-2204-x64-2x
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
@@ -244,7 +244,7 @@ jobs:
 
   cargo_audit:
     name: "Cargo Audit"
-    runs-on: warp-ubuntu-2204-x64-2x
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
@@ -254,7 +254,7 @@ jobs:
 
   generate_coverage:
     name: "Generate Coverage Artifact"
-    runs-on: warp-ubuntu-2204-x64-2x
+    runs-on: ubuntu-latest
     needs:
       - cargo_nextest
     strategy:
@@ -305,7 +305,7 @@ jobs:
 
   upload_coverage:
     name: "Upload Coverage"
-    runs-on: warp-ubuntu-2204-x64-2x
+    runs-on: ubuntu-latest
     needs:
       - cargo_nextest
       - pytest_tests
@@ -348,7 +348,7 @@ jobs:
         include:
           - name: Linux
             id: linux
-            os: warp-ubuntu-2204-x64-2x
+            os: ubuntu-latest
           - name: Windows
             id: win
             os: windows-latest
