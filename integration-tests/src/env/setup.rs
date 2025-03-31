@@ -329,7 +329,7 @@ fn setup(
     let resharding_sender = resharding_sender_addr.with_auto_span_context();
 
     let shards_manager_adapter_for_client = LateBoundSender::new();
-    let StartClientResult { client_actor, tx_pool, .. } = start_client(
+    let StartClientResult { client_actor, tx_pool, chunk_endorsement_tracker, .. } = start_client(
         clock,
         config.clone(),
         chain_genesis,
@@ -362,6 +362,7 @@ fn setup(
     let tx_processor_addr = spawn_tx_request_handler_actor(
         tx_processor_config,
         tx_pool,
+        chunk_endorsement_tracker,
         epoch_manager.clone(),
         shard_tracker.clone(),
         signer,
@@ -1290,6 +1291,7 @@ pub fn setup_tx_request_handler(
     TxRequestHandler::new(
         config,
         client.chunk_producer.sharded_tx_pool.clone(),
+        client.chunk_endorsement_tracker.clone(),
         epoch_manager,
         shard_tracker,
         client.validator_signer.clone(),
