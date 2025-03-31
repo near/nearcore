@@ -650,7 +650,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         let mut result = PreparedTransactions { transactions: Vec::new(), limited_by: None };
         let mut num_checked_transactions = 0;
 
-        let size_limit: u64 = calculate_transactions_size_limit(&runtime_config);
+        let size_limit = runtime_config.witness_config.combined_transactions_size_limit as u64;
         // for metrics only
         let mut rejected_due_to_congestion = 0;
         let mut rejected_invalid_tx = 0;
@@ -674,7 +674,6 @@ impl RuntimeAdapter for NightshadeRuntime {
                 }
             }
 
-            // Checking feature WitnessTransactionLimits
             if state_update.trie.recorded_storage_size()
                 > runtime_config.witness_config.new_transactions_validation_state_size_soft_limit
             {
@@ -684,7 +683,7 @@ impl RuntimeAdapter for NightshadeRuntime {
 
             // Take a single transaction from this transaction group
             while let Some(tx_peek) = transaction_group_iter.peek_next() {
-                // WitnessTransactionLimits: Stop adding transactions if the size limit would be exceeded
+                // Stop adding transactions if the size limit would be exceeded
                 if total_size.saturating_add(tx_peek.get_size()) > size_limit as u64 {
                     result.limited_by = Some(PrepareTransactionsLimit::Size);
                     break 'add_txs_loop;
@@ -1254,17 +1253,6 @@ fn chunk_tx_gas_limit(
         own_congestion.missed_chunks_count,
     );
     congestion_control.process_tx_limit()
-}
-
-fn calculate_transactions_size_limit(runtime_config: &RuntimeConfig) -> u64 {
-    // Checking feature WitnessTransactionLimits
-    // Sum of transactions in the previous and current chunks should not exceed the limit.
-    // Witness keeps transactions from both previous and current chunk, so we have to limit the sum of both.
-    runtime_config
-        .witness_config
-        .combined_transactions_size_limit
-        .try_into()
-        .expect("Can't convert usize to u64!")
 }
 
 /// Returns true if the transaction passes the congestion control checks. The

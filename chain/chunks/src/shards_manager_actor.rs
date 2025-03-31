@@ -1869,7 +1869,7 @@ impl ShardsManagerActor {
         let block_producers = self.epoch_manager.get_epoch_block_producers_ordered(&epoch_id)?;
         let current_chunk_height = partial_encoded_chunk.header.height_created();
 
-        // SingleShardTracking: If enabled, we only forward the parts to the block producers
+        // We only forward the parts to the block producers
         let shard_id = partial_encoded_chunk.header.shard_id();
         let mut accounts_forwarded_to = HashSet::new();
         accounts_forwarded_to.insert(me.clone());
