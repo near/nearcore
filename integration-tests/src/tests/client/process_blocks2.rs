@@ -6,7 +6,6 @@ use near_chain_configs::Genesis;
 use near_crypto::vrf::Value;
 use near_crypto::{KeyType, PublicKey, Signature};
 use near_network::types::{NetworkRequests, PeerManagerMessageRequest};
-use near_o11y::testonly::init_test_logger;
 use near_primitives::block::Block;
 use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::network::PeerId;
@@ -321,7 +320,6 @@ fn check_block_produced_from_optimistic_block(block: &Block, optimistic_block: &
 // Testing the production and application of optimistic blocks
 #[test]
 fn test_process_optimistic_block() {
-    init_test_logger();
     let accounts = TestEnvBuilder::make_accounts(1);
     let genesis = Genesis::test_sharded_new_version(accounts, 1, vec![1, 1, 1, 1]);
     let mut env = TestEnv::builder_from_genesis(&genesis).build();
@@ -329,14 +327,18 @@ fn test_process_optimistic_block() {
     let prev_block = env.clients[0].produce_block(1).unwrap().unwrap();
     env.process_block(0, prev_block, Provenance::PRODUCED);
     assert!(!env.clients[0].is_optimistic_block_done(2), "Optimistic block should not be ready");
+
+    // Produce and save optimistic block to be used at block production.
     let optimistic_block = env.clients[0].produce_optimistic_block_on_head(2).unwrap().unwrap();
-    // Store optimistic block to be used at block production.
     env.clients[0].save_optimistic_block(&optimistic_block);
     assert!(env.clients[0].is_optimistic_block_done(2), "Optimistic block should be ready");
 
+    // Check that block data matches optimistic block data.
     let block = env.clients[0].produce_block(2).unwrap().unwrap();
     check_block_produced_from_optimistic_block(&block, &optimistic_block);
 
+    // Start processing block and then optimistic block.
+    // Check that optimistic block is not in processing.
     let signer = env.clients[0].validator_signer.get();
     let me = signer.as_ref().map(|signer| signer.validator_id().clone());
     env.clients[0].start_process_block(block.into(), Provenance::NONE, None, &signer).unwrap();

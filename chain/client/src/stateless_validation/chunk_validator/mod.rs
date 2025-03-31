@@ -195,8 +195,8 @@ impl ChunkValidator {
 
 /// Sends the chunk endorsement to the next
 /// `NUM_NEXT_BLOCK_PRODUCERS_TO_SEND_CHUNK_ENDORSEMENT` block producers.
-/// Additionally returns chunk endorsement to send to self if the signer is
-/// one of these block producers.
+/// Additionally returns chunk endorsement if the signer is one of these block
+/// producers, to be able to process it immediately.
 pub(crate) fn send_chunk_endorsement_to_block_producers(
     chunk_header: &ShardChunkHeader,
     epoch_manager: &dyn EpochManagerAdapter,
@@ -231,7 +231,6 @@ pub(crate) fn send_chunk_endorsement_to_block_producers(
     for block_producer in block_producers {
         if &block_producer == signer.validator_id() {
             send_to_itself = Some(endorsement.clone());
-            continue;
         }
         network_sender.send(PeerManagerMessageRequest::NetworkRequests(
             NetworkRequests::ChunkEndorsement(block_producer, endorsement.clone()),
