@@ -219,6 +219,7 @@ pub fn setup_client(
     let tx_processor = TxRequestHandler::new(
         tx_processor_config,
         client_actor.client.chunk_producer.sharded_tx_pool.clone(),
+        client_actor.client.chunk_endorsement_tracker.clone(),
         epoch_manager.clone(),
         shard_tracker.clone(),
         validator_signer.clone(),

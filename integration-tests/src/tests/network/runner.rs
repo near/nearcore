@@ -99,7 +99,7 @@ fn setup_network_node(
     let network_adapter = LateBoundSender::new();
     let shards_manager_adapter = LateBoundSender::new();
     let adv = near_client::adversarial::Controls::default();
-    let StartClientResult { client_actor, tx_pool, .. } = start_client(
+    let StartClientResult { client_actor, tx_pool, chunk_endorsement_tracker, .. } = start_client(
         Clock::real(),
         client_config.clone(),
         chain_genesis.clone(),
@@ -141,6 +141,7 @@ fn setup_network_node(
     let tx_processor = spawn_tx_request_handler_actor(
         tx_processor_config,
         tx_pool,
+        chunk_endorsement_tracker,
         epoch_manager.clone(),
         shard_tracker.clone(),
         validator_signer.clone(),
