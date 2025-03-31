@@ -154,7 +154,8 @@ check-publishable-separately *OPTIONS:
     #!/usr/bin/env bash
     set -e
     for pkg in $({{ publishable }}); do
-        echo "Checking $pkg..."
+        pkg_name=$(echo $pkg | tr -d '\n') # remove trailing newline from package name
+        echo "Checking $pkg_name..."
         env RUSTFLAGS="-D warnings" \
-        cargo check -p $pkg --examples --tests {{ OPTIONS }}
+        cargo check -p $pkg_name --examples --tests {{ OPTIONS }}
     done
