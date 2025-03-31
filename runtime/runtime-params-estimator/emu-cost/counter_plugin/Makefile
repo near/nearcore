@@ -32,3 +32,5 @@ clean:
 	rm -f *.o *.so ./test_binary
 
 .PHONY: all clean
+
+# cspell:ignore lpthread, soname

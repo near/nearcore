@@ -14,7 +14,7 @@ fn test_status() {
     init_test_logger();
 
     run_actix(async {
-        let (_view_client_addr, addr) =
+        let (_view_client_addr, addr, _runtime_temp_dir) =
             test_utils::start_all(Clock::real(), test_utils::NodeType::NonValidator);
 
         let client = new_http_client(&format!("http://{}", addr));

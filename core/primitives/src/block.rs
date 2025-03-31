@@ -82,34 +82,10 @@ pub enum Block {
 impl Block {
     pub(crate) fn block_from_protocol_version(
         this_epoch_protocol_version: ProtocolVersion,
-        next_epoch_protocol_version: ProtocolVersion,
         header: BlockHeader,
         body: BlockBody,
     ) -> Block {
-        if !ProtocolFeature::ShardChunkHeaderUpgrade.enabled(next_epoch_protocol_version) {
-            let legacy_chunks = body
-                .chunks()
-                .iter()
-                .cloned()
-                .map(|chunk| match chunk {
-                    ShardChunkHeader::V1(header) => header,
-                    ShardChunkHeader::V2(_) => panic!(
-                        "Attempted to include VersionedShardChunkHeaderV2 in old protocol version"
-                    ),
-                    ShardChunkHeader::V3(_) => panic!(
-                        "Attempted to include VersionedShardChunkHeaderV3 in old protocol version"
-                    ),
-                })
-                .collect();
-
-            Block::BlockV1(Arc::new(BlockV1 {
-                header,
-                chunks: legacy_chunks,
-                challenges: body.challenges().to_vec(),
-                vrf_value: *body.vrf_value(),
-                vrf_proof: *body.vrf_proof(),
-            }))
-        } else if !ProtocolFeature::BlockHeaderV4.enabled(this_epoch_protocol_version) {
+        if !ProtocolFeature::BlockHeaderV4.enabled(this_epoch_protocol_version) {
             Block::BlockV2(Arc::new(BlockV2 {
                 header,
                 chunks: body.chunks().to_vec(),
@@ -299,12 +275,7 @@ impl Block {
             chunk_endorsements_bitmap,
         );
 
-        Self::block_from_protocol_version(
-            this_epoch_protocol_version,
-            next_epoch_protocol_version,
-            header,
-            body,
-        )
+        Self::block_from_protocol_version(this_epoch_protocol_version, header, body)
     }
 
     pub fn verify_total_supply(

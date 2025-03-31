@@ -1,3 +1,5 @@
+// cspell:ignore cofactor, enot, goperations, multipoint
+// cspell:ignore pmul, pneg, psum, regs, wbmap, yabig, ybig
 mod tests {
     use crate::logic::MemSlice;
     use crate::logic::tests::vm_logic_builder::{TestVMLogic, VMLogicBuilder};

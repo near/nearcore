@@ -797,11 +797,10 @@ impl Client {
             .get_next_epoch_id_from_prev_block(&prev_hash)
             .expect("Epoch hash should exist at this point");
 
-        let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
         let gas_price_adjustment_rate =
-            self.chain.block_economics_config.gas_price_adjustment_rate(protocol_version);
-        let min_gas_price = self.chain.block_economics_config.min_gas_price(protocol_version);
-        let max_gas_price = self.chain.block_economics_config.max_gas_price(protocol_version);
+            self.chain.block_economics_config.gas_price_adjustment_rate();
+        let min_gas_price = self.chain.block_economics_config.min_gas_price();
+        let max_gas_price = self.chain.block_economics_config.max_gas_price();
 
         let next_bp_hash = if prev_epoch_id != epoch_id {
             Chain::compute_bp_hash(self.epoch_manager.as_ref(), next_epoch_id, epoch_id)?
@@ -1797,7 +1796,6 @@ impl Client {
                         block.header(),
                         &last_header,
                         &shard_chunk,
-                        result.transactions_storage_proof,
                         &Some(signer.clone()),
                     ) {
                         tracing::error!(target: "client", ?err, "Failed to send chunk state witness to chunk validators");

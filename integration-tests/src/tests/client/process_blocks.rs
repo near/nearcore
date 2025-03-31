@@ -65,8 +65,7 @@ use near_primitives_core::num_rational::Ratio;
 use near_store::NodeStorage;
 use near_store::adapter::StoreUpdateAdapter;
 use near_store::archive::cold_storage::{update_cold_db, update_cold_head};
-use near_store::metadata::DB_VERSION;
-use near_store::metadata::DbKind;
+use near_store::db::metadata::{DB_VERSION, DbKind};
 use near_store::test_utils::create_test_node_storage_with_cold;
 use near_store::{DBCol, TrieChanges, get};
 use rand::prelude::StdRng;
@@ -189,11 +188,14 @@ fn produce_block_with_approvals() {
     init_test_logger();
     let validators: Vec<_> =
         (1..=10).map(|i| AccountId::try_from(format!("test{}", i)).unwrap()).collect();
+
+    // Which of validators is test producer depends on deterministic rng setup for the test.
+    let block_producer = "test3";
     run_actix(async {
         let actor_handles = setup_mock(
             Clock::real(),
             validators.clone(),
-            "test1".parse().unwrap(),
+            block_producer.parse().unwrap(),
             true,
             false,
             Box::new(move |msg, _ctx, _| {
@@ -226,7 +228,7 @@ fn produce_block_with_approvals() {
             let (last_block, block_merkle_tree) = res.unwrap().unwrap();
             let mut block_merkle_tree = PartialMerkleTree::clone(&block_merkle_tree);
             block_merkle_tree.insert(last_block.header.hash);
-            let signer1 = create_test_signer("test2");
+            let signer1 = create_test_signer(&block_producer);
             let next_block_ordinal = last_block.header.block_ordinal.unwrap() + 1;
 
             let chunks = last_block.chunks.into_iter().map(Into::into).collect_vec();

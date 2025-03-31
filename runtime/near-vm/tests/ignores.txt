@@ -83,7 +83,7 @@ wasitests::unstable::mem_fs::fd_close
 wasitests::unstable::host_fs::poll_oneoff
 wasitests::unstable::mem_fs::poll_oneoff
 
-### randomly failed, mainly on windows but also on macos, due to a race condition when concurently testing multiple compiler / engines
+### randomly failed, mainly on windows but also on macos, due to a race condition when concurrently testing multiple compiler / engines
 wasitests::snapshot1::host_fs::fd_rename_path
 
 # This tests are disabled for now
@@ -91,3 +91,5 @@ wasitests::unstable::host_fs::unix_open_special_files
 wasitests::snapshot1::host_fs::unix_open_special_files
 wasitests::unstable::mem_fs::unix_open_special_files
 wasitests::snapshot1::mem_fs::unix_open_special_files
+
+# cspell:ignore Frontends, libunwind, oneoff, pread, preopen, readlink

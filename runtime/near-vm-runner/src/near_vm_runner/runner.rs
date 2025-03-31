@@ -1,3 +1,5 @@
+// cspell:ignore waitlist
+
 use super::{NearVmMemory, VM_CONFIG};
 use crate::cache::CompiledContractInfo;
 use crate::errors::ContractPrecompilatonResult;
@@ -44,7 +46,7 @@ fn get_entrypoint_index(
     if let Some(near_vm_types::ExportIndex::Function(index)) = artifact.export_field(method_name) {
         let signature = artifact.function_signature(index).expect("index should produce signature");
         let signature =
-            artifact.engine().lookup_signature(signature).expect("signature store invlidated?");
+            artifact.engine().lookup_signature(signature).expect("signature store invalidated?");
         if signature.params().is_empty() && signature.results().is_empty() {
             Ok(index)
         } else {
@@ -805,7 +807,7 @@ impl<'e, 'l, 'lr> Resolver for NearVmImports<'e, 'l, 'lr> {
                                 // SAFETY: here we erase the lifetime of the `vmlogic` reference,
                                 // but we believe that the lifetimes on `NearVmImports` enforce
                                 // sufficiently that it isn't possible to call this exported
-                                // function when vmlogic is no loger live.
+                                // function when vmlogic is no longer live.
                                 vmctx: near_vm_vm::VMFunctionEnvironment {
                                     host_env: self.vmlogic as *const _ as *mut _
                                 },

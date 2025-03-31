@@ -28,7 +28,7 @@ def get_state_sync_configs_pair(tracked_shards=[0]):
                 },
             }
         },
-        "store.state_snapshot_enabled": True,
+        "store.state_snapshot_config.state_snapshot_type": "Enabled",
         "tracked_shards": [0],  # Track all shards
     }
     config_sync = {
@@ -101,7 +101,7 @@ def get_state_sync_config_combined():
             }
         },
         "state_sync_enabled": True,
-        "store.state_snapshot_enabled": True,
+        "store.state_snapshot_config.state_snapshot_type": "Enabled",
         "tracked_shards": [0],  # Track all shards
     }
 
