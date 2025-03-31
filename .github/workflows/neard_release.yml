@@ -143,5 +143,7 @@ jobs:
           profile-name: "nearcore-image-builder"
           push: true
           file: Dockerfile
+          build-args: |
+            make_target=neard-release 
           tags: ${{ env.DOCKER_TAGS }}
   
