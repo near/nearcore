@@ -1,5 +1,7 @@
 name: Neard binary and Docker image release
 
+# cspell:ignore dockerhub Warpbuilds
+
 on:
   # Run when a new release or rc is created
   release:
@@ -18,7 +20,7 @@ on:
 jobs:
   binary-release:
     name: "Build and publish neard binary"
-    runs-on: "ubuntu-20.04-16core"
+    runs-on: warp-ubuntu-2204-x64-16x
     environment: deploy
     permissions:
       id-token: write # required to use OIDC authentication
@@ -90,7 +92,7 @@ jobs:
 
   docker-release:
     name: "Build and publish nearcore Docker image"
-    runs-on: "ubuntu-20.04-16core"
+    runs-on: warp-ubuntu-2204-x64-2x
     environment: deploy
     steps:
       - name: Checkout ${{ github.event.inputs.branch }} branch
@@ -118,7 +120,7 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKER_PAT_TOKEN }}
   
-      - name: Build and push Docker image to Dockerhub
+      - name: Prepare dockerhub tags
         run: |
           COMMIT=$(git rev-parse HEAD)
           BRANCH=$(git branch --show-current)
@@ -126,15 +128,24 @@ jobs:
           if [ -z "$BRANCH" ]; then
             BRANCH=$(git branch -r --contains=${{ github.ref_name }} | head -n1 | cut -c3- | cut -d / -f 2)
           fi
-          make docker-nearcore
-          docker tag nearcore nearprotocol/nearcore:${BRANCH}-${COMMIT}
-          docker tag nearcore nearprotocol/nearcore:${BRANCH}
 
-          docker push nearprotocol/nearcore:${BRANCH}-${COMMIT}
-          docker push nearprotocol/nearcore:${BRANCH}
-          
+          DOCKER_TAGS="nearprotocol/nearcore:${BRANCH},nearprotocol/nearcore:${BRANCH}-${COMMIT}"
+
           if [[ ${BRANCH} == "master" ]];
           then
-            docker tag nearcore nearprotocol/nearcore:latest
-            docker push nearprotocol/nearcore:latest
+            DOCKER_TAGS="${DOCKER_TAGS},nearprotocol/nearcore:latest"
           fi
+
+          echo "DOCKER_TAGS=${DOCKER_TAGS}" >> $GITHUB_ENV
+
+      - name: Build and push Docker image to Dockerhub
+        uses: Warpbuilds/build-push-action@v6
+        with:
+          context: .
+          profile-name: "nearcore-image-builder"
+          push: true
+          file: Dockerfile
+          build-args: |
+            make_target=neard-release 
+          tags: ${{ env.DOCKER_TAGS }}
+  
