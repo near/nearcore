@@ -234,8 +234,9 @@ def _apply_config_changes(node, state_sync_location):
         }
         if node.want_state_dump:
             changes['state_sync.dump.location'] = state_sync_location
+            # TODO: Change this to Enabled once we remove support the for EveryEpoch alias.
             changes[
-                'store.state_snapshot_config.state_snapshot_type'] = "Enabled"
+                'store.state_snapshot_config.state_snapshot_type'] = "EveryEpoch"
     for key, change in changes.items():
         do_update_config(node, f'{key}={json.dumps(change)}')
 

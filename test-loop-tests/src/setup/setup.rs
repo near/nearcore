@@ -224,8 +224,7 @@ pub fn setup_client(
         validator_signer.clone(),
         runtime_adapter.clone(),
         network_adapter.as_multi_sender(),
-    )
-    .unwrap();
+    );
 
     let partial_witness_actor = PartialWitnessActor::new(
         test_loop.clock(),
