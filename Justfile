@@ -152,10 +152,20 @@ check-protocol-schema:
 publishable := "cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.publish == null or (.publish | length > 0)) | .name'"
 check-publishable-separately *OPTIONS:
     #!/usr/bin/env bash
-    set -e
+    REPORT=""
+    FINAL_RESULT=0
     for pkg in $({{ publishable }}); do
         pkg_name=$(echo $pkg | tr -d '\n' | tr -d '\r') # remove trailing newline from package name
         echo "Checking $pkg_name..."
         env RUSTFLAGS="-D warnings" \
         cargo check -p $pkg_name --examples --tests {{ OPTIONS }}
+        res=$?
+        if [ $res -eq 0 ]; then
+            REPORT="$REPORT\n$pkg_name: OK"
+        else
+            REPORT="$REPORT\n$pkg_name: FAIL"
+            FINAL_RESULT=1
+        fi
     done
+    echo -e $REPORT
+    exit $FINAL_RESULT
