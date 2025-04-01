@@ -1,5 +1,7 @@
 name: Near Crates Publish
 
+# cspell:ignore fregante
+
 on:
   release:
     types: [released]
@@ -13,7 +15,7 @@ on:
 jobs:
   publish-cargo-crates:
     name: "Publish near-workspaces on crates.io https://crates.io/crates/near-workspaces"
-    runs-on: "ubuntu-22.04-16core"
+    runs-on: warp-ubuntu-2204-x64-16x
     environment: deploy
     permissions:
       contents: write # required for crates push
