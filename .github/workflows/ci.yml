@@ -83,7 +83,7 @@ jobs:
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: WarpBuilds/setup-python@v5
         with:
           python-version: 3.11
           cache: pip
@@ -115,7 +115,7 @@ jobs:
     runs-on: warp-ubuntu-2204-x64-8x
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: WarpBuilds/setup-python@v5
         with:
           python-version: 3.11
           cache: pip
@@ -348,7 +348,7 @@ jobs:
         include:
           - name: Linux
             id: linux
-            os: ubuntu-latest
+            os: warp-ubuntu-2204-x64-2x
           - name: Windows
             id: win
             os: windows-latest

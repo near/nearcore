@@ -8,7 +8,7 @@ on:
 jobs:
   tx-injection-single-node:
     name: "tx injections single-node benchmark"
-    runs-on: ubuntu-22.04-16core
+    runs-on: warp-ubuntu-2204-x64-16x
     timeout-minutes: 60
     if: github.event_name == 'merge_group' || github.event_name == 'workflow_dispatch'
 
