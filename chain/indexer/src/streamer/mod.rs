@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
@@ -106,24 +106,25 @@ pub async fn build_streamer_message(
         let views::ChunkView { transactions, author, header, receipts: chunk_non_local_receipts } =
             chunk;
 
-        let mut outcomes = shards_outcomes
+        let outcomes = shards_outcomes
             .remove(&header.shard_id)
             .expect("Execution outcomes for given shard should be present");
-
-        // Take execution outcomes for receipts from the vec and keep only the ones for transactions
-        let mut receipt_outcomes = outcomes.split_off(transactions.len());
-
+        let outcome_count = outcomes.len();
+        let mut outcomes = outcomes
+            .into_iter()
+            .map(|outcome| (outcome.execution_outcome.id, outcome))
+            .collect::<BTreeMap<_, _>>();
+        debug_assert_eq!(outcomes.len(), outcome_count);
         let indexer_transactions = transactions
             .into_iter()
-            .zip(outcomes.into_iter())
-            .map(|(transaction, outcome)| {
-                assert_eq!(
-                    outcome.execution_outcome.id, transaction.hash,
-                    "This ExecutionOutcome must have the same id as Transaction hash"
-                );
-                IndexerTransactionWithOutcome { outcome, transaction }
+            .filter_map(|transaction| {
+                let outcome = outcomes.remove(&transaction.hash)?;
+                debug_assert!(!outcome.execution_outcome.outcome.receipt_ids.is_empty());
+                Some(IndexerTransactionWithOutcome { outcome, transaction })
             })
             .collect::<Vec<IndexerTransactionWithOutcome>>();
+        // All transaction outcomes have been removed.
+        let mut receipt_outcomes = outcomes;
 
         let chunk_local_receipts = convert_transactions_sir_into_local_receipts(
             &client,
@@ -139,10 +140,7 @@ pub async fn build_streamer_message(
 
         // Add local receipts to corresponding outcomes
         for receipt in &chunk_local_receipts {
-            if let Some(outcome) = receipt_outcomes
-                .iter_mut()
-                .find(|outcome| outcome.execution_outcome.id == receipt.receipt_id)
-            {
+            if let Some(outcome) = receipt_outcomes.get_mut(&receipt.receipt_id) {
                 debug_assert!(outcome.receipt.is_none());
                 outcome.receipt = Some(receipt.clone());
             } else {
@@ -161,7 +159,7 @@ pub async fn build_streamer_message(
         let mut chunk_receipts = chunk_local_receipts;
 
         let mut receipt_execution_outcomes: Vec<IndexerExecutionOutcomeWithReceipt> = vec![];
-        for outcome in receipt_outcomes {
+        for (_, outcome) in receipt_outcomes {
             let IndexerExecutionOutcomeWithOptionalReceipt { execution_outcome, receipt } = outcome;
             let receipt = if let Some(receipt) = receipt {
                 receipt
