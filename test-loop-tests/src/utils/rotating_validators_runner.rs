@@ -56,7 +56,7 @@ impl RotatingValidatorsRunner {
             .flat_map(|(i, vec)| {
                 vec.iter().enumerate().map(move |(j, v)| {
                     if i == index {
-                        // Using max_stake - i for stake allows some of the validatos to be block
+                        // Using max_stake - i for stake allows some of the validators to be block
                         // and chunk producers while keeping others as chunk validators only.
                         v.stake_tx(&env, self.max_stake - u128::try_from(j).unwrap())
                     } else {
@@ -174,7 +174,7 @@ impl RotatingValidatorsRunner {
         self.validators_index = (self.validators_index + 1) % self.validators.len();
     }
 
-    /// Sets amount of time we would wait for an epoch complition.
+    /// Sets amount of time we would wait for an epoch change.
     pub fn set_max_epoch_duration(&mut self, duration: Duration) {
         self.max_epoch_duration = Some(duration);
     }
@@ -230,7 +230,7 @@ impl RotatingValidatorsRunner {
         }
     }
 
-    /// Retuens validator spec for genesis that is consistent with runner's expectations.
+    /// Returns validator spec for genesis that is consistent with runner's expectations.
     pub fn genesis_validators_spec(
         &self,
         num_block_producer_seats: NumSeats,
