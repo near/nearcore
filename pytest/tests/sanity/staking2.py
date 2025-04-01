@@ -93,72 +93,73 @@ def doit(seq=[]):
     nodes = start_cluster(
         2, 1, 1, config, [["epoch_length", EPOCH_LENGTH],
                           ["block_producer_kickout_threshold", 40],
-                          ["chunk_producer_kickout_threshold", 40]], {
-                              0: {
-                                  "tracked_shards": [0],
-                                  "view_client_throttle_period": {
-                                      "secs": 0,
-                                      "nanos": 0
-                                  },
-                                  "consensus": {
-                                      "state_sync_external_timeout": {
-                                          "secs": 2,
-                                          "nanos": 0
-                                      },
-                                      "state_sync_p2p_timeout": {
-                                          "secs": 2,
-                                          "nanos": 0
-                                      },
-                                      "state_sync_external_backoff": {
-                                          "secs": 2,
-                                          "nanos": 0
-                                      },
-                                  }
-                              },
-                              1: {
-                                  "tracked_shards": [0],
-                                  "view_client_throttle_period": {
-                                      "secs": 0,
-                                      "nanos": 0
-                                  },
-                                  "consensus": {
-                                      "state_sync_external_timeout": {
-                                          "secs": 2,
-                                          "nanos": 0
-                                      },
-                                      "state_sync_p2p_timeout": {
-                                          "secs": 2,
-                                          "nanos": 0
-                                      },
-                                      "state_sync_external_backoff": {
-                                          "secs": 2,
-                                          "nanos": 0
-                                      },
-                                  }
-                              },
-                              2: {
-                                  "tracked_shards": [0],
-                                  "view_client_throttle_period": {
-                                      "secs": 0,
-                                      "nanos": 0
-                                  },
-                                  "consensus": {
-                                      "state_sync_external_timeout": {
-                                          "secs": 2,
-                                          "nanos": 0
-                                      },
-                                      "state_sync_p2p_timeout": {
-                                          "secs": 2,
-                                          "nanos": 0
-                                      },
-                                      "state_sync_external_backoff": {
-                                          "secs": 2,
-                                          "nanos": 0
-                                      },
-                                  },
-                                  "store.state_snapshot_enabled": True,
-                              }
-                          })
+                          ["chunk_producer_kickout_threshold", 40]],
+        {
+            0: {
+                "tracked_shards": [0],
+                "view_client_throttle_period": {
+                    "secs": 0,
+                    "nanos": 0
+                },
+                "consensus": {
+                    "state_sync_external_timeout": {
+                        "secs": 2,
+                        "nanos": 0
+                    },
+                    "state_sync_p2p_timeout": {
+                        "secs": 2,
+                        "nanos": 0
+                    },
+                    "state_sync_external_backoff": {
+                        "secs": 2,
+                        "nanos": 0
+                    },
+                }
+            },
+            1: {
+                "tracked_shards": [0],
+                "view_client_throttle_period": {
+                    "secs": 0,
+                    "nanos": 0
+                },
+                "consensus": {
+                    "state_sync_external_timeout": {
+                        "secs": 2,
+                        "nanos": 0
+                    },
+                    "state_sync_p2p_timeout": {
+                        "secs": 2,
+                        "nanos": 0
+                    },
+                    "state_sync_external_backoff": {
+                        "secs": 2,
+                        "nanos": 0
+                    },
+                }
+            },
+            2: {
+                "tracked_shards": [0],
+                "view_client_throttle_period": {
+                    "secs": 0,
+                    "nanos": 0
+                },
+                "consensus": {
+                    "state_sync_external_timeout": {
+                        "secs": 2,
+                        "nanos": 0
+                    },
+                    "state_sync_p2p_timeout": {
+                        "secs": 2,
+                        "nanos": 0
+                    },
+                    "state_sync_external_backoff": {
+                        "secs": 2,
+                        "nanos": 0
+                    },
+                },
+                "store.state_snapshot_config.state_snapshot_type": "Enabled",
+            }
+        })
 
     started = time.time()
     last_iter = started

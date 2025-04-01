@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 
+# cspell:ignore autolegend, dataid, feedgnuplot
+
 log=./io_log.txt
 base=.
 mark=`date +"%Y-%m-%d-%H-%M-%S"`

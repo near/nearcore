@@ -268,3 +268,5 @@ impl RawMarkerTable {
         self.length += 1;
     }
 }
+
+// cspell:ignore stackwalk

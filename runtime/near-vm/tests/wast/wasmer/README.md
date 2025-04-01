@@ -28,3 +28,5 @@ This is a simple factorial program.
 
 Stack space for a structure returning function call should be allocated once up
 front, not once in each call.
+
+<!--> cspell:ignore sret <-->
