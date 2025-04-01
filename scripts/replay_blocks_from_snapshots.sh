@@ -173,20 +173,55 @@ for SNAP_HEAD in "${CANDIDATES[@]}"; do
 
   echo "Shards found: ${SHARD_ARRAY[*]}"
 
-  # 7) apply_range for each shard
+  # 7) apply_range for each shard with retry
   for SHARD_ID in "${SHARD_ARRAY[@]}"; do
     CSV_FILE="$CSV_OUTPUT_DIR/apply_range_${SNAP_HEAD}_shard${SHARD_ID}.csv"
-    APPLY_CMD="\"$NEARD_PATH\" --home \"$CURRENT_SNAPSHOT\" view_state apply_range \
+
+    # First attempt: "parallel"
+    APPLY_CMD_PARALLEL="\"$NEARD_PATH\" --home \"$CURRENT_SNAPSHOT\" view_state apply_range \
       --shard-id=\"$SHARD_ID\" \
       --start-index=\"$CURRENT_START\" \
       --end-index=\"$LOCAL_END\" \
       --csv-file=\"$CSV_FILE\" \
       parallel"
+
+    # Second attempt (only if first fails): "sequential"
+    APPLY_CMD_SEQUENTIAL="\"$NEARD_PATH\" --home \"$CURRENT_SNAPSHOT\" view_state apply_range \
+      --shard-id=\"$SHARD_ID\" \
+      --start-index=\"$CURRENT_START\" \
+      --end-index=\"$LOCAL_END\" \
+      --csv-file=\"$CSV_FILE\" \
+      sequential"
+
     if (( DRY_RUN )); then
-      echo "[DRY RUN] apply_range => $APPLY_CMD"
+      echo "[DRY RUN] apply_range parallel => $APPLY_CMD_PARALLEL"
+      echo "[DRY RUN] apply_range sequential => $APPLY_CMD_SEQUENTIAL"
+      continue
+    fi
+
+    echo "apply_range shard=$SHARD_ID => $CSV_FILE (parallel attempt)"
+    set +e
+    eval "$APPLY_CMD_PARALLEL"
+    EXIT_CODE_PARALLEL=$?
+    set -e
+
+    if [[ $EXIT_CODE_PARALLEL -eq 0 ]]; then
+      # parallel succeeded => record success
+      echo "$SNAP_HEAD,$SHARD_ID,$CURRENT_START,$LOCAL_END" >> ok.csv
     else
-      echo "apply_range shard=$SHARD_ID => $CSV_FILE"
-      eval "$APPLY_CMD"
+      echo "[WARN] apply_range parallel failed (exit=$EXIT_CODE_PARALLEL), retry with sequential..."
+      set +e
+      eval "$APPLY_CMD_SEQUENTIAL"
+      EXIT_CODE_SEQUENTIAL=$?
+      set -e
+
+      if [[ $EXIT_CODE_SEQUENTIAL -eq 0 ]]; then
+        # sequential succeeded => record success
+        echo "$SNAP_HEAD,$SHARD_ID,$CURRENT_START,$LOCAL_END" >> ok.csv
+      else
+        echo "[WARN] apply_range sequential also failed (exit=$EXIT_CODE_SEQUENTIAL)."
+        echo "$SNAP_HEAD,$SHARD_ID,$CURRENT_START,$LOCAL_END" >> failed.csv
+      fi
     fi
   done
 
