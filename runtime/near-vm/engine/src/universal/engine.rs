@@ -508,7 +508,7 @@ pub struct UniversalEngineInner {
     /// The compiler
     compiler: Option<Box<dyn Compiler>>,
     /// Pool from which code memory can be allocated.
-    #[cfg(not(windows))]
+    #[allow(unused)] // Silence unused variable warning on windows builds
     code_memory_pool: super::MemoryPool,
     /// The features to compile the Wasm module with
     features: Features,

@@ -3,7 +3,9 @@
 
 //! Memory management for executable code.
 use near_vm_compiler::CompileError;
+#[cfg(not(windows))]
 use rustix::mm::{self, MapFlags, MprotectFlags, ProtFlags};
+#[cfg(not(windows))]
 use std::sync::Arc;
 
 /// The optimal alignment for functions.
