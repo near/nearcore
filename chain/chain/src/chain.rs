@@ -1365,6 +1365,7 @@ impl Chain {
 
         self.blocks_delay_tracker.record_optimistic_block_ready(block_height);
         if let Ok(true) = self.is_height_processed(block_height) {
+            metrics::NUM_DROPPED_OPTIMISTIC_BLOCKS_BECAUSE_OF_PROCESSED_HEIGHT.inc();
             debug!(
                 target: "chain", prev_block_hash = ?prev_block_hash,
                 hash = ?block_hash, height = block_height,
@@ -1382,6 +1383,7 @@ impl Chain {
                 );
             }
             Err(err) => {
+                metrics::NUM_FAILED_OPTIMISTIC_BLOCKS.inc();
                 warn!(
                     target: "chain", err = ?err,
                     prev_block_hash = ?prev_block_hash,
