@@ -1,6 +1,5 @@
 # FIXME: some of these tests don't work very well on MacOS at the moment. Should fix
 # them at earliest convenience :)
-# Also in addition to this, the `nextest-integration` test is currently disabled on macos
 platform_excludes := if os() == "macos" {
     "--exclude runtime-params-estimator --exclude near-network --exclude estimator-warehouse"
 } else if os() == "windows" {
