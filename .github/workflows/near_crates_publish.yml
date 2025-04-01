@@ -1,5 +1,7 @@
 name: Near Crates Publish
 
+# cspell:ignore fregante
+
 on:
   release:
     types: [released]

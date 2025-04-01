@@ -1,4 +1,7 @@
 name: Build on demand fuzz targets
+
+# cspell:ignore prereleased fallocate swapon prereleased gsutil
+
 on:
   # Run when a new release or rc is created
   release:

@@ -1,4 +1,7 @@
 name: Build fuzz targets from master
+
+# cspell:ignore fallocate swapon gsutil
+
 on:
   push:
     branches:

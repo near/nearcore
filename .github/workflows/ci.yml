@@ -348,7 +348,7 @@ jobs:
         include:
           - name: Linux
             id: linux
-            os: ubuntu-latest
+            os: warp-ubuntu-2204-x64-2x
           - name: Windows
             id: win
             os: windows-latest
