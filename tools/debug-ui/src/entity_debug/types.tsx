@@ -30,6 +30,7 @@ export type EntityType =
     | 'Chunk'
     | 'ChunkExtra'
     | 'EpochInfo'
+    | 'EpochConfig'
     | 'EpochInfoAggregator'
     | 'ExecutionOutcome'
     | 'FlatState'
@@ -143,6 +144,7 @@ export type EntityQuery = {
     ChunkExtraByChunkHash?: { chunk_hash: string };
     EpochInfoAggregator?: null;
     EpochInfoByEpochId?: { epoch_id: string };
+    EpochConfigByEpochId?: { epoch_id: string };
     FlatStateByTrieKey?: { trie_key: string };
     FlatStateChangesByBlockHash?: { block_hash: string };
     FlatStateDeltaMetadataByBlockHash?: { block_hash: string };
@@ -193,6 +195,7 @@ export const entityQueryTypes: EntityQueryType[] = [
     'ChunkExtraByChunkHash',
     'EpochInfoAggregator',
     'EpochInfoByEpochId',
+    'EpochConfigByEpochId',
     'FlatStateByTrieKey',
     'FlatStateChangesByBlockHash',
     'FlatStateDeltaMetadataByBlockHash',
@@ -263,6 +266,7 @@ export const entityQueryKeyTypes: Record<EntityQueryType, EntityQueryKeySpec[]> 
     ChunkExtraByChunkHash: [queryKey('chunk_hash')],
     EpochInfoAggregator: [],
     EpochInfoByEpochId: [queryKey('epoch_id')],
+    EpochConfigByEpochId: [queryKey('epoch_id')],
     FlatStateByTrieKey: [queryKey('trie_key'), implicitQueryKey('shard_uid')],
     FlatStateChangesByBlockHash: [queryKey('block_hash'), implicitQueryKey('shard_uid')],
     FlatStateDeltaMetadataByBlockHash: [queryKey('block_hash'), implicitQueryKey('shard_uid')],
@@ -307,6 +311,7 @@ export const entityQueryOutputType: Record<EntityQueryType, EntityType> = {
     ChunkExtraByChunkHash: 'ChunkExtra',
     EpochInfoAggregator: 'EpochInfoAggregator',
     EpochInfoByEpochId: 'EpochInfo',
+    EpochConfigByEpochId: 'EpochConfig',
     FlatStateByTrieKey: 'FlatState',
     FlatStateChangesByBlockHash: 'FlatStateChanges',
     FlatStateDeltaMetadataByBlockHash: 'FlatStateDeltaMetadata',
