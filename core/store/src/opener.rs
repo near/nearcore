@@ -700,12 +700,16 @@ pub fn rollback_database_from_26_to_25<'a>(
     }
     println!("Starting rollback");
     let cols_to_drop = [DBCol::ChunkApplyStats];
+    println!("Removing ChunkApplyStats column from hot storage");
     hot_db.clear_cols(&cols_to_drop)?;
     let hot_store = Store::new(Arc::new(hot_db));
+    println!("Setting hot DB version to {}", PREV_DB_VERSION);
     hot_store.set_db_version(PREV_DB_VERSION)?;
     if let Some(mut cold) = cold_db {
+        println!("Removing ChunkApplyStats column from cold storage");
         cold.clear_cols(&cols_to_drop)?;
         let cold_store = Store::new(Arc::new(cold));
+        println!("Setting cold DB version to {}", PREV_DB_VERSION);
         cold_store.set_db_version(PREV_DB_VERSION)?;
     }
     println!("Rollback successful. You can now start neard 2.5");
