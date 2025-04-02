@@ -367,6 +367,14 @@ fn run_test(state: TestState) {
             let handle = env.node_datas[0].client_sender.actor_handle();
             let client = &data.get(&handle).client;
             let tip = client.chain.head().unwrap();
+            let header = client.chain.get_block_header(&tip.last_block_hash).unwrap();
+            tracing::debug!(
+                "chunk mask for #{} {:?} {} {:?}",
+                header.height(),
+                header.chunk_mask(),
+                tip.last_block_hash,
+                tip.epoch_id
+            );
             tip.epoch_id != Default::default()
         },
         first_epoch_time,
@@ -511,9 +519,9 @@ fn slow_test_state_sync_empty_shard() {
     run_state_sync_test_case(t);
 }
 
-// Miss some chunks at the beginning of the epoch
+// Miss a chunk in the first block of the new epoch; it won't affect the sync hash
 #[test]
-fn slow_test_state_sync_miss_chunks_0() {
+fn slow_test_state_sync_miss_chunks_first_block() {
     init_test_logger();
     let chunks_produced = vec![
         (ShardId::new(0), vec![false]),
@@ -534,9 +542,10 @@ fn slow_test_state_sync_miss_chunks_0() {
     run_state_sync_test_case(t);
 }
 
-// Miss some chunks at the beginning of the epoch
+// Miss chunks in the second block of the new epoch;
+// the sync hash will be one block later than usual
 #[test]
-fn slow_test_state_sync_miss_chunks_1() {
+fn slow_test_state_sync_miss_chunks_second_block() {
     init_test_logger();
     let chunks_produced =
         vec![(ShardId::new(0), vec![true, false]), (ShardId::new(1), vec![true, false])];
@@ -553,12 +562,86 @@ fn slow_test_state_sync_miss_chunks_1() {
     run_state_sync_test_case(t);
 }
 
-// Miss some chunks at the beginning of the epoch
+// Miss chunks in the third block of the new epoch;
+// the sync hash will be one block later than usual
 #[test]
-fn slow_test_state_sync_miss_chunks_2() {
+fn slow_test_state_sync_miss_chunks_third_block() {
     init_test_logger();
-    let chunks_produced =
-        vec![(ShardId::new(0), vec![false, true]), (ShardId::new(2), vec![true, false, true])];
+    let chunks_produced = vec![
+        (ShardId::new(0), vec![true, true, false]),
+        (ShardId::new(2), vec![true, true, false]),
+    ];
+    let t = StateSyncTest {
+        num_validators: 5,
+        num_block_producer_seats: 4,
+        num_chunk_producer_seats: 4,
+        num_shards: 4,
+        generate_shard_accounts: true,
+        chunks_produced,
+        skip_block_sync_height_delta: None,
+        extra_node_shard_schedule: None,
+    };
+    run_state_sync_test_case(t);
+}
+
+// Make the sync block have missing chunks
+#[test]
+fn slow_test_state_sync_miss_chunks_sync_block() {
+    init_test_logger();
+    let chunks_produced = vec![
+        (ShardId::new(0), vec![true, true, true, false]),
+        (ShardId::new(1), vec![true, true, true, false]),
+    ];
+    let t = StateSyncTest {
+        num_validators: 5,
+        num_block_producer_seats: 4,
+        num_chunk_producer_seats: 4,
+        num_shards: 4,
+        generate_shard_accounts: true,
+        chunks_produced,
+        skip_block_sync_height_delta: None,
+        extra_node_shard_schedule: None,
+    };
+    run_state_sync_test_case(t);
+}
+
+// Make the sync prev block have a missing chunk.
+// Notice that the sync hash is one block later than usual because of shard 3.
+// Shard 1 will be missing a chunk in the prev block.
+#[test]
+fn slow_test_state_sync_miss_chunks_sync_prev_block() {
+    init_test_logger();
+    let chunks_produced = vec![
+        (ShardId::new(1), vec![true, true, true, false]),
+        (ShardId::new(3), vec![true, false, true, true]),
+    ];
+    let t = StateSyncTest {
+        num_validators: 5,
+        num_block_producer_seats: 4,
+        num_chunk_producer_seats: 4,
+        num_shards: 4,
+        generate_shard_accounts: true,
+        chunks_produced,
+        skip_block_sync_height_delta: None,
+        extra_node_shard_schedule: None,
+    };
+    run_state_sync_test_case(t);
+}
+
+// Combination of different cases:
+//  - Shard 0 has multiple chunk misses leading up to the sync hash block
+//  - Shard 1 has multiple misses leading up to and including the sync hash block
+//  - Shard 2 misses chunks early
+//  - Shard 3 has no missing chunks until the sync hash block
+#[test]
+fn slow_test_state_sync_miss_chunks_multiple() {
+    init_test_logger();
+    let chunks_produced = vec![
+        (ShardId::new(0), vec![true, true, true, false, false, true]),
+        (ShardId::new(1), vec![true, true, true, false, false, false]),
+        (ShardId::new(2), vec![false, false, false, true, true, true]),
+        (ShardId::new(3), vec![true, true, true, true, true, false]),
+    ];
     let t = StateSyncTest {
         num_validators: 5,
         num_block_producer_seats: 4,
@@ -691,6 +774,14 @@ fn await_sync_hash(env: &mut TestLoopEnv) -> CryptoHash {
             let handle = env.node_datas[0].client_sender.actor_handle();
             let client = &data.get(&handle).client;
             let tip = client.chain.head().unwrap();
+            let header = client.chain.get_block_header(&tip.last_block_hash).unwrap();
+            tracing::debug!(
+                "chunk mask for #{} {:?} {} {:?}",
+                header.height(),
+                header.chunk_mask(),
+                tip.last_block_hash,
+                tip.epoch_id
+            );
             if tip.epoch_id == Default::default() {
                 return false;
             }
@@ -701,7 +792,9 @@ fn await_sync_hash(env: &mut TestLoopEnv) -> CryptoHash {
     let client_handle = env.node_datas[0].client_sender.actor_handle();
     let client = &env.test_loop.data.get(&client_handle).client;
     let tip = client.chain.head().unwrap();
-    client.chain.get_sync_hash(&tip.last_block_hash).unwrap().unwrap()
+    let sync_hash = client.chain.get_sync_hash(&tip.last_block_hash).unwrap().unwrap();
+    tracing::debug!("await_sync_hash: {sync_hash}");
+    sync_hash
 }
 
 // cspell:ignore reqs

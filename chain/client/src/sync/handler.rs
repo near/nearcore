@@ -23,10 +23,10 @@ use std::sync::Arc;
 // A small helper macro to unwrap a result of some state sync operation. If the
 // result is an error this macro will log it and return from the function.
 #[macro_export]
-macro_rules! unwrap_and_report_state_sync_result (($obj: expr) => (match $obj {
+macro_rules! unwrap_and_report_state_sync_result (($obj: ident) => (match $obj {
     Ok(v) => v,
     Err(err) => {
-        tracing::error!(target: "sync", "Sync: Unexpected error: {}", err);
+        tracing::error!(target: "sync", "Sync: Unexpected error: {}: {}", stringify!($obj), err);
         return None;
     }
 }));
@@ -110,7 +110,8 @@ impl SyncHandler {
         );
         unwrap_and_report_state_sync_result!(header_sync_result);
         // Only body / state sync if header height is close to the latest.
-        let header_head = unwrap_and_report_state_sync_result!(chain.header_head());
+        let chain_header_head = chain.header_head();
+        let header_head = unwrap_and_report_state_sync_result!(chain_header_head);
 
         // We should state sync if it's already started or if we have enough
         // headers and blocks. The should_state_sync method may run block sync.

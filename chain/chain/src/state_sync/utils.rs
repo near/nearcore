@@ -277,12 +277,13 @@ impl Chain {
     }
 
     /// Returns the hashes of all extra blocks which must be downloaded for state sync.
+    /// Excludes the sync hash block and its prev block.
     ///
-    /// The sync hash block is the first block to be processed after state sync. The
-    /// node will need enough block history so that the incoming receipts leading up
-    /// to the sync hash block can be collected.
+    /// For each shard, the node needs blocks going back to (and including)
+    /// the last new chunk before the sync hash block, to be used in:
     ///
-    /// "Extra" excludes the sync hash block itself and its prev block.
+    ///  - set_state_finalize upon completing state sync
+    ///  - collect_incoming_receipts_from_chunks when processing blocks after state sync
     ///
     pub fn get_extra_sync_block_hashes(&self, sync_prev_hash: &CryptoHash) -> Vec<CryptoHash> {
         // Get the sync prev block. It's possible that the block is not yet available.
@@ -291,8 +292,6 @@ impl Chain {
             return vec![];
         };
 
-        // To apply a new chunk after state sync, the node will need incoming receipts
-        // from all blocks after the previous height at which a new chunk got included.
         let min_height_included =
             sync_prev_block.chunks().iter_deprecated().map(|chunk| chunk.height_included()).min();
         let Some(min_height_included) = min_height_included else {
@@ -309,11 +308,11 @@ impl Chain {
                 break;
             };
 
-            if next_header.height() <= min_height_included {
+            if next_header.height() < min_height_included {
                 break;
             }
-
             extra_block_hashes.push(next_hash);
+
             next_hash = *next_header.prev_hash();
         }
         extra_block_hashes
