@@ -394,7 +394,7 @@ fn run_test_with_added_node(state: TestState) {
 
     // TODO: due to current limitations of TestLoop we have to wait for the
     // sync hash block before starting the new node.
-    await_sync_hash(&mut env);
+    let sync_hash = await_sync_hash(&mut env);
 
     // Add new node which will sync from scratch.
     let genesis = env.shared_state.genesis.clone();
@@ -405,10 +405,29 @@ fn run_test_with_added_node(state: TestState) {
         .config_modifier(move |config| {
             // Lower the threshold at which state sync is chosen over block sync
             config.block_fetch_horizon = 5;
+            // If tracked_shards is non-empty the node tracks all shards
             config.tracked_shards = vec![ShardId::new(0)];
         })
         .build();
     env.add_node(account_id.as_str(), new_node_state);
+
+    env.test_loop.run_until(
+        |data| {
+            let handle = env.node_datas.last().unwrap().client_sender.actor_handle();
+            let client = &data.get(&handle).client;
+            let new_tip = client.chain.head().unwrap();
+            if new_tip.height > GENESIS_HEIGHT {
+                // Make sure the node catches up through state sync, not block sync.
+                // It will skip straight from genesis to the sync prev block.
+                let sync_header = client.chain.get_block_header(&sync_hash).unwrap();
+                assert!(new_tip.last_block_hash == *sync_header.prev_hash());
+                true
+            } else {
+                false
+            }
+        },
+        Duration::seconds(3),
+    );
 
     produce_chunks(&mut env, accounts.clone(), skip_block_height);
 
