@@ -15,7 +15,7 @@ use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{
     AccountId, AccountInfo, BlockHeight, BlockHeightDelta, Nonce, NumSeats, ShardId,
 };
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
+use near_primitives::version::PROTOCOL_VERSION;
 
 use crate::setup::builder::{NodeStateBuilder, TestLoopBuilder};
 use crate::setup::drop_condition::DropCondition;
@@ -83,11 +83,7 @@ fn sync_height() -> BlockHeight {
     // it would be nice to modify `drop_blocks_by_height()` to allow for more complex logic to decide
     // whether to drop the block, and be more robust to state sync protocol changes. But for now this
     // will trigger the behavior we want and it's quite a bit easier.
-    if ProtocolFeature::CurrentEpochStateSync.enabled(PROTOCOL_VERSION) {
-        GENESIS_HEIGHT + EPOCH_LENGTH + 4
-    } else {
-        GENESIS_HEIGHT + EPOCH_LENGTH + 1
-    }
+    GENESIS_HEIGHT + EPOCH_LENGTH + 4
 }
 
 fn setup_initial_blockchain(

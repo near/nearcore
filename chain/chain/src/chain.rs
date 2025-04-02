@@ -3508,28 +3508,13 @@ impl Chain {
             return Ok(SnapshotAction::None);
         }
 
-        let is_epoch_boundary =
-            self.epoch_manager.is_next_block_epoch_start(&head.last_block_hash)?;
-        let next_block_epoch =
-            self.epoch_manager.get_epoch_id_from_prev_block(&head.last_block_hash)?;
-        let protocol_version = self.epoch_manager.get_epoch_protocol_version(&next_block_epoch)?;
-
-        if !ProtocolFeature::CurrentEpochStateSync.enabled(protocol_version) {
-            if is_epoch_boundary {
-                // Here we return head.last_block_hash as the prev_hash of the first block of the next epoch
-                Ok(SnapshotAction::MakeSnapshot(head.last_block_hash))
-            } else {
-                Ok(SnapshotAction::None)
-            }
+        let is_sync_prev = self.state_sync_adapter.is_sync_prev_hash(&head)?;
+        if is_sync_prev {
+            // Here the head block is the prev block of what the sync hash will be, and the previous
+            // block is the point in the chain we want to snapshot state for
+            Ok(SnapshotAction::MakeSnapshot(head.last_block_hash))
         } else {
-            let is_sync_prev = self.state_sync_adapter.is_sync_prev_hash(&head)?;
-            if is_sync_prev {
-                // Here the head block is the prev block of what the sync hash will be, and the previous
-                // block is the point in the chain we want to snapshot state for
-                Ok(SnapshotAction::MakeSnapshot(head.last_block_hash))
-            } else {
-                Ok(SnapshotAction::None)
-            }
+            Ok(SnapshotAction::None)
         }
     }
 

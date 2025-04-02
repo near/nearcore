@@ -2,7 +2,6 @@ use near_chain_primitives::error::Error;
 use near_primitives::block::Tip;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::EpochId;
-use near_primitives::version::ProtocolFeature;
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::{DBCol, Store, StoreUpdate};
@@ -243,7 +242,6 @@ pub(crate) fn is_sync_prev_hash(chain_store: &ChainStoreAdapter, tip: &Tip) -> R
 }
 
 impl Chain {
-    // TODO(current_epoch_state_sync): move state sync related code to state sync files
     /// Find the hash that should be used as the reference point when requesting state sync
     /// headers and parts from other nodes for the epoch the block with hash `block_hash` belongs to.
     /// If syncing to the state of that epoch (the new way), this block hash might not yet be known,
@@ -255,23 +253,11 @@ impl Chain {
             return Ok(None);
         }
         let header = self.get_block_header(block_hash)?;
-        let protocol_version = self.epoch_manager.get_epoch_protocol_version(header.epoch_id())?;
-        if ProtocolFeature::CurrentEpochStateSync.enabled(protocol_version) {
-            self.chain_store.get_current_epoch_sync_hash(header.epoch_id())
-        } else {
-            // In the first epoch, it doesn't make sense to sync state to the previous epoch.
-            if header.epoch_id() == &EpochId::default() {
-                return Ok(None);
-            }
-            Ok(Some(*self.epoch_manager.get_block_info(block_hash)?.epoch_first_block()))
-        }
+        self.chain_store.get_current_epoch_sync_hash(header.epoch_id())
     }
 
     /// Select the block hash we are using to sync state. It will sync with the state before applying the
     /// content of such block.
-    ///
-    /// The selected block will always be the first block on a new epoch:
-    /// <https://github.com/nearprotocol/nearcore/issues/2021#issuecomment-583039862>.
     pub fn find_sync_hash(&self) -> Result<Option<CryptoHash>, Error> {
         let header_head = self.header_head()?;
         let sync_hash = match self.get_sync_hash(&header_head.last_block_hash)? {
