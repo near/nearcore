@@ -687,6 +687,11 @@ pub fn rollback_database_from_26_to_25<'a>(
 ) -> anyhow::Result<()> {
     const PREV_DB_VERSION: DbVersion = 43;
     let opener = StoreOpener::new(home_dir, &config, archival_config);
+
+    // First open in read-only mode to ensure that db version is correct
+    // Opening in ReadWrite mode would create nonexisting columns before failing, corrupting the db :/
+    let _ = opener.open_dbs(Mode::ReadOnly)?;
+
     let (mut hot_db, _hot_snapshot, cold_db, _cold_snapshot) =
         opener.open_dbs(Mode::ReadWriteExisting)?;
     if !get_confirmation() {
