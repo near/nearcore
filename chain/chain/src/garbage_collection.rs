@@ -311,8 +311,8 @@ impl ChainStore {
             return Ok(());
         }
         let Ok(final_block) = self.get_block(&final_block_hash) else {
-            // We don't have the last final block in storage.
             // This can happen if the node just did state sync.
+            tracing::debug!(target: "garbage_collection", ?final_block_hash, "Could not get final block");
             return Ok(());
         };
         let final_block_chunk_created_heights: HashMap<_, _> = final_block
