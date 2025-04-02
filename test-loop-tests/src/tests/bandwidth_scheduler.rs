@@ -102,7 +102,6 @@ fn ultra_slow_test_bandwidth_scheduler_four_shards_random_receipts_missing_chunk
 }
 
 fn run_bandwidth_scheduler_test(scenario: TestScenario, tx_concurrency: usize) -> TestSummary {
-    init_test_logger();
     let active_links = scenario.get_active_links();
     let mut rng = ChaCha20Rng::seed_from_u64(0);
 
