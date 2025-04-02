@@ -143,6 +143,7 @@ impl TestEnv {
                     .unwrap();
             }
         }
+        self.process_shards_manager_responses(id);
         self.propagate_chunk_state_witnesses_and_endorsements(false);
     }
 

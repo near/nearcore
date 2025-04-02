@@ -494,6 +494,7 @@ impl std::fmt::Display for TestSummary {
             "  worst_link_estimation_ratio {:.2} (Should be at least 0.5)",
             self.worst_link_estimation_ratio
         )?;
+        writeln!(f, "  max_shard_bandwidth {:?}", self.max_shard_bandwidth)?;
         writeln!(f, "}}")
     }
 }
