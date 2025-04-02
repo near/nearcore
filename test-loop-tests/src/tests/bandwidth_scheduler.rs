@@ -27,7 +27,6 @@ use near_chain::{ChainStoreAccess, ReceiptFilter, get_incoming_receipts_for_shar
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
 use near_client::{Client, TxRequestHandler};
 use near_crypto::Signer;
-use near_o11y::testonly::init_test_logger;
 use near_primitives::account::{AccessKey, AccessKeyPermission};
 use near_primitives::action::{Action, FunctionCallAction};
 use near_primitives::bandwidth_scheduler::{
