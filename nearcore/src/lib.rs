@@ -399,29 +399,34 @@ pub fn start_with_config_and_synchronization(
         Arc::new(tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap());
 
     let state_sync_spawner = Arc::new(TokioRuntimeFutureSpawner(state_sync_runtime.clone()));
-    let StartClientResult { client_actor, client_arbiter_handle, resharding_handle, tx_pool } =
-        start_client(
-            Clock::real(),
-            config.client_config.clone(),
-            chain_genesis.clone(),
-            epoch_manager.clone(),
-            shard_tracker.clone(),
-            runtime.clone(),
-            node_id,
-            state_sync_spawner.clone(),
-            network_adapter.as_multi_sender(),
-            shards_manager_adapter.as_sender(),
-            config.validator_signer.clone(),
-            telemetry.with_auto_span_context().into_sender(),
-            Some(snapshot_callbacks),
-            shutdown_signal,
-            adv,
-            config_updater,
-            partial_witness_actor.clone().with_auto_span_context().into_multi_sender(),
-            true,
-            None,
-            resharding_sender.into_multi_sender(),
-        );
+    let StartClientResult {
+        client_actor,
+        client_arbiter_handle,
+        resharding_handle,
+        tx_pool,
+        chunk_endorsement_tracker,
+    } = start_client(
+        Clock::real(),
+        config.client_config.clone(),
+        chain_genesis.clone(),
+        epoch_manager.clone(),
+        shard_tracker.clone(),
+        runtime.clone(),
+        node_id,
+        state_sync_spawner.clone(),
+        network_adapter.as_multi_sender(),
+        shards_manager_adapter.as_sender(),
+        config.validator_signer.clone(),
+        telemetry.with_auto_span_context().into_sender(),
+        Some(snapshot_callbacks),
+        shutdown_signal,
+        adv,
+        config_updater,
+        partial_witness_actor.clone().with_auto_span_context().into_multi_sender(),
+        true,
+        None,
+        resharding_sender.into_multi_sender(),
+    );
     client_adapter_for_shards_manager.bind(client_actor.clone().with_auto_span_context());
     client_adapter_for_partial_witness_actor.bind(client_actor.clone().with_auto_span_context());
     let (shards_manager_actor, shards_manager_arbiter_handle) = start_shards_manager(
@@ -445,6 +450,7 @@ pub fn start_with_config_and_synchronization(
     let tx_processor = spawn_tx_request_handler_actor(
         tx_processor_config,
         tx_pool,
+        chunk_endorsement_tracker,
         view_epoch_manager.clone(),
         view_shard_tracker,
         config.validator_signer.clone(),
