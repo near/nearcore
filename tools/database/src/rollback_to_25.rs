@@ -7,7 +7,11 @@ use crate::utils::get_user_confirmation;
 /// Rollback the database from format used by neard 2.6 to the format used by neard 2.5.
 /// Removes ChunkApplyStats column and sets DB version to 43.
 #[derive(Parser)]
-pub(crate) struct RollbackTo25Command;
+pub(crate) struct RollbackTo25Command {
+    /// Don't ask for confirmation - use this flag to skip the confirmation prompt.
+    #[clap(long, action)]
+    no_confirmation: bool,
+}
 
 impl RollbackTo25Command {
     pub(crate) fn run(
@@ -17,12 +21,16 @@ impl RollbackTo25Command {
     ) -> anyhow::Result<()> {
         let config = nearcore::config::load_config(&home_dir, genesis_validation)?;
 
-        let get_confirmation = || {
-            get_user_confirmation(
-                "You are about to roll back the database from format used by neard 2.6 to the format used by neard 2.5.
-                Do not interrupt the rollback operation, stopping the process in the middle of it could corrupt the database.
-                Do you want to continue?",
-            )
+        let get_confirmation: Box<dyn FnOnce() -> bool> = if self.no_confirmation {
+            Box::new(|| true)
+        } else {
+            Box::new(|| {
+                get_user_confirmation(
+                    "You are about to roll back the database from format used by neard 2.6 to the format used by neard 2.5.
+Do not interrupt the rollback operation, stopping the process in the middle of it could corrupt the database.
+Do you want to continue?",
+                )
+            })
         };
 
         near_store::rollback_database_from_26_to_25(

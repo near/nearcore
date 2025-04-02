@@ -698,6 +698,7 @@ pub fn rollback_database_from_26_to_25<'a>(
         println!("Rollback cancelled.");
         return Ok(());
     }
+    println!("Starting rollback");
     let cols_to_drop = [DBCol::ChunkApplyStats];
     hot_db.clear_cols(&cols_to_drop)?;
     let hot_store = Store::new(Arc::new(hot_db));
