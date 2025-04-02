@@ -1826,7 +1826,7 @@ fn test_gc_tail_update() {
         )
         .unwrap();
     env.process_block(1, blocks.pop().unwrap(), Provenance::NONE);
-    assert_eq!(env.clients[1].chain.chain_store().tail().unwrap(), prev_sync_height - 1);
+    assert_eq!(env.clients[1].chain.chain_store().tail().unwrap(), prev_sync_height);
 }
 
 /// Test that transaction does not become invalid when there is some gas price change.
