@@ -677,6 +677,29 @@ pub fn clear_columns<'a>(
     Ok(())
 }
 
+/// Rollback the database from format used by neard 2.6 to the format used by neard 2.5.
+/// Removes ChunkApplyStats column and sets DB version to 43.
+pub fn rollback_database_from_26_to_25<'a>(
+    home_dir: &std::path::Path,
+    config: &StoreConfig,
+    archival_config: Option<ArchivalConfig<'a>>,
+) -> anyhow::Result<()> {
+    const PREV_DB_VERSION: DbVersion = 43;
+    let opener = StoreOpener::new(home_dir, &config, archival_config);
+    let (mut hot_db, _hot_snapshot, cold_db, _cold_snapshot) =
+        opener.open_dbs(Mode::ReadWriteExisting)?;
+    let cols_to_drop = [DBCol::ChunkApplyStats];
+    hot_db.clear_cols(&cols_to_drop)?;
+    let hot_store = Store::new(Arc::new(hot_db));
+    hot_store.set_db_version(PREV_DB_VERSION)?;
+    if let Some(mut cold) = cold_db {
+        cold.clear_cols(&cols_to_drop)?;
+        let cold_store = Store::new(Arc::new(cold));
+        cold_store.set_db_version(PREV_DB_VERSION)?;
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
