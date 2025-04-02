@@ -30,10 +30,11 @@ pub fn convert_secret_key(key: &signature::ED25519SecretKey) -> vrf::SecretKey {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
+    #[cfg(feature = "rand")]
     #[test]
     fn test_conversion() {
+        use super::*;
+
         for _ in 0..10 {
             let kk = signature::SecretKey::from_random(signature::KeyType::ED25519);
             let pk = match kk.public_key() {

@@ -160,6 +160,7 @@ impl<'a> UniversalExecutableRef<'a> {
     }
 }
 
+#[cfg(not(windows))]
 pub(crate) fn unrkyv<T>(archive: &T::Archived) -> T
 where
     T: rkyv::Archive,
