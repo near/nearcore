@@ -17,7 +17,7 @@ into this document.
 
 ## Formatting
 
-Use `rustfmt` for minor code formatting decisions. This rule is enforced by CI
+Use `rustfmt` for minor code formatting decisions. This rule is enforced by CI.
 
 **Rationale:** `rustfmt` style is almost always good enough, even if not always
 perfect. The amount of bike shedding saved by `rustfmt` far outweighs any
@@ -32,7 +32,7 @@ considered idiomatic Rust, a good start are the
 (but keep in mind that `nearcore` is not a library with public API, not all
 advice applies literally).
 
-When in doubt, ask question in the [Rust
+When in doubt, ask a question in the [Rust
 🦀](https://near.zulipchat.com/#narrow/stream/300659-Rust-.F0.9F.A6.80) Zulip
 stream or during code review.
 
