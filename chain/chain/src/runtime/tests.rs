@@ -1534,7 +1534,7 @@ fn test_genesis_hash() {
     .unwrap();
     assert_eq!(block.header().hash().to_string(), "EPnLgE7iEq9s7yTkos96M3cWymH5avBAPm3qx3NXqR8H");
 
-    let epoch_manager = EpochManager::new_from_genesis_config(store, &genesis.config).unwrap();
+    let epoch_manager = EpochManager::new_arc_handle(store, &genesis.config, None);
     let epoch_info = epoch_manager.get_epoch_info(&EpochId::default()).unwrap();
     // Verify the order of the block producers.
     assert_eq!(
