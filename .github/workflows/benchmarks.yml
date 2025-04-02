@@ -8,13 +8,13 @@ on:
 jobs:
   tx-injection-single-node:
     name: "tx injections single-node benchmark"
-    runs-on: warp-ubuntu-2204-x64-16x
+    runs-on: warp-ubuntu-2404-x64-16x
     timeout-minutes: 60
     if: github.event_name == 'merge_group' || github.event_name == 'workflow_dispatch'
 
     steps:
       - name: Install jq json processor
-        run: sudo apt install jq
+        run: sudo apt-get update && sudo apt-get install jq
 
       - uses: actions/checkout@v4
 
