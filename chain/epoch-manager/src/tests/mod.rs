@@ -110,7 +110,6 @@ fn test_stake_validator() {
     let epoch_manager2 = EpochManager::new(
         epoch_manager.store.clone(),
         epoch_manager.config.clone(),
-        PROTOCOL_VERSION,
         epoch_manager.reward_calculator,
         validators
             .iter()
@@ -357,8 +356,7 @@ fn test_validator_unstake() {
         stake("test2".parse().unwrap(), amount_staked),
     ];
     let mut epoch_manager =
-        EpochManager::new(store, config, PROTOCOL_VERSION, default_reward_calculator(), validators)
-            .unwrap();
+        EpochManager::new(store, config, default_reward_calculator(), validators).unwrap();
     let h = hash_range(8);
     record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
     // test1 unstakes in epoch 1, and should be kicked out in epoch 3 (validators stored at h2).
@@ -422,8 +420,7 @@ fn test_slashing() {
         stake("test2".parse().unwrap(), amount_staked),
     ];
     let mut epoch_manager =
-        EpochManager::new(store, config, PROTOCOL_VERSION, default_reward_calculator(), validators)
-            .unwrap();
+        EpochManager::new(store, config, default_reward_calculator(), validators).unwrap();
 
     let h = hash_range(10);
     record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
@@ -489,8 +486,7 @@ fn test_double_sign_slashing1() {
         stake("test2".parse().unwrap(), amount_staked),
     ];
     let mut epoch_manager =
-        EpochManager::new(store, config, PROTOCOL_VERSION, default_reward_calculator(), validators)
-            .unwrap();
+        EpochManager::new(store, config, default_reward_calculator(), validators).unwrap();
 
     let h = hash_range(10);
     record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
@@ -648,6 +644,7 @@ fn test_validator_reward_one_validator() {
         protocol_reward_rate: Ratio::new(1, 10),
         protocol_treasury_account: "near".parse().unwrap(),
         num_seconds_per_year: 50,
+        genesis_protocol_version: PROTOCOL_VERSION,
     };
     let mut epoch_manager =
         setup_epoch_manager(validators, epoch_length, 1, 1, 90, 60, 0, reward_calculator.clone());
@@ -696,7 +693,6 @@ fn test_validator_reward_one_validator() {
         &validator_stakes,
         total_supply,
         PROTOCOL_VERSION,
-        PROTOCOL_VERSION,
         epoch_length * NUM_NS_IN_SECOND,
         ValidatorOnlineThresholds {
             online_min_threshold: Ratio::new(90, 100),
@@ -734,6 +730,7 @@ fn test_validator_reward_weight_by_stake() {
         protocol_reward_rate: Ratio::new(1, 10),
         protocol_treasury_account: "near".parse().unwrap(),
         num_seconds_per_year: 50,
+        genesis_protocol_version: PROTOCOL_VERSION,
     };
     let mut epoch_manager =
         setup_epoch_manager(validators, epoch_length, 1, 2, 90, 60, 0, reward_calculator.clone());
@@ -781,7 +778,6 @@ fn test_validator_reward_weight_by_stake() {
         validator_online_ratio,
         &validators_stakes,
         total_supply,
-        PROTOCOL_VERSION,
         PROTOCOL_VERSION,
         epoch_length * NUM_NS_IN_SECOND,
         ValidatorOnlineThresholds {
@@ -834,6 +830,7 @@ fn test_reward_multiple_shards() {
         protocol_reward_rate: Ratio::new(1, 10),
         protocol_treasury_account: "near".parse().unwrap(),
         num_seconds_per_year: 1_000_000,
+        genesis_protocol_version: PROTOCOL_VERSION,
     };
     let num_shards = 2;
     let epoch_manager = setup_epoch_manager(
@@ -903,7 +900,6 @@ fn test_reward_multiple_shards() {
         validator_online_ratio,
         &validators_stakes,
         total_supply,
-        PROTOCOL_VERSION,
         PROTOCOL_VERSION,
         epoch_length * NUM_NS_IN_SECOND,
         ValidatorOnlineThresholds {
@@ -995,7 +991,6 @@ fn test_expected_chunks() {
     let epoch_manager = EpochManager::new(
         create_test_store(),
         epoch_config,
-        PROTOCOL_VERSION,
         default_reward_calculator(),
         validators
             .iter()
@@ -1164,6 +1159,7 @@ fn test_rewards_with_kickouts() {
         protocol_reward_rate: Ratio::new(1, 10),
         protocol_treasury_account: "near".parse().unwrap(),
         num_seconds_per_year: NUM_SECONDS_IN_A_YEAR,
+        genesis_protocol_version: PROTOCOL_VERSION,
     };
     let em = setup_epoch_manager(validators, epoch_length, 1, 3, 10, 10, 0, reward_calculator)
         .into_handle();
@@ -1563,7 +1559,6 @@ fn test_chunk_validator_kickout_using_production_stats() {
     let em = EpochManager::new(
         create_test_store(),
         epoch_config,
-        PROTOCOL_VERSION,
         default_reward_calculator(),
         validators
             .iter()
@@ -1636,7 +1631,6 @@ fn test_chunk_validator_kickout_using_endorsement_stats() {
     let em = EpochManager::new(
         create_test_store(),
         epoch_config,
-        PROTOCOL_VERSION,
         default_reward_calculator(),
         validators
             .iter()
@@ -2263,8 +2257,10 @@ fn test_protocol_version_switch() {
         stake("test1".parse().unwrap(), amount_staked),
         stake("test2".parse().unwrap(), amount_staked),
     ];
+    let mut reward_calculator = default_reward_calculator();
+    reward_calculator.genesis_protocol_version = 0;
     let mut epoch_manager =
-        EpochManager::new(store, config, 0, default_reward_calculator(), validators).unwrap();
+        EpochManager::new(store, config, reward_calculator, validators).unwrap();
     let h = hash_range(8);
     record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
     let mut block_info1 = block_info(h[1], 1, 1, h[0], h[0], h[0], vec![], DEFAULT_TOTAL_SUPPLY);
@@ -2299,14 +2295,10 @@ fn test_protocol_version_switch_with_shard_layout_change() {
         stake("test1".parse().unwrap(), amount_staked),
         stake("test2".parse().unwrap(), amount_staked),
     ];
-    let mut epoch_manager = EpochManager::new(
-        store,
-        config,
-        PROTOCOL_VERSION - 1,
-        default_reward_calculator(),
-        validators,
-    )
-    .unwrap();
+    let mut reward_calculator = default_reward_calculator();
+    reward_calculator.genesis_protocol_version = PROTOCOL_VERSION - 1;
+    let mut epoch_manager =
+        EpochManager::new(store, config, reward_calculator, validators).unwrap();
     let h = hash_range(8);
     record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
     for i in 1..8 {
@@ -2365,8 +2357,7 @@ fn test_protocol_version_switch_with_many_seats() {
     let config = AllEpochConfig::from_epoch_config_store("test-chain", 10, config_store);
 
     let mut epoch_manager =
-        EpochManager::new(store, config, PROTOCOL_VERSION, default_reward_calculator(), validators)
-            .unwrap();
+        EpochManager::new(store, config, default_reward_calculator(), validators).unwrap();
     let h = hash_range(50);
     record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
     let mut block_info1 = block_info(h[1], 1, 1, h[0], h[0], h[0], vec![], DEFAULT_TOTAL_SUPPLY);
