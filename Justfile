@@ -160,7 +160,7 @@ check-publishable-separately *OPTIONS:
         # Skip the `cargo check -p near-vm-runner --all-features` check on windows, it's broken:
         # See https://near.zulipchat.com/#narrow/channel/295302-general/topic/Crates.20windows.20support/near/509548123
         # TODO - fix by removing the old broken crate
-        if [ "$OSTYPE" == "msys" ] && [ "$pkg_name" == "near-vm-runner" ] && [[ "{{ OPTIONS }}" == *"--all-features"* ]]; then
+        if [ "{{ os() }}" == "windows" ] && [ "$pkg_name" == "near-vm-runner" ] && [[ "{{ OPTIONS }}" == *"--all-features"* ]]; then
             echo "Skipping"
             REPORT="$REPORT\n$pkg_name: SKIPPED"
             continue
