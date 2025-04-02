@@ -957,7 +957,8 @@ async fn get_processing_epoch_information(
         latest_epoch_id,
         latest_block_response.header.height,
         &protocol_config.config_view.shard_layout,
-    ).await?
+    )
+    .await?
     else {
         return Ok(None);
     };

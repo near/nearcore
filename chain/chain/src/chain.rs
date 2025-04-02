@@ -2157,7 +2157,10 @@ impl Chain {
         // If the full block is not available, skip getting candidate.
         // This is possible if the node just went through state sync.
         let Ok(last_final_block) = self.get_block(&last_final_block_hash) else {
-            tracing::warn!("get_new_flat_storage_head could not get last final block {}", last_final_block_hash);
+            tracing::warn!(
+                "get_new_flat_storage_head could not get last final block {}",
+                last_final_block_hash
+            );
             return Ok(None);
         };
 
