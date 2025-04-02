@@ -234,15 +234,6 @@ pub async fn build_streamer_message(
 
         chunk_receipts.extend(chunk_non_local_receipts);
 
-        // If the chunk is missing the data from the header contains the
-        // previous new chunk in the shard. In this case there is no need to
-        // process it. It may also fail if the missing chunk happens to be the
-        // first in a new shard layout during resharding because then the shard
-        // id will be no longer valid.
-        if !header.is_new_chunk(block.header.height) {
-            continue;
-        }
-
         // Find the shard index for the chunk by shard_id
         let shard_index = protocol_config_view
             .shard_layout

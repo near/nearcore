@@ -171,7 +171,7 @@ pub(crate) async fn fetch_block_chunks(
         .iter()
         .filter(|chunk| {
             shard_tracker.cares_about_shard(None, &block.header.prev_hash, chunk.shard_id, false)
-                && chunk.height_included == block.header.height
+                && chunk.is_new_chunk(block.header.height)
         })
         .map(|chunk| fetch_single_chunk(&client, chunk.chunk_hash))
         .collect();
