@@ -85,7 +85,7 @@ def unstake_and_stake(node, tx_sender_node):
 
 
 def main():
-    executables = branches.prepare_ab_test()
+    executables = branches.prepare_ab_test("testnet")
     node_root = utils.get_near_tempdir('db_migration', clean=True)
 
     logging.info(f"The near root is {executables.stable.root}...")
