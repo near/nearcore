@@ -8,8 +8,8 @@ use near_primitives::block::Block;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::types::{BlockHeight, EpochHeight, ShardIndex};
-use near_store::ShardTries;
 use near_store::flat::FlatStorageManager;
+use near_store::{ShardTries, StateSnapshotConfig};
 use std::sync::Arc;
 
 /// Runs tasks related to state snapshots.
@@ -107,6 +107,10 @@ impl StateSnapshotActor {
         msg: CreateSnapshotRequest,
         ctx: &mut dyn DelayedActionRunner<Self>,
     ) {
+        if let StateSnapshotConfig::Disabled = self.tries.state_snapshot_config() {
+            tracing::info!(target: "state_snapshot", ?msg, "Snapshots are disabled");
+            return;
+        }
         if let Some(last_requested_hash) = self.flat_storage_manager.snapshot_hash_wanted() {
             if last_requested_hash != msg.prev_block_hash {
                 tracing::info!(target: "state_snapshot", ?msg, %last_requested_hash, "Skipping state snapshot in favor of more recent request");

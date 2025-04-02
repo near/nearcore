@@ -1,3 +1,5 @@
+use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
+use crate::env::test_env::TestEnv;
 use near_chain::{ChainStoreAccess, Provenance};
 use near_chain_configs::{Genesis, NEAR_BASE};
 use near_client::ProcessTxResponse;
@@ -8,7 +10,9 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::transaction::SignedTransaction;
 use near_store::adapter::StoreAdapter;
+use near_store::config::StateSnapshotType;
 use near_store::flat::FlatStorageManager;
+use near_store::trie::state_snapshots_dir;
 use near_store::{
     Mode, ShardTries, StateSnapshotConfig, StoreConfig, TrieConfig, config::TrieCacheConfig,
     test_utils::create_test_store,
@@ -16,21 +20,15 @@ use near_store::{
 use near_store::{NodeStorage, Store};
 use std::path::PathBuf;
 
-use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
-use crate::env::test_env::TestEnv;
-
 struct StateSnapshotTestEnv {
-    home_dir: PathBuf,
-    hot_store_path: PathBuf,
-    state_snapshot_subdir: PathBuf,
+    state_snapshots_dir: PathBuf,
     shard_tries: ShardTries,
 }
 
 impl StateSnapshotTestEnv {
     fn new(
-        home_dir: PathBuf,
-        hot_store_path: PathBuf,
-        state_snapshot_subdir: PathBuf,
+        state_snapshots_dir: PathBuf,
+        state_snapshot_config: StateSnapshotConfig,
         store: &Store,
     ) -> Self {
         let trie_cache_config = TrieCacheConfig {
@@ -45,11 +43,7 @@ impl StateSnapshotTestEnv {
         };
         let flat_storage_manager = FlatStorageManager::new(store.flat_store());
         let shard_uids = [ShardUId::single_shard()];
-        let state_snapshot_config = StateSnapshotConfig {
-            home_dir: home_dir.clone(),
-            hot_store_path: hot_store_path.clone(),
-            state_snapshot_subdir: state_snapshot_subdir.clone(),
-        };
+
         let shard_tries = ShardTries::new(
             store.trie_store(),
             trie_config,
@@ -57,16 +51,25 @@ impl StateSnapshotTestEnv {
             flat_storage_manager,
             state_snapshot_config,
         );
-        Self { home_dir, hot_store_path, state_snapshot_subdir, shard_tries }
+        Self { state_snapshots_dir, shard_tries }
     }
 }
 
-fn set_up_test_env_for_state_snapshots(store: &Store) -> StateSnapshotTestEnv {
+fn set_up_test_env_for_state_snapshots(
+    store: &Store,
+    snapshot_type: StateSnapshotType,
+) -> StateSnapshotTestEnv {
     let home_dir =
         tempfile::Builder::new().prefix("storage").tempdir().unwrap().path().to_path_buf();
-    let hot_store_path = PathBuf::from("data");
-    let state_snapshot_subdir = PathBuf::from("state_snapshot");
-    StateSnapshotTestEnv::new(home_dir, hot_store_path, state_snapshot_subdir, store)
+    let state_snapshots_dir = state_snapshots_dir(&home_dir, "data", "state_snapshot");
+    let state_snapshot_config = match snapshot_type {
+        StateSnapshotType::Enabled => {
+            StateSnapshotConfig::Enabled { state_snapshots_dir: state_snapshots_dir.clone() }
+        }
+        StateSnapshotType::Disabled => StateSnapshotConfig::Disabled,
+    };
+
+    StateSnapshotTestEnv::new(state_snapshots_dir, state_snapshot_config, store)
 }
 
 #[test]
@@ -74,7 +77,7 @@ fn set_up_test_env_for_state_snapshots(store: &Store) -> StateSnapshotTestEnv {
 fn test_maybe_open_state_snapshot_no_state_snapshot_key_entry() {
     init_test_logger();
     let store = create_test_store();
-    let test_env = set_up_test_env_for_state_snapshots(&store);
+    let test_env = set_up_test_env_for_state_snapshots(&store, StateSnapshotType::Enabled);
     let result =
         test_env.shard_tries.maybe_open_state_snapshot(|_| Ok(vec![(0, ShardUId::single_shard())]));
     assert!(result.is_err());
@@ -85,7 +88,7 @@ fn test_maybe_open_state_snapshot_no_state_snapshot_key_entry() {
 fn test_maybe_open_state_snapshot_file_not_exist() {
     init_test_logger();
     let store = create_test_store();
-    let test_env = set_up_test_env_for_state_snapshots(&store);
+    let test_env = set_up_test_env_for_state_snapshots(&store, StateSnapshotType::Enabled);
     let snapshot_hash = CryptoHash::new();
     let mut store_update = test_env.shard_tries.store_update();
     store_update.set_state_snapshot_hash(Some(snapshot_hash));
@@ -103,17 +106,13 @@ fn test_maybe_open_state_snapshot_garbage_snapshot() {
     use std::path::Path;
     init_test_logger();
     let store = create_test_store();
-    let test_env = set_up_test_env_for_state_snapshots(&store);
+    let test_env = set_up_test_env_for_state_snapshots(&store, StateSnapshotType::Enabled);
     let snapshot_hash = CryptoHash::new();
     let mut store_update = test_env.shard_tries.store_update();
     store_update.set_state_snapshot_hash(Some(snapshot_hash));
     store_update.commit().unwrap();
-    let snapshot_path = ShardTries::get_state_snapshot_base_dir(
-        &snapshot_hash,
-        &test_env.home_dir,
-        &test_env.hot_store_path,
-        &test_env.state_snapshot_subdir,
-    );
+    let snapshot_path =
+        ShardTries::get_state_snapshot_base_dir(&snapshot_hash, &test_env.state_snapshots_dir);
     if let Some(parent) = Path::new(&snapshot_path).parent() {
         create_dir_all(parent).unwrap();
     }
@@ -125,6 +124,40 @@ fn test_maybe_open_state_snapshot_garbage_snapshot() {
     let result =
         test_env.shard_tries.maybe_open_state_snapshot(|_| Ok(vec![(0, ShardUId::single_shard())]));
     assert!(result.is_err());
+}
+
+#[test]
+fn test_state_snapshot_disabled() -> anyhow::Result<()> {
+    init_test_logger();
+    let genesis = Genesis::test(vec!["test0".parse().unwrap()], 1);
+    let env = TestEnv::builder(&genesis.config)
+        .clients_count(1)
+        .real_stores()
+        .nightshade_runtimes(&genesis)
+        .build();
+
+    let genesis_block = env.clients[0].chain.get_block_by_height(0)?;
+
+    let store = env.clients[0].chain.chain_store().store();
+    let state_snapshot_test_env =
+        set_up_test_env_for_state_snapshots(&store, StateSnapshotType::Disabled);
+
+    if std::fs::exists(&state_snapshot_test_env.state_snapshots_dir)? {
+        std::fs::remove_dir_all(&state_snapshot_test_env.state_snapshots_dir)?;
+    }
+
+    state_snapshot_test_env.shard_tries.create_state_snapshot(
+        CryptoHash::default(),
+        &[(0, ShardUId::single_shard())],
+        &genesis_block,
+    )?;
+
+    anyhow::ensure!(
+        !std::fs::exists(&state_snapshot_test_env.state_snapshots_dir)?,
+        "state snapshots directory should not exist"
+    );
+
+    Ok(())
 }
 
 fn verify_make_snapshot(
@@ -142,9 +175,7 @@ fn verify_make_snapshot(
     // assert!(res.is_ok());
     let snapshot_path = ShardTries::get_state_snapshot_base_dir(
         &block_hash,
-        &state_snapshot_test_env.home_dir,
-        &state_snapshot_test_env.hot_store_path,
-        &state_snapshot_test_env.state_snapshot_subdir,
+        &state_snapshot_test_env.state_snapshots_dir,
     );
     // check that the snapshot just made can be opened
     state_snapshot_test_env
@@ -206,7 +237,8 @@ fn slow_test_make_state_snapshot() {
     let mut blocks = vec![];
 
     let store = env.clients[0].chain.chain_store().store();
-    let state_snapshot_test_env = set_up_test_env_for_state_snapshots(&store);
+    let state_snapshot_test_env =
+        set_up_test_env_for_state_snapshots(&store, StateSnapshotType::Enabled);
 
     for i in 1..=5 {
         let new_account_id = format!("test_account_{i}");
@@ -253,9 +285,7 @@ fn slow_test_make_state_snapshot() {
     let snapshot_hash = head.last_block_hash;
     let snapshot_path = ShardTries::get_state_snapshot_base_dir(
         &snapshot_hash,
-        &state_snapshot_test_env.home_dir,
-        &state_snapshot_test_env.hot_store_path,
-        &state_snapshot_test_env.state_snapshot_subdir,
+        &state_snapshot_test_env.state_snapshots_dir,
     );
     delete_content_at_path(snapshot_path.to_str().unwrap()).unwrap();
     assert_eq!(

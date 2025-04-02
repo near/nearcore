@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
 
 use near_chain_configs::{DEFAULT_GC_NUM_EPOCHS_TO_KEEP, GenesisConfig};
@@ -28,11 +28,7 @@ impl NightshadeRuntime {
             Some(runtime_config_store),
             DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
             Default::default(),
-            StateSnapshotConfig {
-                home_dir: home_dir.to_path_buf(),
-                hot_store_path: PathBuf::from("data"),
-                state_snapshot_subdir: PathBuf::from("state_snapshot"),
-            },
+            StateSnapshotConfig::enabled(home_dir, "data", "state_snapshot"),
         )
     }
 
@@ -56,11 +52,7 @@ impl NightshadeRuntime {
             runtime_config_store,
             gc_num_epochs_to_keep,
             trie_config,
-            StateSnapshotConfig {
-                home_dir: home_dir.to_path_buf(),
-                hot_store_path: PathBuf::from("data"),
-                state_snapshot_subdir: PathBuf::from("state_snapshot"),
-            },
+            StateSnapshotConfig::enabled(home_dir, "data", "state_snapshot"),
         )
     }
 
