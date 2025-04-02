@@ -1102,14 +1102,14 @@ impl ShardInfo {
 
 #[cfg(test)]
 mod tests {
-    use crate::epoch_manager::{AllEpochConfig, EpochConfig};
+    use crate::epoch_manager::EpochConfigStore;
     use crate::shard_layout::{
         ShardLayout, ShardLayoutV1, ShardUId, new_shard_ids_vec, new_shards_split_map,
     };
     use itertools::Itertools;
     use near_primitives_core::types::ProtocolVersion;
     use near_primitives_core::types::{AccountId, ShardId};
-    use near_primitives_core::version::{PROTOCOL_VERSION, ProtocolFeature};
+    use near_primitives_core::version::ProtocolFeature;
     use rand::distributions::Alphanumeric;
     use rand::rngs::StdRng;
     use rand::{Rng, SeedableRng};
@@ -1139,19 +1139,8 @@ mod tests {
     impl ShardLayout {
         /// Constructor for tests that need a shard layout for a specific protocol version.
         pub fn for_protocol_version(protocol_version: ProtocolVersion) -> Self {
-            // none of the epoch config fields matter, we only need the shard layout
-            // constructed through [`AllEpochConfig::for_protocol_version()`].
-            let genesis_epoch_config = EpochConfig::minimal();
-
-            let genesis_protocol_version = PROTOCOL_VERSION;
-            let all_epoch_config = AllEpochConfig::new(
-                true,
-                genesis_protocol_version,
-                genesis_epoch_config,
-                "test-chain",
-            );
-            let latest_epoch_config = all_epoch_config.for_protocol_version(protocol_version);
-            latest_epoch_config.shard_layout
+            let config_store = EpochConfigStore::for_chain_id("mainnet", None).unwrap();
+            config_store.get_config(protocol_version).shard_layout.clone()
         }
     }
 

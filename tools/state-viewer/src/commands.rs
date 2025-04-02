@@ -949,9 +949,7 @@ pub(crate) fn print_epoch_info(
         near_config.genesis.config.transaction_validity_period,
     );
     let epoch_manager =
-        EpochManager::new_from_genesis_config(store.clone(), &near_config.genesis.config)
-            .expect("Failed to start Epoch Manager")
-            .into_handle();
+        EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config, None);
 
     epoch_info::print_epoch_info(
         epoch_selection,
@@ -970,8 +968,8 @@ pub(crate) fn print_epoch_analysis(
     store: Store,
 ) {
     let epoch_manager =
-        EpochManager::new_from_genesis_config(store.clone(), &near_config.genesis.config)
-            .expect("Failed to start Epoch Manager");
+        EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config, None);
+    let epoch_manager = epoch_manager.read();
 
     let epoch_ids = iterate_and_filter(store, |_| true);
     let epoch_infos: HashMap<EpochId, Arc<EpochInfo>> = HashMap::from_iter(
