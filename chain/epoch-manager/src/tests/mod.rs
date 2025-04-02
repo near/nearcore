@@ -1549,6 +1549,79 @@ fn test_chunk_producer_kickout() {
     );
 }
 
+/// Test when all blocks are produced and all chunks are skipped, chunk
+/// validator is not kicked out.
+#[test]
+fn test_chunk_validator_kickout_using_production_stats() {
+    let stake_amount = 1_000_000;
+    let validators: Vec<(AccountId, Balance)> =
+        (0..3).map(|i| (format!("test{i}").parse().unwrap(), stake_amount + 100 - i)).collect();
+    let epoch_length = 10;
+    let total_supply = stake_amount * validators.len() as u128;
+    let num_shards = 2;
+    let epoch_config = epoch_config(epoch_length, num_shards, 2, 2, 90, 40, 75);
+    let em = EpochManager::new(
+        create_test_store(),
+        epoch_config,
+        PROTOCOL_VERSION,
+        default_reward_calculator(),
+        validators
+            .iter()
+            .map(|(account_id, balance)| stake(account_id.clone(), *balance))
+            .collect(),
+    )
+    .unwrap()
+    .into_handle();
+    let rng_seed = [0; 32];
+    let hashes = hash_range((epoch_length + 2) as usize);
+    record_block(&mut em.write(), Default::default(), hashes[0], 0, vec![]);
+    for (prev_block, (height, curr_block)) in hashes.iter().zip(hashes.iter().enumerate().skip(1)) {
+        let height = height as u64;
+        let epoch_id = em.get_epoch_id_from_prev_block(prev_block).unwrap();
+        let chunk_mask = if height < epoch_length {
+            (0..num_shards).map(|i| (height + i) % 2 == 0).collect()
+        } else {
+            vec![true; num_shards as usize]
+        };
+        em.write()
+            .record_block_info(
+                block_info(
+                    *curr_block,
+                    height,
+                    height - 1,
+                    *prev_block,
+                    *prev_block,
+                    epoch_id.0,
+                    chunk_mask,
+                    total_supply,
+                ),
+                rng_seed,
+            )
+            .unwrap();
+    }
+
+    let last_epoch_info = hashes.iter().filter_map(|x| em.get_epoch_info(&EpochId(*x)).ok()).last();
+    let total_expected_chunks = num_shards * (epoch_length - 1);
+    // Every second chunk is skipped.
+    let total_produced_chunks = total_expected_chunks / 2;
+
+    // Chunk producers skip only every second chunk and pass the threshold.
+    // Chunk validator validates all chunks, so its performance is determined
+    // by the chunk production ratio, which is not enough.
+    assert_eq!(
+        last_epoch_info.unwrap().validator_kickout(),
+        &[(
+            "test2".parse().unwrap(),
+            NotEnoughChunkEndorsements {
+                produced: total_produced_chunks,
+                expected: total_expected_chunks
+            }
+        )]
+        .into_iter()
+        .collect::<HashMap<_, _>>(),
+    );
+}
+
 /// Similar to test_chunk_validator_kickout_using_production_stats, however all chunks are produced but
 /// but some validators miss chunks and got kicked out.
 #[test]
@@ -2172,6 +2245,108 @@ fn set_block_info_protocol_version(info: &mut BlockInfo, protocol_version: Proto
         BlockInfo::V2(v2) => v2.latest_protocol_version = protocol_version,
         BlockInfo::V3(v2) => v2.latest_protocol_version = protocol_version,
     }
+}
+
+#[test]
+fn test_protocol_version_switch() {
+    let store = create_test_store();
+
+    let epoch_config = epoch_config(2, 1, 2, 100, 90, 60, 0).for_protocol_version(PROTOCOL_VERSION);
+    let config_store = EpochConfigStore::test(BTreeMap::from_iter(vec![
+        (0, Arc::new(epoch_config.clone())),
+        (PROTOCOL_VERSION, Arc::new(epoch_config)),
+    ]));
+    let config = AllEpochConfig::from_epoch_config_store("test-chain", 2, config_store);
+
+    let amount_staked = 1_000_000;
+    let validators = vec![
+        stake("test1".parse().unwrap(), amount_staked),
+        stake("test2".parse().unwrap(), amount_staked),
+    ];
+    let mut epoch_manager =
+        EpochManager::new(store, config, 0, default_reward_calculator(), validators).unwrap();
+    let h = hash_range(8);
+    record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
+    let mut block_info1 = block_info(h[1], 1, 1, h[0], h[0], h[0], vec![], DEFAULT_TOTAL_SUPPLY);
+    set_block_info_protocol_version(&mut block_info1, 0);
+    epoch_manager.record_block_info(block_info1, [0; 32]).unwrap();
+    for i in 2..6 {
+        record_block(&mut epoch_manager, h[i - 1], h[i], i as u64, vec![]);
+    }
+    assert_eq!(epoch_manager.get_epoch_info(&EpochId(h[2])).unwrap().protocol_version(), 0);
+    assert_eq!(
+        epoch_manager.get_epoch_info(&EpochId(h[4])).unwrap().protocol_version(),
+        PROTOCOL_VERSION
+    );
+}
+
+#[test]
+fn test_protocol_version_switch_with_shard_layout_change() {
+    let store = create_test_store();
+
+    let old_epoch_config =
+        epoch_config(2, 1, 2, 100, 90, 60, 0).for_protocol_version(PROTOCOL_VERSION);
+    let new_epoch_config =
+        epoch_config(2, 4, 2, 100, 90, 60, 0).for_protocol_version(PROTOCOL_VERSION);
+    let config_store = EpochConfigStore::test(BTreeMap::from_iter(vec![
+        (PROTOCOL_VERSION - 1, Arc::new(old_epoch_config)),
+        (PROTOCOL_VERSION, Arc::new(new_epoch_config)),
+    ]));
+    let config = AllEpochConfig::from_epoch_config_store("test-chain", 2, config_store);
+
+    let amount_staked = 1_000_000;
+    let validators = vec![
+        stake("test1".parse().unwrap(), amount_staked),
+        stake("test2".parse().unwrap(), amount_staked),
+    ];
+    let mut epoch_manager = EpochManager::new(
+        store,
+        config,
+        PROTOCOL_VERSION - 1,
+        default_reward_calculator(),
+        validators,
+    )
+    .unwrap();
+    let h = hash_range(8);
+    record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
+    for i in 1..8 {
+        let mut block_info = block_info(
+            h[i],
+            i as u64,
+            i as u64 - 1,
+            h[i - 1],
+            h[i - 1],
+            h[0],
+            vec![],
+            DEFAULT_TOTAL_SUPPLY,
+        );
+        if i == 1 {
+            set_block_info_protocol_version(&mut block_info, PROTOCOL_VERSION - 1);
+        } else {
+            set_block_info_protocol_version(&mut block_info, PROTOCOL_VERSION);
+        }
+        epoch_manager.record_block_info(block_info, [0; 32]).unwrap();
+    }
+    let epochs = [EpochId::default(), EpochId(h[2]), EpochId(h[4])];
+    assert_eq!(
+        epoch_manager.get_epoch_info(&epochs[1]).unwrap().protocol_version(),
+        PROTOCOL_VERSION - 1
+    );
+    assert_eq!(epoch_manager.get_shard_layout(&epochs[1]).unwrap(), ShardLayout::multi_shard(1, 0));
+    assert_eq!(
+        epoch_manager.get_epoch_info(&epochs[2]).unwrap().protocol_version(),
+        PROTOCOL_VERSION
+    );
+    assert_eq!(epoch_manager.get_shard_layout(&epochs[2]).unwrap(), ShardLayout::multi_shard(4, 0));
+
+    // Check split shards
+    // h[5] is the first block of epoch epochs[1] and shard layout will change at epochs[2]
+    let epoch_manager = epoch_manager.into_handle();
+    assert_eq!(epoch_manager.will_shard_layout_change(&h[3]).unwrap(), false);
+    for i in 4..=5 {
+        assert_eq!(epoch_manager.will_shard_layout_change(&h[i]).unwrap(), true);
+    }
+    assert_eq!(epoch_manager.will_shard_layout_change(&h[6]).unwrap(), false);
 }
 
 #[test]
