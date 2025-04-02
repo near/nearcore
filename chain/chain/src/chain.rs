@@ -1359,12 +1359,21 @@ impl Chain {
         let Some((block, chunks)) = self.optimistic_block_chunks.take_latest_ready_block() else {
             return;
         };
-
-        self.blocks_delay_tracker.record_optimistic_block_ready(block.height());
-
         let prev_block_hash = *block.prev_block_hash();
         let block_hash = *block.hash();
         let block_height = block.height();
+
+        self.blocks_delay_tracker.record_optimistic_block_ready(block_height);
+        if let Ok(true) = self.is_height_processed(block_height) {
+            metrics::NUM_DROPPED_OPTIMISTIC_BLOCKS_BECAUSE_OF_PROCESSED_HEIGHT.inc();
+            debug!(
+                target: "chain", prev_block_hash = ?prev_block_hash,
+                hash = ?block_hash, height = block_height,
+                "Dropping optimistic block, the height was already processed"
+            );
+            return;
+        }
+
         match self.process_optimistic_block(me, block, chunks, apply_chunks_done_sender) {
             Ok(()) => {
                 debug!(
@@ -1374,6 +1383,7 @@ impl Chain {
                 );
             }
             Err(err) => {
+                metrics::NUM_FAILED_OPTIMISTIC_BLOCKS.inc();
                 warn!(
                     target: "chain", err = ?err,
                     prev_block_hash = ?prev_block_hash,
