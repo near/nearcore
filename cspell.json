@@ -232,6 +232,7 @@
         "nums",
         "oneshot",
         "ords",
+        "OSTYPE",
         "pagodaplatform",
         "pathlib",
         "patternfly",
