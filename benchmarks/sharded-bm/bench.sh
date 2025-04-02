@@ -4,7 +4,7 @@
 
 set -o errexit
 
-CASE="${2:-$CASE}"
+CASE="${CASE:-$2}"
 BM_PARAMS=${CASE}/params.json
 
 if ! [[ -d $CASE ]]; then
@@ -88,6 +88,13 @@ else
 fi
 
 RPC_URL="http://${RPC_ADDR}"
+
+mirror_cmd() {
+    shift
+    cd ${PYTEST_PATH}
+    $MIRROR --host-type nodes "$@"
+    cd -
+}
 
 start_nodes_forknet() {
     cd ${PYTEST_PATH}
@@ -644,6 +651,10 @@ stop-injection)
     stop_injection
     ;;
 
+mirror)
+    mirror_cmd "$@"
+    ;;
+
 # Forknet specific methods, not part of user API.
 tweak-config-forknet-node)
     tweak_config_forknet_node ${2} ${3}
@@ -666,6 +677,6 @@ create-accounts-on-tracked-shard)
     ;;
 
 *)
-    echo "Usage: ${0} {reset|init|tweak-config|create-accounts|native-transfers|monitor|start-nodes|stop-nodes|stop-injection} <CASE>"
+    echo "Usage: ${0} {reset|init|tweak-config|create-accounts|native-transfers|monitor|start-nodes|stop-nodes|stop-injection|mirror}"
     ;;
 esac
