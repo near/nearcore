@@ -84,8 +84,8 @@ use near_primitives::stateless_validation::state_witness::{
 use near_primitives::transaction::{ExecutionOutcomeWithIdAndProof, SignedTransaction};
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{
-    AccountId, Balance, BlockExtra, BlockHeight, BlockHeightDelta, EpochId, MerkleHash, NumBlocks,
-    ShardId, ShardIndex,
+    AccountId, Balance, BlockHeight, BlockHeightDelta, EpochId, MerkleHash, NumBlocks, ShardId,
+    ShardIndex,
 };
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::MaybeValidated;
@@ -2441,7 +2441,7 @@ impl Chain {
             return Err(Error::InvalidGasPrice);
         }
 
-        let (challenges_result, challenged_blocks) =
+        let (_challenges_result, challenged_blocks) =
             self.verify_challenges(block.challenges(), header.epoch_id())?;
 
         let prev_block = self.get_block(&prev_hash)?;
@@ -2486,7 +2486,6 @@ impl Chain {
                 is_caught_up,
                 state_sync_info,
                 incoming_receipts,
-                challenges_result,
                 challenged_blocks,
                 provenance: provenance.clone(),
                 apply_chunks_done_waiter,
@@ -3686,12 +3685,6 @@ impl Chain {
     #[inline]
     pub fn block_exists(&self, hash: &CryptoHash) -> Result<bool, Error> {
         self.chain_store.block_exists(hash)
-    }
-
-    /// Get block extra that was computer after applying previous block.
-    #[inline]
-    pub fn get_block_extra(&self, block_hash: &CryptoHash) -> Result<Arc<BlockExtra>, Error> {
-        self.chain_store.get_block_extra(block_hash)
     }
 
     /// Get chunk extra that was computed after applying chunk with given hash.
