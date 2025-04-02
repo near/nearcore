@@ -23,7 +23,7 @@ use near_primitives::shard_layout::ShardUId;
 use near_primitives::sharding::ShardChunk;
 use near_primitives::state_sync::{ReceiptProofResponse, ShardStateSyncResponseHeader};
 use near_primitives::types::chunk_extra::ChunkExtra;
-use near_primitives::types::{BlockExtra, BlockHeight, ShardId};
+use near_primitives::types::{BlockHeight, ShardId};
 use near_primitives::views::LightClientBlockView;
 use node_runtime::SignedValidPeriodTransactions;
 use std::sync::Arc;
@@ -238,7 +238,6 @@ impl<'a> ChainUpdate<'a> {
             is_caught_up,
             state_sync_info,
             incoming_receipts,
-            challenges_result,
             challenged_blocks,
             ..
         } = block_preprocess_info;
@@ -259,7 +258,6 @@ impl<'a> ChainUpdate<'a> {
             self.chain_store_update.add_state_sync_info(state_sync_info);
         }
 
-        self.chain_store_update.save_block_extra(block.hash(), BlockExtra { challenges_result });
         for block_hash in challenged_blocks {
             self.mark_block_as_challenged(&block_hash, Some(block.hash()))?;
         }

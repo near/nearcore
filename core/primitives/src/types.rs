@@ -1,11 +1,11 @@
 use crate::account::{AccessKey, Account};
-use crate::challenge::ChallengesResult;
 use crate::errors::EpochError;
 use crate::hash::CryptoHash;
 use crate::serialize::dec_format;
 use crate::shard_layout::ShardLayout;
 use crate::trie_key::TrieKey;
 use borsh::{BorshDeserialize, BorshSerialize};
+pub use chunk_validator_stats::ChunkStats;
 use near_crypto::PublicKey;
 /// Reexport primitive types
 pub use near_primitives_core::types::*;
@@ -16,8 +16,6 @@ use std::sync::Arc;
 use std::sync::LazyLock;
 
 mod chunk_validator_stats;
-
-pub use chunk_validator_stats::ChunkStats;
 
 /// Hash used by to store state root.
 pub type StateRoot = CryptoHash;
@@ -728,12 +726,6 @@ pub struct ValidatorStakeV1 {
     pub public_key: PublicKey,
     /// Stake / weight of the validator.
     pub stake: Balance,
-}
-
-/// Information after block was processed.
-#[derive(Debug, PartialEq, BorshSerialize, BorshDeserialize, Clone, Eq, ProtocolSchema)]
-pub struct BlockExtra {
-    pub challenges_result: ChallengesResult,
 }
 
 pub mod chunk_extra {
