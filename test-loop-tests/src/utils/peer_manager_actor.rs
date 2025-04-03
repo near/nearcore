@@ -41,7 +41,6 @@ pub struct ClientSenderForTestLoopNetwork {
     pub block: AsyncSender<BlockResponse, ()>,
     pub block_headers: AsyncSender<BlockHeadersResponse, ActixResult<BlockHeadersResponse>>,
     pub block_approval: AsyncSender<BlockApproval, ()>,
-    pub chunk_endorsement: AsyncSender<ChunkEndorsementMessage, ()>,
     pub epoch_sync_request: Sender<EpochSyncRequestMessage>,
     pub epoch_sync_response: Sender<EpochSyncResponseMessage>,
     pub optimistic_block_receiver: Sender<OptimisticBlockMessage>,
@@ -51,6 +50,7 @@ pub struct ClientSenderForTestLoopNetwork {
 #[derive(Clone, MultiSend, MultiSenderFrom)]
 pub struct TxRequestHandleSenderForTestLoopNetwork {
     pub transaction: AsyncSender<ProcessTxRequest, ProcessTxResponse>,
+    pub chunk_endorsement: AsyncSender<ChunkEndorsementMessage, ()>,
 }
 
 #[derive(Clone, MultiSend, MultiSenderFrom)]
@@ -463,7 +463,7 @@ fn network_message_to_client_handler(
         NetworkRequests::ChunkEndorsement(target, endorsement) => {
             let future = shared_state
                 .senders_for_account(&my_account_id, &target)
-                .client_sender
+                .tx_processor_sender
                 .send_async(ChunkEndorsementMessage(endorsement));
             drop(future);
             None
