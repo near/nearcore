@@ -1824,7 +1824,7 @@ fn test_gc_tail_update() {
         )
         .unwrap();
     env.process_block(1, blocks.pop().unwrap(), Provenance::NONE);
-    assert_eq!(env.clients[1].chain.chain_store().tail().unwrap(), prev_sync_height - 1);
+    assert_eq!(env.clients[1].chain.chain_store().tail().unwrap(), prev_sync_height);
 }
 
 /// Test that transaction does not become invalid when there is some gas price change.
@@ -2091,18 +2091,10 @@ fn test_sync_hash_validity() {
             env.produce_block(0, height);
             height += 1;
         }
-        let expected_sync_height =
-            if ProtocolFeature::CurrentEpochStateSync.enabled(PROTOCOL_VERSION) {
-                // This assumes that all shards have new chunks in every block, which should be true
-                // with TestEnv::produce_block()
-                epoch_start + 3
-            } else {
-                // No sync hash in the first epoch
-                if epoch_start < epoch_length {
-                    continue;
-                }
-                epoch_start
-            };
+
+        // This assumes that all shards have new chunks in every block, which should be true
+        // with TestEnv::produce_block()
+        let expected_sync_height = epoch_start + 3;
 
         for h in epoch_start..height {
             let header = env.clients[0].chain.get_block_header_by_height(h).unwrap();
@@ -3691,13 +3683,9 @@ mod contract_precompilation_tests {
             start_height,
         );
 
-        let sync_height = if ProtocolFeature::CurrentEpochStateSync.enabled(PROTOCOL_VERSION) {
-            // `height` is one more than the start of the epoch. Produce two more blocks with chunks,
-            // and then one more than that so the node will generate the needed snapshot.
-            produce_blocks_from_height(&mut env, 4, height) - 2
-        } else {
-            height - 1
-        };
+        // `height` is one more than the start of the epoch. Produce two more blocks with chunks,
+        // and then one more than that so the node will generate the needed snapshot.
+        let sync_height = produce_blocks_from_height(&mut env, 4, height) - 2;
 
         // Perform state sync for the second client.
         state_sync_on_height(&mut env, sync_height);
@@ -3804,13 +3792,9 @@ mod contract_precompilation_tests {
             height,
         );
 
-        let sync_height = if ProtocolFeature::CurrentEpochStateSync.enabled(PROTOCOL_VERSION) {
-            // `height` is one more than the start of the epoch. Produce two more blocks with chunks,
-            // and then one more than that so the node will generate the needed snapshot.
-            produce_blocks_from_height(&mut env, 4, height) - 2
-        } else {
-            height - 1
-        };
+        // `height` is one more than the start of the epoch. Produce two more blocks with chunks,
+        // and then one more than that so the node will generate the needed snapshot.
+        let sync_height = produce_blocks_from_height(&mut env, 4, height) - 2;
 
         // Perform state sync for the second client on the last produced height.
         state_sync_on_height(&mut env, sync_height);
@@ -3882,15 +3866,9 @@ mod contract_precompilation_tests {
             env.tx_request_handlers[0].process_tx(delete_account_tx, false, false),
             ProcessTxResponse::ValidTx
         );
-        // `height` is the first block of a new epoch (which has not been produced yet),
-        // so if we want to state sync the old way, we produce `EPOCH_LENGTH` + 1 new blocks
-        // to get to produce the first block of the next epoch. If we want to state sync the new
-        // way, we produce two more than that, plus one more so that the node will generate the needed snapshot.
-        let sync_height = if ProtocolFeature::CurrentEpochStateSync.enabled(PROTOCOL_VERSION) {
-            produce_blocks_from_height(&mut env, EPOCH_LENGTH + 5, height) - 2
-        } else {
-            produce_blocks_from_height(&mut env, EPOCH_LENGTH + 1, height) - 1
-        };
+        // `height` is the first block of a new epoch (which has not been produced yet).
+        // We produce two more than that, plus one more so that the node will generate the needed snapshot.
+        let sync_height = produce_blocks_from_height(&mut env, EPOCH_LENGTH + 5, height) - 2;
 
         // Perform state sync for the second client.
         state_sync_on_height(&mut env, sync_height);
