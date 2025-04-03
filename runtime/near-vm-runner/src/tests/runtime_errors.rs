@@ -418,7 +418,8 @@ fn test_stack_instrumentation_protocol_upgrade() {
         )
         .method("f1")
         .protocol_features(&[
-            ProtocolFeature::CorrectStackLimit,
+            #[allow(deprecated)]
+            ProtocolFeature::_DeprecatedCorrectStackLimit,
             ProtocolFeature::PreparationV2,
         ])
         .skip_wasmtime()
@@ -454,7 +455,8 @@ fn test_stack_instrumentation_protocol_upgrade() {
         .method("f2")
         .opaque_error()
         .protocol_features(&[
-            ProtocolFeature::CorrectStackLimit,
+            #[allow(deprecated)]
+            ProtocolFeature::_DeprecatedCorrectStackLimit,
             ProtocolFeature::PreparationV2,
         ])
         .skip_wasmtime()

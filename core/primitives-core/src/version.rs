@@ -104,10 +104,12 @@ pub enum ProtocolFeature {
     AliasValidatorSelectionAlgorithm,
     /// Make block producers produce chunks for the same block they would later produce to avoid
     /// network delays
-    SynchronizeBlockChunkProduction,
+    #[deprecated(note = "This feature is now always enabled")]
+    _DeprecatedSynchronizeBlockChunkProduction,
     /// Change the algorithm to count WASM stack usage to avoid under counting in
     /// some cases.
-    CorrectStackLimit,
+    #[deprecated(note = "This feature is now always enabled")]
+    _DeprecatedCorrectStackLimit,
     /// Add `AccessKey` nonce range for implicit accounts, as in `AccessKeyNonceRange` feature.
     AccessKeyNonceForImplicitAccounts,
     /// Increase cost per deployed code byte to cover for the compilation steps
@@ -289,8 +291,8 @@ impl ProtocolFeature {
             | ProtocolFeature::LimitContractFunctionsNumber
             | ProtocolFeature::BlockHeaderV3
             | ProtocolFeature::AliasValidatorSelectionAlgorithm => 49,
-            ProtocolFeature::SynchronizeBlockChunkProduction
-            | ProtocolFeature::CorrectStackLimit => 50,
+            ProtocolFeature::_DeprecatedSynchronizeBlockChunkProduction
+            | ProtocolFeature::_DeprecatedCorrectStackLimit => 50,
             ProtocolFeature::AccessKeyNonceForImplicitAccounts => 51,
             ProtocolFeature::IncreaseDeploymentCost
             | ProtocolFeature::FunctionCallWeight
