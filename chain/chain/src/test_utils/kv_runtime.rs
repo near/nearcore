@@ -1045,7 +1045,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         chunk: ApplyChunkShardContext,
         block: ApplyChunkBlockContext,
         receipts: &[Receipt],
-        transactions: SignedValidPeriodTransactions<'_>,
+        transactions: SignedValidPeriodTransactions,
     ) -> Result<ApplyChunkResult, Error> {
         let mut tx_results = vec![];
         let shard_id = chunk.shard_id;
