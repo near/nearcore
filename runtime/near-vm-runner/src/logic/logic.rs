@@ -1641,6 +1641,7 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
     /// `input_cost(num_bytes_signature) + input_cost(num_bytes_message) +
     ///  input_cost(num_bytes_public_key) + ed25519_verify_base +
     ///  ed25519_verify_byte * num_bytes_message`
+    #[allow(deprecated)]
     pub fn ed25519_verify(
         &mut self,
         signature_len: u64,
