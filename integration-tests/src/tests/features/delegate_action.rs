@@ -101,7 +101,7 @@ fn reject_valid_meta_tx_in_older_versions() {
                         )
                     )
                 )
-                if protocol_feature == "DelegateAction" && *version == ProtocolFeature::_DeprecatedDelegateAction.protocol_version()
+                if protocol_feature == "_DeprecatedDelegateAction" && *version == ProtocolFeature::_DeprecatedDelegateAction.protocol_version()
         ),
         "{status:?}",
     );
