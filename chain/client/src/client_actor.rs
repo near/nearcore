@@ -53,8 +53,8 @@ use near_client_primitives::types::{
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_network::client::{
-    BlockApproval, BlockHeadersResponse, BlockResponse, ChunkEndorsementMessage,
-    OptimisticBlockMessage, RecvChallenge, SetNetworkInfo, StateResponseReceived,
+    BlockApproval, BlockHeadersResponse, BlockResponse, OptimisticBlockMessage, RecvChallenge,
+    SetNetworkInfo, StateResponseReceived,
 };
 use near_network::types::ReasonForBan;
 use near_network::types::{
@@ -1968,16 +1968,6 @@ impl Handler<ChunkStateWitnessMessage> for ClientActorInner {
             self.client.process_chunk_state_witness(witness, raw_witness_size, None, signer)
         {
             tracing::error!(target: "client", ?err, "Error processing chunk state witness");
-        }
-    }
-}
-
-impl Handler<ChunkEndorsementMessage> for ClientActorInner {
-    #[perf]
-    fn handle(&mut self, msg: ChunkEndorsementMessage) {
-        let mut tracker = self.client.chunk_endorsement_tracker.lock().unwrap();
-        if let Err(err) = tracker.process_chunk_endorsement(msg.0) {
-            tracing::error!(target: "client", ?err, "Error processing chunk endorsement");
         }
     }
 }
