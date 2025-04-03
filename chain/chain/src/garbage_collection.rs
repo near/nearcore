@@ -310,7 +310,11 @@ impl ChainStore {
         if final_block_hash == CryptoHash::default() {
             return Ok(());
         }
-        let final_block = self.get_block(&final_block_hash)?;
+        let Ok(final_block) = self.get_block(&final_block_hash) else {
+            // This can happen if the node just did state sync.
+            tracing::debug!(target: "garbage_collection", ?final_block_hash, "Could not get final block");
+            return Ok(());
+        };
         let final_block_chunk_created_heights: HashMap<_, _> = final_block
             .chunks()
             .iter_raw()

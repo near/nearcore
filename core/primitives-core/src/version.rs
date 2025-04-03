@@ -268,10 +268,12 @@ impl ProtocolFeature {
             ProtocolFeature::_DeprecatedCreateHash => 38,
             ProtocolFeature::_DeprecatedDeleteKeyStorageUsage => 40,
             ProtocolFeature::_DeprecatedShardChunkHeaderUpgrade => 41,
-            ProtocolFeature::_DeprecatedCreateReceiptIdSwitchToCurrentBlock | ProtocolFeature::_DeprecatedLowerStorageCost => 42,
+            ProtocolFeature::_DeprecatedCreateReceiptIdSwitchToCurrentBlock
+            | ProtocolFeature::_DeprecatedLowerStorageCost => 42,
             ProtocolFeature::_DeprecatedDeleteActionRestriction => 43,
             ProtocolFeature::_DeprecatedFixApplyChunks => 44,
-            ProtocolFeature::_DeprecatedRectifyInflation | ProtocolFeature::_DeprecatedAccessKeyNonceRange => 45,
+            ProtocolFeature::_DeprecatedRectifyInflation
+            | ProtocolFeature::_DeprecatedAccessKeyNonceRange => 45,
             ProtocolFeature::_DeprecatedAccountVersions
             | ProtocolFeature::_DeprecatedTransactionSizeLimit
             | ProtocolFeature::_DeprecatedFixStorageUsage
@@ -326,9 +328,6 @@ impl ProtocolFeature {
             | ProtocolFeature::FixChunkProducerStakingThreshold
             | ProtocolFeature::_DeprecatedRelaxedChunkValidation
             | ProtocolFeature::_DeprecatedRemoveCheckBalance
-            // BandwidthScheduler and CurrentEpochStateSync must be enabled
-            // before ReshardingV3! When releasing this feature please make sure
-            // to schedule separate protocol upgrades for these features.
             | ProtocolFeature::BandwidthScheduler
             | ProtocolFeature::_DeprecatedCurrentEpochStateSync => 74,
             ProtocolFeature::SimpleNightshadeV4 => 75,
