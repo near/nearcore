@@ -138,7 +138,6 @@ fn test_evil_function_index() {
 }
 
 #[test]
-#[allow(deprecated)]
 fn slow_test_limit_contract_functions_number() {
     let functions_number_limit: u32 = 10_000;
 
@@ -150,14 +149,10 @@ fn slow_test_limit_contract_functions_number() {
         .make(),
     )
     .protocol_features(&[
-        ProtocolFeature::_DeprecatedLimitContractFunctionsNumber,
         ProtocolFeature::PreparationV2,
     ])
     .protocol_version(FIX_CONTRACT_LOADING_COST)
     .expects(&[
-        expect![[r#"
-            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 13048032213 used gas 13048032213
-        "#]],
         expect![[r#"
             VMOutcome: balance 4 storage_usage 12 return data None burnt gas 13048032213 used gas 13048032213
         "#]],
@@ -177,17 +172,12 @@ fn slow_test_limit_contract_functions_number() {
         .make(),
     )
     .protocol_features(&[
-        ProtocolFeature::_DeprecatedLimitContractFunctionsNumber,
         ProtocolFeature::PreparationV2,
     ])
     .protocol_version(FIX_CONTRACT_LOADING_COST)
     .expects(&[
         expect![[r#"
             VMOutcome: balance 4 storage_usage 12 return data None burnt gas 13049332713 used gas 13049332713
-        "#]],
-        expect![[r#"
-            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 0 used gas 0
-            Err: PrepareError: Too many functions in contract.
         "#]],
         expect![[r#"
             VMOutcome: balance 4 storage_usage 12 return data None burnt gas 0 used gas 0
