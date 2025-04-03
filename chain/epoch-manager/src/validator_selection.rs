@@ -555,6 +555,14 @@ mod old_validator_selection {
             chunk_producers_settlement,
         })
     }
+
+    pub(crate) fn assign_chunk_producers_to_shards(
+        epoch_config: &EpochConfig,
+        chunk_producers: Vec<ValidatorStake>,
+        block_producers: &[ValidatorStake],
+    ) -> Result<ChunkProducersAssignment, EpochError> {
+        assign_chunk_producers_to_shards_chunk_only(epoch_config, chunk_producers, block_producers)
+    }
 }
 
 #[cfg(test)]
