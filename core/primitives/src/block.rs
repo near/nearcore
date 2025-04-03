@@ -659,7 +659,7 @@ impl<'a> Chunks<'a> {
         }
     }
 
-    pub fn min_height_included(&self) -> Option<u64> {
+    pub fn min_height_included(&self) -> Option<BlockHeight> {
         self.iter_raw().map(|chunk| chunk.height_included()).min()
     }
 
