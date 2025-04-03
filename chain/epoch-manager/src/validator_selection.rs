@@ -556,6 +556,7 @@ mod old_validator_selection {
         })
     }
 
+    #[allow(dead_code)]
     pub(crate) fn assign_chunk_producers_to_shards(
         epoch_config: &EpochConfig,
         chunk_producers: Vec<ValidatorStake>,
