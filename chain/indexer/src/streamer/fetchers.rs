@@ -160,7 +160,7 @@ async fn fetch_single_chunk(
 
 /// Fetches all chunks belonging to given block.
 /// Includes transactions and receipts in custom struct (to provide more info).
-pub(crate) async fn fetch_block_chunks(
+pub(crate) async fn fetch_block_new_chunks(
     client: &Addr<near_client::ViewClientActor>,
     block: &views::BlockView,
     shard_tracker: &ShardTracker,

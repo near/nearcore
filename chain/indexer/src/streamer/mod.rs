@@ -19,7 +19,7 @@ use near_primitives::views;
 
 use self::errors::FailedToFetchData;
 use self::fetchers::{
-    fetch_block, fetch_block_by_height, fetch_block_chunks, fetch_latest_block, fetch_outcomes,
+    fetch_block, fetch_block_by_height, fetch_block_new_chunks, fetch_latest_block, fetch_outcomes,
     fetch_state_changes, fetch_status,
 };
 use self::utils::convert_transactions_sir_into_local_receipts;
@@ -78,7 +78,7 @@ pub async fn build_streamer_message(
     shard_tracker: &ShardTracker,
 ) -> Result<StreamerMessage, FailedToFetchData> {
     let _timer = metrics::BUILD_STREAMER_MESSAGE_TIME.start_timer();
-    let chunks = fetch_block_chunks(&client, &block, shard_tracker).await?;
+    let chunks = fetch_block_new_chunks(&client, &block, shard_tracker).await?;
 
     let protocol_config_view = fetch_protocol_config(&client, block.header.hash).await?;
     let shard_ids = protocol_config_view.shard_layout.shard_ids();
@@ -339,7 +339,7 @@ async fn find_local_receipt_by_id_in_block(
     receipt_id: near_primitives::hash::CryptoHash,
     shard_tracker: &ShardTracker,
 ) -> Result<Option<views::ReceiptView>, FailedToFetchData> {
-    let chunks = fetch_block_chunks(&client, &block, shard_tracker).await?;
+    let chunks = fetch_block_new_chunks(&client, &block, shard_tracker).await?;
 
     let protocol_config_view = fetch_protocol_config(&client, block.header.hash).await?;
     let mut shards_outcomes = fetch_outcomes(&client, block.header.hash).await?;
