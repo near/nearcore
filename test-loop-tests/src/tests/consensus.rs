@@ -33,6 +33,11 @@ use crate::utils::rotating_validators_runner::RotatingValidatorsRunner;
 fn ultra_slow_test_consensus_with_epoch_switches() {
     init_test_logger();
 
+    let seed: u64 = thread_rng().r#gen();
+    println!("RNG seed: {seed}. If test fails use it to find the issue.");
+    let rng: rand::rngs::StdRng = rand::SeedableRng::seed_from_u64(seed);
+    let rng = Arc::new(RwLock::new(rng));
+
     let validators: Vec<Vec<AccountId>> = [
         ["test1.1", "test1.2", "test1.3", "test1.4", "test1.5", "test1.6", "test1.7", "test1.8"],
         ["test2.1", "test2.2", "test2.3", "test2.4", "test2.5", "test2.6", "test2.7", "test2.8"],
@@ -63,9 +68,9 @@ fn ultra_slow_test_consensus_with_epoch_switches() {
         .genesis(genesis)
         .clients(accounts)
         .epoch_config_store(epoch_config_store)
-        .config_modifier(|client_config, _| {
-            client_config.skip_sync_wait = true;
-        })
+        // With short epoch length sync hash may not be available for catchup so we track all
+        // shards.
+        .track_all_shards()
         .build()
         .warmup();
 
@@ -76,11 +81,13 @@ fn ultra_slow_test_consensus_with_epoch_switches() {
         let from_whom = node_datas.account_id.clone();
 
         let handler = handler.clone();
+        let rng = rng.clone();
 
         let peer_actor_handle = node_datas.peer_manager_sender.actor_handle();
         let peer_actor = env.test_loop.data.get_mut(&peer_actor_handle);
         peer_actor.register_override_handler(Box::new(move |request| -> Option<NetworkRequests> {
             let mut handler = handler.write().unwrap();
+            let mut rng = rng.write().unwrap();
 
             match request {
                 NetworkRequests::Block { ref block } => {
@@ -139,7 +146,7 @@ fn ultra_slow_test_consensus_with_epoch_switches() {
                     let mut new_delayed_blocks = vec![];
                     for delayed_block in handler.delayed_blocks.iter() {
                         if delayed_block.hash() == block.hash() {
-                            return None;
+                            return Some(request);
                         }
                         if delayed_block.header().height() <= block.header().height() + 2 {
                             for (_, sender) in handler.client_senders.iter() {
@@ -215,12 +222,12 @@ fn ultra_slow_test_consensus_with_epoch_switches() {
                     };
 
                     while source_height as usize >= handler.skips_per_height.len() {
-                        handler.skips_per_height.push(if thread_rng().gen_bool(0.8) {
+                        handler.skips_per_height.push(if rng.gen_bool(0.8) {
                             0
                         } else {
                             // Blocks more than epoch_length away are likely to be in a different epoch
                             // which makes it harder to figure out correct block producer.
-                            thread_rng().gen_range(min_delay..epoch_length)
+                            rng.gen_range(min_delay..epoch_length)
                         });
                     }
 
