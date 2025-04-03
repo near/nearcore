@@ -43,6 +43,7 @@ const MESSAGE: [u8; 32] = [
 ];
 
 #[track_caller]
+#[allow(deprecated)]
 fn check_ed25519_verify(
     signature_len: u64,
     signature: &[u8],
