@@ -38,7 +38,7 @@ impl SignedValidPeriodTransactions {
             .filter_map(|(t, v)| v.then_some(t))
     }
 
-    pub fn par_into_iter_nonexpired_transactions(
+    pub fn into_par_iter_nonexpired_transactions(
         self,
     ) -> impl ParallelIterator<Item = SignedTransaction> {
         self.transactions
