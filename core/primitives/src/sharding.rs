@@ -564,7 +564,7 @@ impl ShardChunkHeader {
     ) -> Result<(), BadHeaderForProtocolVersionError> {
         const BLOCK_HEADER_V3_VERSION: ProtocolVersion = {
             #[allow(deprecated)]
-            let version = ProtocolFeature::BlockHeaderV3.protocol_version();
+            let version = ProtocolFeature::_DeprecatedBlockHeaderV3.protocol_version();
             version
         };
         const CONGESTION_CONTROL_VERSION: ProtocolVersion =
@@ -1232,7 +1232,7 @@ impl EncodedShardChunk {
         #[allow(deprecated)]
         let block_header_v3_version = Some({
             #[allow(deprecated)]
-            let version = ProtocolFeature::BlockHeaderV3.protocol_version();
+            let version = ProtocolFeature::_DeprecatedBlockHeaderV3.protocol_version();
             version
         });
 

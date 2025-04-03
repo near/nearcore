@@ -287,7 +287,7 @@ impl ProtocolFeature {
             | ProtocolFeature::SimpleNightshade => 48,
             ProtocolFeature::LowerRegularOpCost2
             | ProtocolFeature::LimitContractFunctionsNumber
-            | ProtocolFeature::BlockHeaderV3
+            | ProtocolFeature::_DeprecatedBlockHeaderV3
             | ProtocolFeature::AliasValidatorSelectionAlgorithm => 49,
             ProtocolFeature::SynchronizeBlockChunkProduction
             | ProtocolFeature::CorrectStackLimit => 50,

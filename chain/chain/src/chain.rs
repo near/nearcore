@@ -610,7 +610,7 @@ impl Chain {
         let validator_stakes = epoch_manager.get_epoch_block_producers_ordered(&epoch_id)?;
         let bp_hash = compute_bp_hash_from_validator_stakes(
             &validator_stakes,
-            true, // We always use use_versioned_bp_hash_format after BlockHeaderV3 feature
+            true, // We always use use_versioned_bp_hash_format after _DeprecatedBlockHeaderV3 feature
         );
         Ok(bp_hash)
     }
