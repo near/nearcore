@@ -109,7 +109,8 @@ pub enum ProtocolFeature {
     /// some cases.
     CorrectStackLimit,
     /// Add `AccessKey` nonce range for implicit accounts, as in `AccessKeyNonceRange` feature.
-    AccessKeyNonceForImplicitAccounts,
+    #[deprecated]
+    _DeprecatedAccessKeyNonceForImplicitAccounts,
     /// Increase cost per deployed code byte to cover for the compilation steps
     /// that a deployment triggers. Only affects the action execution cost.
     IncreaseDeploymentCost,
@@ -291,7 +292,7 @@ impl ProtocolFeature {
             | ProtocolFeature::AliasValidatorSelectionAlgorithm => 49,
             ProtocolFeature::SynchronizeBlockChunkProduction
             | ProtocolFeature::CorrectStackLimit => 50,
-            ProtocolFeature::AccessKeyNonceForImplicitAccounts => 51,
+            ProtocolFeature::_DeprecatedAccessKeyNonceForImplicitAccounts => 51,
             ProtocolFeature::IncreaseDeploymentCost
             | ProtocolFeature::FunctionCallWeight
             | ProtocolFeature::LimitContractLocals

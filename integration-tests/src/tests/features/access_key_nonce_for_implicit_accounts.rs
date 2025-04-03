@@ -198,7 +198,9 @@ fn get_status_of_tx_hash_collision_for_near_implicit_account(
 /// Test that duplicate transactions from NEAR-implicit accounts are properly rejected.
 #[test]
 fn test_transaction_hash_collision_for_near_implicit_account_fail() {
-    let protocol_version = ProtocolFeature::AccessKeyNonceForImplicitAccounts.protocol_version();
+    #[allow(deprecated)]
+    let protocol_version =
+        ProtocolFeature::_DeprecatedAccessKeyNonceForImplicitAccounts.protocol_version();
     let secret_key = SecretKey::from_seed(KeyType::ED25519, "test");
     let public_key = secret_key.public_key();
     let near_implicit_account_id = derive_near_implicit_account_id(public_key.unwrap_as_ed25519());
@@ -216,8 +218,9 @@ fn test_transaction_hash_collision_for_near_implicit_account_fail() {
 /// Test that duplicate transactions from NEAR-implicit accounts are not rejected until protocol upgrade.
 #[test]
 fn test_transaction_hash_collision_for_near_implicit_account_ok() {
+    #[allow(deprecated)]
     let protocol_version =
-        ProtocolFeature::AccessKeyNonceForImplicitAccounts.protocol_version() - 1;
+        ProtocolFeature::_DeprecatedAccessKeyNonceForImplicitAccounts.protocol_version() - 1;
     let secret_key = SecretKey::from_seed(KeyType::ED25519, "test");
     let public_key = secret_key.public_key();
     let near_implicit_account_id = derive_near_implicit_account_id(public_key.unwrap_as_ed25519());
