@@ -1,16 +1,16 @@
 // cspell:ignore contractregistry
 
 use crate::actions::*;
-use crate::balance_checker::check_balance;
 use crate::config::{
     exec_fee, safe_add_balance, safe_add_compute, safe_add_gas, safe_gas_to_balance, total_deposit,
     total_prepaid_exec_fees, total_prepaid_gas,
 };
 use crate::congestion_control::DelayedReceiptQueueWrapper;
 use crate::prefetch::TriePrefetcher;
+pub use crate::types::SignedValidPeriodTransactions;
 use crate::verifier::{StorageStakingError, check_storage_stake, validate_receipt};
 pub use crate::verifier::{
-    ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT, commit_charging_for_tx, validate_transaction,
+    ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT, set_tx_state_changes, validate_transaction,
     verify_and_charge_tx_ephemeral,
 };
 use bandwidth_scheduler::{BandwidthSchedulerOutput, run_bandwidth_scheduler};
@@ -37,8 +37,8 @@ use near_primitives::errors::{
 };
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{
-    ActionReceipt, DataReceipt, DelayedReceiptIndices, PromiseYieldIndices, PromiseYieldTimeout,
-    Receipt, ReceiptEnum, ReceiptOrStateStoredReceipt, ReceiptV0, ReceivedData,
+    ActionReceipt, DataReceipt, PromiseYieldIndices, PromiseYieldTimeout, Receipt, ReceiptEnum,
+    ReceiptOrStateStoredReceipt, ReceiptV0, ReceivedData,
 };
 use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
@@ -86,7 +86,6 @@ use verifier::ValidateReceiptMode;
 
 mod actions;
 pub mod adapter;
-mod balance_checker;
 mod bandwidth_scheduler;
 pub mod config;
 mod congestion_control;
@@ -100,6 +99,7 @@ pub mod receipt_manager;
 pub mod state_viewer;
 #[cfg(test)]
 mod tests;
+mod types;
 mod verifier;
 
 const EXPECT_ACCOUNT_EXISTS: &str = "account exists, checked above";
@@ -319,7 +319,7 @@ impl Runtime {
                         Ok(validated_tx) => {
                             match tx_cost(
                                 config,
-                                &validated_tx,
+                                &validated_tx.to_tx(),
                                 gas_price,
                                 current_protocol_version,
                             ) {
@@ -363,77 +363,77 @@ impl Runtime {
         let span = tracing::Span::current();
         metrics::TRANSACTION_PROCESSED_TOTAL.inc();
 
-        match verify_and_charge_tx_ephemeral(
+        let verification_result = verify_and_charge_tx_ephemeral(
             &apply_state.config,
             state_update,
             validated_tx,
             transaction_cost,
             Some(apply_state.block_height),
             apply_state.current_protocol_version,
-        ) {
-            Ok(verification_result) => {
-                metrics::TRANSACTION_PROCESSED_SUCCESSFULLY_TOTAL.inc();
-                commit_charging_for_tx(
-                    state_update,
-                    validated_tx,
-                    &verification_result.signer,
-                    &verification_result.access_key,
-                );
-                state_update.commit(StateChangeCause::TransactionProcessing {
-                    tx_hash: validated_tx.get_hash(),
-                });
-                let receipt_id = create_receipt_id_from_transaction(
-                    apply_state.current_protocol_version,
-                    validated_tx.to_hash(),
-                    &apply_state.block_hash,
-                    apply_state.block_height,
-                );
-                let receipt = Receipt::V0(ReceiptV0 {
-                    predecessor_id: validated_tx.signer_id().clone(),
-                    receiver_id: validated_tx.receiver_id().clone(),
-                    receipt_id,
-                    receipt: ReceiptEnum::Action(ActionReceipt {
-                        signer_id: validated_tx.signer_id().clone(),
-                        signer_public_key: validated_tx.public_key().clone(),
-                        gas_price: verification_result.receipt_gas_price,
-                        output_data_receivers: vec![],
-                        input_data_ids: vec![],
-                        actions: validated_tx.actions().to_vec(),
-                    }),
-                });
-                stats.balance.tx_burnt_amount = safe_add_balance(
-                    stats.balance.tx_burnt_amount,
-                    verification_result.burnt_amount,
-                )
-                .map_err(|_| InvalidTxError::CostOverflow)?;
-                let gas_burnt = verification_result.gas_burnt;
-                let compute_usage = verification_result.gas_burnt;
-                let outcome = ExecutionOutcomeWithId {
-                    id: validated_tx.get_hash(),
-                    outcome: ExecutionOutcome {
-                        status: ExecutionStatus::SuccessReceiptId(*receipt.receipt_id()),
-                        logs: vec![],
-                        receipt_ids: vec![*receipt.receipt_id()],
-                        gas_burnt,
-                        // TODO(#8806): Support compute costs for actions. For now they match burnt gas.
-                        compute_usage: Some(compute_usage),
-                        tokens_burnt: verification_result.burnt_amount,
-                        executor_id: validated_tx.signer_id().clone(),
-                        // TODO: profile data is only counted in apply_action, which only happened at process_receipt
-                        // VerificationResult needs updates to incorporate profile data to support profile data of txns
-                        metadata: ExecutionMetadata::V1,
-                    },
-                };
-                span.record("gas_burnt", gas_burnt);
-                span.record("compute_usage", compute_usage);
-                Ok((receipt, outcome))
-            }
+        );
+        let verification_result = match verification_result {
+            Ok(ok) => ok,
             Err(e) => {
                 metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
                 state_update.rollback();
-                Err(e)
+                return Err(e);
             }
+        };
+
+        metrics::TRANSACTION_PROCESSED_SUCCESSFULLY_TOTAL.inc();
+        set_tx_state_changes(
+            state_update,
+            validated_tx,
+            &verification_result.signer,
+            &verification_result.access_key,
+        );
+        state_update
+            .commit(StateChangeCause::TransactionProcessing { tx_hash: validated_tx.get_hash() });
+        let receipt_id = create_receipt_id_from_transaction(
+            apply_state.current_protocol_version,
+            validated_tx.to_hash(),
+            &apply_state.block_hash,
+            apply_state.block_height,
+        );
+        let receipt = Receipt::V0(ReceiptV0 {
+            predecessor_id: validated_tx.signer_id().clone(),
+            receiver_id: validated_tx.receiver_id().clone(),
+            receipt_id,
+            receipt: ReceiptEnum::Action(ActionReceipt {
+                signer_id: validated_tx.signer_id().clone(),
+                signer_public_key: validated_tx.public_key().clone(),
+                gas_price: verification_result.receipt_gas_price,
+                output_data_receivers: vec![],
+                input_data_ids: vec![],
+                actions: validated_tx.actions().to_vec(),
+            }),
+        });
+
+        match safe_add_balance(stats.balance.tx_burnt_amount, verification_result.burnt_amount) {
+            Ok(new) => stats.balance.tx_burnt_amount = new,
+            Err(_) => return Err(InvalidTxError::CostOverflow),
         }
+        let gas_burnt = verification_result.gas_burnt;
+        let compute_usage = verification_result.gas_burnt;
+        let outcome = ExecutionOutcomeWithId {
+            id: validated_tx.get_hash(),
+            outcome: ExecutionOutcome {
+                status: ExecutionStatus::SuccessReceiptId(*receipt.receipt_id()),
+                logs: vec![],
+                receipt_ids: vec![*receipt.receipt_id()],
+                gas_burnt,
+                // TODO(#8806): Support compute costs for actions. For now they match burnt gas.
+                compute_usage: Some(compute_usage),
+                tokens_burnt: verification_result.burnt_amount,
+                executor_id: validated_tx.signer_id().clone(),
+                // TODO: profile data is only counted in apply_action, which only happened at process_receipt
+                // VerificationResult needs updates to incorporate profile data to support profile data of txns
+                metadata: ExecutionMetadata::V1,
+            },
+        };
+        span.record("gas_burnt", gas_burnt);
+        span.record("compute_usage", compute_usage);
+        Ok((receipt, outcome))
     }
 
     fn apply_action(
@@ -1444,11 +1444,9 @@ impl Runtime {
         // 3. Process transactions.
         // 4. Process receipts.
         // 5. Validate and apply the state update.
-
         let mut processing_state =
             ApplyProcessingState::new(&apply_state, trie, epoch_info_provider, transactions);
-        processing_state.stats.transactions_num =
-            transactions.transactions.len().try_into().unwrap();
+        processing_state.stats.transactions_num = transactions.len().try_into().unwrap();
         processing_state.stats.incoming_receipts_num = incoming_receipts.len().try_into().unwrap();
         processing_state.stats.is_new_chunk = !apply_state.is_new_chunk;
 
@@ -1537,7 +1535,6 @@ impl Runtime {
         self.validate_apply_state_update(
             processing_state,
             process_receipts_result,
-            validator_accounts_update,
             receipt_sink,
             state_patch,
         )
@@ -1576,28 +1573,6 @@ impl Runtime {
         state_update.commit(StateChangeCause::Migration);
     }
 
-    /// Helper function that checks `RelaxedChunkValidation`. If it is enabled, we log a debug
-    /// message and return `Ok(())` to skip the transaction. Otherwise, we return `Err(e.into())`.
-    fn handle_invalid_transaction<E: std::fmt::Debug + Clone + Into<RuntimeError>>(
-        e: E,
-        tx_hash: &CryptoHash,
-        protocol_version: ProtocolVersion,
-        reason: &str,
-    ) -> Result<(), RuntimeError> {
-        if ProtocolFeature::RelaxedChunkValidation.enabled(protocol_version) {
-            tracing::debug!(
-                target: "runtime",
-                "invalid transaction ignored ({}) => tx_hash: {}, error: {:?}",
-                reason,
-                tx_hash,
-                e
-            );
-            Ok(())
-        } else {
-            Err(e.into())
-        }
-    }
-
     /// Processes a collection of transactions.
     ///
     /// Fills the `processing_state` with local receipts generated during processing of the
@@ -1614,8 +1589,7 @@ impl Runtime {
         let apply_state = &mut processing_state.apply_state;
         let state_update = &mut processing_state.state_update;
 
-        let signed_txs =
-            processing_state.transactions.transactions.into_iter().cloned().collect::<Vec<_>>();
+        let signed_txs = processing_state.transactions.par_iter_nonexpired_transactions().cloned();
         for (tx_hash, result) in Self::parallel_validate_transactions(
             &apply_state.config,
             apply_state.gas_price,
@@ -1633,12 +1607,12 @@ impl Runtime {
                     ) {
                         Ok(outcome) => outcome,
                         Err(err) => {
-                            Self::handle_invalid_transaction(
-                                err,
-                                &tx_hash,
-                                processing_state.protocol_version,
-                                "process_transaction error",
-                            )?;
+                            tracing::debug!(
+                                target: "runtime",
+                                ?tx_hash,
+                                ?err,
+                                "invalid transaction ignored (process_transaction error)",
+                            );
                             continue;
                         }
                     };
@@ -1662,12 +1636,12 @@ impl Runtime {
                     processing_state.outcomes.push(outcome_with_id);
                 }
                 Err(err) => {
-                    Self::handle_invalid_transaction(
-                        err,
-                        &tx_hash,
-                        processing_state.protocol_version,
-                        "parallel validation error",
-                    )?;
+                    tracing::debug!(
+                        target: "runtime",
+                        ?tx_hash,
+                        ?err,
+                        "invalid transaction ignored (parallel validation error)",
+                    );
                 }
             }
         }
@@ -2080,7 +2054,6 @@ impl Runtime {
         &self,
         processing_state: ApplyProcessingReceiptState<'a>,
         process_receipts_result: ProcessReceiptsResult,
-        validator_accounts_update: &Option<ValidatorAccountsUpdate>,
         receipt_sink: ReceiptSink,
         state_patch: SandboxStatePatch,
     ) -> Result<ApplyResult, RuntimeError> {
@@ -2140,20 +2113,6 @@ impl Runtime {
             true,
             &mut stats,
         )?;
-
-        if !ProtocolFeature::RemoveCheckBalance.enabled(protocol_version) {
-            check_balance(
-                &apply_state.config,
-                &state_update,
-                validator_accounts_update,
-                processing_state.incoming_receipts,
-                &processed_delayed_receipts,
-                &promise_yield_result.timeout_receipts,
-                processing_state.transactions,
-                &receipt_sink.outgoing_receipts(),
-                &stats.balance,
-            )?;
-        }
 
         state_update.commit(StateChangeCause::UpdatedDelayedReceipts);
         self.apply_state_patch(&mut state_update, state_patch);
@@ -2437,7 +2396,6 @@ fn resolve_promise_yield_timeouts(
         total.compute,
     );
     Ok(ResolvePromiseYieldTimeoutsResult {
-        timeout_receipts,
         initial_promise_yield_indices,
         promise_yield_indices,
         processed_yield_timeouts,
@@ -2472,7 +2430,6 @@ struct ProcessReceiptsResult {
 }
 
 struct ResolvePromiseYieldTimeoutsResult {
-    timeout_receipts: Vec<Receipt>,
     initial_promise_yield_indices: PromiseYieldIndices,
     promise_yield_indices: PromiseYieldIndices,
     processed_yield_timeouts: Vec<PromiseYieldTimeout>,
@@ -2548,43 +2505,6 @@ impl<'a> ApplyProcessingState<'a> {
             incoming_receipts,
             delayed_receipts,
         }
-    }
-}
-
-#[derive(Clone, Copy)]
-pub struct SignedValidPeriodTransactions<'a> {
-    transactions: &'a [SignedTransaction],
-    /// List of the transactions that are valid and should be processed by `apply`.
-    ///
-    /// This list is exactly the length of the corresponding `Self::transactions` field. Element at
-    /// the index N in this array corresponds to an element at index N in the transactions list.
-    ///
-    /// Transactions for which a `false` is stored here must be ignored/dropped/skipped.
-    ///
-    /// All elements will be true for protocol versions where `RelaxedChunkValidation` is not
-    /// enabled.
-    transaction_validity_check_passed: &'a [bool],
-}
-
-impl<'a> SignedValidPeriodTransactions<'a> {
-    pub fn new(transactions: &'a [SignedTransaction], validity_check_results: &'a [bool]) -> Self {
-        assert_eq!(transactions.len(), validity_check_results.len());
-        Self { transactions, transaction_validity_check_passed: validity_check_results }
-    }
-
-    pub fn empty() -> Self {
-        Self::new(&[], &[])
-    }
-
-    pub fn iter_nonexpired_transactions(&self) -> impl Iterator<Item = &'a SignedTransaction> {
-        self.transactions
-            .into_iter()
-            .zip(self.transaction_validity_check_passed.into_iter())
-            .filter_map(|(t, v)| v.then_some(t))
-    }
-
-    pub fn len(&self) -> usize {
-        self.transactions.len()
     }
 }
 

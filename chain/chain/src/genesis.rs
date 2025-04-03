@@ -1,3 +1,5 @@
+use crate::types::RuntimeAdapter;
+use crate::{Chain, ChainGenesis, ChainStore, ChainStoreAccess, ChainStoreUpdate};
 use itertools::Itertools;
 use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
@@ -12,15 +14,12 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::ShardChunk;
 use near_primitives::types::chunk_extra::ChunkExtra;
-use near_primitives::types::{BlockExtra, EpochId, Gas, ShardId, StateRoot};
+use near_primitives::types::{EpochId, Gas, ShardId, StateRoot};
 use near_primitives::version::ProtocolFeature;
 use near_store::adapter::StoreUpdateAdapter;
 use near_store::get_genesis_state_roots;
 use near_vm_runner::logic::ProtocolVersion;
 use node_runtime::bootstrap_congestion_info;
-
-use crate::types::RuntimeAdapter;
-use crate::{Chain, ChainGenesis, ChainStore, ChainStoreAccess, ChainStoreUpdate};
 
 impl Chain {
     /// Builds genesis block and chunks from the current configuration obtained through the arguments.
@@ -87,7 +86,6 @@ impl Chain {
         )?);
         store_update.save_block_header(genesis.header().clone())?;
         store_update.save_block(genesis.clone());
-        store_update.save_block_extra(genesis.hash(), BlockExtra { challenges_result: vec![] });
         Self::save_genesis_chunk_extras(&genesis, &state_roots, epoch_manager, &mut store_update)?;
 
         let block_head = Tip::from_header(genesis.header());
@@ -278,6 +276,7 @@ fn get_genesis_congestion_info(
 
 #[cfg(test)]
 mod test {
+    use std::path::Path;
     use std::str::FromStr;
 
     use near_async::time::FakeClock;
@@ -289,7 +288,7 @@ mod test {
     use near_store::test_utils::create_test_store;
     use num_rational::Rational32;
 
-    use crate::test_utils::{KeyValueRuntime, MockEpochManager};
+    use crate::runtime::NightshadeRuntime;
     use crate::{Chain, ChainGenesis};
 
     #[test]
@@ -319,10 +318,8 @@ mod test {
             &genesis.config,
             epoch_config_store,
         );
-
-        // The runtime isn't used at all for the production of genesis block at protocol version PROD_GENESIS_PROTOCOL_VERSION.
-        // It should be fine for us to use KeyValueRuntime here.
-        let runtime = KeyValueRuntime::new(store.clone(), &MockEpochManager::new(store, 43200));
+        let runtime =
+            NightshadeRuntime::test(Path::new("."), store, &genesis.config, epoch_manager.clone());
 
         // Create the genesis block. Use a random state root.
         let (genesis_block, _) = Chain::make_genesis_block(

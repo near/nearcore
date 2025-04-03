@@ -36,9 +36,7 @@ pub use crate::update_shard::{
     apply_new_chunk, apply_old_chunk,
 };
 use crate::update_shard::{ShardUpdateReason, ShardUpdateResult, process_shard_update};
-use crate::validate::{
-    validate_challenge, validate_chunk_with_chunk_extra, validate_transactions_order,
-};
+use crate::validate::validate_chunk_with_chunk_extra;
 use crate::{
     BlockStatus, ChainGenesis, Doomslug, Provenance, byzantine_assert,
     create_light_client_block_view,
@@ -62,7 +60,7 @@ use near_primitives::block::{
 use near_primitives::block_header::BlockHeader;
 use near_primitives::challenge::{
     BlockDoubleSign, Challenge, ChallengeBody, ChallengesResult, ChunkProofs, ChunkState,
-    MaybeEncodedShardChunk, SlashedValidator,
+    MaybeEncodedShardChunk,
 };
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::errors::EpochError;
@@ -86,8 +84,8 @@ use near_primitives::stateless_validation::state_witness::{
 use near_primitives::transaction::{ExecutionOutcomeWithIdAndProof, SignedTransaction};
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{
-    AccountId, Balance, BlockExtra, BlockHeight, BlockHeightDelta, EpochId, MerkleHash, NumBlocks,
-    ShardId, ShardIndex,
+    AccountId, Balance, BlockHeight, BlockHeightDelta, EpochId, MerkleHash, NumBlocks, ShardId,
+    ShardIndex,
 };
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::MaybeValidated;
@@ -99,7 +97,6 @@ use near_primitives::views::{
 };
 use near_store::DBCol;
 use near_store::adapter::chain_store::ChainStoreAdapter;
-use near_store::config::StateSnapshotType;
 use near_store::get_genesis_state_roots;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use std::cell::Cell;
@@ -376,7 +373,6 @@ pub enum VerifyBlockHashAndSignatureResult {
 enum SnapshotAction {
     /// Make a new snapshot. Contains the prev_hash of the sync_hash that is used for state sync
     MakeSnapshot(CryptoHash),
-    DeleteSnapshot,
     None,
 }
 
@@ -1066,45 +1062,10 @@ impl Chain {
     /// upgrade.
     pub fn verify_challenges(
         &self,
-        challenges: &[Challenge],
-        epoch_id: &EpochId,
+        _challenges: &[Challenge],
+        _epoch_id: &EpochId,
     ) -> Result<(ChallengesResult, Vec<CryptoHash>), Error> {
-        let _span = tracing::debug_span!(
-            target: "chain",
-            "verify_challenges",
-            ?challenges)
-        .entered();
-        let mut result = vec![];
-        let mut challenged_blocks = vec![];
-        for challenge in challenges.iter() {
-            match validate_challenge(
-                self.epoch_manager.as_ref(),
-                self.runtime_adapter.as_ref(),
-                epoch_id,
-                challenge,
-            ) {
-                Ok((hash, account_ids)) => {
-                    let is_double_sign = match challenge.body {
-                        // If it's double signed block, we don't invalidate blocks just slash.
-                        ChallengeBody::BlockDoubleSign(_) => true,
-                        _ => {
-                            challenged_blocks.push(hash);
-                            false
-                        }
-                    };
-                    let slash_validators: Vec<_> = account_ids
-                        .into_iter()
-                        .map(|id| SlashedValidator::new(id, is_double_sign))
-                        .collect();
-                    result.extend(slash_validators);
-                }
-                Err(Error::MaliciousChallenge) => {
-                    result.push(SlashedValidator::new(challenge.account_id.clone(), false));
-                }
-                Err(err) => return Err(err),
-            }
-        }
-        Ok((result, challenged_blocks))
+        Ok((vec![], vec![]))
     }
 
     /// Do basic validation of the information that we can get from the chunk headers in `block`
@@ -1398,12 +1359,21 @@ impl Chain {
         let Some((block, chunks)) = self.optimistic_block_chunks.take_latest_ready_block() else {
             return;
         };
-
-        self.blocks_delay_tracker.record_optimistic_block_ready(block.height());
-
         let prev_block_hash = *block.prev_block_hash();
         let block_hash = *block.hash();
         let block_height = block.height();
+
+        self.blocks_delay_tracker.record_optimistic_block_ready(block_height);
+        if let Ok(true) = self.is_height_processed(block_height) {
+            metrics::NUM_DROPPED_OPTIMISTIC_BLOCKS_BECAUSE_OF_PROCESSED_HEIGHT.inc();
+            debug!(
+                target: "chain", prev_block_hash = ?prev_block_hash,
+                hash = ?block_hash, height = block_height,
+                "Dropping optimistic block, the height was already processed"
+            );
+            return;
+        }
+
         match self.process_optimistic_block(me, block, chunks, apply_chunks_done_sender) {
             Ok(()) => {
                 debug!(
@@ -1413,6 +1383,7 @@ impl Chain {
                 );
             }
             Err(err) => {
+                metrics::NUM_FAILED_OPTIMISTIC_BLOCKS.inc();
                 warn!(
                     target: "chain", err = ?err,
                     prev_block_hash = ?prev_block_hash,
@@ -2470,7 +2441,7 @@ impl Chain {
             return Err(Error::InvalidGasPrice);
         }
 
-        let (challenges_result, challenged_blocks) =
+        let (_challenges_result, challenged_blocks) =
             self.verify_challenges(block.challenges(), header.epoch_id())?;
 
         let prev_block = self.get_block(&prev_hash)?;
@@ -2515,7 +2486,6 @@ impl Chain {
                 is_caught_up,
                 state_sync_info,
                 incoming_receipts,
-                challenges_result,
                 challenged_blocks,
                 provenance: provenance.clone(),
                 apply_chunks_done_waiter,
@@ -2774,21 +2744,8 @@ impl Chain {
         &self,
         prev_block_header: &BlockHeader,
         chunk: &ShardChunk,
-    ) -> Result<Vec<bool>, Error> {
-        let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(prev_block_header.hash())?;
-        let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
-        let relaxed_chunk_validation =
-            ProtocolFeature::RelaxedChunkValidation.enabled(protocol_version);
-
-        if !relaxed_chunk_validation {
-            if !validate_transactions_order(chunk.transactions()) {
-                return Err(Error::InvalidChunkTransactionsOrder(
-                    MaybeEncodedShardChunk::Decoded(chunk.clone()).into(),
-                ));
-            }
-        }
-
-        self.chain_store().compute_transaction_validity(protocol_version, prev_block_header, chunk)
+    ) -> Vec<bool> {
+        self.chain_store().compute_transaction_validity(prev_block_header, chunk)
     }
 
     pub fn transaction_validity_check<'a>(
@@ -2939,10 +2896,6 @@ impl Chain {
                 apply_chunks_done_sender.clone(),
             );
         }
-
-        // Nit: it would be more elegant to only call this after resharding, not
-        // after every state sync but it doesn't hurt.
-        self.process_snapshot_after_resharding()?;
 
         Ok(())
     }
@@ -3446,7 +3399,7 @@ impl Chain {
                 }
             })?;
 
-            let tx_valid_list = self.validate_chunk_transactions(prev_block.header(), &chunk)?;
+            let tx_valid_list = self.validate_chunk_transactions(prev_block.header(), &chunk);
 
             // we can't use hash from the current block here yet because the incoming receipts
             // for this block is not stored yet
@@ -3530,7 +3483,7 @@ impl Chain {
     /// Function to create or delete a snapshot if necessary.
     /// TODO: this function calls head() inside of start_process_block_impl(), consider moving this to be called right after HEAD gets updated
     fn process_snapshot(&mut self) -> Result<(), Error> {
-        let snapshot_action = self.should_make_or_delete_snapshot()?;
+        let snapshot_action = self.should_make_snapshot()?;
         let Some(snapshot_callbacks) = &self.snapshot_callbacks else { return Ok(()) };
         match snapshot_action {
             SnapshotAction::MakeSnapshot(prev_hash) => {
@@ -3546,42 +3499,14 @@ impl Chain {
                 let make_snapshot_callback = &snapshot_callbacks.make_snapshot_callback;
                 make_snapshot_callback(min_chunk_prev_height, epoch_height, shard_uids, prev_block);
             }
-            SnapshotAction::DeleteSnapshot => {
-                let delete_snapshot_callback = &snapshot_callbacks.delete_snapshot_callback;
-                delete_snapshot_callback();
-            }
             SnapshotAction::None => {}
         };
         Ok(())
     }
 
-    // Similar to `process_snapshot` but only called after resharding and
-    // catchup is done. This is to speed up the snapshot removal once resharding
-    // is finished in order to minimize the storage overhead.
-    fn process_snapshot_after_resharding(&mut self) -> Result<(), Error> {
-        let Some(snapshot_callbacks) = &self.snapshot_callbacks else { return Ok(()) };
-
-        let tries = self.runtime_adapter.get_tries();
-        let snapshot_config = tries.state_snapshot_config();
-        let delete_snapshot = match snapshot_config.state_snapshot_type {
-            // Do not delete snapshot if the node is configured to snapshot every epoch.
-            StateSnapshotType::EveryEpoch => false,
-            // Delete the snapshot if it was created only for resharding.
-            StateSnapshotType::ForReshardingOnly => true,
-        };
-
-        if delete_snapshot {
-            tracing::debug!(target: "resharding", "deleting snapshot after resharding");
-            let delete_snapshot_callback = &snapshot_callbacks.delete_snapshot_callback;
-            delete_snapshot_callback();
-        }
-
-        Ok(())
-    }
-
     /// Function to check whether we need to create a new snapshot while processing the current block
     /// Note that this functions is called as a part of block preprocessing, so the head is not updated to current block
-    fn should_make_or_delete_snapshot(&mut self) -> Result<SnapshotAction, Error> {
+    fn should_make_snapshot(&mut self) -> Result<SnapshotAction, Error> {
         // head value is that of the previous block, i.e. curr_block.prev_hash
         let head = self.head()?;
         if head.prev_block_hash == CryptoHash::default() {
@@ -3591,48 +3516,25 @@ impl Chain {
 
         let is_epoch_boundary =
             self.epoch_manager.is_next_block_epoch_start(&head.last_block_hash)?;
-        let will_shard_layout_change =
-            self.epoch_manager.will_shard_layout_change(&head.last_block_hash)?;
         let next_block_epoch =
             self.epoch_manager.get_epoch_id_from_prev_block(&head.last_block_hash)?;
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(&next_block_epoch)?;
 
-        let tries = self.runtime_adapter.get_tries();
-        let snapshot_config = tries.state_snapshot_config();
-        match snapshot_config.state_snapshot_type {
-            // For every epoch, we snapshot if the next block is the state sync "sync_hash" block
-            StateSnapshotType::EveryEpoch => {
-                if !ProtocolFeature::CurrentEpochStateSync.enabled(protocol_version) {
-                    if is_epoch_boundary {
-                        // Here we return head.last_block_hash as the prev_hash of the first block of the next epoch
-                        Ok(SnapshotAction::MakeSnapshot(head.last_block_hash))
-                    } else {
-                        Ok(SnapshotAction::None)
-                    }
-                } else {
-                    let is_sync_prev = self.state_sync_adapter.is_sync_prev_hash(&head)?;
-                    if is_sync_prev {
-                        // Here the head block is the prev block of what the sync hash will be, and the previous
-                        // block is the point in the chain we want to snapshot state for
-                        Ok(SnapshotAction::MakeSnapshot(head.last_block_hash))
-                    } else {
-                        Ok(SnapshotAction::None)
-                    }
-                }
+        if !ProtocolFeature::CurrentEpochStateSync.enabled(protocol_version) {
+            if is_epoch_boundary {
+                // Here we return head.last_block_hash as the prev_hash of the first block of the next epoch
+                Ok(SnapshotAction::MakeSnapshot(head.last_block_hash))
+            } else {
+                Ok(SnapshotAction::None)
             }
-            // For resharding only, we snapshot if next block would be in a different shard layout
-            StateSnapshotType::ForReshardingOnly => {
-                if is_epoch_boundary {
-                    if will_shard_layout_change {
-                        Ok(SnapshotAction::MakeSnapshot(head.last_block_hash))
-                    } else {
-                        // We need to delete the existing snapshot at the epoch boundary if we are not making a new snapshot
-                        // This is useful for the next epoch after resharding where we don't make a snapshot but it's an epoch boundary
-                        Ok(SnapshotAction::DeleteSnapshot)
-                    }
-                } else {
-                    Ok(SnapshotAction::None)
-                }
+        } else {
+            let is_sync_prev = self.state_sync_adapter.is_sync_prev_hash(&head)?;
+            if is_sync_prev {
+                // Here the head block is the prev block of what the sync hash will be, and the previous
+                // block is the point in the chain we want to snapshot state for
+                Ok(SnapshotAction::MakeSnapshot(head.last_block_hash))
+            } else {
+                Ok(SnapshotAction::None)
             }
         }
     }
@@ -3783,12 +3685,6 @@ impl Chain {
     #[inline]
     pub fn block_exists(&self, hash: &CryptoHash) -> Result<bool, Error> {
         self.chain_store.block_exists(hash)
-    }
-
-    /// Get block extra that was computer after applying previous block.
-    #[inline]
-    pub fn get_block_extra(&self, block_hash: &CryptoHash) -> Result<Arc<BlockExtra>, Error> {
-        self.chain_store.get_block_extra(block_hash)
     }
 
     /// Get chunk extra that was computed after applying chunk with given hash.

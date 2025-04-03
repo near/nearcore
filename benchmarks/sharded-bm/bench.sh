@@ -4,7 +4,7 @@
 
 set -o errexit
 
-CASE="${2:-$CASE}"
+CASE="${CASE:-$2}"
 BM_PARAMS=${CASE}/params.json
 
 if ! [[ -d $CASE ]]; then
@@ -17,6 +17,8 @@ if ! command -v jq &>/dev/null; then
     echo "jq could not be found, please install it."
     exit 1
 fi
+
+GEN_LOCALNET_DONE=false
 
 NUM_CHUNK_PRODUCERS=$(jq '.chunk_producers' ${BM_PARAMS})
 NUM_RPCS=$(jq '.rpcs' ${BM_PARAMS})
@@ -74,7 +76,6 @@ if [ "${RUN_ON_FORKNET}" = true ]; then
     FORKNET_ENV="FORKNET_NAME=${FORKNET_NAME} FORKNET_START_HEIGHT=${FORKNET_START_HEIGHT}"
     FORKNET_NEARD_LOG="/home/ubuntu/neard-logs/logs.txt"
     FORKNET_NEARD_PATH="${NEAR_HOME}/neard-runner/binaries/neard0"
-    UPDATE_BINARIES="${UPDATE_BINARIES:-false}"
     NUM_SHARDS=$(jq '.shard_layout.V2.shard_ids | length' ${GENESIS} 2>/dev/null) || true
     NODE_BINARY_URL=$(jq -r '.forknet.binary_url' ${BM_PARAMS})
     VALIDATOR_KEY=${NEAR_HOME}/validator_key.json
@@ -87,6 +88,13 @@ else
 fi
 
 RPC_URL="http://${RPC_ADDR}"
+
+mirror_cmd() {
+    shift
+    cd ${PYTEST_PATH}
+    $MIRROR --host-type nodes "$@"
+    cd -
+}
 
 start_nodes_forknet() {
     cd ${PYTEST_PATH}
@@ -181,7 +189,7 @@ fetch_forknet_details() {
     # Get all instances for this forknet
     local instances=$(gcloud compute instances list \
         --project=nearone-mocknet \
-        --filter="name~'${FORKNET_NAME}' AND -name~'traffic'" \
+        --filter="name~'-${FORKNET_NAME}-' AND -name~'traffic'" \
         --format="get(name,networkInterfaces[0].networkIP)")    
     local total_lines=$(echo "$instances" | wc -l | tr -d ' ')
     local num_cp_instances=$((total_lines - 1))
@@ -210,10 +218,33 @@ fetch_forknet_details() {
     echo "Forknet CP nodes: ${FORKNET_CP_NODES}"
 }
 
+gen_localnet_for_forknet() {
+    if [ "${GEN_LOCALNET_DONE}" = true ]; then
+        echo "Will use existing nodes homes for forknet"
+        return 0
+    fi
+    
+    echo "===> Initializing nodes homes for forknet"
+    RUN_ON_FORKNET=false
+    local ORIGINAL_BENCHNET_DIR=${BENCHNET_DIR}
+    BENCHNET_DIR=${GEN_NODES_DIR}
+    NEAR_HOMES=()
+    for i in $(seq 0 $((NUM_NODES - 1))); do
+        NEAR_HOMES+=("${BENCHNET_DIR}/node${i}")
+    done
+    init
+    RUN_ON_FORKNET=true
+    BENCHNET_DIR=${ORIGINAL_BENCHNET_DIR}
+    GEN_LOCALNET_DONE=true
+    echo "===> Done"
+}
+
 init_forknet() {
+    gen_localnet_for_forknet
     cd ${PYTEST_PATH}
     $MIRROR init-neard-runner --neard-binary-url ${NODE_BINARY_URL} --neard-upgrade-binary-url ""
-    if [ "${UPDATE_BINARIES}" = true ]; then
+    if [ "${UPDATE_BINARIES}" = "true" ] || [ "${UPDATE_BINARIES}" = "1" ]; then
+        echo "===> Updating binaries"
         $MIRROR --host-type nodes update-binaries || true
     fi
     $MIRROR --host-type nodes run-cmd --cmd "mkdir -p ${BENCHNET_DIR}"
@@ -283,6 +314,7 @@ edit_log_config() {
 }
 
 tweak_config_forknet() {
+    gen_localnet_for_forknet
     fetch_forknet_details
     local cwd=$(pwd)
     cd ${PYTEST_PATH}
@@ -417,7 +449,8 @@ create_sub_accounts() {
         --deposit 9530606018750000000100000000 \
         --channel-buffer-size 1200 \
         --requests-per-second ${CREATE_ACCOUNTS_RPS} \
-        --user-data-dir ${data_dir}
+        --user-data-dir ${data_dir} \
+        --ignore-failures
 }
 
 create_accounts_local() {
@@ -618,6 +651,10 @@ stop-injection)
     stop_injection
     ;;
 
+mirror)
+    mirror_cmd "$@"
+    ;;
+
 # Forknet specific methods, not part of user API.
 tweak-config-forknet-node)
     tweak_config_forknet_node ${2} ${3}
@@ -640,6 +677,6 @@ create-accounts-on-tracked-shard)
     ;;
 
 *)
-    echo "Usage: ${0} {reset|init|tweak-config|create-accounts|native-transfers|monitor|start-nodes|stop-nodes|stop-injection} <CASE>"
+    echo "Usage: ${0} {reset|init|tweak-config|create-accounts|native-transfers|monitor|start-nodes|stop-nodes|stop-injection|mirror}"
     ;;
 esac

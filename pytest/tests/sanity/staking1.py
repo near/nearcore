@@ -18,11 +18,12 @@ TIMEOUT = 150
 config = None
 nodes = start_cluster(
     2, 1, 1, config,
-    [["epoch_length", 10], ["block_producer_kickout_threshold", 40]],
-    {2: {
-        "tracked_shards": [0],
-        "store.state_snapshot_enabled": True,
-    }})
+    [["epoch_length", 10], ["block_producer_kickout_threshold", 40]], {
+        2: {
+            "tracked_shards": [0],
+            "store.state_snapshot_config.state_snapshot_type": "Enabled",
+        }
+    })
 
 started = time.time()
 

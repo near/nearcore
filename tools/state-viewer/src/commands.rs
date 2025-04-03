@@ -107,13 +107,7 @@ pub(crate) fn apply_block(
         .unwrap();
 
         let transactions = chunk.transactions();
-        let valid_txs = chain_store
-            .compute_transaction_validity(
-                block.header().latest_protocol_version(),
-                prev_block.header(),
-                &chunk,
-            )
-            .unwrap();
+        let valid_txs = chain_store.compute_transaction_validity(prev_block.header(), &chunk);
         runtime
             .apply_chunk(
                 storage.create_runtime_storage(*chunk_inner.prev_state_root()),
@@ -955,9 +949,7 @@ pub(crate) fn print_epoch_info(
         near_config.genesis.config.transaction_validity_period,
     );
     let epoch_manager =
-        EpochManager::new_from_genesis_config(store.clone(), &near_config.genesis.config)
-            .expect("Failed to start Epoch Manager")
-            .into_handle();
+        EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config, None);
 
     epoch_info::print_epoch_info(
         epoch_selection,
@@ -976,8 +968,8 @@ pub(crate) fn print_epoch_analysis(
     store: Store,
 ) {
     let epoch_manager =
-        EpochManager::new_from_genesis_config(store.clone(), &near_config.genesis.config)
-            .expect("Failed to start Epoch Manager");
+        EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config, None);
+    let epoch_manager = epoch_manager.read();
 
     let epoch_ids = iterate_and_filter(store, |_| true);
     let epoch_infos: HashMap<EpochId, Arc<EpochInfo>> = HashMap::from_iter(

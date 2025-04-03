@@ -362,80 +362,37 @@ mod tests {
     use super::ShardTracker;
     use crate::shard_tracker::TrackedConfig;
     use crate::test_utils::hash_range;
-    use crate::{EpochManager, EpochManagerAdapter, EpochManagerHandle, RewardCalculator};
+    use crate::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
     use itertools::Itertools;
+    use near_chain_configs::GenesisConfig;
+    use near_chain_configs::test_genesis::TestEpochConfigBuilder;
     use near_crypto::{KeyType, PublicKey};
     use near_primitives::epoch_block_info::BlockInfo;
-    use near_primitives::epoch_manager::{AllEpochConfig, EpochConfig};
+    use near_primitives::epoch_manager::EpochConfigStore;
     use near_primitives::hash::CryptoHash;
-    use near_primitives::shard_layout::ShardLayout;
     use near_primitives::types::validator_stake::ValidatorStake;
-    use near_primitives::types::{BlockHeight, EpochId, NumShards, ProtocolVersion, ShardId};
+    use near_primitives::types::{AccountInfo, BlockHeight, EpochId, ProtocolVersion, ShardId};
     use near_primitives::version::PROTOCOL_VERSION;
-    use near_primitives::version::ProtocolFeature::SimpleNightshade;
     use near_store::test_utils::create_test_store;
-    use num_rational::Ratio;
     use std::collections::HashSet;
     use std::sync::Arc;
 
     const DEFAULT_TOTAL_SUPPLY: u128 = 1_000_000_000_000;
 
-    fn get_epoch_manager(
-        genesis_protocol_version: ProtocolVersion,
-        num_shards: NumShards,
-        use_production_config: bool,
-    ) -> EpochManagerHandle {
+    fn get_epoch_manager(genesis_protocol_version: ProtocolVersion) -> Arc<EpochManagerHandle> {
         let store = create_test_store();
-        let initial_epoch_config = EpochConfig {
-            epoch_length: 1,
-            num_block_producer_seats: 1,
-            num_block_producer_seats_per_shard: vec![1],
-            avg_hidden_validator_seats_per_shard: vec![],
-            block_producer_kickout_threshold: 90,
-            chunk_producer_kickout_threshold: 60,
-            chunk_validator_only_kickout_threshold: 60,
-            target_validator_mandates_per_shard: 1,
-            fishermen_threshold: 0,
-            online_max_threshold: Ratio::from_integer(1),
-            online_min_threshold: Ratio::new(90, 100),
-            minimum_stake_divisor: 1,
-            protocol_upgrade_stake_threshold: Ratio::new(80, 100),
-            shard_layout: ShardLayout::multi_shard(num_shards, 0),
-            num_chunk_producer_seats: 100,
-            num_chunk_validator_seats: 300,
-            num_chunk_only_producer_seats: 300,
-            minimum_validators_per_shard: 1,
-            minimum_stake_ratio: Ratio::new(160i32, 1_000_000i32),
-            chunk_producer_assignment_changes_limit: 5,
-            shuffle_shard_assignment_for_chunk_producers: false,
-            validator_max_kickout_stake_perc: 100,
-        };
-        let reward_calculator = RewardCalculator {
-            max_inflation_rate: Ratio::from_integer(0),
-            num_blocks_per_year: 1000000,
-            epoch_length: 1,
-            protocol_reward_rate: Ratio::from_integer(0),
-            protocol_treasury_account: "test".parse().unwrap(),
-            num_seconds_per_year: 1000000,
-        };
-        EpochManager::new(
-            store,
-            AllEpochConfig::new(
-                use_production_config,
-                genesis_protocol_version,
-                initial_epoch_config,
-                "test-chain",
-            ),
-            genesis_protocol_version,
-            reward_calculator,
-            vec![ValidatorStake::new(
-                "test".parse().unwrap(),
-                PublicKey::empty(KeyType::ED25519),
-                100,
-            )],
-        )
-        .unwrap()
-        .into_handle()
+        let mut genesis_config = GenesisConfig::default();
+        genesis_config.protocol_version = genesis_protocol_version;
+        genesis_config.validators = vec![AccountInfo {
+            account_id: "test".parse().unwrap(),
+            public_key: PublicKey::empty(KeyType::ED25519),
+            amount: 100,
+        }];
+
+        let epoch_config = TestEpochConfigBuilder::new().build();
+        let config_store =
+            EpochConfigStore::test_single_version(genesis_protocol_version, epoch_config);
+        EpochManager::new_arc_handle_from_epoch_config_store(store, &genesis_config, config_store)
     }
 
     pub fn record_block(
@@ -496,12 +453,10 @@ mod tests {
     #[test]
     fn test_track_accounts() {
         let shard_ids = (0..4).map(ShardId::new).collect_vec();
-        let epoch_manager =
-            get_epoch_manager(PROTOCOL_VERSION, shard_ids.len() as NumShards, false);
-        let shard_layout = epoch_manager.read().get_shard_layout(&EpochId::default()).unwrap();
+        let epoch_manager = get_epoch_manager(PROTOCOL_VERSION);
+        let shard_layout = epoch_manager.get_shard_layout(&EpochId::default()).unwrap();
         let tracked_accounts = vec!["test1".parse().unwrap(), "test2".parse().unwrap()];
-        let tracker =
-            ShardTracker::new(TrackedConfig::Accounts(tracked_accounts), Arc::new(epoch_manager));
+        let tracker = ShardTracker::new(TrackedConfig::Accounts(tracked_accounts), epoch_manager);
         let mut total_tracked_shards = HashSet::new();
         total_tracked_shards.insert(shard_layout.account_id_to_shard_id(&"test1".parse().unwrap()));
         total_tracked_shards.insert(shard_layout.account_id_to_shard_id(&"test2".parse().unwrap()));
@@ -519,9 +474,8 @@ mod tests {
     #[test]
     fn test_track_all_shards() {
         let shard_ids = (0..4).map(ShardId::new).collect_vec();
-        let epoch_manager =
-            get_epoch_manager(PROTOCOL_VERSION, shard_ids.len() as NumShards, false);
-        let tracker = ShardTracker::new(TrackedConfig::AllShards, Arc::new(epoch_manager));
+        let epoch_manager = get_epoch_manager(PROTOCOL_VERSION);
+        let tracker = ShardTracker::new(TrackedConfig::AllShards, epoch_manager);
         let total_tracked_shards: HashSet<_> = shard_ids.iter().cloned().collect();
 
         assert_eq!(
@@ -539,8 +493,7 @@ mod tests {
         // Creates a ShardTracker that changes every epoch tracked shards.
         let shard_ids = (0..4).map(ShardId::new).collect_vec();
 
-        let epoch_manager =
-            Arc::new(get_epoch_manager(PROTOCOL_VERSION, shard_ids.len() as NumShards, false));
+        let epoch_manager = get_epoch_manager(PROTOCOL_VERSION);
         let subset1: HashSet<ShardId> =
             HashSet::from([0, 1]).into_iter().map(ShardId::new).collect();
         let subset2: HashSet<ShardId> =
@@ -580,84 +533,5 @@ mod tests {
         assert_eq!(get_all_shards_will_care_about(&tracker, &shard_ids, &h[5]), subset1);
         assert_eq!(get_all_shards_will_care_about(&tracker, &shard_ids, &h[6]), subset2);
         assert_eq!(get_all_shards_will_care_about(&tracker, &shard_ids, &h[7]), subset3);
-    }
-
-    #[test]
-    fn test_track_shards_shard_layout_change() {
-        let simple_nightshade_version = SimpleNightshade.protocol_version();
-        let epoch_manager = get_epoch_manager(simple_nightshade_version - 1, 1, true);
-        let tracked_accounts =
-            vec!["a.near".parse().unwrap(), "near".parse().unwrap(), "zoo".parse().unwrap()];
-        let tracker = ShardTracker::new(
-            TrackedConfig::Accounts(tracked_accounts.clone()),
-            Arc::new(epoch_manager.clone()),
-        );
-
-        let h = hash_range(8);
-        {
-            let mut epoch_manager = epoch_manager.write();
-            record_block(
-                &mut epoch_manager,
-                CryptoHash::default(),
-                h[0],
-                0,
-                vec![],
-                simple_nightshade_version,
-            );
-            for i in 1..8 {
-                record_block(
-                    &mut epoch_manager,
-                    h[i - 1],
-                    h[i],
-                    i as u64,
-                    vec![],
-                    simple_nightshade_version,
-                );
-            }
-            assert_eq!(
-                epoch_manager.get_epoch_info(&EpochId(h[0])).unwrap().protocol_version(),
-                simple_nightshade_version - 1
-            );
-            assert_eq!(
-                epoch_manager.get_epoch_info(&EpochId(h[1])).unwrap().protocol_version(),
-                simple_nightshade_version
-            );
-        }
-
-        // verify tracker is tracking the correct shards before and after resharding
-        for i in 1..8 {
-            let mut total_next_tracked_shards = HashSet::new();
-            let next_epoch_id = epoch_manager.get_next_epoch_id_from_prev_block(&h[i - 1]).unwrap();
-            let next_shard_layout = epoch_manager.get_shard_layout(&next_epoch_id).unwrap();
-
-            let mut total_tracked_shards = HashSet::new();
-            let epoch_id = epoch_manager.get_epoch_id_from_prev_block(&h[i - 1]).unwrap();
-            let shard_layout = epoch_manager.get_shard_layout(&epoch_id).unwrap();
-
-            for account_id in tracked_accounts.iter() {
-                let shard_id = shard_layout.account_id_to_shard_id(account_id);
-                total_tracked_shards.insert(shard_id);
-
-                let next_shard_id = next_shard_layout.account_id_to_shard_id(account_id);
-                total_next_tracked_shards.insert(next_shard_id);
-            }
-
-            assert_eq!(
-                get_all_shards_care_about(
-                    &tracker,
-                    &shard_layout.shard_ids().collect::<Vec<_>>(),
-                    &h[i - 1]
-                ),
-                total_tracked_shards
-            );
-            assert_eq!(
-                get_all_shards_will_care_about(
-                    &tracker,
-                    &next_shard_layout.shard_ids().collect::<Vec<_>>(),
-                    &h[i - 1]
-                ),
-                total_next_tracked_shards
-            );
-        }
     }
 }

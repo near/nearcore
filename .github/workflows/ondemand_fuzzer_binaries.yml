@@ -1,4 +1,7 @@
 name: Build on demand fuzz targets
+
+# cspell:ignore prereleased fallocate swapon prereleased gsutil
+
 on:
   # Run when a new release or rc is created
   release:
@@ -23,7 +26,7 @@ on:
 jobs:
   build_fuzzers:
     name: Build Fuzzers
-    runs-on: "ubuntu-22.04-16core"
+    runs-on: warp-ubuntu-2204-x64-16x
 
     permissions:
       contents: "read"

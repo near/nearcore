@@ -1,20 +1,19 @@
-use std::collections::{BTreeMap, HashMap};
-
-use near_primitives::types::EpochId;
-use near_primitives::types::ProtocolVersion;
-use near_store::Store;
-use num_rational::Ratio;
-
+use crate::NUM_SECONDS_IN_A_YEAR;
 use crate::RewardCalculator;
 use crate::RngSeed;
 use crate::proposals::find_threshold;
+use crate::reward_calculator::NUM_NS_IN_SECOND;
 use crate::{BlockInfo, EpochManager};
 use near_crypto::{KeyType, SecretKey};
 use near_primitives::challenge::SlashedValidator;
 use near_primitives::epoch_block_info::BlockInfoV2;
 use near_primitives::epoch_info::EpochInfo;
+use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::epoch_manager::{AllEpochConfig, EpochConfig};
 use near_primitives::hash::{CryptoHash, hash};
+use near_primitives::shard_layout::ShardLayout;
+use near_primitives::types::EpochId;
+use near_primitives::types::ProtocolVersion;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, BlockHeightDelta, EpochHeight, NumSeats, NumShards,
@@ -23,10 +22,10 @@ use near_primitives::types::{
 use near_primitives::utils::get_num_seats_per_shard;
 use near_primitives::validator_mandates::{ValidatorMandates, ValidatorMandatesConfig};
 use near_primitives::version::PROTOCOL_VERSION;
+use near_store::Store;
 use near_store::test_utils::create_test_store;
-
-use near_primitives::shard_layout::ShardLayout;
-use {crate::NUM_SECONDS_IN_A_YEAR, crate::reward_calculator::NUM_NS_IN_SECOND};
+use num_rational::Ratio;
+use std::collections::{BTreeMap, HashMap};
 
 pub const DEFAULT_GAS_PRICE: u128 = 100;
 pub const DEFAULT_TOTAL_SUPPLY: u128 = 1_000_000_000_000;
@@ -124,7 +123,7 @@ pub fn epoch_info_with_num_seats(
     )
 }
 
-pub fn epoch_config_with_production_config(
+pub fn epoch_config(
     epoch_length: BlockHeightDelta,
     num_shards: NumShards,
     num_block_producer_seats: NumSeats,
@@ -132,7 +131,6 @@ pub fn epoch_config_with_production_config(
     block_producer_kickout_threshold: u8,
     chunk_producer_kickout_threshold: u8,
     chunk_validator_only_kickout_threshold: u8,
-    use_production_config: bool,
 ) -> AllEpochConfig {
     let epoch_config = EpochConfig {
         epoch_length,
@@ -161,27 +159,8 @@ pub fn epoch_config_with_production_config(
         shard_layout: ShardLayout::multi_shard(num_shards, 0),
         validator_max_kickout_stake_perc: 100,
     };
-    AllEpochConfig::new(use_production_config, PROTOCOL_VERSION, epoch_config, "test-chain")
-}
-
-pub fn epoch_config(
-    epoch_length: BlockHeightDelta,
-    num_shards: NumShards,
-    num_block_producer_seats: NumSeats,
-    block_producer_kickout_threshold: u8,
-    chunk_producer_kickout_threshold: u8,
-    chunk_validator_only_kickout_threshold: u8,
-) -> AllEpochConfig {
-    epoch_config_with_production_config(
-        epoch_length,
-        num_shards,
-        num_block_producer_seats,
-        100,
-        block_producer_kickout_threshold,
-        chunk_producer_kickout_threshold,
-        chunk_validator_only_kickout_threshold,
-        false,
-    )
+    let config_store = EpochConfigStore::test_single_version(PROTOCOL_VERSION, epoch_config);
+    AllEpochConfig::from_epoch_config_store("test-chain", epoch_length, config_store)
 }
 
 pub fn stake(account_id: AccountId, amount: Balance) -> ValidatorStake {
@@ -220,6 +199,7 @@ pub fn setup_epoch_manager(
         epoch_length,
         num_shards,
         num_block_producer_seats,
+        100,
         block_producer_kickout_threshold,
         chunk_producer_kickout_threshold,
         chunk_validator_only_kickout_threshold,
@@ -286,7 +266,7 @@ pub fn setup_epoch_manager_with_block_and_chunk_producers(
         validators.push((chunk_only_producer.clone(), stake));
         total_stake += stake;
     }
-    let config = epoch_config(epoch_length, num_shards, num_block_producers, 0, 0, 0);
+    let config = epoch_config(epoch_length, num_shards, num_block_producers, 100, 0, 0, 0);
     let epoch_manager = EpochManager::new(
         store,
         config,

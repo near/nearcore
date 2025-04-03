@@ -39,7 +39,7 @@ use near_primitives::views::{
     StateItem,
 };
 use near_store::ShardUId;
-use near_store::metadata::DbKind;
+use near_store::db::metadata::DbKind;
 use near_vm_runner::logic::ProtocolVersion;
 use once_cell::sync::OnceCell;
 use std::collections::{HashMap, HashSet};
@@ -143,6 +143,7 @@ impl TestEnv {
                     .unwrap();
             }
         }
+        self.process_shards_manager_responses(id);
         self.propagate_chunk_state_witnesses_and_endorsements(false);
     }
 
