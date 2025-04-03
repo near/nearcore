@@ -96,6 +96,7 @@ pub enum ProtocolFeature {
     /// Limit number of wasm functions in one contract. See
     /// <https://github.com/near/nearcore/pull/4954> for more details.
     LimitContractFunctionsNumber,
+    #[deprecated]
     BlockHeaderV3,
     /// Changes how we select validators for epoch and how we select validators
     /// within epoch.  See <https://github.com/near/NEPs/pull/167> for general

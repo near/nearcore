@@ -1,3 +1,4 @@
+#![allow(deprecated)]
 use crate::challenge::ChallengesResult;
 use crate::hash::{CryptoHash, hash};
 use crate::merkle::combine_hash;
@@ -419,6 +420,8 @@ pub struct BlockHeaderV2 {
 #[derive(
     BorshSerialize, BorshDeserialize, serde::Serialize, Debug, Clone, Eq, PartialEq, ProtocolSchema,
 )]
+#[deprecated]
+#[allow(clippy::deprecated_cfg_attr)]
 #[borsh(init=init)]
 pub struct BlockHeaderV3 {
     pub prev_hash: CryptoHash,
@@ -881,7 +884,7 @@ impl BlockHeader {
         approvals: Vec<Option<Box<Signature>>>,
         prev_height: BlockHeight,
     ) -> Self {
-        let last_header_v2_version = ProtocolFeature::BlockHeaderV3.protocol_version() - 1;
+        let last_header_v2_version = 48; // ProtocolFeature::BlockHeaderV3.protocol_version() - 1
         // Previously we passed next_epoch_protocol_version here, which is incorrect, but we need
         // to preserve this for archival nodes
         if next_epoch_protocol_version <= 29 {

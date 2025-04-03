@@ -440,9 +440,13 @@ impl BlockHeader {
                 let header = Arc::make_mut(header);
                 header.inner_rest.latest_protocol_version = latest_protocol_version;
             }
+            #[allow(deprecated)]
             BlockHeader::BlockHeaderV3(header) => {
                 let header = Arc::make_mut(header);
-                header.inner_rest.latest_protocol_version = latest_protocol_version;
+                #[allow(deprecated)]
+                {
+                    header.inner_rest.latest_protocol_version = latest_protocol_version;
+                }
             }
             BlockHeader::BlockHeaderV4(header) => {
                 let header = Arc::make_mut(header);
@@ -473,10 +477,14 @@ impl BlockHeader {
                 header.hash = hash;
                 header.signature = signature;
             }
+            #[allow(deprecated)]
             BlockHeader::BlockHeaderV3(header) => {
                 let header = Arc::make_mut(header);
-                header.hash = hash;
-                header.signature = signature;
+                #[allow(deprecated)]
+                {
+                    header.hash = hash;
+                    header.signature = signature;
+                }
             }
             BlockHeader::BlockHeaderV4(header) => {
                 let header = Arc::make_mut(header);

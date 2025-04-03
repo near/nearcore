@@ -605,13 +605,12 @@ impl Chain {
     pub fn compute_bp_hash(
         epoch_manager: &dyn EpochManagerAdapter,
         epoch_id: EpochId,
-        prev_epoch_id: EpochId,
+        _prev_epoch_id: EpochId,
     ) -> Result<CryptoHash, Error> {
         let validator_stakes = epoch_manager.get_epoch_block_producers_ordered(&epoch_id)?;
-        let protocol_version = epoch_manager.get_epoch_protocol_version(&prev_epoch_id)?;
         let bp_hash = compute_bp_hash_from_validator_stakes(
             &validator_stakes,
-            ProtocolFeature::BlockHeaderV3.enabled(protocol_version),
+            true, // BlockHeaderV3 is deprecated and always enabled
         );
         Ok(bp_hash)
     }

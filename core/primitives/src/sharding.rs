@@ -562,8 +562,11 @@ impl ShardChunkHeader {
         &self,
         version: ProtocolVersion,
     ) -> Result<(), BadHeaderForProtocolVersionError> {
-        const BLOCK_HEADER_V3_VERSION: ProtocolVersion =
-            ProtocolFeature::BlockHeaderV3.protocol_version();
+        const BLOCK_HEADER_V3_VERSION: ProtocolVersion = {
+            #[allow(deprecated)]
+            let version = ProtocolFeature::BlockHeaderV3.protocol_version();
+            version
+        };
         const CONGESTION_CONTROL_VERSION: ProtocolVersion =
             ProtocolFeature::CongestionControl.protocol_version();
         const BANDWIDTH_SCHEDULER_VERSION: ProtocolVersion =
@@ -1226,7 +1229,12 @@ impl EncodedShardChunk {
         let content = EncodedShardChunkBody { parts: transaction_receipts_parts };
         let (encoded_merkle_root, merkle_paths) = content.get_merkle_hash_and_paths();
 
-        let block_header_v3_version = Some(ProtocolFeature::BlockHeaderV3.protocol_version());
+        #[allow(deprecated)]
+        let block_header_v3_version = Some({
+            #[allow(deprecated)]
+            let version = ProtocolFeature::BlockHeaderV3.protocol_version();
+            version
+        });
 
         if block_header_v3_version.is_none() || protocol_version < block_header_v3_version.unwrap()
         {
