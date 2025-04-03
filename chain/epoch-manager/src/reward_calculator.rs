@@ -104,16 +104,11 @@ impl RewardCalculator {
             let online_min_denom =
                 U256::from(*online_thresholds.online_min_threshold.denom() as u64);
             // If average of produced blocks below online min threshold, validator gets 0 reward.
-            #[allow(deprecated)]
-            let chunk_only_producers_enabled =
-                ProtocolFeature::ChunkOnlyProducers.enabled(protocol_version);
             let reward = if average_produced_numer * online_min_denom
                 < online_min_numer * average_produced_denom
-                || (chunk_only_producers_enabled
-                    && expected_chunks == 0
+                || (expected_chunks == 0
                     && expected_blocks == 0
                     && expected_endorsements == 0)
-                || (!chunk_only_producers_enabled && (expected_chunks == 0 || expected_blocks == 0))
             {
                 0
             } else {

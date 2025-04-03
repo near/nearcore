@@ -466,25 +466,20 @@ mod old_validator_selection {
             min_stake_ratio,
             protocol_version,
         );
-        #[allow(deprecated)]
+        let chunk_producer_proposals = order_proposals(proposals.into_values());
+        let max_cp_selected =
+            max_bp_selected + (epoch_config.num_chunk_only_producer_seats as usize);
+        let num_shards = epoch_config.shard_layout.shard_ids().count() as NumShards;
+        let (chunk_producers, not_chunk_producers, cp_stake_threshold) =
+            select_chunk_producers(
+                chunk_producer_proposals,
+                max_cp_selected,
+                min_stake_ratio,
+                num_shards,
+                protocol_version,
+            );
         let (chunk_producer_proposals, chunk_producers, cp_stake_threshold) =
-            if ProtocolFeature::ChunkOnlyProducers.enabled(protocol_version) {
-                let chunk_producer_proposals = order_proposals(proposals.into_values());
-                let max_cp_selected =
-                    max_bp_selected + (epoch_config.num_chunk_only_producer_seats as usize);
-                let num_shards = epoch_config.shard_layout.shard_ids().count() as NumShards;
-                let (chunk_producers, not_chunk_producers, cp_stake_threshold) =
-                    select_chunk_producers(
-                        chunk_producer_proposals,
-                        max_cp_selected,
-                        min_stake_ratio,
-                        num_shards,
-                        protocol_version,
-                    );
-                (not_chunk_producers, chunk_producers, cp_stake_threshold)
-            } else {
-                (BinaryHeap::new(), block_producers.clone(), bp_stake_threshold)
-            };
+            (not_chunk_producers, chunk_producers, cp_stake_threshold);
 
         // since block producer proposals could become chunk producers, their actual stake threshold
         // is the smaller of the two thresholds
