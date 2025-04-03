@@ -330,7 +330,7 @@ mod tests {
     #[cfg(not(feature = "calimero_zero_storage"))]
     fn test_override_runtime_config() {
         use crate::ActionCosts;
-        use near_primitives_core::version::ProtocolFeature::LowerDataReceiptAndEcrecoverBaseCost;
+        use near_primitives_core::version::ProtocolFeature::_DeprecatedLowerDataReceiptAndEcrecoverBaseCost;
 
         let store = RuntimeConfigStore::new(None);
         let config = store.get_config(0);
@@ -342,10 +342,11 @@ mod tests {
         let expected_config = RuntimeConfig::new(&base_params).unwrap();
         assert_eq!(**config, expected_config);
 
-        let config = store.get_config(LowerDataReceiptAndEcrecoverBaseCost.protocol_version());
+        let config =
+            store.get_config(_DeprecatedLowerDataReceiptAndEcrecoverBaseCost.protocol_version());
         assert_eq!(config.fees.fee(ActionCosts::new_data_receipt_base).send_sir, 36_486_732_312);
         for (ver, diff) in &CONFIG_DIFFS[..] {
-            if *ver <= LowerDataReceiptAndEcrecoverBaseCost.protocol_version() {
+            if *ver <= _DeprecatedLowerDataReceiptAndEcrecoverBaseCost.protocol_version() {
                 base_params.apply_diff(diff.parse().unwrap()).unwrap();
             }
         }
