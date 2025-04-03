@@ -605,7 +605,6 @@ impl Chain {
     pub fn compute_bp_hash(
         epoch_manager: &dyn EpochManagerAdapter,
         epoch_id: EpochId,
-        _prev_epoch_id: EpochId,
     ) -> Result<CryptoHash, Error> {
         let validator_stakes = epoch_manager.get_epoch_block_producers_ordered(&epoch_id)?;
         let bp_hash = compute_bp_hash_from_validator_stakes(
@@ -882,11 +881,7 @@ impl Chain {
             }
         } else {
             if header.next_bp_hash()
-                != &Chain::compute_bp_hash(
-                    self.epoch_manager.as_ref(),
-                    *header.next_epoch_id(),
-                    *header.epoch_id(),
-                )?
+                != &Chain::compute_bp_hash(self.epoch_manager.as_ref(), *header.next_epoch_id())?
             {
                 return Err(Error::InvalidNextBPHash);
             }
