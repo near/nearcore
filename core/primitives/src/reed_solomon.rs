@@ -12,9 +12,9 @@ pub type ReedSolomonPart = Option<Box<[u8]>>;
 // Encode function takes a serializable object and returns a tuple of parts and length of encoded data
 pub fn reed_solomon_encode<T: BorshSerialize>(
     rs: &ReedSolomon,
-    data: T,
+    data: &T,
 ) -> (Vec<ReedSolomonPart>, usize) {
-    let mut bytes = borsh::to_vec(&data).unwrap();
+    let mut bytes = borsh::to_vec(data).unwrap();
     let encoded_length = bytes.len();
 
     let data_parts = rs.data_shard_count();

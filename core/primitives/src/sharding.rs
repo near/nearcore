@@ -1234,10 +1234,10 @@ impl EncodedShardChunk {
         bandwidth_requests: Option<BandwidthRequests>,
         signer: &ValidatorSigner,
         protocol_version: ProtocolVersion,
-    ) -> Result<(Self, Vec<MerklePath>), std::io::Error> {
+    ) -> (Self, Vec<MerklePath>) {
         let (transaction_receipts_parts, encoded_length) = crate::reed_solomon::reed_solomon_encode(
             rs,
-            TransactionReceipt(transactions, prev_outgoing_receipts.to_vec()),
+            &TransactionReceipt(transactions, prev_outgoing_receipts.to_vec()),
         );
         let content = EncodedShardChunkBody { parts: transaction_receipts_parts };
         let (encoded_merkle_root, merkle_paths) = content.get_merkle_hash_and_paths();
@@ -1265,7 +1265,7 @@ impl EncodedShardChunk {
                 signer,
             );
             let chunk = EncodedShardChunkV2 { header: ShardChunkHeader::V2(header), content };
-            Ok((Self::V2(chunk), merkle_paths))
+            (Self::V2(chunk), merkle_paths)
         } else {
             let header = ShardChunkHeaderV3::new(
                 protocol_version,
@@ -1287,7 +1287,7 @@ impl EncodedShardChunk {
                 signer,
             );
             let chunk = EncodedShardChunkV2 { header: ShardChunkHeader::V3(header), content };
-            Ok((Self::V2(chunk), merkle_paths))
+            (Self::V2(chunk), merkle_paths)
         }
     }
 

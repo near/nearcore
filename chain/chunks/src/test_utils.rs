@@ -171,8 +171,7 @@ impl ChunkTestFixture {
             &signer,
             &rs,
             PROTOCOL_VERSION,
-        )
-        .unwrap();
+        );
 
         let all_part_ords: Vec<u64> =
             (0..mock_chunk.content().parts.len()).map(|p| p as u64).collect();

@@ -215,7 +215,6 @@ fn create_encoded_shard_chunk(
         &rs,
         100,
     )
-    .unwrap()
 }
 
 fn encoded_chunk_to_partial_encoded_chunk(
