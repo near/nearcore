@@ -470,23 +470,20 @@ mod old_validator_selection {
         let max_cp_selected =
             max_bp_selected + (epoch_config.num_chunk_only_producer_seats as usize);
         let num_shards = epoch_config.shard_layout.shard_ids().count() as NumShards;
-        let (chunk_producers, not_chunk_producers, cp_stake_threshold) =
-            select_chunk_producers(
-                chunk_producer_proposals,
-                max_cp_selected,
-                min_stake_ratio,
-                num_shards,
-                protocol_version,
-            );
-        let (chunk_producer_proposals, chunk_producers, cp_stake_threshold) =
-            (not_chunk_producers, chunk_producers, cp_stake_threshold);
+        let (chunk_producers, not_chunk_producers, cp_stake_threshold) = select_chunk_producers(
+            chunk_producer_proposals,
+            max_cp_selected,
+            min_stake_ratio,
+            num_shards,
+            protocol_version,
+        );
 
         // since block producer proposals could become chunk producers, their actual stake threshold
         // is the smaller of the two thresholds
         let threshold = cmp::min(bp_stake_threshold, cp_stake_threshold);
 
         ValidatorRoles {
-            unselected_proposals: chunk_producer_proposals,
+            unselected_proposals: not_chunk_producers,
             chunk_producers,
             block_producers,
             chunk_validators: vec![], // chunk validators are not used for older protocol versions
@@ -554,15 +551,6 @@ mod old_validator_selection {
             validator_to_index,
             chunk_producers_settlement,
         })
-    }
-
-    #[allow(dead_code)]
-    pub(crate) fn assign_chunk_producers_to_shards(
-        epoch_config: &EpochConfig,
-        chunk_producers: Vec<ValidatorStake>,
-        block_producers: &[ValidatorStake],
-    ) -> Result<ChunkProducersAssignment, EpochError> {
-        assign_chunk_producers_to_shards_chunk_only(epoch_config, chunk_producers, block_producers)
     }
 }
 

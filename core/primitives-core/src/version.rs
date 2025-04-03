@@ -300,8 +300,9 @@ impl ProtocolFeature {
             | ProtocolFeature::LimitContractLocals
             | ProtocolFeature::ChunkNodesCache
             | ProtocolFeature::LowerStorageKeyLimit => 53,
-            ProtocolFeature::AltBn128 => 55,
-            ProtocolFeature::ChunkOnlyProducers | ProtocolFeature::MaxKickoutStake => 56,
+            ProtocolFeature::_DeprecatedAltBn128 => 55,
+            ProtocolFeature::_DeprecatedChunkOnlyProducers
+            | ProtocolFeature::_DeprecatedMaxKickoutStake => 56,
             ProtocolFeature::AccountIdInFunctionCallPermission => 57,
             ProtocolFeature::Ed25519Verify
             | ProtocolFeature::ZeroBalanceAccount
