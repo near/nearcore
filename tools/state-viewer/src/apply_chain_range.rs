@@ -152,7 +152,7 @@ fn apply_block_from_range(
         };
 
         let chain_store_update = ChainStoreUpdate::new(&mut read_chain_store);
-        let transactions = chunk.transactions();
+        let transactions = chunk.transactions().to_vec();
         let valid_txs = chain_store_update
             .chain_store()
             .compute_transaction_validity(prev_block.header(), &chunk);
@@ -214,7 +214,7 @@ fn apply_block_from_range(
                     block.block_bandwidth_requests(),
                 ),
                 &receipts,
-                SignedValidPeriodTransactions::new(&transactions, &valid_txs),
+                SignedValidPeriodTransactions::new(transactions, valid_txs),
             )
             .unwrap()
     } else {
