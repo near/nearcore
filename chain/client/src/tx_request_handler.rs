@@ -55,7 +55,7 @@ impl Handler<ChunkEndorsementMessage> for RpcHandler {
 
 impl messaging::Actor for RpcHandler {}
 
-pub fn spawn_tx_request_handler_actor(
+pub fn spawn_rpc_handler_actor(
     config: RpcHandlerConfig,
     tx_pool: Arc<Mutex<ShardedTransactionPool>>,
     chunk_endorsement_tracker: Arc<Mutex<ChunkEndorsementTracker>>,
@@ -86,7 +86,7 @@ pub struct RpcHandlerConfig {
     pub transaction_validity_period: BlockHeightDelta,
 }
 
-/// Accepts and processes rpc requests (`process_tx`, etc) and does some preprocesssing on incoming data.
+/// Accepts and processes rpc requests (`process_tx`, etc) and does some preprocessing on incoming data.
 /// Supposed to run multithreaded.
 /// Connects to the Client actor via (thread-safe) queues and pools to pass the data for consumption.
 #[derive(Clone)]

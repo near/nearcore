@@ -15,7 +15,7 @@ pub use crate::client_actor::{ClientActor, StartClientResult, start_client};
 pub use crate::config_updater::ConfigUpdater;
 pub use crate::stateless_validation::chunk_validator::orphan_witness_handling::HandleOrphanWitnessOutcome;
 pub use crate::tx_request_handler::{
-    RpcHandler, RpcHandlerActor, RpcHandlerConfig, spawn_tx_request_handler_actor,
+    RpcHandler, RpcHandlerActor, RpcHandlerConfig, spawn_rpc_handler_actor,
 };
 pub use crate::view_client_actor::{ViewClientActor, ViewClientActorInner};
 pub use chunk_producer::ProduceChunkResult;

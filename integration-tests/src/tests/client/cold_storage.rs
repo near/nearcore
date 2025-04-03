@@ -127,7 +127,7 @@ fn test_storage_after_commit_of_cold_update() {
         if height == 1 {
             let tx = create_tx_deploy_contract(height, &signer, last_hash);
             assert_eq!(
-                env.tx_request_handlers[0].process_tx(tx, false, false),
+                env.rpc_handlers[0].process_tx(tx, false, false),
                 ProcessTxResponse::ValidTx
             );
         }
@@ -138,14 +138,14 @@ fn test_storage_after_commit_of_cold_update() {
             for i in 0..5 {
                 let tx = create_tx_function_call(height * 10 + i, &signer, last_hash);
                 assert_eq!(
-                    env.tx_request_handlers[0].process_tx(tx, false, false),
+                    env.rpc_handlers[0].process_tx(tx, false, false),
                     ProcessTxResponse::ValidTx
                 );
             }
             for i in 0..5 {
                 let tx = create_tx_send_money(height * 10 + i, &signer, last_hash);
                 assert_eq!(
-                    env.tx_request_handlers[0].process_tx(tx, false, false),
+                    env.rpc_handlers[0].process_tx(tx, false, false),
                     ProcessTxResponse::ValidTx
                 );
             }
@@ -280,7 +280,7 @@ fn test_cold_db_copy_with_height_skips() {
             for i in 0..5 {
                 let tx = create_tx_send_money(height * 10 + i, &signer, last_hash);
                 assert_eq!(
-                    env.tx_request_handlers[0].process_tx(tx, false, false),
+                    env.rpc_handlers[0].process_tx(tx, false, false),
                     ProcessTxResponse::ValidTx
                 );
             }
@@ -369,7 +369,7 @@ fn test_initial_copy_to_cold(batch_size: usize) {
         for i in 0..5 {
             let tx = create_tx_send_money(height * 10 + i, &signer, last_hash);
             assert_eq!(
-                env.tx_request_handlers[0].process_tx(tx, false, false),
+                env.rpc_handlers[0].process_tx(tx, false, false),
                 ProcessTxResponse::ValidTx
             );
         }
@@ -460,7 +460,7 @@ fn test_cold_loop_on_gc_boundary() {
         for i in 0..5 {
             let tx = create_tx_send_money(height * 10 + i, &signer, last_hash);
             assert_eq!(
-                env.tx_request_handlers[0].process_tx(tx, false, false),
+                env.rpc_handlers[0].process_tx(tx, false, false),
                 ProcessTxResponse::ValidTx
             );
         }
@@ -482,7 +482,7 @@ fn test_cold_loop_on_gc_boundary() {
         for i in 0..5 {
             let tx = create_tx_send_money(height * 10 + i, &signer, last_hash);
             assert_eq!(
-                env.tx_request_handlers[0].process_tx(tx, false, false),
+                env.rpc_handlers[0].process_tx(tx, false, false),
                 ProcessTxResponse::ValidTx
             );
         }

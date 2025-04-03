@@ -87,7 +87,7 @@ fn protocol_upgrade() {
         .sign(&signer);
         let tx_hash = signed_tx.get_hash();
         assert_eq!(
-            env.tx_request_handlers[0].process_tx(signed_tx, false, false),
+            env.rpc_handlers[0].process_tx(signed_tx, false, false),
             ProcessTxResponse::ValidTx
         );
         produce_blocks_from_height_with_protocol_version(
@@ -113,7 +113,7 @@ fn protocol_upgrade() {
         .sign(&signer);
         let tx_hash = signed_tx.get_hash();
         assert_eq!(
-            env.tx_request_handlers[0].process_tx(signed_tx, false, false),
+            env.rpc_handlers[0].process_tx(signed_tx, false, false),
             ProcessTxResponse::ValidTx
         );
         for i in 0..epoch_length {
@@ -156,7 +156,7 @@ fn protocol_upgrade() {
         .sign(&signer);
         let tx_hash = signed_tx.get_hash();
         assert_eq!(
-            env.tx_request_handlers[0].process_tx(signed_tx, false, false),
+            env.rpc_handlers[0].process_tx(signed_tx, false, false),
             ProcessTxResponse::ValidTx
         );
         for i in 0..epoch_length {

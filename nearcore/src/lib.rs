@@ -29,7 +29,7 @@ use near_client::adapter::client_sender_for_network;
 use near_client::gc_actor::GCActor;
 use near_client::{
     ClientActor, ConfigUpdater, PartialWitnessActor, RpcHandlerActor, RpcHandlerConfig,
-    StartClientResult, ViewClientActor, ViewClientActorInner, spawn_tx_request_handler_actor,
+    StartClientResult, ViewClientActor, ViewClientActorInner, spawn_rpc_handler_actor,
     start_client,
 };
 use near_epoch_manager::EpochManager;
@@ -447,7 +447,7 @@ pub fn start_with_config_and_synchronization(
         epoch_length: config.client_config.epoch_length,
         transaction_validity_period: config.genesis.config.transaction_validity_period,
     };
-    let tx_processor = spawn_tx_request_handler_actor(
+    let tx_processor = spawn_rpc_handler_actor(
         tx_processor_config,
         tx_pool,
         chunk_endorsement_tracker,

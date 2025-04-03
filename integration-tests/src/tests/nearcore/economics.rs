@@ -74,7 +74,7 @@ fn test_burn_mint() {
     let initial_total_supply = env.chain_genesis.total_supply;
     let genesis_hash = *env.clients[0].chain.genesis().hash();
     assert_eq!(
-        env.tx_request_handlers[0].process_tx(
+        env.rpc_handlers[0].process_tx(
             SignedTransaction::send_money(
                 1,
                 "test0".parse().unwrap(),

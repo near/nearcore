@@ -32,7 +32,7 @@ use near_client::{
     RpcHandlerConfig, StartClientResult, SyncStatus, ViewClientActor, ViewClientActorInner,
     start_client,
 };
-use near_client::{RpcHandlerActor, spawn_tx_request_handler_actor};
+use near_client::{RpcHandlerActor, spawn_rpc_handler_actor};
 use near_crypto::{KeyType, PublicKey};
 use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
 use near_epoch_manager::{EpochManager, EpochManagerAdapter};
@@ -352,15 +352,15 @@ fn setup(
         resharding_sender.into_multi_sender(),
     );
 
-    let tx_processor_config = RpcHandlerConfig {
+    let rpc_handler_config = RpcHandlerConfig {
         handler_threads: config.transaction_request_handler_threads,
         tx_routing_height_horizon: config.tx_routing_height_horizon,
         epoch_length: config.epoch_length,
         transaction_validity_period,
     };
 
-    let tx_processor_addr = spawn_tx_request_handler_actor(
-        tx_processor_config,
+    let rpc_handler_addr = spawn_rpc_handler_actor(
+        rpc_handler_config,
         tx_pool,
         chunk_endorsement_tracker,
         epoch_manager.clone(),
@@ -389,7 +389,7 @@ fn setup(
     (
         client_actor,
         view_client_addr,
-        tx_processor_addr,
+        rpc_handler_addr,
         shards_manager_adapter.into_multi_sender(),
         partial_witness_adapter.into_multi_sender(),
     )
@@ -443,7 +443,7 @@ pub fn setup_mock_with_validity_period(
         (
             client_addr,
             view_client_addr,
-            tx_request_handler_addr,
+            rpc_handler_addr,
             shards_manager_adapter,
             partial_witness_sender,
         ),
@@ -465,7 +465,7 @@ pub fn setup_mock_with_validity_period(
         None,
     );
     let client_addr1 = client_addr.clone();
-    let rpc_handler_addr1 = tx_request_handler_addr.clone();
+    let rpc_handler_addr1 = rpc_handler_addr.clone();
 
     let network_actor = PeerManagerMock::new(move |msg, ctx| {
         peermanager_mock(&msg, ctx, client_addr1.clone(), rpc_handler_addr1.clone())
@@ -477,7 +477,7 @@ pub fn setup_mock_with_validity_period(
     ActorHandlesForTesting {
         client_actor: client_addr,
         view_client_actor: view_client_addr,
-        rpc_processor_actor: tx_request_handler_addr,
+        rpc_processor_actor: rpc_handler_addr,
         shards_manager_adapter,
         partial_witness_sender,
         runtime_tempdir: Some(runtime_tempdir.into()),

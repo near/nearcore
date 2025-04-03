@@ -75,7 +75,7 @@ fn prepare_env(test_env_gas_limit: Option<u64>) -> TestEnv {
         0,
     );
     let tx_hash = tx.get_hash();
-    assert_eq!(env.tx_request_handlers[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
+    assert_eq!(env.rpc_handlers[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
 
     // Allow two blocks for the contract to be deployed
     for i in 1..3 {
@@ -118,7 +118,7 @@ fn yield_then_resume() {
     );
     let yield_tx_hash = yield_transaction.get_hash();
     assert_eq!(
-        env.tx_request_handlers[0].process_tx(yield_transaction, false, false),
+        env.rpc_handlers[0].process_tx(yield_transaction, false, false),
         ProcessTxResponse::ValidTx
     );
 
@@ -149,7 +149,7 @@ fn yield_then_resume() {
         0,
     );
     assert_eq!(
-        env.tx_request_handlers[0].process_tx(resume_transaction, false, false),
+        env.rpc_handlers[0].process_tx(resume_transaction, false, false),
         ProcessTxResponse::ValidTx
     );
 

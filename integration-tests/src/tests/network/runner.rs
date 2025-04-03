@@ -13,7 +13,7 @@ use near_chunks::shards_manager_actor::start_shards_manager;
 use near_client::adapter::client_sender_for_network;
 use near_client::{
     PartialWitnessActor, RpcHandlerConfig, StartClientResult, ViewClientActorInner,
-    spawn_tx_request_handler_actor, start_client,
+    spawn_rpc_handler_actor, start_client,
 };
 use near_epoch_manager::EpochManager;
 use near_epoch_manager::shard_tracker::ShardTracker;
@@ -138,7 +138,7 @@ fn setup_network_node(
         epoch_length: client_config.epoch_length,
         transaction_validity_period: genesis.config.transaction_validity_period,
     };
-    let tx_processor = spawn_tx_request_handler_actor(
+    let tx_processor = spawn_rpc_handler_actor(
         tx_processor_config,
         tx_pool,
         chunk_endorsement_tracker,
