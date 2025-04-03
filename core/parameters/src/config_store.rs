@@ -324,8 +324,6 @@ mod tests {
         assert_eq!(new_cfg.account_creation_config.min_allowed_top_level_account_length, 0);
     }
 
-
-
     #[test]
     fn test_lower_max_length_storage_key() {
         let store = RuntimeConfigStore::new(None);
