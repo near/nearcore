@@ -102,11 +102,7 @@ pub enum StateSyncInfo {
 }
 
 impl StateSyncInfo {
-    pub fn new(
-        _protocol_version: ProtocolVersion,
-        epoch_first_block: CryptoHash,
-        shards: Vec<ShardId>,
-    ) -> Self {
+    pub fn new(epoch_first_block: CryptoHash, shards: Vec<ShardId>) -> Self {
         Self::V1(StateSyncInfoV1 { epoch_first_block, sync_hash: None, shards })
     }
 

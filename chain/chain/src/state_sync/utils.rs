@@ -284,7 +284,6 @@ impl Chain {
     ///
     ///  - set_state_finalize upon completing state sync
     ///  - collect_incoming_receipts_from_chunks when processing blocks after state sync
-    ///
     pub fn get_extra_sync_block_hashes(&self, sync_prev_hash: &CryptoHash) -> Vec<CryptoHash> {
         // Get the sync prev block. It's possible that the block is not yet available.
         // It's ok because we will retry this method later.
@@ -293,9 +292,9 @@ impl Chain {
         };
 
         let min_height_included =
-            sync_prev_block.chunks().iter_deprecated().map(|chunk| chunk.height_included()).min();
+            sync_prev_block.chunks().iter_raw().map(|chunk| chunk.height_included()).min();
         let Some(min_height_included) = min_height_included else {
-            tracing::warn!(target: "sync", ?sync_prev_hash, "get_sync_needed_block_hashes: Cannot find the min block height");
+            tracing::warn!(target: "sync", ?sync_prev_hash, "get_extra_sync_block_hashes: Cannot find the min block height");
             return vec![];
         };
 
@@ -304,7 +303,7 @@ impl Chain {
         loop {
             let next_header = self.get_block_header(&next_hash);
             let Ok(next_header) = next_header else {
-                tracing::error!(target: "sync", hash=?next_hash, "get_sync_needed_block_hashes: Cannot get block header");
+                tracing::error!(target: "sync", hash=?next_hash, "get_extra_sync_block_hashes: Cannot get block header");
                 break;
             };
 

@@ -1418,13 +1418,8 @@ impl Chain {
             Chain::get_prev_chunk_headers(self.epoch_manager.as_ref(), &prev_block)?;
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&prev_block_hash)?;
 
-        let (is_caught_up, _) = self.get_catchup_and_state_sync_infos(
-            &epoch_id,
-            None,
-            &prev_block_hash,
-            prev_prev_hash,
-            me,
-        )?;
+        let (is_caught_up, _) =
+            self.get_catchup_and_state_sync_infos(None, &prev_block_hash, prev_prev_hash, me)?;
 
         let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
         let chunks = Chunks::from_chunk_headers(&chunk_headers, block_height);
@@ -2388,7 +2383,6 @@ impl Chain {
         }
 
         let (is_caught_up, state_sync_info) = self.get_catchup_and_state_sync_infos(
-            header.epoch_id(),
             Some(header.hash()),
             &prev_hash,
             prev_prev_hash,
@@ -2495,7 +2489,6 @@ impl Chain {
     /// returns it as well.
     fn get_catchup_and_state_sync_infos(
         &self,
-        epoch_id: &EpochId,
         block_hash: Option<&CryptoHash>,
         prev_hash: &CryptoHash,
         prev_prev_hash: &CryptoHash,
@@ -2516,7 +2509,7 @@ impl Chain {
         // we consider that we are caught up, otherwise not
         let state_sync_info = match block_hash {
             Some(block_hash) => {
-                self.shard_tracker.get_state_sync_info(me, epoch_id, block_hash, prev_hash)?
+                self.shard_tracker.get_state_sync_info(me, block_hash, prev_hash)?
             }
             None => None,
         };

@@ -152,7 +152,7 @@ impl SyncHandler {
         // Waiting for all the sync blocks to be available because they are
         // needed to finalize state sync.
         if !blocks_to_request.is_empty() {
-            tracing::debug!(target: "sync", "waiting for sync blocks {:?}", blocks_to_request);
+            tracing::debug!(target: "sync", ?blocks_to_request, "waiting for sync blocks");
             return Some(SyncHandlerRequest::NeedRequestBlocks(blocks_to_request));
         }
 
