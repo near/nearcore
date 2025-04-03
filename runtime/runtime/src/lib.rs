@@ -7,9 +7,10 @@ use crate::config::{
 };
 use crate::congestion_control::DelayedReceiptQueueWrapper;
 use crate::prefetch::TriePrefetcher;
+pub use crate::types::SignedValidPeriodTransactions;
 use crate::verifier::{StorageStakingError, check_storage_stake, validate_receipt};
 pub use crate::verifier::{
-    ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT, commit_charging_for_tx, validate_transaction,
+    ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT, set_tx_state_changes, validate_transaction,
     verify_and_charge_tx_ephemeral,
 };
 use bandwidth_scheduler::{BandwidthSchedulerOutput, run_bandwidth_scheduler};
@@ -98,6 +99,7 @@ pub mod receipt_manager;
 pub mod state_viewer;
 #[cfg(test)]
 mod tests;
+mod types;
 mod verifier;
 
 const EXPECT_ACCOUNT_EXISTS: &str = "account exists, checked above";
@@ -379,7 +381,7 @@ impl Runtime {
         };
 
         metrics::TRANSACTION_PROCESSED_SUCCESSFULLY_TOTAL.inc();
-        commit_charging_for_tx(
+        set_tx_state_changes(
             state_update,
             validated_tx,
             &verification_result.signer,
@@ -406,9 +408,11 @@ impl Runtime {
                 actions: validated_tx.actions().to_vec(),
             }),
         });
-        stats.balance.tx_burnt_amount =
-            safe_add_balance(stats.balance.tx_burnt_amount, verification_result.burnt_amount)
-                .map_err(|_| InvalidTxError::CostOverflow)?;
+
+        match safe_add_balance(stats.balance.tx_burnt_amount, verification_result.burnt_amount) {
+            Ok(new) => stats.balance.tx_burnt_amount = new,
+            Err(_) => return Err(InvalidTxError::CostOverflow),
+        }
         let gas_burnt = verification_result.gas_burnt;
         let compute_usage = verification_result.gas_burnt;
         let outcome = ExecutionOutcomeWithId {
@@ -1440,11 +1444,9 @@ impl Runtime {
         // 3. Process transactions.
         // 4. Process receipts.
         // 5. Validate and apply the state update.
-
         let mut processing_state =
             ApplyProcessingState::new(&apply_state, trie, epoch_info_provider, transactions);
-        processing_state.stats.transactions_num =
-            transactions.transactions.len().try_into().unwrap();
+        processing_state.stats.transactions_num = transactions.len().try_into().unwrap();
         processing_state.stats.incoming_receipts_num = incoming_receipts.len().try_into().unwrap();
         processing_state.stats.is_new_chunk = !apply_state.is_new_chunk;
 
@@ -1587,8 +1589,7 @@ impl Runtime {
         let apply_state = &mut processing_state.apply_state;
         let state_update = &mut processing_state.state_update;
 
-        let signed_txs =
-            processing_state.transactions.transactions.into_iter().cloned().collect::<Vec<_>>();
+        let signed_txs = processing_state.transactions.par_iter_nonexpired_transactions().cloned();
         for (tx_hash, result) in Self::parallel_validate_transactions(
             &apply_state.config,
             apply_state.gas_price,
@@ -2504,43 +2505,6 @@ impl<'a> ApplyProcessingState<'a> {
             incoming_receipts,
             delayed_receipts,
         }
-    }
-}
-
-#[derive(Clone, Copy)]
-pub struct SignedValidPeriodTransactions<'a> {
-    transactions: &'a [SignedTransaction],
-    /// List of the transactions that are valid and should be processed by `apply`.
-    ///
-    /// This list is exactly the length of the corresponding `Self::transactions` field. Element at
-    /// the index N in this array corresponds to an element at index N in the transactions list.
-    ///
-    /// Transactions for which a `false` is stored here must be ignored/dropped/skipped.
-    ///
-    /// All elements will be true for protocol versions where `RelaxedChunkValidation` is not
-    /// enabled.
-    transaction_validity_check_passed: &'a [bool],
-}
-
-impl<'a> SignedValidPeriodTransactions<'a> {
-    pub fn new(transactions: &'a [SignedTransaction], validity_check_results: &'a [bool]) -> Self {
-        assert_eq!(transactions.len(), validity_check_results.len());
-        Self { transactions, transaction_validity_check_passed: validity_check_results }
-    }
-
-    pub fn empty() -> Self {
-        Self::new(&[], &[])
-    }
-
-    pub fn iter_nonexpired_transactions(&self) -> impl Iterator<Item = &'a SignedTransaction> {
-        self.transactions
-            .into_iter()
-            .zip(self.transaction_validity_check_passed.into_iter())
-            .filter_map(|(t, v)| v.then_some(t))
-    }
-
-    pub fn len(&self) -> usize {
-        self.transactions.len()
     }
 }
 

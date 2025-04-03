@@ -225,7 +225,7 @@ impl ForkNetworkCommand {
         .await
         .global();
 
-        near_config.config.store.state_snapshot_enabled = false;
+        near_config.config.store.disable_state_snapshot();
 
         match &self.command {
             SubCommand::Init(InitCmd { shard_layout_file }) => {

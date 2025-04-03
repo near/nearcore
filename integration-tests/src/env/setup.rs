@@ -1297,7 +1297,6 @@ pub fn setup_tx_request_handler(
         runtime,
         network_adapter,
     )
-    .unwrap()
 }
 
 /// A multi-sender for both the client and network parts of the ShardsManager API.

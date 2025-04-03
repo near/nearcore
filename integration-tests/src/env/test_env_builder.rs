@@ -16,7 +16,6 @@ use near_primitives::epoch_info::RngSeed;
 use near_primitives::epoch_manager::{AllEpochConfigTestOverrides, EpochConfig, EpochConfigStore};
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::{AccountId, ShardIndex};
-use near_store::config::StateSnapshotType;
 use near_store::genesis::initialize_genesis_state;
 use near_store::test_utils::create_test_store;
 use near_store::{NodeStorage, ShardUId, Store, StoreConfig, TrieConfig};
@@ -618,11 +617,7 @@ impl TestEnvBuilder {
         self
     }
 
-    pub fn state_snapshot_type(&self) -> StateSnapshotType {
-        if self.state_snapshot_enabled {
-            StateSnapshotType::EveryEpoch
-        } else {
-            StateSnapshotType::ForReshardingOnly
-        }
+    pub fn state_snapshot_enabled(&self) -> bool {
+        self.state_snapshot_enabled
     }
 }

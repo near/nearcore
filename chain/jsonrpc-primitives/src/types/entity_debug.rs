@@ -69,6 +69,7 @@ pub enum EntityQuery {
     ChunkExtraByBlockHashShardUId { block_hash: CryptoHash, shard_uid: ShardUId },
     EpochInfoAggregator(()),
     EpochInfoByEpochId { epoch_id: EpochId },
+    EpochConfigByEpochId { epoch_id: EpochId },
     FlatStateByTrieKey { trie_key: String, shard_uid: ShardUId },
     FlatStateChangesByBlockHash { block_hash: CryptoHash, shard_uid: ShardUId },
     FlatStateDeltaMetadataByBlockHash { block_hash: CryptoHash, shard_uid: ShardUId },
