@@ -326,7 +326,6 @@ fn slow_test_limit_locals_global() {
     }
     .make())
     .protocol_features(&[
-        ProtocolFeature::_DeprecatedLimitContractLocals,
         ProtocolFeature::PreparationV2,
 
     ])
@@ -334,10 +333,6 @@ fn slow_test_limit_locals_global() {
     .expects(&[
         expect![[r#"
             VMOutcome: balance 4 storage_usage 12 return data None burnt gas 195407463 used gas 195407463
-        "#]],
-        expect![[r#"
-            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 0 used gas 0
-            Err: PrepareError: Too many locals declared in the contract.
         "#]],
         expect![[r#"
             VMOutcome: balance 4 storage_usage 12 return data None burnt gas 0 used gas 0

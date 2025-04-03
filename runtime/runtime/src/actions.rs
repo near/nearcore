@@ -92,8 +92,8 @@ pub(crate) fn execute_function_call(
     // TODO (#5920): Consider using RAII for switching the state back
 
     near_vm_runner::reset_metrics();
-    let mode = Some(TrieCacheMode::CachingChunk);
-    let mode_guard = runtime_ext.trie_update.with_trie_cache_mode(mode);
+    let mode_guard =
+        runtime_ext.trie_update.with_trie_cache_mode(Some(TrieCacheMode::CachingChunk));
     let result = near_vm_runner::run(contract, runtime_ext, &context, Arc::clone(&config.fees));
     drop(mode_guard);
     near_vm_runner::report_metrics(
