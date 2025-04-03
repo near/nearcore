@@ -555,8 +555,6 @@ mod old_validator_selection {
             chunk_producers_settlement,
         })
     }
-
-
 }
 
 #[cfg(test)]

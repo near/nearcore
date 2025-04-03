@@ -106,9 +106,7 @@ impl RewardCalculator {
             // If average of produced blocks below online min threshold, validator gets 0 reward.
             let reward = if average_produced_numer * online_min_denom
                 < online_min_numer * average_produced_denom
-                || (expected_chunks == 0
-                    && expected_blocks == 0
-                    && expected_endorsements == 0)
+                || (expected_chunks == 0 && expected_blocks == 0 && expected_endorsements == 0)
             {
                 0
             } else {
