@@ -288,7 +288,7 @@ impl Testbed<'_> {
             let gas_cost = {
                 self.clear_caches();
                 let start = GasCost::measure(self.config.metric);
-                self.process_block_impl(&block, allow_failures);
+                self.process_block_impl(block, allow_failures);
                 extra_blocks = self.process_blocks_until_no_receipts(allow_failures);
                 start.elapsed()
             };
@@ -311,7 +311,7 @@ impl Testbed<'_> {
 
     pub(crate) fn process_block(&mut self, block: Vec<SignedTransaction>, block_latency: usize) {
         let allow_failures = false;
-        self.process_block_impl(&block, allow_failures);
+        self.process_block_impl(block, allow_failures);
         let extra_blocks = self.process_blocks_until_no_receipts(allow_failures);
         assert_eq!(block_latency, extra_blocks);
     }
@@ -349,10 +349,11 @@ impl Testbed<'_> {
 
     fn process_block_impl(
         &mut self,
-        transactions: &[SignedTransaction],
+        transactions: Vec<SignedTransaction>,
         allow_failures: bool,
     ) -> Gas {
         let trie = self.trie();
+        let validity_check_results = vec![true; transactions.len()];
         let apply_result = self
             .runtime
             .apply(
@@ -360,7 +361,7 @@ impl Testbed<'_> {
                 &None,
                 &self.apply_state,
                 &self.prev_receipts,
-                SignedValidPeriodTransactions::new(transactions, &vec![true; transactions.len()]),
+                SignedValidPeriodTransactions::new(transactions, validity_check_results),
                 &self.epoch_info_provider,
                 Default::default(),
             )
@@ -418,7 +419,7 @@ impl Testbed<'_> {
     fn process_blocks_until_no_receipts(&mut self, allow_failures: bool) -> usize {
         let mut n = 0;
         while self.has_unprocessed_receipts() {
-            self.process_block_impl(&[], allow_failures);
+            self.process_block_impl(vec![], allow_failures);
             n += 1;
         }
         n

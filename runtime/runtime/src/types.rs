@@ -1,13 +1,12 @@
 use near_primitives::transaction::SignedTransaction;
-use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator as _, ParallelIterator};
+use rayon::iter::{IndexedParallelIterator, IntoParallelIterator, ParallelIterator};
 
-#[derive(Clone, Copy)]
-pub struct SignedValidPeriodTransactions<'a> {
+pub struct SignedValidPeriodTransactions {
     /// Transactions.
     ///
     /// Not all of them may be valid. See the other fields. Access the transactions via
     /// [`Self::iter_nonexpired_transactions`] or similar accessors, as appropriate.
-    transactions: &'a [SignedTransaction],
+    transactions: Vec<SignedTransaction>,
     /// List of the transactions that are valid and should be processed by `apply`.
     ///
     /// This list is exactly the length of the corresponding `Self::transactions` field. Element at
@@ -17,31 +16,33 @@ pub struct SignedValidPeriodTransactions<'a> {
     ///
     /// All elements will be true for protocol versions where `RelaxedChunkValidation` is not
     /// enabled.
-    transaction_validity_check_passed: &'a [bool],
+    transaction_validity_check_passed: Vec<bool>,
 }
 
-impl<'a> SignedValidPeriodTransactions<'a> {
-    pub fn new(transactions: &'a [SignedTransaction], validity_check_results: &'a [bool]) -> Self {
+impl SignedValidPeriodTransactions {
+    pub fn new(transactions: Vec<SignedTransaction>, validity_check_results: Vec<bool>) -> Self {
         assert_eq!(transactions.len(), validity_check_results.len());
         Self { transactions, transaction_validity_check_passed: validity_check_results }
     }
 
     pub fn empty() -> Self {
-        Self::new(&[], &[])
+        Self::new(vec![], vec![])
     }
 
-    pub fn iter_nonexpired_transactions(&self) -> impl Iterator<Item = &'a SignedTransaction> {
+    pub fn iter_nonexpired_transactions<'a>(
+        &'a self,
+    ) -> impl Iterator<Item = &'a SignedTransaction> {
         self.transactions
-            .into_iter()
-            .zip(self.transaction_validity_check_passed.into_iter())
+            .iter()
+            .zip(&self.transaction_validity_check_passed)
             .filter_map(|(t, v)| v.then_some(t))
     }
 
-    pub fn par_iter_nonexpired_transactions(
-        &self,
-    ) -> impl ParallelIterator<Item = &'a SignedTransaction> {
+    pub fn into_par_iter_nonexpired_transactions(
+        self,
+    ) -> impl ParallelIterator<Item = SignedTransaction> {
         self.transactions
-            .par_iter()
+            .into_par_iter()
             .zip(self.transaction_validity_check_passed)
             .filter_map(|(t, v)| v.then_some(t))
     }
