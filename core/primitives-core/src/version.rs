@@ -128,7 +128,8 @@ pub enum ProtocolFeature {
     /// Ensure the total stake of validators that are kicked out does not exceed a percentage of total stakes
     MaxKickoutStake,
     /// Validate account id for function call access keys.
-    AccountIdInFunctionCallPermission,
+    #[deprecated]
+    _DeprecatedAccountIdInFunctionCallPermission,
     /// Zero Balance Account NEP 448: <https://github.com/near/NEPs/pull/448>
     ZeroBalanceAccount,
     /// Execute a set of actions on behalf of another account.
@@ -299,7 +300,7 @@ impl ProtocolFeature {
             | ProtocolFeature::LowerStorageKeyLimit => 53,
             ProtocolFeature::AltBn128 => 55,
             ProtocolFeature::ChunkOnlyProducers | ProtocolFeature::MaxKickoutStake => 56,
-            ProtocolFeature::AccountIdInFunctionCallPermission => 57,
+            ProtocolFeature::_DeprecatedAccountIdInFunctionCallPermission => 57,
             ProtocolFeature::Ed25519Verify
             | ProtocolFeature::ZeroBalanceAccount
             | ProtocolFeature::DelegateAction => 59,

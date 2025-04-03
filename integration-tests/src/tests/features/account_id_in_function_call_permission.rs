@@ -16,8 +16,9 @@ fn test_account_id_in_function_call_permission_upgrade() {
     // the release branch where the protocol upgrade date is set.
     unsafe { std::env::set_var("NEAR_TESTS_PROTOCOL_UPGRADE_OVERRIDE", "now") };
 
+    #[allow(deprecated)]
     let old_protocol_version =
-        near_primitives::version::ProtocolFeature::AccountIdInFunctionCallPermission
+        near_primitives::version::ProtocolFeature::_DeprecatedAccountIdInFunctionCallPermission
             .protocol_version()
             - 1;
 
