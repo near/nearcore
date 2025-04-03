@@ -123,9 +123,18 @@ pub enum ProtocolFeature {
     /// Lower `max_length_storage_key` limit, which itself limits trie node sizes.
     LowerStorageKeyLimit,
     // alt_bn128_g1_multiexp, alt_bn128_g1_sum, alt_bn128_pairing_check host functions
+    #[deprecated(
+        note = "This protocol feature is now fully deployed and no longer needs to be checked"
+    )]
     AltBn128,
+    #[deprecated(
+        note = "This protocol feature is now fully deployed and no longer needs to be checked"
+    )]
     ChunkOnlyProducers,
     /// Ensure the total stake of validators that are kicked out does not exceed a percentage of total stakes
+    #[deprecated(
+        note = "This protocol feature is now fully deployed and no longer needs to be checked"
+    )]
     MaxKickoutStake,
     /// Validate account id for function call access keys.
     AccountIdInFunctionCallPermission,
