@@ -3018,3 +3018,39 @@ fn test_transaction_multiple_access_keys_with_apply() {
     assert!(account.amount() < to_yocto(994_000));
     assert!(account.amount() > to_yocto(993_000));
 }
+
+#[test]
+fn test_expired_transaction() {
+    let alice_signer = InMemorySigner::test_signer(&alice_account());
+    let expired_tx = [SignedTransaction::send_money(
+        1,
+        alice_account(),
+        alice_account(),
+        &alice_signer,
+        1,
+        CryptoHash::default(),
+    )];
+    let (runtime, tries, root, apply_state, _signers, epoch_info_provider) = setup_runtime(
+        vec![alice_account(), bob_account()],
+        to_yocto(1_000_000),
+        to_yocto(500_000),
+        10u64.pow(15),
+    );
+    let signed_valid_period_txs = SignedValidPeriodTransactions::new(&expired_tx, &[false]);
+    let apply_result = runtime
+        .apply(
+            tries.get_trie_for_shard(ShardUId::single_shard(), root),
+            &None,
+            &apply_state,
+            &[],
+            signed_valid_period_txs,
+            &epoch_info_provider,
+            Default::default(),
+        )
+        .expect("apply should succeed");
+    assert_eq!(
+        apply_result.outcomes.len(),
+        0,
+        "should have not produced any outcomes for the expired tx"
+    );
+}
