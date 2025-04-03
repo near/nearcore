@@ -12,23 +12,13 @@ use crate::env::test_env::TestEnv;
 
 #[test]
 fn test_account_id_in_function_call_permission_upgrade() {
-    // The immediate protocol upgrade needs to be set for this test to pass in
-    // the release branch where the protocol upgrade date is set.
-    unsafe { std::env::set_var("NEAR_TESTS_PROTOCOL_UPGRADE_OVERRIDE", "now") };
-
-    #[allow(deprecated)]
-    let old_protocol_version =
-        near_primitives::version::ProtocolFeature::_DeprecatedAccountIdInFunctionCallPermission
-            .protocol_version()
-            - 1;
-
     // Prepare TestEnv with a contract at the old protocol version.
-    let mut env = {
+    let env = {
         let epoch_length = 5;
         let mut genesis =
             Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
         genesis.config.epoch_length = epoch_length;
-        genesis.config.protocol_version = old_protocol_version;
+        // genesis.config.protocol_version = old_protocol_version;
         TestEnv::builder(&genesis.config)
             .nightshade_runtimes_with_runtime_config_store(
                 &genesis,
@@ -57,27 +47,7 @@ fn test_account_id_in_function_call_permission_upgrade() {
         block_hash: CryptoHash::default(),
     };
 
-    // Run the transaction, it should pass as we don't do validation at this protocol version.
-    {
-        let tip = env.clients[0].chain.head().unwrap();
-        let signed_transaction = Transaction::V0(TransactionV0 {
-            nonce: 10,
-            block_hash: tip.last_block_hash,
-            ..tx.clone()
-        })
-        .sign(&signer);
-        assert_eq!(
-            env.tx_request_handlers[0].process_tx(signed_transaction, false, false),
-            ProcessTxResponse::ValidTx
-        );
-        for i in 0..3 {
-            env.produce_block(0, tip.height + i + 1);
-        }
-    };
-
-    env.upgrade_protocol_to_latest_version();
-
-    // Re-run the transaction, now it fails due to invalid account id.
+    // Transaction fails due to invalid account id.
     {
         let tip = env.clients[0].chain.head().unwrap();
         let signed_transaction =
