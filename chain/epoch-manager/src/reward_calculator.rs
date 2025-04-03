@@ -113,8 +113,7 @@ impl RewardCalculator {
                     && expected_chunks == 0
                     && expected_blocks == 0
                     && expected_endorsements == 0)
-                || (!chunk_only_producers_enabled
-                    && (expected_chunks == 0 || expected_blocks == 0))
+                || (!chunk_only_producers_enabled && (expected_chunks == 0 || expected_blocks == 0))
             {
                 0
             } else {
