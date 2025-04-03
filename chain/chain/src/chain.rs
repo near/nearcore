@@ -1699,12 +1699,7 @@ impl Chain {
         let tail_block = self.get_block(&tail_block_hash)?;
 
         let new_tail = tail_block.header().height();
-        let new_chunk_tail = tail_block
-            .chunks()
-            .iter_deprecated()
-            .map(|chunk| chunk.height_included())
-            .min()
-            .unwrap();
+        let new_chunk_tail = tail_block.chunks().min_height_included().unwrap();
         tracing::debug!(target: "sync", ?new_tail, ?new_chunk_tail, "adjusting tail for sync blocks");
 
         let tip = Tip::from_header(prev_block.header());

@@ -291,9 +291,7 @@ impl Chain {
             return vec![];
         };
 
-        let min_height_included =
-            sync_prev_block.chunks().iter_raw().map(|chunk| chunk.height_included()).min();
-        let Some(min_height_included) = min_height_included else {
+        let Some(min_height_included) = sync_prev_block.chunks().min_height_included() else {
             tracing::warn!(target: "sync", ?sync_prev_hash, "get_extra_sync_block_hashes: Cannot find the min block height");
             return vec![];
         };
