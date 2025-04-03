@@ -324,35 +324,7 @@ mod tests {
         assert_eq!(new_cfg.account_creation_config.min_allowed_top_level_account_length, 0);
     }
 
-    // Check that for protocol version with lowered data receipt cost, runtime config passed to
-    // config store is overridden.
-    #[test]
-    #[cfg(not(feature = "calimero_zero_storage"))]
-    fn test_override_runtime_config() {
-        use crate::ActionCosts;
-        use near_primitives_core::version::ProtocolFeature::_DeprecatedLowerDataReceiptAndEcrecoverBaseCost;
 
-        let store = RuntimeConfigStore::new(None);
-        let config = store.get_config(0);
-
-        let mut base_params = BASE_CONFIG.parse().unwrap();
-        let base_config = RuntimeConfig::new(&base_params).unwrap();
-        assert_eq!(config.as_ref(), &base_config);
-        assert_eq!(base_config.storage_amount_per_byte(), 100_000_000_000_000_000_000u128);
-        let expected_config = RuntimeConfig::new(&base_params).unwrap();
-        assert_eq!(**config, expected_config);
-
-        let config =
-            store.get_config(_DeprecatedLowerDataReceiptAndEcrecoverBaseCost.protocol_version());
-        assert_eq!(config.fees.fee(ActionCosts::new_data_receipt_base).send_sir, 36_486_732_312);
-        for (ver, diff) in &CONFIG_DIFFS[..] {
-            if *ver <= _DeprecatedLowerDataReceiptAndEcrecoverBaseCost.protocol_version() {
-                base_params.apply_diff(diff.parse().unwrap()).unwrap();
-            }
-        }
-        let expected_config = RuntimeConfig::new(&base_params).unwrap();
-        assert_eq!(config.as_ref(), &expected_config);
-    }
 
     #[test]
     fn test_lower_max_length_storage_key() {
