@@ -15,8 +15,7 @@ use near_primitives::state_sync::ShardStateSyncResponseHeader;
 use near_primitives::types::{
     BlockHeight, BlockId, BlockReference, EpochId, EpochReference, Finality, ShardId, StateRoot,
 };
-use near_primitives::version::ProtocolFeature;
-use near_primitives::views::{BlockView, ChunkHeaderView};
+use near_primitives::views::ChunkHeaderView;
 use near_store::Trie;
 use nearcore::state_sync::extract_part_id_from_part_file_name;
 use std::collections::{HashMap, HashSet};
@@ -874,15 +873,6 @@ fn chunk_state_roots(chunks: &[ChunkHeaderView]) -> HashMap<ShardId, CryptoHash>
     chunks.iter().map(|chunk| (chunk.shard_id, chunk.prev_state_root)).collect()
 }
 
-async fn get_prev_epoch_state_roots(
-    rpc_client: &JsonRpcClient,
-    epoch_id: CryptoHash,
-) -> anyhow::Result<HashMap<ShardId, CryptoHash>> {
-    let prev_epoch_last_block_response =
-        get_previous_epoch_last_block_response(rpc_client, epoch_id).await?;
-    Ok(chunk_state_roots(&prev_epoch_last_block_response.chunks))
-}
-
 async fn get_current_epoch_state_roots(
     rpc_client: &JsonRpcClient,
     epoch_id: CryptoHash,
@@ -962,22 +952,15 @@ async fn get_processing_epoch_information(
 
     let latest_epoch_height = latest_epoch_response.epoch_height;
 
-    let state_roots = if ProtocolFeature::CurrentEpochStateSync
-        .enabled(protocol_config.config_view.protocol_version)
-    {
-        let Some(roots) = get_current_epoch_state_roots(
-            rpc_client,
-            latest_epoch_id,
-            latest_block_response.header.height,
-            &protocol_config.config_view.shard_layout,
-        )
-        .await?
-        else {
-            return Ok(None);
-        };
-        roots
-    } else {
-        get_prev_epoch_state_roots(rpc_client, latest_epoch_id).await?
+    let Some(state_roots) = get_current_epoch_state_roots(
+        rpc_client,
+        latest_epoch_id,
+        latest_block_response.header.height,
+        &protocol_config.config_view.shard_layout,
+    )
+    .await?
+    else {
+        return Ok(None);
     };
 
     Ok(Some(DumpCheckIterInfo {
@@ -986,25 +969,4 @@ async fn get_processing_epoch_information(
         shard_layout: protocol_config.config_view.shard_layout,
         state_roots,
     }))
-}
-
-async fn get_previous_epoch_last_block_response(
-    rpc_client: &JsonRpcClient,
-    current_epoch_id: CryptoHash,
-) -> anyhow::Result<BlockView> {
-    let current_epoch_response = rpc_client
-        .validators(Some(EpochReference::EpochId(EpochId(current_epoch_id))))
-        .await
-        .or_else(|_| Err(anyhow!("validators_by_epoch_id for current_epoch_id failed")))?;
-    let current_epoch_first_block_height = current_epoch_response.epoch_start_height;
-    let current_epoch_first_block_response = rpc_client
-        .block_by_id(BlockId::Height(current_epoch_first_block_height))
-        .await
-        .or_else(|_| Err(anyhow!("block_by_id failed for current_epoch_first_block_height")))?;
-    let prev_epoch_last_block_hash = current_epoch_first_block_response.header.prev_hash;
-    let prev_epoch_last_block_response = rpc_client
-        .block_by_id(BlockId::Hash(prev_epoch_last_block_hash))
-        .await
-        .or_else(|_| Err(anyhow!("block_by_id failed for prev_epoch_last_block_hash")))?;
-    Ok(prev_epoch_last_block_response)
 }

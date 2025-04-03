@@ -20,7 +20,6 @@ use near_primitives::state_sync::StatePartKey;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{BlockId, BlockReference, EpochId, EpochReference, ShardId};
 use near_primitives::utils::MaybeValidated;
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_store::DBCol;
 use near_store::adapter::StoreUpdateAdapter;
 use nearcore::{load_test_config, start_with_config};
@@ -476,31 +475,16 @@ fn ultra_slow_test_dump_epoch_missing_chunk_in_last_block() {
             let signer = InMemorySigner::test_signer(&"test0".parse().unwrap());
 
             let next_epoch_start = epoch_length + 1;
-            let protocol_version = env.clients[0]
-                .epoch_manager
-                .get_epoch_protocol_version(&EpochId::default())
-                .unwrap();
             // Note that the height to skip here refers to the height at which not to produce chunks for the next block, so really
             // one before the block height that will have no chunks. The sync_height is the height of the sync_hash block.
-            let (start_skipping_chunks, stop_skipping_chunks, sync_height) =
-                if ProtocolFeature::CurrentEpochStateSync.enabled(protocol_version) {
-                    // At the beginning of the epoch, produce two blocks with chunks and then start skipping chunks.
-                    // The very first block in the epoch does not count towards the number of new chunks we tally when computing
-                    // the sync hash. So after those two blocks, the tally is 1.
-                    let start_skipping_chunks = next_epoch_start + 1;
-                    // Then we will skip `num_chunks_missing` chunks.
-                    let stop_skipping_chunks = start_skipping_chunks + num_chunks_missing;
-                    // Then after one more with new chunks, the next one after that will be the sync block.
-                    let sync_height = stop_skipping_chunks + 2;
-                    (start_skipping_chunks, stop_skipping_chunks, sync_height)
-                } else {
-                    // here the sync hash is the first hash of the epoch
-                    let sync_height = next_epoch_start;
-                    // skip chunks before the epoch start, but not including the one right before the epochs start.
-                    let start_skipping_chunks = sync_height - num_chunks_missing - 1;
-                    let stop_skipping_chunks = sync_height - 1;
-                    (start_skipping_chunks, stop_skipping_chunks, sync_height)
-                };
+            // At the beginning of the epoch, produce two blocks with chunks and then start skipping chunks.
+            // The very first block in the epoch does not count towards the number of new chunks we tally when computing
+            // the sync hash. So after those two blocks, the tally is 1.
+            let start_skipping_chunks = next_epoch_start + 1;
+            // Then we will skip `num_chunks_missing` chunks.
+            let stop_skipping_chunks = start_skipping_chunks + num_chunks_missing;
+            // Then after one more with new chunks, the next one after that will be the sync block.
+            let sync_height = stop_skipping_chunks + 2;
 
             assert!(sync_height < 2 * epoch_length + 1);
 
@@ -748,13 +732,9 @@ fn slow_test_state_sync_headers() {
                 };
                 tracing::info!(epoch_start_height, "got epoch_start_height");
 
-                let sync_height =
-                    if ProtocolFeature::CurrentEpochStateSync.enabled(PROTOCOL_VERSION) {
-                        // here since there's only one block/chunk producer, we assume that no blocks will be missing chunks.
-                        epoch_start_height + 3
-                    } else {
-                        epoch_start_height
-                    };
+                // here since there's only one block/chunk producer, we assume that no blocks will be missing chunks.
+                let sync_height = epoch_start_height + 3;
+
                 let block_id = BlockReference::BlockId(BlockId::Height(sync_height));
                 let block_view = view_client1.send(GetBlock(block_id).with_span_context()).await;
                 let Ok(Ok(block_view)) = block_view else {
@@ -933,13 +913,9 @@ fn slow_test_state_sync_headers_no_tracked_shards() {
                     return ControlFlow::Continue(());
                 }
 
-                let sync_height =
-                    if ProtocolFeature::CurrentEpochStateSync.enabled(PROTOCOL_VERSION) {
-                        // here since there's only one block/chunk producer, we assume that no blocks will be missing chunks.
-                        epoch_start_height + 3
-                    } else {
-                        epoch_start_height
-                    };
+                // here since there's only one block/chunk producer, we assume that no blocks will be missing chunks.
+                let sync_height = epoch_start_height + 3;
+
                 let block_id = BlockReference::BlockId(BlockId::Height(sync_height));
                 let block_view = view_client2.send(GetBlock(block_id).with_span_context()).await;
                 let Ok(Ok(block_view)) = block_view else {

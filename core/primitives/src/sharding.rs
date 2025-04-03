@@ -102,24 +102,8 @@ pub enum StateSyncInfo {
 }
 
 impl StateSyncInfo {
-    fn new_previous_epoch(epoch_first_block: CryptoHash, shards: Vec<ShardId>) -> Self {
-        Self::V0(StateSyncInfoV0 { sync_hash: epoch_first_block, shards })
-    }
-
-    fn new_current_epoch(epoch_first_block: CryptoHash, shards: Vec<ShardId>) -> Self {
+    pub fn new(epoch_first_block: CryptoHash, shards: Vec<ShardId>) -> Self {
         Self::V1(StateSyncInfoV1 { epoch_first_block, sync_hash: None, shards })
-    }
-
-    pub fn new(
-        protocol_version: ProtocolVersion,
-        epoch_first_block: CryptoHash,
-        shards: Vec<ShardId>,
-    ) -> Self {
-        if ProtocolFeature::CurrentEpochStateSync.enabled(protocol_version) {
-            Self::new_current_epoch(epoch_first_block, shards)
-        } else {
-            Self::new_previous_epoch(epoch_first_block, shards)
-        }
     }
 
     /// Block hash that identifies this state sync struct on disk
