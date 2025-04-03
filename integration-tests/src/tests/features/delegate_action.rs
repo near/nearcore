@@ -67,6 +67,7 @@ fn exec_meta_transaction(
 
 /// Basic test to ensure the happy path works.
 #[test]
+#[allow(deprecated)]
 fn accept_valid_meta_tx() {
     let protocol_version = ProtocolFeature::DelegateAction.protocol_version();
     let status = exec_meta_transaction(vec![], protocol_version);
@@ -85,6 +86,7 @@ fn accept_valid_meta_tx() {
 /// by having different interpretation of what a valid `SignedTransaction` might
 /// be. We must catch that earlier.
 #[test]
+#[allow(deprecated)]
 fn reject_valid_meta_tx_in_older_versions() {
     let protocol_version = ProtocolFeature::DelegateAction.protocol_version() - 1;
 

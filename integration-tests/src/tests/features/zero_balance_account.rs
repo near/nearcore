@@ -46,6 +46,7 @@ fn assert_zero_balance_account(env: &TestEnv, account_id: &AccountId) {
 /// Test 2 things: 1) a valid zero balance account can be created and 2) a nonzero balance account
 /// (one with a nontrivial contract deployed) cannot be created without maintaining an initial balance
 #[test]
+#[allow(deprecated)]
 fn test_zero_balance_account_creation() {
     let epoch_length = 1000;
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
@@ -114,6 +115,7 @@ fn test_zero_balance_account_creation() {
 /// it has to pay for storage cost of the account structure and the keys that
 /// it didn't have to pay while it was a zero balance account.
 #[test]
+#[allow(deprecated)]
 fn test_zero_balance_account_add_key() {
     let epoch_length = 1000;
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
@@ -252,6 +254,7 @@ fn test_zero_balance_account_add_key() {
 /// Test that zero balance accounts cannot be created before the upgrade but can succeed after
 /// the protocol upgrade
 #[test]
+#[allow(deprecated)]
 fn test_zero_balance_account_upgrade() {
     // The immediate protocol upgrade needs to be set for this test to pass in
     // the release branch where the protocol upgrade date is set.
