@@ -134,13 +134,10 @@ impl StateSnapshot {
 }
 
 /// Information needed to make a state snapshot.
-#[derive(Default, Debug)]
+#[derive(Debug)]
 pub enum StateSnapshotConfig {
-    #[default]
     Disabled,
-    Enabled {
-        state_snapshots_dir: PathBuf,
-    },
+    Enabled { state_snapshots_dir: PathBuf },
 }
 
 pub fn state_snapshots_dir(

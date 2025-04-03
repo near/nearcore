@@ -483,7 +483,7 @@ mod tests {
             trie_config,
             &shard_uids,
             flat_storage_manager,
-            StateSnapshotConfig::default(),
+            StateSnapshotConfig::Disabled,
         );
 
         let mut kvs = vec![];

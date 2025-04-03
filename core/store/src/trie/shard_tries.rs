@@ -865,7 +865,7 @@ mod test {
             trie_config,
             &shard_uids,
             FlatStorageManager::new(store.flat_store()),
-            StateSnapshotConfig::default(),
+            StateSnapshotConfig::Disabled,
         )
     }
 
@@ -987,7 +987,7 @@ mod test {
             trie_config,
             &shard_uids,
             FlatStorageManager::new(store.flat_store()),
-            StateSnapshotConfig::default(),
+            StateSnapshotConfig::Disabled,
         );
 
         let trie_caches = &trie.0.caches;

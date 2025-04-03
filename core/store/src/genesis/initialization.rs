@@ -153,7 +153,7 @@ fn genesis_state_from_genesis(
         TrieConfig::default(),
         &shard_uids,
         FlatStorageManager::new(store.flat_store()),
-        StateSnapshotConfig::default(),
+        StateSnapshotConfig::Disabled,
     );
 
     let writers = std::sync::atomic::AtomicUsize::new(0);
