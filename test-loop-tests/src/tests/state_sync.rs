@@ -647,10 +647,34 @@ fn slow_test_state_sync_miss_chunks_sync_prev_block() {
     run_state_sync_test_case(t);
 }
 
+// Create missing chunks leading up to the last new chunk included
+// before the sync hash block
+#[test]
+fn slow_test_state_sync_miss_chunks_before_last_chunk_included() {
+    init_test_logger();
+    let chunks_produced = vec![
+        (ShardId::new(0), vec![false, true, false, false, true, false]),
+        (ShardId::new(1), vec![false, true, false, false, true, true]),
+        (ShardId::new(2), vec![false, true, false, true, false, false]),
+        (ShardId::new(3), vec![false, true, false, true, false, true]),
+    ];
+    let t = StateSyncTest {
+        num_validators: 5,
+        num_block_producer_seats: 4,
+        num_chunk_producer_seats: 4,
+        num_shards: 4,
+        generate_shard_accounts: true,
+        chunks_produced,
+        skip_block_sync_height_delta: None,
+        extra_node_shard_schedule: None,
+    };
+    run_state_sync_test_case(t);
+}
+
 // Combination of different cases:
 //  - Shard 0 has multiple chunk misses leading up to the sync hash block
 //  - Shard 1 has multiple misses leading up to and including the sync hash block
-//  - Shard 2 misses chunks early
+//  - Shard 2 has missing chunks leading up to the last chunk included before sync hash block
 //  - Shard 3 has no missing chunks until the sync hash block
 #[test]
 fn slow_test_state_sync_miss_chunks_multiple() {
@@ -658,7 +682,7 @@ fn slow_test_state_sync_miss_chunks_multiple() {
     let chunks_produced = vec![
         (ShardId::new(0), vec![true, true, true, false, false, true]),
         (ShardId::new(1), vec![true, true, true, false, false, false]),
-        (ShardId::new(2), vec![false, false, false, true, true, true]),
+        (ShardId::new(2), vec![false, true, false, false, true, true]),
         (ShardId::new(3), vec![true, true, true, true, true, false]),
     ];
     let t = StateSyncTest {
