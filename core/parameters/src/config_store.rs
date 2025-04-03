@@ -254,7 +254,7 @@ mod tests {
     use super::*;
     #[allow(deprecated)]
     use near_primitives_core::version::ProtocolFeature::{
-        DecreaseFunctionCallBaseCost, LowerStorageKeyLimit,
+        DecreaseFunctionCallBaseCost, _DeprecatedLowerStorageKeyLimit,
     };
     use std::collections::HashSet;
 
@@ -358,8 +358,8 @@ mod tests {
     #[allow(deprecated)]
     fn test_lower_max_length_storage_key() {
         let store = RuntimeConfigStore::new(None);
-        let base_cfg = store.get_config(LowerStorageKeyLimit.protocol_version() - 1);
-        let new_cfg = store.get_config(LowerStorageKeyLimit.protocol_version());
+        let base_cfg = store.get_config(_DeprecatedLowerStorageKeyLimit.protocol_version() - 1);
+        let new_cfg = store.get_config(_DeprecatedLowerStorageKeyLimit.protocol_version());
         assert!(
             base_cfg.wasm_config.limit_config.max_length_storage_key
                 > new_cfg.wasm_config.limit_config.max_length_storage_key
