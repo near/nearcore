@@ -19,9 +19,11 @@ use crate::utils::process_blocks::{
 
 /// Check correctness of the protocol upgrade and ability to write 2 KB keys.
 #[test]
+#[allow(deprecated)]
 fn protocol_upgrade() {
     init_test_logger();
 
+    #[allow(deprecated)]
     let old_protocol_version =
         near_primitives::version::ProtocolFeature::LowerStorageKeyLimit.protocol_version() - 1;
     let new_storage_key_limit = 2usize.pow(11); // 2 KB

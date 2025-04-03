@@ -82,11 +82,13 @@ fn process_transaction(
 /// for `Value 1` and only 2 db reads for `Value 2`, because first 4 nodes were already put into the accounting
 /// cache. 4nd run should give the same results, because caching must not affect different chunks.
 #[test]
+#[allow(deprecated)]
 fn compare_node_counts() {
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     let epoch_length = 10;
     let num_blocks = 5;
 
+    #[allow(deprecated)]
     let old_protocol_version = ProtocolFeature::ChunkNodesCache.protocol_version() - 1;
     genesis.config.epoch_length = epoch_length;
     genesis.config.protocol_version = old_protocol_version;

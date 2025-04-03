@@ -112,15 +112,20 @@ pub enum ProtocolFeature {
     AccessKeyNonceForImplicitAccounts,
     /// Increase cost per deployed code byte to cover for the compilation steps
     /// that a deployment triggers. Only affects the action execution cost.
+    #[deprecated]
     IncreaseDeploymentCost,
+    #[deprecated]
     FunctionCallWeight,
     /// This feature enforces a global limit on the function local declarations in a WebAssembly
     /// contract. See <...> for more information.
+    #[deprecated]
     LimitContractLocals,
     /// Ensure caching all nodes in the chunk for which touching trie node cost was charged. Charge for each such node
     /// only once per chunk at the first access time.
+    #[deprecated]
     ChunkNodesCache,
     /// Lower `max_length_storage_key` limit, which itself limits trie node sizes.
+    #[deprecated]
     LowerStorageKeyLimit,
     // alt_bn128_g1_multiexp, alt_bn128_g1_sum, alt_bn128_pairing_check host functions
     AltBn128,

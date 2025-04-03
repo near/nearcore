@@ -252,6 +252,7 @@ impl RuntimeConfigStore {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[allow(deprecated)]
     use near_primitives_core::version::ProtocolFeature::{
         DecreaseFunctionCallBaseCost, LowerStorageKeyLimit,
     };
@@ -354,6 +355,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(deprecated)]
     fn test_lower_max_length_storage_key() {
         let store = RuntimeConfigStore::new(None);
         let base_cfg = store.get_config(LowerStorageKeyLimit.protocol_version() - 1);

@@ -13,11 +13,13 @@ use crate::env::test_env::TestEnv;
 
 /// Tests if the cost of deployment is higher after the protocol update 53
 #[test]
+#[allow(deprecated)]
 fn test_deploy_cost_increased() {
     // The immediate protocol upgrade needs to be set for this test to pass in
     // the release branch where the protocol upgrade date is set.
     unsafe { std::env::set_var("NEAR_TESTS_PROTOCOL_UPGRADE_OVERRIDE", "now") };
 
+    #[allow(deprecated)]
     let new_protocol_version = ProtocolFeature::IncreaseDeploymentCost.protocol_version();
     let old_protocol_version = new_protocol_version - 1;
 
