@@ -418,8 +418,6 @@ fn test_stack_instrumentation_protocol_upgrade() {
         )
         .method("f1")
         .protocol_features(&[
-            #[allow(deprecated)]
-            ProtocolFeature::_DeprecatedCorrectStackLimit,
             ProtocolFeature::PreparationV2,
         ])
         .skip_wasmtime()
@@ -427,10 +425,6 @@ fn test_stack_instrumentation_protocol_upgrade() {
         .expects(&[
             expect![[r#"
                 VMOutcome: balance 4 storage_usage 12 return data None burnt gas 18136872021 used gas 18136872021
-                Err: ...
-            "#]],
-            expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 6789985365 used gas 6789985365
                 Err: ...
             "#]],
             expect![[r#"
@@ -455,18 +449,12 @@ fn test_stack_instrumentation_protocol_upgrade() {
         .method("f2")
         .opaque_error()
         .protocol_features(&[
-            #[allow(deprecated)]
-            ProtocolFeature::_DeprecatedCorrectStackLimit,
             ProtocolFeature::PreparationV2,
         ])
         .skip_wasmtime()
         .expects(&[
             expect![[r#"
                 VMOutcome: balance 4 storage_usage 12 return data None burnt gas 18136872021 used gas 18136872021
-                Err: ...
-            "#]],
-            expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 2745316869 used gas 2745316869
                 Err: ...
             "#]],
             expect![[r#"
