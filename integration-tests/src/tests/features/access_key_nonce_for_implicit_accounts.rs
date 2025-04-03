@@ -18,7 +18,7 @@ use near_primitives::sharding::ChunkHash;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockHeight};
 use near_primitives::utils::derive_near_implicit_account_id;
-use near_primitives::version::{ProtocolFeature, ProtocolVersion, PROTOCOL_VERSION};
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature, ProtocolVersion};
 use near_primitives::views::FinalExecutionStatus;
 use rand::seq::SliceRandom;
 use rand::{Rng, thread_rng};
@@ -211,8 +211,6 @@ fn test_transaction_hash_collision_for_near_implicit_account_fail() {
         ProcessTxResponse::InvalidTx(InvalidTxError::InvalidNonce { .. })
     );
 }
-
-
 
 /// Test that chunks with transactions that have expired are considered invalid.
 #[test]
