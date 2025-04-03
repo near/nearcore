@@ -21,7 +21,6 @@ use crate::transaction::{
 use crate::types::validator_stake::ValidatorStake;
 use crate::types::{AccountId, Balance, EpochId, EpochInfoProvider, Gas, Nonce};
 use crate::validator_signer::ValidatorSigner;
-use crate::version::PROTOCOL_VERSION;
 use crate::views::{ExecutionStatusView, FinalExecutionOutcomeView, FinalExecutionStatus};
 use near_crypto::vrf::Value;
 use near_crypto::{EmptySigner, PublicKey, SecretKey, Signature, Signer};
@@ -898,6 +897,8 @@ impl TestBlockBuilder {
     }
 
     pub fn build(self) -> Block {
+        use crate::version::PROTOCOL_VERSION;
+
         tracing::debug!(target: "test", height=self.height, ?self.epoch_id, "produce block");
         Block::produce(
             PROTOCOL_VERSION,

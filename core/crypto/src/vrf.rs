@@ -120,6 +120,7 @@ macro_rules! traits {
 traits!(PublicKey, 32, |s| &s.0, "public key");
 traits!(SecretKey, 32, |s| s.0.as_bytes(), "secret key");
 
+#[cfg(feature = "rand")]
 #[cfg(test)]
 mod tests {
     use super::*;
