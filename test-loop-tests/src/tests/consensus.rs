@@ -9,11 +9,10 @@ use near_chain_configs::test_genesis::TestEpochConfigBuilder;
 use near_client::client_actor::ClientActorInner;
 use near_client::{BlockApproval, BlockResponse};
 use near_epoch_manager::EpochManagerAdapter;
-use near_network::types::{NetworkRequests, PeerInfo};
+use near_network::types::NetworkRequests;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::block::{Approval, ApprovalInner};
 use near_primitives::hash::CryptoHash;
-use near_primitives::network::PeerId;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::types::{AccountId, BlockHeight, EpochId, NumSeats};
@@ -79,6 +78,7 @@ fn ultra_slow_test_consensus_with_epoch_switches() {
 
     for node_datas in &env.node_datas {
         let from_whom = node_datas.account_id.clone();
+        let peer_id = node_datas.peer_id.clone();
 
         let handler = handler.clone();
         let rng = rng.clone();
@@ -140,8 +140,6 @@ fn ultra_slow_test_consensus_with_epoch_switches() {
                     }
                     handler.largest_block_height =
                         std::cmp::max(block.header().height(), handler.largest_block_height);
-
-                    let peer_id = handler.peer_id(from_whom.clone());
 
                     let mut new_delayed_blocks = vec![];
                     for delayed_block in handler.delayed_blocks.iter() {
@@ -258,9 +256,8 @@ fn ultra_slow_test_consensus_with_epoch_switches() {
                             .epoch_manager
                             .get_block_producer(&handler.current_epoch, target_height)
                             .unwrap();
-                        let peer_id = handler.peer_id(from_whom.clone());
                         let sender = handler.client_senders.get(&recipient).unwrap();
-                        sender.send(BlockApproval(approval, peer_id));
+                        sender.send(BlockApproval(approval, peer_id.clone()));
 
                         // Do not send the endorsement for couple block producers in each epoch
                         // This is needed because otherwise the block with enough endorsements
@@ -317,7 +314,6 @@ struct NetworkHandlingData {
     largest_block_height: BlockHeight,
     delayed_blocks: Vec<Block>,
     delayed_blocks_count: u64,
-    peer_infos: HashMap<AccountId, PeerInfo>,
 
     current_epoch: EpochId,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
@@ -349,16 +345,11 @@ impl NetworkHandlingData {
             largest_block_height: head.height,
             delayed_blocks: Vec::new(),
             delayed_blocks_count: 0,
-            peer_infos: HashMap::new(),
 
             current_epoch: head.epoch_id,
             epoch_manager: client.epoch_manager.clone(),
             client_senders,
             validators,
         }
-    }
-
-    fn peer_id(&mut self, account: AccountId) -> PeerId {
-        self.peer_infos.entry(account).or_insert_with(|| PeerInfo::random()).id.clone()
     }
 }
