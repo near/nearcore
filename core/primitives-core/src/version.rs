@@ -92,10 +92,12 @@ pub enum ProtocolFeature {
     LowerRegularOpCost,
     /// Lowers the cost of wasm instruction due to switch to faster,
     /// compiler-intrinsics based gas counter.
-    LowerRegularOpCost2,
+    #[deprecated]
+    _DeprecatedLowerRegularOpCost2,
     /// Limit number of wasm functions in one contract. See
     /// <https://github.com/near/nearcore/pull/4954> for more details.
-    LimitContractFunctionsNumber,
+    #[deprecated]
+    _DeprecatedLimitContractFunctionsNumber,
     BlockHeaderV3,
     /// Changes how we select validators for epoch and how we select validators
     /// within epoch.  See <https://github.com/near/NEPs/pull/167> for general
@@ -285,8 +287,8 @@ impl ProtocolFeature {
             | ProtocolFeature::LowerDataReceiptAndEcrecoverBaseCost
             | ProtocolFeature::LowerRegularOpCost
             | ProtocolFeature::SimpleNightshade => 48,
-            ProtocolFeature::LowerRegularOpCost2
-            | ProtocolFeature::LimitContractFunctionsNumber
+            ProtocolFeature::_DeprecatedLowerRegularOpCost2
+            | ProtocolFeature::_DeprecatedLimitContractFunctionsNumber
             | ProtocolFeature::BlockHeaderV3
             | ProtocolFeature::AliasValidatorSelectionAlgorithm => 49,
             ProtocolFeature::SynchronizeBlockChunkProduction

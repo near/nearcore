@@ -138,6 +138,7 @@ fn test_evil_function_index() {
 }
 
 #[test]
+#[allow(deprecated)]
 fn slow_test_limit_contract_functions_number() {
     let functions_number_limit: u32 = 10_000;
 
@@ -149,7 +150,7 @@ fn slow_test_limit_contract_functions_number() {
         .make(),
     )
     .protocol_features(&[
-        ProtocolFeature::LimitContractFunctionsNumber,
+        ProtocolFeature::_DeprecatedLimitContractFunctionsNumber,
         ProtocolFeature::PreparationV2,
     ])
     .protocol_version(FIX_CONTRACT_LOADING_COST)
@@ -176,7 +177,7 @@ fn slow_test_limit_contract_functions_number() {
         .make(),
     )
     .protocol_features(&[
-        ProtocolFeature::LimitContractFunctionsNumber,
+        ProtocolFeature::_DeprecatedLimitContractFunctionsNumber,
         ProtocolFeature::PreparationV2,
     ])
     .protocol_version(FIX_CONTRACT_LOADING_COST)

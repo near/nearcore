@@ -73,9 +73,10 @@ fn verify_contract_limits_upgrade(
 // Disabled in nightly due to https://github.com/near/nearcore/issues/8590
 #[test]
 #[ignore]
+#[allow(deprecated)]
 fn test_function_limit_change() {
     verify_contract_limits_upgrade(
-        ProtocolFeature::LimitContractFunctionsNumber,
+        ProtocolFeature::_DeprecatedLimitContractFunctionsNumber,
         100_000,
         0,
         PrepareError::TooManyFunctions,
