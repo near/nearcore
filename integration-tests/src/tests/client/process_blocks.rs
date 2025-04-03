@@ -1676,10 +1676,7 @@ fn test_tx_forward_around_epoch_boundary() {
         signer.public_key(),
         genesis_hash,
     );
-    assert_eq!(
-        env.rpc_handler(account_id)[0].process_tx(tx, false, false),
-        ProcessTxResponse::ValidTx
-    );
+    assert_eq!(env.rpc_handlers[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
 
     for i in 1..epoch_length * 2 {
         let block = env.clients[0].produce_block(i).unwrap().unwrap();
