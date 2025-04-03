@@ -535,7 +535,7 @@ impl<'a> ChainUpdate<'a> {
         let block = self.chain_store_update.get_block(block_header.hash())?;
         let epoch_id = self.epoch_manager.get_epoch_id(block_header.hash())?;
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
-        let transactions = chunk.transactions();
+        let transactions = chunk.transactions().to_vec();
         let transaction_validity = if let Some(prev_block_header) = prev_block_header {
             self.chain_store_update
                 .chain_store()
@@ -543,7 +543,7 @@ impl<'a> ChainUpdate<'a> {
         } else {
             vec![true; transactions.len()]
         };
-        let transactions = SignedValidPeriodTransactions::new(transactions, &transaction_validity);
+        let transactions = SignedValidPeriodTransactions::new(transactions, transaction_validity);
         let apply_result = self.runtime_adapter.apply_chunk(
             RuntimeStorageConfig::new(chunk_header.prev_state_root(), true),
             ApplyChunkReason::UpdateTrackedShard,
@@ -678,7 +678,7 @@ impl<'a> ChainUpdate<'a> {
                 block.block_bandwidth_requests(),
             ),
             &[],
-            SignedValidPeriodTransactions::new(&[], &[]),
+            SignedValidPeriodTransactions::empty(),
         )?;
         let flat_storage_manager = self.runtime_adapter.get_flat_storage_manager();
         let store_update = flat_storage_manager.save_flat_state_changes(

@@ -107,7 +107,7 @@ pub fn apply_chunk(
     let prev_block_hash = chunk_header.prev_block_hash();
     let prev_state_root = chunk.prev_state_root();
 
-    let transactions = chunk.transactions();
+    let transactions = chunk.transactions().to_vec();
     let prev_block =
         chain_store.get_block(prev_block_hash).context("Failed getting chunk's prev block")?;
     let prev_epoch_id = prev_block.header().epoch_id();
@@ -208,7 +208,7 @@ pub fn apply_chunk(
                 bandwidth_requests: block_bandwidth_requests,
             },
             &receipts,
-            SignedValidPeriodTransactions::new(transactions, &valid_txs),
+            SignedValidPeriodTransactions::new(transactions, valid_txs),
         )?,
         chunk_header.gas_limit(),
     ))

@@ -557,7 +557,7 @@ fn test_apply_delayed_receipts_local_tx() {
             &None,
             &apply_state,
             &receipts[0..2],
-            SignedValidPeriodTransactions::new(&local_transactions[0..4], &[true; 4]),
+            SignedValidPeriodTransactions::new(local_transactions[0..4].to_vec(), vec![true; 4]),
             &epoch_info_provider,
             Default::default(),
         )
@@ -603,7 +603,7 @@ fn test_apply_delayed_receipts_local_tx() {
             &None,
             &apply_state,
             &receipts[2..3],
-            SignedValidPeriodTransactions::new(&local_transactions[4..5], &[true]),
+            SignedValidPeriodTransactions::new(local_transactions[4..5].to_vec(), vec![true]),
             &epoch_info_provider,
             Default::default(),
         )
@@ -643,7 +643,7 @@ fn test_apply_delayed_receipts_local_tx() {
             &None,
             &apply_state,
             &receipts[3..4],
-            SignedValidPeriodTransactions::new(&local_transactions[5..9], &[true; 4]),
+            SignedValidPeriodTransactions::new(local_transactions[5..9].to_vec(), vec![true; 4]),
             &epoch_info_provider,
             Default::default(),
         )
@@ -2743,7 +2743,7 @@ fn test_deploy_and_call_local_receipt() {
             &None,
             &apply_state,
             &[],
-            SignedValidPeriodTransactions::new(&[tx], &[true]),
+            SignedValidPeriodTransactions::new(vec![tx], vec![true]),
             &epoch_info_provider,
             Default::default(),
         )
@@ -2814,7 +2814,7 @@ fn test_deploy_and_call_local_receipts() {
             &None,
             &apply_state,
             &[],
-            SignedValidPeriodTransactions::new(&[tx1, tx2], &[true; 2]),
+            SignedValidPeriodTransactions::new(vec![tx1, tx2], vec![true; 2]),
             &epoch_info_provider,
             Default::default(),
         )
@@ -2912,7 +2912,7 @@ fn test_transaction_ordering_with_apply() {
     );
 
     let validity_flags = vec![true; txs.len()];
-    let signed_valid_period_txs = SignedValidPeriodTransactions::new(&txs, &validity_flags);
+    let signed_valid_period_txs = SignedValidPeriodTransactions::new(txs, validity_flags);
     let apply_result = runtime
         .apply(
             tries.get_trie_for_shard(ShardUId::single_shard(), root),
@@ -2991,7 +2991,7 @@ fn test_transaction_multiple_access_keys_with_apply() {
         );
 
     let validity_flags = vec![true; txs.len()];
-    let signed_valid_period_txs = SignedValidPeriodTransactions::new(&txs, &validity_flags);
+    let signed_valid_period_txs = SignedValidPeriodTransactions::new(txs.clone(), validity_flags);
     let apply_result = runtime
         .apply(
             tries.get_trie_for_shard(ShardUId::single_shard(), root),
@@ -3022,7 +3022,7 @@ fn test_transaction_multiple_access_keys_with_apply() {
 #[test]
 fn test_expired_transaction() {
     let alice_signer = InMemorySigner::test_signer(&alice_account());
-    let expired_tx = [SignedTransaction::send_money(
+    let expired_tx = vec![SignedTransaction::send_money(
         1,
         alice_account(),
         alice_account(),
@@ -3036,7 +3036,7 @@ fn test_expired_transaction() {
         to_yocto(500_000),
         10u64.pow(15),
     );
-    let signed_valid_period_txs = SignedValidPeriodTransactions::new(&expired_tx, &[false]);
+    let signed_valid_period_txs = SignedValidPeriodTransactions::new(expired_tx, vec![false]);
     let apply_result = runtime
         .apply(
             tries.get_trie_for_shard(ShardUId::single_shard(), root),
