@@ -35,7 +35,7 @@ impl SignedValidPeriodTransactions {
         self.transactions
             .iter()
             .zip(&self.transaction_validity_check_passed)
-            .filter_map(|(tx, v)| v.then_some(tx))
+            .filter_map(|(t, v)| v.then_some(t))
     }
 
     pub fn par_into_iter_nonexpired_transactions(

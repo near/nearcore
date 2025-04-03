@@ -163,7 +163,7 @@ impl NightshadeRuntime {
         chunk: ApplyChunkShardContext,
         block: ApplyChunkBlockContext,
         receipts: &[Receipt],
-        transactions: node_runtime::SignedValidPeriodTransactions,
+        transactions: SignedValidPeriodTransactions,
         state_patch: SandboxStatePatch,
     ) -> Result<ApplyChunkResult, Error> {
         let ApplyChunkBlockContext {
