@@ -69,7 +69,7 @@ fn exec_meta_transaction(
 #[test]
 #[allow(deprecated)]
 fn accept_valid_meta_tx() {
-    let protocol_version = ProtocolFeature::DelegateAction.protocol_version();
+    let protocol_version = ProtocolFeature::_DeprecatedDelegateAction.protocol_version();
     let status = exec_meta_transaction(vec![], protocol_version);
     assert!(matches!(status, FinalExecutionStatus::SuccessValue(_)), "{status:?}",);
 }
@@ -88,7 +88,7 @@ fn accept_valid_meta_tx() {
 #[test]
 #[allow(deprecated)]
 fn reject_valid_meta_tx_in_older_versions() {
-    let protocol_version = ProtocolFeature::DelegateAction.protocol_version() - 1;
+    let protocol_version = ProtocolFeature::_DeprecatedDelegateAction.protocol_version() - 1;
 
     let status = exec_meta_transaction(vec![], protocol_version);
     assert!(
@@ -101,7 +101,7 @@ fn reject_valid_meta_tx_in_older_versions() {
                         )
                     )
                 )
-                if protocol_feature == "DelegateAction" && *version == ProtocolFeature::DelegateAction.protocol_version()
+                if protocol_feature == "DelegateAction" && *version == ProtocolFeature::_DeprecatedDelegateAction.protocol_version()
         ),
         "{status:?}",
     );

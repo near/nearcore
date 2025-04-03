@@ -51,7 +51,8 @@ fn test_zero_balance_account_creation() {
     let epoch_length = 1000;
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
-    genesis.config.protocol_version = ProtocolFeature::ZeroBalanceAccount.protocol_version();
+    genesis.config.protocol_version =
+        ProtocolFeature::_DeprecatedZeroBalanceAccount.protocol_version();
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
 
@@ -120,7 +121,8 @@ fn test_zero_balance_account_add_key() {
     let epoch_length = 1000;
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
-    genesis.config.protocol_version = ProtocolFeature::ZeroBalanceAccount.protocol_version();
+    genesis.config.protocol_version =
+        ProtocolFeature::_DeprecatedZeroBalanceAccount.protocol_version();
     // create free runtime config for transaction costs to make it easier to assert
     // the exact amount of tokens on accounts
     let mut runtime_config = RuntimeConfig::free();
@@ -265,7 +267,8 @@ fn test_zero_balance_account_upgrade() {
     let epoch_length = 5;
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
-    genesis.config.protocol_version = ProtocolFeature::ZeroBalanceAccount.protocol_version() - 1;
+    genesis.config.protocol_version =
+        ProtocolFeature::_DeprecatedZeroBalanceAccount.protocol_version() - 1;
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
 
