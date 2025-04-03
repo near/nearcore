@@ -20,7 +20,7 @@ fn test_deploy_cost_increased() {
     unsafe { std::env::set_var("NEAR_TESTS_PROTOCOL_UPGRADE_OVERRIDE", "now") };
 
     #[allow(deprecated)]
-    let new_protocol_version = ProtocolFeature::IncreaseDeploymentCost.protocol_version();
+    let new_protocol_version = ProtocolFeature::_DeprecatedIncreaseDeploymentCost.protocol_version();
     let old_protocol_version = new_protocol_version - 1;
 
     let config_store = RuntimeConfigStore::new(None);

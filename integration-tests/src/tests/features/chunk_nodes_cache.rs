@@ -89,7 +89,7 @@ fn compare_node_counts() {
     let num_blocks = 5;
 
     #[allow(deprecated)]
-    let old_protocol_version = ProtocolFeature::ChunkNodesCache.protocol_version() - 1;
+    let old_protocol_version = ProtocolFeature::_DeprecatedChunkNodesCache.protocol_version() - 1;
     genesis.config.epoch_length = epoch_length;
     genesis.config.protocol_version = old_protocol_version;
     let mut env = TestEnv::builder(&genesis.config)

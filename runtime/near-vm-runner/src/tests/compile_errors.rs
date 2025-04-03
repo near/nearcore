@@ -326,8 +326,7 @@ fn slow_test_limit_locals_global() {
     }
     .make())
     .protocol_features(&[
-        #[allow(deprecated)]
-        ProtocolFeature::LimitContractLocals,
+        ProtocolFeature::_DeprecatedLimitContractLocals,
         ProtocolFeature::PreparationV2,
 
     ])

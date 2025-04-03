@@ -88,7 +88,7 @@ fn test_function_limit_change() {
 #[test]
 fn test_local_limit_change() {
     verify_contract_limits_upgrade(
-        ProtocolFeature::LimitContractLocals,
+        ProtocolFeature::_DeprecatedLimitContractLocals,
         64,
         15625,
         PrepareError::TooManyLocals,

@@ -112,21 +112,16 @@ pub enum ProtocolFeature {
     AccessKeyNonceForImplicitAccounts,
     /// Increase cost per deployed code byte to cover for the compilation steps
     /// that a deployment triggers. Only affects the action execution cost.
-    #[deprecated]
-    IncreaseDeploymentCost,
-    #[deprecated]
-    FunctionCallWeight,
+    _DeprecatedIncreaseDeploymentCost,
+    _DeprecatedFunctionCallWeight,
     /// This feature enforces a global limit on the function local declarations in a WebAssembly
     /// contract. See <...> for more information.
-    #[deprecated]
-    LimitContractLocals,
+    _DeprecatedLimitContractLocals,
     /// Ensure caching all nodes in the chunk for which touching trie node cost was charged. Charge for each such node
     /// only once per chunk at the first access time.
-    #[deprecated]
-    ChunkNodesCache,
+    _DeprecatedChunkNodesCache,
     /// Lower `max_length_storage_key` limit, which itself limits trie node sizes.
-    #[deprecated]
-    LowerStorageKeyLimit,
+    _DeprecatedLowerStorageKeyLimit,
     // alt_bn128_g1_multiexp, alt_bn128_g1_sum, alt_bn128_pairing_check host functions
     AltBn128,
     ChunkOnlyProducers,
@@ -297,11 +292,11 @@ impl ProtocolFeature {
             ProtocolFeature::SynchronizeBlockChunkProduction
             | ProtocolFeature::CorrectStackLimit => 50,
             ProtocolFeature::AccessKeyNonceForImplicitAccounts => 51,
-            ProtocolFeature::IncreaseDeploymentCost
-            | ProtocolFeature::FunctionCallWeight
-            | ProtocolFeature::LimitContractLocals
-            | ProtocolFeature::ChunkNodesCache
-            | ProtocolFeature::LowerStorageKeyLimit => 53,
+            ProtocolFeature::_DeprecatedIncreaseDeploymentCost
+            | ProtocolFeature::_DeprecatedFunctionCallWeight
+            | ProtocolFeature::_DeprecatedLimitContractLocals
+            | ProtocolFeature::_DeprecatedChunkNodesCache
+            | ProtocolFeature::_DeprecatedLowerStorageKeyLimit => 53,
             ProtocolFeature::AltBn128 => 55,
             ProtocolFeature::ChunkOnlyProducers | ProtocolFeature::MaxKickoutStake => 56,
             ProtocolFeature::AccountIdInFunctionCallPermission => 57,
