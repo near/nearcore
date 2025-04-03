@@ -381,7 +381,7 @@ impl Default for Config {
             telemetry: TelemetryConfig::default(),
             network: Default::default(),
             consensus: Consensus::default(),
-            tracked_config: Some(TrackedConfig::NoShards),
+            tracked_config: None,
             tracked_accounts: None,
             tracked_shadow_validator: None,
             tracked_shards: None,

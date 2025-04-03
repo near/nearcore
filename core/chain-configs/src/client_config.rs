@@ -98,7 +98,6 @@ impl TrackedConfig {
             return TrackedConfig::Accounts(accounts);
         }
         TrackedConfig::NoShards
-        //panic!("Shard tracking configuration is missing. Please set the `tracked_config` field.")
     }
 }
 
