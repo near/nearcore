@@ -466,6 +466,7 @@ mod old_validator_selection {
             min_stake_ratio,
             protocol_version,
         );
+        #[allow(deprecated)]
         let (chunk_producer_proposals, chunk_producers, cp_stake_threshold) =
             if ProtocolFeature::ChunkOnlyProducers.enabled(protocol_version) {
                 let chunk_producer_proposals = order_proposals(proposals.into_values());
