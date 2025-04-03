@@ -107,7 +107,7 @@ fn send_tx(
     let signer = InMemorySigner::test_signer(&from);
     actix::spawn(
         connectors.write().unwrap()[connector_ordinal]
-            .tx_processor_actor
+            .rpc_processor_actor
             .send(
                 ProcessTxRequest {
                     transaction: SignedTransaction::send_money(

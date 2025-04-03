@@ -16,7 +16,7 @@ use near_client::client_actor::ClientActorInner;
 use near_client::gc_actor::GCActor;
 use near_client::sync_jobs_actor::SyncJobsActor;
 use near_client::{
-    Client, PartialWitnessActor, TxRequestHandler, TxRequestHandlerConfig, ViewClientActorInner,
+    Client, PartialWitnessActor, RpcHandler, RpcHandlerConfig, ViewClientActorInner,
 };
 use near_epoch_manager::EpochManager;
 use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
@@ -210,15 +210,16 @@ pub fn setup_client(
     )
     .unwrap();
 
-    let tx_processor_config = TxRequestHandlerConfig {
+    let tx_processor_config = RpcHandlerConfig {
         handler_threads: client_config.transaction_request_handler_threads,
         tx_routing_height_horizon: client_config.tx_routing_height_horizon,
         epoch_length: client_config.epoch_length,
         transaction_validity_period: genesis.config.transaction_validity_period,
     };
-    let tx_processor = TxRequestHandler::new(
+    let tx_processor = RpcHandler::new(
         tx_processor_config,
         client_actor.client.chunk_producer.sharded_tx_pool.clone(),
+        client_actor.client.chunk_endorsement_tracker.clone(),
         epoch_manager.clone(),
         shard_tracker.clone(),
         validator_signer.clone(),

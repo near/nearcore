@@ -204,7 +204,7 @@ fn run_state_sync_with_dumped_parts(
                 genesis_hash,
             );
             assert_eq!(
-                env.tx_request_handlers[0].process_tx(tx, false, false),
+                env.rpc_handlers[0].process_tx(tx, false, false),
                 ProcessTxResponse::ValidTx
             );
         }
