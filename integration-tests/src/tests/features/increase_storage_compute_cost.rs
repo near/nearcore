@@ -183,10 +183,9 @@ fn assert_compute_limit_reached(
 
     let old_protocol_version = INCREASED_STORAGE_COSTS_PROTOCOL_VERSION - 1;
     let new_protocol_version = PROTOCOL_VERSION;
-    assert!(
-        new_protocol_version >= ProtocolFeature::ComputeCosts.protocol_version(),
-        "relies on compute costs feature"
-    );
+    #[allow(deprecated)]
+    let protocol_version = ProtocolFeature::_DeprecatedComputeCosts.protocol_version();
+    assert!(new_protocol_version >= protocol_version, "relies on compute costs feature");
 
     // Prepare TestEnv with a contract at the old protocol version.
     let epoch_length = 100;

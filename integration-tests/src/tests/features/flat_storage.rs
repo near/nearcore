@@ -25,7 +25,8 @@ fn test_flat_storage_upgrade() {
 
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     let epoch_length = 12;
-    let new_protocol_version = ProtocolFeature::FlatStorageReads.protocol_version();
+    #[allow(deprecated)]
+    let new_protocol_version = ProtocolFeature::_DeprecatedFlatStorageReads.protocol_version();
     let old_protocol_version = new_protocol_version - 1;
     genesis.config.epoch_length = epoch_length;
     genesis.config.protocol_version = old_protocol_version;
