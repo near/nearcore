@@ -703,30 +703,27 @@ impl RuntimeAdapter for NightshadeRuntime {
                     continue;
                 }
 
-                let verify_result = tx_cost(
-                    runtime_config,
-                    &validated_tx.to_tx(),
-                    prev_block.next_gas_price,
-                )
-                .map_err(InvalidTxError::from)
-                .and_then(|cost| {
-                    verify_and_charge_tx_ephemeral(
-                        runtime_config,
-                        &state_update,
-                        &validated_tx,
-                        &cost,
-                        Some(next_block_height),
-                    )
-                })
-                .and_then(|verification_res| {
-                    set_tx_state_changes(
-                        &mut state_update,
-                        &validated_tx,
-                        &verification_res.signer,
-                        &verification_res.access_key,
-                    );
-                    Ok(verification_res)
-                });
+                let verify_result =
+                    tx_cost(runtime_config, &validated_tx.to_tx(), prev_block.next_gas_price)
+                        .map_err(InvalidTxError::from)
+                        .and_then(|cost| {
+                            verify_and_charge_tx_ephemeral(
+                                runtime_config,
+                                &state_update,
+                                &validated_tx,
+                                &cost,
+                                Some(next_block_height),
+                            )
+                        })
+                        .and_then(|verification_res| {
+                            set_tx_state_changes(
+                                &mut state_update,
+                                &validated_tx,
+                                &verification_res.signer,
+                                &verification_res.access_key,
+                            );
+                            Ok(verification_res)
+                        });
 
                 match verify_result {
                     Ok(cost) => {

@@ -254,6 +254,7 @@ mod tests {
     use super::*;
     #[allow(deprecated)]
     use crate::cost::ActionCosts;
+    #[allow(deprecated)]
     use near_primitives_core::version::ProtocolFeature::{
         _DeprecatedDecreaseFunctionCallBaseCost, LowerStorageKeyLimit,
     };
