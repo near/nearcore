@@ -607,7 +607,6 @@ impl BlockHeader {
     ) -> Self {
         Self::new_impl(
             this_epoch_protocol_version,
-            next_epoch_protocol_version,
             latest_protocol_version,
             height,
             prev_hash,
@@ -676,7 +675,6 @@ impl BlockHeader {
         let header = Self::new_impl(
             epoch_protocol_version,
             epoch_protocol_version,
-            epoch_protocol_version,
             height,
             prev_hash,
             block_body_hash,
@@ -718,7 +716,6 @@ impl BlockHeader {
     /// Common logic for generating BlockHeader for different purposes, including new blocks, from views, and for genesis block
     fn new_impl(
         this_epoch_protocol_version: ProtocolVersion,
-        _: ProtocolVersion, // Unused parameter
         latest_protocol_version: ProtocolVersion,
         height: BlockHeight,
         prev_hash: CryptoHash,
@@ -868,7 +865,6 @@ impl BlockHeader {
     ) -> Self {
         let chunks_included = if height == 0 { num_shards } else { 0 };
         Self::new_impl(
-            genesis_protocol_version,
             genesis_protocol_version,
             genesis_protocol_version,
             height,
