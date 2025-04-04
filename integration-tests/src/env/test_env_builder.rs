@@ -5,10 +5,10 @@ use near_async::time::Clock;
 use near_chain::state_snapshot_actor::SnapshotCallbacks;
 use near_chain::types::RuntimeAdapter;
 use near_chain::{Block, ChainGenesis};
-use near_chain_configs::{Genesis, GenesisConfig};
+use near_chain_configs::{Genesis, GenesisConfig, TrackedShardsConfig};
 use near_chunks::test_utils::MockClientAdapterForShardsManager;
 use near_client::Client;
-use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
+use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::{EpochManager, EpochManagerHandle};
 use near_network::test_utils::MockPeerManagerAdapter;
 use near_parameters::RuntimeConfigStore;
@@ -376,7 +376,9 @@ impl TestEnvBuilder {
             .as_ref()
             .unwrap()
             .iter()
-            .map(|epoch_manager| ShardTracker::new(TrackedConfig::AllShards, epoch_manager.clone()))
+            .map(|epoch_manager| {
+                ShardTracker::new(TrackedShardsConfig::AllShards, epoch_manager.clone())
+            })
             .collect();
         ret.shard_trackers(shard_trackers)
     }
@@ -398,7 +400,7 @@ impl TestEnvBuilder {
             .unwrap()
             .iter()
             .map(|epoch_manager| {
-                ShardTracker::new(TrackedConfig::new_empty(), epoch_manager.clone())
+                ShardTracker::new(TrackedShardsConfig::new_empty(), epoch_manager.clone())
             })
             .collect();
         ret.shard_trackers(shard_trackers)

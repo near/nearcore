@@ -7,6 +7,7 @@ pub use crate::node::thread_node::ThreadNode;
 use crate::user::{AsyncUser, User};
 use near_chain_configs::Genesis;
 use near_chain_configs::MutableConfigValue;
+use near_chain_configs::TrackedShardsConfig;
 use near_crypto::Signer;
 use near_jsonrpc_primitives::errors::ServerError;
 use near_primitives::account::AccountContract;
@@ -147,8 +148,15 @@ fn near_configs_to_node_configs(
 }
 
 pub fn create_nodes(num_nodes: usize, prefix: &str) -> Vec<NodeConfig> {
-    let (configs, validator_signers, network_signers, genesis, _) =
-        create_localnet_configs(1, num_nodes as NumSeats, 0, 0, 0, prefix, vec![]);
+    let (configs, validator_signers, network_signers, genesis, _) = create_localnet_configs(
+        1,
+        num_nodes as NumSeats,
+        0,
+        0,
+        0,
+        prefix,
+        TrackedShardsConfig::NoShards,
+    );
     near_configs_to_node_configs(configs, validator_signers, network_signers, genesis)
 }
 
@@ -162,7 +170,7 @@ pub fn create_nodes_from_seeds(seeds: Vec<String>) -> Vec<NodeConfig> {
             0,
             0,
             0,
-            vec![],
+            TrackedShardsConfig::NoShards,
         );
     genesis.config.gas_price_adjustment_rate = Ratio::from_integer(0);
     for seed in seeds {
