@@ -1029,17 +1029,14 @@ impl Chain {
 
         // Check that block body hash matches the block body. This makes sure that the block body
         // content is not tampered
-        #[allow(deprecated)]
-        if ProtocolFeature::_DeprecatedBlockHeaderV4.enabled(_epoch_protocol_version) {
-            let block_body_hash = block.compute_block_body_hash();
-            if block_body_hash.is_none() {
-                tracing::warn!("Block version too old for block: {:?}", block.hash());
-                return Ok(VerifyBlockHashAndSignatureResult::Incorrect);
-            }
-            if block.header().block_body_hash() != block_body_hash {
-                tracing::warn!("Invalid block body hash for block: {:?}", block.hash());
-                return Ok(VerifyBlockHashAndSignatureResult::Incorrect);
-            }
+        let block_body_hash = block.compute_block_body_hash();
+        if block_body_hash.is_none() {
+            tracing::warn!("Block version too old for block: {:?}", block.hash());
+            return Ok(VerifyBlockHashAndSignatureResult::Incorrect);
+        }
+        if block.header().block_body_hash() != block_body_hash {
+            tracing::warn!("Invalid block body hash for block: {:?}", block.hash());
+            return Ok(VerifyBlockHashAndSignatureResult::Incorrect);
         }
 
         // Verify the signature. Since the signature is signed on the hash of block header, this check
