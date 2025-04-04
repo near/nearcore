@@ -187,7 +187,8 @@ pub enum ProtocolFeature {
     /// Enables rejection of blocks with outdated protocol versions.
     RejectBlocksWithOutdatedProtocolVersions,
     // NEP: https://github.com/near/NEPs/pull/488
-    BLS12381,
+    #[deprecated]
+    _DeprecatedBLS12381,
     #[deprecated]
     _DeprecatedRestrictTla,
     /// Increases the number of chunk producers.
@@ -201,7 +202,8 @@ pub enum ProtocolFeature {
     /// WitnessTransactionLimits: size limits for transactions included in a ChunkStateWitness.
     /// NoChunkOnlyProducers: no chunk-only producers in stateless validation.
     StatelessValidation,
-    EthImplicitAccounts,
+    #[deprecated]
+    _DeprecatedEthImplicitAccounts,
     /// Enables yield execution which is introduced in <https://github.com/near/NEPs/pull/519>
     YieldExecution,
     /// Bring minimum required validator stake effectively to ~10K NEAR as of 2024-08-15.
@@ -333,7 +335,8 @@ impl ProtocolFeature {
             ProtocolFeature::CongestionControl
             | ProtocolFeature::RemoveAccountWithLongStorageKey => 68,
             ProtocolFeature::StatelessValidation => 69,
-            ProtocolFeature::BLS12381 | ProtocolFeature::EthImplicitAccounts => 70,
+            ProtocolFeature::_DeprecatedBLS12381
+            | ProtocolFeature::_DeprecatedEthImplicitAccounts => 70,
             ProtocolFeature::FixMinStakeRatio => 71,
             ProtocolFeature::IncreaseStorageProofSizeSoftLimit
             | ProtocolFeature::ChunkEndorsementV2
