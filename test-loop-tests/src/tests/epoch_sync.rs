@@ -1,15 +1,13 @@
 use std::cell::RefCell;
+use std::collections::HashSet;
 use std::rc::Rc;
 
 use itertools::Itertools;
-use near_async::messaging::CanSend;
 use near_async::time::Duration;
 use near_chain::ChainStoreAccess;
 use near_chain_configs::GenesisConfig;
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
-use near_client::SetNetworkInfo;
 use near_client::sync::epoch::EpochSync;
-use near_network::types::NetworkInfo;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::epoch_sync::EpochSyncProof;
 use near_primitives::shard_layout::ShardLayout;
@@ -21,6 +19,7 @@ use crate::setup::builder::{NodeStateBuilder, TestLoopBuilder};
 use crate::setup::env::TestLoopEnv;
 use crate::utils::ONE_NEAR;
 use crate::utils::client_queries::ClientQueries;
+use crate::utils::peer_manager_actor::PeerRestriction;
 use crate::utils::transactions::{BalanceMismatchError, execute_money_transfers};
 
 const NUM_CLIENTS: usize = 4;
@@ -101,17 +100,34 @@ fn bootstrap_node_via_epoch_sync(mut env: TestLoopEnv, source_node: usize) -> Te
 
     let TestLoopEnv { mut test_loop, node_datas, shared_state } = env;
 
-    // Normally env.add_node() sets the network_info for the new node, but we want to override this
-    // with the highest height peer info from the source node.
-    let highest_height_peer_info =
-        node_datas[source_node].get_highest_height_peer_info(&test_loop.data);
-    let client_sender = &node_datas.last().unwrap().client_sender;
-    client_sender.send(SetNetworkInfo(NetworkInfo {
-        highest_height_peers: vec![highest_height_peer_info],
-        ..NetworkInfo::default()
-    }));
+    // Allow talking only with the source node.
+    let new_node_peer_id = node_datas.last().unwrap().peer_id.clone();
+    for (index, data) in node_datas.iter().enumerate() {
+        if index == source_node {
+            data.register_peer_restriction(
+                PeerRestriction::AllowAll,
+                &mut test_loop,
+                shared_state.network_shared_state.clone(),
+            );
+        } else if index == node_datas.len() - 1 {
+            node_datas.last().unwrap().register_peer_restriction(
+                PeerRestriction::AllowSelected(HashSet::from([node_datas[source_node]
+                    .peer_id
+                    .clone()])),
+                &mut test_loop,
+                shared_state.network_shared_state.clone(),
+            );
+        } else {
+            data.register_peer_restriction(
+                PeerRestriction::BlockSelected(HashSet::from([new_node_peer_id.clone()])),
+                &mut test_loop,
+                shared_state.network_shared_state.clone(),
+            );
+        }
+    }
 
     // Check that the new node will reach a high height as well.
+    let client_sender = &node_datas.last().unwrap().client_sender;
     let new_node = client_sender.actor_handle();
     let sync_status_history = Rc::new(RefCell::new(Vec::new()));
     {
