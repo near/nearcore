@@ -157,7 +157,7 @@ impl RotatingValidatorsRunner {
                 let client = Self::client(&test_loop_data, client_actor_handle);
                 let epoch_id = client.chain.final_head().unwrap().epoch_id;
                 let epoch_changed = epoch_id == next_epoch_id;
-                return epoch_changed;
+                epoch_changed
             },
             self.max_epoch_duration(epoch_length),
         );
