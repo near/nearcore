@@ -65,7 +65,7 @@ fn process_transaction(
 }
 
 /// NOTE: The comment below is no longer valid as we are now only checking for the latest protocol version.
-/// 
+///
 /// Compare charged node accesses before and after protocol upgrade to the protocol version of `ChunkNodesCache`.
 /// This upgrade during chunk processing saves each node for which we charge touching trie node cost to a special
 /// accounting cache (used to be called "chunk cache"), and such cost is charged only once on the first access.
