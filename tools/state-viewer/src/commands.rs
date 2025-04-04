@@ -98,7 +98,7 @@ pub(crate) fn apply_block(
         let receipts = collect_receipts_from_response(&receipt_proof_response);
 
         let chunk_inner = chunk.cloned_header().take_inner();
-        let is_first_block_with_chunk_of_version = check_if_block_is_first_with_chunk_of_version(
+        check_if_block_is_first_with_chunk_of_version(
             chain_store,
             epoch_manager,
             block.header().prev_hash(),
