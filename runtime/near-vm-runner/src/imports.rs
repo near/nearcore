@@ -47,7 +47,7 @@
 //! make imports retroactively available to old transactions. So
 //! `for_each_available_import` takes care to invoke `M!` only for currently
 //! available imports.
-#![cfg(any(feature = "wasmer2_vm", feature = "near_vm", feature = "wasmtime_vm"))]
+#![cfg(any(feature = "near_vm", feature = "wasmtime_vm"))]
 
 macro_rules! call_with_name {
     ( $M:ident => @in $mod:ident : $func:ident < [ $( $arg_name:ident : $arg_type:ident ),* ] -> [ $( $returns:ident ),* ] > ) => {

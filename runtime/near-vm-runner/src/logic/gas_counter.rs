@@ -200,7 +200,7 @@ impl GasCounter {
     /// Very special function to get the gas counter pointer for generated machine code.
     ///
     /// Please do not use, unless fully understand Rust aliasing and other consequences.
-    #[cfg(all(any(feature = "wasmer2_vm", feature = "near_vm"), target_arch = "x86_64"))]
+    #[cfg(all(feature = "near_vm", target_arch = "x86_64"))]
     pub(crate) fn fast_counter_raw_ptr(&mut self) -> *mut FastGasCounter {
         &raw mut self.fast_counter
     }
@@ -212,10 +212,7 @@ impl GasCounter {
     /// structure into consideration could be added. But since that would have
     /// to happen after loading, we cannot pre-charge it. This is the main
     /// motivation to (only) have this simple fee.
-    #[cfg(any(
-        feature = "wasmtime_vm",
-        all(target_arch = "x86_64", any(feature = "wasmer2_vm", feature = "near_vm"))
-    ))]
+    #[cfg(any(feature = "wasmtime_vm", all(target_arch = "x86_64", feature = "near_vm")))]
     pub(crate) fn add_contract_loading_fee(&mut self, code_len: u64) -> Result<()> {
         self.pay_per(ExtCosts::contract_loading_bytes, code_len)?;
         self.pay_base(ExtCosts::contract_loading_base)
@@ -226,10 +223,7 @@ impl GasCounter {
     /// Does VM independent checks that happen after the instantiation of
     /// VMLogic but before loading the executable. This includes pre-charging gas
     /// costs for loading the executable, which depends on the size of the WASM code.
-    #[cfg(any(
-        feature = "wasmtime_vm",
-        all(target_arch = "x86_64", any(feature = "wasmer2_vm", feature = "near_vm"))
-    ))]
+    #[cfg(any(feature = "wasmtime_vm", all(target_arch = "x86_64", feature = "near_vm")))]
     pub(crate) fn before_loading_executable(
         &mut self,
         config: &near_parameters::vm::Config,
@@ -253,10 +247,7 @@ impl GasCounter {
     }
 
     /// Legacy code to preserve old gas charging behaviour in old protocol versions.
-    #[cfg(any(
-        feature = "wasmtime_vm",
-        all(target_arch = "x86_64", any(feature = "wasmer2_vm", feature = "near_vm"))
-    ))]
+    #[cfg(any(feature = "wasmtime_vm", all(target_arch = "x86_64", feature = "near_vm")))]
     pub(crate) fn after_loading_executable(
         &mut self,
         config: &near_parameters::vm::Config,

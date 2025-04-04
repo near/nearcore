@@ -120,11 +120,6 @@ pub struct LimitConfig {
     /// If present, stores max number of functions in one contract
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_functions_number_per_contract: Option<u64>,
-    /// If present, stores the secondary stack limit as implemented by wasmer2.
-    ///
-    /// This limit should never be hit normally.
-    #[serde(default = "wasmer2_stack_limit_default")]
-    pub wasmer2_stack_limit: i32,
     /// If present, stores max number of locals declared globally in one contract
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_locals_per_contract: Option<u64>,
@@ -228,10 +223,6 @@ impl Config {
         self.math_extension = true;
         self.implicit_account_creation = true;
     }
-}
-
-fn wasmer2_stack_limit_default() -> i32 {
-    100 * 1024
 }
 
 /// Our original code for limiting WASM stack was buggy. We fixed that, but we

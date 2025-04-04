@@ -3360,10 +3360,7 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
     ///
     /// This is meant for use in tests and implementation of VMs only. Implementations of host
     /// functions should be using `pay_*` functions instead.
-    #[cfg(any(
-        test,
-        all(any(feature = "wasmer2_vm", feature = "near_vm"), target_arch = "x86_64")
-    ))]
+    #[cfg(any(test, all(feature = "near_vm", target_arch = "x86_64")))]
     pub(crate) fn gas_counter(&mut self) -> &mut GasCounter {
         &mut self.result_state.gas_counter
     }

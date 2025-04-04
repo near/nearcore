@@ -46,9 +46,9 @@ pub fn prepare(
     method: &str,
 ) -> Box<dyn crate::PreparedContract> {
     let vm_kind = wasm_config.vm_kind;
-    let runtime = vm_kind
-        .runtime(wasm_config)
-        .unwrap_or_else(|| panic!("the {vm_kind:?} runtime has not been enabled at compile time"));
+    let runtime = vm_kind.runtime(wasm_config).unwrap_or_else(|| {
+        panic!("the {vm_kind:?} runtime has not been enabled at compile time or has been removed")
+    });
     runtime.prepare(contract, cache, gas_counter, method)
 }
 
@@ -164,8 +164,8 @@ impl VMKindExt for VMKind {
         match self {
             #[allow(deprecated)]
             Self::Wasmer0 => false,
+            Self::Wasmer2 => false,
             Self::Wasmtime => cfg!(feature = "wasmtime_vm"),
-            Self::Wasmer2 => cfg!(all(feature = "wasmer2_vm", target_arch = "x86_64")),
             Self::NearVm => cfg!(all(feature = "near_vm", target_arch = "x86_64")),
         }
     }
@@ -173,8 +173,6 @@ impl VMKindExt for VMKind {
         match self {
             #[cfg(feature = "wasmtime_vm")]
             Self::Wasmtime => Some(Box::new(crate::wasmtime_runner::WasmtimeVM::new(config))),
-            #[cfg(all(feature = "wasmer2_vm", target_arch = "x86_64"))]
-            Self::Wasmer2 => Some(Box::new(crate::wasmer2_runner::Wasmer2VM::new(config))),
             #[cfg(all(feature = "near_vm", target_arch = "x86_64"))]
             Self::NearVm => Some(Box::new(crate::near_vm_runner::NearVM::new(config))),
             #[allow(unreachable_patterns)] // reachable when some of the VMs are disabled.
