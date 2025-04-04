@@ -86,15 +86,7 @@ impl Block {
         header: BlockHeader,
         body: BlockBody,
     ) -> Block {
-        if !ProtocolFeature::BlockHeaderV4.enabled(this_epoch_protocol_version) {
-            Block::BlockV2(Arc::new(BlockV2 {
-                header,
-                chunks: body.chunks().to_vec(),
-                challenges: body.challenges().to_vec(),
-                vrf_value: *body.vrf_value(),
-                vrf_proof: *body.vrf_proof(),
-            }))
-        } else if !ProtocolFeature::StatelessValidation.enabled(this_epoch_protocol_version) {
+        if !ProtocolFeature::StatelessValidation.enabled(this_epoch_protocol_version) {
             // BlockV3 should only have BlockBodyV1
             match body {
                 BlockBody::V1(body) => Block::BlockV3(Arc::new(BlockV3 { header, body })),
