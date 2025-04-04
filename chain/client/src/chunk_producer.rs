@@ -285,30 +285,31 @@ impl ChunkProducer {
         let gas_used = if self.produce_invalid_chunks { gas_used + 1 } else { gas_used };
 
         let congestion_info = chunk_extra.congestion_info();
-        let (encoded_chunk, merkle_paths) = ShardsManagerActor::create_encoded_shard_chunk(
-            prev_block_hash,
-            *chunk_extra.state_root(),
-            *chunk_extra.outcome_root(),
-            next_height,
-            shard_id,
-            gas_used,
-            chunk_extra.gas_limit(),
-            chunk_extra.balance_burnt(),
-            chunk_extra.validator_proposals().collect(),
-            prepared_transactions
-                .transactions
-                .into_iter()
-                .map(|vt| vt.into_signed_tx())
-                .collect::<Vec<_>>(),
-            &outgoing_receipts,
-            outgoing_receipts_root,
-            tx_root,
-            congestion_info,
-            chunk_extra.bandwidth_requests().cloned(),
-            &*validator_signer,
-            &mut self.reed_solomon_encoder,
-            protocol_version,
-        );
+        let (encoded_chunk, merkle_paths, outgoing_receipts) =
+            ShardsManagerActor::create_encoded_shard_chunk(
+                prev_block_hash,
+                *chunk_extra.state_root(),
+                *chunk_extra.outcome_root(),
+                next_height,
+                shard_id,
+                gas_used,
+                chunk_extra.gas_limit(),
+                chunk_extra.balance_burnt(),
+                chunk_extra.validator_proposals().collect(),
+                prepared_transactions
+                    .transactions
+                    .into_iter()
+                    .map(|vt| vt.into_signed_tx())
+                    .collect::<Vec<_>>(),
+                outgoing_receipts,
+                outgoing_receipts_root,
+                tx_root,
+                congestion_info,
+                chunk_extra.bandwidth_requests().cloned(),
+                &*validator_signer,
+                &mut self.reed_solomon_encoder,
+                protocol_version,
+            );
 
         span.record("chunk_hash", tracing::field::debug(encoded_chunk.chunk_hash()));
         debug!(target: "client",
