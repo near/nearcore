@@ -186,7 +186,8 @@ pub enum ProtocolFeature {
     StatelessValidation,
     EthImplicitAccounts,
     /// Enables yield execution which is introduced in <https://github.com/near/NEPs/pull/519>
-    YieldExecution,
+    #[deprecated]
+    _DeprecatedYieldExecution,
     /// Bring minimum required validator stake effectively to ~10K NEAR as of 2024-08-15.
     /// Fixes increase to 100K NEAR in the previous protocol version.
     /// See #11953 for more details.
@@ -199,7 +200,8 @@ pub enum ProtocolFeature {
     /// Cross-shard congestion control according to <https://github.com/near/NEPs/pull/539>.
     CongestionControl,
     /// Remove account with long storage key.
-    RemoveAccountWithLongStorageKey,
+    #[deprecated]
+    _DeprecatedRemoveAccountWithLongStorageKey,
     /// Change the structure of ChunkEndorsement to have (shard_id, epoch_id, height_created)
     /// instead of chunk_hash
     ChunkEndorsementV2,
@@ -312,9 +314,9 @@ impl ProtocolFeature {
             ProtocolFeature::SimpleNightshadeV3 => 65,
             ProtocolFeature::DecreaseFunctionCallBaseCost
             | ProtocolFeature::FixedMinimumNewReceiptGas => 66,
-            ProtocolFeature::YieldExecution => 67,
+            ProtocolFeature::_DeprecatedYieldExecution => 67,
             ProtocolFeature::CongestionControl
-            | ProtocolFeature::RemoveAccountWithLongStorageKey => 68,
+            | ProtocolFeature::_DeprecatedRemoveAccountWithLongStorageKey => 68,
             ProtocolFeature::StatelessValidation => 69,
             ProtocolFeature::BLS12381 | ProtocolFeature::EthImplicitAccounts => 70,
             ProtocolFeature::FixMinStakeRatio => 71,

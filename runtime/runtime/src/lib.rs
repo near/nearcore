@@ -1385,12 +1385,9 @@ impl Runtime {
         &self,
         state_update: &mut TrieUpdate,
         migration_flags: &MigrationFlags,
-        protocol_version: ProtocolVersion,
     ) -> Result<(), StorageError> {
         // Remove the only testnet account with large storage key.
-        if ProtocolFeature::RemoveAccountWithLongStorageKey.protocol_version() == protocol_version
-            && migration_flags.is_first_block_with_chunk_of_version
-        {
+        if migration_flags.is_first_block_with_chunk_of_version {
             let account_id = "contractregistry.testnet".parse().unwrap();
             if get_account(state_update, &account_id)?.is_some() {
                 remove_account(state_update, &account_id)?;
@@ -1468,7 +1465,6 @@ impl Runtime {
         self.apply_migrations(
             &mut processing_state.state_update,
             &apply_state.migration_flags,
-            processing_state.protocol_version,
         )
         .map_err(RuntimeError::StorageError)?;
 
