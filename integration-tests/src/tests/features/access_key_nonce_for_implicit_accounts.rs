@@ -18,7 +18,7 @@ use near_primitives::sharding::ChunkHash;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockHeight};
 use near_primitives::utils::derive_near_implicit_account_id;
-use near_primitives::version::{ProtocolFeature, ProtocolVersion};
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolVersion};
 use near_primitives::views::FinalExecutionStatus;
 use rand::seq::SliceRandom;
 use rand::{Rng, thread_rng};
@@ -198,7 +198,6 @@ fn get_status_of_tx_hash_collision_for_near_implicit_account(
 /// Test that duplicate transactions from NEAR-implicit accounts are properly rejected.
 #[test]
 fn test_transaction_hash_collision_for_near_implicit_account_fail() {
-    let protocol_version = ProtocolFeature::AccessKeyNonceForImplicitAccounts.protocol_version();
     let secret_key = SecretKey::from_seed(KeyType::ED25519, "test");
     let public_key = secret_key.public_key();
     let near_implicit_account_id = derive_near_implicit_account_id(public_key.unwrap_as_ed25519());
@@ -206,29 +205,10 @@ fn test_transaction_hash_collision_for_near_implicit_account_fail() {
         InMemorySigner::from_secret_key(near_implicit_account_id, secret_key);
     assert_matches!(
         get_status_of_tx_hash_collision_for_near_implicit_account(
-            protocol_version,
+            PROTOCOL_VERSION,
             near_implicit_account_signer
         ),
         ProcessTxResponse::InvalidTx(InvalidTxError::InvalidNonce { .. })
-    );
-}
-
-/// Test that duplicate transactions from NEAR-implicit accounts are not rejected until protocol upgrade.
-#[test]
-fn test_transaction_hash_collision_for_near_implicit_account_ok() {
-    let protocol_version =
-        ProtocolFeature::AccessKeyNonceForImplicitAccounts.protocol_version() - 1;
-    let secret_key = SecretKey::from_seed(KeyType::ED25519, "test");
-    let public_key = secret_key.public_key();
-    let near_implicit_account_id = derive_near_implicit_account_id(public_key.unwrap_as_ed25519());
-    let near_implicit_account_signer =
-        InMemorySigner::from_secret_key(near_implicit_account_id, secret_key);
-    assert_matches!(
-        get_status_of_tx_hash_collision_for_near_implicit_account(
-            protocol_version,
-            near_implicit_account_signer
-        ),
-        ProcessTxResponse::ValidTx
     );
 }
 

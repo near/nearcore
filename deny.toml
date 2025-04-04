@@ -34,12 +34,6 @@ deny = [
 ]
 
 skip = [
-    # wasmer 0.17 and wasmtime 0.17 uses older versions of some crates
-    { name = "generic-array", version = "=0.12.4" },
-
-    # `sha2` uses it
-    { name = "cfg-if", version = "=1.0.0" },
-
     # Need this specific version of pwasm-utils for backwards-compatible
     # stack limiting.
     { name = "parity-wasm", version = "=0.41.0" },
@@ -52,14 +46,12 @@ skip = [
     { name = "ptr_meta_derive", version = "^0.1" },
 
     # wasmer and wasmtime
-    { name = "target-lexicon", version = "=0.10.0" },
     { name = "memoffset", version = "=0.6.5" },
     { name = "memoffset", version = "=0.8.0" },
     { name = "rustix", version = "^0.38" },
     { name = "linux-raw-sys", version = "^0.4" },
 
     # wasm-tools
-    { name = "wasmparser", version = "=0.51.4" },
     { name = "wasmparser", version = "=0.78.2" },
     { name = "wasmparser", version = "=0.99.0" },
     { name = "wasmparser", version = "=0.105.0" },
@@ -68,11 +60,6 @@ skip = [
 
     # wasmer 0.17.x
     { name = "target-lexicon", version = "^0.12.0" },
-    { name = "parking_lot", version = "=0.10.2" },
-    { name = "parking_lot_core", version = "=0.7.2" },
-    { name = "lock_api", version = "=0.3.4" },
-    { name = "digest", version = "=0.8.1" },
-    { name = "nix", version = "=0.15.0" },
 
     # many crates haven't updated to syn 2.0 yet.
     { name = "syn", version = "=1.0.103" },
@@ -90,12 +77,7 @@ skip = [
     { name = "getrandom", version = "=0.1.16" },
     { name = "getrandom", version = "^0.2" },
 
-    # criterion and criterion-plot use conflicting versions
-    { name = "semver", version = "=0.9.0" },
-
-    # criterion, wasmer-runtime-core-near, rocksdb depend on this older version of the crate.
-    { name = "rustc_version", version = "=0.2.3" },
-    { name = "errno", version = "=0.2.8" },
+    # criterion, rocksdb depend on this older version of the crate.
     { name = "rustc-hash", version = "<2" },
 
     # Hashbrowns

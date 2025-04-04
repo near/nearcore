@@ -172,7 +172,6 @@ impl NightshadeRuntime {
             ref prev_block_hash,
             block_timestamp,
             gas_price,
-            challenges_result,
             random_seed,
             congestion_info,
             bandwidth_requests,
@@ -192,21 +191,8 @@ impl NightshadeRuntime {
                    next_block_epoch_start = epoch_manager.is_next_block_epoch_start(prev_block_hash).unwrap()
             );
 
-            let mut slashing_info: HashMap<_, _> = challenges_result
-                .iter()
-                .filter_map(|s| {
-                    if shard_layout.account_id_to_shard_id(&s.account_id) == shard_id
-                        && !s.is_double_sign
-                    {
-                        Some((s.account_id.clone(), None))
-                    } else {
-                        None
-                    }
-                })
-                .collect();
-
             if epoch_manager.is_next_block_epoch_start(prev_block_hash)? {
-                let (stake_info, validator_reward, double_sign_slashing_info) =
+                let (stake_info, validator_reward, _double_sign_slashing_info) =
                     epoch_manager.compute_stake_return_info(prev_block_hash)?;
                 let stake_info = stake_info
                     .into_iter()
@@ -227,14 +213,6 @@ impl NightshadeRuntime {
                         acc.insert(account_id, stake);
                         acc
                     });
-                let double_sign_slashing_info: HashMap<_, _> = double_sign_slashing_info
-                    .into_iter()
-                    .filter(|(account_id, _)| {
-                        shard_layout.account_id_to_shard_id(account_id) == shard_id
-                    })
-                    .map(|(account_id, stake)| (account_id, Some(stake)))
-                    .collect();
-                slashing_info.extend(double_sign_slashing_info);
                 Some(ValidatorAccountsUpdate {
                     stake_info,
                     validator_rewards,
@@ -245,15 +223,6 @@ impl NightshadeRuntime {
                     .filter(|account_id| {
                         shard_layout.account_id_to_shard_id(account_id) == shard_id
                     }),
-                    slashing_info,
-                })
-            } else if !challenges_result.is_empty() {
-                Some(ValidatorAccountsUpdate {
-                    stake_info: Default::default(),
-                    validator_rewards: Default::default(),
-                    last_proposals: Default::default(),
-                    protocol_treasury_account_id: None,
-                    slashing_info,
                 })
             } else {
                 None
@@ -585,7 +554,6 @@ impl RuntimeAdapter for NightshadeRuntime {
             // here we do not know which block the transaction will be included
             // and therefore skip the check on the nonce upper bound.
             None,
-            current_protocol_version,
         )
         .map(|_vr| ())
     }
@@ -735,28 +703,30 @@ impl RuntimeAdapter for NightshadeRuntime {
                     continue;
                 }
 
-                let verify_result =
-                    tx_cost(runtime_config, &validated_tx.to_tx(), prev_block.next_gas_price)
-                        .map_err(InvalidTxError::from)
-                        .and_then(|cost| {
-                            verify_and_charge_tx_ephemeral(
-                                runtime_config,
-                                &state_update,
-                                &validated_tx,
-                                &cost,
-                                Some(next_block_height),
-                                protocol_version,
-                            )
-                        })
-                        .and_then(|verification_res| {
-                            set_tx_state_changes(
-                                &mut state_update,
-                                &validated_tx,
-                                &verification_res.signer,
-                                &verification_res.access_key,
-                            );
-                            Ok(verification_res)
-                        });
+                let verify_result = tx_cost(
+                    runtime_config,
+                    &validated_tx.to_tx(),
+                    prev_block.next_gas_price,
+                )
+                .map_err(InvalidTxError::from)
+                .and_then(|cost| {
+                    verify_and_charge_tx_ephemeral(
+                        runtime_config,
+                        &state_update,
+                        &validated_tx,
+                        &cost,
+                        Some(next_block_height),
+                    )
+                })
+                .and_then(|verification_res| {
+                    set_tx_state_changes(
+                        &mut state_update,
+                        &validated_tx,
+                        &verification_res.signer,
+                        &verification_res.access_key,
+                    );
+                    Ok(verification_res)
+                });
 
                 match verify_result {
                     Ok(cost) => {
