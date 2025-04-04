@@ -214,10 +214,7 @@ impl GasCounter {
     /// motivation to (only) have this simple fee.
     #[cfg(any(
         feature = "wasmtime_vm",
-        all(
-            target_arch = "x86_64",
-            any(feature = "wasmer0_vm", feature = "wasmer2_vm", feature = "near_vm")
-        )
+        all(target_arch = "x86_64", any(feature = "wasmer2_vm", feature = "near_vm"))
     ))]
     pub(crate) fn add_contract_loading_fee(&mut self, code_len: u64) -> Result<()> {
         self.pay_per(ExtCosts::contract_loading_bytes, code_len)?;
@@ -231,10 +228,7 @@ impl GasCounter {
     /// costs for loading the executable, which depends on the size of the WASM code.
     #[cfg(any(
         feature = "wasmtime_vm",
-        all(
-            target_arch = "x86_64",
-            any(feature = "wasmer0_vm", feature = "wasmer2_vm", feature = "near_vm")
-        )
+        all(target_arch = "x86_64", any(feature = "wasmer2_vm", feature = "near_vm"))
     ))]
     pub(crate) fn before_loading_executable(
         &mut self,
@@ -261,10 +255,7 @@ impl GasCounter {
     /// Legacy code to preserve old gas charging behaviour in old protocol versions.
     #[cfg(any(
         feature = "wasmtime_vm",
-        all(
-            target_arch = "x86_64",
-            any(feature = "wasmer0_vm", feature = "wasmer2_vm", feature = "near_vm")
-        )
+        all(target_arch = "x86_64", any(feature = "wasmer2_vm", feature = "near_vm"))
     ))]
     pub(crate) fn after_loading_executable(
         &mut self,
