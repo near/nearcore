@@ -342,13 +342,19 @@ mod tests {
         let base_config = RuntimeConfig::new(&base_params).unwrap();
 
         let mock_diff_str = r#"
-        wasm_config:
-          limit_config:
-            max_length_storage_key: 42
-        fees:
-          action_fees:
-            new_action_receipt:
-              send_sir: 100000000
+        max_length_storage_key: { old: 4_194_304, new: 42 }
+        action_receipt_creation: {
+          old: {
+            send_sir: 108_059_500_000,
+            send_not_sir: 108_059_500_000,
+            execution: 108_059_500_000,
+          },
+          new: {
+            send_sir: 100000000,
+            send_not_sir: 108_059_500_000,
+            execution: 108_059_500_000,
+          },
+        }
         "#;
 
         let mock_diff: ParameterTableDiff = mock_diff_str.parse().unwrap();
