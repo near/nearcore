@@ -135,7 +135,8 @@ pub enum ProtocolFeature {
     #[deprecated]
     _DeprecatedMaxKickoutStake,
     /// Validate account id for function call access keys.
-    AccountIdInFunctionCallPermission,
+    #[deprecated]
+    _DeprecatedAccountIdInFunctionCallPermission,
     /// Zero Balance Account NEP 448: <https://github.com/near/NEPs/pull/448>
     #[deprecated]
     _DeprecatedZeroBalanceAccount,
@@ -311,7 +312,7 @@ impl ProtocolFeature {
             | ProtocolFeature::LowerStorageKeyLimit => 53,
             ProtocolFeature::_DeprecatedAltBn128 => 55,
             ProtocolFeature::ChunkOnlyProducers | ProtocolFeature::_DeprecatedMaxKickoutStake => 56,
-            ProtocolFeature::AccountIdInFunctionCallPermission => 57,
+            ProtocolFeature::_DeprecatedAccountIdInFunctionCallPermission => 57,
             ProtocolFeature::_DeprecatedEd25519Verify
             | ProtocolFeature::_DeprecatedZeroBalanceAccount
             | ProtocolFeature::_DeprecatedDelegateAction => 59,
