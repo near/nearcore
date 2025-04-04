@@ -170,9 +170,3 @@ fn gen_index_old(rng: &mut Hc128Rng, bound: u64) -> u64 {
         }
     }
 }
-
-#[cfg(test)]
-mod test {
-    #[test]
-    fn test_prod_genesis_epoch_info_consistency() {}
-}
