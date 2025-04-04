@@ -18,8 +18,8 @@ use near_primitives::stateless_validation::validator_assignment::ChunkValidatorA
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
     AccountId, ApprovalStake, Balance, BlockChunkValidatorStats, BlockHeight, ChunkStats, EpochId,
-    EpochInfoProvider, NumSeats, ShardId, ValidatorId, ValidatorInfoIdentifier,
-    ValidatorKickoutReason, ValidatorStats,
+    EpochInfoProvider, ShardId, ValidatorId, ValidatorInfoIdentifier, ValidatorKickoutReason,
+    ValidatorStats,
 };
 use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use near_primitives::views::{
@@ -46,6 +46,7 @@ pub use near_primitives::shard_layout::ShardInfo;
 
 mod adapter;
 pub mod epoch_info_aggregator;
+mod genesis;
 mod metrics;
 mod proposals;
 mod reward_calculator;
@@ -137,9 +138,6 @@ pub struct EpochManager {
     /// Current epoch config.
     config: AllEpochConfig,
     reward_calculator: RewardCalculator,
-    /// Genesis protocol version. Useful when there are protocol upgrades.
-    genesis_protocol_version: ProtocolVersion,
-    genesis_num_block_producer_seats: NumSeats,
 
     /// Cache of epoch information.
     epochs_info: SyncLruCache<EpochId, Arc<EpochInfo>>,
@@ -222,7 +220,6 @@ impl EpochManager {
         genesis_config: &GenesisConfig,
         epoch_config_store: EpochConfigStore,
     ) -> Arc<EpochManagerHandle> {
-        let genesis_protocol_version = genesis_config.protocol_version;
         let epoch_length = genesis_config.epoch_length;
         let reward_calculator = RewardCalculator::new(genesis_config, epoch_length);
         let all_epoch_config = AllEpochConfig::from_epoch_config_store(
@@ -231,37 +228,24 @@ impl EpochManager {
             epoch_config_store,
         );
         Arc::new(
-            Self::new(
-                store,
-                all_epoch_config,
-                genesis_protocol_version,
-                reward_calculator,
-                genesis_config.validators(),
-            )
-            .unwrap()
-            .into_handle(),
+            Self::new(store, all_epoch_config, reward_calculator, genesis_config.validators())
+                .unwrap()
+                .into_handle(),
         )
     }
 
     pub fn new(
         store: Store,
         config: AllEpochConfig,
-        genesis_protocol_version: ProtocolVersion,
         reward_calculator: RewardCalculator,
         validators: Vec<ValidatorStake>,
     ) -> Result<Self, EpochError> {
-        let validator_reward =
-            HashMap::from([(reward_calculator.protocol_treasury_account.clone(), 0u128)]);
         let epoch_info_aggregator =
             store.get_ser(DBCol::EpochInfo, AGGREGATOR_KEY)?.unwrap_or_default();
-        let genesis_num_block_producer_seats =
-            config.for_protocol_version(genesis_protocol_version).num_block_producer_seats;
         let mut epoch_manager = EpochManager {
             store,
             config,
             reward_calculator,
-            genesis_protocol_version,
-            genesis_num_block_producer_seats,
             epochs_info: SyncLruCache::new(EPOCH_CACHE_SIZE),
             blocks_info: SyncLruCache::new(BLOCK_CACHE_SIZE),
             epoch_id_to_start: SyncLruCache::new(EPOCH_CACHE_SIZE),
@@ -274,37 +258,8 @@ impl EpochManager {
             epoch_info_aggregator_loop_counter: Default::default(),
             largest_final_height: 0,
         };
-        let genesis_epoch_id = EpochId::default();
-        if !epoch_manager.has_epoch_info(&genesis_epoch_id)? {
-            // Missing genesis epoch, means that there is no validator initialize yet.
-            let genesis_epoch_config =
-                epoch_manager.config.for_protocol_version(genesis_protocol_version);
-            let epoch_info = proposals_to_epoch_info(
-                &genesis_epoch_config,
-                [0; 32],
-                &EpochInfo::default(),
-                validators,
-                HashMap::default(),
-                validator_reward,
-                0,
-                genesis_protocol_version,
-                genesis_protocol_version,
-                false,
-            )?;
-            // Dummy block info.
-            // Artificial block we add to simplify implementation: dummy block is the
-            // parent of genesis block that points to itself.
-            // If we view it as block in epoch -1 and height -1, it naturally extends the
-            // EpochId formula using T-2 for T=1, and height field is unused.
-            let block_info = Arc::new(BlockInfo::default());
-            let mut store_update = epoch_manager.store.store_update();
-            epoch_manager.save_epoch_info(
-                &mut store_update,
-                &genesis_epoch_id,
-                Arc::new(epoch_info),
-            )?;
-            epoch_manager.save_block_info(&mut store_update, block_info)?;
-            store_update.commit()?;
+        if !epoch_manager.has_epoch_info(&EpochId::default())? {
+            epoch_manager.initialize_genesis_epoch_info(validators)?;
         }
         Ok(epoch_manager)
     }
@@ -731,7 +686,6 @@ impl EpochManager {
                 &validator_stake,
                 *block_info.total_supply(),
                 epoch_protocol_version,
-                self.genesis_protocol_version,
                 epoch_duration,
                 online_thresholds,
             )
