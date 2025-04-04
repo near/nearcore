@@ -18,7 +18,6 @@ fn test_account_id_in_function_call_permission_upgrade() {
         let mut genesis =
             Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
         genesis.config.epoch_length = epoch_length;
-        // genesis.config.protocol_version = old_protocol_version;
         TestEnv::builder(&genesis.config)
             .nightshade_runtimes_with_runtime_config_store(
                 &genesis,
