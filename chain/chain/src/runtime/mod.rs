@@ -1280,12 +1280,12 @@ fn chunk_tx_gas_limit(
 }
 
 fn calculate_transactions_size_limit(
-    _protocol_version: ProtocolVersion,
+    protocol_version: ProtocolVersion,
     runtime_config: &RuntimeConfig,
     transactions_gas_limit: Gas,
 ) -> u64 {
     // Checking feature WitnessTransactionLimits
-    if ProtocolFeature::StatelessValidation.enabled(_protocol_version) {
+    if ProtocolFeature::StatelessValidation.enabled(protocol_version) {
         // Sum of transactions in the previous and current chunks should not exceed the limit.
         // Witness keeps transactions from both previous and current chunk, so we have to limit the sum of both.
         runtime_config

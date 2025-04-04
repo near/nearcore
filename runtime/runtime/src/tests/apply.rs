@@ -150,10 +150,9 @@ fn setup_runtime_for_shard(
     let root = tries.apply_all(&trie_changes, shard_uid, &mut store_update);
     store_update.commit().unwrap();
     let contract_cache = FilesystemContractRuntimeCache::test().unwrap();
-    let shards_congestion_info = {
-        let shard_ids = shard_layout.shard_ids();
-        shard_ids.map(|shard_id| (shard_id, ExtendedCongestionInfo::default())).collect()
-    };
+    let shards_congestion_info = shard_layout.shard_ids()
+        .map(|shard_id| (shard_id, ExtendedCongestionInfo::default()))
+        .collect();
     let congestion_info = BlockCongestionInfo::new(shards_congestion_info);
     let apply_state = ApplyState {
         apply_reason: ApplyChunkReason::UpdateTrackedShard,

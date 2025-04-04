@@ -560,9 +560,6 @@ impl ShardChunkHeader {
     ) -> Result<(), BadHeaderForProtocolVersionError> {
         const BLOCK_HEADER_V3_VERSION: ProtocolVersion =
             ProtocolFeature::BlockHeaderV3.protocol_version();
-        #[allow(deprecated)]
-        const CONGESTION_CONTROL_VERSION: ProtocolVersion =
-            ProtocolFeature::_DeprecatedCongestionControl.protocol_version();
         const BANDWIDTH_SCHEDULER_VERSION: ProtocolVersion =
             ProtocolFeature::BandwidthScheduler.protocol_version();
 
@@ -571,7 +568,7 @@ impl ShardChunkHeader {
             ShardChunkHeader::V2(_) => version < BLOCK_HEADER_V3_VERSION,
             ShardChunkHeader::V3(header) => match header.inner {
                 ShardChunkHeaderInner::V1(_) => {
-                    version >= BLOCK_HEADER_V3_VERSION && version < CONGESTION_CONTROL_VERSION
+                    version >= BLOCK_HEADER_V3_VERSION
                 }
                 // Note that we allow V2 in the congestion control version.
                 // That is because the first chunk where this feature is

@@ -2617,14 +2617,7 @@ fn test_refund_receipts_processing() {
     }
 }
 
-// Tests that the number of delayed receipts in each shard is bounded based on the gas limit of
-// the chunk and any new receipts are not included if there are too many delayed receipts.
-#[test]
-fn test_delayed_receipt_count_limit() {
-    init_test_logger();
 
-    return;
-}
 
 #[test]
 fn test_execution_metadata() {

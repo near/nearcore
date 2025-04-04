@@ -508,10 +508,9 @@ mod tests {
 
     fn get_config() -> CongestionControlConfig {
         // Fix the initial configuration of congestion control for the tests.
-        #[allow(deprecated)]
-        let protocol_version = ProtocolFeature::_DeprecatedCongestionControl.protocol_version();
+        use near_primitives_core::version::PROTOCOL_VERSION;
         let runtime_config_store = RuntimeConfigStore::new(None);
-        let runtime_config = runtime_config_store.get_config(protocol_version);
+        let runtime_config = runtime_config_store.get_config(PROTOCOL_VERSION);
         runtime_config.congestion_control_config
     }
 

@@ -2194,7 +2194,6 @@ impl Runtime {
 impl ApplyState {
     fn own_congestion_info(
         &self,
-        _protocol_version: ProtocolVersion,
         trie: &dyn TrieAccess,
     ) -> Result<Option<CongestionInfo>, RuntimeError> {
         debug_assert!(!self.congestion_info.is_empty());
