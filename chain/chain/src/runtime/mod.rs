@@ -555,7 +555,6 @@ impl RuntimeAdapter for NightshadeRuntime {
             // here we do not know which block the transaction will be included
             // and therefore skip the check on the nonce upper bound.
             None,
-            current_protocol_version,
         )
         .map(|_vr| ())
     }
@@ -719,7 +718,6 @@ impl RuntimeAdapter for NightshadeRuntime {
                         &validated_tx,
                         &cost,
                         Some(next_block_height),
-                        protocol_version,
                     )
                 })
                 .and_then(|verification_res| {
