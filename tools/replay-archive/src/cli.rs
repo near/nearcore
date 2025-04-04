@@ -326,8 +326,6 @@ impl ReplayController {
                 prev_chunk_header.height_included(),
             )?;
 
-
-
             ShardUpdateReason::NewChunk(NewChunkData {
                 chunk_header: chunk_header.clone(),
                 transactions: chunk.transactions().to_vec(),

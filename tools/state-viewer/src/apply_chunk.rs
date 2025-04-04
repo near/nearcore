@@ -173,8 +173,6 @@ pub fn apply_chunk(
         runtime.get_flat_storage_manager().create_flat_storage_for_shard(shard_uid).unwrap();
     }
 
-
-
     let valid_txs = chain_store.compute_transaction_validity(prev_block.header(), &chunk);
 
     Ok((

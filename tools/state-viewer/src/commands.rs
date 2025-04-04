@@ -99,7 +99,6 @@ pub(crate) fn apply_block(
 
         let chunk_inner = chunk.cloned_header().take_inner();
 
-
         let transactions = chunk.transactions().to_vec();
         let valid_txs = chain_store.compute_transaction_validity(prev_block.header(), &chunk);
         runtime

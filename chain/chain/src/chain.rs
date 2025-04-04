@@ -3399,7 +3399,6 @@ impl Chain {
             let old_receipts = collect_receipts_from_response(&old_receipts);
             let receipts = [new_receipts, old_receipts].concat();
 
-
             ShardUpdateReason::NewChunk(NewChunkData {
                 chunk_header: chunk_header.clone(),
                 transactions: chunk.transactions().to_vec(),

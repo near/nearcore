@@ -172,7 +172,6 @@ fn apply_block_from_range(
 
         let chunk_inner = chunk.cloned_header().take_inner();
 
-
         num_receipt = receipts.len();
         num_tx = chunk.transactions().len();
 
