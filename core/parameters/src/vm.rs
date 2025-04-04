@@ -27,7 +27,7 @@ use std::hash::{Hash, Hasher};
 )]
 #[cfg_attr(feature = "clap", derive(clap::ValueEnum))]
 pub enum VMKind {
-    /// Wasmer 0.17.x VM.
+    /// Wasmer 0.17.x VM. Gone now.
     Wasmer0,
     /// Wasmtime VM.
     Wasmtime,
