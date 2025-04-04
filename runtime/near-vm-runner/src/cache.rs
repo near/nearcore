@@ -10,13 +10,17 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use near_parameters::vm::VMKind;
 use near_primitives_core::hash::CryptoHash;
 use near_schema_checker_lib::ProtocolSchema;
-use rand::Rng as _;
+
 use std::any::Any;
 use std::collections::HashMap;
 use std::fmt;
-use std::io::{Read, Write};
 use std::num::NonZeroUsize;
 use std::sync::{Arc, Mutex};
+
+#[cfg(not(windows))]
+use rand::Rng as _;
+#[cfg(not(windows))]
+use std::io::{Read, Write};
 
 #[derive(Debug, Clone, BorshSerialize, ProtocolSchema)]
 enum ContractCacheKey {
@@ -219,17 +223,20 @@ impl fmt::Debug for MockContractRuntimeCache {
 /// This cache however does not implement any clean-up policies. While it is possible to truncate
 /// a file that has been written to the cache before (`put` an empty buffer), the file will remain
 /// in place until an operator (or somebody else) removes files at their own discretion.
+#[cfg(not(windows))]
 #[derive(Clone)]
 pub struct FilesystemContractRuntimeCache {
     state: Arc<FilesystemContractRuntimeCacheState>,
 }
 
+#[cfg(not(windows))]
 struct FilesystemContractRuntimeCacheState {
     dir: rustix::fd::OwnedFd,
     any_cache: AnyCache,
     test_temp_dir: Option<tempfile::TempDir>,
 }
 
+#[cfg(not(windows))]
 impl FilesystemContractRuntimeCache {
     pub fn new<SP: AsRef<std::path::Path> + ?Sized>(
         home_dir: &std::path::Path,
@@ -282,14 +289,17 @@ impl FilesystemContractRuntimeCache {
 /// Byte added after a serialized payload representing a compilation failure.
 ///
 /// This is ASCII LF.
+#[cfg(not(windows))]
 const ERROR_TAG: u8 = 0b00001010;
 /// Byte added after a serialized payload representing the contract code.
 ///
 /// Value is fairly arbitrarily chosen such that a couple of bit flips do not make this an
 /// [`ERROR_TAG`].
+#[cfg(not(windows))]
 const CODE_TAG: u8 = 0b10010101;
 
 /// Cache for compiled contracts code in plain filesystem.
+#[cfg(not(windows))]
 impl ContractRuntimeCache for FilesystemContractRuntimeCache {
     fn handle(&self) -> Box<dyn ContractRuntimeCache> {
         Box::new(self.clone())

@@ -9,7 +9,7 @@ use std::rc::Rc;
 use near_chain::ChainStore;
 use near_chain::ChainStoreAccess;
 use near_chain_configs::GenesisValidationMode;
-use near_epoch_manager::EpochManager;
+use near_epoch_manager::{EpochManager, EpochManagerAdapter};
 use nearcore::config::load_config;
 
 use near_primitives::hash::CryptoHash;
@@ -52,8 +52,7 @@ impl AnalyzeDelayedReceiptCommand {
             near_config.genesis.config.transaction_validity_period,
         ));
         let epoch_manager =
-            EpochManager::new_from_genesis_config(store.clone(), &near_config.genesis.config)
-                .unwrap();
+            EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config, None);
 
         let tip = chain_store.head().unwrap();
         let shard_layout = epoch_manager.get_shard_layout(&tip.epoch_id).unwrap();

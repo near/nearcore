@@ -109,8 +109,7 @@ fn genesis_chunk(
         BandwidthRequests::default_for_protocol_version(genesis_protocol_version),
         &EmptyValidatorSigner::default().into(),
         genesis_protocol_version,
-    )
-    .expect("Failed to decode genesis chunk");
+    );
     encoded_chunk
 }
 
@@ -125,7 +124,7 @@ pub fn prod_genesis_chunks(
 
     let rs = ShardChunkReedSolomon::new(1, 2).unwrap();
     let (transaction_receipts_parts, encoded_length) =
-        reed_solomon_encode(&rs, TransactionReceipt(vec![], vec![]));
+        reed_solomon_encode(&rs, &TransactionReceipt(vec![], vec![]));
     let content = EncodedShardChunkBody { parts: transaction_receipts_parts };
     let (encoded_merkle_root, _) = content.get_merkle_hash_and_paths();
 

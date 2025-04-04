@@ -1,3 +1,5 @@
+use crate::types::RuntimeAdapter;
+use crate::{Chain, ChainGenesis, ChainStore, ChainStoreAccess, ChainStoreUpdate};
 use itertools::Itertools;
 use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
@@ -12,15 +14,12 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::ShardChunk;
 use near_primitives::types::chunk_extra::ChunkExtra;
-use near_primitives::types::{BlockExtra, EpochId, Gas, ShardId, StateRoot};
+use near_primitives::types::{EpochId, Gas, ShardId, StateRoot};
 use near_primitives::version::ProtocolFeature;
 use near_store::adapter::StoreUpdateAdapter;
 use near_store::get_genesis_state_roots;
 use near_vm_runner::logic::ProtocolVersion;
 use node_runtime::bootstrap_congestion_info;
-
-use crate::types::RuntimeAdapter;
-use crate::{Chain, ChainGenesis, ChainStore, ChainStoreAccess, ChainStoreUpdate};
 
 impl Chain {
     /// Builds genesis block and chunks from the current configuration obtained through the arguments.
@@ -87,7 +86,6 @@ impl Chain {
         )?);
         store_update.save_block_header(genesis.header().clone())?;
         store_update.save_block(genesis.clone());
-        store_update.save_block_extra(genesis.hash(), BlockExtra { challenges_result: vec![] });
         Self::save_genesis_chunk_extras(&genesis, &state_roots, epoch_manager, &mut store_update)?;
 
         let block_head = Tip::from_header(genesis.header());

@@ -1,4 +1,5 @@
 use assert_matches::assert_matches;
+use near_chain::test_utils::is_optimistic_block_in_processing;
 use near_chain::validate::validate_chunk_with_chunk_extra;
 use near_chain::{Provenance, test_utils};
 use near_chain_configs::Genesis;
@@ -326,13 +327,26 @@ fn test_process_optimistic_block() {
     let prev_block = env.clients[0].produce_block(1).unwrap().unwrap();
     env.process_block(0, prev_block, Provenance::PRODUCED);
     assert!(!env.clients[0].is_optimistic_block_done(2), "Optimistic block should not be ready");
+
+    // Produce and save optimistic block to be used at block production.
     let optimistic_block = env.clients[0].produce_optimistic_block_on_head(2).unwrap().unwrap();
-    // Store optimistic block to be used at block production.
     env.clients[0].save_optimistic_block(&optimistic_block);
     assert!(env.clients[0].is_optimistic_block_done(2), "Optimistic block should be ready");
 
-    // TODO(#10584): Process chunks with optimistic block
-
+    // Check that block data matches optimistic block data.
     let block = env.clients[0].produce_block(2).unwrap().unwrap();
     check_block_produced_from_optimistic_block(&block, &optimistic_block);
+
+    // Start processing block and then optimistic block.
+    // Check that optimistic block is not in processing.
+    let signer = env.clients[0].validator_signer.get();
+    let me = signer.as_ref().map(|signer| signer.validator_id().clone());
+    env.clients[0].start_process_block(block.into(), Provenance::NONE, None, &signer).unwrap();
+    let optimistic_block_hash = *optimistic_block.hash();
+    env.clients[0].chain.preprocess_optimistic_block(optimistic_block, &me, None);
+    assert!(
+        !is_optimistic_block_in_processing(&env.clients[0].chain, &optimistic_block_hash),
+        "Optimistic block should not be in processing because block processing already started"
+    );
+    // TODO(#10584): Process chunks with optimistic block
 }

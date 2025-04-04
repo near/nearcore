@@ -1,11 +1,16 @@
+#[cfg(feature = "clock")]
 use crate::block::BlockHeader;
 use crate::hash::{CryptoHash, hash};
 use crate::types::{BlockHeight, SignatureDifferentiator};
 use borsh::{BorshDeserialize, BorshSerialize};
-use near_crypto::{InMemorySigner, Signature};
+#[cfg(feature = "rand")]
+use near_crypto::InMemorySigner;
+use near_crypto::Signature;
+#[cfg(feature = "rand")]
 use near_primitives_core::types::AccountId;
 use near_schema_checker_lib::ProtocolSchema;
 use std::fmt::Debug;
+#[cfg(feature = "rand")]
 use std::str::FromStr;
 
 #[derive(BorshSerialize, BorshDeserialize, Clone, Debug, Eq, PartialEq, ProtocolSchema)]
@@ -150,6 +155,7 @@ impl OptimisticBlock {
         &self.inner.random_value
     }
 
+    #[cfg(feature = "rand")]
     pub fn new_dummy(height: BlockHeight, prev_hash: CryptoHash) -> Self {
         let signer = InMemorySigner::test_signer(&AccountId::from_str("test".into()).unwrap());
         let (vrf_value, vrf_proof) = signer.compute_vrf_with_proof(Default::default());

@@ -31,7 +31,6 @@ BlockBodyV1 = 2404380656
 BlockBodyV2 = 4061842967
 BlockChunkValidatorStats = 2108136564
 BlockDoubleSign = 3280983623
-BlockExtra = 1007391376
 BlockHeader = 3330039843
 BlockHeaderInnerLite = 1941666427
 BlockHeaderInnerRest = 418905050

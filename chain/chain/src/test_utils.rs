@@ -94,6 +94,10 @@ pub fn is_block_in_processing(chain: &Chain, block_hash: &CryptoHash) -> bool {
     chain.blocks_in_processing.contains(&BlockToApply::Normal(*block_hash))
 }
 
+pub fn is_optimistic_block_in_processing(chain: &Chain, block_hash: &CryptoHash) -> bool {
+    chain.blocks_in_processing.contains(&BlockToApply::Optimistic(*block_hash))
+}
+
 pub fn wait_for_block_in_processing(
     chain: &Chain,
     hash: &CryptoHash,

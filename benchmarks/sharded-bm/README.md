@@ -154,6 +154,14 @@ export FORKNET_START_HEIGHT=<forknet start height>
 
 Grafana mostly, [Blockchain utilization dashboard](https://grafana.nearone.org/goto/3bS1Lr2Ng?orgId=1).
 
+### Forknet specific commands
+
+- Shortcut to call `mirror.py`:
+
+    ```sh
+    ./bench.sh mirror <ARGS>
+    ```
+
 ### Known issues
 
 - starting and stopping `neard` in forknet could be done with `mirror` commands
