@@ -453,31 +453,30 @@ impl EpochManager {
 
         // Compares validator accounts by applying comparators in the following order:
         // First by online ratio, if equal then by stake, if equal then by account id.
-        let accounts_sorted_by_online_ratio: Vec<AccountId> = {
-            let validator_comparator =
-                |left: &(BigRational, &AccountId), right: &(BigRational, &AccountId)| {
-                    let cmp_online_ratio = left.0.cmp(&right.0);
-                    cmp_online_ratio.then_with(|| {
-                        // Note: The unwrap operations below must not fail because the accounts ids are
-                        // taken from the validators in the same epoch info above.
-                        let cmp_stake = epoch_info
-                            .get_validator_stake(left.1)
-                            .unwrap()
-                            .cmp(&epoch_info.get_validator_stake(right.1).unwrap());
-                        cmp_stake.then_with(|| {
-                            let cmp_account_id = left.1.cmp(&right.1);
-                            cmp_account_id
-                        })
+        let validator_comparator =
+            |left: &(BigRational, &AccountId), right: &(BigRational, &AccountId)| {
+                let cmp_online_ratio = left.0.cmp(&right.0);
+                cmp_online_ratio.then_with(|| {
+                    // Note: The unwrap operations below must not fail because the accounts ids are
+                    // taken from the validators in the same epoch info above.
+                    let cmp_stake = epoch_info
+                        .get_validator_stake(left.1)
+                        .unwrap()
+                        .cmp(&epoch_info.get_validator_stake(right.1).unwrap());
+                    cmp_stake.then_with(|| {
+                        let cmp_account_id = left.1.cmp(&right.1);
+                        cmp_account_id
                     })
-                };
+                })
+            };
 
-            let mut sorted_validators = validator_block_chunk_stats
-                .iter()
-                .map(|(account, stats)| (get_sortable_validator_online_ratio(stats), account))
-                .collect::<Vec<_>>();
-            sorted_validators.sort_by(validator_comparator);
-            sorted_validators.into_iter().map(|(_, account)| account.clone()).collect::<Vec<_>>()
-        };
+        let mut sorted_validators = validator_block_chunk_stats
+            .iter()
+            .map(|(account, stats)| (get_sortable_validator_online_ratio(stats), account))
+            .collect_vec();
+        sorted_validators.sort_by(validator_comparator);
+        let accounts_sorted_by_online_ratio =
+            sorted_validators.into_iter().map(|(_, account)| account.clone()).collect_vec();
 
         let exempt_perc =
             100_u8.checked_sub(config.validator_max_kickout_stake_perc).unwrap_or_default();
