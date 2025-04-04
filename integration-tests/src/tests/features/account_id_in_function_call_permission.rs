@@ -11,7 +11,7 @@ use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
 use crate::env::test_env::TestEnv;
 
 #[test]
-fn test_account_id_in_function_call_permission_upgrade() {
+fn test_invalid_account_id() {
     // Prepare TestEnv with a contract at the old protocol version.
     let env = {
         let epoch_length = 5;
