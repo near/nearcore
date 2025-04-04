@@ -523,42 +523,35 @@ pub(crate) fn action_implicit_account_creation_transfer(
         // Invariant: The `account_id` is implicit.
         // It holds because in the only calling site, we've checked the permissions before.
         AccountType::EthImplicitAccount => {
-            if ProtocolFeature::EthImplicitAccounts.enabled(current_protocol_version) {
-                let chain_id = epoch_info_provider.chain_id();
+            let chain_id = epoch_info_provider.chain_id();
 
-                // We deploy "near[wallet contract hash]" magic bytes as the contract code,
-                // to mark that this is a neard-defined contract. It will not be used on a function call.
-                // Instead, neard-defined Wallet Contract implementation will be used.
-                let magic_bytes = wallet_contract_magic_bytes(&chain_id, current_protocol_version);
+            // We deploy "near[wallet contract hash]" magic bytes as the contract code,
+            // to mark that this is a neard-defined contract. It will not be used on a function call.
+            // Instead, neard-defined Wallet Contract implementation will be used.
+            let magic_bytes = wallet_contract_magic_bytes(&chain_id, current_protocol_version);
 
-                let storage_usage = fee_config.storage_usage_config.num_bytes_account
-                    + magic_bytes.code().len() as u64
-                    + fee_config.storage_usage_config.num_extra_bytes_record;
+            let storage_usage = fee_config.storage_usage_config.num_bytes_account
+                + magic_bytes.code().len() as u64
+                + fee_config.storage_usage_config.num_extra_bytes_record;
 
-                let contract_hash = *magic_bytes.hash();
-                *account = Some(Account::new(
-                    deposit,
-                    0,
-                    AccountContract::from_local_code_hash(contract_hash),
-                    storage_usage,
-                ));
-                state_update.set_code(account_id.clone(), &magic_bytes);
+            let contract_hash = *magic_bytes.hash();
+            *account = Some(Account::new(
+                deposit,
+                0,
+                AccountContract::from_local_code_hash(contract_hash),
+                storage_usage,
+            ));
+            state_update.set_code(account_id.clone(), &magic_bytes);
 
-                // Precompile Wallet Contract and store result (compiled code or error) in the database.
-                // Note this contract is shared among ETH-implicit accounts and `precompile_contract`
-                // is a no-op if the contract was already compiled.
-                precompile_contract(
-                    &wallet_contract(contract_hash).expect("should definitely exist"),
-                    Arc::clone(&apply_state.config.wasm_config),
-                    apply_state.cache.as_deref(),
-                )
-                .ok();
-            } else {
-                // This panic is unreachable as this is an implicit account creation transfer.
-                // `check_account_existence` would fail because in this protocol version `account_is_implicit`
-                // would return false for an account that is of the ETH-implicit type.
-                panic!("must be near-implicit");
-            }
+            // Precompile Wallet Contract and store result (compiled code or error) in the database.
+            // Note this contract is shared among ETH-implicit accounts and `precompile_contract`
+            // is a no-op if the contract was already compiled.
+            precompile_contract(
+                &wallet_contract(contract_hash).expect("should definitely exist"),
+                Arc::clone(&apply_state.config.wasm_config),
+                apply_state.cache.as_deref(),
+            )
+            .ok();
         }
         // This panic is unreachable as this is an implicit account creation transfer.
         // `check_account_existence` would fail because `account_is_implicit` would return false for a Named account.
