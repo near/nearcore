@@ -51,7 +51,6 @@ use num_rational::Ratio;
 use primitive_types::U256;
 use rand::{SeedableRng, rngs::StdRng, seq::SliceRandom};
 use std::collections::{BTreeSet, HashSet};
-use std::path::PathBuf;
 
 struct TestEnvConfig {
     epoch_length: BlockHeightDelta,
@@ -138,11 +137,7 @@ impl TestEnv {
             Some(runtime_config_store),
             DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
             Default::default(),
-            StateSnapshotConfig {
-                home_dir: PathBuf::from(dir.path()),
-                hot_store_path: PathBuf::from("data"),
-                state_snapshot_subdir: PathBuf::from("state_snapshot"),
-            },
+            StateSnapshotConfig::enabled(dir.path(), "data", "state_snapshot"),
         );
         let state_roots = get_genesis_state_roots(&store).unwrap().unwrap();
         let genesis_hash = hash(&[0]);
