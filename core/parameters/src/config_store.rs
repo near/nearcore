@@ -252,10 +252,7 @@ impl RuntimeConfigStore {
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[allow(deprecated)]
-    use near_primitives_core::version::ProtocolFeature::{
-        DecreaseFunctionCallBaseCost, _DeprecatedLowerStorageKeyLimit,
-    };
+    use near_primitives_core::version::ProtocolFeature::DecreaseFunctionCallBaseCost;
     use std::collections::HashSet;
 
     const GENESIS_PROTOCOL_VERSION: ProtocolVersion = 29;
@@ -352,18 +349,6 @@ mod tests {
         }
         let expected_config = RuntimeConfig::new(&base_params).unwrap();
         assert_eq!(config.as_ref(), &expected_config);
-    }
-
-    #[test]
-    #[allow(deprecated)]
-    fn test_lower_max_length_storage_key() {
-        let store = RuntimeConfigStore::new(None);
-        let base_cfg = store.get_config(_DeprecatedLowerStorageKeyLimit.protocol_version() - 1);
-        let new_cfg = store.get_config(_DeprecatedLowerStorageKeyLimit.protocol_version());
-        assert!(
-            base_cfg.wasm_config.limit_config.max_length_storage_key
-                > new_cfg.wasm_config.limit_config.max_length_storage_key
-        );
     }
 
     /// Use snapshot testing to check that the JSON representation of the configurations of each version is unchanged.
