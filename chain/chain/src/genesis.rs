@@ -220,7 +220,7 @@ fn get_genesis_congestion_infos_impl(
     // Check we had already computed the congestion infos from the genesis state roots.
     if let Some(saved_infos) = near_store::get_genesis_congestion_infos(runtime.store())? {
         tracing::debug!(target: "chain", "Reading genesis congestion infos from database.");
-        return Ok(saved_infos.into_iter().map(Option::Some).collect());
+        return Ok(saved_infos.into_iter().map(Some).collect());
     }
 
     let mut new_infos = vec![];
@@ -244,7 +244,7 @@ fn get_genesis_congestion_infos_impl(
     near_store::set_genesis_congestion_infos(&mut store_update, &new_infos);
     store_update.commit()?;
 
-    Ok(new_infos.into_iter().map(Option::Some).collect())
+    Ok(new_infos.into_iter().map(Some).collect())
 }
 
 fn get_genesis_congestion_info(
