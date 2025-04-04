@@ -96,7 +96,8 @@ pub enum ProtocolFeature {
     /// Limit number of wasm functions in one contract. See
     /// <https://github.com/near/nearcore/pull/4954> for more details.
     LimitContractFunctionsNumber,
-    BlockHeaderV3,
+    #[deprecated]
+    _DeprecatedBlockHeaderV3,
     /// Changes how we select validators for epoch and how we select validators
     /// within epoch.  See <https://github.com/near/NEPs/pull/167> for general
     /// description, note that we would not introduce chunk-only validators with
@@ -289,7 +290,7 @@ impl ProtocolFeature {
             | ProtocolFeature::SimpleNightshade => 48,
             ProtocolFeature::LowerRegularOpCost2
             | ProtocolFeature::LimitContractFunctionsNumber
-            | ProtocolFeature::BlockHeaderV3
+            | ProtocolFeature::_DeprecatedBlockHeaderV3
             | ProtocolFeature::AliasValidatorSelectionAlgorithm => 49,
             ProtocolFeature::SynchronizeBlockChunkProduction
             | ProtocolFeature::CorrectStackLimit => 50,

@@ -603,13 +603,11 @@ impl Chain {
     pub fn compute_bp_hash(
         epoch_manager: &dyn EpochManagerAdapter,
         epoch_id: EpochId,
-        prev_epoch_id: EpochId,
     ) -> Result<CryptoHash, Error> {
         let validator_stakes = epoch_manager.get_epoch_block_producers_ordered(&epoch_id)?;
-        let protocol_version = epoch_manager.get_epoch_protocol_version(&prev_epoch_id)?;
         let bp_hash = compute_bp_hash_from_validator_stakes(
             &validator_stakes,
-            ProtocolFeature::BlockHeaderV3.enabled(protocol_version),
+            true, // We always use use_versioned_bp_hash_format after BlockHeaderV3 feature
         );
         Ok(bp_hash)
     }
@@ -881,11 +879,7 @@ impl Chain {
             }
         } else {
             if header.next_bp_hash()
-                != &Chain::compute_bp_hash(
-                    self.epoch_manager.as_ref(),
-                    *header.next_epoch_id(),
-                    *header.epoch_id(),
-                )?
+                != &Chain::compute_bp_hash(self.epoch_manager.as_ref(), *header.next_epoch_id())?
             {
                 return Err(Error::InvalidNextBPHash);
             }

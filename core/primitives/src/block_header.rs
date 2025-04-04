@@ -574,7 +574,6 @@ impl BlockHeader {
     /// Creates BlockHeader for a newly produced block.
     pub fn new(
         this_epoch_protocol_version: ProtocolVersion,
-        next_epoch_protocol_version: ProtocolVersion,
         latest_protocol_version: ProtocolVersion,
         height: BlockHeight,
         prev_hash: CryptoHash,
@@ -607,7 +606,6 @@ impl BlockHeader {
     ) -> Self {
         Self::new_impl(
             this_epoch_protocol_version,
-            next_epoch_protocol_version,
             latest_protocol_version,
             height,
             prev_hash,
@@ -676,7 +674,6 @@ impl BlockHeader {
         let header = Self::new_impl(
             epoch_protocol_version,
             epoch_protocol_version,
-            epoch_protocol_version,
             height,
             prev_hash,
             block_body_hash,
@@ -718,7 +715,6 @@ impl BlockHeader {
     /// Common logic for generating BlockHeader for different purposes, including new blocks, from views, and for genesis block
     fn new_impl(
         this_epoch_protocol_version: ProtocolVersion,
-        next_epoch_protocol_version: ProtocolVersion,
         latest_protocol_version: ProtocolVersion,
         height: BlockHeight,
         prev_hash: CryptoHash,
@@ -825,126 +821,6 @@ impl BlockHeader {
                 hash,
             }))
         } else {
-            // Build BlockHeaderV1-V3.
-            Self::old_impl(
-                inner_lite,
-                this_epoch_protocol_version,
-                next_epoch_protocol_version,
-                latest_protocol_version,
-                prev_hash,
-                prev_chunk_outgoing_receipts_root,
-                chunk_headers_root,
-                chunk_tx_root,
-                challenges_root,
-                random_value,
-                prev_validator_proposals,
-                chunk_mask,
-                block_ordinal,
-                next_gas_price,
-                total_supply,
-                challenges_result,
-                signature_source,
-                last_final_block,
-                last_ds_final_block,
-                epoch_sync_data_hash,
-                approvals,
-                prev_height,
-            )
-        }
-    }
-
-    /// Returns BlockHeaderV1-V3.
-    /// This function still preserves code for old block header versions. These code are no longer
-    /// used in production, but we still have features tests in the code that uses them.
-    /// So we still keep the old code here.
-    fn old_impl(
-        inner_lite: BlockHeaderInnerLite,
-        this_epoch_protocol_version: ProtocolVersion,
-        next_epoch_protocol_version: ProtocolVersion,
-        latest_protocol_version: ProtocolVersion,
-        prev_hash: CryptoHash,
-        prev_chunk_outgoing_receipts_root: MerkleHash,
-        chunk_headers_root: MerkleHash,
-        chunk_tx_root: MerkleHash,
-        challenges_root: MerkleHash,
-        random_value: CryptoHash,
-        prev_validator_proposals: Vec<ValidatorStake>,
-        chunk_mask: Vec<bool>,
-        block_ordinal: NumBlocks,
-        next_gas_price: Balance,
-        total_supply: Balance,
-        challenges_result: ChallengesResult,
-        signature_source: SignatureSource,
-        last_final_block: CryptoHash,
-        last_ds_final_block: CryptoHash,
-        epoch_sync_data_hash: Option<CryptoHash>,
-        approvals: Vec<Option<Box<Signature>>>,
-        prev_height: BlockHeight,
-    ) -> Self {
-        let last_header_v2_version = ProtocolFeature::BlockHeaderV3.protocol_version() - 1;
-        // Previously we passed next_epoch_protocol_version here, which is incorrect, but we need
-        // to preserve this for archival nodes
-        if next_epoch_protocol_version <= 29 {
-            let chunks_included = chunk_mask.iter().map(|val| *val as u64).sum::<u64>();
-            let inner_rest = BlockHeaderInnerRest {
-                prev_chunk_outgoing_receipts_root,
-                chunk_headers_root,
-                chunk_tx_root,
-                chunks_included,
-                challenges_root,
-                random_value,
-                prev_validator_proposals: prev_validator_proposals
-                    .into_iter()
-                    .map(|v| v.into_v1())
-                    .collect(),
-                chunk_mask,
-                next_gas_price,
-                total_supply,
-                challenges_result,
-                last_final_block,
-                last_ds_final_block,
-                approvals,
-                latest_protocol_version,
-            };
-            let (hash, signature) =
-                Self::compute_hash_and_sign(signature_source, prev_hash, &inner_lite, &inner_rest);
-            Self::BlockHeaderV1(Arc::new(BlockHeaderV1 {
-                prev_hash,
-                inner_lite,
-                inner_rest,
-                signature,
-                hash,
-            }))
-        } else if this_epoch_protocol_version <= last_header_v2_version {
-            let inner_rest = BlockHeaderInnerRestV2 {
-                prev_chunk_outgoing_receipts_root,
-                chunk_headers_root,
-                chunk_tx_root,
-                challenges_root,
-                random_value,
-                prev_validator_proposals: prev_validator_proposals
-                    .into_iter()
-                    .map(|v| v.into_v1())
-                    .collect(),
-                chunk_mask,
-                next_gas_price,
-                total_supply,
-                challenges_result,
-                last_final_block,
-                last_ds_final_block,
-                approvals,
-                latest_protocol_version,
-            };
-            let (hash, signature) =
-                Self::compute_hash_and_sign(signature_source, prev_hash, &inner_lite, &inner_rest);
-            Self::BlockHeaderV2(Arc::new(BlockHeaderV2 {
-                prev_hash,
-                inner_lite,
-                inner_rest,
-                signature,
-                hash,
-            }))
-        } else {
             let inner_rest = BlockHeaderInnerRestV3 {
                 prev_chunk_outgoing_receipts_root,
                 chunk_headers_root,
@@ -1017,7 +893,6 @@ impl BlockHeader {
     ) -> Self {
         let chunks_included = if height == 0 { num_shards } else { 0 };
         Self::new_impl(
-            genesis_protocol_version,
             genesis_protocol_version,
             genesis_protocol_version,
             height,
