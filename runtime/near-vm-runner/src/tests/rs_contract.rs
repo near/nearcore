@@ -24,10 +24,8 @@ fn encode(xs: &[u64]) -> Vec<u8> {
 
 fn test_contract(vm_kind: VMKind) -> ContractCode {
     let code = match vm_kind {
-        // testing backwards-compatibility, use an old WASM
-        VMKind::Wasmer0 | VMKind::Wasmer2 => {
-            near_test_contracts::backwards_compatible_rs_contract()
-        }
+        VMKind::Wasmer0 => unreachable!(),
+        VMKind::Wasmer2 => unreachable!(),
         // production and developer environment, use a cutting-edge WASM
         VMKind::Wasmtime | VMKind::NearVm => near_test_contracts::rs_contract(),
     };
@@ -219,9 +217,9 @@ pub fn test_out_of_memory() {
     config.make_free();
     let config = Arc::new(config);
     with_vm_variants(&config, |vm_kind: VMKind| {
-        // TODO: currently we only run this test on Wasmer.
+        // TODO: currently we only run this test on near-vm.
         match vm_kind {
-            VMKind::Wasmtime => return,
+            VMKind::Wasmtime | VMKind::Wasmer2 | VMKind::Wasmer0 => return,
             _ => {}
         }
 
@@ -238,9 +236,9 @@ pub fn test_out_of_memory() {
         assert_eq!(
             result.aborted,
             match vm_kind {
-                VMKind::Wasmer0 | VMKind::Wasmer2 | VMKind::NearVm =>
+                VMKind::NearVm =>
                     Some(FunctionCallError::WasmTrap(WasmTrap::Unreachable)),
-                VMKind::Wasmtime => unreachable!(),
+                VMKind::Wasmer2 | VMKind::Wasmer0 | VMKind::Wasmtime => unreachable!(),
             }
         );
     })

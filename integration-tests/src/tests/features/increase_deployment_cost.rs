@@ -26,7 +26,7 @@ fn test_deploy_cost_increased() {
     let contract_size = 1024 * 1024;
     let test_contract = near_test_contracts::sized_contract(contract_size);
     // Run code through preparation for validation. (Deploying will succeed either way).
-    near_vm_runner::prepare::prepare_contract(&test_contract, config, VMKind::Wasmer2).unwrap();
+    near_vm_runner::prepare::prepare_contract(&test_contract, config, VMKind::NearVm).unwrap();
 
     // Prepare TestEnv with a contract at the old protocol version.
     let epoch_length = 5;

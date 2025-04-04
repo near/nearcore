@@ -229,13 +229,11 @@ happens in the following two ways:
 
 ### `runtime/near-vm-runner`
 
-`run` function in `runner.rs` is the entry point to the vm runner. This function
-essentially spins up the vm and executes some function in a contract. It
-supports different wasm compilers including wasmer0, wasmer2, and wasmtime
-through compile-time feature flags. Currently we use wasmer0 and wasmer2 in
-production. The `imports` module exposes host functions defined in
-`near-vm-logic` to WASM code. In other words, it defines the ABI of the
-contracts on NEAR.
+`run` function in `runner.rs` is the entry point to the vm runner. This function essentially spins
+up the vm and executes some function in a contract. It supports different wasm compilers including
+near-vm and wasmtime through compile-time feature flags. Currently we use near-vm in production.
+The `imports` module exposes host functions defined in `near-vm-logic` to WASM code. In other
+words, it defines the ABI of the contracts on NEAR.
 
 ### `neard`
 

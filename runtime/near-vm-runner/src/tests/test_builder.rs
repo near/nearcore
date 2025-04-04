@@ -30,7 +30,7 @@ pub(crate) fn test_builder() -> TestBuilder {
         output_data_receivers: vec![],
     };
     let mut skip = HashSet::new();
-    for kind in [VMKind::Wasmer0, VMKind::Wasmer2, VMKind::NearVm, VMKind::Wasmtime] {
+    for kind in [VMKind::NearVm, VMKind::Wasmtime] {
         if !kind.is_available() {
             skip.insert(kind);
         }
@@ -101,16 +101,6 @@ impl TestBuilder {
         self
     }
 
-    pub(crate) fn skip_wasmer0(mut self) -> Self {
-        self.skip.insert(VMKind::Wasmer0);
-        self
-    }
-
-    pub(crate) fn skip_wasmer2(mut self) -> Self {
-        self.skip.insert(VMKind::Wasmer2);
-        self
-    }
-
     pub(crate) fn skip_near_vm(mut self) -> Self {
         self.skip.insert(VMKind::NearVm);
         self
@@ -118,20 +108,11 @@ impl TestBuilder {
 
     #[allow(dead_code)]
     pub(crate) fn only_wasmtime(self) -> Self {
-        self.skip_wasmer0().skip_wasmer2().skip_near_vm()
-    }
-
-    pub(crate) fn only_wasmer0(self) -> Self {
-        self.skip_wasmer2().skip_near_vm().skip_wasmtime()
-    }
-
-    #[allow(dead_code)]
-    pub(crate) fn only_wasmer2(self) -> Self {
-        self.skip_wasmer0().skip_near_vm().skip_wasmtime()
+        self.skip_near_vm()
     }
 
     pub(crate) fn only_near_vm(self) -> Self {
-        self.skip_wasmer0().skip_wasmer2().skip_wasmtime()
+        self.skip_wasmtime()
     }
 
     /// Add additional protocol features to this test.
@@ -198,7 +179,7 @@ impl TestBuilder {
 
         for (want, &protocol_version) in wants.zip(&self.protocol_versions) {
             let mut results = vec![];
-            for vm_kind in [VMKind::NearVm, VMKind::Wasmer2, VMKind::Wasmer0, VMKind::Wasmtime] {
+            for vm_kind in [VMKind::NearVm, VMKind::Wasmtime] {
                 if self.skip.contains(&vm_kind) {
                     continue;
                 }
