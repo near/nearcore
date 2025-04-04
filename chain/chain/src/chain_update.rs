@@ -551,7 +551,6 @@ impl<'a> ChainUpdate<'a> {
                 shard_id,
                 gas_limit,
                 last_validator_proposals: chunk_header.prev_validator_proposals(),
-                is_first_block_with_chunk_of_version,
                 is_new_chunk: true,
             },
             ApplyChunkBlockContext {
@@ -669,7 +668,6 @@ impl<'a> ChainUpdate<'a> {
                 last_validator_proposals: chunk_extra.validator_proposals(),
                 gas_limit: chunk_extra.gas_limit(),
                 is_new_chunk: false,
-                is_first_block_with_chunk_of_version: false,
             },
             ApplyChunkBlockContext::from_header(
                 &block_header,
