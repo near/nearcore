@@ -156,7 +156,8 @@ pub enum ProtocolFeature {
     /// process the chunk.
     ///
     /// Compute Costs NEP-455: <https://github.com/near/NEPs/blob/master/neps/nep-0455.md>
-    ComputeCosts,
+    #[deprecated]
+    _DeprecatedComputeCosts,
     /// Decrease the cost of function call action. Only affects the execution cost.
     #[deprecated]
     _DeprecatedDecreaseFunctionCallBaseCost,
@@ -164,7 +165,8 @@ pub enum ProtocolFeature {
     /// the worst case to 2.
     ///
     /// Flat Storage NEP-399: <https://github.com/near/NEPs/blob/master/neps/nep-0399.md>
-    FlatStorageReads,
+    #[deprecated]
+    _DeprecatedFlatStorageReads,
     /// Enables preparation V2. Note that this setting is not supported in production settings
     /// without NearVmRuntime enabled alongside it, as the VM runner would be too slow.
     PreparationV2,
@@ -324,7 +326,8 @@ impl ProtocolFeature {
             ProtocolFeature::_DeprecatedEd25519Verify
             | ProtocolFeature::_DeprecatedZeroBalanceAccount
             | ProtocolFeature::_DeprecatedDelegateAction => 59,
-            ProtocolFeature::ComputeCosts | ProtocolFeature::FlatStorageReads => 61,
+            ProtocolFeature::_DeprecatedComputeCosts
+            | ProtocolFeature::_DeprecatedFlatStorageReads => 61,
             ProtocolFeature::PreparationV2 | ProtocolFeature::NearVmRuntime => 62,
             ProtocolFeature::BlockHeaderV4 => 63,
             ProtocolFeature::_DeprecatedRestrictTla
