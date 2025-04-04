@@ -13,7 +13,7 @@ use near_primitives::stateless_validation::partial_witness::{
 };
 use near_primitives::types::{AccountId, BlockHeightDelta, EpochId};
 use near_primitives::validator_signer::ValidatorSigner;
-use near_primitives::version::ProtocolFeature;
+
 use near_store::{DBCol, FINAL_HEAD_KEY, HEAD_KEY, Store};
 
 /// This is taken to be the same value as near_chunks::chunk_cache::MAX_HEIGHTS_AHEAD, and we
@@ -250,17 +250,10 @@ fn validate_chunk_relevant(
 }
 
 fn validate_exclude_witness_contracts_enabled(
-    epoch_manager: &dyn EpochManagerAdapter,
-    epoch_id: &EpochId,
+    _epoch_manager: &dyn EpochManagerAdapter,
+    _epoch_id: &EpochId,
 ) -> Result<(), Error> {
-    let protocol_version = epoch_manager.get_epoch_protocol_version(epoch_id)?;
-    if ProtocolFeature::ExcludeContractCodeFromStateWitness.enabled(protocol_version) {
-        Ok(())
-    } else {
-        Err(Error::Other(format!(
-            "ProtocolFeature::ExcludeContractCodeFromStateWitness is disabled for protocol version {protocol_version}"
-        )))
-    }
+    Ok(())
 }
 
 fn validate_chunk_endorsement_signature(
