@@ -49,9 +49,7 @@ pub fn wallet_contract_magic_bytes(
 ) -> Arc<ContractCode> {
     match chain_id {
         chains::MAINNET => MAINNET.magic_bytes(),
-        chains::TESTNET => {
-            TESTNET.magic_bytes()
-        }
+        chains::TESTNET => TESTNET.magic_bytes(),
         _ => LOCALNET.magic_bytes(),
     }
 }
