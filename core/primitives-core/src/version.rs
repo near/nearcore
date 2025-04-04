@@ -125,8 +125,7 @@ pub enum ProtocolFeature {
     // alt_bn128_g1_multiexp, alt_bn128_g1_sum, alt_bn128_pairing_check host functions
     #[deprecated]
     _DeprecatedAltBn128,
-    #[deprecated]
-    _DeprecatedChunkOnlyProducers,
+    ChunkOnlyProducers,
     /// Ensure the total stake of validators that are kicked out does not exceed a percentage of total stakes
     MaxKickoutStake,
     /// Validate account id for function call access keys.
@@ -300,7 +299,7 @@ impl ProtocolFeature {
             | ProtocolFeature::ChunkNodesCache
             | ProtocolFeature::LowerStorageKeyLimit => 53,
             ProtocolFeature::_DeprecatedAltBn128 => 55,
-            ProtocolFeature::_DeprecatedChunkOnlyProducers | ProtocolFeature::MaxKickoutStake => 56,
+            ProtocolFeature::ChunkOnlyProducers | ProtocolFeature::MaxKickoutStake => 56,
             ProtocolFeature::AccountIdInFunctionCallPermission => 57,
             ProtocolFeature::Ed25519Verify
             | ProtocolFeature::ZeroBalanceAccount

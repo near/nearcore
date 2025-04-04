@@ -246,8 +246,14 @@ pub fn proposals_to_epoch_info(
             &validator_roles,
             use_stable_shard_assignment,
         )?
-    } else {
+    } else if ProtocolFeature::ChunkOnlyProducers.enabled(protocol_version) {
         old_validator_selection::assign_chunk_producers_to_shards_chunk_only(
+            epoch_config,
+            validator_roles.chunk_producers,
+            &validator_roles.block_producers,
+        )?
+    } else {
+        old_validator_selection::assign_chunk_producers_to_shards_old(
             epoch_config,
             validator_roles.chunk_producers,
             &validator_roles.block_producers,
@@ -460,30 +466,37 @@ mod old_validator_selection {
         };
 
         let block_producer_proposals = order_proposals(proposals.values().cloned());
-        let (block_producers, _not_block_producers, bp_stake_threshold) = select_block_producers(
+        let (block_producers, not_block_producers, bp_stake_threshold) = select_block_producers(
             block_producer_proposals,
             max_bp_selected,
             min_stake_ratio,
             protocol_version,
         );
-        let chunk_producer_proposals = order_proposals(proposals.into_values());
-        let max_cp_selected =
-            max_bp_selected + (epoch_config.num_chunk_only_producer_seats as usize);
-        let num_shards = epoch_config.shard_layout.shard_ids().count() as NumShards;
-        let (chunk_producers, not_chunk_producers, cp_stake_threshold) = select_chunk_producers(
-            chunk_producer_proposals,
-            max_cp_selected,
-            min_stake_ratio,
-            num_shards,
-            protocol_version,
-        );
+        let (chunk_producer_proposals, chunk_producers, cp_stake_threshold) =
+            if ProtocolFeature::ChunkOnlyProducers.enabled(protocol_version) {
+                let chunk_producer_proposals = order_proposals(proposals.into_values());
+                let max_cp_selected =
+                    max_bp_selected + (epoch_config.num_chunk_only_producer_seats as usize);
+                let num_shards = epoch_config.shard_layout.shard_ids().count() as NumShards;
+                let (chunk_producers, not_chunk_producers, cp_stake_threshold) =
+                    select_chunk_producers(
+                        chunk_producer_proposals,
+                        max_cp_selected,
+                        min_stake_ratio,
+                        num_shards,
+                        protocol_version,
+                    );
+                (not_chunk_producers, chunk_producers, cp_stake_threshold)
+            } else {
+                (not_block_producers, block_producers.clone(), bp_stake_threshold)
+            };
 
         // since block producer proposals could become chunk producers, their actual stake threshold
         // is the smaller of the two thresholds
         let threshold = cmp::min(bp_stake_threshold, cp_stake_threshold);
 
         ValidatorRoles {
-            unselected_proposals: not_chunk_producers,
+            unselected_proposals: chunk_producer_proposals,
             chunk_producers,
             block_producers,
             chunk_validators: vec![], // chunk validators are not used for older protocol versions
@@ -545,6 +558,50 @@ mod old_validator_selection {
                 }
             }
         }
+
+        Ok(ChunkProducersAssignment {
+            all_validators,
+            validator_to_index,
+            chunk_producers_settlement,
+        })
+    }
+
+    pub(crate) fn assign_chunk_producers_to_shards_old(
+        epoch_config: &EpochConfig,
+        chunk_producers: Vec<ValidatorStake>,
+        block_producers: &[ValidatorStake],
+    ) -> Result<ChunkProducersAssignment, EpochError> {
+        let mut all_validators: Vec<ValidatorStake> = Vec::with_capacity(chunk_producers.len());
+        let mut validator_to_index = HashMap::new();
+        let mut block_producers_settlement = Vec::with_capacity(block_producers.len());
+        for (i, bp) in block_producers.into_iter().enumerate() {
+            let id = i as ValidatorId;
+            validator_to_index.insert(bp.account_id().clone(), id);
+            block_producers_settlement.push(id);
+            all_validators.push(bp.clone());
+        }
+
+        let num_shards = epoch_config.shard_layout.shard_ids().count();
+        if chunk_producers.is_empty() {
+            return Err(EpochError::NotEnoughValidators {
+                num_validators: 0u64,
+                num_shards: num_shards as u64,
+            });
+        }
+
+        let mut id = 0usize;
+        let chunk_producers_settlement = (0..num_shards)
+            .map(|shard_index| {
+                (0..epoch_config.num_block_producer_seats_per_shard[shard_index]
+                    .min(block_producers_settlement.len() as u64))
+                    .map(|_| {
+                        let res = block_producers_settlement[id];
+                        id = (id + 1) % block_producers_settlement.len();
+                        res
+                    })
+                    .collect()
+            })
+            .collect();
 
         Ok(ChunkProducersAssignment {
             all_validators,
