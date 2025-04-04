@@ -897,7 +897,6 @@ impl Client {
 
         let block = Block::produce(
             this_epoch_protocol_version,
-            next_epoch_protocol_version,
             self.upgrade_schedule
                 .protocol_version_to_vote_for(self.clock.now_utc(), next_epoch_protocol_version),
             prev_header,
