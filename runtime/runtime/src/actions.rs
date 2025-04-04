@@ -1413,8 +1413,7 @@ mod tests {
             config: Arc::new(RuntimeConfig::test()),
             cache: None,
             is_new_chunk: false,
-            migration_data: Arc::default(),
-            migration_flags: MigrationFlags::default(),
+
             congestion_info: BlockCongestionInfo::default(),
             bandwidth_requests: BlockBandwidthRequests::empty(),
         }

@@ -225,8 +225,7 @@ impl TrieViewer {
             config: Arc::clone(config),
             cache: view_state.cache,
             is_new_chunk: false,
-            migration_data: Arc::new(MigrationData::default()),
-            migration_flags: MigrationFlags::default(),
+
             congestion_info: Default::default(),
             bandwidth_requests: BlockBandwidthRequests::empty(),
         };

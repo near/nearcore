@@ -173,8 +173,7 @@ fn setup_runtime_for_shard(
         config: Arc::new(RuntimeConfig::test()),
         cache: Some(Box::new(contract_cache)),
         is_new_chunk: true,
-        migration_data: Arc::new(MigrationData::default()),
-        migration_flags: MigrationFlags::default(),
+
         congestion_info,
         bandwidth_requests: BlockBandwidthRequests::empty(),
     };
