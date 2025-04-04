@@ -566,6 +566,8 @@ mod old_validator_selection {
         })
     }
 
+    /// Assigns chunk producers to shards given chunk and block producers before
+    /// chunk only producers were enabled.
     pub(crate) fn assign_chunk_producers_to_shards(
         epoch_config: &EpochConfig,
         chunk_producers: Vec<ValidatorStake>,
@@ -583,6 +585,7 @@ mod old_validator_selection {
 
         let num_shards = epoch_config.shard_layout.shard_ids().count();
         if chunk_producers.is_empty() {
+            // All validators tried to unstake?
             return Err(EpochError::NotEnoughValidators {
                 num_validators: 0u64,
                 num_shards: num_shards as u64,
@@ -590,6 +593,10 @@ mod old_validator_selection {
         }
 
         let mut id = 0usize;
+        // Here we assign validators to chunks (we try to keep number of shards assigned for
+        // each validator as even as possible). Note that in prod configuration number of seats
+        // per shard is the same as maximal number of block producers, so normally all
+        // validators would be assigned to all chunks
         let chunk_producers_settlement = (0..num_shards)
             .map(|shard_index| {
                 (0..epoch_config.num_block_producer_seats_per_shard[shard_index]
