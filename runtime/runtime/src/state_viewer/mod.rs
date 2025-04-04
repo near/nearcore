@@ -11,7 +11,6 @@ use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
 use near_primitives::borsh::BorshDeserialize;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum, ReceiptV1};
-
 use near_primitives::transaction::FunctionCallAction;
 use near_primitives::trie_key::trie_key_parsers;
 use near_primitives::types::{
@@ -225,7 +224,6 @@ impl TrieViewer {
             config: Arc::clone(config),
             cache: view_state.cache,
             is_new_chunk: false,
-
             congestion_info: Default::default(),
             bandwidth_requests: BlockBandwidthRequests::empty(),
         };

@@ -21,7 +21,6 @@ use near_primitives::congestion_info::{
 use near_primitives::errors::{InvalidTxError, RuntimeError, StorageError};
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::receipt::Receipt;
-
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::state_part::PartId;
@@ -68,14 +67,12 @@ mod tests;
 pub struct NightshadeRuntime {
     genesis_config: GenesisConfig,
     runtime_config_store: RuntimeConfigStore,
-
     store: Store,
     compiled_contract_cache: Box<dyn ContractRuntimeCache>,
     tries: ShardTries,
     trie_viewer: TrieViewer,
     pub runtime: Runtime,
     epoch_manager: Arc<EpochManagerHandle>,
-
     gc_num_epochs_to_keep: u64,
 }
 
@@ -288,7 +285,6 @@ impl NightshadeRuntime {
             config: self.runtime_config_store.get_config(current_protocol_version).clone(),
             cache: Some(self.compiled_contract_cache.handle()),
             is_new_chunk,
-
             congestion_info,
             bandwidth_requests,
         };

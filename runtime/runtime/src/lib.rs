@@ -40,7 +40,6 @@ use near_primitives::receipt::{
     ActionReceipt, DataReceipt, PromiseYieldIndices, PromiseYieldTimeout, Receipt, ReceiptEnum,
     ReceiptOrStateStoredReceipt, ReceiptV0, ReceivedData,
 };
-
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::state_record::StateRecord;
 use near_primitives::stateless_validation::contract_distribution::ContractUpdates;
@@ -136,7 +135,6 @@ pub struct ApplyState {
     pub cache: Option<Box<dyn ContractRuntimeCache>>,
     /// Whether the chunk being applied is new.
     pub is_new_chunk: bool,
-
     /// Congestion level on each shard based on the latest known chunk header of each shard.
     ///
     /// The map must be empty if congestion control is disabled in the previous
@@ -1415,10 +1413,9 @@ impl Runtime {
 
         // What this function does can be broken down conceptually into the following steps:
         // 1. Update validator accounts.
-        // 2. Apply migrations.
-        // 3. Process transactions.
-        // 4. Process receipts.
-        // 5. Validate and apply the state update.
+        // 2. Process transactions.
+        // 3. Process receipts.
+        // 4. Validate and apply the state update.
         let mut processing_state =
             ApplyProcessingState::new(&apply_state, trie, epoch_info_provider);
         processing_state.stats.transactions_num = signed_txs.len().try_into().unwrap();
@@ -1483,10 +1480,10 @@ impl Runtime {
             processing_state.epoch_info_provider,
         )?;
 
-        // Step 3: process transactions.
+        // Step 2: process transactions.
         self.process_transactions(&mut processing_state, signed_txs, &mut receipt_sink)?;
 
-        // Step 4: process receipts.
+        // Step 3: process receipts.
         let process_receipts_result =
             self.process_receipts(&mut processing_state, &mut receipt_sink)?;
 
@@ -1498,7 +1495,7 @@ impl Runtime {
             &apply_state.config.congestion_control_config,
         );
 
-        // Step 5: validate and apply the state update.
+        // Step 4: validate and apply the state update.
         self.validate_apply_state_update(
             processing_state,
             process_receipts_result,
