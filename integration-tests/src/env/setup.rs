@@ -329,7 +329,7 @@ fn setup(
     let resharding_sender = resharding_sender_addr.with_auto_span_context();
 
     let shards_manager_adapter_for_client = LateBoundSender::new();
-    let StartClientResult { client_actor, tx_pool, .. } = start_client(
+    let StartClientResult { client_actor, tx_pool, chunk_endorsement_tracker, .. } = start_client(
         clock,
         config.clone(),
         chain_genesis,
@@ -362,6 +362,7 @@ fn setup(
     let tx_processor_addr = spawn_tx_request_handler_actor(
         tx_processor_config,
         tx_pool,
+        chunk_endorsement_tracker,
         epoch_manager.clone(),
         shard_tracker.clone(),
         signer,
@@ -406,6 +407,7 @@ pub fn setup_mock(
             &PeerManagerMessageRequest,
             &mut Context<PeerManagerMock>,
             Addr<ClientActor>,
+            Addr<TxRequestHandlerActor>,
         ) -> PeerManagerMessageResponse,
     >,
 ) -> ActorHandlesForTesting {
@@ -431,6 +433,7 @@ pub fn setup_mock_with_validity_period(
             &PeerManagerMessageRequest,
             &mut Context<PeerManagerMock>,
             Addr<ClientActor>,
+            Addr<TxRequestHandlerActor>,
         ) -> PeerManagerMessageResponse,
     >,
     transaction_validity_period: NumBlocks,
@@ -462,10 +465,12 @@ pub fn setup_mock_with_validity_period(
         None,
     );
     let client_addr1 = client_addr.clone();
+    let rpc_handler_addr1 = tx_request_handler_addr.clone();
 
-    let network_actor =
-        PeerManagerMock::new(move |msg, ctx| peermanager_mock(&msg, ctx, client_addr1.clone()))
-            .start();
+    let network_actor = PeerManagerMock::new(move |msg, ctx| {
+        peermanager_mock(&msg, ctx, client_addr1.clone(), rpc_handler_addr1.clone())
+    })
+    .start();
 
     network_adapter.bind(network_actor);
 
@@ -865,7 +870,7 @@ fn process_peer_manager_message_default(
             for (i, name) in validators.iter().enumerate() {
                 if name == account {
                     connectors[i]
-                        .client_actor
+                        .tx_processor_actor
                         .do_send(ChunkEndorsementMessage(endorsement.clone()).with_span_context());
                 }
             }
@@ -1145,7 +1150,7 @@ pub fn setup_no_network_with_validity_period(
         account_id,
         skip_sync_wait,
         enable_doomslug,
-        Box::new(move |request, _, client| {
+        Box::new(move |request, _, _client, rpc_handler| {
             // Handle network layer sending messages to self
             match request {
                 PeerManagerMessageRequest::NetworkRequests(NetworkRequests::ChunkEndorsement(
@@ -1153,7 +1158,7 @@ pub fn setup_no_network_with_validity_period(
                     endorsement,
                 )) => {
                     if account_id == &my_account_id {
-                        let future = client.send_async(
+                        let future = rpc_handler.send_async(
                             ChunkEndorsementMessage(endorsement.clone()).with_span_context(),
                         );
                         // Don't ignore the future or else the message may not actually be handled.
@@ -1290,6 +1295,7 @@ pub fn setup_tx_request_handler(
     TxRequestHandler::new(
         config,
         client.chunk_producer.sharded_tx_pool.clone(),
+        client.chunk_endorsement_tracker.clone(),
         epoch_manager,
         shard_tracker,
         client.validator_signer.clone(),
