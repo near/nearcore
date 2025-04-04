@@ -1,6 +1,6 @@
 #![doc = include_str!("../README.md")]
 use near_primitives_core::{
-    chains, hash::CryptoHash, types::ProtocolVersion, version::ProtocolFeature,
+    chains, hash::CryptoHash, types::ProtocolVersion,
 };
 use near_vm_runner::ContractCode;
 use std::sync::{Arc, OnceLock};
@@ -45,7 +45,6 @@ pub fn wallet_contract(code_hash: CryptoHash) -> Option<Arc<ContractCode>> {
 /// near[wallet contract hash]
 pub fn wallet_contract_magic_bytes(
     chain_id: &str,
-    protocol_version: ProtocolVersion,
 ) -> Arc<ContractCode> {
     match chain_id {
         chains::MAINNET => MAINNET.magic_bytes(),
@@ -59,9 +58,9 @@ pub fn wallet_contract_magic_bytes(
 pub fn code_hash_matches_wallet_contract(
     chain_id: &str,
     code_hash: &CryptoHash,
-    protocol_version: ProtocolVersion,
+    _protocol_version: ProtocolVersion,
 ) -> bool {
-    let magic_bytes = wallet_contract_magic_bytes(&chain_id, protocol_version);
+    let magic_bytes = wallet_contract_magic_bytes(&chain_id);
 
     if code_hash == magic_bytes.hash() {
         return true;
@@ -125,7 +124,7 @@ mod tests {
             assert!(
                 code_hash_matches_wallet_contract(
                     id,
-                    wallet_contract_magic_bytes(id, PROTOCOL_VERSION).hash(),
+                    wallet_contract_magic_bytes(id).hash(),
                     PROTOCOL_VERSION
                 ),
                 "Wallet contract magic bytes matches wallet contract"
@@ -170,7 +169,6 @@ mod tests {
     //     assert_eq!(*contract.hash(), expected_hash, "wallet contract hash mismatch");
 
     //     const MAGIC_BYTES_HASH: &'static str = "4reLvkAWfqk5fsqio1KLudk46cqRz9erQdaHkWZKMJDZ";
-    //     let magic_bytes = wallet_contract_magic_bytes(TESTNET, protocol_version);
     //     assert!(!magic_bytes.code().is_empty());
     //     let expected_hash = CryptoHash::from_str(MAGIC_BYTES_HASH).unwrap();
     //     assert_eq!(magic_bytes.hash(), &expected_hash, "magic bytes hash mismatch");
@@ -201,18 +199,15 @@ mod tests {
     //     expected_code_hash: &str,
     //     expected_magic_hash: &str,
     // ) {
-    //     assert!(!wallet_contract_magic_bytes(chain_id, PROTOCOL_VERSION).code().is_empty());
     //     let expected_hash =
     //         CryptoHash::from_str(expected_magic_hash).expect("Failed to parse hash from string");
     //     assert_eq!(
-    //         *wallet_contract_magic_bytes(chain_id, PROTOCOL_VERSION).hash(),
     //         expected_hash,
     //         "magic bytes hash mismatch"
     //     );
 
     //     let expected_code = format!("near{}", expected_code_hash);
     //     assert_eq!(
-    //         wallet_contract_magic_bytes(chain_id, PROTOCOL_VERSION).code(),
     //         expected_code.as_bytes()
     //     );
     // }
