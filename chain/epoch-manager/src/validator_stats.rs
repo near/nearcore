@@ -117,7 +117,6 @@ pub(crate) fn get_sortable_validator_online_ratio(stats: &BlockChunkValidatorSta
     BigRational::new(bignumer.try_into().unwrap(), bigdenom.try_into().unwrap())
 }
 
-
 /// Applies the `cutoff_threshold` to the endorsement ratio encoded in the `stats`.
 /// If `cutoff_threshold` is not provided, returns the same ratio from the `stats`.
 /// If `cutoff_threshold` is provided, compares the endorsement ratio from the `stats` with the threshold.

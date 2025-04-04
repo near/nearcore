@@ -476,10 +476,7 @@ impl EpochManager {
                 .map(|(account, stats)| (get_sortable_validator_online_ratio(stats), account))
                 .collect::<Vec<_>>();
             sorted_validators.sort_by(validator_comparator);
-            sorted_validators
-                .into_iter()
-                .map(|(_, account)| account.clone())
-                .collect::<Vec<_>>()
+            sorted_validators.into_iter().map(|(_, account)| account.clone()).collect::<Vec<_>>()
         };
 
         let exempt_perc =
@@ -703,7 +700,9 @@ impl EpochManager {
             let online_thresholds = ValidatorOnlineThresholds {
                 online_min_threshold: epoch_config.online_min_threshold,
                 online_max_threshold: epoch_config.online_max_threshold,
-                endorsement_cutoff_threshold: Some(epoch_config.chunk_validator_only_kickout_threshold),
+                endorsement_cutoff_threshold: Some(
+                    epoch_config.chunk_validator_only_kickout_threshold,
+                ),
             };
             self.reward_calculator.calculate_reward(
                 validator_block_chunk_stats,
