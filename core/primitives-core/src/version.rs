@@ -130,11 +130,14 @@ pub enum ProtocolFeature {
     /// Validate account id for function call access keys.
     AccountIdInFunctionCallPermission,
     /// Zero Balance Account NEP 448: <https://github.com/near/NEPs/pull/448>
+    #[deprecated]
     _DeprecatedZeroBalanceAccount,
     /// Execute a set of actions on behalf of another account.
     ///
     /// Meta Transaction NEP-366: <https://github.com/near/NEPs/blob/master/neps/nep-0366.md>
+    #[deprecated]
     _DeprecatedDelegateAction,
+    #[deprecated]
     _DeprecatedEd25519Verify,
     /// Decouple compute and gas costs of operations to safely limit the compute time it takes to
     /// process the chunk.
