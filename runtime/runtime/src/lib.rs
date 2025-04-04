@@ -1561,9 +1561,6 @@ impl Runtime {
                     let compute =
                         compute.expect("`process_transaction` must populate compute usage");
                     total.add(outcome_with_id.outcome.gas_burnt, compute)?;
-                    if !ProtocolFeature::ComputeCosts.enabled(processing_state.protocol_version) {
-                        assert_eq!(total.compute, total.gas, "Compute usage must match burnt gas");
-                    }
                     processing_state.outcomes.push(outcome_with_id);
                 }
                 Err(err) => {
@@ -1650,9 +1647,6 @@ impl Runtime {
             span.record("gas_burnt", gas_burnt);
             span.record("compute_usage", compute_usage);
 
-            if !ProtocolFeature::ComputeCosts.enabled(processing_state.protocol_version) {
-                assert_eq!(total.compute, total.gas, "Compute usage must match burnt gas");
-            }
             processing_state.outcomes.push(outcome_with_id);
         }
         Ok(())
