@@ -1,7 +1,5 @@
 #![doc = include_str!("../README.md")]
-use near_primitives_core::{
-    chains, hash::CryptoHash, types::ProtocolVersion,
-};
+use near_primitives_core::{chains, hash::CryptoHash, types::ProtocolVersion};
 use near_vm_runner::ContractCode;
 use std::sync::{Arc, OnceLock};
 
@@ -43,9 +41,7 @@ pub fn wallet_contract(code_hash: CryptoHash) -> Option<Arc<ContractCode>> {
 }
 
 /// near[wallet contract hash]
-pub fn wallet_contract_magic_bytes(
-    chain_id: &str,
-) -> Arc<ContractCode> {
+pub fn wallet_contract_magic_bytes(chain_id: &str) -> Arc<ContractCode> {
     match chain_id {
         chains::MAINNET => MAINNET.magic_bytes(),
         chains::TESTNET => TESTNET.magic_bytes(),
