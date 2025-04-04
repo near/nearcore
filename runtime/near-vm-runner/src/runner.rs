@@ -162,7 +162,8 @@ pub trait VMKindExt {
 impl VMKindExt for VMKind {
     fn is_available(&self) -> bool {
         match self {
-            Self::Wasmer0 => cfg!(all(feature = "wasmer0_vm", target_arch = "x86_64")),
+            #[allow(deprecated)]
+            Self::Wasmer0 => false,
             Self::Wasmtime => cfg!(feature = "wasmtime_vm"),
             Self::Wasmer2 => cfg!(all(feature = "wasmer2_vm", target_arch = "x86_64")),
             Self::NearVm => cfg!(all(feature = "near_vm", target_arch = "x86_64")),
@@ -170,8 +171,6 @@ impl VMKindExt for VMKind {
     }
     fn runtime(&self, config: std::sync::Arc<Config>) -> Option<Box<dyn VM>> {
         match self {
-            #[cfg(all(feature = "wasmer0_vm", target_arch = "x86_64"))]
-            Self::Wasmer0 => Some(Box::new(crate::wasmer_runner::Wasmer0VM::new(config))),
             #[cfg(feature = "wasmtime_vm")]
             Self::Wasmtime => Some(Box::new(crate::wasmtime_runner::WasmtimeVM::new(config))),
             #[cfg(all(feature = "wasmer2_vm", target_arch = "x86_64"))]
