@@ -3403,8 +3403,8 @@ impl Chain {
                 self.chain_store(),
                 self.epoch_manager.as_ref(),
                 prev_hash,
-                    shard_id,
-                )?;
+                shard_id,
+            )?;
 
             ShardUpdateReason::NewChunk(NewChunkData {
                 chunk_header: chunk_header.clone(),

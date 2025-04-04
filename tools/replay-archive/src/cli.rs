@@ -327,11 +327,11 @@ impl ReplayController {
             )?;
 
             check_if_block_is_first_with_chunk_of_version(
-                    &self.chain_store,
-                    self.epoch_manager.as_ref(),
-                    prev_block_hash,
-                    shard_id,
-                )?;
+                &self.chain_store,
+                self.epoch_manager.as_ref(),
+                prev_block_hash,
+                shard_id,
+            )?;
 
             ShardUpdateReason::NewChunk(NewChunkData {
                 chunk_header: chunk_header.clone(),
