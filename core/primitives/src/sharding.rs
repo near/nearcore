@@ -567,9 +567,7 @@ impl ShardChunkHeader {
             ShardChunkHeader::V1(_) => false,
             ShardChunkHeader::V2(_) => version < BLOCK_HEADER_V3_VERSION,
             ShardChunkHeader::V3(header) => match header.inner {
-                ShardChunkHeaderInner::V1(_) => {
-                    version >= BLOCK_HEADER_V3_VERSION
-                }
+                ShardChunkHeaderInner::V1(_) => version >= BLOCK_HEADER_V3_VERSION,
                 // Note that we allow V2 in the congestion control version.
                 // That is because the first chunk where this feature is
                 // enabled does not have the congestion info.
@@ -580,7 +578,7 @@ impl ShardChunkHeader {
                 // are multiple tests which upgrade from an old version directly to the
                 // latest version. TODO(#12328) - don't allow InnerV2 in bandwidth scheduler version.
                 ShardChunkHeaderInner::V2(_) => version >= BLOCK_HEADER_V3_VERSION,
-                ShardChunkHeaderInner::V3(_) => version >= CONGESTION_CONTROL_VERSION,
+                ShardChunkHeaderInner::V3(_) => version >= BLOCK_HEADER_V3_VERSION,
                 ShardChunkHeaderInner::V4(_) => version >= BANDWIDTH_SCHEDULER_VERSION,
             },
         };

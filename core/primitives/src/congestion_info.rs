@@ -502,7 +502,7 @@ impl ShardAcceptsTransactions {
 mod tests {
     use itertools::Itertools;
     use near_parameters::RuntimeConfigStore;
-    use near_primitives_core::version::ProtocolFeature;
+
 
     use super::*;
 

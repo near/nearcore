@@ -2617,8 +2617,6 @@ fn test_refund_receipts_processing() {
     }
 }
 
-
-
 #[test]
 fn test_execution_metadata() {
     // Prepare TestEnv with a very simple WASM contract.

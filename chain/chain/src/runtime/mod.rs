@@ -718,7 +718,6 @@ impl RuntimeAdapter for NightshadeRuntime {
 
                 if !congestion_control_accepts_transaction(
                     self.epoch_manager.as_ref(),
-                    protocol_version,
                     &runtime_config,
                     &epoch_id,
                     &prev_block,
@@ -1315,7 +1314,6 @@ fn calculate_transactions_size_limit(
 /// congestion level is below the threshold.
 fn congestion_control_accepts_transaction(
     epoch_manager: &dyn EpochManagerAdapter,
-    _protocol_version: ProtocolVersion,
     runtime_config: &RuntimeConfig,
     epoch_id: &EpochId,
     prev_block: &PrepareTransactionsBlockContext,

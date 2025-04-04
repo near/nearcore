@@ -857,6 +857,7 @@ pub mod chunk_extra {
                     gas_limit,
                     balance_burnt,
                 });
+            }
         }
 
         #[inline]
