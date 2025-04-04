@@ -464,7 +464,7 @@ mod tests {
 
     fn make_trie_update() -> TrieUpdate {
         let shard_layout_version = 1;
-        let shard_layout = ShardLayout::v0(2, shard_layout_version);
+        let shard_layout = ShardLayout::multi_shard(2, shard_layout_version);
         let shard_uid = shard_layout.shard_uids().next().unwrap();
         let state_root = Trie::EMPTY_ROOT;
 

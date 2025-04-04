@@ -344,7 +344,7 @@ fn test_request_chunks_for_orphan() {
     let mut genesis = Genesis::test(accounts, num_validators);
     genesis.config.epoch_length = epoch_length;
     // make the blockchain to 4 shards
-    genesis.config.shard_layout = ShardLayout::v0(4, 3);
+    genesis.config.shard_layout = ShardLayout::multi_shard(4, 3);
     genesis.config.num_block_producer_seats_per_shard =
         vec![num_validators, num_validators, num_validators, num_validators];
     let mut env = TestEnv::builder(&genesis.config)
@@ -483,7 +483,7 @@ fn test_processing_chunks_sanity() {
     let mut genesis = Genesis::test(accounts, num_validators);
     genesis.config.epoch_length = epoch_length;
     // make the blockchain to 4 shards
-    genesis.config.shard_layout = ShardLayout::v0(4, 3);
+    genesis.config.shard_layout = ShardLayout::multi_shard(4, 3);
     genesis.config.num_block_producer_seats_per_shard =
         vec![num_validators, num_validators, num_validators, num_validators];
     let mut env = TestEnv::builder(&genesis.config)
@@ -804,7 +804,7 @@ fn test_processing_blocks_async() {
     let mut genesis = Genesis::test(accounts, num_validators);
     genesis.config.epoch_length = epoch_length;
     // make the blockchain to 4 shards
-    genesis.config.shard_layout = ShardLayout::v0(4, 3);
+    genesis.config.shard_layout = ShardLayout::multi_shard(4, 3);
     genesis.config.num_block_producer_seats_per_shard =
         vec![num_validators, num_validators, num_validators, num_validators];
     let mut env = TestEnv::builder(&genesis.config)

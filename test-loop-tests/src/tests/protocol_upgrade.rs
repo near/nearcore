@@ -47,7 +47,7 @@ pub(crate) fn test_protocol_upgrade(
     // TODO - support different shard layouts, is there a way to make missing chunks generic?
     let boundary_accounts = ["account3", "account5", "account7"];
     let boundary_accounts = boundary_accounts.iter().map(|a| a.parse().unwrap()).collect();
-    let shard_layout = ShardLayout::v1(boundary_accounts, None, 1);
+    let shard_layout = ShardLayout::multi_shard_custom(boundary_accounts, 1);
 
     // split the clients into producers, validators, and rpc nodes
     let tmp = clients.clone();

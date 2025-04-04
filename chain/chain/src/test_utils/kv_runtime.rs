@@ -998,7 +998,7 @@ impl RuntimeAdapter for KeyValueRuntime {
     }
 
     fn get_shard_layout(&self, _protocol_version: ProtocolVersion) -> ShardLayout {
-        ShardLayout::v0(self.num_shards, 0)
+        ShardLayout::multi_shard(self.num_shards, 0)
     }
 
     fn validate_tx(

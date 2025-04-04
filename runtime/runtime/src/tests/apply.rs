@@ -2465,7 +2465,7 @@ fn test_congestion_buffering() {
     let version = 3;
 
     let accounts = vec![alice_account(), bob_account()];
-    let shard_layout = ShardLayout::v1(accounts.clone(), None, version);
+    let shard_layout = ShardLayout::multi_shard_custom(accounts.clone(), version);
     let local_shard = shard_layout.account_id_to_shard_id(&alice_account());
     let local_shard_uid = ShardUId::new(version, local_shard);
     let receiver_shard = shard_layout.account_id_to_shard_id(&bob_account());

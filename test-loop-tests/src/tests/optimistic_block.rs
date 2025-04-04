@@ -34,7 +34,7 @@ fn get_builder(num_shards: usize) -> TestLoopBuilder {
         &[],
     );
 
-    let shard_layout = ShardLayout::v0(num_shards as u64, 1);
+    let shard_layout = ShardLayout::multi_shard(num_shards as u64, 1);
     let genesis = TestLoopBuilder::new_genesis_builder()
         .epoch_length(epoch_length)
         .shard_layout(shard_layout)

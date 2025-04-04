@@ -110,7 +110,7 @@ fn run_bandwidth_scheduler_test(scenario: TestScenario, tx_concurrency: usize) -
     // Boundary accounts between shards
     let boundary_accounts: Vec<AccountId> =
         (1..scenario.num_shards).map(|i| format!("shard{}", i).parse().unwrap()).collect();
-    let shard_layout = ShardLayout::v1(boundary_accounts.clone(), None, 0);
+    let shard_layout = ShardLayout::multi_shard_custom(boundary_accounts.clone(), 0);
 
     // Accounts that will be sending receipts to each other. One per shard.
     let workload_accounts: Vec<AccountId> = (0..scenario.num_shards)

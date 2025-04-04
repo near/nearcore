@@ -529,7 +529,7 @@ mod optimistic_block_chunks_pool_test {
         let mut pool = OptimisticBlockChunksPool::new();
         let prev_hash = CryptoHash::default();
         let block = OptimisticBlock::new_dummy(1, prev_hash);
-        let shard_layout = ShardLayout::v0(2, 3);
+        let shard_layout = ShardLayout::multi_shard(2, 3);
         let shard_ids = shard_layout.shard_ids().collect_vec();
 
         let chunk_header = ShardChunkHeader::new_dummy(0, shard_ids[0], prev_hash);

@@ -1821,7 +1821,7 @@ mod tests {
     #[test]
     fn test_basic_trie() {
         // test trie version > 0
-        let shard_layout = ShardLayout::v0(2, SHARD_VERSION);
+        let shard_layout = ShardLayout::multi_shard(2, SHARD_VERSION);
         let shard_uid = shard_layout.shard_uids().next().unwrap();
 
         let tries = TestTriesBuilder::new().with_shard_layout(shard_layout).build();
@@ -1843,7 +1843,7 @@ mod tests {
 
     #[test]
     fn test_trie_iter() {
-        let shard_layout = ShardLayout::v0(2, SHARD_VERSION);
+        let shard_layout = ShardLayout::multi_shard(2, SHARD_VERSION);
         let shard_uid = shard_layout.shard_uids().next().unwrap();
 
         let tries = TestTriesBuilder::new().with_shard_layout(shard_layout).build();
@@ -1879,7 +1879,7 @@ mod tests {
 
     #[test]
     fn test_trie_leaf_into_branch() {
-        let shard_layout = ShardLayout::v0(2, SHARD_VERSION);
+        let shard_layout = ShardLayout::multi_shard(2, SHARD_VERSION);
         let shard_uid = shard_layout.shard_uids().next().unwrap();
 
         let tries = TestTriesBuilder::new().with_shard_layout(shard_layout).build();

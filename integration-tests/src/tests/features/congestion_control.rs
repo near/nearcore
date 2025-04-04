@@ -65,7 +65,7 @@ fn setup_test_runtime(_sender_id: AccountId, protocol_version: ProtocolVersion) 
     genesis.config.protocol_version = protocol_version;
 
     // Chain must be sharded to test cross-shard congestion control.
-    genesis.config.shard_layout = ShardLayout::v0(4, 3);
+    genesis.config.shard_layout = ShardLayout::multi_shard(4, 3);
 
     let config_store = RuntimeConfigStore::new(None);
     let mut config = RuntimeConfig::test_protocol_version(protocol_version);
@@ -87,7 +87,7 @@ fn setup_real_runtime(sender_id: AccountId, protocol_version: ProtocolVersion) -
     genesis.config.protocol_version = protocol_version;
 
     // Chain must be sharded to test cross-shard congestion control.
-    genesis.config.shard_layout = ShardLayout::v0(4, 3);
+    genesis.config.shard_layout = ShardLayout::multi_shard(4, 3);
 
     // Get the runtime configs for before and after the protocol upgrade.
     let config_store = RuntimeConfigStore::new(None);

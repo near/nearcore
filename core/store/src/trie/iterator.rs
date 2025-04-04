@@ -291,7 +291,7 @@ mod tests {
         rng: &mut rand::rngs::ThreadRng,
         use_memtries: bool,
     ) -> (Vec<(Vec<u8>, Option<Vec<u8>>)>, BTreeMap<Vec<u8>, Vec<u8>>, Trie) {
-        let shard_layout = ShardLayout::v0(2, 1);
+        let shard_layout = ShardLayout::multi_shard(2, 1);
         let shard_uid = shard_layout.shard_uids().next().unwrap();
         let tries = TestTriesBuilder::new()
             .with_shard_layout(shard_layout)
