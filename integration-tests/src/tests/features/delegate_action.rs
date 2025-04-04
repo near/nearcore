@@ -118,7 +118,6 @@ fn check_meta_tx_execution(
     receiver: AccountId,
 ) -> (FinalExecutionOutcomeView, i128, i128, i128) {
     let node_user = node.user();
-    let _protocol_version = node.genesis().config.protocol_version;
 
     assert_eq!(
         relayer,

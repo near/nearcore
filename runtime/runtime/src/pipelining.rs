@@ -380,7 +380,6 @@ fn prepare_function_call(
     contract_storage: &ContractStorage,
     cache: Option<&dyn ContractRuntimeCache>,
 
-    _protocol_version: ProtocolVersion,
     config: Arc<near_parameters::vm::Config>,
     gas_counter: GasCounter,
 
