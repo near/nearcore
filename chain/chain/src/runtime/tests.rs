@@ -213,7 +213,7 @@ impl TestEnv {
         &self,
         shard_id: ShardId,
         new_block_hash: CryptoHash,
-        transactions: &[SignedTransaction],
+        transactions: Vec<SignedTransaction>,
         receipts: &[Receipt],
     ) -> ApplyChunkResult {
         // TODO(congestion_control): pass down prev block info and read congestion info from there
@@ -240,7 +240,7 @@ impl TestEnv {
             BlockCongestionInfo::new(shards_congestion_info)
         };
         let transaction_validity = vec![true; transactions.len()];
-        let transactions = SignedValidPeriodTransactions::new(transactions, &transaction_validity);
+        let transactions = SignedValidPeriodTransactions::new(transactions, transaction_validity);
         self.runtime
             .apply_chunk(
                 RuntimeStorageConfig::new(state_root, true),
@@ -274,7 +274,7 @@ impl TestEnv {
         &self,
         shard_id: ShardId,
         new_block_hash: CryptoHash,
-        transactions: &[SignedTransaction],
+        transactions: Vec<SignedTransaction>,
         receipts: &[Receipt],
     ) -> (CryptoHash, Vec<ValidatorStake>, Vec<Receipt>) {
         let mut apply_result =
@@ -331,7 +331,7 @@ impl TestEnv {
             let (state_root, proposals, receipts) = self.update_runtime(
                 shard_id,
                 new_hash,
-                &transactions[shard_index],
+                transactions[shard_index].clone(),
                 self.last_receipts.get(&shard_id).map_or(&[], |v| v.as_slice()),
             );
             self.state_roots[shard_index] = state_root;
@@ -1519,7 +1519,7 @@ fn test_storage_proof_garbage() {
         }),
         priority: 0,
     });
-    let apply_result = env.apply_new_chunk(shard_id, hash(&[42]), &[], &[receipt]);
+    let apply_result = env.apply_new_chunk(shard_id, hash(&[42]), vec![], &[receipt]);
     let PartialState::TrieValues(storage_proof) = apply_result.proof.unwrap().nodes;
     let total_size: usize = storage_proof.iter().map(|v| v.len()).sum();
     assert_eq!(total_size / 1000_000, garbage_size_mb);

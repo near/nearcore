@@ -15,9 +15,9 @@ use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{
     AccountId, AccountInfo, BlockHeight, BlockHeightDelta, Nonce, NumSeats, ShardId,
 };
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
+use near_primitives::version::PROTOCOL_VERSION;
 
-use crate::setup::builder::TestLoopBuilder;
+use crate::setup::builder::{NodeStateBuilder, TestLoopBuilder};
 use crate::setup::drop_condition::DropCondition;
 use crate::setup::env::TestLoopEnv;
 use crate::setup::state::NodeExecutionData;
@@ -28,7 +28,9 @@ use itertools::Itertools;
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
-const EPOCH_LENGTH: BlockHeightDelta = 40;
+const GENESIS_HEIGHT: BlockHeight = 10000;
+
+const EPOCH_LENGTH: BlockHeightDelta = 10;
 
 fn get_boundary_accounts(num_shards: usize) -> Vec<String> {
     if num_shards > 27 {
@@ -75,6 +77,15 @@ struct TestState {
     skip_block_height: Option<BlockHeight>,
 }
 
+fn sync_height() -> BlockHeight {
+    // It would probably be better not to rely on this height calculation, since that makes
+    // some assumptions about the state sync protocol that ideally tests wouldn't make. In the future
+    // it would be nice to modify `drop_blocks_by_height()` to allow for more complex logic to decide
+    // whether to drop the block, and be more robust to state sync protocol changes. But for now this
+    // will trigger the behavior we want and it's quite a bit easier.
+    GENESIS_HEIGHT + EPOCH_LENGTH + 4
+}
+
 fn setup_initial_blockchain(
     num_validators: usize,
     num_block_producer_seats: usize,
@@ -119,8 +130,6 @@ fn setup_initial_blockchain(
     let accounts =
         if generate_shard_accounts { Some(generate_accounts(&boundary_accounts)) } else { None };
 
-    let epoch_length = 10;
-    let genesis_height = 10000;
     let shard_layout =
         ShardLayout::simple_v1(&boundary_accounts.iter().map(|s| s.as_str()).collect::<Vec<_>>());
     let validators_spec = ValidatorsSpec::raw(
@@ -133,8 +142,8 @@ fn setup_initial_blockchain(
     let mut genesis_builder = TestGenesisBuilder::new()
         .genesis_time_from_clock(&builder.clock())
         .protocol_version(PROTOCOL_VERSION)
-        .genesis_height(genesis_height)
-        .epoch_length(epoch_length)
+        .genesis_height(GENESIS_HEIGHT)
+        .epoch_length(EPOCH_LENGTH)
         .shard_layout(shard_layout.clone())
         .transaction_validity_period(1000)
         .validators_spec(validators_spec.clone());
@@ -149,7 +158,7 @@ fn setup_initial_blockchain(
     let genesis = genesis_builder.build();
 
     let epoch_config = TestEpochConfigBuilder::new()
-        .epoch_length(epoch_length)
+        .epoch_length(EPOCH_LENGTH)
         .shard_layout(shard_layout)
         .validators_spec(validators_spec)
         // shuffle the shard assignment so that nodes will have to state sync to catch up future tracked shards.
@@ -164,16 +173,7 @@ fn setup_initial_blockchain(
         builder.genesis(genesis).epoch_config_store(epoch_config_store).clients(clients).build();
 
     let skip_block_height = if let Some(delta) = skip_block_sync_height_delta {
-        // It would probably be better not to rely on this height calculation, since that makes
-        // some assumptions about the state sync protocol that ideally tests wouldn't make. In the future
-        // it would be nice to modify `drop_blocks_by_height()` to allow for more complex logic to decide
-        // whether to drop the block, and be more robust to state sync protocol changes. But for now this
-        // will trigger the behavior we want and it's quite a bit easier.
-        let sync_height = if ProtocolFeature::CurrentEpochStateSync.enabled(PROTOCOL_VERSION) {
-            genesis_height + epoch_length + 4
-        } else {
-            genesis_height + epoch_length + 1
-        };
+        let sync_height = sync_height();
         let height = if delta >= 0 {
             sync_height.saturating_add(delta as BlockHeight)
         } else {
@@ -310,7 +310,7 @@ fn produce_chunks(
                     .map(|test_data| &data.get(&test_data.client_sender.actor_handle()).client)
                     .collect_vec();
                 let new_tip = get_smallest_height_head(&clients);
-                new_tip.height != tip.height
+                new_tip.height > tip.height
             },
             timeout,
         );
@@ -325,7 +325,13 @@ fn produce_chunks(
         let new_tip = get_smallest_height_head(&clients);
 
         let header = clients[0].chain.get_block_header(&tip.last_block_hash).unwrap();
-        tracing::debug!("chunk mask for #{} {:?}", header.height(), header.chunk_mask());
+        tracing::debug!(
+            "chunk mask for #{} {:?} {} {:?}",
+            header.height(),
+            header.chunk_mask(),
+            tip.last_block_hash,
+            tip.epoch_id
+        );
 
         if new_tip.epoch_id != tip.epoch_id {
             epoch_id_switches += 1;
@@ -361,12 +367,70 @@ fn run_test(state: TestState) {
             let handle = env.node_datas[0].client_sender.actor_handle();
             let client = &data.get(&handle).client;
             let tip = client.chain.head().unwrap();
+            let header = client.chain.get_block_header(&tip.last_block_hash).unwrap();
+            tracing::debug!(
+                "chunk mask for #{} {:?} {} {:?}",
+                header.height(),
+                header.chunk_mask(),
+                tip.last_block_hash,
+                tip.epoch_id
+            );
             tip.epoch_id != Default::default()
         },
         first_epoch_time,
     );
 
     produce_chunks(&mut env, accounts, skip_block_height);
+
+    env.shutdown_and_drain_remaining_events(Duration::seconds(3));
+}
+
+fn run_test_with_added_node(state: TestState) {
+    let TestState { mut env, mut accounts, skip_block_height } = state;
+
+    if let Some(accounts) = accounts.as_mut() {
+        send_txs_between_shards(&mut env.test_loop, &env.node_datas, accounts);
+    }
+
+    // TODO: due to current limitations of TestLoop we have to wait for the
+    // sync hash block before starting the new node.
+    let sync_hash = await_sync_hash(&mut env);
+
+    // Add new node which will sync from scratch.
+    let genesis = env.shared_state.genesis.clone();
+    let tempdir_path = env.shared_state.tempdir.path().to_path_buf();
+    let account_id: AccountId = "sync-from-scratch".parse().unwrap();
+    let new_node_state = NodeStateBuilder::new(genesis, tempdir_path)
+        .account_id(account_id.clone())
+        .config_modifier(move |config| {
+            // Lower the threshold at which state sync is chosen over block sync
+            config.block_fetch_horizon = 5;
+            // If tracked_shards is non-empty the node tracks all shards
+            config.tracked_shards = vec![ShardId::new(0)];
+        })
+        .build();
+    env.add_node(account_id.as_str(), new_node_state);
+
+    env.test_loop.run_until(
+        |data| {
+            let handle = env.node_datas.last().unwrap().client_sender.actor_handle();
+            let client = &data.get(&handle).client;
+            let new_tip = client.chain.head().unwrap();
+            if new_tip.height > GENESIS_HEIGHT {
+                // Make sure the node catches up through state sync, not block sync.
+                // It will skip straight from genesis to the sync prev block.
+                let sync_header = client.chain.get_block_header(&sync_hash).unwrap();
+                assert!(new_tip.last_block_hash == *sync_header.prev_hash());
+                true
+            } else {
+                false
+            }
+        },
+        Duration::seconds(3),
+    );
+
+    produce_chunks(&mut env, accounts.clone(), skip_block_height);
+
     env.shutdown_and_drain_remaining_events(Duration::seconds(3));
 }
 
@@ -379,7 +443,7 @@ struct StateSyncTest {
     // If true, generate several extra accounts per shard. We have a test with this disabled
     // to test state syncing shards without any account data
     generate_shard_accounts: bool,
-    chunks_produced: &'static [(ShardId, &'static [bool])],
+    chunks_produced: Vec<(ShardId, Vec<bool>)>,
     // If Some(), this delta represents the delta with respect to the expected "sync_hash" block. So
     // a value of 0 will have us generate a skip on the first block that will probably be the sync_hash,
     // and a value of 1 will have us skip the one after that.
@@ -387,105 +451,251 @@ struct StateSyncTest {
     extra_node_shard_schedule: Option<Vec<Vec<ShardId>>>,
 }
 
-static TEST_CASES: &[StateSyncTest] = &[
-    // The first two make no modifications to chunks_produced, and all chunks should be produced. This is the normal case
-    StateSyncTest {
+fn run_state_sync_test_case(t: StateSyncTest) {
+    tracing::info!("run test: {:?}", t);
+    let state = setup_initial_blockchain(
+        t.num_validators,
+        t.num_block_producer_seats,
+        t.num_chunk_producer_seats,
+        t.num_shards,
+        t.generate_shard_accounts,
+        t.chunks_produced
+            .iter()
+            .map(|(shard_id, produced)| (*shard_id, produced.to_vec()))
+            .collect(),
+        t.skip_block_sync_height_delta,
+        &t.extra_node_shard_schedule,
+    );
+    run_test(state);
+
+    tracing::info!("run test with added node: {:?}", t);
+    let state = setup_initial_blockchain(
+        t.num_validators,
+        t.num_block_producer_seats,
+        t.num_chunk_producer_seats,
+        t.num_shards,
+        t.generate_shard_accounts,
+        t.chunks_produced
+            .iter()
+            .map(|(shard_id, produced)| (*shard_id, produced.to_vec()))
+            .collect(),
+        t.skip_block_sync_height_delta,
+        &t.extra_node_shard_schedule,
+    );
+    run_test_with_added_node(state);
+}
+
+// The normal case with 2 nodes and no missing chunks.
+#[test]
+fn slow_test_state_sync_simple_two_node() {
+    init_test_logger();
+    let t = StateSyncTest {
         num_validators: 2,
         num_block_producer_seats: 2,
         num_chunk_producer_seats: 2,
         num_shards: 2,
         generate_shard_accounts: true,
-        chunks_produced: &[],
+        chunks_produced: vec![],
         skip_block_sync_height_delta: None,
         extra_node_shard_schedule: None,
-    },
-    StateSyncTest {
+    };
+    run_state_sync_test_case(t);
+}
+
+// The normal case with 5 nodes and no missing chunks.
+#[test]
+fn slow_test_state_sync_simple_five_node() {
+    init_test_logger();
+    let t = StateSyncTest {
         num_validators: 5,
         num_block_producer_seats: 4,
         num_chunk_producer_seats: 4,
         num_shards: 4,
         generate_shard_accounts: true,
-        chunks_produced: &[],
+        chunks_produced: vec![],
         skip_block_sync_height_delta: None,
         extra_node_shard_schedule: None,
-    },
-    // In this test we have 2 validators and 4 shards, and we don't generate any extra accounts.
-    // That makes 3 accounts including the "near" account. This means at least one shard will have no
-    // accounts in it, so we check that corner case here.
-    StateSyncTest {
+    };
+    run_state_sync_test_case(t);
+}
+
+// In this test we have 2 validators and 4 shards, and we don't generate any extra accounts.
+// That makes 3 accounts including the "near" account. This means at least one shard will have no
+// accounts in it, so we check that corner case here.
+#[test]
+fn slow_test_state_sync_empty_shard() {
+    init_test_logger();
+    let t = StateSyncTest {
         num_validators: 2,
         num_block_producer_seats: 2,
         num_chunk_producer_seats: 2,
         num_shards: 4,
         generate_shard_accounts: false,
-        chunks_produced: &[],
+        chunks_produced: vec![],
         skip_block_sync_height_delta: None,
         extra_node_shard_schedule: None,
-    },
-    // Now we miss some chunks at the beginning of the epoch
-    StateSyncTest {
-        num_validators: 5,
-        num_block_producer_seats: 4,
-        num_chunk_producer_seats: 4,
-        num_shards: 4,
-        generate_shard_accounts: true,
-        chunks_produced: &[
-            (ShardId::new(0), &[false]),
-            (ShardId::new(1), &[true]),
-            (ShardId::new(2), &[true]),
-            (ShardId::new(3), &[true]),
-        ],
-        skip_block_sync_height_delta: None,
-        extra_node_shard_schedule: None,
-    },
-    StateSyncTest {
-        num_validators: 5,
-        num_block_producer_seats: 4,
-        num_chunk_producer_seats: 4,
-        num_shards: 4,
-        generate_shard_accounts: true,
-        chunks_produced: &[(ShardId::new(0), &[true, false]), (ShardId::new(1), &[true, false])],
-        skip_block_sync_height_delta: None,
-        extra_node_shard_schedule: None,
-    },
-    StateSyncTest {
-        num_validators: 5,
-        num_block_producer_seats: 4,
-        num_chunk_producer_seats: 4,
-        num_shards: 4,
-        generate_shard_accounts: true,
-        chunks_produced: &[
-            (ShardId::new(0), &[false, true]),
-            (ShardId::new(2), &[true, false, true]),
-        ],
-        skip_block_sync_height_delta: None,
-        extra_node_shard_schedule: None,
-    },
-];
+    };
+    run_state_sync_test_case(t);
+}
 
+// Miss a chunk in the first block of the new epoch; it won't affect the sync hash
 #[test]
-fn slow_test_state_sync_current_epoch() {
+fn slow_test_state_sync_miss_chunks_first_block() {
     init_test_logger();
+    let chunks_produced = vec![
+        (ShardId::new(0), vec![false]),
+        (ShardId::new(1), vec![true]),
+        (ShardId::new(2), vec![true]),
+        (ShardId::new(3), vec![true]),
+    ];
+    let t = StateSyncTest {
+        num_validators: 5,
+        num_block_producer_seats: 4,
+        num_chunk_producer_seats: 4,
+        num_shards: 4,
+        generate_shard_accounts: true,
+        chunks_produced,
+        skip_block_sync_height_delta: None,
+        extra_node_shard_schedule: None,
+    };
+    run_state_sync_test_case(t);
+}
 
-    // TODO: make these separate #[test]s, because looping over them like this makes
-    // us wait for each one in succession instead of letting cargo test run them in parallel
-    for t in TEST_CASES.iter() {
-        tracing::info!("run test: {:?}", t);
-        let state = setup_initial_blockchain(
-            t.num_validators,
-            t.num_block_producer_seats,
-            t.num_chunk_producer_seats,
-            t.num_shards,
-            t.generate_shard_accounts,
-            t.chunks_produced
-                .iter()
-                .map(|(shard_id, produced)| (*shard_id, produced.to_vec()))
-                .collect(),
-            t.skip_block_sync_height_delta,
-            &t.extra_node_shard_schedule,
-        );
-        run_test(state);
-    }
+// Miss chunks in the second block of the new epoch;
+// the sync hash will be one block later than usual
+#[test]
+fn slow_test_state_sync_miss_chunks_second_block() {
+    init_test_logger();
+    let chunks_produced =
+        vec![(ShardId::new(0), vec![true, false]), (ShardId::new(1), vec![true, false])];
+    let t = StateSyncTest {
+        num_validators: 5,
+        num_block_producer_seats: 4,
+        num_chunk_producer_seats: 4,
+        num_shards: 4,
+        generate_shard_accounts: true,
+        chunks_produced,
+        skip_block_sync_height_delta: None,
+        extra_node_shard_schedule: None,
+    };
+    run_state_sync_test_case(t);
+}
+
+// Miss chunks in the third block of the new epoch;
+// the sync hash will be one block later than usual
+#[test]
+fn slow_test_state_sync_miss_chunks_third_block() {
+    init_test_logger();
+    let chunks_produced = vec![
+        (ShardId::new(0), vec![true, true, false]),
+        (ShardId::new(2), vec![true, true, false]),
+    ];
+    let t = StateSyncTest {
+        num_validators: 5,
+        num_block_producer_seats: 4,
+        num_chunk_producer_seats: 4,
+        num_shards: 4,
+        generate_shard_accounts: true,
+        chunks_produced,
+        skip_block_sync_height_delta: None,
+        extra_node_shard_schedule: None,
+    };
+    run_state_sync_test_case(t);
+}
+
+// Make the sync block have missing chunks
+#[test]
+fn slow_test_state_sync_miss_chunks_sync_block() {
+    init_test_logger();
+    let chunks_produced = vec![
+        (ShardId::new(0), vec![true, true, true, false]),
+        (ShardId::new(1), vec![true, true, true, false]),
+    ];
+    let t = StateSyncTest {
+        num_validators: 5,
+        num_block_producer_seats: 4,
+        num_chunk_producer_seats: 4,
+        num_shards: 4,
+        generate_shard_accounts: true,
+        chunks_produced,
+        skip_block_sync_height_delta: None,
+        extra_node_shard_schedule: None,
+    };
+    run_state_sync_test_case(t);
+}
+
+// Make the sync prev block have a missing chunk.
+// Notice that the sync hash is one block later than usual because of shard 3.
+// Shard 1 will be missing a chunk in the prev block.
+#[test]
+fn slow_test_state_sync_miss_chunks_sync_prev_block() {
+    init_test_logger();
+    let chunks_produced = vec![
+        (ShardId::new(1), vec![true, true, true, false]),
+        (ShardId::new(3), vec![true, false, true, true]),
+    ];
+    let t = StateSyncTest {
+        num_validators: 5,
+        num_block_producer_seats: 4,
+        num_chunk_producer_seats: 4,
+        num_shards: 4,
+        generate_shard_accounts: true,
+        chunks_produced,
+        skip_block_sync_height_delta: None,
+        extra_node_shard_schedule: None,
+    };
+    run_state_sync_test_case(t);
+}
+
+// Create missing chunks leading up to the last new chunk included
+// before the sync hash block
+#[test]
+fn slow_test_state_sync_miss_chunks_before_last_chunk_included() {
+    init_test_logger();
+    let chunks_produced = vec![
+        (ShardId::new(0), vec![false, true, false, false, true, false]),
+        (ShardId::new(1), vec![false, true, false, false, true, true]),
+        (ShardId::new(2), vec![false, true, false, true, false, false]),
+        (ShardId::new(3), vec![false, true, false, true, false, true]),
+    ];
+    let t = StateSyncTest {
+        num_validators: 5,
+        num_block_producer_seats: 4,
+        num_chunk_producer_seats: 4,
+        num_shards: 4,
+        generate_shard_accounts: true,
+        chunks_produced,
+        skip_block_sync_height_delta: None,
+        extra_node_shard_schedule: None,
+    };
+    run_state_sync_test_case(t);
+}
+
+// Combination of different cases:
+//  - Shard 0 has multiple chunk misses leading up to the sync hash block
+//  - Shard 1 has multiple misses leading up to and including the sync hash block
+//  - Shard 2 has missing chunks leading up to the last chunk included before sync hash block
+//  - Shard 3 has no missing chunks until the sync hash block
+#[test]
+fn slow_test_state_sync_miss_chunks_multiple() {
+    init_test_logger();
+    let chunks_produced = vec![
+        (ShardId::new(0), vec![true, true, true, false, false, true]),
+        (ShardId::new(1), vec![true, true, true, false, false, false]),
+        (ShardId::new(2), vec![false, true, false, false, true, true]),
+        (ShardId::new(3), vec![true, true, true, true, true, false]),
+    ];
+    let t = StateSyncTest {
+        num_validators: 5,
+        num_block_producer_seats: 4,
+        num_chunk_producer_seats: 4,
+        num_shards: 4,
+        generate_shard_accounts: true,
+        chunks_produced,
+        skip_block_sync_height_delta: None,
+        extra_node_shard_schedule: None,
+    };
+    run_state_sync_test_case(t);
 }
 
 // This adds an extra node with an explicit tracked shards schedule to test more corner cases.
@@ -501,7 +711,7 @@ fn slow_test_state_sync_untrack_then_track() {
         num_chunk_producer_seats: 4,
         num_shards: 5,
         generate_shard_accounts: true,
-        chunks_produced: &[],
+        chunks_produced: vec![],
         skip_block_sync_height_delta: None,
         extra_node_shard_schedule: Some(vec![
             vec![ShardId::new(0), ShardId::new(1)],
@@ -510,21 +720,7 @@ fn slow_test_state_sync_untrack_then_track() {
             vec![ShardId::new(0), ShardId::new(3)],
         ]),
     };
-    let state = setup_initial_blockchain(
-        params.num_validators,
-        params.num_block_producer_seats,
-        params.num_chunk_producer_seats,
-        params.num_shards,
-        params.generate_shard_accounts,
-        params
-            .chunks_produced
-            .iter()
-            .map(|(shard_id, produced)| (*shard_id, produced.to_vec()))
-            .collect(),
-        params.skip_block_sync_height_delta,
-        &params.extra_node_shard_schedule,
-    );
-    run_test(state);
+    run_state_sync_test_case(params);
 }
 
 // Here we drop the block that's supposed to be the sync hash after the first full epoch,
@@ -545,25 +741,11 @@ fn slow_test_state_sync_from_fork() {
         num_chunk_producer_seats: 4,
         num_shards: 5,
         generate_shard_accounts: true,
-        chunks_produced: &[],
+        chunks_produced: vec![],
         skip_block_sync_height_delta: Some(0),
         extra_node_shard_schedule: None,
     };
-    let state = setup_initial_blockchain(
-        params.num_validators,
-        params.num_block_producer_seats,
-        params.num_chunk_producer_seats,
-        params.num_shards,
-        params.generate_shard_accounts,
-        params
-            .chunks_produced
-            .iter()
-            .map(|(shard_id, produced)| (*shard_id, produced.to_vec()))
-            .collect(),
-        params.skip_block_sync_height_delta,
-        &params.extra_node_shard_schedule,
-    );
-    run_test(state);
+    run_state_sync_test_case(params);
 }
 
 // This is the same as the above test_state_sync_from_fork() except we tweak some parameters so that
@@ -583,25 +765,11 @@ fn slow_test_state_sync_to_fork() {
         num_chunk_producer_seats: 4,
         num_shards: 5,
         generate_shard_accounts: true,
-        chunks_produced: &[],
+        chunks_produced: vec![],
         skip_block_sync_height_delta: Some(0),
         extra_node_shard_schedule: None,
     };
-    let state = setup_initial_blockchain(
-        params.num_validators,
-        params.num_block_producer_seats,
-        params.num_chunk_producer_seats,
-        params.num_shards,
-        params.generate_shard_accounts,
-        params
-            .chunks_produced
-            .iter()
-            .map(|(shard_id, produced)| (*shard_id, produced.to_vec()))
-            .collect(),
-        params.skip_block_sync_height_delta,
-        &params.extra_node_shard_schedule,
-    );
-    run_test(state);
+    run_state_sync_test_case(params);
 }
 
 // This one tests what happens when we skip a block after the sync block. This checks a corner case where
@@ -618,28 +786,14 @@ fn slow_test_state_sync_fork_after_sync() {
         num_chunk_producer_seats: 4,
         num_shards: 5,
         generate_shard_accounts: true,
-        chunks_produced: &[],
+        chunks_produced: vec![],
         skip_block_sync_height_delta: Some(1),
         extra_node_shard_schedule: None,
     };
-    let state = setup_initial_blockchain(
-        params.num_validators,
-        params.num_block_producer_seats,
-        params.num_chunk_producer_seats,
-        params.num_shards,
-        params.generate_shard_accounts,
-        params
-            .chunks_produced
-            .iter()
-            .map(|(shard_id, produced)| (*shard_id, produced.to_vec()))
-            .collect(),
-        params.skip_block_sync_height_delta,
-        &params.extra_node_shard_schedule,
-    );
-    run_test(state);
+    run_state_sync_test_case(params);
 }
 
-// This one tests what happens when we skip a block before the sync block, for good measure.
+// This one tests what happens when we skip a block before the sync block.
 #[test]
 fn slow_test_state_sync_fork_before_sync() {
     init_test_logger();
@@ -650,25 +804,11 @@ fn slow_test_state_sync_fork_before_sync() {
         num_chunk_producer_seats: 4,
         num_shards: 5,
         generate_shard_accounts: true,
-        chunks_produced: &[],
+        chunks_produced: vec![],
         skip_block_sync_height_delta: Some(-1),
         extra_node_shard_schedule: None,
     };
-    let state = setup_initial_blockchain(
-        params.num_validators,
-        params.num_block_producer_seats,
-        params.num_chunk_producer_seats,
-        params.num_shards,
-        params.generate_shard_accounts,
-        params
-            .chunks_produced
-            .iter()
-            .map(|(shard_id, produced)| (*shard_id, produced.to_vec()))
-            .collect(),
-        params.skip_block_sync_height_delta,
-        &params.extra_node_shard_schedule,
-    );
-    run_test(state);
+    run_state_sync_test_case(params);
 }
 
 fn await_sync_hash(env: &mut TestLoopEnv) -> CryptoHash {
@@ -677,6 +817,14 @@ fn await_sync_hash(env: &mut TestLoopEnv) -> CryptoHash {
             let handle = env.node_datas[0].client_sender.actor_handle();
             let client = &data.get(&handle).client;
             let tip = client.chain.head().unwrap();
+            let header = client.chain.get_block_header(&tip.last_block_hash).unwrap();
+            tracing::debug!(
+                "chunk mask for #{} {:?} {} {:?}",
+                header.height(),
+                header.chunk_mask(),
+                tip.last_block_hash,
+                tip.epoch_id
+            );
             if tip.epoch_id == Default::default() {
                 return false;
             }
@@ -687,7 +835,9 @@ fn await_sync_hash(env: &mut TestLoopEnv) -> CryptoHash {
     let client_handle = env.node_datas[0].client_sender.actor_handle();
     let client = &env.test_loop.data.get(&client_handle).client;
     let tip = client.chain.head().unwrap();
-    client.chain.get_sync_hash(&tip.last_block_hash).unwrap().unwrap()
+    let sync_hash = client.chain.get_sync_hash(&tip.last_block_hash).unwrap().unwrap();
+    tracing::debug!("await_sync_hash: {sync_hash}");
+    sync_hash
 }
 
 // cspell:ignore reqs

@@ -108,6 +108,7 @@ impl RuntimeUser {
                 trie.set_charge_gas_for_trie_node_access(true);
                 trie
             };
+            let validity_check_results = vec![true; txs.len()];
             let apply_result = client
                 .runtime
                 .apply(
@@ -115,7 +116,7 @@ impl RuntimeUser {
                     &None,
                     &apply_state,
                     &receipts,
-                    SignedValidPeriodTransactions::new(&txs, &vec![true; txs.len()]),
+                    SignedValidPeriodTransactions::new(txs, validity_check_results),
                     &self.epoch_info_provider,
                     Default::default(),
                 )
