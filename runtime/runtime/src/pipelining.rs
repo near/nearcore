@@ -61,8 +61,6 @@ pub(crate) struct ReceiptPreparationPipeline {
     /// The contract cache.
     contract_cache: Option<Box<dyn ContractRuntimeCache>>,
 
-    /// Protocol version for this chunk.
-    protocol_version: u32,
 
     /// Storage for WASM code.
     storage: ContractStorage,
@@ -90,7 +88,6 @@ impl ReceiptPreparationPipeline {
     pub(crate) fn new(
         config: Arc<RuntimeConfig>,
         contract_cache: Option<Box<dyn ContractRuntimeCache>>,
-        protocol_version: u32,
         storage: ContractStorage,
     ) -> Self {
         Self {
@@ -99,7 +96,6 @@ impl ReceiptPreparationPipeline {
             block_global_contracts: Default::default(),
             config,
             contract_cache,
-            protocol_version,
             storage,
         }
     }
