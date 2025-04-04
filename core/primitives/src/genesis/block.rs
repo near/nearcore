@@ -45,7 +45,7 @@ impl Block {
                 initial_total_supply,
                 compute_bp_hash_from_validator_stakes(
                     validator_stakes,
-                    true, // BlockHeaderV3 is deprecated and always enabled
+                    true, // We always use use_versioned_bp_hash_format after _DeprecatedBlockHeaderV3 feature
                 ),
             )
         }
