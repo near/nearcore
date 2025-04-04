@@ -594,7 +594,6 @@ mod tests {
 
     #[test]
     fn test_memory_congestion() {
-
         let config = get_config();
         let mut info = CongestionInfo::default();
 
@@ -643,7 +642,6 @@ mod tests {
 
     #[test]
     fn test_incoming_congestion() {
-
         let config = get_config();
         let mut info = CongestionInfo::default();
 
@@ -701,7 +699,6 @@ mod tests {
 
     #[test]
     fn test_outgoing_congestion() {
-
         let config = get_config();
         let mut info = CongestionInfo::default();
 
@@ -745,7 +742,6 @@ mod tests {
 
     #[test]
     fn test_missed_chunks_congestion() {
-
         // The default config is quite restricting, allow more missed chunks for
         // this test to check the middle cases.
         let mut config = get_config();
@@ -789,7 +785,6 @@ mod tests {
 
     #[test]
     fn test_missed_chunks_finalize() {
-
         // The default config is quite restricting, allow more missed chunks for
         // this test to check the middle cases.
         let mut config = get_config();

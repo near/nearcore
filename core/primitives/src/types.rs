@@ -849,7 +849,7 @@ pub mod chunk_extra {
                     bandwidth_requests: bandwidth_requests.unwrap(),
                 });
             }
-            
+
             return Self::V2(ChunkExtraV2 {
                 state_root: *state_root,
                 outcome_root,

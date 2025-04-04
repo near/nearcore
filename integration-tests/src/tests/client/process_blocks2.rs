@@ -214,7 +214,6 @@ impl BadCongestionInfoMode {
 }
 
 fn test_bad_congestion_info_impl(mode: BadCongestionInfoMode) {
-
     let accounts = TestEnvBuilder::make_accounts(1);
     let genesis = Genesis::test_sharded_new_version(accounts, 1, vec![1, 1, 1, 1]);
     let mut env = TestEnv::builder_from_genesis(&genesis).build();

@@ -2622,7 +2622,7 @@ fn test_refund_receipts_processing() {
 #[test]
 fn test_delayed_receipt_count_limit() {
     init_test_logger();
-    
+
     return;
 }
 

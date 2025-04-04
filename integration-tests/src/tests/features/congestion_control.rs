@@ -267,7 +267,6 @@ fn check_congestion_info(env: &TestEnv, check_congested_protocol_upgrade: bool) 
 fn test_protocol_upgrade_simple() {
     init_test_logger();
 
-
     #[allow(deprecated)]
     let mut env = setup_real_runtime(
         "test0".parse().unwrap(),
@@ -337,7 +336,6 @@ fn head_chunk(env: &TestEnv, shard_id: ShardId) -> Arc<ShardChunk> {
 #[test]
 fn slow_test_protocol_upgrade_under_congestion() {
     init_test_logger();
-
 
     let sender_id: AccountId = "test0".parse().unwrap();
     #[allow(deprecated)]
@@ -450,7 +448,8 @@ fn slow_test_protocol_upgrade_under_congestion() {
 #[allow(deprecated)]
 fn check_old_protocol(env: &TestEnv) {
     assert!(
-        env.get_head_protocol_version() < ProtocolFeature::_DeprecatedCongestionControl.protocol_version(),
+        env.get_head_protocol_version()
+            < ProtocolFeature::_DeprecatedCongestionControl.protocol_version(),
         "test setup error: chain already updated to new protocol"
     );
     let block = env.clients[0].chain.get_head_block().unwrap();
@@ -847,8 +846,5 @@ fn test_rpc_client_rejection() {
     );
     let response = env.tx_request_handlers[0].process_tx(fn_tx, false, false);
 
-    assert_matches!(
-        response,
-        ProcessTxResponse::InvalidTx(InvalidTxError::ShardCongested { .. })
-    );
+    assert_matches!(response, ProcessTxResponse::InvalidTx(InvalidTxError::ShardCongested { .. }));
 }

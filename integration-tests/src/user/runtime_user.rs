@@ -183,7 +183,8 @@ impl RuntimeUser {
         let shard_ids = shard_layout.shard_ids().collect_vec();
         let shard_id = *shard_ids.first().unwrap();
 
-        let congestion_info = shard_ids.into_iter().map(|id| (id, ExtendedCongestionInfo::default())).collect();
+        let congestion_info =
+            shard_ids.into_iter().map(|id| (id, ExtendedCongestionInfo::default())).collect();
         let congestion_info = BlockCongestionInfo::new(congestion_info);
 
         ApplyState {
