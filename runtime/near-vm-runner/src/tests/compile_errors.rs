@@ -177,7 +177,8 @@ fn slow_test_limit_contract_functions_number() {
     .protocol_version(FIX_CONTRACT_LOADING_COST)
     .expects(&[
         expect![[r#"
-            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 13049332713 used gas 13049332713
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 0 used gas 0
+            Err: PrepareError: Too many functions in contract.
         "#]],
         expect![[r#"
             VMOutcome: balance 4 storage_usage 12 return data None burnt gas 0 used gas 0
