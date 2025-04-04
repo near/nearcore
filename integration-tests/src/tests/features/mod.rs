@@ -11,7 +11,6 @@ mod fix_contract_loading_cost;
 mod flat_storage;
 mod in_memory_tries;
 mod increase_storage_compute_cost;
-
 mod nearvm;
 mod orphan_chunk_state_witness;
 mod restrict_tla;
