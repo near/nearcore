@@ -121,8 +121,7 @@ impl StandaloneRuntime {
             config: Arc::new(runtime_config),
             cache: None,
             is_new_chunk: true,
-            migration_data: Arc::new(MigrationData::default()),
-            migration_flags: MigrationFlags::default(),
+
             congestion_info,
             bandwidth_requests: BlockBandwidthRequests::empty(),
         };
