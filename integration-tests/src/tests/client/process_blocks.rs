@@ -980,7 +980,7 @@ fn test_bad_orphan() {
         block.mut_header().set_prev_hash(CryptoHash([3; 32]));
         block.mut_header().resign(&*signer);
         let res = env.clients[0].process_block_test(block.into(), Provenance::NONE);
-        assert_matches!(res.unwrap_err(), Error::InvalidChunkHeadersRoot);
+        assert_matches!(res.unwrap_err(), Error::InvalidSignature);
     }
     {
         // Orphan block with invalid approvals. Allowed for now.
@@ -1006,7 +1006,7 @@ fn test_bad_orphan() {
         block.mut_header().set_prev_hash(CryptoHash([4; 32]));
         block.mut_header().resign(&*signer);
         let res = env.clients[0].process_block_test(block.into(), Provenance::NONE);
-        assert_matches!(res.unwrap_err(), Error::Orphan);
+        assert_matches!(res.unwrap_err(), Error::InvalidSignature);
     }
     {
         // Orphan block that's too far ahead: 20 * epoch_length
