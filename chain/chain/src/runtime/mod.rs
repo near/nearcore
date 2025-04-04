@@ -1258,11 +1258,9 @@ impl RuntimeAdapter for NightshadeRuntime {
 /// How much gas of the next chunk we want to spend on converting new
 /// transactions to receipts.
 fn chunk_tx_gas_limit(
-    _protocol_version: u32,
     runtime_config: &RuntimeConfig,
     prev_block: &PrepareTransactionsBlockContext,
     shard_id: ShardId,
-    _gas_limit: u64,
 ) -> u64 {
     // The own congestion may be None when a new shard is created, or when the
     // feature is just being enabled. Using the default (no congestion) is a
