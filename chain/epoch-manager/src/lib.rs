@@ -365,20 +365,18 @@ impl EpochManager {
         // Later when we perform the check to kick out validators, we don't kick out validators in
         // exempted_validators.
         let mut exempted_validators = HashSet::new();
-        if ProtocolFeature::MaxKickoutStake.enabled(epoch_info.protocol_version()) {
-            let min_keep_stake = total_stake * (exempt_perc as u128) / 100;
-            let mut exempted_stake: Balance = 0;
-            for account_id in accounts_sorted_by_online_ratio.into_iter().rev() {
-                if exempted_stake >= min_keep_stake {
-                    break;
-                }
-                if !prev_validator_kickout.contains_key(account_id) {
-                    exempted_stake += epoch_info
-                        .get_validator_by_account(account_id)
-                        .map(|v| v.stake())
-                        .unwrap_or_default();
-                    exempted_validators.insert(account_id.clone());
-                }
+        let min_keep_stake = total_stake * (exempt_perc as u128) / 100;
+        let mut exempted_stake: Balance = 0;
+        for account_id in accounts_sorted_by_online_ratio.into_iter().rev() {
+            if exempted_stake >= min_keep_stake {
+                break;
+            }
+            if !prev_validator_kickout.contains_key(account_id) {
+                exempted_stake += epoch_info
+                    .get_validator_by_account(account_id)
+                    .map(|v| v.stake())
+                    .unwrap_or_default();
+                exempted_validators.insert(account_id.clone());
             }
         }
         exempted_validators

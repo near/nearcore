@@ -115,8 +115,7 @@ impl RewardCalculator {
                 // This is for backwards compatibility. In 2021 December, after we changed to 4 shards,
                 // mainnet was ran without SynchronizeBlockChunkProduction for some time and it's
                 // possible that some validators have expected blocks or chunks to be zero.
-                || (!chunk_only_producers_enabled
-                    && (expected_chunks == 0 || expected_blocks == 0))
+                || (!chunk_only_producers_enabled && (expected_chunks == 0 || expected_blocks == 0))
             {
                 0
             } else {
