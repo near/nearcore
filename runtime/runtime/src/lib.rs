@@ -137,11 +137,7 @@ pub struct ApplyState {
     pub cache: Option<Box<dyn ContractRuntimeCache>>,
     /// Whether the chunk being applied is new.
     pub is_new_chunk: bool,
-    /// Data for migrations that may need to be applied at the start of an epoch when protocol
-    /// version changes
-    pub migration_data: Arc<MigrationData>,
-    /// Flags for migrations indicating whether they can be applied at this block
-    pub migration_flags: MigrationFlags,
+
     /// Congestion level on each shard based on the latest known chunk header of each shard.
     ///
     /// The map must be empty if congestion control is disabled in the previous
@@ -1381,22 +1377,7 @@ impl Runtime {
         Ok(())
     }
 
-    pub fn apply_migrations(
-        &self,
-        state_update: &mut TrieUpdate,
-        migration_flags: &MigrationFlags,
-    ) -> Result<(), StorageError> {
-        // Remove the only testnet account with large storage key.
-        if migration_flags.is_first_block_with_chunk_of_version {
-            let account_id = "contractregistry.testnet".parse().unwrap();
-            if get_account(state_update, &account_id)?.is_some() {
-                remove_account(state_update, &account_id)?;
-                state_update.commit(StateChangeCause::Migration);
-            }
-        }
 
-        Ok(())
-    }
 
     /// Applies new signed transactions and incoming receipts for some chunk/shard on top of
     /// given trie and the given state root.
@@ -1460,10 +1441,6 @@ impl Runtime {
                 &mut processing_state.stats.balance,
             )?;
         }
-
-        // Step 2: apply migrations.
-        self.apply_migrations(&mut processing_state.state_update, &apply_state.migration_flags)
-            .map_err(RuntimeError::StorageError)?;
 
         let delayed_receipts = DelayedReceiptQueueWrapper::new(
             DelayedReceiptQueue::load(&processing_state.state_update)?,
