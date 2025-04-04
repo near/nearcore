@@ -183,9 +183,11 @@ pub enum ProtocolFeature {
     RejectBlocksWithOutdatedProtocolVersions,
     // NEP: https://github.com/near/NEPs/pull/488
     BLS12381,
-    RestrictTla,
+    #[deprecated]
+    _DeprecatedRestrictTla,
     /// Increases the number of chunk producers.
-    TestnetFewerBlockProducers,
+    #[deprecated]
+    _DeprecatedTestnetFewerBlockProducers,
     /// Enables stateless validation which is introduced in <https://github.com/near/NEPs/pull/509>
     /// LowerValidatorKickoutPercentForDebugging: lower block and chunk validator kickout percent from 90 to 50.
     /// SingleShardTracking: single shard tracking for stateless validation.
@@ -316,8 +318,8 @@ impl ProtocolFeature {
             ProtocolFeature::ComputeCosts | ProtocolFeature::FlatStorageReads => 61,
             ProtocolFeature::PreparationV2 | ProtocolFeature::NearVmRuntime => 62,
             ProtocolFeature::BlockHeaderV4 => 63,
-            ProtocolFeature::RestrictTla
-            | ProtocolFeature::TestnetFewerBlockProducers
+            ProtocolFeature::_DeprecatedRestrictTla
+            | ProtocolFeature::_DeprecatedTestnetFewerBlockProducers
             | ProtocolFeature::SimpleNightshadeV2 => 64,
             ProtocolFeature::SimpleNightshadeV3 => 65,
             ProtocolFeature::DecreaseFunctionCallBaseCost
