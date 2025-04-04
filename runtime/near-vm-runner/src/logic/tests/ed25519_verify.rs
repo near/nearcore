@@ -43,7 +43,6 @@ const MESSAGE: [u8; 32] = [
 ];
 
 #[track_caller]
-#[allow(deprecated)]
 fn check_ed25519_verify(
     signature_len: u64,
     signature: &[u8],
@@ -93,7 +92,6 @@ fn check_ed25519_verify(
 }
 
 #[test]
-#[allow(deprecated)]
 fn test_ed25519_verify_behavior_and_errors() {
     check_ed25519_verify(
         SIGNATURE.len() as u64,
@@ -216,7 +214,6 @@ fn test_ed25519_verify_behavior_and_errors() {
 
 // tests for data being read from registers
 #[test]
-#[allow(deprecated)]
 fn test_ed25519_verify_check_registers() {
     check_ed25519_verify(
         u64::MAX,
