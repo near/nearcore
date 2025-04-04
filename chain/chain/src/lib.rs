@@ -31,7 +31,7 @@ mod garbage_collection;
 pub mod genesis;
 mod lightclient;
 pub mod metrics;
-pub mod migrations;
+
 pub mod missing_chunks;
 pub mod orphan;
 pub mod rayon_spawner;

@@ -7,7 +7,7 @@ use crate::blocks_delay_tracker::BlocksDelayTracker;
 use crate::chain_update::ChainUpdate;
 use crate::crypto_hash_timer::CryptoHashTimer;
 use crate::lightclient::get_epoch_block_producers_view;
-use crate::migrations::check_if_block_is_first_with_chunk_of_version;
+
 use crate::missing_chunks::{MissingChunksPool, OptimisticBlockChunksPool};
 use crate::orphan::{Orphan, OrphanBlockPool};
 use crate::rayon_spawner::RayonAsyncComputationSpawner;
@@ -3399,12 +3399,6 @@ impl Chain {
             let old_receipts = collect_receipts_from_response(&old_receipts);
             let receipts = [new_receipts, old_receipts].concat();
 
-            check_if_block_is_first_with_chunk_of_version(
-                self.chain_store(),
-                self.epoch_manager.as_ref(),
-                prev_hash,
-                shard_id,
-            )?;
 
             ShardUpdateReason::NewChunk(NewChunkData {
                 chunk_header: chunk_header.clone(),

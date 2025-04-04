@@ -17,7 +17,7 @@ use bytesize::ByteSize;
 use itertools::GroupBy;
 use itertools::Itertools;
 use near_chain::chain::collect_receipts_from_response;
-use near_chain::migrations::check_if_block_is_first_with_chunk_of_version;
+
 use near_chain::types::{
     ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext, RuntimeAdapter,
 };
@@ -98,13 +98,7 @@ pub(crate) fn apply_block(
         let receipts = collect_receipts_from_response(&receipt_proof_response);
 
         let chunk_inner = chunk.cloned_header().take_inner();
-        check_if_block_is_first_with_chunk_of_version(
-            chain_store,
-            epoch_manager,
-            block.header().prev_hash(),
-            shard_id,
-        )
-        .unwrap();
+
 
         let transactions = chunk.transactions().to_vec();
         let valid_txs = chain_store.compute_transaction_validity(prev_block.header(), &chunk);
