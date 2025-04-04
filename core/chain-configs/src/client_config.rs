@@ -40,7 +40,7 @@ pub const DEFAULT_EXTERNAL_STORAGE_FALLBACK_THRESHOLD: u64 = 3;
 /// Describes the expected behavior of the node regarding shard tracking.
 /// If the node is an active validator, it will also track the shards it is responsible for as a validator.
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-pub enum TrackedConfig {
+pub enum TrackedShardsConfig {
     /// Tracks no shards (light client).
     NoShards,
     /// Tracks all shards.
@@ -54,17 +54,17 @@ pub enum TrackedConfig {
     Accounts(Vec<AccountId>),
 }
 
-impl TrackedConfig {
+impl TrackedShardsConfig {
     pub fn new_empty() -> Self {
-        TrackedConfig::NoShards
+        TrackedShardsConfig::NoShards
     }
 
     pub fn tracks_all_shards(&self) -> bool {
-        matches!(self, TrackedConfig::AllShards)
+        matches!(self, TrackedShardsConfig::AllShards)
     }
 
     pub fn tracks_any_account(&self) -> bool {
-        if let TrackedConfig::Accounts(accounts) = &self {
+        if let TrackedShardsConfig::Accounts(accounts) = &self {
             return !accounts.is_empty();
         }
         false
@@ -74,30 +74,30 @@ impl TrackedConfig {
     /// `tracked_shadow_validator`, and `tracked_accounts` as separate configuration fields,
     /// in that order of priority.
     pub fn from_deprecated_config_values(
-        tracked_shards: Option<Vec<ShardId>>,
-        tracked_shard_schedule: Option<Vec<Vec<ShardId>>>,
-        tracked_shadow_validator: Option<AccountId>,
-        tracked_accounts: Option<Vec<AccountId>>,
+        tracked_shards: &Option<Vec<ShardId>>,
+        tracked_shard_schedule: &Option<Vec<Vec<ShardId>>>,
+        tracked_shadow_validator: &Option<AccountId>,
+        tracked_accounts: &Option<Vec<AccountId>>,
     ) -> Self {
         if let Some(tracked_shards) = tracked_shards {
             // Historically, a non-empty `tracked_shards` list indicated tracking all shards, regardless of its contents.
             // For more details, see https://github.com/near/nearcore/pull/4668.
             if !tracked_shards.is_empty() {
-                return TrackedConfig::AllShards;
+                return TrackedShardsConfig::AllShards;
             }
         }
         if let Some(tracked_shard_schedule) = tracked_shard_schedule {
             if !tracked_shard_schedule.is_empty() {
-                return TrackedConfig::Schedule(tracked_shard_schedule);
+                return TrackedShardsConfig::Schedule(tracked_shard_schedule.clone());
             }
         }
         if let Some(validator_id) = tracked_shadow_validator {
-            return TrackedConfig::ShadowValidator(validator_id);
+            return TrackedShardsConfig::ShadowValidator(validator_id.clone());
         }
         if let Some(accounts) = tracked_accounts {
-            return TrackedConfig::Accounts(accounts);
+            return TrackedShardsConfig::Accounts(accounts.clone());
         }
-        TrackedConfig::NoShards
+        TrackedShardsConfig::NoShards
     }
 }
 
@@ -567,7 +567,7 @@ pub struct ClientConfig {
     pub block_header_fetch_horizon: BlockHeightDelta,
     /// Garbage collection configuration.
     pub gc: GCConfig,
-    pub tracked_config: TrackedConfig,
+    pub tracked_config: TrackedShardsConfig,
     /// Not clear old data, set `true` for archive nodes.
     pub archive: bool,
     /// save_trie_changes should be set to true iff
@@ -691,7 +691,7 @@ impl ClientConfig {
             doomslug_step_period: Duration::milliseconds(100),
             block_header_fetch_horizon: 50,
             gc: GCConfig { gc_blocks_limit: 100, ..GCConfig::default() },
-            tracked_config: TrackedConfig::NoShards,
+            tracked_config: TrackedShardsConfig::NoShards,
             archive,
             save_trie_changes,
             log_summary_style: LogSummaryStyle::Colored,

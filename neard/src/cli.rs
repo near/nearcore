@@ -1,7 +1,7 @@
 #[cfg(unix)]
 use anyhow::Context;
 use near_amend_genesis::AmendGenesisCommand;
-use near_chain_configs::{GenesisValidationMode, TrackedConfig};
+use near_chain_configs::{GenesisValidationMode, TrackedShardsConfig};
 use near_client::ConfigUpdater;
 use near_cold_store_tool::ColdStoreCommand;
 use near_config_utils::DownloadConfigType;
@@ -654,19 +654,19 @@ pub(super) struct LocalnetCmd {
 }
 
 impl LocalnetCmd {
-    fn parse_tracked_shards(tracked_shards: &str) -> TrackedConfig {
+    fn parse_tracked_shards(tracked_shards: &str) -> TrackedShardsConfig {
         if tracked_shards.to_lowercase() == "all" {
-            return TrackedConfig::AllShards;
+            return TrackedShardsConfig::AllShards;
         }
         if tracked_shards.to_lowercase() == "none" {
-            return TrackedConfig::NoShards;
+            return TrackedShardsConfig::NoShards;
         }
         let _tracked_shards = tracked_shards.split(',').map(|shard_id| {
             let shard_id = shard_id.parse::<ShardId>().expect("Shard id must be an integer");
             ShardUId::new(0, shard_id)
         });
-        // TODO(archival_v2): When `TrackedConfig::Shards` is added, use it here together with `tracked_shards`.
-        TrackedConfig::AllShards
+        // TODO(archival_v2): When `TrackedShardsConfig::Shards` is added, use it here together with `tracked_shards`.
+        TrackedShardsConfig::AllShards
     }
 
     pub(super) fn run(self, home_dir: &Path) {

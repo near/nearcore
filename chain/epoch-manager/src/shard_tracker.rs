@@ -3,7 +3,7 @@ use std::sync::Arc;
 use crate::EpochManagerAdapter;
 use itertools::Itertools;
 use near_cache::SyncLruCache;
-use near_chain_configs::TrackedConfig;
+use near_chain_configs::TrackedShardsConfig;
 use near_chain_primitives::Error;
 use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
@@ -14,17 +14,20 @@ use near_primitives::types::{AccountId, EpochId, ShardId};
 type BitMask = Vec<bool>;
 
 /// A module responsible for determining which shards are tracked across epochs.
-/// For supported configurations, see the `TrackedConfig` documentation.
+/// For supported configurations, see the `TrackedShardsConfig` documentation.
 #[derive(Clone)]
 pub struct ShardTracker {
-    tracked_config: TrackedConfig,
+    tracked_config: TrackedShardsConfig,
     /// Stores shard tracking information by epoch, only useful if TrackedState == Accounts
     tracking_shards_cache: Arc<SyncLruCache<EpochId, BitMask>>,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
 }
 
 impl ShardTracker {
-    pub fn new(tracked_config: TrackedConfig, epoch_manager: Arc<dyn EpochManagerAdapter>) -> Self {
+    pub fn new(
+        tracked_config: TrackedShardsConfig,
+        epoch_manager: Arc<dyn EpochManagerAdapter>,
+    ) -> Self {
         ShardTracker {
             tracked_config,
             // 1024 epochs on mainnet is about 512 days which is more than enough,
@@ -36,7 +39,7 @@ impl ShardTracker {
     }
 
     pub fn new_empty(epoch_manager: Arc<dyn EpochManagerAdapter>) -> Self {
-        Self::new(TrackedConfig::NoShards, epoch_manager)
+        Self::new(TrackedShardsConfig::NoShards, epoch_manager)
     }
 
     fn tracks_shard_at_epoch(
@@ -45,9 +48,9 @@ impl ShardTracker {
         epoch_id: &EpochId,
     ) -> Result<bool, EpochError> {
         match &self.tracked_config {
-            TrackedConfig::NoShards => Ok(false),
-            TrackedConfig::AllShards => Ok(true),
-            TrackedConfig::Accounts(tracked_accounts) => {
+            TrackedShardsConfig::NoShards => Ok(false),
+            TrackedShardsConfig::AllShards => Ok(true),
+            TrackedShardsConfig::Accounts(tracked_accounts) => {
                 let shard_layout = self.epoch_manager.get_shard_layout(epoch_id)?;
                 let tracking_mask = self.tracking_shards_cache.get_or_try_put(
                     *epoch_id,
@@ -65,7 +68,7 @@ impl ShardTracker {
                 let shard_index = shard_layout.get_shard_index(shard_id)?;
                 Ok(tracking_mask.get(shard_index).copied().unwrap_or(false))
             }
-            TrackedConfig::Schedule(schedule) => {
+            TrackedShardsConfig::Schedule(schedule) => {
                 assert_ne!(schedule.len(), 0);
                 let epoch_info = self.epoch_manager.get_epoch_info(epoch_id)?;
                 let epoch_height = epoch_info.epoch_height();
@@ -73,7 +76,7 @@ impl ShardTracker {
                 let subset = &schedule[index as usize];
                 Ok(subset.contains(&shard_id))
             }
-            TrackedConfig::ShadowValidator(account_id) => {
+            TrackedShardsConfig::ShadowValidator(account_id) => {
                 self.epoch_manager.cares_about_shard_in_epoch(epoch_id, account_id, shard_id)
             }
         }
@@ -138,11 +141,11 @@ impl ShardTracker {
             }
         }
         match self.tracked_config {
-            TrackedConfig::NoShards => {
+            TrackedShardsConfig::NoShards => {
                 // Avoid looking up EpochId as a performance optimization.
                 false
             }
-            TrackedConfig::AllShards => {
+            TrackedShardsConfig::AllShards => {
                 // Avoid looking up EpochId as a performance optimization.
                 true
             }
@@ -186,11 +189,11 @@ impl ShardTracker {
             }
         }
         match self.tracked_config {
-            TrackedConfig::NoShards => {
+            TrackedShardsConfig::NoShards => {
                 // Avoid looking up EpochId as a performance optimization.
                 false
             }
-            TrackedConfig::AllShards => {
+            TrackedShardsConfig::AllShards => {
                 // Avoid looking up EpochId as a performance optimization.
                 true
             }
@@ -234,11 +237,11 @@ impl ShardTracker {
             }
         }
         match self.tracked_config {
-            TrackedConfig::NoShards => {
+            TrackedShardsConfig::NoShards => {
                 // Avoid looking up EpochId as a performance optimization.
                 false
             }
-            TrackedConfig::AllShards => {
+            TrackedShardsConfig::AllShards => {
                 // Avoid looking up EpochId as a performance optimization.
                 true
             }
@@ -344,7 +347,7 @@ impl ShardTracker {
 #[cfg(test)]
 mod tests {
     use super::ShardTracker;
-    use crate::shard_tracker::TrackedConfig;
+    use crate::shard_tracker::TrackedShardsConfig;
     use crate::test_utils::hash_range;
     use crate::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
     use itertools::Itertools;
@@ -440,7 +443,8 @@ mod tests {
         let epoch_manager = get_epoch_manager(PROTOCOL_VERSION);
         let shard_layout = epoch_manager.get_shard_layout(&EpochId::default()).unwrap();
         let tracked_accounts = vec!["test1".parse().unwrap(), "test2".parse().unwrap()];
-        let tracker = ShardTracker::new(TrackedConfig::Accounts(tracked_accounts), epoch_manager);
+        let tracker =
+            ShardTracker::new(TrackedShardsConfig::Accounts(tracked_accounts), epoch_manager);
         let mut total_tracked_shards = HashSet::new();
         total_tracked_shards.insert(shard_layout.account_id_to_shard_id(&"test1".parse().unwrap()));
         total_tracked_shards.insert(shard_layout.account_id_to_shard_id(&"test2".parse().unwrap()));
@@ -459,7 +463,7 @@ mod tests {
     fn test_track_all_shards() {
         let shard_ids = (0..4).map(ShardId::new).collect_vec();
         let epoch_manager = get_epoch_manager(PROTOCOL_VERSION);
-        let tracker = ShardTracker::new(TrackedConfig::AllShards, epoch_manager);
+        let tracker = ShardTracker::new(TrackedShardsConfig::AllShards, epoch_manager);
         let total_tracked_shards: HashSet<_> = shard_ids.iter().cloned().collect();
 
         assert_eq!(
@@ -485,7 +489,7 @@ mod tests {
         let subset3: HashSet<ShardId> =
             HashSet::from([2, 3]).into_iter().map(ShardId::new).collect();
         let tracker = ShardTracker::new(
-            TrackedConfig::Schedule(vec![
+            TrackedShardsConfig::Schedule(vec![
                 subset1.clone().into_iter().collect(),
                 subset2.clone().into_iter().map(Into::into).collect(),
                 subset3.clone().into_iter().map(Into::into).collect(),

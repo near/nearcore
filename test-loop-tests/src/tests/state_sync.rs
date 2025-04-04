@@ -2,7 +2,7 @@ use near_async::messaging::{Handler, SendAsync};
 use near_async::test_loop::TestLoopV2;
 use near_async::time::Duration;
 use near_chain::ChainStoreAccess;
-use near_chain_configs::TrackedConfig;
+use near_chain_configs::TrackedShardsConfig;
 use near_chain_configs::test_genesis::{
     TestEpochConfigBuilder, TestGenesisBuilder, ValidatorsSpec,
 };
@@ -110,7 +110,7 @@ fn setup_initial_blockchain(
             if client_index != idx {
                 return;
             }
-            config.tracked_config = TrackedConfig::Schedule(schedule.clone());
+            config.tracked_config = TrackedShardsConfig::Schedule(schedule.clone());
         });
     }
 

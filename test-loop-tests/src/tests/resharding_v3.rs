@@ -2,7 +2,7 @@ use assert_matches::assert_matches;
 use itertools::Itertools;
 use near_async::test_loop::data::TestLoopData;
 use near_async::time::Duration;
-use near_chain_configs::TrackedConfig;
+use near_chain_configs::TrackedShardsConfig;
 use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::action::{GlobalContractDeployMode, GlobalContractIdentifier};
@@ -421,7 +421,7 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
         if let Some(tracked_shard_schedule) = &tracked_shard_schedule {
             if client_index == tracked_shard_schedule.client_index {
                 config.tracked_config =
-                    TrackedConfig::Schedule(tracked_shard_schedule.schedule.clone());
+                    TrackedShardsConfig::Schedule(tracked_shard_schedule.schedule.clone());
             }
         }
     });

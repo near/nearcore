@@ -11,7 +11,7 @@ use rand::Rng;
 use crate::utils::genesis_helpers::genesis_hash;
 use crate::utils::test_helpers::heavy_test;
 use near_actix_test_utils::run_actix;
-use near_chain_configs::{Genesis, NEAR_BASE, TrackedConfig};
+use near_chain_configs::{Genesis, NEAR_BASE, TrackedShardsConfig};
 use near_client::{
     ClientActor, GetBlock, ProcessTxRequest, Query, Status, TxRequestHandlerActor, ViewClientActor,
 };
@@ -75,8 +75,8 @@ fn init_test_staking(
         // And they are not needed in these tests.
         config.config.store.disable_state_snapshot();
         if track_all_shards {
-            config.config.tracked_config = Some(TrackedConfig::AllShards);
-            config.client_config.tracked_config = TrackedConfig::AllShards;
+            config.config.tracked_config = Some(TrackedShardsConfig::AllShards);
+            config.client_config.tracked_config = TrackedShardsConfig::AllShards;
         }
         if i != 0 {
             config.network_config.peer_store.boot_nodes =

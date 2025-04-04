@@ -15,7 +15,7 @@ pub use client_config::{
     DEFAULT_STATE_SYNC_NUM_CONCURRENT_REQUESTS_ON_CATCHUP_EXTERNAL, DumpConfig, EpochSyncConfig,
     ExternalStorageConfig, ExternalStorageLocation, GCConfig, LogSummaryStyle,
     MIN_GC_NUM_EPOCHS_TO_KEEP, ReshardingConfig, ReshardingHandle, StateSyncConfig, SyncConfig,
-    TEST_STATE_SYNC_TIMEOUT, TrackedConfig, default_chunk_wait_mult,
+    TEST_STATE_SYNC_TIMEOUT, TrackedShardsConfig, default_chunk_wait_mult,
     default_enable_multiline_logging, default_epoch_sync,
     default_header_sync_expected_height_per_second, default_header_sync_initial_timeout,
     default_header_sync_progress_timeout, default_header_sync_stall_ban_timeout,

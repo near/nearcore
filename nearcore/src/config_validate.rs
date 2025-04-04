@@ -187,6 +187,37 @@ impl<'a> ConfigValidator<'a> {
             );
             self.validation_errors.push_config_semantics_error(error_message);
         }
+        self.validate_tracked_shards_config();
+    }
+
+    fn validate_tracked_shards_config(&mut self) {
+        if self.config.tracked_config.is_none() {
+            return;
+        }
+        if self.config.tracked_shards.is_some() {
+            let error_message = format!(
+                "'config.tracked_shards' and 'config.tracked_config' cannot be both set. Please use 'config.tracked_config' only."
+            );
+            self.validation_errors.push_config_semantics_error(error_message);
+        }
+        if self.config.tracked_accounts.is_some() {
+            let error_message = format!(
+                "'config.tracked_accounts' and 'config.tracked_config' cannot be both set. Please use 'config.tracked_config' only."
+            );
+            self.validation_errors.push_config_semantics_error(error_message);
+        }
+        if self.config.tracked_shadow_validator.is_some() {
+            let error_message = format!(
+                "'config.tracked_shadow_validator' and 'config.tracked_config' cannot be both set. Please use 'config.tracked_config' only."
+            );
+            self.validation_errors.push_config_semantics_error(error_message);
+        }
+        if self.config.tracked_shard_schedule.is_some() {
+            let error_message = format!(
+                "'config.tracked_shard_schedule' and 'config.tracked_config' cannot be both set. Please use 'config.tracked_config' only."
+            );
+            self.validation_errors.push_config_semantics_error(error_message);
+        }
     }
 
     fn result_with_full_error(&self) -> Result<(), ValidationError> {
@@ -201,7 +232,18 @@ impl<'a> ConfigValidator<'a> {
 
 #[cfg(test)]
 mod tests {
+    use near_chain_configs::TrackedShardsConfig;
+
     use super::*;
+
+    #[test]
+    #[should_panic(expected = "and 'config.tracked_config' cannot be both set")]
+    fn test_cannot_use_both_new_and_old_tracked_shard_config() {
+        let mut config = Config::default();
+        config.tracked_config = Some(TrackedShardsConfig::AllShards);
+        config.tracked_shards = Some(vec![]);
+        validate_config(&config).unwrap();
+    }
 
     #[test]
     #[should_panic(expected = "gc config values should all be greater than 0")]

@@ -2278,7 +2278,7 @@ mod test {
     use assert_matches::assert_matches;
     use near_async::messaging::IntoSender;
     use near_async::time::FakeClock;
-    use near_chain_configs::{MutableConfigValue, TrackedConfig};
+    use near_chain_configs::{MutableConfigValue, TrackedShardsConfig};
     use near_epoch_manager::test_utils::setup_epoch_manager_with_block_and_chunk_producers;
     use near_network::test_utils::MockPeerManagerAdapter;
     use near_network::types::NetworkRequests;
@@ -2323,7 +2323,8 @@ mod test {
         let epoch_manager = Arc::new(epoch_manager.into_handle());
         let shard_layout = epoch_manager.get_shard_layout(&epoch_id).unwrap();
         let shard_id = shard_layout.shard_ids().next().unwrap();
-        let shard_tracker = ShardTracker::new(TrackedConfig::AllShards, epoch_manager.clone());
+        let shard_tracker =
+            ShardTracker::new(TrackedShardsConfig::AllShards, epoch_manager.clone());
         let network_adapter = Arc::new(MockPeerManagerAdapter::default());
         let client_adapter = Arc::new(MockClientAdapterForShardsManager::default());
         let clock = FakeClock::default();

@@ -1,7 +1,7 @@
 use near_async::messaging::CanSend;
 use near_chain::types::{EpochManagerAdapter, Tip};
 use near_chain::{Chain, ChainStore};
-use near_chain_configs::TrackedConfig;
+use near_chain_configs::TrackedShardsConfig;
 use near_epoch_manager::EpochManagerHandle;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::test_utils::setup_epoch_manager_with_block_and_chunk_producers;
@@ -87,7 +87,11 @@ impl ChunkTestFixture {
         let epoch_manager = epoch_manager.into_handle();
         let shard_layout = epoch_manager.get_shard_layout(&EpochId::default()).unwrap();
         let shard_tracker = ShardTracker::new(
-            if track_all_shards { TrackedConfig::AllShards } else { TrackedConfig::NoShards },
+            if track_all_shards {
+                TrackedShardsConfig::AllShards
+            } else {
+                TrackedShardsConfig::NoShards
+            },
             Arc::new(epoch_manager.clone()),
         );
         let mock_network = Arc::new(MockPeerManagerAdapter::default());

@@ -10,7 +10,7 @@ use near_async::test_loop::TestLoopV2;
 use near_async::time::{Clock, Duration};
 use near_chain_configs::{
     ClientConfig, DumpConfig, ExternalStorageConfig, ExternalStorageLocation, Genesis,
-    StateSyncConfig, SyncConfig, TrackedConfig,
+    StateSyncConfig, SyncConfig, TrackedShardsConfig,
 };
 use near_parameters::RuntimeConfigStore;
 use near_primitives::epoch_manager::EpochConfigStore;
@@ -232,9 +232,9 @@ impl TestLoopBuilder {
             // * all shard tracking for non-validators (RPCs and archival)
             let is_validator = genesis.config.validators.iter().any(|v| v.account_id == account_id);
             client_config.tracked_config = if is_validator && !self.track_all_shards {
-                TrackedConfig::NoShards
+                TrackedShardsConfig::NoShards
             } else {
-                TrackedConfig::AllShards
+                TrackedShardsConfig::AllShards
             };
 
             if let Some(config_modifier) = &self.config_modifier {

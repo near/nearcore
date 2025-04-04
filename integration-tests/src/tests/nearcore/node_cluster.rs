@@ -2,7 +2,7 @@ use actix::Addr;
 use actix_rt::ArbiterHandle;
 use futures::future;
 use near_actix_test_utils::{run_actix, spawn_interruptible};
-use near_chain_configs::{Genesis, TrackedConfig};
+use near_chain_configs::{Genesis, TrackedShardsConfig};
 use near_client::{ClientActor, ViewClientActor};
 use near_network::tcp;
 use near_network::test_utils::convert_boot_nodes;
@@ -51,7 +51,7 @@ fn start_nodes(
         }
         // if non validator, track all shards
         if i >= num_validator_seats && i < num_tracking_nodes {
-            near_config.client_config.tracked_config = TrackedConfig::AllShards;
+            near_config.client_config.tracked_config = TrackedShardsConfig::AllShards;
         }
         near_configs.push(near_config);
     }

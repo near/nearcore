@@ -20,7 +20,7 @@ use near_chain::types::{ChainConfig, RuntimeAdapter};
 use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode};
 use near_chain_configs::{
     ChunkDistributionNetworkConfig, ClientConfig, Genesis, MutableConfigValue, ReshardingConfig,
-    TrackedConfig,
+    TrackedShardsConfig,
 };
 use near_chunks::adapter::ShardsManagerRequestFromClient;
 use near_chunks::client::ShardsManagerResponse;
@@ -264,7 +264,7 @@ fn setup(
     ShardsManagerAdapterForTest,
     PartialWitnessSenderForNetwork,
 ) {
-    let shard_tracker = ShardTracker::new(TrackedConfig::AllShards, epoch_manager.clone());
+    let shard_tracker = ShardTracker::new(TrackedShardsConfig::AllShards, epoch_manager.clone());
     let chain_genesis = ChainGenesis {
         time: genesis_time,
         height: 0,
