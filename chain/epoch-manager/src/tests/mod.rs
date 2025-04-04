@@ -2585,9 +2585,6 @@ fn test_validator_kickout_determinism() {
 #[test]
 #[allow(deprecated)]
 fn test_chunk_validators_with_different_endorsement_ratio() {
-    if !ProtocolFeature::_DeprecatedChunkEndorsementsInBlockHeader.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     let mut epoch_config =
         epoch_config(5, 2, 2, 2, 90, 90, 70).for_protocol_version(PROTOCOL_VERSION);
     // Set the max kickout stake percentage so that only one of the chunk validators
@@ -2648,9 +2645,6 @@ fn test_chunk_validators_with_different_endorsement_ratio() {
 #[test]
 #[allow(deprecated)]
 fn test_chunk_validators_with_same_endorsement_ratio_and_different_stake() {
-    if !ProtocolFeature::_DeprecatedChunkEndorsementsInBlockHeader.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     let mut epoch_config =
         epoch_config(5, 2, 2, 2, 90, 90, 70).for_protocol_version(PROTOCOL_VERSION);
     // Set the max kickout stake percentage so that only one of the chunk validators
@@ -2711,9 +2705,6 @@ fn test_chunk_validators_with_same_endorsement_ratio_and_different_stake() {
 #[test]
 #[allow(deprecated)]
 fn test_chunk_validators_with_same_endorsement_ratio_and_stake() {
-    if !ProtocolFeature::_DeprecatedChunkEndorsementsInBlockHeader.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     let mut epoch_config =
         epoch_config(5, 2, 2, 2, 90, 90, 70).for_protocol_version(PROTOCOL_VERSION);
     // Set the max kickout stake percentage so that only one of the chunk validators
