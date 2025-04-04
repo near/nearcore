@@ -3417,7 +3417,6 @@ impl Chain {
                 transaction_validity_check_results: tx_valid_list,
                 receipts,
                 block,
-                is_first_block_with_chunk_of_version,
                 storage_context,
             })
         } else {
