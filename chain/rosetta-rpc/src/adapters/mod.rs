@@ -487,6 +487,8 @@ impl From<NearActions> for Vec<crate::models::Operation> {
                 | near_primitives::transaction::Action::UseGlobalContract(_) => {
                     // TODO(#12639): Implement global contracts support, ignored for now.
                 }
+                near_primitives::transaction::Action::DeployShardedContract(_) => todo!(),
+                near_primitives::transaction::Action::UseShardedContract(_) => todo!(),
             }
         }
         operations

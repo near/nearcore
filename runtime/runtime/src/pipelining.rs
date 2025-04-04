@@ -133,6 +133,8 @@ impl ReceiptPreparationPipeline {
         for (action_index, action) in actions.iter().enumerate() {
             let account_id = account_id.clone();
             match action {
+                Action::DeployShardedContract(_) => todo!(),
+                Action::UseShardedContract(_) => todo!(),
                 Action::DeployContract(_) | Action::UseGlobalContract(_) => {
                     // FIXME: instead of blocking these accounts, move the handling of
                     // deploy action into here, so that the necessary data dependencies can be
@@ -185,6 +187,7 @@ impl ReceiptPreparationPipeline {
                             };
                             value_ref.value_hash()
                         }
+                        AccountContract::ShardedByAccount(_) => todo!(),
                     };
                     let key = PrepareTaskKey { receipt_id: receipt.get_hash(), action_index };
                     let gas_counter = self.gas_counter(view_config.as_ref(), function_call.gas);

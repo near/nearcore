@@ -191,6 +191,9 @@ pub(crate) fn action_function_call(
     apply_recorded_storage_garbage(function_call, state_update);
 
     let mut receipt_manager = ReceiptManager::default();
+    // TODO: if we are executing a function call on a sharded contract, then we
+    // need to figure out and pass the namespace id here so it can be used in
+    // create_storage_key().
     let mut runtime_ext = RuntimeExt::new(
         state_update,
         &mut receipt_manager,
@@ -691,7 +694,9 @@ pub(crate) fn clear_account_contract_storage_usage(
             )?;
             account.set_storage_usage(account.storage_usage().saturating_sub(prev_code_len));
         }
-        AccountContract::Global(_) | AccountContract::GlobalByAccount(_) => {
+        AccountContract::Global(_)
+        | AccountContract::GlobalByAccount(_)
+        | AccountContract::ShardedByAccount(_) => {
             account.set_storage_usage(
                 account
                     .storage_usage()
@@ -993,7 +998,9 @@ pub(crate) fn check_actor_permissions(
         | Action::AddKey(_)
         | Action::DeleteKey(_)
         | Action::DeployGlobalContract(_)
-        | Action::UseGlobalContract(_) => {
+        | Action::UseGlobalContract(_)
+        | Action::DeployShardedContract(_)
+        | Action::UseShardedContract(_) => {
             if actor_id != account_id {
                 return Err(ActionErrorKind::ActorNoPermission {
                     account_id: account_id.clone(),
@@ -1076,7 +1083,9 @@ pub(crate) fn check_account_existence(
         | Action::DeleteAccount(_)
         | Action::Delegate(_)
         | Action::DeployGlobalContract(_)
-        | Action::UseGlobalContract(_) => {
+        | Action::UseGlobalContract(_)
+        | Action::DeployShardedContract(_)
+        | Action::UseShardedContract(_) => {
             if account.is_none() {
                 return Err(ActionErrorKind::AccountDoesNotExist {
                     account_id: account_id.clone(),

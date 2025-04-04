@@ -523,6 +523,8 @@ impl Runtime {
                     &mut result,
                 )?;
             }
+            Action::DeployShardedContract(_) => todo!(),
+            Action::UseShardedContract(_) => todo!(),
             Action::FunctionCall(function_call) => {
                 let account = account.as_mut().expect(EXPECT_ACCOUNT_EXISTS);
                 let account_contract = account.contract();
@@ -550,6 +552,7 @@ impl Runtime {
                             })?;
                         value_ref.value_hash()
                     }
+                    AccountContract::ShardedByAccount(_) => todo!(),
                 };
                 let contract =
                     preparation_pipeline.get_contract(receipt, code_hash, action_index, None);

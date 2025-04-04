@@ -366,6 +366,7 @@ impl StateChanges {
                 TrieKey::BufferedReceiptGroupsQueueItem { .. } => {}
                 // Global contract code is not a part of account, so ignoring it as well.
                 TrieKey::GlobalContractCode { .. } => {}
+                TrieKey::ShardedContractData { .. } => todo!(),
             }
         }
 

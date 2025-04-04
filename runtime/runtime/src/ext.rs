@@ -114,6 +114,7 @@ impl<'a> RuntimeExt<'a> {
     }
 
     pub fn create_storage_key(&self, key: &[u8]) -> TrieKey {
+        // TODO: If we are calling from a sharded contract, we need to use the namespace here.
         TrieKey::ContractData { account_id: self.account_id.clone(), key: key.to_vec() }
     }
 
