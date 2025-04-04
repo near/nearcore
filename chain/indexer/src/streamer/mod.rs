@@ -19,7 +19,7 @@ use near_primitives::views;
 
 use self::errors::FailedToFetchData;
 use self::fetchers::{
-    fetch_block, fetch_block_by_height, fetch_block_chunks, fetch_latest_block, fetch_outcomes,
+    fetch_block, fetch_block_by_height, fetch_block_new_chunks, fetch_latest_block, fetch_outcomes,
     fetch_state_changes, fetch_status,
 };
 use self::utils::convert_transactions_sir_into_local_receipts;
@@ -78,7 +78,7 @@ pub async fn build_streamer_message(
     shard_tracker: &ShardTracker,
 ) -> Result<StreamerMessage, FailedToFetchData> {
     let _timer = metrics::BUILD_STREAMER_MESSAGE_TIME.start_timer();
-    let chunks = fetch_block_chunks(&client, &block, shard_tracker).await?;
+    let chunks = fetch_block_new_chunks(&client, &block, shard_tracker).await?;
 
     let protocol_config_view = fetch_protocol_config(&client, block.header.hash).await?;
     let shard_ids = protocol_config_view.shard_layout.shard_ids();
@@ -234,15 +234,6 @@ pub async fn build_streamer_message(
 
         chunk_receipts.extend(chunk_non_local_receipts);
 
-        // If the chunk is missing the data from the header contains the
-        // previous new chunk in the shard. In this case there is no need to
-        // process it. It may also fail if the missing chunk happens to be the
-        // first in a new shard layout during resharding because then the shard
-        // id will be no longer valid.
-        if !header.is_new_chunk(block.header.height) {
-            continue;
-        }
-
         // Find the shard index for the chunk by shard_id
         let shard_index = protocol_config_view
             .shard_layout
@@ -348,7 +339,7 @@ async fn find_local_receipt_by_id_in_block(
     receipt_id: near_primitives::hash::CryptoHash,
     shard_tracker: &ShardTracker,
 ) -> Result<Option<views::ReceiptView>, FailedToFetchData> {
-    let chunks = fetch_block_chunks(&client, &block, shard_tracker).await?;
+    let chunks = fetch_block_new_chunks(&client, &block, shard_tracker).await?;
 
     let protocol_config_view = fetch_protocol_config(&client, block.header.hash).await?;
     let mut shards_outcomes = fetch_outcomes(&client, block.header.hash).await?;

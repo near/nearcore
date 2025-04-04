@@ -338,7 +338,6 @@ impl ShardTracker {
     pub fn get_state_sync_info(
         &self,
         me: &Option<AccountId>,
-        epoch_id: &EpochId,
         block_hash: &CryptoHash,
         prev_hash: &CryptoHash,
     ) -> Result<Option<StateSyncInfo>, Error> {
@@ -347,11 +346,9 @@ impl ShardTracker {
             Ok(None)
         } else {
             tracing::debug!(target: "chain", "Downloading state for {:?}, I'm {:?}", shards_to_state_sync, me);
-            let protocol_version = self.epoch_manager.get_epoch_protocol_version(epoch_id)?;
             // Note that this block is the first block in an epoch because this function is only called
             // in get_catchup_and_state_sync_infos() when that is the case.
-            let state_sync_info =
-                StateSyncInfo::new(protocol_version, *block_hash, shards_to_state_sync);
+            let state_sync_info = StateSyncInfo::new(*block_hash, shards_to_state_sync);
             Ok(Some(state_sync_info))
         }
     }
