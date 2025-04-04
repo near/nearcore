@@ -1141,7 +1141,6 @@ mod tests {
     use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
     use near_primitives::congestion_info::BlockCongestionInfo;
     use near_primitives::errors::InvalidAccessKeyError;
-    use near_primitives::runtime::migration_data::MigrationFlags;
     use near_primitives::transaction::CreateAccountAction;
     use near_primitives::types::{EpochId, StateChangeCause};
     use near_primitives::version::PROTOCOL_VERSION;
@@ -1403,8 +1402,6 @@ mod tests {
             config: Arc::new(RuntimeConfig::test()),
             cache: None,
             is_new_chunk: false,
-            migration_data: Arc::default(),
-            migration_flags: MigrationFlags::default(),
             congestion_info: BlockCongestionInfo::default(),
             bandwidth_requests: BlockBandwidthRequests::empty(),
         }

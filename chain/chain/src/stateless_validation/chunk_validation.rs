@@ -382,7 +382,6 @@ pub fn pre_validate_chunk_state_witness(
                 &store.get_block_header(last_chunk_block.header().prev_hash())?,
                 true,
             )?,
-            is_first_block_with_chunk_of_version: false,
             storage_context: StorageContext {
                 storage_data_source: StorageDataSource::Recorded(PartialStorage {
                     nodes: state_witness.main_state_transition.base_state.clone(),

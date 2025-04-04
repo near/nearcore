@@ -1,7 +1,6 @@
 use anyhow::{Context, anyhow};
 use borsh::BorshDeserialize;
 use near_chain::chain::collect_receipts_from_response;
-use near_chain::migrations::check_if_block_is_first_with_chunk_of_version;
 use near_chain::types::{
     ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext, RuntimeAdapter,
 };
@@ -173,13 +172,6 @@ pub fn apply_chunk(
         runtime.get_flat_storage_manager().create_flat_storage_for_shard(shard_uid).unwrap();
     }
 
-    let is_first_block_with_chunk_of_version = check_if_block_is_first_with_chunk_of_version(
-        chain_store,
-        epoch_manager,
-        prev_block_hash,
-        shard_id,
-    )?;
-
     let valid_txs = chain_store.compute_transaction_validity(prev_block.header(), &chunk);
 
     Ok((
@@ -190,7 +182,6 @@ pub fn apply_chunk(
                 shard_id,
                 last_validator_proposals: chunk_header.prev_validator_proposals(),
                 gas_limit: chunk_header.gas_limit(),
-                is_first_block_with_chunk_of_version,
                 is_new_chunk: true,
             },
             ApplyChunkBlockContext {
