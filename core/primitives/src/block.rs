@@ -110,7 +110,7 @@ impl Block {
     #[cfg(feature = "clock")]
     pub fn produce(
         this_epoch_protocol_version: ProtocolVersion,
-        next_epoch_protocol_version: ProtocolVersion,
+        _next_epoch_protocol_version: ProtocolVersion,
         latest_protocol_version: ProtocolVersion,
         prev: &BlockHeader,
         height: BlockHeight,
@@ -236,7 +236,6 @@ impl Block {
         );
         let header = BlockHeader::new(
             this_epoch_protocol_version,
-            next_epoch_protocol_version,
             latest_protocol_version,
             height,
             *prev.hash(),
