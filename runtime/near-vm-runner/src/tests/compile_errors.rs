@@ -320,7 +320,6 @@ fn slow_test_limit_locals_global() {
         #[allow(deprecated)]
         ProtocolFeature::_DeprecatedLimitContractLocals,
         ProtocolFeature::PreparationV2,
-
     ])
     .protocol_version(FIX_CONTRACT_LOADING_COST,)
     .expects(&[
