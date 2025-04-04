@@ -34,7 +34,6 @@ use near_o11y::testonly::{init_integration_logger, init_test_logger};
 use near_parameters::{ActionCosts, ExtCosts};
 use near_parameters::{RuntimeConfig, RuntimeConfigStore};
 use near_primitives::block::Approval;
-use near_primitives::block_header::BlockHeader;
 use near_primitives::errors::TxExecutionError;
 use near_primitives::errors::{ActionError, ActionErrorKind, InvalidTxError};
 use near_primitives::genesis::GenesisId;
@@ -58,9 +57,7 @@ use near_primitives::trie_key::TrieKey;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{AccountId, BlockHeight, EpochId, NumBlocks};
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
-use near_primitives::views::{
-    BlockHeaderView, FinalExecutionStatus, QueryRequest, QueryResponseKind,
-};
+use near_primitives::views::{FinalExecutionStatus, QueryRequest, QueryResponseKind};
 use near_primitives_core::num_rational::Ratio;
 use near_store::NodeStorage;
 use near_store::adapter::StoreUpdateAdapter;
@@ -142,7 +139,6 @@ fn receive_network_block() {
             let signer = create_test_signer("test1");
             let next_block_ordinal = last_block.header.block_ordinal.unwrap() + 1;
             let block = Block::produce(
-                PROTOCOL_VERSION,
                 PROTOCOL_VERSION,
                 PROTOCOL_VERSION,
                 &last_block.header.clone().into(),
@@ -234,7 +230,6 @@ fn produce_block_with_approvals() {
             let chunks = last_block.chunks.into_iter().map(Into::into).collect_vec();
             let chunk_endorsements = vec![vec![]; chunks.len()];
             let block = Block::produce(
-                PROTOCOL_VERSION,
                 PROTOCOL_VERSION,
                 PROTOCOL_VERSION,
                 &last_block.header.clone().into(),
@@ -432,7 +427,6 @@ fn invalid_blocks_common(is_requested: bool) {
             let signer = create_test_signer("test");
             let next_block_ordinal = last_block.header.block_ordinal.unwrap() + 1;
             let valid_block = Block::produce(
-                PROTOCOL_VERSION,
                 PROTOCOL_VERSION,
                 PROTOCOL_VERSION,
                 &last_block.header.clone().into(),
@@ -3323,49 +3317,6 @@ fn test_not_broadcast_block_on_accept() {
         env.process_block(i, b1.clone(), Provenance::NONE);
     }
     assert!(network_adapter.requests.read().unwrap().is_empty());
-}
-
-#[test]
-fn test_header_version_downgrade() {
-    init_test_logger();
-
-    let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
-    genesis.config.epoch_length = 5;
-    let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
-    let validator_signer = create_test_signer("test0");
-    for i in 1..10 {
-        let block = env.clients[0].produce_block(i).unwrap().unwrap();
-        env.process_block(0, block, Provenance::NONE);
-    }
-    let block = {
-        let mut block = env.clients[0].produce_block(10).unwrap().unwrap();
-        // Convert header to BlockHeaderV1
-        let mut header_view: BlockHeaderView = block.header().clone().into();
-        header_view.latest_protocol_version = 1;
-        let mut header = header_view.into();
-
-        // BlockHeaderV1, but protocol version is newest
-        match &mut header {
-            BlockHeader::BlockHeaderV1(header) => {
-                let header = Arc::make_mut(header);
-                header.inner_rest.latest_protocol_version = PROTOCOL_VERSION;
-                let hash = BlockHeader::compute_hash(
-                    header.prev_hash,
-                    &borsh::to_vec(&header.inner_lite).expect("Failed to serialize"),
-                    &borsh::to_vec(&header.inner_rest).expect("Failed to serialize"),
-                );
-                header.hash = hash;
-                header.signature = validator_signer.sign_bytes(hash.as_ref());
-            }
-            _ => {
-                unreachable!();
-            }
-        }
-        *block.mut_header() = header;
-        block
-    };
-    let res = env.clients[0].process_block_test(block.into(), Provenance::NONE);
-    assert!(!res.is_ok());
 }
 
 #[test]

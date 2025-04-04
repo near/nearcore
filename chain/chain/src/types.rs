@@ -12,7 +12,6 @@ use near_primitives::apply::ApplyChunkReason;
 use near_primitives::bandwidth_scheduler::BandwidthRequests;
 use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
 pub use near_primitives::block::{Block, BlockHeader, Tip};
-use near_primitives::challenge::ChallengesResult;
 use near_primitives::chunk_apply_stats::ChunkApplyStatsV0;
 use near_primitives::congestion_info::BlockCongestionInfo;
 use near_primitives::congestion_info::CongestionInfo;
@@ -290,7 +289,6 @@ pub struct ApplyChunkBlockContext {
     pub prev_block_hash: CryptoHash,
     pub block_timestamp: u64,
     pub gas_price: Balance,
-    pub challenges_result: ChallengesResult,
     pub random_seed: CryptoHash,
     pub congestion_info: BlockCongestionInfo,
     pub bandwidth_requests: BlockBandwidthRequests,
@@ -309,7 +307,6 @@ impl ApplyChunkBlockContext {
             prev_block_hash: *header.prev_hash(),
             block_timestamp: header.raw_timestamp(),
             gas_price,
-            challenges_result: header.challenges_result().clone(),
             random_seed: *header.random_value(),
             congestion_info,
             bandwidth_requests,
