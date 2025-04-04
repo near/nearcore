@@ -134,11 +134,44 @@ impl StateSnapshot {
 }
 
 /// Information needed to make a state snapshot.
-#[derive(Default)]
-pub struct StateSnapshotConfig {
-    pub home_dir: PathBuf,
-    pub hot_store_path: PathBuf,
-    pub state_snapshot_subdir: PathBuf,
+#[derive(Debug)]
+pub enum StateSnapshotConfig {
+    Disabled,
+    Enabled { state_snapshots_dir: PathBuf },
+}
+
+pub fn state_snapshots_dir(
+    home_dir: impl AsRef<Path>,
+    hot_store_path: impl AsRef<Path>,
+    state_snapshots_subdir: impl AsRef<Path>,
+) -> PathBuf {
+    home_dir.as_ref().join(hot_store_path).join(state_snapshots_subdir)
+}
+
+impl StateSnapshotConfig {
+    pub fn enabled(
+        home_dir: impl AsRef<Path>,
+        hot_store_path: impl AsRef<Path>,
+        state_snapshots_subdir: impl AsRef<Path>,
+    ) -> Self {
+        // Assumptions:
+        // * RocksDB checkpoints are taken instantly and for free, because the filesystem supports hard links.
+        // * The best place for checkpoints is within the `hot_store_path`, because that directory is often a separate disk.
+        Self::Enabled {
+            state_snapshots_dir: state_snapshots_dir(
+                home_dir,
+                hot_store_path,
+                state_snapshots_subdir,
+            ),
+        }
+    }
+
+    pub fn state_snapshots_dir(&self) -> Option<&Path> {
+        match self {
+            StateSnapshotConfig::Disabled => None,
+            StateSnapshotConfig::Enabled { state_snapshots_dir } => Some(state_snapshots_dir),
+        }
+    }
 }
 
 pub const STATE_SNAPSHOT_COLUMNS: &[DBCol] = &[
@@ -186,6 +219,12 @@ impl ShardTries {
                 .entered();
         let _timer = metrics::CREATE_STATE_SNAPSHOT_ELAPSED.start_timer();
 
+        // Checking if state snapshots are enabled is already done on actor level, hence the warning
+        let Some(state_snapshots_dir) = self.state_snapshots_dir() else {
+            tracing::warn!(target: "state_snapshot", "State snapshots are disabled");
+            return Ok(None);
+        };
+
         // `write()` lock is held for the whole duration of this function.
         let mut state_snapshot_lock = self.state_snapshot().write().unwrap();
         let db_snapshot_hash = self.store().get_state_snapshot_hash();
@@ -200,16 +239,9 @@ impl ShardTries {
             tracing::error!(target: "state_snapshot", ?prev_block_hash, ?state_snapshot.prev_block_hash, "Requested a state snapshot but that is already available with a different hash");
         }
 
-        let StateSnapshotConfig { home_dir, hot_store_path, state_snapshot_subdir, .. } =
-            self.state_snapshot_config();
         let storage = checkpoint_hot_storage_and_cleanup_columns(
             &self.store().store(),
-            &Self::get_state_snapshot_base_dir(
-                &prev_block_hash,
-                home_dir,
-                hot_store_path,
-                state_snapshot_subdir,
-            ),
+            &Self::get_state_snapshot_base_dir(&prev_block_hash, state_snapshots_dir),
             // TODO: Cleanup Changes and DeltaMetadata to avoid extra memory usage.
             // Can't be cleaned up now because these columns are needed to `update_flat_head()`.
             Some(STATE_SNAPSHOT_COLUMNS),
@@ -250,18 +282,22 @@ impl ShardTries {
             tracing::info_span!(target: "state_snapshot", "delete_state_snapshot").entered();
         let _timer = metrics::DELETE_STATE_SNAPSHOT_ELAPSED.start_timer();
 
+        // Checking if state snapshots are enabled is already done on actor level, hence the warning
+        let Some(state_snapshots_dir) = self.state_snapshots_dir() else {
+            tracing::warn!(target: "state_snapshot", "State snapshots are disabled");
+            return;
+        };
+
         // get snapshot_hash after acquiring write lock
         let mut state_snapshot_lock = self.state_snapshot().write().unwrap();
         if state_snapshot_lock.is_some() {
             // Drop Store before deleting the underlying data.
             *state_snapshot_lock = None;
         }
-        let StateSnapshotConfig { home_dir, hot_store_path, state_snapshot_subdir, .. } =
-            self.state_snapshot_config();
 
         // This will delete all existing snapshots from file system. Will retry 3 times
         for _ in 0..3 {
-            match self.delete_all_state_snapshots(home_dir, hot_store_path, state_snapshot_subdir) {
+            match self.delete_all_state_snapshots(state_snapshots_dir) {
                 Ok(_) => break,
                 Err(err) => {
                     tracing::error!(target: "state_snapshot", ?err, "Failed to delete the old state snapshot from file system or from rocksdb")
@@ -285,31 +321,20 @@ impl ShardTries {
     }
 
     /// Deletes all existing state snapshots in the parent directory
-    fn delete_all_state_snapshots(
-        &self,
-        home_dir: &Path,
-        hot_store_path: &Path,
-        state_snapshot_subdir: &Path,
-    ) -> Result<(), io::Error> {
+    fn delete_all_state_snapshots(&self, state_snapshots_dir: &Path) -> Result<(), io::Error> {
         let _span =
             tracing::info_span!(target: "state_snapshot", "delete_all_state_snapshots").entered();
-        let path = home_dir.join(hot_store_path).join(state_snapshot_subdir);
-        if path.exists() {
-            std::fs::remove_dir_all(&path)?
+        if state_snapshots_dir.exists() {
+            std::fs::remove_dir_all(state_snapshots_dir)?
         }
         Ok(())
     }
 
     pub fn get_state_snapshot_base_dir(
         prev_block_hash: &CryptoHash,
-        home_dir: &Path,
-        hot_store_path: &Path,
-        state_snapshot_subdir: &Path,
+        state_snapshots_dir: &Path,
     ) -> PathBuf {
-        // Assumptions:
-        // * RocksDB checkpoints are taken instantly and for free, because the filesystem supports hard links.
-        // * The best place for checkpoints is within the `hot_store_path`, because that directory is often a separate disk.
-        home_dir.join(hot_store_path).join(state_snapshot_subdir).join(format!("{prev_block_hash}"))
+        state_snapshots_dir.join(format!("{prev_block_hash}"))
     }
 
     /// Read RocksDB for the latest available snapshot hash, if available, open base_path+snapshot_hash for the state snapshot
@@ -323,18 +348,14 @@ impl ShardTries {
         let _span =
             tracing::info_span!(target: "state_snapshot", "maybe_open_state_snapshot").entered();
         metrics::HAS_STATE_SNAPSHOT.set(0);
-        let StateSnapshotConfig { home_dir, hot_store_path, state_snapshot_subdir, .. } =
-            self.state_snapshot_config();
+        let state_snapshots_dir = self
+            .state_snapshots_dir()
+            .ok_or_else(|| anyhow::anyhow!("State snapshots disabled"))?;
 
         // directly return error if no snapshot is found
         let snapshot_hash = self.store().get_state_snapshot_hash()?;
 
-        let snapshot_path = Self::get_state_snapshot_base_dir(
-            &snapshot_hash,
-            &home_dir,
-            &hot_store_path,
-            &state_snapshot_subdir,
-        );
+        let snapshot_path = Self::get_state_snapshot_base_dir(&snapshot_hash, &state_snapshots_dir);
         let parent_path = snapshot_path
             .parent()
             .ok_or_else(|| anyhow::anyhow!("{snapshot_path:?} needs to have a parent dir"))?;

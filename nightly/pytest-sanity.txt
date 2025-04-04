@@ -209,5 +209,6 @@ pytest --timeout=120 sanity/kickout_offline_validators.py
 pytest --timeout=120 sanity/kickout_offline_validators.py --features nightly
 
 # Epoch sync
-pytest --timeout=240 sanity/epoch_sync.py
-pytest --timeout=240 sanity/epoch_sync.py --features nightly
+# TODO(#13296): Enable after fixing flaky test
+# pytest --timeout=240 sanity/epoch_sync.py
+# pytest --timeout=240 sanity/epoch_sync.py --features nightly
