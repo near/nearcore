@@ -47,7 +47,6 @@ pub struct NewChunkData {
     pub transaction_validity_check_results: Vec<bool>,
     pub receipts: Vec<Receipt>,
     pub block: ApplyChunkBlockContext,
-    pub is_first_block_with_chunk_of_version: bool,
     pub storage_context: StorageContext,
 }
 
@@ -124,7 +123,6 @@ pub fn apply_new_chunk(
         transaction_validity_check_results,
         block,
         receipts,
-        is_first_block_with_chunk_of_version,
         storage_context,
     } = data;
     let shard_id = shard_context.shard_uid.shard_id();

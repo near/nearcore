@@ -527,11 +527,6 @@ impl<'a> ChainUpdate<'a> {
 
         let chunk_header = chunk.cloned_header();
         let gas_limit = chunk_header.gas_limit();
-        // This is set to false because the value is only relevant
-        // during protocol version RestoreReceiptsAfterFixApplyChunks.
-        // TODO(nikurt): Determine the value correctly.
-        let is_first_block_with_chunk_of_version = false;
-
         let block = self.chain_store_update.get_block(block_header.hash())?;
         let epoch_id = self.epoch_manager.get_epoch_id(block_header.hash())?;
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
