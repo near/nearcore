@@ -40,7 +40,7 @@ use near_primitives::types::{
     AccountId, ApprovalStake, Balance, BlockHeight, EpochHeight, EpochId, Nonce, NumShards,
     ShardId, ShardIndex, StateRoot, StateRootNode, ValidatorInfoIdentifier,
 };
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature, ProtocolVersion};
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolVersion};
 use near_primitives::views::{
     AccessKeyInfoView, AccessKeyList, CallResult, ContractCodeView, EpochValidatorInfo,
     QueryRequest, QueryResponse, QueryResponseKind, ViewStateResult,
@@ -388,13 +388,8 @@ impl KeyValueRuntime {
         Ok(None)
     }
 
-    fn get_congestion_info(protocol_version: ProtocolVersion) -> Option<CongestionInfo> {
-        if ProtocolFeature::CongestionControl.enabled(protocol_version) {
-            // TODO(congestion_control) - properly initialize
-            Some(CongestionInfo::default())
-        } else {
-            None
-        }
+    fn get_congestion_info(_protocol_version: ProtocolVersion) -> Option<CongestionInfo> {
+        Some(CongestionInfo::default())
     }
 }
 

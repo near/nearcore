@@ -1259,15 +1259,12 @@ impl RuntimeAdapter for NightshadeRuntime {
 /// How much gas of the next chunk we want to spend on converting new
 /// transactions to receipts.
 fn chunk_tx_gas_limit(
-    protocol_version: u32,
+    _protocol_version: u32,
     runtime_config: &RuntimeConfig,
     prev_block: &PrepareTransactionsBlockContext,
     shard_id: ShardId,
-    gas_limit: u64,
+    _gas_limit: u64,
 ) -> u64 {
-    if !ProtocolFeature::CongestionControl.enabled(protocol_version) {
-        return gas_limit / 2;
-    }
 
     // The own congestion may be None when a new shard is created, or when the
     // feature is just being enabled. Using the default (no congestion) is a
@@ -1284,12 +1281,12 @@ fn chunk_tx_gas_limit(
 }
 
 fn calculate_transactions_size_limit(
-    protocol_version: ProtocolVersion,
+    _protocol_version: ProtocolVersion,
     runtime_config: &RuntimeConfig,
     transactions_gas_limit: Gas,
 ) -> u64 {
     // Checking feature WitnessTransactionLimits
-    if ProtocolFeature::StatelessValidation.enabled(protocol_version) {
+    if ProtocolFeature::StatelessValidation.enabled(_protocol_version) {
         // Sum of transactions in the previous and current chunks should not exceed the limit.
         // Witness keeps transactions from both previous and current chunk, so we have to limit the sum of both.
         runtime_config
@@ -1319,15 +1316,12 @@ fn calculate_transactions_size_limit(
 /// congestion level is below the threshold.
 fn congestion_control_accepts_transaction(
     epoch_manager: &dyn EpochManagerAdapter,
-    protocol_version: ProtocolVersion,
+    _protocol_version: ProtocolVersion,
     runtime_config: &RuntimeConfig,
     epoch_id: &EpochId,
     prev_block: &PrepareTransactionsBlockContext,
     validated_tx: &ValidatedTransaction,
 ) -> Result<bool, Error> {
-    if !ProtocolFeature::CongestionControl.enabled(protocol_version) {
-        return Ok(true);
-    }
     let receiver_id = validated_tx.receiver_id();
     let receiving_shard = account_id_to_shard_id(epoch_manager, receiver_id, &epoch_id)?;
     let congestion_info = prev_block.congestion_info.get(&receiving_shard);

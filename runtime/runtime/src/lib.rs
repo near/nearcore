@@ -2194,13 +2194,10 @@ impl Runtime {
 impl ApplyState {
     fn own_congestion_info(
         &self,
-        protocol_version: ProtocolVersion,
+        _protocol_version: ProtocolVersion,
         trie: &dyn TrieAccess,
     ) -> Result<Option<CongestionInfo>, RuntimeError> {
-        if !ProtocolFeature::CongestionControl.enabled(protocol_version) {
-            debug_assert!(self.congestion_info.is_empty());
-            return Ok(None);
-        }
+        debug_assert!(!self.congestion_info.is_empty());
 
         if let Some(congestion_info) = self.congestion_info.get(&self.shard_id) {
             return Ok(Some(congestion_info.congestion_info));

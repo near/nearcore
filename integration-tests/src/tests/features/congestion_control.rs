@@ -51,7 +51,8 @@ fn set_wasm_cost(config: &mut RuntimeConfig) {
 // This is important to prevent needing to fix the congestion control tests
 // every time the parameters are updated.
 fn set_default_congestion_control(config_store: &RuntimeConfigStore, config: &mut RuntimeConfig) {
-    let cc_protocol_version = ProtocolFeature::CongestionControl.protocol_version();
+    #[allow(deprecated)]
+    let cc_protocol_version = ProtocolFeature::_DeprecatedCongestionControl.protocol_version();
     let cc_config = get_runtime_config(&config_store, cc_protocol_version);
     config.congestion_control_config = cc_config.congestion_control_config;
 }
@@ -266,14 +267,11 @@ fn check_congestion_info(env: &TestEnv, check_congested_protocol_upgrade: bool) 
 fn test_protocol_upgrade_simple() {
     init_test_logger();
 
-    // The following only makes sense to test if the feature is enabled in the current build.
-    if !ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
-        return;
-    }
 
+    #[allow(deprecated)]
     let mut env = setup_real_runtime(
         "test0".parse().unwrap(),
-        ProtocolFeature::CongestionControl.protocol_version() - 1,
+        ProtocolFeature::_DeprecatedCongestionControl.protocol_version() - 1,
     );
 
     // Produce a few blocks to get out of initial state.
@@ -288,7 +286,6 @@ fn test_protocol_upgrade_simple() {
     env.upgrade_protocol_to_latest_version();
 
     // check we are in the new version
-    assert!(ProtocolFeature::CongestionControl.enabled(env.get_head_protocol_version()));
 
     let block = env.clients[0].chain.get_head_block().unwrap();
     // check congestion info is available and represents "no congestion"
@@ -341,15 +338,12 @@ fn head_chunk(env: &TestEnv, shard_id: ShardId) -> Arc<ShardChunk> {
 fn slow_test_protocol_upgrade_under_congestion() {
     init_test_logger();
 
-    // The following only makes sense to test if the feature is enabled in the current build.
-    if !ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
-        return;
-    }
 
     let sender_id: AccountId = "test0".parse().unwrap();
+    #[allow(deprecated)]
     let mut env = setup_real_runtime(
         sender_id.clone(),
-        ProtocolFeature::CongestionControl.protocol_version() - 1,
+        ProtocolFeature::_DeprecatedCongestionControl.protocol_version() - 1,
     );
 
     // prepare a contract to call
@@ -373,7 +367,6 @@ fn slow_test_protocol_upgrade_under_congestion() {
     env.upgrade_protocol_to_latest_version();
 
     // check we are in the new version
-    assert!(ProtocolFeature::CongestionControl.enabled(env.get_head_protocol_version()));
     // check congestion info is available
     let block = env.clients[0].chain.get_head_block().unwrap();
     let chunks = block.chunks();
@@ -454,9 +447,10 @@ fn slow_test_protocol_upgrade_under_congestion() {
 
 /// Check we are still in the old version and no congestion info is shared.
 #[track_caller]
+#[allow(deprecated)]
 fn check_old_protocol(env: &TestEnv) {
     assert!(
-        !ProtocolFeature::CongestionControl.enabled(env.get_head_protocol_version()),
+        env.get_head_protocol_version() < ProtocolFeature::_DeprecatedCongestionControl.protocol_version(),
         "test setup error: chain already updated to new protocol"
     );
     let block = env.clients[0].chain.get_head_block().unwrap();
@@ -571,11 +565,9 @@ fn submit_n_cheap_fns(
 fn test_transaction_limit_for_local_congestion() {
     init_test_logger();
 
-    if !ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     // Fix the initial configuration of congestion control for the tests.
-    let protocol_version = ProtocolFeature::CongestionControl.protocol_version();
+    #[allow(deprecated)]
+    let protocol_version = ProtocolFeature::_DeprecatedCongestionControl.protocol_version();
     // We don't want to go into the TX rejection limit in this test.
     let upper_limit_congestion = UpperLimitCongestion::BelowRejectThreshold;
 
@@ -624,9 +616,6 @@ fn test_transaction_limit_for_local_congestion() {
 #[test]
 fn test_transaction_limit_for_remote_congestion() {
     init_test_logger();
-    if !ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     // We don't want to go into the TX rejection limit in this test.
     let upper_limit_congestion = UpperLimitCongestion::BelowRejectThreshold;
 
@@ -659,9 +648,6 @@ fn test_transaction_limit_for_remote_congestion() {
 fn slow_test_transaction_filtering() {
     init_test_logger();
 
-    if !ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     // This test should go beyond into the TX rejection limit in this test.
     let upper_limit_congestion = UpperLimitCongestion::AboveRejectThreshold;
 
@@ -861,12 +847,8 @@ fn test_rpc_client_rejection() {
     );
     let response = env.tx_request_handlers[0].process_tx(fn_tx, false, false);
 
-    if ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
-        assert_matches!(
-            response,
-            ProcessTxResponse::InvalidTx(InvalidTxError::ShardCongested { .. })
-        );
-    } else {
-        assert_eq!(response, ProcessTxResponse::ValidTx);
-    }
+    assert_matches!(
+        response,
+        ProcessTxResponse::InvalidTx(InvalidTxError::ShardCongested { .. })
+    );
 }

@@ -15,7 +15,7 @@ use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::ShardChunk;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{EpochId, Gas, ShardId, StateRoot};
-use near_primitives::version::ProtocolFeature;
+
 use near_store::adapter::StoreUpdateAdapter;
 use near_store::get_genesis_state_roots;
 use near_vm_runner::logic::ProtocolVersion;
@@ -173,16 +173,10 @@ impl Chain {
     ) -> Result<(), Error> {
         for (chunk_header, state_root) in genesis.chunks().iter_deprecated().zip(state_roots.iter())
         {
-            let congestion_info = if ProtocolFeature::CongestionControl
-                .enabled(genesis.header().latest_protocol_version())
-            {
-                genesis
-                    .block_congestion_info()
-                    .get(&chunk_header.shard_id())
-                    .map(|info| info.congestion_info)
-            } else {
-                None
-            };
+            let congestion_info = genesis
+                .block_congestion_info()
+                .get(&chunk_header.shard_id())
+                .map(|info| info.congestion_info);
 
             store_update.save_chunk_extra(
                 genesis.hash(),
@@ -223,10 +217,6 @@ fn get_genesis_congestion_infos_impl(
     let genesis_epoch_id = epoch_manager.get_epoch_id_from_prev_block(&genesis_prev_hash)?;
     let genesis_protocol_version = epoch_manager.get_epoch_protocol_version(&genesis_epoch_id)?;
     let genesis_shard_layout = epoch_manager.get_shard_layout(&genesis_epoch_id)?;
-    // If congestion control is not enabled at the genesis block, we return None (congestion info) for each shard.
-    if !ProtocolFeature::CongestionControl.enabled(genesis_protocol_version) {
-        return Ok(std::iter::repeat(None).take(state_roots.len()).collect());
-    }
 
     // Check we had already computed the congestion infos from the genesis state roots.
     if let Some(saved_infos) = near_store::get_genesis_congestion_infos(runtime.store())? {

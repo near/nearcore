@@ -200,7 +200,7 @@ mod tests {
     use near_primitives::trie_key::TrieKey;
     use near_primitives::types::chunk_extra::ChunkExtra;
     use near_primitives::types::{StateChangeCause, StateRoot};
-    use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
+    use near_primitives::version::PROTOCOL_VERSION;
     use rand::rngs::StdRng;
     use rand::{Rng, SeedableRng};
 
@@ -518,9 +518,7 @@ mod tests {
         shard_uid: ShardUId,
         state_root: StateRoot,
     ) {
-        let congestion_info = ProtocolFeature::CongestionControl
-            .enabled(PROTOCOL_VERSION)
-            .then(CongestionInfo::default);
+        let congestion_info = Some(CongestionInfo::default());
 
         let chunk_extra = ChunkExtra::new(
             PROTOCOL_VERSION,

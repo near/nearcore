@@ -17,7 +17,7 @@ use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
 use near_primitives::test_utils::MockEpochInfoProvider;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockHeightDelta, MerkleHash, ShardId};
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
+use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{
     AccessKeyView, AccountView, BlockView, CallResult, ChunkView, ContractCodeView,
     ExecutionOutcomeView, ExecutionOutcomeWithIdView, ExecutionStatusView,
@@ -183,11 +183,7 @@ impl RuntimeUser {
         let shard_ids = shard_layout.shard_ids().collect_vec();
         let shard_id = *shard_ids.first().unwrap();
 
-        let congestion_info = if ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
-            shard_ids.into_iter().map(|id| (id, ExtendedCongestionInfo::default())).collect()
-        } else {
-            Default::default()
-        };
+        let congestion_info = shard_ids.into_iter().map(|id| (id, ExtendedCongestionInfo::default())).collect();
         let congestion_info = BlockCongestionInfo::new(congestion_info);
 
         ApplyState {
