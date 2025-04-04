@@ -134,7 +134,6 @@ pub async fn build_streamer_message(
                 .filter(|tx| tx.transaction.signer_id == tx.transaction.receiver_id)
                 .collect::<Vec<&IndexerTransactionWithOutcome>>(),
             &block,
-            protocol_config_view.protocol_version,
         )
         .await?;
 
@@ -368,7 +367,6 @@ async fn find_local_receipt_by_id_in_block(
                 &runtime_config,
                 vec![&indexer_transaction],
                 &block,
-                protocol_config_view.protocol_version,
             )
             .await?;
 

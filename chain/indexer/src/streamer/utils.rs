@@ -14,7 +14,6 @@ pub(crate) async fn convert_transactions_sir_into_local_receipts(
     runtime_config: &RuntimeConfig,
     txs: Vec<&IndexerTransactionWithOutcome>,
     block: &views::BlockView,
-    _protocol_version: ProtocolVersion,
 ) -> Result<Vec<views::ReceiptView>, FailedToFetchData> {
     if txs.is_empty() {
         return Ok(vec![]);
