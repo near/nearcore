@@ -630,9 +630,7 @@ impl EpochInfo {
         height: BlockHeight,
         shard_id: ShardId,
     ) -> [u8; 32] {
-        if ProtocolFeature::SynchronizeBlockChunkProduction.enabled(protocol_version)
-            && !ProtocolFeature::ChunkOnlyProducers.enabled(protocol_version)
-        {
+        if !ProtocolFeature::ChunkOnlyProducers.enabled(protocol_version) {
             // This is same seed that used for determining block
             // producer. This seed does not contain the shard id
             // so all shards will be produced by the same
