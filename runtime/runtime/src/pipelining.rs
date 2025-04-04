@@ -61,7 +61,6 @@ pub(crate) struct ReceiptPreparationPipeline {
     /// The contract cache.
     contract_cache: Option<Box<dyn ContractRuntimeCache>>,
 
-
     /// Storage for WASM code.
     storage: ContractStorage,
 }
@@ -371,10 +370,8 @@ impl ReceiptPreparationPipeline {
 fn prepare_function_call(
     contract_storage: &ContractStorage,
     cache: Option<&dyn ContractRuntimeCache>,
-
     config: Arc<near_parameters::vm::Config>,
     gas_counter: GasCounter,
-
     code_hash: CryptoHash,
     account_id: &AccountId,
     method_name: &str,
