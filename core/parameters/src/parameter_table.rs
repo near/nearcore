@@ -320,7 +320,7 @@ impl TryFrom<&ParameterTable> for RuntimeConfig {
                 limit_config: serde_yaml::from_value(params.yaml_map(Parameter::vm_limits()))
                     .map_err(InvalidConfigError::InvalidYaml)?,
                 fix_contract_loading_cost: params.get(Parameter::FixContractLoadingCost)?,
-                storage_get_mode: match params.get(Parameter::_DeprecatedFlatStorageReads)? {
+                storage_get_mode: match params.get(Parameter::FlatStorageReads)? {
                     true => StorageGetMode::FlatStorage,
                     false => StorageGetMode::Trie,
                 },

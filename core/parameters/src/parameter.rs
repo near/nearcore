@@ -196,7 +196,7 @@ pub enum Parameter {
     // Contract runtime features
     #[strum(serialize = "disable_9393_fix")]
     Disable9393Fix,
-    _DeprecatedFlatStorageReads,
+    FlatStorageReads,
     ImplicitAccountCreation,
     FixContractLoadingCost,
     MathExtension,
