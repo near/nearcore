@@ -300,8 +300,7 @@ impl ProtocolFeature {
             | ProtocolFeature::ChunkNodesCache
             | ProtocolFeature::LowerStorageKeyLimit => 53,
             ProtocolFeature::_DeprecatedAltBn128 => 55,
-            ProtocolFeature::_DeprecatedChunkOnlyProducers
-            | ProtocolFeature::MaxKickoutStake => 56,
+            ProtocolFeature::_DeprecatedChunkOnlyProducers | ProtocolFeature::MaxKickoutStake => 56,
             ProtocolFeature::AccountIdInFunctionCallPermission => 57,
             ProtocolFeature::Ed25519Verify
             | ProtocolFeature::ZeroBalanceAccount
