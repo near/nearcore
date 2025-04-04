@@ -1,17 +1,26 @@
-use std::collections::{BTreeSet, HashSet};
-use std::path::PathBuf;
-
+use super::*;
+use crate::rayon_spawner::RayonAsyncComputationSpawner;
 use crate::types::{ChainConfig, RuntimeStorageConfig};
 use crate::{Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode};
 use assert_matches::assert_matches;
+use near_async::messaging::{IntoMultiSender, noop};
+use near_async::time::Clock;
 use near_chain_configs::test_utils::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
+use near_chain_configs::{
+    DEFAULT_GC_NUM_EPOCHS_TO_KEEP, Genesis, MutableConfigValue, NEAR_BASE,
+    default_produce_chunk_add_transactions_time_limit,
+};
+use near_crypto::{InMemorySigner, Signer};
 use near_epoch_manager::EpochManager;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_epoch_manager::shard_tracker::ShardTracker;
+use near_o11y::testonly::init_test_logger;
 use near_pool::{InsertTransactionResult, PoolIteratorWrapper, TransactionPool};
 use near_primitives::action::FunctionCallAction;
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
+use near_primitives::block::Tip;
+use near_primitives::challenge::ChallengesResult;
 use near_primitives::congestion_info::{BlockCongestionInfo, ExtendedCongestionInfo};
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::epoch_info::RngSeed;
@@ -19,43 +28,30 @@ use near_primitives::receipt::{ActionReceipt, ReceiptV1};
 use near_primitives::state::PartialState;
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::test_utils::create_test_signer;
+use near_primitives::transaction::{Action, DeleteAccountAction, StakeAction, TransferAction};
+use near_primitives::trie_key::TrieKey;
 use near_primitives::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
+use near_primitives::types::{
+    BlockHeightDelta, Nonce, ValidatorId, ValidatorInfoIdentifier, ValidatorKickoutReason,
+};
+use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
+use near_primitives::views::{
+    AccountView, CurrentEpochValidatorInfo, EpochValidatorInfo, NextEpochValidatorInfo,
+    ValidatorKickoutView,
+};
 use near_store::flat::{FlatStateChanges, FlatStateDelta, FlatStateDeltaMetadata};
 use near_store::genesis::initialize_genesis_state;
+use near_store::{NodeStorage, PartialStorage, get_genesis_state_roots};
 use near_vm_runner::{
     CompiledContract, CompiledContractInfo, FilesystemContractRuntimeCache, get_contract_cache_key,
 };
 use node_runtime::SignedValidPeriodTransactions;
 use num_rational::Ratio;
-use rand::{SeedableRng, rngs::StdRng, seq::SliceRandom};
-
-use near_chain_configs::{
-    DEFAULT_GC_NUM_EPOCHS_TO_KEEP, Genesis, MutableConfigValue, NEAR_BASE,
-    default_produce_chunk_add_transactions_time_limit,
-};
-use near_crypto::{InMemorySigner, Signer};
-use near_o11y::testonly::init_test_logger;
-use near_primitives::block::Tip;
-use near_primitives::challenge::{ChallengesResult, SlashedValidator};
-use near_primitives::transaction::{Action, DeleteAccountAction, StakeAction, TransferAction};
-use near_primitives::types::{
-    BlockHeightDelta, Nonce, ValidatorId, ValidatorInfoIdentifier, ValidatorKickoutReason,
-};
-use near_primitives::validator_signer::ValidatorSigner;
-use near_primitives::views::{
-    AccountView, CurrentEpochValidatorInfo, EpochValidatorInfo, NextEpochValidatorInfo,
-    ValidatorKickoutView,
-};
-use near_store::{NodeStorage, PartialStorage, get_genesis_state_roots};
-
-use super::*;
-
-use crate::rayon_spawner::RayonAsyncComputationSpawner;
-use near_async::messaging::{IntoMultiSender, noop};
-use near_async::time::Clock;
-use near_primitives::trie_key::TrieKey;
 use primitive_types::U256;
+use rand::{SeedableRng, rngs::StdRng, seq::SliceRandom};
+use std::collections::{BTreeSet, HashSet};
+use std::path::PathBuf;
 
 struct TestEnvConfig {
     epoch_length: BlockHeightDelta,
@@ -219,7 +215,6 @@ impl TestEnv {
         new_block_hash: CryptoHash,
         transactions: Vec<SignedTransaction>,
         receipts: &[Receipt],
-        challenges_result: ChallengesResult,
     ) -> ApplyChunkResult {
         // TODO(congestion_control): pass down prev block info and read congestion info from there
         // For now, just use default.
@@ -265,7 +260,6 @@ impl TestEnv {
                     prev_block_hash,
                     block_timestamp,
                     gas_price,
-                    challenges_result,
                     random_seed: CryptoHash::default(),
                     congestion_info,
                     bandwidth_requests: BlockBandwidthRequests::empty(),
@@ -282,15 +276,9 @@ impl TestEnv {
         new_block_hash: CryptoHash,
         transactions: Vec<SignedTransaction>,
         receipts: &[Receipt],
-        challenges_result: ChallengesResult,
     ) -> (CryptoHash, Vec<ValidatorStake>, Vec<Receipt>) {
-        let mut apply_result = self.apply_new_chunk(
-            shard_id,
-            new_block_hash,
-            transactions,
-            receipts,
-            challenges_result,
-        );
+        let mut apply_result =
+            self.apply_new_chunk(shard_id, new_block_hash, transactions, receipts);
         let mut store_update = self.runtime.store().store_update();
         let flat_state_changes =
             FlatStateChanges::from_state_changes(&apply_result.trie_changes.state_changes());
@@ -345,7 +333,6 @@ impl TestEnv {
                 new_hash,
                 transactions[shard_index].clone(),
                 self.last_receipts.get(&shard_id).map_or(&[], |v| v.as_slice()),
-                challenges_result.clone(),
             );
             self.state_roots[shard_index] = state_root;
             all_receipts.extend(receipts);
@@ -1008,202 +995,6 @@ fn test_get_validator_info() {
     assert_eq!(response.epoch_start_height, 3);
 }
 
-#[ignore = "Ignoring challenge and slashing related tests"]
-#[test]
-fn test_challenges() {
-    let mut env =
-        TestEnv::new(vec![vec!["test1".parse().unwrap(), "test2".parse().unwrap()]], 2, true);
-    env.step(
-        vec![vec![]],
-        vec![true],
-        vec![SlashedValidator::new("test2".parse().unwrap(), false)],
-    );
-    assert_eq!(env.view_account(&"test2".parse().unwrap()).locked, 0);
-    let mut bps = env
-        .epoch_manager
-        .get_epoch_block_producers_ordered(&env.head.epoch_id)
-        .unwrap()
-        .iter()
-        .map(|x| x.account_id().clone())
-        .collect::<Vec<_>>();
-    bps.sort_unstable();
-    let expected_bps: Vec<AccountId> = vec!["test1".parse().unwrap(), "test2".parse().unwrap()];
-    assert_eq!(bps, expected_bps);
-    let msg = vec![0, 1, 2];
-    let signer = InMemorySigner::test_signer(&"test2".parse().unwrap());
-    let signature = signer.sign(&msg);
-    assert!(
-        !env.epoch_manager
-            .verify_validator_signature(
-                &env.head.epoch_id,
-                &"test2".parse().unwrap(),
-                &msg,
-                &signature,
-            )
-            .unwrap()
-    );
-    // Run for 3 epochs, to finalize the given block and make sure that slashed stake actually correctly propagates.
-    for _ in 0..6 {
-        env.step(vec![vec![]], vec![true], vec![]);
-    }
-}
-
-/// Test that in case of a double sign, not all stake is slashed if the double signed stake is
-/// less than 33% and all stake is slashed if the stake is more than 33%
-#[ignore = "Ignoring challenge and slashing related tests"]
-#[test]
-fn test_double_sign_challenge_not_all_slashed() {
-    init_test_logger();
-    let num_nodes = 3;
-    let validators = (0..num_nodes)
-        .map(|i| AccountId::try_from(format!("test{}", i + 1)).unwrap())
-        .collect::<Vec<_>>();
-    let mut env = TestEnv::new(vec![validators.clone()], 3, false);
-    let block_producers: Vec<_> =
-        validators.iter().map(|id| create_test_signer(id.as_str())).collect();
-
-    let signer = InMemorySigner::test_signer(&validators[2]);
-    let staking_transaction = stake(1, &signer, &block_producers[2], TESTING_INIT_STAKE / 3);
-    env.step(
-        vec![vec![staking_transaction]],
-        vec![true],
-        vec![SlashedValidator::new("test2".parse().unwrap(), true)],
-    );
-    assert_eq!(env.view_account(&"test2".parse().unwrap()).locked, TESTING_INIT_STAKE);
-    let mut bps = env
-        .epoch_manager
-        .get_epoch_block_producers_ordered(&env.head.epoch_id)
-        .unwrap()
-        .iter()
-        .map(|x| x.account_id().clone())
-        .collect::<Vec<_>>();
-    bps.sort_unstable();
-    let expected_bps: Vec<AccountId> =
-        vec!["test1".parse().unwrap(), "test2".parse().unwrap(), "test3".parse().unwrap()];
-    assert_eq!(bps, expected_bps);
-    let msg = vec![0, 1, 2];
-    let signer = InMemorySigner::test_signer(&"test2".parse().unwrap());
-    let signature = signer.sign(&msg);
-    assert!(
-        !env.epoch_manager
-            .verify_validator_signature(
-                &env.head.epoch_id,
-                &"test2".parse().unwrap(),
-                &msg,
-                &signature,
-            )
-            .unwrap()
-    );
-
-    for _ in 2..11 {
-        env.step(vec![vec![]], vec![true], vec![]);
-    }
-    env.step(vec![vec![]], vec![true], vec![SlashedValidator::new("test3".parse().unwrap(), true)]);
-    let account = env.view_account(&"test3".parse().unwrap());
-    assert_eq!(account.locked, TESTING_INIT_STAKE / 3);
-    assert_eq!(account.amount, TESTING_INIT_BALANCE - TESTING_INIT_STAKE / 3);
-
-    for _ in 11..14 {
-        env.step_default(vec![]);
-    }
-    let account = env.view_account(&"test3".parse().unwrap());
-    let slashed = (TESTING_INIT_STAKE / 3) * 3 / 4;
-    let remaining = TESTING_INIT_STAKE / 3 - slashed;
-    assert_eq!(account.locked, remaining);
-    assert_eq!(account.amount, TESTING_INIT_BALANCE - TESTING_INIT_STAKE / 3);
-
-    for _ in 14..=20 {
-        env.step_default(vec![]);
-    }
-
-    let account = env.view_account(&"test2".parse().unwrap());
-    assert_eq!(account.locked, 0);
-    assert_eq!(account.amount, TESTING_INIT_BALANCE - TESTING_INIT_STAKE);
-
-    let account = env.view_account(&"test3".parse().unwrap());
-    assert_eq!(account.locked, 0);
-    assert_eq!(account.amount, TESTING_INIT_BALANCE - TESTING_INIT_STAKE / 3 + remaining);
-}
-
-/// Test that double sign from multiple accounts may result in all of their stake slashed.
-#[ignore = "Ignoring challenge and slashing related tests"]
-#[test]
-fn test_double_sign_challenge_all_slashed() {
-    init_test_logger();
-    let num_nodes = 5;
-    let validators = (0..num_nodes)
-        .map(|i| AccountId::try_from(format!("test{}", i + 1)).unwrap())
-        .collect::<Vec<_>>();
-    let mut env = TestEnv::new(vec![validators.clone()], 5, false);
-    let signers: Vec<_> = validators.iter().map(|id| InMemorySigner::test_signer(&id)).collect();
-    env.step(vec![vec![]], vec![true], vec![SlashedValidator::new("test1".parse().unwrap(), true)]);
-    env.step(vec![vec![]], vec![true], vec![SlashedValidator::new("test2".parse().unwrap(), true)]);
-    let msg = vec![0, 1, 2];
-    for i in 0..=1 {
-        let signature = signers[i].sign(&msg);
-        assert!(
-            !env.epoch_manager
-                .verify_validator_signature(
-                    &env.head.epoch_id,
-                    &AccountId::try_from(format!("test{}", i + 1)).unwrap(),
-                    &msg,
-                    &signature,
-                )
-                .unwrap()
-        );
-    }
-
-    for _ in 3..17 {
-        env.step_default(vec![]);
-    }
-    let account = env.view_account(&"test1".parse().unwrap());
-    assert_eq!(account.locked, 0);
-    assert_eq!(account.amount, TESTING_INIT_BALANCE - TESTING_INIT_STAKE);
-
-    let account = env.view_account(&"test2".parse().unwrap());
-    assert_eq!(account.locked, 0);
-    assert_eq!(account.amount, TESTING_INIT_BALANCE - TESTING_INIT_STAKE);
-}
-
-/// Test that if double sign occurs in the same epoch as other type of challenges all stake
-/// is slashed.
-#[test]
-fn test_double_sign_with_other_challenges() {
-    init_test_logger();
-    let num_nodes = 3;
-    let validators = (0..num_nodes)
-        .map(|i| AccountId::try_from(format!("test{}", i + 1)).unwrap())
-        .collect::<Vec<_>>();
-    let mut env = TestEnv::new(vec![validators], 5, false);
-    env.step(
-        vec![vec![]],
-        vec![true],
-        vec![
-            SlashedValidator::new("test1".parse().unwrap(), true),
-            SlashedValidator::new("test2".parse().unwrap(), false),
-        ],
-    );
-    env.step(
-        vec![vec![]],
-        vec![true],
-        vec![
-            SlashedValidator::new("test1".parse().unwrap(), false),
-            SlashedValidator::new("test2".parse().unwrap(), true),
-        ],
-    );
-
-    for _ in 3..11 {
-        env.step_default(vec![]);
-    }
-    let account = env.view_account(&"test1".parse().unwrap());
-    assert_eq!(account.locked, 0);
-    assert_eq!(account.amount, TESTING_INIT_BALANCE - TESTING_INIT_STAKE);
-
-    let account = env.view_account(&"test2".parse().unwrap());
-    assert_eq!(account.locked, 0);
-    assert_eq!(account.amount, TESTING_INIT_BALANCE - TESTING_INIT_STAKE);
-}
-
 /// Run 4 validators. Two of them first change their stake to below validator threshold but above
 /// fishermen threshold. Make sure their balance is correct. Then one fisherman increases their
 /// stake to become a validator again while the other one decreases to below fishermen threshold.
@@ -1728,8 +1519,7 @@ fn test_storage_proof_garbage() {
         }),
         priority: 0,
     });
-    let apply_result =
-        env.apply_new_chunk(shard_id, hash(&[42]), vec![], &[receipt], ChallengesResult::default());
+    let apply_result = env.apply_new_chunk(shard_id, hash(&[42]), vec![], &[receipt]);
     let PartialState::TrieValues(storage_proof) = apply_result.proof.unwrap().nodes;
     let total_size: usize = storage_proof.iter().map(|v| v.len()).sum();
     assert_eq!(total_size / 1000_000, garbage_size_mb);
