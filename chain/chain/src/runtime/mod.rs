@@ -652,8 +652,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         let mut total_gas_burnt = 0;
         let mut total_size = 0u64;
 
-        let transactions_gas_limit =
-            chunk_tx_gas_limit(runtime_config, &prev_block, shard_id);
+        let transactions_gas_limit = chunk_tx_gas_limit(runtime_config, &prev_block, shard_id);
 
         let mut result = PreparedTransactions { transactions: Vec::new(), limited_by: None };
         let mut num_checked_transactions = 0;
