@@ -686,8 +686,6 @@ impl Trie {
         self.storage.as_caching_storage()
     }
 
-
-
     #[cfg(feature = "test_features")]
     pub fn record_storage_garbage(&self, size_mbs: usize) -> bool {
         let Some(recorder) = &self.recorder else {

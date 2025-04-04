@@ -11,7 +11,7 @@ use near_primitives::stateless_validation::contract_distribution::{
 use near_primitives::stateless_validation::partial_witness::{
     MAX_COMPRESSED_STATE_WITNESS_SIZE, PartialEncodedStateWitness,
 };
-use near_primitives::types::{AccountId, BlockHeightDelta, EpochId};
+use near_primitives::types::{AccountId, BlockHeightDelta};
 use near_primitives::validator_signer::ValidatorSigner;
 use near_store::{DBCol, FINAL_HEAD_KEY, HEAD_KEY, Store};
 
@@ -76,7 +76,6 @@ pub fn validate_partial_encoded_contract_deploys(
     store: &Store,
 ) -> Result<bool, Error> {
     let key = partial_deploys.chunk_production_key();
-    validate_exclude_witness_contracts_enabled(epoch_manager, &key.epoch_id)?;
     if !validate_chunk_relevant(epoch_manager, key, store)? {
         return Ok(false);
     }
@@ -114,7 +113,6 @@ pub fn validate_chunk_contract_accesses(
     store: &Store,
 ) -> Result<bool, Error> {
     let key = accesses.chunk_production_key();
-    validate_exclude_witness_contracts_enabled(epoch_manager, &key.epoch_id)?;
     if !validate_chunk_relevant_as_validator(epoch_manager, key, signer.validator_id(), store)? {
         return Ok(false);
     }
@@ -129,7 +127,6 @@ pub fn validate_contract_code_request(
     store: &Store,
 ) -> Result<bool, Error> {
     let key = request.chunk_production_key();
-    validate_exclude_witness_contracts_enabled(epoch_manager, &key.epoch_id)?;
     if !validate_chunk_relevant_as_validator(epoch_manager, key, request.requester(), store)? {
         return Ok(false);
     }
@@ -247,8 +244,6 @@ fn validate_chunk_relevant(
 
     Ok(true)
 }
-
-
 
 fn validate_chunk_endorsement_signature(
     epoch_manager: &dyn EpochManagerAdapter,
