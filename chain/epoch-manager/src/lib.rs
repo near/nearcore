@@ -173,21 +173,6 @@ pub struct EpochManager {
 }
 
 impl EpochManager {
-    pub fn new_from_genesis_config(
-        store: Store,
-        genesis_config: &GenesisConfig,
-    ) -> Result<Self, EpochError> {
-        let reward_calculator = RewardCalculator::new(genesis_config, genesis_config.epoch_length);
-        let all_epoch_config = Self::new_all_epoch_config(genesis_config);
-        Self::new(
-            store,
-            all_epoch_config,
-            genesis_config.protocol_version,
-            reward_calculator,
-            genesis_config.validators(),
-        )
-    }
-
     /// Creates a new instance of `EpochManager` from the given `store`, `genesis_config`, and `home_dir`.
     /// For production environments such as mainnet ant testnet, the epoch config files will be ignored.
     /// In the test environment, the epoch config files will be loaded from the `home_dir` if it is not `None`.
@@ -232,30 +217,6 @@ impl EpochManager {
         Self::new_arc_handle_from_epoch_config_store(store, genesis_config, epoch_config_store)
     }
 
-    /// DEPRECATED.
-    /// Old version of deriving epoch config from genesis config.
-    /// Can be used for testing.
-    /// Keep it until #11265 is closed and the new code is released.
-    #[allow(unused)]
-    pub fn new_arc_handle_deprecated(
-        store: Store,
-        genesis_config: &GenesisConfig,
-    ) -> Arc<EpochManagerHandle> {
-        let reward_calculator = RewardCalculator::new(genesis_config, genesis_config.epoch_length);
-        let all_epoch_config = Self::new_all_epoch_config(genesis_config);
-        Arc::new(
-            Self::new(
-                store,
-                all_epoch_config,
-                genesis_config.protocol_version,
-                reward_calculator,
-                genesis_config.validators(),
-            )
-            .unwrap()
-            .into_handle(),
-        )
-    }
-
     pub fn new_arc_handle_from_epoch_config_store(
         store: Store,
         genesis_config: &GenesisConfig,
@@ -280,17 +241,6 @@ impl EpochManager {
             .unwrap()
             .into_handle(),
         )
-    }
-
-    fn new_all_epoch_config(genesis_config: &GenesisConfig) -> AllEpochConfig {
-        let initial_epoch_config = EpochConfig::from(genesis_config);
-        let epoch_config = AllEpochConfig::new(
-            genesis_config.use_production_config(),
-            genesis_config.protocol_version,
-            initial_epoch_config,
-            &genesis_config.chain_id,
-        );
-        epoch_config
     }
 
     pub fn new(

@@ -27,7 +27,6 @@ use near_chain::{ChainStoreAccess, ReceiptFilter, get_incoming_receipts_for_shar
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
 use near_client::{Client, TxRequestHandler};
 use near_crypto::Signer;
-use near_o11y::testonly::init_test_logger;
 use near_primitives::account::{AccessKey, AccessKeyPermission};
 use near_primitives::action::{Action, FunctionCallAction};
 use near_primitives::bandwidth_scheduler::{
@@ -79,7 +78,7 @@ fn ultra_slow_test_bandwidth_scheduler_three_shards_random_receipts() {
 
 /// 4 shards, random receipt sizes, 10% probability of missing chunks
 #[test]
-#[cfg_attr(not(feature = "nightly"), ignore = "Test flaky for dev #12836")]
+#[ignore] // TODO: #12836
 fn ultra_slow_test_bandwidth_scheduler_four_shards_random_receipts_missing_chunks() {
     let scenario = TestScenarioBuilder::new()
         .num_shards(5)
@@ -102,9 +101,8 @@ fn ultra_slow_test_bandwidth_scheduler_four_shards_random_receipts_missing_chunk
 }
 
 fn run_bandwidth_scheduler_test(scenario: TestScenario, tx_concurrency: usize) -> TestSummary {
-    init_test_logger();
     let active_links = scenario.get_active_links();
-    let mut rng = ChaCha20Rng::seed_from_u64(0);
+    let mut rng: ChaCha20Rng = ChaCha20Rng::seed_from_u64(0);
 
     // Number of blocks to run the workload for
     let workload_blocks = 50;

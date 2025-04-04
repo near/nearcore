@@ -308,7 +308,7 @@ impl ChunkProducer {
             &*validator_signer,
             &mut self.reed_solomon_encoder,
             protocol_version,
-        )?;
+        );
 
         span.record("chunk_hash", tracing::field::debug(encoded_chunk.chunk_hash()));
         debug!(target: "client",

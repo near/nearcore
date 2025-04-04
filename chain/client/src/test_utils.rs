@@ -230,8 +230,7 @@ pub fn create_chunk(
             header.bandwidth_requests().cloned(),
             &*signer,
             PROTOCOL_VERSION,
-        )
-        .unwrap();
+        );
         swap(&mut chunk, &mut encoded_chunk);
         swap(&mut merkle_paths, &mut new_merkle_paths);
     }

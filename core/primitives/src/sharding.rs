@@ -102,24 +102,8 @@ pub enum StateSyncInfo {
 }
 
 impl StateSyncInfo {
-    fn new_previous_epoch(epoch_first_block: CryptoHash, shards: Vec<ShardId>) -> Self {
-        Self::V0(StateSyncInfoV0 { sync_hash: epoch_first_block, shards })
-    }
-
-    fn new_current_epoch(epoch_first_block: CryptoHash, shards: Vec<ShardId>) -> Self {
+    pub fn new(epoch_first_block: CryptoHash, shards: Vec<ShardId>) -> Self {
         Self::V1(StateSyncInfoV1 { epoch_first_block, sync_hash: None, shards })
-    }
-
-    pub fn new(
-        protocol_version: ProtocolVersion,
-        epoch_first_block: CryptoHash,
-        shards: Vec<ShardId>,
-    ) -> Self {
-        if ProtocolFeature::CurrentEpochStateSync.enabled(protocol_version) {
-            Self::new_current_epoch(epoch_first_block, shards)
-        } else {
-            Self::new_previous_epoch(epoch_first_block, shards)
-        }
     }
 
     /// Block hash that identifies this state sync struct on disk
@@ -1234,10 +1218,10 @@ impl EncodedShardChunk {
         bandwidth_requests: Option<BandwidthRequests>,
         signer: &ValidatorSigner,
         protocol_version: ProtocolVersion,
-    ) -> Result<(Self, Vec<MerklePath>), std::io::Error> {
+    ) -> (Self, Vec<MerklePath>) {
         let (transaction_receipts_parts, encoded_length) = crate::reed_solomon::reed_solomon_encode(
             rs,
-            TransactionReceipt(transactions, prev_outgoing_receipts.to_vec()),
+            &TransactionReceipt(transactions, prev_outgoing_receipts.to_vec()),
         );
         let content = EncodedShardChunkBody { parts: transaction_receipts_parts };
         let (encoded_merkle_root, merkle_paths) = content.get_merkle_hash_and_paths();
@@ -1265,7 +1249,7 @@ impl EncodedShardChunk {
                 signer,
             );
             let chunk = EncodedShardChunkV2 { header: ShardChunkHeader::V2(header), content };
-            Ok((Self::V2(chunk), merkle_paths))
+            (Self::V2(chunk), merkle_paths)
         } else {
             let header = ShardChunkHeaderV3::new(
                 protocol_version,
@@ -1287,7 +1271,7 @@ impl EncodedShardChunk {
                 signer,
             );
             let chunk = EncodedShardChunkV2 { header: ShardChunkHeader::V3(header), content };
-            Ok((Self::V2(chunk), merkle_paths))
+            (Self::V2(chunk), merkle_paths)
         }
     }
 

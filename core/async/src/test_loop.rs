@@ -346,6 +346,10 @@ impl TestLoopV2 {
 
     /// Processes the given event, by logging a line first and then finding a handler to run it.
     fn process_event(&mut self, event: EventInHeap) {
+        if self.shutting_down.load(Ordering::Relaxed) {
+            return;
+        }
+
         let event_ignored = self.denylisted_identifiers.contains(&event.event.identifier);
         let start_json = serde_json::to_string(&EventStartLogOutput {
             current_index: event.id,

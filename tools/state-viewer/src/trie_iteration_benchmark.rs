@@ -1,5 +1,5 @@
 use near_chain::{ChainStore, ChainStoreAccess};
-use near_epoch_manager::EpochManager;
+use near_epoch_manager::{EpochManager, EpochManagerAdapter};
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::state_record::{StateRecord, state_record_to_account_id};
@@ -113,8 +113,7 @@ impl TrieIterationBenchmarkCmd {
         );
         let head = chain_store.head().unwrap();
         let block = chain_store.get_block(&head.last_block_hash).unwrap();
-        let epoch_manager =
-            EpochManager::new_from_genesis_config(store.clone(), &genesis_config).unwrap();
+        let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis_config, None);
         let shard_layout = epoch_manager.get_shard_layout(block.header().epoch_id()).unwrap();
 
         for (shard_index, chunk_header) in block.chunks().iter_deprecated().enumerate() {

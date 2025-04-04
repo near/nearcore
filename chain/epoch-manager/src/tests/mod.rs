@@ -6,11 +6,12 @@ use super::*;
 use crate::reward_calculator::NUM_NS_IN_SECOND;
 use crate::test_utils::{
     DEFAULT_TOTAL_SUPPLY, block_info, change_stake, default_reward_calculator, epoch_config,
-    epoch_config_with_production_config, epoch_info, epoch_info_with_num_seats, hash_range,
-    record_block, record_block_with_final_block_hash, record_block_with_slashes,
-    record_with_block_info, reward, setup_default_epoch_manager, setup_epoch_manager, stake,
+    epoch_info, epoch_info_with_num_seats, hash_range, record_block,
+    record_block_with_final_block_hash, record_block_with_slashes, record_with_block_info, reward,
+    setup_default_epoch_manager, setup_epoch_manager, stake,
 };
 use itertools::Itertools;
+use near_chain_configs::test_genesis::TestEpochConfigBuilder;
 use near_crypto::{KeyType, PublicKey};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::account::id::AccountIdRef;
@@ -32,7 +33,6 @@ use near_primitives::types::ValidatorKickoutReason::{
 };
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
-use near_primitives::version::ProtocolFeature::{self, SimpleNightshade};
 use near_store::ShardUId;
 use near_store::test_utils::create_test_store;
 use num_rational::Ratio;
@@ -350,7 +350,7 @@ fn test_validator_kickout() {
 #[test]
 fn test_validator_unstake() {
     let store = create_test_store();
-    let config = epoch_config(2, 1, 2, 90, 60, 0);
+    let config = epoch_config(2, 1, 2, 100, 90, 60, 0);
     let amount_staked = 1_000_000;
     let validators = vec![
         stake("test1".parse().unwrap(), amount_staked),
@@ -415,7 +415,7 @@ fn test_validator_unstake() {
 #[test]
 fn test_slashing() {
     let store = create_test_store();
-    let config = epoch_config(2, 1, 2, 90, 60, 0);
+    let config = epoch_config(2, 1, 2, 100, 90, 60, 0);
     let amount_staked = 1_000_000;
     let validators = vec![
         stake("test1".parse().unwrap(), amount_staked),
@@ -482,7 +482,7 @@ fn test_slashing() {
 #[test]
 fn test_double_sign_slashing1() {
     let store = create_test_store();
-    let config = epoch_config(2, 1, 2, 90, 60, 0);
+    let config = epoch_config(2, 1, 2, 100, 90, 60, 0);
     let amount_staked = 1_000_000;
     let validators = vec![
         stake("test1".parse().unwrap(), amount_staked),
@@ -991,8 +991,7 @@ fn test_expected_chunks() {
     let num_shards = 3;
     let total_supply = stake_amount * validators.len() as u128;
 
-    let epoch_config =
-        epoch_config_with_production_config(epoch_length, num_shards, 3, 3, 90, 60, 60, false);
+    let epoch_config = epoch_config(epoch_length, num_shards, 3, 3, 90, 60, 60);
     let epoch_manager = EpochManager::new(
         create_test_store(),
         epoch_config,
@@ -1560,8 +1559,7 @@ fn test_chunk_validator_kickout_using_production_stats() {
     let epoch_length = 10;
     let total_supply = stake_amount * validators.len() as u128;
     let num_shards = 2;
-    let epoch_config =
-        epoch_config_with_production_config(epoch_length, num_shards, 2, 2, 90, 40, 75, false);
+    let epoch_config = epoch_config(epoch_length, num_shards, 2, 2, 90, 40, 75);
     let em = EpochManager::new(
         create_test_store(),
         epoch_config,
@@ -1634,8 +1632,7 @@ fn test_chunk_validator_kickout_using_endorsement_stats() {
     let epoch_length = 10;
     let total_supply = stake_amount * validators.len() as u128;
     let num_shards = 2;
-    let epoch_config =
-        epoch_config_with_production_config(epoch_length, num_shards, 2, 2, 90, 40, 75, false);
+    let epoch_config = epoch_config(epoch_length, num_shards, 2, 2, 90, 40, 75);
     let em = EpochManager::new(
         create_test_store(),
         epoch_config,
@@ -2253,7 +2250,14 @@ fn set_block_info_protocol_version(info: &mut BlockInfo, protocol_version: Proto
 #[test]
 fn test_protocol_version_switch() {
     let store = create_test_store();
-    let config = epoch_config(2, 1, 2, 90, 60, 0);
+
+    let epoch_config = epoch_config(2, 1, 2, 100, 90, 60, 0).for_protocol_version(PROTOCOL_VERSION);
+    let config_store = EpochConfigStore::test(BTreeMap::from_iter(vec![
+        (0, Arc::new(epoch_config.clone())),
+        (PROTOCOL_VERSION, Arc::new(epoch_config)),
+    ]));
+    let config = AllEpochConfig::from_epoch_config_store("test-chain", 2, config_store);
+
     let amount_staked = 1_000_000;
     let validators = vec![
         stake("test1".parse().unwrap(), amount_staked),
@@ -2279,17 +2283,26 @@ fn test_protocol_version_switch() {
 #[test]
 fn test_protocol_version_switch_with_shard_layout_change() {
     let store = create_test_store();
-    let config = epoch_config_with_production_config(2, 1, 2, 100, 90, 60, 0, true);
+
+    let old_epoch_config =
+        epoch_config(2, 1, 2, 100, 90, 60, 0).for_protocol_version(PROTOCOL_VERSION);
+    let new_epoch_config =
+        epoch_config(2, 4, 2, 100, 90, 60, 0).for_protocol_version(PROTOCOL_VERSION);
+    let config_store = EpochConfigStore::test(BTreeMap::from_iter(vec![
+        (PROTOCOL_VERSION - 1, Arc::new(old_epoch_config)),
+        (PROTOCOL_VERSION, Arc::new(new_epoch_config)),
+    ]));
+    let config = AllEpochConfig::from_epoch_config_store("test-chain", 2, config_store);
+
     let amount_staked = 1_000_000;
     let validators = vec![
         stake("test1".parse().unwrap(), amount_staked),
         stake("test2".parse().unwrap(), amount_staked),
     ];
-    let new_protocol_version = SimpleNightshade.protocol_version();
     let mut epoch_manager = EpochManager::new(
         store,
         config,
-        new_protocol_version - 1,
+        PROTOCOL_VERSION - 1,
         default_reward_calculator(),
         validators,
     )
@@ -2308,26 +2321,23 @@ fn test_protocol_version_switch_with_shard_layout_change() {
             DEFAULT_TOTAL_SUPPLY,
         );
         if i == 1 {
-            set_block_info_protocol_version(&mut block_info, new_protocol_version - 1);
+            set_block_info_protocol_version(&mut block_info, PROTOCOL_VERSION - 1);
         } else {
-            set_block_info_protocol_version(&mut block_info, new_protocol_version);
+            set_block_info_protocol_version(&mut block_info, PROTOCOL_VERSION);
         }
         epoch_manager.record_block_info(block_info, [0; 32]).unwrap();
     }
     let epochs = [EpochId::default(), EpochId(h[2]), EpochId(h[4])];
     assert_eq!(
         epoch_manager.get_epoch_info(&epochs[1]).unwrap().protocol_version(),
-        new_protocol_version - 1
+        PROTOCOL_VERSION - 1
     );
-    assert_eq!(epoch_manager.get_shard_layout(&epochs[1]).unwrap(), ShardLayout::single_shard());
+    assert_eq!(epoch_manager.get_shard_layout(&epochs[1]).unwrap(), ShardLayout::multi_shard(1, 0));
     assert_eq!(
         epoch_manager.get_epoch_info(&epochs[2]).unwrap().protocol_version(),
-        new_protocol_version
+        PROTOCOL_VERSION
     );
-    assert_eq!(
-        epoch_manager.get_shard_layout(&epochs[2]).unwrap(),
-        ShardLayout::get_simple_nightshade_layout()
-    );
+    assert_eq!(epoch_manager.get_shard_layout(&epochs[2]).unwrap(), ShardLayout::multi_shard(4, 0));
 
     // Check split shards
     // h[5] is the first block of epoch epochs[1] and shard layout will change at epochs[2]
@@ -2342,39 +2352,21 @@ fn test_protocol_version_switch_with_shard_layout_change() {
 #[test]
 fn test_protocol_version_switch_with_many_seats() {
     let store = create_test_store();
-    let num_block_producer_seats_per_shard = vec![10];
-    let epoch_config = EpochConfig {
-        epoch_length: 10,
-        num_block_producer_seats: 4,
-        num_block_producer_seats_per_shard,
-        avg_hidden_validator_seats_per_shard: Vec::from([0]),
-        block_producer_kickout_threshold: 90,
-        chunk_producer_kickout_threshold: 60,
-        chunk_validator_only_kickout_threshold: 60,
-        target_validator_mandates_per_shard: 10,
-        fishermen_threshold: 0,
-        online_min_threshold: Ratio::new(90, 100),
-        online_max_threshold: Ratio::new(99, 100),
-        protocol_upgrade_stake_threshold: Ratio::new(80, 100),
-        minimum_stake_divisor: 1,
-        shard_layout: ShardLayout::single_shard(),
-        num_chunk_producer_seats: 100,
-        num_chunk_validator_seats: 300,
-        num_chunk_only_producer_seats: 300,
-        minimum_validators_per_shard: 1,
-        minimum_stake_ratio: Ratio::new(160i32, 1_000_000i32),
-        chunk_producer_assignment_changes_limit: 5,
-        shuffle_shard_assignment_for_chunk_producers: false,
-        validator_max_kickout_stake_perc: 100,
-    };
-    let config = AllEpochConfig::new(false, PROTOCOL_VERSION, epoch_config, "test-chain");
     let amount_staked = 1_000_000;
     let validators = vec![
         stake("test1".parse().unwrap(), amount_staked),
         stake("test2".parse().unwrap(), amount_staked / 5),
     ];
+
+    let config_store = EpochConfigStore::test_single_version(
+        PROTOCOL_VERSION,
+        TestEpochConfigBuilder::new().epoch_length(10).build(),
+    );
+    let config = AllEpochConfig::from_epoch_config_store("test-chain", 10, config_store);
+
     let mut epoch_manager =
-        EpochManager::new(store, config, 0, default_reward_calculator(), validators).unwrap();
+        EpochManager::new(store, config, PROTOCOL_VERSION, default_reward_calculator(), validators)
+            .unwrap();
     let h = hash_range(50);
     record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
     let mut block_info1 = block_info(h[1], 1, 1, h[0], h[0], h[0], vec![], DEFAULT_TOTAL_SUPPLY);
@@ -2508,8 +2500,8 @@ fn test_chunk_producers() {
 
 #[test]
 fn test_validator_kickout_determinism() {
-    let mut epoch_config = epoch_config_with_production_config(5, 2, 4, 4, 90, 80, 90, false)
-        .for_protocol_version(PROTOCOL_VERSION);
+    let mut epoch_config =
+        epoch_config(5, 2, 4, 4, 90, 80, 90).for_protocol_version(PROTOCOL_VERSION);
     epoch_config.validator_max_kickout_stake_perc = 99;
     let accounts = vec![
         ("test0".parse().unwrap(), 1000),
@@ -2595,8 +2587,8 @@ fn test_chunk_validators_with_different_endorsement_ratio() {
     if !ProtocolFeature::ChunkEndorsementsInBlockHeader.enabled(PROTOCOL_VERSION) {
         return;
     }
-    let mut epoch_config = epoch_config_with_production_config(5, 2, 2, 2, 90, 90, 70, false)
-        .for_protocol_version(PROTOCOL_VERSION);
+    let mut epoch_config =
+        epoch_config(5, 2, 2, 2, 90, 90, 70).for_protocol_version(PROTOCOL_VERSION);
     // Set the max kickout stake percentage so that only one of the chunk validators
     // is kicked out, and the other chunk validator is exempted from kickout.
     // Both chunk validators have endorsement ratio lower than the kickout threshold.
@@ -2657,8 +2649,8 @@ fn test_chunk_validators_with_same_endorsement_ratio_and_different_stake() {
     if !ProtocolFeature::ChunkEndorsementsInBlockHeader.enabled(PROTOCOL_VERSION) {
         return;
     }
-    let mut epoch_config = epoch_config_with_production_config(5, 2, 2, 2, 90, 90, 70, false)
-        .for_protocol_version(PROTOCOL_VERSION);
+    let mut epoch_config =
+        epoch_config(5, 2, 2, 2, 90, 90, 70).for_protocol_version(PROTOCOL_VERSION);
     // Set the max kickout stake percentage so that only one of the chunk validators
     // is kicked out, and the other chunk validator is exempted from kickout.
     // Both chunk validators have endorsement ratio lower than the kickout threshold.
@@ -2719,8 +2711,8 @@ fn test_chunk_validators_with_same_endorsement_ratio_and_stake() {
     if !ProtocolFeature::ChunkEndorsementsInBlockHeader.enabled(PROTOCOL_VERSION) {
         return;
     }
-    let mut epoch_config = epoch_config_with_production_config(5, 2, 2, 2, 90, 90, 70, false)
-        .for_protocol_version(PROTOCOL_VERSION);
+    let mut epoch_config =
+        epoch_config(5, 2, 2, 2, 90, 90, 70).for_protocol_version(PROTOCOL_VERSION);
     // Set the max kickout stake percentage so that only one of the chunk validators
     // is kicked out, and the other chunk validator is exempted from kickout.
     // Both chunk validators have endorsement ratio lower than the kickout threshold.
@@ -2778,8 +2770,7 @@ fn test_chunk_validators_with_same_endorsement_ratio_and_stake() {
 /// checks that validators that don't meet their kickout thresholds are kicked out.
 #[test]
 fn test_validator_kickout_sanity() {
-    let epoch_config = epoch_config_with_production_config(5, 2, 4, 4, 90, 80, 90, false)
-        .for_protocol_version(PROTOCOL_VERSION);
+    let epoch_config = epoch_config(5, 2, 4, 4, 90, 80, 90).for_protocol_version(PROTOCOL_VERSION);
     let accounts = vec![
         ("test0".parse().unwrap(), 1000),
         ("test1".parse().unwrap(), 1000),
@@ -2918,7 +2909,7 @@ fn test_validator_kickout_sanity() {
 /// This test does not test kickouts at all.
 #[test]
 fn test_chunk_endorsement_stats() {
-    let epoch_config = epoch_config(5, 2, 4, 90, 80, 0).for_protocol_version(PROTOCOL_VERSION);
+    let epoch_config = epoch_config(5, 2, 4, 100, 90, 80, 0).for_protocol_version(PROTOCOL_VERSION);
     let accounts = vec![
         ("test0".parse().unwrap(), 1000),
         ("test1".parse().unwrap(), 1000),
@@ -3001,7 +2992,8 @@ fn test_chunk_endorsement_stats() {
 #[test]
 /// Test that the stake of validators kicked out in an epoch doesn't exceed the max_kickout_stake_ratio
 fn test_max_kickout_stake_ratio() {
-    let mut epoch_config = epoch_config(5, 2, 4, 90, 80, 0).for_protocol_version(PROTOCOL_VERSION);
+    let mut epoch_config =
+        epoch_config(5, 2, 4, 100, 90, 80, 0).for_protocol_version(PROTOCOL_VERSION);
     let accounts = vec![
         ("test0".parse().unwrap(), 1000),
         ("test1".parse().unwrap(), 1000),
@@ -3124,7 +3116,8 @@ fn test_chunk_validator_kickout(
     expected_kickouts: HashMap<AccountId, ValidatorKickoutReason>,
     use_endorsement_cutoff_threshold: bool,
 ) {
-    let mut epoch_config = epoch_config(5, 2, 4, 80, 80, 80).for_protocol_version(PROTOCOL_VERSION);
+    let mut epoch_config =
+        epoch_config(5, 2, 4, 100, 80, 80, 80).for_protocol_version(PROTOCOL_VERSION);
     let accounts = vec![
         ("test0".parse().unwrap(), 1000),
         ("test1".parse().unwrap(), 1000),
@@ -3210,7 +3203,8 @@ fn test_chunk_validator_kicked_out_for_low_endorsement() {
 #[test]
 /// Tests that a validator is not kicked out due to low endorsement only (as long as it produces most of its blocks and chunks).
 fn test_block_and_chunk_producer_not_kicked_out_for_low_endorsements() {
-    let mut epoch_config = epoch_config(5, 2, 4, 80, 80, 80).for_protocol_version(PROTOCOL_VERSION);
+    let mut epoch_config =
+        epoch_config(5, 2, 4, 100, 80, 80, 80).for_protocol_version(PROTOCOL_VERSION);
     let accounts = vec![
         ("test0".parse().unwrap(), 1000),
         ("test1".parse().unwrap(), 1000),

@@ -1,5 +1,7 @@
 name: CI Nightly
 
+# cspell:ignore mathiasvr
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -26,7 +28,7 @@ jobs:
         include:
           - name: MacOS
             id: macos
-            os: macos-latest-xlarge
+            os: warp-macos-14-arm64-6x
             type: stable
     timeout-minutes: 90
     steps:

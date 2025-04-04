@@ -90,12 +90,14 @@ impl Client {
         {
             // Bypass state witness validation if we created state witness. Endorse the chunk immediately.
             tracing::debug!(target: "client", chunk_hash=?chunk_header.chunk_hash(), ?shard_id, "send_chunk_endorsement_from_chunk_producer");
-            send_chunk_endorsement_to_block_producers(
+            if let Some(endorsement) = send_chunk_endorsement_to_block_producers(
                 &chunk_header,
                 self.epoch_manager.as_ref(),
                 my_signer.as_ref(),
                 &self.network_adapter.clone().into_sender(),
-            );
+            ) {
+                self.chunk_endorsement_tracker.process_chunk_endorsement(endorsement)?;
+            }
         }
 
         // Pass the contract changes to PartialWitnessActor only if we exclude contract code from state witness.

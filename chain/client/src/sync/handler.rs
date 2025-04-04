@@ -23,10 +23,10 @@ use std::sync::Arc;
 // A small helper macro to unwrap a result of some state sync operation. If the
 // result is an error this macro will log it and return from the function.
 #[macro_export]
-macro_rules! unwrap_and_report_state_sync_result (($obj: expr) => (match $obj {
+macro_rules! unwrap_and_report_state_sync_result (($obj: ident) => (match $obj {
     Ok(v) => v,
     Err(err) => {
-        tracing::error!(target: "sync", "Sync: Unexpected error: {}", err);
+        tracing::error!(target: "sync", "Sync: Unexpected error: {}: {}", stringify!($obj), err);
         return None;
     }
 }));
@@ -110,7 +110,8 @@ impl SyncHandler {
         );
         unwrap_and_report_state_sync_result!(header_sync_result);
         // Only body / state sync if header height is close to the latest.
-        let header_head = unwrap_and_report_state_sync_result!(chain.header_head());
+        let chain_header_head = chain.header_head();
+        let header_head = unwrap_and_report_state_sync_result!(chain_header_head);
 
         // We should state sync if it's already started or if we have enough
         // headers and blocks. The should_state_sync method may run block sync.
@@ -151,7 +152,7 @@ impl SyncHandler {
         // Waiting for all the sync blocks to be available because they are
         // needed to finalize state sync.
         if !blocks_to_request.is_empty() {
-            tracing::debug!(target: "sync", "waiting for sync blocks");
+            tracing::debug!(target: "sync", ?blocks_to_request, "waiting for sync blocks");
             return Some(SyncHandlerRequest::NeedRequestBlocks(blocks_to_request));
         }
 
@@ -323,7 +324,7 @@ impl SyncHandler {
         let prev_hash = *block_header.prev_hash();
 
         let mut needed_block_hashes = vec![prev_hash, sync_hash];
-        let mut extra_block_hashes = chain.get_extra_sync_block_hashes(prev_hash);
+        let mut extra_block_hashes = chain.get_extra_sync_block_hashes(&prev_hash);
         tracing::trace!(target: "sync", ?needed_block_hashes, ?extra_block_hashes, "request_sync_blocks: block hashes for state sync");
         needed_block_hashes.append(&mut extra_block_hashes);
         let mut blocks_to_request = vec![];

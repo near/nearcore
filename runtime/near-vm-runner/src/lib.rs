@@ -27,9 +27,11 @@ mod wasmer_runner;
 mod wasmtime_runner;
 
 pub use crate::logic::with_ext_cost_counter;
+#[cfg(not(windows))]
+pub use cache::FilesystemContractRuntimeCache;
 pub use cache::{
-    CompiledContract, CompiledContractInfo, ContractRuntimeCache, FilesystemContractRuntimeCache,
-    MockContractRuntimeCache, NoContractRuntimeCache, get_contract_cache_key, precompile_contract,
+    CompiledContract, CompiledContractInfo, ContractRuntimeCache, MockContractRuntimeCache,
+    NoContractRuntimeCache, get_contract_cache_key, precompile_contract,
 };
 #[cfg(feature = "metrics")]
 pub use metrics::{report_metrics, reset_metrics};
