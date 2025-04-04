@@ -104,11 +104,11 @@ pub enum ProtocolFeature {
     AliasValidatorSelectionAlgorithm,
     /// Make block producers produce chunks for the same block they would later produce to avoid
     /// network delays
-    #[deprecated(note = "This feature is now always enabled")]
+    #[deprecated]
     _DeprecatedSynchronizeBlockChunkProduction,
     /// Change the algorithm to count WASM stack usage to avoid under counting in
     /// some cases.
-    #[deprecated(note = "This feature is now always enabled")]
+    #[deprecated]
     _DeprecatedCorrectStackLimit,
     /// Add `AccessKey` nonce range for implicit accounts, as in `AccessKeyNonceRange` feature.
     AccessKeyNonceForImplicitAccounts,
