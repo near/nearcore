@@ -14,7 +14,7 @@ pub(crate) async fn convert_transactions_sir_into_local_receipts(
     runtime_config: &RuntimeConfig,
     txs: Vec<&IndexerTransactionWithOutcome>,
     block: &views::BlockView,
-    protocol_version: ProtocolVersion,
+    _protocol_version: ProtocolVersion,
 ) -> Result<Vec<views::ReceiptView>, FailedToFetchData> {
     if txs.is_empty() {
         return Ok(vec![]);
@@ -46,7 +46,7 @@ pub(crate) async fn convert_transactions_sir_into_local_receipts(
             );
             // Can't use ValidatedTransaction here because transactions in a chunk can be invalid (RelaxedChunkValidation feature)
             let cost =
-                tx_cost(&runtime_config, &tx, prev_block_gas_price, protocol_version).unwrap();
+                tx_cost(&runtime_config, &tx, prev_block_gas_price).unwrap();
             views::ReceiptView {
                 predecessor_id: indexer_tx.transaction.signer_id.clone(),
                 receiver_id: indexer_tx.transaction.receiver_id.clone(),

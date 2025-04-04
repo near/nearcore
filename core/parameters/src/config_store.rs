@@ -252,8 +252,9 @@ impl RuntimeConfigStore {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[allow(deprecated)]
     use near_primitives_core::version::ProtocolFeature::{
-        DecreaseFunctionCallBaseCost, LowerStorageKeyLimit,
+        _DeprecatedDecreaseFunctionCallBaseCost, LowerStorageKeyLimit,
     };
     use std::collections::HashSet;
 
@@ -289,10 +290,11 @@ mod tests {
     }
 
     #[test]
+    #[allow(deprecated)]
     fn test_max_prepaid_gas() {
         let store = RuntimeConfigStore::new(None);
         for (protocol_version, config) in store.store.iter() {
-            if *protocol_version >= DecreaseFunctionCallBaseCost.protocol_version() {
+            if *protocol_version >= _DeprecatedDecreaseFunctionCallBaseCost.protocol_version() {
                 continue;
             }
 

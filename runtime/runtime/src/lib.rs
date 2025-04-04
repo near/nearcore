@@ -321,7 +321,6 @@ impl Runtime {
                                 config,
                                 &validated_tx.to_tx(),
                                 gas_price,
-                                current_protocol_version,
                             ) {
                                 Ok(cost) => Ok((validated_tx, cost)),
                                 Err(e) => Err(InvalidTxError::from(e)),
