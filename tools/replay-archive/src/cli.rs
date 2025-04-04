@@ -326,8 +326,7 @@ impl ReplayController {
                 prev_chunk_header.height_included(),
             )?;
 
-            let is_first_block_with_chunk_of_version =
-                check_if_block_is_first_with_chunk_of_version(
+            check_if_block_is_first_with_chunk_of_version(
                     &self.chain_store,
                     self.epoch_manager.as_ref(),
                     prev_block_hash,
@@ -341,7 +340,6 @@ impl ReplayController {
                 transaction_validity_check_results: vec![true; chunk.transactions().len()],
                 receipts,
                 block: block_context,
-                is_first_block_with_chunk_of_version,
                 storage_context,
             })
         } else {
