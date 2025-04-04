@@ -340,7 +340,6 @@ async fn find_local_receipt_by_id_in_block(
 ) -> Result<Option<views::ReceiptView>, FailedToFetchData> {
     let chunks = fetch_block_new_chunks(&client, &block, shard_tracker).await?;
 
-    let protocol_config_view = fetch_protocol_config(&client, block.header.hash).await?;
     let mut shards_outcomes = fetch_outcomes(&client, block.header.hash).await?;
 
     for chunk in chunks {
