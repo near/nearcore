@@ -322,7 +322,8 @@ impl ProtocolFeature {
             ProtocolFeature::_DeprecatedEd25519Verify
             | ProtocolFeature::_DeprecatedZeroBalanceAccount
             | ProtocolFeature::_DeprecatedDelegateAction => 59,
-            ProtocolFeature::_DeprecatedComputeCosts | ProtocolFeature::_DeprecatedFlatStorageReads => 61,
+            ProtocolFeature::_DeprecatedComputeCosts
+            | ProtocolFeature::_DeprecatedFlatStorageReads => 61,
             ProtocolFeature::PreparationV2 | ProtocolFeature::NearVmRuntime => 62,
             ProtocolFeature::BlockHeaderV4 => 63,
             ProtocolFeature::_DeprecatedRestrictTla
