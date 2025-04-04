@@ -17,7 +17,6 @@ use bytesize::ByteSize;
 use itertools::GroupBy;
 use itertools::Itertools;
 use near_chain::chain::collect_receipts_from_response;
-
 use near_chain::types::{
     ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext, RuntimeAdapter,
 };

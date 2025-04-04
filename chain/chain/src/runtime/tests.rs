@@ -1535,6 +1535,7 @@ fn test_genesis_hash() {
 
     let epoch_manager = EpochManager::new_arc_handle(store, &genesis.config, None);
     let epoch_info = epoch_manager.get_epoch_info(&EpochId::default()).unwrap();
+    // Verify the order of the block producers.
     assert_eq!(
         [
             1, 0, 1, 0, 0, 3, 3, 2, 2, 3, 0, 2, 0, 0, 1, 1, 1, 1, 3, 2, 3, 2, 0, 3, 3, 3, 0, 3, 1,

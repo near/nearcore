@@ -2,7 +2,6 @@ use crate::cli::{ApplyRangeMode, StorageSource};
 use crate::commands::{maybe_print_db_stats, maybe_save_trie_changes};
 use crate::progress_reporter::ProgressReporter;
 use near_chain::chain::collect_receipts_from_response;
-
 use near_chain::types::{
     ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext, RuntimeAdapter,
 };
