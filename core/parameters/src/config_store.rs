@@ -252,6 +252,7 @@ impl RuntimeConfigStore {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::cost::ActionCosts;
     use near_primitives_core::version::ProtocolFeature::{
         DecreaseFunctionCallBaseCost, LowerStorageKeyLimit,
     };
@@ -332,6 +333,35 @@ mod tests {
         assert!(
             base_cfg.wasm_config.limit_config.max_length_storage_key
                 > new_cfg.wasm_config.limit_config.max_length_storage_key
+        );
+    }
+
+    #[test]
+    fn test_parameter_merging() {
+        let mut base_params: ParameterTable = BASE_CONFIG.parse().unwrap();
+        let base_config = RuntimeConfig::new(&base_params).unwrap();
+
+        let mock_diff_str = r#"
+        wasm_config:
+          limit_config:
+            max_length_storage_key: 42
+        fees:
+          action_fees:
+            new_action_receipt:
+              send_sir: 100000000
+        "#;
+
+        let mock_diff: ParameterTableDiff = mock_diff_str.parse().unwrap();
+
+        base_params.apply_diff(mock_diff).unwrap();
+        let modified_config = RuntimeConfig::new(&base_params).unwrap();
+
+        assert_eq!(modified_config.wasm_config.limit_config.max_length_storage_key, 42);
+        assert_eq!(modified_config.fees.fee(ActionCosts::new_action_receipt).send_sir, 100000000);
+
+        assert_eq!(
+            base_config.storage_amount_per_byte(),
+            modified_config.storage_amount_per_byte()
         );
     }
 
