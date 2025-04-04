@@ -541,8 +541,7 @@ impl RuntimeAdapter for NightshadeRuntime {
     ) -> Result<(), InvalidTxError> {
         let runtime_config = self.runtime_config_store.get_config(current_protocol_version);
 
-        let cost =
-            tx_cost(runtime_config, &validated_tx.to_tx(), gas_price, current_protocol_version)?;
+        let cost = tx_cost(runtime_config, &validated_tx.to_tx(), gas_price)?;
         let shard_uid = shard_layout
             .account_id_to_shard_uid(validated_tx.to_signed_tx().transaction.signer_id());
         let state_update = self.tries.new_trie_update(shard_uid, state_root);
@@ -704,31 +703,27 @@ impl RuntimeAdapter for NightshadeRuntime {
                     continue;
                 }
 
-                let verify_result = tx_cost(
-                    runtime_config,
-                    &validated_tx.to_tx(),
-                    prev_block.next_gas_price,
-                    protocol_version,
-                )
-                .map_err(InvalidTxError::from)
-                .and_then(|cost| {
-                    verify_and_charge_tx_ephemeral(
-                        runtime_config,
-                        &state_update,
-                        &validated_tx,
-                        &cost,
-                        Some(next_block_height),
-                    )
-                })
-                .and_then(|verification_res| {
-                    set_tx_state_changes(
-                        &mut state_update,
-                        &validated_tx,
-                        &verification_res.signer,
-                        &verification_res.access_key,
-                    );
-                    Ok(verification_res)
-                });
+                let verify_result =
+                    tx_cost(runtime_config, &validated_tx.to_tx(), prev_block.next_gas_price)
+                        .map_err(InvalidTxError::from)
+                        .and_then(|cost| {
+                            verify_and_charge_tx_ephemeral(
+                                runtime_config,
+                                &state_update,
+                                &validated_tx,
+                                &cost,
+                                Some(next_block_height),
+                            )
+                        })
+                        .and_then(|verification_res| {
+                            set_tx_state_changes(
+                                &mut state_update,
+                                &validated_tx,
+                                &verification_res.signer,
+                                &verification_res.access_key,
+                            );
+                            Ok(verification_res)
+                        });
 
                 match verify_result {
                     Ok(cost) => {
