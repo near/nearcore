@@ -503,7 +503,6 @@ mod tests {
     use itertools::Itertools;
     use near_parameters::RuntimeConfigStore;
 
-
     use super::*;
 
     fn get_config() -> CongestionControlConfig {
