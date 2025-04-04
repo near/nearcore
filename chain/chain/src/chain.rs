@@ -93,9 +93,9 @@ use near_primitives::views::{
     FinalExecutionOutcomeView, FinalExecutionOutcomeWithReceiptView, FinalExecutionStatus,
     LightClientBlockView, SignedTransactionView,
 };
-use near_store::DBCol;
 use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::get_genesis_state_roots;
+use near_store::{DBCol, StateSnapshotConfig};
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use std::cell::Cell;
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -3445,6 +3445,12 @@ impl Chain {
     /// Function to check whether we need to create a new snapshot while processing the current block
     /// Note that this functions is called as a part of block preprocessing, so the head is not updated to current block
     fn should_make_snapshot(&mut self) -> Result<SnapshotAction, Error> {
+        if let StateSnapshotConfig::Disabled =
+            self.runtime_adapter.get_tries().state_snapshot_config()
+        {
+            return Ok(SnapshotAction::None);
+        }
+
         // head value is that of the previous block, i.e. curr_block.prev_hash
         let head = self.head()?;
         if head.prev_block_hash == CryptoHash::default() {
