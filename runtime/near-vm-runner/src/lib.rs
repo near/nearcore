@@ -19,8 +19,6 @@ mod runner;
 #[cfg(test)]
 mod tests;
 mod utils;
-#[cfg(all(feature = "wasmer2_vm", target_arch = "x86_64"))]
-mod wasmer2_runner;
 #[cfg(feature = "wasmtime_vm")]
 mod wasmtime_runner;
 
