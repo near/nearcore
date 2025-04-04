@@ -110,7 +110,6 @@ impl Block {
     #[cfg(feature = "clock")]
     pub fn produce(
         this_epoch_protocol_version: ProtocolVersion,
-        _next_epoch_protocol_version: ProtocolVersion,
         latest_protocol_version: ProtocolVersion,
         prev: &BlockHeader,
         height: BlockHeight,

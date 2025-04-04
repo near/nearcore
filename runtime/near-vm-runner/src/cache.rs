@@ -38,10 +38,6 @@ enum ContractCacheKey {
 
 fn vm_hash(vm_kind: VMKind) -> u64 {
     match vm_kind {
-        #[cfg(all(feature = "wasmer0_vm", target_arch = "x86_64"))]
-        VMKind::Wasmer0 => crate::wasmer_runner::wasmer0_vm_hash(),
-        #[cfg(not(all(feature = "wasmer0_vm", target_arch = "x86_64")))]
-        VMKind::Wasmer0 => panic!("Wasmer0 is not enabled"),
         #[cfg(all(feature = "wasmer2_vm", target_arch = "x86_64"))]
         VMKind::Wasmer2 => crate::wasmer2_runner::wasmer2_vm_hash(),
         #[cfg(not(all(feature = "wasmer2_vm", target_arch = "x86_64")))]
@@ -54,6 +50,9 @@ fn vm_hash(vm_kind: VMKind) -> u64 {
         VMKind::NearVm => crate::near_vm_runner::near_vm_vm_hash(),
         #[cfg(not(all(feature = "near_vm", target_arch = "x86_64")))]
         VMKind::NearVm => panic!("NearVM is not enabled"),
+
+        #[allow(deprecated)]
+        VMKind::Wasmer0 => unreachable!(),
     }
 }
 

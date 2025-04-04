@@ -803,7 +803,7 @@ impl Client {
         let max_gas_price = self.chain.block_economics_config.max_gas_price();
 
         let next_bp_hash = if prev_epoch_id != epoch_id {
-            Chain::compute_bp_hash(self.epoch_manager.as_ref(), next_epoch_id, epoch_id)?
+            Chain::compute_bp_hash(self.epoch_manager.as_ref(), next_epoch_id)?
         } else {
             prev_next_bp_hash
         };
@@ -897,7 +897,6 @@ impl Client {
 
         let block = Block::produce(
             this_epoch_protocol_version,
-            next_epoch_protocol_version,
             self.upgrade_schedule
                 .protocol_version_to_vote_for(self.clock.now_utc(), next_epoch_protocol_version),
             prev_header,

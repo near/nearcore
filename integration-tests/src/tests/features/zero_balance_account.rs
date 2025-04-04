@@ -9,7 +9,7 @@ use near_primitives::errors::{ActionError, ActionErrorKind, InvalidTxError, TxEx
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::transaction::Action::AddKey;
 use near_primitives::transaction::{Action, AddKeyAction, DeleteKeyAction, SignedTransaction};
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
+use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{FinalExecutionStatus, QueryRequest, QueryResponseKind};
 use node_runtime::ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT;
 use std::sync::Arc;
@@ -50,7 +50,6 @@ fn test_zero_balance_account_creation() {
     let epoch_length = 1000;
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
-    genesis.config.protocol_version = ProtocolFeature::ZeroBalanceAccount.protocol_version();
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
 
@@ -118,7 +117,6 @@ fn test_zero_balance_account_add_key() {
     let epoch_length = 1000;
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
-    genesis.config.protocol_version = ProtocolFeature::ZeroBalanceAccount.protocol_version();
     // create free runtime config for transaction costs to make it easier to assert
     // the exact amount of tokens on accounts
     let mut runtime_config = RuntimeConfig::free();
@@ -247,76 +245,6 @@ fn test_zero_balance_account_add_key() {
         env.produce_block(0, i);
     }
     assert_zero_balance_account(&mut env, &new_account_id);
-}
-
-/// Test that zero balance accounts cannot be created before the upgrade but can succeed after
-/// the protocol upgrade
-#[test]
-fn test_zero_balance_account_upgrade() {
-    // The immediate protocol upgrade needs to be set for this test to pass in
-    // the release branch where the protocol upgrade date is set.
-    unsafe {
-        std::env::set_var("NEAR_TESTS_PROTOCOL_UPGRADE_OVERRIDE", "now");
-    }
-
-    let epoch_length = 5;
-    let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
-    genesis.config.epoch_length = epoch_length;
-    genesis.config.protocol_version = ProtocolFeature::ZeroBalanceAccount.protocol_version() - 1;
-    let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
-    let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
-
-    let new_account_id: AccountId = "hello.test0".parse().unwrap();
-    let signer0_account_id: AccountId = "test0".parse().unwrap();
-    let signer0 = InMemorySigner::test_signer(&signer0_account_id);
-    let new_signer = InMemorySigner::test_signer(&new_account_id);
-
-    // before protocol upgrade, should not be possible to create a zero balance account
-    let first_create_account_tx = SignedTransaction::create_account(
-        1,
-        signer0_account_id.clone(),
-        new_account_id.clone(),
-        0,
-        new_signer.public_key(),
-        &signer0,
-        *genesis_block.hash(),
-    );
-    let first_tx_hash = first_create_account_tx.get_hash();
-    assert_eq!(
-        env.tx_request_handlers[0].process_tx(first_create_account_tx, false, false),
-        ProcessTxResponse::ValidTx
-    );
-    for i in 1..12 {
-        env.produce_block(0, i);
-    }
-    let outcome = env.clients[0].chain.get_final_transaction_result(&first_tx_hash).unwrap();
-    assert_matches!(
-        outcome.status,
-        FinalExecutionStatus::Failure(TxExecutionError::ActionError(ActionError {
-            kind: ActionErrorKind::LackBalanceForState { .. },
-            ..
-        }))
-    );
-
-    let second_create_account_tx = SignedTransaction::create_account(
-        2,
-        signer0_account_id,
-        new_account_id,
-        0,
-        new_signer.public_key(),
-        &signer0,
-        *genesis_block.hash(),
-    );
-    let second_tx_hash = second_create_account_tx.get_hash();
-    assert_eq!(
-        env.tx_request_handlers[0].process_tx(second_create_account_tx, false, false),
-        ProcessTxResponse::ValidTx
-    );
-    for i in 12..20 {
-        env.produce_block(0, i);
-    }
-    let outcome = env.clients[0].chain.get_final_transaction_result(&second_tx_hash).unwrap();
-    assert_matches!(outcome.status, FinalExecutionStatus::SuccessValue(_));
 }
 
 #[test]

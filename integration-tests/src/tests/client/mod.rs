@@ -5,7 +5,6 @@ mod bug_repro;
 mod catching_up;
 mod chunks_management;
 mod cold_storage;
-mod consensus;
 mod cross_shard_tx;
 mod doomslug;
 mod flat_storage;
