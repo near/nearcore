@@ -123,10 +123,12 @@ pub enum ProtocolFeature {
     /// Lower `max_length_storage_key` limit, which itself limits trie node sizes.
     LowerStorageKeyLimit,
     // alt_bn128_g1_multiexp, alt_bn128_g1_sum, alt_bn128_pairing_check host functions
-    AltBn128,
+    #[deprecated]
+    _DeprecatedAltBn128,
     ChunkOnlyProducers,
     /// Ensure the total stake of validators that are kicked out does not exceed a percentage of total stakes
-    MaxKickoutStake,
+    #[deprecated]
+    _DeprecatedMaxKickoutStake,
     /// Validate account id for function call access keys.
     AccountIdInFunctionCallPermission,
     /// Zero Balance Account NEP 448: <https://github.com/near/NEPs/pull/448>
@@ -297,8 +299,8 @@ impl ProtocolFeature {
             | ProtocolFeature::LimitContractLocals
             | ProtocolFeature::ChunkNodesCache
             | ProtocolFeature::LowerStorageKeyLimit => 53,
-            ProtocolFeature::AltBn128 => 55,
-            ProtocolFeature::ChunkOnlyProducers | ProtocolFeature::MaxKickoutStake => 56,
+            ProtocolFeature::_DeprecatedAltBn128 => 55,
+            ProtocolFeature::ChunkOnlyProducers | ProtocolFeature::_DeprecatedMaxKickoutStake => 56,
             ProtocolFeature::AccountIdInFunctionCallPermission => 57,
             ProtocolFeature::Ed25519Verify
             | ProtocolFeature::ZeroBalanceAccount

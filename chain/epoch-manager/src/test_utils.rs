@@ -176,6 +176,7 @@ pub fn default_reward_calculator() -> RewardCalculator {
         protocol_reward_rate: Ratio::from_integer(0),
         protocol_treasury_account: "near".parse().unwrap(),
         num_seconds_per_year: NUM_SECONDS_IN_A_YEAR,
+        genesis_protocol_version: PROTOCOL_VERSION,
     }
 }
 
@@ -206,7 +207,6 @@ pub fn setup_epoch_manager(
     EpochManager::new(
         store,
         config,
-        PROTOCOL_VERSION,
         reward_calculator,
         validators
             .iter()
@@ -269,7 +269,6 @@ pub fn setup_epoch_manager_with_block_and_chunk_producers(
     let epoch_manager = EpochManager::new(
         store,
         config,
-        PROTOCOL_VERSION,
         default_reward_calculator(),
         validators
             .iter()
