@@ -380,7 +380,7 @@ fn prepare_function_call(
     contract_storage: &ContractStorage,
     cache: Option<&dyn ContractRuntimeCache>,
 
-    protocol_version: ProtocolVersion,
+    _protocol_version: ProtocolVersion,
     config: Arc<near_parameters::vm::Config>,
     gas_counter: GasCounter,
 
@@ -388,12 +388,7 @@ fn prepare_function_call(
     account_id: &AccountId,
     method_name: &str,
 ) -> Box<dyn PreparedContract> {
-    let code_ext = RuntimeContractExt {
-        storage: contract_storage.clone(),
-        account_id,
-        code_hash,
-        current_protocol_version: protocol_version,
-    };
+    let code_ext = RuntimeContractExt { storage: contract_storage.clone(), account_id, code_hash };
     let contract = near_vm_runner::prepare(&code_ext, config, cache, gas_counter, method_name);
     contract
 }
