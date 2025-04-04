@@ -131,7 +131,7 @@ mod tests {
         allowed_links: AllowedLinks,
     ) -> ShardLinkMap<Bandwidth> {
         assert_eq!(sender_budgets.len(), receiver_budgets.len());
-        let shard_layout = ShardLayout::multi_shard(sender_budgets.len().try_into().unwrap(), 0);
+        let shard_layout = ShardLayout::v0(sender_budgets.len().try_into().unwrap(), 0);
         let mut sender_budgets_map = ShardIndexMap::new(&shard_layout);
         for (i, sender_budget) in sender_budgets.iter().enumerate() {
             sender_budgets_map.insert(i, *sender_budget);

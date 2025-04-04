@@ -585,7 +585,7 @@ mod test {
             let records_in: Vec<_> = self.records_in.iter().map(|r| r.parse()).collect();
 
             let num_shards = 4;
-            let shard_layout = ShardLayout::multi_shard(num_shards, 3);
+            let shard_layout = ShardLayout::v0(num_shards, 3);
 
             let genesis_config = GenesisConfig {
                 protocol_version: PROTOCOL_VERSION,

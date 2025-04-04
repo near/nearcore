@@ -140,7 +140,7 @@ impl GlobalContractsReshardingTestEnv {
     fn setup() -> Self {
         let base_boundary_accounts: Vec<AccountId> = parse_accounts(&["user2", "user3", "user4"]);
         let split_boundary_account: AccountId = "user1".parse().unwrap();
-        let base_shard_layout = ShardLayout::multi_shard_custom(base_boundary_accounts, 3);
+        let base_shard_layout = ShardLayout::v1(base_boundary_accounts, None, 3);
         let chunk_producer: AccountId = "cp0".parse().unwrap();
         let users: Vec<AccountId> = parse_accounts(&["user0", "user1", "user2", "user3", "user4"]);
         let validators_spec = ValidatorsSpec::desired_roles(&[chunk_producer.as_str()], &[]);

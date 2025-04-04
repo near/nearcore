@@ -952,7 +952,7 @@ pub fn init_configs(
                 CryptoHash::default(),
             );
             add_protocol_account(&mut records);
-            let shards = ShardLayout::multi_shard(num_shards, 0);
+            let shards = ShardLayout::v0(num_shards, 0);
 
             let genesis_config = GenesisConfig {
                 protocol_version: PROTOCOL_VERSION,
@@ -1063,7 +1063,7 @@ pub fn create_localnet_configs_from_seeds(
         .map(|seed| InMemorySigner::from_seed("node".parse().unwrap(), KeyType::ED25519, seed))
         .collect::<Vec<_>>();
 
-    let shard_layout = ShardLayout::multi_shard(num_shards, 0);
+    let shard_layout = ShardLayout::v0(num_shards, 0);
     let accounts_to_add_to_genesis: Vec<AccountId> =
         seeds.iter().map(|s| s.parse().unwrap()).collect();
 

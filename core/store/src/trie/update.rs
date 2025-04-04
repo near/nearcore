@@ -434,7 +434,7 @@ mod tests {
 
     #[test]
     fn trie() {
-        let shard_layout = ShardLayout::multi_shard(2, SHARD_VERSION);
+        let shard_layout = ShardLayout::v0(2, SHARD_VERSION);
         let shard_uid = shard_layout.shard_uids().next().unwrap();
 
         let tries = TestTriesBuilder::new().with_shard_layout(shard_layout).build();
@@ -464,7 +464,7 @@ mod tests {
 
     #[test]
     fn trie_remove() {
-        let shard_layout = ShardLayout::multi_shard(2, SHARD_VERSION);
+        let shard_layout = ShardLayout::v0(2, SHARD_VERSION);
         let shard_uid = shard_layout.shard_uids().next().unwrap();
 
         let tries = TestTriesBuilder::new().with_shard_layout(shard_layout).build();

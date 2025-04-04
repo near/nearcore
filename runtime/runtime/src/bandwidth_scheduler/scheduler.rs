@@ -760,7 +760,7 @@ mod tests {
     /// Run bandwidth scheduler on worst-case scenario that should take as much CPU time as possible.
     /// Measures the time and prints it to stdout.
     fn measure_scheduler_worst_case_performance(num_shards: u64) {
-        let shard_layout = ShardLayout::multi_shard(num_shards, 0);
+        let shard_layout = ShardLayout::v0(num_shards, 0);
 
         // Standard params
         let params = BandwidthSchedulerParams::for_test(num_shards);

@@ -99,7 +99,7 @@ struct ChunkApplicationResult {
 
 impl ChainSimulator {
     fn new(scenario: TestScenario) -> Self {
-        let shard_layout = ShardLayout::multi_shard(scenario.num_shards, 0);
+        let shard_layout = ShardLayout::v0(scenario.num_shards, 0);
         let mut genesis_block = Block { chunks: BTreeMap::new() };
         for shard_id in shard_layout.shard_ids() {
             genesis_block.chunks.insert(

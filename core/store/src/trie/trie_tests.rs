@@ -100,7 +100,7 @@ where
 fn test_reads_with_incomplete_storage() {
     let mut rng = rand::thread_rng();
     for _ in 0..50 {
-        let shard_layout = ShardLayout::multi_shard(2, 1);
+        let shard_layout = ShardLayout::v0(2, 1);
         let shard_uid = shard_layout.shard_uids().next().unwrap();
 
         let tries = TestTriesBuilder::new().with_shard_layout(shard_layout).build();

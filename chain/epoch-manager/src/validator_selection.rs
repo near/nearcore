@@ -1240,7 +1240,7 @@ mod tests {
         epoch_config.avg_hidden_validator_seats_per_shard = vec![0; num_shards as usize];
         epoch_config.target_validator_mandates_per_shard = 68;
         epoch_config.validator_max_kickout_stake_perc = 100;
-        epoch_config.shard_layout = ShardLayout::multi_shard(num_shards, 0);
+        epoch_config.shard_layout = ShardLayout::v0(num_shards, 0);
 
         if let Some(num_chunk_producer_seats) = num_chunk_producer_seats {
             epoch_config.num_chunk_producer_seats = num_chunk_producer_seats;

@@ -338,7 +338,7 @@ fn get_accounts_and_shard_layout(
         .collect::<Vec<AccountId>>();
     let boundary_accounts = vec!["account2", "account4", "account6"];
     let boundary_accounts = boundary_accounts.into_iter().map(|s| s.parse().unwrap()).collect();
-    let shard_layout = ShardLayout::multi_shard_custom(boundary_accounts, 3);
+    let shard_layout = ShardLayout::v1(boundary_accounts, None, 3);
 
     // The number of accounts in each shard.
     let mut shard_account_count: HashMap<ShardId, u32> = HashMap::new();

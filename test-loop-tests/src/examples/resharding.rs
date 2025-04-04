@@ -18,7 +18,7 @@ fn resharding_example_test() {
 
     // Note: having base layout version set to 3 is important
     let version = 3;
-    let base_shard_layout = ShardLayout::multi_shard(3, version);
+    let base_shard_layout = ShardLayout::v0(3, version);
     let epoch_length = 5;
     let chunk_producer = "cp0";
     let validators_spec = ValidatorsSpec::desired_roles(&[chunk_producer], &[]);

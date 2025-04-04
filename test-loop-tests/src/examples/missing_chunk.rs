@@ -16,7 +16,7 @@ use crate::utils::{get_node_client, get_node_data, run_until_node_head_height};
 fn missing_chunk_example_test() {
     let validators = ["validator0", "validator1"];
     let missing_chunk_heigh = 8;
-    let shard_layout = ShardLayout::multi_shard(2, 1);
+    let shard_layout = ShardLayout::v0(2, 1);
     let clients = validators.map(|acc| acc.parse::<AccountId>().unwrap()).to_vec();
     let target_client = &clients[0];
     let validators_spec = ValidatorsSpec::desired_roles(&validators, &[]);

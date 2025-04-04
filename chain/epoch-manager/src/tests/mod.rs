@@ -2332,12 +2332,12 @@ fn test_protocol_version_switch_with_shard_layout_change() {
         epoch_manager.get_epoch_info(&epochs[1]).unwrap().protocol_version(),
         PROTOCOL_VERSION - 1
     );
-    assert_eq!(epoch_manager.get_shard_layout(&epochs[1]).unwrap(), ShardLayout::multi_shard(1, 0));
+    assert_eq!(epoch_manager.get_shard_layout(&epochs[1]).unwrap(), ShardLayout::v0(1, 0));
     assert_eq!(
         epoch_manager.get_epoch_info(&epochs[2]).unwrap().protocol_version(),
         PROTOCOL_VERSION
     );
-    assert_eq!(epoch_manager.get_shard_layout(&epochs[2]).unwrap(), ShardLayout::multi_shard(4, 0));
+    assert_eq!(epoch_manager.get_shard_layout(&epochs[2]).unwrap(), ShardLayout::v0(4, 0));
 
     // Check split shards
     // h[5] is the first block of epoch epochs[1] and shard layout will change at epochs[2]
@@ -3720,11 +3720,11 @@ fn test_get_shard_uids_pending_resharding_none() {
     let shard_uids = test_get_shard_uids_pending_resharding_base(&[shard_layout]);
     assert_eq!(shard_uids.len(), 0);
 
-    let shard_layout = ShardLayout::multi_shard(3, 3);
+    let shard_layout = ShardLayout::v0(3, 3);
     let shard_uids = test_get_shard_uids_pending_resharding_base(&[shard_layout]);
     assert_eq!(shard_uids.len(), 0);
 
-    let shard_layout = ShardLayout::multi_shard(3, 3);
+    let shard_layout = ShardLayout::v0(3, 3);
     let shard_uids = test_get_shard_uids_pending_resharding_base(&[
         shard_layout.clone(),
         shard_layout.clone(),
@@ -3759,7 +3759,7 @@ fn test_get_shard_uids_pending_resharding_single() {
 
     // start with just one boundary - a
     // the split s1 by adding b
-    let shard_layout_0 = ShardLayout::multi_shard_custom(vec![a.clone()], version);
+    let shard_layout_0 = ShardLayout::v1(vec![a.clone()], None, version);
     let shard_layout_1 = ShardLayout::derive_shard_layout(&shard_layout_0, b);
 
     let s1 = shard_layout_0.account_id_to_shard_uid(&a);
@@ -3781,7 +3781,7 @@ fn test_get_shard_uids_pending_resharding_double_different() {
     // then split s0 by adding a
     // then split s1 by adding c
     // both original shards are pending resharding
-    let shard_layout_0 = ShardLayout::multi_shard_custom(vec![b.clone()], version);
+    let shard_layout_0 = ShardLayout::v1(vec![b.clone()], None, version);
     let shard_layout_1 = ShardLayout::derive_shard_layout(&shard_layout_0, a.clone());
     let shard_layout_2 = ShardLayout::derive_shard_layout(&shard_layout_0, c);
 
@@ -3809,7 +3809,7 @@ fn test_get_shard_uids_pending_resharding_double_same() {
     // then split s1 by adding a
     // then split s1 by adding c
     // both original shards are pending resharding
-    let shard_layout_0 = ShardLayout::multi_shard_custom(vec![a.clone()], version);
+    let shard_layout_0 = ShardLayout::v1(vec![a.clone()], None, version);
     let shard_layout_1 = ShardLayout::derive_shard_layout(&shard_layout_0, b);
     let shard_layout_2 = ShardLayout::derive_shard_layout(&shard_layout_0, c);
 

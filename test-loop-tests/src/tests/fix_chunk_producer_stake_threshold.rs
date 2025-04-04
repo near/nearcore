@@ -23,7 +23,7 @@ fn slow_test_fix_cp_stake_threshold() {
         (0..6).map(|i| format!("test{}", i).parse().unwrap()).collect::<Vec<AccountId>>();
     let clients = accounts.iter().cloned().collect::<Vec<_>>();
     let num_shards = 6;
-    let shard_layout = ShardLayout::multi_shard(num_shards, 1);
+    let shard_layout = ShardLayout::v0(num_shards, 1);
     let validators = vec![
         AccountInfo {
             account_id: accounts[0].clone(),
