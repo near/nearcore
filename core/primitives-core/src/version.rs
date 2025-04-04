@@ -75,7 +75,8 @@ pub enum ProtocolFeature {
     _DeprecatedCreateReceiptIdSwitchToCurrentBlock,
     /// Pessimistic gas price estimation uses a fixed value of `minimum_new_receipt_gas` to stop being
     /// tied to the function call base cost
-    FixedMinimumNewReceiptGas,
+    #[deprecated]
+    _DeprecatedFixedMinimumNewReceiptGas,
     /// This feature switch our WASM engine implementation from wasmer 0.* to
     /// wasmer 2.*, bringing better performance and reliability.
     ///
@@ -157,7 +158,8 @@ pub enum ProtocolFeature {
     /// Compute Costs NEP-455: <https://github.com/near/NEPs/blob/master/neps/nep-0455.md>
     ComputeCosts,
     /// Decrease the cost of function call action. Only affects the execution cost.
-    DecreaseFunctionCallBaseCost,
+    #[deprecated]
+    _DeprecatedDecreaseFunctionCallBaseCost,
     /// Enable flat storage for reads, reducing number of DB accesses from `2 * key.len()` in
     /// the worst case to 2.
     ///
@@ -329,8 +331,8 @@ impl ProtocolFeature {
             | ProtocolFeature::_DeprecatedTestnetFewerBlockProducers
             | ProtocolFeature::SimpleNightshadeV2 => 64,
             ProtocolFeature::SimpleNightshadeV3 => 65,
-            ProtocolFeature::DecreaseFunctionCallBaseCost
-            | ProtocolFeature::FixedMinimumNewReceiptGas => 66,
+            ProtocolFeature::_DeprecatedDecreaseFunctionCallBaseCost
+            | ProtocolFeature::_DeprecatedFixedMinimumNewReceiptGas => 66,
             ProtocolFeature::YieldExecution => 67,
             ProtocolFeature::CongestionControl
             | ProtocolFeature::RemoveAccountWithLongStorageKey => 68,
