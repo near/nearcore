@@ -13,7 +13,6 @@ use near_primitives::stateless_validation::partial_witness::{
 };
 use near_primitives::types::{AccountId, BlockHeightDelta, EpochId};
 use near_primitives::validator_signer::ValidatorSigner;
-
 use near_store::{DBCol, FINAL_HEAD_KEY, HEAD_KEY, Store};
 
 /// This is taken to be the same value as near_chunks::chunk_cache::MAX_HEIGHTS_AHEAD, and we
@@ -249,12 +248,7 @@ fn validate_chunk_relevant(
     Ok(true)
 }
 
-fn validate_exclude_witness_contracts_enabled(
-    _epoch_manager: &dyn EpochManagerAdapter,
-    _epoch_id: &EpochId,
-) -> Result<(), Error> {
-    Ok(())
-}
+
 
 fn validate_chunk_endorsement_signature(
     epoch_manager: &dyn EpochManagerAdapter,
