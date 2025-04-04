@@ -128,8 +128,7 @@ pub enum ProtocolFeature {
     #[deprecated]
     _DeprecatedChunkOnlyProducers,
     /// Ensure the total stake of validators that are kicked out does not exceed a percentage of total stakes
-    #[deprecated]
-    _DeprecatedMaxKickoutStake,
+    MaxKickoutStake,
     /// Validate account id for function call access keys.
     AccountIdInFunctionCallPermission,
     /// Zero Balance Account NEP 448: <https://github.com/near/NEPs/pull/448>
