@@ -179,7 +179,7 @@ impl NightshadeRuntime {
             last_validator_proposals,
             gas_limit,
             is_new_chunk,
-            is_first_block_with_chunk_of_version,
+            is_first_block_with_chunk_of_version: _,
         } = chunk;
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(prev_block_hash)?;
         let validator_accounts_update = {
