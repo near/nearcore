@@ -367,7 +367,6 @@ impl Runtime {
             validated_tx,
             transaction_cost,
             Some(apply_state.block_height),
-            apply_state.current_protocol_version,
         );
         let verification_result = match verification_result {
             Ok(ok) => ok,
@@ -757,11 +756,7 @@ impl Runtime {
         // Going to check balance covers account's storage.
         if result.result.is_ok() {
             if let Some(ref mut account) = account {
-                match check_storage_stake(
-                    account,
-                    &apply_state.config,
-                    apply_state.current_protocol_version,
-                ) {
+                match check_storage_stake(account, &apply_state.config) {
                     Ok(()) => {
                         set_account(state_update, account_id.clone(), account);
                     }
