@@ -1504,8 +1504,7 @@ fn test_trie_and_flat_state_equality() {
 /// Check that mainnet genesis hash still matches, to make sure that we're still backwards compatible.
 #[test]
 #[ignore]
-fn test_genesis_hash() {
-}
+fn test_genesis_hash() {}
 
 /// Creates a signed transaction between each pair of `signers`,
 /// where transaction outcomes from a single signer differ by nonce.
