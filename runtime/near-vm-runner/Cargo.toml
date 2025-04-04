@@ -57,8 +57,6 @@ pwasm-utils_12 = { workspace = true, optional = true }
 parity-wasm_41 = { workspace = true, optional = true }
 
 [target.'cfg(target_arch = "x86_64")'.dependencies]
-wasmer-runtime = { workspace = true, optional = true }
-wasmer-runtime-core = { workspace = true, optional = true }
 wasmer-compiler = { workspace = true, optional = true }
 wasmer-compiler-singlepass = { workspace = true, optional = true }
 wasmer-engine = { workspace = true, optional = true }
@@ -91,7 +89,6 @@ wasm-smith.workspace = true
 wat.workspace = true
 
 [features]
-wasmer0_vm = ["wasmer-runtime", "wasmer-runtime-core", "prepare"]
 wasmtime_vm = ["wasmtime", "anyhow", "prepare"]
 wasmer2_vm = [
   "wasmer-compiler",
