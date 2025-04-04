@@ -1299,7 +1299,7 @@ mod inner {
                     /// This is a function that wraps the real host
                     /// function. Its address will be used inside the
                     /// runtime.
-                    extern fn func_wrapper<$( $x, )* Rets, RetsAsResult, Func>( _: usize, $( $x: $x::Native, )* ) -> Rets::CStruct
+                    extern "C" fn func_wrapper<$( $x, )* Rets, RetsAsResult, Func>( _: usize, $( $x: $x::Native, )* ) -> Rets::CStruct
                     where
                         $( $x: FromToNativeWasmType, )*
                         Rets: WasmTypeList,
@@ -1341,7 +1341,7 @@ mod inner {
                     /// This is a function that wraps the real host
                     /// function. Its address will be used inside the
                     /// runtime.
-                    extern fn func_wrapper<$( $x, )* Rets, RetsAsResult, Env, Func>( env: &Env, $( $x: $x::Native, )* ) -> Rets::CStruct
+                    extern "C" fn func_wrapper<$( $x, )* Rets, RetsAsResult, Env, Func>( env: &Env, $( $x: $x::Native, )* ) -> Rets::CStruct
                     where
                         $( $x: FromToNativeWasmType, )*
                         Rets: WasmTypeList,
