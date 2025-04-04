@@ -91,6 +91,7 @@ pub enum AccountContract {
     Local(CryptoHash),
     Global(CryptoHash),
     GlobalByAccount(AccountId),
+    ShardedByAccount(AccountId),
 }
 
 impl AccountContract {
@@ -98,7 +99,8 @@ impl AccountContract {
         match self {
             AccountContract::None
             | AccountContract::GlobalByAccount(_)
-            | AccountContract::Global(_) => None,
+            | AccountContract::Global(_)
+            | AccountContract::ShardedByAccount(_) => None,
             AccountContract::Local(hash) => Some(*hash),
         }
     }
@@ -123,7 +125,9 @@ impl AccountContract {
         match self {
             AccountContract::None | AccountContract::Local(_) => 0u64,
             AccountContract::Global(_) => 32u64,
-            AccountContract::GlobalByAccount(id) => id.len() as u64,
+            AccountContract::GlobalByAccount(id) | AccountContract::ShardedByAccount(id) => {
+                id.len() as u64
+            }
         }
     }
 }
@@ -248,7 +252,8 @@ impl Account {
             Self::V2(AccountV2 { contract: AccountContract::Local(hash), .. }) => Some(*hash),
             Self::V2(AccountV2 { contract: AccountContract::None, .. })
             | Self::V2(AccountV2 { contract: AccountContract::Global(_), .. })
-            | Self::V2(AccountV2 { contract: AccountContract::GlobalByAccount(_), .. }) => None,
+            | Self::V2(AccountV2 { contract: AccountContract::GlobalByAccount(_), .. })
+            | Self::V2(AccountV2 { contract: AccountContract::ShardedByAccount(_), .. }) => None,
         }
     }
 
