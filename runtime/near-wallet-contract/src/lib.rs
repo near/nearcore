@@ -18,11 +18,6 @@ static TESTNET: WalletContract =
 static OLD_TESTNET: WalletContract =
     WalletContract::new(include_bytes!("../res/wallet_contract_testnet_pv70.wasm"));
 
-/// The protocol version on testnet where it is safe to start using the new wallet contract.
-#[allow(deprecated)]
-const NEW_WALLET_CONTRACT_VERSION: ProtocolVersion =
-    ProtocolFeature::_DeprecatedFixMinStakeRatio.protocol_version();
-
 static LOCALNET: WalletContract =
     WalletContract::new(include_bytes!("../res/wallet_contract_localnet.wasm"));
 
@@ -55,11 +50,7 @@ pub fn wallet_contract_magic_bytes(
     match chain_id {
         chains::MAINNET => MAINNET.magic_bytes(),
         chains::TESTNET => {
-            if protocol_version < NEW_WALLET_CONTRACT_VERSION {
-                OLD_TESTNET.magic_bytes()
-            } else {
-                TESTNET.magic_bytes()
-            }
+            TESTNET.magic_bytes()
         }
         _ => LOCALNET.magic_bytes(),
     }
