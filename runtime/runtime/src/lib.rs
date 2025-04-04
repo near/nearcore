@@ -2194,8 +2194,6 @@ impl ApplyState {
         &self,
         trie: &dyn TrieAccess,
     ) -> Result<Option<CongestionInfo>, RuntimeError> {
-        debug_assert!(!self.congestion_info.is_empty());
-
         if let Some(congestion_info) = self.congestion_info.get(&self.shard_id) {
             return Ok(Some(congestion_info.congestion_info));
         }

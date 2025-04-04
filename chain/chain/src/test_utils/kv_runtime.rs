@@ -388,8 +388,8 @@ impl KeyValueRuntime {
         Ok(None)
     }
 
-    fn get_congestion_info(_protocol_version: ProtocolVersion) -> Option<CongestionInfo> {
-        Some(CongestionInfo::default())
+    fn get_congestion_info() -> CongestionInfo {
+        CongestionInfo::default()
     }
 }
 

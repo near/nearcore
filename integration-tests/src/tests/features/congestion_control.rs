@@ -261,49 +261,7 @@ fn check_congestion_info(env: &TestEnv, check_congested_protocol_upgrade: bool) 
     }
 }
 
-/// Simplest possible upgrade to new protocol with congestion control enabled,
-/// no traffic at all.
-#[test]
-fn test_protocol_upgrade_simple() {
-    init_test_logger();
 
-    #[allow(deprecated)]
-    let mut env = setup_real_runtime(
-        "test0".parse().unwrap(),
-        ProtocolFeature::_DeprecatedCongestionControl.protocol_version() - 1,
-    );
-
-    // Produce a few blocks to get out of initial state.
-    let tip = env.clients[0].chain.head().unwrap();
-    for i in 1..4 {
-        env.produce_block(0, tip.height + i);
-    }
-
-    // Ensure we are still in the old version and no congestion info is shared.
-    check_old_protocol(&env);
-
-    env.upgrade_protocol_to_latest_version();
-
-    // check we are in the new version
-
-    let block = env.clients[0].chain.get_head_block().unwrap();
-    // check congestion info is available and represents "no congestion"
-    let chunks = block.chunks();
-    assert!(chunks.len() > 0);
-
-    let config = head_congestion_control_config(&env);
-    for chunk_header in chunks.iter_deprecated() {
-        let congestion_info = chunk_header
-            .congestion_info()
-            .expect("chunk header must have congestion info after upgrade");
-        let congestion_control = CongestionControl::new(config, congestion_info, 0);
-        assert_eq!(congestion_control.congestion_level(), 0.0);
-        assert!(congestion_control.shard_accepts_transactions().is_yes());
-    }
-
-    let check_congested_protocol_upgrade = false;
-    check_congestion_info(&env, check_congested_protocol_upgrade);
-}
 
 fn head_congestion_control_config(
     env: &TestEnv,
@@ -333,115 +291,7 @@ fn head_chunk(env: &TestEnv, shard_id: ShardId) -> Arc<ShardChunk> {
     env.clients[0].chain.get_chunk(&chunk_header.chunk_hash()).expect("chunk must be available")
 }
 
-#[test]
-fn slow_test_protocol_upgrade_under_congestion() {
-    init_test_logger();
 
-    let sender_id: AccountId = "test0".parse().unwrap();
-    #[allow(deprecated)]
-    let mut env = setup_real_runtime(
-        sender_id.clone(),
-        ProtocolFeature::_DeprecatedCongestionControl.protocol_version() - 1,
-    );
-
-    // prepare a contract to call
-    let mut nonce = 10;
-    setup_contract(&mut env, &mut nonce);
-
-    let signer = InMemorySigner::test_signer(&sender_id);
-    // Now, congest the network with ~100 Pgas, enough to have some left after the protocol upgrade.
-    let n = 1000;
-    submit_n_100tgas_fns(&mut env, n, &mut nonce, &signer);
-
-    // Allow transactions to enter the chain
-    let tip = env.clients[0].chain.head().unwrap();
-    for i in 1..3 {
-        env.produce_block(0, tip.height + i);
-    }
-
-    // Ensure we are still in the old version and no congestion info is shared.
-    check_old_protocol(&env);
-
-    env.upgrade_protocol_to_latest_version();
-
-    // check we are in the new version
-    // check congestion info is available
-    let block = env.clients[0].chain.get_head_block().unwrap();
-    let chunks = block.chunks();
-    for chunk_header in chunks.iter_deprecated() {
-        chunk_header
-            .congestion_info()
-            .expect("chunk header must have congestion info after upgrade");
-    }
-    let tip = env.clients[0].chain.head().unwrap();
-
-    // Get the shard id and shard index of the contract account.
-    // Please not that this is not updated and won't work for resharding.
-    let epoch_id = tip.epoch_id;
-    let shard_layout = env.clients[0].epoch_manager.get_shard_layout(&epoch_id).unwrap();
-    let contract_shard_id = account_id_to_shard_id(
-        env.clients[0].epoch_manager.as_ref(),
-        &CONTRACT_ID.parse().unwrap(),
-        &tip.epoch_id,
-    )
-    .unwrap();
-    let contract_shard_index = shard_layout.get_shard_index(contract_shard_id).unwrap();
-
-    // Check there is still congestion, which this test is all about.
-
-    let congestion_info = head_congestion_info(&mut env, contract_shard_id);
-    let config = head_congestion_control_config(&env);
-    assert_eq!(
-        congestion_info.localized_congestion_level(&config),
-        1.0,
-        "contract's shard should be fully congested"
-    );
-
-    // Also check that the congested shard is still making progress.
-    let block = env.clients[0].produce_block(tip.height + 1).unwrap().unwrap();
-    assert_eq!(block.header().chunk_mask()[contract_shard_index], true, "chunk isn't missing");
-    let gas_used = block.chunks().get(contract_shard_index).unwrap().prev_gas_used();
-    tracing::debug!(target: "test", "prev_gas_used: {}", gas_used);
-
-    // The chunk should process at least 500TGas worth of receipts
-    assert!(gas_used > 500_000_000_000_000);
-
-    env.process_block(0, block, Provenance::PRODUCED);
-
-    let check_congested_protocol_upgrade = true;
-    check_congestion_info(&env, check_congested_protocol_upgrade);
-
-    // Test the migration from Receipt to StateStoredReceipt
-
-    // Wait until chain is no longer congested
-    let tip = env.clients[0].chain.head().unwrap();
-    for i in 1.. {
-        let block = env.clients[0].produce_block(tip.height + i);
-        let block = block.unwrap().unwrap();
-        let gas_used = block.chunks().get(contract_shard_index).unwrap().prev_gas_used();
-
-        env.process_block(0, block, Provenance::PRODUCED);
-
-        if gas_used == 0 {
-            break;
-        }
-    }
-
-    // Submit some more transactions that should now be stored as StateStoredReceipts.
-    let included = submit_n_100tgas_fns(&mut env, n, &mut nonce, &signer);
-    assert!(included > 0);
-
-    // Allow transactions to enter the chain and be processed. At this point the
-    // receipts will be stored and retrieved using the StateStoredReceipt
-    // structure.
-    let tip = env.clients[0].chain.head().unwrap();
-    for i in 1..10 {
-        env.produce_block(0, tip.height + i);
-    }
-
-    // The summary may be incomplete because of GC.
-    env.print_summary();
-}
 
 /// Check we are still in the old version and no congestion info is shared.
 #[track_caller]
@@ -565,8 +415,6 @@ fn test_transaction_limit_for_local_congestion() {
     init_test_logger();
 
     // Fix the initial configuration of congestion control for the tests.
-    #[allow(deprecated)]
-    let protocol_version = ProtocolFeature::_DeprecatedCongestionControl.protocol_version();
     // We don't want to go into the TX rejection limit in this test.
     let upper_limit_congestion = UpperLimitCongestion::BelowRejectThreshold;
 
@@ -575,7 +423,7 @@ fn test_transaction_limit_for_local_congestion() {
     let contract_id: AccountId = CONTRACT_ID.parse().unwrap();
     let sender_id = contract_id.clone();
     let dummy_receiver: AccountId = "a_dummy_receiver".parse().unwrap();
-    let env = setup_test_runtime("test0".parse().unwrap(), protocol_version);
+    let env = setup_test_runtime("test0".parse().unwrap(), PROTOCOL_VERSION);
 
     let (
         remote_tx_included_without_congestion,
