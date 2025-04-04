@@ -134,12 +134,15 @@ pub enum ProtocolFeature {
     /// Validate account id for function call access keys.
     AccountIdInFunctionCallPermission,
     /// Zero Balance Account NEP 448: <https://github.com/near/NEPs/pull/448>
-    ZeroBalanceAccount,
+    #[deprecated]
+    _DeprecatedZeroBalanceAccount,
     /// Execute a set of actions on behalf of another account.
     ///
     /// Meta Transaction NEP-366: <https://github.com/near/NEPs/blob/master/neps/nep-0366.md>
-    DelegateAction,
-    Ed25519Verify,
+    #[deprecated]
+    _DeprecatedDelegateAction,
+    #[deprecated]
+    _DeprecatedEd25519Verify,
     /// Decouple compute and gas costs of operations to safely limit the compute time it takes to
     /// process the chunk.
     ///
@@ -304,9 +307,9 @@ impl ProtocolFeature {
             ProtocolFeature::_DeprecatedAltBn128 => 55,
             ProtocolFeature::ChunkOnlyProducers | ProtocolFeature::_DeprecatedMaxKickoutStake => 56,
             ProtocolFeature::AccountIdInFunctionCallPermission => 57,
-            ProtocolFeature::Ed25519Verify
-            | ProtocolFeature::ZeroBalanceAccount
-            | ProtocolFeature::DelegateAction => 59,
+            ProtocolFeature::_DeprecatedEd25519Verify
+            | ProtocolFeature::_DeprecatedZeroBalanceAccount
+            | ProtocolFeature::_DeprecatedDelegateAction => 59,
             ProtocolFeature::ComputeCosts | ProtocolFeature::FlatStorageReads => 61,
             ProtocolFeature::PreparationV2 | ProtocolFeature::NearVmRuntime => 62,
             ProtocolFeature::BlockHeaderV4 => 63,
