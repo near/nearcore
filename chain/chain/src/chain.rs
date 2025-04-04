@@ -59,8 +59,7 @@ use near_primitives::block::{
 };
 use near_primitives::block_header::BlockHeader;
 use near_primitives::challenge::{
-    BlockDoubleSign, Challenge, ChallengeBody, ChallengesResult, ChunkProofs, ChunkState,
-    MaybeEncodedShardChunk,
+    BlockDoubleSign, ChallengeBody, ChunkProofs, ChunkState, MaybeEncodedShardChunk,
 };
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::errors::EpochError;
@@ -87,7 +86,6 @@ use near_primitives::types::{
     AccountId, Balance, BlockHeight, BlockHeightDelta, EpochId, MerkleHash, NumBlocks, ShardId,
     ShardIndex,
 };
-use near_primitives::unwrap_or_return;
 use near_primitives::utils::MaybeValidated;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::{
@@ -1053,21 +1051,6 @@ impl Chain {
         Ok(VerifyBlockHashAndSignatureResult::Correct)
     }
 
-    /// Verify that `challenges` are valid
-    /// If all challenges are valid, returns ChallengesResult, which comprises of the list of
-    /// validators that need to be slashed and the list of blocks that are challenged.
-    /// Returns Error if any challenge is invalid.
-    /// Note: you might be wondering why the list of challenged blocks is not part of ChallengesResult.
-    /// That's because ChallengesResult is part of BlockHeader, to modify that struct requires protocol
-    /// upgrade.
-    pub fn verify_challenges(
-        &self,
-        _challenges: &[Challenge],
-        _epoch_id: &EpochId,
-    ) -> Result<(ChallengesResult, Vec<CryptoHash>), Error> {
-        Ok((vec![], vec![]))
-    }
-
     /// Do basic validation of the information that we can get from the chunk headers in `block`
     fn validate_chunk_headers(&self, block: &Block, prev_block: &Block) -> Result<(), Error> {
         let prev_chunk_headers =
@@ -1441,7 +1424,6 @@ impl Chain {
                 prev_block_hash: *block.prev_block_hash(),
                 block_timestamp: block.block_timestamp(),
                 gas_price: prev_block.header().next_gas_price(),
-                challenges_result: ChallengesResult::default(),
                 random_seed: *block.random_value(),
                 congestion_info: chunks.block_congestion_info(),
                 bandwidth_requests: chunks.block_bandwidth_requests(),
@@ -1551,29 +1533,6 @@ impl Chain {
             self.runtime_adapter.clone(),
             self.doomslug_threshold_mode,
         )
-    }
-
-    /// Process challenge to invalidate chain. This is done between blocks to unroll the chain as
-    /// soon as possible and allow next block producer to skip invalid blocks.
-    pub fn process_challenge(&mut self, challenge: &Challenge) {
-        let head = unwrap_or_return!(self.head());
-        match self.verify_challenges(&[challenge.clone()], &head.epoch_id) {
-            Ok((_, challenged_blocks)) => {
-                let mut chain_update = self.chain_update();
-                for block_hash in challenged_blocks {
-                    match chain_update.mark_block_as_challenged(&block_hash, None) {
-                        Ok(()) => {}
-                        Err(err) => {
-                            warn!(target: "chain", %block_hash, ?err, "Error saving block as challenged");
-                        }
-                    }
-                }
-                unwrap_or_return!(chain_update.commit());
-            }
-            Err(err) => {
-                warn!(target: "chain", ?err, "Invalid challenge: {:#?}", challenge);
-            }
-        }
     }
 
     /// Processes headers and adds them to store for syncing.
@@ -2425,9 +2384,6 @@ impl Chain {
             return Err(Error::InvalidGasPrice);
         }
 
-        let (_challenges_result, challenged_blocks) =
-            self.verify_challenges(block.challenges(), header.epoch_id())?;
-
         let prev_block = self.get_block(&prev_hash)?;
 
         self.validate_chunk_headers(&block, &prev_block)?;
@@ -2470,7 +2426,6 @@ impl Chain {
                 is_caught_up,
                 state_sync_info,
                 incoming_receipts,
-                challenged_blocks,
                 provenance: provenance.clone(),
                 apply_chunks_done_waiter,
                 block_start_processing_time: block_received_time,
