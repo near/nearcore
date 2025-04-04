@@ -601,7 +601,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         time_limit: Option<Duration>,
     ) -> Result<PreparedTransactions, Error> {
         let start_time = std::time::Instant::now();
-        let PrepareTransactionsChunkContext { shard_id, gas_limit, .. } = chunk;
+        let PrepareTransactionsChunkContext { shard_id, .. } = chunk;
 
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&prev_block.block_hash)?;
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
@@ -653,7 +653,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         let mut total_size = 0u64;
 
         let transactions_gas_limit =
-            chunk_tx_gas_limit(protocol_version, runtime_config, &prev_block, shard_id, gas_limit);
+            chunk_tx_gas_limit(runtime_config, &prev_block, shard_id);
 
         let mut result = PreparedTransactions { transactions: Vec::new(), limited_by: None };
         let mut num_checked_transactions = 0;
