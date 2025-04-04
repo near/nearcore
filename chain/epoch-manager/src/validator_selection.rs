@@ -253,7 +253,7 @@ pub fn proposals_to_epoch_info(
             &validator_roles.block_producers,
         )?
     } else {
-        old_validator_selection::assign_chunk_producers_to_shards_old(
+        old_validator_selection::assign_chunk_producers_to_shards(
             epoch_config,
             validator_roles.chunk_producers,
             &validator_roles.block_producers,
@@ -566,7 +566,7 @@ mod old_validator_selection {
         })
     }
 
-    pub(crate) fn assign_chunk_producers_to_shards_old(
+    pub(crate) fn assign_chunk_producers_to_shards(
         epoch_config: &EpochConfig,
         chunk_producers: Vec<ValidatorStake>,
         block_producers: &[ValidatorStake],
