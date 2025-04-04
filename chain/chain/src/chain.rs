@@ -59,7 +59,7 @@ use near_primitives::block::{
 };
 use near_primitives::block_header::BlockHeader;
 use near_primitives::challenge::{
-    BlockDoubleSign, Challenge, ChallengeBody, ChunkProofs, ChunkState, MaybeEncodedShardChunk,
+    BlockDoubleSign, ChallengeBody, ChunkProofs, ChunkState, MaybeEncodedShardChunk,
 };
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::errors::EpochError;
@@ -1539,10 +1539,6 @@ impl Chain {
             self.doomslug_threshold_mode,
         )
     }
-
-    /// Process challenge to invalidate chain. This is done between blocks to unroll the chain as
-    /// soon as possible and allow next block producer to skip invalid blocks.
-    pub fn process_challenge(&mut self, _challenge: &Challenge) {}
 
     /// Processes headers and adds them to store for syncing.
     pub fn sync_block_headers(
