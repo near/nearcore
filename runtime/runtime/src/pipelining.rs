@@ -15,7 +15,7 @@ use near_primitives::trie_key::{GlobalContractCodeIdentifier, TrieKey};
 use near_primitives::types::{AccountId, Gas};
 use near_store::contract::ContractStorage;
 use near_store::{KeyLookupMode, TrieUpdate, get_pure};
-use near_vm_runner::logic::{GasCounter, ProtocolVersion};
+use near_vm_runner::logic::GasCounter;
 use near_vm_runner::{ContractRuntimeCache, PreparedContract};
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::sync::{Arc, Condvar, Mutex};
@@ -202,7 +202,6 @@ impl ReceiptPreparationPipeline {
                     let config = Arc::clone(&self.config.wasm_config);
                     let cache = self.contract_cache.as_ref().map(|c| c.handle());
                     let storage = self.storage.clone();
-                    let protocol_version = self.protocol_version;
                     let created = Instant::now();
                     let method_name = function_call.method_name.clone();
                     let status = Mutex::new(PrepareTaskStatus::Pending);
@@ -222,7 +221,6 @@ impl ReceiptPreparationPipeline {
                         let contract = prepare_function_call(
                             &storage,
                             cache.as_deref(),
-                            protocol_version,
                             config,
                             gas_counter,
                             code_hash,
@@ -297,7 +295,6 @@ impl ReceiptPreparationPipeline {
             let result = prepare_function_call(
                 &self.storage,
                 self.contract_cache.as_deref(),
-                self.protocol_version,
                 Arc::clone(&self.config.wasm_config),
                 gas_counter,
                 code_hash,
@@ -328,7 +325,6 @@ impl ReceiptPreparationPipeline {
                     let contract = prepare_function_call(
                         &self.storage,
                         cache.as_deref(),
-                        self.protocol_version,
                         Arc::clone(&self.config.wasm_config),
                         gas_counter,
                         code_hash,
