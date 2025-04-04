@@ -1462,11 +1462,8 @@ impl Runtime {
         }
 
         // Step 2: apply migrations.
-        self.apply_migrations(
-            &mut processing_state.state_update,
-            &apply_state.migration_flags,
-        )
-        .map_err(RuntimeError::StorageError)?;
+        self.apply_migrations(&mut processing_state.state_update, &apply_state.migration_flags)
+            .map_err(RuntimeError::StorageError)?;
 
         let delayed_receipts = DelayedReceiptQueueWrapper::new(
             DelayedReceiptQueue::load(&processing_state.state_update)?,
