@@ -3255,9 +3255,7 @@ fn test_block_and_chunk_producer_not_kicked_out_for_low_endorsements() {
 }
 
 fn test_chunk_header(h: &[CryptoHash], signer: &ValidatorSigner) -> ShardChunkHeader {
-    let congestion_info = ProtocolFeature::CongestionControl
-        .enabled(PROTOCOL_VERSION)
-        .then_some(CongestionInfo::default());
+    let congestion_info = Some(CongestionInfo::default());
     ShardChunkHeader::V3(ShardChunkHeaderV3::new(
         PROTOCOL_VERSION,
         h[0],

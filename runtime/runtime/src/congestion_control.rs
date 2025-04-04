@@ -85,7 +85,6 @@ impl ReceiptSink {
         bandwidth_scheduler_output: Option<BandwidthSchedulerOutput>,
     ) -> Result<Self, StorageError> {
         if let Some(own_congestion_info) = prev_own_congestion_info {
-            debug_assert!(ProtocolFeature::CongestionControl.enabled(protocol_version));
             let outgoing_buffers = ShardsOutgoingReceiptBuffer::load(trie)?;
 
             let outgoing_limit: HashMap<ShardId, OutgoingLimit> = apply_state
@@ -144,7 +143,6 @@ impl ReceiptSink {
                 stats,
             }))
         } else {
-            debug_assert!(!ProtocolFeature::CongestionControl.enabled(protocol_version));
             Ok(ReceiptSink::V1(ReceiptSinkV1 { outgoing_receipts: Vec::new() }))
         }
     }

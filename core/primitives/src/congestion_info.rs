@@ -502,15 +502,14 @@ impl ShardAcceptsTransactions {
 mod tests {
     use itertools::Itertools;
     use near_parameters::RuntimeConfigStore;
-    use near_primitives_core::version::{PROTOCOL_VERSION, ProtocolFeature};
 
     use super::*;
 
     fn get_config() -> CongestionControlConfig {
         // Fix the initial configuration of congestion control for the tests.
-        let protocol_version = ProtocolFeature::CongestionControl.protocol_version();
+        use near_primitives_core::version::PROTOCOL_VERSION;
         let runtime_config_store = RuntimeConfigStore::new(None);
-        let runtime_config = runtime_config_store.get_config(protocol_version);
+        let runtime_config = runtime_config_store.get_config(PROTOCOL_VERSION);
         runtime_config.congestion_control_config
     }
 
@@ -593,10 +592,6 @@ mod tests {
 
     #[test]
     fn test_memory_congestion() {
-        if !ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
-            return;
-        }
-
         let config = get_config();
         let mut info = CongestionInfo::default();
 
@@ -645,10 +640,6 @@ mod tests {
 
     #[test]
     fn test_incoming_congestion() {
-        if !ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
-            return;
-        }
-
         let config = get_config();
         let mut info = CongestionInfo::default();
 
@@ -706,10 +697,6 @@ mod tests {
 
     #[test]
     fn test_outgoing_congestion() {
-        if !ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
-            return;
-        }
-
         let config = get_config();
         let mut info = CongestionInfo::default();
 
@@ -753,10 +740,6 @@ mod tests {
 
     #[test]
     fn test_missed_chunks_congestion() {
-        if !ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
-            return;
-        }
-
         // The default config is quite restricting, allow more missed chunks for
         // this test to check the middle cases.
         let mut config = get_config();
@@ -800,10 +783,6 @@ mod tests {
 
     #[test]
     fn test_missed_chunks_finalize() {
-        if !ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
-            return;
-        }
-
         // The default config is quite restricting, allow more missed chunks for
         // this test to check the middle cases.
         let mut config = get_config();

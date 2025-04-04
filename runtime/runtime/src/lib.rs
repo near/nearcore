@@ -1462,10 +1462,8 @@ impl Runtime {
 
         let mut processing_state =
             processing_state.into_processing_receipt_state(incoming_receipts, delayed_receipts);
-        let own_congestion_info = apply_state.own_congestion_info(
-            processing_state.protocol_version,
-            &processing_state.state_update,
-        )?;
+        let own_congestion_info =
+            apply_state.own_congestion_info(&processing_state.state_update)?;
         let mut receipt_sink = ReceiptSink::new(
             processing_state.protocol_version,
             &processing_state.state_update.trie,
@@ -2158,14 +2156,8 @@ impl Runtime {
 impl ApplyState {
     fn own_congestion_info(
         &self,
-        protocol_version: ProtocolVersion,
         trie: &dyn TrieAccess,
     ) -> Result<Option<CongestionInfo>, RuntimeError> {
-        if !ProtocolFeature::CongestionControl.enabled(protocol_version) {
-            debug_assert!(self.congestion_info.is_empty());
-            return Ok(None);
-        }
-
         if let Some(congestion_info) = self.congestion_info.get(&self.shard_id) {
             return Ok(Some(congestion_info.congestion_info));
         }

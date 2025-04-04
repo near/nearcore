@@ -5,7 +5,6 @@ use near_client::Client;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::AccountId;
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
@@ -18,10 +17,6 @@ const NUM_SHARDS: usize = 4;
 /// Restarting is the node is not checked here but in python/nayduck tests.
 #[test]
 fn test_congestion_control_genesis_bootstrap() {
-    if !ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
-        return;
-    }
-
     init_test_logger();
 
     let builder = TestLoopBuilder::new();

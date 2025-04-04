@@ -197,7 +197,8 @@ pub enum ProtocolFeature {
     // Shuffle shard assignments for chunk producers at every epoch.
     ShuffleShardAssignments,
     /// Cross-shard congestion control according to <https://github.com/near/NEPs/pull/539>.
-    CongestionControl,
+    #[deprecated]
+    _DeprecatedCongestionControl,
     /// Remove account with long storage key.
     RemoveAccountWithLongStorageKey,
     /// Change the structure of ChunkEndorsement to have (shard_id, epoch_id, height_created)
@@ -313,7 +314,7 @@ impl ProtocolFeature {
             ProtocolFeature::DecreaseFunctionCallBaseCost
             | ProtocolFeature::FixedMinimumNewReceiptGas => 66,
             ProtocolFeature::YieldExecution => 67,
-            ProtocolFeature::CongestionControl
+            ProtocolFeature::_DeprecatedCongestionControl
             | ProtocolFeature::RemoveAccountWithLongStorageKey => 68,
             ProtocolFeature::StatelessValidation => 69,
             ProtocolFeature::BLS12381 | ProtocolFeature::EthImplicitAccounts => 70,

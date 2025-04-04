@@ -256,7 +256,6 @@ impl ShardChunkHeaderV3 {
             assert!(ProtocolFeature::BandwidthScheduler.enabled(protocol_version));
 
             // Congestion control has to be enabled before bandwidth scheduler
-            assert!(ProtocolFeature::CongestionControl.enabled(protocol_version));
             ShardChunkHeaderInner::V4(ShardChunkHeaderInnerV4 {
                 prev_block_hash,
                 prev_state_root,
@@ -277,7 +276,6 @@ impl ShardChunkHeaderV3 {
             })
         } else if let Some(congestion_info) = congestion_info {
             // `congestion_info`` can only be `Some` when congestion control is enabled.
-            assert!(ProtocolFeature::CongestionControl.enabled(protocol_version));
             ShardChunkHeaderInner::V3(ShardChunkHeaderInnerV3 {
                 prev_block_hash,
                 prev_state_root,
@@ -330,9 +328,7 @@ pub enum ShardChunkHeader {
 
 impl ShardChunkHeader {
     pub fn new_dummy(height: BlockHeight, shard_id: ShardId, prev_block_hash: CryptoHash) -> Self {
-        let congestion_info = ProtocolFeature::CongestionControl
-            .enabled(PROTOCOL_VERSION)
-            .then_some(CongestionInfo::default());
+        let congestion_info = Some(CongestionInfo::default());
 
         ShardChunkHeader::V3(ShardChunkHeaderV3::new(
             PROTOCOL_VERSION,
@@ -564,8 +560,6 @@ impl ShardChunkHeader {
     ) -> Result<(), BadHeaderForProtocolVersionError> {
         const BLOCK_HEADER_V3_VERSION: ProtocolVersion =
             ProtocolFeature::BlockHeaderV3.protocol_version();
-        const CONGESTION_CONTROL_VERSION: ProtocolVersion =
-            ProtocolFeature::CongestionControl.protocol_version();
         const BANDWIDTH_SCHEDULER_VERSION: ProtocolVersion =
             ProtocolFeature::BandwidthScheduler.protocol_version();
 
@@ -573,9 +567,7 @@ impl ShardChunkHeader {
             ShardChunkHeader::V1(_) => false,
             ShardChunkHeader::V2(_) => version < BLOCK_HEADER_V3_VERSION,
             ShardChunkHeader::V3(header) => match header.inner {
-                ShardChunkHeaderInner::V1(_) => {
-                    version >= BLOCK_HEADER_V3_VERSION && version < CONGESTION_CONTROL_VERSION
-                }
+                ShardChunkHeaderInner::V1(_) => version >= BLOCK_HEADER_V3_VERSION,
                 // Note that we allow V2 in the congestion control version.
                 // That is because the first chunk where this feature is
                 // enabled does not have the congestion info.
@@ -586,7 +578,7 @@ impl ShardChunkHeader {
                 // are multiple tests which upgrade from an old version directly to the
                 // latest version. TODO(#12328) - don't allow InnerV2 in bandwidth scheduler version.
                 ShardChunkHeaderInner::V2(_) => version >= BLOCK_HEADER_V3_VERSION,
-                ShardChunkHeaderInner::V3(_) => version >= CONGESTION_CONTROL_VERSION,
+                ShardChunkHeaderInner::V3(_) => version >= BLOCK_HEADER_V3_VERSION,
                 ShardChunkHeaderInner::V4(_) => version >= BANDWIDTH_SCHEDULER_VERSION,
             },
         };
