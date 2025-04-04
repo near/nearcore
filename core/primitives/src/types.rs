@@ -849,13 +849,15 @@ pub mod chunk_extra {
                     bandwidth_requests: bandwidth_requests.unwrap(),
                 });
             } else {
-                return Self::V2(ChunkExtraV2 {
+                assert!(congestion_info.is_some());
+                return Self::V3(ChunkExtraV3 {
                     state_root: *state_root,
                     outcome_root,
                     validator_proposals,
                     gas_used,
                     gas_limit,
                     balance_burnt,
+                    congestion_info: congestion_info.unwrap(),
                 });
             }
         }
