@@ -86,7 +86,8 @@ impl Block {
         header: BlockHeader,
         body: BlockBody,
     ) -> Block {
-        if !ProtocolFeature::BlockHeaderV4.enabled(this_epoch_protocol_version) {
+        #[allow(deprecated)]
+        if !ProtocolFeature::_DeprecatedBlockHeaderV4.enabled(this_epoch_protocol_version) {
             Block::BlockV2(Arc::new(BlockV2 {
                 header,
                 chunks: body.chunks().to_vec(),

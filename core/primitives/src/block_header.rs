@@ -794,7 +794,10 @@ impl BlockHeader {
                 signature,
                 hash,
             }))
-        } else if ProtocolFeature::BlockHeaderV4.enabled(this_epoch_protocol_version) {
+        } else if {
+            #[allow(deprecated)]
+            ProtocolFeature::_DeprecatedBlockHeaderV4.enabled(this_epoch_protocol_version)
+        } {
             let inner_rest = BlockHeaderInnerRestV4 {
                 block_body_hash,
                 prev_chunk_outgoing_receipts_root,
