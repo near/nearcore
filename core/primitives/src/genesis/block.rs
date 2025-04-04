@@ -3,7 +3,7 @@ use std::sync::Arc;
 use near_crypto::{KeyType, Signature};
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::{Balance, BlockHeight, MerkleHash, ProtocolVersion};
-use near_primitives_core::version::{PROD_GENESIS_PROTOCOL_VERSION, ProtocolFeature};
+use near_primitives_core::version::PROD_GENESIS_PROTOCOL_VERSION;
 use near_time::Utc;
 
 use crate::block::{
@@ -45,7 +45,7 @@ impl Block {
                 initial_total_supply,
                 compute_bp_hash_from_validator_stakes(
                     validator_stakes,
-                    ProtocolFeature::BlockHeaderV3.enabled(genesis_protocol_version),
+                    true, // We always use use_versioned_bp_hash_format after _DeprecatedBlockHeaderV3 feature
                 ),
             )
         }

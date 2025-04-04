@@ -45,8 +45,8 @@ expensive --timeout=3000 integration-tests integration_tests tests::client::cros
 # consensus tests
 expensive --timeout=3000 near-chain near_chain tests::doomslug::ultra_slow_test_fuzzy_doomslug_liveness_and_safety
 expensive --timeout=3000 near-chain near_chain tests::doomslug::ultra_slow_test_fuzzy_doomslug_liveness_and_safety --features nightly
-expensive --timeout=500 integration-tests integration_tests tests::client::consensus::ultra_slow_test_consensus_with_epoch_switches
-expensive --timeout=500 integration-tests integration_tests tests::client::consensus::ultra_slow_test_consensus_with_epoch_switches --features nightly
+expensive --timeout=500 test-loop-tests test_loop_tests tests::consensus::ultra_slow_test_consensus_with_epoch_switches
+expensive --timeout=500 test-loop-tests test_loop_tests tests::consensus::ultra_slow_test_consensus_with_epoch_switches --features nightly
 
 # testnet rpc
 expensive integration-tests integration_tests tests::other_tests::test_tps_regression::ultra_slow_test_high_load

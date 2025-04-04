@@ -10,8 +10,7 @@ use near_primitives::account::{
     AccessKey, AccessKeyPermission, FunctionCallPermission, id::AccountType,
 };
 use near_primitives::errors::{
-    ActionError, ActionErrorKind, ActionsValidationError, InvalidAccessKeyError, InvalidTxError,
-    TxExecutionError,
+    ActionError, ActionErrorKind, InvalidAccessKeyError, TxExecutionError,
 };
 use near_primitives::test_utils::{
     create_user_test_signer, eth_implicit_test_account, near_implicit_test_account,
@@ -68,41 +67,8 @@ fn exec_meta_transaction(
 /// Basic test to ensure the happy path works.
 #[test]
 fn accept_valid_meta_tx() {
-    let protocol_version = ProtocolFeature::DelegateAction.protocol_version();
-    let status = exec_meta_transaction(vec![], protocol_version);
+    let status = exec_meta_transaction(vec![], PROTOCOL_VERSION);
     assert!(matches!(status, FinalExecutionStatus::SuccessValue(_)), "{status:?}",);
-}
-
-/// During the protocol upgrade phase, before the voting completes, we must not
-/// include meta transaction on the chain.
-///
-/// Imagine a validator with an updated binary. A malicious node sends it a meta
-/// transaction to execute before the upgrade has finished. We must ensure the
-/// validator will not attempt adding it to the change unless the protocol
-/// upgrade has completed.
-///
-/// Note: This does not prevent problems on the network layer that might arise
-/// by having different interpretation of what a valid `SignedTransaction` might
-/// be. We must catch that earlier.
-#[test]
-fn reject_valid_meta_tx_in_older_versions() {
-    let protocol_version = ProtocolFeature::DelegateAction.protocol_version() - 1;
-
-    let status = exec_meta_transaction(vec![], protocol_version);
-    assert!(
-        matches!(
-                &status,
-                FinalExecutionStatus::Failure(
-                    TxExecutionError::InvalidTxError(
-                        InvalidTxError::ActionsValidation(
-                            ActionsValidationError::UnsupportedProtocolFeature{ protocol_feature, version }
-                        )
-                    )
-                )
-                if protocol_feature == "DelegateAction" && *version == ProtocolFeature::DelegateAction.protocol_version()
-        ),
-        "{status:?}",
-    );
 }
 
 /// Take a list of actions and execute them as a meta transaction, check
