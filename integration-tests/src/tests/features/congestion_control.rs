@@ -261,8 +261,6 @@ fn check_congestion_info(env: &TestEnv, check_congested_protocol_upgrade: bool) 
     }
 }
 
-
-
 fn head_congestion_control_config(
     env: &TestEnv,
 ) -> near_parameters::config::CongestionControlConfig {
@@ -290,8 +288,6 @@ fn head_chunk(env: &TestEnv, shard_id: ShardId) -> Arc<ShardChunk> {
     let chunk_header = head_chunk_header(&env, shard_id);
     env.clients[0].chain.get_chunk(&chunk_header.chunk_hash()).expect("chunk must be available")
 }
-
-
 
 /// Check we are still in the old version and no congestion info is shared.
 #[track_caller]
