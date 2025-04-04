@@ -853,7 +853,8 @@ impl BlockHeader {
         approvals: Vec<Option<Box<Signature>>>,
         prev_height: BlockHeight,
     ) -> Self {
-        let last_header_v2_version = ProtocolFeature::BlockHeaderV3.protocol_version() - 1;
+        let last_header_v2_version =
+            ProtocolFeature::_DeprecatedBlockHeaderV3.protocol_version() - 1;
         // Previously we passed next_epoch_protocol_version here, which is incorrect, but we need
         // to preserve this for archival nodes
         if next_epoch_protocol_version <= 29 {
