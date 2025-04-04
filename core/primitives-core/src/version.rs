@@ -85,11 +85,14 @@ pub enum ProtocolFeature {
     ///
     /// Although wasmer2 is faster, we don't change fees with this protocol
     /// version -- we can safely do that in a separate step.
-    Wasmer2,
+    #[deprecated]
+    _DeprecatedWasmer2,
     SimpleNightshade,
-    LowerDataReceiptAndEcrecoverBaseCost,
+    #[deprecated]
+    _DeprecatedLowerDataReceiptAndEcrecoverBaseCost,
     /// Lowers the cost of wasm instruction due to switch to wasmer2.
-    LowerRegularOpCost,
+    #[deprecated]
+    _DeprecatedLowerRegularOpCost,
     /// Lowers the cost of wasm instruction due to switch to faster,
     /// compiler-intrinsics based gas counter.
     LowerRegularOpCost2,
@@ -288,9 +291,9 @@ impl ProtocolFeature {
             | ProtocolFeature::_DeprecatedCountRefundReceiptsInGasLimit
             | ProtocolFeature::_DeprecatedMathExtension => 46,
             ProtocolFeature::_DeprecatedRestoreReceiptsAfterFixApplyChunks => 47,
-            ProtocolFeature::Wasmer2
-            | ProtocolFeature::LowerDataReceiptAndEcrecoverBaseCost
-            | ProtocolFeature::LowerRegularOpCost
+            ProtocolFeature::_DeprecatedWasmer2
+            | ProtocolFeature::_DeprecatedLowerDataReceiptAndEcrecoverBaseCost
+            | ProtocolFeature::_DeprecatedLowerRegularOpCost
             | ProtocolFeature::SimpleNightshade => 48,
             ProtocolFeature::LowerRegularOpCost2
             | ProtocolFeature::LimitContractFunctionsNumber
