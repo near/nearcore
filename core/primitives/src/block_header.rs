@@ -574,7 +574,7 @@ impl BlockHeader {
     /// Creates BlockHeader for a newly produced block.
     pub fn new(
         this_epoch_protocol_version: ProtocolVersion,
-        next_epoch_protocol_version: ProtocolVersion,
+        _next_epoch_protocol_version: ProtocolVersion,
         latest_protocol_version: ProtocolVersion,
         height: BlockHeight,
         prev_hash: CryptoHash,
