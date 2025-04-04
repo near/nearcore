@@ -13,11 +13,10 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::{ShardChunk, ShardChunkHeader};
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{EpochId, ShardId};
+use near_primitives::types::ShardId;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::FinalExecutionStatus;
 use near_vm_runner::logic::ProtocolVersion;
-use node_runtime::bootstrap_congestion_info;
 use std::sync::Arc;
 
 use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
@@ -80,8 +79,6 @@ fn setup_test_runtime(_sender_id: AccountId, protocol_version: ProtocolVersion) 
 /// Set up the real runtime with the given protocol version and runtime configs.
 /// This runtime is suitable for testing protocol upgrade and the migration from
 /// Receipt to StateStoredReceipt.
-
-
 fn setup_account(
     env: &mut TestEnv,
     nonce: &mut u64,
@@ -159,8 +156,6 @@ fn setup_contract(env: &mut TestEnv, nonce: &mut u64) {
 /// propagated from chunk extra to chunk header. If the
 /// `check_congested_protocol_upgrade` flag is set check that the chain is under
 /// congestion during the protocol upgrade.
-
-
 fn head_congestion_control_config(
     env: &TestEnv,
 ) -> near_parameters::config::CongestionControlConfig {
@@ -190,8 +185,6 @@ fn head_chunk(env: &TestEnv, shard_id: ShardId) -> Arc<ShardChunk> {
 }
 
 /// Check we are still in the old version and no congestion info is shared.
-
-
 /// Create a function call that has 100 Tgas attached and will burn it all.
 fn new_fn_call_100tgas(
     nonce_source: &mut u64,
