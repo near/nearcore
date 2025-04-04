@@ -93,7 +93,8 @@ impl From<&Account> for AccountView {
         let (global_contract_hash, global_contract_account_id) =
             match account.contract().into_owned() {
                 AccountContract::Global(contract) => (Some(contract), None),
-                AccountContract::GlobalByAccount(account_id) => (None, Some(account_id)),
+                AccountContract::GlobalByAccount(account_id)
+                | AccountContract::ShardedByAccount(account_id) => (None, Some(account_id)),
                 AccountContract::Local(_) | AccountContract::None => (None, None),
             };
         AccountView {
@@ -1243,6 +1244,8 @@ impl From<Action> for ActionView {
                     ActionView::UseGlobalContractByAccountId { account_id }
                 }
             },
+            Action::DeployShardedContract(_action) => todo!(),
+            Action::UseShardedContract(_action) => todo!(),
         }
     }
 }

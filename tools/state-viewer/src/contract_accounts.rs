@@ -334,6 +334,8 @@ fn try_find_actions_spawned_by_receipt(
                         | ReceiptEnum::PromiseYield(action_receipt) => {
                             for action in &action_receipt.actions {
                                 let action_type = match action {
+                                    Action::DeployShardedContract(_) => todo!(),
+                                    Action::UseShardedContract(_) => todo!(),
                                     Action::CreateAccount(_) => ActionType::CreateAccount,
                                     Action::DeployContract(_) => ActionType::DeployContract,
                                     Action::FunctionCall(_) => ActionType::FunctionCall,
