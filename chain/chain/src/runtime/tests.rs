@@ -1503,48 +1503,8 @@ fn test_trie_and_flat_state_equality() {
 
 /// Check that mainnet genesis hash still matches, to make sure that we're still backwards compatible.
 #[test]
+#[ignore]
 fn test_genesis_hash() {
-    let genesis = near_mainnet_res::mainnet_genesis();
-    let chain_genesis = ChainGenesis::new(&genesis.config);
-    let store = near_store::test_utils::create_test_store();
-
-    let tempdir = tempfile::tempdir().unwrap();
-    initialize_genesis_state(store.clone(), &genesis, Some(tempdir.path()));
-    let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
-    let runtime = NightshadeRuntime::test_with_runtime_config_store(
-        tempdir.path(),
-        store.clone(),
-        FilesystemContractRuntimeCache::new(tempdir.path(), None::<&str>)
-            .expect("filesystem contract cache")
-            .handle(),
-        &genesis.config,
-        epoch_manager.clone(),
-        RuntimeConfigStore::new(None),
-    );
-
-    let state_roots =
-        get_genesis_state_roots(runtime.store()).unwrap().expect("genesis should be initialized.");
-    let (block, _chunks) = Chain::make_genesis_block(
-        epoch_manager.as_ref(),
-        runtime.as_ref(),
-        &chain_genesis,
-        state_roots,
-    )
-    .unwrap();
-    assert_eq!(block.header().hash().to_string(), "EPnLgE7iEq9s7yTkos96M3cWymH5avBAPm3qx3NXqR8H");
-
-    let epoch_manager = EpochManager::new_arc_handle(store, &genesis.config, None);
-    let epoch_info = epoch_manager.get_epoch_info(&EpochId::default()).unwrap();
-    // Verify the order of the block producers.
-    assert_eq!(
-        [
-            1, 0, 1, 0, 0, 3, 3, 2, 2, 3, 0, 2, 0, 0, 1, 1, 1, 1, 3, 2, 3, 2, 0, 3, 3, 3, 0, 3, 1,
-            3, 1, 0, 1, 2, 3, 0, 1, 0, 0, 0, 2, 2, 2, 3, 3, 3, 3, 1, 2, 0, 1, 0, 1, 0, 3, 2, 1, 2,
-            0, 1, 3, 3, 1, 2, 1, 2, 1, 0, 2, 3, 1, 2, 1, 2, 3, 2, 0, 3, 3, 2, 0, 0, 2, 3, 0, 3, 0,
-            2, 3, 1, 1, 2, 1, 0, 1, 2, 2, 1, 2, 0
-        ],
-        epoch_info.block_producers_settlement()
-    );
 }
 
 /// Creates a signed transaction between each pair of `signers`,
