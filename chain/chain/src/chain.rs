@@ -977,15 +977,7 @@ impl Chain {
                 return Err(Error::InvalidChallenge);
             }
 
-            #[allow(deprecated)]
-            let protocol_version =
-                self.epoch_manager.get_epoch_protocol_version(header.epoch_id())?;
-            #[allow(deprecated)]
-            if protocol_version
-                >= ProtocolFeature::_DeprecatedChunkEndorsementsInBlockHeader.protocol_version()
-            {
-                validate_chunk_endorsements_in_header(self.epoch_manager.as_ref(), header)?;
-            }
+            validate_chunk_endorsements_in_header(self.epoch_manager.as_ref(), header)?;
         }
 
         Ok(())
