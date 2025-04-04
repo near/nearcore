@@ -362,13 +362,11 @@ blockchain by either reading some nontrivial data, or writing to the
 blockchain.</li>
 </ul>
 <h3 id="runtimenear-vm-runner"><a class="header" href="#runtimenear-vm-runner"><code>runtime/near-vm-runner</code></a></h3>
-<p><code>run</code> function in <code>runner.rs</code> is the entry point to the vm runner. This function
-essentially spins up the vm and executes some function in a contract. It
-supports different wasm compilers including wasmer0, wasmer2, and wasmtime
-through compile-time feature flags. Currently we use wasmer0 and wasmer2 in
-production. The <code>imports</code> module exposes host functions defined in
-<code>near-vm-logic</code> to WASM code. In other words, it defines the ABI of the
-contracts on NEAR.</p>
+<p><code>run</code> function in <code>runner.rs</code> is the entry point to the vm runner. This function essentially spins
+up the vm and executes some function in a contract. It supports different wasm compilers including
+near-vm and wasmtime through compile-time feature flags. Currently we use near-vm in production.
+The <code>imports</code> module exposes host functions defined in <code>near-vm-logic</code> to WASM code. In other
+words, it defines the ABI of the contracts on NEAR.</p>
 <h3 id="neard"><a class="header" href="#neard"><code>neard</code></a></h3>
 <p>As mentioned before, <code>neard</code> is the crate that contains that main entry points.
 All the actors are spawned in <code>start_with_config</code>. It is also worth noting that
