@@ -338,7 +338,7 @@ fn run_chain_for_some_blocks_while_sending_money_around(
                 let client = &env.clients[i];
                 if let Ok(chunk) = client.chain.get_chunk(&chunk.chunk_hash()) {
                     if chunks_found == 0 {
-                        total_txs_included_in_chunks += chunk.transactions().len();
+                        total_txs_included_in_chunks += chunk.to_transactions().len();
                     }
                     chunks_found += 1;
                 }

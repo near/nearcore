@@ -140,7 +140,7 @@ impl crate::ChainAccess for ChainAccess {
             };
             chunks.push(SourceChunk {
                 shard_id: chunk.shard_id(),
-                transactions: chunk.transactions().to_vec(),
+                transactions: chunk.to_transactions().to_vec(),
                 receipts: chunk.prev_outgoing_receipts().to_vec(),
             })
         }

@@ -457,7 +457,9 @@ fn get_keys_from_store(
                 }
                 DBKeyType::TransactionHash => chunks
                     .iter()
-                    .flat_map(|c| c.transactions().iter().map(|t| t.get_hash().as_bytes().to_vec()))
+                    .flat_map(|c| {
+                        c.to_transactions().iter().map(|t| t.get_hash().as_bytes().to_vec())
+                    })
                     .collect(),
                 DBKeyType::ReceiptHash => chunks
                     .iter()

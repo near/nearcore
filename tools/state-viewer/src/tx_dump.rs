@@ -17,7 +17,7 @@ pub fn dump_tx_from_block(
             chain_store
                 .get_chunk(&chunk_header.chunk_hash())
                 .unwrap()
-                .transactions()
+                .to_transactions()
                 .iter()
                 .filter(|signed_transaction| {
                     should_include_signed_transaction(signed_transaction, select_account_ids)

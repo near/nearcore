@@ -466,7 +466,7 @@ impl<'a> ChainUpdate<'a> {
         let block = self.chain_store_update.get_block(block_header.hash())?;
         let epoch_id = self.epoch_manager.get_epoch_id(block_header.hash())?;
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
-        let transactions = chunk.transactions().to_vec();
+        let transactions = chunk.to_transactions().to_vec();
         let transaction_validity = if let Some(prev_block_header) = prev_block_header {
             self.chain_store_update
                 .chain_store()

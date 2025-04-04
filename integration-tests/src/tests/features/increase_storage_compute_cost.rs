@@ -353,7 +353,7 @@ fn produce_saturated_chunk(
         );
         assert_eq!(
             num_transactions as usize,
-            chunk.transactions().len(),
+            chunk.to_transactions().len(),
             "All created transactions should be accepted in one chunk"
         );
     }
@@ -365,7 +365,11 @@ fn produce_saturated_chunk(
             chunk.prev_outgoing_receipts().len(),
             "Second chunk should include all receipts"
         );
-        assert_eq!(0, chunk.transactions().len(), "Second chunk shouldn't have new transactions");
+        assert_eq!(
+            0,
+            chunk.to_transactions().len(),
+            "Second chunk shouldn't have new transactions"
+        );
 
         // Note: Receipts are included in chunk, but executed are
         // transactions from previous chunk, so the gas here is for

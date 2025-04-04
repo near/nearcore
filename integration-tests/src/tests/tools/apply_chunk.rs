@@ -200,7 +200,7 @@ fn test_apply_tx_apply_receipt() {
                 let shard_index = shard_layout.get_shard_index(shard_id).unwrap();
                 let chunk = chain_store.get_chunk(&chunk_hashes[shard_index]).unwrap();
 
-                for tx in chunk.transactions() {
+                for tx in chunk.to_transactions() {
                     let results = apply_tx(
                         &genesis.config,
                         &epoch_manager,
@@ -247,7 +247,7 @@ fn test_apply_tx_apply_receipt() {
     for chunk_hash in chunks {
         let chunk = chain_store.get_chunk(&chunk_hash).unwrap();
 
-        for tx in chunk.transactions() {
+        for tx in chunk.to_transactions() {
             let results = apply_tx(
                 &genesis.config,
                 &epoch_manager,

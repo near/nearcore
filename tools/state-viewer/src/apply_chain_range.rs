@@ -152,7 +152,7 @@ fn apply_block_from_range(
         };
 
         let chain_store_update = ChainStoreUpdate::new(&mut read_chain_store);
-        let transactions = chunk.transactions().to_vec();
+        let transactions = chunk.to_transactions().to_vec();
         let valid_txs = chain_store_update
             .chain_store()
             .compute_transaction_validity(prev_block.header(), &chunk);
@@ -180,11 +180,11 @@ fn apply_block_from_range(
         .unwrap();
 
         num_receipt = receipts.len();
-        num_tx = chunk.transactions().len();
+        num_tx = chunk.to_transactions().len();
 
         if only_contracts {
             let mut has_contracts = false;
-            for tx in chunk.transactions() {
+            for tx in chunk.to_transactions() {
                 for action in tx.transaction.actions() {
                     has_contracts = has_contracts
                         || matches!(action, Action::FunctionCall(_) | Action::DeployContract(_));

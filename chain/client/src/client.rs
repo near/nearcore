@@ -406,7 +406,7 @@ impl Client {
                 ) {
                     // By now the chunk must be in store, otherwise the block would have been orphaned
                     let chunk = self.chain.get_chunk(&chunk_header.chunk_hash()).unwrap();
-                    let transactions = chunk.transactions();
+                    let transactions = chunk.to_transactions();
                     let mut pool_guard = self.chunk_producer.sharded_tx_pool.lock().unwrap();
                     pool_guard.remove_transactions(shard_uid, transactions);
                 }
@@ -445,7 +445,7 @@ impl Client {
                     let chunk = self.chain.get_chunk(&chunk_header.chunk_hash()).unwrap();
 
                     let validated_txs = chunk
-                        .transactions()
+                        .to_transactions()
                         .into_iter()
                         .cloned()
                         .filter_map(|signed_tx| {
@@ -469,10 +469,10 @@ impl Client {
                         pool_guard.reintroduce_transactions(shard_uid, validated_txs)
                     };
 
-                    if reintroduced_count < chunk.transactions().len() {
+                    if reintroduced_count < chunk.to_transactions().len() {
                         debug!(target: "client",
                             reintroduced_count,
-                            num_tx = chunk.transactions().len(),
+                            num_tx = chunk.to_transactions().len(),
                             "Reintroduced transactions");
                     }
                 }

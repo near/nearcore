@@ -34,7 +34,7 @@ pub fn validate_chunk_proofs(
     }
     let height_created = chunk.height_created();
     let outgoing_receipts_root = chunk.prev_outgoing_receipts_root();
-    let (transactions, receipts) = (chunk.transactions(), chunk.prev_outgoing_receipts());
+    let (transactions, receipts) = (chunk.to_transactions(), chunk.prev_outgoing_receipts());
 
     // 2b. Checking that chunk transactions are valid
     let (tx_root, _) = merklize(transactions);
