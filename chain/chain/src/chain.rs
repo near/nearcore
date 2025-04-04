@@ -1016,16 +1016,6 @@ impl Chain {
         if block.hash() == self.genesis.hash() {
             return Ok(VerifyBlockHashAndSignatureResult::Correct);
         }
-        let epoch_id = match self.epoch_manager.get_epoch_id(block.header().prev_hash()) {
-            Ok(epoch_id) => epoch_id,
-            Err(EpochError::MissingBlock(missing_block))
-                if &missing_block == block.header().prev_hash() =>
-            {
-                return Ok(VerifyBlockHashAndSignatureResult::CannotVerifyBecauseBlockIsOrphan);
-            }
-            Err(err) => return Err(err.into()),
-        };
-        let _epoch_protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
 
         // Check that block body hash matches the block body. This makes sure that the block body
         // content is not tampered
