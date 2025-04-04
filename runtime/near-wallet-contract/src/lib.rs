@@ -19,8 +19,9 @@ static OLD_TESTNET: WalletContract =
     WalletContract::new(include_bytes!("../res/wallet_contract_testnet_pv70.wasm"));
 
 /// The protocol version on testnet where it is safe to start using the new wallet contract.
+#[allow(deprecated)]
 const NEW_WALLET_CONTRACT_VERSION: ProtocolVersion =
-    ProtocolFeature::FixMinStakeRatio.protocol_version();
+    ProtocolFeature::_DeprecatedFixMinStakeRatio.protocol_version();
 
 static LOCALNET: WalletContract =
     WalletContract::new(include_bytes!("../res/wallet_contract_localnet.wasm"));

@@ -21,7 +21,6 @@ use std::string::ToString;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 /// Check that small validator is included in the validator set after
-/// enabling protocol feature `FixMinStakeRatio`.
 #[test]
 fn slow_test_fix_min_stake_ratio() {
     init_test_logger();
@@ -29,7 +28,8 @@ fn slow_test_fix_min_stake_ratio() {
     // Take epoch configuration before the protocol upgrade, where minimum
     // stake ratio was 1/6250.
     let epoch_config_store = EpochConfigStore::for_chain_id("mainnet", None).unwrap();
-    let target_protocol_version = ProtocolFeature::FixMinStakeRatio.protocol_version();
+    #[allow(deprecated)]
+    let target_protocol_version = ProtocolFeature::_DeprecatedFixMinStakeRatio.protocol_version();
     let genesis_protocol_version = target_protocol_version - 1;
 
     // Immediately start voting for the new protocol version
@@ -72,7 +72,6 @@ fn slow_test_fix_min_stake_ratio() {
         epoch_config_store.get_config(genesis_protocol_version).as_ref().shard_layout.clone();
     let validators_spec = ValidatorsSpec::raw(validators, 1, 1, 2);
 
-    // Create chain with version before FixMinStakeRatio was enabled.
     // Check that the small validator is not included in the validator set.
     let genesis = TestGenesisBuilder::new()
         .genesis_time_from_clock(&builder.clock())
@@ -128,7 +127,6 @@ fn slow_test_fix_min_stake_ratio() {
 
     // Run chain for couple epochs.
     // Due to how protocol version voting works, chain must automatically
-    // upgrade to the latest protocol version which includes FixMinStakeRatio
     // enabled.
     // In the epoch where it happens, small validator must join the validator
     // set.
