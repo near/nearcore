@@ -205,7 +205,6 @@ fn apply_block_from_range(
                     last_validator_proposals: chunk_inner.prev_validator_proposals(),
                     gas_limit: chunk_inner.gas_limit(),
                     is_new_chunk: true,
-                    is_first_block_with_chunk_of_version,
                 },
                 ApplyChunkBlockContext::from_header(
                     block.header(),
@@ -232,7 +231,6 @@ fn apply_block_from_range(
                     last_validator_proposals: chunk_extra.validator_proposals(),
                     gas_limit: chunk_extra.gas_limit(),
                     is_new_chunk: false,
-                    is_first_block_with_chunk_of_version: false,
                 },
                 ApplyChunkBlockContext::from_header(
                     block.header(),
