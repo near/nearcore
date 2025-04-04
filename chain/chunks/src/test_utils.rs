@@ -146,7 +146,7 @@ impl ChunkTestFixture {
             .unwrap();
 
         let shard_layout = epoch_manager.get_shard_layout(&EpochId::default()).unwrap();
-        let receipts_hashes = Chain::build_receipts_hashes(&vec![], &shard_layout).unwrap();
+        let receipts_hashes = Chain::build_receipts_hashes(&[], &shard_layout).unwrap();
         let (receipts_root, _) = merkle::merklize(&receipts_hashes);
         let congestion_info = ProtocolFeature::CongestionControl
             .enabled(PROTOCOL_VERSION)
