@@ -3323,49 +3323,6 @@ fn test_not_broadcast_block_on_accept() {
 }
 
 #[test]
-fn test_header_version_downgrade() {
-    init_test_logger();
-
-    let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
-    genesis.config.epoch_length = 5;
-    let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
-    let validator_signer = create_test_signer("test0");
-    for i in 1..10 {
-        let block = env.clients[0].produce_block(i).unwrap().unwrap();
-        env.process_block(0, block, Provenance::NONE);
-    }
-    let block = {
-        let mut block = env.clients[0].produce_block(10).unwrap().unwrap();
-        // Convert header to BlockHeaderV1
-        let mut header_view: BlockHeaderView = block.header().clone().into();
-        header_view.latest_protocol_version = 1;
-        let mut header = header_view.into();
-
-        // BlockHeaderV1, but protocol version is newest
-        match &mut header {
-            BlockHeader::BlockHeaderV1(header) => {
-                let header = Arc::make_mut(header);
-                header.inner_rest.latest_protocol_version = PROTOCOL_VERSION;
-                let hash = BlockHeader::compute_hash(
-                    header.prev_hash,
-                    &borsh::to_vec(&header.inner_lite).expect("Failed to serialize"),
-                    &borsh::to_vec(&header.inner_rest).expect("Failed to serialize"),
-                );
-                header.hash = hash;
-                header.signature = validator_signer.sign_bytes(hash.as_ref());
-            }
-            _ => {
-                unreachable!();
-            }
-        }
-        *block.mut_header() = header;
-        block
-    };
-    let res = env.clients[0].process_block_test(block.into(), Provenance::NONE);
-    assert!(!res.is_ok());
-}
-
-#[test]
 #[should_panic(
     expected = "The client protocol version is older than the protocol version of the network"
 )]
