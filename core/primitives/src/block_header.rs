@@ -760,10 +760,7 @@ impl BlockHeader {
             block_merkle_root,
         };
 
-        #[allow(deprecated)]
-        if ProtocolFeature::_DeprecatedChunkEndorsementsInBlockHeader
-            .enabled(this_epoch_protocol_version)
-        {
+        if true {
             let chunk_endorsements = chunk_endorsements.unwrap_or_else(|| {
                 panic!("BlockHeaderV5 is enabled but chunk endorsement bitmap is not provided")
             });
