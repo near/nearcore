@@ -140,7 +140,6 @@ fn test_flat_storage_upgrade() {
         .collect();
 
     // Guaranteed touching trie node cost in all protocol versions until
-    // `ProtocolFeature::FlatStorageReads`, included.
     let touching_trie_node_base_cost: Gas = 16_101_955_926;
 
     // For the first read, cost should be 3 TTNs because trie path is:
