@@ -2583,8 +2583,9 @@ fn test_validator_kickout_determinism() {
 /// Tests the scenario that there are two chunk validators (test2 and test3) with different endorsement ratio, and
 /// so the validator with the lower endorsement ratio is kicked out.
 #[test]
+#[allow(deprecated)]
 fn test_chunk_validators_with_different_endorsement_ratio() {
-    if !ProtocolFeature::ChunkEndorsementsInBlockHeader.enabled(PROTOCOL_VERSION) {
+    if !ProtocolFeature::_DeprecatedChunkEndorsementsInBlockHeader.enabled(PROTOCOL_VERSION) {
         return;
     }
     let mut epoch_config =
@@ -2645,8 +2646,9 @@ fn test_chunk_validators_with_different_endorsement_ratio() {
 /// Tests the scenario that there are two chunk validators (test2 and test3) have the same online ratio but different stake,
 /// so the validator with the lower stake is kicked out.
 #[test]
+#[allow(deprecated)]
 fn test_chunk_validators_with_same_endorsement_ratio_and_different_stake() {
-    if !ProtocolFeature::ChunkEndorsementsInBlockHeader.enabled(PROTOCOL_VERSION) {
+    if !ProtocolFeature::_DeprecatedChunkEndorsementsInBlockHeader.enabled(PROTOCOL_VERSION) {
         return;
     }
     let mut epoch_config =
@@ -2707,8 +2709,9 @@ fn test_chunk_validators_with_same_endorsement_ratio_and_different_stake() {
 /// Tests the scenario that there are two chunk validators (test2 and test3) have the same online ratio and stake,
 /// so we select the exempted validator based on the ordering of the account id.
 #[test]
+#[allow(deprecated)]
 fn test_chunk_validators_with_same_endorsement_ratio_and_stake() {
-    if !ProtocolFeature::ChunkEndorsementsInBlockHeader.enabled(PROTOCOL_VERSION) {
+    if !ProtocolFeature::_DeprecatedChunkEndorsementsInBlockHeader.enabled(PROTOCOL_VERSION) {
         return;
     }
     let mut epoch_config =
@@ -3112,6 +3115,7 @@ fn test_max_kickout_stake_ratio() {
 }
 
 /// Common test scenario for a couple of tests exercising chunk validator kickouts.
+#[allow(deprecated)]
 fn test_chunk_validator_kickout(
     expected_kickouts: HashMap<AccountId, ValidatorKickoutReason>,
     use_endorsement_cutoff_threshold: bool,
@@ -3134,7 +3138,7 @@ fn test_chunk_validator_kickout(
         if use_endorsement_cutoff_threshold {
             PROTOCOL_VERSION
         } else {
-            ProtocolFeature::ChunkEndorsementsInBlockHeader.protocol_version() - 1
+            ProtocolFeature::_DeprecatedChunkEndorsementsInBlockHeader.protocol_version() - 1
         },
     );
     let block_stats = HashMap::from([

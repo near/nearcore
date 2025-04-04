@@ -453,8 +453,9 @@ impl EpochManager {
                 .insert(account_id.clone(), BlockChunkValidatorStats { block_stats, chunk_stats });
         }
 
+        #[allow(deprecated)]
         let accounts_sorted_by_online_ratio: Vec<AccountId> =
-            if ProtocolFeature::ChunkEndorsementsInBlockHeader
+            if ProtocolFeature::_DeprecatedChunkEndorsementsInBlockHeader
                 .enabled(epoch_info.protocol_version())
             {
                 // Compares validator accounts by applying comparators in the following order:
@@ -720,13 +721,15 @@ impl EpochManager {
             let online_thresholds = ValidatorOnlineThresholds {
                 online_min_threshold: epoch_config.online_min_threshold,
                 online_max_threshold: epoch_config.online_max_threshold,
-                endorsement_cutoff_threshold: if ProtocolFeature::ChunkEndorsementsInBlockHeader
-                    .enabled(epoch_protocol_version)
-                {
-                    Some(epoch_config.chunk_validator_only_kickout_threshold)
-                } else {
-                    None
-                },
+                #[allow(deprecated)]
+                endorsement_cutoff_threshold:
+                    if ProtocolFeature::_DeprecatedChunkEndorsementsInBlockHeader
+                        .enabled(epoch_protocol_version)
+                    {
+                        Some(epoch_config.chunk_validator_only_kickout_threshold)
+                    } else {
+                        None
+                    },
             };
             self.reward_calculator.calculate_reward(
                 validator_block_chunk_stats,

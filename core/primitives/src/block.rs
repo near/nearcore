@@ -212,27 +212,29 @@ impl Block {
             }
         };
 
-        let chunk_endorsements_bitmap = if ProtocolFeature::ChunkEndorsementsInBlockHeader
-            .enabled(this_epoch_protocol_version)
-        {
-            debug_assert_eq!(
-                chunk_endorsements.len(),
-                chunk_mask.len(),
-                "Chunk endorsements size is different from number of shards."
-            );
-            // Generate from the chunk endorsement signatures a bitmap with the same number of shards and validator assignments per shard,
-            // where `Option<Signature>` is mapped to `true` and `None` is mapped to `false`.
-            Some(ChunkEndorsementsBitmap::from_endorsements(
-                chunk_endorsements
-                    .iter()
-                    .map(|endorsements_for_shard| {
-                        endorsements_for_shard.iter().map(|e| e.is_some()).collect_vec()
-                    })
-                    .collect_vec(),
-            ))
-        } else {
-            None
-        };
+        #[allow(deprecated)]
+        let chunk_endorsements_bitmap =
+            if ProtocolFeature::_DeprecatedChunkEndorsementsInBlockHeader
+                .enabled(this_epoch_protocol_version)
+            {
+                debug_assert_eq!(
+                    chunk_endorsements.len(),
+                    chunk_mask.len(),
+                    "Chunk endorsements size is different from number of shards."
+                );
+                // Generate from the chunk endorsement signatures a bitmap with the same number of shards and validator assignments per shard,
+                // where `Option<Signature>` is mapped to `true` and `None` is mapped to `false`.
+                Some(ChunkEndorsementsBitmap::from_endorsements(
+                    chunk_endorsements
+                        .iter()
+                        .map(|endorsements_for_shard| {
+                            endorsements_for_shard.iter().map(|e| e.is_some()).collect_vec()
+                        })
+                        .collect_vec(),
+                ))
+            } else {
+                None
+            };
 
         let body = BlockBody::new(
             this_epoch_protocol_version,
