@@ -171,12 +171,8 @@ impl NightshadeRuntime {
             congestion_info,
             bandwidth_requests,
         } = block;
-        let ApplyChunkShardContext {
-            shard_id,
-            last_validator_proposals,
-            gas_limit,
-            is_new_chunk,
-        } = chunk;
+        let ApplyChunkShardContext { shard_id, last_validator_proposals, gas_limit, is_new_chunk } =
+            chunk;
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(prev_block_hash)?;
         let validator_accounts_update = {
             let epoch_manager = self.epoch_manager.read();
