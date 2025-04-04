@@ -34,7 +34,6 @@ impl BlockInfo {
         prev_hash: CryptoHash,
         proposals: Vec<ValidatorStake>,
         validator_mask: Vec<bool>,
-        slashed: Vec<SlashedValidator>,
         total_supply: Balance,
         latest_protocol_version: ProtocolVersion,
         timestamp_nanosec: u64,
@@ -50,17 +49,7 @@ impl BlockInfo {
                 proposals,
                 chunk_mask: validator_mask,
                 latest_protocol_version,
-                slashed: slashed
-                    .into_iter()
-                    .map(|s| {
-                        let slash_state = if s.is_double_sign {
-                            SlashState::DoubleSign
-                        } else {
-                            SlashState::Other
-                        };
-                        (s.account_id, slash_state)
-                    })
-                    .collect(),
+                slashed: HashMap::new(),
                 total_supply,
                 epoch_first_block: Default::default(),
                 epoch_id: Default::default(),
@@ -77,17 +66,7 @@ impl BlockInfo {
                 proposals,
                 chunk_mask: validator_mask,
                 latest_protocol_version,
-                slashed: slashed
-                    .into_iter()
-                    .map(|s| {
-                        let slash_state = if s.is_double_sign {
-                            SlashState::DoubleSign
-                        } else {
-                            SlashState::Other
-                        };
-                        (s.account_id, slash_state)
-                    })
-                    .collect(),
+                slashed: HashMap::new(),
                 total_supply,
                 epoch_first_block: Default::default(),
                 epoch_id: Default::default(),
@@ -105,7 +84,6 @@ impl BlockInfo {
             *header.prev_hash(),
             header.prev_validator_proposals().collect(),
             header.chunk_mask().to_vec(),
-            vec![],
             header.total_supply(),
             header.latest_protocol_version(),
             header.raw_timestamp(),
@@ -127,7 +105,6 @@ impl BlockInfo {
             *header.prev_hash(),
             header.prev_validator_proposals().collect(),
             header.chunk_mask().to_vec(),
-            vec![],
             header.total_supply(),
             header.latest_protocol_version(),
             header.raw_timestamp(),
