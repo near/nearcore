@@ -110,7 +110,7 @@ impl<'c> EstimatorContext<'c> {
             trie_config,
             &[shard_uid],
             flat_storage_manager,
-            StateSnapshotConfig::default(),
+            StateSnapshotConfig::Disabled,
         );
         if self.config.memtrie {
             // NOTE: Since the store loaded from the state dump only contains the state, we directly provide the state root

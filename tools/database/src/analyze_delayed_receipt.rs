@@ -62,7 +62,7 @@ impl AnalyzeDelayedReceiptCommand {
             TrieConfig::default(),
             &shard_uids,
             FlatStorageManager::new(store.flat_store()),
-            StateSnapshotConfig::default(),
+            StateSnapshotConfig::Disabled,
         );
         // Create an iterator over the blocks that should be analyzed
         let blocks_iter_opt = make_block_iterator_from_command_args(
