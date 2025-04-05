@@ -18,7 +18,7 @@ EPOCH_LENGTH = 20
 tracked_shards = {
     "tracked_shards": [0],  # Track all shards
     "state_sync_enabled": True,
-    "store.state_snapshot_enabled": True
+    "store.state_snapshot_config.state_snapshot_type": "Enabled"
 }
 
 nodes = start_cluster(

@@ -1,11 +1,16 @@
+#[cfg(feature = "clock")]
 use crate::block::BlockHeader;
 use crate::hash::{CryptoHash, hash};
 use crate::types::{BlockHeight, SignatureDifferentiator};
 use borsh::{BorshDeserialize, BorshSerialize};
-use near_crypto::{InMemorySigner, Signature};
+#[cfg(feature = "rand")]
+use near_crypto::InMemorySigner;
+use near_crypto::Signature;
+#[cfg(feature = "rand")]
 use near_primitives_core::types::AccountId;
 use near_schema_checker_lib::ProtocolSchema;
 use std::fmt::Debug;
+#[cfg(feature = "rand")]
 use std::str::FromStr;
 
 #[derive(BorshSerialize, BorshDeserialize, Clone, Debug, Eq, PartialEq, ProtocolSchema)]
@@ -84,20 +89,17 @@ impl OptimisticBlock {
         sandbox_delta_time: Option<near_time::Duration>,
         adv_type: OptimisticBlockAdvType,
     ) -> Self {
-        use crate::utils::get_block_metadata;
-        let prev_block_hash = *prev_block_header.hash();
-        let (time, vrf_value, vrf_proof, random_value) =
-            get_block_metadata(prev_block_header, signer, clock, sandbox_delta_time);
+        let original = Self::produce(prev_block_header, height, signer, clock, sandbox_delta_time);
+        Self::alter(&original, signer, adv_type)
+    }
 
-        let mut inner = OptimisticBlockInner {
-            prev_block_hash,
-            block_height: height,
-            block_timestamp: time,
-            random_value,
-            vrf_value,
-            vrf_proof,
-            signature_differentiator: "OptimisticBlock".to_owned(),
-        };
+    #[cfg(all(feature = "clock", feature = "test_features"))]
+    pub fn alter(
+        original: &OptimisticBlock,
+        signer: &crate::validator_signer::ValidatorSigner,
+        adv_type: OptimisticBlockAdvType,
+    ) -> Self {
+        let mut inner = original.inner.clone();
         match adv_type {
             OptimisticBlockAdvType::Normal => {}
             OptimisticBlockAdvType::InvalidVrfValue => {
@@ -153,6 +155,7 @@ impl OptimisticBlock {
         &self.inner.random_value
     }
 
+    #[cfg(feature = "rand")]
     pub fn new_dummy(height: BlockHeight, prev_hash: CryptoHash) -> Self {
         let signer = InMemorySigner::test_signer(&AccountId::from_str("test".into()).unwrap());
         let (vrf_value, vrf_proof) = signer.compute_vrf_with_proof(Default::default());

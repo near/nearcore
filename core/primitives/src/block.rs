@@ -10,6 +10,7 @@ use crate::congestion_info::{BlockCongestionInfo, ExtendedCongestionInfo};
 use crate::hash::CryptoHash;
 use crate::merkle::{MerklePath, merklize, verify_path};
 use crate::num_rational::Rational32;
+#[cfg(feature = "clock")]
 use crate::optimistic_block::OptimisticBlock;
 use crate::sharding::{ChunkHashHeight, ShardChunkHeader, ShardChunkHeaderV1};
 use crate::types::{Balance, BlockHeight, EpochId, Gas};
@@ -95,7 +96,6 @@ impl Block {
     #[cfg(feature = "clock")]
     pub fn produce(
         this_epoch_protocol_version: ProtocolVersion,
-        next_epoch_protocol_version: ProtocolVersion,
         latest_protocol_version: ProtocolVersion,
         prev: &BlockHeader,
         height: BlockHeight,
@@ -214,7 +214,6 @@ impl Block {
         let body = BlockBody::new(chunks, challenges, vrf_value, vrf_proof, chunk_endorsements);
         let header = BlockHeader::new(
             this_epoch_protocol_version,
-            next_epoch_protocol_version,
             latest_protocol_version,
             height,
             *prev.hash(),
@@ -627,6 +626,10 @@ impl<'a> Chunks<'a> {
             ChunksCollection::V1(chunks) => chunks.get(index),
             ChunksCollection::V2(chunks) => chunks.get(index),
         }
+    }
+
+    pub fn min_height_included(&self) -> Option<BlockHeight> {
+        self.iter_raw().map(|chunk| chunk.height_included()).min()
     }
 
     pub fn block_congestion_info(&self) -> BlockCongestionInfo {

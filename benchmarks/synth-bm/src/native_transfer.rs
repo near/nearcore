@@ -7,8 +7,8 @@ use crate::block_service::BlockService;
 use crate::metrics::TransactionStatisticsService;
 use crate::rpc::{ResponseCheckSeverity, RpcResponseHandler};
 use clap::Args;
-use near_jsonrpc_client::methods::send_tx::RpcSendTransactionRequest;
 use near_jsonrpc_client::JsonRpcClient;
+use near_jsonrpc_client::methods::send_tx::RpcSendTransactionRequest;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::views::TxExecutionStatus;
 use rand::distributions::{Distribution, Uniform};
@@ -65,6 +65,7 @@ pub async fn benchmark(args: &BenchmarkArgs) -> anyhow::Result<()> {
             accounts,
             args.requests_per_second,
             Some(&args.user_data_dir),
+            false,
         )
         .await?;
     }

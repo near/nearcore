@@ -156,7 +156,7 @@ pub fn apply_new_chunk(
         },
         block,
         &receipts,
-        SignedValidPeriodTransactions::new(&transactions, &transaction_validity_check_results),
+        SignedValidPeriodTransactions::new(transactions, transaction_validity_check_results),
     ) {
         Ok(apply_result) => {
             Ok(NewChunkResult { gas_limit, shard_uid: shard_context.shard_uid, apply_result })
@@ -203,7 +203,7 @@ pub fn apply_old_chunk(
         },
         block,
         &[],
-        SignedValidPeriodTransactions::new(&[], &[]),
+        SignedValidPeriodTransactions::empty(),
     ) {
         Ok(apply_result) => Ok(OldChunkResult { shard_uid: shard_context.shard_uid, apply_result }),
         Err(err) => Err(err),

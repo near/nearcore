@@ -160,6 +160,21 @@ pub static NUM_INVALID_OPTIMISTIC_BLOCKS: LazyLock<IntCounter> = LazyLock::new(|
     )
     .unwrap()
 });
+pub static NUM_DROPPED_OPTIMISTIC_BLOCKS_BECAUSE_OF_PROCESSED_HEIGHT: LazyLock<IntCounter> =
+    LazyLock::new(|| {
+        try_create_int_counter(
+            "near_num_dropped_optimistic_blocks_because_of_processed_height",
+            "Number of optimistic blocks dropped because the height was already processed with a full block",
+        )
+        .unwrap()
+    });
+pub static NUM_FAILED_OPTIMISTIC_BLOCKS: LazyLock<IntCounter> = LazyLock::new(|| {
+    try_create_int_counter(
+        "near_num_failed_optimistic_blocks",
+        "Number of optimistic blocks which failed to be processed",
+    )
+    .unwrap()
+});
 pub(crate) static SCHEDULED_CATCHUP_BLOCK: LazyLock<IntGauge> = LazyLock::new(|| {
     try_create_int_gauge(
         "near_catchup_scheduled_block_height",

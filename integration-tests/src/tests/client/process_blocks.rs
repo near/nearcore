@@ -34,7 +34,6 @@ use near_o11y::testonly::{init_integration_logger, init_test_logger};
 use near_parameters::{ActionCosts, ExtCosts};
 use near_parameters::{RuntimeConfig, RuntimeConfigStore};
 use near_primitives::block::Approval;
-use near_primitives::block_header::BlockHeader;
 use near_primitives::errors::TxExecutionError;
 use near_primitives::errors::{ActionError, ActionErrorKind, InvalidTxError};
 use near_primitives::genesis::GenesisId;
@@ -58,9 +57,7 @@ use near_primitives::trie_key::TrieKey;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{AccountId, BlockHeight, EpochId, NumBlocks};
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
-use near_primitives::views::{
-    BlockHeaderView, FinalExecutionStatus, QueryRequest, QueryResponseKind,
-};
+use near_primitives::views::{FinalExecutionStatus, QueryRequest, QueryResponseKind};
 use near_primitives_core::num_rational::Ratio;
 use near_store::NodeStorage;
 use near_store::adapter::StoreUpdateAdapter;
@@ -142,7 +139,6 @@ fn receive_network_block() {
             let signer = create_test_signer("test1");
             let next_block_ordinal = last_block.header.block_ordinal.unwrap() + 1;
             let block = Block::produce(
-                PROTOCOL_VERSION,
                 PROTOCOL_VERSION,
                 PROTOCOL_VERSION,
                 &last_block.header.clone().into(),
@@ -234,7 +230,6 @@ fn produce_block_with_approvals() {
             let chunks = last_block.chunks.into_iter().map(Into::into).collect_vec();
             let chunk_endorsements = vec![vec![]; chunks.len()];
             let block = Block::produce(
-                PROTOCOL_VERSION,
                 PROTOCOL_VERSION,
                 PROTOCOL_VERSION,
                 &last_block.header.clone().into(),
@@ -432,7 +427,6 @@ fn invalid_blocks_common(is_requested: bool) {
             let signer = create_test_signer("test");
             let next_block_ordinal = last_block.header.block_ordinal.unwrap() + 1;
             let valid_block = Block::produce(
-                PROTOCOL_VERSION,
                 PROTOCOL_VERSION,
                 PROTOCOL_VERSION,
                 &last_block.header.clone().into(),
@@ -1826,7 +1820,7 @@ fn test_gc_tail_update() {
         )
         .unwrap();
     env.process_block(1, blocks.pop().unwrap(), Provenance::NONE);
-    assert_eq!(env.clients[1].chain.chain_store().tail().unwrap(), prev_sync_height - 1);
+    assert_eq!(env.clients[1].chain.chain_store().tail().unwrap(), prev_sync_height);
 }
 
 /// Test that transaction does not become invalid when there is some gas price change.
@@ -2093,18 +2087,10 @@ fn test_sync_hash_validity() {
             env.produce_block(0, height);
             height += 1;
         }
-        let expected_sync_height =
-            if ProtocolFeature::CurrentEpochStateSync.enabled(PROTOCOL_VERSION) {
-                // This assumes that all shards have new chunks in every block, which should be true
-                // with TestEnv::produce_block()
-                epoch_start + 3
-            } else {
-                // No sync hash in the first epoch
-                if epoch_start < epoch_length {
-                    continue;
-                }
-                epoch_start
-            };
+
+        // This assumes that all shards have new chunks in every block, which should be true
+        // with TestEnv::produce_block()
+        let expected_sync_height = epoch_start + 3;
 
         for h in epoch_start..height {
             let header = env.clients[0].chain.get_block_header_by_height(h).unwrap();
@@ -3334,49 +3320,6 @@ fn test_not_broadcast_block_on_accept() {
 }
 
 #[test]
-fn test_header_version_downgrade() {
-    init_test_logger();
-
-    let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
-    genesis.config.epoch_length = 5;
-    let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
-    let validator_signer = create_test_signer("test0");
-    for i in 1..10 {
-        let block = env.clients[0].produce_block(i).unwrap().unwrap();
-        env.process_block(0, block, Provenance::NONE);
-    }
-    let block = {
-        let mut block = env.clients[0].produce_block(10).unwrap().unwrap();
-        // Convert header to BlockHeaderV1
-        let mut header_view: BlockHeaderView = block.header().clone().into();
-        header_view.latest_protocol_version = 1;
-        let mut header = header_view.into();
-
-        // BlockHeaderV1, but protocol version is newest
-        match &mut header {
-            BlockHeader::BlockHeaderV1(header) => {
-                let header = Arc::make_mut(header);
-                header.inner_rest.latest_protocol_version = PROTOCOL_VERSION;
-                let hash = BlockHeader::compute_hash(
-                    header.prev_hash,
-                    &borsh::to_vec(&header.inner_lite).expect("Failed to serialize"),
-                    &borsh::to_vec(&header.inner_rest).expect("Failed to serialize"),
-                );
-                header.hash = hash;
-                header.signature = validator_signer.sign_bytes(hash.as_ref());
-            }
-            _ => {
-                unreachable!();
-            }
-        }
-        *block.mut_header() = header;
-        block
-    };
-    let res = env.clients[0].process_block_test(block.into(), Provenance::NONE);
-    assert!(!res.is_ok());
-}
-
-#[test]
 #[should_panic(
     expected = "The client protocol version is older than the protocol version of the network"
 )]
@@ -3693,13 +3636,9 @@ mod contract_precompilation_tests {
             start_height,
         );
 
-        let sync_height = if ProtocolFeature::CurrentEpochStateSync.enabled(PROTOCOL_VERSION) {
-            // `height` is one more than the start of the epoch. Produce two more blocks with chunks,
-            // and then one more than that so the node will generate the needed snapshot.
-            produce_blocks_from_height(&mut env, 4, height) - 2
-        } else {
-            height - 1
-        };
+        // `height` is one more than the start of the epoch. Produce two more blocks with chunks,
+        // and then one more than that so the node will generate the needed snapshot.
+        let sync_height = produce_blocks_from_height(&mut env, 4, height) - 2;
 
         // Perform state sync for the second client.
         state_sync_on_height(&mut env, sync_height);
@@ -3806,13 +3745,9 @@ mod contract_precompilation_tests {
             height,
         );
 
-        let sync_height = if ProtocolFeature::CurrentEpochStateSync.enabled(PROTOCOL_VERSION) {
-            // `height` is one more than the start of the epoch. Produce two more blocks with chunks,
-            // and then one more than that so the node will generate the needed snapshot.
-            produce_blocks_from_height(&mut env, 4, height) - 2
-        } else {
-            height - 1
-        };
+        // `height` is one more than the start of the epoch. Produce two more blocks with chunks,
+        // and then one more than that so the node will generate the needed snapshot.
+        let sync_height = produce_blocks_from_height(&mut env, 4, height) - 2;
 
         // Perform state sync for the second client on the last produced height.
         state_sync_on_height(&mut env, sync_height);
@@ -3884,15 +3819,9 @@ mod contract_precompilation_tests {
             env.tx_request_handlers[0].process_tx(delete_account_tx, false, false),
             ProcessTxResponse::ValidTx
         );
-        // `height` is the first block of a new epoch (which has not been produced yet),
-        // so if we want to state sync the old way, we produce `EPOCH_LENGTH` + 1 new blocks
-        // to get to produce the first block of the next epoch. If we want to state sync the new
-        // way, we produce two more than that, plus one more so that the node will generate the needed snapshot.
-        let sync_height = if ProtocolFeature::CurrentEpochStateSync.enabled(PROTOCOL_VERSION) {
-            produce_blocks_from_height(&mut env, EPOCH_LENGTH + 5, height) - 2
-        } else {
-            produce_blocks_from_height(&mut env, EPOCH_LENGTH + 1, height) - 1
-        };
+        // `height` is the first block of a new epoch (which has not been produced yet).
+        // We produce two more than that, plus one more so that the node will generate the needed snapshot.
+        let sync_height = produce_blocks_from_height(&mut env, EPOCH_LENGTH + 5, height) - 2;
 
         // Perform state sync for the second client.
         state_sync_on_height(&mut env, sync_height);

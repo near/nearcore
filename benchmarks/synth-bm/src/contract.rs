@@ -2,18 +2,18 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use crate::account::{accounts_from_dir, update_account_nonces, Account};
+use crate::account::{Account, accounts_from_dir, update_account_nonces};
 use crate::block_service::BlockService;
 use crate::rpc::{ResponseCheckSeverity, RpcResponseHandler};
 use clap::Args;
-use near_jsonrpc_client::methods::send_tx::RpcSendTransactionRequest;
 use near_jsonrpc_client::JsonRpcClient;
+use near_jsonrpc_client::methods::send_tx::RpcSendTransactionRequest;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::AccountId;
 use near_primitives::views::TxExecutionStatus;
 use rand::distributions::{Alphanumeric, DistString};
 use rand::rngs::ThreadRng;
-use rand::{thread_rng, Rng};
+use rand::{Rng, thread_rng};
 use serde::Serialize;
 use serde_json::json;
 use tokio::sync::mpsc;
@@ -59,7 +59,7 @@ pub struct BenchmarkMpcSignArgs {
 pub async fn benchmark_mpc_sign_impl(
     args: &BenchmarkMpcSignArgs,
     client: JsonRpcClient,
-    accounts: &mut Vec<Account>,
+    accounts: &mut [Account],
 ) -> anyhow::Result<()> {
     // Pick interval to achieve desired TPS.
     let mut interval = time::interval(Duration::from_micros(1_000_000 / args.requests_per_second));
@@ -146,7 +146,7 @@ pub async fn benchmark_mpc_sign_impl(
 pub async fn benchmark_mpc_sign(args: &BenchmarkMpcSignArgs) -> anyhow::Result<()> {
     let mut accounts = accounts_from_dir(&args.user_data_dir)?;
     assert!(
-        accounts.len() > 0,
+        !accounts.is_empty(),
         "at least one account required in {:?} to send transactions",
         args.user_data_dir
     );
@@ -158,6 +158,7 @@ pub async fn benchmark_mpc_sign(args: &BenchmarkMpcSignArgs) -> anyhow::Result<(
             accounts.to_vec(),
             args.requests_per_second,
             Some(&args.user_data_dir),
+            false,
         )
         .await?;
     }

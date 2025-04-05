@@ -172,6 +172,10 @@ impl EntityDebugHandlerImpl {
                 let epoch_info = self.epoch_manager.get_epoch_info(&epoch_id)?;
                 Ok(serialize_entity(&*epoch_info))
             }
+            EntityQuery::EpochConfigByEpochId { epoch_id } => {
+                let epoch_config = self.epoch_manager.get_epoch_config(&epoch_id)?;
+                Ok(serialize_entity(&epoch_config))
+            }
             EntityQuery::FlatStateByTrieKey { trie_key, shard_uid } => {
                 let state = store
                     .get_ser::<FlatStateValue>(

@@ -803,7 +803,7 @@ impl Client {
         let max_gas_price = self.chain.block_economics_config.max_gas_price();
 
         let next_bp_hash = if prev_epoch_id != epoch_id {
-            Chain::compute_bp_hash(self.epoch_manager.as_ref(), next_epoch_id, epoch_id)?
+            Chain::compute_bp_hash(self.epoch_manager.as_ref(), next_epoch_id)?
         } else {
             prev_next_bp_hash
         };
@@ -821,7 +821,6 @@ impl Client {
         // The number of leaves in Block Merkle Tree is the amount of Blocks on the Canonical Chain by construction.
         // The ordinal of the next Block will be equal to this amount plus one.
         let block_ordinal: NumBlocks = block_merkle_tree.size() + 1;
-        let prev_block_extra = self.chain.get_block_extra(&prev_hash)?;
         let prev_block = self.chain.get_block(&prev_hash)?;
         let mut chunk_headers =
             Chain::get_prev_chunk_headers(self.epoch_manager.as_ref(), &prev_block)?;
@@ -898,7 +897,6 @@ impl Client {
 
         let block = Block::produce(
             this_epoch_protocol_version,
-            next_epoch_protocol_version,
             self.upgrade_schedule
                 .protocol_version_to_vote_for(self.clock.now_utc(), next_epoch_protocol_version),
             prev_header,
@@ -914,7 +912,7 @@ impl Client {
             min_gas_price,
             max_gas_price,
             minted_amount,
-            prev_block_extra.challenges_result.clone(),
+            vec![],
             vec![],
             &*validator_signer,
             next_bp_hash,

@@ -42,7 +42,6 @@ pub enum StorageStakingError {
 pub fn check_storage_stake(
     account: &Account,
     runtime_config: &RuntimeConfig,
-    current_protocol_version: ProtocolVersion,
 ) -> Result<(), StorageStakingError> {
     let billable_storage_bytes = account.storage_usage();
     let required_amount = Balance::from(billable_storage_bytes)
@@ -68,9 +67,7 @@ pub fn check_storage_stake(
     if available_amount >= required_amount {
         Ok(())
     } else {
-        if ProtocolFeature::ZeroBalanceAccount.enabled(current_protocol_version)
-            && is_zero_balance_account(account)
-        {
+        if is_zero_balance_account(account) {
             return Ok(());
         }
         Err(StorageStakingError::LackBalanceForStorageStaking(required_amount - available_amount))
@@ -101,7 +98,10 @@ pub fn validate_transaction(
     ValidatedTransaction::new(config, signed_tx)
 }
 
-pub fn commit_charging_for_tx(
+/// Set new `signer` and `access_key` in `state_update`.
+///
+/// Note that this does not commit state changes to the `TrieUpdate`.
+pub fn set_tx_state_changes(
     state_update: &mut TrieUpdate,
     validated_tx: &ValidatedTransaction,
     signer: &Account,
@@ -123,7 +123,6 @@ pub fn verify_and_charge_tx_ephemeral(
     validated_tx: &ValidatedTransaction,
     transaction_cost: &TransactionCost,
     block_height: Option<BlockHeight>,
-    current_protocol_version: ProtocolVersion,
 ) -> Result<VerificationResult, InvalidTxError> {
     let _span = tracing::debug_span!(target: "runtime", "verify_and_charge_transaction").entered();
 
@@ -167,16 +166,19 @@ pub fn verify_and_charge_tx_ephemeral(
             return Err(InvalidTxError::NonceTooLarge { tx_nonce: tx.nonce(), upper_bound }.into());
         }
     }
-
     access_key.nonce = tx.nonce();
 
-    signer.set_amount(signer.amount().checked_sub(total_cost).ok_or_else(|| {
-        InvalidTxError::NotEnoughBalance {
-            signer_id: signer_id.clone(),
-            balance: signer.amount(),
-            cost: total_cost,
+    match signer.amount().checked_sub(total_cost) {
+        Some(new_amount) => signer.set_amount(new_amount),
+        None => {
+            return Err(InvalidTxError::NotEnoughBalance {
+                signer_id: signer_id.clone(),
+                balance: signer.amount(),
+                cost: total_cost,
+            }
+            .into());
         }
-    })?);
+    }
 
     if let AccessKeyPermission::FunctionCall(ref mut function_call_permission) =
         access_key.permission
@@ -193,7 +195,7 @@ pub fn verify_and_charge_tx_ephemeral(
         }
     }
 
-    match check_storage_stake(&signer, config, current_protocol_version) {
+    match check_storage_stake(&signer, config) {
         Ok(()) => {}
         Err(StorageStakingError::LackBalanceForStorageStaking(amount)) => {
             return Err(InvalidTxError::LackBalanceForState {
@@ -376,12 +378,6 @@ pub(crate) fn validate_actions(
             }
         } else {
             if let Action::Delegate(_) = action {
-                if !ProtocolFeature::DelegateAction.enabled(current_protocol_version) {
-                    return Err(ActionsValidationError::UnsupportedProtocolFeature {
-                        protocol_feature: String::from("DelegateAction"),
-                        version: ProtocolFeature::DelegateAction.protocol_version(),
-                    });
-                }
                 if found_delegate_action {
                     return Err(ActionsValidationError::DelegateActionMustBeOnlyOne);
                 }
@@ -740,7 +736,7 @@ mod tests {
                 return;
             }
         };
-        let cost = match tx_cost(config, &validated_tx.to_tx(), gas_price, PROTOCOL_VERSION) {
+        let cost = match tx_cost(config, &validated_tx.to_tx(), gas_price) {
             Ok(c) => c,
             Err(err) => {
                 assert_eq!(InvalidTxError::from(err), expected_err);
@@ -749,15 +745,8 @@ mod tests {
         };
 
         // Validation passed, now verification should fail with expected_err
-        let err = verify_and_charge_tx_ephemeral(
-            config,
-            state_update,
-            &validated_tx,
-            &cost,
-            None,
-            PROTOCOL_VERSION,
-        )
-        .expect_err("expected an error");
+        let err = verify_and_charge_tx_ephemeral(config, state_update, &validated_tx, &cost, None)
+            .expect_err("expected an error");
         assert_eq!(err, expected_err);
     }
 
@@ -773,17 +762,15 @@ mod tests {
             Ok(validated_tx) => validated_tx,
             Err((err, _tx)) => return Err(err),
         };
-        let transaction_cost =
-            tx_cost(config, &validated_tx.to_tx(), gas_price, current_protocol_version)?;
+        let transaction_cost = tx_cost(config, &validated_tx.to_tx(), gas_price)?;
         let vr = verify_and_charge_tx_ephemeral(
             config,
             state_update,
             &validated_tx,
             &transaction_cost,
             block_height,
-            current_protocol_version,
         )?;
-        commit_charging_for_tx(state_update, &validated_tx, &vr.signer, &vr.access_key);
+        set_tx_state_changes(state_update, &validated_tx, &vr.signer, &vr.access_key);
         Ok(vr)
     }
 

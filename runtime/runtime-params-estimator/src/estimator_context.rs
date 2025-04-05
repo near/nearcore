@@ -29,7 +29,7 @@ use near_vm_runner::FilesystemContractRuntimeCache;
 use near_vm_runner::logic::LimitConfig;
 use node_runtime::config::tx_cost;
 use node_runtime::{
-    ApplyState, Runtime, SignedValidPeriodTransactions, commit_charging_for_tx,
+    ApplyState, Runtime, SignedValidPeriodTransactions, set_tx_state_changes,
     verify_and_charge_tx_ephemeral,
 };
 use std::collections::HashMap;
@@ -110,7 +110,7 @@ impl<'c> EstimatorContext<'c> {
             trie_config,
             &[shard_uid],
             flat_storage_manager,
-            StateSnapshotConfig::default(),
+            StateSnapshotConfig::Disabled,
         );
         if self.config.memtrie {
             // NOTE: Since the store loaded from the state dump only contains the state, we directly provide the state root
@@ -288,7 +288,7 @@ impl Testbed<'_> {
             let gas_cost = {
                 self.clear_caches();
                 let start = GasCost::measure(self.config.metric);
-                self.process_block_impl(&block, allow_failures);
+                self.process_block_impl(block, allow_failures);
                 extra_blocks = self.process_blocks_until_no_receipts(allow_failures);
                 start.elapsed()
             };
@@ -311,7 +311,7 @@ impl Testbed<'_> {
 
     pub(crate) fn process_block(&mut self, block: Vec<SignedTransaction>, block_latency: usize) {
         let allow_failures = false;
-        self.process_block_impl(&block, allow_failures);
+        self.process_block_impl(block, allow_failures);
         let extra_blocks = self.process_blocks_until_no_receipts(allow_failures);
         assert_eq!(block_latency, extra_blocks);
     }
@@ -349,10 +349,11 @@ impl Testbed<'_> {
 
     fn process_block_impl(
         &mut self,
-        transactions: &[SignedTransaction],
+        transactions: Vec<SignedTransaction>,
         allow_failures: bool,
     ) -> Gas {
         let trie = self.trie();
+        let validity_check_results = vec![true; transactions.len()];
         let apply_result = self
             .runtime
             .apply(
@@ -360,7 +361,7 @@ impl Testbed<'_> {
                 &None,
                 &self.apply_state,
                 &self.prev_receipts,
-                SignedValidPeriodTransactions::new(transactions, &vec![true; transactions.len()]),
+                SignedValidPeriodTransactions::new(transactions, validity_check_results),
                 &self.epoch_info_provider,
                 Default::default(),
             )
@@ -418,7 +419,7 @@ impl Testbed<'_> {
     fn process_blocks_until_no_receipts(&mut self, allow_failures: bool) -> usize {
         let mut n = 0;
         while self.has_unprocessed_receipts() {
-            self.process_block_impl(&[], allow_failures);
+            self.process_block_impl(vec![], allow_failures);
             n += 1;
         }
         n
@@ -462,9 +463,7 @@ impl Testbed<'_> {
             PROTOCOL_VERSION,
         )
         .expect("expected no validation error");
-        let cost =
-            tx_cost(&self.apply_state.config, &validated_tx.to_tx(), gas_price, PROTOCOL_VERSION)
-                .unwrap();
+        let cost = tx_cost(&self.apply_state.config, &validated_tx.to_tx(), gas_price).unwrap();
 
         let vr = verify_and_charge_tx_ephemeral(
             &self.apply_state.config,
@@ -472,10 +471,9 @@ impl Testbed<'_> {
             &validated_tx,
             &cost,
             block_height,
-            PROTOCOL_VERSION,
         )
         .expect("tx verification should not fail in estimator");
-        commit_charging_for_tx(&mut state_update, &validated_tx, &vr.signer, &vr.access_key);
+        set_tx_state_changes(&mut state_update, &validated_tx, &vr.signer, &vr.access_key);
         clock.elapsed()
     }
 

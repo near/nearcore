@@ -1,7 +1,7 @@
 use clap::{Parser, Subcommand};
 
 mod account;
-use account::{create_sub_accounts, CreateSubAccountsArgs};
+use account::{CreateSubAccountsArgs, create_sub_accounts};
 mod block_service;
 mod contract;
 use contract::BenchmarkMpcSignArgs;

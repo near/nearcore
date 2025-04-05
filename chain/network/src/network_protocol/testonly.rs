@@ -50,7 +50,6 @@ pub fn make_block(
     Block::produce(
         version::PROTOCOL_VERSION,
         version::PROTOCOL_VERSION,
-        version::PROTOCOL_VERSION,
         prev.header(),
         prev.header().height() + 5,
         prev.header().block_ordinal() + 1,
@@ -183,7 +182,7 @@ pub fn make_chunk_parts(chunk: ShardChunk) -> Vec<PartialEncodedChunkPart> {
     let rs = ReedSolomon::new(total_shard_count, parity_shard_count).unwrap();
     let transaction_receipts =
         (chunk.transactions().to_vec(), chunk.prev_outgoing_receipts().to_vec());
-    let (parts, _) = reed_solomon_encode(&rs, transaction_receipts);
+    let (parts, _) = reed_solomon_encode(&rs, &transaction_receipts);
 
     let mut content = EncodedShardChunkBody { parts };
     let (_, merkle_paths) = content.get_merkle_hash_and_paths();

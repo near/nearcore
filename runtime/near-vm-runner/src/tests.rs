@@ -1,5 +1,6 @@
 mod cache;
 mod compile_errors;
+#[cfg(feature = "prepare")]
 mod fuzzers;
 mod regression_tests;
 mod rs_contract;
@@ -31,13 +32,11 @@ pub(crate) fn with_vm_variants(
     #[allow(unused)] cfg: &near_parameters::vm::Config,
     runner: impl Fn(VMKind) -> (),
 ) {
+    #[allow(unused)]
     let run = move |kind| {
         println!("running test with {kind:?}");
         runner(kind)
     };
-
-    #[cfg(all(feature = "wasmer0_vm", target_arch = "x86_64"))]
-    run(VMKind::Wasmer0);
 
     #[cfg(feature = "wasmtime_vm")]
     run(VMKind::Wasmtime);

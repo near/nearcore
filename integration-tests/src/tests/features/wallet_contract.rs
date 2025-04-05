@@ -15,7 +15,6 @@ use near_primitives::transaction::{
     TransferAction,
 };
 use near_primitives::utils::derive_eth_implicit_account_id;
-use near_primitives::version::ProtocolFeature;
 use near_primitives::views::{
     FinalExecutionStatus, QueryRequest, QueryResponse, QueryResponseKind,
 };
@@ -84,9 +83,6 @@ fn view_nonce(env: &TestEnv, account: &AccountIdRef, pk: PublicKey) -> u64 {
 /// Tests that ETH-implicit account is created correctly, with Wallet Contract hash.
 #[test]
 fn test_eth_implicit_account_creation() {
-    if !ProtocolFeature::EthImplicitAccounts.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     let genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
@@ -141,9 +137,6 @@ fn test_eth_implicit_account_creation() {
 /// Test that transactions from ETH-implicit accounts are rejected.
 #[test]
 fn test_transaction_from_eth_implicit_account_fail() {
-    if !ProtocolFeature::EthImplicitAccounts.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     let genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
@@ -251,10 +244,6 @@ fn test_transaction_from_eth_implicit_account_fail() {
 
 #[test]
 fn test_wallet_contract_interaction() {
-    if !ProtocolFeature::EthImplicitAccounts.enabled(PROTOCOL_VERSION) {
-        return;
-    }
-
     let genesis = Genesis::test(vec!["test0".parse().unwrap(), alice_account(), bob_account()], 1);
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
 

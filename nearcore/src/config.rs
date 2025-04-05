@@ -652,23 +652,16 @@ impl NightshadeRuntime {
         config: &NearConfig,
         epoch_manager: Arc<EpochManagerHandle>,
     ) -> std::io::Result<Arc<NightshadeRuntime>> {
-        // TODO (#9989): directly use the new state snapshot config once the migration is done.
-        let mut state_snapshot_type =
-            config.config.store.state_snapshot_config.state_snapshot_type.clone();
-        if config.config.store.state_snapshot_enabled {
-            state_snapshot_type = StateSnapshotType::EveryEpoch;
-        }
-        let state_snapshot_config = StateSnapshotConfig {
-            state_snapshot_type,
-            home_dir: home_dir.to_path_buf(),
-            hot_store_path: config
-                .config
-                .store
-                .path
-                .clone()
-                .unwrap_or_else(|| PathBuf::from("data")),
-            state_snapshot_subdir: PathBuf::from("state_snapshot"),
-        };
+        #[allow(clippy::or_fun_call)] // Closure cannot return reference to a temporary value
+        let state_snapshot_config =
+            match config.config.store.state_snapshot_config.state_snapshot_type {
+                StateSnapshotType::Enabled => StateSnapshotConfig::enabled(
+                    home_dir,
+                    config.config.store.path.as_ref().unwrap_or(&"data".into()),
+                    "state_snapshot",
+                ),
+                StateSnapshotType::Disabled => StateSnapshotConfig::Disabled,
+            };
         // FIXME: this (and other contract runtime resources) should probably get constructed by
         // the caller and passed into this `NightshadeRuntime::from_config` here. But that's a big
         // refactor...

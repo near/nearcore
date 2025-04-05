@@ -1070,7 +1070,7 @@ impl ShardsManagerActor {
         // well.  Otherwise we won’t bother.
         let (parts, encoded_length) = reed_solomon_encode(
             &self.rs,
-            TransactionReceipt(chunk.transactions().to_vec(), outgoing_receipts.to_vec()),
+            &TransactionReceipt(chunk.transactions().to_vec(), outgoing_receipts.to_vec()),
         );
 
         if header.encoded_length() != encoded_length as u64 {
@@ -1972,7 +1972,7 @@ impl ShardsManagerActor {
         signer: &ValidatorSigner,
         rs: &ReedSolomon,
         protocol_version: ProtocolVersion,
-    ) -> Result<(EncodedShardChunk, Vec<MerklePath>), Error> {
+    ) -> (EncodedShardChunk, Vec<MerklePath>) {
         EncodedShardChunk::new(
             prev_block_hash,
             prev_state_root,
@@ -1993,7 +1993,6 @@ impl ShardsManagerActor {
             signer,
             protocol_version,
         )
-        .map_err(|err| err.into())
     }
 
     fn distribute_encoded_chunk(

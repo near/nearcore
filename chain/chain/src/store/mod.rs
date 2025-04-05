@@ -30,8 +30,8 @@ use near_primitives::transaction::{
 use near_primitives::trie_key::{TrieKey, trie_key_parsers};
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{
-    BlockExtra, BlockHeight, BlockHeightDelta, EpochId, NumBlocks, ShardId, StateChanges,
-    StateChangesExt, StateChangesKinds, StateChangesKindsExt, StateChangesRequest,
+    BlockHeight, BlockHeightDelta, EpochId, NumBlocks, ShardId, StateChanges, StateChangesExt,
+    StateChangesKinds, StateChangesKindsExt, StateChangesRequest,
 };
 use near_primitives::utils::{
     get_block_shard_id, get_outcome_id_block_hash, get_outcome_id_block_hash_rev, index_to_bytes,
@@ -104,8 +104,6 @@ pub trait ChainStoreAccess {
     fn chunk_exists(&self, h: &ChunkHash) -> Result<bool, Error>;
     /// Get previous header.
     fn get_previous_header(&self, header: &BlockHeader) -> Result<BlockHeader, Error>;
-    /// GEt block extra for given block.
-    fn get_block_extra(&self, block_hash: &CryptoHash) -> Result<Arc<BlockExtra>, Error>;
     /// Get chunk extra info for given block hash + shard id.
     fn get_chunk_extra(
         &self,
@@ -898,11 +896,6 @@ impl ChainStoreAccess for ChainStore {
         ChainStoreAdapter::get_previous_header(self, header)
     }
 
-    /// Information from applying block.
-    fn get_block_extra(&self, block_hash: &CryptoHash) -> Result<Arc<BlockExtra>, Error> {
-        ChainStoreAdapter::get_block_extra(self, block_hash)
-    }
-
     /// Information from applying chunk.
     fn get_chunk_extra(
         &self,
@@ -1018,7 +1011,6 @@ impl ChainStoreAccess for ChainStore {
 pub(crate) struct ChainStoreCacheUpdate {
     block: Option<Block>,
     headers: HashMap<CryptoHash, BlockHeader>,
-    block_extras: HashMap<CryptoHash, Arc<BlockExtra>>,
     chunk_extras: HashMap<(CryptoHash, ShardUId), Arc<ChunkExtra>>,
     chunks: HashMap<ChunkHash, Arc<ShardChunk>>,
     partial_chunks: HashMap<ChunkHash, Arc<PartialEncodedChunk>>,
@@ -1187,14 +1179,6 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
     /// Get previous header.
     fn get_previous_header(&self, header: &BlockHeader) -> Result<BlockHeader, Error> {
         self.get_block_header(header.prev_hash())
-    }
-
-    fn get_block_extra(&self, block_hash: &CryptoHash) -> Result<Arc<BlockExtra>, Error> {
-        if let Some(block_extra) = self.chain_store_cache_update.block_extras.get(block_hash) {
-            Ok(Arc::clone(block_extra))
-        } else {
-            self.chain_store.get_block_extra(block_hash)
-        }
     }
 
     /// Get state root hash after applying header with given hash.
@@ -1537,11 +1521,6 @@ impl<'a> ChainStoreUpdate<'a> {
         self.chain_store_cache_update.block = Some(block);
     }
 
-    /// Save post applying block extra info.
-    pub fn save_block_extra(&mut self, block_hash: &CryptoHash, block_extra: BlockExtra) {
-        self.chain_store_cache_update.block_extras.insert(*block_hash, Arc::new(block_extra));
-    }
-
     /// Save post applying chunk extra info.
     pub fn save_chunk_extra(
         &mut self,
@@ -1864,9 +1843,6 @@ impl<'a> ChainStoreUpdate<'a> {
                     &get_block_shard_uid(block_hash, shard_uid),
                     chunk_extra,
                 )?;
-            }
-            for (block_hash, block_extra) in self.chain_store_cache_update.block_extras.iter() {
-                store_update.insert_ser(DBCol::BlockExtra, block_hash.as_ref(), block_extra)?;
             }
         }
 
