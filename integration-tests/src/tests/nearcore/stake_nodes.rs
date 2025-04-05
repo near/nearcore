@@ -71,9 +71,6 @@ fn init_test_staking(
             if i == 0 { first_node } else { tcp::ListenerAddr::reserve_for_test() },
             genesis.clone(),
         );
-        // Disable state snapshots, because they don't work with epochs that are too short.
-        // And they are not needed in these tests.
-        config.config.store.disable_state_snapshot();
         if track_all_shards {
             config.config.tracked_shards = vec![ShardId::new(0)];
             config.client_config.tracked_shards = vec![ShardId::new(0)];

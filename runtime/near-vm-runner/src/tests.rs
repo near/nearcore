@@ -38,9 +38,6 @@ pub(crate) fn with_vm_variants(
         runner(kind)
     };
 
-    #[cfg(all(feature = "wasmer0_vm", target_arch = "x86_64"))]
-    run(VMKind::Wasmer0);
-
     #[cfg(feature = "wasmtime_vm")]
     run(VMKind::Wasmtime);
 

@@ -573,7 +573,6 @@ impl BlockHeader {
     /// Creates BlockHeader for a newly produced block.
     pub fn new(
         this_epoch_protocol_version: ProtocolVersion,
-        next_epoch_protocol_version: ProtocolVersion,
         latest_protocol_version: ProtocolVersion,
         height: BlockHeight,
         prev_hash: CryptoHash,
@@ -606,7 +605,6 @@ impl BlockHeader {
     ) -> Self {
         Self::new_impl(
             this_epoch_protocol_version,
-            next_epoch_protocol_version,
             latest_protocol_version,
             height,
             prev_hash,
@@ -673,7 +671,6 @@ impl BlockHeader {
         chunk_endorsements: Option<ChunkEndorsementsBitmap>,
     ) -> Self {
         let header = Self::new_impl(
-            epoch_protocol_version,
             epoch_protocol_version,
             epoch_protocol_version,
             height,
@@ -835,7 +832,6 @@ impl BlockHeader {
     ) -> Self {
         let chunks_included = if height == 0 { num_shards } else { 0 };
         Self::new_impl(
-            genesis_protocol_version,
             genesis_protocol_version,
             genesis_protocol_version,
             height,
