@@ -75,7 +75,8 @@ pub enum ProtocolFeature {
     _DeprecatedCreateReceiptIdSwitchToCurrentBlock,
     /// Pessimistic gas price estimation uses a fixed value of `minimum_new_receipt_gas` to stop being
     /// tied to the function call base cost
-    FixedMinimumNewReceiptGas,
+    #[deprecated]
+    _DeprecatedFixedMinimumNewReceiptGas,
     /// This feature switch our WASM engine implementation from wasmer 0.* to
     /// wasmer 2.*, bringing better performance and reliability.
     ///
@@ -160,14 +161,17 @@ pub enum ProtocolFeature {
     /// process the chunk.
     ///
     /// Compute Costs NEP-455: <https://github.com/near/NEPs/blob/master/neps/nep-0455.md>
-    ComputeCosts,
+    #[deprecated]
+    _DeprecatedComputeCosts,
     /// Decrease the cost of function call action. Only affects the execution cost.
-    DecreaseFunctionCallBaseCost,
+    #[deprecated]
+    _DeprecatedDecreaseFunctionCallBaseCost,
     /// Enable flat storage for reads, reducing number of DB accesses from `2 * key.len()` in
     /// the worst case to 2.
     ///
     /// Flat Storage NEP-399: <https://github.com/near/NEPs/blob/master/neps/nep-0399.md>
-    FlatStorageReads,
+    #[deprecated]
+    _DeprecatedFlatStorageReads,
     /// Enables preparation V2. Note that this setting is not supported in production settings
     /// without NearVmRuntime enabled alongside it, as the VM runner would be too slow.
     PreparationV2,
@@ -192,7 +196,8 @@ pub enum ProtocolFeature {
     /// Enables rejection of blocks with outdated protocol versions.
     RejectBlocksWithOutdatedProtocolVersions,
     // NEP: https://github.com/near/NEPs/pull/488
-    BLS12381,
+    #[deprecated]
+    _DeprecatedBLS12381,
     #[deprecated]
     _DeprecatedRestrictTla,
     /// Increases the number of chunk producers.
@@ -206,7 +211,8 @@ pub enum ProtocolFeature {
     /// WitnessTransactionLimits: size limits for transactions included in a ChunkStateWitness.
     /// NoChunkOnlyProducers: no chunk-only producers in stateless validation.
     StatelessValidation,
-    EthImplicitAccounts,
+    #[deprecated]
+    _DeprecatedEthImplicitAccounts,
     /// Enables yield execution which is introduced in <https://github.com/near/NEPs/pull/519>
     YieldExecution,
     /// Bring minimum required validator stake effectively to ~10K NEAR as of 2024-08-15.
@@ -325,20 +331,22 @@ impl ProtocolFeature {
             ProtocolFeature::_DeprecatedEd25519Verify
             | ProtocolFeature::_DeprecatedZeroBalanceAccount
             | ProtocolFeature::_DeprecatedDelegateAction => 59,
-            ProtocolFeature::ComputeCosts | ProtocolFeature::FlatStorageReads => 61,
+            ProtocolFeature::_DeprecatedComputeCosts
+            | ProtocolFeature::_DeprecatedFlatStorageReads => 61,
             ProtocolFeature::PreparationV2 | ProtocolFeature::NearVmRuntime => 62,
             ProtocolFeature::BlockHeaderV4 => 63,
             ProtocolFeature::_DeprecatedRestrictTla
             | ProtocolFeature::_DeprecatedTestnetFewerBlockProducers
             | ProtocolFeature::SimpleNightshadeV2 => 64,
             ProtocolFeature::SimpleNightshadeV3 => 65,
-            ProtocolFeature::DecreaseFunctionCallBaseCost
-            | ProtocolFeature::FixedMinimumNewReceiptGas => 66,
+            ProtocolFeature::_DeprecatedDecreaseFunctionCallBaseCost
+            | ProtocolFeature::_DeprecatedFixedMinimumNewReceiptGas => 66,
             ProtocolFeature::YieldExecution => 67,
             ProtocolFeature::CongestionControl
             | ProtocolFeature::RemoveAccountWithLongStorageKey => 68,
             ProtocolFeature::StatelessValidation => 69,
-            ProtocolFeature::BLS12381 | ProtocolFeature::EthImplicitAccounts => 70,
+            ProtocolFeature::_DeprecatedBLS12381
+            | ProtocolFeature::_DeprecatedEthImplicitAccounts => 70,
             ProtocolFeature::FixMinStakeRatio => 71,
             ProtocolFeature::IncreaseStorageProofSizeSoftLimit
             | ProtocolFeature::ChunkEndorsementV2

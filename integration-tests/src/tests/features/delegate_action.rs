@@ -20,7 +20,7 @@ use near_primitives::transaction::{
     DeployContractAction, FunctionCallAction, StakeAction, TransferAction,
 };
 use near_primitives::types::{AccountId, Balance};
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature, ProtocolVersion};
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolVersion};
 use near_primitives::views::{
     AccessKeyPermissionView, ExecutionStatusView, FinalExecutionOutcomeView, FinalExecutionStatus,
 };
@@ -84,7 +84,6 @@ fn check_meta_tx_execution(
     receiver: AccountId,
 ) -> (FinalExecutionOutcomeView, i128, i128, i128) {
     let node_user = node.user();
-    let protocol_version = node.genesis().config.protocol_version;
 
     assert_eq!(
         relayer,
@@ -102,11 +101,7 @@ fn check_meta_tx_execution(
     let user_pub_key = match sender.get_account_type() {
         AccountType::NearImplicitAccount => PublicKey::from_near_implicit_account(&sender).unwrap(),
         AccountType::EthImplicitAccount => {
-            if ProtocolFeature::EthImplicitAccounts.enabled(protocol_version) {
-                panic!("ETH-implicit accounts must not have access key");
-            } else {
-                PublicKey::from_seed(KeyType::ED25519, sender.as_ref())
-            }
+            panic!("ETH-implicit accounts must not have access key");
         }
         AccountType::NamedAccount => PublicKey::from_seed(KeyType::ED25519, sender.as_ref()),
     };
@@ -778,9 +773,6 @@ fn meta_tx_create_near_implicit_account_fails() {
 
 #[test]
 fn meta_tx_create_eth_implicit_account_fails() {
-    if !ProtocolFeature::EthImplicitAccounts.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     meta_tx_create_implicit_account_fails(eth_implicit_test_account());
 }
 
@@ -830,9 +822,6 @@ fn meta_tx_create_and_use_near_implicit_account() {
 
 #[test]
 fn meta_tx_create_and_use_eth_implicit_account() {
-    if !ProtocolFeature::EthImplicitAccounts.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     meta_tx_create_and_use_implicit_account(eth_implicit_test_account());
 }
 
@@ -913,8 +902,5 @@ fn meta_tx_create_near_implicit_account() {
 
 #[test]
 fn meta_tx_create_eth_implicit_account() {
-    if !ProtocolFeature::EthImplicitAccounts.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     meta_tx_create_implicit_account(eth_implicit_test_account());
 }
