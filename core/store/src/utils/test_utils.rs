@@ -133,7 +133,7 @@ impl TestTriesBuilder {
             },
             &shard_uids,
             flat_storage_manager,
-            StateSnapshotConfig::default(),
+            StateSnapshotConfig::Disabled,
         );
         if self.enable_flat_storage {
             let mut store_update = tries.store_update();

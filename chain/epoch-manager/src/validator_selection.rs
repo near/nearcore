@@ -398,7 +398,7 @@ fn select_validators(
         let p = proposals.pop().unwrap().0;
         let p_stake = p.stake();
         let total_stake_with_p = total_stake + p_stake;
-        if Ratio::new(p_stake, total_stake_with_p) > min_stake_ratio {
+        if total_stake_with_p > 0 && Ratio::new(p_stake, total_stake_with_p) > min_stake_ratio {
             validators.push(p);
             total_stake = total_stake_with_p;
         } else {

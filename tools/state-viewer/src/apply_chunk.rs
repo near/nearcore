@@ -196,7 +196,6 @@ pub fn apply_chunk(
             ApplyChunkBlockContext {
                 height: target_height,
                 block_timestamp: prev_timestamp + 1_000_000_000,
-                challenges_result: vec![],
                 prev_block_hash: *prev_block_hash,
                 block_hash: combine_hash(
                     prev_block_hash,
