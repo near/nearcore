@@ -1486,6 +1486,7 @@ fn test_chunk_validator_kickout_using_endorsement_stats() {
         }
         em.write()
             .record_block_info(
+                #[allow(deprecated)]
                 BlockInfo::V3(BlockInfoV3 {
                     hash: *curr_block,
                     height,
