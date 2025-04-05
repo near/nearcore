@@ -58,6 +58,10 @@ pub struct EpochConfig {
     pub num_chunk_producer_seats: NumSeats,
     // #[default(300)]
     pub num_chunk_validator_seats: NumSeats,
+    // TODO (#11267): deprecate after StatelessValidationV0 is in place.
+    // Use 300 for older protocol versions.
+    // #[default(300)]
+    pub num_chunk_only_producer_seats: NumSeats,
     // #[default(1)]
     pub minimum_validators_per_shard: NumSeats,
     // #[default(Rational32::new(160, 1_000_000))]
@@ -114,6 +118,7 @@ impl EpochConfig {
             shard_layout,
             num_chunk_producer_seats: 100,
             num_chunk_validator_seats: 300,
+            num_chunk_only_producer_seats: 300,
             minimum_validators_per_shard: 1,
             minimum_stake_ratio: Rational32::new(160i32, 1_000_000i32),
             chunk_producer_assignment_changes_limit: 5,
@@ -141,6 +146,7 @@ impl EpochConfig {
             shard_layout: ShardLayout::get_simple_nightshade_layout(),
             num_chunk_producer_seats: 100,
             num_chunk_validator_seats: 300,
+            num_chunk_only_producer_seats: 300,
             minimum_validators_per_shard: 1,
             minimum_stake_ratio: Rational32::new(160i32, 1_000_000i32),
             chunk_producer_assignment_changes_limit: 5,
@@ -167,6 +173,7 @@ impl EpochConfig {
             shard_layout,
             num_chunk_producer_seats: 100,
             num_chunk_validator_seats: 300,
+            num_chunk_only_producer_seats: 300,
             minimum_validators_per_shard: 1,
             minimum_stake_ratio: Rational32::new(160i32, 1_000_000i32),
             chunk_producer_assignment_changes_limit: 5,

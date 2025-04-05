@@ -233,6 +233,7 @@ impl TestEpochConfigBuilder {
             num_block_producer_seats: self.num_block_producer_seats,
             num_chunk_producer_seats: self.num_chunk_producer_seats,
             num_chunk_validator_seats: self.num_chunk_validator_seats,
+            num_chunk_only_producer_seats: 300,
             target_validator_mandates_per_shard: self.target_validator_mandates_per_shard,
             avg_hidden_validator_seats_per_shard: self.avg_hidden_validator_seats_per_shard,
             minimum_validators_per_shard: self.minimum_validators_per_shard,

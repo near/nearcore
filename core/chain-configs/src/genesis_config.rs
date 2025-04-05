@@ -271,6 +271,7 @@ impl From<&GenesisConfig> for EpochConfig {
             shard_layout: config.shard_layout.clone(),
             num_chunk_producer_seats: config.num_chunk_producer_seats,
             num_chunk_validator_seats: config.num_chunk_validator_seats,
+            num_chunk_only_producer_seats: 300,
             minimum_validators_per_shard: config.minimum_validators_per_shard,
             minimum_stake_ratio: config.minimum_stake_ratio,
             chunk_producer_assignment_changes_limit: config.chunk_producer_assignment_changes_limit,
