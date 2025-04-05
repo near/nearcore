@@ -1,6 +1,6 @@
 use near_primitives::types::{BlockChunkValidatorStats, ValidatorStats};
 use num_bigint::BigUint;
-use num_rational::{BigRational, Ratio, Rational64};
+use num_rational::{BigRational, Ratio};
 use primitive_types::U256;
 
 /// Computes the overall online (uptime) ratio of the validator.
@@ -117,22 +117,6 @@ pub(crate) fn get_sortable_validator_online_ratio(stats: &BlockChunkValidatorSta
     BigRational::new(bignumer.try_into().unwrap(), bigdenom.try_into().unwrap())
 }
 
-/// Computes the overall online (uptime) ratio of the validator for sorting, ignoring the chunk endorsement stats.
-pub(crate) fn get_sortable_validator_online_ratio_without_endorsements(
-    stats: &BlockChunkValidatorStats,
-) -> Rational64 {
-    if stats.block_stats.expected == 0 && stats.chunk_stats.expected() == 0 {
-        Rational64::from_integer(1)
-    } else if stats.block_stats.expected == 0 {
-        Rational64::new(stats.chunk_stats.produced() as i64, stats.chunk_stats.expected() as i64)
-    } else if stats.chunk_stats.expected() == 0 {
-        Rational64::new(stats.block_stats.produced as i64, stats.block_stats.expected as i64)
-    } else {
-        (Rational64::new(stats.chunk_stats.produced() as i64, stats.chunk_stats.expected() as i64)
-            + Rational64::new(stats.block_stats.produced as i64, stats.block_stats.expected as i64))
-            / 2
-    }
-}
 /// Applies the `cutoff_threshold` to the endorsement ratio encoded in the `stats`.
 /// If `cutoff_threshold` is not provided, returns the same ratio from the `stats`.
 /// If `cutoff_threshold` is provided, compares the endorsement ratio from the `stats` with the threshold.
