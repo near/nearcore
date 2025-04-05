@@ -790,7 +790,7 @@ impl BlockHeader {
                 signature,
                 hash,
             }))
-        } else if ProtocolFeature::BlockHeaderV4.enabled(this_epoch_protocol_version) {
+        } else {
             let inner_rest = BlockHeaderInnerRestV4 {
                 block_body_hash,
                 prev_chunk_outgoing_receipts_root,
@@ -814,35 +814,6 @@ impl BlockHeader {
             let (hash, signature) =
                 Self::compute_hash_and_sign(signature_source, prev_hash, &inner_lite, &inner_rest);
             Self::BlockHeaderV4(Arc::new(BlockHeaderV4 {
-                prev_hash,
-                inner_lite,
-                inner_rest,
-                signature,
-                hash,
-            }))
-        } else {
-            let inner_rest = BlockHeaderInnerRestV3 {
-                prev_chunk_outgoing_receipts_root,
-                chunk_headers_root,
-                chunk_tx_root,
-                challenges_root,
-                random_value,
-                prev_validator_proposals,
-                chunk_mask,
-                next_gas_price,
-                block_ordinal,
-                total_supply,
-                challenges_result,
-                last_final_block,
-                last_ds_final_block,
-                prev_height,
-                epoch_sync_data_hash,
-                approvals,
-                latest_protocol_version,
-            };
-            let (hash, signature) =
-                Self::compute_hash_and_sign(signature_source, prev_hash, &inner_lite, &inner_rest);
-            Self::BlockHeaderV3(Arc::new(BlockHeaderV3 {
                 prev_hash,
                 inner_lite,
                 inner_rest,
