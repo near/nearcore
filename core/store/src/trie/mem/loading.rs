@@ -241,8 +241,7 @@ mod tests {
             &CryptoHash::default(),
             false,
         ));
-        let _mode_guard = trie_update
-            .with_trie_cache_mode(Some(near_primitives::types::TrieCacheMode::CachingChunk));
+        let _mode_guard = trie_update.with_trie_cache();
         let trie = trie_update.trie();
         let root = in_memory_trie.get_root(&state_root).unwrap();
 

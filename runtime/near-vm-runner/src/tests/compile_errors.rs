@@ -317,9 +317,9 @@ fn slow_test_limit_locals_global() {
     }
     .make())
     .protocol_features(&[
-        ProtocolFeature::LimitContractLocals,
+        #[allow(deprecated)]
+        ProtocolFeature::_DeprecatedLimitContractLocals,
         ProtocolFeature::PreparationV2,
-
     ])
     .protocol_version(FIX_CONTRACT_LOADING_COST,)
     .expects(&[

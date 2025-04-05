@@ -13,7 +13,7 @@ use near_primitives::transaction::{
     Action, ExecutionMetadata, FunctionCallAction, SignedTransaction,
 };
 use near_primitives::types::{BlockHeightDelta, Gas};
-use near_primitives::version::{ProtocolFeature, ProtocolVersion};
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolVersion};
 use near_primitives::views::FinalExecutionStatus;
 use near_store::trie::TrieNodesCount;
 
@@ -64,6 +64,8 @@ fn process_transaction(
     tx_hash
 }
 
+/// NOTE: The comment below is no longer valid as we are now only checking for the latest protocol version.
+///
 /// Compare charged node accesses before and after protocol upgrade to the protocol version of `ChunkNodesCache`.
 /// This upgrade during chunk processing saves each node for which we charge touching trie node cost to a special
 /// accounting cache (used to be called "chunk cache"), and such cost is charged only once on the first access.
@@ -87,9 +89,7 @@ fn compare_node_counts() {
     let epoch_length = 10;
     let num_blocks = 5;
 
-    let old_protocol_version = ProtocolFeature::ChunkNodesCache.protocol_version() - 1;
     genesis.config.epoch_length = epoch_length;
-    genesis.config.protocol_version = old_protocol_version;
     let mut env = TestEnv::builder(&genesis.config)
         .nightshade_runtimes_with_runtime_config_store(
             &genesis,
@@ -110,12 +110,8 @@ fn compare_node_counts() {
         .map(|i| {
             let touching_trie_node_cost: Gas = 16_101_955_926;
             let read_cached_trie_node_cost: Gas = 2_280_000_000;
-
-            let tx_hash = if i < 1 {
-                process_transaction(&mut env, &signer, num_blocks, old_protocol_version)
-            } else {
-                process_transaction(&mut env, &signer, 2 * epoch_length, old_protocol_version + 1)
-            };
+            let num_blocks = if i < 1 { num_blocks } else { 2 * epoch_length };
+            let tx_hash = process_transaction(&mut env, &signer, num_blocks, PROTOCOL_VERSION);
 
             let final_result = env.clients[0].chain.get_final_transaction_result(&tx_hash).unwrap();
             assert_matches!(final_result.status, FinalExecutionStatus::SuccessValue(_));
@@ -144,8 +140,8 @@ fn compare_node_counts() {
         })
         .collect();
 
-    assert_eq!(tx_node_counts[0], TrieNodesCount { db_reads: 4, mem_reads: 0 });
-    assert_eq!(tx_node_counts[1], TrieNodesCount { db_reads: 12, mem_reads: 0 });
+    assert_eq!(tx_node_counts[0], TrieNodesCount { db_reads: 2, mem_reads: 2 });
+    assert_eq!(tx_node_counts[1], TrieNodesCount { db_reads: 8, mem_reads: 4 });
     assert_eq!(tx_node_counts[2], TrieNodesCount { db_reads: 8, mem_reads: 4 });
     assert_eq!(tx_node_counts[3], TrieNodesCount { db_reads: 8, mem_reads: 4 });
 }

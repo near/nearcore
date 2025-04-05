@@ -9,8 +9,6 @@ mod congestion_control;
 mod delegate_action;
 mod fix_contract_loading_cost;
 mod in_memory_tries;
-mod increase_deployment_cost;
-mod lower_storage_key_limit;
 mod nearvm;
 mod orphan_chunk_state_witness;
 mod restrict_tla;

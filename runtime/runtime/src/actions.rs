@@ -21,7 +21,7 @@ use near_primitives::transaction::{
 };
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
-    AccountId, Balance, BlockHeight, EpochInfoProvider, Gas, StorageUsage, TrieCacheMode,
+    AccountId, Balance, BlockHeight, EpochInfoProvider, Gas, StorageUsage,
 };
 use near_primitives::utils::account_is_implicit;
 use near_primitives::version::ProtocolVersion;
@@ -92,12 +92,7 @@ pub(crate) fn execute_function_call(
     // TODO (#5920): Consider using RAII for switching the state back
 
     near_vm_runner::reset_metrics();
-    let mode = if ProtocolFeature::ChunkNodesCache.enabled(runtime_ext.protocol_version()) {
-        Some(TrieCacheMode::CachingChunk)
-    } else {
-        None
-    };
-    let mode_guard = runtime_ext.trie_update.with_trie_cache_mode(mode);
+    let mode_guard = runtime_ext.trie_update.with_trie_cache();
     let result = near_vm_runner::run(contract, runtime_ext, &context, Arc::clone(&config.fees));
     drop(mode_guard);
     near_vm_runner::report_metrics(
