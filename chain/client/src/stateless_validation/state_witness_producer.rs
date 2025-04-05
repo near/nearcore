@@ -100,12 +100,6 @@ impl Client {
             }
         }
 
-        // Pass the contract changes to PartialWitnessActor only if we exclude contract code from state witness.
-        let contract_updates = ProtocolFeature::ExcludeContractCodeFromStateWitness
-            .enabled(protocol_version)
-            .then_some(contract_updates)
-            .unwrap_or_default();
-
         self.partial_witness_adapter.send(DistributeStateWitnessRequest {
             state_witness,
             contract_updates,
