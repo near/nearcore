@@ -231,7 +231,6 @@ fn test_banning_chunk_producer_when_seeing_invalid_chunk_base(
         assert_eq!(block.header().height(), height);
 
         let mut invalid_chunks_in_this_block: HashSet<ShardId> = HashSet::new();
-        let this_block_should_be_skipped = false;
         if height > 1 {
             if last_block_skipped {
                 assert_eq!(block.header().prev_height().unwrap(), height - 2);
@@ -269,16 +268,14 @@ fn test_banning_chunk_producer_when_seeing_invalid_chunk_base(
             }
         }
         debug!(target: "test", "Epoch id of new block: {:?}", epoch_id);
-        debug!(target: "test", "Block should be skipped: {}; previous block skipped: {}",
-            this_block_should_be_skipped, last_block_skipped);
+        debug!(target: "test", "Block should be skipped: false; previous block skipped: {}", last_block_skipped);
 
         if height > 1 {
             let prev_block =
                 test.env.clients[0].chain.get_block(&block.header().prev_hash()).unwrap();
             for shard_id in shard_layout.shard_ids() {
                 let shard_index = shard_layout.get_shard_index(shard_id).unwrap();
-                if invalid_chunks_in_this_block.contains(&shard_id) && !this_block_should_be_skipped
-                {
+                if invalid_chunks_in_this_block.contains(&shard_id) {
                     assert_eq!(
                         block.chunks()[shard_index].chunk_hash(),
                         prev_block.chunks()[shard_index].chunk_hash()
@@ -315,28 +312,19 @@ fn test_banning_chunk_producer_when_seeing_invalid_chunk_base(
             test.process_all_actor_messages();
             accepted_blocks.extend(test.env.clients[i].finish_blocks_in_processing());
 
-            if this_block_should_be_skipped {
-                assert_eq!(
-                    accepted_blocks.len(),
-                    0,
-                    "Processing of block {} should have failed due to invalid chunk",
-                    height
-                );
-            } else {
-                assert_eq!(
-                    accepted_blocks.len(),
-                    1,
-                    "Processing of block {} failed at validator #{}",
-                    height,
-                    i
-                );
-                assert_eq!(&accepted_blocks[0], block.header().hash());
-                assert_eq!(test.env.clients[i].chain.head().unwrap().height, height);
-            }
+            assert_eq!(
+                accepted_blocks.len(),
+                1,
+                "Processing of block {} failed at validator #{}",
+                height,
+                i
+            );
+            assert_eq!(&accepted_blocks[0], block.header().hash());
+            assert_eq!(test.env.clients[i].chain.head().unwrap().height, height);
         }
         test.process_all_actor_messages();
         test.env.propagate_chunk_state_witnesses_and_endorsements(true);
-        last_block_skipped = this_block_should_be_skipped;
+        last_block_skipped = false;
     }
 
     // Sanity check that the final chain head is what we expect
