@@ -316,19 +316,7 @@ fn check_validator_tracked_shards(client: &Client, validator_id: &AccountId) -> 
         return Ok(());
     }
 
-    let protocol_version = epoch_info.protocol_version();
-
-    if !ProtocolFeature::StatelessValidation.enabled(protocol_version)
-        && client.config.tracked_shards.is_empty()
-    {
-        panic!(
-            "The `chain_id` field specified in genesis is among mainnet/testnet, so validator must track all shards. Please change `tracked_shards` field in config.json to be any non-empty vector"
-        );
-    }
-
-    if ProtocolFeature::StatelessValidation.enabled(protocol_version)
-        && !client.config.tracked_shards.is_empty()
-    {
+    if !client.config.tracked_shards.is_empty() {
         panic!(
             "The `chain_id` field specified in genesis is among mainnet/testnet, so validator must not track all shards. Please change `tracked_shards` field in config.json to be an empty vector"
         );

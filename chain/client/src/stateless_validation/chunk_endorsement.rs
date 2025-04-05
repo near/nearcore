@@ -1,7 +1,4 @@
-use std::collections::HashMap;
-use std::num::NonZeroUsize;
-use std::sync::Arc;
-
+use super::validate::validate_chunk_endorsement;
 use lru::LruCache;
 use near_chain_primitives::Error;
 use near_crypto::Signature;
@@ -11,10 +8,10 @@ use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::stateless_validation::validator_assignment::ChunkEndorsementsState;
 use near_primitives::types::AccountId;
-use near_primitives::version::ProtocolFeature;
 use near_store::Store;
-
-use super::validate::validate_chunk_endorsement;
+use std::collections::HashMap;
+use std::num::NonZeroUsize;
+use std::sync::Arc;
 
 // This is the number of unique chunks for which we would track the chunk endorsements.
 // Ideally, we should not be processing more than num_shards chunks at a time.
@@ -70,14 +67,6 @@ impl ChunkEndorsementTracker {
         let shard_id = chunk_header.shard_id();
         let epoch_id =
             self.epoch_manager.get_epoch_id_from_prev_block(chunk_header.prev_block_hash())?;
-        let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
-        if !ProtocolFeature::StatelessValidation.enabled(protocol_version) {
-            // Return an endorsed empty array of chunk endorsements for older protocol versions.
-            return Ok(ChunkEndorsementsState {
-                is_endorsed: true,
-                ..ChunkEndorsementsState::default()
-            });
-        }
 
         let height_created = chunk_header.height_created();
         let key = ChunkProductionKey { shard_id, epoch_id, height_created };

@@ -132,7 +132,7 @@ use near_primitives::types::{
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::MaybeValidated;
 use near_primitives::validator_signer::ValidatorSigner;
-use near_primitives::version::{ProtocolFeature, ProtocolVersion};
+use near_primitives::version::ProtocolVersion;
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::chunk_store::ChunkStoreAdapter;
 use near_store::{DBCol, HEAD_KEY, HEADER_HEAD_KEY, Store};
@@ -1866,96 +1866,50 @@ impl ShardsManagerActor {
             owned_parts,
         );
 
-        let protocol_version = self.epoch_manager.get_epoch_protocol_version(epoch_id)?;
         let block_producers = self.epoch_manager.get_epoch_block_producers_ordered(&epoch_id)?;
         let current_chunk_height = partial_encoded_chunk.header.height_created();
 
-        // SingleShardTracking: If enabled, we only forward the parts to the block producers
-        if ProtocolFeature::StatelessValidation.enabled(protocol_version) {
-            let shard_id = partial_encoded_chunk.header.shard_id();
-            let mut accounts_forwarded_to = HashSet::new();
-            accounts_forwarded_to.insert(me.clone());
-            let next_chunk_producer = self
-                .epoch_manager
-                .get_chunk_producer_info(&ChunkProductionKey {
-                    epoch_id: *epoch_id,
-                    height_created: current_chunk_height + 1,
-                    shard_id,
-                })?
-                .take_account_id();
-            for bp in block_producers {
-                let bp_account_id = bp.take_account_id();
+        // We only forward the parts to the block producers
+        let shard_id = partial_encoded_chunk.header.shard_id();
+        let mut accounts_forwarded_to = HashSet::new();
+        accounts_forwarded_to.insert(me.clone());
+        let next_chunk_producer = self
+            .epoch_manager
+            .get_chunk_producer_info(&ChunkProductionKey {
+                epoch_id: *epoch_id,
+                height_created: current_chunk_height + 1,
+                shard_id,
+            })?
+            .take_account_id();
+        for bp in block_producers {
+            let bp_account_id = bp.take_account_id();
 
-                if self.shard_tracker.cares_about_shard_this_or_next_epoch(
-                    Some(&bp_account_id),
-                    latest_block_hash,
-                    shard_id,
-                    false,
-                ) {
-                    if accounts_forwarded_to.insert(bp_account_id.clone()) {
-                        self.peer_manager_adapter.send(PeerManagerMessageRequest::NetworkRequests(
-                            NetworkRequests::PartialEncodedChunkForward {
-                                account_id: bp_account_id,
-                                forward: forward.clone(),
-                            },
-                        ));
-                    }
+            if self.shard_tracker.cares_about_shard_this_or_next_epoch(
+                Some(&bp_account_id),
+                latest_block_hash,
+                shard_id,
+                false,
+            ) {
+                if accounts_forwarded_to.insert(bp_account_id.clone()) {
+                    self.peer_manager_adapter.send(PeerManagerMessageRequest::NetworkRequests(
+                        NetworkRequests::PartialEncodedChunkForward {
+                            account_id: bp_account_id,
+                            forward: forward.clone(),
+                        },
+                    ));
                 }
-            }
-
-            if accounts_forwarded_to.insert(next_chunk_producer.clone()) {
-                self.peer_manager_adapter.send(PeerManagerMessageRequest::NetworkRequests(
-                    NetworkRequests::PartialEncodedChunkForward {
-                        account_id: next_chunk_producer,
-                        forward,
-                    },
-                ));
-            }
-        } else {
-            // Without SingleShardTracking, we're asking all validators to track all shards.
-            // So we may as well forward every part to all block producers, and we also
-            // forward to incoming chunk producers so they can produce the next chunks without
-            // delay.
-            let mut next_chunk_producers = self
-                .epoch_manager
-                .shard_ids(&epoch_id)?
-                .into_iter()
-                .map(|shard_id| {
-                    self.epoch_manager
-                        .get_chunk_producer_info(&ChunkProductionKey {
-                            epoch_id: *epoch_id,
-                            height_created: current_chunk_height + 1,
-                            shard_id,
-                        })
-                        .map(|info| info.take_account_id())
-                })
-                .collect::<Result<HashSet<_>, _>>()?;
-            next_chunk_producers.remove(me);
-            for bp in block_producers {
-                let bp_account_id = bp.take_account_id();
-                // no need to send anything to myself
-                if me == &bp_account_id {
-                    continue;
-                }
-                next_chunk_producers.remove(&bp_account_id);
-
-                self.peer_manager_adapter.send(PeerManagerMessageRequest::NetworkRequests(
-                    NetworkRequests::PartialEncodedChunkForward {
-                        account_id: bp_account_id,
-                        forward: forward.clone(),
-                    },
-                ));
-            }
-
-            for next_chunk_producer in next_chunk_producers {
-                self.peer_manager_adapter.send(PeerManagerMessageRequest::NetworkRequests(
-                    NetworkRequests::PartialEncodedChunkForward {
-                        account_id: next_chunk_producer,
-                        forward: forward.clone(),
-                    },
-                ));
             }
         }
+
+        if accounts_forwarded_to.insert(next_chunk_producer.clone()) {
+            self.peer_manager_adapter.send(PeerManagerMessageRequest::NetworkRequests(
+                NetworkRequests::PartialEncodedChunkForward {
+                    account_id: next_chunk_producer,
+                    forward,
+                },
+            ));
+        }
+
         Ok(())
     }
 
