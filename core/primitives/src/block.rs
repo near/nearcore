@@ -14,9 +14,18 @@ use crate::num_rational::Rational32;
 use crate::optimistic_block::OptimisticBlock;
 use crate::sharding::{ChunkHashHeight, ShardChunkHeader, ShardChunkHeaderV1};
 use crate::types::{Balance, BlockHeight, EpochId, Gas};
-use crate::version::ProtocolVersion;
+#[cfg(feature = "clock")]
+use crate::{
+    stateless_validation::chunk_endorsements_bitmap::ChunkEndorsementsBitmap,
+    utils::get_block_metadata,
+};
 use borsh::{BorshDeserialize, BorshSerialize};
+#[cfg(feature = "clock")]
+use itertools::Itertools;
+#[cfg(feature = "clock")]
+use near_primitives_core::types::ProtocolVersion;
 use near_primitives_core::types::ShardIndex;
+#[cfg(feature = "clock")]
 use near_primitives_core::version::ProtocolFeature;
 use near_schema_checker_lib::ProtocolSchema;
 use primitive_types::U256;
@@ -119,12 +128,6 @@ impl Block {
         sandbox_delta_time: Option<near_time::Duration>,
         optimistic_block: Option<OptimisticBlock>,
     ) -> Self {
-        use itertools::Itertools;
-
-        use crate::{
-            stateless_validation::chunk_endorsements_bitmap::ChunkEndorsementsBitmap,
-            utils::get_block_metadata,
-        };
         // Collect aggregate of validators and gas usage/limits from chunks.
         let mut prev_validator_proposals = vec![];
         let mut gas_used = 0;
