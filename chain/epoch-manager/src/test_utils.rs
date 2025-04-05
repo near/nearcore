@@ -5,7 +5,6 @@ use crate::proposals::find_threshold;
 use crate::reward_calculator::NUM_NS_IN_SECOND;
 use crate::{BlockInfo, EpochManager};
 use near_crypto::{KeyType, SecretKey};
-use near_primitives::challenge::SlashedValidator;
 use near_primitives::epoch_block_info::BlockInfoV2;
 use near_primitives::epoch_info::EpochInfo;
 use near_primitives::epoch_manager::EpochConfigStore;
@@ -305,38 +304,6 @@ pub fn record_block_with_final_block_hash(
                 prev_h,
                 proposals,
                 vec![],
-                vec![],
-                DEFAULT_TOTAL_SUPPLY,
-                PROTOCOL_VERSION,
-                height * NUM_NS_IN_SECOND,
-                None,
-            ),
-            [0; 32],
-        )
-        .unwrap()
-        .commit()
-        .unwrap();
-}
-
-pub fn record_block_with_slashes(
-    epoch_manager: &mut EpochManager,
-    prev_h: CryptoHash,
-    cur_h: CryptoHash,
-    height: BlockHeight,
-    proposals: Vec<ValidatorStake>,
-    slashed: Vec<SlashedValidator>,
-) {
-    epoch_manager
-        .record_block_info(
-            BlockInfo::new(
-                cur_h,
-                height,
-                height.saturating_sub(2),
-                prev_h,
-                prev_h,
-                proposals,
-                vec![],
-                slashed,
                 DEFAULT_TOTAL_SUPPLY,
                 PROTOCOL_VERSION,
                 height * NUM_NS_IN_SECOND,
@@ -357,7 +324,26 @@ pub fn record_block(
     height: BlockHeight,
     proposals: Vec<ValidatorStake>,
 ) {
-    record_block_with_slashes(epoch_manager, prev_h, cur_h, height, proposals, vec![]);
+    epoch_manager
+        .record_block_info(
+            BlockInfo::new(
+                cur_h,
+                height,
+                height.saturating_sub(2),
+                prev_h,
+                prev_h,
+                proposals,
+                vec![],
+                DEFAULT_TOTAL_SUPPLY,
+                PROTOCOL_VERSION,
+                height * NUM_NS_IN_SECOND,
+                None,
+            ),
+            [0; 32],
+        )
+        .unwrap()
+        .commit()
+        .unwrap();
 }
 
 // TODO(#11900): Start using BlockInfoV3 in the tests.
