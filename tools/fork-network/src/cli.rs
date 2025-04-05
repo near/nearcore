@@ -1117,6 +1117,7 @@ impl ForkNetworkCommand {
             minimum_stake_divisor: epoch_config.minimum_stake_divisor,
             protocol_upgrade_stake_threshold: epoch_config.protocol_upgrade_stake_threshold,
             shard_layout,
+            num_chunk_only_producer_seats: epoch_config.num_chunk_only_producer_seats,
             minimum_validators_per_shard: epoch_config.minimum_validators_per_shard,
             minimum_stake_ratio: epoch_config.minimum_stake_ratio,
             shuffle_shard_assignment_for_chunk_producers: epoch_config
@@ -1139,7 +1140,6 @@ impl ForkNetworkCommand {
             num_chunk_validator_seats: epoch_config.num_chunk_validator_seats,
             chunk_producer_assignment_changes_limit: epoch_config
                 .chunk_producer_assignment_changes_limit,
-            num_chunk_only_producer_seats: 300,
         };
 
         let genesis = Genesis::new_from_state_roots(new_config, new_state_roots);
