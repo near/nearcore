@@ -17,7 +17,6 @@ use near_vm_runner::{Contract, ContractCode};
 use near_wallet_contract::wallet_contract;
 use std::sync::Arc;
 
-#[allow(dead_code)]
 pub struct RuntimeExt<'a> {
     pub(crate) trie_update: &'a mut TrieUpdate,
     pub(crate) receipt_manager: &'a mut ReceiptManager,
@@ -26,7 +25,6 @@ pub struct RuntimeExt<'a> {
     action_hash: CryptoHash,
     data_count: u64,
     epoch_id: EpochId,
-    prev_block_hash: CryptoHash,
     last_block_hash: CryptoHash,
     block_height: BlockHeight,
     epoch_info_provider: &'a dyn EpochInfoProvider,
@@ -83,7 +81,7 @@ impl<'a> RuntimeExt<'a> {
         account: Account,
         action_hash: CryptoHash,
         epoch_id: EpochId,
-        prev_block_hash: CryptoHash,
+        _prev_block_hash: CryptoHash,
         last_block_hash: CryptoHash,
         block_height: BlockHeight,
         epoch_info_provider: &'a dyn EpochInfoProvider,
@@ -98,7 +96,6 @@ impl<'a> RuntimeExt<'a> {
             action_hash,
             data_count: 0,
             epoch_id,
-            prev_block_hash,
             last_block_hash,
             block_height,
             epoch_info_provider,
