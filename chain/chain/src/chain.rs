@@ -2357,7 +2357,6 @@ impl Chain {
             return Err(e);
         }
 
-        let protocol_version = self.epoch_manager.get_epoch_protocol_version(header.epoch_id())?;
         if !block.verify_gas_price(
             gas_price,
             self.block_economics_config.min_gas_price(),
@@ -2382,9 +2381,7 @@ impl Chain {
 
         self.validate_chunk_headers(&block, &prev_block)?;
 
-        if ProtocolFeature::StatelessValidation.enabled(protocol_version) {
-            validate_chunk_endorsements_in_block(self.epoch_manager.as_ref(), &block)?;
-        }
+        validate_chunk_endorsements_in_block(self.epoch_manager.as_ref(), &block)?;
 
         self.ping_missing_chunks(me, prev_hash, block)?;
 
@@ -3084,12 +3081,6 @@ impl Chain {
         // Use epoch manager because block is not in DB yet.
         let next_epoch_id =
             self.epoch_manager.get_next_epoch_id_from_prev_block(block_header.prev_hash())?;
-        let next_protocol_version =
-            self.epoch_manager.get_epoch_protocol_version(&next_epoch_id)?;
-        if !ProtocolFeature::StatelessValidation.enabled(next_protocol_version) {
-            // Chunk validation not enabled yet.
-            return Ok(false);
-        }
         let Some(account_id) = me.as_ref() else { return Ok(false) };
         Ok(self.epoch_manager.is_chunk_producer_for_epoch(epoch_id, account_id)?
             || self.epoch_manager.is_chunk_producer_for_epoch(&next_epoch_id, account_id)?)
