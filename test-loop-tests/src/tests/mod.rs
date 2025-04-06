@@ -9,7 +9,6 @@ mod contract_distribution_simple;
 mod create_delete_account;
 mod epoch_sync;
 mod fix_chunk_producer_stake_threshold;
-mod fix_min_stake_ratio;
 mod fix_stake_threshold;
 mod garbage_collection;
 mod global_contracts;
