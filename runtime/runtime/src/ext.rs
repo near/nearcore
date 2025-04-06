@@ -17,6 +17,7 @@ use near_vm_runner::{Contract, ContractCode};
 use near_wallet_contract::wallet_contract;
 use std::sync::Arc;
 
+#[allow(dead_code)]
 pub struct RuntimeExt<'a> {
     pub(crate) trie_update: &'a mut TrieUpdate,
     pub(crate) receipt_manager: &'a mut ReceiptManager,
@@ -321,13 +322,13 @@ impl<'a> External for RuntimeExt<'a> {
 
     fn validator_stake(&self, account_id: &AccountId) -> ExtResult<Option<Balance>> {
         self.epoch_info_provider
-            .validator_stake(&self.epoch_id, &self.prev_block_hash, account_id)
+            .validator_stake(&self.epoch_id, account_id)
             .map_err(|e| ExternalError::ValidatorError(e).into())
     }
 
     fn validator_total_stake(&self) -> ExtResult<Balance> {
         self.epoch_info_provider
-            .validator_total_stake(&self.epoch_id, &self.prev_block_hash)
+            .validator_total_stake(&self.epoch_id)
             .map_err(|e| ExternalError::ValidatorError(e).into())
     }
 

@@ -88,7 +88,6 @@ impl EpochInfoProvider for EpochManagerHandle {
     fn validator_stake(
         &self,
         epoch_id: &EpochId,
-        _last_block_hash: &CryptoHash,
         account_id: &AccountId,
     ) -> Result<Option<Balance>, EpochError> {
         let epoch_manager = self.read();
@@ -96,11 +95,7 @@ impl EpochInfoProvider for EpochManagerHandle {
         Ok(epoch_info.get_validator_id(account_id).map(|id| epoch_info.validator_stake(*id)))
     }
 
-    fn validator_total_stake(
-        &self,
-        epoch_id: &EpochId,
-        _last_block_hash: &CryptoHash,
-    ) -> Result<Balance, EpochError> {
+    fn validator_total_stake(&self, epoch_id: &EpochId) -> Result<Balance, EpochError> {
         let epoch_manager = self.read();
         let epoch_info = epoch_manager.get_epoch_info(epoch_id)?;
         Ok(epoch_info.validators_iter().map(|info| info.stake()).sum())
