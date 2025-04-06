@@ -493,7 +493,6 @@ pub(crate) fn action_implicit_account_creation_transfer(
     account_id: &AccountId,
     deposit: Balance,
     block_height: BlockHeight,
-    current_protocol_version: ProtocolVersion,
     epoch_info_provider: &dyn EpochInfoProvider,
 ) {
     *actor_id = account_id.clone();

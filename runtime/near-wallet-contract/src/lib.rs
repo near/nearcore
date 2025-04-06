@@ -113,7 +113,7 @@ mod tests {
             CryptoHash::from_str("9rmLr4dmrg5M6Ts6tbJyPpbCrNtbL9FCdNv24FcuWP5a").unwrap();
         for id in chain_ids {
             assert!(
-                code_hash_matches_wallet_contract(id, wallet_contract_magic_bytes(id).hash(),),
+                code_hash_matches_wallet_contract(id, wallet_contract_magic_bytes(id).hash()),
                 "Wallet contract magic bytes matches wallet contract"
             );
             assert_eq!(

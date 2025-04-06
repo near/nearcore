@@ -2199,7 +2199,6 @@ fn action_transfer_or_implicit_account_creation(
             receipt.receiver_id(),
             deposit,
             apply_state.block_height,
-            apply_state.current_protocol_version,
             epoch_info_provider,
         );
     })
