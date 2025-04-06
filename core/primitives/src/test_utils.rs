@@ -1072,7 +1072,6 @@ impl EpochInfoProvider for MockEpochInfoProvider {
     fn validator_stake(
         &self,
         _epoch_id: &EpochId,
-        _last_block_hash: &CryptoHash,
         account_id: &AccountId,
     ) -> Result<Option<Balance>, EpochError> {
         Ok(self.validators.get(account_id).cloned())

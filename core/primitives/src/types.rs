@@ -1162,7 +1162,6 @@ pub trait EpochInfoProvider: Send + Sync {
     fn validator_stake(
         &self,
         epoch_id: &EpochId,
-        last_block_hash: &CryptoHash,
         account_id: &AccountId,
     ) -> Result<Option<Balance>, EpochError>;
 
