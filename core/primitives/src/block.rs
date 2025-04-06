@@ -90,7 +90,7 @@ pub enum Block {
 }
 
 impl Block {
-    pub(crate) fn block_from_protocol_version(header: BlockHeader, body: BlockBody) -> Block {
+    pub(crate) fn new_block(header: BlockHeader, body: BlockBody) -> Block {
         // BlockV4 and BlockBodyV2 were introduced in the same protocol version `ChunkValidation`
         // We should not expect BlockV4 to have BlockBodyV1
         match body {
@@ -248,7 +248,7 @@ impl Block {
             chunk_endorsements_bitmap,
         );
 
-        Self::block_from_protocol_version(header, body)
+        Self::new_block(header, body)
     }
 
     pub fn verify_total_supply(

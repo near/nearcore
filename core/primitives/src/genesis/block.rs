@@ -84,7 +84,7 @@ impl Block {
             next_bp_hash,
         );
 
-        Self::block_from_protocol_version(header, body)
+        Self::new_block(header, body)
     }
 
     fn prod_genesis(
