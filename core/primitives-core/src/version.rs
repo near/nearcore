@@ -214,9 +214,11 @@ pub enum ProtocolFeature {
     /// Bring minimum required validator stake effectively to ~10K NEAR as of 2024-08-15.
     /// Fixes increase to 100K NEAR in the previous protocol version.
     /// See #11953 for more details.
-    FixMinStakeRatio,
+    #[deprecated]
+    _DeprecatedFixMinStakeRatio,
     /// Increases main_storage_proof_size_soft_limit parameter from 3mb to 4mb
-    IncreaseStorageProofSizeSoftLimit,
+    #[deprecated]
+    _DeprecatedIncreaseStorageProofSizeSoftLimit,
 
     // Shuffle shard assignments for chunk producers at every epoch.
     ShuffleShardAssignments,
@@ -226,7 +228,8 @@ pub enum ProtocolFeature {
     RemoveAccountWithLongStorageKey,
     /// Change the structure of ChunkEndorsement to have (shard_id, epoch_id, height_created)
     /// instead of chunk_hash
-    ChunkEndorsementV2,
+    #[deprecated]
+    _DeprecatedChunkEndorsementV2,
     // Include a bitmap of endorsements from chunk validator in the block header
     // in order to calculate the rewards and kickouts for the chunk validators.
     // This feature introduces BlockHeaderV5.
@@ -343,9 +346,9 @@ impl ProtocolFeature {
             ProtocolFeature::_DeprecatedStatelessValidation => 69,
             ProtocolFeature::_DeprecatedBLS12381
             | ProtocolFeature::_DeprecatedEthImplicitAccounts => 70,
-            ProtocolFeature::FixMinStakeRatio => 71,
-            ProtocolFeature::IncreaseStorageProofSizeSoftLimit
-            | ProtocolFeature::ChunkEndorsementV2
+            ProtocolFeature::_DeprecatedFixMinStakeRatio => 71,
+            ProtocolFeature::_DeprecatedIncreaseStorageProofSizeSoftLimit
+            | ProtocolFeature::_DeprecatedChunkEndorsementV2
             | ProtocolFeature::ChunkEndorsementsInBlockHeader
             | ProtocolFeature::StateStoredReceipt => 72,
             ProtocolFeature::ExcludeContractCodeFromStateWitness => 73,
