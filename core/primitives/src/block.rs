@@ -14,9 +14,18 @@ use crate::num_rational::Rational32;
 use crate::optimistic_block::OptimisticBlock;
 use crate::sharding::{ChunkHashHeight, ShardChunkHeader, ShardChunkHeaderV1};
 use crate::types::{Balance, BlockHeight, EpochId, Gas};
-use crate::version::ProtocolVersion;
+#[cfg(feature = "clock")]
+use crate::{
+    stateless_validation::chunk_endorsements_bitmap::ChunkEndorsementsBitmap,
+    utils::get_block_metadata,
+};
 use borsh::{BorshDeserialize, BorshSerialize};
+#[cfg(feature = "clock")]
+use itertools::Itertools;
+#[cfg(feature = "clock")]
+use near_primitives_core::types::ProtocolVersion;
 use near_primitives_core::types::ShardIndex;
+#[cfg(feature = "clock")]
 use near_primitives_core::version::ProtocolFeature;
 use near_schema_checker_lib::ProtocolSchema;
 use primitive_types::U256;
@@ -81,36 +90,14 @@ pub enum Block {
 }
 
 impl Block {
-    pub(crate) fn block_from_protocol_version(
-        this_epoch_protocol_version: ProtocolVersion,
-        header: BlockHeader,
-        body: BlockBody,
-    ) -> Block {
-        if !ProtocolFeature::BlockHeaderV4.enabled(this_epoch_protocol_version) {
-            Block::BlockV2(Arc::new(BlockV2 {
-                header,
-                chunks: body.chunks().to_vec(),
-                challenges: body.challenges().to_vec(),
-                vrf_value: *body.vrf_value(),
-                vrf_proof: *body.vrf_proof(),
-            }))
-        } else if !ProtocolFeature::StatelessValidation.enabled(this_epoch_protocol_version) {
-            // BlockV3 should only have BlockBodyV1
-            match body {
-                BlockBody::V1(body) => Block::BlockV3(Arc::new(BlockV3 { header, body })),
-                _ => {
-                    panic!("Attempted to include newer BlockBody version in old protocol version")
-                }
+    pub(crate) fn new_block(header: BlockHeader, body: BlockBody) -> Block {
+        // BlockV4 and BlockBodyV2 were introduced in the same protocol version `ChunkValidation`
+        // We should not expect BlockV4 to have BlockBodyV1
+        match body {
+            BlockBody::V1(_) => {
+                panic!("Attempted to include BlockBodyV1 in new protocol version")
             }
-        } else {
-            // BlockV4 and BlockBodyV2 were introduced in the same protocol version `ChunkValidation`
-            // We should not expect BlockV4 to have BlockBodyV1
-            match body {
-                BlockBody::V1(_) => {
-                    panic!("Attempted to include BlockBodyV1 in new protocol version")
-                }
-                _ => Block::BlockV4(Arc::new(BlockV4 { header, body })),
-            }
+            _ => Block::BlockV4(Arc::new(BlockV4 { header, body })),
         }
     }
 
@@ -141,12 +128,6 @@ impl Block {
         sandbox_delta_time: Option<near_time::Duration>,
         optimistic_block: Option<OptimisticBlock>,
     ) -> Self {
-        use itertools::Itertools;
-
-        use crate::{
-            stateless_validation::chunk_endorsements_bitmap::ChunkEndorsementsBitmap,
-            utils::get_block_metadata,
-        };
         // Collect aggregate of validators and gas usage/limits from chunks.
         let mut prev_validator_proposals = vec![];
         let mut gas_used = 0;
@@ -233,14 +214,7 @@ impl Block {
             None
         };
 
-        let body = BlockBody::new(
-            this_epoch_protocol_version,
-            chunks,
-            challenges,
-            vrf_value,
-            vrf_proof,
-            chunk_endorsements,
-        );
+        let body = BlockBody::new(chunks, challenges, vrf_value, vrf_proof, chunk_endorsements);
         let header = BlockHeader::new(
             this_epoch_protocol_version,
             latest_protocol_version,
@@ -274,7 +248,7 @@ impl Block {
             chunk_endorsements_bitmap,
         );
 
-        Self::block_from_protocol_version(this_epoch_protocol_version, header, body)
+        Self::new_block(header, body)
     }
 
     pub fn verify_total_supply(
