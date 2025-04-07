@@ -33,6 +33,7 @@ NEAR_HOME="${NEAR_HOME:-/home/ubuntu/.near}"
 GENESIS=${NEAR_HOME}/genesis.json
 CONFIG=${NEAR_HOME}/config.json
 LOG_CONFIG=${NEAR_HOME}/log_config.json
+GENESIS_TIME="${GENESIS_TIME:-2025-04-04T14:24:06.156907Z}"
 
 BASE_GENESIS_PATCH=${CASE}/$(jq -r '.base_genesis_patch' ${BM_PARAMS})
 BASE_CONFIG_PATCH=${CASE}/$(jq -r '.base_config_patch' ${BM_PARAMS})
@@ -278,7 +279,8 @@ init() {
 
 edit_genesis() {
     echo "editing ${1}"
-    jq 'del(.shard_layout.V1)' ${1} >tmp.$$.json && mv tmp.$$.json ${1} || rm tmp.$$.json
+    jq --arg time "${GENESIS_TIME}" \
+        'del(.shard_layout.V1) | .genesis_time = $time' ${1} >tmp.$$.json && mv tmp.$$.json ${1} || rm tmp.$$.json
     
     if [ -f "${BASE_GENESIS_PATCH}" ]; then
         jq -s 'reduce .[] as $item ({}; . * $item)' \
