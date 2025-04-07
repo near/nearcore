@@ -173,7 +173,8 @@ pub enum ProtocolFeature {
     /// Enables Near-Vm. Note that this setting is not at all supported without PreparationV2,
     /// as it hardcodes preparation v2 code into the generated assembly.
     NearVmRuntime,
-    BlockHeaderV4,
+    #[deprecated]
+    _DeprecatedBlockHeaderV4,
     /// Resharding V2. A new implementation for resharding and a new shard
     /// layout for the production networks.
     SimpleNightshadeV2,
@@ -333,7 +334,7 @@ impl ProtocolFeature {
             ProtocolFeature::_DeprecatedComputeCosts
             | ProtocolFeature::_DeprecatedFlatStorageReads => 61,
             ProtocolFeature::PreparationV2 | ProtocolFeature::NearVmRuntime => 62,
-            ProtocolFeature::BlockHeaderV4 => 63,
+            ProtocolFeature::_DeprecatedBlockHeaderV4 => 63,
             ProtocolFeature::_DeprecatedRestrictTla
             | ProtocolFeature::_DeprecatedTestnetFewerBlockProducers
             | ProtocolFeature::SimpleNightshadeV2 => 64,
