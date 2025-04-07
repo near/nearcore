@@ -10,7 +10,7 @@ use near_async::time;
 use near_crypto::{InMemorySigner, KeyType, SecretKey, Signer};
 use near_primitives::block::{Block, BlockHeader};
 use near_primitives::challenge::{BlockDoubleSign, Challenge, ChallengeBody};
-use near_primitives::genesis::genesis_chunks;
+use near_primitives::genesis::{genesis_block, genesis_chunks};
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::num_rational::Ratio;
@@ -30,7 +30,7 @@ use std::net;
 use std::sync::Arc;
 
 pub fn make_genesis_block(clock: &time::Clock, chunks: Vec<ShardChunk>) -> Block {
-    Block::genesis(
+    genesis_block(
         version::PROTOCOL_VERSION,
         chunks.into_iter().map(|c| c.take_header()).collect(),
         clock.now_utc(),
@@ -211,7 +211,7 @@ impl ChunkSet {
         // Consider making this more realistic.
         let chunks = genesis_chunks(
             vec![StateRoot::new()],
-            vec![Some(Default::default()); shard_ids.len()],
+            vec![Default::default(); shard_ids.len()],
             &shard_ids,
             1000,
             0,
