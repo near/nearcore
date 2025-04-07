@@ -143,7 +143,7 @@ impl Client {
             // that defeats the purpose of this check being a debugging
             // mechanism.)
             applied_receipts_hash,
-            prev_chunk.transactions().to_vec(),
+            prev_chunk.to_transactions().to_vec(),
             implicit_transitions,
         );
         Ok(CreateWitnessResult { state_witness, contract_updates, main_transition_shard_id })

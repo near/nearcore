@@ -554,7 +554,7 @@ impl<'a> ChainStoreUpdate<'a> {
                 // 1. Delete chunk-related data
                 let chunk = self.get_chunk(&chunk_hash)?.clone();
                 debug_assert_eq!(chunk.cloned_header().height_created(), height);
-                for transaction in chunk.transactions() {
+                for transaction in chunk.to_transactions() {
                     self.gc_col(DBCol::Transactions, transaction.get_hash().as_bytes());
                 }
 
@@ -885,7 +885,7 @@ impl<'a> ChainStoreUpdate<'a> {
             // 1. Delete chunk-related data
             let chunk = self.get_chunk(&chunk_hash)?.clone();
             debug_assert_eq!(chunk.cloned_header().height_created(), height);
-            for transaction in chunk.transactions() {
+            for transaction in chunk.to_transactions() {
                 self.gc_col(DBCol::Transactions, transaction.get_hash().as_bytes());
             }
 
