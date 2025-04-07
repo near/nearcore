@@ -18,7 +18,7 @@ run-localnet loglevel="info":
     RUST_LOG={{loglevel}} \
     {{neard}} --home {{near_localnet_home}} run
 
-create-accounts num_accounts="10000":
+create-accounts num_accounts="50000":
     #!/bin/bash
     {{neard}} --home {{near_localnet_home}} run &
     NEARD_PID=$!
@@ -32,7 +32,7 @@ create-accounts num_accounts="10000":
         --num-sub-accounts {{num_accounts}} \
         --deposit 953060601875000000010000 \
         --channel-buffer-size 1200 \
-        --requests-per-second 100  \
+        --requests-per-second 500  \
         --user-data-dir user-data
     kill ${NEARD_PID}
     
