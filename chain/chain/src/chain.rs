@@ -87,7 +87,7 @@ use near_primitives::types::{
     ShardIndex,
 };
 use near_primitives::utils::MaybeValidated;
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
+use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{
     BlockStatusView, DroppedReason, ExecutionOutcomeWithIdView, ExecutionStatusView,
     FinalExecutionOutcomeView, FinalExecutionOutcomeWithReceiptView, FinalExecutionStatus,
