@@ -570,7 +570,6 @@ fn test_bad_import_2() {
 }
 
 #[test]
-#[allow(deprecated)]
 fn test_bad_import_3() {
     test_builder()
         .wasm(&bad_import_global("env"))
@@ -651,7 +650,6 @@ static EXTERNAL_CALL_CONTRACT: &str = r#"
 )"#;
 
 #[test]
-#[allow(deprecated)]
 fn test_external_call_ok() {
     test_builder()
         .wat(EXTERNAL_CALL_CONTRACT)
@@ -678,7 +676,6 @@ fn test_external_call_error() {
 }
 
 #[test]
-#[allow(deprecated)]
 fn test_external_call_indirect() {
     test_builder()
         .wat(
@@ -713,7 +710,6 @@ fn test_external_call_indirect() {
 
 /// Load from address so far out of bounds that it causes integer overflow.
 #[test]
-#[allow(deprecated)]
 fn test_address_overflow() {
     let code = r#"
         (module
@@ -753,7 +749,6 @@ fn test_address_overflow() {
 ///
 /// We solve this problem by canonicalizing NaNs.
 #[test]
-#[allow(deprecated)]
 fn test_nan_sign() {
     let code = r#"
 (module

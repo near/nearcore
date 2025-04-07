@@ -2,7 +2,6 @@ use crate::tests::test_builder::test_builder;
 use expect_test::expect;
 
 #[test]
-#[allow(deprecated)]
 fn memory_size_alignment_issue() {
     test_builder()
         .wat(
@@ -20,7 +19,8 @@ fn memory_size_alignment_issue() {
         )
         .method("foo")
         .protocol_features(&[
-            near_primitives_core::version::ProtocolFeature::_DeprecatedPreparationV2,
+          #[allow(deprecated)]
+          near_primitives_core::version::ProtocolFeature::_DeprecatedPreparationV2,
         ])
         .expects(&[
             expect![[r#"
