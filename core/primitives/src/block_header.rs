@@ -245,6 +245,7 @@ pub struct BlockHeaderInnerRestV5 {
     /// Root hash of the chunk transactions in the given block.
     pub chunk_tx_root: MerkleHash,
     /// Root hash of the challenges in the given block.
+    #[deprecated]
     pub challenges_root: MerkleHash,
     /// The output of the randomness beacon
     pub random_value: CryptoHash,
@@ -572,7 +573,6 @@ impl BlockHeader {
 
     /// Creates BlockHeader for a newly produced block.
     pub fn new(
-        this_epoch_protocol_version: ProtocolVersion,
         latest_protocol_version: ProtocolVersion,
         height: BlockHeight,
         prev_hash: CryptoHash,
@@ -583,7 +583,6 @@ impl BlockHeader {
         chunk_tx_root: MerkleHash,
         outcome_root: MerkleHash,
         timestamp: u64,
-        challenges_root: MerkleHash,
         random_value: CryptoHash,
         prev_validator_proposals: Vec<ValidatorStake>,
         chunk_mask: Vec<bool>,
@@ -592,7 +591,6 @@ impl BlockHeader {
         next_epoch_id: EpochId,
         next_gas_price: Balance,
         total_supply: Balance,
-        challenges_result: ChallengesResult,
         signer: &ValidatorSigner,
         last_final_block: CryptoHash,
         last_ds_final_block: CryptoHash,
@@ -604,7 +602,6 @@ impl BlockHeader {
         chunk_endorsements: Option<ChunkEndorsementsBitmap>,
     ) -> Self {
         Self::new_impl(
-            this_epoch_protocol_version,
             latest_protocol_version,
             height,
             prev_hash,
@@ -615,7 +612,6 @@ impl BlockHeader {
             chunk_tx_root,
             outcome_root,
             timestamp,
-            challenges_root,
             random_value,
             prev_validator_proposals,
             chunk_mask,
@@ -624,7 +620,6 @@ impl BlockHeader {
             next_epoch_id,
             next_gas_price,
             total_supply,
-            challenges_result,
             SignatureSource::Signer(signer),
             last_final_block,
             last_ds_final_block,
@@ -650,7 +645,6 @@ impl BlockHeader {
         chunk_tx_root: MerkleHash,
         outcome_root: MerkleHash,
         timestamp: u64,
-        challenges_root: MerkleHash,
         random_value: CryptoHash,
         prev_validator_proposals: Vec<ValidatorStake>,
         chunk_mask: Vec<bool>,
@@ -659,7 +653,6 @@ impl BlockHeader {
         next_epoch_id: EpochId,
         next_gas_price: Balance,
         total_supply: Balance,
-        challenges_result: ChallengesResult,
         signature: Signature,
         last_final_block: CryptoHash,
         last_ds_final_block: CryptoHash,
@@ -672,7 +665,6 @@ impl BlockHeader {
     ) -> Self {
         let header = Self::new_impl(
             epoch_protocol_version,
-            epoch_protocol_version,
             height,
             prev_hash,
             block_body_hash,
@@ -682,7 +674,6 @@ impl BlockHeader {
             chunk_tx_root,
             outcome_root,
             timestamp,
-            challenges_root,
             random_value,
             prev_validator_proposals,
             chunk_mask,
@@ -691,7 +682,6 @@ impl BlockHeader {
             next_epoch_id,
             next_gas_price,
             total_supply,
-            challenges_result,
             SignatureSource::Signature(signature),
             last_final_block,
             last_ds_final_block,
@@ -713,7 +703,6 @@ impl BlockHeader {
 
     /// Common logic for generating BlockHeader for different purposes, including new blocks, from views, and for genesis block
     fn new_impl(
-        _this_epoch_protocol_version: ProtocolVersion,
         latest_protocol_version: ProtocolVersion,
         height: BlockHeight,
         prev_hash: CryptoHash,
@@ -724,7 +713,6 @@ impl BlockHeader {
         chunk_tx_root: MerkleHash,
         outcome_root: MerkleHash,
         timestamp: u64,
-        challenges_root: MerkleHash,
         random_value: CryptoHash,
         prev_validator_proposals: Vec<ValidatorStake>,
         chunk_mask: Vec<bool>,
@@ -733,7 +721,6 @@ impl BlockHeader {
         next_epoch_id: EpochId,
         next_gas_price: Balance,
         total_supply: Balance,
-        challenges_result: ChallengesResult,
         signature_source: SignatureSource,
         last_final_block: CryptoHash,
         last_ds_final_block: CryptoHash,
@@ -758,19 +745,20 @@ impl BlockHeader {
         let chunk_endorsements = chunk_endorsements.unwrap_or_else(|| {
             panic!("BlockHeaderV5 is enabled but chunk endorsement bitmap is not provided")
         });
+        #[allow(deprecated)]
         let inner_rest = BlockHeaderInnerRestV5 {
             block_body_hash,
             prev_chunk_outgoing_receipts_root,
             chunk_headers_root,
             chunk_tx_root,
-            challenges_root,
+            challenges_root: CryptoHash::default(),
             random_value,
             prev_validator_proposals,
             chunk_mask,
             next_gas_price,
             block_ordinal,
             total_supply,
-            challenges_result,
+            challenges_result: vec![],
             last_final_block,
             last_ds_final_block,
             prev_height,
@@ -823,7 +811,6 @@ impl BlockHeader {
         chunk_headers_root: MerkleHash,
         chunk_tx_root: MerkleHash,
         num_shards: u64,
-        challenges_root: MerkleHash,
         timestamp: Utc,
         initial_gas_price: Balance,
         initial_total_supply: Balance,
@@ -831,7 +818,6 @@ impl BlockHeader {
     ) -> Self {
         let chunks_included = if height == 0 { num_shards } else { 0 };
         Self::new_impl(
-            genesis_protocol_version,
             genesis_protocol_version,
             height,
             CryptoHash::default(), // prev_hash
@@ -842,7 +828,6 @@ impl BlockHeader {
             chunk_tx_root,
             CryptoHash::default(), // prev_outcome_root
             timestamp.unix_timestamp_nanos() as u64,
-            challenges_root,
             CryptoHash::default(),                // random_value
             vec![],                               // prev_validator_proposals
             vec![true; chunks_included as usize], // chunk_mask
@@ -851,7 +836,6 @@ impl BlockHeader {
             EpochId::default(), // next_epoch_id
             initial_gas_price,
             initial_total_supply,
-            vec![], // challenges_result
             SignatureSource::Signature(Signature::empty(KeyType::ED25519)),
             CryptoHash::default(), // last_final_block
             CryptoHash::default(), // last_ds_final_block
@@ -1012,17 +996,6 @@ impl BlockHeader {
     }
 
     #[inline]
-    pub fn challenges_root(&self) -> &MerkleHash {
-        match self {
-            BlockHeader::BlockHeaderV1(header) => &header.inner_rest.challenges_root,
-            BlockHeader::BlockHeaderV2(header) => &header.inner_rest.challenges_root,
-            BlockHeader::BlockHeaderV3(header) => &header.inner_rest.challenges_root,
-            BlockHeader::BlockHeaderV4(header) => &header.inner_rest.challenges_root,
-            BlockHeader::BlockHeaderV5(header) => &header.inner_rest.challenges_root,
-        }
-    }
-
-    #[inline]
     pub fn outcome_root(&self) -> &MerkleHash {
         match self {
             BlockHeader::BlockHeaderV1(header) => &header.inner_lite.prev_outcome_root,
@@ -1150,17 +1123,6 @@ impl BlockHeader {
             BlockHeader::BlockHeaderV3(header) => &header.inner_rest.last_ds_final_block,
             BlockHeader::BlockHeaderV4(header) => &header.inner_rest.last_ds_final_block,
             BlockHeader::BlockHeaderV5(header) => &header.inner_rest.last_ds_final_block,
-        }
-    }
-
-    #[inline]
-    pub fn challenges_result(&self) -> &ChallengesResult {
-        match self {
-            BlockHeader::BlockHeaderV1(header) => &header.inner_rest.challenges_result,
-            BlockHeader::BlockHeaderV2(header) => &header.inner_rest.challenges_result,
-            BlockHeader::BlockHeaderV3(header) => &header.inner_rest.challenges_result,
-            BlockHeader::BlockHeaderV4(header) => &header.inner_rest.challenges_result,
-            BlockHeader::BlockHeaderV5(header) => &header.inner_rest.challenges_result,
         }
     }
 

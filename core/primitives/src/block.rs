@@ -1,7 +1,7 @@
 use crate::bandwidth_scheduler::BlockBandwidthRequests;
 use crate::block::BlockValidityError::{
-    InvalidChallengeRoot, InvalidChunkHeaderRoot, InvalidChunkMask, InvalidReceiptRoot,
-    InvalidStateRoot, InvalidTransactionRoot,
+    InvalidChunkHeaderRoot, InvalidChunkMask, InvalidReceiptRoot, InvalidStateRoot,
+    InvalidTransactionRoot,
 };
 use crate::block_body::{BlockBody, BlockBodyV1, ChunkEndorsementSignatures};
 pub use crate::block_header::*;
@@ -102,7 +102,6 @@ impl Block {
     /// Produces new block from header of previous block, current state root and set of transactions.
     #[cfg(feature = "clock")]
     pub fn produce(
-        this_epoch_protocol_version: ProtocolVersion,
         latest_protocol_version: ProtocolVersion,
         prev: &BlockHeader,
         height: BlockHeight,
@@ -117,8 +116,6 @@ impl Block {
         min_gas_price: Balance,
         max_gas_price: Balance,
         minted_amount: Option<Balance>,
-        challenges_result: crate::challenge::ChallengesResult,
-        challenges: Challenges,
         signer: &crate::validator_signer::ValidatorSigner,
         next_bp_hash: CryptoHash,
         block_merkle_root: CryptoHash,
@@ -206,9 +203,8 @@ impl Block {
                 .collect_vec(),
         ));
 
-        let body = BlockBody::new(chunks, challenges, vrf_value, vrf_proof, chunk_endorsements);
+        let body = BlockBody::new(chunks, vrf_value, vrf_proof, chunk_endorsements);
         let header = BlockHeader::new(
-            this_epoch_protocol_version,
             latest_protocol_version,
             height,
             *prev.hash(),
@@ -219,7 +215,6 @@ impl Block {
             Block::compute_chunk_tx_root(body.chunks()),
             Block::compute_outcome_root(body.chunks()),
             time,
-            Block::compute_challenges_root(body.challenges()),
             random_value,
             prev_validator_proposals,
             chunk_mask,
@@ -228,7 +223,6 @@ impl Block {
             next_epoch_id,
             next_gas_price,
             new_total_supply,
-            challenges_result,
             signer,
             *last_final_block,
             *last_ds_final_block,
@@ -365,10 +359,6 @@ impl Block {
         .0
     }
 
-    pub fn compute_challenges_root(challenges: &Challenges) -> CryptoHash {
-        merklize(&challenges.iter().map(|challenge| challenge.hash).collect::<Vec<CryptoHash>>()).0
-    }
-
     pub fn compute_gas_used<'a, T: IntoIterator<Item = &'a ShardChunkHeader>>(
         chunks: T,
         height: BlockHeight,
@@ -411,16 +401,6 @@ impl Block {
 
     pub fn chunks(&self) -> Chunks {
         Chunks::new(&self)
-    }
-
-    #[inline]
-    pub fn challenges(&self) -> &Challenges {
-        match self {
-            Block::BlockV1(block) => &block.challenges,
-            Block::BlockV2(block) => &block.challenges,
-            Block::BlockV3(block) => &block.body.challenges,
-            Block::BlockV4(block) => block.body.challenges(),
-        }
     }
 
     #[inline]
@@ -513,12 +493,6 @@ impl Block {
             .collect();
         if self.header().chunk_mask() != &chunk_mask[..] {
             return Err(InvalidChunkMask);
-        }
-
-        // Check that challenges root stored in the header matches the challenges root of the challenges
-        let challenges_root = Block::compute_challenges_root(self.challenges());
-        if self.header().challenges_root() != &challenges_root {
-            return Err(InvalidChallengeRoot);
         }
 
         Ok(())
