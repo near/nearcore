@@ -93,7 +93,8 @@ impl StandaloneRuntime {
             &genesis,
             account_ids,
         );
-        let congestion_info = if ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
+        #[allow(deprecated)]
+        let congestion_info = if ProtocolFeature::_DeprecatedCongestionControl.enabled(PROTOCOL_VERSION) {
             genesis
                 .config
                 .shard_layout

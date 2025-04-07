@@ -21,7 +21,7 @@ use near_primitives::state_record::StateRecord;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{AccountId, Balance, EpochId, ShardId, StateChangeCause, StateRoot};
 use near_primitives::utils::to_timestamp;
-use near_primitives::version::ProtocolFeature;
+
 use near_store::adapter::StoreUpdateAdapter;
 use near_store::genesis::{compute_storage_usage, initialize_genesis_state};
 use near_store::trie::update::TrieUpdateResult;
@@ -310,7 +310,7 @@ impl GenesisBuilder {
 
     fn get_congestion_info(
         &self,
-        protocol_version: ProtocolVersion,
+        _protocol_version: ProtocolVersion,
         genesis: &Block,
         shard_id: ShardId,
         state_root: CryptoHash,

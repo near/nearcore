@@ -326,9 +326,7 @@ pub enum ShardChunkHeader {
 
 impl ShardChunkHeader {
     pub fn new_dummy(height: BlockHeight, shard_id: ShardId, prev_block_hash: CryptoHash) -> Self {
-        let congestion_info = ProtocolFeature::CongestionControl
-            .enabled(PROTOCOL_VERSION)
-            .then_some(CongestionInfo::default());
+        let congestion_info = Some(CongestionInfo::default());
 
         ShardChunkHeader::V3(ShardChunkHeaderV3::new(
             PROTOCOL_VERSION,
@@ -558,8 +556,9 @@ impl ShardChunkHeader {
         &self,
         version: ProtocolVersion,
     ) -> Result<(), BadHeaderForProtocolVersionError> {
+        #[allow(deprecated)]
         const CONGESTION_CONTROL_VERSION: ProtocolVersion =
-            ProtocolFeature::CongestionControl.protocol_version();
+            ProtocolFeature::_DeprecatedCongestionControl.protocol_version();
         const BANDWIDTH_SCHEDULER_VERSION: ProtocolVersion =
             ProtocolFeature::BandwidthScheduler.protocol_version();
 

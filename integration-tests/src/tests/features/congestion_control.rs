@@ -48,7 +48,8 @@ fn set_wasm_cost(config: &mut RuntimeConfig) {
 // This is important to prevent needing to fix the congestion control tests
 // every time the parameters are updated.
 fn set_default_congestion_control(config_store: &RuntimeConfigStore, config: &mut RuntimeConfig) {
-    let cc_protocol_version = ProtocolFeature::CongestionControl.protocol_version();
+    #[allow(deprecated)]
+    let cc_protocol_version = ProtocolFeature::_DeprecatedCongestionControl.protocol_version();
     let cc_config = get_runtime_config(&config_store, cc_protocol_version);
     config.congestion_control_config = cc_config.congestion_control_config;
 }
@@ -277,7 +278,8 @@ fn test_transaction_limit_for_local_congestion() {
     init_test_logger();
 
     // Fix the initial configuration of congestion control for the tests.
-    let protocol_version = ProtocolFeature::CongestionControl.protocol_version();
+    #[allow(deprecated)]
+    let protocol_version = ProtocolFeature::_DeprecatedCongestionControl.protocol_version();
     // We don't want to go into the TX rejection limit in this test.
     let upper_limit_congestion = UpperLimitCongestion::BelowRejectThreshold;
 

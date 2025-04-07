@@ -118,7 +118,8 @@ fn create_benchmark_receipts() -> Vec<Receipt> {
 }
 
 fn create_chunk_header(height: u64, shard_id: ShardId) -> ShardChunkHeader {
-    let congestion_info = ProtocolFeature::CongestionControl
+    #[allow(deprecated)]
+    let congestion_info = ProtocolFeature::_DeprecatedCongestionControl
         .enabled(PROTOCOL_VERSION)
         .then_some(CongestionInfo::default());
 
@@ -192,7 +193,8 @@ fn create_encoded_shard_chunk(
 ) -> (EncodedShardChunk, Vec<Vec<MerklePathItem>>, Vec<Receipt>) {
     let rs = ReedSolomon::new(33, 67).unwrap();
 
-    let congestion_info = ProtocolFeature::CongestionControl
+    #[allow(deprecated)]
+    let congestion_info = ProtocolFeature::_DeprecatedCongestionControl
         .enabled(PROTOCOL_VERSION)
         .then_some(CongestionInfo::default());
 

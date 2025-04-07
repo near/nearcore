@@ -2843,7 +2843,8 @@ fn test_block_and_chunk_producer_not_kicked_out_for_low_endorsements() {
 }
 
 fn test_chunk_header(h: &[CryptoHash], signer: &ValidatorSigner) -> ShardChunkHeader {
-    let congestion_info = ProtocolFeature::CongestionControl
+    #[allow(deprecated)]
+    let congestion_info = ProtocolFeature::_DeprecatedCongestionControl
         .enabled(PROTOCOL_VERSION)
         .then_some(CongestionInfo::default());
     ShardChunkHeader::V3(ShardChunkHeaderV3::new(

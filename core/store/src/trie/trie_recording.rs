@@ -363,7 +363,8 @@ mod trie_recording_tests {
             &trie_changes,
         );
 
-        let congestion_info = ProtocolFeature::CongestionControl
+        #[allow(deprecated)]
+        let congestion_info = ProtocolFeature::_DeprecatedCongestionControl
             .enabled(PROTOCOL_VERSION)
             .then(CongestionInfo::default);
 
