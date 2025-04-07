@@ -149,7 +149,8 @@ fn slow_test_limit_contract_functions_number() {
         .make(),
     )
     .protocol_features(&[
-        ProtocolFeature::PreparationV2,
+        #[allow(deprecated)]
+        ProtocolFeature::_DeprecatedPreparationV2,
     ])
     .protocol_version(FIX_CONTRACT_LOADING_COST)
     .expects(&[
@@ -172,7 +173,8 @@ fn slow_test_limit_contract_functions_number() {
         .make(),
     )
     .protocol_features(&[
-        ProtocolFeature::PreparationV2,
+        #[allow(deprecated)]
+        ProtocolFeature::_DeprecatedPreparationV2,
     ])
     .protocol_version(FIX_CONTRACT_LOADING_COST)
     .expects(&[
@@ -200,7 +202,8 @@ fn slow_test_limit_contract_functions_number() {
             .make(),
         )
         .protocol_features(&[
-            ProtocolFeature::PreparationV2,
+            #[allow(deprecated)]
+            ProtocolFeature::_DeprecatedPreparationV2,
         ])
         .protocol_version(
             FIX_CONTRACT_LOADING_COST
@@ -230,7 +233,8 @@ fn slow_test_limit_contract_functions_number() {
             .make(),
         )
         .protocol_features(&[
-            ProtocolFeature::PreparationV2,
+            #[allow(deprecated)]
+            ProtocolFeature::_DeprecatedPreparationV2,
 
         ])
         .protocol_version(FIX_CONTRACT_LOADING_COST)
@@ -262,7 +266,8 @@ fn test_limit_locals() {
             .make(),
         )
         .protocol_features(&[
-            ProtocolFeature::PreparationV2,
+            #[allow(deprecated)]
+            ProtocolFeature::_DeprecatedPreparationV2,
         ])
 
         .protocol_version(
@@ -294,7 +299,8 @@ fn test_limit_locals() {
         )
         .opaque_error()
         .protocol_features(&[
-            ProtocolFeature::PreparationV2,
+            #[allow(deprecated)]
+            ProtocolFeature::_DeprecatedPreparationV2,
         ])
         .expects(&[
             expect![[r#"
@@ -319,7 +325,8 @@ fn slow_test_limit_locals_global() {
     .protocol_features(&[
         #[allow(deprecated)]
         ProtocolFeature::_DeprecatedLimitContractLocals,
-        ProtocolFeature::PreparationV2,
+        #[allow(deprecated)]
+        ProtocolFeature::_DeprecatedPreparationV2,
     ])
     .protocol_version(FIX_CONTRACT_LOADING_COST,)
     .expects(&[
@@ -351,7 +358,8 @@ fn slow_test_limit_locals_global() {
         )
         .opaque_error()
         .protocol_features(&[
-            ProtocolFeature::PreparationV2,
+            #[allow(deprecated)]
+            ProtocolFeature::_DeprecatedPreparationV2,
         ])
         .expects(&[
             expect![[r#"
@@ -375,7 +383,8 @@ pub fn test_stabilized_host_function() {
 )"#,
         )
         .protocol_features(&[
-            ProtocolFeature::PreparationV2,
+            #[allow(deprecated)]
+            ProtocolFeature::_DeprecatedPreparationV2,
         ])
         .opaque_error()
         .expects(&[
@@ -447,7 +456,10 @@ fn extension_signext() {
             )
             "#,
         )
-        .protocol_features(&[ProtocolFeature::PreparationV2]);
+        .protocol_features(&[
+            #[allow(deprecated)]
+            ProtocolFeature::_DeprecatedPreparationV2,
+        ]);
     tb.expects(&[
         expect![[r#"
             VMOutcome: balance 4 storage_usage 12 return data None burnt gas 0 used gas 0

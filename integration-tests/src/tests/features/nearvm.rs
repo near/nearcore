@@ -16,16 +16,12 @@ use crate::utils::process_blocks::deploy_test_contract;
 fn test_nearvm_upgrade() {
     let mut capture = near_o11y::testonly::TracingCapture::enable();
 
-    let old_protocol_version =
-        near_primitives::version::ProtocolFeature::NearVmRuntime.protocol_version() - 1;
-
     // Prepare TestEnv with a contract at the old protocol version.
     let mut env = {
         let epoch_length = 5;
         let mut genesis =
             Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
         genesis.config.epoch_length = epoch_length;
-        genesis.config.protocol_version = old_protocol_version;
         let mut env = TestEnv::builder(&genesis.config)
             .nightshade_runtimes_with_runtime_config_store(
                 &genesis,
@@ -59,29 +55,8 @@ fn test_nearvm_upgrade() {
         block_hash: CryptoHash::default(),
     };
 
-    // Run the transaction & collect the logs.
-    let logs_at_old_version = {
-        let tip = env.clients[0].chain.head().unwrap();
-        let signed_transaction = Transaction::V0(TransactionV0 {
-            nonce: 10,
-            block_hash: tip.last_block_hash,
-            ..tx.clone()
-        })
-        .sign(&signer);
-        assert_eq!(
-            env.tx_request_handlers[0].process_tx(signed_transaction, false, false),
-            ProcessTxResponse::ValidTx
-        );
-        for i in 0..3 {
-            env.produce_block(0, tip.height + i + 1);
-        }
-        capture.drain()
-    };
-
-    env.upgrade_protocol_to_latest_version();
-
     // Re-run the transaction.
-    let logs_at_new_version = {
+    let logs = {
         let tip = env.clients[0].chain.head().unwrap();
         let signed_transaction =
             Transaction::V0(TransactionV0 { nonce: 11, block_hash: tip.last_block_hash, ..tx })
@@ -96,14 +71,5 @@ fn test_nearvm_upgrade() {
         capture.drain()
     };
 
-    assert!(
-        logs_at_old_version.iter().any(|l| l.contains(&"Wasmer2VM::run_method")),
-        "{:#?}",
-        logs_at_old_version
-    );
-    assert!(
-        logs_at_new_version.iter().any(|l| l.contains(&"NearVM::run_method")),
-        "{:#?}",
-        logs_at_new_version
-    );
+    assert!(logs.iter().any(|l| l.contains(&"NearVM::run_method")), "{:#?}", logs);
 }
