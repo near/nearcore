@@ -1027,10 +1027,17 @@ impl ShardChunk {
     }
 
     #[inline]
-    pub fn transactions(&self) -> &[SignedTransaction] {
+    pub fn to_transactions(&self) -> &[SignedTransaction] {
         match self {
             Self::V1(chunk) => &chunk.transactions,
             Self::V2(chunk) => &chunk.transactions,
+        }
+    }
+
+    pub fn into_transactions(self) -> Vec<SignedTransaction> {
+        match self {
+            Self::V1(chunk) => chunk.transactions,
+            Self::V2(chunk) => chunk.transactions,
         }
     }
 
