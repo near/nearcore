@@ -1964,7 +1964,7 @@ impl ShardsManagerActor {
         prev_balance_burnt: Balance,
         prev_validator_proposals: Vec<ValidatorStake>,
         transactions: Vec<SignedTransaction>,
-        prev_outgoing_receipts: &[Receipt],
+        prev_outgoing_receipts: Vec<Receipt>,
         prev_outgoing_receipts_root: CryptoHash,
         tx_root: CryptoHash,
         congestion_info: Option<CongestionInfo>,
@@ -1972,7 +1972,7 @@ impl ShardsManagerActor {
         signer: &ValidatorSigner,
         rs: &ReedSolomon,
         protocol_version: ProtocolVersion,
-    ) -> (EncodedShardChunk, Vec<MerklePath>) {
+    ) -> (EncodedShardChunk, Vec<MerklePath>, Vec<Receipt>) {
         EncodedShardChunk::new(
             prev_block_hash,
             prev_state_root,
