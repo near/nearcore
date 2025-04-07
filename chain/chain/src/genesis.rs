@@ -9,7 +9,9 @@ use near_primitives::block::{Block, Tip};
 use near_primitives::chains::{MAINNET, TESTNET};
 use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::epoch_block_info::BlockInfo;
-use near_primitives::genesis::{genesis_block, genesis_chunks, prod_genesis_chunks};
+use near_primitives::genesis::{
+    genesis_block, genesis_chunks, prod_genesis_block, prod_genesis_chunks,
+};
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::ShardChunk;
@@ -87,8 +89,7 @@ impl Chain {
 
         let validator_stakes =
             epoch_manager.get_epoch_block_producers_ordered(&EpochId::default())?;
-        let genesis_block = genesis_block(
-            chain_genesis.protocol_version,
+        let genesis_block = prod_genesis_block(
             genesis_chunks.iter().map(|chunk| chunk.cloned_header()).collect(),
             chain_genesis.time,
             chain_genesis.height,
