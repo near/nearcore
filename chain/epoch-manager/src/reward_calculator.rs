@@ -108,9 +108,6 @@ impl RewardCalculator {
                 < online_min_numer * average_produced_denom
                 || expected_chunks == 0
                 || expected_blocks == 0
-            // This is for backwards compatibility. In 2021 December, after we changed to 4 shards,
-            // mainnet was ran without SynchronizeBlockChunkProduction for some time and it's
-            // possible that some validators have expected blocks or chunks to be zero.
             {
                 0
             } else {
