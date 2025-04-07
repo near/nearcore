@@ -774,8 +774,8 @@ fn measure_tx_limit(
 
         let remote_chunk = head_chunk(&env, remote_shard_id);
         let contract_chunk = head_chunk(&env, contract_shard_id);
-        let remote_num_tx = remote_chunk.transactions().len();
-        let local_num_tx = contract_chunk.transactions().len();
+        let remote_num_tx = remote_chunk.to_transactions().len();
+        let local_num_tx = contract_chunk.to_transactions().len();
 
         if i == 2 {
             remote_tx_included_without_congestion = remote_num_tx;
@@ -811,8 +811,8 @@ fn measure_tx_limit(
     env.produce_block(0, tip.height + 2);
     let remote_chunk = head_chunk(&env, remote_shard_id);
     let local_chunk = head_chunk(&env, contract_shard_id);
-    let remote_tx_included_with_congestion = remote_chunk.transactions().len();
-    let local_tx_included_with_congestion = local_chunk.transactions().len();
+    let remote_tx_included_with_congestion = remote_chunk.to_transactions().len();
+    let local_tx_included_with_congestion = local_chunk.to_transactions().len();
     (
         remote_tx_included_without_congestion,
         local_tx_included_without_congestion,
