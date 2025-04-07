@@ -107,7 +107,7 @@ pub fn apply_chunk(
     let prev_block_hash = chunk_header.prev_block_hash();
     let prev_state_root = chunk.prev_state_root();
 
-    let transactions = chunk.transactions().to_vec();
+    let transactions = chunk.to_transactions().to_vec();
     let prev_block =
         chain_store.get_block(prev_block_hash).context("Failed getting chunk's prev block")?;
     let prev_epoch_id = prev_block.header().epoch_id();
@@ -234,7 +234,7 @@ fn find_tx_or_receipt(
         let shard_id = shard_layout.get_shard_id(shard_index).unwrap();
         let chunk =
             chain_store.get_chunk(chunk_hash).context("Failed looking up candidate chunk")?;
-        for tx in chunk.transactions() {
+        for tx in chunk.to_transactions() {
             if &tx.get_hash() == hash {
                 return Ok(Some((HashType::Tx, shard_id)));
             }
@@ -333,7 +333,7 @@ fn apply_tx_in_chunk(
                         continue;
                     }
                 };
-                for hash in chunk.transactions().iter().map(|tx| tx.get_hash()) {
+                for hash in chunk.to_transactions().iter().map(|tx| tx.get_hash()) {
                     if hash == *tx_hash {
                         chunk_hashes.push(chunk_hash);
                         break;

@@ -347,6 +347,7 @@ pub fn record_block(
 }
 
 // TODO(#11900): Start using BlockInfoV3 in the tests.
+#[allow(deprecated)]
 pub fn block_info(
     hash: CryptoHash,
     height: BlockHeight,
