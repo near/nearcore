@@ -4,11 +4,8 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::Arc;
 
 use crate::EpochManager;
-use crate::test_utils::{
-    hash_range, record_block_with_slashes, setup_default_epoch_manager, stake,
-};
-use near_primitives::challenge::SlashedValidator;
-use near_primitives::epoch_block_info::{BlockInfo, SlashState};
+use crate::test_utils::{hash_range, record_block, setup_default_epoch_manager, stake};
+use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::epoch_info::EpochInfo;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::validator_stake::ValidatorStake;
@@ -38,16 +35,10 @@ fn run_with_seed(epoch_length: u64, num_heights: u64, test: u64) {
         seed[i] = ((test >> ((8 * i) as u64)) & 0xFF) as u8
     }
     let mut rng = StdRng::from_seed(seed);
-    let do_slashes = rng.gen_bool(0.5);
-    do_random_test(&mut rng, epoch_length, num_heights, do_slashes);
+    do_random_test(&mut rng, epoch_length, num_heights);
 }
 
-fn do_random_test<RngImpl: Rng>(
-    rng: &mut RngImpl,
-    epoch_length: u64,
-    num_heights: u64,
-    do_slashes: bool,
-) {
+fn do_random_test<RngImpl: Rng>(rng: &mut RngImpl, epoch_length: u64, num_heights: u64) {
     let stake_amount = 1_000;
 
     let validators = vec![
@@ -63,26 +54,15 @@ fn do_random_test<RngImpl: Rng>(
         .chain((1u64..num_heights).filter(|_i| rng.gen_range(0.0..1.0) >= skip_height_probability))
         .collect::<Vec<_>>();
 
-    let mut slashes_per_block = Vec::new();
-    record_block_with_slashes(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![], vec![]);
-    slashes_per_block.push(vec![]);
+    record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
     let mut prev_hash = h[0];
     for &height in &heights_to_pick[1..] {
         let proposals = random_proposals(rng);
-        let slashes = if do_slashes { random_slashes(rng) } else { vec![] };
-        slashes_per_block.push(slashes.clone());
-        record_block_with_slashes(
-            &mut epoch_manager,
-            prev_hash,
-            h[height as usize],
-            height,
-            proposals,
-            slashes,
-        );
+        record_block(&mut epoch_manager, prev_hash, h[height as usize], height, proposals);
         prev_hash = h[height as usize];
     }
 
-    validate(&mut epoch_manager, heights_to_pick, slashes_per_block);
+    validate(&mut epoch_manager, heights_to_pick);
 }
 
 fn random_proposals<RngImpl: Rng>(rng: &mut RngImpl) -> Vec<ValidatorStake> {
@@ -96,21 +76,7 @@ fn random_proposals<RngImpl: Rng>(rng: &mut RngImpl) -> Vec<ValidatorStake> {
     proposals
 }
 
-fn random_slashes<RngImpl: Rng>(rng: &mut RngImpl) -> Vec<SlashedValidator> {
-    let mut slashes = Vec::new();
-    let slash_chance = 0.2;
-    if rng.gen_range(0.0..1.0) < slash_chance {
-        let account_id = AccountId::try_from(format!("test{}", rng.gen_range(1..6))).unwrap();
-        slashes.push(SlashedValidator::new(account_id, true));
-    }
-    slashes
-}
-
-fn validate(
-    epoch_manager: &EpochManager,
-    heights: Vec<u64>,
-    slashes_per_block: Vec<Vec<SlashedValidator>>,
-) {
+fn validate(epoch_manager: &EpochManager, heights: Vec<u64>) {
     let num_blocks = heights.len();
     let height_to_hash = hash_range((heights[num_blocks - 1] + 1) as usize);
     let block_hashes =
@@ -160,7 +126,6 @@ fn validate(
     }
 
     verify_block_stats(epoch_manager, heights, &block_infos, &block_hashes);
-    verify_slashes(epoch_manager, &block_infos, &slashes_per_block);
     verify_proposals(epoch_manager, &block_infos);
     verify_epochs(&epoch_infos);
 }
@@ -249,63 +214,6 @@ fn verify_proposals(epoch_manager: &EpochManager, block_infos: &[Arc<BlockInfo>]
             );
         } else {
             proposals.extend(block_info.proposals_iter().map(|p| (p.account_id().clone(), p)));
-        }
-    }
-}
-
-fn verify_slashes(
-    epoch_manager: &EpochManager,
-    block_infos: &[Arc<BlockInfo>],
-    slashes_per_block: &[Vec<SlashedValidator>],
-) {
-    for i in 1..block_infos.len() {
-        let prev_slashes_set = block_infos[i - 1].slashed();
-        let slashes_set = block_infos[i].slashed();
-
-        let this_block_slashes = slashes_per_block[i]
-            .iter()
-            .map(|sv| {
-                (
-                    sv.account_id.clone(),
-                    if sv.is_double_sign { SlashState::DoubleSign } else { SlashState::Other },
-                )
-            })
-            .collect::<HashMap<_, _>>();
-        if epoch_manager.is_next_block_epoch_start(block_infos[i].prev_hash()).unwrap() {
-            let epoch_info = epoch_manager.get_epoch_info(block_infos[i].epoch_id()).unwrap();
-
-            // Epoch boundary.
-            // DoubleSign or Other => become AlreadySlashed
-            // AlreadySlashed and in stake_change => keep AlreadySlashed
-            // ALreadySlashed and not in stake_change => remove
-            for (account, slash_state) in prev_slashes_set {
-                if let Some(slash) = this_block_slashes.get(account) {
-                    assert_eq!(slashes_set.get(account), Some(slash));
-                    continue;
-                }
-                if slash_state == &SlashState::AlreadySlashed {
-                    if epoch_info.stake_change().contains_key(account) {
-                        assert_eq!(slashes_set.get(account), Some(&SlashState::AlreadySlashed));
-                    } else {
-                        assert_eq!(slashes_set.get(account), None);
-                    }
-                } else {
-                    assert_eq!(slashes_set.get(account), Some(&SlashState::AlreadySlashed));
-                }
-            }
-        } else {
-            // Not epoch boundary: slash state gets overwritten unless it was Other
-            for (account, prev_slash_state) in prev_slashes_set {
-                if let Some(state) = this_block_slashes.get(account) {
-                    if prev_slash_state == &SlashState::Other {
-                        assert_eq!(slashes_set.get(account), Some(&SlashState::Other))
-                    } else {
-                        assert_eq!(slashes_set.get(account), Some(state))
-                    }
-                } else {
-                    assert_eq!(slashes_set.get(account), Some(prev_slash_state));
-                }
-            }
         }
     }
 }
