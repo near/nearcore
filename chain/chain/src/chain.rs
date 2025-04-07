@@ -3274,7 +3274,7 @@ impl Chain {
         let shard_update_reason = if is_new_chunk {
             // Validate new chunk and collect incoming receipts for it.
             let prev_chunk_extra = self.get_chunk_extra(prev_hash, &shard_context.shard_uid)?;
-            let chunk = get_chunk_clone_from_header(&self.chain_store, &chunk_header)?;
+            let chunk = get_chunk_clone_from_header(&self.chain_store, chunk_header)?;
             let prev_chunk_height_included = prev_chunk_header.height_included();
 
             // Validate that all next chunk information matches previous chunk extra.
@@ -3286,7 +3286,7 @@ impl Chain {
                 prev_hash,
                 prev_chunk_extra.as_ref(),
                 prev_chunk_height_included,
-                &chunk_header,
+                chunk_header,
             )
             .map_err(|err| {
                 warn!(
@@ -3303,7 +3303,7 @@ impl Chain {
                     prev_block,
                     block_height,
                     chunk_headers,
-                    &chunk_header,
+                    chunk_header,
                 ) {
                     Ok(chunk_state) => Error::InvalidChunkState(Box::new(chunk_state)),
                     Err(err) => err,
@@ -3341,7 +3341,7 @@ impl Chain {
 
             ShardUpdateReason::NewChunk(NewChunkData {
                 chunk_header: chunk_header.clone(),
-                transactions: chunk.transactions().to_vec(),
+                transactions: chunk.into_transactions(),
                 transaction_validity_check_results: tx_valid_list,
                 receipts,
                 block,
