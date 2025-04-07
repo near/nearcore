@@ -118,7 +118,7 @@ fn slow_test_reject_blocks_with_outdated_protocol_version_protocol_upgrade() {
         assert!(protocol_version >= PROTOCOL_VERSION);
         assert!(old_version_block.header().latest_protocol_version() < protocol_version);
         let res = client.process_block_test(old_version_block.clone().into(), Provenance::NONE);
-        assert!(!matches!(res, Err(Error::InvalidProtocolVersion)));
+        assert!(matches!(res, Err(Error::InvalidProtocolVersion)));
     }
 
     // wait for protocol version to advance
