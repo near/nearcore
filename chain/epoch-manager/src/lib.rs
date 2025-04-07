@@ -21,7 +21,7 @@ use near_primitives::types::{
     EpochInfoProvider, ShardId, ValidatorId, ValidatorInfoIdentifier, ValidatorKickoutReason,
     ValidatorStats,
 };
-use near_primitives::version::{ProtocolFeature, ProtocolVersion};
+use near_primitives::version::ProtocolVersion;
 use near_primitives::views::{
     CurrentEpochValidatorInfo, EpochValidatorInfo, NextEpochValidatorInfo, ValidatorKickoutView,
 };
@@ -34,9 +34,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::Path;
 use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use tracing::{debug, warn};
-use validator_stats::{
-    get_sortable_validator_online_ratio, get_sortable_validator_online_ratio_without_endorsements,
-};
+use validator_stats::get_sortable_validator_online_ratio;
 
 pub use crate::adapter::EpochManagerAdapter;
 pub use crate::proposals::proposals_to_epoch_info;
@@ -392,51 +390,32 @@ impl EpochManager {
                 .insert(account_id.clone(), BlockChunkValidatorStats { block_stats, chunk_stats });
         }
 
-        let accounts_sorted_by_online_ratio: Vec<AccountId> =
-            if ProtocolFeature::ChunkEndorsementsInBlockHeader
-                .enabled(epoch_info.protocol_version())
-            {
-                // Compares validator accounts by applying comparators in the following order:
-                // First by online ratio, if equal then by stake, if equal then by account id.
-                let validator_comparator =
-                    |left: &(BigRational, &AccountId), right: &(BigRational, &AccountId)| {
-                        let cmp_online_ratio = left.0.cmp(&right.0);
-                        cmp_online_ratio.then_with(|| {
-                            // Note: The unwrap operations below must not fail because the accounts ids are
-                            // taken from the validators in the same epoch info above.
-                            let cmp_stake = epoch_info
-                                .get_validator_stake(left.1)
-                                .unwrap()
-                                .cmp(&epoch_info.get_validator_stake(right.1).unwrap());
-                            cmp_stake.then_with(|| {
-                                let cmp_account_id = left.1.cmp(&right.1);
-                                cmp_account_id
-                            })
-                        })
-                    };
-
-                let mut sorted_validators = validator_block_chunk_stats
-                    .iter()
-                    .map(|(account, stats)| (get_sortable_validator_online_ratio(stats), account))
-                    .collect::<Vec<_>>();
-                sorted_validators.sort_by(validator_comparator);
-                sorted_validators
-                    .into_iter()
-                    .map(|(_, account)| account.clone())
-                    .collect::<Vec<_>>()
-            } else {
-                let mut sorted_validators = validator_block_chunk_stats
-                    .iter()
-                    .map(|(account, stats)| {
-                        (get_sortable_validator_online_ratio_without_endorsements(stats), account)
+        // Compares validator accounts by applying comparators in the following order:
+        // First by online ratio, if equal then by stake, if equal then by account id.
+        let validator_comparator =
+            |left: &(BigRational, &AccountId), right: &(BigRational, &AccountId)| {
+                let cmp_online_ratio = left.0.cmp(&right.0);
+                cmp_online_ratio.then_with(|| {
+                    // Note: The unwrap operations below must not fail because the accounts ids are
+                    // taken from the validators in the same epoch info above.
+                    let cmp_stake = epoch_info
+                        .get_validator_stake(left.1)
+                        .unwrap()
+                        .cmp(&epoch_info.get_validator_stake(right.1).unwrap());
+                    cmp_stake.then_with(|| {
+                        let cmp_account_id = left.1.cmp(&right.1);
+                        cmp_account_id
                     })
-                    .collect::<Vec<_>>();
-                sorted_validators.sort();
-                sorted_validators
-                    .into_iter()
-                    .map(|(_, account)| account.clone())
-                    .collect::<Vec<_>>()
+                })
             };
+
+        let mut sorted_validators = validator_block_chunk_stats
+            .iter()
+            .map(|(account, stats)| (get_sortable_validator_online_ratio(stats), account))
+            .collect_vec();
+        sorted_validators.sort_by(validator_comparator);
+        let accounts_sorted_by_online_ratio =
+            sorted_validators.into_iter().map(|(_, account)| account.clone()).collect_vec();
 
         let exempt_perc =
             100_u8.checked_sub(config.validator_max_kickout_stake_perc).unwrap_or_default();
@@ -659,13 +638,9 @@ impl EpochManager {
             let online_thresholds = ValidatorOnlineThresholds {
                 online_min_threshold: epoch_config.online_min_threshold,
                 online_max_threshold: epoch_config.online_max_threshold,
-                endorsement_cutoff_threshold: if ProtocolFeature::ChunkEndorsementsInBlockHeader
-                    .enabled(epoch_protocol_version)
-                {
-                    Some(epoch_config.chunk_validator_only_kickout_threshold)
-                } else {
-                    None
-                },
+                endorsement_cutoff_threshold: Some(
+                    epoch_config.chunk_validator_only_kickout_threshold,
+                ),
             };
             self.reward_calculator.calculate_reward(
                 validator_block_chunk_stats,
