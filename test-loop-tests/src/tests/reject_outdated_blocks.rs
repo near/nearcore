@@ -49,9 +49,9 @@ fn slow_test_reject_blocks_with_outdated_protocol_version_protocol_upgrade() {
     init_test_logger();
 
     let mut protocol_version =
-        ProtocolFeature::RejectBlocksWithOutdatedProtocolVersions.protocol_version() - 1;
+        ProtocolFeature::_DeprecatedRejectBlocksWithOutdatedProtocolVersions.protocol_version() - 1;
     let target_protocol_version =
-        ProtocolFeature::RejectBlocksWithOutdatedProtocolVersions.protocol_version();
+        ProtocolFeature::_DeprecatedRejectBlocksWithOutdatedProtocolVersions.protocol_version();
     let protocol_upgrade_schedule =
         ProtocolUpgradeVotingSchedule::new_immediate(target_protocol_version);
 
@@ -111,7 +111,7 @@ fn slow_test_reject_blocks_with_outdated_protocol_version_protocol_upgrade() {
         let client = &mut test_loop.data.get_mut(&handle).client;
         let mut old_version_block = client.produce_block(height + 1).unwrap().unwrap();
         old_version_block.mut_header().set_latest_protocol_version(
-            ProtocolFeature::RejectBlocksWithOutdatedProtocolVersions.protocol_version() - 2,
+            ProtocolFeature::_DeprecatedRejectBlocksWithOutdatedProtocolVersions.protocol_version() - 2,
         );
 
         let epoch_id = client
@@ -121,7 +121,7 @@ fn slow_test_reject_blocks_with_outdated_protocol_version_protocol_upgrade() {
         protocol_version = client.epoch_manager.get_epoch_protocol_version(&epoch_id).unwrap();
         assert!(
             protocol_version
-                < ProtocolFeature::RejectBlocksWithOutdatedProtocolVersions.protocol_version()
+                < ProtocolFeature::_DeprecatedRejectBlocksWithOutdatedProtocolVersions.protocol_version()
         );
         assert!(old_version_block.header().latest_protocol_version() < protocol_version);
         let res = client.process_block_test(old_version_block.clone().into(), Provenance::NONE);
