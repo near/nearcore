@@ -122,16 +122,21 @@ pub enum ProtocolFeature {
     _DeprecatedAccessKeyNonceForImplicitAccounts,
     /// Increase cost per deployed code byte to cover for the compilation steps
     /// that a deployment triggers. Only affects the action execution cost.
-    IncreaseDeploymentCost,
-    FunctionCallWeight,
+    #[deprecated]
+    _DeprecatedIncreaseDeploymentCost,
+    #[deprecated]
+    _DeprecatedFunctionCallWeight,
     /// This feature enforces a global limit on the function local declarations in a WebAssembly
     /// contract. See <...> for more information.
-    LimitContractLocals,
+    #[deprecated]
+    _DeprecatedLimitContractLocals,
     /// Ensure caching all nodes in the chunk for which touching trie node cost was charged. Charge for each such node
     /// only once per chunk at the first access time.
-    ChunkNodesCache,
+    #[deprecated]
+    _DeprecatedChunkNodesCache,
     /// Lower `max_length_storage_key` limit, which itself limits trie node sizes.
-    LowerStorageKeyLimit,
+    #[deprecated]
+    _DeprecatedLowerStorageKeyLimit,
     // alt_bn128_g1_multiexp, alt_bn128_g1_sum, alt_bn128_pairing_check host functions
     #[deprecated]
     _DeprecatedAltBn128,
@@ -320,11 +325,11 @@ impl ProtocolFeature {
             ProtocolFeature::_DeprecatedSynchronizeBlockChunkProduction
             | ProtocolFeature::_DeprecatedCorrectStackLimit => 50,
             ProtocolFeature::_DeprecatedAccessKeyNonceForImplicitAccounts => 51,
-            ProtocolFeature::IncreaseDeploymentCost
-            | ProtocolFeature::FunctionCallWeight
-            | ProtocolFeature::LimitContractLocals
-            | ProtocolFeature::ChunkNodesCache
-            | ProtocolFeature::LowerStorageKeyLimit => 53,
+            ProtocolFeature::_DeprecatedIncreaseDeploymentCost
+            | ProtocolFeature::_DeprecatedFunctionCallWeight
+            | ProtocolFeature::_DeprecatedLimitContractLocals
+            | ProtocolFeature::_DeprecatedChunkNodesCache
+            | ProtocolFeature::_DeprecatedLowerStorageKeyLimit => 53,
             ProtocolFeature::_DeprecatedAltBn128 => 55,
             ProtocolFeature::ChunkOnlyProducers | ProtocolFeature::_DeprecatedMaxKickoutStake => 56,
             ProtocolFeature::_DeprecatedAccountIdInFunctionCallPermission => 57,
