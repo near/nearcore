@@ -282,15 +282,6 @@ pub enum ProtocolFeature {
 }
 
 impl ProtocolFeature {
-    #[allow(deprecated, non_upper_case_globals)]
-    pub const FixStakingThreshold: Self = Self::_DeprecatedFixStakingThreshold;
-    #[allow(deprecated, non_upper_case_globals)]
-    pub const RejectBlocksWithOutdatedProtocolVersions: Self =
-        Self::_DeprecatedRejectBlocksWithOutdatedProtocolVersions;
-    #[allow(deprecated, non_upper_case_globals)]
-    pub const FixChunkProducerStakingThreshold: Self =
-        Self::_DeprecatedFixChunkProducerStakingThreshold;
-
     // The constructor must initialize all fields of the struct but some fields
     // are deprecated.  So unfortunately, we need this attribute here.  A better
     // fix is being discussed on
