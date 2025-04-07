@@ -93,9 +93,9 @@ use near_primitives::views::{
     FinalExecutionOutcomeView, FinalExecutionOutcomeWithReceiptView, FinalExecutionStatus,
     LightClientBlockView, SignedTransactionView,
 };
-use near_store::DBCol;
 use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::get_genesis_state_roots;
+use near_store::{DBCol, StateSnapshotConfig};
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use std::cell::Cell;
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -603,13 +603,11 @@ impl Chain {
     pub fn compute_bp_hash(
         epoch_manager: &dyn EpochManagerAdapter,
         epoch_id: EpochId,
-        prev_epoch_id: EpochId,
     ) -> Result<CryptoHash, Error> {
         let validator_stakes = epoch_manager.get_epoch_block_producers_ordered(&epoch_id)?;
-        let protocol_version = epoch_manager.get_epoch_protocol_version(&prev_epoch_id)?;
         let bp_hash = compute_bp_hash_from_validator_stakes(
             &validator_stakes,
-            ProtocolFeature::BlockHeaderV3.enabled(protocol_version),
+            true, // We always use use_versioned_bp_hash_format after BlockHeaderV3 feature
         );
         Ok(bp_hash)
     }
@@ -881,11 +879,7 @@ impl Chain {
             }
         } else {
             if header.next_bp_hash()
-                != &Chain::compute_bp_hash(
-                    self.epoch_manager.as_ref(),
-                    *header.next_epoch_id(),
-                    *header.epoch_id(),
-                )?
+                != &Chain::compute_bp_hash(self.epoch_manager.as_ref(), *header.next_epoch_id())?
             {
                 return Err(Error::InvalidNextBPHash);
             }
@@ -1014,29 +1008,17 @@ impl Chain {
         if block.hash() == self.genesis.hash() {
             return Ok(VerifyBlockHashAndSignatureResult::Correct);
         }
-        let epoch_id = match self.epoch_manager.get_epoch_id(block.header().prev_hash()) {
-            Ok(epoch_id) => epoch_id,
-            Err(EpochError::MissingBlock(missing_block))
-                if &missing_block == block.header().prev_hash() =>
-            {
-                return Ok(VerifyBlockHashAndSignatureResult::CannotVerifyBecauseBlockIsOrphan);
-            }
-            Err(err) => return Err(err.into()),
-        };
-        let epoch_protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
 
         // Check that block body hash matches the block body. This makes sure that the block body
         // content is not tampered
-        if ProtocolFeature::BlockHeaderV4.enabled(epoch_protocol_version) {
-            let block_body_hash = block.compute_block_body_hash();
-            if block_body_hash.is_none() {
-                tracing::warn!("Block version too old for block: {:?}", block.hash());
-                return Ok(VerifyBlockHashAndSignatureResult::Incorrect);
-            }
-            if block.header().block_body_hash() != block_body_hash {
-                tracing::warn!("Invalid block body hash for block: {:?}", block.hash());
-                return Ok(VerifyBlockHashAndSignatureResult::Incorrect);
-            }
+        let block_body_hash = block.compute_block_body_hash();
+        if block_body_hash.is_none() {
+            tracing::warn!("Block version too old for block: {:?}", block.hash());
+            return Ok(VerifyBlockHashAndSignatureResult::Incorrect);
+        }
+        if block.header().block_body_hash() != block_body_hash {
+            tracing::warn!("Invalid block body hash for block: {:?}", block.hash());
+            return Ok(VerifyBlockHashAndSignatureResult::Incorrect);
         }
 
         // Verify the signature. Since the signature is signed on the hash of block header, this check
@@ -2363,7 +2345,6 @@ impl Chain {
             return Err(e);
         }
 
-        let protocol_version = self.epoch_manager.get_epoch_protocol_version(header.epoch_id())?;
         if !block.verify_gas_price(
             gas_price,
             self.block_economics_config.min_gas_price(),
@@ -2388,9 +2369,7 @@ impl Chain {
 
         self.validate_chunk_headers(&block, &prev_block)?;
 
-        if ProtocolFeature::StatelessValidation.enabled(protocol_version) {
-            validate_chunk_endorsements_in_block(self.epoch_manager.as_ref(), &block)?;
-        }
+        validate_chunk_endorsements_in_block(self.epoch_manager.as_ref(), &block)?;
 
         self.ping_missing_chunks(me, prev_hash, block)?;
 
@@ -3090,12 +3069,6 @@ impl Chain {
         // Use epoch manager because block is not in DB yet.
         let next_epoch_id =
             self.epoch_manager.get_next_epoch_id_from_prev_block(block_header.prev_hash())?;
-        let next_protocol_version =
-            self.epoch_manager.get_epoch_protocol_version(&next_epoch_id)?;
-        if !ProtocolFeature::StatelessValidation.enabled(next_protocol_version) {
-            // Chunk validation not enabled yet.
-            return Ok(false);
-        }
         let Some(account_id) = me.as_ref() else { return Ok(false) };
         Ok(self.epoch_manager.is_chunk_producer_for_epoch(epoch_id, account_id)?
             || self.epoch_manager.is_chunk_producer_for_epoch(&next_epoch_id, account_id)?)
@@ -3445,6 +3418,12 @@ impl Chain {
     /// Function to check whether we need to create a new snapshot while processing the current block
     /// Note that this functions is called as a part of block preprocessing, so the head is not updated to current block
     fn should_make_snapshot(&mut self) -> Result<SnapshotAction, Error> {
+        if let StateSnapshotConfig::Disabled =
+            self.runtime_adapter.get_tries().state_snapshot_config()
+        {
+            return Ok(SnapshotAction::None);
+        }
+
         // head value is that of the previous block, i.e. curr_block.prev_hash
         let head = self.head()?;
         if head.prev_block_hash == CryptoHash::default() {

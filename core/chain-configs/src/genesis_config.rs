@@ -874,8 +874,6 @@ pub struct ProtocolConfigView {
     pub shuffle_shard_assignment_for_chunk_producers: bool,
     /// The minimum number of validators each shard must have
     pub minimum_validators_per_shard: NumSeats,
-    /// Number of validator seats for chunk only producers.
-    pub num_chunk_only_producer_seats: NumSeats,
     /// Layout information regarding how to split accounts to shards
     pub shard_layout: ShardLayout,
 }
@@ -925,7 +923,6 @@ impl From<ProtocolConfig> for ProtocolConfigView {
             shuffle_shard_assignment_for_chunk_producers: genesis_config
                 .shuffle_shard_assignment_for_chunk_producers,
             minimum_validators_per_shard: genesis_config.minimum_validators_per_shard,
-            num_chunk_only_producer_seats: genesis_config.num_chunk_only_producer_seats,
             shard_layout: genesis_config.shard_layout,
         }
     }
