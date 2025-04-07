@@ -294,7 +294,7 @@ impl GenesisBuilder {
                     0,
                     self.genesis.config.gas_limit,
                     0,
-                    congestion_info,
+                    Some(congestion_info),
                     chunk_header.bandwidth_requests().cloned(),
                 ),
             );
@@ -314,13 +314,13 @@ impl GenesisBuilder {
         genesis: &Block,
         shard_id: ShardId,
         state_root: CryptoHash,
-    ) -> Result<Option<CongestionInfo>> {
+    ) -> Result<CongestionInfo> {
         let prev_hash = genesis.header().prev_hash();
         let trie = self.runtime.get_trie_for_shard(shard_id, prev_hash, state_root, true)?;
         let protocol_config = self.runtime.get_protocol_config(genesis.header().epoch_id())?;
         let runtime_config = protocol_config.runtime_config;
         let congestion_info = bootstrap_congestion_info(&trie, &runtime_config, shard_id)?;
-        Ok(Some(congestion_info))
+        Ok(congestion_info)
     }
 
     fn add_additional_account(&mut self, account_id: AccountId) -> Result<()> {
