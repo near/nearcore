@@ -16,7 +16,7 @@ use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::AccountId;
 use near_primitives::types::AccountInfo;
 use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
-use near_primitives::version::PROTOCOL_VERSION;
+use near_primitives::version::ProtocolFeature;
 use near_primitives_core::num_rational::Rational32;
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -48,8 +48,10 @@ fn create_tx(latest_block: &Block, origin: &AccountId, receiver: &AccountId) -> 
 fn slow_test_reject_blocks_with_outdated_protocol_version_protocol_upgrade() {
     init_test_logger();
 
-    let mut protocol_version = PROTOCOL_VERSION;
-    let target_protocol_version = PROTOCOL_VERSION;
+    let mut protocol_version =
+        ProtocolFeature::RejectBlocksWithOutdatedProtocolVersions.protocol_version() - 1;
+    let target_protocol_version =
+        ProtocolFeature::RejectBlocksWithOutdatedProtocolVersions.protocol_version();
     let protocol_upgrade_schedule =
         ProtocolUpgradeVotingSchedule::new_immediate(target_protocol_version);
 
@@ -108,17 +110,22 @@ fn slow_test_reject_blocks_with_outdated_protocol_version_protocol_upgrade() {
     {
         let client = &mut test_loop.data.get_mut(&handle).client;
         let mut old_version_block = client.produce_block(height + 1).unwrap().unwrap();
-        old_version_block.mut_header().set_latest_protocol_version(PROTOCOL_VERSION - 2);
+        old_version_block.mut_header().set_latest_protocol_version(
+            ProtocolFeature::RejectBlocksWithOutdatedProtocolVersions.protocol_version() - 2,
+        );
 
         let epoch_id = client
             .epoch_manager
             .get_epoch_id_from_prev_block(&client.chain.head().unwrap().last_block_hash)
             .unwrap();
         protocol_version = client.epoch_manager.get_epoch_protocol_version(&epoch_id).unwrap();
-        assert!(protocol_version >= PROTOCOL_VERSION);
+        assert!(
+            protocol_version
+                < ProtocolFeature::RejectBlocksWithOutdatedProtocolVersions.protocol_version()
+        );
         assert!(old_version_block.header().latest_protocol_version() < protocol_version);
         let res = client.process_block_test(old_version_block.clone().into(), Provenance::NONE);
-        assert!(matches!(res, Err(Error::InvalidProtocolVersion)));
+        assert!(!matches!(res, Err(Error::InvalidProtocolVersion)));
     }
 
     // wait for protocol version to advance
@@ -136,7 +143,8 @@ fn slow_test_reject_blocks_with_outdated_protocol_version_protocol_upgrade() {
             let epoch_id =
                 client.epoch_manager.get_epoch_id_from_prev_block(&head.last_block_hash).unwrap();
             protocol_version = client.epoch_manager.get_epoch_protocol_version(&epoch_id).unwrap();
-            true
+            protocol_version
+                >= ProtocolFeature::RejectBlocksWithOutdatedProtocolVersions.protocol_version()
         },
         Duration::seconds(4 * epoch_length as i64),
     );

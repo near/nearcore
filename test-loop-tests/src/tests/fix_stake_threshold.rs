@@ -16,7 +16,7 @@ use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::AccountId;
 use near_primitives::types::AccountInfo;
 use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
-use near_primitives::version::PROTOCOL_VERSION;
+use near_primitives::version::ProtocolFeature;
 
 // TODO(resharding) - Implement this test for the stable protocol version. The
 // original implementation was not compatible with the two shard layout changes
@@ -25,8 +25,8 @@ use near_primitives::version::PROTOCOL_VERSION;
 fn slow_test_fix_validator_stake_threshold_protocol_upgrade() {
     init_test_logger();
 
-    let protocol_version = PROTOCOL_VERSION;
-    let target_protocol_version = PROTOCOL_VERSION;
+    let protocol_version = ProtocolFeature::FixStakingThreshold.protocol_version() - 1;
+    let target_protocol_version = ProtocolFeature::FixStakingThreshold.protocol_version();
     let protocol_upgrade_schedule =
         ProtocolUpgradeVotingSchedule::new_immediate(target_protocol_version);
 
@@ -94,7 +94,7 @@ fn slow_test_fix_validator_stake_threshold_protocol_upgrade() {
         .sum::<u128>();
     let num_shards = epoch_config_store.get_config(protocol_version).shard_layout.num_shards();
 
-    assert!(protocol_version >= PROTOCOL_VERSION);
+    assert!(protocol_version < ProtocolFeature::FixStakingThreshold.protocol_version());
     assert_eq!(validators.len(), 2, "proposal with stake at threshold should not be approved");
     assert_eq!(total_stake / ONE_NEAR, 37_500_000_000);
     // prior to threshold fix
@@ -125,7 +125,7 @@ fn slow_test_fix_validator_stake_threshold_protocol_upgrade() {
             // chain will advance to the latest protocol version
             let protocol_version =
                 client.epoch_manager.get_epoch_protocol_version(&epoch_id).unwrap();
-            if protocol_version >= PROTOCOL_VERSION {
+            if protocol_version >= ProtocolFeature::FixStakingThreshold.protocol_version() {
                 let epoch_info = client.epoch_manager.get_epoch_info(&epoch_id).unwrap();
                 // after threshold fix
                 // threshold = min_stake_ratio * total_stake / (1 - min_stake_ratio)

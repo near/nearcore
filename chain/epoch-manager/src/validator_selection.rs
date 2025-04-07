@@ -7,7 +7,6 @@ use near_primitives::types::{
     AccountId, Balance, NumShards, ProtocolVersion, ValidatorId, ValidatorKickoutReason,
 };
 use near_primitives::validator_mandates::{ValidatorMandates, ValidatorMandatesConfig};
-
 use num_rational::Ratio;
 use rand::seq::SliceRandom;
 use std::cmp::{self, Ordering};
