@@ -192,7 +192,7 @@ impl NightshadeRuntime {
             );
 
             if epoch_manager.is_next_block_epoch_start(prev_block_hash)? {
-                let (stake_info, validator_reward, _double_sign_slashing_info) =
+                let (stake_info, validator_reward) =
                     epoch_manager.compute_stake_return_info(prev_block_hash)?;
                 let stake_info = stake_info
                     .into_iter()
