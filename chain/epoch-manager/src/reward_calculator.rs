@@ -98,6 +98,7 @@ impl RewardCalculator {
 
             let expected_blocks = stats.block_stats.expected;
             let expected_chunks = stats.chunk_stats.expected();
+            let expected_endorsements = stats.chunk_stats.endorsement_stats().expected;
 
             let online_min_numer =
                 U256::from(*online_thresholds.online_min_threshold.numer() as u64);
@@ -106,8 +107,7 @@ impl RewardCalculator {
             // If average of produced blocks below online min threshold, validator gets 0 reward.
             let reward = if average_produced_numer * online_min_denom
                 < online_min_numer * average_produced_denom
-                || expected_chunks == 0
-                || expected_blocks == 0
+                || (expected_chunks == 0 && expected_blocks == 0 && expected_endorsements == 0)
             {
                 0
             } else {
