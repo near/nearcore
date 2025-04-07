@@ -315,12 +315,7 @@ impl Runtime {
                     signed_tx.get_hash(),
                     match validate_transaction(config, signed_tx, current_protocol_version) {
                         Ok(validated_tx) => {
-                            match tx_cost(
-                                config,
-                                &validated_tx.to_tx(),
-                                gas_price,
-                                current_protocol_version,
-                            ) {
+                            match tx_cost(config, &validated_tx.to_tx(), gas_price) {
                                 Ok(cost) => Ok((validated_tx, cost)),
                                 Err(e) => Err(InvalidTxError::from(e)),
                             }
@@ -367,7 +362,6 @@ impl Runtime {
             validated_tx,
             transaction_cost,
             Some(apply_state.block_height),
-            apply_state.current_protocol_version,
         );
         let verification_result = match verification_result {
             Ok(ok) => ok,
@@ -757,11 +751,7 @@ impl Runtime {
         // Going to check balance covers account's storage.
         if result.result.is_ok() {
             if let Some(ref mut account) = account {
-                match check_storage_stake(
-                    account,
-                    &apply_state.config,
-                    apply_state.current_protocol_version,
-                ) {
+                match check_storage_stake(account, &apply_state.config) {
                     Ok(()) => {
                         set_account(state_update, account_id.clone(), account);
                     }
@@ -1595,9 +1585,6 @@ impl Runtime {
                     let compute =
                         compute.expect("`process_transaction` must populate compute usage");
                     total.add(outcome_with_id.outcome.gas_burnt, compute)?;
-                    if !ProtocolFeature::ComputeCosts.enabled(processing_state.protocol_version) {
-                        assert_eq!(total.compute, total.gas, "Compute usage must match burnt gas");
-                    }
                     processing_state.outcomes.push(outcome_with_id);
                 }
                 Err(err) => {
@@ -1684,9 +1671,6 @@ impl Runtime {
             span.record("gas_burnt", gas_burnt);
             span.record("compute_usage", compute_usage);
 
-            if !ProtocolFeature::ComputeCosts.enabled(processing_state.protocol_version) {
-                assert_eq!(total.compute, total.gas, "Compute usage must match burnt gas");
-            }
             processing_state.outcomes.push(outcome_with_id);
         }
         Ok(())
@@ -2215,7 +2199,6 @@ fn action_transfer_or_implicit_account_creation(
             receipt.receiver_id(),
             deposit,
             apply_state.block_height,
-            apply_state.current_protocol_version,
             epoch_info_provider,
         );
     })
@@ -2448,7 +2431,6 @@ impl<'a> ApplyProcessingState<'a> {
         let pipeline_manager = pipelining::ReceiptPreparationPipeline::new(
             Arc::clone(&self.apply_state.config),
             self.apply_state.cache.as_ref().map(|v| v.handle()),
-            self.apply_state.current_protocol_version,
             self.state_update.contract_storage(),
         );
         ApplyProcessingReceiptState {
@@ -2643,7 +2625,6 @@ pub mod estimator {
         let empty_pipeline = ReceiptPreparationPipeline::new(
             std::sync::Arc::clone(&apply_state.config),
             apply_state.cache.as_ref().map(|c| c.handle()),
-            apply_state.current_protocol_version,
             state_update.contract_storage(),
         );
         let apply_result = Runtime {}.apply_action_receipt(

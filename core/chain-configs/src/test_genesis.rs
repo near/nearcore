@@ -45,9 +45,6 @@ pub struct TestEpochConfigBuilder {
 
     // not used any more
     num_block_producer_seats_per_shard: Vec<NumSeats>,
-    // TODO (#11267): deprecate after StatelessValidationV0 is in place.
-    // Use 300 for older protocol versions.
-    num_chunk_only_producer_seats: NumSeats,
     genesis_protocol_version: Option<ProtocolVersion>,
 }
 
@@ -87,7 +84,6 @@ pub struct TestGenesisBuilder {
     num_blocks_per_year: NumBlocks,
     protocol_reward_rate: Rational32,
     max_kickout_stake_perc: u8,
-    num_chunk_only_producer_seats: NumSeats,
     minimum_stake_divisor: u64,
     protocol_upgrade_stake_threshold: Rational32,
     chunk_producer_assignment_changes_limit: NumSeats,
@@ -143,7 +139,6 @@ impl Default for TestEpochConfigBuilder {
             shuffle_shard_assignment_for_chunk_producers: false,
             // consider them ineffective
             num_block_producer_seats_per_shard: vec![1],
-            num_chunk_only_producer_seats: 300,
             genesis_protocol_version: None,
         }
     }
@@ -238,6 +233,7 @@ impl TestEpochConfigBuilder {
             num_block_producer_seats: self.num_block_producer_seats,
             num_chunk_producer_seats: self.num_chunk_producer_seats,
             num_chunk_validator_seats: self.num_chunk_validator_seats,
+            num_chunk_only_producer_seats: 300,
             target_validator_mandates_per_shard: self.target_validator_mandates_per_shard,
             avg_hidden_validator_seats_per_shard: self.avg_hidden_validator_seats_per_shard,
             minimum_validators_per_shard: self.minimum_validators_per_shard,
@@ -255,7 +251,6 @@ impl TestEpochConfigBuilder {
             shuffle_shard_assignment_for_chunk_producers: self
                 .shuffle_shard_assignment_for_chunk_producers,
             num_block_producer_seats_per_shard: self.num_block_producer_seats_per_shard,
-            num_chunk_only_producer_seats: self.num_chunk_only_producer_seats,
         };
         tracing::debug!("Epoch config: {:#?}", epoch_config);
         epoch_config
@@ -302,7 +297,6 @@ impl Default for TestGenesisBuilder {
             num_blocks_per_year: 86400,
             protocol_reward_rate: Rational32::new(0, 1),
             max_kickout_stake_perc: 100,
-            num_chunk_only_producer_seats: 0,
             minimum_stake_divisor: 10,
             protocol_upgrade_stake_threshold: Rational32::new(8, 10),
             chunk_producer_assignment_changes_limit: 5,
@@ -526,7 +520,6 @@ impl TestGenesisBuilder {
                 .shard_ids()
                 .map(|_| num_block_producer_seats)
                 .collect(),
-            num_chunk_only_producer_seats: self.num_chunk_only_producer_seats,
             minimum_stake_divisor: self.minimum_stake_divisor,
             max_inflation_rate: self.max_inflation_rate,
             protocol_upgrade_stake_threshold: self.protocol_upgrade_stake_threshold,

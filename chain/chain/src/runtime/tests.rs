@@ -20,7 +20,6 @@ use near_primitives::action::FunctionCallAction;
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
 use near_primitives::block::Tip;
-use near_primitives::challenge::ChallengesResult;
 use near_primitives::congestion_info::{BlockCongestionInfo, ExtendedCongestionInfo};
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::epoch_info::RngSeed;
@@ -51,7 +50,6 @@ use num_rational::Ratio;
 use primitive_types::U256;
 use rand::{SeedableRng, rngs::StdRng, seq::SliceRandom};
 use std::collections::{BTreeSet, HashSet};
-use std::path::PathBuf;
 
 struct TestEnvConfig {
     epoch_length: BlockHeightDelta,
@@ -138,11 +136,7 @@ impl TestEnv {
             Some(runtime_config_store),
             DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
             Default::default(),
-            StateSnapshotConfig {
-                home_dir: PathBuf::from(dir.path()),
-                hot_store_path: PathBuf::from("data"),
-                state_snapshot_subdir: PathBuf::from("state_snapshot"),
-            },
+            StateSnapshotConfig::enabled(dir.path(), "data", "state_snapshot"),
         );
         let state_roots = get_genesis_state_roots(&store).unwrap().unwrap();
         let genesis_hash = hash(&[0]);
@@ -178,7 +172,6 @@ impl TestEnv {
                     0,
                     CryptoHash::default(),
                     CryptoHash::default(),
-                    vec![],
                     vec![],
                     vec![],
                     genesis_total_supply,
@@ -313,12 +306,7 @@ impl TestEnv {
         (apply_result.new_root, apply_result.validator_proposals, apply_result.outgoing_receipts)
     }
 
-    pub fn step(
-        &mut self,
-        transactions: Vec<Vec<SignedTransaction>>,
-        chunk_mask: Vec<bool>,
-        challenges_result: ChallengesResult,
-    ) {
+    pub fn step(&mut self, transactions: Vec<Vec<SignedTransaction>>, chunk_mask: Vec<bool>) {
         let new_hash = hash(&[(self.head.height + 1) as u8]);
         let shard_ids = self.epoch_manager.shard_ids(&self.head.epoch_id).unwrap();
         let shard_layout = self.epoch_manager.get_shard_layout(&self.head.epoch_id).unwrap();
@@ -349,7 +337,6 @@ impl TestEnv {
                     self.head.last_block_hash,
                     self.last_proposals.clone(),
                     chunk_mask,
-                    challenges_result,
                     self.runtime.genesis_config.total_supply,
                     self.runtime.genesis_config.protocol_version,
                     self.time + 10u64.pow(9),
@@ -387,7 +374,7 @@ impl TestEnv {
 
     /// Step when there is only one shard
     pub fn step_default(&mut self, transactions: Vec<SignedTransaction>) {
-        self.step(vec![transactions], vec![true], ChallengesResult::default());
+        self.step(vec![transactions], vec![true]);
     }
 
     pub fn view_account(&self, account_id: &AccountId) -> AccountView {
@@ -738,7 +725,6 @@ fn test_state_sync() {
                     prev_hash,
                     new_env.last_proposals,
                     vec![true],
-                    vec![],
                     new_env.runtime.genesis_config.total_supply,
                     new_env.runtime.genesis_config.protocol_version,
                     new_env.time,

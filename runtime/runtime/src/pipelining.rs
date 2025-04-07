@@ -15,7 +15,7 @@ use near_primitives::trie_key::{GlobalContractCodeIdentifier, TrieKey};
 use near_primitives::types::{AccountId, Gas};
 use near_store::contract::ContractStorage;
 use near_store::{KeyLookupMode, TrieUpdate, get_pure};
-use near_vm_runner::logic::{GasCounter, ProtocolVersion};
+use near_vm_runner::logic::GasCounter;
 use near_vm_runner::{ContractRuntimeCache, PreparedContract};
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::sync::{Arc, Condvar, Mutex};
@@ -61,9 +61,6 @@ pub(crate) struct ReceiptPreparationPipeline {
     /// The contract cache.
     contract_cache: Option<Box<dyn ContractRuntimeCache>>,
 
-    /// Protocol version for this chunk.
-    protocol_version: u32,
-
     /// Storage for WASM code.
     storage: ContractStorage,
 }
@@ -90,7 +87,6 @@ impl ReceiptPreparationPipeline {
     pub(crate) fn new(
         config: Arc<RuntimeConfig>,
         contract_cache: Option<Box<dyn ContractRuntimeCache>>,
-        protocol_version: u32,
         storage: ContractStorage,
     ) -> Self {
         Self {
@@ -99,7 +95,6 @@ impl ReceiptPreparationPipeline {
             block_global_contracts: Default::default(),
             config,
             contract_cache,
-            protocol_version,
             storage,
         }
     }
@@ -202,7 +197,6 @@ impl ReceiptPreparationPipeline {
                     let config = Arc::clone(&self.config.wasm_config);
                     let cache = self.contract_cache.as_ref().map(|c| c.handle());
                     let storage = self.storage.clone();
-                    let protocol_version = self.protocol_version;
                     let created = Instant::now();
                     let method_name = function_call.method_name.clone();
                     let status = Mutex::new(PrepareTaskStatus::Pending);
@@ -222,7 +216,6 @@ impl ReceiptPreparationPipeline {
                         let contract = prepare_function_call(
                             &storage,
                             cache.as_deref(),
-                            protocol_version,
                             config,
                             gas_counter,
                             code_hash,
@@ -297,7 +290,6 @@ impl ReceiptPreparationPipeline {
             let result = prepare_function_call(
                 &self.storage,
                 self.contract_cache.as_deref(),
-                self.protocol_version,
                 Arc::clone(&self.config.wasm_config),
                 gas_counter,
                 code_hash,
@@ -328,7 +320,6 @@ impl ReceiptPreparationPipeline {
                     let contract = prepare_function_call(
                         &self.storage,
                         cache.as_deref(),
-                        self.protocol_version,
                         Arc::clone(&self.config.wasm_config),
                         gas_counter,
                         code_hash,
@@ -379,21 +370,13 @@ impl ReceiptPreparationPipeline {
 fn prepare_function_call(
     contract_storage: &ContractStorage,
     cache: Option<&dyn ContractRuntimeCache>,
-
-    protocol_version: ProtocolVersion,
     config: Arc<near_parameters::vm::Config>,
     gas_counter: GasCounter,
-
     code_hash: CryptoHash,
     account_id: &AccountId,
     method_name: &str,
 ) -> Box<dyn PreparedContract> {
-    let code_ext = RuntimeContractExt {
-        storage: contract_storage.clone(),
-        account_id,
-        code_hash,
-        current_protocol_version: protocol_version,
-    };
+    let code_ext = RuntimeContractExt { storage: contract_storage.clone(), account_id, code_hash };
     let contract = near_vm_runner::prepare(&code_ext, config, cache, gas_counter, method_name);
     contract
 }

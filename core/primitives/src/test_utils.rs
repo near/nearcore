@@ -903,7 +903,6 @@ impl TestBlockBuilder {
         Block::produce(
             PROTOCOL_VERSION,
             PROTOCOL_VERSION,
-            PROTOCOL_VERSION,
             self.prev.header(),
             self.height,
             self.prev.header().block_ordinal() + 1,

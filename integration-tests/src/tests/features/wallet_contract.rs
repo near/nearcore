@@ -15,11 +15,10 @@ use near_primitives::transaction::{
     TransferAction,
 };
 use near_primitives::utils::derive_eth_implicit_account_id;
-use near_primitives::version::ProtocolFeature;
 use near_primitives::views::{
     FinalExecutionStatus, QueryRequest, QueryResponse, QueryResponseKind,
 };
-use near_primitives_core::{account::AccessKey, types::BlockHeight, version::PROTOCOL_VERSION};
+use near_primitives_core::{account::AccessKey, types::BlockHeight};
 use near_store::ShardUId;
 use near_vm_runner::ContractCode;
 use near_wallet_contract::{wallet_contract, wallet_contract_magic_bytes};
@@ -84,9 +83,6 @@ fn view_nonce(env: &TestEnv, account: &AccountIdRef, pk: PublicKey) -> u64 {
 /// Tests that ETH-implicit account is created correctly, with Wallet Contract hash.
 #[test]
 fn test_eth_implicit_account_creation() {
-    if !ProtocolFeature::EthImplicitAccounts.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     let genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
@@ -112,7 +108,7 @@ fn test_eth_implicit_account_creation() {
         env.produce_block(0, i);
     }
 
-    let magic_bytes = wallet_contract_magic_bytes(chain_id, PROTOCOL_VERSION);
+    let magic_bytes = wallet_contract_magic_bytes(chain_id);
 
     // Verify the ETH-implicit account has zero balance and appropriate code hash.
     // Check that the account storage fits within zero balance account limit.
@@ -141,9 +137,6 @@ fn test_eth_implicit_account_creation() {
 /// Test that transactions from ETH-implicit accounts are rejected.
 #[test]
 fn test_transaction_from_eth_implicit_account_fail() {
-    if !ProtocolFeature::EthImplicitAccounts.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     let genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
@@ -230,7 +223,7 @@ fn test_transaction_from_eth_implicit_account_fail() {
     assert_eq!(response, expected_tx_error);
 
     // Try to deploy the Wallet Contract again to the ETH-implicit account. Should fail because there is no access key.
-    let magic_bytes = wallet_contract_magic_bytes(&chain_id, PROTOCOL_VERSION);
+    let magic_bytes = wallet_contract_magic_bytes(&chain_id);
     let wallet_contract_code = wallet_contract(*magic_bytes.hash()).unwrap().code().to_vec();
     let add_access_key_to_eth_implicit_account_tx = SignedTransaction::from_actions(
         nonce,
@@ -251,10 +244,6 @@ fn test_transaction_from_eth_implicit_account_fail() {
 
 #[test]
 fn test_wallet_contract_interaction() {
-    if !ProtocolFeature::EthImplicitAccounts.enabled(PROTOCOL_VERSION) {
-        return;
-    }
-
     let genesis = Genesis::test(vec!["test0".parse().unwrap(), alice_account(), bob_account()], 1);
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
 
