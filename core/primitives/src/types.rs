@@ -1176,19 +1176,6 @@ pub trait EpochInfoProvider: Send + Sync {
     fn shard_layout(&self, epoch_id: &EpochId) -> Result<ShardLayout, EpochError>;
 }
 
-/// Mode of the trie cache.
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub enum TrieCacheMode {
-    /// In this mode we put each visited node to LRU cache to optimize performance.
-    /// Presence of any exact node is not guaranteed.
-    CachingShard,
-    /// In this mode we put each visited node to the chunk cache which is a hash map.
-    /// This is needed to guarantee that all nodes for which we charged a touching trie node cost are retrieved from DB
-    /// only once during a single chunk processing. Such nodes remain in cache until the chunk processing is finished,
-    /// and thus users (potentially different) are not required to pay twice for retrieval of the same node.
-    CachingChunk,
-}
-
 /// State changes for a range of blocks.
 /// Expects that a block is present at most once in the list.
 #[derive(borsh::BorshDeserialize, borsh::BorshSerialize)]
