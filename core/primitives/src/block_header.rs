@@ -9,7 +9,6 @@ use crate::validator_signer::ValidatorSigner;
 use crate::version::ProtocolVersion;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::{KeyType, PublicKey, Signature};
-use near_primitives_core::version::ProtocolFeature;
 use near_schema_checker_lib::ProtocolSchema;
 use near_time::Utc;
 use std::sync::Arc;
@@ -714,7 +713,7 @@ impl BlockHeader {
 
     /// Common logic for generating BlockHeader for different purposes, including new blocks, from views, and for genesis block
     fn new_impl(
-        this_epoch_protocol_version: ProtocolVersion,
+        _this_epoch_protocol_version: ProtocolVersion,
         latest_protocol_version: ProtocolVersion,
         height: BlockHeight,
         prev_hash: CryptoHash,
@@ -756,71 +755,39 @@ impl BlockHeader {
             block_merkle_root,
         };
 
-        if ProtocolFeature::ChunkEndorsementsInBlockHeader.enabled(this_epoch_protocol_version) {
-            let chunk_endorsements = chunk_endorsements.unwrap_or_else(|| {
-                panic!("BlockHeaderV5 is enabled but chunk endorsement bitmap is not provided")
-            });
-            let inner_rest = BlockHeaderInnerRestV5 {
-                block_body_hash,
-                prev_chunk_outgoing_receipts_root,
-                chunk_headers_root,
-                chunk_tx_root,
-                challenges_root,
-                random_value,
-                prev_validator_proposals,
-                chunk_mask,
-                next_gas_price,
-                block_ordinal,
-                total_supply,
-                challenges_result,
-                last_final_block,
-                last_ds_final_block,
-                prev_height,
-                epoch_sync_data_hash,
-                approvals,
-                latest_protocol_version,
-                chunk_endorsements,
-            };
-            let (hash, signature) =
-                Self::compute_hash_and_sign(signature_source, prev_hash, &inner_lite, &inner_rest);
-            Self::BlockHeaderV5(Arc::new(BlockHeaderV5 {
-                prev_hash,
-                inner_lite,
-                inner_rest,
-                signature,
-                hash,
-            }))
-        } else {
-            let inner_rest = BlockHeaderInnerRestV4 {
-                block_body_hash,
-                prev_chunk_outgoing_receipts_root,
-                chunk_headers_root,
-                chunk_tx_root,
-                challenges_root,
-                random_value,
-                prev_validator_proposals,
-                chunk_mask,
-                next_gas_price,
-                block_ordinal,
-                total_supply,
-                challenges_result,
-                last_final_block,
-                last_ds_final_block,
-                prev_height,
-                epoch_sync_data_hash,
-                approvals,
-                latest_protocol_version,
-            };
-            let (hash, signature) =
-                Self::compute_hash_and_sign(signature_source, prev_hash, &inner_lite, &inner_rest);
-            Self::BlockHeaderV4(Arc::new(BlockHeaderV4 {
-                prev_hash,
-                inner_lite,
-                inner_rest,
-                signature,
-                hash,
-            }))
-        }
+        let chunk_endorsements = chunk_endorsements.unwrap_or_else(|| {
+            panic!("BlockHeaderV5 is enabled but chunk endorsement bitmap is not provided")
+        });
+        let inner_rest = BlockHeaderInnerRestV5 {
+            block_body_hash,
+            prev_chunk_outgoing_receipts_root,
+            chunk_headers_root,
+            chunk_tx_root,
+            challenges_root,
+            random_value,
+            prev_validator_proposals,
+            chunk_mask,
+            next_gas_price,
+            block_ordinal,
+            total_supply,
+            challenges_result,
+            last_final_block,
+            last_ds_final_block,
+            prev_height,
+            epoch_sync_data_hash,
+            approvals,
+            latest_protocol_version,
+            chunk_endorsements,
+        };
+        let (hash, signature) =
+            Self::compute_hash_and_sign(signature_source, prev_hash, &inner_lite, &inner_rest);
+        Self::BlockHeaderV5(Arc::new(BlockHeaderV5 {
+            prev_hash,
+            inner_lite,
+            inner_rest,
+            signature,
+            hash,
+        }))
     }
 
     /// Helper function for `new_impl` and `old_impl` to compute the hash and signature of the hash from the block header parts.

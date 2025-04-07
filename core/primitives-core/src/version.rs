@@ -239,7 +239,8 @@ pub enum ProtocolFeature {
     // Include a bitmap of endorsements from chunk validator in the block header
     // in order to calculate the rewards and kickouts for the chunk validators.
     // This feature introduces BlockHeaderV5.
-    ChunkEndorsementsInBlockHeader,
+    #[deprecated]
+    _DeprecatedChunkEndorsementsInBlockHeader,
     /// Store receipts in State in the StateStoredReceipt format.
     StateStoredReceipt,
     /// Resharding V3 - Adding "game.hot.tg-0" boundary.
@@ -355,7 +356,7 @@ impl ProtocolFeature {
             ProtocolFeature::_DeprecatedFixMinStakeRatio => 71,
             ProtocolFeature::_DeprecatedIncreaseStorageProofSizeSoftLimit
             | ProtocolFeature::_DeprecatedChunkEndorsementV2
-            | ProtocolFeature::ChunkEndorsementsInBlockHeader
+            | ProtocolFeature::_DeprecatedChunkEndorsementsInBlockHeader
             | ProtocolFeature::StateStoredReceipt => 72,
             ProtocolFeature::ExcludeContractCodeFromStateWitness => 73,
             ProtocolFeature::FixStakingThreshold
