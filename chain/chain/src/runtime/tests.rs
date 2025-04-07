@@ -220,7 +220,7 @@ impl TestEnv {
         let gas_limit = u64::MAX;
         let height = self.head.height + 1;
         let block_timestamp = 0;
-        let _protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id).unwrap();
+
         let gas_price = self.runtime.genesis_config.min_gas_price;
         let congestion_info = {
             let shard_ids = self.epoch_manager.shard_ids(&epoch_id).unwrap();
