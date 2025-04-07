@@ -335,9 +335,9 @@ impl ReplayController {
 
             ShardUpdateReason::NewChunk(NewChunkData {
                 chunk_header: chunk_header.clone(),
-                transactions: chunk.transactions().to_vec(),
+                transactions: chunk.to_transactions().to_vec(),
                 // FIXME: see the `validate_chunk` thing above.
-                transaction_validity_check_results: vec![true; chunk.transactions().len()],
+                transaction_validity_check_results: vec![true; chunk.to_transactions().len()],
                 receipts,
                 block: block_context,
                 is_first_block_with_chunk_of_version,
