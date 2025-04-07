@@ -842,17 +842,13 @@ impl Chain {
         if let Ok(epoch_protocol_version) =
             self.epoch_manager.get_epoch_protocol_version(header.epoch_id())
         {
-            if ProtocolFeature::RejectBlocksWithOutdatedProtocolVersions
-                .enabled(epoch_protocol_version)
-            {
-                if header.latest_protocol_version() < epoch_protocol_version {
-                    error!(
-                        "header protocol version {} smaller than epoch protocol version {}",
-                        header.latest_protocol_version(),
-                        epoch_protocol_version
-                    );
-                    return Err(Error::InvalidProtocolVersion);
-                }
+            if header.latest_protocol_version() < epoch_protocol_version {
+                error!(
+                    "header protocol version {} smaller than epoch protocol version {}",
+                    header.latest_protocol_version(),
+                    epoch_protocol_version
+                );
+                return Err(Error::InvalidProtocolVersion);
             }
         }
 

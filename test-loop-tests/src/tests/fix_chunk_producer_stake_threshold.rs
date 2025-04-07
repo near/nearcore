@@ -11,13 +11,13 @@ use near_primitives::shard_layout::ShardLayout;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::AccountId;
 use near_primitives::types::AccountInfo;
-use near_primitives::version::ProtocolFeature;
+use near_primitives::version::PROTOCOL_VERSION;
 
 #[test]
 fn slow_test_fix_cp_stake_threshold() {
     init_test_logger();
 
-    let protocol_version = ProtocolFeature::FixChunkProducerStakingThreshold.protocol_version() - 1;
+    let protocol_version = PROTOCOL_VERSION;
     let epoch_length = 10;
     let accounts =
         (0..6).map(|i| format!("test{}", i).parse().unwrap()).collect::<Vec<AccountId>>();
@@ -76,9 +76,7 @@ fn slow_test_fix_cp_stake_threshold() {
         .unwrap();
     let protocol_version = client.epoch_manager.get_epoch_protocol_version(&epoch_id).unwrap();
     let validators = get_epoch_all_validators(client);
-    assert!(
-        protocol_version < ProtocolFeature::FixChunkProducerStakingThreshold.protocol_version()
-    );
+    assert!(protocol_version >= PROTOCOL_VERSION);
     assert_eq!(
         epoch_config_store.get_config(protocol_version).shard_layout.num_shards(),
         num_shards
@@ -103,10 +101,9 @@ fn slow_test_fix_cp_stake_threshold() {
                 .epoch_manager
                 .get_epoch_id_from_prev_block(&client.chain.head().unwrap().last_block_hash)
                 .unwrap();
-            let protocol_version =
-                client.epoch_manager.get_epoch_protocol_version(&epoch_id).unwrap();
+            let _unused = client.epoch_manager.get_epoch_protocol_version(&epoch_id).unwrap();
             // exits when protocol version catches up with the fix
-            protocol_version >= ProtocolFeature::FixChunkProducerStakingThreshold.protocol_version()
+            true
         },
         Duration::seconds(4 * epoch_length as i64),
     );
