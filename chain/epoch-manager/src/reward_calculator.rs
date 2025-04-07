@@ -5,7 +5,7 @@ use primitive_types::{U256, U512};
 
 use near_chain_configs::GenesisConfig;
 use near_primitives::types::{AccountId, Balance, BlockChunkValidatorStats};
-use near_primitives::version::{ProtocolFeature, ProtocolVersion};
+use near_primitives::version::ProtocolVersion;
 
 use crate::validator_stats::get_validator_online_ratio;
 
@@ -98,25 +98,19 @@ impl RewardCalculator {
 
             let expected_blocks = stats.block_stats.expected;
             let expected_chunks = stats.chunk_stats.expected();
-            let expected_endorsements = stats.chunk_stats.endorsement_stats().expected;
 
             let online_min_numer =
                 U256::from(*online_thresholds.online_min_threshold.numer() as u64);
             let online_min_denom =
                 U256::from(*online_thresholds.online_min_threshold.denom() as u64);
             // If average of produced blocks below online min threshold, validator gets 0 reward.
-            let chunk_only_producers_enabled =
-                ProtocolFeature::ChunkOnlyProducers.enabled(protocol_version);
             let reward = if average_produced_numer * online_min_denom
                 < online_min_numer * average_produced_denom
-                || (chunk_only_producers_enabled
-                    && expected_chunks == 0
-                    && expected_blocks == 0
-                    && expected_endorsements == 0)
-                // This is for backwards compatibility. In 2021 December, after we changed to 4 shards,
-                // mainnet was ran without SynchronizeBlockChunkProduction for some time and it's
-                // possible that some validators have expected blocks or chunks to be zero.
-                || (!chunk_only_producers_enabled && (expected_chunks == 0 || expected_blocks == 0))
+                || expected_chunks == 0
+                || expected_blocks == 0
+            // This is for backwards compatibility. In 2021 December, after we changed to 4 shards,
+            // mainnet was ran without SynchronizeBlockChunkProduction for some time and it's
+            // possible that some validators have expected blocks or chunks to be zero.
             {
                 0
             } else {
