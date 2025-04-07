@@ -7,7 +7,7 @@ use borsh::BorshDeserialize;
 use near_crypto::{KeyType, PublicKey, Signature};
 use near_primitives::account::Account;
 use near_primitives::block::Block;
-use near_primitives::genesis::genesis_chunks;
+use near_primitives::genesis::{genesis_block, genesis_chunks};
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::combine_hash;
 use near_primitives::test_utils::account_new;
@@ -43,13 +43,13 @@ fn create_block() -> Block {
     let shard_ids = vec![ShardId::new(0)];
     let genesis_chunks = genesis_chunks(
         vec![StateRoot::new()],
-        vec![Some(Default::default()); shard_ids.len()],
+        vec![Default::default(); shard_ids.len()],
         &shard_ids,
         1_000,
         0,
         PROTOCOL_VERSION,
     );
-    let genesis = Block::genesis(
+    let genesis = genesis_block(
         PROTOCOL_VERSION,
         genesis_chunks.into_iter().map(|chunk| chunk.take_header()).collect(),
         Clock::real().now_utc(),
