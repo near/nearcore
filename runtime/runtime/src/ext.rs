@@ -25,7 +25,6 @@ pub struct RuntimeExt<'a> {
     action_hash: CryptoHash,
     data_count: u64,
     epoch_id: EpochId,
-    prev_block_hash: CryptoHash,
     last_block_hash: CryptoHash,
     block_height: BlockHeight,
     epoch_info_provider: &'a dyn EpochInfoProvider,
@@ -82,7 +81,6 @@ impl<'a> RuntimeExt<'a> {
         account: Account,
         action_hash: CryptoHash,
         epoch_id: EpochId,
-        prev_block_hash: CryptoHash,
         last_block_hash: CryptoHash,
         block_height: BlockHeight,
         epoch_info_provider: &'a dyn EpochInfoProvider,
@@ -97,7 +95,6 @@ impl<'a> RuntimeExt<'a> {
             action_hash,
             data_count: 0,
             epoch_id,
-            prev_block_hash,
             last_block_hash,
             block_height,
             epoch_info_provider,
@@ -321,13 +318,13 @@ impl<'a> External for RuntimeExt<'a> {
 
     fn validator_stake(&self, account_id: &AccountId) -> ExtResult<Option<Balance>> {
         self.epoch_info_provider
-            .validator_stake(&self.epoch_id, &self.prev_block_hash, account_id)
+            .validator_stake(&self.epoch_id, account_id)
             .map_err(|e| ExternalError::ValidatorError(e).into())
     }
 
     fn validator_total_stake(&self) -> ExtResult<Balance> {
         self.epoch_info_provider
-            .validator_total_stake(&self.epoch_id, &self.prev_block_hash)
+            .validator_total_stake(&self.epoch_id)
             .map_err(|e| ExternalError::ValidatorError(e).into())
     }
 

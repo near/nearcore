@@ -211,7 +211,7 @@ pub fn create_chunk(
         let rs = ReedSolomon::new(data_parts, parity_parts).unwrap();
 
         let header = chunk.cloned_header();
-        let (mut encoded_chunk, mut new_merkle_paths) = EncodedShardChunk::new(
+        let (mut encoded_chunk, mut new_merkle_paths, _) = EncodedShardChunk::new(
             *header.prev_block_hash(),
             header.prev_state_root(),
             header.prev_outcome_root(),
@@ -224,7 +224,7 @@ pub fn create_chunk(
             tx_root,
             header.prev_validator_proposals().collect(),
             transactions,
-            decoded_chunk.prev_outgoing_receipts(),
+            decoded_chunk.prev_outgoing_receipts().to_vec(),
             header.prev_outgoing_receipts_root(),
             header.congestion_info(),
             header.bandwidth_requests().cloned(),

@@ -122,16 +122,21 @@ pub enum ProtocolFeature {
     _DeprecatedAccessKeyNonceForImplicitAccounts,
     /// Increase cost per deployed code byte to cover for the compilation steps
     /// that a deployment triggers. Only affects the action execution cost.
-    IncreaseDeploymentCost,
-    FunctionCallWeight,
+    #[deprecated]
+    _DeprecatedIncreaseDeploymentCost,
+    #[deprecated]
+    _DeprecatedFunctionCallWeight,
     /// This feature enforces a global limit on the function local declarations in a WebAssembly
     /// contract. See <...> for more information.
-    LimitContractLocals,
+    #[deprecated]
+    _DeprecatedLimitContractLocals,
     /// Ensure caching all nodes in the chunk for which touching trie node cost was charged. Charge for each such node
     /// only once per chunk at the first access time.
-    ChunkNodesCache,
+    #[deprecated]
+    _DeprecatedChunkNodesCache,
     /// Lower `max_length_storage_key` limit, which itself limits trie node sizes.
-    LowerStorageKeyLimit,
+    #[deprecated]
+    _DeprecatedLowerStorageKeyLimit,
     // alt_bn128_g1_multiexp, alt_bn128_g1_sum, alt_bn128_pairing_check host functions
     #[deprecated]
     _DeprecatedAltBn128,
@@ -173,7 +178,8 @@ pub enum ProtocolFeature {
     /// Enables Near-Vm. Note that this setting is not at all supported without PreparationV2,
     /// as it hardcodes preparation v2 code into the generated assembly.
     NearVmRuntime,
-    BlockHeaderV4,
+    #[deprecated]
+    _DeprecatedBlockHeaderV4,
     /// Resharding V2. A new implementation for resharding and a new shard
     /// layout for the production networks.
     SimpleNightshadeV2,
@@ -233,7 +239,8 @@ pub enum ProtocolFeature {
     // Include a bitmap of endorsements from chunk validator in the block header
     // in order to calculate the rewards and kickouts for the chunk validators.
     // This feature introduces BlockHeaderV5.
-    ChunkEndorsementsInBlockHeader,
+    #[deprecated]
+    _DeprecatedChunkEndorsementsInBlockHeader,
     /// Store receipts in State in the StateStoredReceipt format.
     StateStoredReceipt,
     /// Resharding V3 - Adding "game.hot.tg-0" boundary.
@@ -319,11 +326,11 @@ impl ProtocolFeature {
             ProtocolFeature::_DeprecatedSynchronizeBlockChunkProduction
             | ProtocolFeature::_DeprecatedCorrectStackLimit => 50,
             ProtocolFeature::_DeprecatedAccessKeyNonceForImplicitAccounts => 51,
-            ProtocolFeature::IncreaseDeploymentCost
-            | ProtocolFeature::FunctionCallWeight
-            | ProtocolFeature::LimitContractLocals
-            | ProtocolFeature::ChunkNodesCache
-            | ProtocolFeature::LowerStorageKeyLimit => 53,
+            ProtocolFeature::_DeprecatedIncreaseDeploymentCost
+            | ProtocolFeature::_DeprecatedFunctionCallWeight
+            | ProtocolFeature::_DeprecatedLimitContractLocals
+            | ProtocolFeature::_DeprecatedChunkNodesCache
+            | ProtocolFeature::_DeprecatedLowerStorageKeyLimit => 53,
             ProtocolFeature::_DeprecatedAltBn128 => 55,
             ProtocolFeature::ChunkOnlyProducers | ProtocolFeature::_DeprecatedMaxKickoutStake => 56,
             ProtocolFeature::_DeprecatedAccountIdInFunctionCallPermission => 57,
@@ -333,7 +340,7 @@ impl ProtocolFeature {
             ProtocolFeature::_DeprecatedComputeCosts
             | ProtocolFeature::_DeprecatedFlatStorageReads => 61,
             ProtocolFeature::PreparationV2 | ProtocolFeature::NearVmRuntime => 62,
-            ProtocolFeature::BlockHeaderV4 => 63,
+            ProtocolFeature::_DeprecatedBlockHeaderV4 => 63,
             ProtocolFeature::_DeprecatedRestrictTla
             | ProtocolFeature::_DeprecatedTestnetFewerBlockProducers
             | ProtocolFeature::SimpleNightshadeV2 => 64,
@@ -349,7 +356,7 @@ impl ProtocolFeature {
             ProtocolFeature::_DeprecatedFixMinStakeRatio => 71,
             ProtocolFeature::_DeprecatedIncreaseStorageProofSizeSoftLimit
             | ProtocolFeature::_DeprecatedChunkEndorsementV2
-            | ProtocolFeature::ChunkEndorsementsInBlockHeader
+            | ProtocolFeature::_DeprecatedChunkEndorsementsInBlockHeader
             | ProtocolFeature::StateStoredReceipt => 72,
             ProtocolFeature::ExcludeContractCodeFromStateWitness => 73,
             ProtocolFeature::FixStakingThreshold

@@ -969,11 +969,7 @@ impl Chain {
                 return Err(Error::InvalidChallenge);
             }
 
-            let protocol_version =
-                self.epoch_manager.get_epoch_protocol_version(header.epoch_id())?;
-            if ProtocolFeature::ChunkEndorsementsInBlockHeader.enabled(protocol_version) {
-                validate_chunk_endorsements_in_header(self.epoch_manager.as_ref(), header)?;
-            }
+            validate_chunk_endorsements_in_header(self.epoch_manager.as_ref(), header)?;
         }
 
         Ok(())
@@ -1008,29 +1004,17 @@ impl Chain {
         if block.hash() == self.genesis.hash() {
             return Ok(VerifyBlockHashAndSignatureResult::Correct);
         }
-        let epoch_id = match self.epoch_manager.get_epoch_id(block.header().prev_hash()) {
-            Ok(epoch_id) => epoch_id,
-            Err(EpochError::MissingBlock(missing_block))
-                if &missing_block == block.header().prev_hash() =>
-            {
-                return Ok(VerifyBlockHashAndSignatureResult::CannotVerifyBecauseBlockIsOrphan);
-            }
-            Err(err) => return Err(err.into()),
-        };
-        let epoch_protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
 
         // Check that block body hash matches the block body. This makes sure that the block body
         // content is not tampered
-        if ProtocolFeature::BlockHeaderV4.enabled(epoch_protocol_version) {
-            let block_body_hash = block.compute_block_body_hash();
-            if block_body_hash.is_none() {
-                tracing::warn!("Block version too old for block: {:?}", block.hash());
-                return Ok(VerifyBlockHashAndSignatureResult::Incorrect);
-            }
-            if block.header().block_body_hash() != block_body_hash {
-                tracing::warn!("Invalid block body hash for block: {:?}", block.hash());
-                return Ok(VerifyBlockHashAndSignatureResult::Incorrect);
-            }
+        let block_body_hash = block.compute_block_body_hash();
+        if block_body_hash.is_none() {
+            tracing::warn!("Block version too old for block: {:?}", block.hash());
+            return Ok(VerifyBlockHashAndSignatureResult::Incorrect);
+        }
+        if block.header().block_body_hash() != block_body_hash {
+            tracing::warn!("Invalid block body hash for block: {:?}", block.hash());
+            return Ok(VerifyBlockHashAndSignatureResult::Incorrect);
         }
 
         // Verify the signature. Since the signature is signed on the hash of block header, this check
@@ -3286,7 +3270,7 @@ impl Chain {
         let shard_update_reason = if is_new_chunk {
             // Validate new chunk and collect incoming receipts for it.
             let prev_chunk_extra = self.get_chunk_extra(prev_hash, &shard_context.shard_uid)?;
-            let chunk = get_chunk_clone_from_header(&self.chain_store, &chunk_header)?;
+            let chunk = get_chunk_clone_from_header(&self.chain_store, chunk_header)?;
             let prev_chunk_height_included = prev_chunk_header.height_included();
 
             // Validate that all next chunk information matches previous chunk extra.
@@ -3298,7 +3282,7 @@ impl Chain {
                 prev_hash,
                 prev_chunk_extra.as_ref(),
                 prev_chunk_height_included,
-                &chunk_header,
+                chunk_header,
             )
             .map_err(|err| {
                 warn!(
@@ -3315,7 +3299,7 @@ impl Chain {
                     prev_block,
                     block_height,
                     chunk_headers,
-                    &chunk_header,
+                    chunk_header,
                 ) {
                     Ok(chunk_state) => Error::InvalidChunkState(Box::new(chunk_state)),
                     Err(err) => err,
@@ -3353,7 +3337,7 @@ impl Chain {
 
             ShardUpdateReason::NewChunk(NewChunkData {
                 chunk_header: chunk_header.clone(),
-                transactions: chunk.transactions().to_vec(),
+                transactions: chunk.into_transactions(),
                 transaction_validity_check_results: tx_valid_list,
                 receipts,
                 block,

@@ -977,7 +977,7 @@ fn test_bad_orphan() {
         block.mut_header().set_prev_hash(CryptoHash([3; 32]));
         block.mut_header().resign(&*signer);
         let res = env.clients[0].process_block_test(block.into(), Provenance::NONE);
-        assert_matches!(res.unwrap_err(), Error::InvalidChunkHeadersRoot);
+        assert_matches!(res.unwrap_err(), Error::InvalidSignature);
     }
     {
         // Orphan block with invalid approvals. Allowed for now.
@@ -1003,7 +1003,7 @@ fn test_bad_orphan() {
         block.mut_header().set_prev_hash(CryptoHash([4; 32]));
         block.mut_header().resign(&*signer);
         let res = env.clients[0].process_block_test(block.into(), Provenance::NONE);
-        assert_matches!(res.unwrap_err(), Error::Orphan);
+        assert_matches!(res.unwrap_err(), Error::InvalidSignature);
     }
     {
         // Orphan block that's too far ahead: 20 * epoch_length
@@ -2498,7 +2498,7 @@ fn test_block_execution_outcomes() {
     let block = env.clients[0].chain.get_block_by_height(2).unwrap();
     let chunk = env.clients[0].chain.get_chunk(&block.chunks()[0].chunk_hash()).unwrap();
     let shard_id = chunk.shard_id();
-    assert_eq!(chunk.transactions().len(), 3);
+    assert_eq!(chunk.to_transactions().len(), 3);
     let execution_outcomes_from_block = env.clients[0]
         .chain
         .chain_store()
@@ -2519,7 +2519,7 @@ fn test_block_execution_outcomes() {
     let next_block = env.clients[0].chain.get_block_by_height(3).unwrap();
     let next_chunk = env.clients[0].chain.get_chunk(&next_block.chunks()[0].chunk_hash()).unwrap();
     let shard_id = next_chunk.shard_id();
-    assert!(next_chunk.transactions().is_empty());
+    assert!(next_chunk.to_transactions().is_empty());
     assert!(next_chunk.prev_outgoing_receipts().is_empty());
     let execution_outcomes_from_block = env.clients[0]
         .chain
@@ -2663,14 +2663,14 @@ fn test_delayed_receipt_count_limit() {
         let chunk = env.clients[0].chain.get_chunk(&block.chunks()[0].chunk_hash()).unwrap();
         // These checks are useful to ensure that we didn't mess up the test setup.
         assert!(chunk.prev_outgoing_receipts().len() <= 1);
-        assert!(chunk.transactions().len() <= 5);
+        assert!(chunk.to_transactions().len() <= 5);
 
         // Because all transactions are in the transactions pool, this means we have not included
         // some transactions due to the delayed receipt count limit.
-        if included_tx_count > 0 && chunk.transactions().is_empty() {
+        if included_tx_count > 0 && chunk.to_transactions().is_empty() {
             break;
         }
-        included_tx_count += chunk.transactions().len();
+        included_tx_count += chunk.to_transactions().len();
         height += 1;
     }
     assert!(included_tx_count < total_tx_count);
