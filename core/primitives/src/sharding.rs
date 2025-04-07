@@ -4,6 +4,8 @@ use crate::hash::{CryptoHash, hash};
 use crate::merkle::{MerklePath, combine_hash, merklize, verify_path};
 use crate::receipt::Receipt;
 use crate::transaction::SignedTransaction;
+#[cfg(feature = "solomon")]
+use crate::transaction::ValidatedTransaction;
 use crate::types::validator_stake::{ValidatorStake, ValidatorStakeIter, ValidatorStakeV1};
 use crate::types::{Balance, BlockHeight, Gas, MerkleHash, ShardId, StateRoot};
 use crate::validator_signer::{EmptyValidatorSigner, ValidatorSigner};
@@ -1111,7 +1113,7 @@ impl EncodedShardChunkBody {
 pub struct ReceiptList<'a>(pub ShardId, pub &'a [Receipt]);
 
 #[derive(BorshSerialize, BorshDeserialize, ProtocolSchema)]
-pub struct TransactionReceipt(pub Vec<SignedTransaction>, pub Vec<Receipt>);
+pub struct TransactionReceipt(pub Vec<ValidatedTransaction>, pub Vec<Receipt>);
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, ProtocolSchema)]
 pub struct EncodedShardChunkV1 {
@@ -1214,7 +1216,7 @@ impl EncodedShardChunk {
         prev_balance_burnt: Balance,
         tx_root: CryptoHash,
         prev_validator_proposals: Vec<ValidatorStake>,
-        transactions: Vec<SignedTransaction>,
+        transactions: Vec<ValidatedTransaction>,
         prev_outgoing_receipts: Vec<Receipt>,
         prev_outgoing_receipts_root: CryptoHash,
         congestion_info: Option<CongestionInfo>,
@@ -1330,18 +1332,23 @@ impl EncodedShardChunk {
 
         let transaction_receipts =
             Self::decode_transaction_receipts(&self.content().parts, self.encoded_length())?;
+        let signed_txs = transaction_receipts
+            .0
+            .into_iter()
+            .map(|validated_tx| validated_tx.into_signed_tx())
+            .collect();
         match self {
             Self::V1(chunk) => Ok(ShardChunk::V1(ShardChunkV1 {
                 chunk_hash: chunk.header.chunk_hash(),
                 header: chunk.header.clone(),
-                transactions: transaction_receipts.0,
+                transactions: signed_txs,
                 prev_outgoing_receipts: transaction_receipts.1,
             })),
 
             Self::V2(chunk) => Ok(ShardChunk::V2(ShardChunkV2 {
                 chunk_hash: chunk.header.chunk_hash(),
                 header: chunk.header.clone(),
-                transactions: transaction_receipts.0,
+                transactions: signed_txs,
                 prev_outgoing_receipts: transaction_receipts.1,
             })),
         }

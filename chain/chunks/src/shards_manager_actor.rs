@@ -124,7 +124,7 @@ use near_primitives::sharding::{
     TransactionReceipt,
 };
 use near_primitives::stateless_validation::ChunkProductionKey;
-use near_primitives::transaction::SignedTransaction;
+use near_primitives::transaction::ValidatedTransaction;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, BlockHeightDelta, EpochId, Gas, MerkleHash, ShardId, StateRoot,
@@ -1037,7 +1037,6 @@ impl ShardsManagerActor {
     /// This requires encoding the chunk and as such is computationally
     /// expensive operation.  If possible, the request should be served from
     /// EncodedChunksCacheEntry or PartialEncodedChunk instead.
-    // pub for testing
     fn lookup_partial_encoded_chunk_from_chunk_storage(
         &self,
         part_ords: HashSet<u64>,
@@ -1070,7 +1069,14 @@ impl ShardsManagerActor {
         // well.  Otherwise we won’t bother.
         let (parts, encoded_length) = reed_solomon_encode(
             &self.rs,
-            &TransactionReceipt(chunk.to_transactions().to_vec(), outgoing_receipts.to_vec()),
+            &TransactionReceipt(
+                chunk
+                    .to_transactions()
+                    .into_iter()
+                    .map(|t| ValidatedTransaction::new_for_test(t.clone()))
+                    .collect(),
+                outgoing_receipts.to_vec(),
+            ),
         );
 
         if header.encoded_length() != encoded_length as u64 {
@@ -1963,7 +1969,7 @@ impl ShardsManagerActor {
         gas_limit: Gas,
         prev_balance_burnt: Balance,
         prev_validator_proposals: Vec<ValidatorStake>,
-        transactions: Vec<SignedTransaction>,
+        transactions: Vec<ValidatedTransaction>,
         prev_outgoing_receipts: Vec<Receipt>,
         prev_outgoing_receipts_root: CryptoHash,
         tx_root: CryptoHash,

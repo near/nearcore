@@ -216,7 +216,7 @@ impl BorshDeserialize for Transaction {
 /// guaranteed to have various checks performed on it.  In particular, ensure
 /// that the signature is verified and the max transaction size checks have been
 /// conducted.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct ValidatedTransaction(SignedTransaction);
 
 impl ValidatedTransaction {

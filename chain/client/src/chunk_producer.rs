@@ -296,11 +296,7 @@ impl ChunkProducer {
                 chunk_extra.gas_limit(),
                 chunk_extra.balance_burnt(),
                 chunk_extra.validator_proposals().collect(),
-                prepared_transactions
-                    .transactions
-                    .into_iter()
-                    .map(|vt| vt.into_signed_tx())
-                    .collect::<Vec<_>>(),
+                prepared_transactions.transactions,
                 outgoing_receipts,
                 outgoing_receipts_root,
                 tx_root,

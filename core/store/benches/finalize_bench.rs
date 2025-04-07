@@ -30,7 +30,9 @@ use near_primitives::sharding::{
     PartialEncodedChunkV2, ReceiptProof, ShardChunk, ShardChunkHeader, ShardChunkHeaderV3,
     ShardChunkV2, ShardProof,
 };
-use near_primitives::transaction::{Action, FunctionCallAction, SignedTransaction};
+use near_primitives::transaction::{
+    Action, FunctionCallAction, SignedTransaction, ValidatedTransaction,
+};
 use near_primitives::types::{AccountId, ShardId};
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
@@ -190,6 +192,8 @@ fn create_encoded_shard_chunk(
     transactions: Vec<SignedTransaction>,
     receipts: Vec<Receipt>,
 ) -> (EncodedShardChunk, Vec<Vec<MerklePathItem>>, Vec<Receipt>) {
+    let transactions =
+        transactions.into_iter().map(|t| ValidatedTransaction::new_for_test(t)).collect();
     let rs = ReedSolomon::new(33, 67).unwrap();
 
     let congestion_info = ProtocolFeature::CongestionControl

@@ -22,7 +22,7 @@ use near_primitives::merkle::{PartialMerkleTree, merklize};
 use near_primitives::optimistic_block::BlockToApply;
 use near_primitives::sharding::{EncodedShardChunk, ShardChunk};
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
-use near_primitives::transaction::SignedTransaction;
+use near_primitives::transaction::{SignedTransaction, ValidatedTransaction};
 use near_primitives::types::{BlockHeight, EpochId, ShardId};
 use near_primitives::utils::MaybeValidated;
 use near_primitives::version::PROTOCOL_VERSION;
@@ -196,7 +196,11 @@ pub fn create_chunk(
             .unwrap()
             .unwrap();
     let should_replace = replace_transactions.is_some() || replace_tx_root.is_some();
-    let transactions = replace_transactions.unwrap_or_else(Vec::new);
+    let transactions = replace_transactions
+        .unwrap_or_else(Vec::new)
+        .into_iter()
+        .map(|t| ValidatedTransaction::new_for_test(t))
+        .collect::<Vec<_>>();
     let tx_root = match replace_tx_root {
         Some(root) => root,
         None => merklize(&transactions).0,
