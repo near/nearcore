@@ -1,6 +1,5 @@
 use super::test_builder::test_builder;
 use expect_test::expect;
-#[allow(deprecated)]
 use near_primitives_core::version::ProtocolFeature;
 use std::fmt::Write;
 
@@ -45,7 +44,6 @@ fn test_infinite_initializer_export_not_found() {
 static SIMPLE_CONTRACT: &str = r#"(module (func (export "main")))"#;
 
 #[test]
-#[allow(deprecated)]
 fn test_simple_contract() {
     test_builder()
         .wat(SIMPLE_CONTRACT)
@@ -64,7 +62,6 @@ fn test_simple_contract() {
 }
 
 #[test]
-#[allow(deprecated)]
 fn test_imported_memory() {
     test_builder()
         .wasm(&[
@@ -130,7 +127,6 @@ fn test_empty_method() {
 }
 
 #[test]
-#[allow(deprecated)]
 fn test_trap_contract() {
     test_builder()
         .wat(r#"(module (func (export "main") (unreachable)) )"#)
@@ -152,7 +148,6 @@ fn test_trap_contract() {
 }
 
 #[test]
-#[allow(deprecated)]
 fn test_trap_initializer() {
     test_builder()
         .wat(
@@ -181,7 +176,6 @@ fn test_trap_initializer() {
 }
 
 #[test]
-#[allow(deprecated)]
 fn test_div_by_zero_contract() {
     test_builder()
         .wat(
@@ -214,7 +208,6 @@ fn test_div_by_zero_contract() {
 }
 
 #[test]
-#[allow(deprecated)]
 fn test_float_to_int_contract() {
     for op in ["i32.trunc_f64_s", "i32.trunc_f64_u", "i64.trunc_f64_s", "i64.trunc_f64_u"] {
         test_builder()
@@ -248,7 +241,6 @@ fn test_float_to_int_contract() {
 }
 
 #[test]
-#[allow(deprecated)]
 fn test_indirect_call_to_null_contract() {
     test_builder()
         .wat(
@@ -283,7 +275,6 @@ fn test_indirect_call_to_null_contract() {
 }
 
 #[test]
-#[allow(deprecated)]
 fn test_indirect_call_to_wrong_signature_contract() {
     test_builder()
         .wat(
@@ -355,7 +346,6 @@ fn test_export_wrong_type() {
 }
 
 #[test]
-#[allow(deprecated)]
 fn test_guest_panic() {
     test_builder()
         .wat(
@@ -399,7 +389,6 @@ fn test_panic_re_export() {
 }
 
 #[test]
-#[allow(deprecated)]
 fn test_stack_overflow() {
     test_builder()
         .wat(r#"(module (func $f (export "main") (call $f)))"#)
@@ -422,7 +411,6 @@ fn test_stack_overflow() {
 }
 
 #[test]
-#[allow(deprecated)]
 fn test_stack_instrumentation_protocol_upgrade() {
     test_builder()
         .wat(
@@ -872,11 +860,11 @@ mod fix_contract_loading_cost_protocol_upgrade {
 
     // Normal execution should be unchanged before and after.
     #[test]
-    #[allow(deprecated)]
     fn test_fn_loading_gas_protocol_upgrade() {
         test_builder()
             .wat(ALMOST_TRIVIAL_CONTRACT)
             .protocol_features(&[
+                #[allow(deprecated)]
                 ProtocolFeature::_DeprecatedPreparationV2
             ])
             .protocol_version(FIX_CONTRACT_LOADING_COST)
@@ -896,7 +884,6 @@ mod fix_contract_loading_cost_protocol_upgrade {
     // Executing with just enough gas to load the contract will fail before and
     // after. Both charge the same amount of gas.
     #[test]
-    #[allow(deprecated)]
     fn test_fn_loading_gas_protocol_upgrade_exceed_loading() {
         let expect = expect![[r#"
             VMOutcome: balance 4 storage_usage 12 return data None burnt gas 79017763 used gas 79017763
@@ -918,7 +905,6 @@ mod fix_contract_loading_cost_protocol_upgrade {
     /// Executing with enough gas to finish loading but not to execute the full
     /// contract should have the same outcome before and after.
     #[test]
-    #[allow(deprecated)]
     fn test_fn_loading_gas_protocol_upgrade_exceed_executing() {
         let expect = expect![[r#"
             VMOutcome: balance 4 storage_usage 12 return data None burnt gas 79901800 used gas 79901800
@@ -941,7 +927,6 @@ mod fix_contract_loading_cost_protocol_upgrade {
     /// Failure during preparation must remain free of gas charges for old versions
     /// but new versions must charge the loading gas.
     #[test]
-    #[allow(deprecated)]
     fn test_fn_loading_gas_protocol_upgrade_fail_preparing() {
         // This list covers all control flows that are expected to change
         // with the protocol feature.

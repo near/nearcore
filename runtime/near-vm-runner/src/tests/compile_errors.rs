@@ -1,6 +1,5 @@
 use super::test_builder::test_builder;
 use expect_test::expect;
-#[allow(deprecated)]
 use near_primitives_core::version::ProtocolFeature;
 
 const FIX_CONTRACT_LOADING_COST: u32 = 129;
@@ -139,7 +138,6 @@ fn test_evil_function_index() {
 }
 
 #[test]
-#[allow(deprecated)]
 fn slow_test_limit_contract_functions_number() {
     let functions_number_limit: u32 = 10_000;
 
@@ -151,6 +149,7 @@ fn slow_test_limit_contract_functions_number() {
         .make(),
     )
     .protocol_features(&[
+        #[allow(deprecated)]
         ProtocolFeature::_DeprecatedPreparationV2,
     ])
     .protocol_version(FIX_CONTRACT_LOADING_COST)
@@ -174,6 +173,7 @@ fn slow_test_limit_contract_functions_number() {
         .make(),
     )
     .protocol_features(&[
+        #[allow(deprecated)]
         ProtocolFeature::_DeprecatedPreparationV2,
     ])
     .protocol_version(FIX_CONTRACT_LOADING_COST)
@@ -202,6 +202,7 @@ fn slow_test_limit_contract_functions_number() {
             .make(),
         )
         .protocol_features(&[
+            #[allow(deprecated)]
             ProtocolFeature::_DeprecatedPreparationV2,
         ])
         .protocol_version(
@@ -253,7 +254,6 @@ fn slow_test_limit_contract_functions_number() {
 }
 
 #[test]
-#[allow(deprecated)]
 fn test_limit_locals() {
     test_builder()
         .wasm(
@@ -265,6 +265,7 @@ fn test_limit_locals() {
             .make(),
         )
         .protocol_features(&[
+            #[allow(deprecated)]
             ProtocolFeature::_DeprecatedPreparationV2,
         ])
 
@@ -297,6 +298,7 @@ fn test_limit_locals() {
         )
         .opaque_error()
         .protocol_features(&[
+            #[allow(deprecated)]
             ProtocolFeature::_DeprecatedPreparationV2,
         ])
         .expects(&[
@@ -312,7 +314,6 @@ fn test_limit_locals() {
 }
 
 #[test]
-#[allow(deprecated)]
 fn slow_test_limit_locals_global() {
     test_builder().wasm(&near_test_contracts::LargeContract {
         functions: 101,
@@ -355,6 +356,7 @@ fn slow_test_limit_locals_global() {
         )
         .opaque_error()
         .protocol_features(&[
+            #[allow(deprecated)]
             ProtocolFeature::_DeprecatedPreparationV2,
         ])
         .expects(&[
@@ -368,7 +370,6 @@ fn slow_test_limit_locals_global() {
 }
 
 #[test]
-#[allow(deprecated)]
 pub fn test_stabilized_host_function() {
     test_builder()
         .wat(
@@ -380,6 +381,7 @@ pub fn test_stabilized_host_function() {
 )"#,
         )
         .protocol_features(&[
+            #[allow(deprecated)]
             ProtocolFeature::_DeprecatedPreparationV2,
         ])
         .opaque_error()
@@ -442,7 +444,6 @@ fn extension_saturating_float_to_int() {
 }
 
 #[test]
-#[allow(deprecated)]
 fn extension_signext() {
     let tb = test_builder()
         .wat(
