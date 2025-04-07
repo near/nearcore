@@ -94,16 +94,17 @@ impl StandaloneRuntime {
             account_ids,
         );
         #[allow(deprecated)]
-        let congestion_info = if ProtocolFeature::_DeprecatedCongestionControl.enabled(PROTOCOL_VERSION) {
-            genesis
-                .config
-                .shard_layout
-                .shard_ids()
-                .map(|shard_id| (shard_id, ExtendedCongestionInfo::default()))
-                .collect()
-        } else {
-            Default::default()
-        };
+        let congestion_info =
+            if ProtocolFeature::_DeprecatedCongestionControl.enabled(PROTOCOL_VERSION) {
+                genesis
+                    .config
+                    .shard_layout
+                    .shard_ids()
+                    .map(|shard_id| (shard_id, ExtendedCongestionInfo::default()))
+                    .collect()
+            } else {
+                Default::default()
+            };
         let congestion_info = BlockCongestionInfo::new(congestion_info);
 
         let apply_state = ApplyState {
