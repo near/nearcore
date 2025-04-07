@@ -230,8 +230,7 @@ pub fn create_chunk(
             header.bandwidth_requests().cloned(),
             &*signer,
             PROTOCOL_VERSION,
-        )
-        .unwrap();
+        );
         swap(&mut chunk, &mut encoded_chunk);
         swap(&mut merkle_paths, &mut new_merkle_paths);
     }
@@ -252,7 +251,6 @@ pub fn create_chunk(
         ChunkEndorsement::new(EpochId::default(), &chunk.cloned_header(), signer.as_ref());
     block_merkle_tree.insert(*last_block.hash());
     let block = Block::produce(
-        PROTOCOL_VERSION,
         PROTOCOL_VERSION,
         PROTOCOL_VERSION,
         last_block.header(),

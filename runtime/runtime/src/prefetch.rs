@@ -197,10 +197,10 @@ impl TriePrefetcher {
     /// for some transactions may have been initiated.
     pub(crate) fn prefetch_transactions_data(
         &mut self,
-        transactions: SignedValidPeriodTransactions<'_>,
+        signed_txs: &SignedValidPeriodTransactions,
     ) -> Result<(), PrefetchError> {
         if self.prefetch_api.enable_receipt_prefetching {
-            for t in transactions.iter_nonexpired_transactions() {
+            for t in signed_txs.iter_nonexpired_transactions() {
                 let account_id = t.transaction.signer_id().clone();
                 let trie_key = TrieKey::Account { account_id };
                 self.prefetch_trie_key(trie_key)?;
@@ -483,7 +483,7 @@ mod tests {
             trie_config,
             &shard_uids,
             flat_storage_manager,
-            StateSnapshotConfig::default(),
+            StateSnapshotConfig::Disabled,
         );
 
         let mut kvs = vec![];

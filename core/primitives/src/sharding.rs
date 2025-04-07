@@ -102,24 +102,8 @@ pub enum StateSyncInfo {
 }
 
 impl StateSyncInfo {
-    fn new_previous_epoch(epoch_first_block: CryptoHash, shards: Vec<ShardId>) -> Self {
-        Self::V0(StateSyncInfoV0 { sync_hash: epoch_first_block, shards })
-    }
-
-    fn new_current_epoch(epoch_first_block: CryptoHash, shards: Vec<ShardId>) -> Self {
+    pub fn new(epoch_first_block: CryptoHash, shards: Vec<ShardId>) -> Self {
         Self::V1(StateSyncInfoV1 { epoch_first_block, sync_hash: None, shards })
-    }
-
-    pub fn new(
-        protocol_version: ProtocolVersion,
-        epoch_first_block: CryptoHash,
-        shards: Vec<ShardId>,
-    ) -> Self {
-        if ProtocolFeature::CurrentEpochStateSync.enabled(protocol_version) {
-            Self::new_current_epoch(epoch_first_block, shards)
-        } else {
-            Self::new_previous_epoch(epoch_first_block, shards)
-        }
     }
 
     /// Block hash that identifies this state sync struct on disk
@@ -578,8 +562,6 @@ impl ShardChunkHeader {
         &self,
         version: ProtocolVersion,
     ) -> Result<(), BadHeaderForProtocolVersionError> {
-        const BLOCK_HEADER_V3_VERSION: ProtocolVersion =
-            ProtocolFeature::BlockHeaderV3.protocol_version();
         const CONGESTION_CONTROL_VERSION: ProtocolVersion =
             ProtocolFeature::CongestionControl.protocol_version();
         const BANDWIDTH_SCHEDULER_VERSION: ProtocolVersion =
@@ -587,11 +569,9 @@ impl ShardChunkHeader {
 
         let is_valid = match &self {
             ShardChunkHeader::V1(_) => false,
-            ShardChunkHeader::V2(_) => version < BLOCK_HEADER_V3_VERSION,
+            ShardChunkHeader::V2(_) => false,
             ShardChunkHeader::V3(header) => match header.inner {
-                ShardChunkHeaderInner::V1(_) => {
-                    version >= BLOCK_HEADER_V3_VERSION && version < CONGESTION_CONTROL_VERSION
-                }
+                ShardChunkHeaderInner::V1(_) => version < CONGESTION_CONTROL_VERSION,
                 // Note that we allow V2 in the congestion control version.
                 // That is because the first chunk where this feature is
                 // enabled does not have the congestion info.
@@ -601,7 +581,7 @@ impl ShardChunkHeader {
                 // v2 is also allowed in the bandwidth scheduler version because there
                 // are multiple tests which upgrade from an old version directly to the
                 // latest version. TODO(#12328) - don't allow InnerV2 in bandwidth scheduler version.
-                ShardChunkHeaderInner::V2(_) => version >= BLOCK_HEADER_V3_VERSION,
+                ShardChunkHeaderInner::V2(_) => true,
                 ShardChunkHeaderInner::V3(_) => version >= CONGESTION_CONTROL_VERSION,
                 ShardChunkHeaderInner::V4(_) => version >= BANDWIDTH_SCHEDULER_VERSION,
             },
@@ -1234,61 +1214,35 @@ impl EncodedShardChunk {
         bandwidth_requests: Option<BandwidthRequests>,
         signer: &ValidatorSigner,
         protocol_version: ProtocolVersion,
-    ) -> Result<(Self, Vec<MerklePath>), std::io::Error> {
+    ) -> (Self, Vec<MerklePath>) {
         let (transaction_receipts_parts, encoded_length) = crate::reed_solomon::reed_solomon_encode(
             rs,
-            TransactionReceipt(transactions, prev_outgoing_receipts.to_vec()),
+            &TransactionReceipt(transactions, prev_outgoing_receipts.to_vec()),
         );
         let content = EncodedShardChunkBody { parts: transaction_receipts_parts };
         let (encoded_merkle_root, merkle_paths) = content.get_merkle_hash_and_paths();
 
-        let block_header_v3_version = Some(ProtocolFeature::BlockHeaderV3.protocol_version());
-
-        if block_header_v3_version.is_none() || protocol_version < block_header_v3_version.unwrap()
-        {
-            let validator_proposals =
-                prev_validator_proposals.into_iter().map(|v| v.into_v1()).collect();
-            let header = ShardChunkHeaderV2::new(
-                prev_block_hash,
-                prev_state_root,
-                prev_outcome_root,
-                encoded_merkle_root,
-                encoded_length as u64,
-                height,
-                shard_id,
-                prev_gas_used,
-                gas_limit,
-                prev_balance_burnt,
-                prev_outgoing_receipts_root,
-                tx_root,
-                validator_proposals,
-                signer,
-            );
-            let chunk = EncodedShardChunkV2 { header: ShardChunkHeader::V2(header), content };
-            Ok((Self::V2(chunk), merkle_paths))
-        } else {
-            let header = ShardChunkHeaderV3::new(
-                protocol_version,
-                prev_block_hash,
-                prev_state_root,
-                prev_outcome_root,
-                encoded_merkle_root,
-                encoded_length as u64,
-                height,
-                shard_id,
-                prev_gas_used,
-                gas_limit,
-                prev_balance_burnt,
-                prev_outgoing_receipts_root,
-                tx_root,
-                prev_validator_proposals,
-                congestion_info,
-                bandwidth_requests,
-                signer,
-            );
-            let chunk = EncodedShardChunkV2 { header: ShardChunkHeader::V3(header), content };
-            Ok((Self::V2(chunk), merkle_paths))
-        }
+        let header = ShardChunkHeaderV3::new(
+            protocol_version,
+            prev_block_hash,
+            prev_state_root,
+            prev_outcome_root,
+            encoded_merkle_root,
+            encoded_length as u64,
+            height,
+            shard_id,
+            prev_gas_used,
+            gas_limit,
+            prev_balance_burnt,
+            prev_outgoing_receipts_root,
+            tx_root,
+            prev_validator_proposals,
+            congestion_info,
+            bandwidth_requests,
+            signer,
+        );
+        let chunk = EncodedShardChunkV2 { header: ShardChunkHeader::V3(header), content };
+        (Self::V2(chunk), merkle_paths)
     }
 
     pub fn chunk_hash(&self) -> ChunkHash {

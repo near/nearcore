@@ -21,6 +21,7 @@ use near_primitives::types::{
 };
 use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
 use std::collections::{HashMap, HashSet};
+use std::path::Path;
 use std::sync::{Arc, Mutex, RwLock};
 
 struct ShardTriesInner {
@@ -218,6 +219,10 @@ impl ShardTries {
 
     pub fn state_snapshot_config(&self) -> &StateSnapshotConfig {
         &self.0.state_snapshot_config
+    }
+
+    pub fn state_snapshots_dir(&self) -> Option<&Path> {
+        self.state_snapshot_config().state_snapshots_dir()
     }
 
     pub(crate) fn state_snapshot(&self) -> &Arc<RwLock<Option<StateSnapshot>>> {
@@ -860,7 +865,7 @@ mod test {
             trie_config,
             &shard_uids,
             FlatStorageManager::new(store.flat_store()),
-            StateSnapshotConfig::default(),
+            StateSnapshotConfig::Disabled,
         )
     }
 
@@ -982,7 +987,7 @@ mod test {
             trie_config,
             &shard_uids,
             FlatStorageManager::new(store.flat_store()),
-            StateSnapshotConfig::default(),
+            StateSnapshotConfig::Disabled,
         );
 
         let trie_caches = &trie.0.caches;
