@@ -198,7 +198,6 @@ pub(crate) fn action_function_call(
         account.clone(),
         *action_hash,
         apply_state.epoch_id,
-        apply_state.prev_block_hash,
         apply_state.block_hash,
         apply_state.block_height,
         epoch_info_provider,
