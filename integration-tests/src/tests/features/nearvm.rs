@@ -13,11 +13,13 @@ use crate::utils::process_blocks::deploy_test_contract;
 
 #[cfg_attr(all(target_arch = "aarch64", target_vendor = "apple"), ignore)]
 #[test]
+#[allow(deprecated)]
 fn test_nearvm_upgrade() {
     let mut capture = near_o11y::testonly::TracingCapture::enable();
 
+    #[allow(deprecated)]
     let old_protocol_version =
-        near_primitives::version::ProtocolFeature::NearVmRuntime.protocol_version() - 1;
+        near_primitives::version::ProtocolFeature::_DeprecatedNearVmRuntime.protocol_version() - 1;
 
     // Prepare TestEnv with a contract at the old protocol version.
     let mut env = {
