@@ -418,7 +418,8 @@ fn test_stack_instrumentation_protocol_upgrade() {
         )
         .method("f1")
         .protocol_features(&[
-            ProtocolFeature::CorrectStackLimit,
+            #[allow(deprecated)]
+            ProtocolFeature::_DeprecatedCorrectStackLimit,
             ProtocolFeature::PreparationV2,
         ])
         .skip_wasmtime()
@@ -454,7 +455,8 @@ fn test_stack_instrumentation_protocol_upgrade() {
         .method("f2")
         .opaque_error()
         .protocol_features(&[
-            ProtocolFeature::CorrectStackLimit,
+            #[allow(deprecated)]
+            ProtocolFeature::_DeprecatedCorrectStackLimit,
             ProtocolFeature::PreparationV2,
         ])
         .skip_wasmtime()
@@ -709,7 +711,6 @@ fn test_address_overflow() {
     test_builder()
         .wat(code)
         .skip_wasmtime()
-        .skip_wasmer0()
         .protocol_features(&[
             ProtocolFeature::PreparationV2,
         ])
@@ -721,22 +722,6 @@ fn test_address_overflow() {
             expect![[r#"
                 VMOutcome: balance 4 storage_usage 12 return data None burnt gas 97048978 used gas 97048978
                 Err: WebAssembly trap: Memory out of bounds trap.
-            "#]],
-        ]);
-
-    // wasmer0 incorrectly doesn't catch overflow during address calculation
-    test_builder()
-        .wat(code)
-        .only_wasmer0()
-        .protocol_features(&[
-            ProtocolFeature::PreparationV2,
-        ])
-        .expects(&[
-            expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 48534981 used gas 48534981
-            "#]],
-            expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 97871734 used gas 97871734
             "#]],
         ]);
 }
@@ -767,7 +752,6 @@ fn test_nan_sign() {
     test_builder()
         .wat(code)
         .skip_wasmtime()
-        .skip_wasmer0()
         .protocol_features(&[
             ProtocolFeature::PreparationV2,
         ])
@@ -777,24 +761,6 @@ fn test_nan_sign() {
             "#]],
             expect![[r#"
                 VMOutcome: balance 4 storage_usage 12 return data None burnt gas 110433335 used gas 110433335
-            "#]],
-        ]);
-
-    // wasmer0 doesn't canonicalize NaNs
-    test_builder()
-        .wat(code)
-        .only_wasmer0()
-        .protocol_features(&[
-            ProtocolFeature::PreparationV2,
-        ])
-        .expects(&[
-            expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 54988767 used gas 54988767
-                Err: WebAssembly trap: An arithmetic exception, e.g. divided by zero.
-            "#]],
-            expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 109610579 used gas 109610579
-                Err: WebAssembly trap: An arithmetic exception, e.g. divided by zero.
             "#]],
         ]);
 }
