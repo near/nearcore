@@ -335,7 +335,8 @@ impl ProtocolFeature {
             | ProtocolFeature::_DeprecatedDelegateAction => 59,
             ProtocolFeature::_DeprecatedComputeCosts
             | ProtocolFeature::_DeprecatedFlatStorageReads => 61,
-            ProtocolFeature::_DeprecatedPreparationV2 | ProtocolFeature::_DeprecatedNearVmRuntime => 62,
+            ProtocolFeature::_DeprecatedPreparationV2
+            | ProtocolFeature::_DeprecatedNearVmRuntime => 62,
             ProtocolFeature::_DeprecatedBlockHeaderV4 => 63,
             ProtocolFeature::_DeprecatedRestrictTla
             | ProtocolFeature::_DeprecatedTestnetFewerBlockProducers
