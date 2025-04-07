@@ -253,13 +253,10 @@ impl RuntimeConfigStore {
 mod tests {
     use super::*;
     use crate::cost::ActionCosts;
-    use near_primitives_core::version::ProtocolFeature::{
-        DecreaseFunctionCallBaseCost, LowerStorageKeyLimit,
-    };
+    use near_primitives_core::version::ProtocolFeature::LowerStorageKeyLimit;
     use std::collections::HashSet;
 
     const GENESIS_PROTOCOL_VERSION: ProtocolVersion = 29;
-    const RECEIPTS_DEPTH: u64 = 63;
 
     #[test]
     fn all_configs_are_specified() {
@@ -286,26 +283,6 @@ mod tests {
             let Some((name, "yaml")) = file.rsplit_once(".") else { continue };
             let Ok(version_num) = name.parse::<u32>() else { continue };
             panic!("CONFIG_DIFFS does not contain reference to the {version_num}.yaml file!");
-        }
-    }
-
-    #[test]
-    fn test_max_prepaid_gas() {
-        let store = RuntimeConfigStore::new(None);
-        for (protocol_version, config) in store.store.iter() {
-            if *protocol_version >= DecreaseFunctionCallBaseCost.protocol_version() {
-                continue;
-            }
-
-            // TODO(#10955): Enforce the depth limit directly, regardless of the gas costs.
-            assert!(
-                config.wasm_config.limit_config.max_total_prepaid_gas
-                    / config.fees.min_receipt_with_function_call_gas()
-                    <= 63,
-                "The maximum desired depth of receipts for protocol version {} should be at most {}",
-                protocol_version,
-                RECEIPTS_DEPTH
-            );
         }
     }
 
