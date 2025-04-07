@@ -557,8 +557,5 @@ fn test_rpc_client_rejection() {
     );
     let response = env.tx_request_handlers[0].process_tx(fn_tx, false, false);
 
-    assert_matches!(
-        response,
-        ProcessTxResponse::InvalidTx(InvalidTxError::ShardCongested { .. })
-    );
+    assert_matches!(response, ProcessTxResponse::InvalidTx(InvalidTxError::ShardCongested { .. }));
 }

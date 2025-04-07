@@ -1200,7 +1200,6 @@ fn chunk_tx_gas_limit(
     shard_id: ShardId,
     gas_limit: u64,
 ) -> u64 {
-
     // The own congestion may be None when a new shard is created, or when the
     // feature is just being enabled. Using the default (no congestion) is a
     // reasonable choice in this case.

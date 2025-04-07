@@ -151,7 +151,8 @@ fn setup_runtime_for_shard(
     store_update.commit().unwrap();
     let contract_cache = FilesystemContractRuntimeCache::test().unwrap();
     let shard_ids = shard_layout.shard_ids();
-    let shards_congestion_info = shard_ids.map(|shard_id| (shard_id, ExtendedCongestionInfo::default())).collect();
+    let shards_congestion_info =
+        shard_ids.map(|shard_id| (shard_id, ExtendedCongestionInfo::default())).collect();
     let congestion_info = BlockCongestionInfo::new(shards_congestion_info);
     let apply_state = ApplyState {
         apply_reason: ApplyChunkReason::UpdateTrackedShard,
@@ -2446,7 +2447,6 @@ fn test_congestion_delayed_receipts_accounting() {
 /// necessary changes to the balance checker.
 #[test]
 fn test_congestion_buffering() {
-
     init_test_logger();
 
     // In the test setup with MockEpochInfoProvider, bob_account is on shard 0 while alice_account

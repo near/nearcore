@@ -2617,7 +2617,6 @@ fn test_refund_receipts_processing() {
 fn test_delayed_receipt_count_limit() {
     init_test_logger();
 
-
     let epoch_length = 5;
     let min_gas_price = 10000;
     let mut genesis = Genesis::test_sharded_new_version(vec!["test0".parse().unwrap()], 1, vec![1]);

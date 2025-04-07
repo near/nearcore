@@ -2145,7 +2145,6 @@ impl ApplyState {
         protocol_version: ProtocolVersion,
         trie: &dyn TrieAccess,
     ) -> Result<Option<CongestionInfo>, RuntimeError> {
-
         if let Some(congestion_info) = self.congestion_info.get(&self.shard_id) {
             return Ok(Some(congestion_info.congestion_info));
         }

@@ -197,7 +197,8 @@ impl RuntimeConfigStore {
                 // Get the original congestion control config. The nayduck tests
                 // are tuned to this config.
                 #[allow(deprecated)]
-                let source_protocol_version = ProtocolFeature::_DeprecatedCongestionControl.protocol_version();
+                let source_protocol_version =
+                    ProtocolFeature::_DeprecatedCongestionControl.protocol_version();
                 let source_runtime_config = config_store.get_config(source_protocol_version);
 
                 let mut config = RuntimeConfig::clone(config_store.get_config(PROTOCOL_VERSION));
