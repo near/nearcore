@@ -233,6 +233,7 @@ fn slow_test_limit_contract_functions_number() {
             .make(),
         )
         .protocol_features(&[
+            #[allow(deprecated)]
             ProtocolFeature::_DeprecatedPreparationV2,
 
         ])
@@ -323,6 +324,7 @@ fn slow_test_limit_locals_global() {
     .make())
     .protocol_features(&[
         ProtocolFeature::LimitContractLocals,
+        #[allow(deprecated)]
         ProtocolFeature::_DeprecatedPreparationV2,
 
     ])
@@ -454,7 +456,10 @@ fn extension_signext() {
             )
             "#,
         )
-        .protocol_features(&[ProtocolFeature::_DeprecatedPreparationV2]);
+        .protocol_features(&[
+            #[allow(deprecated)]
+            ProtocolFeature::_DeprecatedPreparationV2
+        ]);
     tb.expects(&[
         expect![[r#"
             VMOutcome: balance 4 storage_usage 12 return data None burnt gas 0 used gas 0
