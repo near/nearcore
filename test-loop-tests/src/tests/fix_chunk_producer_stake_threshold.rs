@@ -17,7 +17,7 @@ use near_primitives::version::ProtocolFeature;
 fn slow_test_fix_cp_stake_threshold() {
     init_test_logger();
 
-    let protocol_version = ProtocolFeature::_DeprecatedFixChunkProducerStakingThreshold.protocol_version() - 1;
+    let protocol_version = ProtocolFeature::FixChunkProducerStakingThreshold.protocol_version() - 1;
     let epoch_length = 10;
     let accounts =
         (0..6).map(|i| format!("test{}", i).parse().unwrap()).collect::<Vec<AccountId>>();
@@ -77,7 +77,7 @@ fn slow_test_fix_cp_stake_threshold() {
     let protocol_version = client.epoch_manager.get_epoch_protocol_version(&epoch_id).unwrap();
     let validators = get_epoch_all_validators(client);
     assert!(
-        protocol_version < ProtocolFeature::_DeprecatedFixChunkProducerStakingThreshold.protocol_version()
+        protocol_version < ProtocolFeature::FixChunkProducerStakingThreshold.protocol_version()
     );
     assert_eq!(
         epoch_config_store.get_config(protocol_version).shard_layout.num_shards(),
@@ -106,7 +106,7 @@ fn slow_test_fix_cp_stake_threshold() {
             let protocol_version =
                 client.epoch_manager.get_epoch_protocol_version(&epoch_id).unwrap();
             // exits when protocol version catches up with the fix
-            protocol_version >= ProtocolFeature::_DeprecatedFixChunkProducerStakingThreshold.protocol_version()
+            protocol_version >= ProtocolFeature::FixChunkProducerStakingThreshold.protocol_version()
         },
         Duration::seconds(4 * epoch_length as i64),
     );
