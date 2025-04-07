@@ -743,7 +743,6 @@ impl Chain {
                 if !verify_chunk_header_signature_with_epoch_manager(
                     epoch_manager,
                     &chunk_header,
-                    &parent_hash,
                     epoch_id,
                 )? {
                     byzantine_assert!(false);
