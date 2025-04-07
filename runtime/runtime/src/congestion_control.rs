@@ -81,70 +81,66 @@ impl ReceiptSink {
         protocol_version: ProtocolVersion,
         trie: &dyn TrieAccess,
         apply_state: &ApplyState,
-        prev_own_congestion_info: Option<CongestionInfo>,
+        prev_own_congestion_info: CongestionInfo,
         bandwidth_scheduler_output: Option<BandwidthSchedulerOutput>,
     ) -> Result<Self, StorageError> {
-        if let Some(own_congestion_info) = prev_own_congestion_info {
-            let outgoing_buffers = ShardsOutgoingReceiptBuffer::load(trie)?;
+        let outgoing_buffers = ShardsOutgoingReceiptBuffer::load(trie)?;
 
-            let outgoing_limit: HashMap<ShardId, OutgoingLimit> = apply_state
-                .congestion_info
-                .iter()
-                .map(|(&shard_id, congestion)| {
-                    let other_congestion_control = CongestionControl::new(
-                        apply_state.config.congestion_control_config,
-                        congestion.congestion_info,
-                        congestion.missed_chunks_count,
-                    );
-                    let gas_limit = if shard_id != apply_state.shard_id {
-                        other_congestion_control.outgoing_gas_limit(apply_state.shard_id)
+        let outgoing_limit: HashMap<ShardId, OutgoingLimit> = apply_state
+            .congestion_info
+            .iter()
+            .map(|(&shard_id, congestion)| {
+                let other_congestion_control = CongestionControl::new(
+                    apply_state.config.congestion_control_config,
+                    congestion.congestion_info,
+                    congestion.missed_chunks_count,
+                );
+                let gas_limit = if shard_id != apply_state.shard_id {
+                    other_congestion_control.outgoing_gas_limit(apply_state.shard_id)
+                } else {
+                    // No gas limits on receipts that stay on the same shard. Backpressure
+                    // wouldn't help, the receipt takes the same memory if buffered or
+                    // in the delayed receipts queue.
+                    Gas::MAX
+                };
+
+                let size_limit =
+                    if ProtocolFeature::BandwidthScheduler.enabled(protocol_version) {
+                        bandwidth_scheduler_output
+                            .as_ref()
+                            .expect("BandwidthScheduler is enabled and should produce output")
+                            .granted_bandwidth
+                            .get_granted_bandwidth(apply_state.shard_id, shard_id)
                     } else {
-                        // No gas limits on receipts that stay on the same shard. Backpressure
-                        // wouldn't help, the receipt takes the same memory if buffered or
-                        // in the delayed receipts queue.
-                        Gas::MAX
+                        other_congestion_control.outgoing_size_limit(apply_state.shard_id)
                     };
 
-                    let size_limit =
-                        if ProtocolFeature::BandwidthScheduler.enabled(protocol_version) {
-                            bandwidth_scheduler_output
-                                .as_ref()
-                                .expect("BandwidthScheduler is enabled and should produce output")
-                                .granted_bandwidth
-                                .get_granted_bandwidth(apply_state.shard_id, shard_id)
-                        } else {
-                            other_congestion_control.outgoing_size_limit(apply_state.shard_id)
-                        };
+                (shard_id, OutgoingLimit { gas: gas_limit, size: size_limit })
+            })
+            .collect();
 
-                    (shard_id, OutgoingLimit { gas: gas_limit, size: size_limit })
-                })
-                .collect();
+        let outgoing_metadatas = OutgoingMetadatas::load(
+            trie,
+            outgoing_buffers.shards(),
+            ReceiptGroupsConfig::default_config(),
+            apply_state.current_protocol_version,
+        )?;
 
-            let outgoing_metadatas = OutgoingMetadatas::load(
-                trie,
-                outgoing_buffers.shards(),
-                ReceiptGroupsConfig::default_config(),
-                apply_state.current_protocol_version,
-            )?;
+        let mut stats = ReceiptSinkStats::default();
+        stats.set_outgoing_limits(
+            outgoing_limit.iter().map(|(shard_id, limit)| (*shard_id, (limit.size, limit.gas))),
+        );
 
-            let mut stats = ReceiptSinkStats::default();
-            stats.set_outgoing_limits(
-                outgoing_limit.iter().map(|(shard_id, limit)| (*shard_id, (limit.size, limit.gas))),
-            );
-
-            Ok(ReceiptSink::V2(ReceiptSinkV2 {
-                own_congestion_info,
-                outgoing_receipts: Vec::new(),
-                outgoing_limit,
-                outgoing_buffers,
-                outgoing_metadatas,
-                bandwidth_scheduler_output,
-                protocol_version,
-                stats,
-            }))
-        } else {
-            unreachable!()
-        }
+        Ok(ReceiptSink::V2(ReceiptSinkV2 {
+            own_congestion_info: prev_own_congestion_info,
+            outgoing_receipts: Vec::new(),
+            outgoing_limit,
+            outgoing_buffers,
+            outgoing_metadatas,
+            bandwidth_scheduler_output,
+            protocol_version,
+            stats,
+        }))
     }
 
     /// Forward receipts already in the buffer to the outgoing receipts vector, as

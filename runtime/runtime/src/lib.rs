@@ -2142,11 +2142,10 @@ impl Runtime {
 impl ApplyState {
     fn own_congestion_info(
         &self,
-        _protocol_version: ProtocolVersion,
         trie: &dyn TrieAccess,
-    ) -> Result<Option<CongestionInfo>, RuntimeError> {
+    ) -> Result<CongestionInfo, RuntimeError> {
         if let Some(congestion_info) = self.congestion_info.get(&self.shard_id) {
-            return Ok(Some(congestion_info.congestion_info));
+            return Ok(congestion_info.congestion_info);
         }
 
         tracing::warn!(target: "runtime", "starting to bootstrap congestion info, this might take a while");
@@ -2155,7 +2154,7 @@ impl ApplyState {
         let time = start.elapsed();
         tracing::warn!(target: "runtime","bootstrapping congestion info done after {time:#.1?}");
         let computed = result?;
-        Ok(Some(computed))
+        Ok(computed)
     }
 }
 
