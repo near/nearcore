@@ -1453,7 +1453,6 @@ impl Runtime {
         let mut processing_state =
             processing_state.into_processing_receipt_state(incoming_receipts, delayed_receipts);
         let own_congestion_info = apply_state.own_congestion_info(
-            processing_state.protocol_version,
             &processing_state.state_update,
         )?;
         let mut receipt_sink = ReceiptSink::new(
