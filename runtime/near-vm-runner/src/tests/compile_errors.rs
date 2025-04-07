@@ -458,7 +458,7 @@ fn extension_signext() {
         )
         .protocol_features(&[
             #[allow(deprecated)]
-            ProtocolFeature::_DeprecatedPreparationV2
+            ProtocolFeature::_DeprecatedPreparationV2,
         ]);
     tb.expects(&[
         expect![[r#"
