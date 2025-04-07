@@ -222,9 +222,7 @@ impl TestEnv {
         let block_timestamp = 0;
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id).unwrap();
         let gas_price = self.runtime.genesis_config.min_gas_price;
-        let congestion_info = if !ProtocolFeature::CongestionControl.enabled(protocol_version) {
-            BlockCongestionInfo::default()
-        } else {
+        let congestion_info = {
             let shard_ids = self.epoch_manager.shard_ids(&epoch_id).unwrap();
             let shards_congestion_info = shard_ids
                 .into_iter()

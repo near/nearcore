@@ -255,8 +255,6 @@ impl ShardChunkHeaderV3 {
             // `bandwidth_requests` can only be `Some` when bandwidth scheduler is enabled.
             assert!(ProtocolFeature::BandwidthScheduler.enabled(protocol_version));
 
-            // Congestion control has to be enabled before bandwidth scheduler
-            assert!(ProtocolFeature::CongestionControl.enabled(protocol_version));
             ShardChunkHeaderInner::V4(ShardChunkHeaderInnerV4 {
                 prev_block_hash,
                 prev_state_root,
@@ -276,8 +274,6 @@ impl ShardChunkHeaderV3 {
                 bandwidth_requests,
             })
         } else if let Some(congestion_info) = congestion_info {
-            // `congestion_info`` can only be `Some` when congestion control is enabled.
-            assert!(ProtocolFeature::CongestionControl.enabled(protocol_version));
             ShardChunkHeaderInner::V3(ShardChunkHeaderInnerV3 {
                 prev_block_hash,
                 prev_state_root,

@@ -168,11 +168,7 @@ impl<'c> EstimatorContext<'c> {
         runtime_config.congestion_control_config = CongestionControlConfig::test_disabled();
 
         let shard_id = ShardUId::single_shard().shard_id();
-        let congestion_info = if ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
-            [(shard_id, ExtendedCongestionInfo::default())].into()
-        } else {
-            Default::default()
-        };
+        let congestion_info = [(shard_id, ExtendedCongestionInfo::default())].into();
         let congestion_info = BlockCongestionInfo::new(congestion_info);
 
         ApplyState {

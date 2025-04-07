@@ -276,9 +276,6 @@ fn submit_n_cheap_fns(
 fn test_transaction_limit_for_local_congestion() {
     init_test_logger();
 
-    if !ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     // Fix the initial configuration of congestion control for the tests.
     let protocol_version = ProtocolFeature::CongestionControl.protocol_version();
     // We don't want to go into the TX rejection limit in this test.
@@ -329,9 +326,6 @@ fn test_transaction_limit_for_local_congestion() {
 #[test]
 fn test_transaction_limit_for_remote_congestion() {
     init_test_logger();
-    if !ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     // We don't want to go into the TX rejection limit in this test.
     let upper_limit_congestion = UpperLimitCongestion::BelowRejectThreshold;
 
@@ -364,9 +358,6 @@ fn test_transaction_limit_for_remote_congestion() {
 fn slow_test_transaction_filtering() {
     init_test_logger();
 
-    if !ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     // This test should go beyond into the TX rejection limit in this test.
     let upper_limit_congestion = UpperLimitCongestion::AboveRejectThreshold;
 
@@ -566,12 +557,8 @@ fn test_rpc_client_rejection() {
     );
     let response = env.tx_request_handlers[0].process_tx(fn_tx, false, false);
 
-    if ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
-        assert_matches!(
-            response,
-            ProcessTxResponse::InvalidTx(InvalidTxError::ShardCongested { .. })
-        );
-    } else {
-        assert_eq!(response, ProcessTxResponse::ValidTx);
-    }
+    assert_matches!(
+        response,
+        ProcessTxResponse::InvalidTx(InvalidTxError::ShardCongested { .. })
+    );
 }

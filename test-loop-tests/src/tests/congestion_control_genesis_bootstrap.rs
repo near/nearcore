@@ -18,9 +18,6 @@ const NUM_SHARDS: usize = 4;
 /// Restarting is the node is not checked here but in python/nayduck tests.
 #[test]
 fn test_congestion_control_genesis_bootstrap() {
-    if !ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
-        return;
-    }
 
     init_test_logger();
 

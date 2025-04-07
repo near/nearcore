@@ -811,12 +811,7 @@ pub mod chunk_extra {
         /// used as part of regular processing.
         pub fn new_with_only_state_root(state_root: &StateRoot) -> Self {
             // TODO(congestion_control) - integration with resharding
-            let congestion_control = if ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION)
-            {
-                Some(CongestionInfo::default())
-            } else {
-                None
-            };
+            let congestion_control = Some(CongestionInfo::default());
             Self::new(
                 PROTOCOL_VERSION,
                 state_root,
@@ -853,8 +848,7 @@ pub mod chunk_extra {
                     congestion_info: congestion_info.unwrap(),
                     bandwidth_requests: bandwidth_requests.unwrap(),
                 })
-            } else if ProtocolFeature::CongestionControl.enabled(protocol_version) {
-                assert!(congestion_info.is_some());
+            } else if congestion_info.is_some() {
                 Self::V3(ChunkExtraV3 {
                     state_root: *state_root,
                     outcome_root,
@@ -865,7 +859,6 @@ pub mod chunk_extra {
                     congestion_info: congestion_info.unwrap(),
                 })
             } else {
-                assert!(congestion_info.is_none());
                 Self::V2(ChunkExtraV2 {
                     state_root: *state_root,
                     outcome_root,

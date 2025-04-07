@@ -216,9 +216,6 @@ impl BadCongestionInfoMode {
 }
 
 fn test_bad_congestion_info_impl(mode: BadCongestionInfoMode) {
-    if !ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
-        return;
-    }
 
     let accounts = TestEnvBuilder::make_accounts(1);
     let genesis = Genesis::test_sharded_new_version(accounts, 1, vec![1, 1, 1, 1]);

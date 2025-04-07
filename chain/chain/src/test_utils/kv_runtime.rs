@@ -388,13 +388,8 @@ impl KeyValueRuntime {
         Ok(None)
     }
 
-    fn get_congestion_info(protocol_version: ProtocolVersion) -> Option<CongestionInfo> {
-        if ProtocolFeature::CongestionControl.enabled(protocol_version) {
-            // TODO(congestion_control) - properly initialize
-            Some(CongestionInfo::default())
-        } else {
-            None
-        }
+    fn get_congestion_info(_protocol_version: ProtocolVersion) -> Option<CongestionInfo> {
+        Some(CongestionInfo::default())
     }
 }
 

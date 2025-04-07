@@ -593,9 +593,6 @@ mod tests {
 
     #[test]
     fn test_memory_congestion() {
-        if !ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
-            return;
-        }
 
         let config = get_config();
         let mut info = CongestionInfo::default();
@@ -645,9 +642,6 @@ mod tests {
 
     #[test]
     fn test_incoming_congestion() {
-        if !ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
-            return;
-        }
 
         let config = get_config();
         let mut info = CongestionInfo::default();
@@ -706,9 +700,6 @@ mod tests {
 
     #[test]
     fn test_outgoing_congestion() {
-        if !ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
-            return;
-        }
 
         let config = get_config();
         let mut info = CongestionInfo::default();
@@ -753,9 +744,6 @@ mod tests {
 
     #[test]
     fn test_missed_chunks_congestion() {
-        if !ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
-            return;
-        }
 
         // The default config is quite restricting, allow more missed chunks for
         // this test to check the middle cases.
@@ -800,9 +788,6 @@ mod tests {
 
     #[test]
     fn test_missed_chunks_finalize() {
-        if !ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
-            return;
-        }
 
         // The default config is quite restricting, allow more missed chunks for
         // this test to check the middle cases.
