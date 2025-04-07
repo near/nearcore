@@ -3,7 +3,7 @@ name = "near-synth-bm"
 version = "0.0.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2024"
-rust-version = "1.85.0"
+rust-version = "1.86.0"
 repository = "https://github.com/near/nearcore"
 license = "MIT OR Apache-2.0"
 

@@ -860,7 +860,7 @@ fn test_expected_chunks() {
     let epoch_info = hashes
         .iter()
         .filter_map(|x| epoch_manager.get_epoch_info(&EpochId(*x)).ok())
-        .last()
+        .next_back()
         .unwrap();
     assert_eq!(
         epoch_info.validator_kickout(),
@@ -933,7 +933,7 @@ fn test_expected_chunks_prev_block_not_produced() {
     let epoch_info = hashes
         .iter()
         .filter_map(|x| epoch_manager.get_epoch_info(&EpochId(*x)).ok())
-        .last()
+        .next_back()
         .unwrap();
     assert_eq!(
         epoch_info.validator_kickout(),
@@ -1353,7 +1353,8 @@ fn test_chunk_producer_kickout() {
             .unwrap();
     }
 
-    let last_epoch_info = hashes.iter().filter_map(|x| em.get_epoch_info(&EpochId(*x)).ok()).last();
+    let last_epoch_info =
+        hashes.iter().filter_map(|x| em.get_epoch_info(&EpochId(*x)).ok()).next_back();
     assert_eq!(
         last_epoch_info.unwrap().validator_kickout(),
         &[("test1".parse().unwrap(), NotEnoughChunks { produced: 0, expected })]
@@ -1412,7 +1413,8 @@ fn test_chunk_validator_kickout_using_production_stats() {
             .unwrap();
     }
 
-    let last_epoch_info = hashes.iter().filter_map(|x| em.get_epoch_info(&EpochId(*x)).ok()).last();
+    let last_epoch_info =
+        hashes.iter().filter_map(|x| em.get_epoch_info(&EpochId(*x)).ok()).next_back();
     let total_expected_chunks = num_shards * (epoch_length - 1);
     // Every second chunk is skipped.
     let total_produced_chunks = total_expected_chunks / 2;
@@ -1508,7 +1510,8 @@ fn test_chunk_validator_kickout_using_endorsement_stats() {
             .unwrap();
     }
 
-    let last_epoch_info = hashes.iter().filter_map(|x| em.get_epoch_info(&EpochId(*x)).ok()).last();
+    let last_epoch_info =
+        hashes.iter().filter_map(|x| em.get_epoch_info(&EpochId(*x)).ok()).next_back();
     let total_expected_chunks = num_shards * (epoch_length - 1);
     // Every second chunk is skipped.
     let total_produced_chunks = total_expected_chunks / 2;
@@ -1819,7 +1822,7 @@ fn test_all_kickout_edge_case() {
     }
 
     let last_epoch_info =
-        hashes.iter().filter_map(|x| epoch_manager.get_epoch_info(&EpochId(*x)).ok()).last();
+        hashes.iter().filter_map(|x| epoch_manager.get_epoch_info(&EpochId(*x)).ok()).next_back();
     assert_eq!(last_epoch_info.unwrap().validator_kickout(), &HashMap::default());
 }
 
