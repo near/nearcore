@@ -104,16 +104,15 @@ impl ReceiptSink {
                     Gas::MAX
                 };
 
-                let size_limit =
-                    if ProtocolFeature::BandwidthScheduler.enabled(protocol_version) {
-                        bandwidth_scheduler_output
-                            .as_ref()
-                            .expect("BandwidthScheduler is enabled and should produce output")
-                            .granted_bandwidth
-                            .get_granted_bandwidth(apply_state.shard_id, shard_id)
-                    } else {
-                        other_congestion_control.outgoing_size_limit(apply_state.shard_id)
-                    };
+                let size_limit = if ProtocolFeature::BandwidthScheduler.enabled(protocol_version) {
+                    bandwidth_scheduler_output
+                        .as_ref()
+                        .expect("BandwidthScheduler is enabled and should produce output")
+                        .granted_bandwidth
+                        .get_granted_bandwidth(apply_state.shard_id, shard_id)
+                } else {
+                    other_congestion_control.outgoing_size_limit(apply_state.shard_id)
+                };
 
                 (shard_id, OutgoingLimit { gas: gas_limit, size: size_limit })
             })
