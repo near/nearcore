@@ -512,9 +512,11 @@ impl EpochManager {
         let EpochInfoAggregator {
             block_tracker: block_validator_tracker,
             shard_tracker: chunk_validator_tracker,
+            all_proposals,
             version_tracker,
             ..
         } = self.get_epoch_info_aggregator_upto_last(last_block_hash)?;
+        let mut proposals = vec![];
         let mut validator_kickout = HashMap::new();
 
         let total_block_producer_stake: u128 = epoch_info
@@ -560,6 +562,15 @@ impl EpochManager {
         PROTOCOL_VERSION_NEXT.set(next_next_epoch_version as i64);
         tracing::info!(target: "epoch_manager", ?next_next_epoch_version, "Protocol version voting.");
 
+        for (account_id, proposal) in all_proposals {
+            if proposal.stake() == 0
+                && *next_epoch_info.stake_change().get(&account_id).unwrap_or(&0) != 0
+            {
+                validator_kickout.insert(account_id.clone(), ValidatorKickoutReason::Unstaked);
+            }
+            proposals.push(proposal.clone());
+        }
+
         let prev_epoch_last_block_hash =
             *self.get_block_info(last_block_info.epoch_first_block())?.prev_hash();
         let prev_validator_kickout = next_epoch_info.validator_kickout();
@@ -577,13 +588,13 @@ impl EpochManager {
         validator_kickout.extend(kickout);
         debug!(
             target: "epoch_manager",
-            "Kickouts: {:?}, Block Tracker: {:?}, Shard Tracker: {:?}",
-            validator_kickout, block_validator_tracker, chunk_validator_tracker
+            "All proposals: {:?}, Kickouts: {:?}, Block Tracker: {:?}, Shard Tracker: {:?}",
+            proposals, validator_kickout, block_validator_tracker, chunk_validator_tracker
         );
 
         Ok(EpochSummary {
             prev_epoch_last_block_hash,
-            all_proposals: vec![],
+            all_proposals: proposals,
             validator_kickout,
             validator_block_chunk_stats,
             next_next_epoch_version,
