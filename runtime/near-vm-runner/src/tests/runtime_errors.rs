@@ -48,7 +48,8 @@ fn test_simple_contract() {
     test_builder()
         .wat(SIMPLE_CONTRACT)
         .protocol_features(&[
-            ProtocolFeature::PreparationV2,
+            #[allow(deprecated)]
+            ProtocolFeature::_DeprecatedPreparationV2,
         ])
         .expects(&[
             expect![[r#"
@@ -131,7 +132,8 @@ fn test_trap_contract() {
         .wat(r#"(module (func (export "main") (unreachable)) )"#)
         .skip_wasmtime()
         .protocol_features(&[
-            ProtocolFeature::PreparationV2,
+            #[allow(deprecated)]
+            ProtocolFeature::_DeprecatedPreparationV2,
         ])
         .expects(&[
             expect![[r#"
@@ -158,7 +160,8 @@ fn test_trap_initializer() {
         )
         .skip_wasmtime()
         .protocol_features(&[
-            ProtocolFeature::PreparationV2,
+            #[allow(deprecated)]
+            ProtocolFeature::_DeprecatedPreparationV2,
         ])
         .expects(&[
             expect![[r#"
@@ -189,7 +192,8 @@ fn test_div_by_zero_contract() {
         )
         .skip_wasmtime()
         .protocol_features(&[
-            ProtocolFeature::PreparationV2,
+            #[allow(deprecated)]
+            ProtocolFeature::_DeprecatedPreparationV2,
         ])
         .expects(&[
             expect![[r#"
@@ -220,7 +224,8 @@ fn test_float_to_int_contract() {
             ))
             .skip_wasmtime()
             .protocol_features(&[
-                ProtocolFeature::PreparationV2,
+                #[allow(deprecated)]
+            ProtocolFeature::_DeprecatedPreparationV2,
             ])
             .expects(&[
                 expect![[r#"
@@ -254,7 +259,8 @@ fn test_indirect_call_to_null_contract() {
         .opaque_error()
         .skip_wasmtime()
         .protocol_features(&[
-            ProtocolFeature::PreparationV2,
+            #[allow(deprecated)]
+            ProtocolFeature::_DeprecatedPreparationV2,
         ])
         .expects(&[
             expect![[r#"
@@ -290,7 +296,8 @@ fn test_indirect_call_to_wrong_signature_contract() {
         )
         .skip_wasmtime()
         .protocol_features(&[
-            ProtocolFeature::PreparationV2,
+            #[allow(deprecated)]
+            ProtocolFeature::_DeprecatedPreparationV2,
         ])
         .expects(&[
             expect![[r#"
@@ -350,7 +357,8 @@ fn test_guest_panic() {
             "#,
         )
         .protocol_features(&[
-            ProtocolFeature::PreparationV2,
+            #[allow(deprecated)]
+            ProtocolFeature::_DeprecatedPreparationV2,
         ])
         .expects(&[
             expect![[r#"
@@ -387,7 +395,8 @@ fn test_stack_overflow() {
         .skip_wasmtime()
         .opaque_error()
         .protocol_features(&[
-            ProtocolFeature::PreparationV2,
+            #[allow(deprecated)]
+            ProtocolFeature::_DeprecatedPreparationV2,
         ])
         .expects(&[
             expect![[r#"
@@ -420,7 +429,8 @@ fn test_stack_instrumentation_protocol_upgrade() {
         .protocol_features(&[
             #[allow(deprecated)]
             ProtocolFeature::_DeprecatedCorrectStackLimit,
-            ProtocolFeature::PreparationV2,
+            #[allow(deprecated)]
+            ProtocolFeature::_DeprecatedPreparationV2,
         ])
         .skip_wasmtime()
         .opaque_error()
@@ -457,7 +467,8 @@ fn test_stack_instrumentation_protocol_upgrade() {
         .protocol_features(&[
             #[allow(deprecated)]
             ProtocolFeature::_DeprecatedCorrectStackLimit,
-            ProtocolFeature::PreparationV2,
+            #[allow(deprecated)]
+            ProtocolFeature::_DeprecatedPreparationV2,
         ])
         .skip_wasmtime()
         .expects(&[
@@ -564,7 +575,8 @@ fn test_bad_import_3() {
         .wasm(&bad_import_global("env"))
         .opaque_error()
         .protocol_features(&[
-            ProtocolFeature::PreparationV2,
+            #[allow(deprecated)]
+            ProtocolFeature::_DeprecatedPreparationV2,
         ])
         .protocol_version(FIX_CONTRACT_LOADING_COST)
         .expects(&[
@@ -642,7 +654,8 @@ fn test_external_call_ok() {
     test_builder()
         .wat(EXTERNAL_CALL_CONTRACT)
         .protocol_features(&[
-            ProtocolFeature::PreparationV2,
+            #[allow(deprecated)]
+            ProtocolFeature::_DeprecatedPreparationV2,
         ])
         .expects(&[
             expect![[r#"
@@ -682,7 +695,8 @@ fn test_external_call_indirect() {
             "#
         )
         .protocol_features(&[
-            ProtocolFeature::PreparationV2,
+            #[allow(deprecated)]
+            ProtocolFeature::_DeprecatedPreparationV2,
         ])
         .expects(&[
             expect![[r#"
@@ -712,7 +726,8 @@ fn test_address_overflow() {
         .wat(code)
         .skip_wasmtime()
         .protocol_features(&[
-            ProtocolFeature::PreparationV2,
+            #[allow(deprecated)]
+            ProtocolFeature::_DeprecatedPreparationV2,
         ])
         .expects(&[
             expect![[r#"
@@ -753,7 +768,8 @@ fn test_nan_sign() {
         .wat(code)
         .skip_wasmtime()
         .protocol_features(&[
-            ProtocolFeature::PreparationV2,
+            #[allow(deprecated)]
+            ProtocolFeature::_DeprecatedPreparationV2,
         ])
         .expects(&[
             expect![[r#"
@@ -843,7 +859,8 @@ mod fix_contract_loading_cost_protocol_upgrade {
         test_builder()
             .wat(ALMOST_TRIVIAL_CONTRACT)
             .protocol_features(&[
-                ProtocolFeature::PreparationV2
+                #[allow(deprecated)]
+                ProtocolFeature::_DeprecatedPreparationV2
             ])
             .protocol_version(FIX_CONTRACT_LOADING_COST)
             .expects(&[

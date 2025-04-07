@@ -174,10 +174,12 @@ pub enum ProtocolFeature {
     _DeprecatedFlatStorageReads,
     /// Enables preparation V2. Note that this setting is not supported in production settings
     /// without NearVmRuntime enabled alongside it, as the VM runner would be too slow.
-    PreparationV2,
+    #[deprecated]
+    _DeprecatedPreparationV2,
     /// Enables Near-Vm. Note that this setting is not at all supported without PreparationV2,
     /// as it hardcodes preparation v2 code into the generated assembly.
-    NearVmRuntime,
+    #[deprecated]
+    _DeprecatedNearVmRuntime,
     #[deprecated]
     _DeprecatedBlockHeaderV4,
     /// Resharding V2. A new implementation for resharding and a new shard
@@ -339,7 +341,8 @@ impl ProtocolFeature {
             | ProtocolFeature::_DeprecatedDelegateAction => 59,
             ProtocolFeature::_DeprecatedComputeCosts
             | ProtocolFeature::_DeprecatedFlatStorageReads => 61,
-            ProtocolFeature::PreparationV2 | ProtocolFeature::NearVmRuntime => 62,
+            ProtocolFeature::_DeprecatedPreparationV2
+            | ProtocolFeature::_DeprecatedNearVmRuntime => 62,
             ProtocolFeature::_DeprecatedBlockHeaderV4 => 63,
             ProtocolFeature::_DeprecatedRestrictTla
             | ProtocolFeature::_DeprecatedTestnetFewerBlockProducers
