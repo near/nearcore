@@ -108,29 +108,9 @@ fn slow_test_fix_cp_stake_threshold() {
         Duration::seconds(4 * epoch_length as i64),
     );
 
-    test_loop.run_until(
-        |test_loop_data: &mut TestLoopData| {
-            let client = &test_loop_data.get(&handle).client;
-            let head = client.chain.head().unwrap();
-            let epoch_height = client
-                .epoch_manager
-                .get_epoch_height_from_prev_block(&head.prev_block_hash)
-                .unwrap();
-            // ensure loop is exited because of condition is met
-            assert!(epoch_height < 5);
-
-            // threshold is raised to approximately 6x of the previous in this case as threshold is
-            // no longer divided by num_shards (6), so test3's proposal won't be approved
-            let validators = get_epoch_all_validators(client);
-            if validators.len() == 2 {
-                assert_eq!(validators, vec![String::from("test0"), String::from("test1")]);
-                true
-            } else {
-                false
-            }
-        },
-        Duration::seconds(3 * epoch_length as i64),
-    );
+    let validators = get_epoch_all_validators(client);
+    assert_eq!(validators.len(), 2);
+    assert_eq!(validators, vec![String::from("test0"), String::from("test1")]);
 
     TestLoopEnv { test_loop, node_datas, shared_state }
         .shutdown_and_drain_remaining_events(Duration::seconds(20));
