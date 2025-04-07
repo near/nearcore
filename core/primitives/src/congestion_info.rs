@@ -619,8 +619,7 @@ mod tests {
                     as u64,
                 control.outgoing_gas_limit(ShardId::new(1))
             );
-            // at 50%, still no new transactions are allowed
-            assert!(control.shard_accepts_transactions().is_no());
+            assert!(control.shard_accepts_transactions().is_yes());
         }
 
         // reduce congestion to 1/8
