@@ -5,8 +5,6 @@ mod cache;
 mod errors;
 mod features;
 mod imports;
-#[cfg(feature = "prepare")]
-mod instrument;
 pub mod logic;
 #[cfg(feature = "metrics")]
 mod metrics;

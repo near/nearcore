@@ -159,11 +159,7 @@ pub fn ext_used_gas() {
     with_vm_variants(&config, |vm_kind: VMKind| {
         // Note, the used_gas is not a global used_gas at the beginning of method, but instead a
         // diff in used_gas for computing fib(30) in a loop
-        let expected = match config.limit_config.contract_prepare_version {
-            crate::logic::ContractPrepareVersion::V0 => [111, 10, 200, 15, 0, 0, 0, 0],
-            crate::logic::ContractPrepareVersion::V1 => [111, 10, 200, 15, 0, 0, 0, 0],
-            crate::logic::ContractPrepareVersion::V2 => [27, 180, 237, 15, 0, 0, 0, 0],
-        };
+        let expected = [27, 180, 237, 15, 0, 0, 0, 0];
         run_test_ext(Arc::clone(&config), "ext_used_gas", &expected, &[], vec![], vm_kind)
     })
 }

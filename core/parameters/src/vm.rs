@@ -62,10 +62,6 @@ pub struct LimitConfig {
     /// See <https://wiki.parity.io/WebAssembly-StackHeight> to find out how the stack frame cost
     /// is calculated.
     pub max_stack_height: u32,
-    /// Whether a legacy version of stack limiting should be used, see
-    /// [`ContractPrepareVersion`].
-    #[serde(default = "ContractPrepareVersion::v0")]
-    pub contract_prepare_version: ContractPrepareVersion,
 
     /// The initial number of memory pages.
     /// NOTE: It's not a limiter itself, but it's a value we use for initial_memory_pages.

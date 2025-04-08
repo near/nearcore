@@ -127,9 +127,8 @@ pub fn get_engine(config: &wasmtime::Config) -> Engine {
     Engine::new(config).unwrap()
 }
 
-pub(crate) fn default_wasmtime_config(config: &Config) -> wasmtime::Config {
-    let features =
-        crate::features::WasmFeatures::from(config.limit_config.contract_prepare_version);
+pub(crate) fn default_wasmtime_config() -> wasmtime::Config {
+    let features = crate::features::WasmFeatures::new();
     let mut config = wasmtime::Config::from(features);
     config.max_wasm_stack(1024 * 1024 * 1024); // wasm stack metering is implemented by instrumentation, we don't want wasmtime to trap before that
     config
@@ -147,7 +146,7 @@ pub(crate) struct WasmtimeVM {
 
 impl WasmtimeVM {
     pub(crate) fn new(config: Arc<Config>) -> Self {
-        Self { engine: get_engine(&default_wasmtime_config(&config)), config }
+        Self { engine: get_engine(&default_wasmtime_config()), config }
     }
 
     #[tracing::instrument(target = "vm", level = "debug", "WasmtimeVM::compile_uncached", skip_all)]
