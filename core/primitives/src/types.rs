@@ -941,22 +941,21 @@ pub mod chunk_extra {
         }
 
         #[inline]
-        pub fn congestion_info(&self) -> Option<CongestionInfo> {
+        pub fn congestion_info(&self) -> CongestionInfo {
             match self {
-                Self::V1(_) => None,
-                Self::V2(_) => None,
-                Self::V3(v3) => v3.congestion_info.into(),
-                Self::V4(v4) => v4.congestion_info.into(),
+                Self::V1(_) => CongestionInfo::default(),
+                Self::V2(_) => CongestionInfo::default(),
+                Self::V3(v3) => v3.congestion_info,
+                Self::V4(v4) => v4.congestion_info,
             }
         }
 
         #[inline]
-        pub fn congestion_info_mut(&mut self) -> Option<&mut CongestionInfo> {
+        pub fn congestion_info_mut(&mut self) -> &mut CongestionInfo {
             match self {
-                Self::V1(_) => None,
-                Self::V2(_) => None,
-                Self::V3(v3) => Some(&mut v3.congestion_info),
-                Self::V4(v4) => Some(&mut v4.congestion_info),
+                Self::V1(_) | Self::V2(_) => Box::leak(Box::new(CongestionInfo::default())),
+                Self::V3(v3) => &mut v3.congestion_info,
+                Self::V4(v4) => &mut v4.congestion_info,
             }
         }
 

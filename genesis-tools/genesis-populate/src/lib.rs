@@ -21,7 +21,6 @@ use near_primitives::state_record::StateRecord;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{AccountId, Balance, EpochId, ShardId, StateChangeCause, StateRoot};
 use near_primitives::utils::to_timestamp;
-
 use near_store::adapter::StoreUpdateAdapter;
 use near_store::genesis::{compute_storage_usage, initialize_genesis_state};
 use near_store::trie::update::TrieUpdateResult;
@@ -30,7 +29,7 @@ use near_store::{
 };
 use near_time::Utc;
 use near_vm_runner::ContractCode;
-use near_vm_runner::logic::ProtocolVersion;
+
 use nearcore::{NearConfig, NightshadeRuntime, NightshadeRuntimeExt};
 pub use node_runtime::bootstrap_congestion_info;
 use std::collections::HashMap;
@@ -272,7 +271,6 @@ impl GenesisBuilder {
             .expect("save genesis block header shouldn't fail");
         store_update.save_block(genesis.clone());
 
-        let protocol_version = self.genesis.config.protocol_version;
         for (chunk_header, &state_root) in
             genesis.chunks().iter_deprecated().zip(self.roots.values())
         {
@@ -280,8 +278,7 @@ impl GenesisBuilder {
             let shard_id = chunk_header.shard_id();
             let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
 
-            let congestion_info =
-                self.get_congestion_info(protocol_version, &genesis, shard_id, state_root)?;
+            let congestion_info = self.get_congestion_info(&genesis, shard_id, state_root)?;
 
             store_update.save_chunk_extra(
                 genesis.hash(),
@@ -310,7 +307,6 @@ impl GenesisBuilder {
 
     fn get_congestion_info(
         &self,
-        _protocol_version: ProtocolVersion,
         genesis: &Block,
         shard_id: ShardId,
         state_root: CryptoHash,

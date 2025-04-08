@@ -29,7 +29,7 @@ use near_primitives::types::ValidatorKickoutReason::{
     NotEnoughBlocks, NotEnoughChunkEndorsements, NotEnoughChunks,
 };
 use near_primitives::validator_signer::ValidatorSigner;
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
+use near_primitives::version::PROTOCOL_VERSION;
 use near_store::ShardUId;
 use near_store::test_utils::create_test_store;
 use num_rational::Ratio;
@@ -2844,9 +2844,7 @@ fn test_block_and_chunk_producer_not_kicked_out_for_low_endorsements() {
 
 fn test_chunk_header(h: &[CryptoHash], signer: &ValidatorSigner) -> ShardChunkHeader {
     #[allow(deprecated)]
-    let congestion_info = ProtocolFeature::_DeprecatedCongestionControl
-        .enabled(PROTOCOL_VERSION)
-        .then_some(CongestionInfo::default());
+    let congestion_info = CongestionInfo::default();
     ShardChunkHeader::V3(ShardChunkHeaderV3::new(
         PROTOCOL_VERSION,
         h[0],

@@ -157,7 +157,7 @@ fn head_congestion_control_config(
 
 fn head_congestion_info(env: &TestEnv, shard_id: ShardId) -> CongestionInfo {
     let chunk = head_chunk_header(env, shard_id);
-    chunk.congestion_info().unwrap()
+    chunk.congestion_info()
 }
 
 fn head_chunk_header(env: &TestEnv, shard_id: ShardId) -> ShardChunkHeader {
