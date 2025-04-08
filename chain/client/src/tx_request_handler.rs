@@ -34,16 +34,16 @@ use std::sync::Mutex;
 use crate::metrics;
 use crate::stateless_validation::chunk_endorsement::ChunkEndorsementTracker;
 
-pub type TxRequestHandlerActor = SyncActixWrapper<TxRequestHandler>;
+pub type RpcHandlerActor = SyncActixWrapper<RpcHandler>;
 
-impl Handler<ProcessTxRequest> for TxRequestHandler {
+impl Handler<ProcessTxRequest> for RpcHandler {
     fn handle(&mut self, msg: ProcessTxRequest) -> ProcessTxResponse {
         let ProcessTxRequest { transaction, is_forwarded, check_only } = msg;
         self.process_tx(transaction, is_forwarded, check_only)
     }
 }
 
-impl Handler<ChunkEndorsementMessage> for TxRequestHandler {
+impl Handler<ChunkEndorsementMessage> for RpcHandler {
     #[perf]
     fn handle(&mut self, msg: ChunkEndorsementMessage) {
         let mut tracker = self.chunk_endorsement_tracker.lock().unwrap();
@@ -53,10 +53,10 @@ impl Handler<ChunkEndorsementMessage> for TxRequestHandler {
     }
 }
 
-impl messaging::Actor for TxRequestHandler {}
+impl messaging::Actor for RpcHandler {}
 
-pub fn spawn_tx_request_handler_actor(
-    config: TxRequestHandlerConfig,
+pub fn spawn_rpc_handler_actor(
+    config: RpcHandlerConfig,
     tx_pool: Arc<Mutex<ShardedTransactionPool>>,
     chunk_endorsement_tracker: Arc<Mutex<ChunkEndorsementTracker>>,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
@@ -64,8 +64,8 @@ pub fn spawn_tx_request_handler_actor(
     validator_signer: MutableValidatorSigner,
     runtime: Arc<dyn RuntimeAdapter>,
     network_adapter: PeerManagerAdapter,
-) -> actix::Addr<TxRequestHandlerActor> {
-    let actor = TxRequestHandler::new(
+) -> actix::Addr<RpcHandlerActor> {
+    let actor = RpcHandler::new(
         config.clone(),
         tx_pool,
         chunk_endorsement_tracker,
@@ -79,17 +79,19 @@ pub fn spawn_tx_request_handler_actor(
 }
 
 #[derive(Clone)]
-pub struct TxRequestHandlerConfig {
+pub struct RpcHandlerConfig {
     pub handler_threads: usize,
     pub tx_routing_height_horizon: u64,
     pub epoch_length: u64,
     pub transaction_validity_period: BlockHeightDelta,
 }
 
-/// Accepts `process_tx` requests. Pushes the incoming transactions to the pool.
+/// Accepts and processes rpc requests (`process_tx`, etc) and does some preprocessing on incoming data.
+/// Supposed to run multithreaded.
+/// Connects to the Client actor via (thread-safe) queues and pools to pass the data for consumption.
 #[derive(Clone)]
-pub struct TxRequestHandler {
-    config: TxRequestHandlerConfig,
+pub struct RpcHandler {
+    config: RpcHandlerConfig,
 
     tx_pool: Arc<Mutex<ShardedTransactionPool>>,
     chunk_endorsement_tracker: Arc<Mutex<ChunkEndorsementTracker>>,
@@ -102,9 +104,9 @@ pub struct TxRequestHandler {
     network_adapter: PeerManagerAdapter,
 }
 
-impl TxRequestHandler {
+impl RpcHandler {
     pub fn new(
-        config: TxRequestHandlerConfig,
+        config: RpcHandlerConfig,
         tx_pool: Arc<Mutex<ShardedTransactionPool>>,
         chunk_endorsement_tracker: Arc<Mutex<ChunkEndorsementTracker>>,
         epoch_manager: Arc<dyn EpochManagerAdapter>,

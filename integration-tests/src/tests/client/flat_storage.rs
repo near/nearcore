@@ -129,10 +129,7 @@ fn test_not_supported_block() {
             1,
             genesis_hash,
         );
-        assert_eq!(
-            env.tx_request_handlers[0].process_tx(tx, false, false),
-            ProcessTxResponse::ValidTx
-        );
+        assert_eq!(env.rpc_handlers[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
     }
 
     let flat_head_height = START_HEIGHT - 4;

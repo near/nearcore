@@ -28,8 +28,8 @@ use near_chunks::shards_manager_actor::start_shards_manager;
 use near_client::adapter::client_sender_for_network;
 use near_client::gc_actor::GCActor;
 use near_client::{
-    ClientActor, ConfigUpdater, PartialWitnessActor, StartClientResult, TxRequestHandlerActor,
-    TxRequestHandlerConfig, ViewClientActor, ViewClientActorInner, spawn_tx_request_handler_actor,
+    ClientActor, ConfigUpdater, PartialWitnessActor, RpcHandlerActor, RpcHandlerConfig,
+    StartClientResult, ViewClientActor, ViewClientActorInner, spawn_rpc_handler_actor,
     start_client,
 };
 use near_epoch_manager::EpochManager;
@@ -215,7 +215,7 @@ fn get_split_store(config: &NearConfig, storage: &NodeStorage) -> anyhow::Result
 pub struct NearNode {
     pub client: Addr<ClientActor>,
     pub view_client: Addr<ViewClientActor>,
-    pub tx_processor: Addr<TxRequestHandlerActor>,
+    pub rpc_handler: Addr<RpcHandlerActor>,
     #[cfg(feature = "tx_generator")]
     pub tx_generator: Addr<TxGeneratorActor>,
     pub arbiters: Vec<ArbiterHandle>,
@@ -443,14 +443,14 @@ pub fn start_with_config_and_synchronization(
     );
     shards_manager_adapter.bind(shards_manager_actor.with_auto_span_context());
 
-    let tx_processor_config = TxRequestHandlerConfig {
+    let rpc_handler_config = RpcHandlerConfig {
         handler_threads: config.client_config.transaction_request_handler_threads,
         tx_routing_height_horizon: config.client_config.tx_routing_height_horizon,
         epoch_length: config.client_config.epoch_length,
         transaction_validity_period: config.genesis.config.transaction_validity_period,
     };
-    let tx_processor = spawn_tx_request_handler_actor(
-        tx_processor_config,
+    let rpc_handler = spawn_rpc_handler_actor(
+        rpc_handler_config,
         tx_pool,
         chunk_endorsement_tracker,
         view_epoch_manager.clone(),
@@ -484,7 +484,7 @@ pub fn start_with_config_and_synchronization(
         client_sender_for_network(
             client_actor.clone(),
             view_client_addr.clone(),
-            tx_processor.clone(),
+            rpc_handler.clone(),
         ),
         network_adapter.as_multi_sender(),
         shards_manager_adapter.as_sender(),
@@ -506,7 +506,7 @@ pub fn start_with_config_and_synchronization(
             config.genesis.config.clone(),
             client_actor.clone().with_auto_span_context().into_multi_sender(),
             view_client_addr.clone().with_auto_span_context().into_multi_sender(),
-            tx_processor.clone().with_auto_span_context().into_multi_sender(),
+            rpc_handler.clone().with_auto_span_context().into_multi_sender(),
             network_actor.into_multi_sender(),
             #[cfg(feature = "test_features")]
             _gc_actor.with_auto_span_context().into_multi_sender(),
@@ -524,7 +524,7 @@ pub fn start_with_config_and_synchronization(
                 genesis_block.header().hash(),
                 client_actor.clone(),
                 view_client_addr.clone(),
-                tx_processor.clone(),
+                rpc_handler.clone(),
             ),
         ));
     }
@@ -548,14 +548,14 @@ pub fn start_with_config_and_synchronization(
     #[cfg(feature = "tx_generator")]
     let tx_generator = near_transactions_generator::actix_actor::start_tx_generator(
         config.tx_generator.unwrap_or_default(),
-        tx_processor.clone().with_auto_span_context().into_multi_sender(),
+        rpc_handler.clone().with_auto_span_context().into_multi_sender(),
         view_client_addr.clone().with_auto_span_context().into_multi_sender(),
     );
 
     Ok(NearNode {
         client: client_actor,
         view_client: view_client_addr,
-        tx_processor,
+        rpc_handler,
         #[cfg(feature = "tx_generator")]
         tx_generator,
         rpc_servers,
