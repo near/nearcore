@@ -191,14 +191,17 @@ pub enum ProtocolFeature {
     /// In case not all validator seats are occupied our algorithm provide incorrect minimal seat
     /// price - it reports as alpha * sum_stake instead of alpha * sum_stake / (1 - alpha), where
     /// alpha is min stake ratio
-    FixStakingThreshold,
+    #[deprecated]
+    _DeprecatedFixStakingThreshold,
     /// In case not all validator seats are occupied, the minimum seat price of a chunk producer
     /// used to depend on the number of existing shards, which is no longer the case.
-    FixChunkProducerStakingThreshold,
+    #[deprecated]
+    _DeprecatedFixChunkProducerStakingThreshold,
     /// Charge for contract loading before it happens.
     FixContractLoadingCost,
     /// Enables rejection of blocks with outdated protocol versions.
-    RejectBlocksWithOutdatedProtocolVersions,
+    #[deprecated]
+    _DeprecatedRejectBlocksWithOutdatedProtocolVersions,
     // NEP: https://github.com/near/NEPs/pull/488
     #[deprecated]
     _DeprecatedBLS12381,
@@ -367,9 +370,9 @@ impl ProtocolFeature {
             | ProtocolFeature::_DeprecatedChunkEndorsementsInBlockHeader
             | ProtocolFeature::_DeprecatedStateStoredReceipt => 72,
             ProtocolFeature::_DeprecatedExcludeContractCodeFromStateWitness => 73,
-            ProtocolFeature::FixStakingThreshold
-            | ProtocolFeature::RejectBlocksWithOutdatedProtocolVersions
-            | ProtocolFeature::FixChunkProducerStakingThreshold
+            ProtocolFeature::_DeprecatedFixStakingThreshold
+            | ProtocolFeature::_DeprecatedRejectBlocksWithOutdatedProtocolVersions
+            | ProtocolFeature::_DeprecatedFixChunkProducerStakingThreshold
             | ProtocolFeature::_DeprecatedRelaxedChunkValidation
             | ProtocolFeature::_DeprecatedRemoveCheckBalance
             | ProtocolFeature::BandwidthScheduler
