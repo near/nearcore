@@ -301,14 +301,13 @@ mod trie_recording_tests {
     use crate::{DBCol, KeyLookupMode, PartialStorage, ShardTries, Store, Trie};
     use borsh::BorshDeserialize;
     use near_primitives::bandwidth_scheduler::BandwidthRequests;
-    use near_primitives::congestion_info::CongestionInfo;
     use near_primitives::hash::{CryptoHash, hash};
     use near_primitives::shard_layout::{ShardUId, get_block_shard_uid};
     use near_primitives::state::PartialState;
     use near_primitives::state::ValueRef;
     use near_primitives::types::StateRoot;
     use near_primitives::types::chunk_extra::ChunkExtra;
-    use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
+    use near_primitives::version::PROTOCOL_VERSION;
     use rand::prelude::SliceRandom;
     use rand::{Rng, random, thread_rng};
     use std::collections::{HashMap, HashSet};
@@ -363,11 +362,6 @@ mod trie_recording_tests {
             &trie_changes,
         );
 
-        #[allow(deprecated)]
-        let congestion_info = ProtocolFeature::_DeprecatedCongestionControl
-            .enabled(PROTOCOL_VERSION)
-            .then(CongestionInfo::default);
-
         // ChunkExtra is needed for in-memory trie loading code to query state roots.
         let chunk_extra = ChunkExtra::new(
             PROTOCOL_VERSION,
@@ -377,7 +371,7 @@ mod trie_recording_tests {
             0,
             0,
             0,
-            congestion_info,
+            Default::default(),
             BandwidthRequests::default_for_protocol_version(PROTOCOL_VERSION),
         );
         let mut update_for_chunk_extra = tries_for_building.store_update();

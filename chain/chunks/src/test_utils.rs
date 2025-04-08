@@ -7,7 +7,6 @@ use near_epoch_manager::test_utils::setup_epoch_manager_with_block_and_chunk_pro
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_network::test_utils::MockPeerManagerAdapter;
 use near_primitives::bandwidth_scheduler::BandwidthRequests;
-use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{self, MerklePath};
 use near_primitives::receipt::Receipt;
@@ -148,8 +147,6 @@ impl ChunkTestFixture {
         let shard_layout = epoch_manager.get_shard_layout(&EpochId::default()).unwrap();
         let receipts_hashes = Chain::build_receipts_hashes(&[], &shard_layout).unwrap();
         let (receipts_root, _) = merkle::merklize(&receipts_hashes);
-        #[allow(deprecated)]
-        let congestion_info = CongestionInfo::default();
         let (mock_chunk, mock_merkle_paths, _) = ShardsManagerActor::create_encoded_shard_chunk(
             mock_parent_hash,
             Default::default(),
@@ -164,7 +161,7 @@ impl ChunkTestFixture {
             vec![],
             receipts_root,
             MerkleHash::default(),
-            congestion_info,
+            Default::default(),
             BandwidthRequests::default_for_protocol_version(PROTOCOL_VERSION),
             &signer,
             &rs,

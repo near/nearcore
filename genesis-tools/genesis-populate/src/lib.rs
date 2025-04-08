@@ -29,7 +29,6 @@ use near_store::{
 };
 use near_time::Utc;
 use near_vm_runner::ContractCode;
-
 use nearcore::{NearConfig, NightshadeRuntime, NightshadeRuntimeExt};
 pub use node_runtime::bootstrap_congestion_info;
 use std::collections::HashMap;

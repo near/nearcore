@@ -14,7 +14,7 @@ use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::{ShardChunk, ShardChunkHeader};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::ShardId;
-use near_primitives::version::PROTOCOL_VERSION;
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::FinalExecutionStatus;
 use near_vm_runner::logic::ProtocolVersion;
 use std::sync::Arc;
@@ -48,7 +48,10 @@ fn set_wasm_cost(config: &mut RuntimeConfig) {
 // This is important to prevent needing to fix the congestion control tests
 // every time the parameters are updated.
 fn set_default_congestion_control(config_store: &RuntimeConfigStore, config: &mut RuntimeConfig) {
-    let cc_config = get_runtime_config(&config_store, PROTOCOL_VERSION);
+    // TODO(limited_replayability): Start using congestion control config from latest protocol version.
+    #[allow(deprecated)]
+    let cc_protocol_version = ProtocolFeature::_DeprecatedCongestionControl.protocol_version();
+    let cc_config = get_runtime_config(&config_store, cc_protocol_version);
     config.congestion_control_config = cc_config.congestion_control_config;
 }
 

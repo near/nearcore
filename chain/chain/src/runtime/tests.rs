@@ -221,14 +221,12 @@ impl TestEnv {
         let height = self.head.height + 1;
         let block_timestamp = 0;
         let gas_price = self.runtime.genesis_config.min_gas_price;
-        let congestion_info = {
-            let shard_ids = self.epoch_manager.shard_ids(&epoch_id).unwrap();
-            let shards_congestion_info = shard_ids
-                .into_iter()
-                .map(|shard_id| (shard_id, ExtendedCongestionInfo::default()))
-                .collect();
-            BlockCongestionInfo::new(shards_congestion_info)
-        };
+        let shard_ids = self.epoch_manager.shard_ids(&epoch_id).unwrap();
+        let shards_congestion_info = shard_ids
+            .into_iter()
+            .map(|shard_id| (shard_id, ExtendedCongestionInfo::default()))
+            .collect();
+        let congestion_info = BlockCongestionInfo::new(shards_congestion_info);
         let transaction_validity = vec![true; transactions.len()];
         let transactions = SignedValidPeriodTransactions::new(transactions, transaction_validity);
         self.runtime

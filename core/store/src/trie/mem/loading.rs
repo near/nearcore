@@ -193,14 +193,13 @@ mod tests {
     use crate::trie::update::TrieUpdateResult;
     use crate::{DBCol, KeyLookupMode, NibbleSlice, ShardTries, Store, Trie, TrieUpdate};
     use near_primitives::bandwidth_scheduler::BandwidthRequests;
-    use near_primitives::congestion_info::CongestionInfo;
     use near_primitives::hash::CryptoHash;
     use near_primitives::shard_layout::{ShardUId, get_block_shard_uid};
     use near_primitives::state::FlatStateValue;
     use near_primitives::trie_key::TrieKey;
     use near_primitives::types::chunk_extra::ChunkExtra;
     use near_primitives::types::{StateChangeCause, StateRoot};
-    use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
+    use near_primitives::version::PROTOCOL_VERSION;
     use rand::rngs::StdRng;
     use rand::{Rng, SeedableRng};
 
@@ -517,11 +516,6 @@ mod tests {
         shard_uid: ShardUId,
         state_root: StateRoot,
     ) {
-        #[allow(deprecated)]
-        let congestion_info = ProtocolFeature::_DeprecatedCongestionControl
-            .enabled(PROTOCOL_VERSION)
-            .then(CongestionInfo::default);
-
         let chunk_extra = ChunkExtra::new(
             PROTOCOL_VERSION,
             &state_root,
@@ -530,7 +524,7 @@ mod tests {
             0,
             0,
             0,
-            congestion_info,
+            Default::default(),
             BandwidthRequests::default_for_protocol_version(PROTOCOL_VERSION),
         );
         let mut store_update = store.store_update();

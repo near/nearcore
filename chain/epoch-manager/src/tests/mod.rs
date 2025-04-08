@@ -15,7 +15,6 @@ use near_o11y::testonly::init_test_logger;
 use near_primitives::account::id::AccountIdRef;
 use near_primitives::bandwidth_scheduler::BandwidthRequests;
 use near_primitives::block::Tip;
-use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::epoch_block_info::BlockInfoV3;
 use near_primitives::epoch_manager::EpochConfig;
 use near_primitives::hash::hash;
@@ -2843,8 +2842,6 @@ fn test_block_and_chunk_producer_not_kicked_out_for_low_endorsements() {
 }
 
 fn test_chunk_header(h: &[CryptoHash], signer: &ValidatorSigner) -> ShardChunkHeader {
-    #[allow(deprecated)]
-    let congestion_info = CongestionInfo::default();
     ShardChunkHeader::V3(ShardChunkHeaderV3::new(
         PROTOCOL_VERSION,
         h[0],
@@ -2860,7 +2857,7 @@ fn test_chunk_header(h: &[CryptoHash], signer: &ValidatorSigner) -> ShardChunkHe
         h[2],
         h[2],
         vec![],
-        congestion_info,
+        Default::default(),
         BandwidthRequests::default_for_protocol_version(PROTOCOL_VERSION),
         signer,
     ))
