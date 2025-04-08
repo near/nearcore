@@ -521,7 +521,7 @@ impl ShardChunkHeader {
         match self {
             ShardChunkHeader::V1(_) => CongestionInfo::default(),
             ShardChunkHeader::V2(_) => CongestionInfo::default(),
-            ShardChunkHeader::V3(header) => header.inner.congestion_info().unwrap_or_default(),
+            ShardChunkHeader::V3(header) => header.inner.congestion_info(),
         }
     }
 

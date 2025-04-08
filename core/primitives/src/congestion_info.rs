@@ -619,7 +619,7 @@ mod tests {
                     as u64,
                 control.outgoing_gas_limit(ShardId::new(1))
             );
-            assert!(control.shard_accepts_transactions().is_yes());
+            assert!(control.shard_accepts_transactions().is_no());
         }
 
         // reduce congestion to 1/8
