@@ -289,7 +289,7 @@ fn produce_block_with_approvals() {
 
 /// When approvals arrive early, they should be properly cached.
 #[test]
-fn slow_test_produce_block_with_approvals_arrived_early() {
+fn test_produce_block_with_approvals_arrived_early() {
     init_test_logger();
     let vs = ValidatorSchedule::new().num_shards(4).block_producers_per_epoch(vec![vec![
         "test1".parse().unwrap(),

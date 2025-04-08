@@ -361,7 +361,7 @@ fn test_transaction_limit_for_remote_congestion() {
 
 /// Test that clients stop including transactions to fully congested receivers.
 #[test]
-fn slow_test_transaction_filtering() {
+fn test_transaction_filtering() {
     init_test_logger();
 
     if !ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {

@@ -143,7 +143,7 @@ fn test_evil_function_index() {
 }
 
 #[test]
-fn slow_test_limit_contract_functions_number() {
+fn test_limit_contract_functions_number() {
     let functions_number_limit: u32 = 10_000;
 
     test_builder().wasm(
@@ -243,7 +243,7 @@ fn test_limit_locals() {
 }
 
 #[test]
-fn slow_test_limit_locals_global() {
+fn test_limit_locals_global() {
     test_builder().wasm(&near_test_contracts::LargeContract {
         functions: 101,
         locals_per_function: 9901,

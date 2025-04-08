@@ -15,7 +15,7 @@ use near_primitives::types::AccountInfo;
 use near_primitives::version::PROTOCOL_VERSION;
 
 #[test]
-fn slow_test_fix_validator_stake_threshold() {
+fn test_fix_validator_stake_threshold() {
     init_test_logger();
 
     let test_loop_builder = TestLoopBuilder::new();

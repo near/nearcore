@@ -31,7 +31,7 @@ use crate::env::setup::{ActorHandlesForTesting, setup_mock_all_validators};
 
 #[test]
 #[ignore = "Test is flaky and causing CI failures"]
-fn slow_test_repro_1183() {
+fn test_repro_1183() {
     init_test_logger();
     run_actix(async {
         let connectors: Arc<RwLock<Vec<ActorHandlesForTesting>>> = Arc::new(RwLock::new(vec![]));
@@ -165,7 +165,7 @@ fn slow_test_repro_1183() {
 }
 
 #[test]
-fn slow_test_sync_from_archival_node() {
+fn test_sync_from_archival_node() {
     init_test_logger();
     let vs = ValidatorSchedule::new().num_shards(4).block_producers_per_epoch(vec![vec![
         "test1".parse().unwrap(),
@@ -276,7 +276,7 @@ fn slow_test_sync_from_archival_node() {
 
 #[test]
 #[ignore = "Test is flaky and causing CI failures"]
-fn slow_test_long_gap_between_blocks() {
+fn test_long_gap_between_blocks() {
     init_test_logger();
     let vs = ValidatorSchedule::new()
         .num_shards(2)

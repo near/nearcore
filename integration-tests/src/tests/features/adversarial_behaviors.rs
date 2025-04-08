@@ -128,7 +128,7 @@ impl AdversarialBehaviorTestData {
 }
 
 #[test]
-fn slow_test_non_adversarial_case() {
+fn test_non_adversarial_case() {
     init_test_logger();
     let mut test = AdversarialBehaviorTestData::new();
     let epoch_manager = test.env.clients[0].epoch_manager.clone();
@@ -344,7 +344,7 @@ fn test_banning_chunk_producer_when_seeing_invalid_chunk_base(
 
 #[test]
 #[cfg(feature = "test_features")]
-fn slow_test_banning_chunk_producer_when_seeing_invalid_chunk() {
+fn test_banning_chunk_producer_when_seeing_invalid_chunk() {
     init_test_logger();
     let mut test = AdversarialBehaviorTestData::new();
     test.env.clients[7].chunk_producer.produce_invalid_chunks = true;

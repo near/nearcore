@@ -49,7 +49,7 @@ async fn test_message_rate_limits() -> anyhow::Result<()> {
 #[tokio::test]
 // Verifies that peer traffic is not rate limited when messages are sent at regular intervals,
 // and the total number of messages is below the limit.
-async fn slow_test_message_rate_limits_over_time() -> anyhow::Result<()> {
+async fn test_message_rate_limits_over_time() -> anyhow::Result<()> {
     init_test_logger();
     tracing::info!("test_message_rate_limits_over_time");
 

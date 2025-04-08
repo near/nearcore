@@ -694,12 +694,12 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
 }
 
 #[test]
-fn slow_test_resharding_v3() {
+fn test_resharding_v3() {
     test_resharding_v3_base(TestReshardingParametersBuilder::default().build());
 }
 
 #[test]
-fn slow_test_resharding_v3_two_independent_splits() {
+fn test_resharding_v3_two_independent_splits() {
     let second_resharding_boundary_account = "account2".parse().unwrap();
     test_resharding_v3_base(
         TestReshardingParametersBuilder::default()
@@ -725,7 +725,7 @@ fn shard_sequence_to_schedule(
 }
 
 #[test]
-fn slow_test_resharding_v3_two_splits_one_after_another_at_single_node() {
+fn test_resharding_v3_two_splits_one_after_another_at_single_node() {
     let first_resharding_boundary_account: AccountId = NEW_BOUNDARY_ACCOUNT.parse().unwrap();
     let second_resharding_boundary_account: AccountId = "account2".parse().unwrap();
 
@@ -782,7 +782,7 @@ fn slow_test_resharding_v3_two_splits_one_after_another_at_single_node() {
 // Track parent shard before resharding, child shard after resharding, and then an unrelated shard forever.
 // Eventually, the State column should only contain entries belonging to the last tracked shard.
 #[test]
-fn slow_test_resharding_v3_state_cleanup() {
+fn test_resharding_v3_state_cleanup() {
     let account_in_stable_shard: AccountId = "account0".parse().unwrap();
     let split_boundary_account: AccountId = NEW_BOUNDARY_ACCOUNT.parse().unwrap();
     let base_shard_layout = get_base_shard_layout(DEFAULT_SHARD_LAYOUT_VERSION);
@@ -811,7 +811,7 @@ fn slow_test_resharding_v3_state_cleanup() {
 
 // Track parent shard before resharding, but do not track any child shard after resharding.
 #[test]
-fn slow_test_resharding_v3_do_not_track_children_after_resharding() {
+fn test_resharding_v3_do_not_track_children_after_resharding() {
     let account_in_stable_shard: AccountId = "account0".parse().unwrap();
     let split_boundary_account: AccountId = NEW_BOUNDARY_ACCOUNT.parse().unwrap();
     let base_shard_layout = get_base_shard_layout(DEFAULT_SHARD_LAYOUT_VERSION);
@@ -842,7 +842,7 @@ fn slow_test_resharding_v3_do_not_track_children_after_resharding() {
 // We expect all parent state and mapping have been removed,
 // then child shard was state synced without mapping.
 #[test]
-fn slow_test_resharding_v3_stop_track_child_for_5_epochs() {
+fn test_resharding_v3_stop_track_child_for_5_epochs() {
     let account_in_stable_shard: AccountId = "account0".parse().unwrap();
     let split_boundary_account: AccountId = NEW_BOUNDARY_ACCOUNT.parse().unwrap();
     let base_shard_layout = get_base_shard_layout(DEFAULT_SHARD_LAYOUT_VERSION);
@@ -885,7 +885,7 @@ fn slow_test_resharding_v3_stop_track_child_for_5_epochs() {
 // We expect the mapping to parent to be preserved, because there were not enough
 // epochs where we did not track any child for mapping to be removed.
 #[test]
-fn slow_test_resharding_v3_stop_track_child_for_5_epochs_with_sibling_in_between() {
+fn test_resharding_v3_stop_track_child_for_5_epochs_with_sibling_in_between() {
     let account_in_stable_shard: AccountId = "account0".parse().unwrap();
     let split_boundary_account: AccountId = NEW_BOUNDARY_ACCOUNT.parse().unwrap();
     let base_shard_layout = get_base_shard_layout(DEFAULT_SHARD_LAYOUT_VERSION);
@@ -925,7 +925,7 @@ fn slow_test_resharding_v3_stop_track_child_for_5_epochs_with_sibling_in_between
 // Sets up an extra node that doesn't track the parent, doesn't track the child in the first post-resharding
 // epoch, and then tracks a child in the epoch after that. This checks that state sync works in that case.
 #[test]
-fn slow_test_resharding_v3_sync_child() {
+fn test_resharding_v3_sync_child() {
     let account_in_stable_shard: AccountId = "account0".parse().unwrap();
     let split_boundary_account: AccountId = NEW_BOUNDARY_ACCOUNT.parse().unwrap();
     let base_shard_layout = get_base_shard_layout(DEFAULT_SHARD_LAYOUT_VERSION);
@@ -952,7 +952,7 @@ fn slow_test_resharding_v3_sync_child() {
 }
 
 #[test]
-fn slow_test_resharding_v3_track_all_shards() {
+fn test_resharding_v3_track_all_shards() {
     test_resharding_v3_base(
         TestReshardingParametersBuilder::default()
             .track_all_shards(true)
@@ -962,7 +962,7 @@ fn slow_test_resharding_v3_track_all_shards() {
 }
 
 #[test]
-fn slow_test_resharding_v3_drop_chunks_before() {
+fn test_resharding_v3_drop_chunks_before() {
     let chunk_ranges_to_drop = HashMap::from([(1, -2..0)]);
     test_resharding_v3_base(
         TestReshardingParametersBuilder::default()
@@ -973,7 +973,7 @@ fn slow_test_resharding_v3_drop_chunks_before() {
 }
 
 #[test]
-fn slow_test_resharding_v3_drop_chunks_after() {
+fn test_resharding_v3_drop_chunks_after() {
     let chunk_ranges_to_drop = HashMap::from([(2, 0..2)]);
     test_resharding_v3_base(
         TestReshardingParametersBuilder::default()
@@ -983,7 +983,7 @@ fn slow_test_resharding_v3_drop_chunks_after() {
 }
 
 #[test]
-fn slow_test_resharding_v3_drop_chunks_before_and_after() {
+fn test_resharding_v3_drop_chunks_before_and_after() {
     let chunk_ranges_to_drop = HashMap::from([(0, -2..2)]);
     test_resharding_v3_base(
         TestReshardingParametersBuilder::default()
@@ -994,7 +994,7 @@ fn slow_test_resharding_v3_drop_chunks_before_and_after() {
 }
 
 #[test]
-fn slow_test_resharding_v3_drop_chunks_all() {
+fn test_resharding_v3_drop_chunks_all() {
     let chunk_ranges_to_drop = HashMap::from([(0, -1..2), (1, -3..0), (2, 0..3), (3, 0..1)]);
     test_resharding_v3_base(
         TestReshardingParametersBuilder::default()
@@ -1006,7 +1006,7 @@ fn slow_test_resharding_v3_drop_chunks_all() {
 
 #[test]
 #[cfg(feature = "test_features")]
-fn slow_test_resharding_v3_resharding_block_in_fork() {
+fn test_resharding_v3_resharding_block_in_fork() {
     test_resharding_v3_base(
         TestReshardingParametersBuilder::default()
             .num_clients(1)

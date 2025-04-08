@@ -363,7 +363,7 @@ mod tests {
     }
 
     #[test]
-    fn slow_test_memtrie_rand_large_data() {
+    fn test_memtrie_rand_large_data() {
         check_random(32, 100000, 1);
     }
 

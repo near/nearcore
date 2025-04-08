@@ -29,7 +29,7 @@ use crate::env::test_env::TestEnv;
 #[test]
 /// Produce several blocks, wait for the state dump thread to notice and
 /// write files to a temp dir.
-fn slow_test_state_dump() {
+fn test_state_dump() {
     init_test_logger();
 
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
@@ -393,37 +393,37 @@ fn run_state_sync_with_dumped_parts(
 /// - the dumping node's head is in new epoch but final block is not;
 /// - the dumping node's head and final block are in same epoch
 #[test]
-fn slow_test_state_sync_with_dumped_parts_2_non_final() {
+fn test_state_sync_with_dumped_parts_2_non_final() {
     init_test_logger();
     run_state_sync_with_dumped_parts(false, 2, 8);
 }
 
 #[test]
-fn slow_test_state_sync_with_dumped_parts_2_final() {
+fn test_state_sync_with_dumped_parts_2_final() {
     init_test_logger();
     run_state_sync_with_dumped_parts(true, 2, 8);
 }
 
 #[test]
-fn slow_test_state_sync_with_dumped_parts_3_non_final() {
+fn test_state_sync_with_dumped_parts_3_non_final() {
     init_test_logger();
     run_state_sync_with_dumped_parts(false, 3, 8);
 }
 
 #[test]
-fn slow_test_state_sync_with_dumped_parts_3_final() {
+fn test_state_sync_with_dumped_parts_3_final() {
     init_test_logger();
     run_state_sync_with_dumped_parts(true, 3, 8);
 }
 
 #[test]
-fn slow_test_state_sync_with_dumped_parts_4_non_final() {
+fn test_state_sync_with_dumped_parts_4_non_final() {
     init_test_logger();
     run_state_sync_with_dumped_parts(false, 4, 8);
 }
 
 #[test]
-fn slow_test_state_sync_with_dumped_parts_4_final() {
+fn test_state_sync_with_dumped_parts_4_final() {
     init_test_logger();
     run_state_sync_with_dumped_parts(true, 4, 8);
 }

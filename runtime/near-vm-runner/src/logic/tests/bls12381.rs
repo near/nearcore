@@ -1086,7 +1086,7 @@ mod tests {
     }
 
     #[test]
-    fn slow_test_bls12381_pairing_check_one_point_fuzzer() {
+    fn test_bls12381_pairing_check_one_point_fuzzer() {
         bolero::check!().with_type().for_each(|(p1, p2): &(G1Point, G2Point)| {
             let zero1 = G1Affine::zero();
             let zero2 = G2Affine::zero();
@@ -1102,7 +1102,7 @@ mod tests {
     }
 
     #[test]
-    fn slow_test_bls12381_pairing_check_two_points_fuzzer() {
+    fn test_bls12381_pairing_check_two_points_fuzzer() {
         bolero::check!().with_type().for_each(
             |(p1, p2, s1, s2): &(G1Point, G2Point, Scalar, Scalar)| {
                 let p1_neg = p1.p.neg();
@@ -1138,7 +1138,7 @@ mod tests {
     }
 
     #[test]
-    fn slow_test_bls12381_pairing_check_many_points_fuzzer() {
+    fn test_bls12381_pairing_check_many_points_fuzzer() {
         bolero::check!()
             .with_generator(
                 bolero::r#gen::<Vec<(Scalar, Scalar)>>().with().len(0usize..MAX_N_PAIRING),
@@ -1184,7 +1184,7 @@ mod tests {
     }
 
     #[test]
-    fn slow_test_bls12381_pairing_incorrect_input_point_fuzzer() {
+    fn test_bls12381_pairing_incorrect_input_point_fuzzer() {
         bolero::check!().with_type().for_each(
             |(p1_not_from_g1, p2, p1, p2_not_from_g2, curve_p1, curve_p2): &(
                 EnotG1Point,
