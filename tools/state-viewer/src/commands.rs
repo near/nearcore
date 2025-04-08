@@ -17,7 +17,6 @@ use bytesize::ByteSize;
 use itertools::GroupBy;
 use itertools::Itertools;
 use near_chain::chain::collect_receipts_from_response;
-use near_chain::migrations::check_if_block_is_first_with_chunk_of_version;
 use near_chain::types::{
     ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext, RuntimeAdapter,
 };
@@ -27,7 +26,7 @@ use near_chain::{
 };
 use near_chain_configs::GenesisChangeConfig;
 use near_epoch_manager::shard_assignment::{shard_id_to_index, shard_id_to_uid};
-use near_epoch_manager::{EpochManager, EpochManagerAdapter};
+use near_epoch_manager::{EpochManager, EpochManagerAdapter, proposals_to_epoch_info};
 use near_primitives::account::id::AccountId;
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::block::Block;
@@ -98,15 +97,8 @@ pub(crate) fn apply_block(
         let receipts = collect_receipts_from_response(&receipt_proof_response);
 
         let chunk_inner = chunk.cloned_header().take_inner();
-        let is_first_block_with_chunk_of_version = check_if_block_is_first_with_chunk_of_version(
-            chain_store,
-            epoch_manager,
-            block.header().prev_hash(),
-            shard_id,
-        )
-        .unwrap();
 
-        let transactions = chunk.transactions().to_vec();
+        let transactions = chunk.to_transactions().to_vec();
         let valid_txs = chain_store.compute_transaction_validity(prev_block.header(), &chunk);
         runtime
             .apply_chunk(
@@ -117,7 +109,6 @@ pub(crate) fn apply_block(
                     last_validator_proposals: chunk_inner.prev_validator_proposals(),
                     gas_limit: chunk_inner.gas_limit(),
                     is_new_chunk: true,
-                    is_first_block_with_chunk_of_version,
                 },
                 ApplyChunkBlockContext::from_header(
                     block.header(),
@@ -143,7 +134,6 @@ pub(crate) fn apply_block(
                     last_validator_proposals: chunk_extra.validator_proposals(),
                     gas_limit: chunk_extra.gas_limit(),
                     is_new_chunk: false,
-                    is_first_block_with_chunk_of_version: false,
                 },
                 ApplyChunkBlockContext::from_header(
                     block.header(),
@@ -1010,7 +1000,6 @@ pub(crate) fn print_epoch_analysis(
         epoch_heights_to_infos.get(&min_epoch_height.saturating_add(1)).unwrap().as_ref().clone();
     let mut next_next_epoch_config = epoch_manager.get_epoch_config(PROTOCOL_VERSION);
     let mut has_same_shard_layout;
-    let mut epoch_protocol_version;
     let mut next_next_protocol_version;
 
     // Print data header.
@@ -1039,7 +1028,7 @@ pub(crate) fn print_epoch_analysis(
     // Each iteration will generate and print *next next* epoch info based on
     // *next* epoch info for `epoch_height`. This follows epoch generation
     // logic in the protocol.
-    for (epoch_height, epoch_info) in
+    for (epoch_height, _epoch_info) in
         epoch_heights_to_infos.range(min_epoch_height..=max_epoch_height)
     {
         let next_epoch_height = epoch_height.saturating_add(1);
@@ -1063,12 +1052,10 @@ pub(crate) fn print_epoch_analysis(
                 );
                 has_same_shard_layout =
                     next_epoch_config.shard_layout == next_next_epoch_config.shard_layout;
-                epoch_protocol_version = epoch_info.protocol_version();
                 next_next_protocol_version = original_next_next_protocol_version;
             }
             EpochAnalysisMode::Backtest => {
                 has_same_shard_layout = true;
-                epoch_protocol_version = PROTOCOL_VERSION;
                 next_next_protocol_version = PROTOCOL_VERSION;
             }
         };
@@ -1079,7 +1066,7 @@ pub(crate) fn print_epoch_analysis(
             epoch_heights_to_infos.get(&next_next_epoch_height).unwrap();
         let rng_seed = stored_next_next_epoch_info.rng_seed();
 
-        let next_next_epoch_info = near_epoch_manager::proposals_to_epoch_info(
+        let next_next_epoch_info = proposals_to_epoch_info(
             &next_next_epoch_config,
             rng_seed,
             &next_epoch_info,
@@ -1087,7 +1074,6 @@ pub(crate) fn print_epoch_analysis(
             epoch_summary.validator_kickout.clone(),
             stored_next_next_epoch_info.validator_reward().clone(),
             stored_next_next_epoch_info.minted_amount(),
-            epoch_protocol_version,
             next_next_protocol_version,
             has_same_shard_layout,
         )

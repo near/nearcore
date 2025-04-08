@@ -140,7 +140,6 @@ fn receive_network_block() {
             let next_block_ordinal = last_block.header.block_ordinal.unwrap() + 1;
             let block = Block::produce(
                 PROTOCOL_VERSION,
-                PROTOCOL_VERSION,
                 &last_block.header.clone().into(),
                 last_block.header.height + 1,
                 next_block_ordinal,
@@ -158,8 +157,6 @@ fn receive_network_block() {
                 0,
                 100,
                 None,
-                vec![],
-                vec![],
                 &signer,
                 last_block.header.next_bp_hash,
                 block_merkle_tree.root(),
@@ -231,7 +228,6 @@ fn produce_block_with_approvals() {
             let chunk_endorsements = vec![vec![]; chunks.len()];
             let block = Block::produce(
                 PROTOCOL_VERSION,
-                PROTOCOL_VERSION,
                 &last_block.header.clone().into(),
                 last_block.header.height + 1,
                 next_block_ordinal,
@@ -249,8 +245,6 @@ fn produce_block_with_approvals() {
                 0,
                 100,
                 Some(0),
-                vec![],
-                vec![],
                 &signer1,
                 last_block.header.next_bp_hash,
                 block_merkle_tree.root(),
@@ -428,7 +422,6 @@ fn invalid_blocks_common(is_requested: bool) {
             let next_block_ordinal = last_block.header.block_ordinal.unwrap() + 1;
             let valid_block = Block::produce(
                 PROTOCOL_VERSION,
-                PROTOCOL_VERSION,
                 &last_block.header.clone().into(),
                 last_block.header.height + 1,
                 next_block_ordinal,
@@ -446,8 +439,6 @@ fn invalid_blocks_common(is_requested: bool) {
                 0,
                 100,
                 Some(0),
-                vec![],
-                vec![],
                 &signer,
                 last_block.header.next_bp_hash,
                 block_merkle_tree.root(),
@@ -1770,10 +1761,9 @@ fn test_reject_block_headers_during_epoch_sync() {
     );
 
     let headers = blocks.iter().map(|b| b.header().clone()).collect::<Vec<_>>();
-    let signer = sync_client.validator_signer.get();
     // actual attempt to sync headers during ongoing epoch sync
     assert_matches!(
-        sync_client.sync_block_headers(headers, &signer),
+        sync_client.sync_block_headers(headers),
         Err(_),
         "Block headers accepted during epoch sync"
     );
@@ -1793,8 +1783,7 @@ fn test_gc_tail_update() {
         blocks.push(block);
     }
     let headers = blocks.iter().map(|b| b.header().clone()).collect::<Vec<_>>();
-    let signer = env.clients[1].validator_signer.get();
-    env.clients[1].sync_block_headers(headers, &signer).unwrap();
+    env.clients[1].sync_block_headers(headers).unwrap();
     // simulate save sync hash block
     let prev_prev_sync_block = blocks[blocks.len() - 4].clone();
     let prev_prev_sync_hash = *prev_prev_sync_block.hash();
@@ -2498,7 +2487,7 @@ fn test_block_execution_outcomes() {
     let block = env.clients[0].chain.get_block_by_height(2).unwrap();
     let chunk = env.clients[0].chain.get_chunk(&block.chunks()[0].chunk_hash()).unwrap();
     let shard_id = chunk.shard_id();
-    assert_eq!(chunk.transactions().len(), 3);
+    assert_eq!(chunk.to_transactions().len(), 3);
     let execution_outcomes_from_block = env.clients[0]
         .chain
         .chain_store()
@@ -2519,7 +2508,7 @@ fn test_block_execution_outcomes() {
     let next_block = env.clients[0].chain.get_block_by_height(3).unwrap();
     let next_chunk = env.clients[0].chain.get_chunk(&next_block.chunks()[0].chunk_hash()).unwrap();
     let shard_id = next_chunk.shard_id();
-    assert!(next_chunk.transactions().is_empty());
+    assert!(next_chunk.to_transactions().is_empty());
     assert!(next_chunk.prev_outgoing_receipts().is_empty());
     let execution_outcomes_from_block = env.clients[0]
         .chain
@@ -2663,14 +2652,14 @@ fn test_delayed_receipt_count_limit() {
         let chunk = env.clients[0].chain.get_chunk(&block.chunks()[0].chunk_hash()).unwrap();
         // These checks are useful to ensure that we didn't mess up the test setup.
         assert!(chunk.prev_outgoing_receipts().len() <= 1);
-        assert!(chunk.transactions().len() <= 5);
+        assert!(chunk.to_transactions().len() <= 5);
 
         // Because all transactions are in the transactions pool, this means we have not included
         // some transactions due to the delayed receipt count limit.
-        if included_tx_count > 0 && chunk.transactions().is_empty() {
+        if included_tx_count > 0 && chunk.to_transactions().is_empty() {
             break;
         }
-        included_tx_count += chunk.transactions().len();
+        included_tx_count += chunk.to_transactions().len();
         height += 1;
     }
     assert!(included_tx_count < total_tx_count);
