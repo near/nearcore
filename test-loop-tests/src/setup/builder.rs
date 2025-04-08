@@ -231,7 +231,7 @@ impl TestLoopBuilder {
             // * single shard tracking for validators
             // * all shard tracking for non-validators (RPCs and archival)
             let is_validator = genesis.config.validators.iter().any(|v| v.account_id == account_id);
-            client_config.tracked_config = if is_validator && !self.track_all_shards {
+            client_config.tracked_shards_config = if is_validator && !self.track_all_shards {
                 TrackedShardsConfig::NoShards
             } else {
                 TrackedShardsConfig::AllShards

@@ -55,12 +55,12 @@ pub fn csv_to_json_configs(home: &Path, chain_id: String, tracked_shards: Vec<Sh
     let mut config = Config::default();
     // TODO(archival_v2): Revisit this file, `tracked_shards` likely does not make sense here.
     // Perhaps it will make sense if used together with `TrackedShardsConfig::Shards` when it is added.
-    let tracked_config = if tracked_shards.is_empty() {
+    let tracked_shards_config = if tracked_shards.is_empty() {
         TrackedShardsConfig::NoShards
     } else {
         TrackedShardsConfig::AllShards
     };
-    config.tracked_config = Some(tracked_config);
+    config.tracked_shards_config = Some(tracked_shards_config);
 
     // Construct genesis config.
     let (records, validators, peer_info, treasury, genesis_time) =

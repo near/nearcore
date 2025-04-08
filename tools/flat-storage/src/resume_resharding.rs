@@ -62,8 +62,10 @@ fn create_chain_and_executor(
         &config,
         epoch_manager.clone(),
     )?;
-    let shard_tracker =
-        ShardTracker::new(config.client_config.tracked_config.clone(), epoch_manager.clone());
+    let shard_tracker = ShardTracker::new(
+        config.client_config.tracked_shards_config.clone(),
+        epoch_manager.clone(),
+    );
     let chain_genesis = ChainGenesis::new(&config.genesis.config);
     let chain_config = ChainConfig {
         save_trie_changes: config.client_config.save_trie_changes,

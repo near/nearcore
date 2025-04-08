@@ -17,7 +17,7 @@ type BitMask = Vec<bool>;
 /// For supported configurations, see the `TrackedShardsConfig` documentation.
 #[derive(Clone)]
 pub struct ShardTracker {
-    tracked_config: TrackedShardsConfig,
+    tracked_shards_config: TrackedShardsConfig,
     /// Stores shard tracking information by epoch, only useful if TrackedState == Accounts
     tracking_shards_cache: Arc<SyncLruCache<EpochId, BitMask>>,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
@@ -25,11 +25,11 @@ pub struct ShardTracker {
 
 impl ShardTracker {
     pub fn new(
-        tracked_config: TrackedShardsConfig,
+        tracked_shards_config: TrackedShardsConfig,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
     ) -> Self {
         ShardTracker {
-            tracked_config,
+            tracked_shards_config,
             // 1024 epochs on mainnet is about 512 days which is more than enough,
             // and this is a cache anyway. The data size is pretty small as well,
             // only one bit per shard per epoch.
@@ -47,7 +47,7 @@ impl ShardTracker {
         shard_id: ShardId,
         epoch_id: &EpochId,
     ) -> Result<bool, EpochError> {
-        match &self.tracked_config {
+        match &self.tracked_shards_config {
             TrackedShardsConfig::NoShards => Ok(false),
             TrackedShardsConfig::AllShards => Ok(true),
             TrackedShardsConfig::Accounts(tracked_accounts) => {
@@ -140,7 +140,7 @@ impl ShardTracker {
                 // We have access to the node config. Use the config to find a definite answer.
             }
         }
-        match self.tracked_config {
+        match self.tracked_shards_config {
             TrackedShardsConfig::NoShards => {
                 // Avoid looking up EpochId as a performance optimization.
                 false
@@ -188,7 +188,7 @@ impl ShardTracker {
                 // We have access to the node config. Use the config to find a definite answer.
             }
         }
-        match self.tracked_config {
+        match self.tracked_shards_config {
             TrackedShardsConfig::NoShards => {
                 // Avoid looking up EpochId as a performance optimization.
                 false
@@ -236,7 +236,7 @@ impl ShardTracker {
                 // We have access to the node config. Use the config to find a definite answer.
             }
         }
-        match self.tracked_config {
+        match self.tracked_shards_config {
             TrackedShardsConfig::NoShards => {
                 // Avoid looking up EpochId as a performance optimization.
                 false
@@ -265,7 +265,7 @@ impl ShardTracker {
 
     /// Returns whether the node is configured for all shards tracking.
     pub fn tracks_all_shards(&self) -> bool {
-        self.tracked_config.tracks_all_shards()
+        self.tracked_shards_config.tracks_all_shards()
     }
 
     /// Return all shards that whose states need to be caught up

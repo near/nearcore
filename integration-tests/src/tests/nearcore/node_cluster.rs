@@ -51,7 +51,7 @@ fn start_nodes(
         }
         // if non validator, track all shards
         if i >= num_validator_seats && i < num_tracking_nodes {
-            near_config.client_config.tracked_config = TrackedShardsConfig::AllShards;
+            near_config.client_config.tracked_shards_config = TrackedShardsConfig::AllShards;
         }
         near_configs.push(near_config);
     }

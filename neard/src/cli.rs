@@ -670,7 +670,7 @@ impl LocalnetCmd {
     }
 
     pub(super) fn run(self, home_dir: &Path) {
-        let tracked_config = Self::parse_tracked_shards(&self.tracked_shards);
+        let tracked_shards_config = Self::parse_tracked_shards(&self.tracked_shards);
         nearcore::config::init_localnet_configs(
             home_dir,
             self.shards,
@@ -679,7 +679,7 @@ impl LocalnetCmd {
             self.non_validators_rpc,
             self.non_validators,
             &self.prefix,
-            tracked_config,
+            tracked_shards_config,
         );
     }
 }

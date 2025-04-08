@@ -72,8 +72,8 @@ fn init_test_staking(
             genesis.clone(),
         );
         if track_all_shards {
-            config.config.tracked_config = Some(TrackedShardsConfig::AllShards);
-            config.client_config.tracked_config = TrackedShardsConfig::AllShards;
+            config.config.tracked_shards_config = Some(TrackedShardsConfig::AllShards);
+            config.client_config.tracked_shards_config = TrackedShardsConfig::AllShards;
         }
         if i != 0 {
             config.network_config.peer_store.boot_nodes =

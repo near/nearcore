@@ -567,7 +567,7 @@ pub struct ClientConfig {
     pub block_header_fetch_horizon: BlockHeightDelta,
     /// Garbage collection configuration.
     pub gc: GCConfig,
-    pub tracked_config: TrackedShardsConfig,
+    pub tracked_shards_config: TrackedShardsConfig,
     /// Not clear old data, set `true` for archive nodes.
     pub archive: bool,
     /// save_trie_changes should be set to true iff
@@ -691,7 +691,7 @@ impl ClientConfig {
             doomslug_step_period: Duration::milliseconds(100),
             block_header_fetch_horizon: 50,
             gc: GCConfig { gc_blocks_limit: 100, ..GCConfig::default() },
-            tracked_config: TrackedShardsConfig::NoShards,
+            tracked_shards_config: TrackedShardsConfig::NoShards,
             archive,
             save_trie_changes,
             log_summary_style: LogSummaryStyle::Colored,

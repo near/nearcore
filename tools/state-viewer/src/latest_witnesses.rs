@@ -123,8 +123,10 @@ impl ValidateWitnessCmd {
         let runtime_adapter =
             NightshadeRuntime::from_config(home_dir, store, &near_config, epoch_manager.clone())
                 .expect("could not create the transaction runtime");
-        let shard_tracker =
-            ShardTracker::new(near_config.client_config.tracked_config, epoch_manager.clone());
+        let shard_tracker = ShardTracker::new(
+            near_config.client_config.tracked_shards_config,
+            epoch_manager.clone(),
+        );
         // TODO(stateless_validation): consider using `ChainStore` instead of
         // `Chain`.
         let chain = Chain::new_for_view_client(

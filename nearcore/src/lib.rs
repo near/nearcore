@@ -279,8 +279,10 @@ pub fn start_with_config_and_synchronization(
         Some(home_dir),
     );
 
-    let shard_tracker =
-        ShardTracker::new(config.client_config.tracked_config.clone(), epoch_manager.clone());
+    let shard_tracker = ShardTracker::new(
+        config.client_config.tracked_shards_config.clone(),
+        epoch_manager.clone(),
+    );
     let runtime = NightshadeRuntime::from_config(
         home_dir,
         storage.get_hot_store(),
@@ -292,27 +294,28 @@ pub fn start_with_config_and_synchronization(
     // Get the split store. If split store is some then create a new set of structures for
     // the view client. Otherwise just re-use the existing ones.
     let split_store = get_split_store(&config, &storage)?;
-    let (view_epoch_manager, view_shard_tracker, view_runtime) = if let Some(split_store) =
-        &split_store
-    {
-        let view_epoch_manager = EpochManager::new_arc_handle(
-            split_store.clone(),
-            &config.genesis.config,
-            Some(home_dir),
-        );
-        let view_shard_tracker =
-            ShardTracker::new(config.client_config.tracked_config.clone(), epoch_manager.clone());
-        let view_runtime = NightshadeRuntime::from_config(
-            home_dir,
-            split_store.clone(),
-            &config,
-            view_epoch_manager.clone(),
-        )
-        .context("could not create the transaction runtime")?;
-        (view_epoch_manager, view_shard_tracker, view_runtime)
-    } else {
-        (epoch_manager.clone(), shard_tracker.clone(), runtime.clone())
-    };
+    let (view_epoch_manager, view_shard_tracker, view_runtime) =
+        if let Some(split_store) = &split_store {
+            let view_epoch_manager = EpochManager::new_arc_handle(
+                split_store.clone(),
+                &config.genesis.config,
+                Some(home_dir),
+            );
+            let view_shard_tracker = ShardTracker::new(
+                config.client_config.tracked_shards_config.clone(),
+                epoch_manager.clone(),
+            );
+            let view_runtime = NightshadeRuntime::from_config(
+                home_dir,
+                split_store.clone(),
+                &config,
+                view_epoch_manager.clone(),
+            )
+            .context("could not create the transaction runtime")?;
+            (view_epoch_manager, view_shard_tracker, view_runtime)
+        } else {
+            (epoch_manager.clone(), shard_tracker.clone(), runtime.clone())
+        };
 
     let cold_store_loop_handle = spawn_cold_store_loop(&config, &storage, epoch_manager.clone())?;
 

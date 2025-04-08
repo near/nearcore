@@ -121,7 +121,7 @@ fn setup_initial_blockchain(
             if client_index != idx {
                 return;
             }
-            config.tracked_config = TrackedShardsConfig::Schedule(schedule.clone());
+            config.tracked_shards_config = TrackedShardsConfig::Schedule(schedule.clone());
         });
     }
 
@@ -404,7 +404,7 @@ fn run_test_with_added_node(state: TestState) {
         .config_modifier(move |config| {
             // Lower the threshold at which state sync is chosen over block sync
             config.block_fetch_horizon = 5;
-            config.tracked_config = TrackedShardsConfig::AllShards;
+            config.tracked_shards_config = TrackedShardsConfig::AllShards;
         })
         .build();
     env.add_node(account_id.as_str(), new_node_state);

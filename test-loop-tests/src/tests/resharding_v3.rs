@@ -420,7 +420,7 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
         // Set the tracked shard schedule if specified for the client at the given index.
         if let Some(tracked_shard_schedule) = &tracked_shard_schedule {
             if client_index == tracked_shard_schedule.client_index {
-                config.tracked_config =
+                config.tracked_shards_config =
                     TrackedShardsConfig::Schedule(tracked_shard_schedule.schedule.clone());
             }
         }

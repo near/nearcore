@@ -37,8 +37,10 @@ fn main() {
     .get_hot_store();
     let epoch_manager =
         EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config, Some(home_dir));
-    let shard_tracker =
-        ShardTracker::new(near_config.client_config.tracked_config.clone(), epoch_manager.clone());
+    let shard_tracker = ShardTracker::new(
+        near_config.client_config.tracked_shards_config.clone(),
+        epoch_manager.clone(),
+    );
     let runtime = nearcore::NightshadeRuntime::from_config(
         home_dir,
         store.clone(),

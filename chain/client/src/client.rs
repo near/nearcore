@@ -2373,7 +2373,7 @@ impl Client {
         // convert config tracked shards
         // runtime will track all shards if config tracked shards is not empty
         // https://github.com/near/nearcore/issues/4930
-        let tracked_shards = if self.config.tracked_config.tracks_all_shards() {
+        let tracked_shards = if self.config.tracked_shards_config.tracks_all_shards() {
             self.epoch_manager.shard_ids(&tip.epoch_id)?
         } else {
             // TODO(archival_v2): Revisit this to determine if improvements can be made
