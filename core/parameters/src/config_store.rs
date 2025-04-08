@@ -192,20 +192,7 @@ impl RuntimeConfigStore {
                 config_store
             }
             near_primitives_core::chains::CONGESTION_CONTROL_TEST => {
-                let mut config_store = Self::new(None);
-
-                // Get the original congestion control config. The nayduck tests
-                // are tuned to this config.
-                #[allow(deprecated)]
-                let source_protocol_version =
-                    ProtocolFeature::_DeprecatedCongestionControl.protocol_version();
-                let source_runtime_config = config_store.get_config(source_protocol_version);
-
-                let mut config = RuntimeConfig::clone(config_store.get_config(PROTOCOL_VERSION));
-                config.congestion_control_config = source_runtime_config.congestion_control_config;
-
-                config_store.store.insert(PROTOCOL_VERSION, Arc::new(config));
-                config_store
+                Self::new(None)
             }
             _ => Self::new(None),
         }
