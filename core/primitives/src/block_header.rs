@@ -1278,6 +1278,8 @@ impl BlockHeader {
         }
     }
 
+    /// As challenges are now deprecated and not supported, a valid block should
+    /// not have challenges.
     pub fn challenges_present(&self) -> bool {
         #[allow(deprecated)]
         let (challenges_root, challenges_result) = match self {
@@ -1297,7 +1299,8 @@ impl BlockHeader {
                 (&header.inner_rest.challenges_root, &header.inner_rest.challenges_result)
             }
         };
-        challenges_result.is_empty() && challenges_root == &MerkleHash::default()
+
+        !challenges_result.is_empty() || challenges_root != &MerkleHash::default()
     }
 }
 
