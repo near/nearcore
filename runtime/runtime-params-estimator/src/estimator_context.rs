@@ -109,7 +109,7 @@ impl<'c> EstimatorContext<'c> {
             trie_config,
             &[shard_uid],
             flat_storage_manager,
-            StateSnapshotConfig::default(),
+            StateSnapshotConfig::Disabled,
         );
         if self.config.memtrie {
             // NOTE: Since the store loaded from the state dump only contains the state, we directly provide the state root
@@ -460,9 +460,7 @@ impl Testbed<'_> {
             PROTOCOL_VERSION,
         )
         .expect("expected no validation error");
-        let cost =
-            tx_cost(&self.apply_state.config, &validated_tx.to_tx(), gas_price, PROTOCOL_VERSION)
-                .unwrap();
+        let cost = tx_cost(&self.apply_state.config, &validated_tx.to_tx(), gas_price).unwrap();
 
         let vr = verify_and_charge_tx_ephemeral(
             &self.apply_state.config,
@@ -470,7 +468,6 @@ impl Testbed<'_> {
             &validated_tx,
             &cost,
             block_height,
-            PROTOCOL_VERSION,
         )
         .expect("tx verification should not fail in estimator");
         set_tx_state_changes(&mut state_update, &validated_tx, &vr.signer, &vr.access_key);

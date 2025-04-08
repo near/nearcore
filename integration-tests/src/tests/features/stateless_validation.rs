@@ -18,7 +18,6 @@ use near_primitives::test_utils::{create_test_signer, create_user_test_signer};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountInfo, EpochId, ShardId};
 use near_primitives::utils::derive_eth_implicit_account_id;
-use near_primitives::version::ProtocolFeature;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolVersion};
 use near_primitives::views::FinalExecutionStatus;
 use near_primitives_core::account::{AccessKey, Account};
@@ -256,36 +255,6 @@ fn test_chunk_validation_low_missing_chunks() {
 #[test]
 fn test_chunk_validation_high_missing_chunks() {
     run_chunk_validation_test(44, 0.81, 0.0, PROTOCOL_VERSION);
-}
-
-#[test]
-fn test_chunk_validation_protocol_upgrade_no_missing() {
-    run_chunk_validation_test(
-        42,
-        0.0,
-        0.0,
-        ProtocolFeature::StatelessValidation.protocol_version() - 1,
-    );
-}
-
-#[test]
-fn slow_test_chunk_validation_protocol_upgrade_low_missing_prob() {
-    run_chunk_validation_test(
-        42,
-        0.2,
-        0.1,
-        ProtocolFeature::StatelessValidation.protocol_version() - 1,
-    );
-}
-
-#[test]
-fn slow_test_chunk_validation_protocol_upgrade_mid_missing_prob() {
-    run_chunk_validation_test(
-        42,
-        0.6,
-        0.3,
-        ProtocolFeature::StatelessValidation.protocol_version() - 1,
-    );
 }
 
 #[test]

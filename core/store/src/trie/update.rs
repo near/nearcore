@@ -12,7 +12,7 @@ use near_primitives::stateless_validation::contract_distribution::ContractUpdate
 use near_primitives::trie_key::{GlobalContractCodeIdentifier, TrieKey};
 use near_primitives::types::{
     AccountId, RawStateChange, RawStateChanges, RawStateChangesWithTrieKey, StateChangeCause,
-    StateRoot, TrieCacheMode,
+    StateRoot,
 };
 use near_primitives::version::ProtocolFeature;
 
@@ -301,12 +301,10 @@ impl TrieUpdate {
     ///
     /// Only changes the cache mode if `mode` is `Some`. Will always restore the previous cache
     /// mode upon drop. The type should not be `std::mem::forget`-ten, as it will leak memory.
-    pub fn with_trie_cache_mode(&self, mode: Option<TrieCacheMode>) -> TrieCacheModeGuard {
+    pub fn with_trie_cache(&self) -> TrieCacheModeGuard {
         let switch = self.trie.accounting_cache.lock().unwrap().enable_switch();
         let previous = switch.enabled();
-        if let Some(mode) = mode {
-            switch.set(mode == TrieCacheMode::CachingChunk);
-        }
+        switch.set(true);
         TrieCacheModeGuard(previous, switch, Default::default())
     }
 

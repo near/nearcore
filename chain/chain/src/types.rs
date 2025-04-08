@@ -12,7 +12,6 @@ use near_primitives::apply::ApplyChunkReason;
 use near_primitives::bandwidth_scheduler::BandwidthRequests;
 use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
 pub use near_primitives::block::{Block, BlockHeader, Tip};
-use near_primitives::challenge::ChallengesResult;
 use near_primitives::chunk_apply_stats::ChunkApplyStatsV0;
 use near_primitives::congestion_info::BlockCongestionInfo;
 use near_primitives::congestion_info::CongestionInfo;
@@ -290,7 +289,6 @@ pub struct ApplyChunkBlockContext {
     pub prev_block_hash: CryptoHash,
     pub block_timestamp: u64,
     pub gas_price: Balance,
-    pub challenges_result: ChallengesResult,
     pub random_seed: CryptoHash,
     pub congestion_info: BlockCongestionInfo,
     pub bandwidth_requests: BlockBandwidthRequests,
@@ -309,7 +307,6 @@ impl ApplyChunkBlockContext {
             prev_block_hash: *header.prev_hash(),
             block_timestamp: header.raw_timestamp(),
             gas_price,
-            challenges_result: header.challenges_result().clone(),
             random_seed: *header.random_value(),
             congestion_info,
             bandwidth_requests,
@@ -541,7 +538,7 @@ pub struct LatestKnown {
 mod tests {
     use near_async::time::{Clock, Utc};
     use near_primitives::block::Approval;
-    use near_primitives::genesis::genesis_chunks;
+    use near_primitives::genesis::{genesis_block, genesis_chunks};
     use near_primitives::hash::hash;
     use near_primitives::merkle::verify_path;
     use near_primitives::test_utils::{TestBlockBuilder, create_test_signer};
@@ -556,14 +553,14 @@ mod tests {
         let shard_ids: Vec<_> = (0..32).map(ShardId::new).collect();
         let genesis_chunks = genesis_chunks(
             vec![Trie::EMPTY_ROOT],
-            vec![Some(Default::default()); shard_ids.len()],
+            vec![Default::default(); shard_ids.len()],
             &shard_ids,
             1_000_000,
             0,
             PROTOCOL_VERSION,
         );
         let genesis_bps: Vec<ValidatorStake> = Vec::new();
-        let genesis = Block::genesis(
+        let genesis = genesis_block(
             PROTOCOL_VERSION,
             genesis_chunks.into_iter().map(|chunk| chunk.take_header()).collect(),
             Utc::now_utc(),

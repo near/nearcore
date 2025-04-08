@@ -29,7 +29,7 @@ pub use near_primitives;
 use near_primitives::account::{AccessKey, Account, AccountContract};
 use near_primitives::action::GlobalContractIdentifier;
 use near_primitives::bandwidth_scheduler::{BandwidthRequests, BlockBandwidthRequests};
-use near_primitives::chunk_apply_stats::{BalanceStats, ChunkApplyStatsV0};
+use near_primitives::chunk_apply_stats::ChunkApplyStatsV0;
 use near_primitives::congestion_info::{BlockCongestionInfo, CongestionInfo};
 use near_primitives::errors::{
     ActionError, ActionErrorKind, EpochError, IntegerOverflowError, InvalidTxError, RuntimeError,
@@ -175,8 +175,6 @@ pub struct ValidatorAccountsUpdate {
     pub last_proposals: HashMap<AccountId, Balance>,
     /// The ID of the protocol treasury account if it belongs to the current shard.
     pub protocol_treasury_account_id: Option<AccountId>,
-    /// Accounts to slash and the slashed amount (None means everything)
-    pub slashing_info: HashMap<AccountId, Option<Balance>>,
 }
 
 #[derive(Debug)]
@@ -310,12 +308,7 @@ impl Runtime {
                     signed_tx.get_hash(),
                     match validate_transaction(config, signed_tx, current_protocol_version) {
                         Ok(validated_tx) => {
-                            match tx_cost(
-                                config,
-                                &validated_tx.to_tx(),
-                                gas_price,
-                                current_protocol_version,
-                            ) {
+                            match tx_cost(config, &validated_tx.to_tx(), gas_price) {
                                 Ok(cost) => Ok((validated_tx, cost)),
                                 Err(e) => Err(InvalidTxError::from(e)),
                             }
@@ -362,7 +355,6 @@ impl Runtime {
             validated_tx,
             transaction_cost,
             Some(apply_state.block_height),
-            apply_state.current_protocol_version,
         );
         let verification_result = match verification_result {
             Ok(ok) => ok,
@@ -752,11 +744,7 @@ impl Runtime {
         // Going to check balance covers account's storage.
         if result.result.is_ok() {
             if let Some(ref mut account) = account {
-                match check_storage_stake(
-                    account,
-                    &apply_state.config,
-                    apply_state.current_protocol_version,
-                ) {
+                match check_storage_stake(account, &apply_state.config) {
                     Ok(()) => {
                         set_account(state_update, account_id.clone(), account);
                     }
@@ -1249,7 +1237,6 @@ impl Runtime {
         &self,
         state_update: &mut TrieUpdate,
         validator_accounts_update: &ValidatorAccountsUpdate,
-        stats: &mut BalanceStats,
     ) -> Result<(), RuntimeError> {
         for (account_id, max_of_stakes) in &validator_accounts_update.stake_info {
             if let Some(mut account) = get_account(state_update, account_id)? {
@@ -1304,38 +1291,6 @@ impl Runtime {
                 return Err(StorageError::StorageInconsistentState(format!(
                     "Account {} with max of stakes {} is not found",
                     account_id, max_of_stakes
-                ))
-                .into());
-            }
-        }
-
-        for (account_id, stake) in validator_accounts_update.slashing_info.iter() {
-            if let Some(mut account) = get_account(state_update, account_id)? {
-                let amount_to_slash = stake.unwrap_or(account.locked());
-                debug!(target: "runtime", "slashing {} of {} from {}", amount_to_slash, account.locked(), account_id);
-                if account.locked() < amount_to_slash {
-                    return Err(StorageError::StorageInconsistentState(format!(
-                        "FATAL: staking invariant does not hold. Account locked {} is less than slashed {}",
-                        account.locked(), amount_to_slash)).into());
-                }
-                stats.slashed_burnt_amount =
-                    stats.slashed_burnt_amount.checked_add(amount_to_slash).ok_or_else(|| {
-                        RuntimeError::UnexpectedIntegerOverflow(
-                            "update_validator_accounts - slashed".into(),
-                        )
-                    })?;
-                account.set_locked(account.locked().checked_sub(amount_to_slash).ok_or_else(
-                    || {
-                        RuntimeError::UnexpectedIntegerOverflow(
-                            "update_validator_accounts - slash locked".into(),
-                        )
-                    },
-                )?);
-                set_account(state_update, account_id.clone(), &account);
-            } else {
-                return Err(StorageError::StorageInconsistentState(format!(
-                    "Account {} to slash is not found",
-                    account_id
                 ))
                 .into());
             }
@@ -1432,7 +1387,6 @@ impl Runtime {
             self.update_validator_accounts(
                 &mut processing_state.state_update,
                 validator_accounts_update,
-                &mut processing_state.stats.balance,
             )?;
         }
 
@@ -1595,9 +1549,6 @@ impl Runtime {
                     let compute =
                         compute.expect("`process_transaction` must populate compute usage");
                     total.add(outcome_with_id.outcome.gas_burnt, compute)?;
-                    if !ProtocolFeature::ComputeCosts.enabled(processing_state.protocol_version) {
-                        assert_eq!(total.compute, total.gas, "Compute usage must match burnt gas");
-                    }
                     processing_state.outcomes.push(outcome_with_id);
                 }
                 Err(err) => {
@@ -1684,9 +1635,6 @@ impl Runtime {
             span.record("gas_burnt", gas_burnt);
             span.record("compute_usage", compute_usage);
 
-            if !ProtocolFeature::ComputeCosts.enabled(processing_state.protocol_version) {
-                assert_eq!(total.compute, total.gas, "Compute usage must match burnt gas");
-            }
             processing_state.outcomes.push(outcome_with_id);
         }
         Ok(())
@@ -2215,7 +2163,6 @@ fn action_transfer_or_implicit_account_creation(
             receipt.receiver_id(),
             deposit,
             apply_state.block_height,
-            apply_state.current_protocol_version,
             epoch_info_provider,
         );
     })
@@ -2448,7 +2395,6 @@ impl<'a> ApplyProcessingState<'a> {
         let pipeline_manager = pipelining::ReceiptPreparationPipeline::new(
             Arc::clone(&self.apply_state.config),
             self.apply_state.cache.as_ref().map(|v| v.handle()),
-            self.apply_state.current_protocol_version,
             self.state_update.contract_storage(),
         );
         ApplyProcessingReceiptState {
@@ -2643,7 +2589,6 @@ pub mod estimator {
         let empty_pipeline = ReceiptPreparationPipeline::new(
             std::sync::Arc::clone(&apply_state.config),
             apply_state.cache.as_ref().map(|c| c.handle()),
-            apply_state.current_protocol_version,
             state_update.contract_storage(),
         );
         let apply_result = Runtime {}.apply_action_receipt(

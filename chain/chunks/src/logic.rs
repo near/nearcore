@@ -180,7 +180,7 @@ pub fn decode_encoded_chunk(
             target: "chunks",
             ?chunk_hash,
             encoded_length = encoded_chunk.encoded_length(),
-            num_tx = shard_chunk.transactions().len(),
+            num_tx = shard_chunk.to_transactions().len(),
             ?me,
             "Reconstructed and decoded");
         let partial_chunk = create_partial_chunk(

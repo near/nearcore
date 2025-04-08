@@ -116,12 +116,6 @@ pub struct SlashedValidator {
     pub is_double_sign: bool,
 }
 
-impl SlashedValidator {
-    pub fn new(account_id: AccountId, is_double_sign: bool) -> Self {
-        SlashedValidator { account_id, is_double_sign }
-    }
-}
-
 /// Result of checking challenge, contains which accounts to slash.
 /// If challenge is invalid this is sender, otherwise author of chunk (and possibly other participants that signed invalid blocks).
 pub type ChallengesResult = Vec<SlashedValidator>;
