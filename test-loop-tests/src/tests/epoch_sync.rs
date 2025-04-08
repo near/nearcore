@@ -1,5 +1,4 @@
 use std::cell::RefCell;
-use std::collections::HashSet;
 use std::rc::Rc;
 
 use itertools::Itertools;
@@ -19,7 +18,6 @@ use crate::setup::builder::{NodeStateBuilder, TestLoopBuilder};
 use crate::setup::env::TestLoopEnv;
 use crate::utils::ONE_NEAR;
 use crate::utils::client_queries::ClientQueries;
-use crate::utils::peer_manager_actor::PeerRestriction;
 use crate::utils::transactions::{BalanceMismatchError, execute_money_transfers};
 
 const NUM_CLIENTS: usize = 4;
@@ -102,27 +100,15 @@ fn bootstrap_node_via_epoch_sync(mut env: TestLoopEnv, source_node: usize) -> Te
 
     // Allow talking only with the source node.
     let new_node_peer_id = node_datas.last().unwrap().peer_id.clone();
-    for (index, data) in node_datas.iter().enumerate() {
-        if index == source_node {
-            data.register_peer_restriction(
-                PeerRestriction::AllowAll,
-                &mut test_loop,
-                shared_state.network_shared_state.clone(),
-            );
-        } else if index == node_datas.len() - 1 {
-            node_datas.last().unwrap().register_peer_restriction(
-                PeerRestriction::AllowSelected(HashSet::from([node_datas[source_node]
-                    .peer_id
-                    .clone()])),
-                &mut test_loop,
-                shared_state.network_shared_state.clone(),
-            );
-        } else {
-            data.register_peer_restriction(
-                PeerRestriction::BlockSelected(HashSet::from([new_node_peer_id.clone()])),
-                &mut test_loop,
-                shared_state.network_shared_state.clone(),
-            );
+    shared_state.network_shared_state.allow_all_requests();
+    for (index, data) in node_datas[..node_datas.len() - 1].iter().enumerate() {
+        if index != source_node {
+            shared_state
+                .network_shared_state
+                .disallow_requests(data.peer_id.clone(), new_node_peer_id.clone());
+            shared_state
+                .network_shared_state
+                .disallow_requests(new_node_peer_id.clone(), data.peer_id.clone());
         }
     }
 

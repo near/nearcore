@@ -3,7 +3,6 @@ use std::ops::Range;
 use std::sync::{Arc, Mutex};
 
 use near_async::messaging::{CanSend, LateBoundSender};
-use near_async::test_loop::TestLoopV2;
 use near_async::test_loop::data::TestLoopData;
 use near_async::test_loop::sender::TestLoopSender;
 use near_chunks::adapter::ShardsManagerRequestFromClient;
@@ -15,9 +14,6 @@ use near_vm_runner::logic::ProtocolVersion;
 
 use crate::utils::network::{
     block_dropper_by_height, chunk_endorsement_dropper, chunk_endorsement_dropper_by_hash,
-};
-use crate::utils::peer_manager_actor::{
-    PeerRestriction, TestLoopNetworkSharedState, default_network_handler,
 };
 
 use super::state::NodeExecutionData;
@@ -100,24 +96,6 @@ impl CanSend<ShardsManagerRequestFromClient> for ClientToShardsManagerSender {
 }
 
 impl NodeExecutionData {
-    pub fn register_peer_restriction(
-        &self,
-        peer_restriction: PeerRestriction,
-        test_loop: &mut TestLoopV2,
-        network_shared_state: TestLoopNetworkSharedState,
-    ) {
-        let clock = test_loop.clock();
-        let future_spawner = Arc::new(test_loop.future_spawner(&self.identifier));
-        let peer_actor = test_loop.data.get_mut(&self.peer_manager_sender.actor_handle());
-        peer_actor.register_override_handler(default_network_handler(
-            clock,
-            &self.account_id,
-            network_shared_state,
-            future_spawner,
-            peer_restriction,
-        ));
-    }
-
     pub fn register_drop_condition(
         &self,
         test_loop_data: &mut TestLoopData,
