@@ -245,7 +245,6 @@ impl TestEnv {
                     ),
                     gas_limit,
                     is_new_chunk: true,
-                    is_first_block_with_chunk_of_version: false,
                 },
                 ApplyChunkBlockContext {
                     height,

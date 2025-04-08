@@ -40,7 +40,6 @@ use near_primitives::receipt::{
     ActionReceipt, DataReceipt, PromiseYieldIndices, PromiseYieldTimeout, Receipt, ReceiptEnum,
     ReceiptOrStateStoredReceipt, ReceiptV0, ReceivedData,
 };
-use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::state_record::StateRecord;
 use near_primitives::stateless_validation::contract_distribution::ContractUpdates;
@@ -66,9 +65,8 @@ use near_store::trie::update::TrieUpdateResult;
 use near_store::{
     KeyLookupMode, PartialStorage, StorageError, Trie, TrieAccess, TrieChanges, TrieUpdate, get,
     get_account, get_postponed_receipt, get_promise_yield_receipt, get_pure, get_received_data,
-    has_received_data, remove_account, remove_postponed_receipt, remove_promise_yield_receipt, set,
-    set_access_key, set_account, set_postponed_receipt, set_promise_yield_receipt,
-    set_received_data,
+    has_received_data, remove_postponed_receipt, remove_promise_yield_receipt, set, set_access_key,
+    set_account, set_postponed_receipt, set_promise_yield_receipt, set_received_data,
 };
 use near_vm_runner::ContractCode;
 use near_vm_runner::ContractRuntimeCache;
@@ -137,11 +135,6 @@ pub struct ApplyState {
     pub cache: Option<Box<dyn ContractRuntimeCache>>,
     /// Whether the chunk being applied is new.
     pub is_new_chunk: bool,
-    /// Data for migrations that may need to be applied at the start of an epoch when protocol
-    /// version changes
-    pub migration_data: Arc<MigrationData>,
-    /// Flags for migrations indicating whether they can be applied at this block
-    pub migration_flags: MigrationFlags,
     /// Congestion level on each shard based on the latest known chunk header of each shard.
     ///
     /// The map must be empty if congestion control is disabled in the previous
@@ -1336,26 +1329,6 @@ impl Runtime {
         Ok(())
     }
 
-    pub fn apply_migrations(
-        &self,
-        state_update: &mut TrieUpdate,
-        migration_flags: &MigrationFlags,
-        protocol_version: ProtocolVersion,
-    ) -> Result<(), StorageError> {
-        // Remove the only testnet account with large storage key.
-        if ProtocolFeature::RemoveAccountWithLongStorageKey.protocol_version() == protocol_version
-            && migration_flags.is_first_block_with_chunk_of_version
-        {
-            let account_id = "contractregistry.testnet".parse().unwrap();
-            if get_account(state_update, &account_id)?.is_some() {
-                remove_account(state_update, &account_id)?;
-                state_update.commit(StateChangeCause::Migration);
-            }
-        }
-
-        Ok(())
-    }
-
     /// Applies new signed transactions and incoming receipts for some chunk/shard on top of
     /// given trie and the given state root.
     ///
@@ -1395,10 +1368,9 @@ impl Runtime {
 
         // What this function does can be broken down conceptually into the following steps:
         // 1. Update validator accounts.
-        // 2. Apply migrations.
-        // 3. Process transactions.
-        // 4. Process receipts.
-        // 5. Validate and apply the state update.
+        // 2. Process transactions.
+        // 3. Process receipts.
+        // 4. Validate and apply the state update.
         let mut processing_state =
             ApplyProcessingState::new(&apply_state, trie, epoch_info_provider);
         processing_state.stats.transactions_num = signed_txs.len().try_into().unwrap();
@@ -1417,14 +1389,6 @@ impl Runtime {
                 validator_accounts_update,
             )?;
         }
-
-        // Step 2: apply migrations.
-        self.apply_migrations(
-            &mut processing_state.state_update,
-            &apply_state.migration_flags,
-            processing_state.protocol_version,
-        )
-        .map_err(RuntimeError::StorageError)?;
 
         let delayed_receipts = DelayedReceiptQueueWrapper::new(
             DelayedReceiptQueue::load(&processing_state.state_update)?,
@@ -1470,10 +1434,10 @@ impl Runtime {
             processing_state.epoch_info_provider,
         )?;
 
-        // Step 3: process transactions.
+        // Step 2: process transactions.
         self.process_transactions(&mut processing_state, signed_txs, &mut receipt_sink)?;
 
-        // Step 4: process receipts.
+        // Step 3: process receipts.
         let process_receipts_result =
             self.process_receipts(&mut processing_state, &mut receipt_sink)?;
 
@@ -1485,7 +1449,7 @@ impl Runtime {
             &apply_state.config.congestion_control_config,
         );
 
-        // Step 5: validate and apply the state update.
+        // Step 4: validate and apply the state update.
         self.validate_apply_state_update(
             processing_state,
             process_receipts_result,
