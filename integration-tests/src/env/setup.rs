@@ -28,11 +28,11 @@ use near_chunks::test_utils::SynchronousShardsManagerAdapter;
 use near_client::adversarial::Controls;
 use near_client::client_actor::ClientActorInner;
 use near_client::{
-    Client, ClientActor, PartialWitnessActor, PartialWitnessSenderForClient, StartClientResult,
-    SyncStatus, TxRequestHandler, TxRequestHandlerConfig, ViewClientActor, ViewClientActorInner,
+    Client, ClientActor, PartialWitnessActor, PartialWitnessSenderForClient, RpcHandler,
+    RpcHandlerConfig, StartClientResult, SyncStatus, ViewClientActor, ViewClientActorInner,
     start_client,
 };
-use near_client::{TxRequestHandlerActor, spawn_tx_request_handler_actor};
+use near_client::{RpcHandlerActor, spawn_rpc_handler_actor};
 use near_crypto::{KeyType, PublicKey};
 use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
 use near_epoch_manager::{EpochManager, EpochManagerAdapter};
@@ -105,7 +105,7 @@ fn setup_with_mock_epoch_manager(
 ) -> (
     Addr<ClientActor>,
     Addr<ViewClientActor>,
-    Addr<TxRequestHandlerActor>,
+    Addr<RpcHandlerActor>,
     ShardsManagerAdapterForTest,
     PartialWitnessSenderForNetwork,
 ) {
@@ -156,7 +156,7 @@ fn setup_with_real_epoch_manager(
     (
         Addr<ClientActor>,
         Addr<ViewClientActor>,
-        Addr<TxRequestHandlerActor>,
+        Addr<RpcHandlerActor>,
         ShardsManagerAdapterForTest,
         PartialWitnessSenderForNetwork,
     ),
@@ -259,7 +259,7 @@ fn setup(
 ) -> (
     Addr<ActixWrapper<ClientActorInner>>,
     Addr<near_async::actix_wrapper::SyncActixWrapper<ViewClientActorInner>>,
-    Addr<near_async::actix_wrapper::SyncActixWrapper<TxRequestHandler>>,
+    Addr<near_async::actix_wrapper::SyncActixWrapper<RpcHandler>>,
     ShardsManagerAdapterForTest,
     PartialWitnessSenderForNetwork,
 ) {
@@ -352,15 +352,15 @@ fn setup(
         resharding_sender.into_multi_sender(),
     );
 
-    let tx_processor_config = TxRequestHandlerConfig {
+    let rpc_handler_config = RpcHandlerConfig {
         handler_threads: config.transaction_request_handler_threads,
         tx_routing_height_horizon: config.tx_routing_height_horizon,
         epoch_length: config.epoch_length,
         transaction_validity_period,
     };
 
-    let tx_processor_addr = spawn_tx_request_handler_actor(
-        tx_processor_config,
+    let rpc_handler_addr = spawn_rpc_handler_actor(
+        rpc_handler_config,
         tx_pool,
         chunk_endorsement_tracker,
         epoch_manager.clone(),
@@ -389,7 +389,7 @@ fn setup(
     (
         client_actor,
         view_client_addr,
-        tx_processor_addr,
+        rpc_handler_addr,
         shards_manager_adapter.into_multi_sender(),
         partial_witness_adapter.into_multi_sender(),
     )
@@ -407,7 +407,7 @@ pub fn setup_mock(
             &PeerManagerMessageRequest,
             &mut Context<PeerManagerMock>,
             Addr<ClientActor>,
-            Addr<TxRequestHandlerActor>,
+            Addr<RpcHandlerActor>,
         ) -> PeerManagerMessageResponse,
     >,
 ) -> ActorHandlesForTesting {
@@ -433,7 +433,7 @@ pub fn setup_mock_with_validity_period(
             &PeerManagerMessageRequest,
             &mut Context<PeerManagerMock>,
             Addr<ClientActor>,
-            Addr<TxRequestHandlerActor>,
+            Addr<RpcHandlerActor>,
         ) -> PeerManagerMessageResponse,
     >,
     transaction_validity_period: NumBlocks,
@@ -443,7 +443,7 @@ pub fn setup_mock_with_validity_period(
         (
             client_addr,
             view_client_addr,
-            tx_request_handler_addr,
+            rpc_handler_addr,
             shards_manager_adapter,
             partial_witness_sender,
         ),
@@ -465,7 +465,7 @@ pub fn setup_mock_with_validity_period(
         None,
     );
     let client_addr1 = client_addr.clone();
-    let rpc_handler_addr1 = tx_request_handler_addr.clone();
+    let rpc_handler_addr1 = rpc_handler_addr.clone();
 
     let network_actor = PeerManagerMock::new(move |msg, ctx| {
         peermanager_mock(&msg, ctx, client_addr1.clone(), rpc_handler_addr1.clone())
@@ -477,7 +477,7 @@ pub fn setup_mock_with_validity_period(
     ActorHandlesForTesting {
         client_actor: client_addr,
         view_client_actor: view_client_addr,
-        tx_processor_actor: tx_request_handler_addr,
+        rpc_handler_actor: rpc_handler_addr,
         shards_manager_adapter,
         partial_witness_sender,
         runtime_tempdir: Some(runtime_tempdir.into()),
@@ -488,7 +488,7 @@ pub fn setup_mock_with_validity_period(
 pub struct ActorHandlesForTesting {
     pub client_actor: Addr<ClientActor>,
     pub view_client_actor: Addr<ViewClientActor>,
-    pub tx_processor_actor: Addr<TxRequestHandlerActor>,
+    pub rpc_handler_actor: Addr<RpcHandlerActor>,
     pub shards_manager_adapter: ShardsManagerAdapterForTest,
     pub partial_witness_sender: PartialWitnessSenderForNetwork,
     // If testing something with runtime that needs runtime home dir users should make sure that
@@ -870,7 +870,7 @@ fn process_peer_manager_message_default(
             for (i, name) in validators.iter().enumerate() {
                 if name == account {
                     connectors[i]
-                        .tx_processor_actor
+                        .rpc_handler_actor
                         .do_send(ChunkEndorsementMessage(endorsement.clone()).with_span_context());
                 }
             }
@@ -1080,7 +1080,7 @@ pub fn setup_mock_all_validators(
         let (
             client_addr,
             view_client_addr,
-            tx_processor_addr,
+            rpc_handler_addr,
             shards_manager_adapter,
             partial_witness_sender,
         ) = setup_with_mock_epoch_manager(
@@ -1105,7 +1105,7 @@ pub fn setup_mock_all_validators(
         ret.push(ActorHandlesForTesting {
             client_actor: client_addr,
             view_client_actor: view_client_addr,
-            tx_processor_actor: tx_processor_addr,
+            rpc_handler_actor: rpc_handler_addr,
             shards_manager_adapter,
             partial_witness_sender,
             runtime_tempdir: None,
@@ -1282,16 +1282,16 @@ pub fn setup_tx_request_handler(
     shard_tracker: ShardTracker,
     runtime: Arc<dyn RuntimeAdapter>,
     network_adapter: PeerManagerAdapter,
-) -> TxRequestHandler {
+) -> RpcHandler {
     let client_config = ClientConfig::test(true, 10, 20, 0, true, true, true);
-    let config = TxRequestHandlerConfig {
+    let config = RpcHandlerConfig {
         handler_threads: 1,
         tx_routing_height_horizon: client_config.tx_routing_height_horizon,
         epoch_length: chain_genesis.epoch_length,
         transaction_validity_period: chain_genesis.transaction_validity_period,
     };
 
-    TxRequestHandler::new(
+    RpcHandler::new(
         config,
         client.chunk_producer.sharded_tx_pool.clone(),
         client.chunk_endorsement_tracker.clone(),

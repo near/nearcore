@@ -592,7 +592,7 @@ impl TestEnvBuilder {
             partial_witness_adapters,
             shards_manager_adapters,
             clients,
-            tx_request_handlers,
+            rpc_handlers: tx_request_handlers,
             account_indices: AccountIndices(
                 self.clients
                     .into_iter()

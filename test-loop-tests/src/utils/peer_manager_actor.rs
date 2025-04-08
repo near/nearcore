@@ -132,7 +132,7 @@ struct TestLoopNetworkSharedStateInner {
 struct OneClientSenders {
     client_sender: ClientSenderForTestLoopNetwork,
     view_client_sender: ViewClientSenderForTestLoopNetwork,
-    tx_processor_sender: TxRequestHandleSenderForTestLoopNetwork,
+    rpc_handler_sender: TxRequestHandleSenderForTestLoopNetwork,
     partial_witness_sender: PartialWitnessSenderForNetwork,
     shards_manager_sender: Sender<ShardsManagerRequestFromNetwork>,
 }
@@ -167,7 +167,7 @@ impl TestLoopNetworkSharedState {
             Arc::new(OneClientSenders {
                 client_sender: ClientSenderForTestLoopNetwork::from(data),
                 view_client_sender: ViewClientSenderForTestLoopNetwork::from(data),
-                tx_processor_sender: TxRequestHandleSenderForTestLoopNetwork::from(data),
+                rpc_handler_sender: TxRequestHandleSenderForTestLoopNetwork::from(data),
                 partial_witness_sender: PartialWitnessSenderForNetwork::from(data),
                 shards_manager_sender: Sender::<ShardsManagerRequestFromNetwork>::from(data),
             }),
@@ -293,7 +293,7 @@ fn network_message_to_client_handler(
         }
         NetworkRequests::ForwardTx(account, transaction) => {
             assert_ne!(account, my_account_id, "Sending message to self not supported.");
-            let future = shared_state.senders_for_account(&account).tx_processor_sender.send_async(
+            let future = shared_state.senders_for_account(&account).rpc_handler_sender.send_async(
                 ProcessTxRequest { transaction, is_forwarded: true, check_only: false },
             );
             drop(future);
@@ -302,7 +302,7 @@ fn network_message_to_client_handler(
         NetworkRequests::ChunkEndorsement(target, endorsement) => {
             let future = shared_state
                 .senders_for_account(&target)
-                .tx_processor_sender
+                .rpc_handler_sender
                 .send_async(ChunkEndorsementMessage(endorsement));
             drop(future);
             None
