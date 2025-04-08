@@ -65,6 +65,7 @@ pub mod col {
     /// Global contract code instance. Values are contract blobs,
     /// the same as for `CONTRACT_CODE`.
     pub const GLOBAL_CONTRACT_CODE: u8 = 18;
+    pub const SHARDED_CONTRACT_DATA: u8 = 19;
 
     /// All columns except those used for the delayed receipts queue, the yielded promises
     /// queue, and the outgoing receipts buffer, which are global state for the shard.
@@ -196,6 +197,10 @@ pub enum TrieKey {
         account_id: AccountId,
         key: Vec<u8>,
     },
+    ShardedContractData {
+        account_id: AccountId,
+        key: Vec<u8>,
+    },
     /// Used to store head and tail indices of the PromiseYield timeout queue.
     /// NOTE: It is a singleton per shard.
     PromiseYieldIndices,
@@ -304,6 +309,12 @@ impl TrieKey {
                     + ACCOUNT_DATA_SEPARATOR.len()
                     + key.len()
             }
+            TrieKey::ShardedContractData { account_id, key } => {
+                col::SHARDED_CONTRACT_DATA.len()
+                    + account_id.len()
+                    + ACCOUNT_DATA_SEPARATOR.len()
+                    + key.len()
+            }
             TrieKey::BufferedReceiptIndices => col::BUFFERED_RECEIPT_INDICES.len(),
             TrieKey::BufferedReceipt { index, .. } => {
                 col::BUFFERED_RECEIPT.len()
@@ -381,6 +392,12 @@ impl TrieKey {
                 buf.push(ACCOUNT_DATA_SEPARATOR);
                 buf.extend(key);
             }
+            TrieKey::ShardedContractData { account_id, key } => {
+                buf.push(col::SHARDED_CONTRACT_DATA);
+                buf.extend(account_id.as_bytes());
+                buf.push(ACCOUNT_DATA_SEPARATOR);
+                buf.extend(key);
+            }
             TrieKey::PromiseYieldIndices => {
                 buf.push(col::PROMISE_YIELD_INDICES);
             }
@@ -453,6 +470,7 @@ impl TrieKey {
             // Even though global contract code might be deployed under account id, it doesn't
             // correspond to the data stored for that account id, so always returning None here.
             TrieKey::GlobalContractCode { .. } => None,
+            TrieKey::ShardedContractData { .. } => None,
         }
     }
 }

@@ -134,6 +134,39 @@ pub enum GlobalContractDeployMode {
     AccountId,
 }
 
+#[serde_as]
+#[derive(
+    Debug,
+    BorshSerialize,
+    BorshDeserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    PartialEq,
+    Eq,
+    Clone,
+    ProtocolSchema,
+)]
+pub struct DeployShardedContractAction {
+    /// WebAssembly binary
+    #[serde_as(as = "Base64")]
+    pub code: Arc<[u8]>,
+}
+
+#[derive(
+    Debug,
+    BorshSerialize,
+    BorshDeserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    PartialEq,
+    Eq,
+    Clone,
+    ProtocolSchema,
+)]
+pub struct UseShardedContractAction {
+    pub contract_identifier: CryptoHash,
+}
+
 /// Deploy global contract action
 #[serde_as]
 #[derive(
@@ -315,6 +348,8 @@ pub enum Action {
     Delegate(Box<delegate::SignedDelegateAction>),
     DeployGlobalContract(DeployGlobalContractAction),
     UseGlobalContract(Box<UseGlobalContractAction>),
+    DeployShardedContract(DeployShardedContractAction),
+    UseShardedContract(Box<UseShardedContractAction>),
 }
 
 const _: () = assert!(

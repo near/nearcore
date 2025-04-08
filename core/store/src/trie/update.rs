@@ -369,6 +369,7 @@ impl TrieUpdate {
             AccountContract::GlobalByAccount(account_id) => TrieKey::GlobalContractCode {
                 identifier: GlobalContractCodeIdentifier::AccountId(account_id.clone()),
             },
+            AccountContract::ShardedByAccount(_) => todo!(),
         };
         let contract_ref = self
             .trie
