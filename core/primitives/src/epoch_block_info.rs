@@ -1,5 +1,4 @@
 use crate::block_header::BlockHeader;
-use crate::challenge::SlashedValidator;
 use crate::stateless_validation::chunk_endorsements_bitmap::ChunkEndorsementsBitmap;
 use crate::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
 use crate::types::{AccountId, EpochId, ValidatorStakeV1};
@@ -26,6 +25,7 @@ impl Default for BlockInfo {
 }
 
 impl BlockInfo {
+    #[allow(deprecated)]
     pub fn new(
         hash: CryptoHash,
         height: BlockHeight,
@@ -226,24 +226,6 @@ impl BlockInfo {
     }
 
     #[inline]
-    pub fn slashed(&self) -> &HashMap<AccountId, SlashState> {
-        match self {
-            Self::V1(info) => &info.slashed,
-            Self::V2(info) => &info.slashed,
-            Self::V3(info) => &info.slashed,
-        }
-    }
-
-    #[inline]
-    pub fn slashed_mut(&mut self) -> &mut HashMap<AccountId, SlashState> {
-        match self {
-            Self::V1(info) => &mut info.slashed,
-            Self::V2(info) => &mut info.slashed,
-            Self::V3(info) => &mut info.slashed,
-        }
-    }
-
-    #[inline]
     pub fn total_supply(&self) -> &Balance {
         match self {
             Self::V1(info) => &info.total_supply,
@@ -296,6 +278,7 @@ pub struct BlockInfoV3 {
     /// Latest protocol version this validator observes.
     pub latest_protocol_version: ProtocolVersion,
     /// Validators slashed since the start of epoch or in previous epoch.
+    #[deprecated]
     pub slashed: HashMap<AccountId, SlashState>,
     /// Total supply at this block.
     pub total_supply: Balance,
@@ -328,6 +311,7 @@ pub struct BlockInfoV2 {
     /// Latest protocol version this validator observes.
     pub latest_protocol_version: ProtocolVersion,
     /// Validators slashed since the start of epoch or in previous epoch.
+    #[deprecated]
     pub slashed: HashMap<AccountId, SlashState>,
     /// Total supply at this block.
     pub total_supply: Balance,
@@ -359,6 +343,7 @@ pub struct BlockInfoV1 {
     /// Latest protocol version this validator observes.
     pub latest_protocol_version: ProtocolVersion,
     /// Validators slashed since the start of epoch or in previous epoch.
+    #[deprecated]
     pub slashed: HashMap<AccountId, SlashState>,
     /// Total supply at this block.
     pub total_supply: Balance,
@@ -366,6 +351,7 @@ pub struct BlockInfoV1 {
 }
 
 impl BlockInfoV1 {
+    #[allow(deprecated)]
     pub fn new(
         hash: CryptoHash,
         height: BlockHeight,
@@ -374,7 +360,6 @@ impl BlockInfoV1 {
         prev_hash: CryptoHash,
         proposals: Vec<ValidatorStakeV1>,
         validator_mask: Vec<bool>,
-        slashed: Vec<SlashedValidator>,
         total_supply: Balance,
         latest_protocol_version: ProtocolVersion,
         timestamp_nanosec: u64,
@@ -388,14 +373,7 @@ impl BlockInfoV1 {
             proposals,
             chunk_mask: validator_mask,
             latest_protocol_version,
-            slashed: slashed
-                .into_iter()
-                .map(|s| {
-                    let slash_state =
-                        if s.is_double_sign { SlashState::DoubleSign } else { SlashState::Other };
-                    (s.account_id, slash_state)
-                })
-                .collect(),
+            slashed: HashMap::new(),
             total_supply,
             epoch_first_block: Default::default(),
             epoch_id: Default::default(),

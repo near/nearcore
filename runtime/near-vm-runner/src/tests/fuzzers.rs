@@ -68,7 +68,6 @@ fn run_fuzz(code: &ContractCode, vm_kind: VMKind) -> VMResult {
     context.prepaid_gas = 10u64.pow(14);
 
     let mut config = test_vm_config();
-    config.limit_config.wasmer2_stack_limit = i32::MAX; // If we can crash wasmer2 even without the secondary stack limit it's still good to know
     config.limit_config.contract_prepare_version = ContractPrepareVersion::V2;
 
     let fees = Arc::new(RuntimeFeesConfig::test());

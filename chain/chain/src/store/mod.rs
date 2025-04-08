@@ -500,7 +500,7 @@ impl ChainStore {
         chunk: &ShardChunk,
     ) -> Vec<bool> {
         chunk
-            .transactions()
+            .to_transactions()
             .into_iter()
             .map(|signed_tx| {
                 self.check_transaction_validity_period(
@@ -1534,7 +1534,7 @@ impl<'a> ChainStoreUpdate<'a> {
     }
 
     pub fn save_chunk(&mut self, chunk: ShardChunk) {
-        for transaction in chunk.transactions() {
+        for transaction in chunk.to_transactions() {
             self.chain_store_cache_update
                 .transactions
                 .insert(transaction.get_hash(), Arc::new(transaction.clone()));
@@ -1874,7 +1874,7 @@ impl<'a> ChainStoreUpdate<'a> {
                 };
 
                 // Increase transaction refcounts for all included txs
-                for tx in chunk.transactions().iter() {
+                for tx in chunk.to_transactions().iter() {
                     let bytes = borsh::to_vec(&tx).expect("Borsh cannot fail");
                     store_update.increment_refcount(
                         DBCol::Transactions,

@@ -6,7 +6,6 @@ use near_chain::chain::{
     NewChunkData, NewChunkResult, OldChunkData, OldChunkResult, ShardContext, StorageContext,
     collect_receipts_from_response,
 };
-use near_chain::migrations::check_if_block_is_first_with_chunk_of_version;
 use near_chain::sharding::{get_receipts_shuffle_salt, shuffle_receipt_proofs};
 use near_chain::stateless_validation::chunk_endorsement::validate_chunk_endorsements_in_block;
 use near_chain::stateless_validation::chunk_validation::apply_result_to_chunk_extra;
@@ -325,22 +324,13 @@ impl ReplayController {
                 prev_chunk_header.height_included(),
             )?;
 
-            let is_first_block_with_chunk_of_version =
-                check_if_block_is_first_with_chunk_of_version(
-                    &self.chain_store,
-                    self.epoch_manager.as_ref(),
-                    prev_block_hash,
-                    shard_id,
-                )?;
-
             ShardUpdateReason::NewChunk(NewChunkData {
                 chunk_header: chunk_header.clone(),
-                transactions: chunk.transactions().to_vec(),
+                transactions: chunk.to_transactions().to_vec(),
                 // FIXME: see the `validate_chunk` thing above.
-                transaction_validity_check_results: vec![true; chunk.transactions().len()],
+                transaction_validity_check_results: vec![true; chunk.to_transactions().len()],
                 receipts,
                 block: block_context,
-                is_first_block_with_chunk_of_version,
                 storage_context,
             })
         } else {

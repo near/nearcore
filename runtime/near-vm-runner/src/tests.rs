@@ -41,9 +41,6 @@ pub(crate) fn with_vm_variants(
     #[cfg(feature = "wasmtime_vm")]
     run(VMKind::Wasmtime);
 
-    #[cfg(all(feature = "wasmer2_vm", target_arch = "x86_64"))]
-    run(VMKind::Wasmer2);
-
     #[cfg(all(feature = "near_vm", target_arch = "x86_64"))]
     if cfg.limit_config.contract_prepare_version == near_parameters::vm::ContractPrepareVersion::V2
     {
