@@ -70,7 +70,6 @@ fn build_chain_with_orphans() {
     let last_block = &blocks[blocks.len() - 1];
     let block = Block::produce(
         PROTOCOL_VERSION,
-        PROTOCOL_VERSION,
         last_block.header(),
         10,
         last_block.header().block_ordinal() + 1,
@@ -84,8 +83,6 @@ fn build_chain_with_orphans() {
         0,
         100,
         Some(0),
-        vec![],
-        vec![],
         &*signer,
         *last_block.header().next_bp_hash(),
         CryptoHash::default(),

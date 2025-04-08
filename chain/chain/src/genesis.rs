@@ -9,13 +9,15 @@ use near_primitives::block::{Block, Tip};
 use near_primitives::chains::{MAINNET, TESTNET};
 use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::epoch_block_info::BlockInfo;
-use near_primitives::genesis::genesis_chunks;
+use near_primitives::genesis::{
+    genesis_block, genesis_chunks, prod_genesis_block, prod_genesis_chunks,
+};
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::ShardChunk;
-use near_primitives::types::chunk_extra::ChunkExtra;
+use near_primitives::types::chunk_extra::{ChunkExtra, ChunkExtraV2};
 use near_primitives::types::{EpochId, Gas, ShardId, StateRoot};
-use near_primitives::version::ProtocolFeature;
+use near_primitives::version::{PROD_GENESIS_PROTOCOL_VERSION, ProtocolFeature};
 use near_store::adapter::StoreUpdateAdapter;
 use near_store::get_genesis_state_roots;
 use near_vm_runner::logic::ProtocolVersion;
@@ -24,6 +26,24 @@ use node_runtime::bootstrap_congestion_info;
 impl Chain {
     /// Builds genesis block and chunks from the current configuration obtained through the arguments.
     pub fn make_genesis_block(
+        epoch_manager: &dyn EpochManagerAdapter,
+        runtime_adapter: &dyn RuntimeAdapter,
+        chain_genesis: &ChainGenesis,
+        state_roots: Vec<CryptoHash>,
+    ) -> Result<(Block, Vec<ShardChunk>), Error> {
+        if chain_genesis.protocol_version == PROD_GENESIS_PROTOCOL_VERSION {
+            Self::make_prod_genesis_block(epoch_manager, chain_genesis, state_roots)
+        } else {
+            Self::make_latest_genesis_block(
+                epoch_manager,
+                runtime_adapter,
+                chain_genesis,
+                state_roots,
+            )
+        }
+    }
+
+    fn make_latest_genesis_block(
         epoch_manager: &dyn EpochManagerAdapter,
         runtime_adapter: &dyn RuntimeAdapter,
         chain_genesis: &ChainGenesis,
@@ -39,10 +59,37 @@ impl Chain {
             chain_genesis.height,
             chain_genesis.protocol_version,
         );
+
         let validator_stakes =
             epoch_manager.get_epoch_block_producers_ordered(&EpochId::default())?;
-        let genesis_block = Block::genesis(
+        let genesis_block = genesis_block(
             chain_genesis.protocol_version,
+            genesis_chunks.iter().map(|chunk| chunk.cloned_header()).collect(),
+            chain_genesis.time,
+            chain_genesis.height,
+            chain_genesis.min_gas_price,
+            chain_genesis.total_supply,
+            &validator_stakes,
+        );
+
+        Ok((genesis_block, genesis_chunks))
+    }
+
+    fn make_prod_genesis_block(
+        epoch_manager: &dyn EpochManagerAdapter,
+        chain_genesis: &ChainGenesis,
+        state_roots: Vec<CryptoHash>,
+    ) -> Result<(Block, Vec<ShardChunk>), Error> {
+        let genesis_chunks = prod_genesis_chunks(
+            state_roots,
+            &epoch_manager.shard_ids(&EpochId::default())?,
+            chain_genesis.gas_limit,
+            chain_genesis.height,
+        );
+
+        let validator_stakes =
+            epoch_manager.get_epoch_block_producers_ordered(&EpochId::default())?;
+        let genesis_block = prod_genesis_block(
             genesis_chunks.iter().map(|chunk| chunk.cloned_header()).collect(),
             chain_genesis.time,
             chain_genesis.height,
@@ -132,6 +179,17 @@ impl Chain {
         )
     }
 
+    fn create_prod_genesis_chunk_extra(state_root: &StateRoot, gas_limit: Gas) -> ChunkExtra {
+        ChunkExtra::V2(ChunkExtraV2 {
+            state_root: *state_root,
+            outcome_root: CryptoHash::default(),
+            validator_proposals: vec![],
+            gas_used: 0,
+            gas_limit,
+            balance_burnt: 0,
+        })
+    }
+
     pub fn genesis_chunk_extra(
         &self,
         shard_layout: &ShardLayout,
@@ -171,28 +229,34 @@ impl Chain {
         epoch_manager: &dyn EpochManagerAdapter,
         store_update: &mut ChainStoreUpdate,
     ) -> Result<(), Error> {
+        let genesis_protocol_version = genesis.header().latest_protocol_version();
         for (chunk_header, state_root) in genesis.chunks().iter_deprecated().zip(state_roots.iter())
         {
-            let congestion_info = if ProtocolFeature::CongestionControl
-                .enabled(genesis.header().latest_protocol_version())
-            {
-                genesis
-                    .block_congestion_info()
-                    .get(&chunk_header.shard_id())
-                    .map(|info| info.congestion_info)
+            let chunk_extra = if genesis_protocol_version == PROD_GENESIS_PROTOCOL_VERSION {
+                Self::create_prod_genesis_chunk_extra(state_root, chunk_header.gas_limit())
             } else {
-                None
+                let congestion_info =
+                    if ProtocolFeature::CongestionControl.enabled(genesis_protocol_version) {
+                        genesis
+                            .block_congestion_info()
+                            .get(&chunk_header.shard_id())
+                            .map(|info| info.congestion_info)
+                    } else {
+                        None
+                    };
+
+                Self::create_genesis_chunk_extra(
+                    state_root,
+                    chunk_header.gas_limit(),
+                    genesis_protocol_version,
+                    congestion_info,
+                )
             };
 
             store_update.save_chunk_extra(
                 genesis.hash(),
                 &shard_id_to_uid(epoch_manager, chunk_header.shard_id(), &EpochId::default())?,
-                Self::create_genesis_chunk_extra(
-                    state_root,
-                    chunk_header.gas_limit(),
-                    genesis.header().latest_protocol_version(),
-                    congestion_info,
-                ),
+                chunk_extra,
             );
         }
         Ok(())
@@ -207,7 +271,7 @@ pub fn get_genesis_congestion_infos(
     epoch_manager: &dyn EpochManagerAdapter,
     runtime: &dyn RuntimeAdapter,
     state_roots: &Vec<CryptoHash>,
-) -> Result<Vec<Option<CongestionInfo>>, Error> {
+) -> Result<Vec<CongestionInfo>, Error> {
     get_genesis_congestion_infos_impl(epoch_manager, runtime, state_roots).map_err(|err| {
         tracing::error!(target: "chain", ?err, "Failed to get the genesis congestion infos.");
         err
@@ -218,20 +282,18 @@ fn get_genesis_congestion_infos_impl(
     epoch_manager: &dyn EpochManagerAdapter,
     runtime: &dyn RuntimeAdapter,
     state_roots: &Vec<CryptoHash>,
-) -> Result<Vec<Option<CongestionInfo>>, Error> {
+) -> Result<Vec<CongestionInfo>, Error> {
     let genesis_prev_hash = CryptoHash::default();
     let genesis_epoch_id = epoch_manager.get_epoch_id_from_prev_block(&genesis_prev_hash)?;
     let genesis_protocol_version = epoch_manager.get_epoch_protocol_version(&genesis_epoch_id)?;
     let genesis_shard_layout = epoch_manager.get_shard_layout(&genesis_epoch_id)?;
     // If congestion control is not enabled at the genesis block, we return None (congestion info) for each shard.
-    if !ProtocolFeature::CongestionControl.enabled(genesis_protocol_version) {
-        return Ok(std::iter::repeat(None).take(state_roots.len()).collect());
-    }
+    assert!(ProtocolFeature::CongestionControl.enabled(genesis_protocol_version));
 
     // Check we had already computed the congestion infos from the genesis state roots.
     if let Some(saved_infos) = near_store::get_genesis_congestion_infos(runtime.store())? {
         tracing::debug!(target: "chain", "Reading genesis congestion infos from database.");
-        return Ok(saved_infos.into_iter().map(Option::Some).collect());
+        return Ok(saved_infos);
     }
 
     let mut new_infos = vec![];
@@ -255,7 +317,7 @@ fn get_genesis_congestion_infos_impl(
     near_store::set_genesis_congestion_infos(&mut store_update, &new_infos);
     store_update.commit()?;
 
-    Ok(new_infos.into_iter().map(Option::Some).collect())
+    Ok(new_infos)
 }
 
 fn get_genesis_congestion_info(

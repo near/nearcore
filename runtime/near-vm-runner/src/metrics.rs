@@ -55,10 +55,9 @@ struct Metrics {
 pub(crate) fn compilation_duration(kind: near_parameters::vm::VMKind, duration: Duration) {
     use near_parameters::vm::VMKind;
     METRICS.with_borrow_mut(|m| match kind {
-        #[allow(deprecated)]
         VMKind::Wasmer0 => unreachable!(),
         VMKind::Wasmtime => m.wasmtime_compilation_time += duration,
-        VMKind::Wasmer2 => {}
+        VMKind::Wasmer2 => unreachable!(),
         VMKind::NearVm => m.near_vm_compilation_time += duration,
     });
 }

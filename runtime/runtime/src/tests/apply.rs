@@ -22,7 +22,6 @@ use near_primitives::congestion_info::{
 use near_primitives::errors::{ActionErrorKind, FunctionCallError, TxExecutionError};
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum, ReceiptPriority, ReceiptV0};
-use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::state::PartialState;
 use near_primitives::stateless_validation::contract_distribution::CodeHash;
@@ -173,8 +172,6 @@ fn setup_runtime_for_shard(
         config: Arc::new(RuntimeConfig::test()),
         cache: Some(Box::new(contract_cache)),
         is_new_chunk: true,
-        migration_data: Arc::new(MigrationData::default()),
-        migration_flags: MigrationFlags::default(),
         congestion_info,
         bandwidth_requests: BlockBandwidthRequests::empty(),
     };
@@ -984,7 +981,6 @@ fn test_delete_key_underflow() {
     assert_eq!(final_account_state.storage_usage(), 0);
 }
 
-// This test only works on platforms that support wasmer2.
 #[test]
 #[cfg(target_arch = "x86_64")]
 fn test_contract_precompilation() {

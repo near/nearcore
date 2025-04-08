@@ -29,7 +29,7 @@ use near_primitives::types::ValidatorKickoutReason::{
     NotEnoughBlocks, NotEnoughChunkEndorsements, NotEnoughChunks,
 };
 use near_primitives::validator_signer::ValidatorSigner;
-use near_primitives::version::PROTOCOL_VERSION;
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_store::ShardUId;
 use near_store::test_utils::create_test_store;
 use num_rational::Ratio;
@@ -860,7 +860,7 @@ fn test_expected_chunks() {
     let epoch_info = hashes
         .iter()
         .filter_map(|x| epoch_manager.get_epoch_info(&EpochId(*x)).ok())
-        .last()
+        .next_back()
         .unwrap();
     assert_eq!(
         epoch_info.validator_kickout(),
@@ -933,7 +933,7 @@ fn test_expected_chunks_prev_block_not_produced() {
     let epoch_info = hashes
         .iter()
         .filter_map(|x| epoch_manager.get_epoch_info(&EpochId(*x)).ok())
-        .last()
+        .next_back()
         .unwrap();
     assert_eq!(
         epoch_info.validator_kickout(),
@@ -1353,7 +1353,8 @@ fn test_chunk_producer_kickout() {
             .unwrap();
     }
 
-    let last_epoch_info = hashes.iter().filter_map(|x| em.get_epoch_info(&EpochId(*x)).ok()).last();
+    let last_epoch_info =
+        hashes.iter().filter_map(|x| em.get_epoch_info(&EpochId(*x)).ok()).next_back();
     assert_eq!(
         last_epoch_info.unwrap().validator_kickout(),
         &[("test1".parse().unwrap(), NotEnoughChunks { produced: 0, expected })]
@@ -1412,7 +1413,8 @@ fn test_chunk_validator_kickout_using_production_stats() {
             .unwrap();
     }
 
-    let last_epoch_info = hashes.iter().filter_map(|x| em.get_epoch_info(&EpochId(*x)).ok()).last();
+    let last_epoch_info =
+        hashes.iter().filter_map(|x| em.get_epoch_info(&EpochId(*x)).ok()).next_back();
     let total_expected_chunks = num_shards * (epoch_length - 1);
     // Every second chunk is skipped.
     let total_produced_chunks = total_expected_chunks / 2;
@@ -1486,6 +1488,7 @@ fn test_chunk_validator_kickout_using_endorsement_stats() {
         }
         em.write()
             .record_block_info(
+                #[allow(deprecated)]
                 BlockInfo::V3(BlockInfoV3 {
                     hash: *curr_block,
                     height,
@@ -1507,7 +1510,8 @@ fn test_chunk_validator_kickout_using_endorsement_stats() {
             .unwrap();
     }
 
-    let last_epoch_info = hashes.iter().filter_map(|x| em.get_epoch_info(&EpochId(*x)).ok()).last();
+    let last_epoch_info =
+        hashes.iter().filter_map(|x| em.get_epoch_info(&EpochId(*x)).ok()).next_back();
     let total_expected_chunks = num_shards * (epoch_length - 1);
     // Every second chunk is skipped.
     let total_produced_chunks = total_expected_chunks / 2;
@@ -1818,7 +1822,7 @@ fn test_all_kickout_edge_case() {
     }
 
     let last_epoch_info =
-        hashes.iter().filter_map(|x| epoch_manager.get_epoch_info(&EpochId(*x)).ok()).last();
+        hashes.iter().filter_map(|x| epoch_manager.get_epoch_info(&EpochId(*x)).ok()).next_back();
     assert_eq!(last_epoch_info.unwrap().validator_kickout(), &HashMap::default());
 }
 
@@ -2198,9 +2202,6 @@ fn test_validator_kickout_determinism() {
 /// so the validator with the lower endorsement ratio is kicked out.
 #[test]
 fn test_chunk_validators_with_different_endorsement_ratio() {
-    if !ProtocolFeature::ChunkEndorsementsInBlockHeader.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     let mut epoch_config =
         epoch_config(5, 2, 2, 2, 90, 90, 70).for_protocol_version(PROTOCOL_VERSION);
     // Set the max kickout stake percentage so that only one of the chunk validators
@@ -2260,9 +2261,6 @@ fn test_chunk_validators_with_different_endorsement_ratio() {
 /// so the validator with the lower stake is kicked out.
 #[test]
 fn test_chunk_validators_with_same_endorsement_ratio_and_different_stake() {
-    if !ProtocolFeature::ChunkEndorsementsInBlockHeader.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     let mut epoch_config =
         epoch_config(5, 2, 2, 2, 90, 90, 70).for_protocol_version(PROTOCOL_VERSION);
     // Set the max kickout stake percentage so that only one of the chunk validators
@@ -2322,9 +2320,6 @@ fn test_chunk_validators_with_same_endorsement_ratio_and_different_stake() {
 /// so we select the exempted validator based on the ordering of the account id.
 #[test]
 fn test_chunk_validators_with_same_endorsement_ratio_and_stake() {
-    if !ProtocolFeature::ChunkEndorsementsInBlockHeader.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     let mut epoch_config =
         epoch_config(5, 2, 2, 2, 90, 90, 70).for_protocol_version(PROTOCOL_VERSION);
     // Set the max kickout stake percentage so that only one of the chunk validators
@@ -2726,10 +2721,7 @@ fn test_max_kickout_stake_ratio() {
 }
 
 /// Common test scenario for a couple of tests exercising chunk validator kickouts.
-fn test_chunk_validator_kickout(
-    expected_kickouts: HashMap<AccountId, ValidatorKickoutReason>,
-    use_endorsement_cutoff_threshold: bool,
-) {
+fn test_chunk_validator_kickout(expected_kickouts: HashMap<AccountId, ValidatorKickoutReason>) {
     let mut epoch_config =
         epoch_config(5, 2, 4, 100, 80, 80, 80).for_protocol_version(PROTOCOL_VERSION);
     let accounts = vec![
@@ -2740,17 +2732,8 @@ fn test_chunk_validator_kickout(
         ("test4".parse().unwrap(), 1000),
         ("test5".parse().unwrap(), 1000),
     ];
-    let epoch_info = epoch_info(
-        0,
-        accounts,
-        vec![0, 1, 2, 3],
-        vec![vec![0, 1], vec![0, 2]],
-        if use_endorsement_cutoff_threshold {
-            PROTOCOL_VERSION
-        } else {
-            ProtocolFeature::ChunkEndorsementsInBlockHeader.protocol_version() - 1
-        },
-    );
+    let epoch_info =
+        epoch_info(0, accounts, vec![0, 1, 2, 3], vec![vec![0, 1], vec![0, 2]], PROTOCOL_VERSION);
     let block_stats = HashMap::from([
         (0, ValidatorStats { produced: 90, expected: 100 }),
         (1, ValidatorStats { produced: 90, expected: 100 }),
@@ -2795,23 +2778,14 @@ fn test_chunk_validator_kickout(
     assert_eq!(kickouts, expected_kickouts);
 }
 
-/// Tests the case where a chunk validator has low endorsement stats but is exempted from being kicked out.
-#[test]
-fn test_chunk_validator_exempted() {
-    test_chunk_validator_kickout(HashMap::new(), false);
-}
-
 #[test]
 /// Tests the case where a chunk validator has low endorsement stats and is kicked out (not exempted).
 /// In this test, first 3 accounts are block and chunk producers and next 2 are chunk validator only.
 fn test_chunk_validator_kicked_out_for_low_endorsement() {
-    test_chunk_validator_kickout(
-        HashMap::from([(
-            "test4".parse().unwrap(),
-            NotEnoughChunkEndorsements { produced: 20, expected: 200 },
-        )]),
-        true,
-    );
+    test_chunk_validator_kickout(HashMap::from([(
+        "test4".parse().unwrap(),
+        NotEnoughChunkEndorsements { produced: 20, expected: 200 },
+    )]));
 }
 
 #[test]

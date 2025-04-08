@@ -2,7 +2,7 @@ use crate::logic::{
     ProtocolVersion, ReturnData, VMContext, VMOutcome, mocks::mock_external::MockedExternal,
 };
 use crate::runner::VMKindExt;
-use near_parameters::vm::{ContractPrepareVersion, VMKind};
+use near_parameters::vm::VMKind;
 use near_parameters::{RuntimeConfig, RuntimeConfigStore, RuntimeFeesConfig};
 use near_primitives_core::code::ContractCode;
 use near_primitives_core::types::Gas;
@@ -30,7 +30,7 @@ pub(crate) fn test_builder() -> TestBuilder {
         output_data_receivers: vec![],
     };
     let mut skip = HashSet::new();
-    for kind in [VMKind::Wasmer2, VMKind::NearVm, VMKind::Wasmtime] {
+    for kind in [VMKind::NearVm, VMKind::Wasmtime] {
         if !kind.is_available() {
             skip.insert(kind);
         }
@@ -101,11 +101,6 @@ impl TestBuilder {
         self
     }
 
-    pub(crate) fn skip_wasmer2(mut self) -> Self {
-        self.skip.insert(VMKind::Wasmer2);
-        self
-    }
-
     pub(crate) fn skip_near_vm(mut self) -> Self {
         self.skip.insert(VMKind::NearVm);
         self
@@ -113,16 +108,11 @@ impl TestBuilder {
 
     #[allow(dead_code)]
     pub(crate) fn only_wasmtime(self) -> Self {
-        self.skip_wasmer2().skip_near_vm()
-    }
-
-    #[allow(dead_code)]
-    pub(crate) fn only_wasmer2(self) -> Self {
-        self.skip_near_vm().skip_wasmtime()
+        self.skip_near_vm()
     }
 
     pub(crate) fn only_near_vm(self) -> Self {
-        self.skip_wasmer2().skip_wasmtime()
+        self.skip_wasmtime()
     }
 
     /// Add additional protocol features to this test.
@@ -133,6 +123,9 @@ impl TestBuilder {
     /// When using this method with `n` features, be sure to pass `n + 1`
     /// expectations to the `expects` method. For nightly features, you can
     /// `cfg` the relevant features and expect.
+    #[allow(unused)]
+    #[deprecated = "if test variation is necessary vary not by protocol features but by config changes"]
+    #[allow(deprecated)]
     pub(crate) fn protocol_features(
         mut self,
         protocol_features: &'static [ProtocolFeature],
@@ -144,11 +137,13 @@ impl TestBuilder {
     }
 
     /// Add a protocol version to test.
+    #[deprecated = "if test variation is necessary vary not by protocol features but by config changes"]
     pub(crate) fn protocol_version(mut self, protocol_version: ProtocolVersion) -> Self {
         self.protocol_versions.push(protocol_version - 1);
         self
     }
 
+    #[deprecated = "if test variation is necessary vary not by protocol features but by config changes"]
     pub(crate) fn only_protocol_versions(
         mut self,
         protocol_versions: Vec<ProtocolVersion>,
@@ -189,21 +184,12 @@ impl TestBuilder {
 
         for (want, &protocol_version) in wants.zip(&self.protocol_versions) {
             let mut results = vec![];
-            for vm_kind in [VMKind::NearVm, VMKind::Wasmer2, VMKind::Wasmtime] {
+            for vm_kind in [VMKind::NearVm, VMKind::Wasmtime] {
                 if self.skip.contains(&vm_kind) {
                     continue;
                 }
 
                 let runtime_config = runtime_config_store.get_config(protocol_version);
-
-                // NearVM includes a different contract preparation algorithm, that is not supported on old protocol versions
-                if vm_kind == VMKind::NearVm
-                    && runtime_config.wasm_config.limit_config.contract_prepare_version
-                        != ContractPrepareVersion::V2
-                {
-                    continue;
-                }
-
                 let mut fake_external = MockedExternal::with_code(self.code.clone_for_tests());
                 let config = runtime_config.wasm_config.clone();
                 let fees = Arc::new(RuntimeFeesConfig::test());

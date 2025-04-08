@@ -67,7 +67,8 @@ fn benchmark_write_partial_encoded_chunk(bench: &mut Bencher) {
     let receipts = create_benchmark_receipts();
     let chunk_hash: ChunkHash = CryptoHash::default().into();
 
-    let (encoded_chunk, merkle_paths) = create_encoded_shard_chunk(transactions, &receipts);
+    let (encoded_chunk, merkle_paths, _) =
+        create_encoded_shard_chunk(transactions, receipts.clone());
     let partial_chunk =
         encoded_chunk_to_partial_encoded_chunk(encoded_chunk, receipts, merkle_paths);
     let chunks = spread_in_memory(partial_chunk);
@@ -187,8 +188,8 @@ fn create_shard_chunk(
 
 fn create_encoded_shard_chunk(
     transactions: Vec<SignedTransaction>,
-    receipts: &[Receipt],
-) -> (EncodedShardChunk, Vec<Vec<MerklePathItem>>) {
+    receipts: Vec<Receipt>,
+) -> (EncodedShardChunk, Vec<Vec<MerklePathItem>>, Vec<Receipt>) {
     let rs = ReedSolomon::new(33, 67).unwrap();
 
     let congestion_info = ProtocolFeature::CongestionControl
