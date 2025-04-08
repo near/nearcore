@@ -119,37 +119,6 @@ impl From<WasmFeatures> for near_vm_types::Features {
     }
 }
 
-#[cfg(all(feature = "wasmer2_vm", target_arch = "x86_64"))]
-impl From<WasmFeatures> for wasmer_types::Features {
-    fn from(_: crate::features::WasmFeatures) -> Self {
-        // /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\
-        //
-        // There are features that this version of wasmparser enables by default, but pwasm
-        // currently does not and the compilers' support for these features is therefore largely
-        // untested if it exists at all. Non exhaustive list of examples:
-        //
-        // * saturating_float_to_int
-        // * sign_extension
-        //
-        // This is instead ensured by the fact that the V0 and V1 use pwasm utils in preparation
-        // and it does not support these extensions.
-        //
-        // /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\
-        Self {
-            module_linking: false, // old version of component model
-            threads: THREADS,
-            reference_types: REFERENCE_TYPES,
-            simd: SIMD,
-            bulk_memory: BULK_MEMORY,
-            multi_value: MULTI_VALUE,
-            tail_call: TAIL_CALL,
-            multi_memory: MULTI_MEMORY,
-            memory64: MEMORY64,
-            exceptions: EXCEPTIONS,
-        }
-    }
-}
-
 #[cfg(feature = "wasmtime_vm")]
 impl From<WasmFeatures> for wasmtime::Config {
     fn from(_: WasmFeatures) -> Self {

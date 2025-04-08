@@ -9,7 +9,6 @@ mod congestion_control;
 mod delegate_action;
 mod fix_contract_loading_cost;
 mod in_memory_tries;
-mod nearvm;
 mod orphan_chunk_state_witness;
 mod restrict_tla;
 mod stateless_validation;
