@@ -108,7 +108,8 @@ pub enum ProtocolFeature {
     /// within epoch.  See <https://github.com/near/NEPs/pull/167> for general
     /// description, note that we would not introduce chunk-only validators with
     /// this feature
-    AliasValidatorSelectionAlgorithm,
+    #[deprecated]
+    _DeprecatedAliasValidatorSelectionAlgorithm,
     /// Make block producers produce chunks for the same block they would later produce to avoid
     /// network delays
     #[deprecated]
@@ -218,7 +219,8 @@ pub enum ProtocolFeature {
     #[deprecated]
     _DeprecatedEthImplicitAccounts,
     /// Enables yield execution which is introduced in <https://github.com/near/NEPs/pull/519>
-    YieldExecution,
+    #[deprecated]
+    _DeprecatedYieldExecution,
     /// Bring minimum required validator stake effectively to ~10K NEAR as of 2024-08-15.
     /// Fixes increase to 100K NEAR in the previous protocol version.
     /// See #11953 for more details.
@@ -234,7 +236,8 @@ pub enum ProtocolFeature {
     #[deprecated]
     _DeprecatedCongestionControl,
     /// Remove account with long storage key.
-    RemoveAccountWithLongStorageKey,
+    #[deprecated]
+    _DeprecatedRemoveAccountWithLongStorageKey,
     /// Change the structure of ChunkEndorsement to have (shard_id, epoch_id, height_created)
     /// instead of chunk_hash
     #[deprecated]
@@ -325,7 +328,7 @@ impl ProtocolFeature {
             ProtocolFeature::_DeprecatedLowerRegularOpCost2
             | ProtocolFeature::_DeprecatedLimitContractFunctionsNumber
             | ProtocolFeature::_DeprecatedBlockHeaderV3
-            | ProtocolFeature::AliasValidatorSelectionAlgorithm => 49,
+            | ProtocolFeature::_DeprecatedAliasValidatorSelectionAlgorithm => 49,
             ProtocolFeature::_DeprecatedSynchronizeBlockChunkProduction
             | ProtocolFeature::_DeprecatedCorrectStackLimit => 50,
             ProtocolFeature::_DeprecatedAccessKeyNonceForImplicitAccounts => 51,
@@ -351,9 +354,9 @@ impl ProtocolFeature {
             ProtocolFeature::SimpleNightshadeV3 => 65,
             ProtocolFeature::_DeprecatedDecreaseFunctionCallBaseCost
             | ProtocolFeature::_DeprecatedFixedMinimumNewReceiptGas => 66,
-            ProtocolFeature::YieldExecution => 67,
+            ProtocolFeature::_DeprecatedYieldExecution => 67,
             ProtocolFeature::_DeprecatedCongestionControl
-            | ProtocolFeature::RemoveAccountWithLongStorageKey => 68,
+            | ProtocolFeature::_DeprecatedRemoveAccountWithLongStorageKey => 68,
             ProtocolFeature::_DeprecatedStatelessValidation => 69,
             ProtocolFeature::_DeprecatedBLS12381
             | ProtocolFeature::_DeprecatedEthImplicitAccounts => 70,

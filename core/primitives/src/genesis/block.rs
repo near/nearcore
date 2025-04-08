@@ -26,7 +26,6 @@ pub fn genesis_block(
     validator_stakes: &Vec<ValidatorStake>,
 ) -> Block {
     assert!(genesis_protocol_version > PROD_GENESIS_PROTOCOL_VERSION);
-    let challenges = vec![];
     let chunk_endorsements = vec![];
     for chunk in &chunks {
         assert_eq!(chunk.height_included(), height);
@@ -35,7 +34,7 @@ pub fn genesis_block(
     let vrf_proof = near_crypto::vrf::Proof([0; 64]);
     // We always use use_versioned_bp_hash_format after BlockHeaderV3 feature
     let next_bp_hash = compute_bp_hash_from_validator_stakes(validator_stakes, true);
-    let body = BlockBody::new(chunks, challenges, vrf_value, vrf_proof, chunk_endorsements);
+    let body = BlockBody::new(chunks, vrf_value, vrf_proof, chunk_endorsements);
     let header = BlockHeader::genesis(
         genesis_protocol_version,
         height,
@@ -45,7 +44,6 @@ pub fn genesis_block(
         Block::compute_chunk_headers_root(body.chunks()).0,
         Block::compute_chunk_tx_root(body.chunks()),
         body.chunks().len() as u64,
-        Block::compute_challenges_root(body.challenges()),
         timestamp,
         initial_gas_price,
         initial_total_supply,
@@ -64,6 +62,7 @@ pub fn prod_genesis_block(
     validator_stakes: &Vec<ValidatorStake>,
 ) -> Block {
     let next_bp_hash = compute_bp_hash_from_validator_stakes(validator_stakes, false);
+    #[allow(deprecated)]
     let body = BlockBody::V1(BlockBodyV1 {
         chunks: chunks.clone(),
         challenges: vec![],
@@ -77,7 +76,6 @@ pub fn prod_genesis_block(
         Block::compute_chunk_prev_outgoing_receipts_root(body.chunks()),
         Block::compute_chunk_headers_root(body.chunks()).0,
         Block::compute_chunk_tx_root(body.chunks()),
-        Block::compute_challenges_root(body.challenges()),
         timestamp,
         initial_gas_price,
         initial_total_supply,
@@ -95,7 +93,7 @@ pub fn prod_genesis_block(
     Block::BlockV1(Arc::new(BlockV1 {
         header,
         chunks,
-        challenges: body.challenges().to_vec(),
+        challenges: vec![],
         vrf_value: *body.vrf_value(),
         vrf_proof: *body.vrf_proof(),
     }))
@@ -108,7 +106,6 @@ impl BlockHeader {
         prev_chunk_outgoing_receipts_root: MerkleHash,
         chunk_headers_root: MerkleHash,
         chunk_tx_root: MerkleHash,
-        challenges_root: MerkleHash,
         timestamp: Utc,
         initial_gas_price: Balance,
         initial_total_supply: Balance,
@@ -125,12 +122,13 @@ impl BlockHeader {
             block_merkle_root: CryptoHash::default(),
         };
 
+        #[allow(deprecated)]
         let inner_rest = BlockHeaderInnerRest {
             prev_chunk_outgoing_receipts_root,
             chunk_headers_root,
             chunk_tx_root,
             chunks_included: 0,
-            challenges_root,
+            challenges_root: CryptoHash::default(),
             random_value: CryptoHash::default(),
             prev_validator_proposals: vec![],
             chunk_mask: vec![],

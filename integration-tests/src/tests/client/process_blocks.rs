@@ -140,7 +140,6 @@ fn receive_network_block() {
             let next_block_ordinal = last_block.header.block_ordinal.unwrap() + 1;
             let block = Block::produce(
                 PROTOCOL_VERSION,
-                PROTOCOL_VERSION,
                 &last_block.header.clone().into(),
                 last_block.header.height + 1,
                 next_block_ordinal,
@@ -158,8 +157,6 @@ fn receive_network_block() {
                 0,
                 100,
                 None,
-                vec![],
-                vec![],
                 &signer,
                 last_block.header.next_bp_hash,
                 block_merkle_tree.root(),
@@ -231,7 +228,6 @@ fn produce_block_with_approvals() {
             let chunk_endorsements = vec![vec![]; chunks.len()];
             let block = Block::produce(
                 PROTOCOL_VERSION,
-                PROTOCOL_VERSION,
                 &last_block.header.clone().into(),
                 last_block.header.height + 1,
                 next_block_ordinal,
@@ -249,8 +245,6 @@ fn produce_block_with_approvals() {
                 0,
                 100,
                 Some(0),
-                vec![],
-                vec![],
                 &signer1,
                 last_block.header.next_bp_hash,
                 block_merkle_tree.root(),
@@ -428,7 +422,6 @@ fn invalid_blocks_common(is_requested: bool) {
             let next_block_ordinal = last_block.header.block_ordinal.unwrap() + 1;
             let valid_block = Block::produce(
                 PROTOCOL_VERSION,
-                PROTOCOL_VERSION,
                 &last_block.header.clone().into(),
                 last_block.header.height + 1,
                 next_block_ordinal,
@@ -446,8 +439,6 @@ fn invalid_blocks_common(is_requested: bool) {
                 0,
                 100,
                 Some(0),
-                vec![],
-                vec![],
                 &signer,
                 last_block.header.next_bp_hash,
                 block_merkle_tree.root(),
@@ -1770,10 +1761,9 @@ fn test_reject_block_headers_during_epoch_sync() {
     );
 
     let headers = blocks.iter().map(|b| b.header().clone()).collect::<Vec<_>>();
-    let signer = sync_client.validator_signer.get();
     // actual attempt to sync headers during ongoing epoch sync
     assert_matches!(
-        sync_client.sync_block_headers(headers, &signer),
+        sync_client.sync_block_headers(headers),
         Err(_),
         "Block headers accepted during epoch sync"
     );
@@ -1793,8 +1783,7 @@ fn test_gc_tail_update() {
         blocks.push(block);
     }
     let headers = blocks.iter().map(|b| b.header().clone()).collect::<Vec<_>>();
-    let signer = env.clients[1].validator_signer.get();
-    env.clients[1].sync_block_headers(headers, &signer).unwrap();
+    env.clients[1].sync_block_headers(headers).unwrap();
     // simulate save sync hash block
     let prev_prev_sync_block = blocks[blocks.len() - 4].clone();
     let prev_prev_sync_hash = *prev_prev_sync_block.hash();

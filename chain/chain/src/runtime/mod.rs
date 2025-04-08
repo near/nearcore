@@ -21,7 +21,6 @@ use near_primitives::congestion_info::{
 use near_primitives::errors::{InvalidTxError, RuntimeError, StorageError};
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::receipt::Receipt;
-use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::state_part::PartId;
@@ -59,7 +58,6 @@ use tracing::{debug, error, info, instrument};
 
 pub mod errors;
 mod metrics;
-pub mod migrations;
 pub mod test_utils;
 #[cfg(test)]
 mod tests;
@@ -69,14 +67,12 @@ mod tests;
 pub struct NightshadeRuntime {
     genesis_config: GenesisConfig,
     runtime_config_store: RuntimeConfigStore,
-
     store: Store,
     compiled_contract_cache: Box<dyn ContractRuntimeCache>,
     tries: ShardTries,
     trie_viewer: TrieViewer,
     pub runtime: Runtime,
     epoch_manager: Arc<EpochManagerHandle>,
-    migration_data: Arc<MigrationData>,
     gc_num_epochs_to_keep: u64,
 }
 
@@ -119,7 +115,6 @@ impl NightshadeRuntime {
             tracing::debug!(target: "runtime", ?err, "The state snapshot is not available.");
         }
 
-        let migration_data = Arc::new(migrations::load_migration_data(&genesis_config.chain_id));
         Arc::new(NightshadeRuntime {
             genesis_config: genesis_config.clone(),
             compiled_contract_cache,
@@ -129,7 +124,6 @@ impl NightshadeRuntime {
             runtime,
             trie_viewer,
             epoch_manager,
-            migration_data,
             gc_num_epochs_to_keep: gc_num_epochs_to_keep.max(MIN_GC_NUM_EPOCHS_TO_KEEP),
         })
     }
@@ -176,13 +170,8 @@ impl NightshadeRuntime {
             congestion_info,
             bandwidth_requests,
         } = block;
-        let ApplyChunkShardContext {
-            shard_id,
-            last_validator_proposals,
-            gas_limit,
-            is_new_chunk,
-            is_first_block_with_chunk_of_version,
-        } = chunk;
+        let ApplyChunkShardContext { shard_id, last_validator_proposals, gas_limit, is_new_chunk } =
+            chunk;
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(prev_block_hash)?;
         let validator_accounts_update = {
             let epoch_manager = self.epoch_manager.read();
@@ -260,11 +249,6 @@ impl NightshadeRuntime {
             config: self.runtime_config_store.get_config(current_protocol_version).clone(),
             cache: Some(self.compiled_contract_cache.handle()),
             is_new_chunk,
-            migration_data: Arc::clone(&self.migration_data),
-            migration_flags: MigrationFlags {
-                is_first_block_of_version,
-                is_first_block_with_chunk_of_version,
-            },
             congestion_info,
             bandwidth_requests,
         };
