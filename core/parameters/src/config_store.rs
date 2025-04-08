@@ -191,9 +191,7 @@ impl RuntimeConfigStore {
                 config_store.store.insert(PROTOCOL_VERSION, Arc::new(config));
                 config_store
             }
-            near_primitives_core::chains::CONGESTION_CONTROL_TEST => {
-                Self::new(None)
-            }
+            near_primitives_core::chains::CONGESTION_CONTROL_TEST => Self::new(None),
             _ => Self::new(None),
         }
     }
