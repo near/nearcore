@@ -167,15 +167,15 @@ impl StandaloneRuntime {
             }
         }
 
-        let mut has_queued_receipts = false;
-        if let Some(congestion_info) = apply_result.congestion_info {
-            has_queued_receipts = congestion_info.receipt_bytes() > 0;
+        let has_queued_receipts = apply_result.congestion_info.receipt_bytes() > 0;
 
-            self.apply_state.congestion_info.insert(
-                shard_id,
-                ExtendedCongestionInfo { missed_chunks_count: 0, congestion_info },
-            );
-        }
+        self.apply_state.congestion_info.insert(
+            shard_id,
+            ExtendedCongestionInfo {
+                missed_chunks_count: 0,
+                congestion_info: apply_result.congestion_info,
+            },
+        );
 
         ProcessBlockOutcome {
             outgoing_receipts: apply_result.outgoing_receipts,

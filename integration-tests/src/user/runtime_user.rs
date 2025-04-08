@@ -162,15 +162,14 @@ impl RuntimeUser {
                 };
             }
             let mut have_queued_receipts = false;
-            if let Some(congestion_info) = apply_result.congestion_info {
-                if congestion_info.receipt_bytes() > 0 {
-                    have_queued_receipts = true;
-                }
-                apply_state.congestion_info.insert(
-                    apply_state.shard_id,
-                    ExtendedCongestionInfo { missed_chunks_count: 0, congestion_info },
-                );
+            let congestion_info = apply_result.congestion_info;
+            if congestion_info.receipt_bytes() > 0 {
+                have_queued_receipts = true;
             }
+            apply_state.congestion_info.insert(
+                apply_state.shard_id,
+                ExtendedCongestionInfo { missed_chunks_count: 0, congestion_info },
+            );
             if receipts.is_empty() && !have_queued_receipts {
                 return Ok(());
             }
