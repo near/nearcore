@@ -26,7 +26,7 @@ use crate::env::test_env::TestEnv;
 const ONE_NEAR: u128 = 1_000_000_000_000_000_000_000_000;
 
 #[test]
-fn test_in_memory_trie_node_consistency() {
+fn slow_test_in_memory_trie_node_consistency() {
     // Recommended to run with RUST_LOG=memtrie=debug,chunks=error,info
     init_test_logger();
     let initial_balance = 1000000 * ONE_NEAR;
@@ -484,11 +484,11 @@ fn test_in_memory_trie_consistency_with_state_sync_base_case(track_all_shards: b
 }
 
 #[test]
-fn test_in_memory_trie_consistency_with_state_sync_base_case_track_single_shard() {
+fn slow_test_in_memory_trie_consistency_with_state_sync_base_case_track_single_shard() {
     test_in_memory_trie_consistency_with_state_sync_base_case(false);
 }
 
 #[test]
-fn test_in_memory_trie_consistency_with_state_sync_base_case_track_all_shards() {
+fn slow_test_in_memory_trie_consistency_with_state_sync_base_case_track_all_shards() {
     test_in_memory_trie_consistency_with_state_sync_base_case(true);
 }

@@ -825,7 +825,7 @@ fn test_state_sync_headers() {
 
 #[test]
 // Tests StateRequestHeader and StateRequestPart.
-fn test_state_sync_headers_no_tracked_shards() {
+fn slow_test_state_sync_headers_no_tracked_shards() {
     heavy_test(|| {
         init_test_logger();
 

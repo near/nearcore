@@ -1102,7 +1102,7 @@ mod tests {
     }
 
     #[test]
-    fn test_bls12381_pairing_check_two_points_fuzzer() {
+    fn slow_test_bls12381_pairing_check_two_points_fuzzer() {
         bolero::check!().with_type().for_each(
             |(p1, p2, s1, s2): &(G1Point, G2Point, Scalar, Scalar)| {
                 let p1_neg = p1.p.neg();
@@ -1138,7 +1138,7 @@ mod tests {
     }
 
     #[test]
-    fn test_bls12381_pairing_check_many_points_fuzzer() {
+    fn slow_test_bls12381_pairing_check_many_points_fuzzer() {
         bolero::check!()
             .with_generator(
                 bolero::r#gen::<Vec<(Scalar, Scalar)>>().with().len(0usize..MAX_N_PAIRING),

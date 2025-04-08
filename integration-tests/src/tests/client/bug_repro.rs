@@ -165,7 +165,7 @@ fn test_repro_1183() {
 }
 
 #[test]
-fn test_sync_from_archival_node() {
+fn slow_test_sync_from_archival_node() {
     init_test_logger();
     let vs = ValidatorSchedule::new().num_shards(4).block_producers_per_epoch(vec![vec![
         "test1".parse().unwrap(),
