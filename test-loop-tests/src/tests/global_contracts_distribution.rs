@@ -145,7 +145,7 @@ impl GlobalContractsReshardingTestEnv {
         let users: Vec<AccountId> = parse_accounts(&["user0", "user1", "user2", "user3", "user4"]);
         let validators_spec = ValidatorsSpec::desired_roles(&[chunk_producer.as_str()], &[]);
         let genesis = TestLoopBuilder::new_genesis_builder()
-            .protocol_version(PROTOCOL_VERSION - 1)
+            .protocol_version(PROTOCOL_VERSION)
             .validators_spec(validators_spec)
             .shard_layout(base_shard_layout.clone())
             .epoch_length(EPOCH_LENGTH)

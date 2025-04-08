@@ -653,7 +653,6 @@ impl EpochManager {
             validator_kickout,
             validator_reward,
             minted_amount,
-            epoch_protocol_version,
             next_next_epoch_version,
             has_same_shard_layout,
         ) {

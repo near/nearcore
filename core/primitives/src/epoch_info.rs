@@ -184,56 +184,37 @@ impl EpochInfo {
         rng_seed: RngSeed,
         validator_mandates: ValidatorMandates,
     ) -> Self {
-        if ProtocolFeature::AliasValidatorSelectionAlgorithm.enabled(protocol_version) {
-            let stake_weights = |ids: &[ValidatorId]| -> WeightedIndex {
-                WeightedIndex::new(
-                    ids.iter()
-                        .copied()
-                        .map(|validator_id| validators[validator_id as usize].stake())
-                        .collect(),
-                )
-            };
-            let block_producers_sampler = stake_weights(&block_producers_settlement);
-            let chunk_producers_sampler =
-                chunk_producers_settlement.iter().map(|vs| stake_weights(vs)).collect();
-            Self::V4(EpochInfoV4 {
-                epoch_height,
-                validators,
-                _fishermen: Default::default(),
-                validator_to_index,
-                block_producers_settlement,
-                chunk_producers_settlement,
-                _hidden_validators_settlement: Default::default(),
-                stake_change,
-                validator_reward,
-                validator_kickout,
-                _fishermen_to_index: Default::default(),
-                minted_amount,
-                seat_price,
-                protocol_version,
-                rng_seed,
-                block_producers_sampler,
-                chunk_producers_sampler,
-                validator_mandates,
-            })
-        } else {
-            Self::V2(EpochInfoV2 {
-                epoch_height,
-                validators,
-                fishermen: Default::default(),
-                validator_to_index,
-                block_producers_settlement,
-                chunk_producers_settlement,
-                hidden_validators_settlement: Default::default(),
-                stake_change,
-                validator_reward,
-                validator_kickout,
-                fishermen_to_index: Default::default(),
-                minted_amount,
-                seat_price,
-                protocol_version,
-            })
-        }
+        let stake_weights = |ids: &[ValidatorId]| -> WeightedIndex {
+            WeightedIndex::new(
+                ids.iter()
+                    .copied()
+                    .map(|validator_id| validators[validator_id as usize].stake())
+                    .collect(),
+            )
+        };
+        let block_producers_sampler = stake_weights(&block_producers_settlement);
+        let chunk_producers_sampler =
+            chunk_producers_settlement.iter().map(|vs| stake_weights(vs)).collect();
+        Self::V4(EpochInfoV4 {
+            epoch_height,
+            validators,
+            _fishermen: Default::default(),
+            validator_to_index,
+            block_producers_settlement,
+            chunk_producers_settlement,
+            _hidden_validators_settlement: Default::default(),
+            stake_change,
+            validator_reward,
+            validator_kickout,
+            _fishermen_to_index: Default::default(),
+            minted_amount,
+            seat_price,
+            protocol_version,
+            rng_seed,
+            block_producers_sampler,
+            chunk_producers_sampler,
+            validator_mandates,
+        })
     }
 
     #[inline]

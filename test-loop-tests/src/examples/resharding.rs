@@ -23,7 +23,7 @@ fn resharding_example_test() {
     let chunk_producer = "cp0";
     let validators_spec = ValidatorsSpec::desired_roles(&[chunk_producer], &[]);
     let genesis = TestLoopBuilder::new_genesis_builder()
-        .protocol_version(PROTOCOL_VERSION - 1)
+        .protocol_version(PROTOCOL_VERSION)
         .validators_spec(validators_spec)
         .shard_layout(base_shard_layout.clone())
         .epoch_length(epoch_length)

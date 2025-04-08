@@ -7,7 +7,6 @@ use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
     AccountId, Balance, NumSeats, ProtocolVersion, ValidatorKickoutReason,
 };
-use near_primitives::version::ProtocolFeature;
 
 /// Find threshold of stake per seat, given provided stakes and required number of seats.
 pub(crate) fn find_threshold(
@@ -45,36 +44,20 @@ pub fn proposals_to_epoch_info(
     validator_kickout: HashMap<AccountId, ValidatorKickoutReason>,
     validator_reward: HashMap<AccountId, Balance>,
     minted_amount: Balance,
-    prev_prev_epoch_protocol_version: ProtocolVersion,
     protocol_version: ProtocolVersion,
     use_stable_shard_assignment: bool,
 ) -> Result<EpochInfo, EpochError> {
-    // For this protocol feature, switch happened two epochs after protocol upgrade.
-    // Keeping it this way for replayability.
-    if ProtocolFeature::AliasValidatorSelectionAlgorithm.enabled(prev_prev_epoch_protocol_version) {
-        crate::validator_selection::proposals_to_epoch_info(
-            epoch_config,
-            rng_seed,
-            prev_epoch_info,
-            proposals,
-            validator_kickout,
-            validator_reward,
-            minted_amount,
-            protocol_version,
-            use_stable_shard_assignment,
-        )
-    } else {
-        old_validator_selection::proposals_to_epoch_info(
-            epoch_config,
-            rng_seed,
-            prev_epoch_info,
-            proposals,
-            validator_kickout,
-            validator_reward,
-            minted_amount,
-            protocol_version,
-        )
-    }
+    crate::validator_selection::proposals_to_epoch_info(
+        epoch_config,
+        rng_seed,
+        prev_epoch_info,
+        proposals,
+        validator_kickout,
+        validator_reward,
+        minted_amount,
+        protocol_version,
+        use_stable_shard_assignment,
+    )
 }
 
 mod old_validator_selection {
@@ -95,6 +78,7 @@ mod old_validator_selection {
 
     use crate::proposals::find_threshold;
 
+    #[allow(dead_code)]
     pub fn proposals_to_epoch_info(
         epoch_config: &EpochConfig,
         rng_seed: RngSeed,
@@ -265,6 +249,7 @@ mod old_validator_selection {
         ))
     }
 
+    #[allow(dead_code)]
     fn shuffle_duplicate_proposals(dup_proposals: &mut Vec<u64>, rng_seed: RngSeed) {
         let mut rng: Hc128Rng = SeedableRng::from_seed(rng_seed);
         for i in (1..dup_proposals.len()).rev() {
@@ -272,6 +257,7 @@ mod old_validator_selection {
         }
     }
 
+    #[allow(dead_code)]
     fn gen_index_old(rng: &mut Hc128Rng, bound: u64) -> u64 {
         // This is a simplified copy of the rand gen_index implementation to ensure that
         // upgrades to the rand library will not cause a change in the shuffling behavior.

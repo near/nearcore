@@ -1190,7 +1190,7 @@ fn test_resharding_v3_global_contract_base(
     ];
     let global_contract_user: AccountId = "account6".parse().unwrap();
     let params = TestReshardingParametersBuilder::default()
-        .base_protocol_version(PROTOCOL_VERSION - 1)
+        .base_protocol_version(PROTOCOL_VERSION)
         .deploy_test_global_contract(global_contract_deployer, deploy_mode)
         .use_test_global_contract(global_contract_user.clone(), identifier)
         .add_loop_action(call_burn_gas_contract(
