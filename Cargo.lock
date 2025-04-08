@@ -3006,7 +3006,7 @@ dependencies = [
  "httpdate",
  "itoa",
  "pin-project-lite",
- "socket2 0.4.9",
+ "socket2 0.5.8",
  "tokio",
  "tower-service",
  "tracing",
@@ -5359,11 +5359,8 @@ dependencies = [
  "near-vm-types",
  "near-vm-vm",
  "num-rational 0.3.2",
- "parity-wasm 0.41.0",
- "parity-wasm 0.42.2",
  "prefix-sum-vec",
  "prometheus",
- "pwasm-utils",
  "rand 0.8.5",
  "rayon",
  "ripemd",
@@ -6132,18 +6129,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "parity-wasm"
-version = "0.41.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ddfc878dac00da22f8f61e7af3157988424567ab01d9920b962ef7dcbd7cd865"
-
-[[package]]
-name = "parity-wasm"
-version = "0.42.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "be5e13c266502aadf83426d87d81a0f5d1ef45b8027f5a471c360abfe4bfae92"
-
-[[package]]
 name = "parking_lot"
 version = "0.11.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6611,17 +6596,6 @@ dependencies = [
  "cranelift-bitset",
  "log",
  "wasmtime-math",
-]
-
-[[package]]
-name = "pwasm-utils"
-version = "0.12.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4f7a12f176deee919f4ba55326ee17491c8b707d0987aed822682c821b660192"
-dependencies = [
- "byteorder",
- "log",
- "parity-wasm 0.41.0",
 ]
 
 [[package]]

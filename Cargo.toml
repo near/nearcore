@@ -304,8 +304,6 @@ opentelemetry-otlp = "0.15.0"
 opentelemetry-semantic-conventions = "0.14.0"
 ordered-float = { version = "4.2.0", features = ["serde", "borsh"] }
 paperclip = { version = "0.9.0", features = ["actix4"] }
-parity-wasm = { version = "0.42", default-features = false }
-parity-wasm_41 = { package = "parity-wasm", version = "0.41" }
 parking_lot = "0.12.1"
 percent-encoding = "2.2.0"
 pin-project = "1.0"
@@ -316,7 +314,6 @@ proc-macro2 = "1.0.64"
 prometheus = { version = "0.13.1", default-features = false }
 protobuf = "3.0.1"
 protobuf-codegen = "3.0.1"
-pwasm-utils_12 = { package = "pwasm-utils", version = "0.12" }
 quote = "1.0"
 rand = "0.8.5"
 rand_chacha = "0.3.1"

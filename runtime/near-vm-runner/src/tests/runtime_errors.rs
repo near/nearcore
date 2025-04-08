@@ -1,6 +1,5 @@
 use super::test_builder::test_builder;
 use expect_test::expect;
-use near_primitives_core::version::ProtocolFeature;
 use std::fmt::Write;
 
 const FIX_CONTRACT_LOADING_COST: u32 = 129;
@@ -25,6 +24,7 @@ fn test_infinite_initializer() {
 
 #[test]
 fn test_infinite_initializer_export_not_found() {
+    #[allow(deprecated)]
     test_builder()
         .wat(INFINITE_INITIALIZER_CONTRACT)
         .method("no-such-method")
@@ -56,6 +56,7 @@ fn test_simple_contract() {
 
 #[test]
 fn test_imported_memory() {
+    #[allow(deprecated)]
     test_builder()
         .wasm(&[
             0, 97, 115, 109, 1, 0, 0, 0, 2, 12, 1, 3, 101, 110, 118, 0, 2, 1, 239, 1, 248, 1, 4, 6,
@@ -78,6 +79,7 @@ fn test_imported_memory() {
 
 #[test]
 fn test_multiple_memories() {
+    #[allow(deprecated)]
     test_builder()
         .wat("(module (memory 1 2) (memory 3 4))")
         .opaque_error()
@@ -96,6 +98,7 @@ fn test_multiple_memories() {
 
 #[test]
 fn test_export_not_found() {
+    #[allow(deprecated)]
     test_builder().wat(SIMPLE_CONTRACT)
         .method("no-such-method")
         .protocol_version(FIX_CONTRACT_LOADING_COST)
@@ -124,15 +127,7 @@ fn test_trap_contract() {
     test_builder()
         .wat(r#"(module (func (export "main") (unreachable)) )"#)
         .skip_wasmtime()
-        .protocol_features(&[
-            #[allow(deprecated)]
-            ProtocolFeature::_DeprecatedPreparationV2,
-        ])
         .expects(&[
-            expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 43854969 used gas 43854969
-                Err: WebAssembly trap: An `unreachable` opcode was executed.
-            "#]],
             expect![[r#"
                 VMOutcome: balance 4 storage_usage 12 return data None burnt gas 80976092 used gas 80976092
                 Err: WebAssembly trap: An `unreachable` opcode was executed.
@@ -152,15 +147,7 @@ fn test_trap_initializer() {
             "#,
         )
         .skip_wasmtime()
-        .protocol_features(&[
-            #[allow(deprecated)]
-            ProtocolFeature::_DeprecatedPreparationV2,
-        ])
         .expects(&[
-            expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 47322969 used gas 47322969
-                Err: WebAssembly trap: An `unreachable` opcode was executed.
-            "#]],
             expect![[r#"
                 VMOutcome: balance 4 storage_usage 12 return data None burnt gas 98404812 used gas 98404812
                 Err: WebAssembly trap: An `unreachable` opcode was executed.
@@ -184,15 +171,7 @@ fn test_div_by_zero_contract() {
             "#,
         )
         .skip_wasmtime()
-        .protocol_features(&[
-            #[allow(deprecated)]
-            ProtocolFeature::_DeprecatedPreparationV2,
-        ])
         .expects(&[
-            expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 47406987 used gas 47406987
-                Err: WebAssembly trap: An arithmetic exception, e.g. divided by zero.
-            "#]],
             expect![[r#"
                 VMOutcome: balance 4 storage_usage 12 return data None burnt gas 88068079 used gas 88068079
                 Err: WebAssembly trap: An arithmetic exception, e.g. divided by zero.
@@ -216,15 +195,7 @@ fn test_float_to_int_contract() {
                 "#,
             ))
             .skip_wasmtime()
-            .protocol_features(&[
-                #[allow(deprecated)]
-            ProtocolFeature::_DeprecatedPreparationV2,
-            ])
             .expects(&[
-                expect![[r#"
-                    VMOutcome: balance 4 storage_usage 12 return data None burnt gas 47667981 used gas 47667981
-                    Err: WebAssembly trap: An arithmetic exception, e.g. divided by zero.
-                "#]],
                 expect![[r#"
                     VMOutcome: balance 4 storage_usage 12 return data None burnt gas 92691798 used gas 92691798
                     Err: WebAssembly trap: An arithmetic exception, e.g. divided by zero.
@@ -251,15 +222,7 @@ fn test_indirect_call_to_null_contract() {
         )
         .opaque_error()
         .skip_wasmtime()
-        .protocol_features(&[
-            #[allow(deprecated)]
-            ProtocolFeature::_DeprecatedPreparationV2,
-        ])
         .expects(&[
-            expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 50919231 used gas 50919231
-                Err: ...
-            "#]],
             expect![[r#"
                 VMOutcome: balance 4 storage_usage 12 return data None burnt gas 109031223 used gas 109031223
                 Err: ...
@@ -288,15 +251,7 @@ fn test_indirect_call_to_wrong_signature_contract() {
             "#,
         )
         .skip_wasmtime()
-        .protocol_features(&[
-            #[allow(deprecated)]
-            ProtocolFeature::_DeprecatedPreparationV2,
-        ])
         .expects(&[
-            expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 55904481 used gas 55904481
-                Err: WebAssembly trap: Call indirect incorrect signature trap.
-            "#]],
             expect![[r#"
                 VMOutcome: balance 4 storage_usage 12 return data None burnt gas 134085008 used gas 134085008
                 Err: WebAssembly trap: Call indirect incorrect signature trap.
@@ -306,6 +261,7 @@ fn test_indirect_call_to_wrong_signature_contract() {
 
 #[test]
 fn test_wrong_signature_contract() {
+    #[allow(deprecated)]
     test_builder()
         .wat(r#"(module (func (export "main") (param i32)))"#)
         .protocol_version(FIX_CONTRACT_LOADING_COST)
@@ -323,6 +279,7 @@ fn test_wrong_signature_contract() {
 
 #[test]
 fn test_export_wrong_type() {
+    #[allow(deprecated)]
     test_builder()
         .wat(r#"(module (global (export "main") i32 (i32.const 123)))"#)
         .protocol_version(FIX_CONTRACT_LOADING_COST)
@@ -379,15 +336,7 @@ fn test_stack_overflow() {
         .wat(r#"(module (func $f (export "main") (call $f)))"#)
         .skip_wasmtime()
         .opaque_error()
-        .protocol_features(&[
-            #[allow(deprecated)]
-            ProtocolFeature::_DeprecatedPreparationV2,
-        ])
         .expects(&[
-            expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 13526101017 used gas 13526101017
-                Err: ...
-            "#]],
             expect![[r#"
                 VMOutcome: balance 4 storage_usage 12 return data None burnt gas 30418898602 used gas 30418898602
                 Err: ...
@@ -411,23 +360,9 @@ fn test_stack_instrumentation_protocol_upgrade() {
             "#,
         )
         .method("f1")
-        .protocol_features(&[
-            #[allow(deprecated)]
-            ProtocolFeature::_DeprecatedCorrectStackLimit,
-            #[allow(deprecated)]
-            ProtocolFeature::_DeprecatedPreparationV2,
-        ])
         .skip_wasmtime()
         .opaque_error()
         .expects(&[
-            expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 18136872021 used gas 18136872021
-                Err: ...
-            "#]],
-            expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 6789985365 used gas 6789985365
-                Err: ...
-            "#]],
             expect![[r#"
                 VMOutcome: balance 4 storage_usage 12 return data None burnt gas 31825672528 used gas 31825672528
                 Err: ...
@@ -449,22 +384,8 @@ fn test_stack_instrumentation_protocol_upgrade() {
         )
         .method("f2")
         .opaque_error()
-        .protocol_features(&[
-            #[allow(deprecated)]
-            ProtocolFeature::_DeprecatedCorrectStackLimit,
-            #[allow(deprecated)]
-            ProtocolFeature::_DeprecatedPreparationV2,
-        ])
         .skip_wasmtime()
         .expects(&[
-            expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 18136872021 used gas 18136872021
-                Err: ...
-            "#]],
-            expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 2745316869 used gas 2745316869
-                Err: ...
-            "#]],
             expect![[r#"
                 VMOutcome: balance 4 storage_usage 12 return data None burnt gas 29757263944 used gas 29757263944
                 Err: ...
@@ -522,6 +443,7 @@ fn bad_import_func(env: &str) -> Vec<u8> {
 // Invalid import not from "env" -> PrepareError::Instantiate
 // Invalid import from "env" -> LinkError
 fn test_bad_import_1() {
+    #[allow(deprecated)]
     test_builder()
         .wasm(&bad_import_global("no-such-module"))
         .protocol_version(FIX_CONTRACT_LOADING_COST)
@@ -539,6 +461,7 @@ fn test_bad_import_1() {
 
 #[test]
 fn test_bad_import_2() {
+    #[allow(deprecated)]
     test_builder()
         .wasm(&bad_import_func("no-such-module"))
         .protocol_version(FIX_CONTRACT_LOADING_COST)
@@ -556,6 +479,7 @@ fn test_bad_import_2() {
 
 #[test]
 fn test_bad_import_3() {
+    #[allow(deprecated)]
     test_builder()
         .wasm(&bad_import_global("env"))
         .opaque_error()
@@ -688,15 +612,7 @@ fn test_address_overflow() {
     test_builder()
         .wat(code)
         .skip_wasmtime()
-        .protocol_features(&[
-            #[allow(deprecated)]
-            ProtocolFeature::_DeprecatedPreparationV2,
-        ])
         .expects(&[
-            expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 48534981 used gas 48534981
-                Err: WebAssembly trap: Memory out of bounds trap.
-            "#]],
             expect![[r#"
                 VMOutcome: balance 4 storage_usage 12 return data None burnt gas 97048978 used gas 97048978
                 Err: WebAssembly trap: Memory out of bounds trap.
@@ -730,14 +646,7 @@ fn test_nan_sign() {
     test_builder()
         .wat(code)
         .skip_wasmtime()
-        .protocol_features(&[
-            #[allow(deprecated)]
-            ProtocolFeature::_DeprecatedPreparationV2,
-        ])
         .expects(&[
-            expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 54988767 used gas 54988767
-            "#]],
             expect![[r#"
                 VMOutcome: balance 4 storage_usage 12 return data None burnt gas 110433335 used gas 110433335
             "#]],
@@ -819,6 +728,7 @@ mod fix_contract_loading_cost_protocol_upgrade {
     // Normal execution should be unchanged before and after.
     #[test]
     fn test_fn_loading_gas_protocol_upgrade() {
+        #[allow(deprecated)]
         test_builder()
             .wat(ALMOST_TRIVIAL_CONTRACT)
             .protocol_version(FIX_CONTRACT_LOADING_COST)
@@ -846,6 +756,7 @@ mod fix_contract_loading_cost_protocol_upgrade {
         let loading_byte = cfg_costs.gas_cost(ExtCosts::contract_loading_bytes);
         let wasm_length = test_after.get_wasm().len();
         test_after.gas(loading_base + wasm_length as u64 * loading_byte).expect(&expect);
+        #[allow(deprecated)]
         test_builder()
             .wat(ALMOST_TRIVIAL_CONTRACT)
             .only_protocol_versions(vec![FIX_CONTRACT_LOADING_COST - 1])
@@ -868,6 +779,7 @@ mod fix_contract_loading_cost_protocol_upgrade {
         let wasm_length = test_after.get_wasm().len();
         let prepaid_gas = loading_base + wasm_length as u64 * loading_byte + 884037;
         test_after.gas(prepaid_gas).expect(&expect);
+        #[allow(deprecated)]
         test_builder()
             .wat(ALMOST_TRIVIAL_CONTRACT)
             .only_protocol_versions(vec![FIX_CONTRACT_LOADING_COST - 1])
@@ -886,6 +798,7 @@ mod fix_contract_loading_cost_protocol_upgrade {
         // compatible with versions before this upgrade. Unfortunately, we
         // currently do not have tests ready to trigger each error.
 
+        #[allow(deprecated)]
         test_builder()
             .wat(r#"(module (export "main" (func 0)))"#)
             .protocol_version(FIX_CONTRACT_LOADING_COST)
@@ -900,6 +813,7 @@ mod fix_contract_loading_cost_protocol_upgrade {
                 "#]],
             ]);
 
+        #[allow(deprecated)]
         test_builder()
             .wasm(&bad_import_global("wtf"))
             .protocol_version(FIX_CONTRACT_LOADING_COST)
@@ -914,6 +828,7 @@ mod fix_contract_loading_cost_protocol_upgrade {
                 "#]],
             ]);
 
+        #[allow(deprecated)]
         test_builder()
             .wasm(&bad_import_func("wtf"))
             .protocol_version(FIX_CONTRACT_LOADING_COST)
@@ -928,6 +843,7 @@ mod fix_contract_loading_cost_protocol_upgrade {
                 "#]],
             ]);
 
+        #[allow(deprecated)]
         test_builder()
             .wasm(&near_test_contracts::LargeContract {
                 functions: 101,
@@ -948,6 +864,7 @@ mod fix_contract_loading_cost_protocol_upgrade {
             ]);
 
         let functions_number_limit: u32 = 10_000;
+        #[allow(deprecated)]
         test_builder()
             .wasm(&near_test_contracts::LargeContract {
                 functions: functions_number_limit / 2,
@@ -971,7 +888,9 @@ mod fix_contract_loading_cost_protocol_upgrade {
 
 #[test]
 fn test_regression_9393() {
+    #[allow(deprecated)]
     let before_builder = test_builder().only_protocol_versions(vec![62]);
+    #[allow(deprecated)]
     let after_builder = test_builder().only_protocol_versions(vec![63]);
     let before_cost = before_builder.configs().next().unwrap().wasm_config.regular_op_cost;
     let after_cost = after_builder.configs().next().unwrap().wasm_config.regular_op_cost;

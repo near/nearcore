@@ -169,7 +169,6 @@ wasm_bls12381_p2_decompress_element          165_000_000_000
 max_gas_burnt                            300_000_000_000_000
 max_gas_burnt_view                       300_000_000_000_000
 max_stack_height                                     262_144
-contract_prepare_version                                   2
 initial_memory_pages                                   1_024
 max_memory_pages                                       2_048
 registers_memory_limit                         1_073_741_824

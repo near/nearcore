@@ -365,23 +365,97 @@ impl<'a> wp::VisitOperator<'a> for SimpleGasCostCfg {
 #[cfg(test)]
 mod test {
     use super::VMKind;
-    use crate::logic::ContractPrepareVersion;
+    use crate::logic::errors::PrepareError;
     use crate::tests::test_vm_config;
+    use finite_wasm::wasmparser as wp;
+
+    fn wasmparser_decode(
+        code: &[u8],
+        features: crate::features::WasmFeatures,
+    ) -> Result<(Option<u64>, Option<u64>), wp::BinaryReaderError> {
+        use wp::ValidPayload;
+        let mut validator = wp::Validator::new_with_features(features.into());
+        let mut function_count = Some(0u64);
+        let mut local_count = Some(0u64);
+        for payload in wp::Parser::new(0).parse_all(code) {
+            let payload = payload?;
+
+            // The validator does not output `ValidPayload::Func` for imported functions.
+            if let wp::Payload::ImportSection(ref import_section_reader) = payload {
+                for import_section in import_section_reader.clone() {
+                    match import_section?.ty {
+                        wp::TypeRef::Func(_) => {
+                            function_count = function_count.and_then(|f| f.checked_add(1))
+                        }
+                        wp::TypeRef::Table(_)
+                        | wp::TypeRef::Memory(_)
+                        | wp::TypeRef::Global(_)
+                        | wp::TypeRef::Tag(_) => {}
+                    }
+                }
+            }
+
+            match validator.payload(&payload)? {
+                ValidPayload::Ok => (),
+                ValidPayload::Func(validator, body) => {
+                    validator.into_validator(Default::default()).validate(&body)?;
+                    function_count = function_count.and_then(|f| f.checked_add(1));
+                    // Count the global number of local variables.
+                    let mut local_reader = body.get_locals_reader()?;
+                    for _ in 0..local_reader.get_count() {
+                        let (count, _type) = local_reader.read()?;
+                        local_count = local_count.and_then(|l| l.checked_add(count.into()));
+                    }
+                }
+                ValidPayload::Parser(_) => {
+                    panic!("submodules not supported and should've been rejected")
+                }
+                ValidPayload::End(_) => {}
+            }
+        }
+        Ok((function_count, local_count))
+    }
+
+    pub(crate) fn validate_contract(
+        code: &[u8],
+        features: crate::features::WasmFeatures,
+        config: &near_parameters::vm::Config,
+    ) -> Result<(), PrepareError> {
+        let (function_count, local_count) = wasmparser_decode(code, features).map_err(|e| {
+            tracing::debug!(err=?e, "wasmparser failed decoding a contract");
+            PrepareError::Deserialization
+        })?;
+        // Verify the number of functions does not exceed the limit we imposed. Note that the ordering
+        // of this check is important. In the past we first validated the entire module and only then
+        // verified that the limit is not exceeded. While it would be more efficient to check for this
+        // before validating the function bodies, it would change the results for malformed WebAssembly
+        // modules.
+        if let Some(max_functions) = config.limit_config.max_functions_number_per_contract {
+            if function_count.ok_or(PrepareError::TooManyFunctions)? > max_functions {
+                return Err(PrepareError::TooManyFunctions);
+            }
+        }
+        // Similarly, do the same for the number of locals.
+        if let Some(max_locals) = config.limit_config.max_locals_per_contract {
+            if local_count.ok_or(PrepareError::TooManyLocals)? > max_locals {
+                return Err(PrepareError::TooManyLocals);
+            }
+        }
+        Ok(())
+    }
 
     #[test]
     fn v2_preparation_wasmtime_generates_valid_contract_fuzzer() {
-        let mut config = test_vm_config();
-        let prepare_version = ContractPrepareVersion::V2;
-        config.limit_config.contract_prepare_version = prepare_version;
-        let features = crate::features::WasmFeatures::from(prepare_version);
+        let config = test_vm_config();
+        let features = crate::features::WasmFeatures::new();
         bolero::check!().for_each(|input: &[u8]| {
-            // DO NOT use ArbitraryModule. We do want modules that may be invalid here, if they pass our validation step!
-            if let Ok(_) = crate::prepare::prepare_v1::validate_contract(input, features, &config) {
+            // DO NOT use ArbitraryModule. We do want modules that may be invalid here, if they
+            // pass our validation step!
+            if let Ok(_) = validate_contract(input, features, &config) {
                 match super::prepare_contract(input, features, &config, VMKind::Wasmtime) {
                     Err(_e) => (), // TODO: this should be a panic, but for now it’d actually trigger
                     Ok(code) => {
-                        let mut validator = wasmparser::Validator::new();
-                        validator.wasm_features(features.into());
+                        let mut validator = wp::Validator::new_with_features(features.into());
                         match validator.validate_all(&code) {
                             Ok(_) => (),
                             Err(e) => panic!(
@@ -397,19 +471,16 @@ mod test {
 
     #[test]
     fn v2_preparation_near_vm_generates_valid_contract_fuzzer() {
-        let mut config = test_vm_config();
-        let prepare_version = ContractPrepareVersion::V2;
-        config.limit_config.contract_prepare_version = prepare_version;
-        let features = crate::features::WasmFeatures::from(prepare_version);
-
+        let config = test_vm_config();
+        let features = crate::features::WasmFeatures::new();
         bolero::check!().for_each(|input: &[u8]| {
-            // DO NOT use ArbitraryModule. We do want modules that may be invalid here, if they pass our validation step!
-            if let Ok(_) = crate::prepare::prepare_v1::validate_contract(input, features, &config) {
+            // DO NOT use ArbitraryModule. We do want modules that may be invalid here, if they
+            // pass our validation step!
+            if let Ok(_) = validate_contract(input, features, &config) {
                 match super::prepare_contract(input, features, &config, VMKind::NearVm) {
                     Err(_e) => (), // TODO: this should be a panic, but for now it’d actually trigger
                     Ok(code) => {
-                        let mut validator = wasmparser::Validator::new();
-                        validator.wasm_features(features.into());
+                        let mut validator = wp::Validator::new_with_features(features.into());
                         match validator.validate_all(&code) {
                             Ok(_) => (),
                             Err(e) => panic!(
