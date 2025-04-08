@@ -47,14 +47,7 @@ static SIMPLE_CONTRACT: &str = r#"(module (func (export "main")))"#;
 fn test_simple_contract() {
     test_builder()
         .wat(SIMPLE_CONTRACT)
-        .protocol_features(&[
-            #[allow(deprecated)]
-            ProtocolFeature::_DeprecatedPreparationV2,
-        ])
         .expects(&[
-            expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 42815463 used gas 42815463
-            "#]],
             expect![[r#"
                 VMOutcome: balance 4 storage_usage 12 return data None burnt gas 79064041 used gas 79064041
             "#]],
@@ -356,15 +349,7 @@ fn test_guest_panic() {
                 )
             "#,
         )
-        .protocol_features(&[
-            #[allow(deprecated)]
-            ProtocolFeature::_DeprecatedPreparationV2,
-        ])
         .expects(&[
-            expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 315775830 used gas 315775830
-                Err: Smart contract panicked: explicit guest panic
-            "#]],
             expect![[r#"
                 VMOutcome: balance 4 storage_usage 12 return data None burnt gas 381690938 used gas 381690938
                 Err: Smart contract panicked: explicit guest panic
@@ -574,16 +559,8 @@ fn test_bad_import_3() {
     test_builder()
         .wasm(&bad_import_global("env"))
         .opaque_error()
-        .protocol_features(&[
-            #[allow(deprecated)]
-            ProtocolFeature::_DeprecatedPreparationV2,
-        ])
         .protocol_version(FIX_CONTRACT_LOADING_COST)
         .expects(&[
-            expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 48234213 used gas 48234213
-                Err: ...
-            "#]],
             expect![[r#"
                 VMOutcome: balance 4 storage_usage 12 return data None burnt gas 0 used gas 0
                 Err: ...
@@ -653,14 +630,7 @@ static EXTERNAL_CALL_CONTRACT: &str = r#"
 fn test_external_call_ok() {
     test_builder()
         .wat(EXTERNAL_CALL_CONTRACT)
-        .protocol_features(&[
-            #[allow(deprecated)]
-            ProtocolFeature::_DeprecatedPreparationV2,
-        ])
         .expects(&[
-            expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 320283336 used gas 320283336
-            "#]],
             expect![[r#"
                 VMOutcome: balance 4 storage_usage 12 return data None burnt gas 401031709 used gas 401031709
             "#]],
@@ -694,14 +664,7 @@ fn test_external_call_indirect() {
             )
             "#
         )
-        .protocol_features(&[
-            #[allow(deprecated)]
-            ProtocolFeature::_DeprecatedPreparationV2,
-        ])
         .expects(&[
-            expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 328909092 used gas 328909092
-            "#]],
             expect![[r#"
                 VMOutcome: balance 4 storage_usage 12 return data None burnt gas 441069085 used gas 441069085
             "#]],
@@ -858,15 +821,8 @@ mod fix_contract_loading_cost_protocol_upgrade {
     fn test_fn_loading_gas_protocol_upgrade() {
         test_builder()
             .wat(ALMOST_TRIVIAL_CONTRACT)
-            .protocol_features(&[
-                #[allow(deprecated)]
-                ProtocolFeature::_DeprecatedPreparationV2
-            ])
             .protocol_version(FIX_CONTRACT_LOADING_COST)
             .expects(&[
-                expect![[r#"
-                    VMOutcome: balance 4 storage_usage 12 return data None burnt gas 47406987 used gas 47406987
-                "#]],
                 expect![[r#"
                     VMOutcome: balance 4 storage_usage 12 return data None burnt gas 88890835 used gas 88890835
                 "#]],
