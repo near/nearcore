@@ -247,13 +247,15 @@ pub enum ProtocolFeature {
     #[deprecated]
     _DeprecatedChunkEndorsementsInBlockHeader,
     /// Store receipts in State in the StateStoredReceipt format.
-    StateStoredReceipt,
+    #[deprecated]
+    _DeprecatedStateStoredReceipt,
     /// Resharding V3 - Adding "game.hot.tg-0" boundary.
     SimpleNightshadeV4,
     /// Resharding V3 - Adding "earn.kaiching" boundary.
     SimpleNightshadeV5,
     /// Exclude contract code from the chunk state witness and distribute it to chunk validators separately.
-    ExcludeContractCodeFromStateWitness,
+    #[deprecated]
+    _DeprecatedExcludeContractCodeFromStateWitness,
     /// A scheduler which limits bandwidth for sending receipts between shards.
     BandwidthScheduler,
     /// Indicates that the "sync_hash" used to identify the point in the chain to sync state to
@@ -363,8 +365,8 @@ impl ProtocolFeature {
             ProtocolFeature::_DeprecatedIncreaseStorageProofSizeSoftLimit
             | ProtocolFeature::_DeprecatedChunkEndorsementV2
             | ProtocolFeature::_DeprecatedChunkEndorsementsInBlockHeader
-            | ProtocolFeature::StateStoredReceipt => 72,
-            ProtocolFeature::ExcludeContractCodeFromStateWitness => 73,
+            | ProtocolFeature::_DeprecatedStateStoredReceipt => 72,
+            ProtocolFeature::_DeprecatedExcludeContractCodeFromStateWitness => 73,
             ProtocolFeature::FixStakingThreshold
             | ProtocolFeature::RejectBlocksWithOutdatedProtocolVersions
             | ProtocolFeature::FixChunkProducerStakingThreshold
