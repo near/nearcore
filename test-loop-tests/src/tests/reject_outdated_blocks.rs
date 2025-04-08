@@ -40,7 +40,7 @@ fn create_tx(latest_block: &Block, origin: &AccountId, receiver: &AccountId) -> 
 }
 
 #[test]
-fn slow_test_reject_blocks_with_outdated_protocol_version_protocol_upgrade() {
+fn slow_test_reject_blocks_with_outdated_protocol_version() {
     init_test_logger();
 
     let test_loop_builder = TestLoopBuilder::new();
