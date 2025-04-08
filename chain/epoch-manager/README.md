@@ -31,8 +31,7 @@ You can see more details on [the Nomicon documentation](https://nomicon.io/Econo
 
 These files/functions are responsible for selecting the validators for the next epoch (and internally - also deciding which validator will produce which block and which chunk).
 
-We've recently (Dec 2021) introduced a new algorithm for validator selection (AliasValidatorSelectionAlgorithm), which is the reason why you can see both the old
-and the new implementation present in the code - with new code existing in `validator_selection.rs`, while old code in `proposals.rs`.
+We've previously (Dec 2021) introduced a new algorithm for validator selection (_DeprecatedAliasValidatorSelectionAlgorithm), which has now been deprecated. The new implementation in `validator_selection.rs` is always used, while the old implementation in `proposals.rs` is kept for historical reference.
 
 ## Shard assignments
 
