@@ -1,7 +1,7 @@
 use crate::NUM_SECONDS_IN_A_YEAR;
 use crate::RewardCalculator;
 use crate::RngSeed;
-use crate::proposals::find_threshold;
+use crate::genesis::find_threshold;
 use crate::reward_calculator::NUM_NS_IN_SECOND;
 use crate::{BlockInfo, EpochManager};
 use near_crypto::{KeyType, SecretKey};

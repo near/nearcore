@@ -16,7 +16,6 @@ use rand::{RngCore, SeedableRng};
 use rand_hc::Hc128Rng;
 
 use crate::EpochManager;
-use crate::proposals::find_threshold;
 use crate::validator_selection::proposals_to_epoch_info;
 
 impl EpochManager {
@@ -147,6 +146,33 @@ impl EpochManager {
             seat_price: threshold,
             protocol_version: PROD_GENESIS_PROTOCOL_VERSION,
         })
+    }
+}
+
+/// Find threshold of stake per seat, given provided stakes and required number of seats.
+pub(crate) fn find_threshold(
+    stakes: &[Balance],
+    num_seats: NumSeats,
+) -> Result<Balance, EpochError> {
+    let stake_sum: Balance = stakes.iter().sum();
+    if stake_sum < num_seats.into() {
+        return Err(EpochError::ThresholdError { stake_sum, num_seats });
+    }
+    let (mut left, mut right): (Balance, Balance) = (1, stake_sum + 1);
+    'outer: loop {
+        if left == right - 1 {
+            break Ok(left);
+        }
+        let mid = (left + right) / 2;
+        let mut current_sum: Balance = 0;
+        for item in stakes.iter() {
+            current_sum += item / mid;
+            if current_sum >= u128::from(num_seats) {
+                left = mid;
+                continue 'outer;
+            }
+        }
+        right = mid;
     }
 }
 
