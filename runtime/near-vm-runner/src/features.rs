@@ -16,33 +16,29 @@ mod opts {
     pub(super) const GC: bool = false;
     pub(super) const FUNCTION_REFERENCES: bool = false;
     pub(super) const MEMORY_CONTROL: bool = false;
+    pub(super) const SIGN_EXTENSION: bool = true;
 }
 #[allow(unused_imports)]
 use opts::*;
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub(crate) struct WasmFeatures {
-    sign_extension: bool,
-}
+#[derive(Clone, Copy)]
+#[allow(unused)]
+pub struct WasmFeatures(());
 
-impl From<crate::logic::ContractPrepareVersion> for WasmFeatures {
-    fn from(version: crate::logic::ContractPrepareVersion) -> Self {
-        let sign_extension = match version {
-            crate::logic::ContractPrepareVersion::V0 => false,
-            crate::logic::ContractPrepareVersion::V1 => false,
-            crate::logic::ContractPrepareVersion::V2 => true,
-        };
-        WasmFeatures { sign_extension }
+impl WasmFeatures {
+    #[allow(unused)]
+    pub fn new() -> Self {
+        Self(())
     }
 }
 
 #[cfg(feature = "finite-wasm")]
 impl From<WasmFeatures> for finite_wasm::wasmparser::WasmFeatures {
-    fn from(f: WasmFeatures) -> Self {
+    fn from(_: WasmFeatures) -> Self {
         finite_wasm::wasmparser::WasmFeatures {
             floats: true,
             mutable_global: true,
-            sign_extension: f.sign_extension,
+            sign_extension: SIGN_EXTENSION,
 
             reference_types: REFERENCE_TYPES,
             // wasmer singlepass compiler requires multi_value return values to be disabled.
@@ -65,46 +61,13 @@ impl From<WasmFeatures> for finite_wasm::wasmparser::WasmFeatures {
     }
 }
 
-#[cfg(feature = "wasmparser")]
-impl From<WasmFeatures> for wasmparser::WasmFeatures {
-    fn from(_: WasmFeatures) -> Self {
-        // /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\
-        //
-        // There are features that this version of wasmparser enables by default, but pwasm
-        // currently does not and the compilers' support for these features is therefore largely
-        // untested if it exists at all. Non exhaustive list of examples:
-        //
-        // * saturating_float_to_int
-        // * sign_extension
-        //
-        // This is instead ensured by the fact that the V0 and V1 use pwasm utils in preparation
-        // and it does not support these extensions.
-        //
-        // /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\
-        wasmparser::WasmFeatures {
-            deterministic_only: false,
-
-            module_linking: false, // old version of component model
-            reference_types: REFERENCE_TYPES,
-            multi_value: MULTI_VALUE,
-            bulk_memory: BULK_MEMORY,
-            simd: SIMD,
-            threads: THREADS,
-            tail_call: TAIL_CALL,
-            multi_memory: MULTI_MEMORY,
-            exceptions: EXCEPTIONS,
-            memory64: MEMORY64,
-        }
-    }
-}
-
 #[cfg(all(feature = "near_vm", target_arch = "x86_64"))]
 impl From<WasmFeatures> for near_vm_types::Features {
-    fn from(f: crate::features::WasmFeatures) -> Self {
+    fn from(_: crate::features::WasmFeatures) -> Self {
         Self {
             mutable_global: true,
-            sign_extension: f.sign_extension,
 
+            sign_extension: SIGN_EXTENSION,
             threads: THREADS,
             reference_types: REFERENCE_TYPES,
             simd: SIMD,

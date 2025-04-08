@@ -23,7 +23,6 @@ finite-wasm = { workspace = true, features = ["instrument"], optional = true }
 lru.workspace = true
 memoffset = { workspace = true, optional = true }
 num-rational.workspace = true
-parity-wasm = { workspace = true, optional = true }
 prefix-sum-vec = { workspace = true, optional = true }
 prometheus = { workspace = true, optional = true }
 rand.workspace = true
@@ -50,11 +49,6 @@ near-primitives-core.workspace = true
 near-schema-checker-lib.workspace = true
 
 bytesize.workspace = true
-
-# Old versions of pwasm-utils we need to preserve backwards compatibility under
-# old protocol versions.
-pwasm-utils_12 = { workspace = true, optional = true }
-parity-wasm_41 = { workspace = true, optional = true }
 
 [target.'cfg(target_arch = "x86_64")'.dependencies]
 near-vm-compiler = { workspace = true, optional = true }
@@ -97,9 +91,6 @@ prepare = [
   "finite-wasm",
   "wasm-encoder",
   "wasmparser",
-  "parity-wasm",
-  "parity-wasm_41",
-  "pwasm-utils_12",
   "prefix-sum-vec",
   "metrics",
 ]
