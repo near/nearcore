@@ -546,9 +546,6 @@ impl ShardChunkHeader {
             ShardChunkHeader::V2(_) => false,
             ShardChunkHeader::V3(header) => match header.inner {
                 ShardChunkHeaderInner::V1(_) => false,
-                // Note that we allow V2 in the congestion control version.
-                // That is because the first chunk where this feature is
-                // enabled does not have the congestion info.
                 // In bandwidth scheduler version v3 and v4 are allowed. The first chunk in
                 // the bandwidth scheduler version will be v3 because the chunk extra for the
                 // last chunk of previous version doesn't have bandwidth requests.
