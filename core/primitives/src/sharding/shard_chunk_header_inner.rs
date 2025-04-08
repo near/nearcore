@@ -146,14 +146,15 @@ impl ShardChunkHeaderInner {
         }
     }
 
-    /// Congestion info, if the feature is enabled on the chunk, `None`` otherwise.
     #[inline]
-    pub fn congestion_info(&self) -> Option<CongestionInfo> {
+    pub fn congestion_info(&self) -> CongestionInfo {
         match self {
-            Self::V1(_) => None,
-            Self::V2(_) => None,
-            Self::V3(v3) => Some(v3.congestion_info),
-            Self::V4(v4) => Some(v4.congestion_info),
+            Self::V1(_) | Self::V2(_) => {
+                debug_assert!(false, "Calling congestion_info on V1 or V2 header version");
+                Default::default()
+            }
+            Self::V3(v3) => v3.congestion_info,
+            Self::V4(v4) => v4.congestion_info,
         }
     }
 

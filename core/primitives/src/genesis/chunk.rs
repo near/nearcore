@@ -84,7 +84,7 @@ fn genesis_chunk(
         vec![],
         vec![],
         CryptoHash::default(),
-        Some(congestion_info),
+        congestion_info,
         BandwidthRequests::default_for_protocol_version(genesis_protocol_version),
         &EmptyValidatorSigner::default().into(),
         genesis_protocol_version,

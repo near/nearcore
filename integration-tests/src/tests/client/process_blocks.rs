@@ -56,7 +56,7 @@ use near_primitives::transaction::{
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{AccountId, BlockHeight, EpochId, NumBlocks};
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
+use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{FinalExecutionStatus, QueryRequest, QueryResponseKind};
 use near_primitives_core::num_rational::Ratio;
 use near_store::NodeStorage;
@@ -2598,71 +2598,6 @@ fn test_refund_receipts_processing() {
             unreachable!("Transaction must succeed");
         }
     }
-}
-
-// Tests that the number of delayed receipts in each shard is bounded based on the gas limit of
-// the chunk and any new receipts are not included if there are too many delayed receipts.
-#[test]
-fn test_delayed_receipt_count_limit() {
-    init_test_logger();
-
-    if ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
-        // congestion control replaces the delayed receipt count limit, making this test irrelevant
-        return;
-    }
-
-    let epoch_length = 5;
-    let min_gas_price = 10000;
-    let mut genesis = Genesis::test_sharded_new_version(vec!["test0".parse().unwrap()], 1, vec![1]);
-    genesis.config.epoch_length = epoch_length;
-    genesis.config.min_gas_price = min_gas_price;
-    // Set gas limit to be small enough to produce some delayed receipts, but large enough for
-    // transactions to get through.
-    // This will result in delayed receipt count limit of 20.
-    let transaction_costs = RuntimeConfig::test().fees;
-    let chunk_gas_limit = 10 * transaction_costs.fee(ActionCosts::new_action_receipt).exec_fee();
-    genesis.config.gas_limit = chunk_gas_limit;
-    let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
-    let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
-
-    let signer = InMemorySigner::test_signer(&"test0".parse().unwrap());
-    // Send enough transactions to saturate delayed receipts capacity.
-    let total_tx_count = 200usize;
-    for i in 0..total_tx_count {
-        let tx = SignedTransaction::from_actions(
-            (i + 1) as u64,
-            "test0".parse().unwrap(),
-            "test0".parse().unwrap(),
-            &signer,
-            vec![Action::DeployContract(DeployContractAction { code: vec![92; 10000] })],
-            *genesis_block.hash(),
-            0,
-        );
-        assert_eq!(
-            env.tx_request_handlers[0].process_tx(tx, false, false),
-            ProcessTxResponse::ValidTx
-        );
-    }
-
-    let mut included_tx_count = 0;
-    let mut height = 1;
-    while included_tx_count < total_tx_count {
-        env.produce_block(0, height);
-        let block = env.clients[0].chain.get_block_by_height(height).unwrap();
-        let chunk = env.clients[0].chain.get_chunk(&block.chunks()[0].chunk_hash()).unwrap();
-        // These checks are useful to ensure that we didn't mess up the test setup.
-        assert!(chunk.prev_outgoing_receipts().len() <= 1);
-        assert!(chunk.to_transactions().len() <= 5);
-
-        // Because all transactions are in the transactions pool, this means we have not included
-        // some transactions due to the delayed receipt count limit.
-        if included_tx_count > 0 && chunk.to_transactions().is_empty() {
-            break;
-        }
-        included_tx_count += chunk.to_transactions().len();
-        height += 1;
-    }
-    assert!(included_tx_count < total_tx_count);
 }
 
 #[test]

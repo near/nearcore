@@ -607,17 +607,16 @@ impl<'a> Chunks<'a> {
         for chunk in self.iter_deprecated() {
             let shard_id = chunk.shard_id();
 
-            if let Some(congestion_info) = chunk.congestion_info() {
-                let height_included = chunk.height_included();
-                let height_current = self.block_height;
-                let missed_chunks_count = height_current.checked_sub(height_included);
-                let missed_chunks_count = missed_chunks_count
-                    .expect("The chunk height included must be less or equal than block height!");
+            let congestion_info = chunk.congestion_info();
+            let height_included = chunk.height_included();
+            let height_current = self.block_height;
+            let missed_chunks_count = height_current.checked_sub(height_included);
+            let missed_chunks_count = missed_chunks_count
+                .expect("The chunk height included must be less or equal than block height!");
 
-                let extended_congestion_info =
-                    ExtendedCongestionInfo::new(congestion_info, missed_chunks_count);
-                result.insert(shard_id, extended_congestion_info);
-            }
+            let extended_congestion_info =
+                ExtendedCongestionInfo::new(congestion_info, missed_chunks_count);
+            result.insert(shard_id, extended_congestion_info);
         }
         BlockCongestionInfo::new(result)
     }

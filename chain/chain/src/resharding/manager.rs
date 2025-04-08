@@ -248,8 +248,7 @@ impl ReshardingManager {
             let parent_shard_layout = self.epoch_manager.get_shard_layout(&parent_epoch_id)?;
             let parent_state_root = *parent_chunk_extra.state_root();
             let parent_trie = tries.get_trie_for_shard(parent_shard_uid, parent_state_root);
-            let parent_congestion_info =
-                parent_chunk_extra.congestion_info().expect("The congestion info must exist!");
+            let parent_congestion_info = parent_chunk_extra.congestion_info();
             let parent_trie = parent_trie.recording_reads_with_recorder(trie_recorder.into());
             let child_epoch_id = self.epoch_manager.get_next_epoch_id(block.hash())?;
             let child_shard_layout = self.epoch_manager.get_shard_layout(&child_epoch_id)?;
@@ -273,8 +272,7 @@ impl ReshardingManager {
             // `FlatState` update is implemented.
             let mut child_chunk_extra = ChunkExtra::clone(&parent_chunk_extra);
             *child_chunk_extra.state_root_mut() = new_state_root;
-            *child_chunk_extra.congestion_info_mut().expect("The congestion info must exist!") =
-                child_congestion_info;
+            *child_chunk_extra.congestion_info_mut() = child_congestion_info;
 
             chain_store_update.save_chunk_extra(block_hash, &new_shard_uid, child_chunk_extra);
             chain_store_update.save_state_transition_data(
