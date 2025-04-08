@@ -22,9 +22,11 @@ mod opts {
 use opts::*;
 
 #[derive(Clone, Copy)]
+#[allow(unused)]
 pub struct WasmFeatures(());
 
 impl WasmFeatures {
+    #[allow(unused)]
     pub fn new() -> Self {
         Self(())
     }
