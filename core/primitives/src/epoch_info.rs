@@ -2,7 +2,6 @@ use std::collections::{BTreeMap, HashMap};
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives_core::types::{Balance, EpochHeight, ProtocolVersion, ValidatorId};
-use near_primitives_core::version::ProtocolFeature;
 use near_primitives_core::{
     hash::hash,
     types::{BlockHeight, ShardId},
@@ -544,16 +543,12 @@ impl EpochInfo {
                 shard_cps.get((height as u64 % (shard_cps.len() as u64)) as usize).copied()
             }
             Self::V3(v3) => {
-                let protocol_version = self.protocol_version();
-                let seed =
-                    Self::chunk_produce_seed(protocol_version, &v3.rng_seed, height, shard_id);
+                let seed = Self::chunk_produce_seed(&v3.rng_seed, height, shard_id);
                 let sample = v3.chunk_producers_sampler.get(shard_index)?.sample(seed);
                 v3.chunk_producers_settlement.get(shard_index)?.get(sample).copied()
             }
             Self::V4(v4) => {
-                let protocol_version = self.protocol_version();
-                let seed =
-                    Self::chunk_produce_seed(protocol_version, &v4.rng_seed, height, shard_id);
+                let seed = Self::chunk_produce_seed(&v4.rng_seed, height, shard_id);
                 let sample = v4.chunk_producers_sampler.get(shard_index)?.sample(seed);
                 v4.chunk_producers_settlement.get(shard_index)?.get(sample).copied()
             }
@@ -583,26 +578,13 @@ impl EpochInfo {
         hash(&buffer).0
     }
 
-    fn chunk_produce_seed(
-        protocol_version: ProtocolVersion,
-        seed: &RngSeed,
-        height: BlockHeight,
-        shard_id: ShardId,
-    ) -> [u8; 32] {
-        if !ProtocolFeature::ChunkOnlyProducers.enabled(protocol_version) {
-            // This is same seed that used for determining block
-            // producer. This seed does not contain the shard id
-            // so all shards will be produced by the same
-            // validator.
-            Self::block_produce_seed(height, seed)
-        } else {
-            // 32 bytes from epoch_seed, 8 bytes from height, 8 bytes from shard_id
-            let mut buffer = [0u8; 48];
-            buffer[0..32].copy_from_slice(seed);
-            buffer[32..40].copy_from_slice(&height.to_le_bytes());
-            buffer[40..48].copy_from_slice(&shard_id.to_le_bytes());
-            hash(&buffer).0
-        }
+    fn chunk_produce_seed(seed: &RngSeed, height: BlockHeight, shard_id: ShardId) -> [u8; 32] {
+        // 32 bytes from epoch_seed, 8 bytes from height, 8 bytes from shard_id
+        let mut buffer = [0u8; 48];
+        buffer[0..32].copy_from_slice(seed);
+        buffer[32..40].copy_from_slice(&height.to_le_bytes());
+        buffer[40..48].copy_from_slice(&shard_id.to_le_bytes());
+        hash(&buffer).0
     }
 }
 
