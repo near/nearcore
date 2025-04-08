@@ -307,10 +307,14 @@ impl Handler<PeerManagerMessageRequest> for TestLoopPeerManagerActor {
     }
 }
 
+/// Allows restricting the peers which would receive a network request.
 #[derive(Debug, Clone)]
 pub enum PeerRestriction {
+    /// All peers would receive all requests.
     AllowAll,
+    /// Only selected peers would receive requests.
     AllowSelected(HashSet<PeerId>),
+    /// All but selected peers would receive requests.
     BlockSelected(HashSet<PeerId>),
 }
 
