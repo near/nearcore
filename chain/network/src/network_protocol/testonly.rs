@@ -49,7 +49,6 @@ pub fn make_block(
 ) -> Block {
     Block::produce(
         version::PROTOCOL_VERSION,
-        version::PROTOCOL_VERSION,
         prev.header(),
         prev.header().height() + 5,
         prev.header().block_ordinal() + 1,
@@ -63,8 +62,6 @@ pub fn make_block(
         0,
         0,
         Some(0),
-        vec![],
-        vec![],
         signer,
         CryptoHash::default(),
         CryptoHash::default(),
