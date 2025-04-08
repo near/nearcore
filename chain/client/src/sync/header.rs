@@ -785,7 +785,6 @@ mod test {
             };
             let block = Block::produce(
                 PROTOCOL_VERSION,
-                PROTOCOL_VERSION,
                 last_block.header(),
                 this_height,
                 last_block.header().block_ordinal() + 1,
@@ -812,8 +811,6 @@ mod test {
                 0,
                 100,
                 Some(0),
-                vec![],
-                vec![],
                 signer2.as_ref(),
                 *last_block.header().next_bp_hash(),
                 block_merkle_tree.root(),
@@ -822,7 +819,7 @@ mod test {
                 None,
             );
             block_merkle_tree.insert(*block.hash());
-            chain2.process_block_header(block.header(), &mut Vec::new()).unwrap(); // just to validate
+            chain2.process_block_header(block.header()).unwrap(); // just to validate
             process_block_sync(
                 &mut chain2,
                 &None,
@@ -883,7 +880,7 @@ mod test {
                         retrieve_headers(chain2.chain_store(), hashes, MAX_BLOCK_HEADERS, None)
                             .unwrap();
                     assert!(!headers.is_empty(), "No headers were returned");
-                    match chain.sync_block_headers(headers, &mut Vec::new()) {
+                    match chain.sync_block_headers(headers) {
                         Ok(_) => {}
                         Err(e) => {
                             panic!("Error inserting headers: {:?}", e);

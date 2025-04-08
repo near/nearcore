@@ -58,9 +58,7 @@ use near_primitives::block::{
     Block, BlockValidityError, Chunks, MaybeNew, Tip, compute_bp_hash_from_validator_stakes,
 };
 use near_primitives::block_header::BlockHeader;
-use near_primitives::challenge::{
-    BlockDoubleSign, ChallengeBody, ChunkProofs, ChunkState, MaybeEncodedShardChunk,
-};
+use near_primitives::challenge::{ChunkProofs, ChunkState, MaybeEncodedShardChunk};
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::errors::EpochError;
 use near_primitives::hash::{CryptoHash, hash};
@@ -83,8 +81,7 @@ use near_primitives::stateless_validation::state_witness::{
 use near_primitives::transaction::{ExecutionOutcomeWithIdAndProof, SignedTransaction};
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{
-    AccountId, Balance, BlockHeight, BlockHeightDelta, EpochId, MerkleHash, NumBlocks, ShardId,
-    ShardIndex,
+    AccountId, Balance, BlockHeight, BlockHeightDelta, EpochId, NumBlocks, ShardId, ShardIndex,
 };
 use near_primitives::utils::MaybeValidated;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
@@ -800,16 +797,11 @@ impl Chain {
         Ok(())
     }
 
-    /// Validate header. Returns error if the header is invalid.
-    /// `challenges`: the function will add new challenges generated from validating this header
-    ///               to the vector. You can pass an empty vector here, or a vector with existing
-    ///               challenges already.
-    fn validate_header(
-        &self,
-        header: &BlockHeader,
-        provenance: &Provenance,
-        challenges: &mut Vec<ChallengeBody>,
-    ) -> Result<(), Error> {
+    fn validate_header(&self, header: &BlockHeader, provenance: &Provenance) -> Result<(), Error> {
+        if header.challenges_present() {
+            return Err(Error::InvalidChallenge);
+        }
+
         // Refuse blocks from the too distant future.
         if header.timestamp() > self.clock.now_utc() + Duration::seconds(ACCEPTABLE_TIME_DIFFERENCE)
         {
@@ -819,23 +811,6 @@ impl Chain {
         // Check the signature.
         if !verify_block_header_signature_with_epoch_manager(self.epoch_manager.as_ref(), header)? {
             return Err(Error::InvalidSignature);
-        }
-
-        // Check we don't know a block with given height already.
-        // If we do - send out double sign challenge and keep going as double signed blocks are valid blocks.
-        // Check if there is already known block of the same height that has the same epoch id
-        if let Some(block_hashes) =
-            self.chain_store.get_all_block_hashes_by_height(header.height())?.get(header.epoch_id())
-        {
-            // This should be guaranteed but it doesn't hurt to check again
-            if !block_hashes.contains(header.hash()) {
-                let other_header = self.get_block_header(block_hashes.iter().next().unwrap())?;
-
-                challenges.push(ChallengeBody::BlockDoubleSign(BlockDoubleSign {
-                    left_block_header: borsh::to_vec(&header).expect("Failed to serialize"),
-                    right_block_header: borsh::to_vec(&other_header).expect("Failed to serialize"),
-                }));
-            }
         }
 
         if let Ok(epoch_protocol_version) =
@@ -959,15 +934,6 @@ impl Chain {
                 return Err(Error::InvalidBlockMerkleRoot);
             }
 
-            // Check that challenges root is empty to ensure later that block doesn't contain challenges.
-            // TODO (#2445): Enable challenges when they are working correctly.
-            if header.challenges_root() != &MerkleHash::default() {
-                return Err(Error::InvalidChallengeRoot);
-            }
-            if !header.challenges_result().is_empty() {
-                return Err(Error::InvalidChallenge);
-            }
-
             validate_chunk_endorsements_in_header(self.epoch_manager.as_ref(), header)?;
         }
 
@@ -978,15 +944,11 @@ impl Chain {
     /// We validate the header but we do not store it or update header head
     /// based on this. We will update these once we get the block back after
     /// requesting it.
-    pub fn process_block_header(
-        &self,
-        header: &BlockHeader,
-        challenges: &mut Vec<ChallengeBody>,
-    ) -> Result<(), Error> {
+    pub fn process_block_header(&self, header: &BlockHeader) -> Result<(), Error> {
         debug!(target: "chain", block_hash=?header.hash(), height=header.height(), "process_block_header");
 
         check_known(self, header.hash())?.map_err(|e| Error::BlockKnown(e))?;
-        self.validate_header(header, &Provenance::NONE, challenges)?;
+        self.validate_header(header, &Provenance::NONE)?;
         Ok(())
     }
 
@@ -1513,11 +1475,7 @@ impl Chain {
     }
 
     /// Processes headers and adds them to store for syncing.
-    pub fn sync_block_headers(
-        &mut self,
-        mut headers: Vec<BlockHeader>,
-        challenges: &mut Vec<ChallengeBody>,
-    ) -> Result<(), Error> {
+    pub fn sync_block_headers(&mut self, mut headers: Vec<BlockHeader>) -> Result<(), Error> {
         // Sort headers by heights.
         headers.sort_by_key(|left| left.height());
 
@@ -1555,7 +1513,7 @@ impl Chain {
                 Err(_) => continue,
             }
 
-            self.validate_header(header, &Provenance::SYNC, challenges)?;
+            self.validate_header(header, &Provenance::SYNC)?;
             let mut chain_store_update = self.chain_store.store_update();
             chain_store_update.save_block_header(header.clone())?;
 
@@ -1695,7 +1653,6 @@ impl Chain {
             me,
             &block,
             &provenance,
-            &mut block_processing_artifact.challenges,
             &mut block_processing_artifact.invalid_chunks,
             block_received_time,
             state_patch,
@@ -2233,7 +2190,6 @@ impl Chain {
         me: &Option<AccountId>,
         block: &MaybeValidated<Block>,
         provenance: &Provenance,
-        challenges: &mut Vec<ChallengeBody>,
         invalid_chunks: &mut Vec<ShardChunkHeader>,
         block_received_time: Instant,
         state_patch: SandboxStatePatch,
@@ -2325,7 +2281,7 @@ impl Chain {
         debug!(target: "chain", block_hash = ?header.hash(), me=?me, is_caught_up=is_caught_up, "Process block");
 
         // Check the header is valid before we proceed with the full block.
-        self.validate_header(header, provenance, challenges)?;
+        self.validate_header(header, provenance)?;
 
         let validator =
             self.epoch_manager.get_block_producer_info(header.epoch_id(), header.height())?;
