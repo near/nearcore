@@ -179,7 +179,6 @@ pub(crate) fn action_function_call(
         code_hash,
         account_contract.as_ref(),
         apply_state.apply_reason.clone(),
-        apply_state.current_protocol_version,
     )?;
 
     #[cfg(feature = "test_features")]
