@@ -575,8 +575,6 @@ fn ultra_slow_test_chunks_recovered_from_full_cop() {
     .run()
 }
 
-// TODO(#8269) Enable test after fixing the issue related to KeyValueRuntime. See env.restart()
-#[ignore]
 #[test]
 fn test_request_chunk_restart() {
     init_integration_logger();
