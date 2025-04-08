@@ -24,7 +24,6 @@ pub(crate) struct Intrinsic {
 pub struct Singlepass {
     pub(crate) enable_nan_canonicalization: bool,
     pub(crate) enable_stack_check: bool,
-    pub(crate) disable_9393_fix: bool,
     /// Compiler intrinsics.
     pub(crate) intrinsics: Vec<Intrinsic>,
 }
@@ -36,7 +35,6 @@ impl Singlepass {
         Self {
             enable_nan_canonicalization: true,
             enable_stack_check: false,
-            disable_9393_fix: false,
             intrinsics: vec![Intrinsic {
                 kind: IntrinsicKind::Gas,
                 name: "gas".to_string(),
@@ -59,10 +57,6 @@ impl Singlepass {
 
     fn enable_nan_canonicalization(&mut self) {
         self.enable_nan_canonicalization = true;
-    }
-
-    pub fn set_9393_fix(&mut self, enable: bool) {
-        self.disable_9393_fix = !enable;
     }
 
     pub fn canonicalize_nans(&mut self, enable: bool) -> &mut Self {

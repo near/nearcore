@@ -888,29 +888,14 @@ mod fix_contract_loading_cost_protocol_upgrade {
 
 #[test]
 fn test_regression_9393() {
-    #[allow(deprecated)]
-    let before_builder = test_builder().only_protocol_versions(vec![62]);
-    #[allow(deprecated)]
-    let after_builder = test_builder().only_protocol_versions(vec![63]);
-    let before_cost = before_builder.configs().next().unwrap().wasm_config.regular_op_cost;
+    let after_builder = test_builder();
     let after_cost = after_builder.configs().next().unwrap().wasm_config.regular_op_cost;
-    assert_eq!(
-        before_cost, after_cost,
-        "this test is not set up to test with different insn costs"
-    );
-    let cost = u64::from(before_cost);
-
+    let cost = u64::from(after_cost);
     let nops = (i32::MAX as u64 + cost - 1) / cost;
     let contract = near_test_contracts::function_with_a_lot_of_nop(nops);
-    before_builder.wasm(&contract).only_near_vm().expects(&[
-        expect![[r#"
-            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 100000000000000 used gas 100000000000000
-            Err: Exceeded the maximum amount of gas allowed to burn per contract.
-        "#]],
-    ]);
     after_builder.wasm(&contract).expects(&[
         expect![[r#"
-            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 2763981177 used gas 2763981177
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 5073607792 used gas 5073607792
         "#]],
     ]);
 }

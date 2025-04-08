@@ -351,21 +351,10 @@ impl<'a> FuncGen<'a> {
     }
 
     fn emit_gas_const(&mut self, cost: u64) {
-        if self.config.disable_9393_fix {
-            // emit_gas only supports Imm32 with an argument up-to i32::MAX, but we made *this*
-            // single-letter oversight at some point & the bug made its way into mainnet. Now that
-            // we need to maintain backwards compatibility and replayability of the old
-            // transactions, we end up with this wonderful and slightly horrifying monument to our
-            // former selves :)
-            if let Ok(cost) = u32::try_from(cost) {
-                return self.emit_gas(Location::Imm32(cost));
-            }
-        } else {
-            if let Ok(cost) = i32::try_from(cost) {
-                // This as `u32` cast is valid, as fallible u64->i32 conversions can’t produce a
-                // negative integer.
-                return self.emit_gas(Location::Imm32(cost as u32));
-            }
+        if let Ok(cost) = i32::try_from(cost) {
+            // This as `u32` cast is valid, as fallible u64->i32 conversions can’t produce a
+            // negative integer.
+            return self.emit_gas(Location::Imm32(cost as u32));
         }
         let cost_reg = self.machine.acquire_temp_gpr().unwrap();
         self.assembler.emit_mov(Size::S64, Location::Imm64(cost), Location::GPR(cost_reg));
@@ -381,7 +370,7 @@ impl<'a> FuncGen<'a> {
         }
 
         match cost_location {
-            Location::Imm32(v) if self.config.disable_9393_fix || v <= (i32::MAX as u32) => {}
+            Location::Imm32(v) if v <= (i32::MAX as u32) => {}
             Location::Imm32(v) => {
                 panic!("emit_gas can take only an imm32 <= 0xFFF_FFFF, got 0x{v:X}")
             }
