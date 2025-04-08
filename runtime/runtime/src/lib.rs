@@ -207,7 +207,7 @@ pub struct ApplyResult {
     pub proof: Option<PartialStorage>,
     pub delayed_receipts_count: u64,
     pub metrics: Option<metrics::ApplyMetrics>,
-    pub congestion_info: CongestionInfo,
+    pub congestion_info: Option<CongestionInfo>,
     pub bandwidth_requests: Option<BandwidthRequests>,
     /// Used only for a sanity check.
     pub bandwidth_scheduler_state_hash: CryptoHash,
@@ -2091,7 +2091,7 @@ impl Runtime {
             proof,
             delayed_receipts_count,
             metrics: Some(processing_state.metrics),
-            congestion_info: own_congestion_info,
+            congestion_info: Some(own_congestion_info),
             bandwidth_requests,
             bandwidth_scheduler_state_hash,
             contract_updates,
@@ -2164,12 +2164,14 @@ fn missing_chunk_apply_result(
         processing_state.state_update.finalize()?;
     let proof = trie.recorded_storage();
 
+    // For old chunks, copy the congestion info exactly as it came in,
+    // potentially returning `None` even if the congestion control
+    // feature is enabled for the protocol version.
     let congestion_info = processing_state
         .apply_state
         .congestion_info
         .get(&processing_state.apply_state.shard_id)
-        .map(|extended_info| extended_info.congestion_info)
-        .unwrap_or_default();
+        .map(|extended_info| extended_info.congestion_info);
 
     // The chunk is missing and doesn't send out any receipts.
     // It still wants to send the same receipts to the same shards, the bandwidth requests are the same.

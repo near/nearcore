@@ -2424,7 +2424,7 @@ fn test_congestion_delayed_receipts_accounting() {
         .unwrap();
 
     assert_eq!(n - 1, apply_result.delayed_receipts_count);
-    let congestion = apply_result.congestion_info;
+    let congestion = apply_result.congestion_info.unwrap();
     let expected_delayed_gas =
         (n - 1) * compute_receipt_congestion_gas(&receipts[0], &apply_state.config).unwrap();
     let expected_receipts_bytes = (n - 1) * compute_receipt_size(&receipts[0]).unwrap() as u64;
@@ -2528,9 +2528,11 @@ fn test_congestion_buffering() {
                 Default::default(),
             )
             .unwrap();
-        apply_state
-            .congestion_info
-            .insert(local_shard, ExtendedCongestionInfo::new(apply_result.congestion_info, 0));
+        if let Some(congestion_info) = apply_result.congestion_info {
+            apply_state
+                .congestion_info
+                .insert(local_shard, ExtendedCongestionInfo::new(congestion_info, 0));
+        }
         let mut store_update = tries.store_update();
         root = tries.apply_all(&apply_result.trie_changes, local_shard_uid, &mut store_update);
         store_update.commit().unwrap();
@@ -2541,7 +2543,7 @@ fn test_congestion_buffering() {
         let capped_i = std::cmp::min(i, n);
         assert_eq!(0, apply_result.outgoing_receipts.len());
         assert_eq!(capped_i, buffers.buffer_len(receiver_shard).unwrap());
-        let congestion = apply_result.congestion_info;
+        let congestion = apply_result.congestion_info.unwrap();
         assert!(congestion.buffered_receipts_gas() > 0);
         assert!(congestion.receipt_bytes() > 0);
     }
@@ -2620,8 +2622,10 @@ fn commit_apply_result(
 ) -> CryptoHash {
     // congestion control requires an update on
     assert_eq!(shard_uid.shard_id(), apply_state.shard_id);
-    let extended = ExtendedCongestionInfo::new(apply_result.congestion_info, 0);
-    apply_state.congestion_info.insert(shard_uid.shard_id(), extended);
+    if let Some(congestion_info) = apply_result.congestion_info {
+        let extended = ExtendedCongestionInfo::new(congestion_info, 0);
+        apply_state.congestion_info.insert(shard_uid.shard_id(), extended);
+    }
     let mut store_update = tries.store_update();
     let root = tries.apply_all(&apply_result.trie_changes, shard_uid, &mut store_update);
     store_update.commit().unwrap();
@@ -2641,7 +2645,7 @@ impl ApplyState {
 /// Create a scenario where `apply` is called without congestion info but
 /// cross-shard congestion control is enabled, then check what congestion
 /// info is in the apply result.
-fn check_congestion_info_bootstrapping(is_new_chunk: bool, want: CongestionInfo) {
+fn check_congestion_info_bootstrapping(is_new_chunk: bool, want: Option<CongestionInfo>) {
     let initial_balance = to_yocto(1_000_000);
     let initial_locked = to_yocto(500_000);
     let gas_limit = 10u64.pow(15);
@@ -2677,10 +2681,10 @@ fn check_congestion_info_bootstrapping(is_new_chunk: bool, want: CongestionInfo)
 #[test]
 fn test_congestion_info_bootstrapping() {
     let is_new_chunk = true;
-    check_congestion_info_bootstrapping(is_new_chunk, CongestionInfo::default());
+    check_congestion_info_bootstrapping(is_new_chunk, Some(CongestionInfo::default()));
 
     let is_new_chunk = false;
-    check_congestion_info_bootstrapping(is_new_chunk, CongestionInfo::default());
+    check_congestion_info_bootstrapping(is_new_chunk, None);
 }
 
 #[test]

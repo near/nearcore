@@ -381,10 +381,11 @@ impl Testbed<'_> {
             .apply_to_flat_state(&mut store_update.flat_store_update(), shard_uid);
         store_update.commit().unwrap();
         self.apply_state.block_height += 1;
-        let congestion_info = apply_result.congestion_info;
-        self.apply_state
-            .congestion_info
-            .insert(shard_uid.shard_id(), ExtendedCongestionInfo::new(congestion_info, 0));
+        if let Some(congestion_info) = apply_result.congestion_info {
+            self.apply_state
+                .congestion_info
+                .insert(shard_uid.shard_id(), ExtendedCongestionInfo::new(congestion_info, 0));
+        }
         if let Some(bandwidth_requests) = apply_result.bandwidth_requests {
             self.apply_state.bandwidth_requests = BlockBandwidthRequests {
                 shards_bandwidth_requests: [(shard_uid.shard_id(), bandwidth_requests)]
