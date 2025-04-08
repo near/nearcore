@@ -28,15 +28,8 @@ use near_vm_runner::logic::ProtocolVersion;
 use std::borrow::Cow;
 use std::collections::{BTreeSet, HashMap};
 
-/// Handle receipt forwarding for different protocol versions.
 pub enum ReceiptSink {
-    V1(ReceiptSinkV1),
     V2(ReceiptSinkV2),
-}
-
-/// Always put receipt to the outgoing receipts.
-pub struct ReceiptSinkV1 {
-    pub(crate) outgoing_receipts: Vec<Receipt>,
 }
 
 /// A helper struct to buffer or forward receipts.
@@ -151,7 +144,6 @@ impl ReceiptSink {
         epoch_info_provider: &dyn EpochInfoProvider,
     ) -> Result<(), RuntimeError> {
         match self {
-            ReceiptSink::V1(_inner) => Ok(()),
             ReceiptSink::V2(inner) => {
                 inner.forward_from_buffer(state_update, apply_state, epoch_info_provider)
             }
@@ -169,10 +161,6 @@ impl ReceiptSink {
         epoch_info_provider: &dyn EpochInfoProvider,
     ) -> Result<(), RuntimeError> {
         match self {
-            ReceiptSink::V1(inner) => {
-                inner.forward(receipt);
-                Ok(())
-            }
             ReceiptSink::V2(inner) => inner.forward_or_buffer_receipt(
                 receipt,
                 apply_state,
@@ -189,7 +177,6 @@ impl ReceiptSink {
         stats: &mut ReceiptSinkStats,
     ) -> Vec<Receipt> {
         match self {
-            ReceiptSink::V1(inner) => inner.outgoing_receipts,
             ReceiptSink::V2(mut inner) => {
                 inner.record_outgoing_buffer_stats();
                 *stats = inner.stats;
@@ -200,14 +187,12 @@ impl ReceiptSink {
 
     pub(crate) fn own_congestion_info(&self) -> Option<CongestionInfo> {
         match self {
-            ReceiptSink::V1(_) => None,
             ReceiptSink::V2(inner) => Some(inner.own_congestion_info),
         }
     }
 
     pub(crate) fn bandwidth_scheduler_output(&self) -> Option<&BandwidthSchedulerOutput> {
         match self {
-            ReceiptSink::V1(_) => None,
             ReceiptSink::V2(inner) => inner.bandwidth_scheduler_output.as_ref(),
         }
     }
@@ -221,18 +206,10 @@ impl ReceiptSink {
         stats: &mut ChunkApplyStatsV0,
     ) -> Result<Option<BandwidthRequests>, StorageError> {
         match self {
-            ReceiptSink::V1(_) => Ok(None),
             ReceiptSink::V2(inner) => {
                 inner.generate_bandwidth_requests(trie, shard_layout, side_effects, stats)
             }
         }
-    }
-}
-
-impl ReceiptSinkV1 {
-    /// V1 can only forward receipts.
-    pub(crate) fn forward(&mut self, receipt: Receipt) {
-        self.outgoing_receipts.push(receipt);
     }
 }
 

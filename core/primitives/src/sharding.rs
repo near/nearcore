@@ -552,8 +552,8 @@ impl ShardChunkHeader {
                 // v2 is also allowed in the bandwidth scheduler version because there
                 // are multiple tests which upgrade from an old version directly to the
                 // latest version. TODO(#12328) - don't allow InnerV2 in bandwidth scheduler version.
-                ShardChunkHeaderInner::V2(_) => true,
-                ShardChunkHeaderInner::V3(_) => true,
+                ShardChunkHeaderInner::V2(_) => version >= BANDWIDTH_SCHEDULER_VERSION,
+                ShardChunkHeaderInner::V3(_) => version >= BANDWIDTH_SCHEDULER_VERSION,
                 ShardChunkHeaderInner::V4(_) => version >= BANDWIDTH_SCHEDULER_VERSION,
             },
         };
