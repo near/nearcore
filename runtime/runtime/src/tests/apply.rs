@@ -149,12 +149,9 @@ fn setup_runtime_for_shard(
     let root = tries.apply_all(&trie_changes, shard_uid, &mut store_update);
     store_update.commit().unwrap();
     let contract_cache = FilesystemContractRuntimeCache::test().unwrap();
-    let shards_congestion_info = if ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
-        let shard_ids = shard_layout.shard_ids();
-        shard_ids.map(|shard_id| (shard_id, ExtendedCongestionInfo::default())).collect()
-    } else {
-        [].into()
-    };
+    let shard_ids = shard_layout.shard_ids();
+    let shards_congestion_info =
+        shard_ids.map(|shard_id| (shard_id, ExtendedCongestionInfo::default())).collect();
     let congestion_info = BlockCongestionInfo::new(shards_congestion_info);
     let apply_state = ApplyState {
         apply_reason: ApplyChunkReason::UpdateTrackedShard,
@@ -2426,15 +2423,13 @@ fn test_congestion_delayed_receipts_accounting() {
         .unwrap();
 
     assert_eq!(n - 1, apply_result.delayed_receipts_count);
-    if ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
-        let congestion = apply_result.congestion_info.unwrap();
-        let expected_delayed_gas =
-            (n - 1) * compute_receipt_congestion_gas(&receipts[0], &apply_state.config).unwrap();
-        let expected_receipts_bytes = (n - 1) * compute_receipt_size(&receipts[0]).unwrap() as u64;
+    let congestion = apply_result.congestion_info.unwrap();
+    let expected_delayed_gas =
+        (n - 1) * compute_receipt_congestion_gas(&receipts[0], &apply_state.config).unwrap();
+    let expected_receipts_bytes = (n - 1) * compute_receipt_size(&receipts[0]).unwrap() as u64;
 
-        assert_eq!(expected_delayed_gas as u128, congestion.delayed_receipts_gas());
-        assert_eq!(expected_receipts_bytes, congestion.receipt_bytes());
-    }
+    assert_eq!(expected_delayed_gas as u128, congestion.delayed_receipts_gas());
+    assert_eq!(expected_receipts_bytes, congestion.receipt_bytes());
 }
 
 /// Test that the outgoing receipts buffer works as intended.
@@ -2448,10 +2443,6 @@ fn test_congestion_delayed_receipts_accounting() {
 /// necessary changes to the balance checker.
 #[test]
 fn test_congestion_buffering() {
-    if !ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
-        return;
-    }
-
     init_test_logger();
 
     // In the test setup with MockEpochInfoProvider, bob_account is on shard 0 while alice_account
@@ -2688,9 +2679,6 @@ fn check_congestion_info_bootstrapping(is_new_chunk: bool, want: Option<Congesti
 /// be triggered on missed chunks.)
 #[test]
 fn test_congestion_info_bootstrapping() {
-    if !ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     let is_new_chunk = true;
     check_congestion_info_bootstrapping(is_new_chunk, Some(CongestionInfo::default()));
 

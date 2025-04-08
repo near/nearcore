@@ -29,7 +29,7 @@ use near_primitives::types::{
     AccountId, Balance, BlockHeight, EpochHeight, EpochId, EpochInfoProvider, Gas, MerkleHash,
     ShardId, StateChangeCause, StateRoot, StateRootNode,
 };
-use near_primitives::version::{ProtocolFeature, ProtocolVersion};
+use near_primitives::version::ProtocolVersion;
 use near_primitives::views::{
     AccessKeyInfoView, CallResult, ContractCodeView, QueryRequest, QueryResponse,
     QueryResponseKind, ViewStateResult,
@@ -552,7 +552,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         time_limit: Option<Duration>,
     ) -> Result<PreparedTransactions, Error> {
         let start_time = std::time::Instant::now();
-        let PrepareTransactionsChunkContext { shard_id, gas_limit, .. } = chunk;
+        let PrepareTransactionsChunkContext { shard_id, .. } = chunk;
 
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&prev_block.block_hash)?;
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
@@ -595,8 +595,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         let mut total_gas_burnt = 0;
         let mut total_size = 0u64;
 
-        let transactions_gas_limit =
-            chunk_tx_gas_limit(protocol_version, runtime_config, &prev_block, shard_id, gas_limit);
+        let transactions_gas_limit = chunk_tx_gas_limit(runtime_config, &prev_block, shard_id);
 
         let mut result = PreparedTransactions { transactions: Vec::new(), limited_by: None };
         let mut num_checked_transactions = 0;
@@ -651,7 +650,6 @@ impl RuntimeAdapter for NightshadeRuntime {
 
                 if !congestion_control_accepts_transaction(
                     self.epoch_manager.as_ref(),
-                    protocol_version,
                     &runtime_config,
                     &epoch_id,
                     &prev_block,
@@ -1178,16 +1176,10 @@ impl RuntimeAdapter for NightshadeRuntime {
 /// How much gas of the next chunk we want to spend on converting new
 /// transactions to receipts.
 fn chunk_tx_gas_limit(
-    protocol_version: u32,
     runtime_config: &RuntimeConfig,
     prev_block: &PrepareTransactionsBlockContext,
     shard_id: ShardId,
-    gas_limit: u64,
 ) -> u64 {
-    if !ProtocolFeature::CongestionControl.enabled(protocol_version) {
-        return gas_limit / 2;
-    }
-
     // The own congestion may be None when a new shard is created, or when the
     // feature is just being enabled. Using the default (no congestion) is a
     // reasonable choice in this case.
@@ -1207,15 +1199,11 @@ fn chunk_tx_gas_limit(
 /// congestion level is below the threshold.
 fn congestion_control_accepts_transaction(
     epoch_manager: &dyn EpochManagerAdapter,
-    protocol_version: ProtocolVersion,
     runtime_config: &RuntimeConfig,
     epoch_id: &EpochId,
     prev_block: &PrepareTransactionsBlockContext,
     validated_tx: &ValidatedTransaction,
 ) -> Result<bool, Error> {
-    if !ProtocolFeature::CongestionControl.enabled(protocol_version) {
-        return Ok(true);
-    }
     let receiver_id = validated_tx.receiver_id();
     let receiving_shard = account_id_to_shard_id(epoch_manager, receiver_id, &epoch_id)?;
     let congestion_info = prev_block.congestion_info.get(&receiving_shard);

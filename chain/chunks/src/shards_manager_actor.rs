@@ -1965,7 +1965,7 @@ impl ShardsManagerActor {
         prev_outgoing_receipts: Vec<Receipt>,
         prev_outgoing_receipts_root: CryptoHash,
         tx_root: CryptoHash,
-        congestion_info: Option<CongestionInfo>,
+        congestion_info: CongestionInfo,
         bandwidth_requests: Option<BandwidthRequests>,
         signer: &ValidatorSigner,
         rs: &ReedSolomon,

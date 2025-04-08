@@ -16,7 +16,7 @@ use near_primitives::state::FlatStateValue;
 use near_primitives::test_utils::MockEpochInfoProvider;
 use near_primitives::transaction::{ExecutionStatus, SignedTransaction};
 use near_primitives::types::{Gas, MerkleHash};
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
+use near_primitives::version::PROTOCOL_VERSION;
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::flat::{
     BlockInfo, FlatStateChanges, FlatStateDelta, FlatStateDeltaMetadata, FlatStorage,
@@ -167,11 +167,7 @@ impl<'c> EstimatorContext<'c> {
         runtime_config.congestion_control_config = CongestionControlConfig::test_disabled();
 
         let shard_id = ShardUId::single_shard().shard_id();
-        let congestion_info = if ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
-            [(shard_id, ExtendedCongestionInfo::default())].into()
-        } else {
-            Default::default()
-        };
+        let congestion_info = [(shard_id, ExtendedCongestionInfo::default())].into();
         let congestion_info = BlockCongestionInfo::new(congestion_info);
 
         ApplyState {

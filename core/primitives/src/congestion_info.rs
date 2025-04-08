@@ -502,15 +502,14 @@ impl ShardAcceptsTransactions {
 mod tests {
     use itertools::Itertools;
     use near_parameters::RuntimeConfigStore;
-    use near_primitives_core::version::{PROTOCOL_VERSION, ProtocolFeature};
+    use near_primitives_core::version::PROTOCOL_VERSION;
 
     use super::*;
 
     fn get_config() -> CongestionControlConfig {
         // Fix the initial configuration of congestion control for the tests.
-        let protocol_version = ProtocolFeature::CongestionControl.protocol_version();
         let runtime_config_store = RuntimeConfigStore::new(None);
-        let runtime_config = runtime_config_store.get_config(protocol_version);
+        let runtime_config = runtime_config_store.get_config(PROTOCOL_VERSION);
         runtime_config.congestion_control_config
     }
 
@@ -593,10 +592,6 @@ mod tests {
 
     #[test]
     fn test_memory_congestion() {
-        if !ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
-            return;
-        }
-
         let config = get_config();
         let mut info = CongestionInfo::default();
 
@@ -614,28 +609,29 @@ mod tests {
             assert_eq!(config.max_tx_gas, control.process_tx_limit());
         }
 
-        // remove half the congestion
-        info.remove_receipt_bytes(config.max_congestion_memory_consumption / 2).unwrap();
+        // Assert threshold is 80%. Change this number if the config changes
+        assert_eq!(0.8, config.reject_tx_congestion_threshold);
+
+        // reduce congestion to 80%
+        info.remove_receipt_bytes(config.max_congestion_memory_consumption / 5).unwrap();
         {
             let control = CongestionControl::new(config, info, 0);
-            assert_eq!(0.5, control.congestion_level());
+            assert_eq!(0.8, control.congestion_level());
             assert_eq!(
-                (0.5 * config.min_outgoing_gas as f64 + 0.5 * config.max_outgoing_gas as f64)
-                    as u64,
+                mix(config.max_outgoing_gas, config.min_outgoing_gas, 0.8),
                 control.outgoing_gas_limit(ShardId::new(1))
             );
-            // at 50%, still no new transactions are allowed
+            // at 80%, still no new transactions are allowed
             assert!(control.shard_accepts_transactions().is_no());
         }
 
-        // reduce congestion to 1/8
-        info.remove_receipt_bytes(3 * config.max_congestion_memory_consumption / 8).unwrap();
+        // reduce congestion to 10%
+        info.remove_receipt_bytes(7 * config.max_congestion_memory_consumption / 10).unwrap();
         {
             let control = CongestionControl::new(config, info, 0);
-            assert_eq!(0.125, control.congestion_level());
+            assert_eq!(0.1, control.congestion_level());
             assert_eq!(
-                (0.125 * config.min_outgoing_gas as f64 + 0.875 * config.max_outgoing_gas as f64)
-                    as u64,
+                mix(config.max_outgoing_gas, config.min_outgoing_gas, 0.1),
                 control.outgoing_gas_limit(ShardId::new(1))
             );
             // at 12.5%, new transactions are allowed (threshold is 0.25)
@@ -645,10 +641,6 @@ mod tests {
 
     #[test]
     fn test_incoming_congestion() {
-        if !ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
-            return;
-        }
-
         let config = get_config();
         let mut info = CongestionInfo::default();
 
@@ -666,50 +658,38 @@ mod tests {
             assert_eq!(config.min_tx_gas, control.process_tx_limit());
         }
 
-        // remove halve the congestion
-        info.remove_delayed_receipt_gas(config.max_congestion_incoming_gas / 2).unwrap();
+        // Assert threshold is 80%. Change this number if the config changes
+        assert_eq!(0.8, config.reject_tx_congestion_threshold);
+
+        // reduce congestion to 80%
+        info.remove_delayed_receipt_gas(config.max_congestion_incoming_gas / 5).unwrap();
         {
             let control = CongestionControl::new(config, info, 0);
-            assert_eq!(0.5, control.congestion_level());
+            assert_eq!(0.8, control.congestion_level());
             assert_eq!(
-                (0.5 * config.min_outgoing_gas as f64 + 0.5 * config.max_outgoing_gas as f64)
-                    as u64,
+                mix(config.max_outgoing_gas, config.min_outgoing_gas, 0.8),
                 control.outgoing_gas_limit(ShardId::new(1))
             );
-            // at 50%, still no new transactions to us are allowed
+            // at 80%, still no new transactions are allowed
             assert!(control.shard_accepts_transactions().is_no());
-            // but we accept new transactions to other shards
-            assert_eq!(
-                (0.5 * config.min_tx_gas as f64 + 0.5 * config.max_tx_gas as f64) as u64,
-                control.process_tx_limit()
-            );
         }
 
-        // reduce congestion to 1/8
-        info.remove_delayed_receipt_gas(3 * config.max_congestion_incoming_gas / 8).unwrap();
+        // reduce congestion to 10%
+        info.remove_delayed_receipt_gas(7 * config.max_congestion_incoming_gas / 10).unwrap();
         {
             let control = CongestionControl::new(config, info, 0);
-            assert_eq!(0.125, control.congestion_level());
+            assert_eq!(0.1, control.congestion_level());
             assert_eq!(
-                (0.125 * config.min_outgoing_gas as f64 + 0.875 * config.max_outgoing_gas as f64)
-                    as u64,
+                mix(config.max_outgoing_gas, config.min_outgoing_gas, 0.1),
                 control.outgoing_gas_limit(ShardId::new(1))
             );
-            // at 12.5%, new transactions are allowed (threshold is 0.25)
+            // at 10%, new transactions are allowed (threshold is 80%)
             assert!(control.shard_accepts_transactions().is_yes());
-            assert_eq!(
-                (0.125 * config.min_tx_gas as f64 + 0.875 * config.max_tx_gas as f64) as u64,
-                control.process_tx_limit()
-            );
         }
     }
 
     #[test]
     fn test_outgoing_congestion() {
-        if !ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
-            return;
-        }
-
         let config = get_config();
         let mut info = CongestionInfo::default();
 
@@ -725,38 +705,36 @@ mod tests {
         // processing to other shards is not restricted by own outgoing congestion
         assert_eq!(config.max_tx_gas, control.process_tx_limit());
 
-        // remove halve the congestion
-        let gas_diff = config.max_congestion_outgoing_gas / 2;
+        // Assert threshold is 80%. Change this number if the config changes
+        assert_eq!(0.8, config.reject_tx_congestion_threshold);
+
+        // reduce congestion to 80%
+        let gas_diff = config.max_congestion_outgoing_gas / 5;
         info.remove_buffered_receipt_gas(gas_diff.into()).unwrap();
         let control = CongestionControl::new(config, info, 0);
-        assert_eq!(0.5, control.congestion_level());
+        assert_eq!(0.8, control.congestion_level());
         assert_eq!(
-            (0.5 * config.min_outgoing_gas as f64 + 0.5 * config.max_outgoing_gas as f64) as u64,
+            mix(config.max_outgoing_gas, config.min_outgoing_gas, 0.8),
             control.outgoing_gas_limit(ShardId::new(1))
         );
-        // at 50%, still no new transactions to us are allowed
+        // at 80%, still no new transactions to us are allowed
         assert!(control.shard_accepts_transactions().is_no());
 
-        // reduce congestion to 1/8
-        let gas_diff = 3 * config.max_congestion_outgoing_gas / 8;
+        // reduce congestion to 10%
+        let gas_diff = 7 * config.max_congestion_outgoing_gas / 10;
         info.remove_buffered_receipt_gas(gas_diff.into()).unwrap();
         let control = CongestionControl::new(config, info, 0);
-        assert_eq!(0.125, control.congestion_level());
+        assert_eq!(0.1, control.congestion_level());
         assert_eq!(
-            (0.125 * config.min_outgoing_gas as f64 + 0.875 * config.max_outgoing_gas as f64)
-                as u64,
+            mix(config.max_outgoing_gas, config.min_outgoing_gas, 0.1),
             control.outgoing_gas_limit(ShardId::new(1))
         );
-        // at 12.5%, new transactions are allowed (threshold is 0.25)
+        // at 10%, new transactions are allowed
         assert!(control.shard_accepts_transactions().is_yes());
     }
 
     #[test]
     fn test_missed_chunks_congestion() {
-        if !ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
-            return;
-        }
-
         // The default config is quite restricting, allow more missed chunks for
         // this test to check the middle cases.
         let mut config = get_config();
@@ -800,10 +778,6 @@ mod tests {
 
     #[test]
     fn test_missed_chunks_finalize() {
-        if !ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
-            return;
-        }
-
         // The default config is quite restricting, allow more missed chunks for
         // this test to check the middle cases.
         let mut config = get_config();

@@ -1416,10 +1416,8 @@ impl Runtime {
 
         let mut processing_state =
             processing_state.into_processing_receipt_state(incoming_receipts, delayed_receipts);
-        let own_congestion_info = apply_state.own_congestion_info(
-            processing_state.protocol_version,
-            &processing_state.state_update,
-        )?;
+        let own_congestion_info =
+            apply_state.own_congestion_info(&processing_state.state_update)?;
         let mut receipt_sink = ReceiptSink::new(
             processing_state.protocol_version,
             &processing_state.state_update.trie,
@@ -1995,30 +1993,28 @@ impl Runtime {
         // this shard is fully congested.
         let delayed_receipts_count = pending_delayed_receipts.upper_bound_len();
         let mut own_congestion_info = receipt_sink.own_congestion_info();
-        if let Some(congestion_info) = &mut own_congestion_info {
-            pending_delayed_receipts.apply_congestion_changes(congestion_info)?;
+        pending_delayed_receipts.apply_congestion_changes(&mut own_congestion_info)?;
 
-            let (all_shards, shard_seed) =
-                if ProtocolFeature::SimpleNightshadeV4.enabled(protocol_version) {
-                    let shard_ids = shard_layout.shard_ids().collect_vec();
-                    let shard_index = shard_layout
-                        .get_shard_index(apply_state.shard_id)
-                        .map_err(Into::<EpochError>::into)?
-                        .try_into()
-                        .expect("Shard Index must fit within u64");
+        let (all_shards, shard_seed) =
+            if ProtocolFeature::SimpleNightshadeV4.enabled(protocol_version) {
+                let shard_ids = shard_layout.shard_ids().collect_vec();
+                let shard_index = shard_layout
+                    .get_shard_index(apply_state.shard_id)
+                    .map_err(Into::<EpochError>::into)?
+                    .try_into()
+                    .expect("Shard Index must fit within u64");
 
-                    (shard_ids, shard_index)
-                } else {
-                    (apply_state.congestion_info.all_shards(), apply_state.shard_id.into())
-                };
+                (shard_ids, shard_index)
+            } else {
+                (apply_state.congestion_info.all_shards(), apply_state.shard_id.into())
+            };
 
-            let congestion_seed = apply_state.block_height.wrapping_add(shard_seed);
-            congestion_info.finalize_allowed_shard(
-                apply_state.shard_id,
-                &all_shards,
-                congestion_seed,
-            );
-        }
+        let congestion_seed = apply_state.block_height.wrapping_add(shard_seed);
+        own_congestion_info.finalize_allowed_shard(
+            apply_state.shard_id,
+            &all_shards,
+            congestion_seed,
+        );
 
         let bandwidth_requests = receipt_sink.generate_bandwidth_requests(
             &state_update,
@@ -2095,7 +2091,7 @@ impl Runtime {
             proof,
             delayed_receipts_count,
             metrics: Some(processing_state.metrics),
-            congestion_info: own_congestion_info,
+            congestion_info: Some(own_congestion_info),
             bandwidth_requests,
             bandwidth_scheduler_state_hash,
             contract_updates,
@@ -2104,18 +2100,9 @@ impl Runtime {
 }
 
 impl ApplyState {
-    fn own_congestion_info(
-        &self,
-        protocol_version: ProtocolVersion,
-        trie: &dyn TrieAccess,
-    ) -> Result<Option<CongestionInfo>, RuntimeError> {
-        if !ProtocolFeature::CongestionControl.enabled(protocol_version) {
-            debug_assert!(self.congestion_info.is_empty());
-            return Ok(None);
-        }
-
+    fn own_congestion_info(&self, trie: &dyn TrieAccess) -> Result<CongestionInfo, RuntimeError> {
         if let Some(congestion_info) = self.congestion_info.get(&self.shard_id) {
-            return Ok(Some(congestion_info.congestion_info));
+            return Ok(congestion_info.congestion_info);
         }
 
         tracing::warn!(target: "runtime", "starting to bootstrap congestion info, this might take a while");
@@ -2124,7 +2111,7 @@ impl ApplyState {
         let time = start.elapsed();
         tracing::warn!(target: "runtime","bootstrapping congestion info done after {time:#.1?}");
         let computed = result?;
-        Ok(Some(computed))
+        Ok(computed)
     }
 }
 

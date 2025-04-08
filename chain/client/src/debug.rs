@@ -673,7 +673,7 @@ impl ClientActorInner {
                                 )
                                 .map(|s| s.whole_milliseconds() as u64),
                                 congestion_level,
-                                congestion_info: chunk.congestion_info(),
+                                congestion_info: Some(chunk.congestion_info()),
                                 endorsement_ratio,
                             }
                         })

@@ -48,7 +48,9 @@ fn set_wasm_cost(config: &mut RuntimeConfig) {
 // This is important to prevent needing to fix the congestion control tests
 // every time the parameters are updated.
 fn set_default_congestion_control(config_store: &RuntimeConfigStore, config: &mut RuntimeConfig) {
-    let cc_protocol_version = ProtocolFeature::CongestionControl.protocol_version();
+    // TODO(limited_replayability): Start using congestion control config from latest protocol version.
+    #[allow(deprecated)]
+    let cc_protocol_version = ProtocolFeature::_DeprecatedCongestionControl.protocol_version();
     let cc_config = get_runtime_config(&config_store, cc_protocol_version);
     config.congestion_control_config = cc_config.congestion_control_config;
 }
@@ -158,7 +160,7 @@ fn head_congestion_control_config(
 
 fn head_congestion_info(env: &TestEnv, shard_id: ShardId) -> CongestionInfo {
     let chunk = head_chunk_header(env, shard_id);
-    chunk.congestion_info().unwrap()
+    chunk.congestion_info()
 }
 
 fn head_chunk_header(env: &TestEnv, shard_id: ShardId) -> ShardChunkHeader {
@@ -276,11 +278,7 @@ fn submit_n_cheap_fns(
 fn test_transaction_limit_for_local_congestion() {
     init_test_logger();
 
-    if !ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     // Fix the initial configuration of congestion control for the tests.
-    let protocol_version = ProtocolFeature::CongestionControl.protocol_version();
     // We don't want to go into the TX rejection limit in this test.
     let upper_limit_congestion = UpperLimitCongestion::BelowRejectThreshold;
 
@@ -289,7 +287,7 @@ fn test_transaction_limit_for_local_congestion() {
     let contract_id: AccountId = CONTRACT_ID.parse().unwrap();
     let sender_id = contract_id.clone();
     let dummy_receiver: AccountId = "a_dummy_receiver".parse().unwrap();
-    let env = setup_test_runtime("test0".parse().unwrap(), protocol_version);
+    let env = setup_test_runtime("test0".parse().unwrap(), PROTOCOL_VERSION);
 
     let (
         remote_tx_included_without_congestion,
@@ -329,9 +327,6 @@ fn test_transaction_limit_for_local_congestion() {
 #[test]
 fn test_transaction_limit_for_remote_congestion() {
     init_test_logger();
-    if !ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     // We don't want to go into the TX rejection limit in this test.
     let upper_limit_congestion = UpperLimitCongestion::BelowRejectThreshold;
 
@@ -364,9 +359,6 @@ fn test_transaction_limit_for_remote_congestion() {
 fn slow_test_transaction_filtering() {
     init_test_logger();
 
-    if !ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     // This test should go beyond into the TX rejection limit in this test.
     let upper_limit_congestion = UpperLimitCongestion::AboveRejectThreshold;
 
@@ -566,12 +558,5 @@ fn test_rpc_client_rejection() {
     );
     let response = env.tx_request_handlers[0].process_tx(fn_tx, false, false);
 
-    if ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
-        assert_matches!(
-            response,
-            ProcessTxResponse::InvalidTx(InvalidTxError::ShardCongested { .. })
-        );
-    } else {
-        assert_eq!(response, ProcessTxResponse::ValidTx);
-    }
+    assert_matches!(response, ProcessTxResponse::InvalidTx(InvalidTxError::ShardCongested { .. }));
 }

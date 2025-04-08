@@ -291,7 +291,7 @@ fn analyze_workload_blocks(
 
             let mut cur_chunk_stats = ChunkBandwidthStats::new();
 
-            let congestion_info = new_chunk.congestion_info().unwrap();
+            let congestion_info = new_chunk.congestion_info();
             let congestion_control = CongestionControl::new(
                 runtime_config.congestion_control_config,
                 congestion_info,
