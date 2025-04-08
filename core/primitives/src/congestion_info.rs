@@ -604,7 +604,7 @@ mod tests {
             assert_eq!(1.0, control.congestion_level());
             // fully congested, no more forwarding allowed
             assert_eq!(0, control.outgoing_gas_limit(ShardId::new(1)));
-            assert!(control.shard_accepts_transactions().is_yes());
+            assert!(control.shard_accepts_transactions().is_no());
             // processing to other shards is not restricted by memory congestion
             assert_eq!(config.max_tx_gas, control.process_tx_limit());
         }
@@ -633,7 +633,7 @@ mod tests {
                 control.outgoing_gas_limit(ShardId::new(1))
             );
             // at 12.5%, new transactions are allowed (threshold is 0.25)
-            assert!(control.shard_accepts_transactions().is_yes());
+            assert!(control.shard_accepts_transactions().is_no());
         }
     }
 
@@ -651,7 +651,7 @@ mod tests {
             assert_eq!(1.0, control.congestion_level());
             // fully congested, no more forwarding allowed
             assert_eq!(0, control.outgoing_gas_limit(ShardId::new(1)));
-            assert!(control.shard_accepts_transactions().is_yes());
+            assert!(control.shard_accepts_transactions().is_no());
             // processing to other shards is restricted by own incoming congestion
             assert_eq!(config.min_tx_gas, control.process_tx_limit());
         }
@@ -667,7 +667,7 @@ mod tests {
                 control.outgoing_gas_limit(ShardId::new(1))
             );
             // at 50%, still no new transactions to us are allowed
-            assert!(control.shard_accepts_transactions().is_yes());
+            assert!(control.shard_accepts_transactions().is_no());
             // but we accept new transactions to other shards
             assert_eq!(
                 (0.5 * config.min_tx_gas as f64 + 0.5 * config.max_tx_gas as f64) as u64,
@@ -686,7 +686,7 @@ mod tests {
                 control.outgoing_gas_limit(ShardId::new(1))
             );
             // at 12.5%, new transactions are allowed (threshold is 0.25)
-            assert!(control.shard_accepts_transactions().is_yes());
+            assert!(control.shard_accepts_transactions().is_no());
             assert_eq!(
                 (0.125 * config.min_tx_gas as f64 + 0.875 * config.max_tx_gas as f64) as u64,
                 control.process_tx_limit()
