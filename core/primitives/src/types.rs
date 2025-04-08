@@ -1162,16 +1162,11 @@ pub trait EpochInfoProvider: Send + Sync {
     fn validator_stake(
         &self,
         epoch_id: &EpochId,
-        last_block_hash: &CryptoHash,
         account_id: &AccountId,
     ) -> Result<Option<Balance>, EpochError>;
 
     /// Get the total stake of the given epoch.
-    fn validator_total_stake(
-        &self,
-        epoch_id: &EpochId,
-        last_block_hash: &CryptoHash,
-    ) -> Result<Balance, EpochError>;
+    fn validator_total_stake(&self, epoch_id: &EpochId) -> Result<Balance, EpochError>;
 
     fn minimum_stake(&self, prev_block_hash: &CryptoHash) -> Result<Balance, EpochError>;
 
@@ -1179,19 +1174,6 @@ pub trait EpochInfoProvider: Send + Sync {
     fn chain_id(&self) -> String;
 
     fn shard_layout(&self, epoch_id: &EpochId) -> Result<ShardLayout, EpochError>;
-}
-
-/// Mode of the trie cache.
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub enum TrieCacheMode {
-    /// In this mode we put each visited node to LRU cache to optimize performance.
-    /// Presence of any exact node is not guaranteed.
-    CachingShard,
-    /// In this mode we put each visited node to the chunk cache which is a hash map.
-    /// This is needed to guarantee that all nodes for which we charged a touching trie node cost are retrieved from DB
-    /// only once during a single chunk processing. Such nodes remain in cache until the chunk processing is finished,
-    /// and thus users (potentially different) are not required to pay twice for retrieval of the same node.
-    CachingChunk,
 }
 
 /// State changes for a range of blocks.

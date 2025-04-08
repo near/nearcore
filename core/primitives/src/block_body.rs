@@ -4,13 +4,12 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::Signature;
 use near_crypto::vrf::{Proof, Value};
 use near_primitives_core::hash::CryptoHash;
-use near_primitives_core::types::ProtocolVersion;
-use near_primitives_core::version::ProtocolFeature;
 use near_schema_checker_lib::ProtocolSchema;
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq, ProtocolSchema)]
 pub struct BlockBodyV1 {
     pub chunks: Vec<ShardChunkHeader>,
+    #[deprecated]
     pub challenges: Challenges,
 
     // Data to confirm the correctness of randomness beacon output
@@ -29,6 +28,7 @@ impl BlockBodyV1 {
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq, ProtocolSchema)]
 pub struct BlockBodyV2 {
     pub chunks: Vec<ShardChunkHeader>,
+    #[deprecated]
     pub challenges: Challenges,
 
     // Data to confirm the correctness of randomness beacon output
@@ -56,25 +56,20 @@ pub enum BlockBody {
 }
 
 impl BlockBody {
+    #[allow(deprecated)]
     pub fn new(
-        protocol_version: ProtocolVersion,
         chunks: Vec<ShardChunkHeader>,
-        challenges: Challenges,
         vrf_value: Value,
         vrf_proof: Proof,
         chunk_endorsements: Vec<ChunkEndorsementSignatures>,
     ) -> Self {
-        if !ProtocolFeature::StatelessValidation.enabled(protocol_version) {
-            BlockBody::V1(BlockBodyV1 { chunks, challenges, vrf_value, vrf_proof })
-        } else {
-            BlockBody::V2(BlockBodyV2 {
-                chunks,
-                challenges,
-                vrf_value,
-                vrf_proof,
-                chunk_endorsements,
-            })
-        }
+        BlockBody::V2(BlockBodyV2 {
+            chunks,
+            challenges: vec![],
+            vrf_value,
+            vrf_proof,
+            chunk_endorsements,
+        })
     }
 
     #[inline]
@@ -82,14 +77,6 @@ impl BlockBody {
         match self {
             BlockBody::V1(body) => &body.chunks,
             BlockBody::V2(body) => &body.chunks,
-        }
-    }
-
-    #[inline]
-    pub fn challenges(&self) -> &Challenges {
-        match self {
-            BlockBody::V1(body) => &body.challenges,
-            BlockBody::V2(body) => &body.challenges,
         }
     }
 

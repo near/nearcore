@@ -64,5 +64,5 @@ fn benchmark_large_chunk_production_time() {
     // Check that we limit the size of the chunk and not include all `n_txes`
     // transactions in the chunk.
     assert!(6 * mb < size && size < 8 * mb, "{size}");
-    assert_eq!(decoded_chunk.transactions().len(), 7); // 4MiB limit allows for 7 x 0.5MiB transactions
+    assert_eq!(decoded_chunk.to_transactions().len(), 7); // 4MiB limit allows for 7 x 0.5MiB transactions
 }

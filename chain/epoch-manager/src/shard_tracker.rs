@@ -410,7 +410,6 @@ mod tests {
                     prev_h,
                     proposals,
                     vec![],
-                    vec![],
                     DEFAULT_TOTAL_SUPPLY,
                     protocol_version,
                     height * 10u64.pow(9),

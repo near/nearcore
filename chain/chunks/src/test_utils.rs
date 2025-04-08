@@ -145,14 +145,13 @@ impl ChunkTestFixture {
             .find(|v| v != &mock_chunk_producer && v != &mock_shard_tracker)
             .unwrap();
 
-        let receipts = Vec::new();
         let shard_layout = epoch_manager.get_shard_layout(&EpochId::default()).unwrap();
-        let receipts_hashes = Chain::build_receipts_hashes(&receipts, &shard_layout).unwrap();
+        let receipts_hashes = Chain::build_receipts_hashes(&[], &shard_layout).unwrap();
         let (receipts_root, _) = merkle::merklize(&receipts_hashes);
         let congestion_info = ProtocolFeature::CongestionControl
             .enabled(PROTOCOL_VERSION)
             .then_some(CongestionInfo::default());
-        let (mock_chunk, mock_merkle_paths) = ShardsManagerActor::create_encoded_shard_chunk(
+        let (mock_chunk, mock_merkle_paths, _) = ShardsManagerActor::create_encoded_shard_chunk(
             mock_parent_hash,
             Default::default(),
             Default::default(),
@@ -163,7 +162,7 @@ impl ChunkTestFixture {
             0,
             Vec::new(),
             Vec::new(),
-            &receipts,
+            vec![],
             receipts_root,
             MerkleHash::default(),
             congestion_info,
@@ -200,7 +199,7 @@ impl ChunkTestFixture {
             mock_part_ords,
             mock_encoded_chunk: mock_chunk,
             mock_merkle_paths,
-            mock_outgoing_receipts: receipts,
+            mock_outgoing_receipts: vec![],
             mock_chunk_part_owner,
             mock_shard_tracker,
             mock_chunk_header: encoded_chunk.cloned_header(),

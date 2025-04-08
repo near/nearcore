@@ -14,7 +14,7 @@ use near_primitives::account::{AccessKey, Account, AccountContract};
 use near_primitives::block::Tip;
 use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::epoch_block_info::BlockInfo;
-use near_primitives::genesis::genesis_chunks;
+use near_primitives::genesis::{genesis_block, genesis_chunks};
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::state_record::StateRecord;
@@ -241,7 +241,7 @@ impl GenesisBuilder {
         );
         let validator_stakes =
             self.epoch_manager.get_epoch_block_producers_ordered(&EpochId::default())?;
-        let genesis = Block::genesis(
+        let genesis = genesis_block(
             self.genesis.config.protocol_version,
             genesis_chunks.into_iter().map(|chunk| chunk.take_header()).collect(),
             Utc::from_unix_timestamp_nanos(to_timestamp(self.genesis.config.genesis_time) as i128)

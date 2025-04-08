@@ -44,7 +44,7 @@ use near_store::{
     set_account,
 };
 use near_vm_runner::{ContractCode, FilesystemContractRuntimeCache};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::sync::Arc;
 use testlib::runtime_utils::{alice_account, bob_account};
 
@@ -212,7 +212,6 @@ fn test_apply_check_balance_validation_rewards() {
         validator_rewards: vec![(alice_account(), reward)].into_iter().collect(),
         last_proposals: Default::default(),
         protocol_treasury_account_id: None,
-        slashing_info: HashMap::default(),
     };
 
     runtime

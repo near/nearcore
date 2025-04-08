@@ -34,7 +34,6 @@ use near_o11y::testonly::{init_integration_logger, init_test_logger};
 use near_parameters::{ActionCosts, ExtCosts};
 use near_parameters::{RuntimeConfig, RuntimeConfigStore};
 use near_primitives::block::Approval;
-use near_primitives::block_header::BlockHeader;
 use near_primitives::errors::TxExecutionError;
 use near_primitives::errors::{ActionError, ActionErrorKind, InvalidTxError};
 use near_primitives::genesis::GenesisId;
@@ -58,9 +57,7 @@ use near_primitives::trie_key::TrieKey;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{AccountId, BlockHeight, EpochId, NumBlocks};
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
-use near_primitives::views::{
-    BlockHeaderView, FinalExecutionStatus, QueryRequest, QueryResponseKind,
-};
+use near_primitives::views::{FinalExecutionStatus, QueryRequest, QueryResponseKind};
 use near_primitives_core::num_rational::Ratio;
 use near_store::NodeStorage;
 use near_store::adapter::StoreUpdateAdapter;
@@ -143,8 +140,6 @@ fn receive_network_block() {
             let next_block_ordinal = last_block.header.block_ordinal.unwrap() + 1;
             let block = Block::produce(
                 PROTOCOL_VERSION,
-                PROTOCOL_VERSION,
-                PROTOCOL_VERSION,
                 &last_block.header.clone().into(),
                 last_block.header.height + 1,
                 next_block_ordinal,
@@ -162,8 +157,6 @@ fn receive_network_block() {
                 0,
                 100,
                 None,
-                vec![],
-                vec![],
                 &signer,
                 last_block.header.next_bp_hash,
                 block_merkle_tree.root(),
@@ -235,8 +228,6 @@ fn produce_block_with_approvals() {
             let chunk_endorsements = vec![vec![]; chunks.len()];
             let block = Block::produce(
                 PROTOCOL_VERSION,
-                PROTOCOL_VERSION,
-                PROTOCOL_VERSION,
                 &last_block.header.clone().into(),
                 last_block.header.height + 1,
                 next_block_ordinal,
@@ -254,8 +245,6 @@ fn produce_block_with_approvals() {
                 0,
                 100,
                 Some(0),
-                vec![],
-                vec![],
                 &signer1,
                 last_block.header.next_bp_hash,
                 block_merkle_tree.root(),
@@ -433,8 +422,6 @@ fn invalid_blocks_common(is_requested: bool) {
             let next_block_ordinal = last_block.header.block_ordinal.unwrap() + 1;
             let valid_block = Block::produce(
                 PROTOCOL_VERSION,
-                PROTOCOL_VERSION,
-                PROTOCOL_VERSION,
                 &last_block.header.clone().into(),
                 last_block.header.height + 1,
                 next_block_ordinal,
@@ -452,8 +439,6 @@ fn invalid_blocks_common(is_requested: bool) {
                 0,
                 100,
                 Some(0),
-                vec![],
-                vec![],
                 &signer,
                 last_block.header.next_bp_hash,
                 block_merkle_tree.root(),
@@ -983,7 +968,7 @@ fn test_bad_orphan() {
         block.mut_header().set_prev_hash(CryptoHash([3; 32]));
         block.mut_header().resign(&*signer);
         let res = env.clients[0].process_block_test(block.into(), Provenance::NONE);
-        assert_matches!(res.unwrap_err(), Error::InvalidChunkHeadersRoot);
+        assert_matches!(res.unwrap_err(), Error::InvalidSignature);
     }
     {
         // Orphan block with invalid approvals. Allowed for now.
@@ -1009,7 +994,7 @@ fn test_bad_orphan() {
         block.mut_header().set_prev_hash(CryptoHash([4; 32]));
         block.mut_header().resign(&*signer);
         let res = env.clients[0].process_block_test(block.into(), Provenance::NONE);
-        assert_matches!(res.unwrap_err(), Error::Orphan);
+        assert_matches!(res.unwrap_err(), Error::InvalidSignature);
     }
     {
         // Orphan block that's too far ahead: 20 * epoch_length
@@ -1776,10 +1761,9 @@ fn test_reject_block_headers_during_epoch_sync() {
     );
 
     let headers = blocks.iter().map(|b| b.header().clone()).collect::<Vec<_>>();
-    let signer = sync_client.validator_signer.get();
     // actual attempt to sync headers during ongoing epoch sync
     assert_matches!(
-        sync_client.sync_block_headers(headers, &signer),
+        sync_client.sync_block_headers(headers),
         Err(_),
         "Block headers accepted during epoch sync"
     );
@@ -1799,8 +1783,7 @@ fn test_gc_tail_update() {
         blocks.push(block);
     }
     let headers = blocks.iter().map(|b| b.header().clone()).collect::<Vec<_>>();
-    let signer = env.clients[1].validator_signer.get();
-    env.clients[1].sync_block_headers(headers, &signer).unwrap();
+    env.clients[1].sync_block_headers(headers).unwrap();
     // simulate save sync hash block
     let prev_prev_sync_block = blocks[blocks.len() - 4].clone();
     let prev_prev_sync_hash = *prev_prev_sync_block.hash();
@@ -2504,7 +2487,7 @@ fn test_block_execution_outcomes() {
     let block = env.clients[0].chain.get_block_by_height(2).unwrap();
     let chunk = env.clients[0].chain.get_chunk(&block.chunks()[0].chunk_hash()).unwrap();
     let shard_id = chunk.shard_id();
-    assert_eq!(chunk.transactions().len(), 3);
+    assert_eq!(chunk.to_transactions().len(), 3);
     let execution_outcomes_from_block = env.clients[0]
         .chain
         .chain_store()
@@ -2525,7 +2508,7 @@ fn test_block_execution_outcomes() {
     let next_block = env.clients[0].chain.get_block_by_height(3).unwrap();
     let next_chunk = env.clients[0].chain.get_chunk(&next_block.chunks()[0].chunk_hash()).unwrap();
     let shard_id = next_chunk.shard_id();
-    assert!(next_chunk.transactions().is_empty());
+    assert!(next_chunk.to_transactions().is_empty());
     assert!(next_chunk.prev_outgoing_receipts().is_empty());
     let execution_outcomes_from_block = env.clients[0]
         .chain
@@ -2669,14 +2652,14 @@ fn test_delayed_receipt_count_limit() {
         let chunk = env.clients[0].chain.get_chunk(&block.chunks()[0].chunk_hash()).unwrap();
         // These checks are useful to ensure that we didn't mess up the test setup.
         assert!(chunk.prev_outgoing_receipts().len() <= 1);
-        assert!(chunk.transactions().len() <= 5);
+        assert!(chunk.to_transactions().len() <= 5);
 
         // Because all transactions are in the transactions pool, this means we have not included
         // some transactions due to the delayed receipt count limit.
-        if included_tx_count > 0 && chunk.transactions().is_empty() {
+        if included_tx_count > 0 && chunk.to_transactions().is_empty() {
             break;
         }
-        included_tx_count += chunk.transactions().len();
+        included_tx_count += chunk.to_transactions().len();
         height += 1;
     }
     assert!(included_tx_count < total_tx_count);
@@ -3323,49 +3306,6 @@ fn test_not_broadcast_block_on_accept() {
         env.process_block(i, b1.clone(), Provenance::NONE);
     }
     assert!(network_adapter.requests.read().unwrap().is_empty());
-}
-
-#[test]
-fn test_header_version_downgrade() {
-    init_test_logger();
-
-    let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
-    genesis.config.epoch_length = 5;
-    let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
-    let validator_signer = create_test_signer("test0");
-    for i in 1..10 {
-        let block = env.clients[0].produce_block(i).unwrap().unwrap();
-        env.process_block(0, block, Provenance::NONE);
-    }
-    let block = {
-        let mut block = env.clients[0].produce_block(10).unwrap().unwrap();
-        // Convert header to BlockHeaderV1
-        let mut header_view: BlockHeaderView = block.header().clone().into();
-        header_view.latest_protocol_version = 1;
-        let mut header = header_view.into();
-
-        // BlockHeaderV1, but protocol version is newest
-        match &mut header {
-            BlockHeader::BlockHeaderV1(header) => {
-                let header = Arc::make_mut(header);
-                header.inner_rest.latest_protocol_version = PROTOCOL_VERSION;
-                let hash = BlockHeader::compute_hash(
-                    header.prev_hash,
-                    &borsh::to_vec(&header.inner_lite).expect("Failed to serialize"),
-                    &borsh::to_vec(&header.inner_rest).expect("Failed to serialize"),
-                );
-                header.hash = hash;
-                header.signature = validator_signer.sign_bytes(hash.as_ref());
-            }
-            _ => {
-                unreachable!();
-            }
-        }
-        *block.mut_header() = header;
-        block
-    };
-    let res = env.clients[0].process_block_test(block.into(), Provenance::NONE);
-    assert!(!res.is_ok());
 }
 
 #[test]
