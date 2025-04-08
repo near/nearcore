@@ -2,7 +2,6 @@
 
 pub use crate::adapter::EpochManagerAdapter;
 use crate::metrics::{PROTOCOL_VERSION_NEXT, PROTOCOL_VERSION_VOTES};
-pub use crate::proposals::proposals_to_epoch_info;
 pub use crate::reward_calculator::NUM_SECONDS_IN_A_YEAR;
 pub use crate::reward_calculator::RewardCalculator;
 use epoch_info_aggregator::EpochInfoAggregator;
@@ -38,13 +37,13 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::Path;
 use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use tracing::{debug, warn};
+pub use validator_selection::proposals_to_epoch_info;
 use validator_stats::get_sortable_validator_online_ratio;
 
 mod adapter;
 pub mod epoch_info_aggregator;
 mod genesis;
 mod metrics;
-mod proposals;
 mod reward_calculator;
 pub mod shard_assignment;
 pub mod shard_tracker;
@@ -653,7 +652,6 @@ impl EpochManager {
             validator_kickout,
             validator_reward,
             minted_amount,
-            epoch_protocol_version,
             next_next_epoch_version,
             has_same_shard_layout,
         ) {
