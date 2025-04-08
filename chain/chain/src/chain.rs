@@ -798,6 +798,10 @@ impl Chain {
     }
 
     fn validate_header(&self, header: &BlockHeader, provenance: &Provenance) -> Result<(), Error> {
+        if header.challenges_present() {
+            return Err(Error::InvalidChallenge);
+        }
+
         // Refuse blocks from the too distant future.
         if header.timestamp() > self.clock.now_utc() + Duration::seconds(ACCEPTABLE_TIME_DIFFERENCE)
         {

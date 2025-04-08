@@ -76,7 +76,6 @@ pub fn prod_genesis_block(
         Block::compute_chunk_prev_outgoing_receipts_root(body.chunks()),
         Block::compute_chunk_headers_root(body.chunks()).0,
         Block::compute_chunk_tx_root(body.chunks()),
-        CryptoHash::default(),
         timestamp,
         initial_gas_price,
         initial_total_supply,
@@ -107,7 +106,6 @@ impl BlockHeader {
         prev_chunk_outgoing_receipts_root: MerkleHash,
         chunk_headers_root: MerkleHash,
         chunk_tx_root: MerkleHash,
-        challenges_root: MerkleHash,
         timestamp: Utc,
         initial_gas_price: Balance,
         initial_total_supply: Balance,
@@ -124,12 +122,13 @@ impl BlockHeader {
             block_merkle_root: CryptoHash::default(),
         };
 
+        #[allow(deprecated)]
         let inner_rest = BlockHeaderInnerRest {
             prev_chunk_outgoing_receipts_root,
             chunk_headers_root,
             chunk_tx_root,
             chunks_included: 0,
-            challenges_root,
+            challenges_root: CryptoHash::default(),
             random_value: CryptoHash::default(),
             prev_validator_proposals: vec![],
             chunk_mask: vec![],

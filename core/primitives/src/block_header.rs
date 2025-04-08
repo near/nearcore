@@ -56,6 +56,7 @@ pub struct BlockHeaderInnerRest {
     /// Number of chunks included into the block.
     pub chunks_included: u64,
     /// Root hash of the challenges in the given block.
+    #[deprecated]
     pub challenges_root: MerkleHash,
     /// The output of the randomness beacon
     pub random_value: CryptoHash,
@@ -68,6 +69,7 @@ pub struct BlockHeaderInnerRest {
     /// Total supply of tokens in the system
     pub total_supply: Balance,
     /// List of challenges result from previous block.
+    #[deprecated]
     pub challenges_result: ChallengesResult,
 
     /// Last block that has full BFT finality
@@ -94,6 +96,7 @@ pub struct BlockHeaderInnerRestV2 {
     /// Root hash of the chunk transactions in the given block.
     pub chunk_tx_root: MerkleHash,
     /// Root hash of the challenges in the given block.
+    #[deprecated]
     pub challenges_root: MerkleHash,
     /// The output of the randomness beacon
     pub random_value: CryptoHash,
@@ -106,6 +109,7 @@ pub struct BlockHeaderInnerRestV2 {
     /// Total supply of tokens in the system
     pub total_supply: Balance,
     /// List of challenges result from previous block.
+    #[deprecated]
     pub challenges_result: ChallengesResult,
 
     /// Last block that has full BFT finality
@@ -135,6 +139,7 @@ pub struct BlockHeaderInnerRestV3 {
     /// Root hash of the chunk transactions in the given block.
     pub chunk_tx_root: MerkleHash,
     /// Root hash of the challenges in the given block.
+    #[deprecated]
     pub challenges_root: MerkleHash,
     /// The output of the randomness beacon
     pub random_value: CryptoHash,
@@ -147,6 +152,7 @@ pub struct BlockHeaderInnerRestV3 {
     /// Total supply of tokens in the system
     pub total_supply: Balance,
     /// List of challenges result from previous block.
+    #[deprecated]
     pub challenges_result: ChallengesResult,
 
     /// Last block that has full BFT finality
@@ -190,6 +196,7 @@ pub struct BlockHeaderInnerRestV4 {
     /// Root hash of the chunk transactions in the given block.
     pub chunk_tx_root: MerkleHash,
     /// Root hash of the challenges in the given block.
+    #[deprecated]
     pub challenges_root: MerkleHash,
     /// The output of the randomness beacon
     pub random_value: CryptoHash,
@@ -202,6 +209,7 @@ pub struct BlockHeaderInnerRestV4 {
     /// Total supply of tokens in the system
     pub total_supply: Balance,
     /// List of challenges result from previous block.
+    #[deprecated]
     pub challenges_result: ChallengesResult,
 
     /// Last block that has full BFT finality
@@ -258,6 +266,7 @@ pub struct BlockHeaderInnerRestV5 {
     /// Total supply of tokens in the system
     pub total_supply: Balance,
     /// List of challenges result from previous block.
+    #[deprecated]
     pub challenges_result: ChallengesResult,
 
     /// Last block that has full BFT finality
@@ -1267,6 +1276,28 @@ impl BlockHeader {
             BlockHeader::BlockHeaderV4(header) => &header.inner_lite,
             BlockHeader::BlockHeaderV5(header) => &header.inner_lite,
         }
+    }
+
+    pub fn challenges_present(&self) -> bool {
+        #[allow(deprecated)]
+        let (challenges_root, challenges_result) = match self {
+            Self::BlockHeaderV1(header) => {
+                (&header.inner_rest.challenges_root, &header.inner_rest.challenges_result)
+            }
+            Self::BlockHeaderV2(header) => {
+                (&header.inner_rest.challenges_root, &header.inner_rest.challenges_result)
+            }
+            Self::BlockHeaderV3(header) => {
+                (&header.inner_rest.challenges_root, &header.inner_rest.challenges_result)
+            }
+            Self::BlockHeaderV4(header) => {
+                (&header.inner_rest.challenges_root, &header.inner_rest.challenges_result)
+            }
+            Self::BlockHeaderV5(header) => {
+                (&header.inner_rest.challenges_root, &header.inner_rest.challenges_result)
+            }
+        };
+        challenges_result.is_empty() && challenges_root == &MerkleHash::default()
     }
 }
 
