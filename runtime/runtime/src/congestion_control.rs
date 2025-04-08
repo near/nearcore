@@ -185,9 +185,9 @@ impl ReceiptSink {
         }
     }
 
-    pub(crate) fn own_congestion_info(&self) -> Option<CongestionInfo> {
+    pub(crate) fn own_congestion_info(&self) -> CongestionInfo {
         match self {
-            ReceiptSink::V2(inner) => Some(inner.own_congestion_info),
+            ReceiptSink::V2(inner) => inner.own_congestion_info,
         }
     }
 
