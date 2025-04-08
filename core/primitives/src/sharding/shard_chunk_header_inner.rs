@@ -149,7 +149,8 @@ impl ShardChunkHeaderInner {
     #[inline]
     pub fn congestion_info(&self) -> CongestionInfo {
         match self {
-            Self::V1(_) | Self::V2(_) => panic!("Calling congestion_info on V1 or V2"),
+            Self::V1(_) => Default::default(),
+            Self::V2(_) => Default::default(),
             Self::V3(v3) => v3.congestion_info,
             Self::V4(v4) => v4.congestion_info,
         }

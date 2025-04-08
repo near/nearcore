@@ -943,7 +943,8 @@ pub mod chunk_extra {
         #[inline]
         pub fn congestion_info(&self) -> CongestionInfo {
             match self {
-                Self::V1(_) | Self::V2(_) => panic!("Calling congestion_info on V1 or V2"),
+                Self::V1(_) => Default::default(),
+                Self::V2(_) => Default::default(),
                 Self::V3(v3) => v3.congestion_info,
                 Self::V4(v4) => v4.congestion_info,
             }
@@ -952,7 +953,7 @@ pub mod chunk_extra {
         #[inline]
         pub fn congestion_info_mut(&mut self) -> &mut CongestionInfo {
             match self {
-                Self::V1(_) | Self::V2(_) => panic!("Calling congestion_info on V1 or V2"),
+                Self::V1(_) | Self::V2(_) => panic!("Calling congestion_info_mut on V1 or V2"),
                 Self::V3(v3) => &mut v3.congestion_info,
                 Self::V4(v4) => &mut v4.congestion_info,
             }
