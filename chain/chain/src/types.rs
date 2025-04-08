@@ -319,7 +319,6 @@ pub struct ApplyChunkShardContext<'a> {
     pub last_validator_proposals: ValidatorStakeIter<'a>,
     pub gas_limit: Gas,
     pub is_new_chunk: bool,
-    pub is_first_block_with_chunk_of_version: bool,
 }
 
 /// Contains transactions that were fetched from the transaction pool

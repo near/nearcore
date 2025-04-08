@@ -7,7 +7,6 @@ use crate::blocks_delay_tracker::BlocksDelayTracker;
 use crate::chain_update::ChainUpdate;
 use crate::crypto_hash_timer::CryptoHashTimer;
 use crate::lightclient::get_epoch_block_producers_view;
-use crate::migrations::check_if_block_is_first_with_chunk_of_version;
 use crate::missing_chunks::{MissingChunksPool, OptimisticBlockChunksPool};
 use crate::orphan::{Orphan, OrphanBlockPool};
 use crate::rayon_spawner::RayonAsyncComputationSpawner;
@@ -3278,25 +3277,12 @@ impl Chain {
             let old_receipts = collect_receipts_from_response(&old_receipts);
             let receipts = [new_receipts, old_receipts].concat();
 
-            // This variable is responsible for checking to which block we can apply receipts previously lost in apply_chunks
-            // (see https://github.com/near/nearcore/pull/4248/)
-            // We take the first block with existing chunk in the first epoch in which protocol feature
-            // RestoreReceiptsAfterFixApplyChunks was enabled, and put the restored receipts there.
-            let is_first_block_with_chunk_of_version =
-                check_if_block_is_first_with_chunk_of_version(
-                    self.chain_store(),
-                    self.epoch_manager.as_ref(),
-                    prev_hash,
-                    shard_id,
-                )?;
-
             ShardUpdateReason::NewChunk(NewChunkData {
                 chunk_header: chunk_header.clone(),
                 transactions: chunk.into_transactions(),
                 transaction_validity_check_results: tx_valid_list,
                 receipts,
                 block,
-                is_first_block_with_chunk_of_version,
                 storage_context,
             })
         } else {
