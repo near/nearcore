@@ -38,13 +38,13 @@ pub enum BlockValidityError {
     InvalidChunkHeaderRoot,
     InvalidTransactionRoot,
     InvalidChunkMask,
-    InvalidChallengeRoot,
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq, ProtocolSchema)]
 pub struct BlockV1 {
     pub header: BlockHeader,
     pub chunks: Vec<ShardChunkHeaderV1>,
+    #[deprecated]
     pub challenges: Challenges,
 
     // Data to confirm the correctness of randomness beacon output
@@ -56,6 +56,7 @@ pub struct BlockV1 {
 pub struct BlockV2 {
     pub header: BlockHeader,
     pub chunks: Vec<ShardChunkHeader>,
+    #[deprecated]
     pub challenges: Challenges,
 
     // Data to confirm the correctness of randomness beacon output
