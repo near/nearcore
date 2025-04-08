@@ -10,7 +10,7 @@ use near_async::time;
 use near_crypto::{InMemorySigner, KeyType, SecretKey, Signer};
 use near_primitives::block::{Block, BlockHeader};
 use near_primitives::challenge::{BlockDoubleSign, Challenge, ChallengeBody};
-use near_primitives::genesis::genesis_chunks;
+use near_primitives::genesis::{genesis_block, genesis_chunks};
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::num_rational::Ratio;
@@ -30,7 +30,7 @@ use std::net;
 use std::sync::Arc;
 
 pub fn make_genesis_block(clock: &time::Clock, chunks: Vec<ShardChunk>) -> Block {
-    Block::genesis(
+    genesis_block(
         version::PROTOCOL_VERSION,
         chunks.into_iter().map(|c| c.take_header()).collect(),
         clock.now_utc(),
@@ -49,8 +49,6 @@ pub fn make_block(
 ) -> Block {
     Block::produce(
         version::PROTOCOL_VERSION,
-        version::PROTOCOL_VERSION,
-        version::PROTOCOL_VERSION,
         prev.header(),
         prev.header().height() + 5,
         prev.header().block_ordinal() + 1,
@@ -64,8 +62,6 @@ pub fn make_block(
         0,
         0,
         Some(0),
-        vec![],
-        vec![],
         signer,
         CryptoHash::default(),
         CryptoHash::default(),
@@ -182,7 +178,7 @@ pub fn make_chunk_parts(chunk: ShardChunk) -> Vec<PartialEncodedChunkPart> {
     let parity_shard_count = 5;
     let rs = ReedSolomon::new(total_shard_count, parity_shard_count).unwrap();
     let transaction_receipts =
-        (chunk.transactions().to_vec(), chunk.prev_outgoing_receipts().to_vec());
+        (chunk.to_transactions().to_vec(), chunk.prev_outgoing_receipts().to_vec());
     let (parts, _) = reed_solomon_encode(&rs, &transaction_receipts);
 
     let mut content = EncodedShardChunkBody { parts };
@@ -212,7 +208,7 @@ impl ChunkSet {
         // Consider making this more realistic.
         let chunks = genesis_chunks(
             vec![StateRoot::new()],
-            vec![Some(Default::default()); shard_ids.len()],
+            vec![Default::default(); shard_ids.len()],
             &shard_ids,
             1000,
             0,

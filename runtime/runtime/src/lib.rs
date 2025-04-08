@@ -29,7 +29,7 @@ pub use near_primitives;
 use near_primitives::account::{AccessKey, Account, AccountContract};
 use near_primitives::action::GlobalContractIdentifier;
 use near_primitives::bandwidth_scheduler::{BandwidthRequests, BlockBandwidthRequests};
-use near_primitives::chunk_apply_stats::{BalanceStats, ChunkApplyStatsV0};
+use near_primitives::chunk_apply_stats::ChunkApplyStatsV0;
 use near_primitives::congestion_info::{BlockCongestionInfo, CongestionInfo};
 use near_primitives::errors::{
     ActionError, ActionErrorKind, EpochError, IntegerOverflowError, InvalidTxError, RuntimeError,
@@ -40,7 +40,6 @@ use near_primitives::receipt::{
     ActionReceipt, DataReceipt, PromiseYieldIndices, PromiseYieldTimeout, Receipt, ReceiptEnum,
     ReceiptOrStateStoredReceipt, ReceiptV0, ReceivedData,
 };
-use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::state_record::StateRecord;
 use near_primitives::stateless_validation::contract_distribution::ContractUpdates;
@@ -66,9 +65,8 @@ use near_store::trie::update::TrieUpdateResult;
 use near_store::{
     KeyLookupMode, PartialStorage, StorageError, Trie, TrieAccess, TrieChanges, TrieUpdate, get,
     get_account, get_postponed_receipt, get_promise_yield_receipt, get_pure, get_received_data,
-    has_received_data, remove_account, remove_postponed_receipt, remove_promise_yield_receipt, set,
-    set_access_key, set_account, set_postponed_receipt, set_promise_yield_receipt,
-    set_received_data,
+    has_received_data, remove_postponed_receipt, remove_promise_yield_receipt, set, set_access_key,
+    set_account, set_postponed_receipt, set_promise_yield_receipt, set_received_data,
 };
 use near_vm_runner::ContractCode;
 use near_vm_runner::ContractRuntimeCache;
@@ -137,11 +135,6 @@ pub struct ApplyState {
     pub cache: Option<Box<dyn ContractRuntimeCache>>,
     /// Whether the chunk being applied is new.
     pub is_new_chunk: bool,
-    /// Data for migrations that may need to be applied at the start of an epoch when protocol
-    /// version changes
-    pub migration_data: Arc<MigrationData>,
-    /// Flags for migrations indicating whether they can be applied at this block
-    pub migration_flags: MigrationFlags,
     /// Congestion level on each shard based on the latest known chunk header of each shard.
     ///
     /// The map must be empty if congestion control is disabled in the previous
@@ -182,8 +175,6 @@ pub struct ValidatorAccountsUpdate {
     pub last_proposals: HashMap<AccountId, Balance>,
     /// The ID of the protocol treasury account if it belongs to the current shard.
     pub protocol_treasury_account_id: Option<AccountId>,
-    /// Accounts to slash and the slashed amount (None means everything)
-    pub slashing_info: HashMap<AccountId, Option<Balance>>,
 }
 
 #[derive(Debug)]
@@ -317,12 +308,7 @@ impl Runtime {
                     signed_tx.get_hash(),
                     match validate_transaction(config, signed_tx, current_protocol_version) {
                         Ok(validated_tx) => {
-                            match tx_cost(
-                                config,
-                                &validated_tx.to_tx(),
-                                gas_price,
-                                current_protocol_version,
-                            ) {
+                            match tx_cost(config, &validated_tx.to_tx(), gas_price) {
                                 Ok(cost) => Ok((validated_tx, cost)),
                                 Err(e) => Err(InvalidTxError::from(e)),
                             }
@@ -369,7 +355,6 @@ impl Runtime {
             validated_tx,
             transaction_cost,
             Some(apply_state.block_height),
-            apply_state.current_protocol_version,
         );
         let verification_result = match verification_result {
             Ok(ok) => ok,
@@ -759,11 +744,7 @@ impl Runtime {
         // Going to check balance covers account's storage.
         if result.result.is_ok() {
             if let Some(ref mut account) = account {
-                match check_storage_stake(
-                    account,
-                    &apply_state.config,
-                    apply_state.current_protocol_version,
-                ) {
+                match check_storage_stake(account, &apply_state.config) {
                     Ok(()) => {
                         set_account(state_update, account_id.clone(), account);
                     }
@@ -1256,7 +1237,6 @@ impl Runtime {
         &self,
         state_update: &mut TrieUpdate,
         validator_accounts_update: &ValidatorAccountsUpdate,
-        stats: &mut BalanceStats,
     ) -> Result<(), RuntimeError> {
         for (account_id, max_of_stakes) in &validator_accounts_update.stake_info {
             if let Some(mut account) = get_account(state_update, account_id)? {
@@ -1316,38 +1296,6 @@ impl Runtime {
             }
         }
 
-        for (account_id, stake) in validator_accounts_update.slashing_info.iter() {
-            if let Some(mut account) = get_account(state_update, account_id)? {
-                let amount_to_slash = stake.unwrap_or(account.locked());
-                debug!(target: "runtime", "slashing {} of {} from {}", amount_to_slash, account.locked(), account_id);
-                if account.locked() < amount_to_slash {
-                    return Err(StorageError::StorageInconsistentState(format!(
-                        "FATAL: staking invariant does not hold. Account locked {} is less than slashed {}",
-                        account.locked(), amount_to_slash)).into());
-                }
-                stats.slashed_burnt_amount =
-                    stats.slashed_burnt_amount.checked_add(amount_to_slash).ok_or_else(|| {
-                        RuntimeError::UnexpectedIntegerOverflow(
-                            "update_validator_accounts - slashed".into(),
-                        )
-                    })?;
-                account.set_locked(account.locked().checked_sub(amount_to_slash).ok_or_else(
-                    || {
-                        RuntimeError::UnexpectedIntegerOverflow(
-                            "update_validator_accounts - slash locked".into(),
-                        )
-                    },
-                )?);
-                set_account(state_update, account_id.clone(), &account);
-            } else {
-                return Err(StorageError::StorageInconsistentState(format!(
-                    "Account {} to slash is not found",
-                    account_id
-                ))
-                .into());
-            }
-        }
-
         if let Some(account_id) = &validator_accounts_update.protocol_treasury_account_id {
             // If protocol treasury stakes, then the rewards was already distributed above.
             if !validator_accounts_update.stake_info.contains_key(account_id) {
@@ -1377,26 +1325,6 @@ impl Runtime {
             }
         }
         state_update.commit(StateChangeCause::ValidatorAccountsUpdate);
-
-        Ok(())
-    }
-
-    pub fn apply_migrations(
-        &self,
-        state_update: &mut TrieUpdate,
-        migration_flags: &MigrationFlags,
-        protocol_version: ProtocolVersion,
-    ) -> Result<(), StorageError> {
-        // Remove the only testnet account with large storage key.
-        if ProtocolFeature::RemoveAccountWithLongStorageKey.protocol_version() == protocol_version
-            && migration_flags.is_first_block_with_chunk_of_version
-        {
-            let account_id = "contractregistry.testnet".parse().unwrap();
-            if get_account(state_update, &account_id)?.is_some() {
-                remove_account(state_update, &account_id)?;
-                state_update.commit(StateChangeCause::Migration);
-            }
-        }
 
         Ok(())
     }
@@ -1440,10 +1368,9 @@ impl Runtime {
 
         // What this function does can be broken down conceptually into the following steps:
         // 1. Update validator accounts.
-        // 2. Apply migrations.
-        // 3. Process transactions.
-        // 4. Process receipts.
-        // 5. Validate and apply the state update.
+        // 2. Process transactions.
+        // 3. Process receipts.
+        // 4. Validate and apply the state update.
         let mut processing_state =
             ApplyProcessingState::new(&apply_state, trie, epoch_info_provider);
         processing_state.stats.transactions_num = signed_txs.len().try_into().unwrap();
@@ -1460,17 +1387,8 @@ impl Runtime {
             self.update_validator_accounts(
                 &mut processing_state.state_update,
                 validator_accounts_update,
-                &mut processing_state.stats.balance,
             )?;
         }
-
-        // Step 2: apply migrations.
-        self.apply_migrations(
-            &mut processing_state.state_update,
-            &apply_state.migration_flags,
-            processing_state.protocol_version,
-        )
-        .map_err(RuntimeError::StorageError)?;
 
         let delayed_receipts = DelayedReceiptQueueWrapper::new(
             DelayedReceiptQueue::load(&processing_state.state_update)?,
@@ -1516,10 +1434,10 @@ impl Runtime {
             processing_state.epoch_info_provider,
         )?;
 
-        // Step 3: process transactions.
+        // Step 2: process transactions.
         self.process_transactions(&mut processing_state, signed_txs, &mut receipt_sink)?;
 
-        // Step 4: process receipts.
+        // Step 3: process receipts.
         let process_receipts_result =
             self.process_receipts(&mut processing_state, &mut receipt_sink)?;
 
@@ -1531,7 +1449,7 @@ impl Runtime {
             &apply_state.config.congestion_control_config,
         );
 
-        // Step 5: validate and apply the state update.
+        // Step 4: validate and apply the state update.
         self.validate_apply_state_update(
             processing_state,
             process_receipts_result,
@@ -1631,9 +1549,6 @@ impl Runtime {
                     let compute =
                         compute.expect("`process_transaction` must populate compute usage");
                     total.add(outcome_with_id.outcome.gas_burnt, compute)?;
-                    if !ProtocolFeature::ComputeCosts.enabled(processing_state.protocol_version) {
-                        assert_eq!(total.compute, total.gas, "Compute usage must match burnt gas");
-                    }
                     processing_state.outcomes.push(outcome_with_id);
                 }
                 Err(err) => {
@@ -1720,9 +1635,6 @@ impl Runtime {
             span.record("gas_burnt", gas_burnt);
             span.record("compute_usage", compute_usage);
 
-            if !ProtocolFeature::ComputeCosts.enabled(processing_state.protocol_version) {
-                assert_eq!(total.compute, total.gas, "Compute usage must match burnt gas");
-            }
             processing_state.outcomes.push(outcome_with_id);
         }
         Ok(())
@@ -2251,7 +2163,6 @@ fn action_transfer_or_implicit_account_creation(
             receipt.receiver_id(),
             deposit,
             apply_state.block_height,
-            apply_state.current_protocol_version,
             epoch_info_provider,
         );
     })
@@ -2484,7 +2395,6 @@ impl<'a> ApplyProcessingState<'a> {
         let pipeline_manager = pipelining::ReceiptPreparationPipeline::new(
             Arc::clone(&self.apply_state.config),
             self.apply_state.cache.as_ref().map(|v| v.handle()),
-            self.apply_state.current_protocol_version,
             self.state_update.contract_storage(),
         );
         ApplyProcessingReceiptState {
@@ -2679,7 +2589,6 @@ pub mod estimator {
         let empty_pipeline = ReceiptPreparationPipeline::new(
             std::sync::Arc::clone(&apply_state.config),
             apply_state.cache.as_ref().map(|c| c.handle()),
-            apply_state.current_protocol_version,
             state_update.contract_storage(),
         );
         let apply_result = Runtime {}.apply_action_receipt(

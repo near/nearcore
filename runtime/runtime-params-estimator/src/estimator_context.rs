@@ -12,7 +12,6 @@ use near_primitives::chunk_apply_stats::ChunkApplyStatsV0;
 use near_primitives::congestion_info::{BlockCongestionInfo, ExtendedCongestionInfo};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
-use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
 use near_primitives::state::FlatStateValue;
 use near_primitives::test_utils::MockEpochInfoProvider;
 use near_primitives::transaction::{ExecutionStatus, SignedTransaction};
@@ -110,7 +109,7 @@ impl<'c> EstimatorContext<'c> {
             trie_config,
             &[shard_uid],
             flat_storage_manager,
-            StateSnapshotConfig::default(),
+            StateSnapshotConfig::Disabled,
         );
         if self.config.memtrie {
             // NOTE: Since the store loaded from the state dump only contains the state, we directly provide the state root
@@ -193,8 +192,6 @@ impl<'c> EstimatorContext<'c> {
             config: Arc::new(runtime_config),
             cache: Some(Box::new(cache)),
             is_new_chunk: true,
-            migration_data: Arc::new(MigrationData::default()),
-            migration_flags: MigrationFlags::default(),
             congestion_info,
             bandwidth_requests: BlockBandwidthRequests::empty(),
         }
@@ -463,9 +460,7 @@ impl Testbed<'_> {
             PROTOCOL_VERSION,
         )
         .expect("expected no validation error");
-        let cost =
-            tx_cost(&self.apply_state.config, &validated_tx.to_tx(), gas_price, PROTOCOL_VERSION)
-                .unwrap();
+        let cost = tx_cost(&self.apply_state.config, &validated_tx.to_tx(), gas_price).unwrap();
 
         let vr = verify_and_charge_tx_ephemeral(
             &self.apply_state.config,
@@ -473,7 +468,6 @@ impl Testbed<'_> {
             &validated_tx,
             &cost,
             block_height,
-            PROTOCOL_VERSION,
         )
         .expect("tx verification should not fail in estimator");
         set_tx_state_changes(&mut state_update, &validated_tx, &vr.signer, &vr.access_key);

@@ -6,10 +6,8 @@ use crate::action::{
 use crate::block::Block;
 use crate::block_body::{BlockBody, ChunkEndorsementSignatures};
 use crate::block_header::BlockHeader;
-use crate::challenge::Challenges;
 use crate::errors::EpochError;
 use crate::hash::CryptoHash;
-
 use crate::shard_layout::ShardLayout;
 use crate::sharding::{ShardChunkHeader, ShardChunkHeaderV3};
 use crate::stateless_validation::chunk_endorsements_bitmap::ChunkEndorsementsBitmap;
@@ -758,22 +756,6 @@ impl BlockHeader {
             BlockHeader::BlockHeaderV5(header) => Arc::make_mut(header).signature = value,
         }
     }
-
-    pub fn set_challenges_root(&mut self, value: MerkleHash) {
-        match self {
-            BlockHeader::BlockHeaderV1(_)
-            | BlockHeader::BlockHeaderV2(_)
-            | BlockHeader::BlockHeaderV3(_) => {
-                unreachable!("old header should not appear in tests")
-            }
-            BlockHeader::BlockHeaderV4(header) => {
-                Arc::make_mut(header).inner_rest.challenges_root = value
-            }
-            BlockHeader::BlockHeaderV5(header) => {
-                Arc::make_mut(header).inner_rest.challenges_root = value
-            }
-        }
-    }
 }
 
 impl ShardChunkHeader {
@@ -799,13 +781,6 @@ impl BlockBody {
         match self {
             BlockBody::V1(body) => body.chunks = chunks,
             BlockBody::V2(body) => body.chunks = chunks,
-        }
-    }
-
-    fn set_challenges(&mut self, challenges: Challenges) {
-        match self {
-            BlockBody::V1(body) => body.challenges = challenges,
-            BlockBody::V2(body) => body.challenges = challenges,
         }
     }
 
@@ -902,8 +877,6 @@ impl TestBlockBuilder {
         tracing::debug!(target: "test", height=self.height, ?self.epoch_id, "produce block");
         Block::produce(
             PROTOCOL_VERSION,
-            PROTOCOL_VERSION,
-            PROTOCOL_VERSION,
             self.prev.header(),
             self.height,
             self.prev.header().block_ordinal() + 1,
@@ -917,8 +890,6 @@ impl TestBlockBuilder {
             0,
             0,
             Some(0),
-            vec![],
-            vec![],
             self.signer.as_ref(),
             self.next_bp_hash,
             self.block_merkle_root,
@@ -1002,24 +973,6 @@ impl Block {
         }
     }
 
-    pub fn set_challenges(&mut self, challenges: Challenges) {
-        match self {
-            Block::BlockV1(_) => unreachable!(),
-            Block::BlockV2(body) => {
-                let body = Arc::make_mut(body);
-                body.challenges = challenges;
-            }
-            Block::BlockV3(body) => {
-                let body = Arc::make_mut(body);
-                body.body.challenges = challenges;
-            }
-            Block::BlockV4(body) => {
-                let body = Arc::make_mut(body);
-                body.body.set_challenges(challenges);
-            }
-        };
-    }
-
     pub fn set_vrf_value(&mut self, vrf_value: Value) {
         match self {
             Block::BlockV1(_) => unreachable!(),
@@ -1073,17 +1026,12 @@ impl EpochInfoProvider for MockEpochInfoProvider {
     fn validator_stake(
         &self,
         _epoch_id: &EpochId,
-        _last_block_hash: &CryptoHash,
         account_id: &AccountId,
     ) -> Result<Option<Balance>, EpochError> {
         Ok(self.validators.get(account_id).cloned())
     }
 
-    fn validator_total_stake(
-        &self,
-        _epoch_id: &EpochId,
-        _last_block_hash: &CryptoHash,
-    ) -> Result<Balance, EpochError> {
+    fn validator_total_stake(&self, _epoch_id: &EpochId) -> Result<Balance, EpochError> {
         Ok(self.validators.values().sum())
     }
 

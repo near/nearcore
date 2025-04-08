@@ -105,7 +105,7 @@ fn main() {
             .current_validators
             .iter()
             .filter(|validator_info| validator_info.account_id == account_id)
-            .last()
+            .next_back()
             .map(|validator_info| {
                 last_stake_amount = validator_info.stake;
                 if maybe_kicked_out(validator_info) {

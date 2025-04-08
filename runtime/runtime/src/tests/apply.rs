@@ -22,7 +22,6 @@ use near_primitives::congestion_info::{
 use near_primitives::errors::{ActionErrorKind, FunctionCallError, TxExecutionError};
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum, ReceiptPriority, ReceiptV0};
-use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::state::PartialState;
 use near_primitives::stateless_validation::contract_distribution::CodeHash;
@@ -44,7 +43,7 @@ use near_store::{
     set_account,
 };
 use near_vm_runner::{ContractCode, FilesystemContractRuntimeCache};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::sync::Arc;
 use testlib::runtime_utils::{alice_account, bob_account};
 
@@ -173,8 +172,6 @@ fn setup_runtime_for_shard(
         config: Arc::new(RuntimeConfig::test()),
         cache: Some(Box::new(contract_cache)),
         is_new_chunk: true,
-        migration_data: Arc::new(MigrationData::default()),
-        migration_flags: MigrationFlags::default(),
         congestion_info,
         bandwidth_requests: BlockBandwidthRequests::empty(),
     };
@@ -212,7 +209,6 @@ fn test_apply_check_balance_validation_rewards() {
         validator_rewards: vec![(alice_account(), reward)].into_iter().collect(),
         last_proposals: Default::default(),
         protocol_treasury_account_id: None,
-        slashing_info: HashMap::default(),
     };
 
     runtime

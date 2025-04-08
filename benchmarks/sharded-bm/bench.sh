@@ -33,6 +33,7 @@ NEAR_HOME="${NEAR_HOME:-/home/ubuntu/.near}"
 GENESIS=${NEAR_HOME}/genesis.json
 CONFIG=${NEAR_HOME}/config.json
 LOG_CONFIG=${NEAR_HOME}/log_config.json
+GENESIS_TIME="${GENESIS_TIME:-2025-04-04T14:24:06.156907Z}"
 
 BASE_GENESIS_PATCH=${CASE}/$(jq -r '.base_genesis_patch' ${BM_PARAMS})
 BASE_CONFIG_PATCH=${CASE}/$(jq -r '.base_config_patch' ${BM_PARAMS})
@@ -47,6 +48,7 @@ BENCHNET_DIR="${BENCHNET_DIR:-/home/ubuntu/bench}"
 RPC_ADDR="127.0.0.1:4040"
 SYNTH_BM_PATH="../synth-bm/Cargo.toml"
 SYNTH_BM_BIN="${SYNTH_BM_BIN:-/home/ubuntu/nearcore/benchmarks/synth-bm/target/release/near-synth-bm}"
+SYNTH_BM_BASENAME="${SYNTH_BM_BASENAME:-$(basename ${SYNTH_BM_BIN})}"
 RUN_ON_FORKNET=$(jq 'has("forknet")' ${BM_PARAMS})
 PYTEST_PATH="../../pytest/"
 TX_GENERATOR=$(jq -r '.tx_generator.enabled // false' ${BM_PARAMS})
@@ -73,7 +75,7 @@ if [ "${RUN_ON_FORKNET}" = true ]; then
         echo "Please set: FORKNET_NAME, FORKNET_START_HEIGHT"
         exit 1
     fi
-    FORKNET_ENV="FORKNET_NAME=${FORKNET_NAME} FORKNET_START_HEIGHT=${FORKNET_START_HEIGHT}"
+    FORKNET_ENV="FORKNET_NAME=${FORKNET_NAME} FORKNET_START_HEIGHT=${FORKNET_START_HEIGHT} SYNTH_BM_BASENAME=${SYNTH_BM_BASENAME}"
     FORKNET_NEARD_LOG="/home/ubuntu/neard-logs/logs.txt"
     FORKNET_NEARD_PATH="${NEAR_HOME}/neard-runner/binaries/neard0"
     NUM_SHARDS=$(jq '.shard_layout.V2.shard_ids | length' ${GENESIS} 2>/dev/null) || true
@@ -249,7 +251,7 @@ init_forknet() {
     fi
     $MIRROR --host-type nodes run-cmd --cmd "mkdir -p ${BENCHNET_DIR}"
     $MIRROR --host-type nodes upload-file --src ${SYNTH_BM_BIN} --dst ${BENCHNET_DIR}
-    $MIRROR --host-type nodes run-cmd --cmd "chmod +x ${BENCHNET_DIR}/near-synth-bm"
+    $MIRROR --host-type nodes run-cmd --cmd "chmod +x ${BENCHNET_DIR}/${SYNTH_BM_BASENAME}"
     cd -
 }
 
@@ -277,7 +279,8 @@ init() {
 
 edit_genesis() {
     echo "editing ${1}"
-    jq 'del(.shard_layout.V1)' ${1} >tmp.$$.json && mv tmp.$$.json ${1} || rm tmp.$$.json
+    jq --arg time "${GENESIS_TIME}" \
+        'del(.shard_layout.V1) | .genesis_time = $time' ${1} >tmp.$$.json && mv tmp.$$.json ${1} || rm tmp.$$.json
     
     if [ -f "${BASE_GENESIS_PATCH}" ]; then
         jq -s 'reduce .[] as $item ({}; . * $item)' \
@@ -420,7 +423,7 @@ create_accounts_forknet() {
 
 set_create_accounts_vars() {
     if [ "${RUN_ON_FORKNET}" = true ]; then
-        cmd="./near-synth-bm"
+        cmd="./${SYNTH_BM_BASENAME}"
     else
         cmd="cargo run --manifest-path ${SYNTH_BM_PATH} --release --"
     fi
@@ -498,7 +501,7 @@ native_transfers_forknet() {
 native_transfers_local() {
     local cmd
     if [ "${RUN_ON_FORKNET}" = true ]; then
-        cmd="./near-synth-bm"
+        cmd="./${SYNTH_BM_BASENAME}"
     else
         cmd="cargo run --manifest-path ${SYNTH_BM_PATH} --release --"
     fi

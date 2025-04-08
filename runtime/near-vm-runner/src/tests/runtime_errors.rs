@@ -48,7 +48,8 @@ fn test_simple_contract() {
     test_builder()
         .wat(SIMPLE_CONTRACT)
         .protocol_features(&[
-            ProtocolFeature::PreparationV2,
+            #[allow(deprecated)]
+            ProtocolFeature::_DeprecatedPreparationV2,
         ])
         .expects(&[
             expect![[r#"
@@ -131,7 +132,8 @@ fn test_trap_contract() {
         .wat(r#"(module (func (export "main") (unreachable)) )"#)
         .skip_wasmtime()
         .protocol_features(&[
-            ProtocolFeature::PreparationV2,
+            #[allow(deprecated)]
+            ProtocolFeature::_DeprecatedPreparationV2,
         ])
         .expects(&[
             expect![[r#"
@@ -158,7 +160,8 @@ fn test_trap_initializer() {
         )
         .skip_wasmtime()
         .protocol_features(&[
-            ProtocolFeature::PreparationV2,
+            #[allow(deprecated)]
+            ProtocolFeature::_DeprecatedPreparationV2,
         ])
         .expects(&[
             expect![[r#"
@@ -189,7 +192,8 @@ fn test_div_by_zero_contract() {
         )
         .skip_wasmtime()
         .protocol_features(&[
-            ProtocolFeature::PreparationV2,
+            #[allow(deprecated)]
+            ProtocolFeature::_DeprecatedPreparationV2,
         ])
         .expects(&[
             expect![[r#"
@@ -220,7 +224,8 @@ fn test_float_to_int_contract() {
             ))
             .skip_wasmtime()
             .protocol_features(&[
-                ProtocolFeature::PreparationV2,
+                #[allow(deprecated)]
+            ProtocolFeature::_DeprecatedPreparationV2,
             ])
             .expects(&[
                 expect![[r#"
@@ -254,7 +259,8 @@ fn test_indirect_call_to_null_contract() {
         .opaque_error()
         .skip_wasmtime()
         .protocol_features(&[
-            ProtocolFeature::PreparationV2,
+            #[allow(deprecated)]
+            ProtocolFeature::_DeprecatedPreparationV2,
         ])
         .expects(&[
             expect![[r#"
@@ -290,7 +296,8 @@ fn test_indirect_call_to_wrong_signature_contract() {
         )
         .skip_wasmtime()
         .protocol_features(&[
-            ProtocolFeature::PreparationV2,
+            #[allow(deprecated)]
+            ProtocolFeature::_DeprecatedPreparationV2,
         ])
         .expects(&[
             expect![[r#"
@@ -350,7 +357,8 @@ fn test_guest_panic() {
             "#,
         )
         .protocol_features(&[
-            ProtocolFeature::PreparationV2,
+            #[allow(deprecated)]
+            ProtocolFeature::_DeprecatedPreparationV2,
         ])
         .expects(&[
             expect![[r#"
@@ -387,7 +395,8 @@ fn test_stack_overflow() {
         .skip_wasmtime()
         .opaque_error()
         .protocol_features(&[
-            ProtocolFeature::PreparationV2,
+            #[allow(deprecated)]
+            ProtocolFeature::_DeprecatedPreparationV2,
         ])
         .expects(&[
             expect![[r#"
@@ -418,8 +427,10 @@ fn test_stack_instrumentation_protocol_upgrade() {
         )
         .method("f1")
         .protocol_features(&[
-            ProtocolFeature::CorrectStackLimit,
-            ProtocolFeature::PreparationV2,
+            #[allow(deprecated)]
+            ProtocolFeature::_DeprecatedCorrectStackLimit,
+            #[allow(deprecated)]
+            ProtocolFeature::_DeprecatedPreparationV2,
         ])
         .skip_wasmtime()
         .opaque_error()
@@ -454,8 +465,10 @@ fn test_stack_instrumentation_protocol_upgrade() {
         .method("f2")
         .opaque_error()
         .protocol_features(&[
-            ProtocolFeature::CorrectStackLimit,
-            ProtocolFeature::PreparationV2,
+            #[allow(deprecated)]
+            ProtocolFeature::_DeprecatedCorrectStackLimit,
+            #[allow(deprecated)]
+            ProtocolFeature::_DeprecatedPreparationV2,
         ])
         .skip_wasmtime()
         .expects(&[
@@ -562,7 +575,8 @@ fn test_bad_import_3() {
         .wasm(&bad_import_global("env"))
         .opaque_error()
         .protocol_features(&[
-            ProtocolFeature::PreparationV2,
+            #[allow(deprecated)]
+            ProtocolFeature::_DeprecatedPreparationV2,
         ])
         .protocol_version(FIX_CONTRACT_LOADING_COST)
         .expects(&[
@@ -640,7 +654,8 @@ fn test_external_call_ok() {
     test_builder()
         .wat(EXTERNAL_CALL_CONTRACT)
         .protocol_features(&[
-            ProtocolFeature::PreparationV2,
+            #[allow(deprecated)]
+            ProtocolFeature::_DeprecatedPreparationV2,
         ])
         .expects(&[
             expect![[r#"
@@ -680,7 +695,8 @@ fn test_external_call_indirect() {
             "#
         )
         .protocol_features(&[
-            ProtocolFeature::PreparationV2,
+            #[allow(deprecated)]
+            ProtocolFeature::_DeprecatedPreparationV2,
         ])
         .expects(&[
             expect![[r#"
@@ -709,9 +725,9 @@ fn test_address_overflow() {
     test_builder()
         .wat(code)
         .skip_wasmtime()
-        .skip_wasmer0()
         .protocol_features(&[
-            ProtocolFeature::PreparationV2,
+            #[allow(deprecated)]
+            ProtocolFeature::_DeprecatedPreparationV2,
         ])
         .expects(&[
             expect![[r#"
@@ -721,22 +737,6 @@ fn test_address_overflow() {
             expect![[r#"
                 VMOutcome: balance 4 storage_usage 12 return data None burnt gas 97048978 used gas 97048978
                 Err: WebAssembly trap: Memory out of bounds trap.
-            "#]],
-        ]);
-
-    // wasmer0 incorrectly doesn't catch overflow during address calculation
-    test_builder()
-        .wat(code)
-        .only_wasmer0()
-        .protocol_features(&[
-            ProtocolFeature::PreparationV2,
-        ])
-        .expects(&[
-            expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 48534981 used gas 48534981
-            "#]],
-            expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 97871734 used gas 97871734
             "#]],
         ]);
 }
@@ -767,9 +767,9 @@ fn test_nan_sign() {
     test_builder()
         .wat(code)
         .skip_wasmtime()
-        .skip_wasmer0()
         .protocol_features(&[
-            ProtocolFeature::PreparationV2,
+            #[allow(deprecated)]
+            ProtocolFeature::_DeprecatedPreparationV2,
         ])
         .expects(&[
             expect![[r#"
@@ -777,24 +777,6 @@ fn test_nan_sign() {
             "#]],
             expect![[r#"
                 VMOutcome: balance 4 storage_usage 12 return data None burnt gas 110433335 used gas 110433335
-            "#]],
-        ]);
-
-    // wasmer0 doesn't canonicalize NaNs
-    test_builder()
-        .wat(code)
-        .only_wasmer0()
-        .protocol_features(&[
-            ProtocolFeature::PreparationV2,
-        ])
-        .expects(&[
-            expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 54988767 used gas 54988767
-                Err: WebAssembly trap: An arithmetic exception, e.g. divided by zero.
-            "#]],
-            expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 109610579 used gas 109610579
-                Err: WebAssembly trap: An arithmetic exception, e.g. divided by zero.
             "#]],
         ]);
 }
@@ -877,7 +859,8 @@ mod fix_contract_loading_cost_protocol_upgrade {
         test_builder()
             .wat(ALMOST_TRIVIAL_CONTRACT)
             .protocol_features(&[
-                ProtocolFeature::PreparationV2
+                #[allow(deprecated)]
+                ProtocolFeature::_DeprecatedPreparationV2
             ])
             .protocol_version(FIX_CONTRACT_LOADING_COST)
             .expects(&[
