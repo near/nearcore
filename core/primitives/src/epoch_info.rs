@@ -2,7 +2,6 @@ use std::collections::{BTreeMap, HashMap};
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives_core::types::{Balance, EpochHeight, ProtocolVersion, ValidatorId};
-use near_primitives_core::version::ProtocolFeature;
 use near_primitives_core::{
     hash::hash,
     types::{BlockHeight, ShardId},
