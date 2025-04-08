@@ -17,6 +17,6 @@ hex = "0.4.2"
 mongodb = "2.8.2"
 opentelemetry-proto = { version = "0.5.0", features = ["gen-tonic", "trace", "with-serde"] }
 prost = "0.12.4"
-tokio = "1.28"
+tokio = "1.38"
 tonic = "0.11.0"
 serde = { version = "1.0.192", features = ["derive"] }
