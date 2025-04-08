@@ -135,85 +135,6 @@ fn make_cached_contract_call_vm(
 }
 
 #[test]
-#[cfg(feature = "wasmer2_vm")]
-fn test_wasmer2_artifact_output_stability() {
-    use crate::prepare;
-    use crate::wasmer2_runner::Wasmer2VM;
-    use wasmer_compiler::{CpuFeature, Target};
-    use wasmer_engine::Executable;
-    // If this test has failed, you want to adjust the necessary constants so that `cache::vm_hash`
-    // changes (and only then the hashes here).
-    //
-    // Note that this test is a best-effort fish net. Some changes that should modify the hash will
-    // fall through the cracks here, but hopefully it should catch most of the fish just fine.
-    let seeds = [2, 3, 5, 7, 11, 13, 17];
-    let prepared_hashes = [
-        10570074354427437071,
-        112822494854026494,
-        8923373422804896330,
-        7482465259708658318,
-        17593373341226268225,
-        16574762561946343960,
-        6263133173262547027,
-    ];
-    let mut got_prepared_hashes = Vec::with_capacity(seeds.len());
-    let compiled_hashes = [
-        13571899357794997814,
-        3529004220149248510,
-        12618963124682967106,
-        17344326048993250539,
-        9020736083169133944,
-        6686183491943308521,
-        12077631041629763505,
-    ];
-    let mut got_compiled_hashes = Vec::with_capacity(seeds.len());
-    for seed in seeds {
-        let contract = ContractCode::new(near_test_contracts::arbitrary_contract(seed), None);
-
-        let config = Arc::new(test_vm_config());
-        let prepared_code =
-            prepare::prepare_contract(contract.code(), &config, VMKind::Wasmer2).unwrap();
-        let this_hash = crate::utils::stable_hash((&contract.code(), &prepared_code));
-        got_prepared_hashes.push(this_hash);
-        if std::env::var_os("NEAR_STABILITY_TEST_WRITE").is_some() {
-            std::fs::write(format!("prepared{}", this_hash), prepared_code).unwrap();
-        }
-
-        let mut features = CpuFeature::set();
-        features.insert(CpuFeature::AVX);
-        let triple = "x86_64-unknown-linux-gnu".parse().unwrap();
-        let target = Target::new(triple, features);
-        let vm = Wasmer2VM::new_for_target(config, target);
-        let artifact = vm.compile_uncached(&contract).unwrap();
-        let serialized = artifact.serialize().unwrap();
-        let this_hash = crate::utils::stable_hash(&serialized);
-        got_compiled_hashes.push(this_hash);
-        if std::env::var_os("NEAR_STABILITY_TEST_WRITE").is_some() {
-            std::fs::write(format!("artifact{}", this_hash), serialized).unwrap();
-        }
-    }
-    // These asserts have failed as a result of some change and the following text describes what
-    // the implications of the change.
-    //
-    // May need a protocol version change, and definitely wants a `WASMER2_CONFIG version update
-    // too, as below. Maybe something else too.
-    assert!(
-        got_prepared_hashes == prepared_hashes,
-        "contract preparation hashes have changed to {:#?}",
-        got_prepared_hashes
-    );
-    // In this case you will need to adjust the WASMER2_CONFIG version so that the cached contracts
-    // are evicted from the contract cache.
-    assert!(
-        got_compiled_hashes == compiled_hashes,
-        "VM output hashes have changed to {:#?}",
-        got_compiled_hashes
-    );
-    // Once it has been confirmed that these steps have been done, the expected hashes in this test
-    // can be adjusted.
-}
-
-#[test]
 #[cfg(feature = "near_vm")]
 fn test_near_vm_artifact_output_stability() {
     use crate::near_vm_runner::NearVM;
@@ -276,15 +197,15 @@ fn test_near_vm_artifact_output_stability() {
     // These asserts have failed as a result of some change and the following text describes what
     // the implications of the change.
     //
-    // May need a protocol version change, and definitely wants a `WASMER2_CONFIG version update
-    // too, as below. Maybe something else too.
+    // May need a protocol version change, and definitely wants a `near_vm_runner::VM_CONFIG`
+    // version update too, as below. Maybe something else too.
     assert!(
         got_prepared_hashes == prepared_hashes,
         "contract preparation hashes have changed to {:#?}",
         got_prepared_hashes
     );
-    // In this case you will need to adjust the WASMER2_CONFIG version so that the cached contracts
-    // are evicted from the contract cache.
+    // In this case you will need to adjust the `near_vm_runner::VM_CONFIG` version so that the
+    // cached contracts are evicted from the contract cache.
     assert!(
         got_compiled_hashes == compiled_hashes,
         "VM output hashes have changed to {:#?}",

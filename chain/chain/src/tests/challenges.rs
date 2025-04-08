@@ -13,13 +13,11 @@ fn test_no_challenge_on_same_header() {
     let block = TestBlockBuilder::new(Clock::real(), &prev, signer).build();
     chain.process_block_test(&None, block.clone()).unwrap();
     assert_eq!(chain.head().unwrap().height, 1);
-    let mut challenges = vec![];
-    if let Err(e) = chain.process_block_header(block.header(), &mut challenges) {
+    if let Err(e) = chain.process_block_header(block.header()) {
         match e {
             Error::BlockKnown(_) => {}
             _ => panic!("Wrong error kind {}", e),
         }
-        assert!(challenges.is_empty());
     } else {
         panic!("Process the same header twice should produce error");
     }

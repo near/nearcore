@@ -304,8 +304,6 @@ opentelemetry-otlp = "0.15.0"
 opentelemetry-semantic-conventions = "0.14.0"
 ordered-float = { version = "4.2.0", features = ["serde", "borsh"] }
 paperclip = { version = "0.9.0", features = ["actix4"] }
-parity-wasm = { version = "0.42", default-features = false }
-parity-wasm_41 = { package = "parity-wasm", version = "0.41" }
 parking_lot = "0.12.1"
 percent-encoding = "2.2.0"
 pin-project = "1.0"
@@ -316,7 +314,6 @@ proc-macro2 = "1.0.64"
 prometheus = { version = "0.13.1", default-features = false }
 protobuf = "3.0.1"
 protobuf-codegen = "3.0.1"
-pwasm-utils_12 = { package = "pwasm-utils", version = "0.12" }
 quote = "1.0"
 rand = "0.8.5"
 rand_chacha = "0.3.1"
@@ -390,14 +387,6 @@ tracing-subscriber = { version = "0.3.18", features = [
 trybuild = "1.0.11"
 turn = "0.9"
 wasm-encoder = "0.224.0"
-wasmer-compiler = { package = "wasmer-compiler-near", version = "=2.4.1" }
-wasmer-compiler-singlepass = { package = "wasmer-compiler-singlepass-near", version = "=2.4.1" }
-wasmer-engine = { package = "wasmer-engine-near", version = "=2.4.1" }
-wasmer-engine-universal = { package = "wasmer-engine-universal-near", version = "=2.4.1", features = [
-    "compiler",
-] }
-wasmer-types = { package = "wasmer-types-near", version = "=2.4.1" }
-wasmer-vm = { package = "wasmer-vm-near", version = "=2.4.1" }
 wasmparser = "0.78" # TODO: unify at least the versions of wasmparser we have in our codebase
 wasmprinter = "0.224"
 wasm-smith = "0.224"

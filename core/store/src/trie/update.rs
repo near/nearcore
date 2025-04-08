@@ -14,10 +14,9 @@ use near_primitives::types::{
     AccountId, RawStateChange, RawStateChanges, RawStateChangesWithTrieKey, StateChangeCause,
     StateRoot,
 };
-use near_primitives::version::ProtocolFeature;
 
 use near_vm_runner::ContractCode;
-use near_vm_runner::logic::ProtocolVersion;
+
 use std::collections::BTreeMap;
 
 mod iterator;
@@ -343,14 +342,7 @@ impl TrieUpdate {
         code_hash: CryptoHash,
         account_contract: &AccountContract,
         apply_reason: ApplyChunkReason,
-        protocol_version: ProtocolVersion,
     ) -> Result<(), StorageError> {
-        if !ProtocolFeature::ExcludeContractCodeFromStateWitness.enabled(protocol_version) {
-            // This causes trie lookup for the contract code to happen with side effects (charging gas and recording trie nodes).
-            self.trie.request_code_recording(account_id);
-            return Ok(());
-        }
-
         // The recording of contracts when they are excluded from the witness are only for distributing them to the validators,
         // and not needed for validating the chunks, thus we skip the recording if we are not applying the chunk for updating the shard.
         if apply_reason != ApplyChunkReason::UpdateTrackedShard {

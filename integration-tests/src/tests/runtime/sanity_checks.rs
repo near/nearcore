@@ -217,7 +217,6 @@ fn test_cost_sanity_nondeterministic() {
 /// [gas instrumentation]: https://nomicon.io/RuntimeSpec/Preparation#gas-instrumentation
 #[test]
 fn test_sanity_used_gas() {
-    use near_parameters::vm::ContractPrepareVersion;
     let node = setup_runtime_node_with_contract(&contract_sanity_check_used_gas());
     let res = node
         .user()
@@ -239,21 +238,7 @@ fn test_sanity_used_gas() {
 
     let runtime_config = node.client.read().unwrap().runtime_config.clone();
     let base_cost = runtime_config.wasm_config.ext_costs.gas_cost(ExtCosts::base);
-    let op_cost = match runtime_config.wasm_config.limit_config.contract_prepare_version {
-        // In old implementations of preparation, all of the contained instructions are paid
-        // for upfront when entering a new metered block,
-        //
-        // It fails to be precise in that it does not consider calls to `used_gas` as
-        // breaking up a metered block and so none of the gas cost to execute instructions between
-        // calls to this function will be observable from within wasm code.
-        //
-        // In this test we account for this by setting `op_cost` to zero, but if future tests
-        // change test WASM in significant ways, this approach may become incorrect.
-        ContractPrepareVersion::V0 | ContractPrepareVersion::V1 => 0,
-        // Gas accounting is precise and instructions executed between calls to the side-effect-ful
-        // `used_gas` host function calls will be observable.
-        ContractPrepareVersion::V2 => u64::from(runtime_config.wasm_config.regular_op_cost),
-    };
+    let op_cost = u64::from(runtime_config.wasm_config.regular_op_cost);
 
     // Executing `used_gas` costs `base_cost` plus an instruction to execute the `call` itself.
     // When executing `used_gas` twice within a metered block, the returned values should differ by

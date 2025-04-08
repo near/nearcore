@@ -59,7 +59,7 @@ fn test_create_delete_account() {
     init_test_logger();
     let builder = TestLoopBuilder::new();
 
-    let epoch_length = 5;
+    let epoch_length = 10;
     let accounts =
         (0..5).map(|i| format!("account{}", i).parse().unwrap()).collect::<Vec<AccountId>>();
     let clients = accounts.clone();
@@ -110,5 +110,6 @@ fn test_create_delete_account() {
     // storage.
     do_delete_account(&mut env, &rpc_id, &new_account, &accounts[1]);
 
+    env.test_loop.run_for(Duration::seconds(20));
     env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
