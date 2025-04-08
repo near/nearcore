@@ -70,6 +70,7 @@ macro_rules! imports {
     ) => {
         macro_rules! for_each_available_import {
             ($config:expr, $M:ident) => {$(
+                let _ = &$config;
                 $(#[cfg(feature = $feature_name)])?
                 if true $(&& ($config).$config_field)? {
                     $crate::imports::call_with_name!($M => $( @in $mod : )? $( @as $name : )? $func < [ $( $arg_name : $arg_type ),* ] -> [ $( $returns ),* ] >);
@@ -119,15 +120,15 @@ imports! {
     sha256<[value_len: u64, value_ptr: u64, register_id: u64] -> []>,
     keccak256<[value_len: u64, value_ptr: u64, register_id: u64] -> []>,
     keccak512<[value_len: u64, value_ptr: u64, register_id: u64] -> []>,
-    #[ed25519_verify] ed25519_verify<[sig_len: u64,
+    ed25519_verify<[sig_len: u64,
         sig_ptr: u64,
         msg_len: u64,
         msg_ptr: u64,
         pub_key_len: u64,
         pub_key_ptr: u64
     ] -> [u64]>,
-    #[math_extension] ripemd160<[value_len: u64, value_ptr: u64, register_id: u64] -> []>,
-    #[math_extension] ecrecover<[hash_len: u64, hash_ptr: u64, sign_len: u64, sig_ptr: u64, v: u64, malleability_flag: u64, register_id: u64] -> [u64]>,
+    ripemd160<[value_len: u64, value_ptr: u64, register_id: u64] -> []>,
+    ecrecover<[hash_len: u64, hash_ptr: u64, sign_len: u64, sig_ptr: u64, v: u64, malleability_flag: u64, register_id: u64] -> [u64]>,
     // #####################
     // # Miscellaneous API #
     // #####################
@@ -178,7 +179,7 @@ imports! {
         amount_ptr: u64,
         gas: u64
     ] -> []>,
-    #[function_call_weight] promise_batch_action_function_call_weight<[
+    promise_batch_action_function_call_weight<[
         promise_index: u64,
         method_name_len: u64,
         method_name_ptr: u64,
@@ -225,7 +226,7 @@ imports! {
     // #######################
     // # Promise API yield/resume #
     // #######################
-    #[yield_resume_host_functions] promise_yield_create<[
+    promise_yield_create<[
         method_name_len: u64,
         method_name_ptr: u64,
         arguments_len: u64,
@@ -234,7 +235,7 @@ imports! {
         gas_weight: u64,
         register_id: u64
     ] -> [u64]>,
-    #[yield_resume_host_functions] promise_yield_resume<[
+    promise_yield_resume<[
         data_id_len: u64,
         data_id_ptr: u64,
         payload_len: u64,
@@ -266,9 +267,9 @@ imports! {
     // #############
     // # Alt BN128 #
     // #############
-    #[alt_bn128] alt_bn128_g1_multiexp<[value_len: u64, value_ptr: u64, register_id: u64] -> []>,
-    #[alt_bn128] alt_bn128_g1_sum<[value_len: u64, value_ptr: u64, register_id: u64] -> []>,
-    #[alt_bn128] alt_bn128_pairing_check<[value_len: u64, value_ptr: u64] -> [u64]>,
+    alt_bn128_g1_multiexp<[value_len: u64, value_ptr: u64, register_id: u64] -> []>,
+    alt_bn128_g1_sum<[value_len: u64, value_ptr: u64, register_id: u64] -> []>,
+    alt_bn128_pairing_check<[value_len: u64, value_ptr: u64] -> [u64]>,
     // #############
     // # BLS12-381 #
     // #############

@@ -165,23 +165,8 @@ pub struct Config {
     /// Enable the `ImplicitAccountCreation` protocol feature.
     pub implicit_account_creation: bool,
 
-    /// Enable the host functions added by the `MathExtension` protocol feature.
-    pub math_extension: bool,
-
-    /// Enable the host functions added by the `Ed25519Verify` protocol feature.
-    pub ed25519_verify: bool,
-
-    /// Enable the host functions added by the `AltBn128` protocol feature.
-    pub alt_bn128: bool,
-
-    /// Enable the `FunctionCallWeight` protocol feature.
-    pub function_call_weight: bool,
-
     /// Enable the `EthImplicitAccounts` protocol feature.
     pub eth_implicit_accounts: bool,
-
-    /// Enable the `promise_yield_create` and `promise_yield_resume` host functions.
-    pub yield_resume_host_functions: bool,
 
     /// Whether to discard custom sections.
     pub discard_custom_sections: bool,
@@ -211,12 +196,7 @@ impl Config {
     }
 
     pub fn enable_all_features(&mut self) {
-        self.yield_resume_host_functions = true;
         self.eth_implicit_accounts = true;
-        self.function_call_weight = true;
-        self.alt_bn128 = true;
-        self.ed25519_verify = true;
-        self.math_extension = true;
         self.implicit_account_creation = true;
     }
 }
