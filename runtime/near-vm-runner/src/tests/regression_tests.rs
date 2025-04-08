@@ -18,14 +18,7 @@ fn memory_size_alignment_issue() {
             "#,
         )
         .method("foo")
-        .protocol_features(&[
-          #[allow(deprecated)]
-          near_primitives_core::version::ProtocolFeature::_DeprecatedPreparationV2,
-        ])
         .expects(&[
-            expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 46411725 used gas 46411725
-            "#]],
             expect![[r#"
                 VMOutcome: balance 4 storage_usage 12 return data None burnt gas 90513208 used gas 90513208
             "#]],

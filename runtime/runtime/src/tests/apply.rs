@@ -981,7 +981,6 @@ fn test_delete_key_underflow() {
     assert_eq!(final_account_state.storage_usage(), 0);
 }
 
-// This test only works on platforms that support wasmer2.
 #[test]
 #[cfg(target_arch = "x86_64")]
 fn test_contract_precompilation() {

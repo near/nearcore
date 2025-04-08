@@ -29,7 +29,7 @@ The entry point is the `runner::run` function.
 There are a bunch of unit-tests in this crate. You can run them with
 
 ```console
-$ cargo t -p near-vm-runner --features wasmer2_vm,wasmtime_vm,near_vm
+$ cargo t -p near-vm-runner --features wasmtime_vm,near_vm
 ```
 
 The tests use either a short wasm snippet specified inline, or a couple of
