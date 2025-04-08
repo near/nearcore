@@ -522,7 +522,7 @@ impl ShardChunkHeader {
             ShardChunkHeader::V1(_) | ShardChunkHeader::V2(_) => {
                 debug_assert!(false, "Calling congestion_info on V1 or V2 header version");
                 Default::default()
-            },
+            }
             ShardChunkHeader::V3(header) => header.inner.congestion_info(),
         }
     }

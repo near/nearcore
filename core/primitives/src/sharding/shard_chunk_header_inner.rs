@@ -152,7 +152,7 @@ impl ShardChunkHeaderInner {
             Self::V1(_) | Self::V2(_) => {
                 debug_assert!(false, "Calling congestion_info on V1 or V2 header version");
                 Default::default()
-            },
+            }
             Self::V3(v3) => v3.congestion_info,
             Self::V4(v4) => v4.congestion_info,
         }
