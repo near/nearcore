@@ -482,6 +482,9 @@ fn validate_receipt_proof(
     from_chunk: &ShardChunkHeader,
     target_chunk_shard_id: ShardId,
 ) -> Result<(), Error> {
+    let from_shard_id = from_chunk.shard_id();
+    let chunk_hash = from_chunk.chunk_hash();
+    let _span = tracing::debug_span!(target: "chain", "validate_receipt_proof", ?from_shard_id, ?chunk_hash, ?target_chunk_shard_id).entered();
     // Validate that from_shard_id is correct. The receipts must match the outgoing receipt root
     // for this shard, so it's impossible to fake it.
     if receipt_proof.1.from_shard_id != from_chunk.shard_id() {
