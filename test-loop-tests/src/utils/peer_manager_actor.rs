@@ -32,7 +32,7 @@ use near_network::types::{
 use near_primitives::genesis::GenesisId;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
-use near_primitives::types::AccountId;
+use near_primitives::types::{AccountId, ShardId};
 
 /// Subset of ClientSenderForNetwork required for the TestLoop network.
 /// We skip over the message handlers from view client.
@@ -66,6 +66,7 @@ pub struct ViewClientSenderForTestLoopNetwork {
 pub struct TestLoopNetworkBlockInfo {
     pub peer: PeerInfo,
     pub block_header: BlockHeader,
+    pub tracked_shards: Vec<ShardId>,
 }
 
 type NetworkRequestHandler = Box<dyn Fn(NetworkRequests) -> Option<NetworkRequests>>;
@@ -98,9 +99,10 @@ type NetworkRequestHandler = Box<dyn Fn(NetworkRequests) -> Option<NetworkReques
 pub struct TestLoopPeerManagerActor {
     handlers: Vec<NetworkRequestHandler>,
 
-    client_sender: ClientSenderForTestLoopNetwork,
+    my_account_id: AccountId,
+    shared_state: TestLoopNetworkSharedState,
     genesis_id: GenesisId,
-    last_block_headers: HashMap<PeerInfo, BlockHeader>,
+    highest_height_peer_infos: HashMap<PeerInfo, HighestHeightPeerInfo>,
 }
 
 impl Actor for TestLoopPeerManagerActor {
@@ -112,14 +114,22 @@ impl Actor for TestLoopPeerManagerActor {
 
 impl Handler<TestLoopNetworkBlockInfo> for TestLoopPeerManagerActor {
     fn handle(&mut self, msg: TestLoopNetworkBlockInfo) {
-        match self.last_block_headers.entry(msg.peer) {
+        let peer_info = HighestHeightPeerInfo {
+            archival: false,
+            genesis_id: self.genesis_id.clone(),
+            highest_block_hash: *msg.block_header.hash(),
+            highest_block_height: msg.block_header.height(),
+            tracked_shards: msg.tracked_shards,
+            peer_info: msg.peer,
+        };
+        match self.highest_height_peer_infos.entry(peer_info.peer_info.clone()) {
             hash_map::Entry::Occupied(entry) => {
-                if entry.get().height() <= msg.block_header.height() {
-                    *entry.into_mut() = msg.block_header;
+                if entry.get().highest_block_height <= peer_info.highest_block_height {
+                    *entry.into_mut() = peer_info;
                 }
             }
             hash_map::Entry::Vacant(entry) => {
-                entry.insert(msg.block_header);
+                entry.insert(peer_info);
             }
         }
     }
@@ -130,9 +140,8 @@ impl TestLoopPeerManagerActor {
     /// Note that we should be able to access the senders for these actors from the data type.
     pub fn new(
         clock: Clock,
-        account_id: &AccountId,
-        shared_state: &TestLoopNetworkSharedState,
-        client_sender: ClientSenderForTestLoopNetwork,
+        account_id: AccountId,
+        shared_state: TestLoopNetworkSharedState,
         genesis_id: GenesisId,
         future_spawner: Arc<dyn FutureSpawner>,
     ) -> Self {
@@ -147,7 +156,13 @@ impl TestLoopPeerManagerActor {
             network_message_to_shards_manager_handler(clock, &account_id, shared_state.clone()),
             network_message_to_state_snapshot_handler(),
         ];
-        Self { handlers, client_sender, genesis_id, last_block_headers: HashMap::new() }
+        Self {
+            handlers,
+            genesis_id,
+            highest_height_peer_infos: HashMap::new(),
+            my_account_id: account_id,
+            shared_state,
+        }
     }
 
     /// Register a new handler to override the default handlers.
@@ -164,21 +179,18 @@ impl TestLoopPeerManagerActor {
     ) {
         // Some tests (especially the ones having to do with sync) need NetworkInfo to be up to
         // date to work properly. That's why we're sending it periodically here.
-        let future = self.client_sender.send_async(SetNetworkInfo(NetworkInfo {
-            highest_height_peers: self
-                .last_block_headers
-                .iter()
-                .map(|(peer_info, header)| HighestHeightPeerInfo {
-                    archival: false,
-                    genesis_id: self.genesis_id.clone(),
-                    highest_block_hash: *header.hash(),
-                    highest_block_height: header.height(),
-                    tracked_shards: vec![],
-                    peer_info: peer_info.clone(),
-                })
-                .collect(),
-            ..NetworkInfo::default()
-        }));
+        let future = self
+            .shared_state
+            .senders_for_account(&self.my_account_id, &self.my_account_id)
+            .client_sender
+            .send_async(SetNetworkInfo(NetworkInfo {
+                highest_height_peers: self
+                    .highest_height_peer_infos
+                    .clone()
+                    .into_values()
+                    .collect(),
+                ..NetworkInfo::default()
+            }));
         drop(future);
 
         ctx.run_later("TestLoopPeerManagerActor::push_network_info", interval, move |act, ctx| {
@@ -355,7 +367,26 @@ impl TestLoopNetworkSharedState {
 }
 
 impl Handler<SetChainInfo> for TestLoopPeerManagerActor {
-    fn handle(&mut self, _msg: SetChainInfo) {}
+    fn handle(&mut self, msg: SetChainInfo) {
+        let my_peer_id = self.shared_state.account_to_peer_id(&self.my_account_id);
+        for account_id in self.shared_state.accounts() {
+            if account_id == self.my_account_id {
+                continue;
+            }
+            self.shared_state
+                .senders_for_account(&self.my_account_id, &account_id)
+                .peer_manager_sender
+                .send(TestLoopNetworkBlockInfo {
+                    peer: PeerInfo {
+                        id: my_peer_id.clone(),
+                        addr: None,
+                        account_id: Some(self.my_account_id.clone()),
+                    },
+                    tracked_shards: msg.0.tracked_shards.clone(),
+                    block_header: msg.0.block.header().clone(),
+                });
+        }
+    }
 }
 
 impl Handler<StateSyncEvent> for TestLoopPeerManagerActor {
@@ -399,24 +430,15 @@ fn network_message_to_client_handler(
                 if account_id == my_account_id {
                     continue;
                 }
-
-                let senders = shared_state.senders_for_account(&my_account_id, &account_id);
-
-                let future = senders.client_sender.send_async(BlockResponse {
-                    block: block.clone(),
-                    peer_id: my_peer_id.clone(),
-                    was_requested: false,
-                });
+                let future = shared_state
+                    .senders_for_account(&my_account_id, &account_id)
+                    .client_sender
+                    .send_async(BlockResponse {
+                        block: block.clone(),
+                        peer_id: my_peer_id.clone(),
+                        was_requested: false,
+                    });
                 drop(future);
-
-                senders.peer_manager_sender.send(TestLoopNetworkBlockInfo {
-                    peer: PeerInfo {
-                        id: my_peer_id.clone(),
-                        addr: None,
-                        account_id: Some(my_account_id.clone()),
-                    },
-                    block_header: block.header().clone(),
-                });
             }
             None
         }
