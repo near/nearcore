@@ -1428,6 +1428,9 @@ impl ShardsManagerActor {
         &mut self,
         header: &ShardChunkHeader,
     ) -> bool {
+        let chunk_hash = header.chunk_hash();
+        let shard_id = header.shard_id();
+        let _span = tracing::debug_span!(target: "chunks", "insert_header_if_not_exists_and_process_cached_chunk_forwards", ?chunk_hash, ?shard_id).entered();
         let header_known_before = self.encoded_chunks.get(&header.chunk_hash()).is_some();
         if self.encoded_chunks.get_or_insert_from_header(header).complete {
             return false;
@@ -1620,6 +1623,7 @@ impl ShardsManagerActor {
         response: PartialEncodedChunkResponseMsg,
         me: Option<&AccountId>,
     ) -> Result<(), Error> {
+        let _span = tracing::debug_span!(target: "chunks", "process_partial_encoded_chunk_response", chunk_hash=?response.chunk_hash).entered();
         let header = self.get_partial_encoded_chunk_header(&response.chunk_hash)?;
         let partial_chunk = PartialEncodedChunk::new(header, response.parts, response.receipts);
         // We already know the header signature is valid because we read it from the
@@ -1635,6 +1639,9 @@ impl ShardsManagerActor {
         header: &ShardChunkHeader,
         me: Option<&AccountId>,
     ) -> Result<(), Error> {
+        let chunk_hash = header.chunk_hash();
+        let shard_id = header.shard_id();
+        let _span = tracing::debug_span!(target: "chunks", "process_chunk_header_from_block", ?chunk_hash, ?shard_id).entered();
         if self.insert_header_if_not_exists_and_process_cached_chunk_forwards(header) {
             self.try_process_chunk_parts_and_receipts(header, me)?;
         }
