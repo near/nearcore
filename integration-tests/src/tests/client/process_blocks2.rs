@@ -27,7 +27,7 @@ use crate::env::test_env_builder::TestEnvBuilder;
 /// if the second block is not requested
 #[test]
 fn test_not_process_height_twice() {
-    let mut env = TestEnv::default_builder_with_genesis().build();
+    let mut env = TestEnv::default_builder().build();
     let block = env.clients[0].produce_block(1).unwrap().unwrap();
     // modify the block and resign it
     let mut duplicate_block = block.clone();
