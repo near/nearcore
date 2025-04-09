@@ -1,7 +1,5 @@
 use std::collections::HashMap;
 
-use near_primitives::version::ProtocolFeature;
-
 use super::protocol_upgrade::test_protocol_upgrade;
 
 #[test]
