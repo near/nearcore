@@ -1054,7 +1054,6 @@ impl PeerManagerActor {
                     NetworkResponses::RouteNotFound
                 }
             }
-            NetworkRequests::Challenge(_) => NetworkResponses::NoResponse,
             NetworkRequests::ChunkStateWitnessAck(target, ack) => {
                 self.state.send_message_to_account(
                     &self.clock,
