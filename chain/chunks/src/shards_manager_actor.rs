@@ -1202,6 +1202,7 @@ impl ShardsManagerActor {
         &mut self,
         forward: &PartialEncodedChunkForwardMsg,
     ) -> Result<(), Error> {
+        let _span = tracing::debug_span!(target: "chunks", "validate_partial_encoded_chunk_forward", chunk_hash=?forward.chunk_hash).entered();
         let valid_hash = forward.is_valid_hash(); // check hash
 
         if !valid_hash {
@@ -1255,6 +1256,7 @@ impl ShardsManagerActor {
     }
 
     fn insert_forwarded_chunk(&mut self, forward: PartialEncodedChunkForwardMsg) {
+        let _span = tracing::debug_span!(target: "chunks", "insert_forwarded_chunk", chunk_hash=?forward.chunk_hash).entered();
         let chunk_hash = forward.chunk_hash.clone();
         let num_total_parts = self.epoch_manager.num_total_parts() as u64;
         match self.chunk_forwards_cache.get_mut(&chunk_hash) {
@@ -1290,6 +1292,7 @@ impl ShardsManagerActor {
         forward: PartialEncodedChunkForwardMsg,
         me: Option<&AccountId>,
     ) -> Result<(), Error> {
+        let _span = tracing::debug_span!(target: "chunks", "process_partial_encoded_chunk_forward", chunk_hash=?forward.chunk_hash).entered();
         let maybe_header = self
             .validate_partial_encoded_chunk_forward(&forward)
             .and_then(|_| self.get_partial_encoded_chunk_header(&forward.chunk_hash));
