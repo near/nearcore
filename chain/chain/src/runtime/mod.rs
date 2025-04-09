@@ -48,7 +48,7 @@ use node_runtime::config::tx_cost;
 use node_runtime::state_viewer::{TrieViewer, ViewApplyState};
 use node_runtime::{
     ApplyState, Runtime, SignedValidPeriodTransactions, ValidatorAccountsUpdate,
-    get_singer_and_access_key, set_tx_state_changes, validate_transaction,
+    get_signer_and_access_key, set_tx_state_changes, validate_transaction,
     verify_and_charge_tx_ephemeral,
 };
 use std::collections::HashMap;
@@ -530,7 +530,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         let shard_uid = shard_layout
             .account_id_to_shard_uid(validated_tx.to_signed_tx().transaction.signer_id());
         let state_update = self.tries.new_trie_update(shard_uid, state_root);
-        let (mut signer, mut access_key) = get_singer_and_access_key(&state_update, &validated_tx)?;
+        let (mut signer, mut access_key) = get_signer_and_access_key(&state_update, &validated_tx)?;
         verify_and_charge_tx_ephemeral(
             runtime_config,
             &mut signer,
@@ -670,7 +670,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                 }
 
                 let (mut signer, mut access_key) =
-                    get_singer_and_access_key(&state_update, &validated_tx)
+                    get_signer_and_access_key(&state_update, &validated_tx)
                         .map_err(|_| Error::InvalidTransactions)?;
                 let verify_result =
                     tx_cost(runtime_config, &validated_tx.to_tx(), prev_block.next_gas_price)

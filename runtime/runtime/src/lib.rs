@@ -10,7 +10,7 @@ use crate::prefetch::TriePrefetcher;
 pub use crate::types::SignedValidPeriodTransactions;
 use crate::verifier::{StorageStakingError, check_storage_stake, validate_receipt};
 pub use crate::verifier::{
-    ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT, get_singer_and_access_key, set_tx_state_changes,
+    ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT, get_signer_and_access_key, set_tx_state_changes,
     validate_transaction, verify_and_charge_tx_ephemeral,
 };
 use bandwidth_scheduler::{BandwidthSchedulerOutput, run_bandwidth_scheduler};
@@ -344,7 +344,7 @@ impl Runtime {
     ) -> Result<(Receipt, ExecutionOutcomeWithId), InvalidTxError> {
         let span = tracing::Span::current();
         metrics::TRANSACTION_PROCESSED_TOTAL.inc();
-        let (mut signer, mut access_key) = get_singer_and_access_key(state_update, &validated_tx)?;
+        let (mut signer, mut access_key) = get_signer_and_access_key(state_update, &validated_tx)?;
 
         let verification_result = verify_and_charge_tx_ephemeral(
             &apply_state.config,

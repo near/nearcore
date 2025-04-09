@@ -112,7 +112,7 @@ pub fn set_tx_state_changes(
     set_account(state_update, tx.signer_id().clone(), &signer);
 }
 
-pub fn get_singer_and_access_key(
+pub fn get_signer_and_access_key(
     state_update: &TrieUpdate,
     validated_tx: &ValidatedTransaction,
 ) -> Result<(Account, AccessKey), InvalidTxError> {
@@ -741,7 +741,7 @@ mod tests {
         };
 
         let (mut signer, mut access_key) =
-            match get_singer_and_access_key(state_update, &validated_tx) {
+            match get_signer_and_access_key(state_update, &validated_tx) {
                 Ok((signer, access_key)) => (signer, access_key),
                 Err(err) => {
                     assert_eq!(err, expected_err);
@@ -774,7 +774,7 @@ mod tests {
             Ok(validated_tx) => validated_tx,
             Err((err, _tx)) => return Err(err),
         };
-        let (mut signer, mut access_key) = get_singer_and_access_key(state_update, &validated_tx)?;
+        let (mut signer, mut access_key) = get_signer_and_access_key(state_update, &validated_tx)?;
 
         let transaction_cost = tx_cost(config, &validated_tx.to_tx(), gas_price)?;
         let vr = verify_and_charge_tx_ephemeral(
