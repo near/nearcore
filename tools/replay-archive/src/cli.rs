@@ -211,7 +211,6 @@ impl ReplayController {
         let block = self.chain_store.get_block(&block_hash)?;
 
         let epoch_id = block.header().epoch_id();
-        let protocol_version = self.epoch_manager.get_epoch_protocol_version(epoch_id)?;
 
         self.validate_block(&block)?;
 
