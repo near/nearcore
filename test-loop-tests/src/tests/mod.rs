@@ -1,6 +1,7 @@
 mod bandwidth_scheduler;
 mod bandwidth_scheduler_protocol_upgrade;
 mod chunk_validator_kickout;
+mod chunks_management;
 mod congestion_control;
 mod congestion_control_genesis_bootstrap;
 mod consensus;
