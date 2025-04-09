@@ -93,6 +93,9 @@ pub fn validate_chunk_endorsement(
     endorsement: &ChunkEndorsement,
     store: &Store,
 ) -> Result<bool, Error> {
+    let key = endorsement.chunk_production_key();
+    let account_id = endorsement.account_id();
+    let _span = tracing::debug_span!(target: "client", "validate_chunk_endorsement", ?key, ?account_id).entered();
     if !validate_chunk_relevant_as_validator(
         epoch_manager,
         &endorsement.chunk_production_key(),
@@ -113,6 +116,7 @@ pub fn validate_chunk_contract_accesses(
     store: &Store,
 ) -> Result<bool, Error> {
     let key = accesses.chunk_production_key();
+    let _span = tracing::debug_span!(target: "client", "validate_chunk_contract_accesses", ?key).entered();
     if !validate_chunk_relevant_as_validator(epoch_manager, key, signer.validator_id(), store)? {
         return Ok(false);
     }
@@ -249,6 +253,9 @@ fn validate_chunk_endorsement_signature(
     epoch_manager: &dyn EpochManagerAdapter,
     endorsement: &ChunkEndorsement,
 ) -> Result<(), Error> {
+    let key = endorsement.chunk_production_key();
+    let account_id = endorsement.account_id();
+    let _span = tracing::debug_span!(target: "client", "validate_chunk_endorsement_signature", ?key, ?account_id).entered();
     if epoch_manager.should_validate_signatures() {
         let validator = epoch_manager.get_validator_by_account_id(
             &endorsement.chunk_production_key().epoch_id,
@@ -265,6 +272,9 @@ fn validate_witness_contract_code_request_signature(
     epoch_manager: &dyn EpochManagerAdapter,
     request: &ContractCodeRequest,
 ) -> Result<(), Error> {
+    let key = request.chunk_production_key();
+    let requester = request.requester();
+    let _span = tracing::debug_span!(target: "client", "validate_witness_contract_code_request_signature", ?key, ?requester).entered();
     if epoch_manager.should_validate_signatures() {
         let validator = epoch_manager.get_validator_by_account_id(
             &request.chunk_production_key().epoch_id,
@@ -281,6 +291,8 @@ fn validate_witness_contract_accesses_signature(
     epoch_manager: &dyn EpochManagerAdapter,
     accesses: &ChunkContractAccesses,
 ) -> Result<(), Error> {
+    let key = accesses.chunk_production_key();
+    let _span = tracing::debug_span!(target: "client", "validate_witness_contract_accesses_signature", ?key).entered();
     if epoch_manager.should_validate_signatures() {
         let chunk_producer =
             epoch_manager.get_chunk_producer_info(accesses.chunk_production_key())?;
