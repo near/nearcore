@@ -4,7 +4,10 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use itertools::Itertools;
 use near_async::actix::ActixResult;
 use near_async::futures::{DelayedActionRunnerExt as _, FutureSpawner, FutureSpawnerExt};
-use near_async::messaging::{Actor, AsyncSender, CanSend, Handler, SendAsync, Sender};
+use near_async::messaging::{
+    Actor, AsyncSender, CanSend, Handler, IntoMultiSender as _, IntoSender as _, SendAsync, Sender,
+};
+use near_async::test_loop::sender::TestLoopSender;
 use near_async::time::{Clock, Duration};
 use near_async::{MultiSend, MultiSenderFrom};
 use near_chain::BlockHeader;
@@ -191,6 +194,8 @@ pub struct TestLoopNetworkSharedState(Arc<Mutex<TestLoopNetworkSharedStateInner>
 struct TestLoopNetworkSharedStateInner {
     account_to_peer_id: HashMap<AccountId, PeerId>,
     senders: HashMap<PeerId, Arc<OneClientSenders>>,
+    // Everything sent using these senders should be dropped.
+    drop_events_senders: Arc<OneClientSenders>,
     route_back: HashMap<CryptoHash, PeerId>,
     disallowed_peer_links: HashMap<PeerId, HashSet<PeerId>>,
 }
@@ -205,11 +210,39 @@ struct OneClientSenders {
     peer_manager_sender: Sender<TestLoopNetworkBlockInfo>,
 }
 
+/// This actor can be used in situations when we don't expect any events to reach it.
+/// For example when we want to simulate broken link between peers and drop all events sent
+/// between.
+pub struct UnreachableActor {}
+
+impl<M: actix::Message> Handler<M> for UnreachableActor
+where
+    M::Result: std::marker::Send,
+{
+    fn handle(&mut self, _msg: M) -> M::Result {
+        unreachable!("All events for this actor shouldn't be processed");
+    }
+}
+
+impl Actor for UnreachableActor {}
+
+fn to_drop_events_senders(s: TestLoopSender<UnreachableActor>) -> Arc<OneClientSenders> {
+    Arc::new(OneClientSenders {
+        client_sender: s.clone().into_multi_sender(),
+        view_client_sender: s.clone().into_multi_sender(),
+        tx_processor_sender: s.clone().into_multi_sender(),
+        partial_witness_sender: s.clone().into_multi_sender(),
+        shards_manager_sender: s.clone().into_sender(),
+        peer_manager_sender: s.into_sender(),
+    })
+}
+
 impl TestLoopNetworkSharedState {
-    pub fn new() -> Self {
+    pub fn new(unreacahble_actor_sender: TestLoopSender<UnreachableActor>) -> Self {
         let inner = TestLoopNetworkSharedStateInner {
             account_to_peer_id: HashMap::new(),
             senders: HashMap::new(),
+            drop_events_senders: to_drop_events_senders(unreacahble_actor_sender),
             route_back: HashMap::new(),
             disallowed_peer_links: HashMap::new(),
         };
@@ -273,22 +306,22 @@ impl TestLoopNetworkSharedState {
         &self,
         origin: &AccountId,
         account_id: &AccountId,
-    ) -> Option<Arc<OneClientSenders>> {
+    ) -> Arc<OneClientSenders> {
         let guard = self.0.lock().unwrap();
         let origin_peer_id = &guard.account_to_peer_id[origin];
         let peer_id = &guard.account_to_peer_id[account_id];
         if Self::is_peer_link_disallowed(&guard, origin_peer_id, peer_id) {
-            return None;
+            return guard.drop_events_senders.clone();
         }
-        Some(guard.senders.get(peer_id).unwrap().clone())
+        guard.senders.get(peer_id).unwrap().clone()
     }
 
-    fn senders_for_peer(&self, origin: &PeerId, peer_id: &PeerId) -> Option<Arc<OneClientSenders>> {
+    fn senders_for_peer(&self, origin: &PeerId, peer_id: &PeerId) -> Arc<OneClientSenders> {
         let guard = self.0.lock().unwrap();
         if Self::is_peer_link_disallowed(&guard, origin, peer_id) {
-            return None;
+            return guard.drop_events_senders.clone();
         }
-        Some(guard.senders.get(peer_id).unwrap().clone())
+        guard.senders.get(peer_id).unwrap().clone()
     }
 
     fn generate_route_back(&self, peer_id: &PeerId) -> CryptoHash {
@@ -302,14 +335,14 @@ impl TestLoopNetworkSharedState {
         &self,
         origin: &AccountId,
         route_back: &CryptoHash,
-    ) -> Option<Arc<OneClientSenders>> {
+    ) -> Arc<OneClientSenders> {
         let guard = self.0.lock().unwrap();
         let origin_peer_id = &guard.account_to_peer_id[origin];
         let peer_id = guard.route_back.get(route_back).unwrap();
         if Self::is_peer_link_disallowed(&guard, origin_peer_id, peer_id) {
-            return None;
+            return guard.drop_events_senders.clone();
         }
-        Some(guard.senders.get(peer_id).unwrap().clone())
+        guard.senders.get(peer_id).unwrap().clone()
     }
 
     fn accounts(&self) -> Vec<AccountId> {
@@ -365,10 +398,7 @@ fn network_message_to_client_handler(
                     continue;
                 }
 
-                let Some(senders) = shared_state.senders_for_account(&my_account_id, &account_id)
-                else {
-                    continue;
-                };
+                let senders = shared_state.senders_for_account(&my_account_id, &account_id);
 
                 let future = senders.client_sender.send_async(BlockResponse {
                     block: block.clone(),
@@ -391,17 +421,15 @@ fn network_message_to_client_handler(
         NetworkRequests::OptimisticBlock { optimistic_block } => {
             let my_peer_id = shared_state.account_to_peer_id(&my_account_id);
             for account_id in shared_state.accounts() {
-                if account_id == my_account_id {
-                    continue;
+                if account_id != my_account_id {
+                    let _ = shared_state
+                        .senders_for_account(&my_account_id, &account_id)
+                        .client_sender
+                        .send(OptimisticBlockMessage {
+                            optimistic_block: optimistic_block.clone(),
+                            from_peer: my_peer_id.clone(),
+                        });
                 }
-                let Some(senders) = shared_state.senders_for_account(&my_account_id, &account_id)
-                else {
-                    continue;
-                };
-                let _ = senders.client_sender.send(OptimisticBlockMessage {
-                    optimistic_block: optimistic_block.clone(),
-                    from_peer: my_peer_id.clone(),
-                });
             }
             None
         }
@@ -410,12 +438,8 @@ fn network_message_to_client_handler(
                 approval_message.target, my_account_id,
                 "Sending message to self not supported."
             );
-            let Some(senders) =
-                shared_state.senders_for_account(&my_account_id, &approval_message.target)
-            else {
-                return None;
-            };
-            let future = senders
+            let future = shared_state
+                .senders_for_account(&my_account_id, &approval_message.target)
                 .client_sender
                 .send_async(BlockApproval(approval_message.approval, PeerId::random()));
             drop(future);
@@ -423,40 +447,40 @@ fn network_message_to_client_handler(
         }
         NetworkRequests::ForwardTx(account, transaction) => {
             assert_ne!(account, my_account_id, "Sending message to self not supported.");
-            let Some(senders) = shared_state.senders_for_account(&my_account_id, &account) else {
-                return None;
-            };
-            let future = senders.tx_processor_sender.send_async(ProcessTxRequest {
-                transaction,
-                is_forwarded: true,
-                check_only: false,
-            });
+            let future = shared_state
+                .senders_for_account(&my_account_id, &account)
+                .tx_processor_sender
+                .send_async(ProcessTxRequest {
+                    transaction,
+                    is_forwarded: true,
+                    check_only: false,
+                });
             drop(future);
             None
         }
         NetworkRequests::ChunkEndorsement(target, endorsement) => {
-            let Some(senders) = shared_state.senders_for_account(&my_account_id, &target) else {
-                return None;
-            };
-            let future = senders.client_sender.send_async(ChunkEndorsementMessage(endorsement));
+            let future = shared_state
+                .senders_for_account(&my_account_id, &target)
+                .client_sender
+                .send_async(ChunkEndorsementMessage(endorsement));
             drop(future);
             None
         }
         NetworkRequests::EpochSyncRequest { peer_id } => {
             let my_peer_id = shared_state.account_to_peer_id(&my_account_id);
             assert_ne!(peer_id, my_peer_id, "Sending message to self not supported.");
-            let Some(senders) = shared_state.senders_for_peer(&my_peer_id, &peer_id) else {
-                return None;
-            };
-            senders.client_sender.send(EpochSyncRequestMessage { from_peer: my_peer_id });
+            shared_state
+                .senders_for_peer(&my_peer_id, &peer_id)
+                .client_sender
+                .send(EpochSyncRequestMessage { from_peer: my_peer_id });
             None
         }
         NetworkRequests::EpochSyncResponse { peer_id, proof } => {
             let my_peer_id = shared_state.account_to_peer_id(&my_account_id);
-            let Some(senders) = shared_state.senders_for_peer(&my_peer_id, &peer_id) else {
-                return None;
-            };
-            senders.client_sender.send(EpochSyncResponseMessage { from_peer: my_peer_id, proof });
+            shared_state
+                .senders_for_peer(&my_peer_id, &peer_id)
+                .client_sender
+                .send(EpochSyncResponseMessage { from_peer: my_peer_id, proof });
             None
         }
         NetworkRequests::StateRequestPart { .. } => None,
@@ -473,16 +497,12 @@ fn network_message_to_view_client_handler(
     Box::new(move |request| match request {
         NetworkRequests::BlockHeadersRequest { hashes, peer_id } => {
             let my_peer_id = shared_state.account_to_peer_id(&my_account_id);
-            let responder = {
-                let Some(senders) = shared_state.senders_for_peer(&peer_id, &my_peer_id) else {
-                    return None;
-                };
-                senders.client_sender.clone()
-            };
-            let Some(senders) = shared_state.senders_for_peer(&my_peer_id, &peer_id) else {
-                return None;
-            };
-            let future = senders.view_client_sender.send_async(BlockHeadersRequest(hashes));
+            let responder =
+                shared_state.senders_for_peer(&peer_id, &my_peer_id).client_sender.clone();
+            let future = shared_state
+                .senders_for_peer(&my_peer_id, &peer_id)
+                .view_client_sender
+                .send_async(BlockHeadersRequest(hashes));
             future_spawner.spawn("wait for ViewClient to handle BlockHeadersRequest", async move {
                 let response = future.await.unwrap().unwrap();
                 let future = responder.send_async(BlockHeadersResponse(response, peer_id));
@@ -492,16 +512,12 @@ fn network_message_to_view_client_handler(
         }
         NetworkRequests::BlockRequest { hash, peer_id } => {
             let my_peer_id = shared_state.account_to_peer_id(&my_account_id);
-            let responder = {
-                let Some(senders) = shared_state.senders_for_peer(&peer_id, &my_peer_id) else {
-                    return None;
-                };
-                senders.client_sender.clone()
-            };
-            let Some(senders) = shared_state.senders_for_peer(&my_peer_id, &peer_id) else {
-                return None;
-            };
-            let future = senders.view_client_sender.send_async(BlockRequest(hash));
+            let responder =
+                shared_state.senders_for_peer(&peer_id, &my_peer_id).client_sender.clone();
+            let future = shared_state
+                .senders_for_peer(&my_peer_id, &peer_id)
+                .view_client_sender
+                .send_async(BlockRequest(hash));
             future_spawner.spawn("wait for ViewClient to handle BlockRequest", async move {
                 let response = *future.await.unwrap().unwrap();
                 let future = responder.send_async(BlockResponse {
@@ -525,20 +541,17 @@ fn network_message_to_partial_witness_handler(
     Box::new(move |request| match request {
         NetworkRequests::ChunkStateWitnessAck(target, witness_ack) => {
             assert_ne!(target, my_account_id, "Sending message to self not supported.");
-            let Some(senders) = shared_state.senders_for_account(&my_account_id, &target) else {
-                return None;
-            };
-            senders.partial_witness_sender.send(ChunkStateWitnessAckMessage(witness_ack));
+            shared_state
+                .senders_for_account(&my_account_id, &target)
+                .partial_witness_sender
+                .send(ChunkStateWitnessAckMessage(witness_ack));
             None
         }
 
         NetworkRequests::PartialEncodedStateWitness(validator_witness_tuple) => {
             for (target, partial_witness) in validator_witness_tuple.into_iter() {
-                let Some(senders) = shared_state.senders_for_account(&my_account_id, &target)
-                else {
-                    continue;
-                };
-                senders
+                shared_state
+                    .senders_for_account(&my_account_id, &target)
                     .partial_witness_sender
                     .send(PartialEncodedStateWitnessMessage(partial_witness));
             }
@@ -546,11 +559,8 @@ fn network_message_to_partial_witness_handler(
         }
         NetworkRequests::PartialEncodedStateWitnessForward(chunk_validators, partial_witness) => {
             for target in chunk_validators {
-                let Some(senders) = shared_state.senders_for_account(&my_account_id, &target)
-                else {
-                    continue;
-                };
-                senders
+                shared_state
+                    .senders_for_account(&my_account_id, &target)
                     .partial_witness_sender
                     .send(PartialEncodedStateWitnessForwardMessage(partial_witness.clone()));
             }
@@ -558,35 +568,31 @@ fn network_message_to_partial_witness_handler(
         }
         NetworkRequests::ChunkContractAccesses(chunk_validators, accesses) => {
             for target in chunk_validators {
-                let Some(senders) = shared_state.senders_for_account(&my_account_id, &target)
-                else {
-                    continue;
-                };
-                senders.partial_witness_sender.send(ChunkContractAccessesMessage(accesses.clone()));
+                shared_state
+                    .senders_for_account(&my_account_id, &target)
+                    .partial_witness_sender
+                    .send(ChunkContractAccessesMessage(accesses.clone()));
             }
             None
         }
         NetworkRequests::ContractCodeRequest(target, request) => {
-            let Some(senders) = shared_state.senders_for_account(&my_account_id, &target) else {
-                return None;
-            };
-            senders.partial_witness_sender.send(ContractCodeRequestMessage(request));
+            shared_state
+                .senders_for_account(&my_account_id, &target)
+                .partial_witness_sender
+                .send(ContractCodeRequestMessage(request));
             None
         }
         NetworkRequests::ContractCodeResponse(target, response) => {
-            let Some(senders) = shared_state.senders_for_account(&my_account_id, &target) else {
-                return None;
-            };
-            senders.partial_witness_sender.send(ContractCodeResponseMessage(response));
+            shared_state
+                .senders_for_account(&my_account_id, &target)
+                .partial_witness_sender
+                .send(ContractCodeResponseMessage(response));
             None
         }
         NetworkRequests::PartialEncodedContractDeploys(accounts, deploys) => {
             for account in accounts {
-                let Some(senders) = shared_state.senders_for_account(&my_account_id, &account)
-                else {
-                    continue;
-                };
-                senders
+                shared_state
+                    .senders_for_account(&my_account_id, &account)
                     .partial_witness_sender
                     .send(PartialEncodedContractDeploysMessage(deploys.clone()));
             }
@@ -615,10 +621,7 @@ fn network_message_to_shards_manager_handler(
             let route_back = shared_state.generate_route_back(&my_peer_id);
             let target = target.account_id.unwrap();
             assert!(target != my_account_id, "Sending message to self not supported.");
-            let Some(senders) = shared_state.senders_for_account(&my_account_id, &target) else {
-                return None;
-            };
-            senders.shards_manager_sender.send(
+            shared_state.senders_for_account(&my_account_id, &target).shards_manager_sender.send(
                 ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkRequest {
                     partial_encoded_chunk_request: request,
                     route_back,
@@ -628,38 +631,29 @@ fn network_message_to_shards_manager_handler(
         }
         NetworkRequests::PartialEncodedChunkResponse { route_back, response } => {
             // Use route_back information to send the response back to the correct client.
-            let Some(senders) = shared_state.senders_for_route_back(&my_account_id, &route_back)
-            else {
-                return None;
-            };
-            senders.shards_manager_sender.send(
-                ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkResponse {
+            shared_state
+                .senders_for_route_back(&my_account_id, &route_back)
+                .shards_manager_sender
+                .send(ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkResponse {
                     partial_encoded_chunk_response: response,
                     received_time: clock.now(),
-                },
-            );
+                });
             None
         }
         NetworkRequests::PartialEncodedChunkMessage { account_id, partial_encoded_chunk } => {
             assert!(account_id != my_account_id, "Sending message to self not supported.");
-            let Some(senders) = shared_state.senders_for_account(&my_account_id, &account_id)
-            else {
-                return None;
-            };
-            senders.shards_manager_sender.send(
-                ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunk(
+            shared_state
+                .senders_for_account(&my_account_id, &account_id)
+                .shards_manager_sender
+                .send(ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunk(
                     partial_encoded_chunk.into(),
-                ),
-            );
+                ));
             None
         }
         NetworkRequests::PartialEncodedChunkForward { account_id, forward } => {
             assert!(account_id != my_account_id, "Sending message to self not supported.");
-            let Some(senders) = shared_state.senders_for_account(&my_account_id, &account_id)
-            else {
-                return None;
-            };
-            senders
+            shared_state
+                .senders_for_account(&my_account_id, &account_id)
                 .shards_manager_sender
                 .send(ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkForward(forward));
             None
