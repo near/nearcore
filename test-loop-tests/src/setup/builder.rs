@@ -203,7 +203,7 @@ impl TestLoopBuilder {
     }
 
     fn setup_shared_state(mut self) -> (TestLoopV2, SharedState) {
-        let unreacahble_actor_sender =
+        let unreachable_actor_sender =
             self.test_loop.data.register_actor("UnreachableActor", UnreachableActor {}, None);
         self.test_loop.remove_events_with_identifier("UnreachableActor");
 
@@ -212,7 +212,7 @@ impl TestLoopBuilder {
             tempdir: self.test_loop_data_dir,
             epoch_config_store: self.epoch_config_store.unwrap(),
             runtime_config_store: self.runtime_config_store,
-            network_shared_state: TestLoopNetworkSharedState::new(unreacahble_actor_sender),
+            network_shared_state: TestLoopNetworkSharedState::new(unreachable_actor_sender),
             upgrade_schedule: self.upgrade_schedule,
             chunks_storage: Default::default(),
             drop_conditions: Default::default(),

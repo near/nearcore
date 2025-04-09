@@ -240,11 +240,11 @@ fn to_drop_events_senders(s: TestLoopSender<UnreachableActor>) -> Arc<OneClientS
 }
 
 impl TestLoopNetworkSharedState {
-    pub fn new(unreacahble_actor_sender: TestLoopSender<UnreachableActor>) -> Self {
+    pub fn new(unreachable_actor_sender: TestLoopSender<UnreachableActor>) -> Self {
         let inner = TestLoopNetworkSharedStateInner {
             account_to_peer_id: HashMap::new(),
             senders: HashMap::new(),
-            drop_events_senders: to_drop_events_senders(unreacahble_actor_sender),
+            drop_events_senders: to_drop_events_senders(unreachable_actor_sender),
             route_back: HashMap::new(),
             disallowed_peer_links: HashMap::new(),
         };
