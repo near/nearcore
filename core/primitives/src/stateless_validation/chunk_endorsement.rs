@@ -82,6 +82,7 @@ impl ChunkEndorsement {
         signature: &Signature,
         public_key: &PublicKey,
     ) -> bool {
+        let _span = tracing::debug_span!(target: "chain", "validate_chunk_endorsement_signature", ?chunk_hash).entered();
         let inner = ChunkEndorsementInner::new(chunk_hash);
         let data = borsh::to_vec(&inner).unwrap();
         signature.verify(&data, public_key)
