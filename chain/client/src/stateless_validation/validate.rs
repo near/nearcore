@@ -79,6 +79,7 @@ pub fn validate_partial_encoded_contract_deploys(
     store: &Store,
 ) -> Result<bool, Error> {
     let key = partial_deploys.chunk_production_key();
+    let _span = tracing::debug_span!(target: "client", "validate_partial_encoded_contract_deploys", ?key).entered();
     if !validate_chunk_relevant(epoch_manager, key, store)? {
         return Ok(false);
     }
@@ -187,6 +188,7 @@ fn validate_chunk_relevant(
     chunk_production_key: &ChunkProductionKey,
     store: &Store,
 ) -> Result<bool, Error> {
+    let _span = tracing::debug_span!(target: "client", "validate_chunk_relevant", ?chunk_production_key).entered();
     let shard_id = chunk_production_key.shard_id;
     let epoch_id = chunk_production_key.epoch_id;
     let height_created = chunk_production_key.height_created;
