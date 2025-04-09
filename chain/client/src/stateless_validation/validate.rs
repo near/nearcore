@@ -30,6 +30,9 @@ pub fn validate_partial_encoded_state_witness(
     validator_account_id: &AccountId,
     store: &Store,
 ) -> Result<bool, Error> {
+    let key = partial_witness.chunk_production_key();
+    let part_ord = partial_witness.part_ord();
+    let _span = tracing::debug_span!(target: "client", "validate_partial_encoded_state_witness", ?key, ?part_ord, ?validator_account_id).entered();
     let ChunkProductionKey { shard_id, epoch_id, height_created } =
         partial_witness.chunk_production_key();
     let num_parts =
