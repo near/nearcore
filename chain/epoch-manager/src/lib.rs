@@ -9,7 +9,7 @@ use itertools::Itertools;
 use near_cache::SyncLruCache;
 use near_chain_configs::{Genesis, GenesisConfig};
 use near_primitives::block::{BlockHeader, Tip};
-use near_primitives::epoch_block_info::{BlockInfo, SlashState};
+use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::epoch_info::{EpochInfo, RngSeed};
 use near_primitives::epoch_manager::{
     AGGREGATOR_KEY, AllEpochConfig, EpochConfig, EpochConfigStore, EpochSummary,
@@ -343,7 +343,6 @@ impl EpochManager {
         epoch_info: &EpochInfo,
         block_validator_tracker: &HashMap<ValidatorId, ValidatorStats>,
         chunk_stats_tracker: &HashMap<ShardId, HashMap<ValidatorId, ChunkStats>>,
-        slashed: &HashMap<AccountId, SlashState>,
         prev_validator_kickout: &HashMap<AccountId, ValidatorKickoutReason>,
     ) -> (HashMap<AccountId, BlockChunkValidatorStats>, HashMap<AccountId, ValidatorKickoutReason>)
     {
@@ -357,9 +356,6 @@ impl EpochManager {
 
         for (i, v) in epoch_info.validators_iter().enumerate() {
             let account_id = v.account_id();
-            if slashed.contains_key(account_id) {
-                continue;
-            }
             let block_stats = block_validator_tracker
                 .get(&(i as u64))
                 .unwrap_or(&ValidatorStats { expected: 0, produced: 0 })
@@ -560,7 +556,6 @@ impl EpochManager {
             &epoch_info,
             &block_validator_tracker,
             &chunk_validator_tracker,
-            &HashMap::new(),
             prev_validator_kickout,
         );
         validator_kickout.extend(kickout);

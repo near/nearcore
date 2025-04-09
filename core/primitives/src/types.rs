@@ -1120,7 +1120,7 @@ pub enum ValidatorInfoIdentifier {
     ProtocolSchema,
 )]
 pub enum ValidatorKickoutReason {
-    /// Slashed validators are kicked out.
+    /// Deprecated
     Slashed,
     /// Validator didn't produce enough blocks.
     NotEnoughBlocks { produced: NumBlocks, expected: NumBlocks },
