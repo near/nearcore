@@ -157,6 +157,7 @@ fn validate_congestion_info(
     extra_congestion_info: CongestionInfo,
     header_congestion_info: CongestionInfo,
 ) -> Result<(), Error> {
+    let _span = tracing::debug_span!(target: "chain", "validate_congestion_info").entered();
     CongestionInfo::validate_extra_and_header(&extra_congestion_info, &header_congestion_info)
         .then_some(())
         .ok_or_else(|| {
@@ -171,6 +172,7 @@ fn validate_bandwidth_requests(
     extra_bandwidth_requests: Option<&BandwidthRequests>,
     header_bandwidth_requests: Option<&BandwidthRequests>,
 ) -> Result<(), Error> {
+    let _span = tracing::debug_span!(target: "chain", "validate_bandwidth_requests").entered();
     if extra_bandwidth_requests != header_bandwidth_requests {
         fn requests_len(requests_opt: Option<&BandwidthRequests>) -> usize {
             match requests_opt {
