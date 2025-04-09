@@ -27,7 +27,7 @@ use near_primitives::stateless_validation::state_witness::{
     ChunkStateWitness, EncodedChunkStateWitness,
 };
 use near_primitives::types::chunk_extra::ChunkExtra;
-use near_primitives::types::{AccountId, ProtocolVersion, ShardId, ShardIndex};
+use near_primitives::types::{AccountId, ShardId, ShardIndex};
 use near_primitives::utils::compression::CompressedData;
 use near_store::flat::BlockInfo;
 use near_store::trie::ops::resharding::RetainMode;
@@ -359,11 +359,10 @@ pub fn pre_validate_chunk_state_witness(
             .block_congestion_info()
             .get(&last_chunk_shard_id)
             .map(|info| info.congestion_info);
-        let genesis_protocol_version = epoch_manager.get_epoch_protocol_version(&epoch_id)?;
+        let _genesis_protocol_version = epoch_manager.get_epoch_protocol_version(&epoch_id)?;
         let chunk_extra = chain.genesis_chunk_extra(
             &shard_layout,
             last_chunk_shard_id,
-            genesis_protocol_version,
             congestion_info,
         )?;
         MainTransition::Genesis {
@@ -552,7 +551,7 @@ pub fn validate_chunk_state_witness(
                 )?;
                 let outgoing_receipts = std::mem::take(&mut main_apply_result.outgoing_receipts);
                 let chunk_extra =
-                    apply_result_to_chunk_extra(protocol_version, main_apply_result, &chunk_header);
+                    apply_result_to_chunk_extra(main_apply_result, &chunk_header);
 
                 (chunk_extra, outgoing_receipts)
             }
@@ -698,7 +697,6 @@ pub fn validate_chunk_state_witness(
 }
 
 pub fn apply_result_to_chunk_extra(
-    _protocol_version: ProtocolVersion,
     apply_result: ApplyChunkResult,
     chunk: &ShardChunkHeader,
 ) -> ChunkExtra {

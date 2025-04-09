@@ -95,8 +95,7 @@ impl<'a> ChainUpdate<'a> {
                     ApplyChunkResult::compute_outcomes_proof(&apply_result.outcomes);
                 let shard_id = shard_uid.shard_id();
 
-                let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(prev_hash)?;
-                let _protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
+                let _epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(prev_hash)?;
 
                 // Save state root after applying transactions.
                 self.chain_store_update.save_chunk_extra(
@@ -458,8 +457,7 @@ impl<'a> ChainUpdate<'a> {
         let chunk_header = chunk.cloned_header();
         let gas_limit = chunk_header.gas_limit();
         let block = self.chain_store_update.get_block(block_header.hash())?;
-        let epoch_id = self.epoch_manager.get_epoch_id(block_header.hash())?;
-        let _protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
+        let _epoch_id = self.epoch_manager.get_epoch_id(block_header.hash())?;
         let transactions = chunk.to_transactions().to_vec();
         let transaction_validity = if let Some(prev_block_header) = prev_block_header {
             self.chain_store_update
