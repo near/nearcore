@@ -32,7 +32,6 @@ use near_primitives::sharding::{
 use near_primitives::transaction::{Action, FunctionCallAction, SignedTransaction};
 use near_primitives::types::{AccountId, ShardId};
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
-use near_primitives::version::PROTOCOL_VERSION;
 use near_store::DBCol;
 use rand::prelude::SliceRandom;
 use reed_solomon_erasure::galois_8::ReedSolomon;
@@ -132,7 +131,7 @@ fn create_chunk_header(height: u64, shard_id: ShardId) -> ShardChunkHeader {
         CryptoHash::default(),
         vec![],
         Default::default(),
-        BandwidthRequests::default_for_protocol_version(PROTOCOL_VERSION),
+        Some(BandwidthRequests::empty()),
         &validator_signer(),
     ))
 }
@@ -201,7 +200,7 @@ fn create_encoded_shard_chunk(
         Default::default(),
         Default::default(),
         Default::default(),
-        BandwidthRequests::default_for_protocol_version(PROTOCOL_VERSION),
+        Some(BandwidthRequests::empty()),
         &validator_signer(),
         &rs,
     )

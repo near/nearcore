@@ -173,7 +173,7 @@ impl Chain {
             gas_limit,
             0,
             congestion_info,
-            BandwidthRequests::default_for_protocol_version(PROD_GENESIS_PROTOCOL_VERSION),
+            Some(BandwidthRequests::empty()),
         )
     }
 
