@@ -291,6 +291,7 @@ static CONFIGS: &[(&str, ProtocolVersion, &str)] = &[
     include_config!("mainnet", 72, "72.json"),
     include_config!("mainnet", 75, "75.json"),
     include_config!("mainnet", 76, "76.json"),
+    include_config!("mainnet", 78, "78.json"),
     include_config!("mainnet", 143, "143.json"),
     // Epoch configs for testnet (genesis protocol version is 29).
     include_config!("testnet", 29, "29.json"),
@@ -304,6 +305,7 @@ static CONFIGS: &[(&str, ProtocolVersion, &str)] = &[
     include_config!("testnet", 72, "72.json"),
     include_config!("testnet", 75, "75.json"),
     include_config!("testnet", 76, "76.json"),
+    include_config!("mainnet", 78, "78.json"),
     include_config!("testnet", 143, "143.json"),
 ];
 
