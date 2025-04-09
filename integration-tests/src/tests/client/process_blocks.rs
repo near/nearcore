@@ -56,7 +56,7 @@ use near_primitives::transaction::{
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{AccountId, BlockHeight, EpochId, NumBlocks};
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
+use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{FinalExecutionStatus, QueryRequest, QueryResponseKind};
 use near_primitives_core::num_rational::Ratio;
 use near_store::NodeStorage;
@@ -140,7 +140,6 @@ fn receive_network_block() {
             let next_block_ordinal = last_block.header.block_ordinal.unwrap() + 1;
             let block = Block::produce(
                 PROTOCOL_VERSION,
-                PROTOCOL_VERSION,
                 &last_block.header.clone().into(),
                 last_block.header.height + 1,
                 next_block_ordinal,
@@ -158,8 +157,6 @@ fn receive_network_block() {
                 0,
                 100,
                 None,
-                vec![],
-                vec![],
                 &signer,
                 last_block.header.next_bp_hash,
                 block_merkle_tree.root(),
@@ -231,7 +228,6 @@ fn produce_block_with_approvals() {
             let chunk_endorsements = vec![vec![]; chunks.len()];
             let block = Block::produce(
                 PROTOCOL_VERSION,
-                PROTOCOL_VERSION,
                 &last_block.header.clone().into(),
                 last_block.header.height + 1,
                 next_block_ordinal,
@@ -249,8 +245,6 @@ fn produce_block_with_approvals() {
                 0,
                 100,
                 Some(0),
-                vec![],
-                vec![],
                 &signer1,
                 last_block.header.next_bp_hash,
                 block_merkle_tree.root(),
@@ -428,7 +422,6 @@ fn invalid_blocks_common(is_requested: bool) {
             let next_block_ordinal = last_block.header.block_ordinal.unwrap() + 1;
             let valid_block = Block::produce(
                 PROTOCOL_VERSION,
-                PROTOCOL_VERSION,
                 &last_block.header.clone().into(),
                 last_block.header.height + 1,
                 next_block_ordinal,
@@ -446,8 +439,6 @@ fn invalid_blocks_common(is_requested: bool) {
                 0,
                 100,
                 Some(0),
-                vec![],
-                vec![],
                 &signer,
                 last_block.header.next_bp_hash,
                 block_merkle_tree.root(),
@@ -855,7 +846,7 @@ fn test_process_invalid_tx() {
 #[test]
 fn test_time_attack() {
     init_test_logger();
-    let mut env = TestEnv::default_builder_with_genesis().clients_count(1).build();
+    let mut env = TestEnv::default_builder().clients_count(1).build();
     let client = &mut env.clients[0];
     let signer = client.validator_signer.get().unwrap();
     let genesis = client.chain.get_block_by_height(0).unwrap();
@@ -873,7 +864,7 @@ fn test_time_attack() {
 
 #[test]
 fn test_no_double_sign() {
-    let mut env = TestEnv::default_builder_with_genesis().build();
+    let mut env = TestEnv::default_builder().build();
     let _ = env.clients[0].produce_block(1).unwrap().unwrap();
     // Second time producing with the same height should fail.
     assert_eq!(env.clients[0].produce_block(1).unwrap(), None);
@@ -899,7 +890,7 @@ fn test_invalid_gas_price() {
 
 #[test]
 fn test_invalid_height_too_large() {
-    let mut env = TestEnv::default_builder_with_genesis().build();
+    let mut env = TestEnv::default_builder().build();
     let b1 = env.clients[0].produce_block(1).unwrap().unwrap();
     let _ = env.clients[0].process_block_test(b1.clone().into(), Provenance::PRODUCED).unwrap();
     let signer = Arc::new(create_test_signer("test0"));
@@ -931,7 +922,7 @@ fn test_invalid_height_too_old() {
 
 #[test]
 fn test_bad_orphan() {
-    let mut env = TestEnv::default_builder_with_genesis().build();
+    let mut env = TestEnv::default_builder().build();
     for i in 1..4 {
         env.produce_block(0, i);
     }
@@ -977,7 +968,7 @@ fn test_bad_orphan() {
         block.mut_header().set_prev_hash(CryptoHash([3; 32]));
         block.mut_header().resign(&*signer);
         let res = env.clients[0].process_block_test(block.into(), Provenance::NONE);
-        assert_matches!(res.unwrap_err(), Error::InvalidChunkHeadersRoot);
+        assert_matches!(res.unwrap_err(), Error::InvalidSignature);
     }
     {
         // Orphan block with invalid approvals. Allowed for now.
@@ -1003,7 +994,7 @@ fn test_bad_orphan() {
         block.mut_header().set_prev_hash(CryptoHash([4; 32]));
         block.mut_header().resign(&*signer);
         let res = env.clients[0].process_block_test(block.into(), Provenance::NONE);
-        assert_matches!(res.unwrap_err(), Error::Orphan);
+        assert_matches!(res.unwrap_err(), Error::InvalidSignature);
     }
     {
         // Orphan block that's too far ahead: 20 * epoch_length
@@ -1770,10 +1761,9 @@ fn test_reject_block_headers_during_epoch_sync() {
     );
 
     let headers = blocks.iter().map(|b| b.header().clone()).collect::<Vec<_>>();
-    let signer = sync_client.validator_signer.get();
     // actual attempt to sync headers during ongoing epoch sync
     assert_matches!(
-        sync_client.sync_block_headers(headers, &signer),
+        sync_client.sync_block_headers(headers),
         Err(_),
         "Block headers accepted during epoch sync"
     );
@@ -1793,8 +1783,7 @@ fn test_gc_tail_update() {
         blocks.push(block);
     }
     let headers = blocks.iter().map(|b| b.header().clone()).collect::<Vec<_>>();
-    let signer = env.clients[1].validator_signer.get();
-    env.clients[1].sync_block_headers(headers, &signer).unwrap();
+    env.clients[1].sync_block_headers(headers).unwrap();
     // simulate save sync hash block
     let prev_prev_sync_block = blocks[blocks.len() - 4].clone();
     let prev_prev_sync_hash = *prev_prev_sync_block.hash();
@@ -1912,7 +1901,7 @@ fn test_gas_price_overflow() {
 
 #[test]
 fn test_invalid_block_root() {
-    let mut env = TestEnv::default_builder_with_genesis().build();
+    let mut env = TestEnv::default_builder().build();
     let mut b1 = env.clients[0].produce_block(1).unwrap().unwrap();
     let signer = create_test_signer("test0");
     b1.mut_header().set_block_merkle_root(CryptoHash::default());
@@ -1935,7 +1924,7 @@ fn test_incorrect_validator_key_produce_block() {
 }
 
 fn test_block_merkle_proof_with_len(n: NumBlocks, rng: &mut StdRng) {
-    let mut env = TestEnv::default_builder_with_genesis().build();
+    let mut env = TestEnv::default_builder().build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
     let mut blocks = vec![genesis_block.clone()];
     let mut cur_height = genesis_block.header().height() + 1;
@@ -2005,7 +1994,7 @@ fn test_block_merkle_proof() {
 
 #[test]
 fn test_block_merkle_proof_same_hash() {
-    let env = TestEnv::default_builder_with_genesis().build();
+    let env = TestEnv::default_builder().build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
     let proof = env.clients[0]
         .chain
@@ -2115,7 +2104,7 @@ fn test_sync_hash_validity() {
 
 #[test]
 fn test_block_height_processed_orphan() {
-    let mut env = TestEnv::default_builder_with_genesis().build();
+    let mut env = TestEnv::default_builder().build();
     let block = env.clients[0].produce_block(1).unwrap().unwrap();
     let mut orphan_block = block;
     let validator_signer = create_test_signer("test0");
@@ -2498,7 +2487,7 @@ fn test_block_execution_outcomes() {
     let block = env.clients[0].chain.get_block_by_height(2).unwrap();
     let chunk = env.clients[0].chain.get_chunk(&block.chunks()[0].chunk_hash()).unwrap();
     let shard_id = chunk.shard_id();
-    assert_eq!(chunk.transactions().len(), 3);
+    assert_eq!(chunk.to_transactions().len(), 3);
     let execution_outcomes_from_block = env.clients[0]
         .chain
         .chain_store()
@@ -2519,7 +2508,7 @@ fn test_block_execution_outcomes() {
     let next_block = env.clients[0].chain.get_block_by_height(3).unwrap();
     let next_chunk = env.clients[0].chain.get_chunk(&next_block.chunks()[0].chunk_hash()).unwrap();
     let shard_id = next_chunk.shard_id();
-    assert!(next_chunk.transactions().is_empty());
+    assert!(next_chunk.to_transactions().is_empty());
     assert!(next_chunk.prev_outgoing_receipts().is_empty());
     let execution_outcomes_from_block = env.clients[0]
         .chain
@@ -2611,71 +2600,6 @@ fn test_refund_receipts_processing() {
     }
 }
 
-// Tests that the number of delayed receipts in each shard is bounded based on the gas limit of
-// the chunk and any new receipts are not included if there are too many delayed receipts.
-#[test]
-fn test_delayed_receipt_count_limit() {
-    init_test_logger();
-
-    if ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
-        // congestion control replaces the delayed receipt count limit, making this test irrelevant
-        return;
-    }
-
-    let epoch_length = 5;
-    let min_gas_price = 10000;
-    let mut genesis = Genesis::test_sharded_new_version(vec!["test0".parse().unwrap()], 1, vec![1]);
-    genesis.config.epoch_length = epoch_length;
-    genesis.config.min_gas_price = min_gas_price;
-    // Set gas limit to be small enough to produce some delayed receipts, but large enough for
-    // transactions to get through.
-    // This will result in delayed receipt count limit of 20.
-    let transaction_costs = RuntimeConfig::test().fees;
-    let chunk_gas_limit = 10 * transaction_costs.fee(ActionCosts::new_action_receipt).exec_fee();
-    genesis.config.gas_limit = chunk_gas_limit;
-    let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
-    let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
-
-    let signer = InMemorySigner::test_signer(&"test0".parse().unwrap());
-    // Send enough transactions to saturate delayed receipts capacity.
-    let total_tx_count = 200usize;
-    for i in 0..total_tx_count {
-        let tx = SignedTransaction::from_actions(
-            (i + 1) as u64,
-            "test0".parse().unwrap(),
-            "test0".parse().unwrap(),
-            &signer,
-            vec![Action::DeployContract(DeployContractAction { code: vec![92; 10000] })],
-            *genesis_block.hash(),
-            0,
-        );
-        assert_eq!(
-            env.tx_request_handlers[0].process_tx(tx, false, false),
-            ProcessTxResponse::ValidTx
-        );
-    }
-
-    let mut included_tx_count = 0;
-    let mut height = 1;
-    while included_tx_count < total_tx_count {
-        env.produce_block(0, height);
-        let block = env.clients[0].chain.get_block_by_height(height).unwrap();
-        let chunk = env.clients[0].chain.get_chunk(&block.chunks()[0].chunk_hash()).unwrap();
-        // These checks are useful to ensure that we didn't mess up the test setup.
-        assert!(chunk.prev_outgoing_receipts().len() <= 1);
-        assert!(chunk.transactions().len() <= 5);
-
-        // Because all transactions are in the transactions pool, this means we have not included
-        // some transactions due to the delayed receipt count limit.
-        if included_tx_count > 0 && chunk.transactions().is_empty() {
-            break;
-        }
-        included_tx_count += chunk.transactions().len();
-        height += 1;
-    }
-    assert!(included_tx_count < total_tx_count);
-}
-
 #[test]
 fn test_execution_metadata() {
     // Prepare TestEnv with a very simple WASM contract.
@@ -2713,13 +2637,9 @@ fn test_execution_metadata() {
         + config.fees.fee(ActionCosts::function_call_base).exec_fee()
         + config.fees.fee(ActionCosts::function_call_byte).exec_fee() * "main".len() as u64;
 
-    let expected_wasm_ops = match config.wasm_config.limit_config.contract_prepare_version {
-        near_vm_runner::logic::ContractPrepareVersion::V0 => 2,
-        near_vm_runner::logic::ContractPrepareVersion::V1 => 2,
-        // We spend two wasm instructions (call & drop), plus 8 ops for initializing function
-        // operand stack (8 bytes worth to hold the return value.)
-        near_vm_runner::logic::ContractPrepareVersion::V2 => 10,
-    };
+    // We spend two wasm instructions (call & drop), plus 8 ops for initializing function
+    // operand stack (8 bytes worth to hold the return value.)
+    let expected_wasm_ops = 10;
 
     // Profile for what's happening *inside* wasm vm during function call.
     let expected_profile = serde_json::json!([

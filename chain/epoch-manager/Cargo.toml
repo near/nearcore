@@ -35,6 +35,9 @@ near-chain-primitives.workspace = true
 near-cache.workspace = true
 near-schema-checker-lib.workspace = true
 
+[dev-dependencies]
+near-chain-configs = { workspace = true, features = ["test_genesis"] }
+
 [features]
 default = ["near-primitives/rand"]
 expensive_tests = []

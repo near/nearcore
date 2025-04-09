@@ -76,7 +76,6 @@ fn query_status_not_crash() {
             block_merkle_tree.insert(*header.hash());
             let mut next_block = Block::produce(
                 PROTOCOL_VERSION,
-                PROTOCOL_VERSION,
                 &header,
                 block.header.height + 1,
                 header.block_ordinal() + 1,
@@ -90,8 +89,6 @@ fn query_status_not_crash() {
                 0,
                 100,
                 None,
-                vec![],
-                vec![],
                 &signer,
                 block.header.next_bp_hash,
                 block_merkle_tree.root(),

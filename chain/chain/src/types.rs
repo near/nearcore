@@ -319,7 +319,6 @@ pub struct ApplyChunkShardContext<'a> {
     pub last_validator_proposals: ValidatorStakeIter<'a>,
     pub gas_limit: Gas,
     pub is_new_chunk: bool,
-    pub is_first_block_with_chunk_of_version: bool,
 }
 
 /// Contains transactions that were fetched from the transaction pool
@@ -539,7 +538,7 @@ pub struct LatestKnown {
 mod tests {
     use near_async::time::{Clock, Utc};
     use near_primitives::block::Approval;
-    use near_primitives::genesis::genesis_chunks;
+    use near_primitives::genesis::{genesis_block, genesis_chunks};
     use near_primitives::hash::hash;
     use near_primitives::merkle::verify_path;
     use near_primitives::test_utils::{TestBlockBuilder, create_test_signer};
@@ -554,14 +553,14 @@ mod tests {
         let shard_ids: Vec<_> = (0..32).map(ShardId::new).collect();
         let genesis_chunks = genesis_chunks(
             vec![Trie::EMPTY_ROOT],
-            vec![Some(Default::default()); shard_ids.len()],
+            vec![Default::default(); shard_ids.len()],
             &shard_ids,
             1_000_000,
             0,
             PROTOCOL_VERSION,
         );
         let genesis_bps: Vec<ValidatorStake> = Vec::new();
-        let genesis = Block::genesis(
+        let genesis = genesis_block(
             PROTOCOL_VERSION,
             genesis_chunks.into_iter().map(|chunk| chunk.take_header()).collect(),
             Utc::now_utc(),

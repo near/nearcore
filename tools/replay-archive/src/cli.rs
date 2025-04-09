@@ -6,7 +6,6 @@ use near_chain::chain::{
     NewChunkData, NewChunkResult, OldChunkData, OldChunkResult, ShardContext, StorageContext,
     collect_receipts_from_response,
 };
-use near_chain::migrations::check_if_block_is_first_with_chunk_of_version;
 use near_chain::sharding::{get_receipts_shuffle_salt, shuffle_receipt_proofs};
 use near_chain::stateless_validation::chunk_endorsement::validate_chunk_endorsements_in_block;
 use near_chain::stateless_validation::chunk_validation::apply_result_to_chunk_extra;
@@ -28,7 +27,6 @@ use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{ReceiptProof, ShardChunk, ShardChunkHeader, ShardProof};
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, Gas, ProtocolVersion, ShardId};
-use near_primitives::version::ProtocolFeature;
 use near_state_viewer::progress_reporter::ProgressReporter;
 use near_store::{ShardUId, Store, get_genesis_state_roots};
 use nearcore::{NearConfig, NightshadeRuntime, NightshadeRuntimeExt, load_config};
@@ -215,7 +213,7 @@ impl ReplayController {
         let epoch_id = block.header().epoch_id();
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(epoch_id)?;
 
-        self.validate_block(&block, protocol_version)?;
+        self.validate_block(&block)?;
 
         self.update_epoch_manager(&block)?;
         if !block.header().is_genesis() {
@@ -326,22 +324,13 @@ impl ReplayController {
                 prev_chunk_header.height_included(),
             )?;
 
-            let is_first_block_with_chunk_of_version =
-                check_if_block_is_first_with_chunk_of_version(
-                    &self.chain_store,
-                    self.epoch_manager.as_ref(),
-                    prev_block_hash,
-                    shard_id,
-                )?;
-
             ShardUpdateReason::NewChunk(NewChunkData {
                 chunk_header: chunk_header.clone(),
-                transactions: chunk.transactions().to_vec(),
+                transactions: chunk.to_transactions().to_vec(),
                 // FIXME: see the `validate_chunk` thing above.
-                transaction_validity_check_results: vec![true; chunk.transactions().len()],
+                transaction_validity_check_results: vec![true; chunk.to_transactions().len()],
                 receipts,
                 block: block_context,
-                is_first_block_with_chunk_of_version,
                 storage_context,
             })
         } else {
@@ -400,12 +389,10 @@ impl ReplayController {
     }
 
     /// Validates a given block. The current set of checks may be extended later.
-    fn validate_block(&self, block: &Block, protocol_version: ProtocolVersion) -> Result<()> {
+    fn validate_block(&self, block: &Block) -> Result<()> {
         // Chunk endorsements will only exist for a non-genesis block generated with stateless validation.
         if !block.header().is_genesis() {
-            if ProtocolFeature::StatelessValidation.enabled(protocol_version) {
-                validate_chunk_endorsements_in_block(self.epoch_manager.as_ref(), block)?;
-            }
+            validate_chunk_endorsements_in_block(self.epoch_manager.as_ref(), block)?;
         }
         Ok(())
     }

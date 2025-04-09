@@ -10,8 +10,8 @@ use crate::prefetch::TriePrefetcher;
 pub use crate::types::SignedValidPeriodTransactions;
 use crate::verifier::{StorageStakingError, check_storage_stake, validate_receipt};
 pub use crate::verifier::{
-    ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT, set_tx_state_changes, validate_transaction,
-    verify_and_charge_tx_ephemeral,
+    ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT, get_signer_and_access_key, set_tx_state_changes,
+    validate_transaction, verify_and_charge_tx_ephemeral,
 };
 use bandwidth_scheduler::{BandwidthSchedulerOutput, run_bandwidth_scheduler};
 use config::{TransactionCost, total_prepaid_send_fees, tx_cost};
@@ -26,7 +26,7 @@ use metrics::ApplyMetrics;
 pub use near_crypto;
 use near_parameters::{ActionCosts, RuntimeConfig};
 pub use near_primitives;
-use near_primitives::account::{AccessKey, Account, AccountContract};
+use near_primitives::account::{Account, AccountContract};
 use near_primitives::action::GlobalContractIdentifier;
 use near_primitives::bandwidth_scheduler::{BandwidthRequests, BlockBandwidthRequests};
 use near_primitives::chunk_apply_stats::ChunkApplyStatsV0;
@@ -40,7 +40,6 @@ use near_primitives::receipt::{
     ActionReceipt, DataReceipt, PromiseYieldIndices, PromiseYieldTimeout, Receipt, ReceiptEnum,
     ReceiptOrStateStoredReceipt, ReceiptV0, ReceivedData,
 };
-use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::state_record::StateRecord;
 use near_primitives::stateless_validation::contract_distribution::ContractUpdates;
@@ -66,9 +65,8 @@ use near_store::trie::update::TrieUpdateResult;
 use near_store::{
     KeyLookupMode, PartialStorage, StorageError, Trie, TrieAccess, TrieChanges, TrieUpdate, get,
     get_account, get_postponed_receipt, get_promise_yield_receipt, get_pure, get_received_data,
-    has_received_data, remove_account, remove_postponed_receipt, remove_promise_yield_receipt, set,
-    set_access_key, set_account, set_postponed_receipt, set_promise_yield_receipt,
-    set_received_data,
+    has_received_data, remove_postponed_receipt, remove_promise_yield_receipt, set, set_access_key,
+    set_account, set_postponed_receipt, set_promise_yield_receipt, set_received_data,
 };
 use near_vm_runner::ContractCode;
 use near_vm_runner::ContractRuntimeCache;
@@ -137,11 +135,6 @@ pub struct ApplyState {
     pub cache: Option<Box<dyn ContractRuntimeCache>>,
     /// Whether the chunk being applied is new.
     pub is_new_chunk: bool,
-    /// Data for migrations that may need to be applied at the start of an epoch when protocol
-    /// version changes
-    pub migration_data: Arc<MigrationData>,
-    /// Flags for migrations indicating whether they can be applied at this block
-    pub migration_flags: MigrationFlags,
     /// Congestion level on each shard based on the latest known chunk header of each shard.
     ///
     /// The map must be empty if congestion control is disabled in the previous
@@ -194,10 +187,6 @@ pub struct VerificationResult {
     pub receipt_gas_price: Balance,
     /// The balance that was burnt to convert the transaction into a receipt and send it.
     pub burnt_amount: Balance,
-    /// The signer that was updated to charge for the transaction.
-    pub signer: Account,
-    /// The access key that was updated to charge for the transaction.
-    pub access_key: AccessKey,
 }
 
 #[derive(Debug)]
@@ -315,12 +304,7 @@ impl Runtime {
                     signed_tx.get_hash(),
                     match validate_transaction(config, signed_tx, current_protocol_version) {
                         Ok(validated_tx) => {
-                            match tx_cost(
-                                config,
-                                &validated_tx.to_tx(),
-                                gas_price,
-                                current_protocol_version,
-                            ) {
+                            match tx_cost(config, &validated_tx.to_tx(), gas_price) {
                                 Ok(cost) => Ok((validated_tx, cost)),
                                 Err(e) => Err(InvalidTxError::from(e)),
                             }
@@ -360,14 +344,15 @@ impl Runtime {
     ) -> Result<(Receipt, ExecutionOutcomeWithId), InvalidTxError> {
         let span = tracing::Span::current();
         metrics::TRANSACTION_PROCESSED_TOTAL.inc();
+        let (mut signer, mut access_key) = get_signer_and_access_key(state_update, &validated_tx)?;
 
         let verification_result = verify_and_charge_tx_ephemeral(
             &apply_state.config,
-            state_update,
+            &mut signer,
+            &mut access_key,
             validated_tx,
             transaction_cost,
             Some(apply_state.block_height),
-            apply_state.current_protocol_version,
         );
         let verification_result = match verification_result {
             Ok(ok) => ok,
@@ -379,12 +364,7 @@ impl Runtime {
         };
 
         metrics::TRANSACTION_PROCESSED_SUCCESSFULLY_TOTAL.inc();
-        set_tx_state_changes(
-            state_update,
-            validated_tx,
-            &verification_result.signer,
-            &verification_result.access_key,
-        );
+        set_tx_state_changes(state_update, validated_tx, &signer, &access_key);
         state_update
             .commit(StateChangeCause::TransactionProcessing { tx_hash: validated_tx.get_hash() });
         let receipt_id = create_receipt_id_from_transaction(
@@ -757,11 +737,7 @@ impl Runtime {
         // Going to check balance covers account's storage.
         if result.result.is_ok() {
             if let Some(ref mut account) = account {
-                match check_storage_stake(
-                    account,
-                    &apply_state.config,
-                    apply_state.current_protocol_version,
-                ) {
+                match check_storage_stake(account, &apply_state.config) {
                     Ok(()) => {
                         set_account(state_update, account_id.clone(), account);
                     }
@@ -1346,26 +1322,6 @@ impl Runtime {
         Ok(())
     }
 
-    pub fn apply_migrations(
-        &self,
-        state_update: &mut TrieUpdate,
-        migration_flags: &MigrationFlags,
-        protocol_version: ProtocolVersion,
-    ) -> Result<(), StorageError> {
-        // Remove the only testnet account with large storage key.
-        if ProtocolFeature::RemoveAccountWithLongStorageKey.protocol_version() == protocol_version
-            && migration_flags.is_first_block_with_chunk_of_version
-        {
-            let account_id = "contractregistry.testnet".parse().unwrap();
-            if get_account(state_update, &account_id)?.is_some() {
-                remove_account(state_update, &account_id)?;
-                state_update.commit(StateChangeCause::Migration);
-            }
-        }
-
-        Ok(())
-    }
-
     /// Applies new signed transactions and incoming receipts for some chunk/shard on top of
     /// given trie and the given state root.
     ///
@@ -1405,10 +1361,9 @@ impl Runtime {
 
         // What this function does can be broken down conceptually into the following steps:
         // 1. Update validator accounts.
-        // 2. Apply migrations.
-        // 3. Process transactions.
-        // 4. Process receipts.
-        // 5. Validate and apply the state update.
+        // 2. Process transactions.
+        // 3. Process receipts.
+        // 4. Validate and apply the state update.
         let mut processing_state =
             ApplyProcessingState::new(&apply_state, trie, epoch_info_provider);
         processing_state.stats.transactions_num = signed_txs.len().try_into().unwrap();
@@ -1427,14 +1382,6 @@ impl Runtime {
                 validator_accounts_update,
             )?;
         }
-
-        // Step 2: apply migrations.
-        self.apply_migrations(
-            &mut processing_state.state_update,
-            &apply_state.migration_flags,
-            processing_state.protocol_version,
-        )
-        .map_err(RuntimeError::StorageError)?;
 
         let delayed_receipts = DelayedReceiptQueueWrapper::new(
             DelayedReceiptQueue::load(&processing_state.state_update)?,
@@ -1462,10 +1409,8 @@ impl Runtime {
 
         let mut processing_state =
             processing_state.into_processing_receipt_state(incoming_receipts, delayed_receipts);
-        let own_congestion_info = apply_state.own_congestion_info(
-            processing_state.protocol_version,
-            &processing_state.state_update,
-        )?;
+        let own_congestion_info =
+            apply_state.own_congestion_info(&processing_state.state_update)?;
         let mut receipt_sink = ReceiptSink::new(
             processing_state.protocol_version,
             &processing_state.state_update.trie,
@@ -1480,10 +1425,10 @@ impl Runtime {
             processing_state.epoch_info_provider,
         )?;
 
-        // Step 3: process transactions.
+        // Step 2: process transactions.
         self.process_transactions(&mut processing_state, signed_txs, &mut receipt_sink)?;
 
-        // Step 4: process receipts.
+        // Step 3: process receipts.
         let process_receipts_result =
             self.process_receipts(&mut processing_state, &mut receipt_sink)?;
 
@@ -1495,7 +1440,7 @@ impl Runtime {
             &apply_state.config.congestion_control_config,
         );
 
-        // Step 5: validate and apply the state update.
+        // Step 4: validate and apply the state update.
         self.validate_apply_state_update(
             processing_state,
             process_receipts_result,
@@ -1595,9 +1540,6 @@ impl Runtime {
                     let compute =
                         compute.expect("`process_transaction` must populate compute usage");
                     total.add(outcome_with_id.outcome.gas_burnt, compute)?;
-                    if !ProtocolFeature::ComputeCosts.enabled(processing_state.protocol_version) {
-                        assert_eq!(total.compute, total.gas, "Compute usage must match burnt gas");
-                    }
                     processing_state.outcomes.push(outcome_with_id);
                 }
                 Err(err) => {
@@ -1684,9 +1626,6 @@ impl Runtime {
             span.record("gas_burnt", gas_burnt);
             span.record("compute_usage", compute_usage);
 
-            if !ProtocolFeature::ComputeCosts.enabled(processing_state.protocol_version) {
-                assert_eq!(total.compute, total.gas, "Compute usage must match burnt gas");
-            }
             processing_state.outcomes.push(outcome_with_id);
         }
         Ok(())
@@ -2047,30 +1986,28 @@ impl Runtime {
         // this shard is fully congested.
         let delayed_receipts_count = pending_delayed_receipts.upper_bound_len();
         let mut own_congestion_info = receipt_sink.own_congestion_info();
-        if let Some(congestion_info) = &mut own_congestion_info {
-            pending_delayed_receipts.apply_congestion_changes(congestion_info)?;
+        pending_delayed_receipts.apply_congestion_changes(&mut own_congestion_info)?;
 
-            let (all_shards, shard_seed) =
-                if ProtocolFeature::SimpleNightshadeV4.enabled(protocol_version) {
-                    let shard_ids = shard_layout.shard_ids().collect_vec();
-                    let shard_index = shard_layout
-                        .get_shard_index(apply_state.shard_id)
-                        .map_err(Into::<EpochError>::into)?
-                        .try_into()
-                        .expect("Shard Index must fit within u64");
+        let (all_shards, shard_seed) =
+            if ProtocolFeature::SimpleNightshadeV4.enabled(protocol_version) {
+                let shard_ids = shard_layout.shard_ids().collect_vec();
+                let shard_index = shard_layout
+                    .get_shard_index(apply_state.shard_id)
+                    .map_err(Into::<EpochError>::into)?
+                    .try_into()
+                    .expect("Shard Index must fit within u64");
 
-                    (shard_ids, shard_index)
-                } else {
-                    (apply_state.congestion_info.all_shards(), apply_state.shard_id.into())
-                };
+                (shard_ids, shard_index)
+            } else {
+                (apply_state.congestion_info.all_shards(), apply_state.shard_id.into())
+            };
 
-            let congestion_seed = apply_state.block_height.wrapping_add(shard_seed);
-            congestion_info.finalize_allowed_shard(
-                apply_state.shard_id,
-                &all_shards,
-                congestion_seed,
-            );
-        }
+        let congestion_seed = apply_state.block_height.wrapping_add(shard_seed);
+        own_congestion_info.finalize_allowed_shard(
+            apply_state.shard_id,
+            &all_shards,
+            congestion_seed,
+        );
 
         let bandwidth_requests = receipt_sink.generate_bandwidth_requests(
             &state_update,
@@ -2147,7 +2084,7 @@ impl Runtime {
             proof,
             delayed_receipts_count,
             metrics: Some(processing_state.metrics),
-            congestion_info: own_congestion_info,
+            congestion_info: Some(own_congestion_info),
             bandwidth_requests,
             bandwidth_scheduler_state_hash,
             contract_updates,
@@ -2156,18 +2093,9 @@ impl Runtime {
 }
 
 impl ApplyState {
-    fn own_congestion_info(
-        &self,
-        protocol_version: ProtocolVersion,
-        trie: &dyn TrieAccess,
-    ) -> Result<Option<CongestionInfo>, RuntimeError> {
-        if !ProtocolFeature::CongestionControl.enabled(protocol_version) {
-            debug_assert!(self.congestion_info.is_empty());
-            return Ok(None);
-        }
-
+    fn own_congestion_info(&self, trie: &dyn TrieAccess) -> Result<CongestionInfo, RuntimeError> {
         if let Some(congestion_info) = self.congestion_info.get(&self.shard_id) {
-            return Ok(Some(congestion_info.congestion_info));
+            return Ok(congestion_info.congestion_info);
         }
 
         tracing::warn!(target: "runtime", "starting to bootstrap congestion info, this might take a while");
@@ -2176,7 +2104,7 @@ impl ApplyState {
         let time = start.elapsed();
         tracing::warn!(target: "runtime","bootstrapping congestion info done after {time:#.1?}");
         let computed = result?;
-        Ok(Some(computed))
+        Ok(computed)
     }
 }
 
@@ -2215,7 +2143,6 @@ fn action_transfer_or_implicit_account_creation(
             receipt.receiver_id(),
             deposit,
             apply_state.block_height,
-            apply_state.current_protocol_version,
             epoch_info_provider,
         );
     })
@@ -2448,7 +2375,6 @@ impl<'a> ApplyProcessingState<'a> {
         let pipeline_manager = pipelining::ReceiptPreparationPipeline::new(
             Arc::clone(&self.apply_state.config),
             self.apply_state.cache.as_ref().map(|v| v.handle()),
-            self.apply_state.current_protocol_version,
             self.state_update.contract_storage(),
         );
         ApplyProcessingReceiptState {
@@ -2643,7 +2569,6 @@ pub mod estimator {
         let empty_pipeline = ReceiptPreparationPipeline::new(
             std::sync::Arc::clone(&apply_state.config),
             apply_state.cache.as_ref().map(|c| c.handle()),
-            apply_state.current_protocol_version,
             state_update.contract_storage(),
         );
         let apply_result = Runtime {}.apply_action_receipt(

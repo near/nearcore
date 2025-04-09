@@ -14,7 +14,7 @@ use near_primitives_core::version::ProtocolFeature;
 use near_schema_checker_lib::ProtocolSchema;
 use serde_with::base64::Base64;
 use serde_with::serde_as;
-use std::borrow::{Borrow, Cow};
+use std::borrow::Cow;
 use std::collections::{BTreeMap, HashMap};
 use std::fmt;
 use std::io::{self, Read};
@@ -407,15 +407,6 @@ impl ReceiptPriority {
         match self {
             ReceiptPriority::Priority(value) => *value,
             ReceiptPriority::NoPriority => 0,
-        }
-    }
-}
-
-impl Borrow<CryptoHash> for Receipt {
-    fn borrow(&self) -> &CryptoHash {
-        match self {
-            Receipt::V0(receipt) => &receipt.receipt_id,
-            Receipt::V1(receipt) => &receipt.receipt_id,
         }
     }
 }

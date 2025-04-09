@@ -316,19 +316,7 @@ fn check_validator_tracked_shards(client: &Client, validator_id: &AccountId) -> 
         return Ok(());
     }
 
-    let protocol_version = epoch_info.protocol_version();
-
-    if !ProtocolFeature::StatelessValidation.enabled(protocol_version)
-        && client.config.tracked_shards.is_empty()
-    {
-        panic!(
-            "The `chain_id` field specified in genesis is among mainnet/testnet, so validator must track all shards. Please change `tracked_shards` field in config.json to be any non-empty vector"
-        );
-    }
-
-    if ProtocolFeature::StatelessValidation.enabled(protocol_version)
-        && !client.config.tracked_shards.is_empty()
-    {
+    if !client.config.tracked_shards.is_empty() {
         panic!(
             "The `chain_id` field specified in genesis is among mainnet/testnet, so validator must not track all shards. Please change `tracked_shards` field in config.json to be an empty vector"
         );
@@ -560,8 +548,7 @@ impl Handler<BlockResponse> for ClientActorInner {
 impl Handler<BlockHeadersResponse> for ClientActorInner {
     fn handle(&mut self, msg: BlockHeadersResponse) -> Result<(), ReasonForBan> {
         let BlockHeadersResponse(headers, peer_id) = msg;
-        let validator_signer = self.client.validator_signer.get();
-        if self.receive_headers(headers, peer_id, &validator_signer) {
+        if self.receive_headers(headers, peer_id) {
             Ok(())
         } else {
             warn!(target: "client", "Banning node for sending invalid block headers");
@@ -1492,12 +1479,7 @@ impl ClientActorInner {
         }
     }
 
-    fn receive_headers(
-        &mut self,
-        headers: Vec<BlockHeader>,
-        peer_id: PeerId,
-        signer: &Option<Arc<ValidatorSigner>>,
-    ) -> bool {
+    fn receive_headers(&mut self, headers: Vec<BlockHeader>, peer_id: PeerId) -> bool {
         let _span =
             debug_span!(target: "client", "receive_headers", num_headers = headers.len(), ?peer_id)
                 .entered();
@@ -1505,7 +1487,7 @@ impl ClientActorInner {
             info!(target: "client", "Received an empty set of block headers");
             return true;
         }
-        match self.client.sync_block_headers(headers, signer) {
+        match self.client.sync_block_headers(headers) {
             Ok(_) => true,
             Err(err) => {
                 if err.is_bad_data() {
@@ -1721,7 +1703,7 @@ impl ClientActorInner {
             // This is the last step of state sync that is not in handle_sync_needed because it
             // needs access to the client.
             SyncHandlerRequest::NeedProcessBlockArtifact(block_processing_artifacts) => {
-                self.client.process_block_processing_artifact(block_processing_artifacts, signer);
+                self.client.process_block_processing_artifact(block_processing_artifacts);
             }
         }
     }

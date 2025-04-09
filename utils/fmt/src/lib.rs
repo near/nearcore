@@ -59,6 +59,7 @@ impl<'a> Bytes<'a> {
             Ok(hash.as_bytes().to_vec())
         } else if s.len() >= 2 && s.starts_with('\'') && s.ends_with('\'') {
             // plain string
+            #[allow(clippy::sliced_string_as_bytes)]
             Ok(s[1..s.len().checked_sub(1).expect("s.len() >= 2 ")].as_bytes().to_vec())
         } else {
             // encoded with base64

@@ -1,7 +1,6 @@
 use anyhow::{Context, anyhow};
 use borsh::BorshDeserialize;
 use near_chain::chain::collect_receipts_from_response;
-use near_chain::migrations::check_if_block_is_first_with_chunk_of_version;
 use near_chain::types::{
     ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext, RuntimeAdapter,
 };
@@ -107,7 +106,7 @@ pub fn apply_chunk(
     let prev_block_hash = chunk_header.prev_block_hash();
     let prev_state_root = chunk.prev_state_root();
 
-    let transactions = chunk.transactions().to_vec();
+    let transactions = chunk.to_transactions().to_vec();
     let prev_block =
         chain_store.get_block(prev_block_hash).context("Failed getting chunk's prev block")?;
     let prev_epoch_id = prev_block.header().epoch_id();
@@ -140,15 +139,13 @@ pub fn apply_chunk(
         if let Some(bandwidth_requests) = chunk_extra.bandwidth_requests() {
             shards_bandwidth_requests.insert(shard_id, bandwidth_requests.clone());
         }
-        if let Some(congestion_info) = chunk_extra.congestion_info() {
-            shards_congestion_info.insert(
-                shard_id,
-                near_primitives::congestion_info::ExtendedCongestionInfo {
-                    congestion_info: congestion_info,
-                    missed_chunks_count: 0, // Assume no missing chunks in this block
-                },
-            );
-        }
+        shards_congestion_info.insert(
+            shard_id,
+            near_primitives::congestion_info::ExtendedCongestionInfo {
+                congestion_info: chunk_extra.congestion_info(),
+                missed_chunks_count: 0, // Assume no missing chunks in this block
+            },
+        );
     }
     let block_bandwidth_requests = BlockBandwidthRequests { shards_bandwidth_requests };
     let block_congestion_info = BlockCongestionInfo::new(shards_congestion_info);
@@ -173,13 +170,6 @@ pub fn apply_chunk(
         runtime.get_flat_storage_manager().create_flat_storage_for_shard(shard_uid).unwrap();
     }
 
-    let is_first_block_with_chunk_of_version = check_if_block_is_first_with_chunk_of_version(
-        chain_store,
-        epoch_manager,
-        prev_block_hash,
-        shard_id,
-    )?;
-
     let valid_txs = chain_store.compute_transaction_validity(prev_block.header(), &chunk);
 
     Ok((
@@ -190,7 +180,6 @@ pub fn apply_chunk(
                 shard_id,
                 last_validator_proposals: chunk_header.prev_validator_proposals(),
                 gas_limit: chunk_header.gas_limit(),
-                is_first_block_with_chunk_of_version,
                 is_new_chunk: true,
             },
             ApplyChunkBlockContext {
@@ -234,7 +223,7 @@ fn find_tx_or_receipt(
         let shard_id = shard_layout.get_shard_id(shard_index).unwrap();
         let chunk =
             chain_store.get_chunk(chunk_hash).context("Failed looking up candidate chunk")?;
-        for tx in chunk.transactions() {
+        for tx in chunk.to_transactions() {
             if &tx.get_hash() == hash {
                 return Ok(Some((HashType::Tx, shard_id)));
             }
@@ -333,7 +322,7 @@ fn apply_tx_in_chunk(
                         continue;
                     }
                 };
-                for hash in chunk.transactions().iter().map(|tx| tx.get_hash()) {
+                for hash in chunk.to_transactions().iter().map(|tx| tx.get_hash()) {
                     if hash == *tx_hash {
                         chunk_hashes.push(chunk_hash);
                         break;
