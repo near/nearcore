@@ -161,7 +161,7 @@ impl TestTriesBuilder {
                 0,
                 0,
                 congestion_info,
-                Some(BandwidthRequests::empty()),
+                Some(BandwidthRequests::default()),
             );
             let mut update_for_chunk_extra = store.store_update();
             for shard_uid in &shard_uids {

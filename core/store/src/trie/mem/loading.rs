@@ -524,7 +524,7 @@ mod tests {
             0,
             0,
             Some(CongestionInfo::default()),
-            Some(BandwidthRequests::empty()),
+            Some(BandwidthRequests::default()),
         );
         let mut store_update = store.store_update();
         store_update

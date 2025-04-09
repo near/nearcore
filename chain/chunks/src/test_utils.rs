@@ -161,7 +161,7 @@ impl ChunkTestFixture {
             receipts_root,
             MerkleHash::default(),
             Default::default(),
-            Some(BandwidthRequests::empty()),
+            Some(BandwidthRequests::default()),
             &signer,
             &rs,
         );

@@ -2857,7 +2857,7 @@ fn test_chunk_header(h: &[CryptoHash], signer: &ValidatorSigner) -> ShardChunkHe
         h[2],
         vec![],
         Default::default(),
-        Some(BandwidthRequests::empty()),
+        Some(BandwidthRequests::default()),
         signer,
     ))
 }

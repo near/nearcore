@@ -250,7 +250,7 @@ impl ShardChunkHeaderV3 {
         bandwidth_requests: Option<BandwidthRequests>,
         signer: &ValidatorSigner,
     ) -> Self {
-        let bandwidth_requests = bandwidth_requests.unwrap_or_else(|| BandwidthRequests::empty());
+        let bandwidth_requests = bandwidth_requests.unwrap_or_default();
         let inner = ShardChunkHeaderInner::V4(ShardChunkHeaderInnerV4 {
             prev_block_hash,
             prev_state_root,
@@ -304,7 +304,7 @@ impl ShardChunkHeader {
             Default::default(),
             Default::default(),
             congestion_info,
-            Some(BandwidthRequests::empty()),
+            Some(BandwidthRequests::default()),
             &EmptyValidatorSigner::default().into(),
         ))
     }

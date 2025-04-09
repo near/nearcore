@@ -106,7 +106,7 @@ impl ChainSimulator {
                 shard_id,
                 NewOrOld::New(Rc::new(Chunk {
                     prev_outgoing_receipts: Rc::new(BTreeMap::new()),
-                    bandwidth_requests: BandwidthRequests::empty(),
+                    bandwidth_requests: BandwidthRequests::default(),
                 })),
             );
         }
@@ -235,7 +235,7 @@ impl ChainSimulator {
                 (height, shard_id),
                 ChunkApplicationResult {
                     outgoing_receipts: Rc::new(BTreeMap::new()),
-                    bandwidth_requests: BandwidthRequests::empty(),
+                    bandwidth_requests: BandwidthRequests::default(),
                     pre_state_hash,
                     post_state_hash: CryptoHash::hash_borsh(&shard_state),
                 },

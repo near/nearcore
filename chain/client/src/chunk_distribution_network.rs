@@ -414,7 +414,7 @@ mod tests {
             tx_root: mock_hashes.next().unwrap(),
             prev_validator_proposals: Vec::new(),
             congestion_info: CongestionInfo::default(),
-            bandwidth_requests: BandwidthRequests::empty(),
+            bandwidth_requests: BandwidthRequests::default(),
         });
         let header = ShardChunkHeaderV3::from_inner(header_inner, &signer);
         PartialEncodedChunk::V2(PartialEncodedChunkV2 {

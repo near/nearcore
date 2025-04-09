@@ -1199,7 +1199,7 @@ impl RuntimeAdapter for KeyValueRuntime {
             processed_yield_timeouts: vec![],
             applied_receipts_hash: hash(&borsh::to_vec(receipts).unwrap()),
             congestion_info: Some(Self::get_congestion_info()),
-            bandwidth_requests: Some(BandwidthRequests::empty()),
+            bandwidth_requests: Some(BandwidthRequests::default()),
             bandwidth_scheduler_state_hash: CryptoHash::default(),
             contract_updates: Default::default(),
             stats: ChunkApplyStatsV0::dummy(),

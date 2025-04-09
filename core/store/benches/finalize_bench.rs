@@ -131,7 +131,7 @@ fn create_chunk_header(height: u64, shard_id: ShardId) -> ShardChunkHeader {
         CryptoHash::default(),
         vec![],
         Default::default(),
-        Some(BandwidthRequests::empty()),
+        Some(BandwidthRequests::default()),
         &validator_signer(),
     ))
 }
@@ -200,7 +200,7 @@ fn create_encoded_shard_chunk(
         Default::default(),
         Default::default(),
         Default::default(),
-        Some(BandwidthRequests::empty()),
+        Some(BandwidthRequests::default()),
         &validator_signer(),
         &rs,
     )

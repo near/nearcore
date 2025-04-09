@@ -37,18 +37,6 @@ impl Default for BandwidthRequests {
     }
 }
 
-impl BandwidthRequests {
-    pub fn empty() -> BandwidthRequests {
-        BandwidthRequests::default()
-    }
-
-    pub fn default_for_protocol_version(
-        _protocol_version: near_primitives_core::types::ProtocolVersion,
-    ) -> Option<BandwidthRequests> {
-        Some(BandwidthRequests::default())
-    }
-}
-
 #[derive(
     BorshSerialize,
     BorshDeserialize,
