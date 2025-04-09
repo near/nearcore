@@ -283,7 +283,6 @@ impl GenesisBuilder {
                 genesis.hash(),
                 &shard_uid,
                 ChunkExtra::new(
-                    self.genesis.config.protocol_version,
                     &state_root,
                     CryptoHash::default(),
                     vec![],

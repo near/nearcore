@@ -118,7 +118,6 @@ fn create_benchmark_receipts() -> Vec<Receipt> {
 
 fn create_chunk_header(height: u64, shard_id: ShardId) -> ShardChunkHeader {
     ShardChunkHeader::V3(ShardChunkHeaderV3::new(
-        PROTOCOL_VERSION,
         CryptoHash::default(),
         CryptoHash::default(),
         CryptoHash::default(),

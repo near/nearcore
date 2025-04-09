@@ -2570,7 +2570,7 @@ pub mod estimator {
             outgoing_receipts: Vec::new(),
             outgoing_metadatas,
             bandwidth_scheduler_output: None,
-            protocol_version: apply_state.current_protocol_version,
+
             stats: ReceiptSinkStats::default(),
         });
         let empty_pipeline = ReceiptPreparationPipeline::new(

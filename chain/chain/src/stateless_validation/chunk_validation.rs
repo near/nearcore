@@ -698,13 +698,12 @@ pub fn validate_chunk_state_witness(
 }
 
 pub fn apply_result_to_chunk_extra(
-    protocol_version: ProtocolVersion,
+    _protocol_version: ProtocolVersion,
     apply_result: ApplyChunkResult,
     chunk: &ShardChunkHeader,
 ) -> ChunkExtra {
     let (outcome_root, _) = ApplyChunkResult::compute_outcomes_proof(&apply_result.outcomes);
     ChunkExtra::new(
-        protocol_version,
         &apply_result.new_root,
         outcome_root,
         apply_result.validator_proposals,

@@ -87,7 +87,6 @@ fn genesis_chunk(
         congestion_info,
         BandwidthRequests::default_for_protocol_version(genesis_protocol_version),
         &EmptyValidatorSigner::default().into(),
-        genesis_protocol_version,
     );
     encoded_chunk
 }

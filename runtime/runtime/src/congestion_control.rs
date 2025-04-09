@@ -52,7 +52,7 @@ pub struct ReceiptSinkV2 {
     pub(crate) outgoing_buffers: ShardsOutgoingReceiptBuffer,
     pub(crate) outgoing_metadatas: OutgoingMetadatas,
     pub(crate) bandwidth_scheduler_output: Option<BandwidthSchedulerOutput>,
-    pub(crate) protocol_version: ProtocolVersion,
+
     pub(crate) stats: ReceiptSinkStats,
 }
 
@@ -71,7 +71,7 @@ enum ReceiptForwarding {
 
 impl ReceiptSink {
     pub(crate) fn new(
-        protocol_version: ProtocolVersion,
+        _protocol_version: ProtocolVersion,
         trie: &dyn TrieAccess,
         apply_state: &ApplyState,
         prev_own_congestion_info: CongestionInfo,
@@ -126,7 +126,7 @@ impl ReceiptSink {
             outgoing_buffers,
             outgoing_metadatas,
             bandwidth_scheduler_output,
-            protocol_version,
+
             stats,
         }))
     }
@@ -451,7 +451,7 @@ impl ReceiptSinkV2 {
                 let metadata =
                     StateStoredReceiptMetadata { congestion_gas: gas, congestion_size: size };
                 let receipt =
-                    StateStoredReceipt::new_owned(receipt, metadata, self.protocol_version);
+                    StateStoredReceipt::new_owned(receipt, metadata);
                 let receipt = ReceiptOrStateStoredReceipt::StateStoredReceipt(receipt);
                 receipt
             }
@@ -827,7 +827,6 @@ impl<'a> DelayedReceiptQueueWrapper<'a> {
                 let receipt = StateStoredReceipt::new_borrowed(
                     receipt,
                     metadata,
-                    apply_state.current_protocol_version,
                 );
                 ReceiptOrStateStoredReceipt::StateStoredReceipt(receipt)
             }

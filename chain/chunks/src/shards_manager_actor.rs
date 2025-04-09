@@ -1969,7 +1969,7 @@ impl ShardsManagerActor {
         bandwidth_requests: Option<BandwidthRequests>,
         signer: &ValidatorSigner,
         rs: &ReedSolomon,
-        protocol_version: ProtocolVersion,
+        _protocol_version: ProtocolVersion,
     ) -> (EncodedShardChunk, Vec<MerklePath>, Vec<Receipt>) {
         EncodedShardChunk::new(
             prev_block_hash,
@@ -1989,7 +1989,6 @@ impl ShardsManagerActor {
             congestion_info,
             bandwidth_requests,
             signer,
-            protocol_version,
         )
     }
 

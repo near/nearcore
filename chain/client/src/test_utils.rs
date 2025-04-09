@@ -229,7 +229,6 @@ pub fn create_chunk(
             header.congestion_info(),
             header.bandwidth_requests().cloned(),
             &*signer,
-            PROTOCOL_VERSION,
         );
         swap(&mut chunk, &mut encoded_chunk);
         swap(&mut merkle_paths, &mut new_merkle_paths);

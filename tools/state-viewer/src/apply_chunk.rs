@@ -306,7 +306,7 @@ fn apply_tx_in_chunk(
     );
 
     let head = chain_store.head()?.height;
-    let protocol_version = chain_store.head_header()?.latest_protocol_version();
+
     let mut chunk_hashes = vec![];
 
     for item in store.iter(DBCol::ChunkHashesByHeight) {
@@ -349,7 +349,7 @@ fn apply_tx_in_chunk(
             apply_chunk(epoch_manager, runtime, chain_store, chunk_hash, None, None, storage)?;
         println!(
             "resulting chunk extra:\n{:?}",
-            resulting_chunk_extra(&apply_result, gas_limit, protocol_version)
+            resulting_chunk_extra(&apply_result, gas_limit)
         );
         results.push(apply_result);
     }
@@ -445,7 +445,7 @@ fn apply_receipt_in_chunk(
     println!("Receipt is not indexed; searching in chunks that haven't been applied...");
 
     let head = chain_store.head()?.height;
-    let protocol_version = chain_store.head_header()?.latest_protocol_version();
+
     let mut to_apply = HashSet::new();
     let mut non_applied_chunks = HashMap::new();
 
@@ -513,7 +513,7 @@ fn apply_receipt_in_chunk(
             None,
             storage,
         )?;
-        let chunk_extra = resulting_chunk_extra(&apply_result, gas_limit, protocol_version);
+        let chunk_extra = resulting_chunk_extra(&apply_result, gas_limit);
         println!("resulting chunk extra:\n{:?}", chunk_extra);
         results.push(apply_result);
     }

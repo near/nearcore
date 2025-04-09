@@ -155,7 +155,6 @@ impl TestTriesBuilder {
             // ChunkExtra is needed for in-memory trie loading code to query state roots.
             let congestion_info = Some(CongestionInfo::default());
             let chunk_extra = ChunkExtra::new(
-                PROTOCOL_VERSION,
                 &Trie::EMPTY_ROOT,
                 CryptoHash::default(),
                 Vec::new(),

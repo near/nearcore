@@ -11,7 +11,7 @@ use crate::version::ProtocolVersion;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::Signature;
 use near_fmt::AbbrBytes;
-use near_primitives_core::version::PROTOCOL_VERSION;
+
 use near_schema_checker_lib::ProtocolSchema;
 use shard_chunk_header_inner::ShardChunkHeaderInnerV4;
 use std::cmp::Ordering;
@@ -250,42 +250,24 @@ impl ShardChunkHeaderV3 {
         bandwidth_requests: Option<BandwidthRequests>,
         signer: &ValidatorSigner,
     ) -> Self {
-        let inner = if let Some(bandwidth_requests) = bandwidth_requests {
-            ShardChunkHeaderInner::V4(ShardChunkHeaderInnerV4 {
-                prev_block_hash,
-                prev_state_root,
-                prev_outcome_root,
-                encoded_merkle_root,
-                encoded_length,
-                height_created: height,
-                shard_id,
-                prev_gas_used,
-                gas_limit,
-                prev_balance_burnt,
-                prev_outgoing_receipts_root,
-                tx_root,
-                prev_validator_proposals,
-                congestion_info,
-                bandwidth_requests,
-            })
-        } else {
-            ShardChunkHeaderInner::V3(ShardChunkHeaderInnerV3 {
-                prev_block_hash,
-                prev_state_root,
-                prev_outcome_root,
-                encoded_merkle_root,
-                encoded_length,
-                height_created: height,
-                shard_id,
-                prev_gas_used,
-                gas_limit,
-                prev_balance_burnt,
-                prev_outgoing_receipts_root,
-                tx_root,
-                prev_validator_proposals,
-                congestion_info,
-            })
-        };
+        let bandwidth_requests = bandwidth_requests.unwrap_or_else(|| BandwidthRequests::empty());
+        let inner = ShardChunkHeaderInner::V4(ShardChunkHeaderInnerV4 {
+            prev_block_hash,
+            prev_state_root,
+            prev_outcome_root,
+            encoded_merkle_root,
+            encoded_length,
+            height_created: height,
+            shard_id,
+            prev_gas_used,
+            gas_limit,
+            prev_balance_burnt,
+            prev_outgoing_receipts_root,
+            tx_root,
+            prev_validator_proposals,
+            congestion_info,
+            bandwidth_requests,
+        });
         Self::from_inner(inner, signer)
     }
 
@@ -308,7 +290,6 @@ impl ShardChunkHeader {
         let congestion_info = CongestionInfo::default();
 
         ShardChunkHeader::V3(ShardChunkHeaderV3::new(
-            PROTOCOL_VERSION,
             prev_block_hash,
             Default::default(),
             Default::default(),
@@ -323,7 +304,7 @@ impl ShardChunkHeader {
             Default::default(),
             Default::default(),
             congestion_info,
-            BandwidthRequests::default_for_protocol_version(PROTOCOL_VERSION),
+            Some(BandwidthRequests::empty()),
             &EmptyValidatorSigner::default().into(),
         ))
     }
@@ -1189,7 +1170,6 @@ impl EncodedShardChunk {
         congestion_info: CongestionInfo,
         bandwidth_requests: Option<BandwidthRequests>,
         signer: &ValidatorSigner,
-        protocol_version: ProtocolVersion,
     ) -> (Self, Vec<MerklePath>, Vec<Receipt>) {
         let transaction_receipt = TransactionReceipt(transactions, prev_outgoing_receipts);
         let (transaction_receipts_parts, encoded_length) =
@@ -1198,7 +1178,6 @@ impl EncodedShardChunk {
         let (encoded_merkle_root, merkle_paths) = content.get_merkle_hash_and_paths();
 
         let header = ShardChunkHeaderV3::new(
-            protocol_version,
             prev_block_hash,
             prev_state_root,
             prev_outcome_root,

@@ -11,7 +11,7 @@ use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::ShardId;
-use near_primitives::version::ProtocolFeature;
+
 use near_primitives_core::types::BlockHeight;
 use near_store::adapter::StoreAdapter;
 use near_store::test_utils::create_test_store;
@@ -52,12 +52,7 @@ fn test_flat_storage_iter() {
 
     // Since the BandwidthScheduler feature there is one more entry on every shard - BandwidthSchedulerState
     // The test should expect one more entry on every shard.
-    let protocol_version_modifier =
-        if ProtocolFeature::BandwidthScheduler.enabled(genesis.config.protocol_version) {
-            1
-        } else {
-            0
-        };
+    let protocol_version_modifier = 1;
 
     let [s0, s1, s2] = shard_layout.shard_ids().collect_vec()[..] else {
         panic!("Expected 3 shards in the shard layout!");

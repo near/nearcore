@@ -200,7 +200,6 @@ mod tests {
     use near_primitives::trie_key::TrieKey;
     use near_primitives::types::chunk_extra::ChunkExtra;
     use near_primitives::types::{StateChangeCause, StateRoot};
-    use near_primitives::version::PROTOCOL_VERSION;
     use rand::rngs::StdRng;
     use rand::{Rng, SeedableRng};
 
@@ -518,7 +517,6 @@ mod tests {
         state_root: StateRoot,
     ) {
         let chunk_extra = ChunkExtra::new(
-            PROTOCOL_VERSION,
             &state_root,
             CryptoHash::default(),
             Vec::new(),
@@ -526,7 +524,7 @@ mod tests {
             0,
             0,
             Some(CongestionInfo::default()),
-            BandwidthRequests::default_for_protocol_version(PROTOCOL_VERSION),
+            Some(BandwidthRequests::empty()),
         );
         let mut store_update = store.store_update();
         store_update

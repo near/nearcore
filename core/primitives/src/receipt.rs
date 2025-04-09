@@ -9,7 +9,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use itertools::Itertools;
 use near_crypto::{KeyType, PublicKey};
 use near_fmt::AbbrBytes;
-use near_primitives_core::types::{Gas, ProtocolVersion};
+use near_primitives_core::types::Gas;
 
 use near_schema_checker_lib::ProtocolSchema;
 use serde_with::base64::Base64;
@@ -877,7 +877,7 @@ pub type ReceiptResult = HashMap<ShardId, Vec<Receipt>>;
 
 #[cfg(test)]
 mod tests {
-    use near_primitives_core::version::PROTOCOL_VERSION;
+
 
     use super::*;
 
@@ -934,7 +934,7 @@ mod tests {
 
     fn test_state_stored_receipt_serialization_impl(receipt: Receipt) {
         let metadata = StateStoredReceiptMetadata { congestion_gas: 42, congestion_size: 43 };
-        let receipt = StateStoredReceipt::new_owned(receipt, metadata, PROTOCOL_VERSION);
+        let receipt = StateStoredReceipt::new_owned(receipt, metadata);
 
         let serialized_receipt = borsh::to_vec(&receipt).unwrap();
         let deserialized_receipt = StateStoredReceipt::try_from_slice(&serialized_receipt).unwrap();
@@ -988,7 +988,7 @@ mod tests {
             let receipt = get_receipt_v0();
             let metadata = StateStoredReceiptMetadata { congestion_gas: 42, congestion_size: 43 };
             let state_stored_receipt =
-                StateStoredReceipt::new_owned(receipt, metadata, PROTOCOL_VERSION);
+                StateStoredReceipt::new_owned(receipt, metadata);
 
             let serialized_receipt = borsh::to_vec(&state_stored_receipt).unwrap();
             let deserialized_receipt =
@@ -1021,7 +1021,7 @@ mod tests {
             let receipt = get_receipt_v0();
             let metadata = StateStoredReceiptMetadata { congestion_gas: 42, congestion_size: 43 };
             let state_stored_receipt =
-                StateStoredReceipt::new_owned(receipt, metadata, PROTOCOL_VERSION);
+                StateStoredReceipt::new_owned(receipt, metadata);
             let receipt_or_state_stored_receipt =
                 ReceiptOrStateStoredReceipt::StateStoredReceipt(state_stored_receipt);
 
