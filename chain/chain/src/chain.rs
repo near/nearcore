@@ -685,6 +685,8 @@ impl Chain {
     /// Do basic validation of a block upon receiving it. Check that block is
     /// well-formed (various roots match).
     pub fn validate_block(&self, block: &MaybeValidated<Block>) -> Result<(), Error> {
+        let block_hash = block.hash();
+        let _span = tracing::debug_span!(target: "chain", "validate_block", ?block_hash).entered();
         block
             .validate_with(|block| {
                 Chain::validate_block_impl(self.epoch_manager.as_ref(), self.genesis_block(), block)
@@ -698,6 +700,9 @@ impl Chain {
         genesis_block: &Block,
         block: &Block,
     ) -> Result<(), Error> {
+        let block_height = block.header().height();
+        let block_hash = block.hash();
+        let _span = tracing::debug_span!(target: "chain", "validate_block_impl", ?block_height, ?block_hash).entered();
         let epoch_id = block.header().epoch_id();
         let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
 
@@ -797,6 +802,9 @@ impl Chain {
     }
 
     fn validate_header(&self, header: &BlockHeader, provenance: &Provenance) -> Result<(), Error> {
+        let block_height = header.height();
+        let block_hash = header.hash();
+        let _span = tracing::debug_span!(target: "chain", "validate_header", ?block_height, ?block_hash).entered();
         if header.challenges_present() {
             return Err(Error::InvalidChallenge);
         }
