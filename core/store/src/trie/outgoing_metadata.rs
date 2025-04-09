@@ -8,7 +8,6 @@ use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{Gas, ShardId};
 
 use near_schema_checker_lib::ProtocolSchema;
-use near_vm_runner::logic::ProtocolVersion;
 
 use crate::{TrieUpdate, get, set};
 
@@ -38,7 +37,6 @@ impl OutgoingMetadatas {
         trie: &dyn TrieAccess,
         shard_ids: impl IntoIterator<Item = ShardId>,
         groups_config: ReceiptGroupsConfig,
-        _protocol_version: ProtocolVersion,
     ) -> Result<Self, StorageError> {
         let mut metadatas = BTreeMap::new();
         for shard_id in shard_ids.into_iter() {
