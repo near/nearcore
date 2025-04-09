@@ -1075,6 +1075,8 @@ impl Chain {
         parent_hash: CryptoHash,
         block: &Block,
     ) -> Result<(), Error> {
+        let block_height = block.header().height();
+        let _span = tracing::debug_span!(target: "chain", "ping_missing_chunks", ?block_height).entered();
         if !self.cares_about_any_shard_or_part(me, parent_hash)? {
             return Ok(());
         }
@@ -1172,6 +1174,7 @@ impl Chain {
         prev_block_hash: &CryptoHash,
         shuffle_salt: &CryptoHash,
     ) -> Result<HashMap<ShardId, Vec<ReceiptProof>>, Error> {
+        let _span = tracing::debug_span!(target: "chain", "collect_incoming_receipts_from_chunks").entered();
         if !self.cares_about_any_shard_or_part(me, *prev_block_hash)? {
             return Ok(HashMap::new());
         }
