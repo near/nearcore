@@ -198,13 +198,8 @@ disable_9393_fix                        false
 flat_storage_reads                      true
 implicit_account_creation               true
 fix_contract_loading_cost               false
-math_extension                          true
-ed25519_verify                          true
-alt_bn128                               true
-function_call_weight                    true
 vm_kind                                 NearVm
 eth_implicit_accounts                   true
-yield_resume                            true
 discard_custom_sections                 true
 max_congestion_incoming_gas             400_000_000_000_000_000
 max_congestion_outgoing_gas             10_000_000_000_000_000
