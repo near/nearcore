@@ -203,7 +203,7 @@ impl RuntimeUser {
             cache: None,
             is_new_chunk: true,
             congestion_info,
-            bandwidth_requests: BlockBandwidthRequests::empty(),
+            bandwidth_requests: BlockBandwidthRequests::default(),
         }
     }
 

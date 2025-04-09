@@ -225,7 +225,7 @@ impl TrieViewer {
             cache: view_state.cache,
             is_new_chunk: false,
             congestion_info: Default::default(),
-            bandwidth_requests: BlockBandwidthRequests::empty(),
+            bandwidth_requests: BlockBandwidthRequests::default(),
         };
         let function_call = FunctionCallAction {
             method_name: method_name.to_string(),
