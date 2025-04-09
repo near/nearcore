@@ -42,9 +42,10 @@ impl ChunkEndorsementTracker {
         &mut self,
         endorsement: ChunkEndorsement,
     ) -> Result<(), Error> {
-        // Check if we have already received chunk endorsement from this validator.
         let key = endorsement.chunk_production_key();
         let account_id = endorsement.account_id();
+        let _span = tracing::debug_span!(target: "client", "process_chunk_endorsement", ?key, ?account_id).entered();
+        // Check if we have already received chunk endorsement from this validator.
         if self.chunk_endorsements.peek(&key).is_some_and(|entry| entry.contains_key(account_id)) {
             tracing::debug!(target: "client", ?endorsement, "Already received chunk endorsement.");
             return Ok(());
