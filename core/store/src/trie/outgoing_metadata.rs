@@ -41,9 +41,6 @@ impl OutgoingMetadatas {
         groups_config: ReceiptGroupsConfig,
         protocol_version: ProtocolVersion,
     ) -> Result<Self, StorageError> {
-        if !ProtocolFeature::BandwidthScheduler.enabled(protocol_version) {
-            return Ok(Self::new(groups_config));
-        }
 
         let mut metadatas = BTreeMap::new();
         for shard_id in shard_ids.into_iter() {
