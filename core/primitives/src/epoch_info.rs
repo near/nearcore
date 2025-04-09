@@ -288,16 +288,6 @@ impl EpochInfo {
     }
 
     #[inline]
-    pub fn validator_kickout(&self) -> &HashMap<AccountId, ValidatorKickoutReason> {
-        match self {
-            Self::V1(v1) => &v1.validator_kickout,
-            Self::V2(v2) => &v2.validator_kickout,
-            Self::V3(v3) => &v3.validator_kickout,
-            Self::V4(v4) => &v4.validator_kickout,
-        }
-    }
-
-    #[inline]
     pub fn protocol_version(&self) -> ProtocolVersion {
         match self {
             Self::V1(v1) => v1.protocol_version,
