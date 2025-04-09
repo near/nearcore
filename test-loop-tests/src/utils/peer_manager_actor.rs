@@ -105,7 +105,7 @@ pub struct TestLoopPeerManagerActor {
 
 impl Actor for TestLoopPeerManagerActor {
     fn start_actor(&mut self, ctx: &mut dyn near_async::futures::DelayedActionRunner<Self>) {
-        const PUSH_NETWORK_INFO_PERIOD: Duration = Duration::milliseconds(100);
+        const PUSH_NETWORK_INFO_PERIOD: Duration = Duration::milliseconds(300);
         self.push_network_info(ctx, PUSH_NETWORK_INFO_PERIOD);
     }
 }
@@ -162,6 +162,8 @@ impl TestLoopPeerManagerActor {
         ctx: &mut dyn near_async::futures::DelayedActionRunner<Self>,
         interval: Duration,
     ) {
+        // Some tests (especially the ones having to do with sync) need NetworkInfo to be up to
+        // date to work properly. That's why we're sending it periodically here.
         let future = self.client_sender.send_async(SetNetworkInfo(NetworkInfo {
             highest_height_peers: self
                 .last_block_headers
