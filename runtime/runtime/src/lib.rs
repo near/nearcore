@@ -10,8 +10,8 @@ use crate::prefetch::TriePrefetcher;
 pub use crate::types::SignedValidPeriodTransactions;
 use crate::verifier::{StorageStakingError, check_storage_stake, validate_receipt};
 pub use crate::verifier::{
-    ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT, set_tx_state_changes, validate_transaction,
-    verify_and_charge_tx_ephemeral,
+    ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT, get_signer_and_access_key, set_tx_state_changes,
+    validate_transaction, verify_and_charge_tx_ephemeral,
 };
 use bandwidth_scheduler::{BandwidthSchedulerOutput, run_bandwidth_scheduler};
 use config::{TransactionCost, total_prepaid_send_fees, tx_cost};
@@ -26,7 +26,7 @@ use metrics::ApplyMetrics;
 pub use near_crypto;
 use near_parameters::{ActionCosts, RuntimeConfig};
 pub use near_primitives;
-use near_primitives::account::{AccessKey, Account, AccountContract};
+use near_primitives::account::{Account, AccountContract};
 use near_primitives::action::GlobalContractIdentifier;
 use near_primitives::bandwidth_scheduler::{BandwidthRequests, BlockBandwidthRequests};
 use near_primitives::chunk_apply_stats::ChunkApplyStatsV0;
@@ -187,10 +187,6 @@ pub struct VerificationResult {
     pub receipt_gas_price: Balance,
     /// The balance that was burnt to convert the transaction into a receipt and send it.
     pub burnt_amount: Balance,
-    /// The signer that was updated to charge for the transaction.
-    pub signer: Account,
-    /// The access key that was updated to charge for the transaction.
-    pub access_key: AccessKey,
 }
 
 #[derive(Debug)]
@@ -348,10 +344,12 @@ impl Runtime {
     ) -> Result<(Receipt, ExecutionOutcomeWithId), InvalidTxError> {
         let span = tracing::Span::current();
         metrics::TRANSACTION_PROCESSED_TOTAL.inc();
+        let (mut signer, mut access_key) = get_signer_and_access_key(state_update, &validated_tx)?;
 
         let verification_result = verify_and_charge_tx_ephemeral(
             &apply_state.config,
-            state_update,
+            &mut signer,
+            &mut access_key,
             validated_tx,
             transaction_cost,
             Some(apply_state.block_height),
@@ -366,12 +364,7 @@ impl Runtime {
         };
 
         metrics::TRANSACTION_PROCESSED_SUCCESSFULLY_TOTAL.inc();
-        set_tx_state_changes(
-            state_update,
-            validated_tx,
-            &verification_result.signer,
-            &verification_result.access_key,
-        );
+        set_tx_state_changes(state_update, validated_tx, &signer, &access_key);
         state_update
             .commit(StateChangeCause::TransactionProcessing { tx_hash: validated_tx.get_hash() });
         let receipt_id = create_receipt_id_from_transaction(

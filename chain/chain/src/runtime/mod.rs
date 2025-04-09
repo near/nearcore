@@ -48,7 +48,8 @@ use node_runtime::config::tx_cost;
 use node_runtime::state_viewer::{TrieViewer, ViewApplyState};
 use node_runtime::{
     ApplyState, Runtime, SignedValidPeriodTransactions, ValidatorAccountsUpdate,
-    set_tx_state_changes, validate_transaction, verify_and_charge_tx_ephemeral,
+    get_signer_and_access_key, set_tx_state_changes, validate_transaction,
+    verify_and_charge_tx_ephemeral,
 };
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -529,10 +530,11 @@ impl RuntimeAdapter for NightshadeRuntime {
         let shard_uid = shard_layout
             .account_id_to_shard_uid(validated_tx.to_signed_tx().transaction.signer_id());
         let state_update = self.tries.new_trie_update(shard_uid, state_root);
-
+        let (mut signer, mut access_key) = get_signer_and_access_key(&state_update, &validated_tx)?;
         verify_and_charge_tx_ephemeral(
             runtime_config,
-            &state_update,
+            &mut signer,
+            &mut access_key,
             validated_tx,
             &cost,
             // here we do not know which block the transaction will be included
@@ -667,13 +669,17 @@ impl RuntimeAdapter for NightshadeRuntime {
                     continue;
                 }
 
+                let (mut signer, mut access_key) =
+                    get_signer_and_access_key(&state_update, &validated_tx)
+                        .map_err(|_| Error::InvalidTransactions)?;
                 let verify_result =
                     tx_cost(runtime_config, &validated_tx.to_tx(), prev_block.next_gas_price)
                         .map_err(InvalidTxError::from)
                         .and_then(|cost| {
                             verify_and_charge_tx_ephemeral(
                                 runtime_config,
-                                &state_update,
+                                &mut signer,
+                                &mut access_key,
                                 &validated_tx,
                                 &cost,
                                 Some(next_block_height),
@@ -683,8 +689,8 @@ impl RuntimeAdapter for NightshadeRuntime {
                             set_tx_state_changes(
                                 &mut state_update,
                                 &validated_tx,
-                                &verification_res.signer,
-                                &verification_res.access_key,
+                                &signer,
+                                &access_key,
                             );
                             Ok(verification_res)
                         });
