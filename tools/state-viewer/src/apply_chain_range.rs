@@ -100,7 +100,6 @@ fn apply_block_from_range(
         .get_block_producer(block.header().epoch_id(), block.header().height())
         .unwrap();
 
-
     let apply_result = if block.header().is_genesis() {
         if verbose_output {
             println!("Skipping the genesis block #{}.", height);

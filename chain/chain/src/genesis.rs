@@ -212,11 +212,7 @@ impl Chain {
                 ))
             })?
             .gas_limit();
-        Ok(Self::create_genesis_chunk_extra(
-            &state_root,
-            gas_limit,
-            congestion_info,
-        ))
+        Ok(Self::create_genesis_chunk_extra(&state_root, gas_limit, congestion_info))
     }
 
     /// Saves the `[ChunkExtra]`s for all shards in the genesis block.

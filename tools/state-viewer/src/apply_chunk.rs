@@ -347,10 +347,7 @@ fn apply_tx_in_chunk(
         );
         let (apply_result, gas_limit) =
             apply_chunk(epoch_manager, runtime, chain_store, chunk_hash, None, None, storage)?;
-        println!(
-            "resulting chunk extra:\n{:?}",
-            resulting_chunk_extra(&apply_result, gas_limit)
-        );
+        println!("resulting chunk extra:\n{:?}", resulting_chunk_extra(&apply_result, gas_limit));
         results.push(apply_result);
     }
     Ok(results)

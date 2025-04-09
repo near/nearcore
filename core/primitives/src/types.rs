@@ -737,7 +737,6 @@ pub mod chunk_extra {
     use near_primitives_core::hash::CryptoHash;
     use near_primitives_core::types::{Balance, Gas};
 
-
     pub use super::ChunkExtraV1;
 
     /// Information after chunk was processed, used to produce or check next chunk.

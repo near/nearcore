@@ -7,7 +7,6 @@ use near_primitives::receipt::TrieQueueIndices;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{Gas, ShardId};
 
-
 use near_schema_checker_lib::ProtocolSchema;
 use near_vm_runner::logic::ProtocolVersion;
 
@@ -41,7 +40,6 @@ impl OutgoingMetadatas {
         groups_config: ReceiptGroupsConfig,
         _protocol_version: ProtocolVersion,
     ) -> Result<Self, StorageError> {
-
         let mut metadatas = BTreeMap::new();
         for shard_id in shard_ids.into_iter() {
             let metadata = ReceiptGroupsQueue::load(trie, shard_id)?;

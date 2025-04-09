@@ -233,10 +233,7 @@ pub(crate) fn apply_chunk(
 
     // Most probably `PROTOCOL_VERSION` won't work if the target_height points to a time
     // before congestion control has been introduced.
-    println!(
-        "resulting chunk extra:\n{:?}",
-        resulting_chunk_extra(&apply_result, gas_limit)
-    );
+    println!("resulting chunk extra:\n{:?}", resulting_chunk_extra(&apply_result, gas_limit));
     Ok(())
 }
 

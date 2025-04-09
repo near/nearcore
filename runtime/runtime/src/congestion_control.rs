@@ -450,8 +450,7 @@ impl ReceiptSinkV2 {
             true => {
                 let metadata =
                     StateStoredReceiptMetadata { congestion_gas: gas, congestion_size: size };
-                let receipt =
-                    StateStoredReceipt::new_owned(receipt, metadata);
+                let receipt = StateStoredReceipt::new_owned(receipt, metadata);
                 let receipt = ReceiptOrStateStoredReceipt::StateStoredReceipt(receipt);
                 receipt
             }
@@ -824,10 +823,7 @@ impl<'a> DelayedReceiptQueueWrapper<'a> {
             true => {
                 let metadata =
                     StateStoredReceiptMetadata { congestion_gas: gas, congestion_size: size };
-                let receipt = StateStoredReceipt::new_borrowed(
-                    receipt,
-                    metadata,
-                );
+                let receipt = StateStoredReceipt::new_borrowed(receipt, metadata);
                 ReceiptOrStateStoredReceipt::StateStoredReceipt(receipt)
             }
             false => ReceiptOrStateStoredReceipt::Receipt(Cow::Borrowed(receipt)),
