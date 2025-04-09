@@ -833,17 +833,37 @@ pub mod chunk_extra {
             congestion_info: Option<CongestionInfo>,
             bandwidth_requests: Option<BandwidthRequests>,
         ) -> Self {
-            assert!(bandwidth_requests.is_some());
-            Self::V4(ChunkExtraV4 {
-                state_root: *state_root,
-                outcome_root,
-                validator_proposals,
-                gas_used,
-                gas_limit,
-                balance_burnt,
-                congestion_info: congestion_info.unwrap(),
-                bandwidth_requests: bandwidth_requests.unwrap(),
-            })
+            if bandwidth_requests.is_some() {
+                Self::V4(ChunkExtraV4 {
+                    state_root: *state_root,
+                    outcome_root,
+                    validator_proposals,
+                    gas_used,
+                    gas_limit,
+                    balance_burnt,
+                    congestion_info: congestion_info.unwrap(),
+                    bandwidth_requests: bandwidth_requests.unwrap(),
+                })
+            } else if congestion_info.is_some() {
+                Self::V3(ChunkExtraV3 {
+                    state_root: *state_root,
+                    outcome_root,
+                    validator_proposals,
+                    gas_used,
+                    gas_limit,
+                    balance_burnt,
+                    congestion_info: congestion_info.unwrap(),
+                })
+            } else {
+                Self::V2(ChunkExtraV2 {
+                    state_root: *state_root,
+                    outcome_root,
+                    validator_proposals,
+                    gas_used,
+                    gas_limit,
+                    balance_burnt,
+                })
+            }
         }
 
         #[inline]
