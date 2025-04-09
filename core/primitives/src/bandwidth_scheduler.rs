@@ -26,20 +26,17 @@ pub type Bandwidth = u64;
     PartialEq,
     Eq,
     ProtocolSchema,
+    Default,
 )]
 pub enum BandwidthRequests {
     V1(BandwidthRequestsV1),
 }
 
 impl BandwidthRequests {
-    pub fn empty() -> BandwidthRequests {
-        BandwidthRequests::V1(BandwidthRequestsV1 { requests: Vec::new() })
-    }
-
     pub fn default_for_protocol_version(
         _protocol_version: ProtocolVersion,
     ) -> Option<BandwidthRequests> {
-        Some(BandwidthRequests::empty())
+        Some(BandwidthRequests::default())
     }
 }
 
