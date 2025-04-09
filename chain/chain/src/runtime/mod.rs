@@ -486,6 +486,8 @@ impl RuntimeAdapter for NightshadeRuntime {
         current_protocol_version: ProtocolVersion,
         receiver_congestion_info: Option<ExtendedCongestionInfo>,
     ) -> Result<ValidatedTransaction, (InvalidTxError, SignedTransaction)> {
+        let tx_hash = signed_tx.get_hash();
+        let _span = tracing::debug_span!(target: "runtime", "validate_tx", ?tx_hash).entered();
         let runtime_config = self.runtime_config_store.get_config(current_protocol_version);
 
         if let Some(congestion_info) = receiver_congestion_info {
