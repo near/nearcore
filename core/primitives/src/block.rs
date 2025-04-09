@@ -382,6 +382,9 @@ impl Block {
         chunk_root: &CryptoHash,
         merkle_path: &MerklePath,
     ) -> bool {
+        let chunk_hash = chunk.chunk_hash();
+        let height_included = chunk.height_included();
+        let _span = tracing::debug_span!(target: "chain", "validate_chunk_header_proof", ?chunk_hash, ?height_included).entered();
         verify_path(
             *chunk_root,
             merkle_path,
