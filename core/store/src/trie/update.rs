@@ -12,12 +12,11 @@ use near_primitives::stateless_validation::contract_distribution::ContractUpdate
 use near_primitives::trie_key::{GlobalContractCodeIdentifier, TrieKey};
 use near_primitives::types::{
     AccountId, RawStateChange, RawStateChanges, RawStateChangesWithTrieKey, StateChangeCause,
-    StateRoot, TrieCacheMode,
+    StateRoot,
 };
-use near_primitives::version::ProtocolFeature;
 
 use near_vm_runner::ContractCode;
-use near_vm_runner::logic::ProtocolVersion;
+
 use std::collections::BTreeMap;
 
 mod iterator;
@@ -301,12 +300,10 @@ impl TrieUpdate {
     ///
     /// Only changes the cache mode if `mode` is `Some`. Will always restore the previous cache
     /// mode upon drop. The type should not be `std::mem::forget`-ten, as it will leak memory.
-    pub fn with_trie_cache_mode(&self, mode: Option<TrieCacheMode>) -> TrieCacheModeGuard {
+    pub fn with_trie_cache(&self) -> TrieCacheModeGuard {
         let switch = self.trie.accounting_cache.lock().unwrap().enable_switch();
         let previous = switch.enabled();
-        if let Some(mode) = mode {
-            switch.set(mode == TrieCacheMode::CachingChunk);
-        }
+        switch.set(true);
         TrieCacheModeGuard(previous, switch, Default::default())
     }
 
@@ -345,14 +342,7 @@ impl TrieUpdate {
         code_hash: CryptoHash,
         account_contract: &AccountContract,
         apply_reason: ApplyChunkReason,
-        protocol_version: ProtocolVersion,
     ) -> Result<(), StorageError> {
-        if !ProtocolFeature::ExcludeContractCodeFromStateWitness.enabled(protocol_version) {
-            // This causes trie lookup for the contract code to happen with side effects (charging gas and recording trie nodes).
-            self.trie.request_code_recording(account_id);
-            return Ok(());
-        }
-
         // The recording of contracts when they are excluded from the witness are only for distributing them to the validators,
         // and not needed for validating the chunks, thus we skip the recording if we are not applying the chunk for updating the shard.
         if apply_reason != ApplyChunkReason::UpdateTrackedShard {

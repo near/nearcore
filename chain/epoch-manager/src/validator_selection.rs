@@ -7,7 +7,6 @@ use near_primitives::types::{
     AccountId, Balance, NumShards, ProtocolVersion, ValidatorId, ValidatorKickoutReason,
 };
 use near_primitives::validator_mandates::{ValidatorMandates, ValidatorMandatesConfig};
-use near_primitives::version::ProtocolFeature;
 use num_rational::Ratio;
 use rand::seq::SliceRandom;
 use std::cmp::{self, Ordering};
@@ -44,9 +43,7 @@ struct ChunkProducersAssignment {
 fn select_validators_from_proposals(
     epoch_config: &EpochConfig,
     proposals: HashMap<AccountId, ValidatorStake>,
-    protocol_version: ProtocolVersion,
 ) -> ValidatorRoles {
-    let shard_ids: Vec<_> = epoch_config.shard_layout.shard_ids().collect();
     let min_stake_ratio = {
         let rational = epoch_config.minimum_stake_ratio;
         Ratio::new(*rational.numer() as u128, *rational.denom() as u128)
@@ -57,8 +54,6 @@ fn select_validators_from_proposals(
         chunk_producer_proposals,
         epoch_config.num_chunk_producer_seats as usize,
         min_stake_ratio,
-        shard_ids.len() as NumShards,
-        protocol_version,
     );
 
     let block_producer_proposals = order_proposals(proposals.values().cloned());
@@ -66,7 +61,6 @@ fn select_validators_from_proposals(
         block_producer_proposals,
         epoch_config.num_block_producer_seats as usize,
         min_stake_ratio,
-        protocol_version,
     );
 
     let chunk_validator_proposals = order_proposals(proposals.values().cloned());
@@ -74,7 +68,6 @@ fn select_validators_from_proposals(
         chunk_validator_proposals,
         epoch_config.num_chunk_validator_seats as usize,
         min_stake_ratio,
-        protocol_version,
     );
 
     let mut unselected_proposals = BinaryHeap::new();
@@ -201,8 +194,7 @@ pub fn proposals_to_epoch_info(
     // Select validators for the next epoch.
     // Returns unselected proposals, validator lists for all roles and stake
     // threshold to become a validator.
-    let validator_roles =
-        select_validators_from_proposals(epoch_config, proposals, protocol_version);
+    let validator_roles = select_validators_from_proposals(epoch_config, proposals);
 
     // Add kickouts for validators which fell out of validator set.
     // Used for querying epoch info by RPC.
@@ -336,25 +328,16 @@ fn select_block_producers(
     block_producer_proposals: BinaryHeap<OrderedValidatorStake>,
     max_num_selected: usize,
     min_stake_ratio: Ratio<u128>,
-    protocol_version: ProtocolVersion,
 ) -> (Vec<ValidatorStake>, BinaryHeap<OrderedValidatorStake>, Balance) {
-    select_validators(block_producer_proposals, max_num_selected, min_stake_ratio, protocol_version)
+    select_validators(block_producer_proposals, max_num_selected, min_stake_ratio)
 }
 
 fn select_chunk_producers(
     all_proposals: BinaryHeap<OrderedValidatorStake>,
     max_num_selected: usize,
     min_stake_ratio: Ratio<u128>,
-    num_shards: u64,
-    protocol_version: ProtocolVersion,
 ) -> (Vec<ValidatorStake>, BinaryHeap<OrderedValidatorStake>, Balance) {
-    let min_stake_ratio =
-        if ProtocolFeature::FixChunkProducerStakingThreshold.enabled(protocol_version) {
-            min_stake_ratio
-        } else {
-            min_stake_ratio * Ratio::new(1, num_shards as u128)
-        };
-    select_validators(all_proposals, max_num_selected, min_stake_ratio, protocol_version)
+    select_validators(all_proposals, max_num_selected, min_stake_ratio)
 }
 
 // Takes the top N proposals (by stake), or fewer if there are not enough or the
@@ -365,7 +348,6 @@ fn select_validators(
     mut proposals: BinaryHeap<OrderedValidatorStake>,
     max_number_selected: usize,
     min_stake_ratio: Ratio<u128>,
-    protocol_version: ProtocolVersion,
 ) -> (Vec<ValidatorStake>, BinaryHeap<OrderedValidatorStake>, Balance) {
     let mut total_stake = 0;
     let n = cmp::min(max_number_selected, proposals.len());
@@ -391,14 +373,10 @@ fn select_validators(
         // the stake ratio condition prevented all slots from being filled,
         // or there were fewer proposals than available slots,
         // so the threshold stake is whatever amount pass the stake ratio condition
-        if ProtocolFeature::FixStakingThreshold.enabled(protocol_version) {
-            (min_stake_ratio * Ratio::from_integer(total_stake)
-                / (Ratio::from_integer(1u128) - min_stake_ratio))
-                .ceil()
-                .to_integer()
-        } else {
-            (min_stake_ratio * Ratio::new(total_stake, 1)).ceil().to_integer()
-        }
+        (min_stake_ratio * Ratio::from_integer(total_stake)
+            / (Ratio::from_integer(1u128) - min_stake_ratio))
+            .ceil()
+            .to_integer()
     };
     (validators, proposals, threshold)
 }

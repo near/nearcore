@@ -10,7 +10,6 @@ action_deploy_contract_per_byte: {
     execution: 64_572_944,
   },
 }
-wasmer2_stack_limit: { new: 204_800 }
 max_length_storage_key: { old: 4_194_304, new: 2_048 }
 max_locals_per_contract: { new: 1_000_000 }
 function_call_weight: { old: false, new: true }

@@ -200,7 +200,7 @@ mod tests {
     use near_primitives::trie_key::TrieKey;
     use near_primitives::types::chunk_extra::ChunkExtra;
     use near_primitives::types::{StateChangeCause, StateRoot};
-    use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
+    use near_primitives::version::PROTOCOL_VERSION;
     use rand::rngs::StdRng;
     use rand::{Rng, SeedableRng};
 
@@ -241,8 +241,7 @@ mod tests {
             &CryptoHash::default(),
             false,
         ));
-        let _mode_guard = trie_update
-            .with_trie_cache_mode(Some(near_primitives::types::TrieCacheMode::CachingChunk));
+        let _mode_guard = trie_update.with_trie_cache();
         let trie = trie_update.trie();
         let root = in_memory_trie.get_root(&state_root).unwrap();
 
@@ -518,10 +517,6 @@ mod tests {
         shard_uid: ShardUId,
         state_root: StateRoot,
     ) {
-        let congestion_info = ProtocolFeature::CongestionControl
-            .enabled(PROTOCOL_VERSION)
-            .then(CongestionInfo::default);
-
         let chunk_extra = ChunkExtra::new(
             PROTOCOL_VERSION,
             &state_root,
@@ -530,7 +525,7 @@ mod tests {
             0,
             0,
             0,
-            congestion_info,
+            Some(CongestionInfo::default()),
             BandwidthRequests::default_for_protocol_version(PROTOCOL_VERSION),
         );
         let mut store_update = store.store_update();

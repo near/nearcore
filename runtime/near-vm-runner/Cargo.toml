@@ -23,7 +23,6 @@ finite-wasm = { workspace = true, features = ["instrument"], optional = true }
 lru.workspace = true
 memoffset = { workspace = true, optional = true }
 num-rational.workspace = true
-parity-wasm = { workspace = true, optional = true }
 prefix-sum-vec = { workspace = true, optional = true }
 prometheus = { workspace = true, optional = true }
 rand.workspace = true
@@ -51,18 +50,7 @@ near-schema-checker-lib.workspace = true
 
 bytesize.workspace = true
 
-# Old versions of pwasm-utils we need to preserve backwards compatibility under
-# old protocol versions.
-pwasm-utils_12 = { workspace = true, optional = true }
-parity-wasm_41 = { workspace = true, optional = true }
-
 [target.'cfg(target_arch = "x86_64")'.dependencies]
-wasmer-compiler = { workspace = true, optional = true }
-wasmer-compiler-singlepass = { workspace = true, optional = true }
-wasmer-engine = { workspace = true, optional = true }
-wasmer-engine-universal = { workspace = true, optional = true }
-wasmer-types = { workspace = true, optional = true }
-wasmer-vm = { workspace = true, optional = true }
 near-vm-compiler = { workspace = true, optional = true }
 near-vm-compiler-singlepass = { workspace = true, optional = true }
 near-vm-engine = { workspace = true, optional = true }
@@ -90,16 +78,6 @@ wat.workspace = true
 
 [features]
 wasmtime_vm = ["wasmtime", "anyhow", "prepare"]
-wasmer2_vm = [
-  "wasmer-compiler",
-  "wasmer-compiler-singlepass",
-  "wasmer-engine",
-  "wasmer-engine-universal",
-  "wasmer-types",
-  "wasmer-vm",
-  "memoffset",
-  "prepare",
-]
 near_vm = [
   "near-vm-compiler",
   "near-vm-compiler-singlepass",
@@ -113,9 +91,6 @@ prepare = [
   "finite-wasm",
   "wasm-encoder",
   "wasmparser",
-  "parity-wasm",
-  "parity-wasm_41",
-  "pwasm-utils_12",
   "prefix-sum-vec",
   "metrics",
 ]
