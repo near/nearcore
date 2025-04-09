@@ -416,6 +416,7 @@ impl Trie {
         part_id: PartId,
         partial_state: PartialState,
     ) -> Result<(), StorageError> {
+        let _span = tracing::debug_span!(target: "store", "validate_state_part", ?part_id).entered();
         let PartialState::TrieValues(nodes) = &partial_state;
         let num_nodes = nodes.len();
         let trie = Trie::from_recorded_storage(
