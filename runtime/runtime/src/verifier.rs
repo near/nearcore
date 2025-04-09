@@ -410,7 +410,7 @@ pub fn validate_action(
     action: &Action,
     current_protocol_version: ProtocolVersion,
 ) -> Result<(), ActionsValidationError> {
-    let _span = tracing::debug_span!(target: "runtime", "validate_action", action_type=?action.as_enum_variant_name()).entered();
+    let _span = tracing::debug_span!(target: "runtime", "validate_action").entered();
     match action {
         Action::CreateAccount(_) => Ok(()),
         Action::DeployContract(a) => validate_deploy_contract_action(limit_config, a),
