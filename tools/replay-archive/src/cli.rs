@@ -276,7 +276,6 @@ impl ReplayController {
         shard_uid: ShardUId,
         chunk_header: &ShardChunkHeader,
         prev_chunk_header: &ShardChunkHeader,
-        protocol_version: ProtocolVersion,
     ) -> Result<ReplayChunkOutput> {
         let span = tracing::debug_span!(target: "replay-archive", "replay_chunk").entered();
 
