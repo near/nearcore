@@ -110,6 +110,7 @@ impl ChainStateSyncAdapter {
         );
         assert_eq!(&chunk_headers_root, sync_prev_block.header().chunk_headers_root());
 
+        // If the node was not tracking the shard it may not have the chunk in storage.
         let chunk = get_chunk_clone_from_header(&self.chain_store, chunk_header)?;
         let chunk_proof =
             chunk_proofs.get(prev_shard_index).ok_or(Error::InvalidShardId(shard_id))?.clone();
@@ -161,8 +162,7 @@ impl ChainStateSyncAdapter {
             },
         };
 
-        // Getting all existing incoming_receipts from prev_chunk height to the
-        // new epoch.
+        // Getting all existing incoming_receipts from prev_chunk height up to the sync hash.
         let incoming_receipts_proofs = get_incoming_receipts_for_shard(
             &self.chain_store,
             self.epoch_manager.as_ref(),
@@ -189,9 +189,10 @@ impl ChainStateSyncAdapter {
 
             let mut root_proofs_cur = vec![];
             if receipt_proofs.len() != block_header.chunks_included() as usize {
-                // Happens if a node doesn't track all shards and can't provide
-                // all incoming receipts to a chunk.
-                return Err(Error::Other("Not tracking all shards".to_owned()));
+                // Incoming receipts are saved to the store during block processing.
+                // If the node did not process the required blocks or was not tracking
+                // any shards during that time, it won't have the incoming receipts.
+                return Err(Error::Other("Store is missing incoming receipts".to_owned()));
             }
             for receipt_proof in receipt_proofs.iter() {
                 let ReceiptProof(receipts, shard_proof) = receipt_proof;
