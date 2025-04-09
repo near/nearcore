@@ -38,7 +38,6 @@ impl BandwidthRequests {
     ) -> Option<BandwidthRequests> {
         Some(BandwidthRequests::default())
     }
-
 }
 
 #[derive(
