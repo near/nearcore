@@ -52,7 +52,6 @@ pub struct ReceiptSinkV2 {
     pub(crate) outgoing_buffers: ShardsOutgoingReceiptBuffer,
     pub(crate) outgoing_metadatas: OutgoingMetadatas,
     pub(crate) bandwidth_scheduler_output: Option<BandwidthSchedulerOutput>,
-
     pub(crate) stats: ReceiptSinkStats,
 }
 

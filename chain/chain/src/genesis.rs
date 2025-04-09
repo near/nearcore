@@ -192,7 +192,6 @@ impl Chain {
         &self,
         shard_layout: &ShardLayout,
         shard_id: ShardId,
-        _genesis_protocol_version: ProtocolVersion,
         congestion_info: Option<CongestionInfo>,
     ) -> Result<ChunkExtra, Error> {
         let shard_index = shard_layout.get_shard_index(shard_id)?;
