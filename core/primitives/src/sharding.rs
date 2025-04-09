@@ -11,7 +11,7 @@ use crate::version::ProtocolVersion;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::Signature;
 use near_fmt::AbbrBytes;
-use near_primitives_core::version::{PROTOCOL_VERSION, ProtocolFeature};
+use near_primitives_core::version::PROTOCOL_VERSION;
 use near_schema_checker_lib::ProtocolSchema;
 use shard_chunk_header_inner::ShardChunkHeaderInnerV4;
 use std::cmp::Ordering;
@@ -252,9 +252,6 @@ impl ShardChunkHeaderV3 {
         signer: &ValidatorSigner,
     ) -> Self {
         let inner = if let Some(bandwidth_requests) = bandwidth_requests {
-            // `bandwidth_requests` can only be `Some` when bandwidth scheduler is enabled.
-            assert!(ProtocolFeature::BandwidthScheduler.enabled(protocol_version));
-
             ShardChunkHeaderInner::V4(ShardChunkHeaderInnerV4 {
                 prev_block_hash,
                 prev_state_root,
@@ -541,7 +538,7 @@ impl ShardChunkHeader {
         version: ProtocolVersion,
     ) -> Result<(), BadHeaderForProtocolVersionError> {
         const BANDWIDTH_SCHEDULER_VERSION: ProtocolVersion =
-            ProtocolFeature::BandwidthScheduler.protocol_version();
+            near_primitives_core::version::PROTOCOL_VERSION;
 
         let is_valid = match &self {
             ShardChunkHeader::V1(_) => false,

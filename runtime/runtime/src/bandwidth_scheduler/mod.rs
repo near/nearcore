@@ -38,10 +38,6 @@ pub fn run_bandwidth_scheduler(
     epoch_info_provider: &dyn EpochInfoProvider,
     stats: &mut BandwidthSchedulerStats,
 ) -> Result<Option<BandwidthSchedulerOutput>, RuntimeError> {
-    if !ProtocolFeature::BandwidthScheduler.enabled(apply_state.current_protocol_version) {
-        return Ok(None);
-    }
-
     let start_time = std::time::Instant::now();
     let _span = tracing::debug_span!(
         target: "runtime",

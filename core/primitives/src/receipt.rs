@@ -10,7 +10,7 @@ use itertools::Itertools;
 use near_crypto::{KeyType, PublicKey};
 use near_fmt::AbbrBytes;
 use near_primitives_core::types::{Gas, ProtocolVersion};
-use near_primitives_core::version::ProtocolFeature;
+
 use near_schema_checker_lib::ProtocolSchema;
 use serde_with::base64::Base64;
 use serde_with::serde_as;
@@ -198,11 +198,7 @@ impl<'a> StateStoredReceipt<'a> {
     ) -> Self {
         let receipt = Cow::Owned(receipt);
 
-        if ProtocolFeature::BandwidthScheduler.enabled(protocol_version) {
-            Self::V1(StateStoredReceiptV1 { receipt, metadata })
-        } else {
-            Self::V0(StateStoredReceiptV0 { receipt, metadata })
-        }
+        Self::V1(StateStoredReceiptV1 { receipt, metadata })
     }
 
     pub fn new_borrowed(
@@ -212,11 +208,7 @@ impl<'a> StateStoredReceipt<'a> {
     ) -> Self {
         let receipt = Cow::Borrowed(receipt);
 
-        if ProtocolFeature::BandwidthScheduler.enabled(protocol_version) {
-            Self::V1(StateStoredReceiptV1 { receipt, metadata })
-        } else {
-            Self::V0(StateStoredReceiptV0 { receipt, metadata })
-        }
+        Self::V1(StateStoredReceiptV1 { receipt, metadata })
     }
 
     pub fn into_receipt(self) -> Receipt {

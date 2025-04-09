@@ -97,15 +97,11 @@ impl ReceiptSink {
                     Gas::MAX
                 };
 
-                let size_limit = if ProtocolFeature::BandwidthScheduler.enabled(protocol_version) {
-                    bandwidth_scheduler_output
-                        .as_ref()
-                        .expect("BandwidthScheduler is enabled and should produce output")
-                        .granted_bandwidth
-                        .get_granted_bandwidth(apply_state.shard_id, shard_id)
-                } else {
-                    other_congestion_control.outgoing_size_limit(apply_state.shard_id)
-                };
+                let size_limit = bandwidth_scheduler_output
+                    .as_ref()
+                    .expect("BandwidthScheduler is enabled and should produce output")
+                    .granted_bandwidth
+                    .get_granted_bandwidth(apply_state.shard_id, shard_id);
 
                 (shard_id, OutgoingLimit { gas: gas_limit, size: size_limit })
             })
@@ -416,24 +412,14 @@ impl ReceiptSinkV2 {
         let default_gas_limit = Gas::MAX;
 
         let default_size_limit =
-            if ProtocolFeature::BandwidthScheduler.enabled(apply_state.current_protocol_version) {
-                // With bandwidth scheduler, a shard is not allowed to send any receipts if it doesn't have a grant.
-                0
-            } else {
-                // Use the usual size limit that most senders have
-                apply_state.config.congestion_control_config.outgoing_receipts_usual_size_limit
-            };
+            // With bandwidth scheduler, a shard is not allowed to send any receipts if it doesn't have a grant.
+            0;
 
         let default_outgoing_limit =
             OutgoingLimit { gas: default_gas_limit, size: default_size_limit };
         let forward_limit = outgoing_limit.entry(shard).or_insert(default_outgoing_limit);
 
-        let can_forward =
-            if ProtocolFeature::BandwidthScheduler.enabled(apply_state.current_protocol_version) {
-                forward_limit.gas >= gas && forward_limit.size >= size
-            } else {
-                forward_limit.gas > gas && forward_limit.size > size
-            };
+        let can_forward = forward_limit.gas >= gas && forward_limit.size >= size;
 
         if can_forward {
             tracing::trace!(target: "runtime", ?shard, receipt_id=?receipt.receipt_id(), "forwarding buffered receipt");
@@ -496,10 +482,6 @@ impl ReceiptSinkV2 {
         side_effects: bool,
         stats: &mut ChunkApplyStatsV0,
     ) -> Result<Option<BandwidthRequests>, StorageError> {
-        if !ProtocolFeature::BandwidthScheduler.enabled(self.protocol_version) {
-            return Ok(None);
-        }
-
         let params = self
             .bandwidth_scheduler_output
             .as_ref()
