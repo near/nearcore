@@ -22,7 +22,7 @@ use near_primitives::merkle::{PartialMerkleTree, merklize};
 use near_primitives::optimistic_block::BlockToApply;
 use near_primitives::sharding::{EncodedShardChunk, ShardChunk};
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
-use near_primitives::transaction::SignedTransaction;
+use near_primitives::transaction::ValidatedTransaction;
 use near_primitives::types::{BlockHeight, EpochId, ShardId};
 use near_primitives::utils::MaybeValidated;
 use near_primitives::version::PROTOCOL_VERSION;
@@ -164,19 +164,11 @@ pub fn create_chunk_on_height(client: &mut Client, next_height: BlockHeight) -> 
     create_chunk_on_height_for_shard(client, next_height, ShardUId::single_shard().shard_id())
 }
 
-pub fn create_chunk_with_transactions(
-    client: &mut Client,
-    transactions: Vec<SignedTransaction>,
-) -> (ProduceChunkResult, Block) {
-    create_chunk(client, Some(transactions), None)
-}
-
 /// Create a chunk with specified transactions and possibly a new state root.
 /// Useful for writing tests with challenges.
 pub fn create_chunk(
     client: &mut Client,
-    replace_transactions: Option<Vec<SignedTransaction>>,
-    replace_tx_root: Option<CryptoHash>,
+    validated_txs: Vec<ValidatedTransaction>,
 ) -> (ProduceChunkResult, Block) {
     let last_block = client.chain.get_block_by_height(client.chain.head().unwrap().height).unwrap();
     let next_height = last_block.header().height() + 1;
@@ -195,14 +187,15 @@ pub fn create_chunk(
             )
             .unwrap()
             .unwrap();
-    let should_replace = replace_transactions.is_some() || replace_tx_root.is_some();
-    let transactions = replace_transactions.unwrap_or_else(Vec::new);
-    let tx_root = match replace_tx_root {
-        Some(root) => root,
-        None => merklize(&transactions).0,
-    };
-    // reconstruct the chunk with changes (if any)
-    if should_replace {
+    let signed_txs = validated_txs
+        .iter()
+        .cloned()
+        .map(|validated_tx| validated_tx.into_signed_tx())
+        .collect::<Vec<_>>();
+    let tx_root = merklize(&signed_txs).0;
+
+    // reconstruct the chunk with changes
+    {
         // The best way it to decode chunk, replace transactions and then recreate encoded chunk.
         let total_parts = client.chain.epoch_manager.num_total_parts();
         let data_parts = client.chain.epoch_manager.num_data_parts();
@@ -223,7 +216,7 @@ pub fn create_chunk(
             header.prev_balance_burnt(),
             tx_root,
             header.prev_validator_proposals().collect(),
-            transactions,
+            validated_txs,
             decoded_chunk.prev_outgoing_receipts().to_vec(),
             header.prev_outgoing_receipts_root(),
             header.congestion_info(),
