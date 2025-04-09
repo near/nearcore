@@ -250,7 +250,7 @@ pub enum NetworkRequests {
     /// Request given block headers.
     BlockHeadersRequest { hashes: Vec<CryptoHash>, peer_id: PeerId },
     /// Request state header for given shard and given sync hash.
-    StateRequestHeader { shard_id: ShardId, sync_hash: CryptoHash },
+    StateRequestHeader { shard_id: ShardId, sync_hash: CryptoHash, sync_prev_prev_hash: CryptoHash },
     /// Request state part for given shard and given sync hash.
     StateRequestPart {
         shard_id: ShardId,

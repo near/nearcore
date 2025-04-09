@@ -5,7 +5,7 @@ use crate::network_protocol;
 use crate::network_protocol::SyncSnapshotHosts;
 use crate::network_protocol::{
     Disconnect, Edge, PeerIdOrHash, PeerMessage, Ping, Pong, RawRoutedMessage, RoutedMessageBody,
-    StatePartRequest,
+    StateHeaderRequest, StatePartRequest,
 };
 use crate::peer::peer_actor::PeerActor;
 use crate::peer_manager::connection;
@@ -818,24 +818,44 @@ impl PeerManagerActor {
                     NetworkResponses::RouteNotFound
                 }
             }
-            NetworkRequests::StateRequestHeader { shard_id, sync_hash } => {
+            NetworkRequests::StateRequestHeader { shard_id, sync_hash, sync_prev_prev_hash } => {
+                // The node needs to include its own public address in the request
+                // so that the response can be sent over a direct Tier3 connection.
+                let Some(addr) = *self.state.my_public_addr.read() else {
+                    return NetworkResponses::AwaitingIpSelfDiscovery;
+                };
+
+                // Select a peer which has advertised availability of the desired
+                // state snapshot.
                 let Some(peer_id) = self
-                    .highest_height_peers()
-                    .choose(&mut rand::thread_rng())
-                    .map(|info| info.peer_info.id.clone())
+                    .state
+                    .snapshot_hosts
+                    .select_host_for_header(&sync_prev_prev_hash, shard_id)
                 else {
-                    tracing::debug!(target: "network", ?shard_id, ?sync_hash, "no peers, cannot request state header");
+                    tracing::debug!(target: "network", ?shard_id, ?sync_hash, "no snapshot hosts available");
                     return NetworkResponses::NoDestinationsAvailable;
                 };
 
-                if self.state.tier2.send_message(
-                    peer_id.clone(),
-                    Arc::new(PeerMessage::StateRequestHeader(shard_id, sync_hash)),
+                if !self.state.send_message_to_peer(
+                    &self.clock,
+                    tcp::Tier::T2,
+                    self.state.sign_message(
+                        &self.clock,
+                        RawRoutedMessage {
+                            target: PeerIdOrHash::PeerId(peer_id.clone()),
+                            body: RoutedMessageBody::StateHeaderRequest(StateHeaderRequest {
+                                shard_id,
+                                sync_hash,
+                                addr,
+                            }),
+                        },
+                    ),
                 ) {
-                    NetworkResponses::SelectedDestination(peer_id)
-                } else {
-                    NetworkResponses::RouteNotFound
+                    return NetworkResponses::RouteNotFound;
                 }
+
+                tracing::debug!(target: "network", ?shard_id, ?sync_hash, "requesting state header from host {peer_id}");
+                NetworkResponses::SelectedDestination(peer_id)
             }
             NetworkRequests::StateRequestPart {
                 shard_id,

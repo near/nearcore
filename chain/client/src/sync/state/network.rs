@@ -114,23 +114,23 @@ impl StateSyncDownloadSourcePeer {
         // Sender/receiver pair used to await for the peer's response.
         let (sender, receiver) = oneshot::channel();
 
+        // Peers advertise their snapshots by the prev prev hash of the sync hash.
+        // TODO: see if we can change the block hash on the snapshot to match the sync hash.
+        let prev_hash = *store
+            .get_ser::<BlockHeader>(DBCol::BlockHeader, key.sync_hash.as_bytes())?
+            .ok_or_else(|| {
+                near_chain::Error::DBNotFoundErr(format!("No block header {}", key.sync_hash))
+            })?
+            .prev_hash();
+        let prev_prev_hash = *store
+            .get_ser::<BlockHeader>(DBCol::BlockHeader, prev_hash.as_bytes())?
+            .ok_or_else(|| {
+                near_chain::Error::DBNotFoundErr(format!("No block header {}", prev_hash))
+            })?
+            .prev_hash();
+
         let network_request = match &key.kind {
             PartIdOrHeader::Part { part_id } => {
-                let prev_hash = *store
-                    .get_ser::<BlockHeader>(DBCol::BlockHeader, key.sync_hash.as_bytes())?
-                    .ok_or_else(|| {
-                        near_chain::Error::DBNotFoundErr(format!(
-                            "No block header {}",
-                            key.sync_hash
-                        ))
-                    })?
-                    .prev_hash();
-                let prev_prev_hash = *store
-                    .get_ser::<BlockHeader>(DBCol::BlockHeader, prev_hash.as_bytes())?
-                    .ok_or_else(|| {
-                        near_chain::Error::DBNotFoundErr(format!("No block header {}", prev_hash))
-                    })?
-                    .prev_hash();
                 PeerManagerMessageRequest::NetworkRequests(NetworkRequests::StateRequestPart {
                     shard_id: key.shard_id,
                     sync_hash: key.sync_hash,
@@ -142,6 +142,7 @@ impl StateSyncDownloadSourcePeer {
                 PeerManagerMessageRequest::NetworkRequests(NetworkRequests::StateRequestHeader {
                     shard_id: key.shard_id,
                     sync_hash: key.sync_hash,
+                    sync_prev_prev_hash: prev_prev_hash,
                 })
             }
         };
