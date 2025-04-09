@@ -1757,6 +1757,9 @@ impl Chain {
         apply_chunks_still_applying: ApplyChunksStillApplying,
         apply_chunks_done_sender: Option<near_async::messaging::Sender<ApplyChunksDoneMessage>>,
     ) {
+        let _span =
+            tracing::debug_span!(target: "chain", "schedule_apply_chunks", ?block, block_height)
+                .entered();
         let sc = self.apply_chunks_sender.clone();
         let clock = self.clock.clone();
         self.apply_chunks_spawner.spawn("apply_chunks", move || {
@@ -2190,6 +2193,7 @@ impl Chain {
         state_patch: SandboxStatePatch,
     ) -> Result<PreprocessBlockResult, Error> {
         let header = block.header();
+        let _span = tracing::debug_span!(target: "chain", "preprocess_block", height=header.height(), block_hash=?header.hash()).entered();
 
         // see if the block is already in processing or if there are too many blocks being processed
         self.blocks_in_processing.add_dry_run(&BlockToApply::Normal(*block.hash()))?;

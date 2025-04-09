@@ -250,10 +250,15 @@ impl Client {
         processing_done_tracker: Option<ProcessingDoneTracker>,
         signer: Option<Arc<ValidatorSigner>>,
     ) -> Result<(), Error> {
+        let chunk_hash = witness.chunk_header.chunk_hash();
+        let shard_id = witness.chunk_header.shard_id();
+        let height_created = witness.chunk_header.height_created();
+        let _span = tracing::debug_span!(target: "client", "process_chunk_state_witness", ?chunk_hash, ?shard_id, ?height_created).entered();
+
         tracing::debug!(
             target: "client",
-            chunk_hash=?witness.chunk_header.chunk_hash(),
-            shard_id=?witness.chunk_header.shard_id(),
+            chunk_hash=?chunk_hash,
+            shard_id=?shard_id,
             "process_chunk_state_witness",
         );
 

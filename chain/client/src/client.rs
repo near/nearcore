@@ -1309,6 +1309,7 @@ impl Client {
         signer: &Option<Arc<ValidatorSigner>>,
     ) {
         let chunk_header = partial_chunk.cloned_header();
+        let _span = tracing::debug_span!(target: "client", "on_chunk_completed", chunk_hash=?chunk_header.chunk_hash(), shard_id=?chunk_header.shard_id(), height_created=chunk_header.height_created()).entered();
         self.chain.blocks_delay_tracker.mark_chunk_completed(&chunk_header);
 
         // TODO(#10569) We would like a proper error handling here instead of `expect`.
