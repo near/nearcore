@@ -151,6 +151,7 @@ fn validate_chunk_relevant_as_validator(
     validator_account_id: &AccountId,
     store: &Store,
 ) -> Result<bool, Error> {
+    let _span = tracing::debug_span!(target: "client", "validate_chunk_relevant_as_validator", ?chunk, ?validator_account_id).entered();
     if !validate_chunk_relevant(epoch_manager, chunk, store)? {
         return Ok(false);
     }
@@ -163,6 +164,7 @@ fn ensure_chunk_validator(
     chunk: &ChunkProductionKey,
     account_id: &AccountId,
 ) -> Result<(), Error> {
+    let _span = tracing::debug_span!(target: "client", "ensure_chunk_validator", ?chunk, ?account_id).entered();
     let chunk_validator_assignments = epoch_manager.get_chunk_validator_assignments(
         &chunk.epoch_id,
         chunk.shard_id,
