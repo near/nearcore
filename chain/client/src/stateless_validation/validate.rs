@@ -131,7 +131,9 @@ pub fn validate_contract_code_request(
     store: &Store,
 ) -> Result<bool, Error> {
     let key = request.chunk_production_key();
-    if !validate_chunk_relevant_as_validator(epoch_manager, key, request.requester(), store)? {
+    let requester = request.requester();
+    let _span = tracing::debug_span!(target: "client", "validate_contract_code_request", ?key, ?requester).entered();
+    if !validate_chunk_relevant_as_validator(epoch_manager, key, requester, store)? {
         return Ok(false);
     }
     validate_witness_contract_code_request_signature(epoch_manager, request)?;
