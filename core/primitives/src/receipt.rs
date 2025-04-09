@@ -194,7 +194,7 @@ impl<'a> StateStoredReceipt<'a> {
     pub fn new_owned(
         receipt: Receipt,
         metadata: StateStoredReceiptMetadata,
-        protocol_version: ProtocolVersion,
+        _protocol_version: ProtocolVersion,
     ) -> Self {
         let receipt = Cow::Owned(receipt);
 
@@ -204,7 +204,7 @@ impl<'a> StateStoredReceipt<'a> {
     pub fn new_borrowed(
         receipt: &'a Receipt,
         metadata: StateStoredReceiptMetadata,
-        protocol_version: ProtocolVersion,
+        _protocol_version: ProtocolVersion,
     ) -> Self {
         let receipt = Cow::Borrowed(receipt);
 
