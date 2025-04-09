@@ -818,12 +818,21 @@ impl PeerManagerActor {
                     NetworkResponses::RouteNotFound
                 }
             }
-            NetworkRequests::StateRequestHeader { shard_id, sync_hash, peer_id } => {
+            NetworkRequests::StateRequestHeader { shard_id, sync_hash } => {
+                let Some(peer_id) = self
+                    .highest_height_peers()
+                    .choose(&mut rand::thread_rng())
+                    .map(|info| info.peer_info.id.clone())
+                else {
+                    tracing::debug!(target: "network", ?shard_id, ?sync_hash, "no peers, cannot request state header");
+                    return NetworkResponses::NoDestinationsAvailable;
+                };
+
                 if self.state.tier2.send_message(
-                    peer_id,
+                    peer_id.clone(),
                     Arc::new(PeerMessage::StateRequestHeader(shard_id, sync_hash)),
                 ) {
-                    NetworkResponses::NoResponse
+                    NetworkResponses::SelectedDestination(peer_id)
                 } else {
                     NetworkResponses::RouteNotFound
                 }
@@ -834,37 +843,44 @@ impl PeerManagerActor {
                 sync_prev_prev_hash,
                 part_id,
             } => {
-                let mut success = false;
-
                 // The node needs to include its own public address in the request
-                // so that the response can be sent over Tier3
-                if let Some(addr) = *self.state.my_public_addr.read() {
-                    if let Some(peer_id) = self.state.snapshot_hosts.select_host_for_part(
-                        &sync_prev_prev_hash,
-                        shard_id,
-                        part_id,
-                    ) {
-                        tracing::debug!(target: "network", "requesting {sync_prev_prev_hash} {shard_id} {part_id} from {peer_id}");
-                        success =
-                            self.state.send_message_to_peer(
-                                &self.clock,
-                                tcp::Tier::T2,
-                                self.state.sign_message(
-                                    &self.clock,
-                                    RawRoutedMessage {
-                                        target: PeerIdOrHash::PeerId(peer_id),
-                                        body: RoutedMessageBody::StatePartRequest(
-                                            StatePartRequest { shard_id, sync_hash, part_id, addr },
-                                        ),
-                                    },
-                                ),
-                            );
-                    } else {
-                        tracing::debug!(target: "network", "no hosts available for {shard_id}, {sync_prev_prev_hash}");
-                    }
+                // so that the response can be sent over a direct Tier3 connection.
+                let Some(addr) = *self.state.my_public_addr.read() else {
+                    return NetworkResponses::AwaitingIpSelfDiscovery;
+                };
+
+                // Select a peer which has advertised availability of the desired
+                // state snapshot.
+                let Some(peer_id) = self.state.snapshot_hosts.select_host_for_part(
+                    &sync_prev_prev_hash,
+                    shard_id,
+                    part_id,
+                ) else {
+                    tracing::debug!(target: "network", ?shard_id, ?sync_hash, ?part_id, "no snapshot hosts available");
+                    return NetworkResponses::NoDestinationsAvailable;
+                };
+
+                if !self.state.send_message_to_peer(
+                    &self.clock,
+                    tcp::Tier::T2,
+                    self.state.sign_message(
+                        &self.clock,
+                        RawRoutedMessage {
+                            target: PeerIdOrHash::PeerId(peer_id.clone()),
+                            body: RoutedMessageBody::StatePartRequest(StatePartRequest {
+                                shard_id,
+                                sync_hash,
+                                part_id,
+                                addr,
+                            }),
+                        },
+                    ),
+                ) {
+                    return NetworkResponses::RouteNotFound;
                 }
 
-                if success { NetworkResponses::NoResponse } else { NetworkResponses::RouteNotFound }
+                tracing::debug!(target: "network", ?shard_id, ?sync_hash, ?part_id, "requesting state part from host {peer_id}");
+                NetworkResponses::SelectedDestination(peer_id)
             }
             NetworkRequests::SnapshotHostInfo { sync_hash, mut epoch_height, mut shards } => {
                 if shards.len() > MAX_SHARDS_PER_SNAPSHOT_HOST_INFO {
