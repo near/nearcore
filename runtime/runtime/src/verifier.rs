@@ -140,11 +140,6 @@ pub fn get_singer_and_access_key(
     Ok((signer, access_key))
 }
 
-/// Verifies the provided signed transaction against the given signer account and access key.
-/// Updates the signer account balance and increments the access key nonce to account for transaction processing costs.
-/// Returns an error if verification fails due to nonce issues, insufficient balance, access key permission violations,
-/// or storage stake requirements. On success, returns the result detailing gas usage and costs,
-/// allowing the caller to subsequently commit the charges via `commit_charging_for_tx`.
 pub fn verify_and_charge_tx_ephemeral(
     config: &RuntimeConfig,
     signer: &mut Account,
