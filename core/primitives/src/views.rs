@@ -986,7 +986,7 @@ impl From<ShardChunkHeader> for ChunkHeaderView {
             outgoing_receipts_root: *inner.prev_outgoing_receipts_root(),
             tx_root: *inner.tx_root(),
             validator_proposals: inner.prev_validator_proposals().map(Into::into).collect(),
-            congestion_info: inner.congestion_info().map(Into::into),
+            congestion_info: Some(inner.congestion_info().into()),
             bandwidth_requests: inner.bandwidth_requests().cloned(),
             signature,
         }

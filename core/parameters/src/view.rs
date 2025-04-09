@@ -223,18 +223,8 @@ pub struct VMConfigView {
     pub fix_contract_loading_cost: bool,
     /// See [VMConfig::implicit_account_creation](crate::vm::Config::implicit_account_creation).
     pub implicit_account_creation: bool,
-    /// See [VMConfig::math_extension](crate::vm::Config::math_extension).
-    pub math_extension: bool,
-    /// See [VMConfig::ed25519_verify](crate::vm::Config::ed25519_verify).
-    pub ed25519_verify: bool,
-    /// See [VMConfig::alt_bn128](crate::vm::Config::alt_bn128).
-    pub alt_bn128: bool,
-    /// See [VMConfig::function_call_weight](crate::vm::Config::function_call_weight).
-    pub function_call_weight: bool,
     /// See [VMConfig::eth_implicit_accounts](crate::vm::Config::eth_implicit_accounts).
     pub eth_implicit_accounts: bool,
-    /// See [VMConfig::yield_resume_host_functions](`crate::vm::Config::yield_resume_host_functions).
-    pub yield_resume_host_functions: bool,
 
     /// Describes limits for VM and Runtime.
     ///
@@ -255,13 +245,8 @@ impl From<crate::vm::Config> for VMConfigView {
             storage_get_mode: config.storage_get_mode,
             fix_contract_loading_cost: config.fix_contract_loading_cost,
             implicit_account_creation: config.implicit_account_creation,
-            math_extension: config.math_extension,
-            ed25519_verify: config.ed25519_verify,
-            alt_bn128: config.alt_bn128,
-            function_call_weight: config.function_call_weight,
             vm_kind: config.vm_kind,
             eth_implicit_accounts: config.eth_implicit_accounts,
-            yield_resume_host_functions: config.yield_resume_host_functions,
         }
     }
 }
@@ -278,13 +263,8 @@ impl From<VMConfigView> for crate::vm::Config {
             storage_get_mode: view.storage_get_mode,
             fix_contract_loading_cost: view.fix_contract_loading_cost,
             implicit_account_creation: view.implicit_account_creation,
-            math_extension: view.math_extension,
-            ed25519_verify: view.ed25519_verify,
-            alt_bn128: view.alt_bn128,
-            function_call_weight: view.function_call_weight,
             vm_kind: view.vm_kind,
             eth_implicit_accounts: view.eth_implicit_accounts,
-            yield_resume_host_functions: view.yield_resume_host_functions,
         }
     }
 }

@@ -811,12 +811,7 @@ pub mod chunk_extra {
         /// used as part of regular processing.
         pub fn new_with_only_state_root(state_root: &StateRoot) -> Self {
             // TODO(congestion_control) - integration with resharding
-            let congestion_control = if ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION)
-            {
-                Some(CongestionInfo::default())
-            } else {
-                None
-            };
+            let congestion_control = Some(CongestionInfo::default());
             Self::new(
                 PROTOCOL_VERSION,
                 state_root,
@@ -853,8 +848,7 @@ pub mod chunk_extra {
                     congestion_info: congestion_info.unwrap(),
                     bandwidth_requests: bandwidth_requests.unwrap(),
                 })
-            } else if ProtocolFeature::CongestionControl.enabled(protocol_version) {
-                assert!(congestion_info.is_some());
+            } else if congestion_info.is_some() {
                 Self::V3(ChunkExtraV3 {
                     state_root: *state_root,
                     outcome_root,
@@ -865,7 +859,6 @@ pub mod chunk_extra {
                     congestion_info: congestion_info.unwrap(),
                 })
             } else {
-                assert!(congestion_info.is_none());
                 Self::V2(ChunkExtraV2 {
                     state_root: *state_root,
                     outcome_root,
@@ -948,22 +941,23 @@ pub mod chunk_extra {
         }
 
         #[inline]
-        pub fn congestion_info(&self) -> Option<CongestionInfo> {
+        pub fn congestion_info(&self) -> CongestionInfo {
             match self {
-                Self::V1(_) => None,
-                Self::V2(_) => None,
-                Self::V3(v3) => v3.congestion_info.into(),
-                Self::V4(v4) => v4.congestion_info.into(),
+                Self::V1(_) | Self::V2(_) => {
+                    debug_assert!(false, "Calling congestion_info on V1 or V2 header version");
+                    Default::default()
+                }
+                Self::V3(v3) => v3.congestion_info,
+                Self::V4(v4) => v4.congestion_info,
             }
         }
 
         #[inline]
-        pub fn congestion_info_mut(&mut self) -> Option<&mut CongestionInfo> {
+        pub fn congestion_info_mut(&mut self) -> &mut CongestionInfo {
             match self {
-                Self::V1(_) => None,
-                Self::V2(_) => None,
-                Self::V3(v3) => Some(&mut v3.congestion_info),
-                Self::V4(v4) => Some(&mut v4.congestion_info),
+                Self::V1(_) | Self::V2(_) => panic!("Calling congestion_info_mut on V1 or V2"),
+                Self::V3(v3) => &mut v3.congestion_info,
+                Self::V4(v4) => &mut v4.congestion_info,
             }
         }
 

@@ -220,18 +220,13 @@ impl TestEnv {
         let gas_limit = u64::MAX;
         let height = self.head.height + 1;
         let block_timestamp = 0;
-        let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id).unwrap();
         let gas_price = self.runtime.genesis_config.min_gas_price;
-        let congestion_info = if !ProtocolFeature::CongestionControl.enabled(protocol_version) {
-            BlockCongestionInfo::default()
-        } else {
-            let shard_ids = self.epoch_manager.shard_ids(&epoch_id).unwrap();
-            let shards_congestion_info = shard_ids
-                .into_iter()
-                .map(|shard_id| (shard_id, ExtendedCongestionInfo::default()))
-                .collect();
-            BlockCongestionInfo::new(shards_congestion_info)
-        };
+        let shard_ids = self.epoch_manager.shard_ids(&epoch_id).unwrap();
+        let shards_congestion_info = shard_ids
+            .into_iter()
+            .map(|shard_id| (shard_id, ExtendedCongestionInfo::default()))
+            .collect();
+        let congestion_info = BlockCongestionInfo::new(shards_congestion_info);
         let transaction_validity = vec![true; transactions.len()];
         let transactions = SignedValidPeriodTransactions::new(transactions, transaction_validity);
         self.runtime
@@ -1441,24 +1436,23 @@ fn test_prepare_transactions_empty_storage_proof() {
     // included in the result.
     let db_storage_source = StorageDataSource::Db;
     let (transaction_count, prepared_transactions) =
-        test_prepare_transactions_helper(db_storage_source);
+        test_prepare_transactions_helper(db_storage_source)
+            .expect("prepare transactions should succeed with proper db");
     assert_ne!(transaction_count, 0);
     assert_eq!(prepared_transactions.transactions.len(), transaction_count);
 
-    // Second prepare transactions using empty storage proof and check that no
-    // transactions are included in the result.
+    // Second prepare transactions using empty storage proof and check that
+    // prepare_transactions fails.
     let empty_storage_source =
         StorageDataSource::Recorded(PartialStorage { nodes: PartialState::default() });
-    let (transaction_count, prepared_transactions) =
-        test_prepare_transactions_helper(empty_storage_source);
-    assert_ne!(transaction_count, 0);
-    assert_eq!(prepared_transactions.transactions.len(), 0);
+    test_prepare_transactions_helper(empty_storage_source)
+        .expect_err("prepare transactions should fail with empty storage proof");
 }
 
 // Helper function to test prepare_transactions with different storage sources.
 fn test_prepare_transactions_helper(
     storage_source: StorageDataSource,
-) -> (usize, PreparedTransactions) {
+) -> Result<(usize, PreparedTransactions), Error> {
     let (env, chain, mut transaction_pool) = get_test_env_with_chain_and_pool();
     let transactions_count = transaction_pool.len();
 
@@ -1471,8 +1465,13 @@ fn test_prepare_transactions_helper(
 
     let mut transaction_groups = PoolIteratorWrapper::new(&mut transaction_pool);
     let prepared_transactions =
-        prepare_transactions(&env, &chain, &mut transaction_groups, storage_config).unwrap();
-    (transactions_count, prepared_transactions)
+        match prepare_transactions(&env, &chain, &mut transaction_groups, storage_config) {
+            Ok(prepared_transactions) => prepared_transactions,
+            Err(err) => {
+                return Err(err);
+            }
+        };
+    Ok((transactions_count, prepared_transactions))
 }
 
 #[test]

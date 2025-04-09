@@ -20,7 +20,6 @@ use near_chain::Chain;
 use near_chunks::shards_manager_actor::ShardsManagerActor;
 use near_crypto::{InMemorySigner, KeyType};
 use near_primitives::bandwidth_scheduler::BandwidthRequests;
-use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{MerklePathItem, merklize};
 use near_primitives::receipt::{ActionReceipt, DataReceipt, Receipt, ReceiptEnum, ReceiptV0};
@@ -33,7 +32,7 @@ use near_primitives::sharding::{
 use near_primitives::transaction::{Action, FunctionCallAction, SignedTransaction};
 use near_primitives::types::{AccountId, ShardId};
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
+use near_primitives::version::PROTOCOL_VERSION;
 use near_store::DBCol;
 use rand::prelude::SliceRandom;
 use reed_solomon_erasure::galois_8::ReedSolomon;
@@ -118,10 +117,6 @@ fn create_benchmark_receipts() -> Vec<Receipt> {
 }
 
 fn create_chunk_header(height: u64, shard_id: ShardId) -> ShardChunkHeader {
-    let congestion_info = ProtocolFeature::CongestionControl
-        .enabled(PROTOCOL_VERSION)
-        .then_some(CongestionInfo::default());
-
     ShardChunkHeader::V3(ShardChunkHeaderV3::new(
         PROTOCOL_VERSION,
         CryptoHash::default(),
@@ -137,7 +132,7 @@ fn create_chunk_header(height: u64, shard_id: ShardId) -> ShardChunkHeader {
         CryptoHash::default(),
         CryptoHash::default(),
         vec![],
-        congestion_info,
+        Default::default(),
         BandwidthRequests::default_for_protocol_version(PROTOCOL_VERSION),
         &validator_signer(),
     ))
@@ -192,10 +187,6 @@ fn create_encoded_shard_chunk(
 ) -> (EncodedShardChunk, Vec<Vec<MerklePathItem>>, Vec<Receipt>) {
     let rs = ReedSolomon::new(33, 67).unwrap();
 
-    let congestion_info = ProtocolFeature::CongestionControl
-        .enabled(PROTOCOL_VERSION)
-        .then_some(CongestionInfo::default());
-
     ShardsManagerActor::create_encoded_shard_chunk(
         Default::default(),
         Default::default(),
@@ -210,7 +201,7 @@ fn create_encoded_shard_chunk(
         receipts,
         Default::default(),
         Default::default(),
-        congestion_info,
+        Default::default(),
         BandwidthRequests::default_for_protocol_version(PROTOCOL_VERSION),
         &validator_signer(),
         &rs,

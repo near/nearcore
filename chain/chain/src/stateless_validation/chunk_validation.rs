@@ -634,8 +634,7 @@ pub fn validate_chunk_state_witness(
                     shard_context,
                     runtime_adapter,
                 )?;
-                let congestion_info =
-                    chunk_extra.congestion_info().expect("The congestion info must exist!");
+                let congestion_info = chunk_extra.congestion_info();
                 (shard_uid, apply_result.new_root, congestion_info)
             }
             ImplicitTransitionParams::Resharding(
@@ -652,8 +651,7 @@ pub fn validate_chunk_state_witness(
                 // because only the parent trie has the needed information.
                 let epoch_id = epoch_manager.get_epoch_id(&block_hash)?;
                 let parent_shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
-                let parent_congestion_info =
-                    chunk_extra.congestion_info().expect("The congestion info must exist");
+                let parent_congestion_info = chunk_extra.congestion_info();
 
                 let child_epoch_id = epoch_manager.get_next_epoch_id(&block_hash)?;
                 let child_shard_layout = epoch_manager.get_shard_layout(&child_epoch_id)?;
@@ -673,8 +671,7 @@ pub fn validate_chunk_state_witness(
         };
 
         *chunk_extra.state_root_mut() = new_state_root;
-        *chunk_extra.congestion_info_mut().expect("The congestion info must exist!") =
-            new_congestion_info;
+        *chunk_extra.congestion_info_mut() = new_congestion_info;
         if chunk_extra.state_root() != &transition.post_state_root {
             // This is an early check, it's not for correctness, only for better
             // error reporting in case of an invalid state witness due to a bug.

@@ -112,14 +112,38 @@ pub fn set_tx_state_changes(
     set_account(state_update, tx.signer_id().clone(), &signer);
 }
 
-/// Verifies the signed transaction on top of the given state; looks up the
-/// signer account and access_key from the transaction; updates them to charge
-/// for the transaction processing; returns the updated signer and access_key to
-/// the caller.  The caller can use `commit_charging_for_tx()` to commit the
-/// actual charging.
+pub fn get_signer_and_access_key(
+    state_update: &TrieUpdate,
+    validated_tx: &ValidatedTransaction,
+) -> Result<(Account, AccessKey), InvalidTxError> {
+    let signer_id = validated_tx.signer_id();
+
+    let signer = match get_account(state_update, signer_id)? {
+        Some(signer) => signer,
+        None => {
+            return Err(InvalidTxError::SignerDoesNotExist { signer_id: signer_id.clone() });
+        }
+    };
+
+    let access_key = match get_access_key(state_update, signer_id, validated_tx.public_key())? {
+        Some(access_key) => access_key,
+        None => {
+            return Err(InvalidTxError::InvalidAccessKeyError(
+                InvalidAccessKeyError::AccessKeyNotFound {
+                    account_id: signer_id.clone(),
+                    public_key: validated_tx.public_key().clone().into(),
+                },
+            )
+            .into());
+        }
+    };
+    Ok((signer, access_key))
+}
+
 pub fn verify_and_charge_tx_ephemeral(
     config: &RuntimeConfig,
-    state_update: &TrieUpdate,
+    signer: &mut Account,
+    access_key: &mut AccessKey,
     validated_tx: &ValidatedTransaction,
     transaction_cost: &TransactionCost,
     block_height: Option<BlockHeight>,
@@ -129,29 +153,8 @@ pub fn verify_and_charge_tx_ephemeral(
     let TransactionCost { gas_burnt, gas_remaining, receipt_gas_price, total_cost, burnt_amount } =
         *transaction_cost;
 
+    let signer_id = validated_tx.signer_id();
     let tx = validated_tx.to_tx();
-    let signer_id = tx.signer_id();
-
-    let mut signer = match get_account(state_update, signer_id)? {
-        Some(signer) => signer,
-        None => {
-            return Err(InvalidTxError::SignerDoesNotExist { signer_id: signer_id.clone() });
-        }
-    };
-
-    let mut access_key = match get_access_key(state_update, signer_id, tx.public_key())? {
-        Some(access_key) => access_key,
-        None => {
-            return Err(InvalidTxError::InvalidAccessKeyError(
-                InvalidAccessKeyError::AccessKeyNotFound {
-                    account_id: signer_id.clone(),
-                    public_key: tx.public_key().clone().into(),
-                },
-            )
-            .into());
-        }
-    };
-
     if tx.nonce() <= access_key.nonce {
         return Err(InvalidTxError::InvalidNonce {
             tx_nonce: tx.nonce(),
@@ -253,14 +256,7 @@ pub fn verify_and_charge_tx_ephemeral(
         }
     };
 
-    Ok(VerificationResult {
-        gas_burnt,
-        gas_remaining,
-        receipt_gas_price,
-        burnt_amount,
-        signer,
-        access_key,
-    })
+    Ok(VerificationResult { gas_burnt, gas_remaining, receipt_gas_price, burnt_amount })
 }
 
 /// Validates a given receipt. Checks validity of the Action or Data receipt.
@@ -744,9 +740,25 @@ mod tests {
             }
         };
 
+        let (mut signer, mut access_key) =
+            match get_signer_and_access_key(state_update, &validated_tx) {
+                Ok((signer, access_key)) => (signer, access_key),
+                Err(err) => {
+                    assert_eq!(err, expected_err);
+                    return;
+                }
+            };
+
         // Validation passed, now verification should fail with expected_err
-        let err = verify_and_charge_tx_ephemeral(config, state_update, &validated_tx, &cost, None)
-            .expect_err("expected an error");
+        let err = verify_and_charge_tx_ephemeral(
+            config,
+            &mut signer,
+            &mut access_key,
+            &validated_tx,
+            &cost,
+            None,
+        )
+        .expect_err("expected an error");
         assert_eq!(err, expected_err);
     }
 
@@ -762,15 +774,18 @@ mod tests {
             Ok(validated_tx) => validated_tx,
             Err((err, _tx)) => return Err(err),
         };
+        let (mut signer, mut access_key) = get_signer_and_access_key(state_update, &validated_tx)?;
+
         let transaction_cost = tx_cost(config, &validated_tx.to_tx(), gas_price)?;
         let vr = verify_and_charge_tx_ephemeral(
             config,
-            state_update,
+            &mut signer,
+            &mut access_key,
             &validated_tx,
             &transaction_cost,
             block_height,
         )?;
-        set_tx_state_changes(state_update, &validated_tx, &vr.signer, &vr.access_key);
+        set_tx_state_changes(state_update, &validated_tx, &signer, &access_key);
         Ok(vr)
     }
 

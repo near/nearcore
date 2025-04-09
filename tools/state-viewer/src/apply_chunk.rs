@@ -139,15 +139,13 @@ pub fn apply_chunk(
         if let Some(bandwidth_requests) = chunk_extra.bandwidth_requests() {
             shards_bandwidth_requests.insert(shard_id, bandwidth_requests.clone());
         }
-        if let Some(congestion_info) = chunk_extra.congestion_info() {
-            shards_congestion_info.insert(
-                shard_id,
-                near_primitives::congestion_info::ExtendedCongestionInfo {
-                    congestion_info: congestion_info,
-                    missed_chunks_count: 0, // Assume no missing chunks in this block
-                },
-            );
-        }
+        shards_congestion_info.insert(
+            shard_id,
+            near_primitives::congestion_info::ExtendedCongestionInfo {
+                congestion_info: chunk_extra.congestion_info(),
+                missed_chunks_count: 0, // Assume no missing chunks in this block
+            },
+        );
     }
     let block_bandwidth_requests = BlockBandwidthRequests { shards_bandwidth_requests };
     let block_congestion_info = BlockCongestionInfo::new(shards_congestion_info);

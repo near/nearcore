@@ -40,7 +40,7 @@ use near_primitives::types::{
     AccountId, ApprovalStake, Balance, BlockHeight, EpochHeight, EpochId, Nonce, NumShards,
     ShardId, ShardIndex, StateRoot, StateRootNode, ValidatorInfoIdentifier,
 };
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature, ProtocolVersion};
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolVersion};
 use near_primitives::views::{
     AccessKeyInfoView, AccessKeyList, CallResult, ContractCodeView, EpochValidatorInfo,
     QueryRequest, QueryResponse, QueryResponseKind, ViewStateResult,
@@ -388,13 +388,8 @@ impl KeyValueRuntime {
         Ok(None)
     }
 
-    fn get_congestion_info(protocol_version: ProtocolVersion) -> Option<CongestionInfo> {
-        if ProtocolFeature::CongestionControl.enabled(protocol_version) {
-            // TODO(congestion_control) - properly initialize
-            Some(CongestionInfo::default())
-        } else {
-            None
-        }
+    fn get_congestion_info() -> CongestionInfo {
+        CongestionInfo::default()
     }
 }
 
@@ -1203,7 +1198,7 @@ impl RuntimeAdapter for KeyValueRuntime {
             processed_delayed_receipts: vec![],
             processed_yield_timeouts: vec![],
             applied_receipts_hash: hash(&borsh::to_vec(receipts).unwrap()),
-            congestion_info: Self::get_congestion_info(PROTOCOL_VERSION),
+            congestion_info: Some(Self::get_congestion_info()),
             bandwidth_requests: BandwidthRequests::default_for_protocol_version(PROTOCOL_VERSION),
             bandwidth_scheduler_state_hash: CryptoHash::default(),
             contract_updates: Default::default(),

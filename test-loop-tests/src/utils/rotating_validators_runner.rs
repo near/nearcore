@@ -161,6 +161,10 @@ impl RotatingValidatorsRunner {
             },
             self.max_epoch_duration(epoch_length),
         );
+        // If run_until finished early we cannot assert validator change.
+        if condition(&mut env.test_loop.data) {
+            return;
+        }
 
         let client = Self::client(&env.test_loop.data, client_actor_handle);
         let next_epoch_id = client.chain.head().unwrap().next_epoch_id;

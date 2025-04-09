@@ -202,12 +202,7 @@ expression: config_view
     "storage_get_mode": "Trie",
     "fix_contract_loading_cost": false,
     "implicit_account_creation": true,
-    "math_extension": true,
-    "ed25519_verify": false,
-    "alt_bn128": false,
-    "function_call_weight": false,
     "eth_implicit_accounts": false,
-    "yield_resume_host_functions": false,
     "limit_config": {
       "max_gas_burnt": 300000000000000,
       "max_stack_height": 16384,
