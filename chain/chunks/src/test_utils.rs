@@ -165,7 +165,6 @@ impl ChunkTestFixture {
             BandwidthRequests::default_for_protocol_version(PROTOCOL_VERSION),
             &signer,
             &rs,
-            PROTOCOL_VERSION,
         );
 
         let all_part_ords: Vec<u64> =

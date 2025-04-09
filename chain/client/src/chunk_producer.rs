@@ -279,7 +279,7 @@ impl ChunkProducer {
         )?;
 
         let outgoing_receipts_root = self.calculate_receipts_root(epoch_id, &outgoing_receipts)?;
-        let protocol_version = self.epoch_manager.get_epoch_protocol_version(epoch_id)?;
+        let _protocol_version = self.epoch_manager.get_epoch_protocol_version(epoch_id)?;
         let gas_used = chunk_extra.gas_used();
         #[cfg(feature = "test_features")]
         let gas_used = if self.produce_invalid_chunks { gas_used + 1 } else { gas_used };
@@ -308,7 +308,6 @@ impl ChunkProducer {
                 chunk_extra.bandwidth_requests().cloned(),
                 &*validator_signer,
                 &mut self.reed_solomon_encoder,
-                protocol_version,
             );
 
         span.record("chunk_hash", tracing::field::debug(encoded_chunk.chunk_hash()));
