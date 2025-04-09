@@ -8,8 +8,6 @@ use std::collections::HashSet;
 
 use crate::env::test_env::TestEnv;
 
-// TODO(#8269) Enable test after fixing the issue related to KeyValueRuntime. See env.restart()
-#[ignore]
 #[test]
 fn test_request_chunk_restart() {
     init_integration_logger();
