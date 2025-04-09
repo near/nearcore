@@ -105,7 +105,7 @@ pub struct TestLoopPeerManagerActor {
 
 impl Actor for TestLoopPeerManagerActor {
     fn start_actor(&mut self, ctx: &mut dyn near_async::futures::DelayedActionRunner<Self>) {
-        const PUSH_NETWORK_INFO_PERIOD: Duration = Duration::milliseconds(300);
+        const PUSH_NETWORK_INFO_PERIOD: Duration = Duration::milliseconds(100);
         self.push_network_info(ctx, PUSH_NETWORK_INFO_PERIOD);
     }
 }
