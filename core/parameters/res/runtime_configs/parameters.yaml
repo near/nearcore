@@ -237,13 +237,8 @@ disable_9393_fix: false
 flat_storage_reads: false
 implicit_account_creation: false
 fix_contract_loading_cost: false
-math_extension: false
-ed25519_verify: false
-alt_bn128: false
-function_call_weight: false
 vm_kind: Wasmer0
 eth_implicit_accounts: false
-yield_resume: false
 discard_custom_sections: false
 
 
