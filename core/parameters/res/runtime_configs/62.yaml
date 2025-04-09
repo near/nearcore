@@ -2,7 +2,4 @@
 # least 8. Plus some additional slack for the new algorithm potentially being more accurate or
 # correct.
 max_stack_height: { old: 16384, new: 262144 }
-
-# There was a bug for a short period of time that we need to reproduce...
-disable_9393_fix: { old: false, new: true }
 vm_kind: { old: Wasmer2, new: NearVm }

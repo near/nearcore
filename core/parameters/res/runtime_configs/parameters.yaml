@@ -233,7 +233,6 @@ yield_timeout_length_in_blocks: 200
 max_yield_payload_size: 1_024 # kiB
 
 # Contract runtime configuration
-disable_9393_fix: false
 flat_storage_reads: false
 implicit_account_creation: false
 fix_contract_loading_cost: false

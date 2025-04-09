@@ -152,9 +152,6 @@ pub struct Config {
     /// The kind of the VM implementation to use
     pub vm_kind: VMKind,
 
-    /// Disable the fix for the #9393 issue in near-vm-runner.
-    pub disable_9393_fix: bool,
-
     /// Set to `StorageGetMode::FlatStorage` in order to enable the `FlatStorageReads` protocol
     /// feature.
     pub storage_get_mode: StorageGetMode,
