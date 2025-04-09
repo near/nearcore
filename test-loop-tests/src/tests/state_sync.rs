@@ -487,7 +487,7 @@ fn run_state_sync_test_case(t: StateSyncTest) {
 
 // The normal case with 2 nodes and no missing chunks.
 #[test]
-fn test_state_sync_simple_two_node() {
+fn slow_test_state_sync_simple_two_node() {
     init_test_logger();
     let t = StateSyncTest {
         num_validators: 2,
@@ -523,7 +523,7 @@ fn slow_test_state_sync_simple_five_node() {
 // That makes 3 accounts including the "near" account. This means at least one shard will have no
 // accounts in it, so we check that corner case here.
 #[test]
-fn test_state_sync_empty_shard() {
+fn slow_test_state_sync_empty_shard() {
     init_test_logger();
     let t = StateSyncTest {
         num_validators: 2,
@@ -868,7 +868,7 @@ fn spam_state_sync_header_reqs(env: &mut TestLoopEnv) {
 }
 
 #[test]
-fn test_state_request() {
+fn slow_test_state_request() {
     init_test_logger();
 
     let TestState { mut env, .. } =

@@ -342,7 +342,7 @@ fn slow_test_epoch_sync_proof_sanity_from_epoch_synced_node() {
 }
 
 #[test]
-fn test_epoch_sync_proof_sanity_shorter_transaction_validity_period() {
+fn slow_test_epoch_sync_proof_sanity_shorter_transaction_validity_period() {
     init_test_logger();
     let env = setup_initial_blockchain(10);
     let proof = env.derive_epoch_sync_proof(0);

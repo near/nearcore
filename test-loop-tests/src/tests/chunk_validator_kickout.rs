@@ -173,7 +173,7 @@ fn test_chunk_validator_kicked_out_when_endorsements_dropped() {
 
 /// Checks that block producer with low chunk endorsement stats is not kicked out when the endorsements it generates are all dropped.
 #[test]
-fn test_block_producer_not_kicked_out_when_endorsements_dropped() {
+fn slow_test_block_producer_not_kicked_out_when_endorsements_dropped() {
     let accounts = create_accounts();
     let test_case = TestCase::DropEndorsementsFrom(accounts[NUM_PRODUCER_ACCOUNTS - 1].clone());
     run_test_chunk_validator_kickout(accounts, test_case);
