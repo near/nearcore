@@ -341,7 +341,8 @@ fn validate_data_receipt(
     receipt: &DataReceipt,
 ) -> Result<(), ReceiptValidationError> {
     let data_len = receipt.data.as_ref().map(|data| data.len()).unwrap_or(0);
-    let _span = tracing::debug_span!(target: "runtime", "validate_data_receipt", ?data_len).entered();
+    let _span =
+        tracing::debug_span!(target: "runtime", "validate_data_receipt", ?data_len).entered();
     if data_len as u64 > limit_config.max_length_returned_data {
         return Err(ReceiptValidationError::ReturnedValueLengthExceeded {
             length: data_len as u64,
@@ -364,7 +365,8 @@ pub(crate) fn validate_actions(
     current_protocol_version: ProtocolVersion,
 ) -> Result<(), ActionsValidationError> {
     let actions_count = actions.len();
-    let _span = tracing::debug_span!(target: "runtime", "validate_actions", ?actions_count).entered();
+    let _span =
+        tracing::debug_span!(target: "runtime", "validate_actions", ?actions_count).entered();
     if actions.len() as u64 > limit_config.max_actions_per_receipt {
         return Err(ActionsValidationError::TotalNumberOfActionsExceeded {
             total_number_of_actions: actions.len() as u64,

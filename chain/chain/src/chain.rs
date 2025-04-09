@@ -804,7 +804,9 @@ impl Chain {
     fn validate_header(&self, header: &BlockHeader, provenance: &Provenance) -> Result<(), Error> {
         let block_height = header.height();
         let block_hash = header.hash();
-        let _span = tracing::debug_span!(target: "chain", "validate_header", ?block_height, ?block_hash).entered();
+        let _span =
+            tracing::debug_span!(target: "chain", "validate_header", ?block_height, ?block_hash)
+                .entered();
         if header.challenges_present() {
             return Err(Error::InvalidChallenge);
         }
@@ -997,7 +999,8 @@ impl Chain {
     /// Do basic validation of the information that we can get from the chunk headers in `block`
     fn validate_chunk_headers(&self, block: &Block, prev_block: &Block) -> Result<(), Error> {
         let block_height = block.header().height();
-        let _span = tracing::debug_span!(target: "chain", "validate_chunk_headers", ?block_height).entered();
+        let _span = tracing::debug_span!(target: "chain", "validate_chunk_headers", ?block_height)
+            .entered();
         let prev_chunk_headers =
             Chain::get_prev_chunk_headers(self.epoch_manager.as_ref(), prev_block)?;
         for (chunk_header, prev_chunk_header) in
@@ -1084,7 +1087,8 @@ impl Chain {
         block: &Block,
     ) -> Result<(), Error> {
         let block_height = block.header().height();
-        let _span = tracing::debug_span!(target: "chain", "ping_missing_chunks", ?block_height).entered();
+        let _span =
+            tracing::debug_span!(target: "chain", "ping_missing_chunks", ?block_height).entered();
         if !self.cares_about_any_shard_or_part(me, parent_hash)? {
             return Ok(());
         }
@@ -1182,7 +1186,8 @@ impl Chain {
         prev_block_hash: &CryptoHash,
         shuffle_salt: &CryptoHash,
     ) -> Result<HashMap<ShardId, Vec<ReceiptProof>>, Error> {
-        let _span = tracing::debug_span!(target: "chain", "collect_incoming_receipts_from_chunks").entered();
+        let _span = tracing::debug_span!(target: "chain", "collect_incoming_receipts_from_chunks")
+            .entered();
         if !self.cares_about_any_shard_or_part(me, *prev_block_hash)? {
             return Ok(HashMap::new());
         }
@@ -2627,7 +2632,8 @@ impl Chain {
         chunk: &ShardChunk,
     ) -> Vec<bool> {
         let shard_id = chunk.shard_id();
-        let _span = tracing::debug_span!(target: "chain", "validate_chunk_transactions", ?shard_id).entered();
+        let _span = tracing::debug_span!(target: "chain", "validate_chunk_transactions", ?shard_id)
+            .entered();
         self.chain_store().compute_transaction_validity(prev_block_header, chunk)
     }
 
