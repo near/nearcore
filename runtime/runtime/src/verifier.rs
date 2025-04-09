@@ -88,6 +88,7 @@ pub fn validate_transaction(
     signed_tx: SignedTransaction,
     current_protocol_version: ProtocolVersion,
 ) -> Result<ValidatedTransaction, (InvalidTxError, SignedTransaction)> {
+    let _span = tracing::debug_span!(target: "runtime", "validate_transaction", tx_hash=?signed_tx.get_hash()).entered();
     if let Err(err) = validate_actions(
         &config.wasm_config.limit_config,
         signed_tx.transaction.actions(),
