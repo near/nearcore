@@ -266,6 +266,8 @@ pub(crate) fn validate_receipt(
     current_protocol_version: ProtocolVersion,
     mode: ValidateReceiptMode,
 ) -> Result<(), ReceiptValidationError> {
+    let receipt_id = receipt.receipt_id();
+    let _span = tracing::debug_span!(target: "runtime", "validate_receipt", ?receipt_id).entered();
     if mode == ValidateReceiptMode::NewReceipt {
         let receipt_size: u64 =
             borsh::to_vec(receipt).unwrap().len().try_into().expect("Can't convert usize to u64");
@@ -321,6 +323,7 @@ fn validate_action_receipt(
     receipt: &ActionReceipt,
     current_protocol_version: ProtocolVersion,
 ) -> Result<(), ReceiptValidationError> {
+    let _span = tracing::debug_span!(target: "runtime", "validate_action_receipt", input_data_ids_count=receipt.input_data_ids.len()).entered();
     if receipt.input_data_ids.len() as u64 > limit_config.max_number_input_data_dependencies {
         return Err(ReceiptValidationError::NumberInputDataDependenciesExceeded {
             number_of_input_data_dependencies: receipt.input_data_ids.len() as u64,
@@ -337,6 +340,7 @@ fn validate_data_receipt(
     receipt: &DataReceipt,
 ) -> Result<(), ReceiptValidationError> {
     let data_len = receipt.data.as_ref().map(|data| data.len()).unwrap_or(0);
+    let _span = tracing::debug_span!(target: "runtime", "validate_data_receipt", ?data_len).entered();
     if data_len as u64 > limit_config.max_length_returned_data {
         return Err(ReceiptValidationError::ReturnedValueLengthExceeded {
             length: data_len as u64,
@@ -358,6 +362,8 @@ pub(crate) fn validate_actions(
     actions: &[Action],
     current_protocol_version: ProtocolVersion,
 ) -> Result<(), ActionsValidationError> {
+    let actions_count = actions.len();
+    let _span = tracing::debug_span!(target: "runtime", "validate_actions", ?actions_count).entered();
     if actions.len() as u64 > limit_config.max_actions_per_receipt {
         return Err(ActionsValidationError::TotalNumberOfActionsExceeded {
             total_number_of_actions: actions.len() as u64,
@@ -401,6 +407,7 @@ pub fn validate_action(
     action: &Action,
     current_protocol_version: ProtocolVersion,
 ) -> Result<(), ActionsValidationError> {
+    let _span = tracing::debug_span!(target: "runtime", "validate_action", action_type=?action.as_enum_variant_name()).entered();
     match action {
         Action::CreateAccount(_) => Ok(()),
         Action::DeployContract(a) => validate_deploy_contract_action(limit_config, a),
