@@ -26,7 +26,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{ReceiptProof, ShardChunk, ShardChunkHeader, ShardProof};
 use near_primitives::types::chunk_extra::ChunkExtra;
-use near_primitives::types::{BlockHeight, Gas, ProtocolVersion, ShardId};
+use near_primitives::types::{BlockHeight, Gas, ShardId};
 use near_state_viewer::progress_reporter::ProgressReporter;
 use near_store::{ShardUId, Store, get_genesis_state_roots};
 use nearcore::{NearConfig, NightshadeRuntime, NightshadeRuntimeExt, load_config};
@@ -250,7 +250,6 @@ impl ReplayController {
                     shard_uid,
                     chunk_header,
                     prev_chunk_header,
-                    protocol_version,
                 )
                 .context("Failed to replay the chunk")?;
             total_gas_burnt += replay_output.chunk_extra.gas_used();
