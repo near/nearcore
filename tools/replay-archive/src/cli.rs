@@ -241,13 +241,7 @@ impl ReplayController {
             let shard_uid = shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, epoch_id)
                 .context("Failed to get shard UID from shard id")?;
             let replay_output = self
-                .replay_chunk(
-                    &block,
-                    &prev_block,
-                    shard_uid,
-                    chunk_header,
-                    prev_chunk_header,
-                )
+                .replay_chunk(&block, &prev_block, shard_uid, chunk_header, prev_chunk_header)
                 .context("Failed to replay the chunk")?;
             total_gas_burnt += replay_output.chunk_extra.gas_used();
 
@@ -346,8 +340,7 @@ impl ReplayController {
                 apply_result,
             }) => {
                 let outgoing_receipts = apply_result.outgoing_receipts.clone();
-                let chunk_extra =
-                    apply_result_to_chunk_extra(apply_result, &chunk_header);
+                let chunk_extra = apply_result_to_chunk_extra(apply_result, &chunk_header);
                 ReplayChunkOutput { chunk_extra, outgoing_receipts }
             }
             ShardUpdateResult::OldChunk(OldChunkResult { shard_uid: _, apply_result }) => {

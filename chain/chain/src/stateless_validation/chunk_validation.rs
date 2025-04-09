@@ -360,11 +360,8 @@ pub fn pre_validate_chunk_state_witness(
             .get(&last_chunk_shard_id)
             .map(|info| info.congestion_info);
         let _genesis_protocol_version = epoch_manager.get_epoch_protocol_version(&epoch_id)?;
-        let chunk_extra = chain.genesis_chunk_extra(
-            &shard_layout,
-            last_chunk_shard_id,
-            congestion_info,
-        )?;
+        let chunk_extra =
+            chain.genesis_chunk_extra(&shard_layout, last_chunk_shard_id, congestion_info)?;
         MainTransition::Genesis {
             chunk_extra,
             block_hash: *last_chunk_block.hash(),
@@ -550,8 +547,7 @@ pub fn validate_chunk_state_witness(
                     runtime_adapter,
                 )?;
                 let outgoing_receipts = std::mem::take(&mut main_apply_result.outgoing_receipts);
-                let chunk_extra =
-                    apply_result_to_chunk_extra(main_apply_result, &chunk_header);
+                let chunk_extra = apply_result_to_chunk_extra(main_apply_result, &chunk_header);
 
                 (chunk_extra, outgoing_receipts)
             }
