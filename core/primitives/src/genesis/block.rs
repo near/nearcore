@@ -1,11 +1,3 @@
-use std::sync::Arc;
-
-use near_crypto::{KeyType, Signature};
-use near_primitives_core::hash::CryptoHash;
-use near_primitives_core::types::{Balance, BlockHeight, MerkleHash, ProtocolVersion};
-use near_primitives_core::version::PROD_GENESIS_PROTOCOL_VERSION;
-use near_time::Utc;
-
 use crate::block::{
     Block, BlockHeader, BlockHeaderInnerLite, BlockHeaderInnerRest, BlockHeaderV1, BlockV1,
     compute_bp_hash_from_validator_stakes,
@@ -14,6 +6,12 @@ use crate::block_body::{BlockBody, BlockBodyV1};
 use crate::sharding::ShardChunkHeader;
 use crate::types::EpochId;
 use crate::types::validator_stake::ValidatorStake;
+use near_crypto::{KeyType, Signature};
+use near_primitives_core::hash::CryptoHash;
+use near_primitives_core::types::{Balance, BlockHeight, MerkleHash, ProtocolVersion};
+use near_primitives_core::version::PROD_GENESIS_PROTOCOL_VERSION;
+use near_time::Utc;
+use std::sync::Arc;
 
 /// Returns genesis block for given genesis date and state root.
 pub fn genesis_block(
@@ -90,6 +88,7 @@ pub fn prod_genesis_block(
         })
         .collect();
 
+    #[allow(deprecated)]
     Block::BlockV1(Arc::new(BlockV1 {
         header,
         chunks,

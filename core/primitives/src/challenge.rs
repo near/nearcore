@@ -3,7 +3,6 @@ use crate::merkle::MerklePath;
 use crate::sharding::{EncodedShardChunk, ShardChunk, ShardChunkHeader};
 use crate::state::PartialState;
 use crate::types::AccountId;
-use crate::validator_signer::ValidatorSigner;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::Signature;
 use near_primitives_core::types::BlockHeight;
@@ -89,12 +88,6 @@ pub struct Challenge {
 impl Challenge {
     pub fn init(&mut self) {
         self.hash = CryptoHash::hash_borsh(&self.body);
-    }
-
-    pub fn produce(body: ChallengeBody, signer: &ValidatorSigner) -> Self {
-        let hash = CryptoHash::hash_borsh(&body);
-        let signature = signer.sign_bytes(hash.as_ref());
-        Self { body, account_id: signer.validator_id().clone(), signature, hash }
     }
 }
 

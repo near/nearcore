@@ -282,11 +282,6 @@ impl ChainStoreAdapter {
         )
     }
 
-    /// Returns whether the block with the given hash was challenged
-    pub fn is_block_challenged(&self, hash: &CryptoHash) -> Result<bool, Error> {
-        Ok(self.store.get_ser(DBCol::ChallengedBlocks, hash.as_ref())?.unwrap_or_default())
-    }
-
     pub fn get_blocks_to_catchup(&self, prev_hash: &CryptoHash) -> Result<Vec<CryptoHash>, Error> {
         Ok(self.store.get_ser(DBCol::BlocksToCatchup, prev_hash.as_ref())?.unwrap_or_default())
     }

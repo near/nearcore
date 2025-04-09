@@ -1,5 +1,4 @@
 use super::*;
-
 use crate::config;
 use crate::network_protocol::{
     Edge, PartialEdgeInfo, PeerInfo, RawRoutedMessage, RoutedMessageBody,
@@ -9,7 +8,6 @@ use crate::types::{AccountKeys, ChainInfo, Handshake, RoutingTableUpdate};
 use near_async::time;
 use near_crypto::{InMemorySigner, KeyType, SecretKey, Signer};
 use near_primitives::block::{Block, BlockHeader};
-use near_primitives::challenge::{BlockDoubleSign, Challenge, ChallengeBody};
 use near_primitives::genesis::{genesis_block, genesis_chunks};
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
@@ -23,7 +21,6 @@ use near_primitives::types::{AccountId, BlockHeight, EpochId, StateRoot};
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
 use near_primitives::version;
 use rand::Rng;
-use rand::distributions::Standard;
 use reed_solomon_erasure::galois_8::ReedSolomon;
 use std::collections::HashMap;
 use std::net;
@@ -156,16 +153,6 @@ pub fn make_signed_transaction<R: Rng>(rng: &mut R) -> SignedTransaction {
         &sender,
         15,
         CryptoHash::default(),
-    )
-}
-
-pub fn make_challenge<R: Rng>(rng: &mut R) -> Challenge {
-    Challenge::produce(
-        ChallengeBody::BlockDoubleSign(BlockDoubleSign {
-            left_block_header: rng.sample_iter(&Standard).take(65).collect(),
-            right_block_header: rng.sample_iter(&Standard).take(34).collect(),
-        }),
-        &make_validator_signer(rng),
     )
 }
 
