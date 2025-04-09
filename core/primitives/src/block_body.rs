@@ -56,13 +56,13 @@ pub enum BlockBody {
 }
 
 impl BlockBody {
-    #[allow(deprecated)]
     pub fn new(
         chunks: Vec<ShardChunkHeader>,
         vrf_value: Value,
         vrf_proof: Proof,
         chunk_endorsements: Vec<ChunkEndorsementSignatures>,
     ) -> Self {
+        #[allow(deprecated)]
         BlockBody::V2(BlockBodyV2 {
             chunks,
             challenges: vec![],

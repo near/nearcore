@@ -1054,13 +1054,6 @@ impl PeerManagerActor {
                     NetworkResponses::RouteNotFound
                 }
             }
-            NetworkRequests::Challenge(challenge) => {
-                // TODO(illia): smarter routing?
-                self.state
-                    .tier2
-                    .broadcast_message(Arc::new(PeerMessage::Challenge(Box::new(challenge))));
-                NetworkResponses::NoResponse
-            }
             NetworkRequests::ChunkStateWitnessAck(target, ack) => {
                 self.state.send_message_to_account(
                     &self.clock,
