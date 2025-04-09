@@ -686,29 +686,6 @@ impl Trie {
         self.storage.as_caching_storage()
     }
 
-    /// Request recording of the code for the given account.
-    pub fn request_code_recording(&self, account_id: AccountId) {
-        let Some(recorder) = &self.recorder else {
-            return;
-        };
-        {
-            let mut r = recorder.write().expect("no poison");
-            if r.codes_to_record.contains(&account_id) {
-                return;
-            }
-            r.codes_to_record.insert(account_id.clone());
-        }
-
-        // Get code length from ValueRef to update estimated upper bound for
-        // recorded state.
-        let key = TrieKey::ContractCode { account_id };
-        let value_ref = self.get_optimized_ref(&key.to_vec(), KeyLookupMode::MemOrFlatOrTrie);
-        if let Ok(Some(value_ref)) = value_ref {
-            let mut r = recorder.write().expect("no poison");
-            r.record_code_len(value_ref.len());
-        }
-    }
-
     #[cfg(feature = "test_features")]
     pub fn record_storage_garbage(&self, size_mbs: usize) -> bool {
         let Some(recorder) = &self.recorder else {

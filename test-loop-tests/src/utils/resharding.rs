@@ -969,9 +969,13 @@ pub(crate) fn promise_yield_repro_missing_trie_value(
                 {
                     send_promise_yield(&right_child_account, &left_child_account, &tip, None);
                 }
-                // Send a promise yield resume to complete the promise yield started one block before.
+                // Send a promise yield resume to complete the promise yield started two blocks before.
+                //
+                // The two block delay is necessary as the promise yield receipt handling
+                // potentially is going to be delayed by a block if it needs to be sent to another
+                // shard.
                 (Some(resharding), latest)
-                    if latest == resharding + gc_num_epochs * epoch_length + 5 + 1 =>
+                    if latest == resharding + gc_num_epochs * epoch_length + 5 + 2 =>
                 {
                     let signer: Signer = create_user_test_signer(&right_child_account).into();
                     nonce.set(nonce.get() + 1);
@@ -999,7 +1003,7 @@ pub(crate) fn promise_yield_repro_missing_trie_value(
                 // GC happened a few blocks in the past.
                 // Check transactions' outcomes.
                 (Some(resharding), latest)
-                    if latest == resharding + gc_num_epochs * epoch_length + 5 + 5 =>
+                    if latest == resharding + gc_num_epochs * epoch_length + 5 + 7 =>
                 {
                     let txs = txs.take();
                     for (index, (tx, tx_height)) in txs.iter().enumerate() {

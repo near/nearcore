@@ -52,13 +52,15 @@ impl TestLoopEnv {
         shared_state.warmup_pending.store(false, Ordering::Relaxed);
 
         let client_handle = datas[0].client_sender.actor_handle();
-        let genesis_height = test_loop.data.get(&client_handle).client.chain.genesis().height();
+        let client_actor = test_loop.data.get(&client_handle);
+        let max_block_production_delay = client_actor.client.config.max_block_production_delay;
+        let genesis_height = client_actor.client.chain.genesis().height();
         test_loop.run_until(
             |test_loop_data| {
                 let client_actor = test_loop_data.get(&client_handle);
                 client_actor.client.chain.head().unwrap().height == genesis_height + 4
             },
-            Duration::seconds(5),
+            max_block_production_delay * 5,
         );
         for idx in 0..datas.len() {
             let client_handle = datas[idx].client_sender.actor_handle();

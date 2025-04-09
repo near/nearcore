@@ -1,14 +1,13 @@
+use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
+use crate::env::test_env::TestEnv;
 use near_chain::{Chain, Provenance};
 use near_chain_configs::Genesis;
-use near_client::test_utils::create_chunk_with_transactions;
+use near_client::test_utils::create_chunk;
 use near_client::{ProcessTxResponse, ProduceChunkResult};
 use near_primitives::account::id::AccountIdRef;
 use near_primitives::test_utils::create_user_test_signer;
-use near_primitives::transaction::SignedTransaction;
+use near_primitives::transaction::{SignedTransaction, ValidatedTransaction};
 use near_primitives::types::{AccountId, ShardId};
-
-use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
-use crate::env::test_env::TestEnv;
 
 const ONE_NEAR: u128 = 1_000_000_000_000_000_000_000_000;
 
@@ -34,7 +33,7 @@ fn test_invalid_transactions_no_panic() {
     let tip = env.clients[0].chain.head().unwrap();
     let sender_account = accounts[0].clone();
     let receiver_account = accounts[1].clone();
-    let invalid_transactions = vec![
+    let invalid_txs = vec![
         // transaction with invalid balance
         SignedTransaction::send_money(
             1,
@@ -63,6 +62,10 @@ fn test_invalid_transactions_no_panic() {
             tip.last_block_hash,
         ),
     ];
+    let invalid_txs = invalid_txs
+        .into_iter()
+        .map(|signed_tx| ValidatedTransaction::new_for_test(signed_tx))
+        .collect::<Vec<_>>();
     // Need to create a valid transaction with the same accounts touched in order to have some state witness generated
     let valid_tx = SignedTransaction::send_money(
         1,
@@ -73,7 +76,7 @@ fn test_invalid_transactions_no_panic() {
         tip.last_block_hash,
     );
     let mut start_height = 1;
-    for tx in invalid_transactions {
+    for tx in invalid_txs {
         for height in start_height..start_height + 3 {
             let tip = env.clients[0].chain.head().unwrap();
             let chunk_producer = env.get_chunk_producer_at_offset(&tip, 1, ShardId::new(0));
@@ -88,7 +91,7 @@ fn test_invalid_transactions_no_panic() {
             }
 
             let (ProduceChunkResult { chunk, encoded_chunk_parts_paths, receipts }, _) =
-                create_chunk_with_transactions(client, transactions);
+                create_chunk(client, transactions);
 
             let shard_chunk = client
                 .persist_and_distribute_encoded_chunk(
@@ -202,13 +205,17 @@ fn test_invalid_transactions_dont_invalidate_chunk() {
             tip.last_block_hash,
         ),
     ];
+    let chunk_transactions = chunk_transactions
+        .into_iter()
+        .map(|signed_tx| ValidatedTransaction::new_for_test(signed_tx))
+        .collect();
 
     let tip = env.clients[0].chain.head().unwrap();
     let chunk_producer = env.get_chunk_producer_at_offset(&tip, 1, ShardId::new(0));
     let block_producer = env.get_block_producer_at_offset(&tip, 1);
     let client = env.client(&chunk_producer);
     let (ProduceChunkResult { chunk, encoded_chunk_parts_paths, receipts }, _) =
-        create_chunk_with_transactions(client, chunk_transactions);
+        create_chunk(client, chunk_transactions);
 
     let shard_chunk = client
         .persist_and_distribute_encoded_chunk(

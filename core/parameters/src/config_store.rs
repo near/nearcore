@@ -194,9 +194,11 @@ impl RuntimeConfigStore {
             near_primitives_core::chains::CONGESTION_CONTROL_TEST => {
                 let mut config_store = Self::new(None);
 
-                // Get the original congestion control config. The nayduck tests
-                // are tuned to this config.
-                let source_protocol_version = ProtocolFeature::CongestionControl.protocol_version();
+                // TODO(limited_replayability): Move tests to use config from latest protocol version.
+                // Get the original congestion control config. The nayduck tests are tuned to this config.
+                #[allow(deprecated)]
+                let source_protocol_version =
+                    ProtocolFeature::_DeprecatedCongestionControl.protocol_version();
                 let source_runtime_config = config_store.get_config(source_protocol_version);
 
                 let mut config = RuntimeConfig::clone(config_store.get_config(PROTOCOL_VERSION));
@@ -253,7 +255,6 @@ impl RuntimeConfigStore {
 mod tests {
     use super::*;
     use crate::cost::ActionCosts;
-    use near_primitives_core::version::ProtocolFeature::LowerStorageKeyLimit;
     use std::collections::HashSet;
 
     const GENESIS_PROTOCOL_VERSION: ProtocolVersion = 29;
@@ -300,17 +301,6 @@ mod tests {
         let new_store = RuntimeConfigStore::new(Some(&cfg));
         let new_cfg = new_store.get_config(GENESIS_PROTOCOL_VERSION);
         assert_eq!(new_cfg.account_creation_config.min_allowed_top_level_account_length, 0);
-    }
-
-    #[test]
-    fn test_lower_max_length_storage_key() {
-        let store = RuntimeConfigStore::new(None);
-        let base_cfg = store.get_config(LowerStorageKeyLimit.protocol_version() - 1);
-        let new_cfg = store.get_config(LowerStorageKeyLimit.protocol_version());
-        assert!(
-            base_cfg.wasm_config.limit_config.max_length_storage_key
-                > new_cfg.wasm_config.limit_config.max_length_storage_key
-        );
     }
 
     #[test]

@@ -90,9 +90,7 @@ fn test_block_sync() {
     }
     let block_headers = blocks.iter().map(|b| b.header().clone()).collect::<Vec<_>>();
     let peer_infos = create_highest_height_peer_infos(2);
-    let mut challenges = vec![];
-    env.clients[1].chain.sync_block_headers(block_headers, &mut challenges).unwrap();
-    assert!(challenges.is_empty());
+    env.clients[1].chain.sync_block_headers(block_headers).unwrap();
 
     // fetch three blocks at a time
     for i in 0..3 {
@@ -171,9 +169,7 @@ fn test_block_sync_archival() {
     }
     let block_headers = blocks.iter().map(|b| b.header().clone()).collect::<Vec<_>>();
     let peer_infos = create_highest_height_peer_infos(2);
-    let mut challenges = vec![];
-    env.clients[1].chain.sync_block_headers(block_headers, &mut challenges).unwrap();
-    assert!(challenges.is_empty());
+    env.clients[1].chain.sync_block_headers(block_headers).unwrap();
 
     block_sync.block_sync(&env.clients[1].chain, &peer_infos, max_block_requests).unwrap();
     let requested_block_hashes = collect_hashes_from_network_adapter(&network_adapter);

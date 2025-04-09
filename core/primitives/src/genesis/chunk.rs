@@ -17,34 +17,13 @@ type ShardChunkReedSolomon = reed_solomon_erasure::galois_8::ReedSolomon;
 /// The shard_ids, state_roots and congestion_infos must be in the same order.
 pub fn genesis_chunks(
     state_roots: Vec<StateRoot>,
-    congestion_infos: Vec<Option<CongestionInfo>>,
+    congestion_infos: Vec<CongestionInfo>,
     shard_ids: &[ShardId],
     initial_gas_limit: Gas,
     genesis_height: BlockHeight,
     genesis_protocol_version: ProtocolVersion,
 ) -> Vec<ShardChunk> {
-    if genesis_protocol_version == PROD_GENESIS_PROTOCOL_VERSION {
-        prod_genesis_chunks(state_roots, shard_ids, initial_gas_limit, genesis_height)
-    } else {
-        latest_genesis_chunks(
-            state_roots,
-            congestion_infos,
-            shard_ids,
-            initial_gas_limit,
-            genesis_height,
-            genesis_protocol_version,
-        )
-    }
-}
-
-fn latest_genesis_chunks(
-    state_roots: Vec<StateRoot>,
-    congestion_infos: Vec<Option<CongestionInfo>>,
-    shard_ids: &[ShardId],
-    initial_gas_limit: Gas,
-    genesis_height: BlockHeight,
-    genesis_protocol_version: ProtocolVersion,
-) -> Vec<ShardChunk> {
+    assert!(genesis_protocol_version > PROD_GENESIS_PROTOCOL_VERSION);
     let rs = ShardChunkReedSolomon::new(1, 2).unwrap();
     let state_roots = if state_roots.len() == shard_ids.len() {
         state_roots
@@ -88,9 +67,9 @@ fn genesis_chunk(
     initial_gas_limit: u64,
     shard_id: ShardId,
     state_root: CryptoHash,
-    congestion_info: Option<CongestionInfo>,
+    congestion_info: CongestionInfo,
 ) -> EncodedShardChunk {
-    let (encoded_chunk, _) = EncodedShardChunk::new(
+    let (encoded_chunk, _, _) = EncodedShardChunk::new(
         CryptoHash::default(),
         state_root,
         CryptoHash::default(),
@@ -103,7 +82,7 @@ fn genesis_chunk(
         CryptoHash::default(),
         vec![],
         vec![],
-        &[],
+        vec![],
         CryptoHash::default(),
         congestion_info,
         BandwidthRequests::default_for_protocol_version(genesis_protocol_version),

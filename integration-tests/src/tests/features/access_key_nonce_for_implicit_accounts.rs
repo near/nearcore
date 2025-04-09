@@ -1,10 +1,13 @@
+use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
+use crate::env::test_env::TestEnv;
+use crate::utils::process_blocks::produce_blocks_from_height;
 use assert_matches::assert_matches;
 use near_async::messaging::CanSend;
 use near_chain::orphan::NUM_ORPHAN_ANCESTORS_CHECK;
 use near_chain::{ChainStoreAccess as _, Error, Provenance};
 use near_chain_configs::{Genesis, NEAR_BASE};
 use near_chunks::metrics::PARTIAL_ENCODED_CHUNK_FORWARD_CACHED_WITHOUT_HEADER;
-use near_client::test_utils::create_chunk_with_transactions;
+use near_client::test_utils::create_chunk;
 use near_client::{ProcessTxResponse, ProduceChunkResult};
 use near_crypto::{InMemorySigner, KeyType, SecretKey, Signer};
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
@@ -15,7 +18,7 @@ use near_primitives::account::AccessKey;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::ChunkHash;
-use near_primitives::transaction::SignedTransaction;
+use near_primitives::transaction::{SignedTransaction, ValidatedTransaction};
 use near_primitives::types::{AccountId, BlockHeight};
 use near_primitives::utils::derive_near_implicit_account_id;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolVersion};
@@ -24,10 +27,6 @@ use rand::seq::SliceRandom;
 use rand::{Rng, thread_rng};
 use std::collections::HashSet;
 use tracing::debug;
-
-use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
-use crate::env::test_env::TestEnv;
-use crate::utils::process_blocks::produce_blocks_from_height;
 
 /// Try to process tx in the next blocks, check that tx and all generated receipts succeed.
 /// Return height of the next block.
@@ -222,21 +221,21 @@ fn test_chunk_transaction_validity() {
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
     let signer = InMemorySigner::test_signer(&"test0".parse().unwrap());
-    let tx = SignedTransaction::send_money(
+    let validated_tx = ValidatedTransaction::new_for_test(SignedTransaction::send_money(
         1,
         "test1".parse().unwrap(),
         "test0".parse().unwrap(),
         &signer,
         100,
         *genesis_block.hash(),
-    );
+    ));
     for i in 1..200 {
         env.produce_block(0, i);
     }
     let (
         ProduceChunkResult { chunk, encoded_chunk_parts_paths: merkle_paths, receipts, .. },
         block,
-    ) = create_chunk_with_transactions(&mut env.clients[0], vec![tx]);
+    ) = create_chunk(&mut env.clients[0], vec![validated_tx]);
     let validator_id = env.clients[0].validator_signer.get().unwrap().validator_id().clone();
     env.clients[0]
         .persist_and_distribute_encoded_chunk(chunk, merkle_paths, receipts, validator_id)

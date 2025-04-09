@@ -62,10 +62,6 @@ pub struct LimitConfig {
     /// See <https://wiki.parity.io/WebAssembly-StackHeight> to find out how the stack frame cost
     /// is calculated.
     pub max_stack_height: u32,
-    /// Whether a legacy version of stack limiting should be used, see
-    /// [`ContractPrepareVersion`].
-    #[serde(default = "ContractPrepareVersion::v0")]
-    pub contract_prepare_version: ContractPrepareVersion,
 
     /// The initial number of memory pages.
     /// NOTE: It's not a limiter itself, but it's a value we use for initial_memory_pages.
@@ -120,11 +116,6 @@ pub struct LimitConfig {
     /// If present, stores max number of functions in one contract
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_functions_number_per_contract: Option<u64>,
-    /// If present, stores the secondary stack limit as implemented by wasmer2.
-    ///
-    /// This limit should never be hit normally.
-    #[serde(default = "wasmer2_stack_limit_default")]
-    pub wasmer2_stack_limit: i32,
     /// If present, stores max number of locals declared globally in one contract
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_locals_per_contract: Option<u64>,
@@ -161,9 +152,6 @@ pub struct Config {
     /// The kind of the VM implementation to use
     pub vm_kind: VMKind,
 
-    /// Disable the fix for the #9393 issue in near-vm-runner.
-    pub disable_9393_fix: bool,
-
     /// Set to `StorageGetMode::FlatStorage` in order to enable the `FlatStorageReads` protocol
     /// feature.
     pub storage_get_mode: StorageGetMode,
@@ -174,23 +162,8 @@ pub struct Config {
     /// Enable the `ImplicitAccountCreation` protocol feature.
     pub implicit_account_creation: bool,
 
-    /// Enable the host functions added by the `MathExtension` protocol feature.
-    pub math_extension: bool,
-
-    /// Enable the host functions added by the `Ed25519Verify` protocol feature.
-    pub ed25519_verify: bool,
-
-    /// Enable the host functions added by the `AltBn128` protocol feature.
-    pub alt_bn128: bool,
-
-    /// Enable the `FunctionCallWeight` protocol feature.
-    pub function_call_weight: bool,
-
     /// Enable the `EthImplicitAccounts` protocol feature.
     pub eth_implicit_accounts: bool,
-
-    /// Enable the `promise_yield_create` and `promise_yield_resume` host functions.
-    pub yield_resume_host_functions: bool,
 
     /// Whether to discard custom sections.
     pub discard_custom_sections: bool,
@@ -220,18 +193,9 @@ impl Config {
     }
 
     pub fn enable_all_features(&mut self) {
-        self.yield_resume_host_functions = true;
         self.eth_implicit_accounts = true;
-        self.function_call_weight = true;
-        self.alt_bn128 = true;
-        self.ed25519_verify = true;
-        self.math_extension = true;
         self.implicit_account_creation = true;
     }
-}
-
-fn wasmer2_stack_limit_default() -> i32 {
-    100 * 1024
 }
 
 /// Our original code for limiting WASM stack was buggy. We fixed that, but we

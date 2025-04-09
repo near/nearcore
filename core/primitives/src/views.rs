@@ -12,7 +12,7 @@ use crate::action::{
 use crate::bandwidth_scheduler::BandwidthRequests;
 use crate::block::{Block, BlockHeader, Tip};
 use crate::block_header::BlockHeaderInnerLite;
-use crate::challenge::{Challenge, ChallengesResult};
+use crate::challenge::ChallengesResult;
 use crate::congestion_info::{CongestionInfo, CongestionInfoV1};
 use crate::errors::TxExecutionError;
 use crate::hash::{CryptoHash, hash};
@@ -735,17 +735,6 @@ pub struct StatusResponse {
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
-pub struct ChallengeView {
-    // TODO: decide how to represent challenges in json.
-}
-
-impl From<Challenge> for ChallengeView {
-    fn from(_challenge: Challenge) -> Self {
-        Self {}
-    }
-}
-
-#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
 pub struct BlockHeaderView {
     pub height: BlockHeight,
     pub prev_height: Option<BlockHeight>,
@@ -806,7 +795,7 @@ impl From<BlockHeader> for BlockHeaderView {
             chunk_headers_root: *header.chunk_headers_root(),
             chunk_tx_root: *header.chunk_tx_root(),
             chunks_included: header.chunks_included(),
-            challenges_root: *header.challenges_root(),
+            challenges_root: CryptoHash::default(),
             outcome_root: *header.outcome_root(),
             timestamp: header.raw_timestamp(),
             timestamp_nanosec: header.raw_timestamp(),
@@ -822,7 +811,7 @@ impl From<BlockHeader> for BlockHeaderView {
             rent_paid: 0,
             validator_reward: 0,
             total_supply: header.total_supply(),
-            challenges_result: header.challenges_result().clone(),
+            challenges_result: vec![],
             last_final_block: *header.last_final_block(),
             last_ds_final_block: *header.last_ds_final_block(),
             next_bp_hash: *header.next_bp_hash(),
@@ -850,7 +839,6 @@ impl From<BlockHeaderView> for BlockHeader {
             view.chunk_tx_root,
             view.outcome_root,
             view.timestamp,
-            view.challenges_root,
             view.random_value,
             view.validator_proposals.into_iter().map(|v| v.into_validator_stake()).collect(),
             view.chunk_mask,
@@ -859,7 +847,6 @@ impl From<BlockHeaderView> for BlockHeader {
             EpochId(view.next_epoch_id),
             view.gas_price,
             view.total_supply,
-            view.challenges_result,
             view.signature,
             view.last_final_block,
             view.last_ds_final_block,
@@ -988,7 +975,7 @@ impl From<ShardChunkHeader> for ChunkHeaderView {
             outgoing_receipts_root: *inner.prev_outgoing_receipts_root(),
             tx_root: *inner.tx_root(),
             validator_proposals: inner.prev_validator_proposals().map(Into::into).collect(),
-            congestion_info: inner.congestion_info().map(Into::into),
+            congestion_info: Some(inner.congestion_info().into()),
             bandwidth_requests: inner.bandwidth_requests().cloned(),
             signature,
         }

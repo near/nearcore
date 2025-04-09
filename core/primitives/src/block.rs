@@ -1,7 +1,7 @@
 use crate::bandwidth_scheduler::BlockBandwidthRequests;
 use crate::block::BlockValidityError::{
-    InvalidChallengeRoot, InvalidChunkHeaderRoot, InvalidChunkMask, InvalidReceiptRoot,
-    InvalidStateRoot, InvalidTransactionRoot,
+    InvalidChunkHeaderRoot, InvalidChunkMask, InvalidReceiptRoot, InvalidStateRoot,
+    InvalidTransactionRoot,
 };
 use crate::block_body::{BlockBody, BlockBodyV1, ChunkEndorsementSignatures};
 pub use crate::block_header::*;
@@ -25,8 +25,6 @@ use itertools::Itertools;
 #[cfg(feature = "clock")]
 use near_primitives_core::types::ProtocolVersion;
 use near_primitives_core::types::ShardIndex;
-#[cfg(feature = "clock")]
-use near_primitives_core::version::ProtocolFeature;
 use near_schema_checker_lib::ProtocolSchema;
 use primitive_types::U256;
 use std::collections::BTreeMap;
@@ -40,13 +38,13 @@ pub enum BlockValidityError {
     InvalidChunkHeaderRoot,
     InvalidTransactionRoot,
     InvalidChunkMask,
-    InvalidChallengeRoot,
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq, ProtocolSchema)]
 pub struct BlockV1 {
     pub header: BlockHeader,
     pub chunks: Vec<ShardChunkHeaderV1>,
+    #[deprecated]
     pub challenges: Challenges,
 
     // Data to confirm the correctness of randomness beacon output
@@ -58,6 +56,7 @@ pub struct BlockV1 {
 pub struct BlockV2 {
     pub header: BlockHeader,
     pub chunks: Vec<ShardChunkHeader>,
+    #[deprecated]
     pub challenges: Challenges,
 
     // Data to confirm the correctness of randomness beacon output
@@ -104,7 +103,6 @@ impl Block {
     /// Produces new block from header of previous block, current state root and set of transactions.
     #[cfg(feature = "clock")]
     pub fn produce(
-        this_epoch_protocol_version: ProtocolVersion,
         latest_protocol_version: ProtocolVersion,
         prev: &BlockHeader,
         height: BlockHeight,
@@ -119,8 +117,6 @@ impl Block {
         min_gas_price: Balance,
         max_gas_price: Balance,
         minted_amount: Option<Balance>,
-        challenges_result: crate::challenge::ChallengesResult,
-        challenges: Challenges,
         signer: &crate::validator_signer::ValidatorSigner,
         next_bp_hash: CryptoHash,
         block_merkle_root: CryptoHash,
@@ -192,31 +188,24 @@ impl Block {
             }
         };
 
-        let chunk_endorsements_bitmap = if ProtocolFeature::ChunkEndorsementsInBlockHeader
-            .enabled(this_epoch_protocol_version)
-        {
-            debug_assert_eq!(
-                chunk_endorsements.len(),
-                chunk_mask.len(),
-                "Chunk endorsements size is different from number of shards."
-            );
-            // Generate from the chunk endorsement signatures a bitmap with the same number of shards and validator assignments per shard,
-            // where `Option<Signature>` is mapped to `true` and `None` is mapped to `false`.
-            Some(ChunkEndorsementsBitmap::from_endorsements(
-                chunk_endorsements
-                    .iter()
-                    .map(|endorsements_for_shard| {
-                        endorsements_for_shard.iter().map(|e| e.is_some()).collect_vec()
-                    })
-                    .collect_vec(),
-            ))
-        } else {
-            None
-        };
+        debug_assert_eq!(
+            chunk_endorsements.len(),
+            chunk_mask.len(),
+            "Chunk endorsements size is different from number of shards."
+        );
+        // Generate from the chunk endorsement signatures a bitmap with the same number of shards and validator assignments per shard,
+        // where `Option<Signature>` is mapped to `true` and `None` is mapped to `false`.
+        let chunk_endorsements_bitmap = Some(ChunkEndorsementsBitmap::from_endorsements(
+            chunk_endorsements
+                .iter()
+                .map(|endorsements_for_shard| {
+                    endorsements_for_shard.iter().map(|e| e.is_some()).collect_vec()
+                })
+                .collect_vec(),
+        ));
 
-        let body = BlockBody::new(chunks, challenges, vrf_value, vrf_proof, chunk_endorsements);
+        let body = BlockBody::new(chunks, vrf_value, vrf_proof, chunk_endorsements);
         let header = BlockHeader::new(
-            this_epoch_protocol_version,
             latest_protocol_version,
             height,
             *prev.hash(),
@@ -227,7 +216,6 @@ impl Block {
             Block::compute_chunk_tx_root(body.chunks()),
             Block::compute_outcome_root(body.chunks()),
             time,
-            Block::compute_challenges_root(body.challenges()),
             random_value,
             prev_validator_proposals,
             chunk_mask,
@@ -236,7 +224,6 @@ impl Block {
             next_epoch_id,
             next_gas_price,
             new_total_supply,
-            challenges_result,
             signer,
             *last_final_block,
             *last_ds_final_block,
@@ -373,10 +360,6 @@ impl Block {
         .0
     }
 
-    pub fn compute_challenges_root(challenges: &Challenges) -> CryptoHash {
-        merklize(&challenges.iter().map(|challenge| challenge.hash).collect::<Vec<CryptoHash>>()).0
-    }
-
     pub fn compute_gas_used<'a, T: IntoIterator<Item = &'a ShardChunkHeader>>(
         chunks: T,
         height: BlockHeight,
@@ -419,16 +402,6 @@ impl Block {
 
     pub fn chunks(&self) -> Chunks {
         Chunks::new(&self)
-    }
-
-    #[inline]
-    pub fn challenges(&self) -> &Challenges {
-        match self {
-            Block::BlockV1(block) => &block.challenges,
-            Block::BlockV2(block) => &block.challenges,
-            Block::BlockV3(block) => &block.body.challenges,
-            Block::BlockV4(block) => block.body.challenges(),
-        }
     }
 
     #[inline]
@@ -521,12 +494,6 @@ impl Block {
             .collect();
         if self.header().chunk_mask() != &chunk_mask[..] {
             return Err(InvalidChunkMask);
-        }
-
-        // Check that challenges root stored in the header matches the challenges root of the challenges
-        let challenges_root = Block::compute_challenges_root(self.challenges());
-        if self.header().challenges_root() != &challenges_root {
-            return Err(InvalidChallengeRoot);
         }
 
         Ok(())
@@ -641,17 +608,16 @@ impl<'a> Chunks<'a> {
         for chunk in self.iter_deprecated() {
             let shard_id = chunk.shard_id();
 
-            if let Some(congestion_info) = chunk.congestion_info() {
-                let height_included = chunk.height_included();
-                let height_current = self.block_height;
-                let missed_chunks_count = height_current.checked_sub(height_included);
-                let missed_chunks_count = missed_chunks_count
-                    .expect("The chunk height included must be less or equal than block height!");
+            let congestion_info = chunk.congestion_info();
+            let height_included = chunk.height_included();
+            let height_current = self.block_height;
+            let missed_chunks_count = height_current.checked_sub(height_included);
+            let missed_chunks_count = missed_chunks_count
+                .expect("The chunk height included must be less or equal than block height!");
 
-                let extended_congestion_info =
-                    ExtendedCongestionInfo::new(congestion_info, missed_chunks_count);
-                result.insert(shard_id, extended_congestion_info);
-            }
+            let extended_congestion_info =
+                ExtendedCongestionInfo::new(congestion_info, missed_chunks_count);
+            result.insert(shard_id, extended_congestion_info);
         }
         BlockCongestionInfo::new(result)
     }

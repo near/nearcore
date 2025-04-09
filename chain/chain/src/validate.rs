@@ -133,7 +133,7 @@ pub fn validate_chunk_with_chunk_extra_and_receipts_root(
         return Err(Error::InvalidGasLimit);
     }
 
-    validate_congestion_info(&prev_chunk_extra.congestion_info(), &chunk_header.congestion_info())?;
+    validate_congestion_info(prev_chunk_extra.congestion_info(), chunk_header.congestion_info())?;
     validate_bandwidth_requests(
         prev_chunk_extra.bandwidth_requests(),
         chunk_header.bandwidth_requests(),
@@ -147,28 +147,17 @@ pub fn validate_chunk_with_chunk_extra_and_receipts_root(
 /// trusted as it is the result of verified computation. The header congestion
 /// info is being validated.
 fn validate_congestion_info(
-    extra_congestion_info: &Option<CongestionInfo>,
-    header_congestion_info: &Option<CongestionInfo>,
+    extra_congestion_info: CongestionInfo,
+    header_congestion_info: CongestionInfo,
 ) -> Result<(), Error> {
-    match (extra_congestion_info, header_congestion_info) {
-        // If both are none then there is no congestion info to validate.
-        (None, None) => Ok(()),
-        // It is invalid to have one None and one Some. The congestion info in
-        // header should always be derived from the congestion info in extra.
-        (None, Some(_)) | (Some(_), None) => Err(Error::InvalidCongestionInfo(format!(
-            "Congestion Information mismatch. extra: {:?}, header: {:?}",
-            extra_congestion_info, header_congestion_info
-        ))),
-        // Congestion Info is present in both the extra and the header. Validate it.
-        (Some(extra), Some(header)) => CongestionInfo::validate_extra_and_header(extra, header)
-            .then_some(())
-            .ok_or_else(|| {
-                Error::InvalidCongestionInfo(format!(
-                    "Congestion Information validate error. extra: {:?}, header: {:?}",
-                    extra, header
-                ))
-            }),
-    }
+    CongestionInfo::validate_extra_and_header(&extra_congestion_info, &header_congestion_info)
+        .then_some(())
+        .ok_or_else(|| {
+            Error::InvalidCongestionInfo(format!(
+                "Congestion Information validate error. extra: {:?}, header: {:?}",
+                extra_congestion_info, header_congestion_info
+            ))
+        })
 }
 
 fn validate_bandwidth_requests(

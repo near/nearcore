@@ -751,9 +751,6 @@ pub fn report_congestion_metrics(
     config: &CongestionControlConfig,
 ) {
     match receipt_sink {
-        ReceiptSink::V1(_) => {
-            // no metrics to report
-        }
         ReceiptSink::V2(inner) => {
             let sender_shard_label = sender_shard_id.to_string();
             report_congestion_indicators(&inner.own_congestion_info, &sender_shard_label, &config);

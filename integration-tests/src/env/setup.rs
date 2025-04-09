@@ -936,7 +936,6 @@ fn process_peer_manager_message_default(
         | NetworkRequests::BanPeer { .. }
         | NetworkRequests::TxStatus(_, _, _)
         | NetworkRequests::SnapshotHostInfo { .. }
-        | NetworkRequests::Challenge(_)
         | NetworkRequests::ChunkStateWitnessAck(_, _)
         | NetworkRequests::EpochSyncRequest { .. }
         | NetworkRequests::EpochSyncResponse { .. } => {}

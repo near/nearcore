@@ -53,7 +53,7 @@ use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_network::client::{
     BlockApproval, BlockHeadersResponse, BlockResponse, ChunkEndorsementMessage,
-    OptimisticBlockMessage, RecvChallenge, SetNetworkInfo, StateResponseReceived,
+    OptimisticBlockMessage, SetNetworkInfo, StateResponseReceived,
 };
 use near_network::types::ReasonForBan;
 use near_network::types::{
@@ -548,8 +548,7 @@ impl Handler<BlockResponse> for ClientActorInner {
 impl Handler<BlockHeadersResponse> for ClientActorInner {
     fn handle(&mut self, msg: BlockHeadersResponse) -> Result<(), ReasonForBan> {
         let BlockHeadersResponse(headers, peer_id) = msg;
-        let validator_signer = self.client.validator_signer.get();
-        if self.receive_headers(headers, peer_id, &validator_signer) {
+        if self.receive_headers(headers, peer_id) {
             Ok(())
         } else {
             warn!(target: "client", "Banning node for sending invalid block headers");
@@ -616,16 +615,6 @@ impl Handler<StateResponseReceived> for ClientActorInner {
         }
 
         error!(target: "sync", "State sync received hash {} that we're not expecting, potential malicious peer or a very delayed response.", hash);
-    }
-}
-
-impl Handler<RecvChallenge> for ClientActorInner {
-    fn handle(&mut self, msg: RecvChallenge) {
-        let RecvChallenge(challenge) = msg;
-        match self.client.process_challenge(challenge) {
-            Ok(_) => {}
-            Err(err) => error!(target: "client", "Error processing challenge: {}", err),
-        }
     }
 }
 
@@ -1480,12 +1469,7 @@ impl ClientActorInner {
         }
     }
 
-    fn receive_headers(
-        &mut self,
-        headers: Vec<BlockHeader>,
-        peer_id: PeerId,
-        signer: &Option<Arc<ValidatorSigner>>,
-    ) -> bool {
+    fn receive_headers(&mut self, headers: Vec<BlockHeader>, peer_id: PeerId) -> bool {
         let _span =
             debug_span!(target: "client", "receive_headers", num_headers = headers.len(), ?peer_id)
                 .entered();
@@ -1493,7 +1477,7 @@ impl ClientActorInner {
             info!(target: "client", "Received an empty set of block headers");
             return true;
         }
-        match self.client.sync_block_headers(headers, signer) {
+        match self.client.sync_block_headers(headers) {
             Ok(_) => true,
             Err(err) => {
                 if err.is_bad_data() {
@@ -1709,7 +1693,7 @@ impl ClientActorInner {
             // This is the last step of state sync that is not in handle_sync_needed because it
             // needs access to the client.
             SyncHandlerRequest::NeedProcessBlockArtifact(block_processing_artifacts) => {
-                self.client.process_block_processing_artifact(block_processing_artifacts, signer);
+                self.client.process_block_processing_artifact(block_processing_artifacts);
             }
         }
     }

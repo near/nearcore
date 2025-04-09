@@ -34,17 +34,6 @@ deny = [
 ]
 
 skip = [
-    # Need this specific version of pwasm-utils for backwards-compatible
-    # stack limiting.
-    { name = "parity-wasm", version = "=0.41.0" },
-    # old version used by wasmer et al
-    { name = "dynasm", version = "=1.2.3" },
-    { name = "dynasmrt", version = "=1.2.3" },
-    { name = "rkyv", version = "^0.7" },
-    { name = "rkyv_derive", version = "^0.7" },
-    { name = "ptr_meta", version = "^0.1" },
-    { name = "ptr_meta_derive", version = "^0.1" },
-
     # wasmer and wasmtime
     { name = "memoffset", version = "=0.6.5" },
     { name = "memoffset", version = "=0.8.0" },

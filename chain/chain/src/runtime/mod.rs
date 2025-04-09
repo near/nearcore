@@ -21,7 +21,6 @@ use near_primitives::congestion_info::{
 use near_primitives::errors::{InvalidTxError, RuntimeError, StorageError};
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::receipt::Receipt;
-use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::state_part::PartId;
@@ -30,7 +29,7 @@ use near_primitives::types::{
     AccountId, Balance, BlockHeight, EpochHeight, EpochId, EpochInfoProvider, Gas, MerkleHash,
     ShardId, StateChangeCause, StateRoot, StateRootNode,
 };
-use near_primitives::version::{ProtocolFeature, ProtocolVersion};
+use near_primitives::version::ProtocolVersion;
 use near_primitives::views::{
     AccessKeyInfoView, CallResult, ContractCodeView, QueryRequest, QueryResponse,
     QueryResponseKind, ViewStateResult,
@@ -49,7 +48,8 @@ use node_runtime::config::tx_cost;
 use node_runtime::state_viewer::{TrieViewer, ViewApplyState};
 use node_runtime::{
     ApplyState, Runtime, SignedValidPeriodTransactions, ValidatorAccountsUpdate,
-    set_tx_state_changes, validate_transaction, verify_and_charge_tx_ephemeral,
+    get_signer_and_access_key, set_tx_state_changes, validate_transaction,
+    verify_and_charge_tx_ephemeral,
 };
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -59,7 +59,6 @@ use tracing::{debug, error, info, instrument};
 
 pub mod errors;
 mod metrics;
-pub mod migrations;
 pub mod test_utils;
 #[cfg(test)]
 mod tests;
@@ -69,14 +68,12 @@ mod tests;
 pub struct NightshadeRuntime {
     genesis_config: GenesisConfig,
     runtime_config_store: RuntimeConfigStore,
-
     store: Store,
     compiled_contract_cache: Box<dyn ContractRuntimeCache>,
     tries: ShardTries,
     trie_viewer: TrieViewer,
     pub runtime: Runtime,
     epoch_manager: Arc<EpochManagerHandle>,
-    migration_data: Arc<MigrationData>,
     gc_num_epochs_to_keep: u64,
 }
 
@@ -119,7 +116,6 @@ impl NightshadeRuntime {
             tracing::debug!(target: "runtime", ?err, "The state snapshot is not available.");
         }
 
-        let migration_data = Arc::new(migrations::load_migration_data(&genesis_config.chain_id));
         Arc::new(NightshadeRuntime {
             genesis_config: genesis_config.clone(),
             compiled_contract_cache,
@@ -129,7 +125,6 @@ impl NightshadeRuntime {
             runtime,
             trie_viewer,
             epoch_manager,
-            migration_data,
             gc_num_epochs_to_keep: gc_num_epochs_to_keep.max(MIN_GC_NUM_EPOCHS_TO_KEEP),
         })
     }
@@ -176,13 +171,8 @@ impl NightshadeRuntime {
             congestion_info,
             bandwidth_requests,
         } = block;
-        let ApplyChunkShardContext {
-            shard_id,
-            last_validator_proposals,
-            gas_limit,
-            is_new_chunk,
-            is_first_block_with_chunk_of_version,
-        } = chunk;
+        let ApplyChunkShardContext { shard_id, last_validator_proposals, gas_limit, is_new_chunk } =
+            chunk;
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(prev_block_hash)?;
         let validator_accounts_update = {
             let epoch_manager = self.epoch_manager.read();
@@ -192,7 +182,7 @@ impl NightshadeRuntime {
             );
 
             if epoch_manager.is_next_block_epoch_start(prev_block_hash)? {
-                let (stake_info, validator_reward, _double_sign_slashing_info) =
+                let (stake_info, validator_reward) =
                     epoch_manager.compute_stake_return_info(prev_block_hash)?;
                 let stake_info = stake_info
                     .into_iter()
@@ -260,11 +250,6 @@ impl NightshadeRuntime {
             config: self.runtime_config_store.get_config(current_protocol_version).clone(),
             cache: Some(self.compiled_contract_cache.handle()),
             is_new_chunk,
-            migration_data: Arc::clone(&self.migration_data),
-            migration_flags: MigrationFlags {
-                is_first_block_of_version,
-                is_first_block_with_chunk_of_version,
-            },
             congestion_info,
             bandwidth_requests,
         };
@@ -545,10 +530,11 @@ impl RuntimeAdapter for NightshadeRuntime {
         let shard_uid = shard_layout
             .account_id_to_shard_uid(validated_tx.to_signed_tx().transaction.signer_id());
         let state_update = self.tries.new_trie_update(shard_uid, state_root);
-
+        let (mut signer, mut access_key) = get_signer_and_access_key(&state_update, &validated_tx)?;
         verify_and_charge_tx_ephemeral(
             runtime_config,
-            &state_update,
+            &mut signer,
+            &mut access_key,
             validated_tx,
             &cost,
             // here we do not know which block the transaction will be included
@@ -568,7 +554,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         time_limit: Option<Duration>,
     ) -> Result<PreparedTransactions, Error> {
         let start_time = std::time::Instant::now();
-        let PrepareTransactionsChunkContext { shard_id, gas_limit, .. } = chunk;
+        let PrepareTransactionsChunkContext { shard_id, .. } = chunk;
 
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&prev_block.block_hash)?;
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
@@ -611,8 +597,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         let mut total_gas_burnt = 0;
         let mut total_size = 0u64;
 
-        let transactions_gas_limit =
-            chunk_tx_gas_limit(protocol_version, runtime_config, &prev_block, shard_id, gas_limit);
+        let transactions_gas_limit = chunk_tx_gas_limit(runtime_config, &prev_block, shard_id);
 
         let mut result = PreparedTransactions { transactions: Vec::new(), limited_by: None };
         let mut num_checked_transactions = 0;
@@ -667,7 +652,6 @@ impl RuntimeAdapter for NightshadeRuntime {
 
                 if !congestion_control_accepts_transaction(
                     self.epoch_manager.as_ref(),
-                    protocol_version,
                     &runtime_config,
                     &epoch_id,
                     &prev_block,
@@ -685,13 +669,17 @@ impl RuntimeAdapter for NightshadeRuntime {
                     continue;
                 }
 
+                let (mut signer, mut access_key) =
+                    get_signer_and_access_key(&state_update, &validated_tx)
+                        .map_err(|_| Error::InvalidTransactions)?;
                 let verify_result =
                     tx_cost(runtime_config, &validated_tx.to_tx(), prev_block.next_gas_price)
                         .map_err(InvalidTxError::from)
                         .and_then(|cost| {
                             verify_and_charge_tx_ephemeral(
                                 runtime_config,
-                                &state_update,
+                                &mut signer,
+                                &mut access_key,
                                 &validated_tx,
                                 &cost,
                                 Some(next_block_height),
@@ -701,8 +689,8 @@ impl RuntimeAdapter for NightshadeRuntime {
                             set_tx_state_changes(
                                 &mut state_update,
                                 &validated_tx,
-                                &verification_res.signer,
-                                &verification_res.access_key,
+                                &signer,
+                                &access_key,
                             );
                             Ok(verification_res)
                         });
@@ -1194,16 +1182,10 @@ impl RuntimeAdapter for NightshadeRuntime {
 /// How much gas of the next chunk we want to spend on converting new
 /// transactions to receipts.
 fn chunk_tx_gas_limit(
-    protocol_version: u32,
     runtime_config: &RuntimeConfig,
     prev_block: &PrepareTransactionsBlockContext,
     shard_id: ShardId,
-    gas_limit: u64,
 ) -> u64 {
-    if !ProtocolFeature::CongestionControl.enabled(protocol_version) {
-        return gas_limit / 2;
-    }
-
     // The own congestion may be None when a new shard is created, or when the
     // feature is just being enabled. Using the default (no congestion) is a
     // reasonable choice in this case.
@@ -1223,15 +1205,11 @@ fn chunk_tx_gas_limit(
 /// congestion level is below the threshold.
 fn congestion_control_accepts_transaction(
     epoch_manager: &dyn EpochManagerAdapter,
-    protocol_version: ProtocolVersion,
     runtime_config: &RuntimeConfig,
     epoch_id: &EpochId,
     prev_block: &PrepareTransactionsBlockContext,
     validated_tx: &ValidatedTransaction,
 ) -> Result<bool, Error> {
-    if !ProtocolFeature::CongestionControl.enabled(protocol_version) {
-        return Ok(true);
-    }
     let receiver_id = validated_tx.receiver_id();
     let receiving_shard = account_id_to_shard_id(epoch_manager, receiver_id, &epoch_id)?;
     let congestion_info = prev_block.congestion_info.get(&receiving_shard);

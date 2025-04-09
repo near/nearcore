@@ -27,9 +27,7 @@ fn run_fuzz(code: &ContractCode, vm_kind: VMKind) -> VMOutcome {
     let config_store = RuntimeConfigStore::new(None);
     let config = config_store.get_config(PROTOCOL_VERSION);
     let fees = Arc::clone(&config.fees);
-    let mut wasm_config = near_parameters::vm::Config::clone(&config.wasm_config);
-    wasm_config.limit_config.contract_prepare_version =
-        near_vm_runner::logic::ContractPrepareVersion::V2;
+    let wasm_config = near_parameters::vm::Config::clone(&config.wasm_config);
     let gas_counter = context.make_gas_counter(&wasm_config);
     let res = vm_kind
         .runtime(wasm_config.into())
