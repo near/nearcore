@@ -940,6 +940,7 @@ impl Chain {
     /// based on this. We will update these once we get the block back after
     /// requesting it.
     pub fn process_block_header(&self, header: &BlockHeader) -> Result<(), Error> {
+        let _span = tracing::debug_span!(target: "chain", "process_block_header", block_hash=?header.hash(), height=header.height()).entered();
         debug!(target: "chain", block_hash=?header.hash(), height=header.height(), "process_block_header");
 
         check_known(self, header.hash())?.map_err(|e| Error::BlockKnown(e))?;
