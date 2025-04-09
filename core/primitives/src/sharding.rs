@@ -4,6 +4,8 @@ use crate::hash::{CryptoHash, hash};
 use crate::merkle::{MerklePath, combine_hash, merklize, verify_path};
 use crate::receipt::Receipt;
 use crate::transaction::SignedTransaction;
+#[cfg(feature = "solomon")]
+use crate::transaction::ValidatedTransaction;
 use crate::types::validator_stake::{ValidatorStake, ValidatorStakeIter, ValidatorStakeV1};
 use crate::types::{Balance, BlockHeight, Gas, MerkleHash, ShardId, StateRoot};
 use crate::validator_signer::{EmptyValidatorSigner, ValidatorSigner};
@@ -1187,7 +1189,7 @@ impl EncodedShardChunk {
         prev_balance_burnt: Balance,
         tx_root: CryptoHash,
         prev_validator_proposals: Vec<ValidatorStake>,
-        transactions: Vec<SignedTransaction>,
+        validated_txs: Vec<ValidatedTransaction>,
         prev_outgoing_receipts: Vec<Receipt>,
         prev_outgoing_receipts_root: CryptoHash,
         congestion_info: CongestionInfo,
@@ -1195,7 +1197,9 @@ impl EncodedShardChunk {
         signer: &ValidatorSigner,
         protocol_version: ProtocolVersion,
     ) -> (Self, Vec<MerklePath>, Vec<Receipt>) {
-        let transaction_receipt = TransactionReceipt(transactions, prev_outgoing_receipts);
+        let signed_txs =
+            validated_txs.into_iter().map(|validated_tx| validated_tx.into_signed_tx()).collect();
+        let transaction_receipt = TransactionReceipt(signed_txs, prev_outgoing_receipts);
         let (transaction_receipts_parts, encoded_length) =
             crate::reed_solomon::reed_solomon_encode(rs, &transaction_receipt);
         let content = EncodedShardChunkBody { parts: transaction_receipts_parts };
