@@ -826,7 +826,6 @@ pub mod chunk_extra {
         }
 
         pub fn new(
-            _protocol_version: ProtocolVersion,
             state_root: &StateRoot,
             outcome_root: CryptoHash,
             validator_proposals: Vec<ValidatorStake>,

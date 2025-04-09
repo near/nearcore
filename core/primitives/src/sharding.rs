@@ -233,7 +233,6 @@ impl ShardChunkHeaderV3 {
     }
 
     pub fn new(
-        _protocol_version: ProtocolVersion,
         prev_block_hash: CryptoHash,
         prev_state_root: StateRoot,
         prev_outcome_root: CryptoHash,
