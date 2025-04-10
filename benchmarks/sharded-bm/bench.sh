@@ -675,31 +675,37 @@ get_traces() {
         echo "Error: TRACING_SERVER_EXTERNAL_IP is not set."
         return 1
     fi
-
-    local CUR_TIME="$(date +%s)"
-    local LAG_SECS=${LAG_SECS:-10}
-    local LEN_SECS=${LEN_SECS:-10}
-
-    local START_TIME=$(bc <<< "$CUR_TIME - $LAG_SECS - $LEN_SECS")
-    START_TIME="$START_TIME""000"
-    local END_TIME=$(bc <<< "$CUR_TIME - $LAG_SECS")
-    END_TIME="$END_TIME""000"
-
-    echo "Current time: $CUR_TIME"
-    echo "Start time: $START_TIME"
-    echo "End time: $END_TIME"
-
+    
+    local cur_time="$(date +%s)"
+    local lag_secs=10
+    local len_secs=10
+    local output_dir=${1:-.}
+    
+    local start_time=$(bc <<< "$cur_time - $lag_secs - $len_secs")
+    start_time="$start_time""000"
+    local end_time=$(bc <<< "$cur_time - $lag_secs")
+    end_time="$end_time""000"
+    
+    echo "Current time: $cur_time"
+    echo "Start time: $start_time"
+    echo "End time: $end_time"
+    
+    mkdir -p "${output_dir}"
+    
+    local trace_file="${output_dir}/trace_${start_time}.json"
+    local profile_file="${output_dir}/profile_${start_time}.json"
+    
     curl -X POST http://${TRACING_SERVER_EXTERNAL_IP}:8080/raw_trace \
         -H 'Content-Type: application/json' \
-        -d "{\"start_timestamp_unix_ms\": $START_TIME, \"end_timestamp_unix_ms\": $END_TIME, \"filter\": {\"nodes\": [],\"threads\": []}}" \
-        -o trace.json
-
+        -d "{\"start_timestamp_unix_ms\": $start_time, \"end_timestamp_unix_ms\": $end_time, \"filter\": {\"nodes\": [],\"threads\": []}}" \
+        -o "${trace_file}"
+    
     curl -X POST http://${TRACING_SERVER_EXTERNAL_IP}:8080/profile \
         -H 'Content-Type: application/json' \
-        -d "{\"start_timestamp_unix_ms\": $START_TIME, \"end_timestamp_unix_ms\": $END_TIME, \"filter\": {\"nodes\": [],\"threads\": []}}" \
-        -o profile.json
-
-    echo "=> Traces saved to trace.json and profile.json"
+        -d "{\"start_timestamp_unix_ms\": $start_time, \"end_timestamp_unix_ms\": $end_time, \"filter\": {\"nodes\": [],\"threads\": []}}" \
+        -o "${profile_file}"
+        
+    echo "=> Traces saved to ${trace_file} and ${profile_file}"
 }
 
 case "${1}" in
@@ -740,7 +746,7 @@ stop-injection)
     ;;
 
 get-traces)
-    get_traces
+    get_traces ${2}
     ;;
 
 mirror)
