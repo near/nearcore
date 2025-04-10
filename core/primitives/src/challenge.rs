@@ -16,12 +16,6 @@ pub struct BlockDoubleSign {
     pub right_block_header: Vec<u8>,
 }
 
-impl std::fmt::Display for BlockDoubleSign {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
-        write!(f, "{:?}", self)
-    }
-}
-
 /// Invalid chunk (body of the chunk doesn't match proofs or invalid encoding).
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug, ProtocolSchema)]
 pub struct ChunkProofs {
@@ -91,8 +85,6 @@ impl Challenge {
     }
 }
 
-pub type Challenges = Vec<Challenge>;
-
 #[derive(
     BorshSerialize,
     BorshDeserialize,
@@ -108,7 +100,3 @@ pub struct SlashedValidator {
     pub account_id: AccountId,
     pub is_double_sign: bool,
 }
-
-/// Result of checking challenge, contains which accounts to slash.
-/// If challenge is invalid this is sender, otherwise author of chunk (and possibly other participants that signed invalid blocks).
-pub type ChallengesResult = Vec<SlashedValidator>;
