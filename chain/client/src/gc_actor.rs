@@ -91,6 +91,7 @@ impl GCActor {
     }
 
     fn gc(&mut self, ctx: &mut dyn DelayedActionRunner<Self>) {
+        let _span = tracing::debug_span!(target: "client", "gc", is_archive=self.is_archive).entered();
         if !self.no_gc {
             let timer = metrics::GC_TIME.start_timer();
             if let Err(e) = self.clear_data() {
