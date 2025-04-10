@@ -17,6 +17,11 @@ pub fn validate_chunk_proofs(
     chunk: &ShardChunk,
     epoch_manager: &dyn EpochManagerAdapter,
 ) -> Result<bool, Error> {
+    let shard_id = chunk.shard_id();
+    let height_created = chunk.height_created();
+    let _span =
+        tracing::debug_span!(target: "chain", "validate_chunk_proofs", ?shard_id, ?height_created)
+            .entered();
     let correct_chunk_hash = chunk.compute_header_hash();
 
     // 1. Checking chunk.header.hash
@@ -69,6 +74,8 @@ pub fn validate_chunk_with_chunk_extra(
     prev_chunk_height_included: BlockHeight,
     chunk_header: &ShardChunkHeader,
 ) -> Result<(), Error> {
+    let shard_id = chunk_header.shard_id();
+    let _span = tracing::debug_span!(target: "chain", "validate_chunk_with_chunk_extra", ?shard_id, ?prev_chunk_height_included).entered();
     let outgoing_receipts = chain_store.get_outgoing_receipts_for_shard(
         epoch_manager,
         *prev_block_hash,
@@ -94,6 +101,8 @@ pub fn validate_chunk_with_chunk_extra_and_receipts_root(
     chunk_header: &ShardChunkHeader,
     outgoing_receipts_root: &CryptoHash,
 ) -> Result<(), Error> {
+    let shard_id = chunk_header.shard_id();
+    let _span = tracing::debug_span!(target: "chain", "validate_chunk_with_chunk_extra_and_receipts_root", ?shard_id).entered();
     if *prev_chunk_extra.state_root() != chunk_header.prev_state_root() {
         return Err(Error::InvalidStateRoot);
     }
@@ -150,6 +159,7 @@ fn validate_congestion_info(
     extra_congestion_info: CongestionInfo,
     header_congestion_info: CongestionInfo,
 ) -> Result<(), Error> {
+    let _span = tracing::debug_span!(target: "chain", "validate_congestion_info").entered();
     CongestionInfo::validate_extra_and_header(&extra_congestion_info, &header_congestion_info)
         .then_some(())
         .ok_or_else(|| {
@@ -164,6 +174,7 @@ fn validate_bandwidth_requests(
     extra_bandwidth_requests: Option<&BandwidthRequests>,
     header_bandwidth_requests: Option<&BandwidthRequests>,
 ) -> Result<(), Error> {
+    let _span = tracing::debug_span!(target: "chain", "validate_bandwidth_requests").entered();
     if extra_bandwidth_requests != header_bandwidth_requests {
         fn requests_len(requests_opt: Option<&BandwidthRequests>) -> usize {
             match requests_opt {

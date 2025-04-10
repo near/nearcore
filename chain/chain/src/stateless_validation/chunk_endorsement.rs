@@ -21,6 +21,8 @@ pub fn validate_chunk_endorsements_in_block(
     epoch_manager: &dyn EpochManagerAdapter,
     block: &Block,
 ) -> Result<(), Error> {
+    let block_height = block.header().height();
+    let _span = tracing::debug_span!(target: "chain", "validate_chunk_endorsements_in_block", ?block_height).entered();
     // Number of chunks and chunk endorsements must match and must be equal to number of shards
     if block.chunks().len() != block.chunk_endorsements().len() {
         tracing::error!(
@@ -161,6 +163,8 @@ pub fn validate_chunk_endorsements_in_header(
     epoch_manager: &dyn EpochManagerAdapter,
     header: &BlockHeader,
 ) -> Result<(), Error> {
+    let block_height = header.height();
+    let _span = tracing::debug_span!(target: "chain", "validate_chunk_endorsements_in_header", ?block_height).entered();
     let Some(chunk_endorsements) = header.chunk_endorsements() else {
         return Err(Error::InvalidChunkEndorsementBitmap(format!(
             "Expected chunk endorsements bitmap but found None at height {}",

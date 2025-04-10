@@ -42,9 +42,12 @@ impl ChunkEndorsementTracker {
         &mut self,
         endorsement: ChunkEndorsement,
     ) -> Result<(), Error> {
-        // Check if we have already received chunk endorsement from this validator.
         let key = endorsement.chunk_production_key();
         let account_id = endorsement.account_id();
+        let _span =
+            tracing::debug_span!(target: "client", "process_chunk_endorsement", ?key, ?account_id)
+                .entered();
+        // Check if we have already received chunk endorsement from this validator.
         if self.chunk_endorsements.peek(&key).is_some_and(|entry| entry.contains_key(account_id)) {
             tracing::debug!(target: "client", ?endorsement, "Already received chunk endorsement.");
             return Ok(());
@@ -65,10 +68,10 @@ impl ChunkEndorsementTracker {
         chunk_header: &ShardChunkHeader,
     ) -> Result<ChunkEndorsementsState, Error> {
         let shard_id = chunk_header.shard_id();
+        let height_created = chunk_header.height_created();
+        let _span = tracing::debug_span!(target: "client", "collect_chunk_endorsements", ?shard_id, ?height_created).entered();
         let epoch_id =
             self.epoch_manager.get_epoch_id_from_prev_block(chunk_header.prev_block_hash())?;
-
-        let height_created = chunk_header.height_created();
         let key = ChunkProductionKey { shard_id, epoch_id, height_created };
 
         let chunk_validator_assignments = self.epoch_manager.get_chunk_validator_assignments(

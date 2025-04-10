@@ -394,6 +394,8 @@ impl StoreUpdate {
         )
     )]
     pub fn commit(self) -> io::Result<()> {
+        let ops_count = self.transaction.ops.len();
+        let _span = tracing::debug_span!(target: "store", "commit", ops_count).entered();
         debug_assert!(
             {
                 let non_refcount_keys = self

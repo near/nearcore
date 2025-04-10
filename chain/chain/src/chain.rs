@@ -685,6 +685,8 @@ impl Chain {
     /// Do basic validation of a block upon receiving it. Check that block is
     /// well-formed (various roots match).
     pub fn validate_block(&self, block: &MaybeValidated<Block>) -> Result<(), Error> {
+        let block_hash = block.hash();
+        let _span = tracing::debug_span!(target: "chain", "validate_block", ?block_hash).entered();
         block
             .validate_with(|block| {
                 Chain::validate_block_impl(self.epoch_manager.as_ref(), self.genesis_block(), block)
@@ -698,6 +700,9 @@ impl Chain {
         genesis_block: &Block,
         block: &Block,
     ) -> Result<(), Error> {
+        let block_height = block.header().height();
+        let block_hash = block.hash();
+        let _span = tracing::debug_span!(target: "chain", "validate_block_impl", ?block_height, ?block_hash).entered();
         let epoch_id = block.header().epoch_id();
         let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
 
@@ -797,6 +802,11 @@ impl Chain {
     }
 
     fn validate_header(&self, header: &BlockHeader, provenance: &Provenance) -> Result<(), Error> {
+        let block_height = header.height();
+        let block_hash = header.hash();
+        let _span =
+            tracing::debug_span!(target: "chain", "validate_header", ?block_height, ?block_hash)
+                .entered();
         if header.challenges_present() {
             return Err(Error::InvalidChallenge);
         }
@@ -940,6 +950,7 @@ impl Chain {
     /// based on this. We will update these once we get the block back after
     /// requesting it.
     pub fn process_block_header(&self, header: &BlockHeader) -> Result<(), Error> {
+        let _span = tracing::debug_span!(target: "chain", "process_block_header", block_hash=?header.hash(), height=header.height()).entered();
         debug!(target: "chain", block_hash=?header.hash(), height=header.height(), "process_block_header");
 
         check_known(self, header.hash())?.map_err(|e| Error::BlockKnown(e))?;
@@ -987,6 +998,9 @@ impl Chain {
 
     /// Do basic validation of the information that we can get from the chunk headers in `block`
     fn validate_chunk_headers(&self, block: &Block, prev_block: &Block) -> Result<(), Error> {
+        let block_height = block.header().height();
+        let _span = tracing::debug_span!(target: "chain", "validate_chunk_headers", ?block_height)
+            .entered();
         let prev_chunk_headers =
             Chain::get_prev_chunk_headers(self.epoch_manager.as_ref(), prev_block)?;
         for (chunk_header, prev_chunk_header) in
@@ -1047,6 +1061,9 @@ impl Chain {
         parent_hash: CryptoHash,
         block: &Block,
     ) -> Result<(), Error> {
+        let block_height = block.header().height();
+        let _span =
+            tracing::debug_span!(target: "chain", "ping_missing_chunks", ?block_height).entered();
         if !self.cares_about_any_shard_or_part(me, parent_hash)? {
             return Ok(());
         }
@@ -1144,6 +1161,8 @@ impl Chain {
         prev_block_hash: &CryptoHash,
         shuffle_salt: &CryptoHash,
     ) -> Result<HashMap<ShardId, Vec<ReceiptProof>>, Error> {
+        let _span = tracing::debug_span!(target: "chain", "collect_incoming_receipts_from_chunks")
+            .entered();
         if !self.cares_about_any_shard_or_part(me, *prev_block_hash)? {
             return Ok(HashMap::new());
         }
@@ -1732,6 +1751,9 @@ impl Chain {
         apply_chunks_still_applying: ApplyChunksStillApplying,
         apply_chunks_done_sender: Option<near_async::messaging::Sender<ApplyChunksDoneMessage>>,
     ) {
+        let _span =
+            tracing::debug_span!(target: "chain", "schedule_apply_chunks", ?block, block_height)
+                .entered();
         let sc = self.apply_chunks_sender.clone();
         let clock = self.clock.clone();
         self.apply_chunks_spawner.spawn("apply_chunks", move || {
@@ -2165,6 +2187,7 @@ impl Chain {
         state_patch: SandboxStatePatch,
     ) -> Result<PreprocessBlockResult, Error> {
         let header = block.header();
+        let _span = tracing::debug_span!(target: "chain", "preprocess_block", height=header.height(), block_hash=?header.hash()).entered();
 
         // see if the block is already in processing or if there are too many blocks being processed
         self.blocks_in_processing.add_dry_run(&BlockToApply::Normal(*block.hash()))?;
@@ -2581,6 +2604,9 @@ impl Chain {
         prev_block_header: &BlockHeader,
         chunk: &ShardChunk,
     ) -> Vec<bool> {
+        let shard_id = chunk.shard_id();
+        let _span = tracing::debug_span!(target: "chain", "validate_chunk_transactions", ?shard_id)
+            .entered();
         self.chain_store().compute_transaction_validity(prev_block_header, chunk)
     }
 

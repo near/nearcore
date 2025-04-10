@@ -246,6 +246,7 @@ fn create_external_connection(
     }
 }
 
+#[tracing::instrument(level = "debug", target = "state_parts", skip_all, fields(part_id = ?part_id))]
 fn validate_state_part(state_root: &StateRoot, part_id: PartId, part: &[u8]) -> bool {
     match BorshDeserialize::try_from_slice(part) {
         Ok(trie_nodes) => {
@@ -266,6 +267,7 @@ fn validate_state_part(state_root: &StateRoot, part_id: PartId, part: &[u8]) -> 
     }
 }
 
+#[tracing::instrument(level = "debug", target = "state_parts", skip_all)]
 fn validate_state_header(header: &[u8]) -> bool {
     match ShardStateSyncResponseHeader::try_from_slice(&header) {
         Ok(_) => {
@@ -812,6 +814,7 @@ async fn process_header_with_3_retries(
     res?
 }
 
+#[tracing::instrument(level = "debug", target = "state_parts", skip_all, fields(part_id, chain_id, ?epoch_id))]
 async fn process_part(
     part_id: u64,
     chain_id: String,
