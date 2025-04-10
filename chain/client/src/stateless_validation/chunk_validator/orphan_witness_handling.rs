@@ -78,6 +78,7 @@ impl Client {
     }
 
     fn process_ready_orphan_witnesses(&mut self, new_block: &Block, signer: &Arc<ValidatorSigner>) {
+        let _span = tracing::debug_span!(target: "client", "process_ready_orphan_witnesses", block_hash=?new_block.hash(), height=new_block.header().height()).entered();
         let ready_witnesses = self
             .chunk_validator
             .orphan_witness_pool
@@ -108,6 +109,7 @@ impl Client {
         new_block: &Block,
         signer: &Option<Arc<ValidatorSigner>>,
     ) {
+        let _span = tracing::debug_span!(target: "client", "process_ready_orphan_witnesses_and_clean_old", block_hash=?new_block.hash(), height=new_block.header().height()).entered();
         if let Some(signer) = signer {
             self.process_ready_orphan_witnesses(new_block, signer);
         }
