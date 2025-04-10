@@ -272,8 +272,6 @@ impl NightshadeRuntime {
                     Error::InvalidTransactions
                 }
                 // TODO(#2152): process gracefully
-                RuntimeError::BalanceMismatchError(e) => panic!("{}", e),
-                // TODO(#2152): process gracefully
                 RuntimeError::UnexpectedIntegerOverflow(reason) => {
                     panic!("RuntimeError::UnexpectedIntegerOverflow {reason}")
                 }

@@ -9,7 +9,7 @@ use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::epoch_info::EpochInfo;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::validator_stake::ValidatorStake;
-use near_primitives::types::{AccountId, Balance, EpochId, ValidatorKickoutReason};
+use near_primitives::types::{AccountId, Balance, EpochId};
 
 const DEBUG_PRINT: bool = false;
 
@@ -175,15 +175,11 @@ fn verify_epochs(epoch_infos: &[Arc<EpochInfo>]) {
         if is_possible_bad_epochs_case(&epoch_infos[i - 1], &epoch_infos[i]) {
             continue;
         }
-        for (account_id, reason) in epoch_info.validator_kickout() {
+        for account_id in epoch_info.validator_kickout().keys() {
             let was_validator_2_ago = (i >= 2
                 && epoch_infos[i - 2].account_is_validator(account_id))
                 || (i == 1 && epoch_infos[0].account_is_validator(account_id));
-            let in_slashes_set = reason == &ValidatorKickoutReason::Slashed;
-            assert!(
-                was_validator_2_ago || in_slashes_set,
-                "Kickout set can only have validators from 2 epochs ago"
-            );
+            assert!(was_validator_2_ago, "Kickout set can only have validators from 2 epochs ago");
         }
     }
 }
