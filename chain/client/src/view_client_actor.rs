@@ -64,7 +64,6 @@ use near_primitives::views::{
     SignedTransactionView, SplitStorageInfoView, StateChangesKindsView, StateChangesView,
     TxExecutionStatus, TxStatusView,
 };
-use near_store::flat::{FlatStorageReadyStatus, FlatStorageStatus};
 use near_store::{COLD_HEAD_KEY, DBCol, FINAL_HEAD_KEY, HEAD_KEY};
 use std::cmp::Ordering;
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
@@ -684,27 +683,6 @@ impl ViewClientActorInner {
         }
         cache.push_back(now);
         false
-    }
-
-    fn has_state_snapshot(&self, sync_hash: &CryptoHash, shard_id: ShardId) -> Result<bool, Error> {
-        let header = self.chain.get_block_header(sync_hash)?;
-        let prev_header = self.chain.get_block_header(header.prev_hash())?;
-        let prev_epoch_id = prev_header.epoch_id();
-        let shard_uid = shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, prev_epoch_id)?;
-        let sync_prev_prev_hash = prev_header.prev_hash();
-        let status = self
-            .runtime
-            .get_tries()
-            .get_snapshot_flat_storage_status(*sync_prev_prev_hash, shard_uid)
-            .map_err(|err| Error::Other(err.to_string()))?;
-        match status {
-            FlatStorageStatus::Ready(FlatStorageReadyStatus { flat_head }) => {
-                let flat_head_header = self.chain.get_block_header(&flat_head.hash)?;
-                let flat_head_epoch_id = flat_head_header.epoch_id();
-                Ok(flat_head_epoch_id == prev_epoch_id)
-            }
-            _ => Ok(false),
-        }
     }
 }
 
@@ -1378,19 +1356,18 @@ impl Handler<StateRequestHeader> for ViewClientActorInner {
                     }
                 };
 
-                let can_generate = self.has_state_snapshot(&sync_hash, shard_id).is_ok();
                 ShardStateSyncResponse::V3(ShardStateSyncResponseV3 {
                     header: Some(header),
                     part: None,
-                    cached_parts: None,
-                    can_generate,
+                    cached_parts: None,  // Unused
+                    can_generate: false, // Unused
                 })
             }
             None => ShardStateSyncResponse::V3(ShardStateSyncResponseV3 {
                 header: None,
                 part: None,
-                cached_parts: None,
-                can_generate: false,
+                cached_parts: None,  // Unused
+                can_generate: false, // Unused
             }),
         };
         let info = StateResponseInfo::V2(Box::new(StateResponseInfoV2 {
@@ -1412,10 +1389,6 @@ impl Handler<StateRequestPart> for ViewClientActorInner {
         let StateRequestPart { shard_id, sync_hash, part_id } = msg;
         if self.throttle_state_sync_request() {
             metrics::STATE_SYNC_REQUESTS_THROTTLED_TOTAL.inc();
-            return None;
-        }
-        if let Err(err) = self.has_state_snapshot(&sync_hash, shard_id) {
-            tracing::debug!(target: "sync", ?err, ?sync_hash, "Node doesn't have a matching state snapshot");
             return None;
         }
         tracing::debug!(target: "sync", ?shard_id, ?sync_hash, ?part_id, "Computing state request part");
@@ -1452,12 +1425,11 @@ impl Handler<StateRequestPart> for ViewClientActorInner {
                 None
             }
         };
-        let can_generate = part.is_some();
         let state_response = ShardStateSyncResponse::V3(ShardStateSyncResponseV3 {
             header: None,
             part,
-            cached_parts: None,
-            can_generate,
+            cached_parts: None,  // Unused
+            can_generate: false, // Unused
         });
         let info = StateResponseInfo::V2(Box::new(StateResponseInfoV2 {
             shard_id,
