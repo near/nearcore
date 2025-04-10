@@ -1,4 +1,3 @@
-mod challenges;
 mod doomslug;
 mod garbage_collection;
 mod simple_chain;

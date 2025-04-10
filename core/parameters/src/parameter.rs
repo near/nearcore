@@ -192,8 +192,6 @@ pub enum Parameter {
     MaxYieldPayloadSize,
 
     // Contract runtime features
-    #[strum(serialize = "disable_9393_fix")]
-    Disable9393Fix,
     FlatStorageReads,
     ImplicitAccountCreation,
     FixContractLoadingCost,

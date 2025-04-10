@@ -12,7 +12,7 @@ use crate::action::{
 use crate::bandwidth_scheduler::BandwidthRequests;
 use crate::block::{Block, BlockHeader, Tip};
 use crate::block_header::BlockHeaderInnerLite;
-use crate::challenge::{Challenge, ChallengesResult};
+use crate::challenge::ChallengesResult;
 use crate::congestion_info::{CongestionInfo, CongestionInfoV1};
 use crate::errors::TxExecutionError;
 use crate::hash::{CryptoHash, hash};
@@ -732,17 +732,6 @@ pub struct StatusResponse {
     /// Information about last blocks, network, epoch and chain & chunk info.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub detailed_debug_status: Option<DetailedDebugStatus>,
-}
-
-#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
-pub struct ChallengeView {
-    // TODO: decide how to represent challenges in json.
-}
-
-impl From<Challenge> for ChallengeView {
-    fn from(_challenge: Challenge) -> Self {
-        Self {}
-    }
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]

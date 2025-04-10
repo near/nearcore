@@ -486,7 +486,7 @@ impl Chain {
                 if chain_store.get_block_header(&header_head.last_block_hash).is_err() {
                     // Reset header head and "sync" head to be consistent with current block head.
                     let mut store_update = chain_store.store_update();
-                    store_update.save_header_head_if_not_challenged(&block_head)?;
+                    store_update.save_header_head(&block_head)?;
                     store_update.commit()?;
                     header_head = block_head.clone();
                 }
@@ -1041,31 +1041,6 @@ impl Chain {
         Ok(())
     }
 
-    /// Check if the chain leading to the given block has challenged blocks on it. Returns Ok if the chain
-    /// does not have challenged blocks, otherwise error ChallengedBlockOnChain.
-    fn check_if_challenged_block_on_chain(&self, block_header: &BlockHeader) -> Result<(), Error> {
-        let mut hash = *block_header.hash();
-        let mut height = block_header.height();
-        let mut prev_hash = *block_header.prev_hash();
-        loop {
-            match self.get_block_hash_by_height(height) {
-                Ok(cur_hash) if cur_hash == hash => {
-                    // Found common ancestor.
-                    return Ok(());
-                }
-                _ => {
-                    if self.chain_store.is_block_challenged(&hash)? {
-                        return Err(Error::ChallengedBlockOnChain);
-                    }
-                    let prev_header = self.get_block_header(&prev_hash)?;
-                    hash = *prev_header.hash();
-                    height = prev_header.height();
-                    prev_hash = *prev_header.prev_hash();
-                }
-            };
-        }
-    }
-
     pub fn ping_missing_chunks(
         &self,
         me: &Option<AccountId>,
@@ -1526,7 +1501,7 @@ impl Chain {
         let mut chain_update = self.chain_update();
         if let Some(header) = headers.last() {
             // Update header_head if it's the new tip
-            chain_update.update_header_head_if_not_challenged(header)?;
+            chain_update.update_header_head(header)?;
         }
         chain_update.commit()
     }
@@ -2270,8 +2245,6 @@ impl Chain {
             prev_prev_hash,
             me,
         )?;
-
-        self.check_if_challenged_block_on_chain(header)?;
 
         debug!(target: "chain", block_hash = ?header.hash(), me=?me, is_caught_up=is_caught_up, "Process block");
 
