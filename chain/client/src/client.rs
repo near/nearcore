@@ -1906,6 +1906,7 @@ impl Client {
         check_validator: bool,
         error: near_chain::Error,
     ) {
+        let _span = tracing::debug_span!(target: "client", "handle_process_approval_error", account_id=?approval.account_id, target_height=approval.target_height, approval_type=?approval_type).entered();
         let is_validator = |epoch_id, account_id, epoch_manager: &dyn EpochManagerAdapter| {
             epoch_manager.get_validator_by_account_id(epoch_id, account_id).is_ok()
         };

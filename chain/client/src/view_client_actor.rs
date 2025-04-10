@@ -350,6 +350,7 @@ impl ViewClientActorInner {
     }
 
     fn handle_query(&mut self, msg: Query) -> Result<QueryResponse, QueryError> {
+        let _span = tracing::debug_span!(target: "client", "handle_query", request_type=?msg.request).entered();
         let header = self.get_block_header_by_reference(&msg.block_reference);
         let header = match header {
             Ok(Some(header)) => Ok(header),
