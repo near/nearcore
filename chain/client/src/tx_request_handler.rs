@@ -117,6 +117,8 @@ impl TxRequestHandler {
         is_forwarded: bool,
         check_only: bool,
     ) -> ProcessTxResponse {
+        let tx_hash = tx.get_hash();
+        let _span = tracing::debug_span!(target: "client", "process_tx", ?tx_hash, ?is_forwarded, ?check_only).entered();
         let signer = self.validator_signer.get();
         unwrap_or_return!(self.process_tx_internal(&tx, is_forwarded, check_only, &signer), {
             let me = signer.as_ref().map(|signer| signer.validator_id());
