@@ -833,6 +833,7 @@ pub mod chunk_extra {
             congestion_info: Option<CongestionInfo>,
             bandwidth_requests: Option<BandwidthRequests>,
         ) -> Self {
+            assert!(bandwidth_requests.is_some());
             if bandwidth_requests.is_some() {
                 Self::V4(ChunkExtraV4 {
                     state_root: *state_root,
