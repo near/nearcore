@@ -107,6 +107,7 @@ impl GCActor {
 
 impl Actor for GCActor {
     fn start_actor(&mut self, ctx: &mut dyn DelayedActionRunner<Self>) {
+        let _span = tracing::debug_span!(target: "client", "start_actor_gc").entered();
         self.gc(ctx);
     }
 }
