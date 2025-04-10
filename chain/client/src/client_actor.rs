@@ -691,10 +691,7 @@ impl Handler<Status> for ClientActorInner {
             .get_epoch_block_producers_ordered(&head.epoch_id)
             .into_chain_error()?
             .into_iter()
-            .map(|validator_stake| ValidatorInfo {
-                account_id: validator_stake.take_account_id(),
-                is_slashed: false,
-            })
+            .map(|validator_stake| ValidatorInfo { account_id: validator_stake.take_account_id() })
             .collect();
 
         let epoch_start_height =
