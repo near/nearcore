@@ -446,7 +446,9 @@ fn validate_deploy_contract_action(
     action: &DeployContractAction,
 ) -> Result<(), ActionsValidationError> {
     let code_len = action.code.len() as u64;
-    let _span = tracing::debug_span!(target: "runtime", "validate_deploy_contract_action", ?code_len).entered();
+    let _span =
+        tracing::debug_span!(target: "runtime", "validate_deploy_contract_action", ?code_len)
+            .entered();
     if action.code.len() as u64 > limit_config.max_contract_size {
         return Err(ActionsValidationError::ContractSizeExceeded {
             size: action.code.len() as u64,
