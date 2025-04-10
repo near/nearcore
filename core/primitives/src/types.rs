@@ -1121,7 +1121,7 @@ pub enum ValidatorInfoIdentifier {
 )]
 pub enum ValidatorKickoutReason {
     /// Deprecated
-    Slashed,
+    _UnusedSlashed,
     /// Validator didn't produce enough blocks.
     NotEnoughBlocks { produced: NumBlocks, expected: NumBlocks },
     /// Validator didn't produce enough chunks.
