@@ -92,6 +92,7 @@ impl SyncHandler {
         signer: &Option<Arc<ValidatorSigner>>,
         apply_chunks_done_sender: Option<near_async::messaging::Sender<ApplyChunksDoneMessage>>,
     ) -> Option<SyncHandlerRequest> {
+        let _span = tracing::debug_span!(target: "sync", "handle_sync_needed", ?highest_height, peers_count=highest_height_peers.len()).entered();
         // Run epoch sync first; if this is applicable then nothing else is.
         let epoch_sync_result = self.epoch_sync.run(
             &mut self.sync_status,
