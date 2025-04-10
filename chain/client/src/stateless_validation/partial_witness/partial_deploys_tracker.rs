@@ -36,6 +36,7 @@ impl CacheEntry {
         part: PartialEncodedContractDeploysPart,
     ) -> Option<std::io::Result<ChunkContractDeploys>> {
         let part_ord = part.part_ord;
+        let _span = tracing::debug_span!(target: "client", "process_part", ?key, ?part_ord).entered();
         if self.parts.encoded_length() != part.encoded_length {
             tracing::warn!(
                 target: "client",

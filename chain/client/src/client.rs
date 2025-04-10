@@ -1240,6 +1240,7 @@ impl Client {
         &mut self,
         block_processing_artifacts: BlockProcessingArtifact,
     ) {
+        let _span = tracing::debug_span!(target: "client", "process_block_processing_artifact", orphans_count=block_processing_artifacts.orphans_missing_chunks.len(), blocks_count=block_processing_artifacts.blocks_missing_chunks.len()).entered();
         let BlockProcessingArtifact {
             orphans_missing_chunks,
             blocks_missing_chunks,

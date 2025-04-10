@@ -149,6 +149,9 @@ impl CacheEntry {
         partial_witness: PartialEncodedStateWitness,
         encoder: Arc<ReedSolomonEncoder>,
     ) {
+        let key = partial_witness.chunk_production_key();
+        let part_ord = partial_witness.part_ord();
+        let _span = tracing::debug_span!(target: "client", "process_witness_part", ?key, ?part_ord).entered();
         if matches!(self.witness_parts, WitnessPartsState::Empty) {
             let parts = ReedSolomonPartsTracker::new(encoder, partial_witness.encoded_length());
             self.witness_parts = WitnessPartsState::WaitingParts(parts);
@@ -371,6 +374,7 @@ impl PartialEncodedStateWitnessTracker {
         create_if_not_exists: bool,
         update: CacheUpdate,
     ) -> Result<(), Error> {
+        let _span = tracing::debug_span!(target: "client", "process_update", ?key, create_if_not_exists).entered();
         if self.processed_witnesses.contains(&key) {
             tracing::debug!(
                 target: "client",

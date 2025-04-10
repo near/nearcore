@@ -90,6 +90,8 @@ pub fn process_shard_update(
     shard_update_reason: ShardUpdateReason,
     shard_context: ShardContext,
 ) -> Result<ShardUpdateResult, Error> {
+    let shard_id = shard_context.shard_uid.shard_id();
+    let _span = tracing::debug_span!(target: "chain", parent: parent_span, "process_shard_update", ?shard_id).entered();
     Ok(match shard_update_reason {
         ShardUpdateReason::NewChunk(data) => ShardUpdateResult::NewChunk(apply_new_chunk(
             ApplyChunkReason::UpdateTrackedShard,

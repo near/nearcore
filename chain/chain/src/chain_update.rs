@@ -89,6 +89,7 @@ impl<'a> ChainUpdate<'a> {
         let block_hash = block.hash();
         let prev_hash = block.header().prev_hash();
         let height = block.header().height();
+        let _span = tracing::debug_span!(target: "chain", "process_apply_chunk_result", ?block_hash, ?height).entered();
         match result {
             ShardUpdateResult::NewChunk(NewChunkResult { gas_limit, shard_uid, apply_result }) => {
                 let (outcome_root, outcome_paths) =
