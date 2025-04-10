@@ -2433,6 +2433,7 @@ impl Chain {
         block_processing_artifact: &mut BlockProcessingArtifact,
         apply_chunks_done_sender: Option<near_async::messaging::Sender<ApplyChunksDoneMessage>>,
     ) {
+        let _span = tracing::debug_span!(target: "chain", "check_blocks_with_missing_chunks").entered();
         let blocks = self.blocks_with_missing_chunks.ready_blocks();
         if !blocks.is_empty() {
             debug!(target:"chain", "Got {} blocks that were missing chunks but now are ready.", blocks.len());
