@@ -398,7 +398,7 @@ impl NightshadeRuntime {
 
         let trie_with_state =
             self.tries.get_trie_with_block_hash_for_shard(shard_uid, *state_root, &prev_hash, true);
-        let (partial_state, nibbles_begin, nibbles_end) = match trie_with_state
+        let (path_boundary_nodes, nibbles_begin, nibbles_end) = match trie_with_state
             .get_state_part_boundaries(part_id)
         {
             Ok(res) => res,
@@ -408,12 +408,17 @@ impl NightshadeRuntime {
             }
         };
 
-        // TODO: Make it impossible for the snapshot data to be deleted while the snapshot is in use.
-        let snapshot_trie = self
-            .tries
-            .get_trie_with_block_hash_for_shard_from_snapshot(shard_uid, *state_root, &prev_hash)
-            .map_err(|err| Error::Other(err.to_string()))?;
-        let state_part = borsh::to_vec(&match snapshot_trie.get_trie_nodes_for_part_with_flat_storage(part_id, partial_state, nibbles_begin, nibbles_end, &trie_with_state) {
+        let trie_nodes = self.tries.get_trie_nodes_for_part_from_snapshot(
+            shard_uid,
+            state_root,
+            &prev_hash,
+            part_id,
+            path_boundary_nodes,
+            nibbles_begin,
+            nibbles_end,
+            trie_with_state,
+        );
+        let state_part = borsh::to_vec(&match trie_nodes {
             Ok(partial_state) => partial_state,
             Err(err) => {
                 error!(target: "runtime", ?err, part_id.idx, part_id.total, %prev_hash, %state_root, %shard_id, "Can't get trie nodes for state part");

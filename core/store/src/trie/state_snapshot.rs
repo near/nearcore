@@ -10,11 +10,18 @@ use near_primitives::errors::EpochError;
 use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
+use near_primitives::state::PartialState;
+use near_primitives::state_part::PartId;
 use near_primitives::types::ShardIndex;
+use near_primitives::types::StateRoot;
 use std::error::Error;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::sync::TryLockError;
+
+use super::Trie;
+use super::TrieCachingStorage;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum SnapshotError {
@@ -188,20 +195,61 @@ pub const STATE_SNAPSHOT_COLUMNS: &[DBCol] = &[
 type ShardIndexesAndUIds = Vec<(ShardIndex, ShardUId)>;
 
 impl ShardTries {
-    pub fn get_state_snapshot(
+    /// Returns the status of the given shard of flat storage in the state snapshot.
+    /// `sync_prev_prev_hash` needs to match the block hash that identifies that snapshot.
+    pub fn get_snapshot_flat_storage_status(
         &self,
+        sync_prev_prev_hash: CryptoHash,
+        shard_uid: ShardUId,
+    ) -> Result<FlatStorageStatus, StorageError> {
+        let guard = self.state_snapshot().try_read().map_err(SnapshotError::from)?;
+        let data = guard.as_ref().ok_or(SnapshotError::SnapshotNotFound(sync_prev_prev_hash))?;
+        if &data.prev_block_hash != &sync_prev_prev_hash {
+            Err(SnapshotError::IncorrectSnapshotRequested(
+                sync_prev_prev_hash,
+                data.prev_block_hash,
+            )
+            .into())
+        } else {
+            Ok(data.flat_storage_manager.get_flat_storage_status(shard_uid))
+        }
+    }
+
+    pub fn get_trie_nodes_for_part_from_snapshot(
+        &self,
+        shard_uid: ShardUId,
+        state_root: &StateRoot,
         block_hash: &CryptoHash,
-    ) -> Result<(TrieStoreAdapter, FlatStorageManager), SnapshotError> {
-        // Taking this lock can last up to 10 seconds, if the snapshot happens to be re-created.
-        let guard = self.state_snapshot().try_read()?;
+        part_id: PartId,
+        path_boundary_nodes: PartialState,
+        nibbles_begin: Vec<u8>,
+        nibbles_end: Vec<u8>,
+        state_trie: Trie,
+    ) -> Result<PartialState, StorageError> {
+        let guard = self.state_snapshot().try_read().map_err(SnapshotError::from)?;
         let data = guard.as_ref().ok_or(SnapshotError::SnapshotNotFound(*block_hash))?;
         if &data.prev_block_hash != block_hash {
             return Err(SnapshotError::IncorrectSnapshotRequested(
                 *block_hash,
                 data.prev_block_hash,
-            ));
-        }
-        Ok((data.store.clone(), data.flat_storage_manager.clone()))
+            )
+            .into());
+        };
+        let cache = self
+            .get_trie_cache_for(shard_uid, true)
+            .expect("trie cache should be enabled for view calls");
+        let storage =
+            Arc::new(TrieCachingStorage::new(data.store.clone(), cache, shard_uid, true, None));
+        let flat_storage_chunk_view = data.flat_storage_manager.chunk_view(shard_uid, *block_hash);
+
+        let snapshot_trie = Trie::new(storage, *state_root, flat_storage_chunk_view);
+        snapshot_trie.get_trie_nodes_for_part_with_flat_storage(
+            part_id,
+            path_boundary_nodes,
+            nibbles_begin,
+            nibbles_end,
+            &state_trie,
+        )
     }
 
     /// Makes a snapshot of the current state of the DB, if one is not already available.
