@@ -1007,7 +1007,8 @@ impl RuntimeAdapter for NightshadeRuntime {
     }
 
     fn validate_state_part(&self, state_root: &StateRoot, part_id: PartId, data: &[u8]) -> bool {
-        let _span = tracing::debug_span!(target: "runtime", "validate_state_part", ?part_id).entered();
+        let _span =
+            tracing::debug_span!(target: "runtime", "validate_state_part", ?part_id).entered();
         match BorshDeserialize::try_from_slice(data) {
             Ok(trie_nodes) => {
                 match Trie::validate_state_part(state_root, part_id, trie_nodes) {

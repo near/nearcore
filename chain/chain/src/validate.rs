@@ -19,7 +19,9 @@ pub fn validate_chunk_proofs(
 ) -> Result<bool, Error> {
     let shard_id = chunk.shard_id();
     let height_created = chunk.height_created();
-    let _span = tracing::debug_span!(target: "chain", "validate_chunk_proofs", ?shard_id, ?height_created).entered();
+    let _span =
+        tracing::debug_span!(target: "chain", "validate_chunk_proofs", ?shard_id, ?height_created)
+            .entered();
     let correct_chunk_hash = chunk.compute_header_hash();
 
     // 1. Checking chunk.header.hash

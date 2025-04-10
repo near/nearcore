@@ -79,7 +79,9 @@ pub fn validate_partial_encoded_contract_deploys(
     store: &Store,
 ) -> Result<bool, Error> {
     let key = partial_deploys.chunk_production_key();
-    let _span = tracing::debug_span!(target: "client", "validate_partial_encoded_contract_deploys", ?key).entered();
+    let _span =
+        tracing::debug_span!(target: "client", "validate_partial_encoded_contract_deploys", ?key)
+            .entered();
     if !validate_chunk_relevant(epoch_manager, key, store)? {
         return Ok(false);
     }
@@ -99,7 +101,9 @@ pub fn validate_chunk_endorsement(
 ) -> Result<bool, Error> {
     let key = endorsement.chunk_production_key();
     let account_id = endorsement.account_id();
-    let _span = tracing::debug_span!(target: "client", "validate_chunk_endorsement", ?key, ?account_id).entered();
+    let _span =
+        tracing::debug_span!(target: "client", "validate_chunk_endorsement", ?key, ?account_id)
+            .entered();
     if !validate_chunk_relevant_as_validator(
         epoch_manager,
         &endorsement.chunk_production_key(),
@@ -120,7 +124,8 @@ pub fn validate_chunk_contract_accesses(
     store: &Store,
 ) -> Result<bool, Error> {
     let key = accesses.chunk_production_key();
-    let _span = tracing::debug_span!(target: "client", "validate_chunk_contract_accesses", ?key).entered();
+    let _span =
+        tracing::debug_span!(target: "client", "validate_chunk_contract_accesses", ?key).entered();
     if !validate_chunk_relevant_as_validator(epoch_manager, key, signer.validator_id(), store)? {
         return Ok(false);
     }
@@ -136,7 +141,9 @@ pub fn validate_contract_code_request(
 ) -> Result<bool, Error> {
     let key = request.chunk_production_key();
     let requester = request.requester();
-    let _span = tracing::debug_span!(target: "client", "validate_contract_code_request", ?key, ?requester).entered();
+    let _span =
+        tracing::debug_span!(target: "client", "validate_contract_code_request", ?key, ?requester)
+            .entered();
     if !validate_chunk_relevant_as_validator(epoch_manager, key, requester, store)? {
         return Ok(false);
     }
@@ -164,7 +171,9 @@ fn ensure_chunk_validator(
     chunk: &ChunkProductionKey,
     account_id: &AccountId,
 ) -> Result<(), Error> {
-    let _span = tracing::debug_span!(target: "client", "ensure_chunk_validator", ?chunk, ?account_id).entered();
+    let _span =
+        tracing::debug_span!(target: "client", "ensure_chunk_validator", ?chunk, ?account_id)
+            .entered();
     let chunk_validator_assignments = epoch_manager.get_chunk_validator_assignments(
         &chunk.epoch_id,
         chunk.shard_id,
@@ -190,7 +199,9 @@ fn validate_chunk_relevant(
     chunk_production_key: &ChunkProductionKey,
     store: &Store,
 ) -> Result<bool, Error> {
-    let _span = tracing::debug_span!(target: "client", "validate_chunk_relevant", ?chunk_production_key).entered();
+    let _span =
+        tracing::debug_span!(target: "client", "validate_chunk_relevant", ?chunk_production_key)
+            .entered();
     let shard_id = chunk_production_key.shard_id;
     let epoch_id = chunk_production_key.epoch_id;
     let height_created = chunk_production_key.height_created;
