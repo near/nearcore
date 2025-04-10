@@ -196,6 +196,7 @@ impl DoomslugApprovalsTracker {
     /// # Returns
     /// Whether the block is ready to be produced
     fn process_approval(&mut self, approval: &Approval) -> DoomslugBlockProductionReadiness {
+        let _span = tracing::debug_span!(target: "chain", "process_approval", account_id=?approval.account_id, target_height=approval.target_height).entered();
         let mut increment_approved_stake = false;
         self.witness.entry(approval.account_id.clone()).or_insert_with(|| {
             increment_approved_stake = true;
