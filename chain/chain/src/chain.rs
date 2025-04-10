@@ -57,7 +57,7 @@ use near_primitives::block::{
     Block, BlockValidityError, Chunks, MaybeNew, Tip, compute_bp_hash_from_validator_stakes,
 };
 use near_primitives::block_header::BlockHeader;
-use near_primitives::challenge::{ChunkProofs, ChunkState, MaybeEncodedShardChunk};
+use near_primitives::challenge::{ChunkProofs, MaybeEncodedShardChunk};
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::errors::EpochError;
 use near_primitives::hash::{CryptoHash, hash};
@@ -72,7 +72,6 @@ use near_primitives::sharding::{
     ChunkHash, EncodedShardChunk, ReceiptProof, ShardChunk, ShardChunkHeader, ShardProof,
     StateSyncInfo,
 };
-use near_primitives::state::PartialState;
 use near_primitives::state_sync::ReceiptProofResponse;
 use near_primitives::stateless_validation::state_witness::{
     ChunkStateWitness, ChunkStateWitnessSize,
@@ -2891,83 +2890,6 @@ impl Chain {
         Ok(())
     }
 
-    pub fn create_chunk_state_challenge(
-        &self,
-        prev_block: &Block,
-        block_height: BlockHeight,
-        chunks: &Chunks,
-        chunk_header: &ShardChunkHeader,
-    ) -> Result<ChunkState, Error> {
-        let shard_layout =
-            self.epoch_manager.get_shard_layout_from_prev_block(prev_block.hash())?;
-        let shard_id = chunk_header.shard_id();
-        let shard_index = shard_layout.get_shard_index(shard_id)?;
-        let prev_merkle_proofs =
-            Block::compute_chunk_headers_root(prev_block.chunks().iter_deprecated()).1;
-        let merkle_proofs = Block::compute_chunk_headers_root(chunks.iter_deprecated()).1;
-        let prev_chunk = get_chunk_clone_from_header(
-            &self.chain_store,
-            &prev_block.chunks()[shard_index].clone(),
-        )
-        .unwrap();
-
-        // TODO (#6316): enable storage proof generation
-        // let prev_chunk_header = &prev_block.chunks()[chunk_shard_id as usize];
-        // let receipt_proof_response: Vec<ReceiptProofResponse> =
-        //     self.chain_store_update.get_incoming_receipts_for_shard(
-        //         chunk_shard_id,
-        //         *prev_block.hash(),
-        //         prev_chunk_header.height_included(),
-        //     )?;
-        // let receipts = collect_receipts_from_response(&receipt_proof_response);
-        //
-        // let challenges_result = self.verify_challenges(
-        //     block.challenges(),
-        //     block.header().epoch_id(),
-        //     block.header().prev_hash(),
-        //     Some(block.hash()),
-        // )?;
-        // let prev_chunk_inner = prev_chunk.cloned_header().take_inner();
-        // let is_first_block_with_chunk_of_version = check_if_block_is_first_with_chunk_of_version(
-        //     &mut self.chain_store_update,
-        //     self.runtime_adapter.as_ref(),
-        //     prev_block.hash(),
-        //     chunk_shard_id,
-        // )?;
-        // let apply_result = self
-        //     .runtime_adapter
-        //     .apply_transactions_with_optional_storage_proof(
-        //         chunk_shard_id,
-        //         prev_chunk_inner.prev_state_root(),
-        //         prev_chunk.height_included(),
-        //         prev_block.header().raw_timestamp(),
-        //         prev_chunk_inner.prev_block_hash(),
-        //         prev_block.hash(),
-        //         &receipts,
-        //         prev_chunk.transactions(),
-        //         prev_chunk_inner.validator_proposals(),
-        //         prev_block.header().gas_price(),
-        //         prev_chunk_inner.gas_limit(),
-        //         &challenges_result,
-        //         *block.header().random_value(),
-        //         true,
-        //         true,
-        //         is_first_block_with_chunk_of_version,
-        //         None,
-        //     )
-        //     .unwrap();
-        // let partial_state = apply_result.proof.unwrap().nodes;
-        Ok(ChunkState {
-            prev_block_header: borsh::to_vec(&prev_block.header())?,
-            block_height,
-            prev_merkle_proof: prev_merkle_proofs[shard_index].clone(),
-            merkle_proof: merkle_proofs[shard_index].clone(),
-            prev_chunk,
-            chunk_header: chunk_header.clone(),
-            partial_state: PartialState::TrieValues(vec![]),
-        })
-    }
-
     /// Checks whether `me` is chunk producer for this or next epoch, given
     /// block header which is not in DB yet. If this is the case, node must
     /// produce necessary data for state witness.
@@ -3218,15 +3140,7 @@ impl Chain {
                     "Failed to validate chunk extra"
                 );
                 byzantine_assert!(false);
-                match self.create_chunk_state_challenge(
-                    prev_block,
-                    block_height,
-                    chunk_headers,
-                    chunk_header,
-                ) {
-                    Ok(chunk_state) => Error::InvalidChunkState(Box::new(chunk_state)),
-                    Err(err) => err,
-                }
+                err
             })?;
 
             let tx_valid_list = self.validate_chunk_transactions(prev_block.header(), &chunk);

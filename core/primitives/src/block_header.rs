@@ -1,4 +1,4 @@
-use crate::challenge::ChallengesResult;
+use crate::challenge::SlashedValidator;
 use crate::hash::{CryptoHash, hash};
 use crate::merkle::combine_hash;
 use crate::network::PeerId;
@@ -70,7 +70,7 @@ pub struct BlockHeaderInnerRest {
     pub total_supply: Balance,
     /// List of challenges result from previous block.
     #[deprecated]
-    pub challenges_result: ChallengesResult,
+    pub challenges_result: Vec<SlashedValidator>,
 
     /// Last block that has full BFT finality
     pub last_final_block: CryptoHash,
@@ -110,7 +110,7 @@ pub struct BlockHeaderInnerRestV2 {
     pub total_supply: Balance,
     /// List of challenges result from previous block.
     #[deprecated]
-    pub challenges_result: ChallengesResult,
+    pub challenges_result: Vec<SlashedValidator>,
 
     /// Last block that has full BFT finality
     pub last_final_block: CryptoHash,
@@ -153,7 +153,7 @@ pub struct BlockHeaderInnerRestV3 {
     pub total_supply: Balance,
     /// List of challenges result from previous block.
     #[deprecated]
-    pub challenges_result: ChallengesResult,
+    pub challenges_result: Vec<SlashedValidator>,
 
     /// Last block that has full BFT finality
     pub last_final_block: CryptoHash,
@@ -210,7 +210,7 @@ pub struct BlockHeaderInnerRestV4 {
     pub total_supply: Balance,
     /// List of challenges result from previous block.
     #[deprecated]
-    pub challenges_result: ChallengesResult,
+    pub challenges_result: Vec<SlashedValidator>,
 
     /// Last block that has full BFT finality
     pub last_final_block: CryptoHash,
@@ -267,7 +267,7 @@ pub struct BlockHeaderInnerRestV5 {
     pub total_supply: Balance,
     /// List of challenges result from previous block.
     #[deprecated]
-    pub challenges_result: ChallengesResult,
+    pub challenges_result: Vec<SlashedValidator>,
 
     /// Last block that has full BFT finality
     pub last_final_block: CryptoHash,
