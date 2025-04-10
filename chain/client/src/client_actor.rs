@@ -1683,6 +1683,7 @@ impl ClientActorInner {
     /// This method performs whatever syncing technique is needed (epoch sync, header sync,
     /// state sync, block sync) to make progress towards bring the node up to date.
     fn handle_sync_needed(&mut self, highest_height: u64, signer: &Option<Arc<ValidatorSigner>>) {
+        let _span = tracing::debug_span!(target: "client", "handle_sync_needed", ?highest_height).entered();
         let sync_step_result = self.client.sync_handler.handle_sync_needed(
             &mut self.client.chain,
             &self.client.shard_tracker,
