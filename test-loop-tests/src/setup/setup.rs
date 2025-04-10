@@ -240,8 +240,9 @@ pub fn setup_client(
 
     let peer_manager_actor = TestLoopPeerManagerActor::new(
         test_loop.clock(),
-        account_id.clone(),
-        network_shared_state.clone(),
+        &account_id,
+        network_shared_state,
+        client_adapter.as_multi_sender(),
         GenesisId {
             chain_id: client_config.chain_id.clone(),
             hash: *client_actor.client.chain.genesis().hash(),
