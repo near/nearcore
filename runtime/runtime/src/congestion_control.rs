@@ -407,9 +407,8 @@ impl ReceiptSinkV2 {
         // limit" is the safest approach to ensure availability.
         let default_gas_limit = Gas::MAX;
 
-        let default_size_limit =
-            // With bandwidth scheduler, a shard is not allowed to send any receipts if it doesn't have a grant.
-            0;
+        // With bandwidth scheduler, a shard is not allowed to send any receipts if it doesn't have a grant.
+        let default_size_limit = 0;
 
         let default_outgoing_limit =
             OutgoingLimit { gas: default_gas_limit, size: default_size_limit };

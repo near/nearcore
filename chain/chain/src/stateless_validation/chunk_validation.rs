@@ -359,7 +359,6 @@ pub fn pre_validate_chunk_state_witness(
             .block_congestion_info()
             .get(&last_chunk_shard_id)
             .map(|info| info.congestion_info);
-        let _genesis_protocol_version = epoch_manager.get_epoch_protocol_version(&epoch_id)?;
         let chunk_extra =
             chain.genesis_chunk_extra(&shard_layout, last_chunk_shard_id, congestion_info)?;
         MainTransition::Genesis {
