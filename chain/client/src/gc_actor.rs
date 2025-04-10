@@ -52,6 +52,7 @@ impl GCActor {
     }
 
     fn clear_data(&mut self) -> Result<(), near_chain::Error> {
+        let _span = tracing::debug_span!(target: "client", "clear_data", is_archive=self.is_archive).entered();
         let signer = self.validator_signer.get();
         let me = signer.as_ref().map(|signer| signer.validator_id());
         // A RPC node should do regular garbage collection.
