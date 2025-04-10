@@ -313,7 +313,7 @@ impl CanSend<ShardsManagerRequestFromClient> for SynchronousShardsManagerAdapter
 impl CanSend<ShardsManagerRequestFromNetwork> for SynchronousShardsManagerAdapter {
     fn send(&self, msg: ShardsManagerRequestFromNetwork) {
         let mut shards_manager = self.shards_manager.lock().unwrap();
-        shards_manager.handle_network_request(msg);
+        let _ = shards_manager.handle_network_request(msg);
     }
 }
 
