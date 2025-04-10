@@ -2184,14 +2184,12 @@ fn test_validator_kickout_determinism() {
         &block_validator_tracker,
         &chunk_stats_tracker1,
         &HashMap::new(),
-        &HashMap::new(),
     );
     let (_validator_stats, kickouts2) = EpochManager::compute_validators_to_reward_and_kickout(
         &epoch_config,
         &epoch_info,
         &block_validator_tracker,
         &chunk_stats_tracker2,
-        &HashMap::new(),
         &HashMap::new(),
     );
     assert_eq!(kickouts1, kickouts2);
@@ -2244,7 +2242,6 @@ fn test_chunk_validators_with_different_endorsement_ratio() {
         &epoch_info,
         &block_validator_tracker,
         &chunk_stats_tracker,
-        &HashMap::new(),
         &HashMap::new(),
     );
     assert_eq!(
@@ -2304,7 +2301,6 @@ fn test_chunk_validators_with_same_endorsement_ratio_and_different_stake() {
         &block_validator_tracker,
         &chunk_stats_tracker,
         &HashMap::new(),
-        &HashMap::new(),
     );
     assert_eq!(
         kickouts,
@@ -2362,7 +2358,6 @@ fn test_chunk_validators_with_same_endorsement_ratio_and_stake() {
         &epoch_info,
         &block_validator_tracker,
         &chunk_stats_tracker,
-        &HashMap::new(),
         &HashMap::new(),
     );
     assert_eq!(
@@ -2441,7 +2436,6 @@ fn test_validator_kickout_sanity() {
         &epoch_info,
         &block_validator_tracker,
         &chunk_stats_tracker,
-        &HashMap::new(),
         &HashMap::new(),
     );
     assert_eq!(
@@ -2559,7 +2553,6 @@ fn test_chunk_endorsement_stats() {
             ),
         ]),
         &HashMap::new(),
-        &HashMap::new(),
     );
     assert_eq!(kickouts, HashMap::new(),);
     assert_eq!(
@@ -2643,7 +2636,6 @@ fn test_max_kickout_stake_ratio() {
         &epoch_info,
         &block_stats,
         &chunk_stats_tracker,
-        &HashMap::new(),
         &prev_validator_kickout,
     );
     assert_eq!(
@@ -2703,7 +2695,6 @@ fn test_max_kickout_stake_ratio() {
         &epoch_info,
         &block_stats,
         &chunk_stats_tracker,
-        &HashMap::new(),
         &prev_validator_kickout,
     );
     assert_eq!(
@@ -2771,7 +2762,6 @@ fn test_chunk_validator_kickout(expected_kickouts: HashMap<AccountId, ValidatorK
         &epoch_info,
         &block_stats,
         &chunk_stats_tracker,
-        &HashMap::new(),
         &prev_validator_kickout,
     );
     assert_eq!(kickouts, expected_kickouts);
@@ -2835,7 +2825,6 @@ fn test_block_and_chunk_producer_not_kicked_out_for_low_endorsements() {
         &epoch_info,
         &block_stats,
         &chunk_stats_tracker,
-        &HashMap::new(),
         &HashMap::new(),
     );
     assert_eq!(kickouts, HashMap::new());
