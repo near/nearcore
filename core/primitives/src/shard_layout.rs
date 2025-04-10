@@ -561,10 +561,10 @@ impl ShardLayout {
         ShardLayout::derive_shard_layout(&base_shard_layout, new_boundary_account)
     }
 
-    /// Returns the simple nightshade layout, version 6, with new boundary account "800".
+    /// Returns the simple nightshade layout, version 6, with new boundary account "750".
     pub fn get_simple_nightshade_layout_v6() -> ShardLayout {
         let base_shard_layout = Self::get_simple_nightshade_layout_v5();
-        let new_boundary_account = "800".parse().unwrap();
+        let new_boundary_account = "750".parse().unwrap();
         ShardLayout::derive_shard_layout(&base_shard_layout, new_boundary_account)
     }
 
@@ -1591,7 +1591,7 @@ mod tests {
         {
           "V2": {
             "boundary_accounts": [
-              "800",
+              "750",
               "aurora",
               "aurora-0",
               "earn.kaiching",
