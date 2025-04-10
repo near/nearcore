@@ -12,7 +12,7 @@ use crate::action::{
 use crate::bandwidth_scheduler::BandwidthRequests;
 use crate::block::{Block, BlockHeader, Tip};
 use crate::block_header::BlockHeaderInnerLite;
-use crate::challenge::ChallengesResult;
+use crate::challenge::SlashedValidator;
 use crate::congestion_info::{CongestionInfo, CongestionInfoV1};
 use crate::errors::TxExecutionError;
 use crate::hash::{CryptoHash, hash};
@@ -767,7 +767,8 @@ pub struct BlockHeaderView {
     pub validator_reward: Balance,
     #[serde(with = "dec_format")]
     pub total_supply: Balance,
-    pub challenges_result: ChallengesResult,
+    // Deprecated
+    pub challenges_result: Vec<SlashedValidator>,
     pub last_final_block: CryptoHash,
     pub last_ds_final_block: CryptoHash,
     pub next_bp_hash: CryptoHash,
