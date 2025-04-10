@@ -102,6 +102,7 @@ impl ChunkInclusionTracker {
 
     // once a set of ChunkHash is evicted from prev_block_to_chunk_hash_ready, cleanup chunk_hash_to_chunk_info
     fn process_evicted_entry(&mut self, evicted_entry: HashMap<ShardId, ChunkHash>) {
+        let _span = tracing::debug_span!(target: "client", "process_evicted_entry", entry_size=evicted_entry.len()).entered();
         for (_, chunk_hash) in evicted_entry.into_iter() {
             self.chunk_hash_to_chunk_info.remove(&chunk_hash);
         }
