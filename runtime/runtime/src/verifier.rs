@@ -443,6 +443,8 @@ fn validate_deploy_contract_action(
     limit_config: &LimitConfig,
     action: &DeployContractAction,
 ) -> Result<(), ActionsValidationError> {
+    let code_len = action.code.len() as u64;
+    let _span = tracing::debug_span!(target: "runtime", "validate_deploy_contract_action", ?code_len).entered();
     if action.code.len() as u64 > limit_config.max_contract_size {
         return Err(ActionsValidationError::ContractSizeExceeded {
             size: action.code.len() as u64,
@@ -484,6 +486,9 @@ fn validate_function_call_action(
     limit_config: &LimitConfig,
     action: &FunctionCallAction,
 ) -> Result<(), ActionsValidationError> {
+    let method_name_len = action.method_name.len();
+    let args_len = action.args.len();
+    let _span = tracing::debug_span!(target: "runtime", "validate_function_call_action", ?method_name_len, ?args_len).entered();
     if action.gas == 0 {
         return Err(ActionsValidationError::FunctionCallZeroAttachedGas);
     }
@@ -506,6 +511,7 @@ fn validate_function_call_action(
 }
 
 /// Validates `StakeAction`. Checks that the `public_key` is a valid staking key.
+#[tracing::instrument(level = "debug", target = "runtime", skip_all, fields(public_key = ?action.public_key))]
 fn validate_stake_action(action: &StakeAction) -> Result<(), ActionsValidationError> {
     if !is_valid_staking_key(&action.public_key) {
         return Err(ActionsValidationError::UnsuitableStakingKey {
@@ -519,6 +525,7 @@ fn validate_stake_action(action: &StakeAction) -> Result<(), ActionsValidationEr
 /// Validates `AddKeyAction`. If the access key permission is `FunctionCall`, checks that the
 /// total number of bytes of the method names doesn't exceed the limit and
 /// every method name length doesn't exceed the limit.
+#[tracing::instrument(level = "debug", target = "runtime", skip_all, fields(access_key_type = ?action.access_key.permission))]
 fn validate_add_key_action(
     limit_config: &LimitConfig,
     action: &AddKeyAction,
@@ -564,6 +571,7 @@ fn validate_add_key_action(
 /// Validates `DeleteAction`.
 ///
 /// Checks that the `beneficiary_id` is a valid account ID.
+#[tracing::instrument(level = "debug", target = "runtime", skip_all, fields(beneficiary_id = ?action.beneficiary_id))]
 fn validate_delete_action(action: &DeleteAccountAction) -> Result<(), ActionsValidationError> {
     if AccountId::validate(action.beneficiary_id.as_str()).is_err() {
         return Err(ActionsValidationError::InvalidAccountId {
