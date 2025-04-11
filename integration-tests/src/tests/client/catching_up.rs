@@ -9,7 +9,7 @@ use near_actix_test_utils::run_actix;
 use near_async::time::Clock;
 use near_chain::test_utils::{ValidatorSchedule, account_id_to_shard_id};
 use near_chain_configs::TEST_STATE_SYNC_TIMEOUT;
-use near_client::{Query, TxRequestHandlerActor};
+use near_client::{Query, RpcHandlerActor};
 use near_crypto::InMemorySigner;
 use near_network::client::ProcessTxRequest;
 use near_network::types::PeerInfo;
@@ -64,7 +64,7 @@ fn get_validators_and_key_pairs() -> (ValidatorSchedule, Vec<PeerInfo>) {
 }
 
 fn send_tx(
-    connector: &Addr<TxRequestHandlerActor>,
+    connector: &Addr<RpcHandlerActor>,
     from: AccountId,
     to: AccountId,
     amount: u128,
@@ -193,7 +193,7 @@ fn test_catchup_receipts_sync_common(wait_till: u64, send: u64, sync_hold: bool)
                                 );
                                 for i in 0..16 {
                                     send_tx(
-                                        &connectors1.write().unwrap()[i].tx_processor_actor,
+                                        &connectors1.write().unwrap()[i].rpc_handler_actor,
                                         account_from.clone(),
                                         account_to.clone(),
                                         111,
@@ -493,7 +493,7 @@ fn test_catchup_random_single_part_sync_common(skip_15: bool, non_zero: bool, he
                                         for conn in 0..validators.len() {
                                             send_tx(
                                                 &connectors1.write().unwrap()[conn]
-                                                    .tx_processor_actor,
+                                                    .rpc_handler_actor,
                                                 validator1.clone(),
                                                 validator2.clone(),
                                                 amount,

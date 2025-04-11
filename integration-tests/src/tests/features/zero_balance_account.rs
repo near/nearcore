@@ -69,7 +69,7 @@ fn test_zero_balance_account_creation() {
         *genesis_block.hash(),
     );
     assert_eq!(
-        env.tx_request_handlers[0].process_tx(create_account_tx, false, false),
+        env.rpc_handlers[0].process_tx(create_account_tx, false, false),
         ProcessTxResponse::ValidTx
     );
     for i in 1..5 {
@@ -93,7 +93,7 @@ fn test_zero_balance_account_creation() {
     );
     let tx_hash = create_account_tx.get_hash();
     assert_eq!(
-        env.tx_request_handlers[0].process_tx(create_account_tx, false, false),
+        env.rpc_handlers[0].process_tx(create_account_tx, false, false),
         ProcessTxResponse::ValidTx
     );
     for i in 5..10 {
@@ -151,7 +151,7 @@ fn test_zero_balance_account_add_key() {
         *genesis_block.hash(),
     );
     assert_eq!(
-        env.tx_request_handlers[0].process_tx(create_account_tx, false, false),
+        env.rpc_handlers[0].process_tx(create_account_tx, false, false),
         ProcessTxResponse::ValidTx
     );
     for i in 1..5 {
@@ -197,7 +197,7 @@ fn test_zero_balance_account_add_key() {
         0,
     );
     assert_eq!(
-        env.tx_request_handlers[0].process_tx(add_key_tx, false, false),
+        env.rpc_handlers[0].process_tx(add_key_tx, false, false),
         ProcessTxResponse::ValidTx
     );
     for i in 5..10 {
@@ -215,7 +215,7 @@ fn test_zero_balance_account_add_key() {
         *genesis_block.hash(),
     );
     assert_matches!(
-        env.tx_request_handlers[0].process_tx(send_money_tx.clone(), false, false),
+        env.rpc_handlers[0].process_tx(send_money_tx.clone(), false, false),
         ProcessTxResponse::InvalidTx(InvalidTxError::LackBalanceForState { .. })
     );
 
@@ -231,14 +231,14 @@ fn test_zero_balance_account_add_key() {
         0,
     );
     assert_eq!(
-        env.tx_request_handlers[0].process_tx(delete_key_tx, false, false),
+        env.rpc_handlers[0].process_tx(delete_key_tx, false, false),
         ProcessTxResponse::ValidTx
     );
     for i in 10..15 {
         env.produce_block(0, i);
     }
     assert_eq!(
-        env.tx_request_handlers[0].process_tx(send_money_tx, false, false),
+        env.rpc_handlers[0].process_tx(send_money_tx, false, false),
         ProcessTxResponse::ValidTx
     );
     for i in 15..20 {

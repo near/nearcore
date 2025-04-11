@@ -161,7 +161,7 @@ fn run_chunk_validation_test(
                 tip.last_block_hash,
             );
             tx_hashes.push(tx.get_hash());
-            let _ = env.tx_request_handlers[0].process_tx(tx, false, false);
+            let _ = env.rpc_handlers[0].process_tx(tx, false, false);
         }
 
         let height_offset = height - tip.height;
@@ -401,11 +401,11 @@ fn test_eth_implicit_accounts() {
     );
 
     assert_eq!(
-        env.tx_request_handlers[0].process_tx(create_alice_tx, false, false),
+        env.rpc_handlers[0].process_tx(create_alice_tx, false, false),
         ProcessTxResponse::ValidTx
     );
     assert_eq!(
-        env.tx_request_handlers[0].process_tx(create_bob_tx, false, false),
+        env.rpc_handlers[0].process_tx(create_bob_tx, false, false),
         ProcessTxResponse::ValidTx
     );
 
@@ -443,7 +443,7 @@ fn test_eth_implicit_accounts() {
     );
 
     assert_eq!(
-        env.tx_request_handlers[0].process_tx(signed_transaction, false, false),
+        env.rpc_handlers[0].process_tx(signed_transaction, false, false),
         ProcessTxResponse::ValidTx
     );
 
@@ -468,7 +468,7 @@ fn test_eth_implicit_accounts() {
     );
 
     assert_eq!(
-        env.tx_request_handlers[0].process_tx(signed_transaction, false, false),
+        env.rpc_handlers[0].process_tx(signed_transaction, false, false),
         ProcessTxResponse::ValidTx
     );
 
