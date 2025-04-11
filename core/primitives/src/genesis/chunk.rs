@@ -50,7 +50,7 @@ pub fn genesis_chunks(
             state_root,
             congestion_info,
         );
-        let mut chunk = encoded_chunk.decode_chunk(1).expect("Failed to decode genesis chunk");
+        let mut chunk = encoded_chunk.decode_chunk().expect("Failed to decode genesis chunk");
         chunk.set_height_included(genesis_height);
         chunks.push(chunk);
     }

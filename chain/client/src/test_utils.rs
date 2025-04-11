@@ -197,7 +197,7 @@ pub fn create_chunk(
         // The best way it to decode chunk, replace transactions and then recreate encoded chunk.
         let total_parts = client.chain.epoch_manager.num_total_parts();
         let data_parts = client.chain.epoch_manager.num_data_parts();
-        let decoded_chunk = chunk.decode_chunk(data_parts).unwrap();
+        let decoded_chunk = chunk.decode_chunk().unwrap();
         let parity_parts = total_parts - data_parts;
         let rs = ReedSolomon::new(data_parts, parity_parts).unwrap();
 
