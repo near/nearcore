@@ -283,8 +283,6 @@ init_forknet() {
         $MIRROR --host-type nodes update-binaries || true
     fi
     $MIRROR --host-type nodes run-cmd --cmd "mkdir -p ${BENCHNET_DIR}"
-    $MIRROR --host-type nodes upload-file --src ${SYNTH_BM_BIN} --dst ${BENCHNET_DIR}
-    $MIRROR --host-type nodes run-cmd --cmd "chmod +x ${BENCHNET_DIR}/${SYNTH_BM_BASENAME}"
 
     # Check if SYNTH_BM_BIN is a URL or a filepath
     if [[ "${SYNTH_BM_BIN}" =~ ^https?:// ]]; then
