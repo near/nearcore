@@ -321,11 +321,14 @@ impl HandlerWithContext<ShardsManagerRequestFromNetwork> for ShardsManagerActor 
         match self.handle_network_request(msg) {
             // Schedule retry processing the message once again if requested
             HandleNetworkRequestResult::RetryProcessing(msg, duration) => {
+                tracing::debug!(target: "chunks","retry processing of the NeedsBlockChunkDropped scheduled");
+
                 ctx.run_later("retry processing chunk request", duration, move |this, _ctx| {
                     this.handle_network_request(*msg);
                 })
             }
-            _ => {}
+            HandleNetworkRequestResult::Ok => {}
+            HandleNetworkRequestResult::Err => {}
         }
     }
 }
@@ -1498,6 +1501,7 @@ impl ShardsManagerActor {
     ///    are needed for processing the full chunk
     ///  ProcessPartialEncodedChunkResult::HaveAllPartsAndReceipts: if all parts and
     ///    receipts in the chunk are received and the chunk has been processed.
+    ///  ProcessPartialEncodedChunkResult::NeedsBlockChunkDropped: process request is received earlier than Block for the same height and the chunk has been dropped without processing any part of it.
     fn process_partial_encoded_chunk(
         &mut self,
         partial_encoded_chunk: MaybeValidated<PartialEncodedChunk>,
@@ -2211,7 +2215,10 @@ impl ShardsManagerActor {
                             Box::new(ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunk(*chunk)),
                             RETRY_CHUNK_PROCESSING_DELAY);
                     },
-                    Ok(_)=> { return HandleNetworkRequestResult::Ok; }
+                    Ok(ProcessPartialEncodedChunkResult::Known)=> { return HandleNetworkRequestResult::Ok; }
+                    Ok(ProcessPartialEncodedChunkResult::HaveAllPartsAndReceipts)=> { return HandleNetworkRequestResult::Ok; }
+                    Ok(ProcessPartialEncodedChunkResult::NeedMorePartsOrReceipts)=> { return HandleNetworkRequestResult::Ok; }
+                    Ok(ProcessPartialEncodedChunkResult::NeedBlock)=> { return HandleNetworkRequestResult::Ok; }
                     Err(e) => {
                         warn!(target: "chunks", "Error processing partial encoded chunk: {:?}", e);
                         return HandleNetworkRequestResult::Err;
