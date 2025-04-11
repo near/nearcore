@@ -167,7 +167,7 @@ pub fn decode_encoded_chunk(
     .entered();
 
     let shard_chunk = encoded_chunk.decode_chunk().map_err(|err| {
-        error!(target: "chunks", ?chunk_hash, ?me, "Reconstructed, but failed to decoded chunk");
+        error!(target: "chunks", ?chunk_hash, ?me, "reconstructed, but failed to decode chunk");
         err
     })?;
     if !validate_chunk_proofs(&shard_chunk, epoch_manager)? {
