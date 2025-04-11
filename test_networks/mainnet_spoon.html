@@ -281,7 +281,7 @@ cp ~/near-test-chain/genesis.json ~/near-test-chain/validator1
   &quot;consensus&quot;: {
     &quot;min_num_peers&quot;: 1
   },
-  &quot;tracked_shards&quot;: [0],
+  &quot;tracked_shards_config&quot;: &quot;AllShards&quot;,
 }
 </code></pre>
 <p>changes to <code>~/near-test-chain/validator1/config.json</code>:</p>
@@ -298,7 +298,7 @@ cp ~/near-test-chain/genesis.json ~/near-test-chain/validator1
   &quot;consensus&quot;: {
     &quot;min_num_peers&quot;: 1
   },
-  &quot;tracked_shards&quot;: [0],
+  &quot;tracked_shards_config&quot;: &quot;AllShards&quot;,
 }
 </code></pre>
 <p>Here we make sure to have each node listen on different ports, while
