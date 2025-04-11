@@ -17,7 +17,6 @@ use near_primitives::state::FlatStateValue;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::StateRoot;
 use near_primitives::types::chunk_extra::ChunkExtra;
-use near_primitives::version::PROTOCOL_VERSION;
 use rand::Rng;
 use rand::seq::SliceRandom;
 use std::collections::HashMap;
@@ -155,7 +154,6 @@ impl TestTriesBuilder {
             // ChunkExtra is needed for in-memory trie loading code to query state roots.
             let congestion_info = Some(CongestionInfo::default());
             let chunk_extra = ChunkExtra::new(
-                PROTOCOL_VERSION,
                 &Trie::EMPTY_ROOT,
                 CryptoHash::default(),
                 Vec::new(),
@@ -163,7 +161,7 @@ impl TestTriesBuilder {
                 0,
                 0,
                 congestion_info,
-                BandwidthRequests::default_for_protocol_version(PROTOCOL_VERSION),
+                Some(BandwidthRequests::default()),
             );
             let mut update_for_chunk_extra = store.store_update();
             for shard_uid in &shard_uids {

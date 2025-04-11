@@ -735,8 +735,7 @@ pub mod chunk_extra {
     use crate::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
     use borsh::{BorshDeserialize, BorshSerialize};
     use near_primitives_core::hash::CryptoHash;
-    use near_primitives_core::types::{Balance, Gas, ProtocolVersion};
-    use near_primitives_core::version::{PROTOCOL_VERSION, ProtocolFeature};
+    use near_primitives_core::types::{Balance, Gas};
 
     pub use super::ChunkExtraV1;
 
@@ -813,7 +812,6 @@ pub mod chunk_extra {
             // TODO(congestion_control) - integration with resharding
             let congestion_control = Some(CongestionInfo::default());
             Self::new(
-                PROTOCOL_VERSION,
                 state_root,
                 CryptoHash::default(),
                 vec![],
@@ -821,12 +819,11 @@ pub mod chunk_extra {
                 0,
                 0,
                 congestion_control,
-                BandwidthRequests::default_for_protocol_version(PROTOCOL_VERSION),
+                Some(BandwidthRequests::default()),
             )
         }
 
         pub fn new(
-            protocol_version: ProtocolVersion,
             state_root: &StateRoot,
             outcome_root: CryptoHash,
             validator_proposals: Vec<ValidatorStake>,
@@ -836,8 +833,8 @@ pub mod chunk_extra {
             congestion_info: Option<CongestionInfo>,
             bandwidth_requests: Option<BandwidthRequests>,
         ) -> Self {
-            if ProtocolFeature::BandwidthScheduler.enabled(protocol_version) {
-                assert!(bandwidth_requests.is_some());
+            assert!(bandwidth_requests.is_some());
+            if bandwidth_requests.is_some() {
                 Self::V4(ChunkExtraV4 {
                     state_root: *state_root,
                     outcome_root,

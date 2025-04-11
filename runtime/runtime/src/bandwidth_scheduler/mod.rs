@@ -9,7 +9,6 @@ use near_primitives::congestion_info::CongestionControl;
 use near_primitives::errors::RuntimeError;
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::types::{EpochInfoProvider, ShardId, ShardIndex, StateChangeCause};
-use near_primitives::version::ProtocolFeature;
 use near_store::{TrieUpdate, get_bandwidth_scheduler_state, set_bandwidth_scheduler_state};
 use scheduler::{BandwidthScheduler, GrantedBandwidth, ShardStatus};
 
@@ -38,10 +37,6 @@ pub fn run_bandwidth_scheduler(
     epoch_info_provider: &dyn EpochInfoProvider,
     stats: &mut BandwidthSchedulerStats,
 ) -> Result<Option<BandwidthSchedulerOutput>, RuntimeError> {
-    if !ProtocolFeature::BandwidthScheduler.enabled(apply_state.current_protocol_version) {
-        return Ok(None);
-    }
-
     let start_time = std::time::Instant::now();
     let _span = tracing::debug_span!(
         target: "runtime",

@@ -16,7 +16,7 @@ use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::ShardId;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::utils::MaybeValidated;
-use near_primitives::version::PROTOCOL_VERSION;
+
 use near_store::ShardUId;
 
 use crate::env::test_env::TestEnv;
@@ -78,7 +78,6 @@ fn test_bad_shard_id() {
     let outgoing_receipts_root = chunks.get(1).unwrap().prev_outgoing_receipts_root();
     let congestion_info = CongestionInfo::default();
     let mut modified_chunk = ShardChunkHeaderV3::new(
-        PROTOCOL_VERSION,
         *chunk.prev_block_hash(),
         chunk.prev_state_root(),
         chunk.prev_outcome_root(),
@@ -231,7 +230,6 @@ fn test_bad_congestion_info_impl(mode: BadCongestionInfoMode) {
     mode.corrupt(&mut congestion_info);
 
     let mut modified_chunk_header = ShardChunkHeaderV3::new(
-        PROTOCOL_VERSION,
         *chunk.prev_block_hash(),
         chunk.prev_state_root(),
         chunk.prev_outcome_root(),

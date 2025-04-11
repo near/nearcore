@@ -170,7 +170,7 @@ fn setup_runtime_for_shard(
         cache: Some(Box::new(contract_cache)),
         is_new_chunk: true,
         congestion_info,
-        bandwidth_requests: BlockBandwidthRequests::empty(),
+        bandwidth_requests: BlockBandwidthRequests::default(),
     };
 
     (runtime, tries, root, apply_state, signers)

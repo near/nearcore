@@ -24,7 +24,6 @@ use near_store::trie::receipts_column_helper::{
     DelayedReceiptQueue, ShardsOutgoingReceiptBuffer, TrieQueue,
 };
 use near_store::{StorageError, TrieAccess, TrieUpdate};
-use near_vm_runner::logic::ProtocolVersion;
 use std::borrow::Cow;
 use std::collections::{BTreeSet, HashMap};
 
@@ -52,7 +51,6 @@ pub struct ReceiptSinkV2 {
     pub(crate) outgoing_buffers: ShardsOutgoingReceiptBuffer,
     pub(crate) outgoing_metadatas: OutgoingMetadatas,
     pub(crate) bandwidth_scheduler_output: Option<BandwidthSchedulerOutput>,
-    pub(crate) protocol_version: ProtocolVersion,
     pub(crate) stats: ReceiptSinkStats,
 }
 
@@ -71,7 +69,6 @@ enum ReceiptForwarding {
 
 impl ReceiptSink {
     pub(crate) fn new(
-        protocol_version: ProtocolVersion,
         trie: &dyn TrieAccess,
         apply_state: &ApplyState,
         prev_own_congestion_info: CongestionInfo,
@@ -97,15 +94,11 @@ impl ReceiptSink {
                     Gas::MAX
                 };
 
-                let size_limit = if ProtocolFeature::BandwidthScheduler.enabled(protocol_version) {
-                    bandwidth_scheduler_output
-                        .as_ref()
-                        .expect("BandwidthScheduler is enabled and should produce output")
-                        .granted_bandwidth
-                        .get_granted_bandwidth(apply_state.shard_id, shard_id)
-                } else {
-                    other_congestion_control.outgoing_size_limit(apply_state.shard_id)
-                };
+                let size_limit = bandwidth_scheduler_output
+                    .as_ref()
+                    .expect("BandwidthScheduler is enabled and should produce output")
+                    .granted_bandwidth
+                    .get_granted_bandwidth(apply_state.shard_id, shard_id);
 
                 (shard_id, OutgoingLimit { gas: gas_limit, size: size_limit })
             })
@@ -115,7 +108,6 @@ impl ReceiptSink {
             trie,
             outgoing_buffers.shards(),
             ReceiptGroupsConfig::default_config(),
-            apply_state.current_protocol_version,
         )?;
 
         let mut stats = ReceiptSinkStats::default();
@@ -130,7 +122,7 @@ impl ReceiptSink {
             outgoing_buffers,
             outgoing_metadatas,
             bandwidth_scheduler_output,
-            protocol_version,
+
             stats,
         }))
     }
@@ -415,25 +407,14 @@ impl ReceiptSinkV2 {
         // limit" is the safest approach to ensure availability.
         let default_gas_limit = Gas::MAX;
 
-        let default_size_limit =
-            if ProtocolFeature::BandwidthScheduler.enabled(apply_state.current_protocol_version) {
-                // With bandwidth scheduler, a shard is not allowed to send any receipts if it doesn't have a grant.
-                0
-            } else {
-                // Use the usual size limit that most senders have
-                apply_state.config.congestion_control_config.outgoing_receipts_usual_size_limit
-            };
+        // With bandwidth scheduler, a shard is not allowed to send any receipts if it doesn't have a grant.
+        let default_size_limit = 0;
 
         let default_outgoing_limit =
             OutgoingLimit { gas: default_gas_limit, size: default_size_limit };
         let forward_limit = outgoing_limit.entry(shard).or_insert(default_outgoing_limit);
 
-        let can_forward =
-            if ProtocolFeature::BandwidthScheduler.enabled(apply_state.current_protocol_version) {
-                forward_limit.gas >= gas && forward_limit.size >= size
-            } else {
-                forward_limit.gas > gas && forward_limit.size > size
-            };
+        let can_forward = forward_limit.gas >= gas && forward_limit.size >= size;
 
         if can_forward {
             tracing::trace!(target: "runtime", ?shard, receipt_id=?receipt.receipt_id(), "forwarding buffered receipt");
@@ -464,8 +445,7 @@ impl ReceiptSinkV2 {
             true => {
                 let metadata =
                     StateStoredReceiptMetadata { congestion_gas: gas, congestion_size: size };
-                let receipt =
-                    StateStoredReceipt::new_owned(receipt, metadata, self.protocol_version);
+                let receipt = StateStoredReceipt::new_owned(receipt, metadata);
                 let receipt = ReceiptOrStateStoredReceipt::StateStoredReceipt(receipt);
                 receipt
             }
@@ -496,10 +476,6 @@ impl ReceiptSinkV2 {
         side_effects: bool,
         stats: &mut ChunkApplyStatsV0,
     ) -> Result<Option<BandwidthRequests>, StorageError> {
-        if !ProtocolFeature::BandwidthScheduler.enabled(self.protocol_version) {
-            return Ok(None);
-        }
-
         let params = self
             .bandwidth_scheduler_output
             .as_ref()
@@ -842,11 +818,7 @@ impl<'a> DelayedReceiptQueueWrapper<'a> {
             true => {
                 let metadata =
                     StateStoredReceiptMetadata { congestion_gas: gas, congestion_size: size };
-                let receipt = StateStoredReceipt::new_borrowed(
-                    receipt,
-                    metadata,
-                    apply_state.current_protocol_version,
-                );
+                let receipt = StateStoredReceipt::new_borrowed(receipt, metadata);
                 ReceiptOrStateStoredReceipt::StateStoredReceipt(receipt)
             }
             false => ReceiptOrStateStoredReceipt::Receipt(Cow::Borrowed(receipt)),

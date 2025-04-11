@@ -249,7 +249,7 @@ impl TestEnv {
                     gas_price,
                     random_seed: CryptoHash::default(),
                     congestion_info,
-                    bandwidth_requests: BlockBandwidthRequests::empty(),
+                    bandwidth_requests: BlockBandwidthRequests::default(),
                 },
                 receipts,
                 transactions,

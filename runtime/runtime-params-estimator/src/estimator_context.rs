@@ -189,7 +189,7 @@ impl<'c> EstimatorContext<'c> {
             cache: Some(Box::new(cache)),
             is_new_chunk: true,
             congestion_info,
-            bandwidth_requests: BlockBandwidthRequests::empty(),
+            bandwidth_requests: BlockBandwidthRequests::default(),
         }
     }
 

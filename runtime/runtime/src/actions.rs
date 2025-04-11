@@ -1395,7 +1395,7 @@ mod tests {
             cache: None,
             is_new_chunk: false,
             congestion_info: BlockCongestionInfo::default(),
-            bandwidth_requests: BlockBandwidthRequests::empty(),
+            bandwidth_requests: BlockBandwidthRequests::default(),
         }
     }
 

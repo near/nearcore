@@ -52,12 +52,14 @@ fn test_flat_storage_iter() {
 
     // Since the BandwidthScheduler feature there is one more entry on every shard - BandwidthSchedulerState
     // The test should expect one more entry on every shard.
-    let protocol_version_modifier =
-        if ProtocolFeature::BandwidthScheduler.enabled(genesis.config.protocol_version) {
-            1
-        } else {
-            0
-        };
+    #[allow(deprecated)]
+    let protocol_version_modifier = if ProtocolFeature::_DeprecatedBandwidthScheduler
+        .enabled(genesis.config.protocol_version)
+    {
+        1
+    } else {
+        0
+    };
 
     let [s0, s1, s2] = shard_layout.shard_ids().collect_vec()[..] else {
         panic!("Expected 3 shards in the shard layout!");

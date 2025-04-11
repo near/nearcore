@@ -1412,7 +1412,6 @@ impl Runtime {
         let own_congestion_info =
             apply_state.own_congestion_info(&processing_state.state_update)?;
         let mut receipt_sink = ReceiptSink::new(
-            processing_state.protocol_version,
             &processing_state.state_update.trie,
             apply_state,
             own_congestion_info,
@@ -2553,7 +2552,6 @@ pub mod estimator {
             state_update,
             std::iter::once(shard_uid.shard_id()),
             ReceiptGroupsConfig::default_config(),
-            apply_state.current_protocol_version,
         )?;
 
         let mut receipt_sink = ReceiptSink::V2(ReceiptSinkV2 {
@@ -2563,7 +2561,6 @@ pub mod estimator {
             outgoing_receipts: Vec::new(),
             outgoing_metadatas,
             bandwidth_scheduler_output: None,
-            protocol_version: apply_state.current_protocol_version,
             stats: ReceiptSinkStats::default(),
         });
         let empty_pipeline = ReceiptPreparationPipeline::new(
