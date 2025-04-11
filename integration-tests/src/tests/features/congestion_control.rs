@@ -235,7 +235,7 @@ fn submit_n_100tgas_fns(env: &mut TestEnv, n: u32, nonce: &mut u64, signer: &Sig
     for _ in 0..n {
         let fn_tx = new_fn_call_100tgas(nonce, signer, *block.hash());
         // this only adds the tx to the pool, no chain progress is made
-        let response = env.tx_request_handlers[0].process_tx(fn_tx, false, false);
+        let response = env.rpc_handlers[0].process_tx(fn_tx, false, false);
         match response {
             ProcessTxResponse::ValidTx => {
                 included += 1;
@@ -259,7 +259,7 @@ fn submit_n_cheap_fns(
     for _ in 0..n {
         let fn_tx = new_cheap_fn_call(nonce, signer, receiver.clone(), *block.hash());
         // this only adds the tx to the pool, no chain progress is made
-        let response = env.tx_request_handlers[0].process_tx(fn_tx, false, false);
+        let response = env.rpc_handlers[0].process_tx(fn_tx, false, false);
         assert_eq!(response, ProcessTxResponse::ValidTx);
     }
 }
@@ -537,7 +537,7 @@ fn test_rpc_client_rejection() {
         &signer,
         *env.clients[0].chain.head_header().unwrap().hash(),
     );
-    let response = env.tx_request_handlers[0].process_tx(fn_tx, false, false);
+    let response = env.rpc_handlers[0].process_tx(fn_tx, false, false);
     assert_eq!(response, ProcessTxResponse::ValidTx);
 
     // Congest the network with a burst of 100 PGas.
@@ -556,7 +556,7 @@ fn test_rpc_client_rejection() {
         &signer,
         *env.clients[0].chain.head_header().unwrap().hash(),
     );
-    let response = env.tx_request_handlers[0].process_tx(fn_tx, false, false);
+    let response = env.rpc_handlers[0].process_tx(fn_tx, false, false);
 
     assert_matches!(response, ProcessTxResponse::InvalidTx(InvalidTxError::ShardCongested { .. }));
 }

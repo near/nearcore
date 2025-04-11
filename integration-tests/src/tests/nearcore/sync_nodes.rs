@@ -45,7 +45,7 @@ fn ultra_slow_test_sync_state_stake_change() {
         let dir2 = tempfile::Builder::new().prefix("sync_state_stake_change_2").tempdir().unwrap();
         run_actix(async {
             let nearcore::NearNode {
-                view_client: view_client1, tx_processor: tx_processor1, ..
+                view_client: view_client1, rpc_handler: tx_processor1, ..
             } = start_with_config(dir1.path(), near1.clone()).expect("start_with_config");
 
             let genesis_hash = *genesis_block(&genesis).hash();
