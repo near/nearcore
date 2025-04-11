@@ -7,7 +7,7 @@ use near_primitives::shard_layout::ShardUId;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_store::Trie;
 
-/// Check that attempt to process block on top of incorrect state root leads to InvalidChunkState error.
+/// Check that attempt to process block on top of incorrect state root fails with the expected error.
 #[test]
 fn test_invalid_chunk_state() {
     let genesis = Genesis::test(vec!["test0".parse().unwrap()], 1);
@@ -29,5 +29,5 @@ fn test_invalid_chunk_state() {
 
     let block = env.clients[0].produce_block(2).unwrap().unwrap();
     let result = env.clients[0].process_block_test(block.into(), Provenance::NONE);
-    assert_matches!(result.unwrap_err(), Error::InvalidChunkState(_));
+    assert_matches!(result.unwrap_err(), Error::InvalidStateRoot);
 }
