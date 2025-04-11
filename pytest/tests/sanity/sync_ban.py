@@ -80,7 +80,7 @@ if __name__ == '__main__':
                 "nanos": 0
             }
         },
-        "tracked_shards": [0]
+        "tracked_shards_config": "AllShards"
     }
 
     should_sync = Value('i', False)

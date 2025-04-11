@@ -36,7 +36,7 @@ if not config['local']:
     TIMEOUT = 600
 
 client_config_changes['archive'] = True
-client_config_changes['tracked_shards'] = [0]  # Track all shards
+client_config_changes['tracked_shards_config'] = 'AllShards'
 
 no_state_snapshots_config = client_config_changes
 no_state_snapshots_config[
