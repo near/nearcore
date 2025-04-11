@@ -268,7 +268,7 @@ pub fn filter_incoming_receipts_for_shard(
 /// All chain-related database operations.
 pub struct ChainStore {
     store: ChainStoreAdapter,
-    // TODO(store): Use std::cell::OnceCell once OnceCell::get_or_try_init stabilises.
+    // TODO(store): Use std::cell::OnceCell once OnceCell::get_or_try_init stabilizes.
     latest_known: std::cell::Cell<Option<LatestKnown>>,
     /// save_trie_changes should be set to true iff
     /// - archive is false - non-archival nodes need trie changes to perform garbage collection
