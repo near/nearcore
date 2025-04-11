@@ -3,7 +3,6 @@ use crate::merkle::MerklePath;
 use crate::sharding::{EncodedShardChunk, ShardChunk, ShardChunkHeader};
 use crate::state::PartialState;
 use crate::types::AccountId;
-use crate::validator_signer::ValidatorSigner;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::Signature;
 use near_primitives_core::types::BlockHeight;
@@ -15,12 +14,6 @@ use std::fmt::Debug;
 pub struct BlockDoubleSign {
     pub left_block_header: Vec<u8>,
     pub right_block_header: Vec<u8>,
-}
-
-impl std::fmt::Display for BlockDoubleSign {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
-        write!(f, "{:?}", self)
-    }
 }
 
 /// Invalid chunk (body of the chunk doesn't match proofs or invalid encoding).
@@ -90,15 +83,7 @@ impl Challenge {
     pub fn init(&mut self) {
         self.hash = CryptoHash::hash_borsh(&self.body);
     }
-
-    pub fn produce(body: ChallengeBody, signer: &ValidatorSigner) -> Self {
-        let hash = CryptoHash::hash_borsh(&body);
-        let signature = signer.sign_bytes(hash.as_ref());
-        Self { body, account_id: signer.validator_id().clone(), signature, hash }
-    }
 }
-
-pub type Challenges = Vec<Challenge>;
 
 #[derive(
     BorshSerialize,
@@ -115,7 +100,3 @@ pub struct SlashedValidator {
     pub account_id: AccountId,
     pub is_double_sign: bool,
 }
-
-/// Result of checking challenge, contains which accounts to slash.
-/// If challenge is invalid this is sender, otherwise author of chunk (and possibly other participants that signed invalid blocks).
-pub type ChallengesResult = Vec<SlashedValidator>;

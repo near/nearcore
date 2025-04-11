@@ -12,7 +12,7 @@ use crate::action::{
 use crate::bandwidth_scheduler::BandwidthRequests;
 use crate::block::{Block, BlockHeader, Tip};
 use crate::block_header::BlockHeaderInnerLite;
-use crate::challenge::{Challenge, ChallengesResult};
+use crate::challenge::SlashedValidator;
 use crate::congestion_info::{CongestionInfo, CongestionInfoV1};
 use crate::errors::TxExecutionError;
 use crate::hash::{CryptoHash, hash};
@@ -356,7 +356,6 @@ pub struct StatusSyncInfo {
 #[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct ValidatorInfo {
     pub account_id: AccountId,
-    pub is_slashed: bool,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq)]
@@ -735,17 +734,6 @@ pub struct StatusResponse {
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
-pub struct ChallengeView {
-    // TODO: decide how to represent challenges in json.
-}
-
-impl From<Challenge> for ChallengeView {
-    fn from(_challenge: Challenge) -> Self {
-        Self {}
-    }
-}
-
-#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
 pub struct BlockHeaderView {
     pub height: BlockHeight,
     pub prev_height: Option<BlockHeight>,
@@ -779,7 +767,8 @@ pub struct BlockHeaderView {
     pub validator_reward: Balance,
     #[serde(with = "dec_format")]
     pub total_supply: Balance,
-    pub challenges_result: ChallengesResult,
+    // Deprecated
+    pub challenges_result: Vec<SlashedValidator>,
     pub last_final_block: CryptoHash,
     pub last_ds_final_block: CryptoHash,
     pub next_bp_hash: CryptoHash,
@@ -986,7 +975,7 @@ impl From<ShardChunkHeader> for ChunkHeaderView {
             outgoing_receipts_root: *inner.prev_outgoing_receipts_root(),
             tx_root: *inner.tx_root(),
             validator_proposals: inner.prev_validator_proposals().map(Into::into).collect(),
-            congestion_info: inner.congestion_info().map(Into::into),
+            congestion_info: Some(inner.congestion_info().into()),
             bandwidth_requests: inner.bandwidth_requests().cloned(),
             signature,
         }

@@ -20,7 +20,6 @@ use near_primitives::stateless_validation::stored_chunk_state_transition_data::{
 };
 use near_primitives::types::{AccountId, EpochId, ShardId};
 use near_primitives::validator_signer::ValidatorSigner;
-use near_primitives::version::ProtocolFeature;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -59,7 +58,6 @@ impl Client {
         chunk: &ShardChunk,
         validator_signer: &Option<Arc<ValidatorSigner>>,
     ) -> Result<(), Error> {
-        let protocol_version = self.epoch_manager.get_epoch_protocol_version(epoch_id)?;
         let chunk_header = chunk.cloned_header();
         let shard_id = chunk_header.shard_id();
         let _span = tracing::debug_span!(target: "client", "send_chunk_state_witness", chunk_hash=?chunk_header.chunk_hash(), ?shard_id).entered();
@@ -96,12 +94,6 @@ impl Client {
                 self.chunk_endorsement_tracker.process_chunk_endorsement(endorsement)?;
             }
         }
-
-        // Pass the contract changes to PartialWitnessActor only if we exclude contract code from state witness.
-        let contract_updates = ProtocolFeature::ExcludeContractCodeFromStateWitness
-            .enabled(protocol_version)
-            .then_some(contract_updates)
-            .unwrap_or_default();
 
         self.partial_witness_adapter.send(DistributeStateWitnessRequest {
             state_witness,

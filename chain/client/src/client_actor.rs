@@ -53,7 +53,7 @@ use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_network::client::{
     BlockApproval, BlockHeadersResponse, BlockResponse, ChunkEndorsementMessage,
-    OptimisticBlockMessage, RecvChallenge, SetNetworkInfo, StateResponseReceived,
+    OptimisticBlockMessage, SetNetworkInfo, StateResponseReceived,
 };
 use near_network::types::ReasonForBan;
 use near_network::types::{
@@ -618,16 +618,6 @@ impl Handler<StateResponseReceived> for ClientActorInner {
     }
 }
 
-impl Handler<RecvChallenge> for ClientActorInner {
-    fn handle(&mut self, msg: RecvChallenge) {
-        let RecvChallenge(challenge) = msg;
-        match self.client.process_challenge(challenge) {
-            Ok(_) => {}
-            Err(err) => error!(target: "client", "Error processing challenge: {}", err),
-        }
-    }
-}
-
 impl Handler<SetNetworkInfo> for ClientActorInner {
     fn handle(&mut self, msg: SetNetworkInfo) {
         // SetNetworkInfo is a large message. Avoid printing it at the `debug` verbosity.
@@ -701,10 +691,7 @@ impl Handler<Status> for ClientActorInner {
             .get_epoch_block_producers_ordered(&head.epoch_id)
             .into_chain_error()?
             .into_iter()
-            .map(|validator_stake| ValidatorInfo {
-                account_id: validator_stake.take_account_id(),
-                is_slashed: false,
-            })
+            .map(|validator_stake| ValidatorInfo { account_id: validator_stake.take_account_id() })
             .collect();
 
         let epoch_start_height =

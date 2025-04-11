@@ -5,7 +5,7 @@ use crate::logic::errors::FunctionCallError;
 use crate::logic::mocks::mock_external::MockedExternal;
 use crate::runner::{VMKindExt, VMResult};
 use near_parameters::RuntimeFeesConfig;
-use near_parameters::vm::{ContractPrepareVersion, VMKind};
+use near_parameters::vm::VMKind;
 use near_test_contracts::ArbitraryModule;
 use std::sync::Arc;
 
@@ -66,10 +66,7 @@ fn run_fuzz(code: &ContractCode, vm_kind: VMKind) -> VMResult {
     let method_name = find_entry_point(code).unwrap_or_else(|| "main".to_string());
     let mut context = create_context(vec![]);
     context.prepaid_gas = 10u64.pow(14);
-
-    let mut config = test_vm_config();
-    config.limit_config.contract_prepare_version = ContractPrepareVersion::V2;
-
+    let config = test_vm_config();
     let fees = Arc::new(RuntimeFeesConfig::test());
     let gas_counter = context.make_gas_counter(&config);
     let mut res = vm_kind

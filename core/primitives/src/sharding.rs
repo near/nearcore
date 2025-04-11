@@ -4,6 +4,8 @@ use crate::hash::{CryptoHash, hash};
 use crate::merkle::{MerklePath, combine_hash, merklize, verify_path};
 use crate::receipt::Receipt;
 use crate::transaction::SignedTransaction;
+#[cfg(feature = "solomon")]
+use crate::transaction::ValidatedTransaction;
 use crate::types::validator_stake::{ValidatorStake, ValidatorStakeIter, ValidatorStakeV1};
 use crate::types::{Balance, BlockHeight, Gas, MerkleHash, ShardId, StateRoot};
 use crate::validator_signer::{EmptyValidatorSigner, ValidatorSigner};
@@ -247,7 +249,7 @@ impl ShardChunkHeaderV3 {
         prev_outgoing_receipts_root: CryptoHash,
         tx_root: CryptoHash,
         prev_validator_proposals: Vec<ValidatorStake>,
-        congestion_info: Option<CongestionInfo>,
+        congestion_info: CongestionInfo,
         bandwidth_requests: Option<BandwidthRequests>,
         signer: &ValidatorSigner,
     ) -> Self {
@@ -255,8 +257,6 @@ impl ShardChunkHeaderV3 {
             // `bandwidth_requests` can only be `Some` when bandwidth scheduler is enabled.
             assert!(ProtocolFeature::BandwidthScheduler.enabled(protocol_version));
 
-            // Congestion control has to be enabled before bandwidth scheduler
-            assert!(ProtocolFeature::CongestionControl.enabled(protocol_version));
             ShardChunkHeaderInner::V4(ShardChunkHeaderInnerV4 {
                 prev_block_hash,
                 prev_state_root,
@@ -271,13 +271,10 @@ impl ShardChunkHeaderV3 {
                 prev_outgoing_receipts_root,
                 tx_root,
                 prev_validator_proposals,
-                congestion_info: congestion_info
-                    .expect("Congestion info must exist when bandwidth scheduler is enabled"),
+                congestion_info,
                 bandwidth_requests,
             })
-        } else if let Some(congestion_info) = congestion_info {
-            // `congestion_info`` can only be `Some` when congestion control is enabled.
-            assert!(ProtocolFeature::CongestionControl.enabled(protocol_version));
+        } else {
             ShardChunkHeaderInner::V3(ShardChunkHeaderInnerV3 {
                 prev_block_hash,
                 prev_state_root,
@@ -293,22 +290,6 @@ impl ShardChunkHeaderV3 {
                 tx_root,
                 prev_validator_proposals,
                 congestion_info,
-            })
-        } else {
-            ShardChunkHeaderInner::V2(ShardChunkHeaderInnerV2 {
-                prev_block_hash,
-                prev_state_root,
-                prev_outcome_root,
-                encoded_merkle_root,
-                encoded_length,
-                height_created: height,
-                shard_id,
-                prev_gas_used,
-                gas_limit,
-                prev_balance_burnt,
-                prev_outgoing_receipts_root,
-                tx_root,
-                prev_validator_proposals,
             })
         };
         Self::from_inner(inner, signer)
@@ -330,9 +311,7 @@ pub enum ShardChunkHeader {
 
 impl ShardChunkHeader {
     pub fn new_dummy(height: BlockHeight, shard_id: ShardId, prev_block_hash: CryptoHash) -> Self {
-        let congestion_info = ProtocolFeature::CongestionControl
-            .enabled(PROTOCOL_VERSION)
-            .then_some(CongestionInfo::default());
+        let congestion_info = CongestionInfo::default();
 
         ShardChunkHeader::V3(ShardChunkHeaderV3::new(
             PROTOCOL_VERSION,
@@ -539,12 +518,13 @@ impl ShardChunkHeader {
         }
     }
 
-    /// Congestion info, if the feature is enabled on the chunk, `None` otherwise.
     #[inline]
-    pub fn congestion_info(&self) -> Option<CongestionInfo> {
+    pub fn congestion_info(&self) -> CongestionInfo {
         match self {
-            ShardChunkHeader::V1(_) => None,
-            ShardChunkHeader::V2(_) => None,
+            ShardChunkHeader::V1(_) | ShardChunkHeader::V2(_) => {
+                debug_assert!(false, "Calling congestion_info on V1 or V2 header version");
+                Default::default()
+            }
             ShardChunkHeader::V3(header) => header.inner.congestion_info(),
         }
     }
@@ -562,8 +542,6 @@ impl ShardChunkHeader {
         &self,
         version: ProtocolVersion,
     ) -> Result<(), BadHeaderForProtocolVersionError> {
-        const CONGESTION_CONTROL_VERSION: ProtocolVersion =
-            ProtocolFeature::CongestionControl.protocol_version();
         const BANDWIDTH_SCHEDULER_VERSION: ProtocolVersion =
             ProtocolFeature::BandwidthScheduler.protocol_version();
 
@@ -571,10 +549,7 @@ impl ShardChunkHeader {
             ShardChunkHeader::V1(_) => false,
             ShardChunkHeader::V2(_) => false,
             ShardChunkHeader::V3(header) => match header.inner {
-                ShardChunkHeaderInner::V1(_) => version < CONGESTION_CONTROL_VERSION,
-                // Note that we allow V2 in the congestion control version.
-                // That is because the first chunk where this feature is
-                // enabled does not have the congestion info.
+                ShardChunkHeaderInner::V1(_) => false,
                 // In bandwidth scheduler version v3 and v4 are allowed. The first chunk in
                 // the bandwidth scheduler version will be v3 because the chunk extra for the
                 // last chunk of previous version doesn't have bandwidth requests.
@@ -582,7 +557,7 @@ impl ShardChunkHeader {
                 // are multiple tests which upgrade from an old version directly to the
                 // latest version. TODO(#12328) - don't allow InnerV2 in bandwidth scheduler version.
                 ShardChunkHeaderInner::V2(_) => true,
-                ShardChunkHeaderInner::V3(_) => version >= CONGESTION_CONTROL_VERSION,
+                ShardChunkHeaderInner::V3(_) => true,
                 ShardChunkHeaderInner::V4(_) => version >= BANDWIDTH_SCHEDULER_VERSION,
             },
         };
@@ -1214,15 +1189,17 @@ impl EncodedShardChunk {
         prev_balance_burnt: Balance,
         tx_root: CryptoHash,
         prev_validator_proposals: Vec<ValidatorStake>,
-        transactions: Vec<SignedTransaction>,
+        validated_txs: Vec<ValidatedTransaction>,
         prev_outgoing_receipts: Vec<Receipt>,
         prev_outgoing_receipts_root: CryptoHash,
-        congestion_info: Option<CongestionInfo>,
+        congestion_info: CongestionInfo,
         bandwidth_requests: Option<BandwidthRequests>,
         signer: &ValidatorSigner,
         protocol_version: ProtocolVersion,
     ) -> (Self, Vec<MerklePath>, Vec<Receipt>) {
-        let transaction_receipt = TransactionReceipt(transactions, prev_outgoing_receipts);
+        let signed_txs =
+            validated_txs.into_iter().map(|validated_tx| validated_tx.into_signed_tx()).collect();
+        let transaction_receipt = TransactionReceipt(signed_txs, prev_outgoing_receipts);
         let (transaction_receipts_parts, encoded_length) =
             crate::reed_solomon::reed_solomon_encode(rs, &transaction_receipt);
         let content = EncodedShardChunkBody { parts: transaction_receipts_parts };

@@ -96,8 +96,7 @@ pub fn check_receipts_at_block(
         .chain_store()
         .get_chunk_extra(&tip.last_block_hash, shard_uid)
         .unwrap()
-        .congestion_info()
-        .unwrap();
+        .congestion_info();
 
     let num_shards = shard_layout.shard_ids().count();
     let has_delayed = congestion_info.delayed_receipts_gas() != 0;

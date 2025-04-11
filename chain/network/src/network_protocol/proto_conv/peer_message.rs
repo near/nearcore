@@ -1,6 +1,5 @@
 /// Conversion functions for PeerMessage - the top-level message for the NEAR P2P protocol format.
 use super::*;
-
 use crate::network_protocol::proto::peer_message::Message_type as ProtoMT;
 use crate::network_protocol::proto::{self};
 use crate::network_protocol::state_sync::{SnapshotHostInfo, SyncSnapshotHosts};
@@ -387,7 +386,6 @@ impl From<&PeerMessage> for proto::PeerMessage {
 pub type ParsePeersRequestError = std::io::Error;
 pub type ParseTransactionError = std::io::Error;
 pub type ParseRoutedError = std::io::Error;
-pub type ParseChallengeError = std::io::Error;
 
 #[derive(thiserror::Error, Debug)]
 pub enum ParsePeerMessageError {
@@ -424,7 +422,7 @@ pub enum ParsePeerMessageError {
     #[error("routed: {0}")]
     Routed(ParseRoutedError),
     #[error("challenge: {0}")]
-    Challenge(ParseChallengeError),
+    Challenge(std::io::Error),
     #[error("routed_created_at: {0}")]
     RoutedCreatedAtTimestamp(ComponentRange),
     #[error("sync_accounts_data: {0}")]

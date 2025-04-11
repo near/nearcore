@@ -212,8 +212,6 @@ pub struct VMConfigView {
 
     /// See [VMConfig::vm_kind](crate::vm::Config::vm_kind).
     pub vm_kind: crate::vm::VMKind,
-    /// See [VMConfig::disable_9393_fix](crate::vm::Config::disable_9393_fix).
-    pub disable_9393_fix: bool,
     /// See [VMConfig::discard_custom_sections](crate::vm::Config::discard_custom_sections).
     pub discard_custom_sections: bool,
 
@@ -223,18 +221,8 @@ pub struct VMConfigView {
     pub fix_contract_loading_cost: bool,
     /// See [VMConfig::implicit_account_creation](crate::vm::Config::implicit_account_creation).
     pub implicit_account_creation: bool,
-    /// See [VMConfig::math_extension](crate::vm::Config::math_extension).
-    pub math_extension: bool,
-    /// See [VMConfig::ed25519_verify](crate::vm::Config::ed25519_verify).
-    pub ed25519_verify: bool,
-    /// See [VMConfig::alt_bn128](crate::vm::Config::alt_bn128).
-    pub alt_bn128: bool,
-    /// See [VMConfig::function_call_weight](crate::vm::Config::function_call_weight).
-    pub function_call_weight: bool,
     /// See [VMConfig::eth_implicit_accounts](crate::vm::Config::eth_implicit_accounts).
     pub eth_implicit_accounts: bool,
-    /// See [VMConfig::yield_resume_host_functions](`crate::vm::Config::yield_resume_host_functions).
-    pub yield_resume_host_functions: bool,
 
     /// Describes limits for VM and Runtime.
     ///
@@ -249,19 +237,13 @@ impl From<crate::vm::Config> for VMConfigView {
             ext_costs: ExtCostsConfigView::from(config.ext_costs),
             grow_mem_cost: config.grow_mem_cost,
             regular_op_cost: config.regular_op_cost,
-            disable_9393_fix: config.disable_9393_fix,
             discard_custom_sections: config.discard_custom_sections,
             limit_config: config.limit_config,
             storage_get_mode: config.storage_get_mode,
             fix_contract_loading_cost: config.fix_contract_loading_cost,
             implicit_account_creation: config.implicit_account_creation,
-            math_extension: config.math_extension,
-            ed25519_verify: config.ed25519_verify,
-            alt_bn128: config.alt_bn128,
-            function_call_weight: config.function_call_weight,
             vm_kind: config.vm_kind,
             eth_implicit_accounts: config.eth_implicit_accounts,
-            yield_resume_host_functions: config.yield_resume_host_functions,
         }
     }
 }
@@ -272,19 +254,13 @@ impl From<VMConfigView> for crate::vm::Config {
             ext_costs: crate::ExtCostsConfig::from(view.ext_costs),
             grow_mem_cost: view.grow_mem_cost,
             regular_op_cost: view.regular_op_cost,
-            disable_9393_fix: view.disable_9393_fix,
             discard_custom_sections: view.discard_custom_sections,
             limit_config: view.limit_config,
             storage_get_mode: view.storage_get_mode,
             fix_contract_loading_cost: view.fix_contract_loading_cost,
             implicit_account_creation: view.implicit_account_creation,
-            math_extension: view.math_extension,
-            ed25519_verify: view.ed25519_verify,
-            alt_bn128: view.alt_bn128,
-            function_call_weight: view.function_call_weight,
             vm_kind: view.vm_kind,
             eth_implicit_accounts: view.eth_implicit_accounts,
-            yield_resume_host_functions: view.yield_resume_host_functions,
         }
     }
 }

@@ -5,6 +5,7 @@ const FIX_CONTRACT_LOADING_COST: u32 = 129;
 
 #[test]
 fn test_initializer_wrong_signature_contract() {
+    #[allow(deprecated)]
     test_builder()
         .wat(
             r#"
@@ -30,6 +31,7 @@ fn test_initializer_wrong_signature_contract() {
 #[test]
 /// StackHeightInstrumentation is weird but it's what we return for now
 fn test_function_not_defined_contract() {
+    #[allow(deprecated)]
     test_builder()
         .wat(r#"(module (export "hello" (func 0)))"#)
         .method("hello")
@@ -61,6 +63,7 @@ fn function_type_not_defined_contract(bad_type: u64) -> Vec<u8> {
 
 #[test]
 fn test_function_type_not_defined_contract_1() {
+    #[allow(deprecated)]
     test_builder()
         .wasm(&function_type_not_defined_contract(1))
         .protocol_version(
@@ -81,6 +84,7 @@ fn test_function_type_not_defined_contract_1() {
 #[test]
 // Weird case. It's not valid wasm (wat2wasm validate will fail), but wasmer allows it.
 fn test_function_type_not_defined_contract_2() {
+    #[allow(deprecated)]
     test_builder()
         .wasm(&function_type_not_defined_contract(0))
         .protocol_version(
@@ -100,6 +104,7 @@ fn test_function_type_not_defined_contract_2() {
 
 #[test]
 fn test_garbage_contract() {
+    #[allow(deprecated)]
     test_builder()
         .wasm(&[])
         .protocol_version(FIX_CONTRACT_LOADING_COST
@@ -118,6 +123,7 @@ fn test_garbage_contract() {
 
 #[test]
 fn test_evil_function_index() {
+    #[allow(deprecated)]
     test_builder()
         .wat(r#"(module (func (export "main") call 4294967295))"#)
         .method("abort_with_zero")
@@ -314,6 +320,7 @@ fn test_sandbox_only_function() {
 
 #[test]
 fn extension_saturating_float_to_int() {
+    #[allow(deprecated)]
     test_builder()
         .wat(
             r#"

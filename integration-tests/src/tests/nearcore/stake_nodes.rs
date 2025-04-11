@@ -154,14 +154,8 @@ fn ultra_slow_test_stake_nodes() {
                         validators.sort_unstable_by(|a, b| a.account_id.cmp(&b.account_id));
                         if validators
                             == vec![
-                                ValidatorInfo {
-                                    account_id: "near.0".parse().unwrap(),
-                                    is_slashed: false,
-                                },
-                                ValidatorInfo {
-                                    account_id: "near.1".parse().unwrap(),
-                                    is_slashed: false,
-                                },
+                                ValidatorInfo { account_id: "near.0".parse().unwrap() },
+                                ValidatorInfo { account_id: "near.1".parse().unwrap() },
                             ]
                         {
                             System::current().stop();
@@ -248,7 +242,6 @@ fn ultra_slow_test_validator_kickout() {
                         let expected: Vec<_> = (num_nodes / 2..num_nodes)
                             .map(|i| ValidatorInfo {
                                 account_id: AccountId::try_from(format!("near.{}", i)).unwrap(),
-                                is_slashed: false,
                             })
                             .collect();
                         let res = res.unwrap();
@@ -409,14 +402,8 @@ fn ultra_slow_test_validator_join() {
                     );
                     let actor = actor.then(move |res| {
                         let expected = vec![
-                            ValidatorInfo {
-                                account_id: "near.0".parse().unwrap(),
-                                is_slashed: false,
-                            },
-                            ValidatorInfo {
-                                account_id: "near.2".parse().unwrap(),
-                                is_slashed: false,
-                            },
+                            ValidatorInfo { account_id: "near.0".parse().unwrap() },
+                            ValidatorInfo { account_id: "near.2".parse().unwrap() },
                         ];
                         let res = res.unwrap();
                         if res.is_err() {

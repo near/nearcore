@@ -15,7 +15,6 @@ use near_o11y::testonly::init_test_logger;
 use near_primitives::account::id::AccountIdRef;
 use near_primitives::bandwidth_scheduler::BandwidthRequests;
 use near_primitives::block::Tip;
-use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::epoch_block_info::BlockInfoV3;
 use near_primitives::epoch_manager::EpochConfig;
 use near_primitives::hash::hash;
@@ -29,7 +28,7 @@ use near_primitives::types::ValidatorKickoutReason::{
     NotEnoughBlocks, NotEnoughChunkEndorsements, NotEnoughChunks,
 };
 use near_primitives::validator_signer::ValidatorSigner;
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
+use near_primitives::version::PROTOCOL_VERSION;
 use near_store::ShardUId;
 use near_store::test_utils::create_test_store;
 use num_rational::Ratio;
@@ -2185,14 +2184,12 @@ fn test_validator_kickout_determinism() {
         &block_validator_tracker,
         &chunk_stats_tracker1,
         &HashMap::new(),
-        &HashMap::new(),
     );
     let (_validator_stats, kickouts2) = EpochManager::compute_validators_to_reward_and_kickout(
         &epoch_config,
         &epoch_info,
         &block_validator_tracker,
         &chunk_stats_tracker2,
-        &HashMap::new(),
         &HashMap::new(),
     );
     assert_eq!(kickouts1, kickouts2);
@@ -2245,7 +2242,6 @@ fn test_chunk_validators_with_different_endorsement_ratio() {
         &epoch_info,
         &block_validator_tracker,
         &chunk_stats_tracker,
-        &HashMap::new(),
         &HashMap::new(),
     );
     assert_eq!(
@@ -2305,7 +2301,6 @@ fn test_chunk_validators_with_same_endorsement_ratio_and_different_stake() {
         &block_validator_tracker,
         &chunk_stats_tracker,
         &HashMap::new(),
-        &HashMap::new(),
     );
     assert_eq!(
         kickouts,
@@ -2363,7 +2358,6 @@ fn test_chunk_validators_with_same_endorsement_ratio_and_stake() {
         &epoch_info,
         &block_validator_tracker,
         &chunk_stats_tracker,
-        &HashMap::new(),
         &HashMap::new(),
     );
     assert_eq!(
@@ -2442,7 +2436,6 @@ fn test_validator_kickout_sanity() {
         &epoch_info,
         &block_validator_tracker,
         &chunk_stats_tracker,
-        &HashMap::new(),
         &HashMap::new(),
     );
     assert_eq!(
@@ -2560,7 +2553,6 @@ fn test_chunk_endorsement_stats() {
             ),
         ]),
         &HashMap::new(),
-        &HashMap::new(),
     );
     assert_eq!(kickouts, HashMap::new(),);
     assert_eq!(
@@ -2644,7 +2636,6 @@ fn test_max_kickout_stake_ratio() {
         &epoch_info,
         &block_stats,
         &chunk_stats_tracker,
-        &HashMap::new(),
         &prev_validator_kickout,
     );
     assert_eq!(
@@ -2704,7 +2695,6 @@ fn test_max_kickout_stake_ratio() {
         &epoch_info,
         &block_stats,
         &chunk_stats_tracker,
-        &HashMap::new(),
         &prev_validator_kickout,
     );
     assert_eq!(
@@ -2772,7 +2762,6 @@ fn test_chunk_validator_kickout(expected_kickouts: HashMap<AccountId, ValidatorK
         &epoch_info,
         &block_stats,
         &chunk_stats_tracker,
-        &HashMap::new(),
         &prev_validator_kickout,
     );
     assert_eq!(kickouts, expected_kickouts);
@@ -2837,15 +2826,11 @@ fn test_block_and_chunk_producer_not_kicked_out_for_low_endorsements() {
         &block_stats,
         &chunk_stats_tracker,
         &HashMap::new(),
-        &HashMap::new(),
     );
     assert_eq!(kickouts, HashMap::new());
 }
 
 fn test_chunk_header(h: &[CryptoHash], signer: &ValidatorSigner) -> ShardChunkHeader {
-    let congestion_info = ProtocolFeature::CongestionControl
-        .enabled(PROTOCOL_VERSION)
-        .then_some(CongestionInfo::default());
     ShardChunkHeader::V3(ShardChunkHeaderV3::new(
         PROTOCOL_VERSION,
         h[0],
@@ -2861,7 +2846,7 @@ fn test_chunk_header(h: &[CryptoHash], signer: &ValidatorSigner) -> ShardChunkHe
         h[2],
         h[2],
         vec![],
-        congestion_info,
+        Default::default(),
         BandwidthRequests::default_for_protocol_version(PROTOCOL_VERSION),
         signer,
     ))

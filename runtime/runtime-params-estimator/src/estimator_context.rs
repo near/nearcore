@@ -16,7 +16,7 @@ use near_primitives::state::FlatStateValue;
 use near_primitives::test_utils::MockEpochInfoProvider;
 use near_primitives::transaction::{ExecutionStatus, SignedTransaction};
 use near_primitives::types::{Gas, MerkleHash};
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
+use near_primitives::version::PROTOCOL_VERSION;
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::flat::{
     BlockInfo, FlatStateChanges, FlatStateDelta, FlatStateDeltaMetadata, FlatStorage,
@@ -28,8 +28,8 @@ use near_vm_runner::FilesystemContractRuntimeCache;
 use near_vm_runner::logic::LimitConfig;
 use node_runtime::config::tx_cost;
 use node_runtime::{
-    ApplyState, Runtime, SignedValidPeriodTransactions, set_tx_state_changes,
-    verify_and_charge_tx_ephemeral,
+    ApplyState, Runtime, SignedValidPeriodTransactions, get_signer_and_access_key,
+    set_tx_state_changes, verify_and_charge_tx_ephemeral,
 };
 use std::collections::HashMap;
 use std::iter;
@@ -167,11 +167,7 @@ impl<'c> EstimatorContext<'c> {
         runtime_config.congestion_control_config = CongestionControlConfig::test_disabled();
 
         let shard_id = ShardUId::single_shard().shard_id();
-        let congestion_info = if ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
-            [(shard_id, ExtendedCongestionInfo::default())].into()
-        } else {
-            Default::default()
-        };
+        let congestion_info = [(shard_id, ExtendedCongestionInfo::default())].into();
         let congestion_info = BlockCongestionInfo::new(congestion_info);
 
         ApplyState {
@@ -461,16 +457,19 @@ impl Testbed<'_> {
         )
         .expect("expected no validation error");
         let cost = tx_cost(&self.apply_state.config, &validated_tx.to_tx(), gas_price).unwrap();
+        let (mut signer, mut access_key) = get_signer_and_access_key(&state_update, &validated_tx)
+            .expect("getting signer and access key should not fail in estimator");
 
-        let vr = verify_and_charge_tx_ephemeral(
+        verify_and_charge_tx_ephemeral(
             &self.apply_state.config,
-            &state_update,
+            &mut signer,
+            &mut access_key,
             &validated_tx,
             &cost,
             block_height,
         )
         .expect("tx verification should not fail in estimator");
-        set_tx_state_changes(&mut state_update, &validated_tx, &vr.signer, &vr.access_key);
+        set_tx_state_changes(&mut state_update, &validated_tx, &signer, &access_key);
         clock.elapsed()
     }
 

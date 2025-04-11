@@ -141,7 +141,8 @@ pub enum ProtocolFeature {
     // alt_bn128_g1_multiexp, alt_bn128_g1_sum, alt_bn128_pairing_check host functions
     #[deprecated]
     _DeprecatedAltBn128,
-    ChunkOnlyProducers,
+    #[deprecated]
+    _DeprecatedChunkOnlyProducers,
     /// Ensure the total stake of validators that are kicked out does not exceed a percentage of total stakes
     #[deprecated]
     _DeprecatedMaxKickoutStake,
@@ -191,14 +192,17 @@ pub enum ProtocolFeature {
     /// In case not all validator seats are occupied our algorithm provide incorrect minimal seat
     /// price - it reports as alpha * sum_stake instead of alpha * sum_stake / (1 - alpha), where
     /// alpha is min stake ratio
-    FixStakingThreshold,
+    #[deprecated]
+    _DeprecatedFixStakingThreshold,
     /// In case not all validator seats are occupied, the minimum seat price of a chunk producer
     /// used to depend on the number of existing shards, which is no longer the case.
-    FixChunkProducerStakingThreshold,
+    #[deprecated]
+    _DeprecatedFixChunkProducerStakingThreshold,
     /// Charge for contract loading before it happens.
     FixContractLoadingCost,
     /// Enables rejection of blocks with outdated protocol versions.
-    RejectBlocksWithOutdatedProtocolVersions,
+    #[deprecated]
+    _DeprecatedRejectBlocksWithOutdatedProtocolVersions,
     // NEP: https://github.com/near/NEPs/pull/488
     #[deprecated]
     _DeprecatedBLS12381,
@@ -233,7 +237,8 @@ pub enum ProtocolFeature {
     // Shuffle shard assignments for chunk producers at every epoch.
     ShuffleShardAssignments,
     /// Cross-shard congestion control according to <https://github.com/near/NEPs/pull/539>.
-    CongestionControl,
+    #[deprecated]
+    _DeprecatedCongestionControl,
     /// Remove account with long storage key.
     #[deprecated]
     _DeprecatedRemoveAccountWithLongStorageKey,
@@ -247,13 +252,17 @@ pub enum ProtocolFeature {
     #[deprecated]
     _DeprecatedChunkEndorsementsInBlockHeader,
     /// Store receipts in State in the StateStoredReceipt format.
-    StateStoredReceipt,
+    #[deprecated]
+    _DeprecatedStateStoredReceipt,
     /// Resharding V3 - Adding "game.hot.tg-0" boundary.
     SimpleNightshadeV4,
     /// Resharding V3 - Adding "earn.kaiching" boundary.
     SimpleNightshadeV5,
+    /// Resharding V3 - Adding "750" boundary.
+    SimpleNightshadeV6,
     /// Exclude contract code from the chunk state witness and distribute it to chunk validators separately.
-    ExcludeContractCodeFromStateWitness,
+    #[deprecated]
+    _DeprecatedExcludeContractCodeFromStateWitness,
     /// A scheduler which limits bandwidth for sending receipts between shards.
     BandwidthScheduler,
     /// Indicates that the "sync_hash" used to identify the point in the chain to sync state to
@@ -337,7 +346,8 @@ impl ProtocolFeature {
             | ProtocolFeature::_DeprecatedChunkNodesCache
             | ProtocolFeature::_DeprecatedLowerStorageKeyLimit => 53,
             ProtocolFeature::_DeprecatedAltBn128 => 55,
-            ProtocolFeature::ChunkOnlyProducers | ProtocolFeature::_DeprecatedMaxKickoutStake => 56,
+            ProtocolFeature::_DeprecatedChunkOnlyProducers
+            | ProtocolFeature::_DeprecatedMaxKickoutStake => 56,
             ProtocolFeature::_DeprecatedAccountIdInFunctionCallPermission => 57,
             ProtocolFeature::_DeprecatedEd25519Verify
             | ProtocolFeature::_DeprecatedZeroBalanceAccount
@@ -354,7 +364,7 @@ impl ProtocolFeature {
             ProtocolFeature::_DeprecatedDecreaseFunctionCallBaseCost
             | ProtocolFeature::_DeprecatedFixedMinimumNewReceiptGas => 66,
             ProtocolFeature::_DeprecatedYieldExecution => 67,
-            ProtocolFeature::CongestionControl
+            ProtocolFeature::_DeprecatedCongestionControl
             | ProtocolFeature::_DeprecatedRemoveAccountWithLongStorageKey => 68,
             ProtocolFeature::_DeprecatedStatelessValidation => 69,
             ProtocolFeature::_DeprecatedBLS12381
@@ -363,11 +373,11 @@ impl ProtocolFeature {
             ProtocolFeature::_DeprecatedIncreaseStorageProofSizeSoftLimit
             | ProtocolFeature::_DeprecatedChunkEndorsementV2
             | ProtocolFeature::_DeprecatedChunkEndorsementsInBlockHeader
-            | ProtocolFeature::StateStoredReceipt => 72,
-            ProtocolFeature::ExcludeContractCodeFromStateWitness => 73,
-            ProtocolFeature::FixStakingThreshold
-            | ProtocolFeature::RejectBlocksWithOutdatedProtocolVersions
-            | ProtocolFeature::FixChunkProducerStakingThreshold
+            | ProtocolFeature::_DeprecatedStateStoredReceipt => 72,
+            ProtocolFeature::_DeprecatedExcludeContractCodeFromStateWitness => 73,
+            ProtocolFeature::_DeprecatedFixStakingThreshold
+            | ProtocolFeature::_DeprecatedRejectBlocksWithOutdatedProtocolVersions
+            | ProtocolFeature::_DeprecatedFixChunkProducerStakingThreshold
             | ProtocolFeature::_DeprecatedRelaxedChunkValidation
             | ProtocolFeature::_DeprecatedRemoveCheckBalance
             | ProtocolFeature::BandwidthScheduler
@@ -377,6 +387,7 @@ impl ProtocolFeature {
             ProtocolFeature::GlobalContracts
             | ProtocolFeature::BlockHeightForReceiptId
             | ProtocolFeature::ProduceOptimisticBlock => 77,
+            ProtocolFeature::SimpleNightshadeV6 => 78,
 
             // Nightly features:
             ProtocolFeature::FixContractLoadingCost => 129,
@@ -400,7 +411,7 @@ pub const PROD_GENESIS_PROTOCOL_VERSION: ProtocolVersion = 29;
 pub const MIN_SUPPORTED_PROTOCOL_VERSION: ProtocolVersion = 75;
 
 /// Current protocol version used on the mainnet with all stable features.
-const STABLE_PROTOCOL_VERSION: ProtocolVersion = 77;
+const STABLE_PROTOCOL_VERSION: ProtocolVersion = 78;
 
 // On nightly, pick big enough version to support all features.
 const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 149;

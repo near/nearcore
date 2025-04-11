@@ -48,7 +48,6 @@ use near_network::types::{
 };
 use near_primitives::block::{Approval, ApprovalInner, ApprovalMessage, Block, BlockHeader, Tip};
 use near_primitives::block_header::ApprovalType;
-use near_primitives::challenge::{Challenge, ChallengeBody};
 use near_primitives::epoch_info::RngSeed;
 use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
@@ -1164,31 +1163,6 @@ impl Client {
 
         self.process_block_processing_artifact(block_processing_artifacts);
 
-        // Send out challenge if the block was found to be invalid.
-        if let Some(signer) = signer {
-            if let Err(e) = &result {
-                match e {
-                    near_chain::Error::InvalidChunkProofs(chunk_proofs) => {
-                        self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
-                            NetworkRequests::Challenge(Challenge::produce(
-                                ChallengeBody::ChunkProofs(*chunk_proofs.clone()),
-                                &*signer,
-                            )),
-                        ));
-                    }
-                    near_chain::Error::InvalidChunkState(chunk_state) => {
-                        self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
-                            NetworkRequests::Challenge(Challenge::produce(
-                                ChallengeBody::ChunkState(*chunk_state.clone()),
-                                &*signer,
-                            )),
-                        ));
-                    }
-                    _ => {}
-                }
-            }
-        }
-
         result
     }
 
@@ -2191,33 +2165,6 @@ impl Client {
             }
         }
 
-        Ok(())
-    }
-
-    /// When accepting challenge, we verify that it's valid given signature with current validators.
-    pub fn process_challenge(&mut self, _challenge: Challenge) -> Result<(), Error> {
-        // TODO(2445): Enable challenges when they are working correctly.
-        //        if self.challenges.contains_key(&challenge.hash) {
-        //            return Ok(());
-        //        }
-        //        debug!(target: "client", "Received challenge: {:?}", challenge);
-        //        let head = self.chain.head()?;
-        //        if self.runtime_adapter.verify_validator_or_fisherman_signature(
-        //            &head.epoch_id,
-        //            &head.prev_block_hash,
-        //            &challenge.account_id,
-        //            challenge.hash.as_ref(),
-        //            &challenge.signature,
-        //        )? {
-        //            // If challenge is not double sign, we should process it right away to invalidate the chain.
-        //            match challenge.body {
-        //                ChallengeBody::BlockDoubleSign(_) => {}
-        //                _ => {
-        //                    self.chain.process_challenge(&challenge);
-        //                }
-        //            }
-        //            self.challenges.insert(challenge.hash, challenge);
-        //        }
         Ok(())
     }
 }

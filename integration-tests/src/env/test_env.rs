@@ -82,16 +82,11 @@ pub struct StateWitnessPropagationOutput {
 }
 
 impl TestEnv {
-    pub fn default_builder() -> TestEnvBuilder {
-        let clock = Clock::real();
-        TestEnvBuilder::new(GenesisConfig::test(clock.clone())).clock(clock)
-    }
-
     pub fn builder(genesis_config: &GenesisConfig) -> TestEnvBuilder {
         TestEnvBuilder::new(genesis_config.clone())
     }
 
-    pub fn default_builder_with_genesis() -> TestEnvBuilder {
+    pub fn default_builder() -> TestEnvBuilder {
         let genesis = Genesis::test(vec!["test0".parse().unwrap()], 1);
         TestEnvBuilder::from_genesis(genesis)
     }
