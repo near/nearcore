@@ -2,6 +2,7 @@ use near_async::messaging::{Handler, SendAsync};
 use near_async::test_loop::TestLoopV2;
 use near_async::time::Duration;
 use near_chain::ChainStoreAccess;
+use near_chain_configs::TrackedShardsConfig;
 use near_chain_configs::test_genesis::{
     TestEpochConfigBuilder, TestGenesisBuilder, ValidatorsSpec,
 };
@@ -120,9 +121,7 @@ fn setup_initial_blockchain(
             if client_index != idx {
                 return;
             }
-
-            config.tracked_shards = vec![];
-            config.tracked_shard_schedule = schedule.clone();
+            config.tracked_shards_config = TrackedShardsConfig::Schedule(schedule.clone());
         });
     }
 
@@ -405,8 +404,7 @@ fn run_test_with_added_node(state: TestState) {
         .config_modifier(move |config| {
             // Lower the threshold at which state sync is chosen over block sync
             config.block_fetch_horizon = 5;
-            // If tracked_shards is non-empty the node tracks all shards
-            config.tracked_shards = vec![ShardId::new(0)];
+            config.tracked_shards_config = TrackedShardsConfig::AllShards;
         })
         .build();
     env.add_node(account_id.as_str(), new_node_state);

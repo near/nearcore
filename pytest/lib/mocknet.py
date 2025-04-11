@@ -1020,7 +1020,7 @@ def update_config_file(
         for node_key, node_ip in zip(all_node_pks, node_ips)
     ]
 
-    config_json['tracked_shards'] = [0]
+    config_json['tracked_shards_config'] = 'AllShards'
     config_json['archive'] = True
     config_json['archival_peer_connections_lower_bound'] = 1
     config_json['network']['boot_nodes'] = ','.join(node_addresses)
@@ -1049,7 +1049,7 @@ def create_and_upload_config_file_from_default(nodes,
         nodes[0],
         '/home/ubuntu/.near-tmp/config.json',
     )
-    config_json['tracked_shards'] = [0, 1, 2, 3]
+    config_json['tracked_shards_config'] = 'AllShards'
     config_json['archive'] = True
     config_json['archival_peer_connections_lower_bound'] = 1
     node_addresses = [get_node_addr(node, 24567) for node in nodes]

@@ -17,18 +17,18 @@ use near_chain_configs::{
     MIN_BLOCK_PRODUCTION_DELAY, MIN_GAS_PRICE, MutableConfigValue, MutableValidatorSigner,
     NEAR_BASE, NUM_BLOCK_PRODUCER_SEATS, NUM_BLOCKS_PER_YEAR, PROTOCOL_REWARD_RATE,
     PROTOCOL_UPGRADE_STAKE_THRESHOLD, ReshardingConfig, StateSyncConfig,
-    TRANSACTION_VALIDITY_PERIOD, default_chunk_wait_mult, default_enable_multiline_logging,
-    default_epoch_sync, default_header_sync_expected_height_per_second,
-    default_header_sync_initial_timeout, default_header_sync_progress_timeout,
-    default_header_sync_stall_ban_timeout, default_log_summary_period,
-    default_orphan_state_witness_max_size, default_orphan_state_witness_pool_size,
-    default_produce_chunk_add_transactions_time_limit, default_state_sync_enabled,
-    default_state_sync_external_backoff, default_state_sync_external_timeout,
-    default_state_sync_p2p_timeout, default_state_sync_retry_backoff, default_sync_check_period,
-    default_sync_height_threshold, default_sync_max_block_requests, default_sync_step_period,
-    default_transaction_pool_size_limit, default_trie_viewer_state_size_limit,
-    default_tx_routing_height_horizon, default_view_client_threads,
-    default_view_client_throttle_period, get_initial_supply,
+    TRANSACTION_VALIDITY_PERIOD, TrackedShardsConfig, default_chunk_wait_mult,
+    default_enable_multiline_logging, default_epoch_sync,
+    default_header_sync_expected_height_per_second, default_header_sync_initial_timeout,
+    default_header_sync_progress_timeout, default_header_sync_stall_ban_timeout,
+    default_log_summary_period, default_orphan_state_witness_max_size,
+    default_orphan_state_witness_pool_size, default_produce_chunk_add_transactions_time_limit,
+    default_state_sync_enabled, default_state_sync_external_backoff,
+    default_state_sync_external_timeout, default_state_sync_p2p_timeout,
+    default_state_sync_retry_backoff, default_sync_check_period, default_sync_height_threshold,
+    default_sync_max_block_requests, default_sync_step_period, default_transaction_pool_size_limit,
+    default_trie_viewer_state_size_limit, default_tx_routing_height_horizon,
+    default_view_client_threads, default_view_client_throttle_period, get_initial_supply,
 };
 use near_config_utils::{DownloadConfigType, ValidationError, ValidationErrors};
 use near_crypto::{InMemorySigner, KeyFile, KeyType, PublicKey, Signer};
@@ -249,11 +249,27 @@ pub struct Config {
     pub telemetry: TelemetryConfig,
     pub network: near_network::config_json::Config,
     pub consensus: Consensus,
-    pub tracked_accounts: Vec<AccountId>,
-    pub tracked_shadow_validator: Option<AccountId>,
-    pub tracked_shards: Vec<ShardId>,
+
+    /// New field replacing the old tracked_* fields
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub tracked_shard_schedule: Option<Vec<Vec<ShardId>>>,
+    pub tracked_shards_config: Option<TrackedShardsConfig>,
+
+    /// Deprecated: use `tracked_shards_config: { "Accounts": [...] }` instead.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) tracked_accounts: Option<Vec<AccountId>>,
+
+    /// Deprecated: use `tracked_shards_config: { "ShadowValidator": "..." }` instead.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) tracked_shadow_validator: Option<AccountId>,
+
+    /// Deprecated: use `tracked_shards_config: "AllShards"` or `tracked_shards_config: "NoShards"` instead.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) tracked_shards: Option<Vec<ShardId>>,
+
+    /// Deprecated: use `tracked_shards_config: { "Schedule": [...] }` instead.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) tracked_shard_schedule: Option<Vec<Vec<ShardId>>>,
+
     #[serde(skip_serializing_if = "is_false")]
     pub archive: bool,
     /// If save_trie_changes is not set it will get inferred from the `archive` field as follows:
@@ -371,9 +387,10 @@ impl Default for Config {
             telemetry: TelemetryConfig::default(),
             network: Default::default(),
             consensus: Consensus::default(),
-            tracked_accounts: vec![],
+            tracked_shards_config: None,
+            tracked_accounts: None,
             tracked_shadow_validator: None,
-            tracked_shards: vec![],
+            tracked_shards: None,
             tracked_shard_schedule: None,
             archive: false,
             save_trie_changes: None,
@@ -487,6 +504,18 @@ impl Config {
             self.split_storage.as_ref(),
         )
     }
+
+    pub fn tracked_shards_config(&self) -> TrackedShardsConfig {
+        if let Some(tracked_shards_config) = self.tracked_shards_config.clone() {
+            return tracked_shards_config;
+        }
+        TrackedShardsConfig::from_deprecated_config_values(
+            &self.tracked_shards,
+            &self.tracked_shard_schedule,
+            &self.tracked_shadow_validator,
+            &self.tracked_accounts,
+        )
+    }
 }
 
 #[derive(Clone)]
@@ -557,10 +586,7 @@ impl NearConfig {
                 catchup_step_period: config.consensus.catchup_step_period,
                 chunk_request_retry_period: config.consensus.chunk_request_retry_period,
                 doomslug_step_period: config.consensus.doomslug_step_period,
-                tracked_accounts: config.tracked_accounts,
-                tracked_shards: config.tracked_shards,
-                tracked_shadow_validator: config.tracked_shadow_validator,
-                tracked_shard_schedule: config.tracked_shard_schedule.unwrap_or(vec![]),
+                tracked_shards_config: config.tracked_shards_config(),
                 archive: config.archive,
                 save_trie_changes: config.save_trie_changes.unwrap_or(!config.archive),
                 log_summary_style: config.log_summary_style,
@@ -833,7 +859,7 @@ pub fn init_configs(
     let mut config = Config::default();
     // Make sure node tracks all shards, see
     // https://github.com/near/nearcore/issues/7388
-    config.tracked_shards = vec![ShardId::new(0)];
+    config.tracked_shards_config = Some(TrackedShardsConfig::AllShards);
     // If a config gets generated, block production times may need to be updated.
     set_block_production_delay(&chain_id, fast, &mut config);
 
@@ -1043,7 +1069,7 @@ impl LocalnetNodeParams {
 /// * `num_non_validators_archival` - Number of non-validator nodes to create and configure as an archival node (storing full chain history)
 /// * `num_non_validators_rpc` - Number of non-validator nodes to create and configure as an RPC node (eg. for sending transactions)
 /// * `num_non_validators` - Number of additional non-validator nodes to create
-/// * `tracked_shards` - Shards to track by all nodes, except for archival and RPC nodes which track all shards
+/// * `tracked_shards_config` - Tracked shards config for all nodes, except for archival and RPC nodes which track all shards
 pub fn create_localnet_configs_from_seeds(
     seeds: Vec<String>,
     num_shards: NumShards,
@@ -1051,7 +1077,7 @@ pub fn create_localnet_configs_from_seeds(
     num_non_validators_archival: NumSeats,
     num_non_validators_rpc: NumSeats,
     num_non_validators: NumSeats,
-    tracked_shards: Vec<ShardId>,
+    tracked_shards_config: TrackedShardsConfig,
 ) -> (Vec<Config>, Vec<ValidatorSigner>, Vec<Signer>, Genesis) {
     assert_eq!(
         seeds.len() as u64,
@@ -1090,9 +1116,8 @@ pub fn create_localnet_configs_from_seeds(
     for i in 0..num_validators {
         let params = LocalnetNodeParams::new_validator(i == 0);
         let config = create_localnet_config(
-            num_shards,
             num_validators,
-            &tracked_shards,
+            &tracked_shards_config,
             &network_signers,
             &boot_node_addr,
             params,
@@ -1102,9 +1127,8 @@ pub fn create_localnet_configs_from_seeds(
     for _ in 0..num_non_validators_archival {
         let params = LocalnetNodeParams::new_non_validator_archival();
         let config = create_localnet_config(
-            num_shards,
             num_validators,
-            &tracked_shards,
+            &tracked_shards_config,
             &network_signers,
             &boot_node_addr,
             params,
@@ -1114,9 +1138,8 @@ pub fn create_localnet_configs_from_seeds(
     for _ in 0..num_non_validators_rpc {
         let params = LocalnetNodeParams::new_non_validator_rpc();
         let config = create_localnet_config(
-            num_shards,
             num_validators,
-            &tracked_shards,
+            &tracked_shards_config,
             &network_signers,
             &boot_node_addr,
             params,
@@ -1126,9 +1149,8 @@ pub fn create_localnet_configs_from_seeds(
     for _ in 0..num_non_validators {
         let params = LocalnetNodeParams::new_non_validator();
         let config = create_localnet_config(
-            num_shards,
             num_validators,
-            &tracked_shards,
+            &tracked_shards_config,
             &network_signers,
             &boot_node_addr,
             params,
@@ -1139,9 +1161,8 @@ pub fn create_localnet_configs_from_seeds(
 }
 
 fn create_localnet_config(
-    num_shards: NumShards,
     num_validators: NumSeats,
-    tracked_shards: &Vec<ShardId>,
+    tracked_shards_config: &TrackedShardsConfig,
     network_signers: &Vec<Signer>,
     boot_node_addr: &tcp::ListenerAddr,
     params: LocalnetNodeParams,
@@ -1181,10 +1202,11 @@ fn create_localnet_config(
 
     // Make non-validator archival and RPC nodes track all shards.
     // Note that validator nodes may track all or some of the shards.
-    config.tracked_shards = if !params.is_validator && (params.is_archival || params.is_rpc) {
-        (0..num_shards).map(ShardId::new).collect()
+    config.tracked_shards_config = if !params.is_validator && (params.is_archival || params.is_rpc)
+    {
+        Some(TrackedShardsConfig::AllShards)
     } else {
-        tracked_shards.clone()
+        Some(tracked_shards_config.clone())
     };
 
     config
@@ -1202,7 +1224,7 @@ fn create_localnet_config(
 /// * `num_non_validators_rpc` - Number of non-validator nodes to create and configure as an RPC node (eg. for sending transactions)
 /// * `num_non_validators` - Number of additional non-validator nodes to create
 /// * `prefix` - Prefix for the directory name for each node with (e.g. ‘node’ results in ‘node0’, ‘node1’, ...)
-/// * `tracked_shards` - Shards to track by all nodes, except for archival and RPC nodes which track all shards
+/// * `tracked_shards_config` - Tracked shards config for all nodes, except for archival and RPC nodes which track all shards
 pub fn create_localnet_configs(
     num_shards: NumShards,
     num_validators: NumSeats,
@@ -1210,7 +1232,7 @@ pub fn create_localnet_configs(
     num_non_validators_rpc: NumSeats,
     num_non_validators: NumSeats,
     prefix: &str,
-    tracked_shards: Vec<ShardId>,
+    tracked_shards_config: TrackedShardsConfig,
 ) -> (Vec<Config>, Vec<ValidatorSigner>, Vec<Signer>, Genesis, Vec<Signer>) {
     let num_all_nodes =
         num_validators + num_non_validators_archival + num_non_validators_rpc + num_non_validators;
@@ -1223,7 +1245,7 @@ pub fn create_localnet_configs(
         num_non_validators_archival,
         num_non_validators_rpc,
         num_non_validators,
-        tracked_shards,
+        tracked_shards_config,
     );
 
     let shard_keys = vec![];
@@ -1241,7 +1263,7 @@ pub fn create_localnet_configs(
 /// * `num_non_validators_rpc` - Number of non-validator nodes to create and configure as an RPC node (eg. for sending transactions)
 /// * `num_non_validators` - Number of additional non-validator nodes to create
 /// * `prefix` - Prefix for the directory name for each node with (e.g. ‘node’ results in ‘node0’, ‘node1’, ...)
-/// * `tracked_shards` - Shards to track by all nodes, except for archival and RPC nodes which track all shards
+/// * `tracked_shards_config` - Tracked shards config for all nodes, except for archival and RPC nodes which track all shards
 pub fn init_localnet_configs(
     dir: &Path,
     num_shards: NumShards,
@@ -1250,7 +1272,7 @@ pub fn init_localnet_configs(
     num_non_validators_rpc: NumSeats,
     num_non_validators: NumSeats,
     prefix: &str,
-    tracked_shards: Vec<ShardId>,
+    tracked_shards_config: TrackedShardsConfig,
 ) {
     let (configs, validator_signers, network_signers, genesis, shard_keys) =
         create_localnet_configs(
@@ -1260,7 +1282,7 @@ pub fn init_localnet_configs(
             num_non_validators_rpc,
             num_non_validators,
             prefix,
-            tracked_shards,
+            tracked_shards_config,
         );
 
     // Save the generated configs to the corresponding files in the home directory for each node.
@@ -1497,14 +1519,39 @@ mod tests {
 
     use itertools::Itertools;
     use near_async::time::Duration;
-    use near_chain_configs::{GCConfig, Genesis, GenesisValidationMode};
+    use near_chain_configs::{GCConfig, Genesis, GenesisValidationMode, TrackedShardsConfig};
     use near_crypto::InMemorySigner;
     use near_primitives::types::{AccountId, NumShards, ShardId};
+    use near_store::ShardUId;
+    use serde_json::json;
     use tempfile::tempdir;
 
     use crate::config::{
         CONFIG_FILENAME, Config, create_localnet_configs, generate_or_load_key, init_configs,
     };
+
+    #[test]
+    fn test_old_tracked_config_fields_are_parsed() {
+        let json_data = json!({
+            "tracked_accounts": ["account1.near", "account2.near"],
+            "tracked_shadow_validator": "shadow.near",
+            "tracked_shards": [0, 1],
+            "tracked_shard_schedule": [[0], [1, 2]]
+        });
+
+        let config: Config = serde_json::from_value(json_data).unwrap();
+
+        assert_eq!(
+            config.tracked_accounts,
+            Some(vec!["account1.near".parse().unwrap(), "account2.near".parse().unwrap()])
+        );
+        assert_eq!(config.tracked_shadow_validator, Some("shadow.near".parse().unwrap()));
+        assert_eq!(config.tracked_shards, Some(vec![ShardId::new(0), ShardId::new(1)]));
+        assert_eq!(
+            config.tracked_shard_schedule,
+            Some(vec![vec![ShardId::new(0)], vec![ShardId::new(1), ShardId::new(2)]])
+        );
+    }
 
     #[test]
     fn test_init_config_localnet() {
@@ -1679,9 +1726,6 @@ mod tests {
         let num_non_validators = 2;
         let prefix = "node";
 
-        // Validators will track single shard but archival and RPC nodes will track all shards.
-        let empty_tracked_shards = vec![];
-
         let (configs, _validator_signers, _network_signers, genesis, _shard_keys) =
             create_localnet_configs(
                 num_shards,
@@ -1690,7 +1734,8 @@ mod tests {
                 num_non_validators_rpc,
                 num_non_validators,
                 prefix,
-                empty_tracked_shards.clone(),
+                // Validators will track single shard but archival and RPC nodes will track all shards.
+                TrackedShardsConfig::NoShards,
             );
         assert_eq!(
             configs.len() as u64,
@@ -1706,7 +1751,10 @@ mod tests {
             assert_eq!(config.archive, false);
             assert!(config.cold_store.is_none());
             assert!(config.split_storage.is_none());
-            assert_eq!(config.tracked_shards, empty_tracked_shards);
+            assert_eq!(
+                config.tracked_shards_config.as_ref().unwrap(),
+                &TrackedShardsConfig::NoShards
+            );
         }
 
         // Check non-validator archival nodes.
@@ -1723,8 +1771,8 @@ mod tests {
                 true
             );
             assert_eq!(
-                config.tracked_shards,
-                (0..num_shards).map(ShardId::new).collect::<Vec<_>>()
+                config.tracked_shards_config.as_ref().unwrap(),
+                &TrackedShardsConfig::AllShards
             );
         }
 
@@ -1735,8 +1783,8 @@ mod tests {
             assert!(config.cold_store.is_none());
             assert!(config.split_storage.is_none());
             assert_eq!(
-                config.tracked_shards,
-                (0..num_shards).map(ShardId::new).collect::<Vec<_>>()
+                config.tracked_shards_config.as_ref().unwrap(),
+                &TrackedShardsConfig::AllShards
             );
         }
 
@@ -1746,7 +1794,10 @@ mod tests {
             assert_eq!(config.archive, false);
             assert!(config.cold_store.is_none());
             assert!(config.split_storage.is_none());
-            assert_eq!(config.tracked_shards, empty_tracked_shards);
+            assert_eq!(
+                config.tracked_shards_config.as_ref().unwrap(),
+                &TrackedShardsConfig::NoShards
+            );
         }
 
         assert_eq!(genesis.config.validators.len() as u64, num_shards);
@@ -1763,7 +1814,10 @@ mod tests {
         let prefix = "node";
 
         // Validators will track 2 shards and non-validators will track all shards.
-        let tracked_shards = vec![ShardId::new(1), ShardId::new(3)];
+        let _tracked_shards =
+            [ShardUId::new(0, ShardId::new(1)), ShardUId::new(0, ShardId::new(3))];
+        // TODO(archival_v2): When `TrackedShardsConfig::Shards` is added, use it here together with `tracked_shards`.
+        let tracked_shards_config = TrackedShardsConfig::AllShards;
 
         let (configs, _validator_signers, _network_signers, genesis, _shard_keys) =
             create_localnet_configs(
@@ -1773,7 +1827,7 @@ mod tests {
                 num_non_validators_rpc,
                 num_non_validators,
                 prefix,
-                tracked_shards.clone(),
+                tracked_shards_config.clone(),
             );
         assert_eq!(
             configs.len() as u64,
@@ -1789,7 +1843,7 @@ mod tests {
             assert_eq!(config.archive, false);
             assert!(config.cold_store.is_none());
             assert!(config.split_storage.is_none());
-            assert_eq!(config.tracked_shards, tracked_shards);
+            assert_eq!(config.tracked_shards_config.as_ref().unwrap(), &tracked_shards_config);
         }
 
         // Check non-validator archival nodes.
@@ -1806,8 +1860,8 @@ mod tests {
                 true
             );
             assert_eq!(
-                config.tracked_shards,
-                (0..num_shards).map(ShardId::new).collect::<Vec<_>>()
+                config.tracked_shards_config.as_ref().unwrap(),
+                &TrackedShardsConfig::AllShards
             );
         }
 
@@ -1818,8 +1872,8 @@ mod tests {
             assert!(config.cold_store.is_none());
             assert!(config.split_storage.is_none());
             assert_eq!(
-                config.tracked_shards,
-                (0..num_shards).map(ShardId::new).collect::<Vec<_>>()
+                config.tracked_shards_config.as_ref().unwrap(),
+                &TrackedShardsConfig::AllShards
             );
         }
 
@@ -1829,7 +1883,7 @@ mod tests {
             assert_eq!(config.archive, false);
             assert!(config.cold_store.is_none());
             assert!(config.split_storage.is_none());
-            assert_eq!(config.tracked_shards, tracked_shards);
+            assert_eq!(config.tracked_shards_config.as_ref().unwrap(), &tracked_shards_config);
         }
 
         assert_eq!(genesis.config.validators.len() as u64, num_shards);

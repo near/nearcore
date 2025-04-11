@@ -48,7 +48,7 @@ use near_primitives::trie_key::TrieKey;
 use std::sync::Arc;
 
 /// A config to tell what shards will be tracked by the client at the given index.
-/// For more details, see `TrackedConfig::Schedule`.
+/// For more details, see `TrackedShardsConfig::Schedule`.
 #[derive(Clone, Debug)]
 pub(crate) struct TrackedShardSchedule {
     pub client_index: usize,
