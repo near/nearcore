@@ -15,7 +15,7 @@ use near_primitives::{
     },
     types::{AccountId, ShardId},
 };
-use tracing::{debug, debug_span, error};
+use tracing::{debug_span, error};
 
 pub fn need_receipt(
     prev_block_hash: &CryptoHash,
@@ -158,7 +158,7 @@ pub fn decode_encoded_chunk(
     shard_tracker: &ShardTracker,
 ) -> Result<(ShardChunk, PartialEncodedChunk), Error> {
     let chunk_hash = encoded_chunk.chunk_hash();
-    let _span = debug_span!(
+    let span = debug_span!(
         target: "chunks",
         "decode_encoded_chunk",
         height_included = encoded_chunk.cloned_header().height_included(),
@@ -173,13 +173,12 @@ pub fn decode_encoded_chunk(
     if !validate_chunk_proofs(&shard_chunk, epoch_manager)? {
         return Err(Error::InvalidChunk);
     }
-    debug!(
-        target: "chunks",
-        ?chunk_hash,
-        encoded_length = encoded_chunk.encoded_length(),
-        num_tx = shard_chunk.to_transactions().len(),
-        ?me,
-        "Reconstructed and decoded");
+
+    span.record("chunk_hash", format!("{:?}", chunk_hash));
+    span.record("encoded_length", encoded_chunk.encoded_length());
+    span.record("num_tx", shard_chunk.to_transactions().len());
+    span.record("me", format!("{:?}", me));
+
     let partial_chunk = create_partial_chunk(
         encoded_chunk,
         merkle_paths,
