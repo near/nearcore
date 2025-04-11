@@ -159,6 +159,7 @@ pub enum ChunkStatus {
     Invalid,
 }
 
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug)]
 pub enum ProcessPartialEncodedChunkResult {
     /// The information included in the partial encoded chunk is already known, no processing is needed
@@ -173,7 +174,7 @@ pub enum ProcessPartialEncodedChunkResult {
     NeedBlock,
     /// PartialEncodedChunkMessage is received earlier than Block for the same height.
     /// The chunk has been dropped without processing any part of it.
-    NeedsBlockChunkDropped,
+    NeedsBlockChunkDropped(Box<PartialEncodedChunk>),
 }
 
 #[derive(Clone, Debug)]
@@ -189,11 +190,12 @@ pub(crate) struct ChunkRequestInfo {
     last_requested: time::Instant,
 }
 
+#[allow(clippy::large_enum_variant)]
 #[derive(Clone, Debug)]
 pub enum HandleNetworkRequestResult {
     Ok,
     /// request failed and could be retried after some duration
-    RetryProcessing(Duration),
+    RetryProcessing(Box<ShardsManagerRequestFromNetwork>, Duration),
     Err,
 }
 
@@ -316,11 +318,11 @@ impl HandlerWithContext<ShardsManagerRequestFromNetwork> for ShardsManagerActor 
         msg: ShardsManagerRequestFromNetwork,
         ctx: &mut dyn DelayedActionRunner<Self>,
     ) {
-        match self.handle_network_request(msg.clone()) {
+        match self.handle_network_request(msg) {
             // Schedule retry processing the message once again if requested
-            HandleNetworkRequestResult::RetryProcessing(duration) => {
+            HandleNetworkRequestResult::RetryProcessing(msg, duration) => {
                 ctx.run_later("retry processing chunk request", duration, move |this, _ctx| {
-                    this.handle_network_request(msg);
+                    this.handle_network_request(*msg);
                 })
             }
             _ => {}
@@ -1556,7 +1558,9 @@ impl ShardsManagerActor {
                 near_chain::Error::DBNotFoundErr(_) => {
                     debug!(target:"client", "Dropping partial encoded chunk {:?} height {}, shard_id {} because we don't have enough information to validate it",
                            header.chunk_hash(), header.height_created(), header.shard_id());
-                    return Ok(ProcessPartialEncodedChunkResult::NeedsBlockChunkDropped);
+                    return Ok(ProcessPartialEncodedChunkResult::NeedsBlockChunkDropped(Box::new(
+                        PartialEncodedChunk::V2(partial_encoded_chunk.into_inner()),
+                    )));
                 }
                 _ => return Err(chain_error.into()),
             },
@@ -2185,8 +2189,10 @@ impl ShardsManagerActor {
         match request {
             ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunk(partial_encoded_chunk) => {
                 match self.process_partial_encoded_chunk(partial_encoded_chunk.into(), me) {
-                    Ok(ProcessPartialEncodedChunkResult::NeedsBlockChunkDropped) => {
-                        return HandleNetworkRequestResult::RetryProcessing(RETRY_CHUNK_PROCESSING_DELAY);
+                    Ok(ProcessPartialEncodedChunkResult::NeedsBlockChunkDropped(chunk)) => {
+                        return HandleNetworkRequestResult::RetryProcessing(
+                            Box::new(ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunk(*chunk)),
+                            RETRY_CHUNK_PROCESSING_DELAY);
                     },
                     Ok(_)=> { return HandleNetworkRequestResult::Ok; }
                     Err(e) => {
