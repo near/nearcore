@@ -166,39 +166,30 @@ pub fn decode_encoded_chunk(
         ?chunk_hash)
     .entered();
 
-    if let Ok(shard_chunk) = encoded_chunk
-        .decode_chunk(epoch_manager.num_data_parts())
-        .map_err(|err| Error::from(err))
-        .and_then(|shard_chunk| {
-            if !validate_chunk_proofs(&shard_chunk, epoch_manager)? {
-                return Err(Error::InvalidChunk);
-            }
-            Ok(shard_chunk)
-        })
-    {
-        debug!(
-            target: "chunks",
-            ?chunk_hash,
-            encoded_length = encoded_chunk.encoded_length(),
-            num_tx = shard_chunk.to_transactions().len(),
-            ?me,
-            "Reconstructed and decoded");
-        let partial_chunk = create_partial_chunk(
-            encoded_chunk,
-            merkle_paths,
-            shard_chunk.prev_outgoing_receipts().to_vec(),
-            me,
-            epoch_manager,
-            shard_tracker,
-        )
-        .map_err(|err| Error::ChainError(err.into()))?;
-
-        Ok((shard_chunk, partial_chunk))
-    } else {
-        // Can't decode chunk or has invalid proofs, ignore it
+    let shard_chunk = encoded_chunk.decode_chunk().map_err(|err| {
         error!(target: "chunks", ?chunk_hash, ?me, "Reconstructed, but failed to decoded chunk");
-        Err(Error::InvalidChunk)
+        err
+    })?;
+    if !validate_chunk_proofs(&shard_chunk, epoch_manager)? {
+        return Err(Error::InvalidChunk);
     }
+    debug!(
+        target: "chunks",
+        ?chunk_hash,
+        encoded_length = encoded_chunk.encoded_length(),
+        num_tx = shard_chunk.to_transactions().len(),
+        ?me,
+        "Reconstructed and decoded");
+    let partial_chunk = create_partial_chunk(
+        encoded_chunk,
+        merkle_paths,
+        shard_chunk.prev_outgoing_receipts().to_vec(),
+        me,
+        epoch_manager,
+        shard_tracker,
+    )?;
+
+    Ok((shard_chunk, partial_chunk))
 }
 
 fn create_partial_chunk(
