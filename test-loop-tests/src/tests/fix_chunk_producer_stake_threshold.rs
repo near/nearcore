@@ -12,7 +12,7 @@ use near_primitives::types::AccountId;
 use near_primitives::types::AccountInfo;
 
 #[test]
-fn slow_test_fix_cp_stake_threshold() {
+fn test_fix_cp_stake_threshold() {
     init_test_logger();
 
     let epoch_length = 10;

@@ -298,7 +298,7 @@ fn sanity_check_epoch_sync_proof(
 }
 
 #[test]
-fn slow_test_initial_epoch_sync_proof_sanity() {
+fn test_initial_epoch_sync_proof_sanity() {
     init_test_logger();
     let env = setup_initial_blockchain(20);
     let proof = env.derive_epoch_sync_proof(0);
@@ -352,7 +352,7 @@ fn slow_test_epoch_sync_proof_sanity_shorter_transaction_validity_period() {
 }
 
 #[test]
-fn slow_test_epoch_sync_proof_sanity_zero_transaction_validity_period() {
+fn test_epoch_sync_proof_sanity_zero_transaction_validity_period() {
     init_test_logger();
     let env = setup_initial_blockchain(0);
     let proof = env.derive_epoch_sync_proof(0);

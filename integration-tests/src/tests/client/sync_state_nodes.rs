@@ -675,7 +675,7 @@ fn ultra_slow_test_dump_epoch_missing_chunk_in_last_block() {
 
 #[test]
 // Tests StateRequestHeader and StateRequestPart.
-fn slow_test_state_sync_headers() {
+fn test_state_sync_headers() {
     heavy_test(|| {
         init_test_logger();
 

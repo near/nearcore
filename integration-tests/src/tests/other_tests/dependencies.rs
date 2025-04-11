@@ -87,7 +87,7 @@ struct CrateDeps {
 }
 
 #[test]
-fn slow_test_public_libs_are_small_enough() {
+fn test_public_libs_are_small_enough() {
     let results = LIBS_THRESHOLDS
         .into_iter()
         .map(|(name, limit)| (name, get_and_assert_crate_dependencies(name, limit), limit));

@@ -24,7 +24,7 @@ use crate::utils::transactions::{execute_tx, get_shared_block_hash, run_tx};
 
 /// Generating receipts larger than the size limit should cause the transaction to fail.
 #[test]
-fn slow_test_max_receipt_size() {
+fn test_max_receipt_size() {
     init_test_logger();
     let TestLoopEnv { mut test_loop, node_datas, shared_state } = standard_setup_1();
 

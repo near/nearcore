@@ -243,7 +243,7 @@ fn run_chunk_validation_test(
 }
 
 #[test]
-fn slow_test_chunk_validation_no_missing_chunks() {
+fn test_chunk_validation_no_missing_chunks() {
     run_chunk_validation_test(42, 0.0, 0.0, PROTOCOL_VERSION);
 }
 

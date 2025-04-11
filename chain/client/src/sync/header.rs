@@ -756,7 +756,7 @@ mod test {
     }
 
     #[test]
-    fn slow_test_sync_from_very_behind() {
+    fn test_sync_from_very_behind() {
         let mock_adapter = Arc::new(MockPeerManagerAdapter::default());
         let mut header_sync = HeaderSync::new(
             Clock::real(),

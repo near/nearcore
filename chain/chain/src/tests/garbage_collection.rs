@@ -407,7 +407,7 @@ fn test_gc_not_remove_longer_fork() {
 
 // This test creates forks from genesis
 #[test]
-fn slow_test_gc_forks_from_genesis() {
+fn test_gc_forks_from_genesis() {
     for fork_length in 1..=10 {
         let chains = vec![
             SimpleChain { from: 0, length: 101, is_removed: false },
@@ -441,7 +441,7 @@ fn slow_test_gc_forks_from_genesis() {
 }
 
 #[test]
-fn slow_test_gc_overlap() {
+fn test_gc_overlap() {
     for max_changes in 1..=20 {
         let chains = vec![
             SimpleChain { from: 0, length: 101, is_removed: false },
@@ -497,7 +497,7 @@ fn test_gc_random_common(runs: u64) {
 }
 
 #[test]
-fn slow_test_gc_random_small() {
+fn test_gc_random_small() {
     test_gc_random_common(3);
 }
 
