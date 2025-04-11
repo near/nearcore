@@ -561,8 +561,15 @@ impl ShardLayout {
         ShardLayout::derive_shard_layout(&base_shard_layout, new_boundary_account)
     }
 
+    /// Returns the simple nightshade layout, version 6, with new boundary account "750".
+    pub fn get_simple_nightshade_layout_v6() -> ShardLayout {
+        let base_shard_layout = Self::get_simple_nightshade_layout_v5();
+        let new_boundary_account = "750".parse().unwrap();
+        ShardLayout::derive_shard_layout(&base_shard_layout, new_boundary_account)
+    }
+
     /// This layout is used only in resharding tests. It allows testing of any features which were
-    /// introduced after the last layout upgrade in production. Currently it is built on top of V3.
+    /// introduced after the last layout upgrade in production. Currently, it is built on top of V3.
     #[cfg(feature = "nightly")]
     pub fn get_simple_nightshade_layout_testonly() -> ShardLayout {
         #[allow(deprecated)]
@@ -683,7 +690,7 @@ impl ShardLayout {
     /// Return the parent shard id for a given shard in the shard layout. Only
     /// calls this function for shard layout that has parent shard layout.
     /// Returns an error if `shard_id` is an invalid shard id in the current
-    /// layout or if the shard is has no parent in this shard layout.
+    /// layout or if the shard has no parent in this shard layout.
     pub fn get_parent_shard_id(&self, shard_id: ShardId) -> Result<ShardId, ShardLayoutError> {
         let parent_shard_id = self.try_get_parent_shard_id(shard_id)?;
         parent_shard_id.ok_or(ShardLayoutError::NoParentError { shard_id })
@@ -747,7 +754,7 @@ impl ShardLayout {
         match self {
             Self::V0(v0) => v0.num_shards,
             Self::V1(v1) => (v1.boundary_accounts.len() + 1) as NumShards,
-            Self::V2(v2) => (v2.shard_ids.len()) as NumShards,
+            Self::V2(v2) => v2.shard_ids.len() as NumShards,
         }
     }
 
@@ -778,7 +785,7 @@ impl ShardLayout {
 
     /// Returns an iterator that returns the ShardInfos for every shard in
     /// this shard layout. This method should be preferred over calling
-    /// shard_ids().enumerate(). Today the result of shard_ids() is sorted but
+    /// shard_ids().enumerate(). Today the result of shard_ids() is sorted, but
     /// it may be changed in the future.
     pub fn shard_infos(&self) -> impl Iterator<Item = ShardInfo> + '_ {
         self.shard_uids()
@@ -822,7 +829,7 @@ impl ShardLayout {
         }
     }
 
-    /// Returns all of the shards from the previous shard layout that were
+    /// Returns all the shards from the previous shard layout that were
     /// split into multiple shards in this shard layout.
     pub fn get_split_parent_shard_ids(&self) -> Result<BTreeSet<ShardId>, ShardLayoutError> {
         let mut parent_shard_ids = BTreeSet::new();
@@ -857,7 +864,7 @@ fn validate_and_derive_shard_parent_map_v2(
             assert_eq!(parent_shard_id, child_shard_id);
         } else {
             // The parent shards with multiple children shards are split.
-            // The parent shard id should not longer be used.
+            // The parent shard id should no longer be used.
             assert!(!shard_ids.contains(&parent_shard_id));
         }
     }
@@ -1314,6 +1321,7 @@ mod tests {
         let v3 = ShardLayout::get_simple_nightshade_layout_v3();
         let v4 = ShardLayout::get_simple_nightshade_layout_v4();
         let v5 = ShardLayout::get_simple_nightshade_layout_v5();
+        let v6 = ShardLayout::get_simple_nightshade_layout_v6();
 
         insta::assert_snapshot!(serde_json::to_string_pretty(&v0).unwrap(), @r###"
         {
@@ -1573,6 +1581,95 @@ mod tests {
               "7": 7,
               "8": 2,
               "9": 2
+            },
+            "version": 3
+          }
+        }
+        "###);
+
+        insta::assert_snapshot!(serde_json::to_string_pretty(&v6).unwrap(), @r###"
+        {
+          "V2": {
+            "boundary_accounts": [
+              "750",
+              "aurora",
+              "aurora-0",
+              "earn.kaiching",
+              "game.hot.tg",
+              "game.hot.tg-0",
+              "kkuuue2akv_1630967379.near",
+              "tge-lockup.sweat"
+            ],
+            "shard_ids": [
+              10,
+              11,
+              1,
+              8,
+              9,
+              6,
+              7,
+              4,
+              5
+            ],
+            "id_to_index_map": {
+              "1": 2,
+              "10": 0,
+              "11": 1,
+              "4": 7,
+              "5": 8,
+              "6": 5,
+              "7": 6,
+              "8": 3,
+              "9": 4
+            },
+            "index_to_id_map": {
+              "0": 10,
+              "1": 11,
+              "2": 1,
+              "3": 8,
+              "4": 9,
+              "5": 6,
+              "6": 7,
+              "7": 4,
+              "8": 5
+            },
+            "shards_split_map": {
+              "0": [
+                10,
+                11
+              ],
+              "1": [
+                1
+              ],
+              "4": [
+                4
+              ],
+              "5": [
+                5
+              ],
+              "6": [
+                6
+              ],
+              "7": [
+                7
+              ],
+              "8": [
+                8
+              ],
+              "9": [
+                9
+              ]
+            },
+            "shards_parent_map": {
+              "1": 1,
+              "10": 0,
+              "11": 0,
+              "4": 4,
+              "5": 5,
+              "6": 6,
+              "7": 7,
+              "8": 8,
+              "9": 9
             },
             "version": 3
           }
