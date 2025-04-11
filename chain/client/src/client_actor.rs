@@ -316,9 +316,9 @@ fn check_validator_tracked_shards(client: &Client, validator_id: &AccountId) -> 
         return Ok(());
     }
 
-    if !client.config.tracked_shards.is_empty() {
+    if client.config.tracked_shards_config.tracks_all_shards() {
         panic!(
-            "The `chain_id` field specified in genesis is among mainnet/testnet, so validator must not track all shards. Please change `tracked_shards` field in config.json to be an empty vector"
+            "The `chain_id` field specified in genesis is among mainnet/testnet, so validator must not track all shards. Please set `tracked_shards_config` field in `config.json` to \"NoShards\"."
         );
     }
 

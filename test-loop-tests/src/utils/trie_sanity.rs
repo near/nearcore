@@ -413,7 +413,7 @@ pub fn check_state_shard_uid_mapping_after_resharding(
         get_tracked_shards_from_prev_block(client, resharding_block_hash);
 
     // Sanity checks if the node tracks all shards (e.g. it is RPC node).
-    if !client.config.tracked_shards.is_empty() {
+    if client.config.tracked_shards_config.tracks_all_shards() {
         assert_eq!(tracked_mapped_children.len(), 2);
         assert_eq!(shards_tracked_after_resharding.len(), shard_layout.num_shards() as usize,);
     }

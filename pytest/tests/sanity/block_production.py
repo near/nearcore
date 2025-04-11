@@ -23,9 +23,7 @@ TIMEOUT = 150
 EPOCH_LENGTH = 20
 BLOCKS = EPOCH_LENGTH * 5
 
-node_config = {
-    "tracked_shards": [0],  # Track all shards.
-}
+node_config = {"tracked_shards_config": "AllShards"}
 
 nodes = start_cluster(
     4, 0, 4, None,

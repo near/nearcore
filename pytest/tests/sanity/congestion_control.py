@@ -277,7 +277,7 @@ class CongestionControlTest(unittest.TestCase):
         ]
         client_config_changes = {
             0: {
-                "tracked_shards": [0]
+                "tracked_shards_config": "AllShards"
             },
         }
 

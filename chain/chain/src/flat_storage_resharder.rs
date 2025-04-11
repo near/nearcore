@@ -1313,11 +1313,8 @@ mod tests {
     use std::collections::BTreeMap;
 
     use near_async::time::Clock;
-    use near_chain_configs::{Genesis, MutableConfigValue};
-    use near_epoch_manager::{
-        EpochManager,
-        shard_tracker::{ShardTracker, TrackedConfig},
-    };
+    use near_chain_configs::{Genesis, MutableConfigValue, TrackedShardsConfig};
+    use near_epoch_manager::{EpochManager, shard_tracker::ShardTracker};
     use near_o11y::testonly::init_test_logger;
     use near_primitives::{
         hash::CryptoHash,
@@ -1530,7 +1527,8 @@ mod tests {
         let store = create_test_store();
         initialize_genesis_state(store.clone(), &genesis, Some(tempdir.path()));
         let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
-        let shard_tracker = ShardTracker::new(TrackedConfig::AllShards, epoch_manager.clone());
+        let shard_tracker =
+            ShardTracker::new(TrackedShardsConfig::AllShards, epoch_manager.clone());
         let runtime = NightshadeRuntime::test(
             tempdir.path(),
             store.clone(),

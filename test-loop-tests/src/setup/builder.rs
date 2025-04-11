@@ -10,11 +10,11 @@ use near_async::test_loop::TestLoopV2;
 use near_async::time::{Clock, Duration};
 use near_chain_configs::{
     ClientConfig, DumpConfig, ExternalStorageConfig, ExternalStorageLocation, Genesis,
-    StateSyncConfig, SyncConfig,
+    StateSyncConfig, SyncConfig, TrackedShardsConfig,
 };
 use near_parameters::RuntimeConfigStore;
 use near_primitives::epoch_manager::EpochConfigStore;
-use near_primitives::types::{AccountId, ShardId};
+use near_primitives::types::AccountId;
 use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
 use near_primitives::version::PROTOCOL_UPGRADE_SCHEDULE;
 use near_store::Store;
@@ -231,10 +231,10 @@ impl TestLoopBuilder {
             // * single shard tracking for validators
             // * all shard tracking for non-validators (RPCs and archival)
             let is_validator = genesis.config.validators.iter().any(|v| v.account_id == account_id);
-            client_config.tracked_shards = if is_validator && !self.track_all_shards {
-                Vec::new()
+            client_config.tracked_shards_config = if is_validator && !self.track_all_shards {
+                TrackedShardsConfig::NoShards
             } else {
-                vec![ShardId::new(666)]
+                TrackedShardsConfig::AllShards
             };
 
             if let Some(config_modifier) = &self.config_modifier {
