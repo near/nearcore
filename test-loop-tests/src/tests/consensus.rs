@@ -93,8 +93,9 @@ fn ultra_slow_test_consensus_with_epoch_switches() {
                 NetworkRequests::Block { ref block } => {
                     if !handler.all_blocks.contains_key(&block.header().height()) {
                         println!(
-                            "BLOCK @{} EPOCH: {:?}, APPROVALS: {:?}",
+                            "BLOCK @{} HASH: {:?} EPOCH: {:?}, APPROVALS: {:?}",
                             block.header().height(),
+                            block.hash(),
                             block.header().epoch_id(),
                             block
                                 .header()

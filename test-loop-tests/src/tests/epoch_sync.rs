@@ -2,14 +2,11 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use itertools::Itertools;
-use near_async::messaging::CanSend;
 use near_async::time::Duration;
 use near_chain::ChainStoreAccess;
 use near_chain_configs::GenesisConfig;
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
-use near_client::SetNetworkInfo;
 use near_client::sync::epoch::EpochSync;
-use near_network::types::NetworkInfo;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::epoch_sync::EpochSyncProof;
 use near_primitives::shard_layout::ShardLayout;
@@ -101,17 +98,22 @@ fn bootstrap_node_via_epoch_sync(mut env: TestLoopEnv, source_node: usize) -> Te
 
     let TestLoopEnv { mut test_loop, node_datas, shared_state } = env;
 
-    // Normally env.add_node() sets the network_info for the new node, but we want to override this
-    // with the highest height peer info from the source node.
-    let highest_height_peer_info =
-        node_datas[source_node].get_highest_height_peer_info(&test_loop.data);
-    let client_sender = &node_datas.last().unwrap().client_sender;
-    client_sender.send(SetNetworkInfo(NetworkInfo {
-        highest_height_peers: vec![highest_height_peer_info],
-        ..NetworkInfo::default()
-    }));
+    // Allow talking only with the source node.
+    let new_node_peer_id = node_datas.last().unwrap().peer_id.clone();
+    shared_state.network_shared_state.allow_all_requests();
+    for (index, data) in node_datas[..node_datas.len() - 1].iter().enumerate() {
+        if index != source_node {
+            shared_state
+                .network_shared_state
+                .disallow_requests(data.peer_id.clone(), new_node_peer_id.clone());
+            shared_state
+                .network_shared_state
+                .disallow_requests(new_node_peer_id.clone(), data.peer_id.clone());
+        }
+    }
 
     // Check that the new node will reach a high height as well.
+    let client_sender = &node_datas.last().unwrap().client_sender;
     let new_node = client_sender.actor_handle();
     let sync_status_history = Rc::new(RefCell::new(Vec::new()));
     {
