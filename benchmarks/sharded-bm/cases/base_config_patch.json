@@ -22,11 +22,11 @@
             "nanos": 500000000
         },
         "max_block_production_delay": {
-            "secs": 6,
+            "secs": 30,
             "nanos": 0
         },
         "max_block_wait_delay": {
-            "secs": 9,
+            "secs": 30,
             "nanos": 0
         }
     }
