@@ -2885,10 +2885,7 @@ mod test {
         );
 
         let mut update = fixture.chain_store.store_update();
-        let shard_chunk = fixture
-            .mock_encoded_chunk
-            .decode_chunk(fixture.epoch_manager.num_data_parts())
-            .unwrap();
+        let shard_chunk = fixture.mock_encoded_chunk.decode_chunk().unwrap();
         update.save_chunk(shard_chunk);
         update.commit().unwrap();
 
@@ -2977,10 +2974,7 @@ mod test {
             .unwrap();
 
         let mut update = fixture.chain_store.store_update();
-        let shard_chunk = fixture
-            .mock_encoded_chunk
-            .decode_chunk(fixture.epoch_manager.num_data_parts())
-            .unwrap();
+        let shard_chunk = fixture.mock_encoded_chunk.decode_chunk().unwrap();
         update.save_chunk(shard_chunk);
         update.commit().unwrap();
 
@@ -3109,10 +3103,7 @@ mod test {
             Duration::hours(1),
         );
         let mut update = fixture.chain_store.store_update();
-        let shard_chunk = fixture
-            .mock_encoded_chunk
-            .decode_chunk(fixture.epoch_manager.num_data_parts())
-            .unwrap();
+        let shard_chunk = fixture.mock_encoded_chunk.decode_chunk().unwrap();
         update.save_chunk(shard_chunk);
         update.commit().unwrap();
 
@@ -3145,10 +3136,7 @@ mod test {
             Duration::hours(1),
         );
         let mut update = fixture.chain_store.store_update();
-        let shard_chunk = fixture
-            .mock_encoded_chunk
-            .decode_chunk(fixture.epoch_manager.num_data_parts())
-            .unwrap();
+        let shard_chunk = fixture.mock_encoded_chunk.decode_chunk().unwrap();
         update.save_chunk(shard_chunk);
         update.commit().unwrap();
 

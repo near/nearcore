@@ -15,7 +15,7 @@ use near_primitives::{
     },
     types::{AccountId, ShardId},
 };
-use tracing::{debug, debug_span, error};
+use tracing::{debug_span, error};
 
 pub fn need_receipt(
     prev_block_hash: &CryptoHash,
@@ -158,47 +158,38 @@ pub fn decode_encoded_chunk(
     shard_tracker: &ShardTracker,
 ) -> Result<(ShardChunk, PartialEncodedChunk), Error> {
     let chunk_hash = encoded_chunk.chunk_hash();
-    let _span = debug_span!(
+    let span = debug_span!(
         target: "chunks",
         "decode_encoded_chunk",
         height_included = encoded_chunk.cloned_header().height_included(),
         shard_id = ?encoded_chunk.cloned_header().shard_id(),
+        encoded_length = tracing::field::Empty,
+        num_tx = tracing::field::Empty,
+        me = me.map(tracing::field::debug),
         ?chunk_hash)
     .entered();
 
-    if let Ok(shard_chunk) = encoded_chunk
-        .decode_chunk(epoch_manager.num_data_parts())
-        .map_err(|err| Error::from(err))
-        .and_then(|shard_chunk| {
-            if !validate_chunk_proofs(&shard_chunk, epoch_manager)? {
-                return Err(Error::InvalidChunk);
-            }
-            Ok(shard_chunk)
-        })
-    {
-        debug!(
-            target: "chunks",
-            ?chunk_hash,
-            encoded_length = encoded_chunk.encoded_length(),
-            num_tx = shard_chunk.to_transactions().len(),
-            ?me,
-            "Reconstructed and decoded");
-        let partial_chunk = create_partial_chunk(
-            encoded_chunk,
-            merkle_paths,
-            shard_chunk.prev_outgoing_receipts().to_vec(),
-            me,
-            epoch_manager,
-            shard_tracker,
-        )
-        .map_err(|err| Error::ChainError(err.into()))?;
-
-        Ok((shard_chunk, partial_chunk))
-    } else {
-        // Can't decode chunk or has invalid proofs, ignore it
-        error!(target: "chunks", ?chunk_hash, ?me, "Reconstructed, but failed to decoded chunk");
-        Err(Error::InvalidChunk)
+    let shard_chunk = encoded_chunk.decode_chunk().map_err(|err| {
+        error!(target: "chunks", ?chunk_hash, ?me, "reconstructed, but failed to decode chunk");
+        err
+    })?;
+    if !validate_chunk_proofs(&shard_chunk, epoch_manager)? {
+        return Err(Error::InvalidChunk);
     }
+
+    span.record("encoded_length", encoded_chunk.encoded_length());
+    span.record("num_tx", shard_chunk.to_transactions().len());
+
+    let partial_chunk = create_partial_chunk(
+        encoded_chunk,
+        merkle_paths,
+        shard_chunk.prev_outgoing_receipts().to_vec(),
+        me,
+        epoch_manager,
+        shard_tracker,
+    )?;
+
+    Ok((shard_chunk, partial_chunk))
 }
 
 fn create_partial_chunk(
