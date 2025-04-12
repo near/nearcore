@@ -102,17 +102,21 @@ impl Client {
 
     /// Manually produce a single chunk on the given shard and send out the corresponding network messages
     pub fn produce_one_chunk(&mut self, height: BlockHeight, shard_id: ShardId) -> ShardChunk {
-        let ProduceChunkResult { encoded_chunk, encoded_chunk_parts_paths: merkle_paths, receipts } =
-            create_chunk_on_height_for_shard(self, height, shard_id);
+        let ProduceChunkResult {
+            encoded_chunk,
+            encoded_chunk_parts_paths: merkle_paths,
+            receipts,
+            shard_chunk,
+        } = create_chunk_on_height_for_shard(self, height, shard_id);
         let signer = self.validator_signer.get();
-        let shard_chunk = self
-            .persist_and_distribute_encoded_chunk(
-                encoded_chunk,
-                merkle_paths,
-                receipts,
-                signer.as_ref().unwrap().validator_id().clone(),
-            )
-            .unwrap();
+        self.persist_and_distribute_encoded_chunk(
+            encoded_chunk,
+            shard_chunk.clone(),
+            merkle_paths,
+            receipts,
+            signer.as_ref().unwrap().validator_id().clone(),
+        )
+        .unwrap();
         let prev_block = self.chain.get_block(shard_chunk.prev_block()).unwrap();
         let prev_chunk_header = Chain::get_prev_chunk_header(
             self.epoch_manager.as_ref(),
@@ -170,6 +174,7 @@ pub fn create_chunk(
     let signer = client.validator_signer.get().unwrap();
     let ProduceChunkResult {
         mut encoded_chunk,
+        shard_chunk: _,
         encoded_chunk_parts_paths: mut merkle_paths,
         receipts,
     } = client
@@ -202,7 +207,7 @@ pub fn create_chunk(
         let rs = ReedSolomon::new(data_parts, parity_parts).unwrap();
 
         let header = encoded_chunk.cloned_header();
-        let (mut new_encoded_chunk, mut new_merkle_paths, _) = EncodedShardChunk::new(
+        let (mut new_encoded_chunk, _, mut new_merkle_paths) = EncodedShardChunk::new(
             *header.prev_block_hash(),
             header.prev_state_root(),
             header.prev_outcome_root(),
@@ -263,7 +268,16 @@ pub fn create_chunk(
         None,
         None,
     );
-    (ProduceChunkResult { encoded_chunk, encoded_chunk_parts_paths: merkle_paths, receipts }, block)
+    let shard_chunk = encoded_chunk.decode_chunk().unwrap();
+    (
+        ProduceChunkResult {
+            encoded_chunk,
+            shard_chunk,
+            encoded_chunk_parts_paths: merkle_paths,
+            receipts,
+        },
+        block,
+    )
 }
 
 /// Keep running catchup until there is no more catchup work that can be done
