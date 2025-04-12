@@ -174,10 +174,8 @@ pub fn decode_encoded_chunk(
         return Err(Error::InvalidChunk);
     }
 
-    span.record("chunk_hash", format!("{:?}", chunk_hash));
     span.record("encoded_length", encoded_chunk.encoded_length());
     span.record("num_tx", shard_chunk.to_transactions().len());
-    span.record("me", format!("{:?}", me));
 
     let partial_chunk = create_partial_chunk(
         encoded_chunk,
