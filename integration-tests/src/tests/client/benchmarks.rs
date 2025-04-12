@@ -55,7 +55,7 @@ fn benchmark_large_chunk_production_time() {
     let ProduceChunkResult { chunk, .. } = create_chunk_on_height(&mut env.clients[0], 0);
     let time = t.elapsed();
 
-    let decoded_chunk = chunk.decode_chunk(0).unwrap();
+    let decoded_chunk = chunk.decode_chunk().unwrap();
 
     let size = borsh::object_length(&chunk).unwrap();
     eprintln!("chunk size: {}kb", size / 1024);
