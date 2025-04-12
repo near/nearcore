@@ -914,6 +914,19 @@ pub enum ShardChunk {
 }
 
 impl ShardChunk {
+    pub fn new(
+        header: ShardChunkHeader,
+        transactions: Vec<SignedTransaction>,
+        prev_outgoing_receipts: Vec<Receipt>,
+    ) -> Self {
+        ShardChunk::V2(ShardChunkV2 {
+            chunk_hash: header.chunk_hash(),
+            header,
+            transactions,
+            prev_outgoing_receipts,
+        })
+    }
+
     pub fn with_header(chunk: ShardChunk, header: ShardChunkHeader) -> Option<ShardChunk> {
         match chunk {
             Self::V1(chunk) => match header {
@@ -1209,14 +1222,13 @@ impl EncodedShardChunk {
         bandwidth_requests: Option<BandwidthRequests>,
         signer: &ValidatorSigner,
         protocol_version: ProtocolVersion,
-    ) -> (Self, Vec<MerklePath>, Vec<Receipt>) {
+    ) -> (Self, ShardChunk, Vec<MerklePath>) {
         let signed_txs =
             validated_txs.into_iter().map(|validated_tx| validated_tx.into_signed_tx()).collect();
         let transaction_receipt = TransactionReceipt(signed_txs, prev_outgoing_receipts);
         let (parts, encoded_length) =
             crate::reed_solomon::reed_solomon_encode(rs, &transaction_receipt);
-        let TransactionReceipt(_signed_txs, prev_outgoing_receipts) = transaction_receipt;
-
+        let TransactionReceipt(signed_txs, prev_outgoing_receipts) = transaction_receipt;
         let content = EncodedShardChunkBody { parts };
         let (encoded_merkle_root, merkle_paths) = content.get_merkle_hash_and_paths();
 
@@ -1239,8 +1251,13 @@ impl EncodedShardChunk {
             bandwidth_requests,
             signer,
         ));
-        let encoded_chunk = Self::V2(EncodedShardChunkV2 { header, content });
-        (encoded_chunk, merkle_paths, prev_outgoing_receipts)
+        let encoded_shard_chunk = Self::V2(EncodedShardChunkV2 { header, content });
+        let shard_chunk = ShardChunk::new(
+            encoded_shard_chunk.cloned_header(),
+            signed_txs,
+            prev_outgoing_receipts,
+        );
+        (encoded_shard_chunk, shard_chunk, merkle_paths)
     }
 
     pub fn chunk_hash(&self) -> ChunkHash {

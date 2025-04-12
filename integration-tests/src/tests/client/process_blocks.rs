@@ -2229,8 +2229,15 @@ fn test_validate_chunk_extra() {
     let chunk_header = encoded_chunk.cloned_header();
     let signer = env.clients[0].validator_signer.get();
     let validator_id = signer.as_ref().unwrap().validator_id().clone();
+    let shard_chunk = encoded_chunk.decode_chunk().unwrap();
     env.clients[0]
-        .persist_and_distribute_encoded_chunk(encoded_chunk, merkle_paths, receipts, validator_id)
+        .persist_and_distribute_encoded_chunk(
+            encoded_chunk,
+            shard_chunk,
+            merkle_paths,
+            receipts,
+            validator_id,
+        )
         .unwrap();
     env.clients[0].chain.blocks_with_missing_chunks.accept_chunk(&chunk_header.chunk_hash());
     env.clients[0].process_blocks_with_missing_chunks(None, &signer);
@@ -2909,14 +2916,16 @@ fn produce_chunks(env: &mut TestEnv, epoch_id: &EpochId, height: u64) {
             .unwrap()
             .take_account_id();
 
-        let ProduceChunkResult { encoded_chunk, encoded_chunk_parts_paths, receipts, .. } =
-            create_chunk_on_height(env.client(&chunk_producer), height);
+        let produce_chunk_result = create_chunk_on_height(env.client(&chunk_producer), height);
+        let ProduceChunkResult { encoded_chunk, encoded_chunk_parts_paths, receipts, shard_chunk } =
+            produce_chunk_result;
 
         for client in &mut env.clients {
             let validator_id = client.validator_signer.get().unwrap().validator_id().clone();
             client
                 .persist_and_distribute_encoded_chunk(
                     encoded_chunk.clone(),
+                    shard_chunk.clone(),
                     encoded_chunk_parts_paths.clone(),
                     receipts.clone(),
                     validator_id,
