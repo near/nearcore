@@ -132,7 +132,7 @@ impl RotatingValidatorsRunner {
         self.assert_current_validators_are_known(client, epoch_id, next_epoch_id);
 
         let tx_processor_senders: Vec<_> =
-            env.node_datas.iter().map(|data| data.tx_processor_sender.clone()).collect();
+            env.node_datas.iter().map(|data| data.rpc_handler_sender.clone()).collect();
 
         let txs = self.restake_validators_txs(&env, self.validators_index);
         for tx in txs.iter() {
