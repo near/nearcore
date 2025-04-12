@@ -163,6 +163,9 @@ pub fn decode_encoded_chunk(
         "decode_encoded_chunk",
         height_included = encoded_chunk.cloned_header().height_included(),
         shard_id = ?encoded_chunk.cloned_header().shard_id(),
+        encoded_length = tracing::field::Empty,
+        num_tx = tracing::field::Empty,
+        me = me.map(tracing::field::debug),
         ?chunk_hash)
     .entered();
 
