@@ -455,7 +455,7 @@ impl ReplayController {
                 .context("Failed to get chunk from chunk hash")?;
             for receipt in make_outgoing_receipts_proofs(
                 chunk_header,
-                chunk.prev_outgoing_receipts(),
+                chunk.prev_outgoing_receipts().to_vec(),
                 self.epoch_manager.as_ref(),
             )? {
                 let ReceiptProof(_, ref shard_proof) = receipt;
