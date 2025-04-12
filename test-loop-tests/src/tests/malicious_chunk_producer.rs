@@ -79,7 +79,7 @@ fn test_producer_with_expired_transactions() {
             );
             let process_tx_request =
                 ProcessTxRequest { transaction: tx, is_forwarded: false, check_only: false };
-            chunk_producer.tx_processor_sender.send(process_tx_request);
+            chunk_producer.rpc_handler_sender.send(process_tx_request);
         });
     }
 

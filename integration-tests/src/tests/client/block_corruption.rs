@@ -46,10 +46,7 @@ fn change_shard_id_to_invalid() {
 
     let txs = create_tx_load(1, &last_block);
     for tx in txs {
-        assert_eq!(
-            env.tx_request_handlers[0].process_tx(tx, false, false),
-            ProcessTxResponse::ValidTx
-        );
+        assert_eq!(env.rpc_handlers[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
     }
 
     let block = env.clients[0].produce_block(1).unwrap().unwrap();
@@ -60,10 +57,7 @@ fn change_shard_id_to_invalid() {
 
     let txs = create_tx_load(2, &last_block);
     for tx in txs {
-        assert_eq!(
-            env.tx_request_handlers[0].process_tx(tx, false, false),
-            ProcessTxResponse::ValidTx
-        );
+        assert_eq!(env.rpc_handlers[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
     }
 
     let mut block = env.clients[0].produce_block(2).unwrap().unwrap();
@@ -198,7 +192,7 @@ fn check_process_flipped_block_fails_on_bit(
         let txs = create_tx_load(h, &last_block);
         for tx in txs {
             assert_eq!(
-                env.tx_request_handlers[0].process_tx(tx, false, false),
+                env.rpc_handlers[0].process_tx(tx, false, false),
                 ProcessTxResponse::ValidTx
             );
         }
@@ -212,10 +206,7 @@ fn check_process_flipped_block_fails_on_bit(
 
     let txs = create_tx_load(h, &last_block);
     for tx in txs {
-        assert_eq!(
-            env.tx_request_handlers[0].process_tx(tx, false, false),
-            ProcessTxResponse::ValidTx
-        );
+        assert_eq!(env.rpc_handlers[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
     }
 
     let correct_block = env.clients[0]

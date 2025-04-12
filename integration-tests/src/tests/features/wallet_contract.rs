@@ -38,7 +38,7 @@ fn check_tx_processing(
     blocks_number: u64,
 ) -> BlockHeight {
     let tx_hash = tx.get_hash();
-    assert_eq!(env.tx_request_handlers[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
+    assert_eq!(env.rpc_handlers[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
     let next_height = produce_blocks_from_height(env, blocks_number, height);
     let final_outcome = env.clients[0].chain.get_final_transaction_result(&tx_hash).unwrap();
     println!("{final_outcome:?}");
@@ -101,7 +101,7 @@ fn test_eth_implicit_account_creation() {
         *genesis_block.hash(),
     );
     assert_eq!(
-        env.tx_request_handlers[0].process_tx(transfer_tx, false, false),
+        env.rpc_handlers[0].process_tx(transfer_tx, false, false),
         ProcessTxResponse::ValidTx
     );
     for i in 1..5 {
@@ -176,11 +176,8 @@ fn test_transaction_from_eth_implicit_account_fail() {
         100,
         *block.hash(),
     );
-    let response = env.tx_request_handlers[0].process_tx(
-        send_money_from_eth_implicit_account_tx,
-        false,
-        false,
-    );
+    let response =
+        env.rpc_handlers[0].process_tx(send_money_from_eth_implicit_account_tx, false, false);
     let expected_tx_error = ProcessTxResponse::InvalidTx(InvalidTxError::InvalidAccessKeyError(
         InvalidAccessKeyError::AccessKeyNotFound {
             account_id: eth_implicit_account_id.clone(),
@@ -198,8 +195,7 @@ fn test_transaction_from_eth_implicit_account_fail() {
         &eth_implicit_account_signer,
         *block.hash(),
     );
-    let response =
-        env.tx_request_handlers[0].process_tx(delete_eth_implicit_account_tx, false, false);
+    let response = env.rpc_handlers[0].process_tx(delete_eth_implicit_account_tx, false, false);
     assert_eq!(response, expected_tx_error);
 
     // Try to add an access key to the ETH-implicit account. Should fail because there is no access key.
@@ -215,11 +211,8 @@ fn test_transaction_from_eth_implicit_account_fail() {
         *block.hash(),
         0,
     );
-    let response = env.tx_request_handlers[0].process_tx(
-        add_access_key_to_eth_implicit_account_tx,
-        false,
-        false,
-    );
+    let response =
+        env.rpc_handlers[0].process_tx(add_access_key_to_eth_implicit_account_tx, false, false);
     assert_eq!(response, expected_tx_error);
 
     // Try to deploy the Wallet Contract again to the ETH-implicit account. Should fail because there is no access key.
@@ -234,11 +227,8 @@ fn test_transaction_from_eth_implicit_account_fail() {
         *block.hash(),
         0,
     );
-    let response = env.tx_request_handlers[0].process_tx(
-        add_access_key_to_eth_implicit_account_tx,
-        false,
-        false,
-    );
+    let response =
+        env.rpc_handlers[0].process_tx(add_access_key_to_eth_implicit_account_tx, false, false);
     assert_eq!(response, expected_tx_error);
 }
 

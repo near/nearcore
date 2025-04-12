@@ -531,7 +531,7 @@ fn ultra_slow_test_dump_epoch_missing_chunk_in_last_block() {
                     *genesis_block.hash(),
                 );
                 assert_eq!(
-                    env.tx_request_handlers[0].process_tx(tx, false, false),
+                    env.rpc_handlers[0].process_tx(tx, false, false),
                     ProcessTxResponse::ValidTx
                 );
             }
