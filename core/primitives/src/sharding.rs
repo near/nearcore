@@ -1295,11 +1295,10 @@ impl EncodedShardChunk {
         PartialEncodedChunkWithArcReceipts { header, parts, prev_outgoing_receipts }
     }
 
-    pub fn decode_chunk(&self, data_parts: usize) -> Result<ShardChunk, std::io::Error> {
+    pub fn decode_chunk(&self) -> Result<ShardChunk, std::io::Error> {
         let _span = debug_span!(
             target: "sharding",
             "decode_chunk",
-            data_parts,
             height_included = self.cloned_header().height_included(),
             shard_id = ?self.cloned_header().shard_id(),
             chunk_hash = ?self.chunk_hash())
