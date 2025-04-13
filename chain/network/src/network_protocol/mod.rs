@@ -567,7 +567,6 @@ pub enum RoutedMessageBody {
     ContractCodeRequest(ContractCodeRequest),
     ContractCodeResponse(ContractCodeResponse),
     PartialEncodedContractDeploys(PartialEncodedContractDeploys),
-    StateHeaderRequest(StateHeaderRequest),
 }
 
 impl RoutedMessageBody {
@@ -671,7 +670,6 @@ impl fmt::Debug for RoutedMessageBody {
             RoutedMessageBody::PartialEncodedContractDeploys(deploys) => {
                 write!(f, "PartialEncodedContractDeploys(part={:?}", deploys.part())
             }
-            RoutedMessageBody::StateHeaderRequest(_) => write!(f, "StateHeaderRequest"),
         }
     }
 }

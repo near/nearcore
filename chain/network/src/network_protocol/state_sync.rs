@@ -108,25 +108,6 @@ pub enum SnapshotHostInfoVerificationError {
     TooManyShards(usize),
 }
 
-/// Message used to request a state header.
-///
-#[derive(
-    Clone,
-    Debug,
-    Eq,
-    PartialEq,
-    Hash,
-    borsh::BorshSerialize,
-    borsh::BorshDeserialize,
-    ProtocolSchema,
-)]
-pub struct StateHeaderRequest {
-    /// Requested shard id
-    pub shard_id: ShardId,
-    /// Sync block hash
-    pub sync_hash: CryptoHash,
-}
-
 /// Message used to request a state part.
 ///
 #[derive(
@@ -142,7 +123,7 @@ pub struct StateHeaderRequest {
 pub struct StatePartRequest {
     /// Requested shard id
     pub shard_id: ShardId,
-    /// Sync block hash
+    /// Hash of the requested snapshot's state root
     pub sync_hash: CryptoHash,
     /// Requested part id
     pub part_id: u64,

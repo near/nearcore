@@ -87,7 +87,6 @@ impl tcp::Tier {
             | RoutedMessageBody::PartialEncodedChunkForward(..)
             | RoutedMessageBody::ChunkStateWitnessAck(..)
             | RoutedMessageBody::StatePartRequest(..)
-            | RoutedMessageBody::StateHeaderRequest(..)
             | RoutedMessageBody::PartialEncodedContractDeploys(..) => self == tcp::Tier::T2,
             // Deprecated
             RoutedMessageBody::_UnusedQueryRequest
