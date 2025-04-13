@@ -15,7 +15,6 @@ use near_primitives::network::PeerId;
 use near_primitives::state_sync::{ShardStateSyncResponse, ShardStateSyncResponseHeader};
 use near_primitives::types::ShardId;
 use near_store::{DBCol, Store};
-use rand::seq::SliceRandom;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use tokio::select;
@@ -116,58 +115,40 @@ impl StateSyncDownloadSourcePeer {
         let (sender, receiver) = oneshot::channel();
 
         let network_request = {
-            let mut state_lock = state.lock().unwrap();
+            let prev_hash = *store
+                .get_ser::<BlockHeader>(DBCol::BlockHeader, key.sync_hash.as_bytes())?
+                .ok_or_else(|| {
+                    near_chain::Error::DBNotFoundErr(format!("No block header {}", key.sync_hash))
+                })?
+                .prev_hash();
+            let prev_prev_hash = *store
+                .get_ser::<BlockHeader>(DBCol::BlockHeader, prev_hash.as_bytes())?
+                .ok_or_else(|| {
+                    near_chain::Error::DBNotFoundErr(format!("No block header {}", prev_hash))
+                })?
+                .prev_hash();
             let (network_request, state_value) = match &key.kind {
-                PartIdOrHeader::Part { part_id } => {
-                    let prev_hash = *store
-                        .get_ser::<BlockHeader>(DBCol::BlockHeader, key.sync_hash.as_bytes())?
-                        .ok_or_else(|| {
-                            near_chain::Error::DBNotFoundErr(format!(
-                                "No block header {}",
-                                key.sync_hash
-                            ))
-                        })?
-                        .prev_hash();
-                    let prev_prev_hash = *store
-                        .get_ser::<BlockHeader>(DBCol::BlockHeader, prev_hash.as_bytes())?
-                        .ok_or_else(|| {
-                            near_chain::Error::DBNotFoundErr(format!(
-                                "No block header {}",
-                                prev_hash
-                            ))
-                        })?
-                        .prev_hash();
-                    let network_request = PeerManagerMessageRequest::NetworkRequests(
-                        NetworkRequests::StateRequestPart {
+                PartIdOrHeader::Part { part_id } => (
+                    PeerManagerMessageRequest::NetworkRequests(NetworkRequests::StateRequestPart {
+                        shard_id: key.shard_id,
+                        sync_hash: key.sync_hash,
+                        sync_prev_prev_hash: prev_prev_hash,
+                        part_id: *part_id,
+                    }),
+                    PendingPeerRequestValue { peer_id: None, sender },
+                ),
+                PartIdOrHeader::Header => (
+                    PeerManagerMessageRequest::NetworkRequests(
+                        NetworkRequests::StateRequestHeader {
                             shard_id: key.shard_id,
                             sync_hash: key.sync_hash,
                             sync_prev_prev_hash: prev_prev_hash,
-                            part_id: *part_id,
                         },
-                    );
-                    let state_value = PendingPeerRequestValue { peer_id: None, sender };
-                    (network_request, state_value)
-                }
-                PartIdOrHeader::Header => {
-                    let peer_id = state_lock
-                        .highest_height_peers
-                        .choose(&mut rand::thread_rng())
-                        .cloned()
-                        .ok_or_else(|| {
-                            near_chain::Error::Other("No peer to choose from".to_owned())
-                        })?;
-                    (
-                        PeerManagerMessageRequest::NetworkRequests(
-                            NetworkRequests::StateRequestHeader {
-                                shard_id: key.shard_id,
-                                sync_hash: key.sync_hash,
-                                peer_id: peer_id.clone(),
-                            },
-                        ),
-                        PendingPeerRequestValue { peer_id: Some(peer_id), sender },
-                    )
-                }
+                    ),
+                    PendingPeerRequestValue { peer_id: None, sender },
+                ),
             };
+            let mut state_lock = state.lock().unwrap();
             state_lock.pending_requests.insert(key.clone(), state_value);
             network_request
         };

@@ -729,10 +729,9 @@ fn process_peer_manager_message_default(
                 }
             }
         }
-        NetworkRequests::StateRequestHeader { shard_id, sync_hash, peer_id } => {
+        NetworkRequests::StateRequestHeader { shard_id, sync_hash, .. } => {
             for (i, _) in validators.iter().enumerate() {
                 let me = connectors[my_ord].client_actor.clone();
-                let peer_id = peer_id.clone();
                 actix::spawn(
                     connectors[i]
                         .view_client_actor
@@ -746,7 +745,7 @@ fn process_peer_manager_message_default(
                                 Some(response) => {
                                     me.do_send(
                                         StateResponseReceived {
-                                            peer_id,
+                                            peer_id: PeerId::random(),
                                             state_response_info: response.0,
                                         }
                                         .with_span_context(),
