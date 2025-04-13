@@ -189,9 +189,8 @@ impl ChainStateSyncAdapter {
 
             let mut root_proofs_cur = vec![];
             if receipt_proofs.len() != block_header.chunks_included() as usize {
-                // Happens if a node doesn't track all shards and can't provide
-                // all incoming receipts to a chunk.
-                return Err(Error::Other("Not tracking all shards".to_owned()));
+                // Happens if the node did not process the blocks leading up to the sync hash
+                return Err(Error::Other("Store is missing incoming receipts".to_owned()));
             }
             for receipt_proof in receipt_proofs.iter() {
                 let ReceiptProof(receipts, shard_proof) = receipt_proof;
