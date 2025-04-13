@@ -47,7 +47,8 @@ ALL_ACCOUNTS_PREFIXES = [
 class StateSyncValidatorShardSwap(unittest.TestCase):
 
     def _prepare_cluster(self):
-        node_config = state_sync_lib.get_state_sync_config_p2p(tracked_shards_config = "NoShards")
+        node_config = state_sync_lib.get_state_sync_config_p2p(
+            tracked_shards_config="NoShards")
 
         # Validators
         configs = {x: node_config.copy() for x in range(NUM_VALIDATORS)}
@@ -114,7 +115,8 @@ class StateSyncValidatorShardSwap(unittest.TestCase):
 
         for i in range(len(self.nodes) - 1):
             metrics = MetricsTracker(self.nodes[i])
-            down = metrics.get_metric_all_values("near_state_sync_download_result")
+            down = metrics.get_metric_all_values(
+                "near_state_sync_download_result")
 
             num_headers = 0
             num_parts = 0
@@ -133,11 +135,14 @@ class StateSyncValidatorShardSwap(unittest.TestCase):
                 else:
                     assert False, f"Unexpected near_state_sync_download_result value ({key}, {value})"
 
-            print(f"Node {i} downloaded {num_headers} state headers and {num_parts} parts from peers")
+            print(
+                f"Node {i} downloaded {num_headers} state headers and {num_parts} parts from peers"
+            )
             if num_retries > 0:
-                print(f"WARN: Node {i} made {num_retries} unsuccessful requests for state data")
+                print(
+                    f"WARN: Node {i} made {num_retries} unsuccessful requests for state data"
+                )
             assert num_headers > 0 and num_parts > 0, f"Node {i} did not state sync, but is expected to in this test"
-
 
     def tearDown(self):
         self._clear_cluster()
