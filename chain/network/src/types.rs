@@ -249,9 +249,9 @@ pub enum NetworkRequests {
     BlockRequest { hash: CryptoHash, peer_id: PeerId },
     /// Request given block headers.
     BlockHeadersRequest { hashes: Vec<CryptoHash>, peer_id: PeerId },
-    /// Request state header for given shard at given state root.
-    StateRequestHeader { shard_id: ShardId, sync_hash: CryptoHash, peer_id: PeerId },
-    /// Request state part for given shard at given state root.
+    /// Request state header for given shard and given sync hash.
+    StateRequestHeader { shard_id: ShardId, sync_hash: CryptoHash },
+    /// Request state part for given shard and given sync hash.
     StateRequestPart {
         shard_id: ShardId,
         sync_hash: CryptoHash,
@@ -420,6 +420,9 @@ pub struct NetworkInfo {
 pub enum NetworkResponses {
     NoResponse,
     RouteNotFound,
+    AwaitingIpSelfDiscovery,
+    NoDestinationsAvailable,
+    SelectedDestination(PeerId),
 }
 
 #[derive(Clone, MultiSend, MultiSenderFrom)]
