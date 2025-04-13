@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::{
-    ChunkHash, PartialEncodedChunkPart, PartialEncodedChunkV2, ReceiptProof, ShardChunkHeader,
+    ChunkHash, PartialEncodedChunkPart, ReceiptProof, ShardChunkHeader,
 };
 use near_primitives::types::{BlockHeight, BlockHeightDelta, ShardId};
 use std::collections::hash_map::Entry::Occupied;
@@ -83,20 +83,21 @@ impl EncodedChunksCacheEntry {
     /// previously unknown.
     pub fn merge_in_partial_encoded_chunk(
         &mut self,
-        partial_encoded_chunk: &PartialEncodedChunkV2,
+        parts: impl Iterator<Item = PartialEncodedChunkPart>,
+        receipts: impl Iterator<Item = ReceiptProof>,
     ) -> HashSet<u64> {
         let mut previously_missing_part_ords = HashSet::new();
-        for part_info in partial_encoded_chunk.parts.iter() {
+        for part_info in parts {
             let part_ord = part_info.part_ord;
             self.parts.entry(part_ord).or_insert_with(|| {
                 previously_missing_part_ords.insert(part_ord);
-                part_info.clone()
+                part_info
             });
         }
 
-        for receipt in partial_encoded_chunk.prev_outgoing_receipts.iter() {
+        for receipt in receipts {
             let shard_id = receipt.1.to_shard_id;
-            self.receipts.entry(shard_id).or_insert_with(|| receipt.clone());
+            self.receipts.entry(shard_id).or_insert_with(|| receipt);
         }
         previously_missing_part_ords
     }
@@ -216,10 +217,12 @@ impl EncodedChunksCache {
     /// returning the set of part ords that were previously unknown.
     pub fn merge_in_partial_encoded_chunk(
         &mut self,
-        partial_encoded_chunk: &PartialEncodedChunkV2,
+        chunk_header: &ShardChunkHeader,
+        parts: impl Iterator<Item = PartialEncodedChunkPart>,
+        receipts: impl Iterator<Item = ReceiptProof>,
     ) -> HashSet<u64> {
-        let entry = self.get_or_insert_from_header(&partial_encoded_chunk.header);
-        entry.merge_in_partial_encoded_chunk(partial_encoded_chunk)
+        let entry = self.get_or_insert_from_header(chunk_header);
+        entry.merge_in_partial_encoded_chunk(parts, receipts)
     }
 
     /// Remove a chunk from the cache if it is outside of horizon
@@ -273,7 +276,7 @@ mod tests {
 
     use near_crypto::KeyType;
     use near_primitives::hash::CryptoHash;
-    use near_primitives::sharding::{PartialEncodedChunkV2, ShardChunkHeader, ShardChunkHeaderV2};
+    use near_primitives::sharding::{ShardChunkHeader, ShardChunkHeaderV2};
     use near_primitives::types::ShardId;
     use near_primitives::validator_signer::InMemoryValidatorSigner;
 
@@ -307,11 +310,11 @@ mod tests {
         let header0 = create_chunk_header(1, ShardId::new(0));
         let header1 = create_chunk_header(1, ShardId::new(1));
         cache.get_or_insert_from_header(&header0);
-        cache.merge_in_partial_encoded_chunk(&PartialEncodedChunkV2 {
-            header: header1.clone(),
-            parts: vec![],
-            prev_outgoing_receipts: vec![],
-        });
+        cache.merge_in_partial_encoded_chunk(
+            &header1,
+            Vec::new().into_iter(),
+            Vec::new().into_iter(),
+        );
         assert_eq!(
             cache.get_incomplete_chunks(&CryptoHash::default()).unwrap(),
             &HashSet::from([header0.chunk_hash(), header1.chunk_hash()])
@@ -329,9 +332,11 @@ mod tests {
     fn test_cache_removal() {
         let mut cache = EncodedChunksCache::new();
         let header = create_chunk_header(1, ShardId::new(0));
-        let partial_encoded_chunk =
-            PartialEncodedChunkV2 { header: header, parts: vec![], prev_outgoing_receipts: vec![] };
-        cache.merge_in_partial_encoded_chunk(&partial_encoded_chunk);
+        cache.merge_in_partial_encoded_chunk(
+            &header,
+            Vec::new().into_iter(),
+            Vec::new().into_iter(),
+        );
         assert!(!cache.height_map.is_empty());
 
         cache.update_largest_seen_height::<ChunkRequestInfo>(2000, &HashMap::default());
