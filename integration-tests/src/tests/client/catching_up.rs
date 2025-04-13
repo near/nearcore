@@ -257,16 +257,16 @@ fn test_catchup_receipts_sync_common(wait_till: u64, send: u64, sync_hold: bool)
                         if let NetworkRequests::StateRequestHeader {
                             shard_id,
                             sync_hash,
-                            sync_prev_prev_hash,
+                            peer_id,
                         } = msg
                         {
                             if sync_hold {
                                 let srs = StateRequestStruct {
                                     shard_id: *shard_id,
                                     sync_hash: *sync_hash,
-                                    sync_prev_prev_hash: Some(*sync_prev_prev_hash),
+                                    sync_prev_prev_hash: None,
                                     part_id: None,
-                                    peer_id: None,
+                                    peer_id: Some(peer_id.clone()),
                                 };
                                 if !seen_hashes_with_state
                                     .contains(&hash_func(&borsh::to_vec(&srs).unwrap()))

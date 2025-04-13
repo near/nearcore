@@ -5,7 +5,7 @@ use crate::network_protocol;
 use crate::network_protocol::SyncSnapshotHosts;
 use crate::network_protocol::{
     Disconnect, Edge, PeerIdOrHash, PeerMessage, Ping, Pong, RawRoutedMessage, RoutedMessageBody,
-    StateHeaderRequest, StatePartRequest,
+    StatePartRequest,
 };
 use crate::peer::peer_actor::PeerActor;
 use crate::peer_manager::connection;
@@ -818,32 +818,15 @@ impl PeerManagerActor {
                     NetworkResponses::RouteNotFound
                 }
             }
-            NetworkRequests::StateRequestHeader { shard_id, sync_hash, sync_prev_prev_hash } => {
-                let mut success = false;
-
-                if let Some(peer_id) =
-                    self.state.snapshot_hosts.select_host_for_header(&sync_prev_prev_hash, shard_id)
-                {
-                    tracing::debug!(target: "network", "requesting header {sync_prev_prev_hash} {shard_id} from {peer_id}");
-                    success = self.state.send_message_to_peer(
-                        &self.clock,
-                        tcp::Tier::T2,
-                        self.state.sign_message(
-                            &self.clock,
-                            RawRoutedMessage {
-                                target: PeerIdOrHash::PeerId(peer_id),
-                                body: RoutedMessageBody::StateHeaderRequest(StateHeaderRequest {
-                                    shard_id,
-                                    sync_hash,
-                                }),
-                            },
-                        ),
-                    );
+            NetworkRequests::StateRequestHeader { shard_id, sync_hash, peer_id } => {
+                if self.state.tier2.send_message(
+                    peer_id,
+                    Arc::new(PeerMessage::StateRequestHeader(shard_id, sync_hash)),
+                ) {
+                    NetworkResponses::NoResponse
                 } else {
-                    tracing::debug!(target: "network", "no hosts available for {shard_id}, {sync_prev_prev_hash}");
+                    NetworkResponses::RouteNotFound
                 }
-
-                if success { NetworkResponses::NoResponse } else { NetworkResponses::RouteNotFound }
             }
             NetworkRequests::StateRequestPart {
                 shard_id,

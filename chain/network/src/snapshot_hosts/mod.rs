@@ -12,7 +12,6 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
 use near_primitives::types::ShardId;
 use parking_lot::Mutex;
-use rand::prelude::IteratorRandom;
 use rayon::iter::ParallelBridge;
 use sha2::{Digest, Sha256};
 use std::collections::{BinaryHeap, HashMap, HashSet};
@@ -169,8 +168,15 @@ impl Inner {
         Some(d)
     }
 
-    /// Reset internal state if the sync_hash has changed
-    fn set_sync_hash(&mut self, sync_hash: &CryptoHash) {
+    /// Given a state part request produced by the local node,
+    /// selects a host to which the request should be routed.
+    pub fn select_host_for_part(
+        &mut self,
+        sync_hash: &CryptoHash,
+        shard_id: ShardId,
+        part_id: u64,
+    ) -> Option<PeerId> {
+        // Reset internal state if the sync_hash has changed
         if self.sync_hash != Some(*sync_hash) {
             self.sync_hash = Some(*sync_hash);
             self.hosts_for_shard.clear();
@@ -187,17 +193,6 @@ impl Inner {
                 }
             }
         }
-    }
-
-    /// Given a state part request produced by the local node,
-    /// selects a host to which the request should be routed.
-    pub fn select_host_for_part(
-        &mut self,
-        sync_hash: &CryptoHash,
-        shard_id: ShardId,
-        part_id: u64,
-    ) -> Option<PeerId> {
-        self.set_sync_hash(sync_hash);
 
         let selector =
             self.peer_selector.entry((shard_id, part_id)).or_insert(PartPeerSelector::default());
@@ -232,24 +227,6 @@ impl Inner {
 
         let res = selector.next();
         res
-    }
-
-    /// Given a state header request produced by the local node,
-    /// selects a host to which the request should be routed.
-    pub fn select_host_for_header(
-        &mut self,
-        sync_hash: &CryptoHash,
-        shard_id: ShardId,
-    ) -> Option<PeerId> {
-        self.set_sync_hash(sync_hash);
-
-        // The state header can be served by any host which was tracking the shard.
-        let available_hosts = self.hosts_for_shard.get(&shard_id)?;
-
-        // At the beginning of the epoch, several nodes may enter state sync
-        // around the same time. We randomize the requests to spread them across
-        // hosts and avoid bottlenecking on a specific target.
-        available_hosts.iter().choose(&mut rand::thread_rng()).cloned()
     }
 }
 
@@ -352,15 +329,6 @@ impl SnapshotHostsCache {
         part_id: u64,
     ) -> Option<PeerId> {
         self.0.lock().select_host_for_part(sync_hash, shard_id, part_id)
-    }
-
-    /// Given a state header request, selects a peer host to which the request should be sent.
-    pub fn select_host_for_header(
-        &self,
-        sync_hash: &CryptoHash,
-        shard_id: ShardId,
-    ) -> Option<PeerId> {
-        self.0.lock().select_host_for_header(sync_hash, shard_id)
     }
 
     /// Triggered by state sync actor after processing a state part.
