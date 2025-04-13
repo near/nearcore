@@ -2851,7 +2851,7 @@ mod test {
         );
 
         persist_chunk(
-            fixture.make_partial_encoded_chunk(&fixture.all_part_ords),
+            Arc::new(fixture.make_partial_encoded_chunk(&fixture.all_part_ords)),
             None,
             &mut fixture.chain_store,
         )
@@ -2928,7 +2928,7 @@ mod test {
             .unwrap();
 
         persist_chunk(
-            fixture.make_partial_encoded_chunk(partial_ords),
+            Arc::new(fixture.make_partial_encoded_chunk(partial_ords)),
             None,
             &mut fixture.chain_store,
         )
@@ -3019,7 +3019,7 @@ mod test {
             .unwrap();
 
         persist_chunk(
-            fixture.make_partial_encoded_chunk(partial_ords),
+            Arc::new(fixture.make_partial_encoded_chunk(partial_ords)),
             None,
             &mut fixture.chain_store,
         )
