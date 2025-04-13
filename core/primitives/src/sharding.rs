@@ -701,6 +701,19 @@ impl PartialEncodedChunk {
         }
     }
 
+    pub fn into_parts_and_receipt_proofs(
+        self,
+    ) -> (impl Iterator<Item = PartialEncodedChunkPart>, impl Iterator<Item = ReceiptProof>) {
+        match self {
+            Self::V1(PartialEncodedChunkV1 { header: _, parts, prev_outgoing_receipts }) => {
+                (parts.into_iter(), prev_outgoing_receipts.into_iter())
+            }
+            Self::V2(PartialEncodedChunkV2 { header: _, parts, prev_outgoing_receipts }) => {
+                (parts.into_iter(), prev_outgoing_receipts.into_iter())
+            }
+        }
+    }
+
     pub fn cloned_header(&self) -> ShardChunkHeader {
         match self {
             Self::V1(chunk) => ShardChunkHeader::V1(chunk.header.clone()),
