@@ -4,14 +4,13 @@
 //! we want to test here are pretty heavy and its enough to run them once and
 //! note the wall-clock time.
 
+use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
+use crate::env::test_env::TestEnv;
 use near_chain_configs::Genesis;
 use near_client::test_utils::create_chunk_on_height;
 use near_client::{ProcessTxResponse, ProduceChunkResult};
 use near_crypto::InMemorySigner;
 use near_primitives::transaction::{Action, DeployContractAction, SignedTransaction};
-
-use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
-use crate::env::test_env::TestEnv;
 
 /// cspell:ignore txes
 /// How long does it take to produce a large chunk?
@@ -52,12 +51,12 @@ fn benchmark_large_chunk_production_time() {
     }
 
     let t = std::time::Instant::now();
-    let ProduceChunkResult { chunk, .. } = create_chunk_on_height(&mut env.clients[0], 0);
+    let ProduceChunkResult { encoded_chunk, .. } = create_chunk_on_height(&mut env.clients[0], 0);
     let time = t.elapsed();
 
-    let decoded_chunk = chunk.decode_chunk().unwrap();
+    let decoded_chunk = encoded_chunk.decode_chunk().unwrap();
 
-    let size = borsh::object_length(&chunk).unwrap();
+    let size = borsh::object_length(&encoded_chunk).unwrap();
     eprintln!("chunk size: {}kb", size / 1024);
     eprintln!("time to produce: {:0.2?}", time);
 

@@ -1717,7 +1717,7 @@ impl Client {
                 Ok(Some(result)) => {
                     let shard_chunk = self
                         .persist_and_distribute_encoded_chunk(
-                            result.chunk,
+                            result.encoded_chunk,
                             result.encoded_chunk_parts_paths,
                             result.receipts,
                             validator_id.clone(),
