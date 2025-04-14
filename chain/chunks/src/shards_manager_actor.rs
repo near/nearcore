@@ -189,7 +189,7 @@ pub(crate) struct ChunkRequestInfo {
     last_requested: time::Instant,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub enum HandleNetworkRequestResult {
     Ok,
     /// request failed and could be retried after some duration
