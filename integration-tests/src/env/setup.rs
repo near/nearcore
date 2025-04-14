@@ -70,12 +70,11 @@ use near_store::test_utils::create_test_store;
 use near_telemetry::TelemetryActor;
 use nearcore::NightshadeRuntime;
 use num_rational::Ratio;
-use once_cell::sync::OnceCell;
 use rand::{Rng, thread_rng};
 use std::cmp::max;
 use std::collections::{HashMap, HashSet};
 use std::ops::DerefMut;
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, OnceLock, RwLock};
 
 use crate::utils::block_stats::BlockStats;
 use crate::utils::peer_manager_mock::PeerManagerMock;
@@ -1013,7 +1012,7 @@ pub fn setup_mock_all_validators(
     let genesis_time = clock.now_utc();
     let mut ret = vec![];
 
-    let connectors: Arc<OnceCell<Vec<ActorHandlesForTesting>>> = Default::default();
+    let connectors: Arc<OnceLock<Vec<ActorHandlesForTesting>>> = Default::default();
 
     let announced_accounts = Arc::new(RwLock::new(HashSet::new()));
 
