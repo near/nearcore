@@ -1052,7 +1052,7 @@ impl ShardsManagerActor {
         let outgoing_receipts = chunk.prev_outgoing_receipts();
         let outgoing_receipts_proofs = make_outgoing_receipts_proofs(
             &header,
-            &outgoing_receipts,
+            outgoing_receipts.to_vec(),
             self.view_epoch_manager.as_ref(),
         );
         let present_receipts: HashMap<ShardId, _> = match outgoing_receipts_proofs {
@@ -1761,9 +1761,9 @@ impl ShardsManagerActor {
             // If we don't care about the shard, we only need the parts and the receipts that we
             // own, before marking the chunk as completed.
             let partial_chunk = make_partial_encoded_chunk_from_owned_parts_and_needed_receipts(
-                header,
-                entry.parts.values(),
-                entry.receipts.values(),
+                header.clone(),
+                entry.parts.values().cloned(),
+                entry.receipts.values().cloned(),
                 me,
                 self.epoch_manager.as_ref(),
                 &self.shard_tracker,
@@ -2043,7 +2043,7 @@ impl ShardsManagerActor {
 
         let receipt_proofs = make_outgoing_receipts_proofs(
             &chunk_header,
-            &outgoing_receipts,
+            outgoing_receipts,
             self.epoch_manager.as_ref(),
         )?
         .into_iter()
