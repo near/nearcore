@@ -82,6 +82,7 @@ pub fn two_upgrades_voting_schedule(
         (past_datetime_2, target_protocol_version),
     ];
     ProtocolUpgradeVotingSchedule::new_from_env_or_schedule(
+        target_protocol_version - 2,
         target_protocol_version,
         voting_schedule,
     )
