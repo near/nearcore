@@ -7,14 +7,6 @@
         "min_block_production_delay": {
             "secs": 1,
             "nanos": 300000000
-        },
-        "max_block_production_delay": {
-            "secs": 4,
-            "nanos": 0
-        },
-        "max_block_wait_delay": {
-            "secs": 6,
-            "nanos": 0
         }
     }
 }
