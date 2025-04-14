@@ -238,6 +238,13 @@ struct BatchOutput {
 }
 
 impl BatchOutput {
+    /// Returns `true` if at least one transaction in the batch was successful.
+    pub fn has_successful_tx(&self) -> bool {
+        self.processed_transactions
+            .iter()
+            .any(|pt| matches!(pt.result, PerTransactionResult::Success { .. }))
+    }
+
     /// Returns the `signer_id` of the first non-failed transaction in the batch.
     /// Panics if all transactions failed or if the batch is empty.
     fn signer_id(&self) -> &AccountId {
@@ -1676,10 +1683,7 @@ impl Runtime {
         let mut all_processed = Vec::new();
         for batch_vec in batch_outputs {
             for batch_out in batch_vec {
-                if batch_out.processed_transactions.is_empty()
-                    || batch_out.updated_account.is_none()
-                {
-                    debug!(target: "runtime", "Skipping empty batch output");
+                if !batch_out.has_successful_tx() {
                     continue;
                 }
 
