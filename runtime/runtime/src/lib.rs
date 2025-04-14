@@ -212,10 +212,10 @@ impl<'a> TransactionBatches<'a> {
 #[derive(Debug)]
 enum PerTransactionResult {
     Success {
-        validated_tx: ValidatedTransaction,
+        validated_tx: Box<ValidatedTransaction>,
         verification_result: VerificationResult,
-        receipt: Receipt,
-        outcome: ExecutionOutcomeWithId,
+        receipt: Box<Receipt>,
+        outcome: Box<ExecutionOutcomeWithId>,
     },
 
     Failure {
@@ -563,10 +563,10 @@ impl Runtime {
             processed_transactions.push(ProcessedTransaction {
                 index: idx,
                 result: PerTransactionResult::Success {
-                    validated_tx,
+                    validated_tx: Box::new(validated_tx),
                     verification_result,
-                    receipt,
-                    outcome,
+                    receipt: Box::new(receipt),
+                    outcome: Box::new(outcome),
                 },
             });
         }
@@ -1750,9 +1750,9 @@ impl Runtime {
 
                     metrics::TRANSACTION_PROCESSED_SUCCESSFULLY_TOTAL.inc();
                     if receipt.receiver_id() == validated_tx.to_tx().signer_id() {
-                        processing_state.local_receipts.push_back(receipt);
+                        processing_state.local_receipts.push_back(*receipt);
                     } else if let Err(_) = receipt_sink.forward_or_buffer_receipt(
-                        receipt,
+                        *receipt,
                         apply_state,
                         state_update,
                         processing_state.epoch_info_provider,
@@ -1764,7 +1764,7 @@ impl Runtime {
                     let compute =
                         compute.expect("`process_transaction` must populate compute usage");
                     total.add(outcome.outcome.gas_burnt, compute)?;
-                    processing_state.outcomes.push(outcome);
+                    processing_state.outcomes.push(*outcome);
                 }
 
                 PerTransactionResult::Failure { error, tx_hash } => {
