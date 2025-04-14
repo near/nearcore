@@ -102,11 +102,8 @@ impl Client {
 
     /// Manually produce a single chunk on the given shard and send out the corresponding network messages
     pub fn produce_one_chunk(&mut self, height: BlockHeight, shard_id: ShardId) -> ShardChunk {
-        let ProduceChunkResult {
-            chunk: encoded_chunk,
-            encoded_chunk_parts_paths: merkle_paths,
-            receipts,
-        } = create_chunk_on_height_for_shard(self, height, shard_id);
+        let ProduceChunkResult { encoded_chunk, encoded_chunk_parts_paths: merkle_paths, receipts } =
+            create_chunk_on_height_for_shard(self, height, shard_id);
         let signer = self.validator_signer.get();
         let shard_chunk = self
             .persist_and_distribute_encoded_chunk(
@@ -171,20 +168,23 @@ pub fn create_chunk(
     let last_block = client.chain.get_block_by_height(client.chain.head().unwrap().height).unwrap();
     let next_height = last_block.header().height() + 1;
     let signer = client.validator_signer.get().unwrap();
-    let ProduceChunkResult { mut chunk, encoded_chunk_parts_paths: mut merkle_paths, receipts } =
-        client
-            .chunk_producer
-            .produce_chunk(
-                &last_block,
-                last_block.header().epoch_id(),
-                last_block.chunks()[0].clone(),
-                next_height,
-                ShardId::new(0),
-                &signer,
-                &client.chain.transaction_validity_check(last_block.header().clone()),
-            )
-            .unwrap()
-            .unwrap();
+    let ProduceChunkResult {
+        mut encoded_chunk,
+        encoded_chunk_parts_paths: mut merkle_paths,
+        receipts,
+    } = client
+        .chunk_producer
+        .produce_chunk(
+            &last_block,
+            last_block.header().epoch_id(),
+            last_block.chunks()[0].clone(),
+            next_height,
+            ShardId::new(0),
+            &signer,
+            &client.chain.transaction_validity_check(last_block.header().clone()),
+        )
+        .unwrap()
+        .unwrap();
     let signed_txs = validated_txs
         .iter()
         .cloned()
@@ -197,12 +197,12 @@ pub fn create_chunk(
         // The best way it to decode chunk, replace transactions and then recreate encoded chunk.
         let total_parts = client.chain.epoch_manager.num_total_parts();
         let data_parts = client.chain.epoch_manager.num_data_parts();
-        let decoded_chunk = chunk.decode_chunk().unwrap();
+        let decoded_chunk = encoded_chunk.decode_chunk().unwrap();
         let parity_parts = total_parts - data_parts;
         let rs = ReedSolomon::new(data_parts, parity_parts).unwrap();
 
-        let header = chunk.cloned_header();
-        let (mut encoded_chunk, mut new_merkle_paths, _) = EncodedShardChunk::new(
+        let header = encoded_chunk.cloned_header();
+        let (mut new_encoded_chunk, mut new_merkle_paths, _) = EncodedShardChunk::new(
             *header.prev_block_hash(),
             header.prev_state_root(),
             header.prev_outcome_root(),
@@ -222,10 +222,10 @@ pub fn create_chunk(
             &*signer,
             PROTOCOL_VERSION,
         );
-        swap(&mut chunk, &mut encoded_chunk);
+        swap(&mut encoded_chunk, &mut new_encoded_chunk);
         swap(&mut merkle_paths, &mut new_merkle_paths);
     }
-    match &mut chunk {
+    match &mut encoded_chunk {
         EncodedShardChunk::V1(chunk) => {
             chunk.header.height_included = next_height;
         }
@@ -239,14 +239,14 @@ pub fn create_chunk(
 
     let signer = client.validator_signer.get().unwrap();
     let endorsement =
-        ChunkEndorsement::new(EpochId::default(), &chunk.cloned_header(), signer.as_ref());
+        ChunkEndorsement::new(EpochId::default(), &encoded_chunk.cloned_header(), signer.as_ref());
     block_merkle_tree.insert(*last_block.hash());
     let block = Block::produce(
         PROTOCOL_VERSION,
         last_block.header(),
         next_height,
         last_block.header().block_ordinal() + 1,
-        vec![chunk.cloned_header()],
+        vec![encoded_chunk.cloned_header()],
         vec![vec![Some(Box::new(endorsement.signature()))]],
         *last_block.header().epoch_id(),
         *last_block.header().next_epoch_id(),
@@ -263,7 +263,7 @@ pub fn create_chunk(
         None,
         None,
     );
-    (ProduceChunkResult { chunk, encoded_chunk_parts_paths: merkle_paths, receipts }, block)
+    (ProduceChunkResult { encoded_chunk, encoded_chunk_parts_paths: merkle_paths, receipts }, block)
 }
 
 /// Keep running catchup until there is no more catchup work that can be done

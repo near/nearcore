@@ -1213,12 +1213,14 @@ impl EncodedShardChunk {
         let signed_txs =
             validated_txs.into_iter().map(|validated_tx| validated_tx.into_signed_tx()).collect();
         let transaction_receipt = TransactionReceipt(signed_txs, prev_outgoing_receipts);
-        let (transaction_receipts_parts, encoded_length) =
+        let (parts, encoded_length) =
             crate::reed_solomon::reed_solomon_encode(rs, &transaction_receipt);
-        let content = EncodedShardChunkBody { parts: transaction_receipts_parts };
+        let TransactionReceipt(_signed_txs, prev_outgoing_receipts) = transaction_receipt;
+
+        let content = EncodedShardChunkBody { parts };
         let (encoded_merkle_root, merkle_paths) = content.get_merkle_hash_and_paths();
 
-        let header = ShardChunkHeaderV3::new(
+        let header = ShardChunkHeader::V3(ShardChunkHeaderV3::new(
             protocol_version,
             prev_block_hash,
             prev_state_root,
@@ -1236,9 +1238,9 @@ impl EncodedShardChunk {
             congestion_info,
             bandwidth_requests,
             signer,
-        );
-        let chunk = EncodedShardChunkV2 { header: ShardChunkHeader::V3(header), content };
-        (Self::V2(chunk), merkle_paths, transaction_receipt.1)
+        ));
+        let encoded_chunk = Self::V2(EncodedShardChunkV2 { header, content });
+        (encoded_chunk, merkle_paths, prev_outgoing_receipts)
     }
 
     pub fn chunk_hash(&self) -> ChunkHash {
