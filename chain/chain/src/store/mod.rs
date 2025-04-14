@@ -1520,10 +1520,10 @@ impl<'a> ChainStoreUpdate<'a> {
         self.chain_store_cache_update.chunks.insert(chunk.chunk_hash(), Arc::new(chunk));
     }
 
-    pub fn save_partial_chunk(&mut self, partial_chunk: PartialEncodedChunk) {
+    pub fn save_partial_chunk(&mut self, partial_chunk: Arc<PartialEncodedChunk>) {
         self.chain_store_cache_update
             .partial_chunks
-            .insert(partial_chunk.chunk_hash(), Arc::new(partial_chunk));
+            .insert(partial_chunk.chunk_hash(), partial_chunk);
     }
 
     pub fn save_block_merkle_tree(
