@@ -441,14 +441,14 @@ mod tests {
             futures::future::ready(Ok(chunk))
         }
 
-        fn publish_chunk(
+        async fn publish_chunk(
             &mut self,
             chunk: &PartialEncodedChunk,
-        ) -> impl Future<Output = Result<Self::Response, Self::Error>> {
+        ) -> Result<Self::Response, Self::Error> {
             let prev_hash = *chunk.prev_block();
             let shard_id = chunk.shard_id();
             self.known_chunks.insert((prev_hash, shard_id), chunk.clone());
-            futures::future::ready(Ok(()))
+            Ok(())
         }
     }
 
@@ -466,11 +466,11 @@ mod tests {
             futures::future::ready(Err(()))
         }
 
-        fn publish_chunk(
+        async fn publish_chunk(
             &mut self,
             _chunk: &PartialEncodedChunk,
-        ) -> impl Future<Output = Result<Self::Response, Self::Error>> {
-            futures::future::ready(Err(()))
+        ) -> Result<Self::Response, Self::Error> {
+            Err(())
         }
     }
 
