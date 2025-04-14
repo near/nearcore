@@ -159,7 +159,6 @@ pub enum ChunkStatus {
     Invalid,
 }
 
-#[allow(clippy::large_enum_variant)]
 #[derive(Debug)]
 pub enum ProcessPartialEncodedChunkResult {
     /// The information included in the partial encoded chunk is already known, no processing is needed
@@ -190,7 +189,6 @@ pub(crate) struct ChunkRequestInfo {
     last_requested: time::Instant,
 }
 
-#[allow(clippy::large_enum_variant)]
 #[derive(Clone, Debug)]
 pub enum HandleNetworkRequestResult {
     Ok,
@@ -1567,7 +1565,7 @@ impl ShardsManagerActor {
         {
             Err(Error::ChainError(chain_error)) => match chain_error {
                 // validate_chunk_header returns DBNotFoundError if the previous block is not ready
-                // in this case, we return NeedBlock instead of error
+                // in this case, we still return valid result instead of error.
                 near_chain::Error::DBNotFoundErr(_) => {
                     debug!(
                         target:"client",
