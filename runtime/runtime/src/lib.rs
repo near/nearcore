@@ -33,8 +33,8 @@ use near_primitives::bandwidth_scheduler::{BandwidthRequests, BlockBandwidthRequ
 use near_primitives::chunk_apply_stats::ChunkApplyStatsV0;
 use near_primitives::congestion_info::{BlockCongestionInfo, CongestionInfo};
 use near_primitives::errors::{
-    ActionError, ActionErrorKind, EpochError, IntegerOverflowError, InvalidTxError, RuntimeError,
-    TxExecutionError,
+    ActionError, ActionErrorKind, EpochError, IntegerOverflowError, InvalidAccessKeyError,
+    InvalidTxError, RuntimeError, TxExecutionError,
 };
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{
@@ -239,17 +239,17 @@ struct BatchOutput {
 
 impl BatchOutput {
     /// Returns the `signer_id` of the first non-failed transaction in the batch.
+    /// Panics if all transactions failed or if the batch is empty.
     fn signer_id(&self) -> &AccountId {
-        // FIXME: Not first, but first which is not a failure.
         self.processed_transactions
-            .first()
-            .map(|pt| match &pt.result {
-                PerTransactionResult::Success { validated_tx, .. } => validated_tx.signer_id(),
-                PerTransactionResult::Failure { .. } => {
-                    panic!("empty batch output: signer_id in undefined");
+            .iter()
+            .find_map(|pt| match &pt.result {
+                PerTransactionResult::Success { validated_tx, .. } => {
+                    Some(validated_tx.signer_id())
                 }
+                PerTransactionResult::Failure { .. } => None,
             })
-            .expect("empty batch output: signer_id in undefined")
+            .expect("No successful transaction in this batch => signer_id is undefined.")
     }
 }
 
@@ -456,19 +456,45 @@ impl Runtime {
                 }
             };
 
-            let ephemeral_access_key =
-                ephemeral_keys.entry(validated_tx.public_key().clone()).or_insert_with(|| {
-                    get_access_key(
-                        state_update,
-                        validated_tx.signer_id(),
-                        validated_tx.public_key(),
-                    )
-                    .unwrap() // handle StorageError
-                    .unwrap_or_else(|| {
-                        // FIXME: handle errors here
-                        AccessKey::full_access()
-                    })
-                });
+            let ephemeral_access_key = {
+                let pk = validated_tx.public_key().clone();
+
+                if let Some(ak) = ephemeral_keys.get_mut(&pk) {
+                    ak
+                } else {
+                    match get_access_key(state_update, validated_tx.signer_id(), &pk) {
+                        Ok(Some(loaded_ak)) => {
+                            ephemeral_keys.insert(pk.clone(), loaded_ak);
+                            ephemeral_keys.get_mut(&pk).expect("just inserted, must exist")
+                        }
+                        Ok(None) => {
+                            processed_transactions.push(ProcessedTransaction {
+                                index: idx,
+                                result: PerTransactionResult::Failure {
+                                    tx_hash,
+                                    error: InvalidTxError::InvalidAccessKeyError(
+                                        InvalidAccessKeyError::AccessKeyNotFound {
+                                            account_id: validated_tx.signer_id().clone(),
+                                            public_key: pk.into(),
+                                        },
+                                    ),
+                                },
+                            });
+                            continue;
+                        }
+                        Err(storage_err) => {
+                            processed_transactions.push(ProcessedTransaction {
+                                index: idx,
+                                result: PerTransactionResult::Failure {
+                                    tx_hash,
+                                    error: storage_err.into(),
+                                },
+                            });
+                            continue;
+                        }
+                    }
+                }
+            };
 
             let verification_result = match verify_and_charge_tx_ephemeral(
                 &apply_state.config,
@@ -1650,7 +1676,9 @@ impl Runtime {
         let mut all_processed = Vec::new();
         for batch_vec in batch_outputs {
             for batch_out in batch_vec {
-                if batch_out.processed_transactions.is_empty() {
+                if batch_out.processed_transactions.is_empty()
+                    || batch_out.updated_account.is_none()
+                {
                     debug!(target: "runtime", "Skipping empty batch output");
                     continue;
                 }
@@ -1671,12 +1699,13 @@ impl Runtime {
 
                 let last_tx_hash = batch_out
                     .processed_transactions
-                    .last()
-                    .map(|pt| match &pt.result {
+                    .iter()
+                    .rev()
+                    .find_map(|pt| match &pt.result {
                         PerTransactionResult::Success { validated_tx, .. } => {
-                            validated_tx.get_hash()
+                            Some(validated_tx.get_hash())
                         }
-                        PerTransactionResult::Failure { tx_hash, .. } => *tx_hash,
+                        PerTransactionResult::Failure { .. } => None,
                     })
                     .unwrap_or_default();
                 state_update
@@ -1688,6 +1717,7 @@ impl Runtime {
         all_processed.sort_by_key(|pt| pt.index);
 
         for processed in all_processed {
+            metrics::TRANSACTION_PROCESSED_TOTAL.inc();
             match processed.result {
                 PerTransactionResult::Success {
                     validated_tx,
@@ -1703,6 +1733,7 @@ impl Runtime {
                             processing_state.stats.balance.tx_burnt_amount = new_balance;
                         }
                         Err(err) => {
+                            metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
                             tracing::debug!(
                                 target: "runtime",
                                 "invalid transaction ignored (burnt gas overflow) => tx_hash: {}, error: {:?}",
@@ -1713,6 +1744,7 @@ impl Runtime {
                         }
                     }
 
+                    metrics::TRANSACTION_PROCESSED_SUCCESSFULLY_TOTAL.inc();
                     if receipt.receiver_id() == validated_tx.to_tx().signer_id() {
                         processing_state.local_receipts.push_back(receipt);
                     } else if let Err(_) = receipt_sink.forward_or_buffer_receipt(
@@ -1721,6 +1753,7 @@ impl Runtime {
                         state_update,
                         processing_state.epoch_info_provider,
                     ) {
+                        // FIXME: handle error
                         continue;
                     }
                     let compute = outcome.outcome.compute_usage;
@@ -1731,13 +1764,13 @@ impl Runtime {
                 }
 
                 PerTransactionResult::Failure { error, tx_hash } => {
+                    metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
                     tracing::debug!(
                         target: "runtime",
                         "invalid transaction ignored => tx_hash: {}, error: {:?}",
                         tx_hash,
                         error
                     );
-                    continue;
                 }
             }
         }
