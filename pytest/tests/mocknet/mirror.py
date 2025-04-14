@@ -50,12 +50,7 @@ def prompt_setup_flags(args, dumper_node_names):
         args.num_validators = int(sys.stdin.readline().strip())
 
     if args.num_seats is None:
-        print('number of block producer seats?: ')
-        args.num_seats = int(sys.stdin.readline().strip())
-
-    if args.genesis_protocol_version is None:
-        print('genesis protocol version?: ')
-        args.genesis_protocol_version = int(sys.stdin.readline().strip())
+        args.num_seats = args.num_validators
 
 
 def prompt_init_flags(args):
@@ -771,7 +766,7 @@ if __name__ == '__main__':
                 f'cannot give --chain-id, --start-height, --unique-id or --mocknet-id along with --local-test'
             )
         traffic_generator, nodes = local_test_node.get_nodes()
-        node_config.configure_nodes(nodes + [traffic_generator],
+        node_config.configure_nodes(nodes + to_list(traffic_generator),
                                     node_config.TEST_CONFIG)
     else:
         if (args.chain_id is not None and args.start_height is not None and
@@ -785,7 +780,7 @@ if __name__ == '__main__':
                 f'must give all of --chain-id --start-height and --unique-id or --mocknet-id'
             )
         traffic_generator, nodes = remote_node.get_nodes(mocknet_id)
-        node_config.configure_nodes(nodes + [traffic_generator],
+        node_config.configure_nodes(nodes + to_list(traffic_generator),
                                     node_config.REMOTE_CONFIG)
 
     # Select the affected hosts.

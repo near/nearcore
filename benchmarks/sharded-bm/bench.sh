@@ -275,7 +275,7 @@ gen_localnet_for_forknet() {
     
     echo "Running new-test to initialize nodes and collect validator keys"
     $MIRROR new-test --epoch-length ${EPOCH_LENGTH} --num-validators ${NUM_CHUNK_PRODUCERS} \
-        --num-seats ${NUM_SEATS} --new-chain-id ${FORKNET_NAME} --yes
+        --new-chain-id ${FORKNET_NAME} --yes
     
     echo "Waiting for node initialization to complete..."
     $MIRROR status
@@ -391,9 +391,9 @@ tweak_config_forknet() {
     $MIRROR --host-type nodes upload-file --src ${cwd}/cases --dst ${BENCHNET_DIR}
     
     # Apply custom configs to RPC node
-    cd ${PYTEST_PATH}
     local cmd="cd ${BENCHNET_DIR}; ${FORKNET_ENV} ./bench.sh tweak-config-forknet-node ${CASE} ${FORKNET_BOOT_NODES}"
     $MIRROR --host-type nodes run-cmd --cmd "${cmd}"
+
     cd -
 }
 
@@ -414,6 +414,7 @@ tweak_config_forknet_node() {
     fi
     
     # Edit configs
+    edit_genesis ${GENESIS}
     edit_config ${CONFIG}
     edit_log_config ${LOG_CONFIG}
 }
