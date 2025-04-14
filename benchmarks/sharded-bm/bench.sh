@@ -54,6 +54,10 @@ PYTEST_PATH="../../pytest/"
 TX_GENERATOR=$(jq -r '.tx_generator.enabled // false' ${BM_PARAMS})
 CREATE_ACCOUNTS_RPS=$(jq -r '.account_rps // 100' ${BM_PARAMS})
 
+# TODO: is taken from params.json anyway
+EPOCH_LENGTH=$(jq -r '.epoch_length // 1000' ${BM_PARAMS})
+NUM_SEATS=$(jq -r '.num_seats // 100' ${BM_PARAMS})
+
 echo "Test case: ${CASE}"
 echo "Num nodes: ${NUM_NODES}"
 
@@ -254,37 +258,53 @@ fetch_forknet_details() {
 }
 
 gen_localnet_for_forknet() {
+    # This function initializes the nodes using the mirror.py new-test command
+    # which automatically:
+    #  1. Calls do_new_test on each node to initialize validator keys
+    #  2. Collects the validator keys from all nodes
+    #  3. Calls do_network_init to distribute validators.json to all nodes
+    #  4. Each node detects validators.json and initializes the network
+    
     if [ "${GEN_LOCALNET_DONE}" = true ]; then
         echo "Will use existing nodes homes for forknet"
         return 0
     fi
     
-    echo "===> Initializing nodes homes for forknet"
-    RUN_ON_FORKNET=false
-    local ORIGINAL_BENCHNET_DIR=${BENCHNET_DIR}
-    BENCHNET_DIR=${GEN_NODES_DIR}
-    NEAR_HOMES=()
-    for i in $(seq 0 $((NUM_NODES - 1))); do
-        NEAR_HOMES+=("${BENCHNET_DIR}/node${i}")
+    echo "===> Initializing nodes homes for forknet using new-test"
+    cd ${PYTEST_PATH}
+    
+    echo "Running new-test to initialize nodes and collect validator keys"
+    $MIRROR new-test --epoch-length ${EPOCH_LENGTH} --num-validators ${NUM_CHUNK_PRODUCERS} \
+        --num-seats ${NUM_SEATS} --new-chain-id ${FORKNET_NAME} --yes
+    
+    echo "Waiting for node initialization to complete..."
+    $MIRROR status
+    while ! $MIRROR status | grep -q "all.*nodes ready"; do
+        echo "Waiting for nodes to be ready..."
+        sleep 10
+        $MIRROR status
     done
-    init
-    RUN_ON_FORKNET=true
-    BENCHNET_DIR=${ORIGINAL_BENCHNET_DIR}
+    
+    cd -
+    
     GEN_LOCALNET_DONE=true
-    echo "===> Done"
+    echo "===> Done initializing nodes with new-test"
 }
 
 init_forknet() {
-    gen_localnet_for_forknet
     cd ${PYTEST_PATH}
+    # Initialize neard runner with the specified binary
     $MIRROR init-neard-runner --neard-binary-url ${NODE_BINARY_URL} --neard-upgrade-binary-url ""
+    
     if [ "${UPDATE_BINARIES}" = "true" ] || [ "${UPDATE_BINARIES}" = "1" ]; then
         echo "===> Updating binaries"
         $MIRROR --host-type nodes update-binaries || true
     fi
+    
+    # Create benchmark dir on nodes
     $MIRROR --host-type nodes run-cmd --cmd "mkdir -p ${BENCHNET_DIR}"
-
-    # Check if SYNTH_BM_BIN is a URL or a filepath
+    
+    # Check if SYNTH_BM_BIN is a URL or a filepath and handle accordingly
     if [[ "${SYNTH_BM_BIN}" =~ ^https?:// ]]; then
         # It's a URL, download it on remote machines
         $MIRROR --host-type nodes run-cmd --cmd "cd ${BENCHNET_DIR} && curl -L -o ${SYNTH_BM_BASENAME} ${SYNTH_BM_BIN} && chmod +x ${SYNTH_BM_BASENAME}"
@@ -293,8 +313,10 @@ init_forknet() {
         $MIRROR --host-type nodes upload-file --src ${SYNTH_BM_BIN} --dst ${BENCHNET_DIR}
         $MIRROR --host-type nodes run-cmd --cmd "chmod +x ${BENCHNET_DIR}/${SYNTH_BM_BASENAME}"
     fi
-
     cd -
+    
+    # Initialize the network using new-test command
+    gen_localnet_for_forknet
 }
 
 init_local() {
@@ -363,38 +385,37 @@ tweak_config_forknet() {
     fetch_forknet_details
     local cwd=$(pwd)
     cd ${PYTEST_PATH}
+    
+    # Upload bench.sh and test case files to all nodes
     $MIRROR --host-type nodes upload-file --src ${cwd}/bench.sh --dst ${BENCHNET_DIR}
     $MIRROR --host-type nodes upload-file --src ${cwd}/cases --dst ${BENCHNET_DIR}
-    $MIRROR --host-type nodes upload-file --src ${GEN_NODES_DIR} --dst ${BENCHNET_DIR}/nodes
-    cd -
-    local node_index=0
-    for node in ${FORKNET_CP_NODES}; do
-        local cmd="cp -r ${BENCHNET_DIR}/nodes/node${node_index}/* ${NEAR_HOME}/ && cd ${BENCHNET_DIR};"
-        cmd="${cmd} ${FORKNET_ENV} ./bench.sh tweak-config-forknet-node ${CASE} ${FORKNET_BOOT_NODES}"
-        cd ${PYTEST_PATH}
-        $MIRROR --host-filter ".*${node}" run-cmd --cmd "${cmd}"
-        cd -
-        node_index=$((node_index + 1))
-    done
-
+    
+    # Apply custom configs to RPC node
     cd ${PYTEST_PATH}
-    local cmd="cp -r ${BENCHNET_DIR}/nodes/node${NUM_CHUNK_PRODUCERS}/* ${NEAR_HOME}/ && cd ${BENCHNET_DIR};"
-    cmd="${cmd} ${FORKNET_ENV} ./bench.sh tweak-config-forknet-node ${CASE}"
-    $MIRROR --host-filter ".*${FORKNET_RPC_NODE_ID}" run-cmd --cmd "${cmd}"
+    local cmd="cd ${BENCHNET_DIR}; ${FORKNET_ENV} ./bench.sh tweak-config-forknet-node ${CASE} ${FORKNET_BOOT_NODES}"
+    $MIRROR --host-type nodes run-cmd --cmd "${cmd}"
     cd -
 }
 
 tweak_config_forknet_node() {
     local node_type=${1}
     local boot_nodes=${2}
+    
+    # Set network and RPC addresses to listen on all interfaces
     jq --arg val "0.0.0.0:24567" \
         '.network.addr |= $val' ${CONFIG} >tmp.$$.json && mv tmp.$$.json ${CONFIG} || rm tmp.$$.json
     jq --arg val "0.0.0.0:3030" \
         '.rpc.addr |= $val' ${CONFIG} >tmp.$$.json && mv tmp.$$.json ${CONFIG} || rm tmp.$$.json
+    
+    # Set boot nodes if provided
     if [ -n "$boot_nodes" ]; then
         jq --arg val "${boot_nodes}" \
             '.network.boot_nodes |= $val' ${CONFIG} >tmp.$$.json && mv tmp.$$.json ${CONFIG} || rm tmp.$$.json
     fi
+    
+    # Edit configs
+    edit_config ${CONFIG}
+    edit_log_config ${LOG_CONFIG}
 }
 
 tweak_config_local() {
