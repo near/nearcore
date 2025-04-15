@@ -96,7 +96,7 @@ impl ShardTracker {
         self.tracks_shard_at_epoch(shard_id, &epoch_id)
     }
 
-    fn tracks_shard_prev_epoch_from_prev_block(
+    pub fn tracks_shard_prev_epoch_from_prev_block(
         &self,
         shard_id: ShardId,
         prev_hash: &CryptoHash,
