@@ -194,13 +194,17 @@ impl ProtocolUpgradeVotingSchedule {
         min_supported_protocol_version: ProtocolVersion,
         client_protocol_version: ProtocolVersion,
     ) -> Result<ProtocolUpgradeVotingScheduleRaw, ProtocolUpgradeVotingScheduleError> {
-        // The special value "now" means that the upgrade should happen immediately.
-        match override_str.to_lowercase() {
+        match override_str.to_lowercase().as_str() {
+            // The special value "now" means that the upgrade should happen immediately, all versions at once.
             "now" => return Ok(vec![]),
-            "one_by_one" => return Ok(Self::one_by_one(
-                min_supported_protocol_version, 
-                client_protocol_version)),
-            _ => {},
+            // The special value "one_by_one" means that the upgrade should happen immediately every epoch.
+            "one_by_one" => {
+                return Ok(Self::one_by_one(
+                    min_supported_protocol_version,
+                    client_protocol_version,
+                ));
+            }
+            _ => {}
         }
 
         let mut result = vec![];
