@@ -410,8 +410,17 @@ fn run_test_with_added_node(state: TestState) {
                 let shard_ids = client.chain.epoch_manager.shard_ids(&epoch_id).unwrap();
 
                 for shard_id in shard_ids {
-                    // The node is expected to serve the state if it was tracking the shard
-                    // in the previous epoch.
+                    // Get the header and part regardless of whether the node was tracking the
+                    // shard. It shouldn't crash on unexpected requests.
+                    let header = client
+                        .chain
+                        .state_sync_adapter
+                        .get_state_response_header(shard_id, sync_hash);
+                    let part = client
+                        .chain
+                        .state_sync_adapter
+                        .get_state_response_part(shard_id, 0, sync_hash);
+
                     let was_tracking = client
                         .chain
                         .epoch_manager
@@ -425,18 +434,12 @@ fn run_test_with_added_node(state: TestState) {
                         continue;
                     }
 
-                    let header = client
-                        .chain
-                        .state_sync_adapter
-                        .get_state_response_header(shard_id, sync_hash);
+                    // The node is expected to serve the state if it was tracking the shard
+                    // in the previous epoch. We make the run_until wait until we get back
+                    // Ok responses for both the header and part.
                     if header.is_err() {
                         return false;
                     }
-
-                    let part = client
-                        .chain
-                        .state_sync_adapter
-                        .get_state_response_part(shard_id, 0, sync_hash);
                     if part.is_err() {
                         return false;
                     }
