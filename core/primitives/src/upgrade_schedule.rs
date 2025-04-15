@@ -72,9 +72,8 @@ impl ProtocolUpgradeVotingSchedule {
         client_protocol_version: ProtocolVersion,
         mut schedule: ProtocolUpgradeVotingScheduleRaw,
     ) -> Result<Self, ProtocolUpgradeVotingScheduleError> {
-        let env_override: Result<String, env::VarError> =
-            env::var(NEAR_TESTS_PROTOCOL_UPGRADE_OVERRIDE);
-        if let Ok(env_override) = env_override {
+        let env_override = env::var(NEAR_TESTS_PROTOCOL_UPGRADE_OVERRIDE).ok();
+        if let Some(env_override) = env_override {
             schedule = Self::parse_override(
                 &env_override,
                 min_supported_protocol_version,
