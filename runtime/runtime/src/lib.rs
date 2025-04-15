@@ -79,7 +79,7 @@ pub use near_vm_runner::with_ext_cost_counter;
 use pipelining::ReceiptPreparationPipeline;
 use rayon::prelude::*;
 use std::cmp::max;
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 use tracing::{debug, instrument};
 use verifier::ValidateReceiptMode;
@@ -226,6 +226,7 @@ enum PerTransactionResult {
 
 #[derive(Debug)]
 struct ProcessedTransaction {
+    /// Index of the transaction in the incoming transactions slice.
     index: usize,
     result: PerTransactionResult,
 }
@@ -234,7 +235,7 @@ struct ProcessedTransaction {
 struct BatchOutput {
     processed_transactions: Vec<ProcessedTransaction>,
     updated_account: Option<Account>,
-    updated_keys: Vec<(PublicKey, AccessKey)>,
+    updated_keys: BTreeMap<PublicKey, AccessKey>,
 }
 
 impl BatchOutput {
@@ -398,7 +399,7 @@ impl Runtime {
         current_protocol_version: ProtocolVersion,
     ) -> BatchOutput {
         let mut ephemeral_signer: Option<Account> = None;
-        let mut ephemeral_keys: HashMap<PublicKey, AccessKey> = HashMap::new();
+        let mut ephemeral_keys = BTreeMap::<PublicKey, AccessKey>::new();
 
         let mut processed_transactions = Vec::with_capacity(batch.indices.len());
 
@@ -551,9 +552,12 @@ impl Runtime {
                         logs: vec![],
                         receipt_ids: vec![*receipt.receipt_id()],
                         gas_burnt,
+                        // TODO(#8806): Support compute costs for actions. For now they match burnt gas.
                         compute_usage: Some(compute_usage),
                         tokens_burnt: verification_result.burnt_amount,
                         executor_id: transaction.signer_id().clone(),
+                        // TODO: profile data is only counted in apply_action, which only happened at process_receipt
+                        // VerificationResult needs updates to incorporate profile data to support profile data of txns
                         metadata: ExecutionMetadata::V1,
                     },
                 };
@@ -574,7 +578,7 @@ impl Runtime {
         BatchOutput {
             processed_transactions,
             updated_account: ephemeral_signer,
-            updated_keys: ephemeral_keys.into_iter().collect(),
+            updated_keys: ephemeral_keys,
         }
     }
 
@@ -1663,7 +1667,7 @@ impl Runtime {
         let apply_state = &mut processing_state.apply_state;
         let state_update = &mut processing_state.state_update;
 
-        let tx_vec = signed_txs.iter_nonexpired_transactions().cloned().collect::<Vec<_>>();
+        let tx_vec = signed_txs.into_iter_nonexpired_transactions().collect::<Vec<_>>();
         let tx_batches = TransactionBatches::new(&tx_vec);
 
         let batch_outputs = tx_batches
@@ -1698,7 +1702,7 @@ impl Runtime {
                 set_account(
                     state_update,
                     batch_out.signer_id().clone(),
-                    &batch_out.updated_account.unwrap(),
+                    &batch_out.updated_account.expect("any successfully validated transaction means account should have been updated"),
                 );
 
                 let last_tx_hash = batch_out
@@ -1740,9 +1744,9 @@ impl Runtime {
                             metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
                             tracing::debug!(
                                 target: "runtime",
-                                "invalid transaction ignored (burnt gas overflow) => tx_hash: {}, error: {:?}",
-                                validated_tx.get_hash(),
-                                err
+                                tx_hash=?validated_tx.get_hash(),
+                                ?err,
+                                "invalid transaction ignored (burnt gas overflow)",
                             );
                             continue;
                         }
@@ -1751,14 +1755,13 @@ impl Runtime {
                     metrics::TRANSACTION_PROCESSED_SUCCESSFULLY_TOTAL.inc();
                     if receipt.receiver_id() == validated_tx.to_tx().signer_id() {
                         processing_state.local_receipts.push_back(*receipt);
-                    } else if let Err(_) = receipt_sink.forward_or_buffer_receipt(
-                        *receipt,
-                        apply_state,
-                        state_update,
-                        processing_state.epoch_info_provider,
-                    ) {
-                        // FIXME: handle error
-                        continue;
+                    } else {
+                        receipt_sink.forward_or_buffer_receipt(
+                            *receipt,
+                            apply_state,
+                            state_update,
+                            processing_state.epoch_info_provider,
+                        )?;
                     }
                     let compute = outcome.outcome.compute_usage;
                     let compute =
