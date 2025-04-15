@@ -195,12 +195,12 @@ impl ProtocolUpgradeVotingSchedule {
         client_protocol_version: ProtocolVersion,
     ) -> Result<ProtocolUpgradeVotingScheduleRaw, ProtocolUpgradeVotingScheduleError> {
         // The special value "now" means that the upgrade should happen immediately.
-        if override_str.to_lowercase() == "now" {
-            return Ok(vec![]);
-        }
-
-        if override_str.to_lowercase() == "one_by_one" {
-            return Ok(Self::one_by_one(min_supported_protocol_version, client_protocol_version));
+        match override_str.to_lowercase() {
+            "now" => return Ok(vec![]),
+            "one_by_one" => return Ok(Self::one_by_one(
+                min_supported_protocol_version, 
+                client_protocol_version)),
+            _ => {},
         }
 
         let mut result = vec![];
