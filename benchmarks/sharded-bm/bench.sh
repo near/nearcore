@@ -361,6 +361,10 @@ edit_log_config() {
 tweak_config_forknet() {
     gen_localnet_for_forknet
     fetch_forknet_details
+    if [ ! -z "${TRACING_SERVER_INTERNAL_IP}" ]; then
+        FORKNET_ENV="${FORKNET_ENV} TRACING_SERVER_INTERNAL_IP=${TRACING_SERVER_INTERNAL_IP}"
+    fi
+
     local cwd=$(pwd)
     cd ${PYTEST_PATH}
     $MIRROR --host-type nodes upload-file --src ${cwd}/bench.sh --dst ${BENCHNET_DIR}
@@ -391,6 +395,9 @@ tweak_config_forknet_node() {
         '.network.addr |= $val' ${CONFIG} >tmp.$$.json && mv tmp.$$.json ${CONFIG} || rm tmp.$$.json
     jq --arg val "0.0.0.0:3030" \
         '.rpc.addr |= $val' ${CONFIG} >tmp.$$.json && mv tmp.$$.json ${CONFIG} || rm tmp.$$.json
+    if [ -z "${TRACING_SERVER_INTERNAL_IP}" ]; then
+        jq '.opentelemetry = null' ${LOG_CONFIG} >tmp.$$.json && mv tmp.$$.json ${LOG_CONFIG} || rm tmp.$$.json
+    fi
     if [ -n "$boot_nodes" ]; then
         jq --arg val "${boot_nodes}" \
             '.network.boot_nodes |= $val' ${CONFIG} >tmp.$$.json && mv tmp.$$.json ${CONFIG} || rm tmp.$$.json
