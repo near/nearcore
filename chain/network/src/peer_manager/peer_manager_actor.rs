@@ -1,4 +1,4 @@
-use crate::client::{ClientSenderForNetwork, SetNetworkInfo, StateRequestPart};
+use crate::client::{ClientSenderForNetwork, SetNetworkInfo, StateRequestHeader, StateRequestPart};
 use crate::config;
 use crate::debug::{DebugStatus, GetDebugStatus};
 use crate::network_protocol;
@@ -19,8 +19,8 @@ use crate::tcp;
 use crate::types::{
     ConnectedPeerInfo, HighestHeightPeerInfo, KnownProducer, NetworkInfo, NetworkRequests,
     NetworkResponses, PeerInfo, PeerManagerMessageRequest, PeerManagerMessageResponse,
-    PeerManagerSenderForNetwork, PeerType, SetChainInfo, SnapshotHostInfo, StatePartRequestBody,
-    StateSyncEvent, Tier3Request, Tier3RequestBody,
+    PeerManagerSenderForNetwork, PeerType, SetChainInfo, SnapshotHostInfo, StateHeaderRequestBody,
+    StatePartRequestBody, StateSyncEvent, Tier3Request, Tier3RequestBody,
 };
 use ::time::ext::InstantExt as _;
 use actix::fut::future::wrap_future;
@@ -1317,6 +1317,21 @@ impl actix::Handler<WithSpanContext<Tier3Request>> for PeerManagerActor {
         ctx.spawn(wrap_future(
             async move {
                 let tier3_response = match request.body {
+                    Tier3RequestBody::StateHeader(StateHeaderRequestBody { shard_id, sync_hash }) => {
+                        match state.client.send_async(StateRequestHeader { shard_id, sync_hash }).await {
+                            Ok(Some(client_response)) => {
+                                PeerMessage::VersionedStateResponse(*client_response.0)
+                            }
+                            Ok(None) => {
+                                tracing::debug!(target: "network", "client declined to respond to {:?}", request);
+                                return;
+                            }
+                            Err(err) => {
+                                tracing::error!(target: "network", ?err, "client failed to respond to {:?}", request);
+                                return;
+                            }
+                        }
+                    }
                     Tier3RequestBody::StatePart(StatePartRequestBody { shard_id, sync_hash, part_id }) => {
                         match state.client.send_async(StateRequestPart { shard_id, sync_hash, part_id }).await {
                             Ok(Some(client_response)) => {
