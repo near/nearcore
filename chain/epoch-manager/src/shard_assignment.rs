@@ -148,13 +148,13 @@ fn assign_to_satisfy_shards<T: HasStake + Eq + Clone>(
 fn get_initial_chunk_producer_assignment(
     chunk_producers: &[ValidatorStake],
     num_shards: NumShards,
-    prev_chunk_producers_assignment: Option<Vec<Vec<ValidatorStake>>>,
+    prev_assignment: Vec<Vec<ValidatorStake>>,
+    use_stable_shard_assignment: bool,
 ) -> Vec<Vec<usize>> {
-    let Some(prev_assignment) = prev_chunk_producers_assignment else {
+    if !use_stable_shard_assignment {
         return vec![vec![]; num_shards as usize];
-    };
+    }
 
-    assert_eq!(prev_assignment.len(), num_shards as usize);
     let chunk_producer_indices = chunk_producers
         .iter()
         .enumerate()
@@ -179,7 +179,7 @@ fn get_initial_chunk_producer_assignment(
 /// Helper struct to maintain set of shards sorted by number of chunk producers.
 struct ShardSetItem {
     shard_chunk_producer_num: usize,
-    shard_index: usize,
+    shard_index: ShardIndex,
 }
 
 /// Convert chunk producer assignment from the previous epoch to the assignment
@@ -198,13 +198,15 @@ fn assign_to_balance_shards(
     min_validators_per_shard: usize,
     shard_assignment_changes_limit: usize,
     rng_seed: RngSeed,
-    prev_chunk_producers_assignment: Option<Vec<Vec<ValidatorStake>>>,
+    prev_chunk_producers_assignment: Vec<Vec<ValidatorStake>>,
+    use_stable_shard_assignment: bool,
 ) -> Vec<Vec<ValidatorStake>> {
     let num_chunk_producers = chunk_producers.len();
     let mut chunk_producer_assignment = get_initial_chunk_producer_assignment(
         &chunk_producers,
         num_shards,
         prev_chunk_producers_assignment,
+        use_stable_shard_assignment,
     );
 
     // Find and assign new validators first.
@@ -311,7 +313,8 @@ pub(crate) fn assign_chunk_producers_to_shards(
     min_validators_per_shard: usize,
     shard_assignment_changes_limit: usize,
     rng_seed: RngSeed,
-    prev_chunk_producers_assignment: Option<Vec<Vec<ValidatorStake>>>,
+    prev_chunk_producers_assignment: Vec<Vec<ValidatorStake>>,
+    use_stable_shard_assignment: bool,
 ) -> Result<Vec<Vec<ValidatorStake>>, NotEnoughValidators> {
     // If there's not enough chunk producers to fill up a single shard there’s
     // nothing we can do. Return with an error.
@@ -335,6 +338,7 @@ pub(crate) fn assign_chunk_producers_to_shards(
             shard_assignment_changes_limit,
             rng_seed,
             prev_chunk_producers_assignment,
+            use_stable_shard_assignment,
         )
     };
     Ok(result)
@@ -415,7 +419,8 @@ mod tests {
             1,
             1,
             RngSeed::default(),
-            None,
+            vec![],
+            false,
         )
         .unwrap();
 
@@ -437,7 +442,8 @@ mod tests {
             // We must assign new validator even if limit for balancing is zero.
             0,
             RngSeed::default(),
-            Some(prev_assignment),
+            prev_assignment,
+            true,
         )
         .unwrap();
 
@@ -458,7 +464,8 @@ mod tests {
             2,
             0,
             RngSeed::default(),
-            Some(prev_assignment),
+            prev_assignment,
+            true,
         )
         .unwrap();
 
@@ -482,7 +489,8 @@ mod tests {
             // Set limit to zero, to check that it is ignored.
             0,
             RngSeed::default(),
-            Some(prev_assignment),
+            prev_assignment,
+            true,
         )
         .unwrap();
 
@@ -503,7 +511,8 @@ mod tests {
             // As we don't change assignment at all, zero limit for balancing is enough.
             0,
             RngSeed::default(),
-            Some(prev_assignment.clone()),
+            prev_assignment.clone(),
+            true,
         )
         .unwrap();
 
@@ -524,7 +533,8 @@ mod tests {
             1,
             1,
             RngSeed::default(),
-            Some(prev_assignment),
+            prev_assignment,
+            true,
         )
         .unwrap();
 
@@ -546,7 +556,8 @@ mod tests {
             1,
             1,
             RngSeed::default(),
-            None,
+            vec![],
+            false,
         )
         .unwrap();
 
@@ -567,7 +578,8 @@ mod tests {
             1,
             5,
             RngSeed::default(),
-            Some(prev_assignment),
+            prev_assignment,
+            true,
         )
         .unwrap();
 
@@ -606,7 +618,8 @@ mod tests {
                 1,
                 limit_per_iter,
                 RngSeed::default(),
-                Some(assignment.clone()),
+                assignment.clone(),
+                true,
             )
             .unwrap();
 

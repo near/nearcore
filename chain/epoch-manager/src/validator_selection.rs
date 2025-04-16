@@ -127,19 +127,14 @@ fn get_chunk_producers_assignment(
     // Assign chunk producers to shards.
     let num_chunk_producers = chunk_producers.len();
     let minimum_validators_per_shard = epoch_config.minimum_validators_per_shard as usize;
-    let prev_chunk_producers_assignment = if use_stable_shard_assignment {
-        let mut assignment = vec![];
-        for validator_ids in prev_epoch_info.chunk_producers_settlement().iter() {
-            let mut validator_stakes = vec![];
-            for validator_id in validator_ids.iter() {
-                validator_stakes.push(prev_epoch_info.get_validator(*validator_id));
-            }
-            assignment.push(validator_stakes);
+    let mut prev_chunk_producers_assignment = vec![];
+    for validator_ids in prev_epoch_info.chunk_producers_settlement().iter() {
+        let mut validator_stakes = vec![];
+        for validator_id in validator_ids.iter() {
+            validator_stakes.push(prev_epoch_info.get_validator(*validator_id));
         }
-        Some(assignment)
-    } else {
-        None
-    };
+        prev_chunk_producers_assignment.push(validator_stakes);
+    }
 
     let shard_ids: Vec<_> = epoch_config.shard_layout.shard_ids().collect();
     let shard_assignment = assign_chunk_producers_to_shards(
@@ -149,6 +144,7 @@ fn get_chunk_producers_assignment(
         epoch_config.chunk_producer_assignment_changes_limit as usize,
         rng_seed,
         prev_chunk_producers_assignment,
+        use_stable_shard_assignment,
     )
     .map_err(|_| EpochError::NotEnoughValidators {
         num_validators: num_chunk_producers as u64,
