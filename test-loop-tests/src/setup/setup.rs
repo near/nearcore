@@ -78,7 +78,7 @@ pub fn setup_client(
         epoch_config_store.clone(),
     );
     let shard_tracker =
-        ShardTracker::new(TrackedConfig::from_config(&client_config), epoch_manager.clone());
+        ShardTracker::new(client_config.tracked_shards_config.clone(), epoch_manager.clone());
 
     let contract_cache = FilesystemContractRuntimeCache::test().expect("filesystem contract cache");
     let runtime_adapter = NightshadeRuntime::test_with_trie_config(
@@ -156,7 +156,7 @@ pub fn setup_client(
             epoch_config_store.clone(),
         );
         let view_shard_tracker =
-            ShardTracker::new(TrackedConfig::from_config(&client_config), epoch_manager.clone());
+            ShardTracker::new(client_config.tracked_shards_config.clone(), epoch_manager.clone());
         let view_runtime_adapter = NightshadeRuntime::test_with_trie_config(
             &homedir,
             split_store.clone(),

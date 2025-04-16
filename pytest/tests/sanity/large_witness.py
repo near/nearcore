@@ -26,13 +26,14 @@ class LargeWitnessTest(unittest.TestCase):
         n = 2
         node_client_config_changes = {
             i: {
-                "tracked_shards": [],
+                "tracked_shards_config":
+                    "NoShards",
                 **consensus_config_changes(min_block_production_delay_seconds=0.5,
                                            max_block_production_delay_seconds=2.0,
                                            max_block_wait_delay_seconds=6.0)
             } for i in range(n)
         }
-        rpc_client_config_changes = {n: {"tracked_shards": [0]}}
+        rpc_client_config_changes = {n: {"tracked_shards_config": "AllShards"}}
         nodes = start_cluster(
             num_nodes=n,
             num_observers=1,

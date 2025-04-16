@@ -320,10 +320,7 @@ impl ClientActorInner {
             .epoch_manager
             .get_epoch_block_producers_ordered(epoch_id)?
             .into_iter()
-            .map(|validator_stake| ValidatorInfo {
-                account_id: validator_stake.take_account_id(),
-                is_slashed: false,
-            })
+            .map(|validator_stake| ValidatorInfo { account_id: validator_stake.take_account_id() })
             .collect();
         let chunk_producers = self
             .client

@@ -19,10 +19,10 @@ import utils
 EPOCH_LENGTH = 30
 
 config0 = {
-    'tracked_shards': [0],
+    'tracked_shards_config': 'AllShards',
 }
 config1 = {
-    'tracked_shards': [0],
+    'tracked_shards_config': 'AllShards',
 }
 
 config = load_config()
@@ -88,10 +88,8 @@ node1.kill()
 # The node is stopped in epoch_height = 1.
 # Change the config of tracked shards such that after restart the node cares
 # only about shard 0, and in the next epoch it will care about shards [1, 2, 3].
-apply_config_changes(node_dirs[1], {
-    "tracked_shards": [],
-    "tracked_shard_schedule": [[0], [0], [1, 2, 3]]
-})
+apply_config_changes(node_dirs[1],
+                     {"tracked_shards_config.Schedule": [[0], [0], [1, 2, 3]]})
 
 # Run node0 more to trigger block sync in node1.
 nonce, keys = random_workload_until(EPOCH_LENGTH * 2 + 1, nonce, keys)

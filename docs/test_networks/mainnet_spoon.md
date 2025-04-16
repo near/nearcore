@@ -172,7 +172,7 @@ changes to `~/near-test-chain/validator0/config.json`:
   "consensus": {
     "min_num_peers": 1
   },
-  "tracked_shards": [0],
+  "tracked_shards_config": "AllShards",
 }
 ```
 
@@ -192,7 +192,7 @@ changes to `~/near-test-chain/validator1/config.json`:
   "consensus": {
     "min_num_peers": 1
   },
-  "tracked_shards": [0],
+  "tracked_shards_config": "AllShards",
 }
 ```
 

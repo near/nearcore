@@ -1266,7 +1266,13 @@ pub(crate) fn clear_cache(store: Store) {
 
 /// Prints the state statistics for all shards. Please note that it relies on
 /// the live flat storage and may break if the node is not stopped.
-pub(crate) fn print_state_stats(home_dir: &Path, store: Store, near_config: NearConfig) {
+pub(crate) fn print_state_stats(
+    home_dir: &Path,
+    store: Store,
+    near_config: NearConfig,
+    split_parts: usize,
+    shard_uid: Option<ShardUId>,
+) {
     let (epoch_manager, runtime, _, block_header) =
         load_trie(store.clone(), home_dir, &near_config);
 
@@ -1274,13 +1280,24 @@ pub(crate) fn print_state_stats(home_dir: &Path, store: Store, near_config: Near
     let shard_layout = epoch_manager.get_shard_layout_from_prev_block(&block_hash).unwrap();
 
     let flat_storage_manager = runtime.get_flat_storage_manager();
-    for shard_uid in shard_layout.shard_uids() {
+    if let Some(shard_uid) = shard_uid {
         print_state_stats_for_shard_uid(
             store.trie_store(),
             &flat_storage_manager,
             block_hash,
             shard_uid,
+            split_parts,
         );
+    } else {
+        for shard_uid in shard_layout.shard_uids() {
+            print_state_stats_for_shard_uid(
+                store.trie_store(),
+                &flat_storage_manager,
+                block_hash,
+                shard_uid,
+                split_parts,
+            );
+        }
     }
 }
 
@@ -1320,6 +1337,7 @@ fn print_state_stats_for_shard_uid(
     flat_storage_manager: &FlatStorageManager,
     block_hash: CryptoHash,
     shard_uid: ShardUId,
+    split_parts: usize,
 ) {
     flat_storage_manager.create_flat_storage_for_shard(shard_uid).unwrap();
     let trie_storage = TrieDBStorage::new(store, shard_uid);
@@ -1334,16 +1352,19 @@ fn print_state_stats_for_shard_uid(
         state_stats.push(state_stats_account);
     }
 
-    // iterate for the second time to find the middle account
+    // iterate for the second time to find the split accounts
     let group_by = get_state_stats_group_by(&chunk_view, &trie_storage);
-    let iter = get_state_stats_account_iter(&group_by);
+    let total_size = state_stats.total_size.as_u64();
     let mut current_size = ByteSize::default();
-    for state_stats_account in iter {
+    let mut current_threshold: usize = 1;
+    for state_stats_account in get_state_stats_account_iter(&group_by) {
         let new_size = current_size + state_stats_account.size;
-        if 2 * new_size.as_u64() > state_stats.total_size.as_u64() {
-            state_stats.middle_account = Some(state_stats_account);
-            state_stats.middle_account_leading_size = Some(current_size);
-            break;
+        if new_size.as_u64() * split_parts as u64 > total_size * current_threshold as u64 {
+            state_stats.split_accounts.push((state_stats_account, current_size));
+            current_threshold += 1;
+            if current_threshold == split_parts {
+                break;
+            }
         }
         current_size = new_size;
     }
@@ -1441,11 +1462,9 @@ pub struct StateStats {
     pub total_size: ByteSize,
     pub total_count: usize,
 
-    // The account that is in the middle of the state in respect to storage.
-    pub middle_account: Option<StateStatsAccount>,
-    // The total size of all accounts leading to the middle account.
-    // Can be used to determine how does the middle account split the state.
-    pub middle_account_leading_size: Option<ByteSize>,
+    // Accounts that split the state into N most possibly even parts (storage-wise).
+    // Every account is accompanied by the total size of all accounts before it.
+    pub split_accounts: Vec<(StateStatsAccount, ByteSize)>,
 
     pub top_accounts: BinaryHeap<StateStatsAccount>,
 }
@@ -1459,22 +1478,32 @@ impl core::fmt::Debug for StateStats {
             .map(ByteSize::b)
             .unwrap_or_default();
 
-        let left_size = self.middle_account_leading_size.unwrap_or_default();
-        let middle_size = self.middle_account.as_ref().map(|a| a.size).unwrap_or_default();
-        let right_size = self.total_size.as_u64() - left_size.as_u64() - middle_size.as_u64();
-        let right_size = ByteSize::b(right_size);
+        #[allow(dead_code)] // used only for Debug
+        #[derive(Debug)]
+        struct SplitAccount<'a> {
+            account_id: &'a AccountId,
+            split: String,
+        }
+        let total_size = self.total_size.as_u64();
+        let split_accounts = self.split_accounts.iter().map(|(acc, left_size)| {
+            let middle_size = acc.size;
+            let right_size = ByteSize::b(total_size - middle_size.as_u64() - left_size.as_u64());
 
-        let left_percent = 100 * left_size.as_u64() / self.total_size.as_u64();
-        let middle_percent = 100 * middle_size.as_u64() / self.total_size.as_u64();
-        let right_percent = 100 * right_size.as_u64() / self.total_size.as_u64();
+            let left_percent = 100 * left_size.as_u64() / total_size;
+            let middle_percent = 100 * middle_size.as_u64() / total_size;
+            let right_percent = 100 * right_size.as_u64() / total_size;
+
+            SplitAccount {
+                account_id: &acc.account_id,
+                split: format!("{left_size:?} ({left_percent}%) : {middle_size:?} ({middle_percent}%) : {right_size:?} ({right_percent}%)"),
+            }
+        }).collect_vec();
 
         f.debug_struct("StateStats")
             .field("total_size", &self.total_size)
             .field("total_count", &self.total_count)
             .field("average_size", &average_size)
-            .field("middle_account", &self.middle_account.as_ref().unwrap())
-            .field("split_size", &format!("{left_size:?} : {middle_size:?} : {right_size:?}"))
-            .field("split_percent", &format!("{left_percent}:{middle_percent}:{right_percent}"))
+            .field("split_accounts", &split_accounts)
             .field("top_accounts", &self.top_accounts)
             .finish()
     }

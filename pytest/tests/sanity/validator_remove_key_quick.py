@@ -28,12 +28,12 @@ class ValidatorRemoveKeyQuickTest(unittest.TestCase):
         )
 
         validator_config.update({
-            "tracked_shards": [0],
+            "tracked_shards_config": "AllShards",
             "store.load_mem_tries_for_tracked_shards": True,
         })
 
         rpc_config.update({
-            "tracked_shards": [0],
+            "tracked_shards_config": "AllShards",
         })
 
         [validator,

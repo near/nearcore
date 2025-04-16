@@ -19,7 +19,7 @@ TIMEOUT = HEIGHT_GOAL * 3
 
 config = None
 config_overrides = {
-    "tracked_shards": [0],
+    "tracked_shards_config": "AllShards",
     "view_client_throttle_period": {
         "secs": 0,
         "nanos": 0

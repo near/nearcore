@@ -1673,7 +1673,7 @@ pub fn start_http(
     info!(target:"network", "Starting http server at {}", addr);
     let mut servers = Vec::new();
     let listener = HttpServer::new(move || {
-        App::new()
+        let mut app = App::new()
             .wrap(get_cors(&cors_allowed_origins))
             .app_data(web::Data::new(JsonRpcHandler {
                 client_sender: client_sender.clone(),
@@ -1702,28 +1702,37 @@ pub fn start_http(
                     .route(web::head().to(health_handler)),
             )
             .service(web::resource("/network_info").route(web::get().to(network_info_handler)))
-            .service(web::resource("/metrics").route(web::get().to(prometheus_handler)))
-            .service(web::resource("/debug/api/entity").route(web::post().to(handle_entity_debug)))
-            .service(web::resource("/debug/api/block_status/{starting_height}").route(
-                web::get().to(
-                    #[allow(deprecated)]
-                    deprecated_debug_block_status_handler,
-                ),
-            ))
-            .service(
-                web::resource("/debug/api/block_status")
-                    .route(web::get().to(debug_block_status_handler)),
-            )
-            .service(
-                web::resource("/debug/api/epoch_info/{epoch_id}")
-                    .route(web::get().to(debug_epoch_info_handler)),
-            )
-            .service(web::resource("/debug/api/{api}").route(web::get().to(debug_handler)))
-            .service(
-                web::resource("/debug/client_config").route(web::get().to(client_config_handler)),
-            )
-            .service(debug_html)
-            .service(display_debug_html)
+            .service(web::resource("/metrics").route(web::get().to(prometheus_handler)));
+
+        if enable_debug_rpc {
+            app = app
+                .service(
+                    web::resource("/debug/api/entity").route(web::post().to(handle_entity_debug)),
+                )
+                .service(web::resource("/debug/api/block_status/{starting_height}").route(
+                    web::get().to(
+                        #[allow(deprecated)]
+                        deprecated_debug_block_status_handler,
+                    ),
+                ))
+                .service(
+                    web::resource("/debug/api/block_status")
+                        .route(web::get().to(debug_block_status_handler)),
+                )
+                .service(
+                    web::resource("/debug/api/epoch_info/{epoch_id}")
+                        .route(web::get().to(debug_epoch_info_handler)),
+                )
+                .service(web::resource("/debug/api/{api}").route(web::get().to(debug_handler)))
+                .service(
+                    web::resource("/debug/client_config")
+                        .route(web::get().to(client_config_handler)),
+                )
+                .service(debug_html)
+                .service(display_debug_html);
+        }
+
+        app
     });
 
     match listener.listen(addr.std_listener().unwrap()) {

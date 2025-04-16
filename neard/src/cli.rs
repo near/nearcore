@@ -1,7 +1,7 @@
 #[cfg(unix)]
 use anyhow::Context;
 use near_amend_genesis::AmendGenesisCommand;
-use near_chain_configs::GenesisValidationMode;
+use near_chain_configs::{GenesisValidationMode, TrackedShardsConfig};
 use near_client::ConfigUpdater;
 use near_cold_store_tool::ColdStoreCommand;
 use near_config_utils::DownloadConfigType;
@@ -26,8 +26,8 @@ use near_replay_archive_tool::ReplayArchiveCommand;
 use near_state_parts::cli::StatePartsCommand;
 use near_state_parts_dump_check::cli::StatePartsDumpCheckCommand;
 use near_state_viewer::StateViewerSubCommand;
-use near_store::Mode;
 use near_store::db::RocksDB;
+use near_store::{Mode, ShardUId};
 use near_undo_block::cli::UndoBlockCommand;
 use serde_json::Value;
 use std::fs::File;
@@ -654,22 +654,23 @@ pub(super) struct LocalnetCmd {
 }
 
 impl LocalnetCmd {
-    fn parse_tracked_shards(tracked_shards: &str, num_shards: NumShards) -> Vec<ShardId> {
+    fn parse_tracked_shards(tracked_shards: &str) -> TrackedShardsConfig {
         if tracked_shards.to_lowercase() == "all" {
-            let tracked_shards = 0..num_shards;
-            return tracked_shards.map(ShardId::new).collect();
+            return TrackedShardsConfig::AllShards;
         }
         if tracked_shards.to_lowercase() == "none" {
-            return vec![];
+            return TrackedShardsConfig::NoShards;
         }
-        tracked_shards
-            .split(',')
-            .map(|shard_id| shard_id.parse::<ShardId>().expect("Shard id must be an integer"))
-            .collect()
+        let _tracked_shards = tracked_shards.split(',').map(|shard_id| {
+            let shard_id = shard_id.parse::<ShardId>().expect("Shard id must be an integer");
+            ShardUId::new(0, shard_id)
+        });
+        // TODO(archival_v2): When `TrackedShardsConfig::Shards` is added, use it here together with `tracked_shards`.
+        TrackedShardsConfig::AllShards
     }
 
     pub(super) fn run(self, home_dir: &Path) {
-        let tracked_shards = Self::parse_tracked_shards(&self.tracked_shards, self.shards);
+        let tracked_shards_config = Self::parse_tracked_shards(&self.tracked_shards);
         nearcore::config::init_localnet_configs(
             home_dir,
             self.shards,
@@ -678,7 +679,7 @@ impl LocalnetCmd {
             self.non_validators_rpc,
             self.non_validators,
             &self.prefix,
-            tracked_shards,
+            tracked_shards_config,
         );
     }
 }

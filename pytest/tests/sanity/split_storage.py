@@ -80,7 +80,7 @@ class TestSplitStorage(unittest.TestCase):
         client_config_changes = {
             0: {
                 'archive': True,
-                'tracked_shards': [0],
+                'tracked_shards_config': 'AllShards',
                 'save_trie_changes': True,
             },
         }
@@ -138,12 +138,12 @@ class TestSplitStorage(unittest.TestCase):
         client_config_changes = {
             0: {
                 'archive': False,
-                'tracked_shards': [0],
+                'tracked_shards_config': 'AllShards',
                 'state_sync_enabled': True
             },
             1: {
                 'archive': True,
-                'tracked_shards': [0],
+                'tracked_shards_config': 'AllShards',
                 'save_trie_changes': True,
                 'split_storage': {
                     'enable_split_storage_view_client': True
@@ -151,14 +151,14 @@ class TestSplitStorage(unittest.TestCase):
             },
             2: {
                 'archive': True,
-                'tracked_shards': [0],
+                'tracked_shards_config': 'AllShards',
                 'split_storage': {
                     'enable_split_storage_view_client': True
                 },
             },
             3: {
                 'archive': False,
-                'tracked_shards': [0],
+                'tracked_shards_config': 'AllShards',
                 'gc_num_epochs_to_keep': gc_epoch_num,
                 'state_sync_enabled': True
             },

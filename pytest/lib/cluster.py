@@ -44,7 +44,7 @@ Config = typing.Dict[str, typing.Any]
 GenesisConfigChanges = typing.List[typing.Tuple[str, typing.Any]]
 
 # Example value: {
-#   "tracked_shards": [],
+#   "tracked_shards_config": "NoShards",
 #   "consensus.min_block_production_delay": {
 #       "secs": 1,
 #       "nanos": 300000000
@@ -923,7 +923,7 @@ def init_cluster(
     if extra_state_dumper:
         (node_config_dump,
          node_config_sync) = state_sync_lib.get_state_sync_configs_pair(
-             tracked_shards=None)
+             tracked_shards_config=None)
         syncing_nodes = node_dirs[:-1]
         dumper_node = node_dirs[-1]
         for node_dir in syncing_nodes:
@@ -1015,19 +1015,30 @@ def apply_config_changes(node_dir: str,
     # file.  Those are often Option<T> types which are not stored in JSON file
     # when None.
     allowed_missing_configs = (
-        'archive', 'consensus.block_fetch_horizon',
+        'archive',
+        'consensus.block_fetch_horizon',
         'consensus.block_header_fetch_horizon',
         'consensus.min_block_production_delay',
         'consensus.max_block_production_delay',
         'consensus.max_block_wait_delay',
         'consensus.state_sync_external_timeout',
         'consensus.state_sync_external_backoff',
-        'consensus.state_sync_p2p_timeout', 'expected_shutdown',
-        'log_summary_period', 'max_gas_burnt_view', 'rosetta_rpc',
-        'save_trie_changes', 'split_storage', 'state_sync',
-        'state_sync_enabled', 'store.state_snapshot_config.state_snapshot_type',
-        'tracked_shard_schedule', 'cold_store',
-        'store.load_mem_tries_for_tracked_shards')
+        'consensus.state_sync_p2p_timeout',
+        'expected_shutdown',
+        'log_summary_period',
+        'max_gas_burnt_view',
+        'rosetta_rpc',
+        'save_trie_changes',
+        'split_storage',
+        'state_sync',
+        'state_sync_enabled',
+        'store.state_snapshot_config.state_snapshot_type',
+        'tracked_shard_schedule',
+        'tracked_shards_config.Schedule',
+        'tracked_shards_config.ShadowValidator',
+        'cold_store',
+        'store.load_mem_tries_for_tracked_shards',
+    )
 
     for k, v in client_config_change.items():
         if not (k in allowed_missing_configs or k in config_json):
@@ -1043,6 +1054,8 @@ def apply_config_changes(node_dir: str,
                     raise ValueError(
                         f'{part} is not found in config.json. Key={k}, Value={v}'
                     )
+                if not isinstance(current[part], dict):
+                    current[part] = {}
                 current = current[part]
             current[parts[-1]] = v
 

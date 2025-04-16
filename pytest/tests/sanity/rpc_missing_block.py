@@ -60,7 +60,7 @@ nodes = start_cluster(
                     "nanos": 0
                 }
             },
-            "tracked_shards": [0, 1, 2, 3],
+            "tracked_shards_config": "AllShards",
         },
     },
 )

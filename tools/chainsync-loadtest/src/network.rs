@@ -248,7 +248,6 @@ impl Network {
                 }
                 Ok(())
             }),
-            challenge: noop().into_sender(),
             network_info: Sender::from_async_fn(move |info: SetNetworkInfo| {
                 let mut n = data.lock().unwrap();
                 n.info_ = Arc::new(info.0);

@@ -20,6 +20,7 @@ use near_chain::types::{ChainConfig, RuntimeAdapter};
 use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode};
 use near_chain_configs::{
     ChunkDistributionNetworkConfig, ClientConfig, Genesis, MutableConfigValue, ReshardingConfig,
+    TrackedShardsConfig,
 };
 use near_chunks::adapter::ShardsManagerRequestFromClient;
 use near_chunks::client::ShardsManagerResponse;
@@ -34,7 +35,7 @@ use near_client::{
 };
 use near_client::{TxRequestHandlerActor, spawn_tx_request_handler_actor};
 use near_crypto::{KeyType, PublicKey};
-use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
+use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::{EpochManager, EpochManagerAdapter};
 use near_network::client::{
     AnnounceAccountRequest, BlockApproval, BlockHeadersRequest, BlockHeadersResponse, BlockRequest,
@@ -69,12 +70,11 @@ use near_store::test_utils::create_test_store;
 use near_telemetry::TelemetryActor;
 use nearcore::NightshadeRuntime;
 use num_rational::Ratio;
-use once_cell::sync::OnceCell;
 use rand::{Rng, thread_rng};
 use std::cmp::max;
 use std::collections::{HashMap, HashSet};
 use std::ops::DerefMut;
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, OnceLock, RwLock};
 
 use crate::utils::block_stats::BlockStats;
 use crate::utils::peer_manager_mock::PeerManagerMock;
@@ -263,7 +263,7 @@ fn setup(
     ShardsManagerAdapterForTest,
     PartialWitnessSenderForNetwork,
 ) {
-    let shard_tracker = ShardTracker::new(TrackedConfig::AllShards, epoch_manager.clone());
+    let shard_tracker = ShardTracker::new(TrackedShardsConfig::AllShards, epoch_manager.clone());
     let chain_genesis = ChainGenesis {
         time: genesis_time,
         height: 0,
@@ -936,7 +936,6 @@ fn process_peer_manager_message_default(
         | NetworkRequests::BanPeer { .. }
         | NetworkRequests::TxStatus(_, _, _)
         | NetworkRequests::SnapshotHostInfo { .. }
-        | NetworkRequests::Challenge(_)
         | NetworkRequests::ChunkStateWitnessAck(_, _)
         | NetworkRequests::EpochSyncRequest { .. }
         | NetworkRequests::EpochSyncResponse { .. } => {}
@@ -1013,7 +1012,7 @@ pub fn setup_mock_all_validators(
     let genesis_time = clock.now_utc();
     let mut ret = vec![];
 
-    let connectors: Arc<OnceCell<Vec<ActorHandlesForTesting>>> = Default::default();
+    let connectors: Arc<OnceLock<Vec<ActorHandlesForTesting>>> = Default::default();
 
     let announced_accounts = Arc::new(RwLock::new(HashSet::new()));
 

@@ -14,7 +14,7 @@ from transaction import sign_deploy_contract_tx, sign_function_call_tx
 from utils import load_test_contract
 
 node_config = {
-    "tracked_shards": [0],  # Track all shards.
+    "tracked_shards_config": "AllShards",
 }
 
 nodes = start_cluster(
