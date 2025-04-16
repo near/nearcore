@@ -60,7 +60,12 @@ pub const PROTOCOL_UPGRADE_SCHEDULE: LazyLock<ProtocolUpgradeVotingSchedule> =
         // let v2_datetime = ProtocolUpgradeVotingSchedule::parse_datetime("2000-01-10 15:00:00").unwrap();
         //
         // let schedule = vec![(v1_datetime, v1_protocol_version), (v2_datetime, v2_protocol_version)];
-        // ProtocolUpgradeVotingSchedule::new_from_env_or_schedule(PROTOCOL_VERSION, schedule).unwrap()
+        // ProtocolUpgradeVotingSchedule::new_from_env_or_schedule(MIN_SUPPORTED_PROTOCOL_VERSION, PROTOCOL_VERSION, schedule).unwrap()
 
-        ProtocolUpgradeVotingSchedule::new_from_env_or_schedule(PROTOCOL_VERSION, vec![]).unwrap()
+        ProtocolUpgradeVotingSchedule::new_from_env_or_schedule(
+            MIN_SUPPORTED_PROTOCOL_VERSION,
+            PROTOCOL_VERSION,
+            vec![],
+        )
+        .unwrap()
     });
