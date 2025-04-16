@@ -1,8 +1,10 @@
 use chrono::{DateTime, NaiveDateTime, Utc};
 use near_primitives_core::types::ProtocolVersion;
-use std::env;
+use std::{env, ops::RangeInclusive};
 
 const NEAR_TESTS_PROTOCOL_UPGRADE_OVERRIDE: &str = "NEAR_TESTS_PROTOCOL_UPGRADE_OVERRIDE";
+const PROTOCOL_UPGRADE_OVERRIDE_NOW: &str = "now";
+const PROTOCOL_UPGRADE_OVERRIDE_SEQUENTIAL: &str = "sequential";
 
 #[derive(thiserror::Error, Clone, Debug)]
 pub enum ProtocolUpgradeVotingScheduleError {
@@ -44,13 +46,14 @@ impl ProtocolUpgradeVotingSchedule {
         Self { client_protocol_version, schedule: vec![] }
     }
 
-    /// Creates a schedule with one upgrade per epoch between start and end protocol versions.
+    /// Creates a schedule with one upgrade per epoch.
     /// This is achieved by creating a schedule where the upgrade time is in the past.
-    pub fn one_by_one(
+    /// Protocol version will go from `start` to `end` inclusively.
+    pub fn new_sequential(
         start: ProtocolVersion,
         end: ProtocolVersion,
     ) -> ProtocolUpgradeVotingScheduleRaw {
-        (start + 1..=end)
+        RangeInclusive::new(start, end)
             .enumerate()
             .map(|(i, version)| {
                 let time = Utc::now() - chrono::Duration::minutes((end - start) as i64 - i as i64);
@@ -195,12 +198,12 @@ impl ProtocolUpgradeVotingSchedule {
         client_protocol_version: ProtocolVersion,
     ) -> Result<ProtocolUpgradeVotingScheduleRaw, ProtocolUpgradeVotingScheduleError> {
         match override_str.to_lowercase().as_str() {
-            // The special value "now" means that the upgrade should happen immediately, all versions at once.
-            "now" => return Ok(vec![]),
-            // The special value "one_by_one" means that the upgrade should happen immediately every epoch.
-            "one_by_one" => {
-                return Ok(Self::one_by_one(
-                    min_supported_protocol_version,
+            // This special value means that the upgrade should happen immediately, all versions at once.
+            PROTOCOL_UPGRADE_OVERRIDE_NOW => return Ok(vec![]),
+            // This special value means that the upgrade should happen immediately every epoch.
+            PROTOCOL_UPGRADE_OVERRIDE_SEQUENTIAL => {
+                return Ok(Self::new_sequential(
+                    min_supported_protocol_version + 1,
                     client_protocol_version,
                 ));
             }
@@ -531,7 +534,7 @@ mod tests {
 
         // test immediate upgrade
 
-        let override_str = "now";
+        let override_str = PROTOCOL_UPGRADE_OVERRIDE_NOW;
         let raw_schedule = ProtocolUpgradeVotingSchedule::parse_override(
             override_str,
             min_supported_protocol_version,
@@ -542,7 +545,7 @@ mod tests {
 
         // test one by one upgrade
 
-        let override_str = "one_by_one";
+        let override_str = PROTOCOL_UPGRADE_OVERRIDE_SEQUENTIAL;
         let raw_schedule = ProtocolUpgradeVotingSchedule::parse_override(
             override_str,
             min_supported_protocol_version,
@@ -615,7 +618,7 @@ mod tests {
         unsafe {
             // SAFE: our tests run with nextest with a process-per-test scheme, so in a
             // single-threaded manner.
-            std::env::set_var(NEAR_TESTS_PROTOCOL_UPGRADE_OVERRIDE, "now");
+            std::env::set_var(NEAR_TESTS_PROTOCOL_UPGRADE_OVERRIDE, PROTOCOL_UPGRADE_OVERRIDE_NOW);
         }
         let schedule = make_simple_voting_schedule(
             min_supported_protocol_version,
@@ -628,7 +631,10 @@ mod tests {
         unsafe {
             // SAFE: our tests run with nextest with a process-per-test scheme, so in a
             // single-threaded manner.
-            std::env::set_var(NEAR_TESTS_PROTOCOL_UPGRADE_OVERRIDE, "one_by_one");
+            std::env::set_var(
+                NEAR_TESTS_PROTOCOL_UPGRADE_OVERRIDE,
+                PROTOCOL_UPGRADE_OVERRIDE_SEQUENTIAL,
+            );
         }
         let schedule = make_simple_voting_schedule(
             min_supported_protocol_version,
