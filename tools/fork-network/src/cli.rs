@@ -110,7 +110,7 @@ enum StateSource {
     #[strum(serialize = "dump")]
     Dump,
     #[strum(serialize = "empty")]
-    Empty(PatchPath),
+    Empty,
 }
 
 #[derive(clap::Parser)]
@@ -265,7 +265,7 @@ impl ForkNetworkCommand {
                 num_seats,
             }) => {
                 self.set_validators_from_source(
-                    source_type.clone(),
+                    state_source.clone(),
                     patches_path.clone(),
                     genesis_time.unwrap_or_else(chrono::Utc::now),
                     *protocol_version,
@@ -479,7 +479,7 @@ impl ForkNetworkCommand {
 
     fn set_validators_from_source(
         &self,
-        source_type: String,
+        source_type: StateSource,
         patches_path: Option<PathBuf>,
         genesis_time: DateTime<Utc>,
         protocol_version: Option<ProtocolVersion>,
@@ -518,7 +518,6 @@ impl ForkNetworkCommand {
                 )?;
                 Ok(())
             }
-            _ => anyhow::bail!("Unknown source type: {}", source_type),
         }?;
         tracing::info!("Validators set");
         Ok(())
