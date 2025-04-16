@@ -308,15 +308,15 @@ ready. After they're ready, you can run `start-traffic`""".format(validators))
     pmap(
         lambda node: node.neard_runner_network_init(
             validators,
-            boot_nodes, [
-                "empty",
-                "/home/ubuntu/bench/cases/forknet/realistic_20_cp_1_rpc_20_shard"
-            ],
+            boot_nodes,
+            "empty",
+            "/home/ubuntu/bench/cases/forknet/realistic_20_cp_1_rpc_20_shard",
             args.epoch_length,
             args.num_seats,
             args.new_chain_id,
             args.genesis_protocol_version,
-            genesis_time=genesis_time), targeted)
+            genesis_time=genesis_time,
+        ), targeted)
 
     location = None
     if args.gcs_state_sync:

@@ -116,7 +116,12 @@ enum StateSource {
 #[derive(clap::Parser)]
 struct SetValidatorsCmd {
     #[arg(short, long, default_value = "dump")]
-    pub source: StateSource,
+    pub state_source: StateSource,
+
+    /// Path to patches directory, required when source_type is "empty"
+    #[arg(long)]
+    pub patches_path: Option<PathBuf>,
+
     /// Path to the JSON list of [`Validator`] structs containing account id and public keys.
     /// The path can be relative to `home_dir` or an absolute path.
     /// Example of a valid file that sets one validator with 50k tokens:
@@ -250,16 +255,18 @@ impl ForkNetworkCommand {
                 self.amend_access_keys(*batch_size, near_config, home_dir)?;
             }
             SubCommand::SetValidators(SetValidatorsCmd {
-                source,
-                genesis_time,
-                protocol_version,
+                state_source,
+                patches_path,
                 validators,
                 epoch_length,
                 chain_id,
+                genesis_time,
+                protocol_version,
                 num_seats,
             }) => {
                 self.set_validators_from_source(
-                    source.clone(),
+                    source_type.clone(),
+                    patches_path.clone(),
                     genesis_time.unwrap_or_else(chrono::Utc::now),
                     *protocol_version,
                     validators,
@@ -472,7 +479,8 @@ impl ForkNetworkCommand {
 
     fn set_validators_from_source(
         &self,
-        source: StateSource,
+        source_type: String,
+        patches_path: Option<PathBuf>,
         genesis_time: DateTime<Utc>,
         protocol_version: Option<ProtocolVersion>,
         validators: &Path,
@@ -482,7 +490,7 @@ impl ForkNetworkCommand {
         near_config: &mut NearConfig,
         home_dir: &Path,
     ) -> anyhow::Result<()> {
-        match source {
+        match source_type {
             StateSource::Dump => self.set_validators_from_dump(
                 genesis_time,
                 protocol_version,
@@ -493,17 +501,24 @@ impl ForkNetworkCommand {
                 near_config,
                 home_dir,
             ),
-            StateSource::Empty(PatchPath { path }) => self.set_validators(
-                path.as_ref(),
-                genesis_time,
-                protocol_version,
-                validators,
-                epoch_length,
-                num_seats,
-                chain_id,
-                near_config,
-                home_dir,
-            ),
+            StateSource::Empty => {
+                let patches_path = patches_path.ok_or_else(|| {
+                    anyhow::anyhow!("patches_path is required when source_type is 'empty'")
+                })?;
+                self.set_validators(
+                    patches_path.as_ref(),
+                    genesis_time,
+                    protocol_version,
+                    validators,
+                    epoch_length,
+                    num_seats,
+                    chain_id,
+                    near_config,
+                    home_dir,
+                )?;
+                Ok(())
+            }
+            _ => anyhow::bail!("Unknown source type: {}", source_type),
         }?;
         tracing::info!("Validators set");
         Ok(())

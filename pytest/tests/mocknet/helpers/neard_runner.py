@@ -526,7 +526,8 @@ class NeardRunner:
     def do_network_init(self,
                         validators,
                         boot_nodes,
-                        source=["dump"],
+                        state_source="dump",
+                        patches_path=None,
                         epoch_length=1000,
                         num_seats=100,
                         new_chain_id=None,
@@ -572,7 +573,8 @@ class NeardRunner:
             with open(self.home_path('network_init.json'), 'w') as f:
                 json.dump(
                     {
-                        'source': source,
+                        'state_source': state_source,
+                        'patches_path': patches_path,
                         'boot_nodes': boot_nodes,
                         'epoch_length': epoch_length,
                         'num_seats': num_seats,
@@ -1114,11 +1116,11 @@ class NeardRunner:
 
         new_chain_id = n.get('new_chain_id')
 
-        if self.legacy_records and n.get('source')[0] == 'dump':
+        if self.legacy_records and n.get('state_source') == 'dump':
             self.deprecated_set_validators(n, new_chain_id)
             return
 
-        if n.get('source')[0] == 'empty':
+        if n.get('state_source') == 'empty':
             self.remove_data_dir()
 
         cmd = [
@@ -1127,6 +1129,8 @@ class NeardRunner:
             self.target_near_home_path(),
             'fork-network',
             'set-validators',
+            '--state-source',
+            n['state_source'],
             '--validators',
             self.home_path('validators.json'),
             '--epoch-length',
@@ -1136,8 +1140,10 @@ class NeardRunner:
             '--num-seats',
             str(n['num_seats']),
         ]
-        cmd.append('--source')
-        cmd.extend(n['source'])
+        if n['patches_path'] is not None:
+            cmd.append('--patches-path')
+            cmd.append(n['patches_path'])
+
         if new_chain_id is not None:
             cmd.append('--chain-id')
             cmd.append(new_chain_id)
