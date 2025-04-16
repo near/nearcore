@@ -3,9 +3,9 @@ use crate::storage_mutator::{ShardUpdateState, StorageMutator};
 use anyhow::Context;
 use chrono::{DateTime, Utc};
 use near_chain::types::{RuntimeAdapter, Tip};
-use near_chain::{ChainStore, ChainStoreAccess};
+use near_chain::{Chain, ChainGenesis, ChainStore, ChainStoreAccess};
 use near_chain_configs::{Genesis, GenesisConfig, GenesisValidationMode, NEAR_BASE};
-use near_crypto::PublicKey;
+use near_crypto::{InMemorySigner, PublicKey, SecretKey};
 use near_epoch_manager::{EpochManager, EpochManagerAdapter};
 use near_mirror::key_mapping::{map_account, map_key};
 use near_o11y::default_subscriber_with_opentelemetry;
@@ -26,19 +26,20 @@ use near_primitives::types::{
     AccountId, AccountInfo, Balance, BlockHeight, EpochId, NumBlocks, NumSeats, ShardId, StateRoot,
 };
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolVersion};
-use near_store::adapter::StoreAdapter;
+use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::db::RocksDB;
 use near_store::flat::{BlockInfo, FlatStorageManager, FlatStorageStatus};
+use near_store::genesis::initialize_sharded_genesis_state;
 use near_store::{
     DBCol, FINAL_HEAD_KEY, Store, TrieDBStorage, TrieStorage,
-    checkpoint_hot_storage_and_cleanup_columns,
+    checkpoint_hot_storage_and_cleanup_columns, get_genesis_state_roots,
 };
 use nearcore::{NearConfig, NightshadeRuntime, NightshadeRuntimeExt, load_config, open_storage};
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use serde::Deserialize;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs::File;
-use std::io::BufReader;
+use std::io::{BufReader, BufWriter};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::Arc;
@@ -98,8 +99,21 @@ struct AmendAccessKeysCmd {
     batch_size: u64,
 }
 
+#[derive(clap::Parser, Clone, strum::EnumString, strum::Display)]
+enum StateSource {
+    #[strum(serialize = "dump")]
+    Dump,
+    #[strum(serialize = "empty")]
+    Empty {
+        #[arg(value_name = "patches_path")]
+        patches_path: PathBuf,
+    },
+}
+
 #[derive(clap::Parser)]
 struct SetValidatorsCmd {
+    #[arg(short, long, default_value = "dump")]
+    pub source: StateSource,
     /// Path to the JSON list of [`Validator`] structs containing account id and public keys.
     /// The path can be relative to `home_dir` or an absolute path.
     /// Example of a valid file that sets one validator with 50k tokens:
@@ -112,12 +126,10 @@ struct SetValidatorsCmd {
     pub validators: PathBuf,
     #[arg(short, long, default_value = "1000")]
     pub epoch_length: NumBlocks,
-    #[arg(long, default_value = "-fork", allow_hyphen_values = true)]
-    pub chain_id_suffix: String,
     /// Sets the chain id to this value. By default, if this value is not set, the initial chain_id
     /// will be reused by appending the suffix.
-    #[arg(long)]
-    pub chain_id: Option<String>,
+    #[arg(long, default_value = "mocknet")]
+    pub chain_id: String,
     /// Timestamp that should be set in the genesis block. This is required if you want
     /// to create a consistent forked network across many machines
     #[arg(long)]
@@ -235,21 +247,21 @@ impl ForkNetworkCommand {
                 self.amend_access_keys(*batch_size, near_config, home_dir)?;
             }
             SubCommand::SetValidators(SetValidatorsCmd {
+                source,
                 genesis_time,
                 protocol_version,
                 validators,
                 epoch_length,
-                chain_id_suffix,
                 chain_id,
                 num_seats,
             }) => {
-                self.set_validators(
+                self.set_validators_from_source(
+                    source.clone(),
                     genesis_time.unwrap_or_else(chrono::Utc::now),
                     *protocol_version,
                     validators,
                     *epoch_length,
                     num_seats,
-                    chain_id_suffix,
                     chain_id,
                     near_config,
                     home_dir,
@@ -455,22 +467,63 @@ impl ForkNetworkCommand {
         Ok(new_state_roots)
     }
 
+    fn set_validators_from_source(
+        &self,
+        source: StateSource,
+        genesis_time: DateTime<Utc>,
+        protocol_version: Option<ProtocolVersion>,
+        validators: &Path,
+        epoch_length: u64,
+        num_seats: &Option<NumSeats>,
+        chain_id: &String,
+        near_config: &mut NearConfig,
+        home_dir: &Path,
+    ) -> anyhow::Result<()> {
+        match source {
+            StateSource::Dump => self.set_validators_from_dump(
+                genesis_time,
+                protocol_version,
+                validators,
+                epoch_length,
+                num_seats,
+                chain_id,
+                near_config,
+                home_dir,
+            ),
+            StateSource::Empty { patches_path } => {
+                self.set_validators(
+                    patches_path.as_ref(),
+                    genesis_time,
+                    protocol_version,
+                    validators,
+                    epoch_length,
+                    num_seats,
+                    chain_id,
+                    near_config,
+                    home_dir,
+                )?;
+                Ok(())
+            }
+        }?;
+        tracing::info!("Validators set");
+        Ok(())
+    }
+
     /// Creates a DB snapshot, then
     /// Reads a list of validator accounts from a file
     /// Adds validator accounts to the state
     /// Creates a genesis file with the new validators.
-    fn set_validators(
+    fn set_validators_from_dump(
         &self,
         genesis_time: DateTime<Utc>,
         protocol_version: Option<ProtocolVersion>,
         validators: &Path,
         epoch_length: u64,
         num_seats: &Option<NumSeats>,
-        chain_id_suffix: &str,
-        chain_id: &Option<String>,
+        chain_id: &String,
         near_config: &mut NearConfig,
         home_dir: &Path,
-    ) -> anyhow::Result<(Vec<StateRoot>, Vec<AccountInfo>)> {
+    ) -> anyhow::Result<()> {
         // Open storage with migration
         let storage = open_storage(&home_dir, near_config).unwrap();
         let store = storage.get_hot_store();
@@ -529,16 +582,136 @@ impl ForkNetworkCommand {
             epoch_length,
             num_seats,
             flat_head.height + 1,
-            chain_id_suffix,
             chain_id,
             new_state_roots.clone(),
             new_validator_accounts.clone(),
             home_dir,
             near_config,
-        )?;
+        )
+    }
 
-        tracing::info!("All Done! Run the node normally to start the forked network.");
-        Ok((new_state_roots, new_validator_accounts))
+    /// Reads configuration patches for sharded benchmark.
+    /// For now reads only epoch config and number of accounts per shard to
+    /// benchmark.
+    fn read_patches(patches_path: &Path) -> anyhow::Result<(EpochConfig, u64)> {
+        let epoch_config_path = patches_path.join("epoch_configs/template.json");
+        let epoch_config: EpochConfig =
+            serde_json::from_str(&std::fs::read_to_string(epoch_config_path)?)?;
+        let params_path = patches_path.join("params.json");
+        let params: HashMap<String, serde_json::Value> =
+            serde_json::from_str(&std::fs::read_to_string(params_path)?)?;
+        let num_accounts = params["num_accounts"].as_u64().unwrap();
+        Ok((epoch_config, num_accounts))
+    }
+
+    fn set_validators(
+        &self,
+        patches_path: &Path,
+        genesis_time: DateTime<Utc>,
+        protocol_version: Option<ProtocolVersion>,
+        validators: &Path,
+        epoch_length: u64,
+        num_seats: &Option<NumSeats>,
+        chain_id: &String,
+        near_config: &mut NearConfig,
+        home_dir: &Path,
+    ) -> anyhow::Result<()> {
+        let storage = open_storage(&home_dir, near_config).unwrap();
+        let store = storage.get_hot_store();
+
+        let (epoch_config, num_accounts_per_shard) = Self::read_patches(patches_path)?;
+        let target_shard_layout = &epoch_config.shard_layout;
+        let validators = Self::read_validators(validators, home_dir)?;
+        let num_seats = num_seats.unwrap_or(validators.len() as NumSeats);
+        let mut genesis = Genesis::from_account_infos(
+            genesis_time,
+            validators.clone(),
+            num_seats,
+            target_shard_layout.clone(),
+        );
+        if let Some(protocol_version) = protocol_version {
+            genesis.config.protocol_version = protocol_version;
+        }
+        let genesis_protocol_version = genesis.config.protocol_version;
+        genesis.config.epoch_length = epoch_length;
+        genesis.config.chain_id = chain_id.clone();
+        initialize_sharded_genesis_state(store.clone(), &genesis, &epoch_config, Some(home_dir));
+        let prev_state_roots = get_genesis_state_roots(&store).unwrap().unwrap();
+        let shard_uids = epoch_config.shard_layout.shard_uids().collect::<Vec<_>>();
+        let state_roots_map: HashMap<ShardUId, StateRoot> = shard_uids
+            .iter()
+            .enumerate()
+            .map(|(idx, shard_uid)| (*shard_uid, prev_state_roots[idx].clone()))
+            .collect();
+
+        let epoch_manager = EpochManager::new_arc_handle(
+            store.clone(),
+            &near_config.genesis.config,
+            Some(home_dir),
+        );
+        let runtime = NightshadeRuntime::from_config(
+            home_dir,
+            store.clone(),
+            &near_config,
+            epoch_manager.clone(),
+        )
+        .context("could not create the transaction runtime")?;
+        let runtime_config_store = RuntimeConfigStore::new(None);
+        let runtime_config = runtime_config_store.get_config(genesis_protocol_version);
+        let chain_genesis = ChainGenesis::new(&genesis.config);
+        let (genesis_block, _) = Chain::make_genesis_block(
+            epoch_manager.as_ref(),
+            runtime.as_ref(),
+            &chain_genesis,
+            prev_state_roots,
+        )?;
+        let flat_storage_manager = runtime.get_flat_storage_manager();
+        let mut store_update = store.store_update();
+        for shard_uid in shard_uids.clone() {
+            flat_storage_manager.set_flat_storage_for_genesis(
+                &mut store_update.flat_store_update(),
+                shard_uid,
+                genesis_block.hash(),
+                genesis_block.header().height(),
+            );
+        }
+        store_update.commit()?;
+
+        let state_roots = self.add_benchmark_accounts(
+            &store,
+            runtime.as_ref(),
+            &state_roots_map,
+            &runtime_config,
+            home_dir,
+            &target_shard_layout,
+            num_accounts_per_shard,
+        )?;
+        let runtime = NightshadeRuntime::from_config(
+            home_dir,
+            store.clone(),
+            &near_config,
+            epoch_manager.clone(),
+        )
+        .context("could not create the transaction runtime")?;
+        let (genesis_block, _) = Chain::make_genesis_block(
+            epoch_manager.as_ref(),
+            runtime.as_ref(),
+            &chain_genesis,
+            state_roots,
+        )?;
+        let flat_storage_manager = runtime.get_flat_storage_manager();
+        let mut store_update = store.store_update();
+        for shard_uid in shard_uids {
+            flat_storage_manager.set_flat_storage_for_genesis(
+                &mut store_update.flat_store_update(),
+                shard_uid,
+                genesis_block.hash(),
+                genesis_block.header().height(),
+            );
+        }
+        store_update.commit()?;
+
+        Ok(())
     }
 
     /// Deletes DB columns that are not needed in the new chain.
@@ -993,6 +1166,27 @@ impl ForkNetworkCommand {
         Ok(state_roots)
     }
 
+    fn read_validators(validators: &Path, home_dir: &Path) -> anyhow::Result<Vec<AccountInfo>> {
+        let validators_path = if validators.is_absolute() {
+            PathBuf::from(validators)
+        } else {
+            home_dir.join(&validators)
+        };
+        let file = File::open(&validators_path)
+            .expect("Failed to open the validators JSON {validators_path:?}");
+        let new_validators: Vec<Validator> = serde_json::from_reader(BufReader::new(file))
+            .expect("Failed to read validators JSON {validators_path:?}");
+        let account_infos = new_validators
+            .into_iter()
+            .map(|v| AccountInfo {
+                account_id: v.account_id,
+                public_key: v.public_key,
+                amount: v.amount.unwrap_or(50_000 * NEAR_BASE),
+            })
+            .collect();
+        Ok(account_infos)
+    }
+
     /// Reads the validators file (which is a path relative to the home dir),
     /// and adds new accounts and new keys for the specified accounts.
     fn add_validator_accounts(
@@ -1007,23 +1201,10 @@ impl ForkNetworkCommand {
 
         let liquid_balance = 100_000_000 * NEAR_BASE;
         let storage_bytes = runtime_config.fees.storage_usage_config.num_bytes_account;
-        let validators_path = if validators.is_absolute() {
-            PathBuf::from(validators)
-        } else {
-            home_dir.join(&validators)
-        };
-        let file = File::open(&validators_path)
-            .expect("Failed to open the validators JSON {validators_path:?}");
-        let new_validators: Vec<Validator> = serde_json::from_reader(BufReader::new(file))
-            .expect("Failed to read validators JSON {validators_path:?}");
-        for validator in new_validators.into_iter() {
-            let shard_id = shard_layout.account_id_to_shard_id(&validator.account_id);
+        let new_validators = Self::read_validators(validators, home_dir)?;
+        for validator_account in new_validators.into_iter() {
+            let shard_id = shard_layout.account_id_to_shard_id(&validator_account.account_id);
             let shard_idx = shard_layout.get_shard_index(shard_id).unwrap();
-            let validator_account = AccountInfo {
-                account_id: validator.account_id,
-                amount: validator.amount.unwrap_or(50_000 * NEAR_BASE),
-                public_key: validator.public_key,
-            };
             new_validator_accounts.push(validator_account.clone());
             storage_mutator.set_account(
                 shard_idx,
@@ -1046,6 +1227,93 @@ impl ForkNetworkCommand {
         Ok(new_validator_accounts)
     }
 
+    fn add_benchmark_accounts(
+        &self,
+        store: &Store,
+        runtime: &dyn RuntimeAdapter,
+        state_roots_map: &HashMap<ShardUId, StateRoot>,
+        runtime_config: &Arc<RuntimeConfig>,
+        home_dir: &Path,
+        shard_layout: &ShardLayout,
+        num_accounts_per_shard: u64,
+    ) -> anyhow::Result<Vec<StateRoot>> {
+        #[derive(serde::Serialize)]
+        struct AccountData {
+            account_id: AccountId,
+            public_key: String,
+            secret_key: String,
+            nonce: u64,
+        }
+
+        let flat_store = store.flat_store();
+        let update_state = ShardUpdateState::new_update_state(
+            &flat_store,
+            &shard_layout,
+            &shard_layout,
+            state_roots_map,
+        )?;
+        let mut storage_mutator =
+            StorageMutator::new(runtime.get_tries(), update_state.clone(), shard_layout.clone())?;
+
+        let accounts_path = home_dir.join("user-data");
+        let _ = std::fs::remove_dir_all(&accounts_path);
+
+        let liquid_balance = 100_000_000 * NEAR_BASE;
+        let storage_bytes = runtime_config.fees.storage_usage_config.num_bytes_account;
+        let boundary_account_ids = shard_layout.boundary_accounts().clone();
+        let first_boundary_account_id = boundary_account_ids[0].clone();
+        let first_account_id =
+            "0".repeat(first_boundary_account_id.len()).parse::<AccountId>().unwrap();
+        let account_prefixes = vec![first_account_id]
+            .into_iter()
+            .chain(boundary_account_ids.into_iter())
+            .collect::<Vec<_>>();
+        for (account_prefix_idx, account_prefix) in account_prefixes.into_iter().enumerate() {
+            let shard_id = shard_layout.get_shard_id(account_prefix_idx).unwrap();
+            let shard_accounts_path = accounts_path.join(format!("shard_{}", shard_id));
+            std::fs::create_dir_all(&shard_accounts_path)?;
+
+            for i in 0..num_accounts_per_shard {
+                let account_id = format!("{account_prefix}_user_{i}").parse::<AccountId>().unwrap();
+                let secret_key =
+                    SecretKey::from_seed(near_crypto::KeyType::ED25519, account_id.as_str());
+                let signer =
+                    InMemorySigner::from_secret_key(account_id.clone(), secret_key.clone());
+                let shard_id = shard_layout.account_id_to_shard_id(&account_id);
+                let shard_idx = shard_layout.get_shard_index(shard_id).unwrap();
+                assert!(
+                    shard_idx == account_prefix_idx,
+                    "Order of account prefixes should match order of shards"
+                );
+                storage_mutator.set_account(
+                    shard_idx,
+                    account_id.clone(),
+                    Account::new(liquid_balance, 0, AccountContract::None, storage_bytes),
+                )?;
+                storage_mutator.set_access_key(
+                    shard_idx,
+                    account_id.clone(),
+                    signer.public_key(),
+                    AccessKey::full_access(),
+                )?;
+                let account_data = AccountData {
+                    account_id: account_id.clone(),
+                    public_key: signer.public_key().to_string(),
+                    secret_key: secret_key.to_string(),
+                    nonce: 0,
+                };
+                let account_file_name = format!("{}.json", account_id);
+                let account_path = shard_accounts_path.join(account_file_name);
+                let account_file = File::create(account_path)?;
+                let account_writer = BufWriter::new(account_file);
+                serde_json::to_writer(account_writer, &account_data)?;
+            }
+        }
+        let state_roots = storage_mutator.commit()?;
+
+        Ok(state_roots)
+    }
+
     /// Makes a new genesis and writes it to `~/.near/genesis.json`.
     fn make_and_write_genesis(
         &self,
@@ -1055,18 +1323,13 @@ impl ForkNetworkCommand {
         epoch_length: u64,
         num_seats: &Option<NumSeats>,
         height: BlockHeight,
-        chain_id_suffix: &str,
-        chain_id: &Option<String>,
+        chain_id: &String,
         new_state_roots: Vec<StateRoot>,
         new_validator_accounts: Vec<AccountInfo>,
         home_dir: &Path,
         near_config: &mut NearConfig,
     ) -> anyhow::Result<()> {
-        // At this point, the genesis will contain the chain id of the original chain.
-        // We need to load the epoch config for the new chain id and new genesis protocol version.
-        let new_chain_id = chain_id
-            .clone()
-            .unwrap_or_else(|| near_config.genesis.config.chain_id.clone() + chain_id_suffix);
+        let new_chain_id = chain_id.clone();
         near_config.genesis.config.chain_id = new_chain_id.clone();
 
         let genesis_protocol_version = match protocol_version {
