@@ -1705,7 +1705,7 @@ impl Runtime {
                 set_account(
                     state_update,
                     batch_out.signer_id().clone(),
-                    &batch_out.updated_account.unwrap(),
+                    &batch_out.updated_account.expect("any successfully validated transaction means account should have been updated"),
                 );
 
                 let last_tx_hash = batch_out
