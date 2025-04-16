@@ -5,6 +5,7 @@ use crate::contract::ContractStorage;
 use crate::trie::TrieAccess;
 use crate::trie::{KeyLookupMode, TrieChanges};
 use near_primitives::account::AccountContract;
+use near_primitives::action::GlobalContractIdentifier;
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::stateless_validation::contract_distribution::ContractUpdates;
@@ -162,6 +163,8 @@ impl TrieUpdate {
         self.prospective.insert(trie_key.to_vec(), TrieKeyValueUpdate { trie_key, value: None });
     }
 
+    // Deprecated, will be removed when ExcludeExistingCodeFromWitnessForCodeLen is stabilized.
+    // `get_account_contract_code` should be used instead.
     pub fn get_code(
         &self,
         account_id: AccountId,
@@ -170,6 +173,22 @@ impl TrieUpdate {
         let key = TrieKey::ContractCode { account_id };
         self.get(&key, AccessOptions::DEFAULT)
             .map(|opt| opt.map(|code| ContractCode::new(code, Some(code_hash))))
+    }
+
+    pub fn get_account_contract_code(
+        &self,
+        account_id: &AccountId,
+        account_contract: &AccountContract,
+    ) -> Result<Option<ContractCode>, StorageError> {
+        let Some(key) = Self::account_contract_code_trie_key(account_id, account_contract) else {
+            return Ok(None);
+        };
+        let code_hash = match account_contract {
+            AccountContract::None | AccountContract::GlobalByAccount(_) => None,
+            AccountContract::Local(hash) | AccountContract::Global(hash) => Some(*hash),
+        };
+        self.get(&key, AccessOptions::DEFAULT)
+            .map(|opt| opt.map(|code| ContractCode::new(code, code_hash)))
     }
 
     /// Returns the size (in num bytes) of the contract code for the given account.
@@ -313,15 +332,9 @@ impl TrieUpdate {
         // Only record the call if trie contains the contract (with the given hash) being called deployed to the given account.
         // This avoids recording contracts that do not exist or are newly-deployed to the account.
         // Note that the check below to see if the contract exists has no side effects (not charging gas or recording trie nodes)
-        let trie_key = match account_contract {
-            AccountContract::None => return Ok(()),
-            AccountContract::Local(_) => TrieKey::ContractCode { account_id },
-            AccountContract::Global(code_hash) => TrieKey::GlobalContractCode {
-                identifier: GlobalContractCodeIdentifier::CodeHash(*code_hash),
-            },
-            AccountContract::GlobalByAccount(account_id) => TrieKey::GlobalContractCode {
-                identifier: GlobalContractCodeIdentifier::AccountId(account_id.clone()),
-            },
+        let Some(trie_key) = Self::account_contract_code_trie_key(&account_id, account_contract)
+        else {
+            return Ok(());
         };
         let contract_ref = self
             .trie
@@ -345,6 +358,50 @@ impl TrieUpdate {
             self.contract_storage.record_call(code_hash);
         }
         Ok(())
+    }
+
+    pub fn get_account_contract_hash(
+        &self,
+        contract: &AccountContract,
+    ) -> Result<CryptoHash, StorageError> {
+        let hash = match contract {
+            AccountContract::None => CryptoHash::default(),
+            AccountContract::Local(code_hash) | AccountContract::Global(code_hash) => *code_hash,
+            AccountContract::GlobalByAccount(account_id) => {
+                let identifier = GlobalContractIdentifier::AccountId(account_id.clone());
+                let key = TrieKey::GlobalContractCode { identifier: identifier.into() };
+                let value_ref = self
+                    .get_ref(&key, KeyLookupMode::MemOrFlatOrTrie, AccessOptions::DEFAULT)?
+                    .ok_or_else(|| {
+                        let TrieKey::GlobalContractCode { identifier } = key else {
+                            unreachable!()
+                        };
+                        StorageError::StorageInconsistentState(format!(
+                            "Global contract identifier not found {:?}",
+                            identifier
+                        ))
+                    })?;
+                value_ref.value_hash()
+            }
+        };
+        Ok(hash)
+    }
+
+    fn account_contract_code_trie_key(
+        account_id: &AccountId,
+        account_contract: &AccountContract,
+    ) -> Option<TrieKey> {
+        let trie_key = match account_contract {
+            AccountContract::None => return None,
+            AccountContract::Local(_) => TrieKey::ContractCode { account_id: account_id.clone() },
+            AccountContract::Global(code_hash) => TrieKey::GlobalContractCode {
+                identifier: GlobalContractCodeIdentifier::CodeHash(*code_hash),
+            },
+            AccountContract::GlobalByAccount(account_id) => TrieKey::GlobalContractCode {
+                identifier: GlobalContractCodeIdentifier::AccountId(account_id.clone()),
+            },
+        };
+        Some(trie_key)
     }
 }
 
