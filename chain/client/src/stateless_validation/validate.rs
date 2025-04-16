@@ -95,6 +95,11 @@ pub fn validate_chunk_endorsement(
     endorsement: &ChunkEndorsement,
     store: &Store,
 ) -> Result<bool, Error> {
+    let _span = tracing::debug_span!(target: "stateless_validation", "validate_chunk_endorsement",
+        height = endorsement.chunk_production_key().height_created, shard_id = ?endorsement.chunk_production_key().shard_id, 
+        validator = ?endorsement.account_id())
+    .entered();
+
     if !validate_chunk_relevant_as_validator(
         epoch_manager,
         &endorsement.chunk_production_key(),
