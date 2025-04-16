@@ -19,7 +19,7 @@ use near_client::{
     Client, PartialWitnessActor, TxRequestHandler, TxRequestHandlerConfig, ViewClientActorInner,
 };
 use near_epoch_manager::EpochManager;
-use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
+use near_epoch_manager::shard_tracker::ShardTracker;
 use near_primitives::genesis::GenesisId;
 use near_primitives::network::PeerId;
 use near_primitives::test_utils::create_test_signer;
