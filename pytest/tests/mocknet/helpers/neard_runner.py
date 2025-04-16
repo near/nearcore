@@ -526,7 +526,7 @@ class NeardRunner:
     def do_network_init(self,
                         validators,
                         boot_nodes,
-                        state_source="dump",
+                        state_source=["dump"],
                         epoch_length=1000,
                         num_seats=100,
                         new_chain_id=None,
@@ -1114,11 +1114,11 @@ class NeardRunner:
 
         new_chain_id = n.get('new_chain_id')
 
-        if self.legacy_records and n.get('state_source') == 'dump':
+        if self.legacy_records and n.get('state_source')[0] == 'dump':
             self.deprecated_set_validators(n, new_chain_id)
             return
 
-        if n.get('state_source') == 'empty':
+        if n.get('state_source')[0] == 'empty':
             self.remove_data_dir()
 
         cmd = [
@@ -1127,8 +1127,6 @@ class NeardRunner:
             self.target_near_home_path(),
             'fork-network',
             'set-validators',
-            '--state-source',
-            n['state_source'],
             '--validators',
             self.home_path('validators.json'),
             '--epoch-length',
@@ -1138,6 +1136,8 @@ class NeardRunner:
             '--num-seats',
             str(n['num_seats']),
         ]
+        cmd.append('--state-source')
+        cmd.extend(n['state_source'])
         if new_chain_id is not None:
             cmd.append('--chain-id')
             cmd.append(new_chain_id)

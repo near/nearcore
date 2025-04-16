@@ -389,7 +389,10 @@ tweak_config_forknet() {
     # Upload bench.sh and test case files to all nodes
     $MIRROR --host-type nodes upload-file --src ${cwd}/bench.sh --dst ${BENCHNET_DIR}
     $MIRROR --host-type nodes upload-file --src ${cwd}/cases --dst ${BENCHNET_DIR}
-    
+    $MIRROR --host-type nodes new-test --num-seats ${NUM_CHUNK_PRODUCERS} \
+        --new-chain-id ${FORKNET_NAME} \
+        --yes
+
     # Apply custom configs to RPC node
     local cmd="cd ${BENCHNET_DIR}; ${FORKNET_ENV} ./bench.sh tweak-config-forknet-node ${CASE} ${FORKNET_BOOT_NODES}"
     $MIRROR --host-type nodes run-cmd --cmd "${cmd}"
