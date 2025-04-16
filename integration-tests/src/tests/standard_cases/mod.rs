@@ -1334,15 +1334,13 @@ pub fn test_smart_contract_free(node: impl Node) {
     let node_user = node.user();
     let root = node_user.get_state_root();
     let transaction_result = node_user
-        .function_call(alice_account(), bob_account(), "run_test", vec![], 10u64.pow(14), 0)
+        .function_call(alice_account(), bob_account(), "run_test", vec![], 10u64.pow(13), 0)
         .unwrap();
     assert_eq!(
         transaction_result.status,
         FinalExecutionStatus::SuccessValue(10i32.to_le_bytes().to_vec())
     );
-    // TODO: Why does this create an additional receipt with `ReducedGasRefunds.enabled`?
-    let num_expected_receipts =
-        if ProtocolFeature::ReducedGasRefunds.enabled(PROTOCOL_VERSION) { 2 } else { 1 };
+    let num_expected_receipts = 1;
     assert_eq!(
         transaction_result.receipts_outcome.len(),
         num_expected_receipts,
