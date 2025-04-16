@@ -112,6 +112,7 @@ class NodeHandle:
     def neard_runner_network_init(self,
                                   validators,
                                   boot_nodes,
+                                  source,
                                   epoch_length,
                                   num_seats,
                                   new_chain_id,
@@ -120,6 +121,7 @@ class NodeHandle:
         params = {
             'validators': validators,
             'boot_nodes': boot_nodes,
+            'source': source,
             'epoch_length': epoch_length,
             'num_seats': num_seats,
             'new_chain_id': new_chain_id,

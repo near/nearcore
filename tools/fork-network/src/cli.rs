@@ -99,15 +99,18 @@ struct AmendAccessKeysCmd {
     batch_size: u64,
 }
 
+#[derive(clap::Parser, Clone, Default)]
+struct PatchPath {
+    #[arg(value_name = "patches_path")]
+    path: PathBuf,
+}
+
 #[derive(clap::Parser, Clone, strum::EnumString, strum::Display)]
 enum StateSource {
     #[strum(serialize = "dump")]
     Dump,
     #[strum(serialize = "empty")]
-    Empty {
-        #[arg(value_name = "patches_path")]
-        patches_path: PathBuf,
-    },
+    Empty(PatchPath),
 }
 
 #[derive(clap::Parser)]
@@ -490,20 +493,17 @@ impl ForkNetworkCommand {
                 near_config,
                 home_dir,
             ),
-            StateSource::Empty { patches_path } => {
-                self.set_validators(
-                    patches_path.as_ref(),
-                    genesis_time,
-                    protocol_version,
-                    validators,
-                    epoch_length,
-                    num_seats,
-                    chain_id,
-                    near_config,
-                    home_dir,
-                )?;
-                Ok(())
-            }
+            StateSource::Empty(PatchPath { path }) => self.set_validators(
+                path.as_ref(),
+                genesis_time,
+                protocol_version,
+                validators,
+                epoch_length,
+                num_seats,
+                chain_id,
+                near_config,
+                home_dir,
+            ),
         }?;
         tracing::info!("Validators set");
         Ok(())
