@@ -115,7 +115,8 @@ impl StateSyncDownloadSourcePeer {
         let (sender, receiver) = oneshot::channel();
 
         // Peers advertise their snapshots by the prev prev hash of the sync hash.
-        // TODO: see if we can change the block hash on the snapshot to match the sync hash.
+        // We compute it here to pass as part of the network request.
+        // TODO(saketh): it would be nice to migrate the network layer to the same hash.
         let prev_hash = *store
             .get_ser::<BlockHeader>(DBCol::BlockHeader, key.sync_hash.as_bytes())?
             .ok_or_else(|| {
@@ -191,7 +192,8 @@ impl StateSyncDownloadSourcePeer {
 
         let state_value = PendingPeerRequestValue { peer_id: Some(request_sent_to_peer), sender };
 
-        // Whether the request succeeds, we shall remove the key from the map of pending requests afterwards.
+        // Ensures that the key is removed from the map of pending requests when this scope exits,
+        // whether on success or timeout.
         let _remove_key_upon_drop = RemoveKeyUponDrop { key: key.clone(), state: state.clone() };
         {
             let mut state_lock = state.lock().unwrap();
