@@ -11,6 +11,6 @@
         "volume": 0
     },
     "forknet": {
-        "binary_url": "https://s3-us-west-1.amazonaws.com/build.nearprotocol.com/nearcore/Linux/tx-generator-neard/neard"
+        "binary_url": "https://storage.googleapis.com/logunov-s/neard-0417"
     }
 }
