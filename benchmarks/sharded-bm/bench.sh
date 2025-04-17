@@ -184,7 +184,7 @@ stop_nodes() {
 reset_forknet() {
     cd ${PYTEST_PATH}
     $MIRROR --host-type nodes run-cmd --cmd \
-        "find ${NEAR_HOME}/data -mindepth 1 -delete ; rm -rf ${BENCHNET_DIR}/${USERS_DATA_DIR}"
+        "find ${NEAR_HOME}/data -mindepth 1 -delete ; rm -rf ${BENCHNET_DIR}"
     if [ "${TX_GENERATOR}" = true ]; then
         $MIRROR --host-type nodes run-cmd --cmd \
             "jq 'del(.tx_generator)' ${CONFIG} > tmp.$$.json && \
@@ -273,6 +273,10 @@ gen_localnet_for_forknet() {
     echo "===> Initializing nodes homes for forknet using new-test"
     cd ${PYTEST_PATH}
     
+    # Upload bench.sh and test case files to all nodes
+    $MIRROR --host-type nodes upload-file --src ${cwd}/bench.sh --dst ${BENCHNET_DIR}
+    $MIRROR --host-type nodes upload-file --src ${cwd}/cases --dst ${BENCHNET_DIR}
+
     echo "Running new-test to initialize nodes and collect validator keys"
     $MIRROR new-test --epoch-length ${EPOCH_LENGTH} --num-validators ${NUM_CHUNK_PRODUCERS} \
         --new-chain-id ${FORKNET_NAME} --yes
@@ -385,10 +389,6 @@ tweak_config_forknet() {
     fetch_forknet_details
     local cwd=$(pwd)
     cd ${PYTEST_PATH}
-    
-    # Upload bench.sh and test case files to all nodes
-    $MIRROR --host-type nodes upload-file --src ${cwd}/bench.sh --dst ${BENCHNET_DIR}
-    $MIRROR --host-type nodes upload-file --src ${cwd}/cases --dst ${BENCHNET_DIR}
     
     # Apply custom configs to RPC node
     local cmd="cd ${BENCHNET_DIR}; ${FORKNET_ENV} ./bench.sh tweak-config-forknet-node ${CASE} ${FORKNET_BOOT_NODES}"
