@@ -872,7 +872,10 @@ impl ForkNetworkCommand {
         })?;
 
         let base_epoch_config_store = match base_epoch_config {
-            Some(base_epoch_config) => base_epoch_config,
+            Some(base_epoch_config) => EpochConfigStore::test(BTreeMap::from([(
+                first_version,
+                Arc::new(base_epoch_config),
+            )])),
             None => EpochConfigStore::for_chain_id(near_primitives::chains::MAINNET, None)
                 .expect("Could not load the EpochConfigStore for mainnet."),
         };
