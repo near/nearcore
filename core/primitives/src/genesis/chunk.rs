@@ -25,6 +25,7 @@ pub fn genesis_chunks(
 ) -> Vec<ShardChunk> {
     assert!(genesis_protocol_version > PROD_GENESIS_PROTOCOL_VERSION);
     let rs = ShardChunkReedSolomon::new(1, 2).unwrap();
+    println!("state_roots: {:?}, shard_ids: {:?}", state_roots, shard_ids);
     let state_roots = if state_roots.len() == shard_ids.len() {
         state_roots
     } else {
