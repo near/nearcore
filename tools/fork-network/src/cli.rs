@@ -654,6 +654,10 @@ impl ForkNetworkCommand {
         initialize_sharded_genesis_state(store.clone(), &genesis, &epoch_config, Some(home_dir));
         genesis.to_file(home_dir.join(&near_config.config.genesis_file));
 
+        near_config.genesis.config.chain_id = chain_id.clone();
+        near_config.genesis.config.protocol_version = genesis_protocol_version;
+        near_config.genesis.config.epoch_length = epoch_length;
+
         let prev_state_roots = get_genesis_state_roots(&store).unwrap().unwrap();
         let shard_uids = epoch_config.shard_layout.shard_uids().collect::<Vec<_>>();
 
