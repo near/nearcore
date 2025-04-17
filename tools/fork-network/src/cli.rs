@@ -657,6 +657,12 @@ impl ForkNetworkCommand {
         let prev_state_roots = get_genesis_state_roots(&store).unwrap().unwrap();
         let shard_uids = epoch_config.shard_layout.shard_uids().collect::<Vec<_>>();
 
+        self.override_epoch_configs(
+            Some(epoch_config.clone()),
+            genesis_protocol_version,
+            &Some(num_seats),
+            home_dir,
+        )?;
         let epoch_manager =
             EpochManager::new_arc_handle(store.clone(), &genesis.config, Some(home_dir));
         let runtime = NightshadeRuntime::from_config(

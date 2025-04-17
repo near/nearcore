@@ -274,7 +274,7 @@ gen_localnet_for_forknet() {
     cd ${PYTEST_PATH}
     
     echo "Running new-test to initialize nodes and collect validator keys"
-    $MIRROR new-test --epoch-length ${EPOCH_LENGTH} --num-seats ${NUM_CHUNK_PRODUCERS} \
+    $MIRROR new-test --epoch-length ${EPOCH_LENGTH} --num-validators ${NUM_CHUNK_PRODUCERS} \
         --new-chain-id ${FORKNET_NAME} --yes
     
     echo "Waiting for node initialization to complete..."
