@@ -1283,6 +1283,7 @@ impl ForkNetworkCommand {
                 .enumerate()
                 .map(|(idx, shard_uid)| (*shard_uid, state_roots[idx].clone()))
                 .collect();
+            println!("state_roots_map: {:?}", state_roots_map);
             let update_state = ShardUpdateState::new_update_state(
                 &flat_store,
                 &shard_layout,

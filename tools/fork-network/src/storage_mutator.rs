@@ -464,10 +464,6 @@ pub(crate) fn commit_shard(
     update_state: &ShardUpdateState,
     updates: Vec<(TrieKey, Option<Vec<u8>>)>,
 ) -> anyhow::Result<StateRoot> {
-    if updates.is_empty() {
-        return Ok(StateRoot::default());
-    }
-
     let mut root = update_state.root.lock().unwrap();
 
     let new_root = match root.as_mut() {
