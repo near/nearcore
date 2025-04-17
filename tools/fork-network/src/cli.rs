@@ -671,7 +671,7 @@ impl ForkNetworkCommand {
             epoch_manager.as_ref(),
             runtime.as_ref(),
             &chain_genesis,
-            prev_state_roots,
+            prev_state_roots.clone(),
         )?;
         let flat_storage_manager = runtime.get_flat_storage_manager();
         let mut store_update = store.store_update();
