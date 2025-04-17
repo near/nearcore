@@ -1,6 +1,4 @@
-use crate::shard_assignment::{
-    AssignmentRestrictions, ValidatorRestrictionsBuilder, assign_chunk_producers_to_shards,
-};
+use crate::shard_assignment::{AssignmentRestrictions, assign_chunk_producers_to_shards};
 use near_primitives::epoch_info::{EpochInfo, RngSeed};
 use near_primitives::epoch_manager::EpochConfig;
 use near_primitives::errors::EpochError;
@@ -435,7 +433,7 @@ mod tests {
             0,
             PROTOCOL_VERSION,
             false,
-            Default::default(),
+            None,
         )
         .unwrap();
 
@@ -504,6 +502,7 @@ mod tests {
             0,
             PROTOCOL_VERSION,
             false,
+            None,
         )
         .unwrap();
 
@@ -583,6 +582,7 @@ mod tests {
             0,
             PROTOCOL_VERSION,
             false,
+            None,
         )
         .unwrap();
         let epoch_info_no_shuffling_different_seed = proposals_to_epoch_info(
@@ -595,6 +595,7 @@ mod tests {
             0,
             PROTOCOL_VERSION,
             false,
+            None,
         )
         .unwrap();
 
@@ -609,6 +610,7 @@ mod tests {
             0,
             PROTOCOL_VERSION,
             false,
+            None,
         )
         .unwrap();
         let epoch_info_with_shuffling_different_seed = proposals_to_epoch_info(
@@ -621,6 +623,7 @@ mod tests {
             0,
             PROTOCOL_VERSION,
             false,
+            None,
         )
         .unwrap();
 
@@ -673,6 +676,7 @@ mod tests {
             0,
             PROTOCOL_VERSION,
             false,
+            None,
         )
         .unwrap();
 
@@ -712,6 +716,7 @@ mod tests {
             0,
             PROTOCOL_VERSION,
             false,
+            None,
         )
         .unwrap();
 
@@ -743,6 +748,7 @@ mod tests {
             0,
             PROTOCOL_VERSION,
             false,
+            None,
         )
         .unwrap();
 
@@ -797,6 +803,7 @@ mod tests {
             0,
             PROTOCOL_VERSION,
             false,
+            None,
         )
         .unwrap();
 
@@ -859,6 +866,7 @@ mod tests {
             0,
             PROTOCOL_VERSION,
             false,
+            None,
         )
         .unwrap();
 
@@ -900,6 +908,7 @@ mod tests {
             0,
             PROTOCOL_VERSION,
             false,
+            None,
         )
         .unwrap();
         assert_eq!(num_validators + 1, epoch_info.validators_iter().len());
@@ -923,6 +932,7 @@ mod tests {
             0,
             PROTOCOL_VERSION,
             false,
+            None,
         )
         .unwrap();
         assert_eq!(num_validators, epoch_info.validators_iter().len());
@@ -951,6 +961,7 @@ mod tests {
             0,
             PROTOCOL_VERSION,
             false,
+            None,
         )
         .unwrap();
 
@@ -981,6 +992,7 @@ mod tests {
             0,
             PROTOCOL_VERSION,
             false,
+            None,
         )
         .unwrap();
 

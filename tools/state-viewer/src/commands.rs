@@ -25,7 +25,9 @@ use near_chain::{
     get_incoming_receipts_for_shard,
 };
 use near_chain_configs::GenesisChangeConfig;
-use near_epoch_manager::shard_assignment::{shard_id_to_index, shard_id_to_uid};
+use near_epoch_manager::shard_assignment::{
+    build_assignment_restrictions_v77_to_v78, shard_id_to_index, shard_id_to_uid,
+};
 use near_epoch_manager::{EpochManager, EpochManagerAdapter, proposals_to_epoch_info};
 use near_primitives::account::id::AccountId;
 use near_primitives::apply::ApplyChunkReason;

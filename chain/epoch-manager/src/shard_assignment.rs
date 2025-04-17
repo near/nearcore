@@ -520,6 +520,7 @@ mod tests {
             RngSeed::default(),
             vec![],
             false,
+            None,
         )
         .unwrap();
 
@@ -543,6 +544,7 @@ mod tests {
             RngSeed::default(),
             prev_assignment,
             true,
+            None,
         )
         .unwrap();
 
@@ -565,6 +567,7 @@ mod tests {
             RngSeed::default(),
             prev_assignment,
             true,
+            None,
         )
         .unwrap();
 
@@ -590,6 +593,7 @@ mod tests {
             RngSeed::default(),
             prev_assignment,
             true,
+            None,
         )
         .unwrap();
 
@@ -612,6 +616,7 @@ mod tests {
             RngSeed::default(),
             prev_assignment.clone(),
             true,
+            None,
         )
         .unwrap();
 
@@ -634,6 +639,7 @@ mod tests {
             RngSeed::default(),
             prev_assignment,
             true,
+            None,
         )
         .unwrap();
 
@@ -657,6 +663,7 @@ mod tests {
             RngSeed::default(),
             vec![],
             false,
+            None,
         )
         .unwrap();
 
@@ -679,6 +686,7 @@ mod tests {
             RngSeed::default(),
             prev_assignment,
             true,
+            None,
         )
         .unwrap();
 
@@ -719,6 +727,7 @@ mod tests {
                 RngSeed::default(),
                 assignment.clone(),
                 true,
+                None,
             )
             .unwrap();
 
