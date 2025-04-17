@@ -647,6 +647,7 @@ impl ForkNetworkCommand {
             genesis.config.protocol_version = protocol_version;
         }
         let genesis_protocol_version = genesis.config.protocol_version;
+        let genesis_height = genesis.config.genesis_height;
         genesis.config.epoch_length = epoch_length;
         genesis.config.chain_id = chain_id.clone();
         initialize_sharded_genesis_state(store.clone(), &genesis, &epoch_config, Some(home_dir));
@@ -700,7 +701,7 @@ impl ForkNetworkCommand {
             epoch_manager.as_ref(),
             runtime.as_ref(),
             &chain_genesis,
-            state_roots,
+            state_roots.clone(),
         )?;
         let mut store_update = store.store_update();
         for shard_uid in shard_uids {
@@ -713,7 +714,21 @@ impl ForkNetworkCommand {
         }
         store_update.commit()?;
 
-        Ok(())
+        tracing::info!("Creating a new genesis");
+        backup_genesis_file(home_dir, &near_config)?;
+        self.make_and_write_genesis(
+            genesis_time,
+            protocol_version,
+            target_shard_layout.clone(),
+            epoch_length,
+            &Some(num_seats),
+            genesis_height,
+            chain_id,
+            state_roots.clone(),
+            validators.clone(),
+            home_dir,
+            near_config,
+        )
     }
 
     /// Deletes DB columns that are not needed in the new chain.
