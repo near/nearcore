@@ -79,6 +79,7 @@ pub use near_vm_runner::with_ext_cost_counter;
 use pipelining::ReceiptPreparationPipeline;
 use rayon::prelude::*;
 use std::cmp::max;
+use std::collections::btree_map::Entry;
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 use tracing::{debug, instrument};
@@ -177,6 +178,15 @@ impl<'a> TransactionBatch<'a> {
     fn iter(&self) -> impl Iterator<Item = (usize, &SignedTransaction)> + '_ {
         self.indices.iter().map(|i| (*i, &self.signed_txs[*i]))
     }
+
+    fn get_account(&self, state_update: &TrieUpdate) -> Result<Account, InvalidTxError> {
+        debug_assert!(!self.indices.is_empty());
+        let signer_id = self.signed_txs[self.indices[0]].transaction.signer_id();
+        match get_account(state_update, signer_id)? {
+            Some(acc) => Ok(acc),
+            None => Err(InvalidTxError::SignerDoesNotExist { signer_id: signer_id.clone() }),
+        }
+    }
 }
 
 struct TransactionBatches<'a> {
@@ -239,25 +249,12 @@ struct BatchOutput {
 }
 
 impl BatchOutput {
-    /// Returns `true` if at least one transaction in the batch was successful.
-    pub fn has_successful_tx(&self) -> bool {
-        self.processed_transactions
-            .iter()
-            .any(|pt| matches!(pt.result, PerTransactionResult::Success { .. }))
-    }
-
-    /// Returns the `signer_id` of the first non-failed transaction in the batch.
-    /// Panics if all transactions failed or if the batch is empty.
-    fn signer_id(&self) -> &AccountId {
-        self.processed_transactions
-            .iter()
-            .find_map(|pt| match &pt.result {
-                PerTransactionResult::Success { validated_tx, .. } => {
-                    Some(validated_tx.signer_id())
-                }
-                PerTransactionResult::Failure { .. } => None,
-            })
-            .expect("No successful transaction in this batch => signer_id is undefined.")
+    /// Returns the `signer_id` of the first non-failed transaction in the batch if such exists or None.
+    fn signer_id(&self) -> Option<&AccountId> {
+        self.processed_transactions.iter().find_map(|pt| match &pt.result {
+            PerTransactionResult::Success { validated_tx, .. } => Some(validated_tx.signer_id()),
+            PerTransactionResult::Failure { .. } => None,
+        })
     }
 }
 
@@ -398,10 +395,33 @@ impl Runtime {
         block_height: BlockHeight,
         current_protocol_version: ProtocolVersion,
     ) -> BatchOutput {
-        let mut ephemeral_signer: Option<Account> = None;
-        let mut ephemeral_keys = BTreeMap::<PublicKey, AccessKey>::new();
+        debug_assert!(!batch.indices.is_empty());
 
         let mut processed_transactions = Vec::with_capacity(batch.indices.len());
+
+        let mut ephemeral_signer = match batch.get_account(state_update) {
+            Ok(signer) => signer,
+            Err(err) => {
+                debug!(target: "runtime", ?err, "failed to retrieve the account for the transactions batch");
+
+                return BatchOutput {
+                    processed_transactions: batch
+                        .iter()
+                        .map(|(i, tx)| ProcessedTransaction {
+                            index: i,
+                            result: PerTransactionResult::Failure {
+                                tx_hash: tx.get_hash(),
+                                error: err.clone(),
+                            },
+                        })
+                        .collect(),
+                    updated_account: None,
+                    updated_keys: BTreeMap::<PublicKey, AccessKey>::default(),
+                };
+            }
+        };
+
+        let mut ephemeral_keys = BTreeMap::<PublicKey, AccessKey>::new();
 
         for (idx, signed_tx) in batch.iter() {
             let tx_hash = signed_tx.get_hash();
@@ -432,73 +452,39 @@ impl Runtime {
                 }
             };
 
-            if ephemeral_signer.is_none() {
-                match get_signer_and_access_key(state_update, &validated_tx) {
-                    Ok((signer_acct, ak)) => {
-                        ephemeral_signer = Some(signer_acct);
-                        ephemeral_keys.insert(validated_tx.public_key().clone(), ak);
-                    }
-                    Err(e) => {
-                        processed_transactions.push(ProcessedTransaction {
-                            index: idx,
-                            result: PerTransactionResult::Failure { tx_hash, error: e },
-                        });
-                        continue;
-                    }
-                }
-            }
-
-            let ephemeral_signer_ref = match ephemeral_signer.as_mut() {
-                Some(s) => s,
-                None => {
-                    processed_transactions.push(ProcessedTransaction {
-                        index: idx,
-                        result: PerTransactionResult::Failure {
-                            tx_hash,
-                            error: InvalidTxError::SignerDoesNotExist {
-                                signer_id: validated_tx.signer_id().clone(),
-                            },
-                        },
-                    });
-                    continue;
-                }
-            };
-
             let ephemeral_access_key = {
                 let pk = validated_tx.public_key().clone();
 
-                if let Some(ak) = ephemeral_keys.get_mut(&pk) {
-                    ak
-                } else {
-                    match get_access_key(state_update, validated_tx.signer_id(), &pk) {
-                        Ok(Some(loaded_ak)) => {
-                            ephemeral_keys.insert(pk.clone(), loaded_ak);
-                            ephemeral_keys.get_mut(&pk).expect("just inserted, must exist")
-                        }
-                        Ok(None) => {
-                            processed_transactions.push(ProcessedTransaction {
-                                index: idx,
-                                result: PerTransactionResult::Failure {
-                                    tx_hash,
-                                    error: InvalidTxError::InvalidAccessKeyError(
-                                        InvalidAccessKeyError::AccessKeyNotFound {
-                                            account_id: validated_tx.signer_id().clone(),
-                                            public_key: pk.into(),
-                                        },
-                                    ),
-                                },
-                            });
-                            continue;
-                        }
-                        Err(storage_err) => {
-                            processed_transactions.push(ProcessedTransaction {
-                                index: idx,
-                                result: PerTransactionResult::Failure {
-                                    tx_hash,
-                                    error: storage_err.into(),
-                                },
-                            });
-                            continue;
+                match ephemeral_keys.entry(pk.clone()) {
+                    Entry::Occupied(ak) => ak.into_mut(),
+                    Entry::Vacant(entry) => {
+                        match get_access_key(state_update, validated_tx.signer_id(), &pk) {
+                            Ok(Some(loaded_ak)) => entry.insert(loaded_ak),
+                            Ok(None) => {
+                                processed_transactions.push(ProcessedTransaction {
+                                    index: idx,
+                                    result: PerTransactionResult::Failure {
+                                        tx_hash,
+                                        error: InvalidTxError::InvalidAccessKeyError(
+                                            InvalidAccessKeyError::AccessKeyNotFound {
+                                                account_id: validated_tx.signer_id().clone(),
+                                                public_key: pk.into(),
+                                            },
+                                        ),
+                                    },
+                                });
+                                continue;
+                            }
+                            Err(storage_err) => {
+                                processed_transactions.push(ProcessedTransaction {
+                                    index: idx,
+                                    result: PerTransactionResult::Failure {
+                                        tx_hash,
+                                        error: storage_err.into(),
+                                    },
+                                });
+                                continue;
+                            }
                         }
                     }
                 }
@@ -506,7 +492,7 @@ impl Runtime {
 
             let verification_result = match verify_and_charge_tx_ephemeral(
                 &apply_state.config,
-                ephemeral_signer_ref,
+                &mut ephemeral_signer,
                 ephemeral_access_key,
                 &validated_tx,
                 &cost,
@@ -523,7 +509,6 @@ impl Runtime {
             };
 
             let (receipt, outcome) = {
-                let transaction = validated_tx.to_tx();
                 let receipt_id = create_receipt_id_from_transaction(
                     current_protocol_version,
                     validated_tx.to_hash(),
@@ -531,16 +516,16 @@ impl Runtime {
                     apply_state.block_height,
                 );
                 let receipt = Receipt::V0(ReceiptV0 {
-                    predecessor_id: transaction.signer_id().clone(),
-                    receiver_id: transaction.receiver_id().clone(),
+                    predecessor_id: validated_tx.signer_id().clone(),
+                    receiver_id: validated_tx.receiver_id().clone(),
                     receipt_id,
                     receipt: ReceiptEnum::Action(ActionReceipt {
-                        signer_id: transaction.signer_id().clone(),
-                        signer_public_key: transaction.public_key().clone(),
+                        signer_id: validated_tx.signer_id().clone(),
+                        signer_public_key: validated_tx.public_key().clone(),
                         gas_price: verification_result.receipt_gas_price,
                         output_data_receivers: vec![],
                         input_data_ids: vec![],
-                        actions: transaction.actions().to_vec(),
+                        actions: validated_tx.actions().to_vec(),
                     }),
                 });
                 let gas_burnt = verification_result.gas_burnt;
@@ -555,7 +540,7 @@ impl Runtime {
                         // TODO(#8806): Support compute costs for actions. For now they match burnt gas.
                         compute_usage: Some(compute_usage),
                         tokens_burnt: verification_result.burnt_amount,
-                        executor_id: transaction.signer_id().clone(),
+                        executor_id: validated_tx.signer_id().clone(),
                         // TODO: profile data is only counted in apply_action, which only happened at process_receipt
                         // VerificationResult needs updates to incorporate profile data to support profile data of txns
                         metadata: ExecutionMetadata::V1,
@@ -577,7 +562,7 @@ impl Runtime {
 
         BatchOutput {
             processed_transactions,
-            updated_account: ephemeral_signer,
+            updated_account: Some(ephemeral_signer),
             updated_keys: ephemeral_keys,
         }
     }
@@ -1687,21 +1672,17 @@ impl Runtime {
         let mut all_processed = Vec::new();
         for batch_vec in batch_outputs {
             for batch_out in batch_vec {
-                if !batch_out.has_successful_tx() {
-                    continue;
-                }
+                let signer_id = match batch_out.signer_id() {
+                    Some(id) => id,
+                    None => continue,
+                };
 
                 for (public_key, access_key) in &batch_out.updated_keys {
-                    set_access_key(
-                        state_update,
-                        batch_out.signer_id().clone(),
-                        public_key.clone(),
-                        access_key,
-                    );
+                    set_access_key(state_update, signer_id.clone(), public_key.clone(), access_key);
                 }
                 set_account(
                     state_update,
-                    batch_out.signer_id().clone(),
+                    signer_id.clone(),
                     &batch_out.updated_account.expect("any successfully validated transaction means account should have been updated"),
                 );
 
@@ -1774,9 +1755,9 @@ impl Runtime {
                     metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
                     tracing::debug!(
                         target: "runtime",
-                        "invalid transaction ignored => tx_hash: {}, error: {:?}",
-                        tx_hash,
-                        error
+                        ?tx_hash,
+                        ?error,
+                        "invalid transaction ignored",
                     );
                 }
             }
