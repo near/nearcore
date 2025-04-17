@@ -9,7 +9,6 @@ use itertools::Itertools;
 use near_primitives::{shard_layout::ShardUId, types::StateRoot};
 
 use crate::test_utils::TestTriesBuilder;
-use crate::trie::Trie;
 use crate::trie::mem::iter::{MemTrieIteratorInner, STMemTrieIterator};
 use crate::trie::mem::memtrie_update::TrackingMode;
 use crate::trie::mem::memtries::MemTries;
@@ -19,6 +18,7 @@ use crate::trie::mem::nibbles_utils::{
 use crate::trie::trie_recording::TrieRecorder;
 use crate::trie::trie_storage::TrieMemoryPartialStorage;
 use crate::trie::trie_storage_update::TrieStorageUpdate;
+use crate::trie::{AccessOptions, Trie};
 
 use super::resharding::retain_split_shard_custom_ranges;
 
@@ -82,7 +82,8 @@ fn retain_split_shard_custom_ranges_for_trie(
     retain_multi_ranges: &Vec<Range<Vec<u8>>>,
 ) -> CryptoHash {
     let mut trie_update = TrieStorageUpdate::new(trie);
-    let root_node = trie.move_node_to_mutable(&mut trie_update, &trie.root).unwrap();
+    let root_node =
+        trie.move_node_to_mutable(&mut trie_update, &trie.root, AccessOptions::DEFAULT).unwrap();
     retain_split_shard_custom_ranges(&mut trie_update, retain_multi_ranges);
     let result = trie_update.flatten_nodes(&trie.root, root_node.0).unwrap();
     result.new_root

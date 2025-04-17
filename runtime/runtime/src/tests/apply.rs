@@ -37,6 +37,7 @@ use near_primitives::types::{
 use near_primitives::utils::create_receipt_id_from_transaction;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_store::test_utils::TestTriesBuilder;
+use near_store::trie::AccessOptions;
 use near_store::trie::receipts_column_helper::ShardsOutgoingReceiptBuffer;
 use near_store::{
     MissingTrieValueContext, ShardTries, StorageError, Trie, get_account, set_access_key,
@@ -171,6 +172,7 @@ fn setup_runtime_for_shard(
         is_new_chunk: true,
         congestion_info,
         bandwidth_requests: BlockBandwidthRequests::empty(),
+        trie_access_tracker_state: Default::default(),
     };
 
     (runtime, tries, root, apply_state, signers)
@@ -1253,12 +1255,12 @@ fn test_main_storage_proof_size_soft_limit() {
     let storage = Trie::from_recorded_storage(partial_storage, root, false);
     let code_key = TrieKey::ContractCode { account_id: alice_account() };
     assert_matches!(
-        storage.get(&code_key.to_vec()),
+        storage.get(&code_key.to_vec(), AccessOptions::DEFAULT),
         Err(StorageError::MissingTrieValue(MissingTrieValueContext::TrieMemoryPartialStorage, _))
     );
     let code_key = TrieKey::ContractCode { account_id: bob_account() };
     assert_matches!(
-        storage.get(&code_key.to_vec()),
+        storage.get(&code_key.to_vec(), AccessOptions::DEFAULT),
         Err(StorageError::MissingTrieValue(MissingTrieValueContext::TrieMemoryPartialStorage, _))
     );
 }
@@ -1371,12 +1373,12 @@ fn test_exclude_contract_code_from_witness() {
     let storage = Trie::from_recorded_storage(partial_storage, root, false);
     let code_key = TrieKey::ContractCode { account_id: alice_account() };
     assert_matches!(
-        storage.get(&code_key.to_vec()),
+        storage.get(&code_key.to_vec(), AccessOptions::DEFAULT),
         Err(StorageError::MissingTrieValue(MissingTrieValueContext::TrieMemoryPartialStorage, _))
     );
     let code_key = TrieKey::ContractCode { account_id: bob_account() };
     assert_matches!(
-        storage.get(&code_key.to_vec()),
+        storage.get(&code_key.to_vec(), AccessOptions::DEFAULT),
         Err(StorageError::MissingTrieValue(MissingTrieValueContext::TrieMemoryPartialStorage, _))
     );
 }
@@ -1476,12 +1478,12 @@ fn test_exclude_contract_code_from_witness_with_failed_call() {
     let storage = Trie::from_recorded_storage(partial_storage, root, false);
     let code_key = TrieKey::ContractCode { account_id: alice_account() };
     assert_matches!(
-        storage.get(&code_key.to_vec()),
+        storage.get(&code_key.to_vec(), AccessOptions::DEFAULT),
         Err(StorageError::MissingTrieValue(MissingTrieValueContext::TrieMemoryPartialStorage, _))
     );
     let code_key = TrieKey::ContractCode { account_id: bob_account() };
     assert_matches!(
-        storage.get(&code_key.to_vec()),
+        storage.get(&code_key.to_vec(), AccessOptions::DEFAULT),
         Err(StorageError::MissingTrieValue(MissingTrieValueContext::TrieMemoryPartialStorage, _))
     );
 }

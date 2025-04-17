@@ -16,10 +16,10 @@ use near_primitives::types::chunk_extra::ChunkExtra;
 use near_store::adapter::trie_store::{TrieStoreUpdateAdapter, get_shard_uid_mapping};
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::flat::BlockInfo;
-use near_store::trie::TrieRecorder;
 use near_store::trie::mem::memtrie_update::TrackingMode;
 use near_store::trie::ops::resharding::RetainMode;
 use near_store::trie::outgoing_metadata::ReceiptGroupsQueue;
+use near_store::trie::{AccessOptions, TrieRecorder};
 use near_store::{DBCol, ShardTries, ShardUId, Store, TrieAccess};
 use std::io;
 use std::num::NonZero;
@@ -233,7 +233,11 @@ impl ReshardingManager {
             let mode = TrackingMode::RefcountsAndAccesses(&mut trie_recorder);
             let memtrie_update = memtries.update(*parent_chunk_extra.state_root(), mode)?;
 
-            let trie_changes = memtrie_update.retain_split_shard(&boundary_account, retain_mode);
+            let trie_changes = memtrie_update.retain_split_shard(
+                &boundary_account,
+                retain_mode,
+                AccessOptions::DEFAULT,
+            );
             Self::duplicate_nodes_at_split_boundary(
                 &mut trie_store_update.trie_store_update(),
                 trie_recorder.recorded_iter(),

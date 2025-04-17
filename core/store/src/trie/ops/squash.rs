@@ -1,11 +1,10 @@
-use near_primitives::errors::StorageError;
-
-use crate::NibbleSlice;
-
 use super::interface::{
     GenericNodeOrIndex, GenericTrieUpdate, GenericUpdatedTrieNode, GenericUpdatedTrieNodeWithSize,
     HasValueLength, UpdatedNodeId,
 };
+use crate::NibbleSlice;
+use crate::trie::AccessOptions;
+use near_primitives::errors::StorageError;
 
 pub(crate) trait GenericTrieUpdateSquash<'a, N, V>: GenericTrieUpdate<'a, N, V>
 where
@@ -27,7 +26,11 @@ where
     /// the leaf to the root.
     /// For range removal, it is called in the end of recursive range removal
     /// function, which is the definition of post-order traversal.
-    fn squash_node(&mut self, node_id: UpdatedNodeId) -> Result<(), StorageError> {
+    fn squash_node(
+        &mut self,
+        node_id: UpdatedNodeId,
+        opts: AccessOptions,
+    ) -> Result<(), StorageError> {
         let GenericUpdatedTrieNodeWithSize { node, memory_usage } = self.take_node(node_id);
         match node {
             GenericUpdatedTrieNode::Empty => {
@@ -83,7 +86,7 @@ where
                         .encoded_leftmost(1, false)
                         .into_vec()
                         .into_boxed_slice();
-                    self.extend_child(node_id, extension, child)?;
+                    self.extend_child(node_id, extension, child, opts)?;
                 } else {
                     // Branch with more than 1 children stays branch.
                     self.place_node_at(
@@ -96,7 +99,7 @@ where
                 }
             }
             GenericUpdatedTrieNode::Extension { extension, child } => {
-                self.extend_child(node_id, extension, child)?;
+                self.extend_child(node_id, extension, child, opts)?;
             }
         }
         Ok(())
@@ -112,8 +115,9 @@ where
         extension: Box<[u8]>,
         // The current child.
         child_id: GenericNodeOrIndex<N>,
+        opts: AccessOptions,
     ) -> Result<(), StorageError> {
-        let child_id = self.ensure_updated(child_id)?;
+        let child_id = self.ensure_updated(child_id, opts)?;
         let GenericUpdatedTrieNodeWithSize { node, memory_usage } = self.take_node(child_id);
         let child_child_memory_usage = memory_usage.saturating_sub(node.memory_usage_direct());
         match node {

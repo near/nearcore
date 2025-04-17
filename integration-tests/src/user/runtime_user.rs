@@ -104,7 +104,7 @@ impl RuntimeUser {
             } else {
                 let shard_uid = ShardUId::single_shard();
                 let mut trie = client.tries.get_trie_for_shard(shard_uid, client.state_root);
-                trie.set_charge_gas_for_trie_node_access(true);
+                trie.set_use_trie_accounting_cache(true);
                 trie
             };
             let validity_check_results = vec![true; txs.len()];
@@ -203,6 +203,7 @@ impl RuntimeUser {
             is_new_chunk: true,
             congestion_info,
             bandwidth_requests: BlockBandwidthRequests::empty(),
+            trie_access_tracker_state: Default::default(),
         }
     }
 

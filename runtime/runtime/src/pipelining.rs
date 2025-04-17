@@ -14,6 +14,7 @@ use near_primitives::receipt::{Receipt, ReceiptEnum};
 use near_primitives::trie_key::{GlobalContractCodeIdentifier, TrieKey};
 use near_primitives::types::{AccountId, Gas};
 use near_store::contract::ContractStorage;
+use near_store::trie::AccessOptions;
 use near_store::{KeyLookupMode, TrieUpdate, get_pure};
 use near_vm_runner::logic::GasCounter;
 use near_vm_runner::{ContractRuntimeCache, PreparedContract};
@@ -178,9 +179,11 @@ impl ReceiptPreparationPipeline {
                                     global_contract_account_id.clone(),
                                 ),
                             };
-                            let Ok(Some(value_ref)) = state_update
-                                .get_ref_no_side_effects(&key, KeyLookupMode::MemOrFlatOrTrie)
-                            else {
+                            let Ok(Some(value_ref)) = state_update.get_ref(
+                                &key,
+                                KeyLookupMode::MemOrFlatOrTrie,
+                                AccessOptions::NO_SIDE_EFFECTS,
+                            ) else {
                                 continue;
                             };
                             value_ref.value_hash()
