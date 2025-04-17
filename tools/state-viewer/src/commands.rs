@@ -42,7 +42,7 @@ use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::trie_key::col::COLUMNS_WITH_ACCOUNT_ID_IN_KEY;
 use near_primitives::types::{BlockHeight, EpochId, ShardId};
-use near_primitives::version::PROTOCOL_VERSION;
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives_core::types::{Balance, EpochHeight};
 use near_store::TrieStorage;
 use near_store::adapter::StoreAdapter;
@@ -1067,6 +1067,19 @@ pub(crate) fn print_epoch_analysis(
             epoch_heights_to_infos.get(&next_next_epoch_height).unwrap();
         let rng_seed = stored_next_next_epoch_info.rng_seed();
 
+        let chunk_producer_assignment_restrictions = if !ProtocolFeature::SimpleNightshadeV6
+            .enabled(next_epoch_info.protocol_version())
+            && ProtocolFeature::SimpleNightshadeV6.enabled(next_next_protocol_version)
+        {
+            build_assignment_restrictions_v77_to_v78(
+                &next_epoch_info,
+                &next_epoch_config.shard_layout,
+                next_next_epoch_config.shard_layout.clone(),
+            )
+        } else {
+            None
+        };
+
         let next_next_epoch_info = proposals_to_epoch_info(
             &next_next_epoch_config,
             rng_seed,
@@ -1077,6 +1090,7 @@ pub(crate) fn print_epoch_analysis(
             stored_next_next_epoch_info.minted_amount(),
             next_next_protocol_version,
             has_same_shard_layout,
+            chunk_producer_assignment_restrictions,
         )
         .unwrap();
 

@@ -1,4 +1,6 @@
-use crate::shard_assignment::assign_chunk_producers_to_shards;
+use crate::shard_assignment::{
+    AssignmentRestrictions, ValidatorRestrictionsBuilder, assign_chunk_producers_to_shards,
+};
 use near_primitives::epoch_info::{EpochInfo, RngSeed};
 use near_primitives::epoch_manager::EpochConfig;
 use near_primitives::errors::EpochError;
@@ -99,6 +101,7 @@ fn get_chunk_producers_assignment(
     prev_epoch_info: &EpochInfo,
     validator_roles: &ValidatorRoles,
     use_stable_shard_assignment: bool,
+    chunk_producer_assignment_restrictions: Option<AssignmentRestrictions>,
 ) -> Result<ChunkProducersAssignment, EpochError> {
     let ValidatorRoles { chunk_producers, block_producers, chunk_validators, .. } = validator_roles;
 
@@ -145,6 +148,7 @@ fn get_chunk_producers_assignment(
         rng_seed,
         prev_chunk_producers_assignment,
         use_stable_shard_assignment,
+        chunk_producer_assignment_restrictions,
     )
     .map_err(|_| EpochError::NotEnoughValidators {
         num_validators: num_chunk_producers as u64,
@@ -170,6 +174,7 @@ pub fn proposals_to_epoch_info(
     minted_amount: Balance,
     protocol_version: ProtocolVersion,
     use_stable_shard_assignment: bool,
+    chunk_producer_assignment_restrictions: Option<AssignmentRestrictions>,
 ) -> Result<EpochInfo, EpochError> {
     debug_assert!(
         proposals.iter().map(|stake| stake.account_id()).collect::<HashSet<_>>().len()
@@ -224,6 +229,7 @@ pub fn proposals_to_epoch_info(
         prev_epoch_info,
         &validator_roles,
         use_stable_shard_assignment,
+        chunk_producer_assignment_restrictions,
     )?;
 
     if epoch_config.shuffle_shard_assignment_for_chunk_producers {
@@ -429,6 +435,7 @@ mod tests {
             0,
             PROTOCOL_VERSION,
             false,
+            Default::default(),
         )
         .unwrap();
 
