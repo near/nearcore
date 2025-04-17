@@ -4,7 +4,7 @@
 
 set -o errexit
 
-CASE="${2:-$CASE}"
+CASE="${CASE:-$2}"
 BM_PARAMS=${CASE}/params.json
 
 if ! [[ -d $CASE ]]; then
@@ -17,6 +17,8 @@ if ! command -v jq &>/dev/null; then
     echo "jq could not be found, please install it."
     exit 1
 fi
+
+GEN_LOCALNET_DONE=false
 
 NUM_CHUNK_PRODUCERS=$(jq '.chunk_producers' ${BM_PARAMS})
 NUM_RPCS=$(jq '.rpcs' ${BM_PARAMS})
@@ -31,6 +33,7 @@ NEAR_HOME="${NEAR_HOME:-/home/ubuntu/.near}"
 GENESIS=${NEAR_HOME}/genesis.json
 CONFIG=${NEAR_HOME}/config.json
 LOG_CONFIG=${NEAR_HOME}/log_config.json
+GENESIS_TIME="${GENESIS_TIME:-2025-04-04T14:24:06.156907Z}"
 
 BASE_GENESIS_PATCH=${CASE}/$(jq -r '.base_genesis_patch' ${BM_PARAMS})
 BASE_CONFIG_PATCH=${CASE}/$(jq -r '.base_config_patch' ${BM_PARAMS})
@@ -45,6 +48,7 @@ BENCHNET_DIR="${BENCHNET_DIR:-/home/ubuntu/bench}"
 RPC_ADDR="127.0.0.1:4040"
 SYNTH_BM_PATH="../synth-bm/Cargo.toml"
 SYNTH_BM_BIN="${SYNTH_BM_BIN:-/home/ubuntu/nearcore/benchmarks/synth-bm/target/release/near-synth-bm}"
+SYNTH_BM_BASENAME="${SYNTH_BM_BASENAME:-$(basename ${SYNTH_BM_BIN})}"
 RUN_ON_FORKNET=$(jq 'has("forknet")' ${BM_PARAMS})
 PYTEST_PATH="../../pytest/"
 TX_GENERATOR=$(jq -r '.tx_generator.enabled // false' ${BM_PARAMS})
@@ -71,10 +75,9 @@ if [ "${RUN_ON_FORKNET}" = true ]; then
         echo "Please set: FORKNET_NAME, FORKNET_START_HEIGHT"
         exit 1
     fi
-    FORKNET_ENV="FORKNET_NAME=${FORKNET_NAME} FORKNET_START_HEIGHT=${FORKNET_START_HEIGHT}"
+    FORKNET_ENV="FORKNET_NAME=${FORKNET_NAME} FORKNET_START_HEIGHT=${FORKNET_START_HEIGHT} SYNTH_BM_BASENAME=${SYNTH_BM_BASENAME}"
     FORKNET_NEARD_LOG="/home/ubuntu/neard-logs/logs.txt"
     FORKNET_NEARD_PATH="${NEAR_HOME}/neard-runner/binaries/neard0"
-    UPDATE_BINARIES="${UPDATE_BINARIES:-false}"
     NUM_SHARDS=$(jq '.shard_layout.V2.shard_ids | length' ${GENESIS} 2>/dev/null) || true
     NODE_BINARY_URL=$(jq -r '.forknet.binary_url' ${BM_PARAMS})
     VALIDATOR_KEY=${NEAR_HOME}/validator_key.json
@@ -88,14 +91,42 @@ fi
 
 RPC_URL="http://${RPC_ADDR}"
 
+mirror_cmd() {
+    shift
+    cd ${PYTEST_PATH}
+    $MIRROR --host-type nodes "$@"
+    cd -
+}
+
 start_nodes_forknet() {
     cd ${PYTEST_PATH}
-    $MIRROR --host-type nodes run-cmd --cmd "cd ${BENCHNET_DIR}; ${FORKNET_ENV} ./bench.sh start-neard0 ${CASE}"
+    
+    fetch_forknet_details
+    local tracing_param=""
+    if [ ! -z "${TRACING_SERVER_INTERNAL_IP}" ]; then
+        tracing_param="${TRACING_SERVER_INTERNAL_IP}"
+        echo "Will start nodes with tracing enabled to: ${tracing_param}"
+    else
+        echo "No tracing server found, will start nodes without tracing"
+    fi
+    $MIRROR --host-type nodes run-cmd --cmd "cd ${BENCHNET_DIR}; ${FORKNET_ENV} ./bench.sh start-neard0 ${CASE} ${tracing_param}"
+
     cd -
 }
 
 start_neard0() {
-    nohup ${FORKNET_NEARD_PATH} --home ${NEAR_HOME} run &> ${FORKNET_NEARD_LOG} &
+    local cmd_suffix=""
+    local tracing_ip=${2:-$TRACING_SERVER_INTERNAL_IP}
+    local neard_cmd="${FORKNET_NEARD_PATH} --home ${NEAR_HOME} run"
+
+    if [ ! -z "${tracing_ip}" ]; then
+        echo "Tracing server internal IP: ${tracing_ip}"
+        export OTEL_EXPORTER_OTLP_TRACES_ENDPOINT="http://${tracing_ip}:4317/"
+    else
+        echo "Tracing server internal IP is not set."
+    fi
+
+    nohup ${neard_cmd} > ${FORKNET_NEARD_LOG} 2>&1 &
 }
 
 start_nodes_local() {
@@ -181,7 +212,7 @@ fetch_forknet_details() {
     # Get all instances for this forknet
     local instances=$(gcloud compute instances list \
         --project=nearone-mocknet \
-        --filter="name~'${FORKNET_NAME}' AND -name~'traffic'" \
+        --filter="name~'-${FORKNET_NAME}-' AND -name~'traffic' AND -name~'tracing'" \
         --format="get(name,networkInterfaces[0].networkIP)")    
     local total_lines=$(echo "$instances" | wc -l | tr -d ' ')
     local num_cp_instances=$((total_lines - 1))
@@ -208,17 +239,60 @@ fetch_forknet_details() {
     echo "Forknet RPC address: ${FORKNET_RPC_ADDR}"
     echo "Forknet RPC node: ${FORKNET_RPC_NODE_ID}"
     echo "Forknet CP nodes: ${FORKNET_CP_NODES}"
+    # Try to get tracing server IP if it exists
+    local tracing_instances=$(gcloud compute instances list \
+        --project=nearone-mocknet \
+        --filter="name~'-${FORKNET_NAME}-' AND name~'tracing'" \
+        --format="get(networkInterfaces[0].networkIP,networkInterfaces[0].accessConfigs[0].natIP)")
+    if [ ! -z "$tracing_instances" ]; then
+        TRACING_SERVER_INTERNAL_IP=$(echo "$tracing_instances" | awk '{print $1}')
+        TRACING_SERVER_EXTERNAL_IP=$(echo "$tracing_instances" | awk '{print $2}')
+        echo "Tracing server internal IP: ${TRACING_SERVER_INTERNAL_IP}"
+        echo "Tracing server external IP: ${TRACING_SERVER_EXTERNAL_IP}"
+    fi
+}
+
+gen_localnet_for_forknet() {
+    if [ "${GEN_LOCALNET_DONE}" = true ]; then
+        echo "Will use existing nodes homes for forknet"
+        return 0
+    fi
+    
+    echo "===> Initializing nodes homes for forknet"
+    RUN_ON_FORKNET=false
+    local ORIGINAL_BENCHNET_DIR=${BENCHNET_DIR}
+    BENCHNET_DIR=${GEN_NODES_DIR}
+    NEAR_HOMES=()
+    for i in $(seq 0 $((NUM_NODES - 1))); do
+        NEAR_HOMES+=("${BENCHNET_DIR}/node${i}")
+    done
+    init
+    RUN_ON_FORKNET=true
+    BENCHNET_DIR=${ORIGINAL_BENCHNET_DIR}
+    GEN_LOCALNET_DONE=true
+    echo "===> Done"
 }
 
 init_forknet() {
+    gen_localnet_for_forknet
     cd ${PYTEST_PATH}
     $MIRROR init-neard-runner --neard-binary-url ${NODE_BINARY_URL} --neard-upgrade-binary-url ""
-    if [ "${UPDATE_BINARIES}" = true ]; then
+    if [ "${UPDATE_BINARIES}" = "true" ] || [ "${UPDATE_BINARIES}" = "1" ]; then
+        echo "===> Updating binaries"
         $MIRROR --host-type nodes update-binaries || true
     fi
     $MIRROR --host-type nodes run-cmd --cmd "mkdir -p ${BENCHNET_DIR}"
-    $MIRROR --host-type nodes upload-file --src ${SYNTH_BM_BIN} --dst ${BENCHNET_DIR}
-    $MIRROR --host-type nodes run-cmd --cmd "chmod +x ${BENCHNET_DIR}/near-synth-bm"
+
+    # Check if SYNTH_BM_BIN is a URL or a filepath
+    if [[ "${SYNTH_BM_BIN}" =~ ^https?:// ]]; then
+        # It's a URL, download it on remote machines
+        $MIRROR --host-type nodes run-cmd --cmd "cd ${BENCHNET_DIR} && curl -L -o ${SYNTH_BM_BASENAME} ${SYNTH_BM_BIN} && chmod +x ${SYNTH_BM_BASENAME}"
+    else
+        # It's a filepath, upload it from local machine
+        $MIRROR --host-type nodes upload-file --src ${SYNTH_BM_BIN} --dst ${BENCHNET_DIR}
+        $MIRROR --host-type nodes run-cmd --cmd "chmod +x ${BENCHNET_DIR}/${SYNTH_BM_BASENAME}"
+    fi
+
     cd -
 }
 
@@ -246,7 +320,8 @@ init() {
 
 edit_genesis() {
     echo "editing ${1}"
-    jq 'del(.shard_layout.V1)' ${1} >tmp.$$.json && mv tmp.$$.json ${1} || rm tmp.$$.json
+    jq --arg time "${GENESIS_TIME}" \
+        'del(.shard_layout.V1) | .genesis_time = $time' ${1} >tmp.$$.json && mv tmp.$$.json ${1} || rm tmp.$$.json
     
     if [ -f "${BASE_GENESIS_PATCH}" ]; then
         jq -s 'reduce .[] as $item ({}; . * $item)' \
@@ -283,7 +358,12 @@ edit_log_config() {
 }
 
 tweak_config_forknet() {
+    gen_localnet_for_forknet
     fetch_forknet_details
+    if [ ! -z "${TRACING_SERVER_INTERNAL_IP}" ]; then
+        FORKNET_ENV="${FORKNET_ENV} TRACING_SERVER_INTERNAL_IP=${TRACING_SERVER_INTERNAL_IP}"
+    fi
+
     local cwd=$(pwd)
     cd ${PYTEST_PATH}
     $MIRROR --host-type nodes upload-file --src ${cwd}/bench.sh --dst ${BENCHNET_DIR}
@@ -314,6 +394,9 @@ tweak_config_forknet_node() {
         '.network.addr |= $val' ${CONFIG} >tmp.$$.json && mv tmp.$$.json ${CONFIG} || rm tmp.$$.json
     jq --arg val "0.0.0.0:3030" \
         '.rpc.addr |= $val' ${CONFIG} >tmp.$$.json && mv tmp.$$.json ${CONFIG} || rm tmp.$$.json
+    if [ -z "${TRACING_SERVER_INTERNAL_IP}" ]; then
+        jq '.opentelemetry = null' ${LOG_CONFIG} >tmp.$$.json && mv tmp.$$.json ${LOG_CONFIG} || rm tmp.$$.json
+    fi
     if [ -n "$boot_nodes" ]; then
         jq --arg val "${boot_nodes}" \
             '.network.boot_nodes |= $val' ${CONFIG} >tmp.$$.json && mv tmp.$$.json ${CONFIG} || rm tmp.$$.json
@@ -388,7 +471,7 @@ create_accounts_forknet() {
 
 set_create_accounts_vars() {
     if [ "${RUN_ON_FORKNET}" = true ]; then
-        cmd="./near-synth-bm"
+        cmd="./${SYNTH_BM_BASENAME}"
     else
         cmd="cargo run --manifest-path ${SYNTH_BM_PATH} --release --"
     fi
@@ -417,7 +500,8 @@ create_sub_accounts() {
         --deposit 9530606018750000000100000000 \
         --channel-buffer-size 1200 \
         --requests-per-second ${CREATE_ACCOUNTS_RPS} \
-        --user-data-dir ${data_dir}
+        --user-data-dir ${data_dir} \
+        --ignore-failures
 }
 
 create_accounts_local() {
@@ -465,7 +549,7 @@ native_transfers_forknet() {
 native_transfers_local() {
     local cmd
     if [ "${RUN_ON_FORKNET}" = true ]; then
-        cmd="./near-synth-bm"
+        cmd="./${SYNTH_BM_BASENAME}"
     else
         cmd="cargo run --manifest-path ${SYNTH_BM_PATH} --release --"
     fi
@@ -512,9 +596,16 @@ native_transfers_injection() {
         \"accounts_path\": \"${accounts_path}\", \"thread_count\": 2}' ${CONFIG} > tmp.$$.json && \
         mv tmp.$$.json ${CONFIG} || rm tmp.$$.json"
     # Restart neard on all chunk producer nodes
+    local tracing_param=""
+    if [ ! -z "${TRACING_SERVER_INTERNAL_IP}" ]; then
+        tracing_param="${TRACING_SERVER_INTERNAL_IP}"
+        echo "Will start nodes with tracing enabled to: ${tracing_param}"
+    else
+        echo "No tracing server found, will start nodes without tracing"
+    fi
     $MIRROR --host-filter ".*(${host_filter})" run-cmd --cmd \
         "cd ${BENCHNET_DIR}; \
-        ${FORKNET_ENV} ./bench.sh start-neard0 ${CASE}"
+        ${FORKNET_ENV} ./bench.sh start-neard0 ${CASE} ${tracing_param}"
     cd -
 }
 
@@ -581,6 +672,46 @@ monitor() {
     done
 }
 
+get_traces() {
+    fetch_forknet_details
+    echo "=> Fetching latest traces"
+    if [ -z "${TRACING_SERVER_EXTERNAL_IP}" ]; then
+        echo "Error: TRACING_SERVER_EXTERNAL_IP is not set."
+        return 1
+    fi
+    
+    local cur_time="$(date +%s)"
+    local lag_secs=10
+    local len_secs=10
+    local output_dir=${1:-.}
+    
+    local start_time=$(bc <<< "$cur_time - $lag_secs - $len_secs")
+    start_time="$start_time""000"
+    local end_time=$(bc <<< "$cur_time - $lag_secs")
+    end_time="$end_time""000"
+    
+    echo "Current time: $cur_time"
+    echo "Start time: $start_time"
+    echo "End time: $end_time"
+    
+    mkdir -p "${output_dir}"
+    
+    local trace_file="${output_dir}/trace_${start_time}.json"
+    local profile_file="${output_dir}/profile_${start_time}.json"
+    
+    curl -X POST http://${TRACING_SERVER_EXTERNAL_IP}:8080/raw_trace \
+        -H 'Content-Type: application/json' \
+        -d "{\"start_timestamp_unix_ms\": $start_time, \"end_timestamp_unix_ms\": $end_time, \"filter\": {\"nodes\": [],\"threads\": []}}" \
+        -o "${trace_file}"
+    
+    curl -X POST http://${TRACING_SERVER_EXTERNAL_IP}:8080/profile \
+        -H 'Content-Type: application/json' \
+        -d "{\"start_timestamp_unix_ms\": $start_time, \"end_timestamp_unix_ms\": $end_time, \"filter\": {\"nodes\": [],\"threads\": []}}" \
+        -o "${profile_file}"
+        
+    echo "=> Traces saved to ${trace_file} and ${profile_file}"
+}
+
 case "${1}" in
 reset)
     reset
@@ -618,13 +749,21 @@ stop-injection)
     stop_injection
     ;;
 
+get-traces)
+    get_traces ${2}
+    ;;
+
+mirror)
+    mirror_cmd "$@"
+    ;;
+
 # Forknet specific methods, not part of user API.
 tweak-config-forknet-node)
     tweak_config_forknet_node ${2} ${3}
     ;;
 
 start-neard0)
-    start_neard0
+    start_neard0 ${2} ${3}
     ;;
 
 create-accounts-local)
@@ -640,6 +779,6 @@ create-accounts-on-tracked-shard)
     ;;
 
 *)
-    echo "Usage: ${0} {reset|init|tweak-config|create-accounts|native-transfers|monitor|start-nodes|stop-nodes|stop-injection} <CASE>"
+    echo "Usage: ${0} {reset|init|tweak-config|create-accounts|native-transfers|monitor|start-nodes|stop-nodes|stop-injection|get-traces|mirror}"
     ;;
 esac

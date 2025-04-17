@@ -18,7 +18,7 @@ use near_primitives::state::FlatStateValue;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::StateRoot;
 use near_primitives::types::chunk_extra::ChunkExtra;
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
+use near_primitives::version::PROTOCOL_VERSION;
 use rand::Rng;
 use rand::seq::SliceRandom;
 use std::collections::HashMap;
@@ -134,7 +134,7 @@ impl TestTriesBuilder {
             },
             &shard_uids,
             flat_storage_manager,
-            StateSnapshotConfig::default(),
+            StateSnapshotConfig::Disabled,
         );
         if self.enable_flat_storage {
             let mut store_update = tries.store_update();
@@ -154,9 +154,7 @@ impl TestTriesBuilder {
         }
         if self.enable_in_memory_tries {
             // ChunkExtra is needed for in-memory trie loading code to query state roots.
-            let congestion_info = ProtocolFeature::CongestionControl
-                .enabled(PROTOCOL_VERSION)
-                .then(CongestionInfo::default);
+            let congestion_info = Some(CongestionInfo::default());
             let chunk_extra = ChunkExtra::new(
                 PROTOCOL_VERSION,
                 &Trie::EMPTY_ROOT,

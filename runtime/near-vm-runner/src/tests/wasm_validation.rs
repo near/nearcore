@@ -1,5 +1,7 @@
 use super::test_builder::test_builder;
+#[cfg(feature = "prepare")]
 use super::test_vm_config;
+#[cfg(feature = "prepare")]
 use crate::tests::with_vm_variants;
 use expect_test::expect;
 

@@ -213,7 +213,7 @@ def _apply_stateless_config(args, node):
     # TODO: Enable saving witness after fixing the performance problems.
     do_update_config(node, 'save_latest_witnesses=false')
     if not node.want_state_dump:
-        do_update_config(node, 'tracked_shards=[]')
+        do_update_config(node, 'tracked_shards_config="NoShards"')
         do_update_config(node, 'store.load_mem_tries_for_tracked_shards=true')
     if not args.local_test:
         node.run_cmd(
@@ -234,9 +234,9 @@ def _apply_config_changes(node, state_sync_location):
         }
         if node.want_state_dump:
             changes['state_sync.dump.location'] = state_sync_location
+            # TODO: Change this to Enabled once we remove support the for EveryEpoch alias.
             changes[
-                'store.state_snapshot_config.state_snapshot_type'] = 'EveryEpoch'
-            changes['store.state_snapshot_enabled'] = True
+                'store.state_snapshot_config.state_snapshot_type'] = "EveryEpoch"
     for key, change in changes.items():
         do_update_config(node, f'{key}={json.dumps(change)}')
 

@@ -29,9 +29,13 @@ class SlowChunkTest(unittest.TestCase):
 
         # The validator nodes should used single shard tracking. The nodes with
         # indices in range [0, n) are validators.
-        val_client_config_changes = {i: {"tracked_shards": []} for i in range(n)}
+        val_client_config_changes = {
+            i: {
+                "tracked_shards_config": "NoShards"
+            } for i in range(n)
+        }
         # The rpc node should track all shards. The node with index n is the rpc node.
-        rpc_client_config_changes = {n: {"tracked_shards": [0]}}
+        rpc_client_config_changes = {n: {"tracked_shards_config": "AllShards"}}
 
         # Combine the configs changes for validators and rpc.
         client_config_changes = {

@@ -53,7 +53,7 @@ use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_network::client::{
     BlockApproval, BlockHeadersResponse, BlockResponse, ChunkEndorsementMessage,
-    OptimisticBlockMessage, RecvChallenge, SetNetworkInfo, StateResponseReceived,
+    OptimisticBlockMessage, SetNetworkInfo, StateResponseReceived,
 };
 use near_network::types::ReasonForBan;
 use near_network::types::{
@@ -316,21 +316,9 @@ fn check_validator_tracked_shards(client: &Client, validator_id: &AccountId) -> 
         return Ok(());
     }
 
-    let protocol_version = epoch_info.protocol_version();
-
-    if !ProtocolFeature::StatelessValidation.enabled(protocol_version)
-        && client.config.tracked_shards.is_empty()
-    {
+    if client.config.tracked_shards_config.tracks_all_shards() {
         panic!(
-            "The `chain_id` field specified in genesis is among mainnet/testnet, so validator must track all shards. Please change `tracked_shards` field in config.json to be any non-empty vector"
-        );
-    }
-
-    if ProtocolFeature::StatelessValidation.enabled(protocol_version)
-        && !client.config.tracked_shards.is_empty()
-    {
-        panic!(
-            "The `chain_id` field specified in genesis is among mainnet/testnet, so validator must not track all shards. Please change `tracked_shards` field in config.json to be an empty vector"
+            "The `chain_id` field specified in genesis is among mainnet/testnet, so validator must not track all shards. Please set `tracked_shards_config` field in `config.json` to \"NoShards\"."
         );
     }
 
@@ -560,8 +548,7 @@ impl Handler<BlockResponse> for ClientActorInner {
 impl Handler<BlockHeadersResponse> for ClientActorInner {
     fn handle(&mut self, msg: BlockHeadersResponse) -> Result<(), ReasonForBan> {
         let BlockHeadersResponse(headers, peer_id) = msg;
-        let validator_signer = self.client.validator_signer.get();
-        if self.receive_headers(headers, peer_id, &validator_signer) {
+        if self.receive_headers(headers, peer_id) {
             Ok(())
         } else {
             warn!(target: "client", "Banning node for sending invalid block headers");
@@ -628,16 +615,6 @@ impl Handler<StateResponseReceived> for ClientActorInner {
         }
 
         error!(target: "sync", "State sync received hash {} that we're not expecting, potential malicious peer or a very delayed response.", hash);
-    }
-}
-
-impl Handler<RecvChallenge> for ClientActorInner {
-    fn handle(&mut self, msg: RecvChallenge) {
-        let RecvChallenge(challenge) = msg;
-        match self.client.process_challenge(challenge) {
-            Ok(_) => {}
-            Err(err) => error!(target: "client", "Error processing challenge: {}", err),
-        }
     }
 }
 
@@ -714,10 +691,7 @@ impl Handler<Status> for ClientActorInner {
             .get_epoch_block_producers_ordered(&head.epoch_id)
             .into_chain_error()?
             .into_iter()
-            .map(|validator_stake| ValidatorInfo {
-                account_id: validator_stake.take_account_id(),
-                is_slashed: false,
-            })
+            .map(|validator_stake| ValidatorInfo { account_id: validator_stake.take_account_id() })
             .collect();
 
         let epoch_start_height =
@@ -1031,7 +1005,7 @@ impl ClientActorInner {
             if let Some(new_latest_known) =
                 self.sandbox_process_fast_forward(latest_known.height)?
             {
-                self.client.chain.mut_chain_store().save_latest_known(new_latest_known.clone())?;
+                self.client.chain.mut_chain_store().save_latest_known(new_latest_known)?;
                 self.client.sandbox_update_tip(new_latest_known.height)?;
             }
         }
@@ -1492,12 +1466,7 @@ impl ClientActorInner {
         }
     }
 
-    fn receive_headers(
-        &mut self,
-        headers: Vec<BlockHeader>,
-        peer_id: PeerId,
-        signer: &Option<Arc<ValidatorSigner>>,
-    ) -> bool {
+    fn receive_headers(&mut self, headers: Vec<BlockHeader>, peer_id: PeerId) -> bool {
         let _span =
             debug_span!(target: "client", "receive_headers", num_headers = headers.len(), ?peer_id)
                 .entered();
@@ -1505,7 +1474,7 @@ impl ClientActorInner {
             info!(target: "client", "Received an empty set of block headers");
             return true;
         }
-        match self.client.sync_block_headers(headers, signer) {
+        match self.client.sync_block_headers(headers) {
             Ok(_) => true,
             Err(err) => {
                 if err.is_bad_data() {
@@ -1718,8 +1687,10 @@ impl ClientActorInner {
                     self.client.request_block(block_hash, peer_id);
                 }
             }
+            // This is the last step of state sync that is not in handle_sync_needed because it
+            // needs access to the client.
             SyncHandlerRequest::NeedProcessBlockArtifact(block_processing_artifacts) => {
-                self.client.process_block_processing_artifact(block_processing_artifacts, signer);
+                self.client.process_block_processing_artifact(block_processing_artifacts);
             }
         }
     }
@@ -1739,12 +1710,11 @@ impl ClientActorInner {
 
     /// Checks if the node is syncing its State and applies special logic in
     /// that case. A node usually ignores blocks that are too far ahead, but in
-    /// case of a node syncing its state it is looking for 2 specific blocks:
-    /// * The first block of the new epoch
-    /// * The last block of the prev epoch
+    /// case of a node syncing its state it is looking for specific blocks:
     ///
-    /// Additionally if there were missing chunks in the blocks leading to the
-    /// sync hash block we need to store extra blocks.
+    /// - The sync hash block
+    /// - The prev block
+    /// - Extra blocks before the prev block needed for incoming receipts
     ///
     /// Returns whether the node is syncing its state.
     fn maybe_receive_state_sync_blocks(&mut self, block: &Block) -> bool {
@@ -1761,14 +1731,15 @@ impl ClientActorInner {
         let block: MaybeValidated<Block> = (*block).clone().into();
         let block_hash = *block.hash();
 
-        let extra_block_hashes = self.client.chain.get_extra_sync_block_hashes(*header.prev_hash());
-        tracing::trace!(target: "sync", ?extra_block_hashes, "maybe_receive_state_sync_blocks: Extra block hashes for state sync");
-
-        // Notice that two blocks are saved differently:
+        // Notice that the blocks are saved differently:
         // * save_orphan() for the sync hash block
         // * save_block() for the prev block and all the extra blocks
-        // TODO why is that the case? Shouldn't the block without a parent block
-        // be the orphan?
+        //
+        // The sync hash block is saved to the orphan pool where it will
+        // wait to be processed after state sync is completed.
+        //
+        // The other blocks do not need to be processed and are saved
+        // directly to storage.
 
         if block_hash == sync_hash {
             // The first block of the new epoch.
@@ -1794,6 +1765,9 @@ impl ClientActorInner {
             }
             return true;
         }
+
+        let extra_block_hashes = self.client.chain.get_extra_sync_block_hashes(&header.prev_hash());
+        tracing::trace!(target: "sync", ?extra_block_hashes, "maybe_receive_state_sync_blocks: Extra block hashes for state sync");
 
         if extra_block_hashes.contains(&block_hash) {
             if let Err(err) = self.client.chain.validate_block(&block) {

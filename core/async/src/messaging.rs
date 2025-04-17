@@ -3,9 +3,8 @@ use crate::functional::{SendAsyncFunction, SendFunction};
 use crate::futures::DelayedActionRunner;
 use futures::FutureExt;
 use futures::future::BoxFuture;
-use once_cell::sync::OnceCell;
 use std::fmt::{Debug, Display};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use tokio::sync::oneshot;
 
 /// Trait for an actor. An actor is a struct that can handle messages and implements the Handler or
@@ -220,12 +219,12 @@ pub type AsyncSender<M, R> = Sender<MessageWithCallback<M, R>>;
 ///   let implementation = Implementation::new(something_else);
 ///   late_bound.bind(implementation);
 pub struct LateBoundSender<S> {
-    sender: OnceCell<S>,
+    sender: OnceLock<S>,
 }
 
 impl<S> LateBoundSender<S> {
     pub fn new() -> Arc<Self> {
-        Arc::new(Self { sender: OnceCell::new() })
+        Arc::new(Self { sender: OnceLock::new() })
     }
 
     pub fn bind(&self, sender: S) {

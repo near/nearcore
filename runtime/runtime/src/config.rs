@@ -3,15 +3,13 @@
 use near_primitives::account::AccessKeyPermission;
 use near_primitives::action::DeployGlobalContractAction;
 use near_primitives::errors::IntegerOverflowError;
-use near_primitives_core::types::ProtocolVersion;
-use near_primitives_core::version::ProtocolFeature;
 use num_bigint::BigUint;
 use num_traits::cast::ToPrimitive;
 use num_traits::pow::Pow;
 // Just re-exporting RuntimeConfig for backwards compatibility.
 use near_parameters::{ActionCosts, RuntimeConfig, transfer_exec_fee, transfer_send_fee};
 pub use near_primitives::num_rational::Rational32;
-use near_primitives::transaction::{Action, DeployContractAction, ValidatedTransaction};
+use near_primitives::transaction::{Action, DeployContractAction, Transaction};
 use near_primitives::types::{AccountId, Balance, Compute, Gas};
 
 /// Describes the cost of converting this transaction into a receipt.
@@ -58,14 +56,6 @@ pub fn safe_add_balance(a: Balance, b: Balance) -> Result<Balance, IntegerOverfl
 
 pub fn safe_add_compute(a: Compute, b: Compute) -> Result<Compute, IntegerOverflowError> {
     a.checked_add(b).ok_or(IntegerOverflowError {})
-}
-
-#[macro_export]
-macro_rules! safe_add_balance_apply {
-    ($x: expr) => {$x};
-    ($x: expr, $($rest: expr),+) => {
-        safe_add_balance($x, safe_add_balance_apply!($($rest),+))?
-    }
 }
 
 /// Total sum of gas that needs to be burnt to send these actions.
@@ -249,11 +239,9 @@ pub fn exec_fee(config: &RuntimeConfig, action: &Action, receiver_id: &AccountId
 /// Returns transaction costs for a given transaction.
 pub fn tx_cost(
     config: &RuntimeConfig,
-    validated_tx: &ValidatedTransaction,
+    tx: &Transaction,
     gas_price: Balance,
-    protocol_version: ProtocolVersion,
 ) -> Result<TransactionCost, IntegerOverflowError> {
-    let tx = validated_tx.to_tx();
     let sender_is_receiver = tx.receiver_id() == tx.signer_id();
     let fees = &config.fees;
     let mut gas_burnt: Gas = fees.fee(ActionCosts::new_action_receipt).send_fee(sender_is_receiver);
@@ -268,16 +256,11 @@ pub fn tx_cost(
     // If signer is equals to receiver the receipt will be processed at the same block as this
     // transaction. Otherwise it will processed in the next block and the gas might be inflated.
     let initial_receipt_hop = if sender_is_receiver { 0 } else { 1 };
-    let minimum_new_receipt_gas =
-        if !ProtocolFeature::FixedMinimumNewReceiptGas.enabled(protocol_version) {
-            fees.min_receipt_with_function_call_gas()
-        } else {
-            // The pessimistic gas pricing is a best-effort limit which can be breached in case of
-            // congestion when receipts are delayed before they execute. Hence there is not much
-            // value to tie this limit to the function call base cost. Making it constant limits
-            // overcharging to 6x, which was the value before the cost increase.
-            4_855_842_000_000 // 4.855TGas.
-        };
+    // The pessimistic gas pricing is a best-effort limit which can be breached in case of
+    // congestion when receipts are delayed before they execute. Hence there is not much
+    // value to tie this limit to the function call base cost. Making it constant limits
+    // overcharging to 6x, which was the value before the cost increase.
+    let minimum_new_receipt_gas = 4_855_842_000_000; // 4.855TGas.
     // In case the config is free, we don't care about the maximum depth.
     let receipt_gas_price = if gas_price == 0 {
         0

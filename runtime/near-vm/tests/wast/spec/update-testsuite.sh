@@ -117,7 +117,7 @@ for repo in ${repos}; do
         wast_dir=proposals/${repo}
         mkdir -p ${wast_dir}
 
-        # Don't add tests from propsoal that are the same as spec.
+        # Don't add tests from proposal that are the same as spec.
         pushdir repos/${repo}
             for new in $(find test/core -name \*.wast); do
                 old=../../repos/spec/${new}
@@ -150,3 +150,5 @@ echo "done"
 if [ -n "${failed_repos}" ]; then
   echo "!! failed to update repos: ${failed_repos}"
 fi
+
+# cspell:ignore nontrapping, oneline, popdir, pushdir

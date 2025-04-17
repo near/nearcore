@@ -47,7 +47,6 @@ pub struct NewChunkData {
     pub transaction_validity_check_results: Vec<bool>,
     pub receipts: Vec<Receipt>,
     pub block: ApplyChunkBlockContext,
-    pub is_first_block_with_chunk_of_version: bool,
     pub storage_context: StorageContext,
 }
 
@@ -124,7 +123,6 @@ pub fn apply_new_chunk(
         transaction_validity_check_results,
         block,
         receipts,
-        is_first_block_with_chunk_of_version,
         storage_context,
     } = data;
     let shard_id = shard_context.shard_uid.shard_id();
@@ -152,11 +150,10 @@ pub fn apply_new_chunk(
             last_validator_proposals: chunk_header.prev_validator_proposals(),
             gas_limit,
             is_new_chunk: true,
-            is_first_block_with_chunk_of_version,
         },
         block,
         &receipts,
-        SignedValidPeriodTransactions::new(&transactions, &transaction_validity_check_results),
+        SignedValidPeriodTransactions::new(transactions, transaction_validity_check_results),
     ) {
         Ok(apply_result) => {
             Ok(NewChunkResult { gas_limit, shard_uid: shard_context.shard_uid, apply_result })
@@ -199,11 +196,10 @@ pub fn apply_old_chunk(
             last_validator_proposals: prev_chunk_extra.validator_proposals(),
             gas_limit: prev_chunk_extra.gas_limit(),
             is_new_chunk: false,
-            is_first_block_with_chunk_of_version: false,
         },
         block,
         &[],
-        SignedValidPeriodTransactions::new(&[], &[]),
+        SignedValidPeriodTransactions::empty(),
     ) {
         Ok(apply_result) => Ok(OldChunkResult { shard_uid: shard_context.shard_uid, apply_result }),
         Err(err) => Err(err),

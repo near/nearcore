@@ -1,17 +1,17 @@
 // cspell:ignore contractregistry
 
 use crate::actions::*;
-use crate::balance_checker::check_balance;
 use crate::config::{
     exec_fee, safe_add_balance, safe_add_compute, safe_add_gas, safe_gas_to_balance, total_deposit,
     total_prepaid_exec_fees, total_prepaid_gas,
 };
 use crate::congestion_control::DelayedReceiptQueueWrapper;
 use crate::prefetch::TriePrefetcher;
+pub use crate::types::SignedValidPeriodTransactions;
 use crate::verifier::{StorageStakingError, check_storage_stake, validate_receipt};
 pub use crate::verifier::{
-    ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT, commit_charging_for_tx, validate_transaction,
-    verify_and_charge_tx_ephemeral,
+    ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT, get_signer_and_access_key, set_tx_state_changes,
+    validate_transaction, verify_and_charge_tx_ephemeral,
 };
 use bandwidth_scheduler::{BandwidthSchedulerOutput, run_bandwidth_scheduler};
 use config::{TransactionCost, total_prepaid_send_fees, tx_cost};
@@ -26,10 +26,10 @@ use metrics::ApplyMetrics;
 pub use near_crypto;
 use near_parameters::{ActionCosts, RuntimeConfig};
 pub use near_primitives;
-use near_primitives::account::{AccessKey, Account, AccountContract};
+use near_primitives::account::{Account, AccountContract};
 use near_primitives::action::GlobalContractIdentifier;
 use near_primitives::bandwidth_scheduler::{BandwidthRequests, BlockBandwidthRequests};
-use near_primitives::chunk_apply_stats::{BalanceStats, ChunkApplyStatsV0};
+use near_primitives::chunk_apply_stats::ChunkApplyStatsV0;
 use near_primitives::congestion_info::{BlockCongestionInfo, CongestionInfo};
 use near_primitives::errors::{
     ActionError, ActionErrorKind, EpochError, IntegerOverflowError, InvalidTxError, RuntimeError,
@@ -37,10 +37,9 @@ use near_primitives::errors::{
 };
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{
-    ActionReceipt, DataReceipt, DelayedReceiptIndices, PromiseYieldIndices, PromiseYieldTimeout,
-    Receipt, ReceiptEnum, ReceiptOrStateStoredReceipt, ReceiptV0, ReceivedData,
+    ActionReceipt, DataReceipt, PromiseYieldIndices, PromiseYieldTimeout, Receipt, ReceiptEnum,
+    ReceiptOrStateStoredReceipt, ReceiptV0, ReceivedData,
 };
-use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::state_record::StateRecord;
 use near_primitives::stateless_validation::contract_distribution::ContractUpdates;
@@ -67,9 +66,8 @@ use near_store::trie::update::TrieUpdateResult;
 use near_store::{
     KeyLookupMode, PartialStorage, StorageError, Trie, TrieAccess, TrieChanges, TrieUpdate, get,
     get_account, get_postponed_receipt, get_promise_yield_receipt, get_pure, get_received_data,
-    has_received_data, remove_account, remove_postponed_receipt, remove_promise_yield_receipt, set,
-    set_access_key, set_account, set_postponed_receipt, set_promise_yield_receipt,
-    set_received_data,
+    has_received_data, remove_postponed_receipt, remove_promise_yield_receipt, set, set_access_key,
+    set_account, set_postponed_receipt, set_promise_yield_receipt, set_received_data,
 };
 use near_vm_runner::ContractCode;
 use near_vm_runner::ContractRuntimeCache;
@@ -87,7 +85,6 @@ use verifier::ValidateReceiptMode;
 
 mod actions;
 pub mod adapter;
-mod balance_checker;
 mod bandwidth_scheduler;
 pub mod config;
 mod congestion_control;
@@ -101,6 +98,7 @@ pub mod receipt_manager;
 pub mod state_viewer;
 #[cfg(test)]
 mod tests;
+mod types;
 mod verifier;
 
 const EXPECT_ACCOUNT_EXISTS: &str = "account exists, checked above";
@@ -140,11 +138,6 @@ pub struct ApplyState {
     pub trie_access_tracker_state: Arc<ext::AccountingState>,
     /// Whether the chunk being applied is new.
     pub is_new_chunk: bool,
-    /// Data for migrations that may need to be applied at the start of an epoch when protocol
-    /// version changes
-    pub migration_data: Arc<MigrationData>,
-    /// Flags for migrations indicating whether they can be applied at this block
-    pub migration_flags: MigrationFlags,
     /// Congestion level on each shard based on the latest known chunk header of each shard.
     ///
     /// The map must be empty if congestion control is disabled in the previous
@@ -185,8 +178,6 @@ pub struct ValidatorAccountsUpdate {
     pub last_proposals: HashMap<AccountId, Balance>,
     /// The ID of the protocol treasury account if it belongs to the current shard.
     pub protocol_treasury_account_id: Option<AccountId>,
-    /// Accounts to slash and the slashed amount (None means everything)
-    pub slashing_info: HashMap<AccountId, Option<Balance>>,
 }
 
 #[derive(Debug)]
@@ -199,10 +190,6 @@ pub struct VerificationResult {
     pub receipt_gas_price: Balance,
     /// The balance that was burnt to convert the transaction into a receipt and send it.
     pub burnt_amount: Balance,
-    /// The signer that was updated to charge for the transaction.
-    pub signer: Account,
-    /// The access key that was updated to charge for the transaction.
-    pub access_key: AccessKey,
 }
 
 #[derive(Debug)]
@@ -320,12 +307,7 @@ impl Runtime {
                     signed_tx.get_hash(),
                     match validate_transaction(config, signed_tx, current_protocol_version) {
                         Ok(validated_tx) => {
-                            match tx_cost(
-                                config,
-                                &validated_tx,
-                                gas_price,
-                                current_protocol_version,
-                            ) {
+                            match tx_cost(config, &validated_tx.to_tx(), gas_price) {
                                 Ok(cost) => Ok((validated_tx, cost)),
                                 Err(e) => Err(InvalidTxError::from(e)),
                             }
@@ -365,78 +347,74 @@ impl Runtime {
     ) -> Result<(Receipt, ExecutionOutcomeWithId), InvalidTxError> {
         let span = tracing::Span::current();
         metrics::TRANSACTION_PROCESSED_TOTAL.inc();
+        let (mut signer, mut access_key) = get_signer_and_access_key(state_update, &validated_tx)?;
 
-        match verify_and_charge_tx_ephemeral(
+        let verification_result = verify_and_charge_tx_ephemeral(
             &apply_state.config,
-            state_update,
+            &mut signer,
+            &mut access_key,
             validated_tx,
             transaction_cost,
             Some(apply_state.block_height),
-            apply_state.current_protocol_version,
-        ) {
-            Ok(verification_result) => {
-                metrics::TRANSACTION_PROCESSED_SUCCESSFULLY_TOTAL.inc();
-                commit_charging_for_tx(
-                    state_update,
-                    validated_tx,
-                    &verification_result.signer,
-                    &verification_result.access_key,
-                );
-                state_update.commit(StateChangeCause::TransactionProcessing {
-                    tx_hash: validated_tx.get_hash(),
-                });
-                let receipt_id = create_receipt_id_from_transaction(
-                    apply_state.current_protocol_version,
-                    validated_tx.to_hash(),
-                    &apply_state.block_hash,
-                    apply_state.block_height,
-                );
-                let receipt = Receipt::V0(ReceiptV0 {
-                    predecessor_id: validated_tx.signer_id().clone(),
-                    receiver_id: validated_tx.receiver_id().clone(),
-                    receipt_id,
-                    receipt: ReceiptEnum::Action(ActionReceipt {
-                        signer_id: validated_tx.signer_id().clone(),
-                        signer_public_key: validated_tx.public_key().clone(),
-                        gas_price: verification_result.receipt_gas_price,
-                        output_data_receivers: vec![],
-                        input_data_ids: vec![],
-                        actions: validated_tx.actions().to_vec(),
-                    }),
-                });
-                stats.balance.tx_burnt_amount = safe_add_balance(
-                    stats.balance.tx_burnt_amount,
-                    verification_result.burnt_amount,
-                )
-                .map_err(|_| InvalidTxError::CostOverflow)?;
-                let gas_burnt = verification_result.gas_burnt;
-                let compute_usage = verification_result.gas_burnt;
-                let outcome = ExecutionOutcomeWithId {
-                    id: validated_tx.get_hash(),
-                    outcome: ExecutionOutcome {
-                        status: ExecutionStatus::SuccessReceiptId(*receipt.receipt_id()),
-                        logs: vec![],
-                        receipt_ids: vec![*receipt.receipt_id()],
-                        gas_burnt,
-                        // TODO(#8806): Support compute costs for actions. For now they match burnt gas.
-                        compute_usage: Some(compute_usage),
-                        tokens_burnt: verification_result.burnt_amount,
-                        executor_id: validated_tx.signer_id().clone(),
-                        // TODO: profile data is only counted in apply_action, which only happened at process_receipt
-                        // VerificationResult needs updates to incorporate profile data to support profile data of txns
-                        metadata: ExecutionMetadata::V1,
-                    },
-                };
-                span.record("gas_burnt", gas_burnt);
-                span.record("compute_usage", compute_usage);
-                Ok((receipt, outcome))
-            }
+        );
+        let verification_result = match verification_result {
+            Ok(ok) => ok,
             Err(e) => {
                 metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
                 state_update.rollback();
-                Err(e)
+                return Err(e);
             }
+        };
+
+        metrics::TRANSACTION_PROCESSED_SUCCESSFULLY_TOTAL.inc();
+        set_tx_state_changes(state_update, validated_tx, &signer, &access_key);
+        state_update
+            .commit(StateChangeCause::TransactionProcessing { tx_hash: validated_tx.get_hash() });
+        let receipt_id = create_receipt_id_from_transaction(
+            apply_state.current_protocol_version,
+            validated_tx.to_hash(),
+            &apply_state.block_hash,
+            apply_state.block_height,
+        );
+        let receipt = Receipt::V0(ReceiptV0 {
+            predecessor_id: validated_tx.signer_id().clone(),
+            receiver_id: validated_tx.receiver_id().clone(),
+            receipt_id,
+            receipt: ReceiptEnum::Action(ActionReceipt {
+                signer_id: validated_tx.signer_id().clone(),
+                signer_public_key: validated_tx.public_key().clone(),
+                gas_price: verification_result.receipt_gas_price,
+                output_data_receivers: vec![],
+                input_data_ids: vec![],
+                actions: validated_tx.actions().to_vec(),
+            }),
+        });
+
+        match safe_add_balance(stats.balance.tx_burnt_amount, verification_result.burnt_amount) {
+            Ok(new) => stats.balance.tx_burnt_amount = new,
+            Err(_) => return Err(InvalidTxError::CostOverflow),
         }
+        let gas_burnt = verification_result.gas_burnt;
+        let compute_usage = verification_result.gas_burnt;
+        let outcome = ExecutionOutcomeWithId {
+            id: validated_tx.get_hash(),
+            outcome: ExecutionOutcome {
+                status: ExecutionStatus::SuccessReceiptId(*receipt.receipt_id()),
+                logs: vec![],
+                receipt_ids: vec![*receipt.receipt_id()],
+                gas_burnt,
+                // TODO(#8806): Support compute costs for actions. For now they match burnt gas.
+                compute_usage: Some(compute_usage),
+                tokens_burnt: verification_result.burnt_amount,
+                executor_id: validated_tx.signer_id().clone(),
+                // TODO: profile data is only counted in apply_action, which only happened at process_receipt
+                // VerificationResult needs updates to incorporate profile data to support profile data of txns
+                metadata: ExecutionMetadata::V1,
+            },
+        };
+        span.record("gas_burnt", gas_burnt);
+        span.record("compute_usage", compute_usage);
+        Ok((receipt, outcome))
     }
 
     fn apply_action(
@@ -762,11 +740,7 @@ impl Runtime {
         // Going to check balance covers account's storage.
         if result.result.is_ok() {
             if let Some(ref mut account) = account {
-                match check_storage_stake(
-                    account,
-                    &apply_state.config,
-                    apply_state.current_protocol_version,
-                ) {
+                match check_storage_stake(account, &apply_state.config) {
                     Ok(()) => {
                         set_account(state_update, account_id.clone(), account);
                     }
@@ -1259,7 +1233,6 @@ impl Runtime {
         &self,
         state_update: &mut TrieUpdate,
         validator_accounts_update: &ValidatorAccountsUpdate,
-        stats: &mut BalanceStats,
     ) -> Result<(), RuntimeError> {
         for (account_id, max_of_stakes) in &validator_accounts_update.stake_info {
             if let Some(mut account) = get_account(state_update, account_id)? {
@@ -1319,38 +1292,6 @@ impl Runtime {
             }
         }
 
-        for (account_id, stake) in validator_accounts_update.slashing_info.iter() {
-            if let Some(mut account) = get_account(state_update, account_id)? {
-                let amount_to_slash = stake.unwrap_or(account.locked());
-                debug!(target: "runtime", "slashing {} of {} from {}", amount_to_slash, account.locked(), account_id);
-                if account.locked() < amount_to_slash {
-                    return Err(StorageError::StorageInconsistentState(format!(
-                        "FATAL: staking invariant does not hold. Account locked {} is less than slashed {}",
-                        account.locked(), amount_to_slash)).into());
-                }
-                stats.slashed_burnt_amount =
-                    stats.slashed_burnt_amount.checked_add(amount_to_slash).ok_or_else(|| {
-                        RuntimeError::UnexpectedIntegerOverflow(
-                            "update_validator_accounts - slashed".into(),
-                        )
-                    })?;
-                account.set_locked(account.locked().checked_sub(amount_to_slash).ok_or_else(
-                    || {
-                        RuntimeError::UnexpectedIntegerOverflow(
-                            "update_validator_accounts - slash locked".into(),
-                        )
-                    },
-                )?);
-                set_account(state_update, account_id.clone(), &account);
-            } else {
-                return Err(StorageError::StorageInconsistentState(format!(
-                    "Account {} to slash is not found",
-                    account_id
-                ))
-                .into());
-            }
-        }
-
         if let Some(account_id) = &validator_accounts_update.protocol_treasury_account_id {
             // If protocol treasury stakes, then the rewards was already distributed above.
             if !validator_accounts_update.stake_info.contains_key(account_id) {
@@ -1384,26 +1325,6 @@ impl Runtime {
         Ok(())
     }
 
-    pub fn apply_migrations(
-        &self,
-        state_update: &mut TrieUpdate,
-        migration_flags: &MigrationFlags,
-        protocol_version: ProtocolVersion,
-    ) -> Result<(), StorageError> {
-        // Remove the only testnet account with large storage key.
-        if ProtocolFeature::RemoveAccountWithLongStorageKey.protocol_version() == protocol_version
-            && migration_flags.is_first_block_with_chunk_of_version
-        {
-            let account_id = "contractregistry.testnet".parse().unwrap();
-            if get_account(state_update, &account_id)?.is_some() {
-                remove_account(state_update, &account_id)?;
-                state_update.commit(StateChangeCause::Migration);
-            }
-        }
-
-        Ok(())
-    }
-
     /// Applies new signed transactions and incoming receipts for some chunk/shard on top of
     /// given trie and the given state root.
     ///
@@ -1419,7 +1340,7 @@ impl Runtime {
     /// the only alternative way to handle these transactions is to make the entire chunk invalid.
     #[instrument(target = "runtime", level = "debug", "apply", skip_all, fields(
         protocol_version = apply_state.current_protocol_version,
-        num_transactions = transactions.len(),
+        num_transactions = signed_txs.len(),
         gas_burnt = tracing::field::Empty,
         compute_usage = tracing::field::Empty,
     ))]
@@ -1429,11 +1350,11 @@ impl Runtime {
         validator_accounts_update: &Option<ValidatorAccountsUpdate>,
         apply_state: &ApplyState,
         incoming_receipts: &[Receipt],
-        transactions: SignedValidPeriodTransactions<'_>,
+        signed_txs: SignedValidPeriodTransactions,
         epoch_info_provider: &dyn EpochInfoProvider,
         state_patch: SandboxStatePatch,
     ) -> Result<ApplyResult, RuntimeError> {
-        metrics::TRANSACTION_APPLIED_TOTAL.inc_by(transactions.len() as u64);
+        metrics::TRANSACTION_APPLIED_TOTAL.inc_by(signed_txs.len() as u64);
 
         // state_patch must be empty unless this is sandbox build.  Thanks to
         // conditional compilation this always resolves to true so technically
@@ -1443,21 +1364,18 @@ impl Runtime {
 
         // What this function does can be broken down conceptually into the following steps:
         // 1. Update validator accounts.
-        // 2. Apply migrations.
-        // 3. Process transactions.
-        // 4. Process receipts.
-        // 5. Validate and apply the state update.
-
+        // 2. Process transactions.
+        // 3. Process receipts.
+        // 4. Validate and apply the state update.
         let mut processing_state =
-            ApplyProcessingState::new(&apply_state, trie, epoch_info_provider, transactions);
-        processing_state.stats.transactions_num =
-            transactions.transactions.len().try_into().unwrap();
+            ApplyProcessingState::new(&apply_state, trie, epoch_info_provider);
+        processing_state.stats.transactions_num = signed_txs.len().try_into().unwrap();
         processing_state.stats.incoming_receipts_num = incoming_receipts.len().try_into().unwrap();
         processing_state.stats.is_new_chunk = !apply_state.is_new_chunk;
 
         if let Some(prefetcher) = &mut processing_state.prefetcher {
             // Prefetcher is allowed to fail
-            _ = prefetcher.prefetch_transactions_data(transactions);
+            _ = prefetcher.prefetch_transactions_data(&signed_txs);
         }
 
         // Step 1: update validator accounts.
@@ -1465,17 +1383,8 @@ impl Runtime {
             self.update_validator_accounts(
                 &mut processing_state.state_update,
                 validator_accounts_update,
-                &mut processing_state.stats.balance,
             )?;
         }
-
-        // Step 2: apply migrations.
-        self.apply_migrations(
-            &mut processing_state.state_update,
-            &apply_state.migration_flags,
-            processing_state.protocol_version,
-        )
-        .map_err(RuntimeError::StorageError)?;
 
         let delayed_receipts = DelayedReceiptQueueWrapper::new(
             DelayedReceiptQueue::load(&processing_state.state_update)?,
@@ -1503,10 +1412,8 @@ impl Runtime {
 
         let mut processing_state =
             processing_state.into_processing_receipt_state(incoming_receipts, delayed_receipts);
-        let own_congestion_info = apply_state.own_congestion_info(
-            processing_state.protocol_version,
-            &processing_state.state_update,
-        )?;
+        let own_congestion_info =
+            apply_state.own_congestion_info(&processing_state.state_update)?;
         let mut receipt_sink = ReceiptSink::new(
             processing_state.protocol_version,
             &processing_state.state_update.trie,
@@ -1521,10 +1428,10 @@ impl Runtime {
             processing_state.epoch_info_provider,
         )?;
 
-        // Step 3: process transactions.
-        self.process_transactions(&mut processing_state, &mut receipt_sink)?;
+        // Step 2: process transactions.
+        self.process_transactions(&mut processing_state, signed_txs, &mut receipt_sink)?;
 
-        // Step 4: process receipts.
+        // Step 3: process receipts.
         let process_receipts_result =
             self.process_receipts(&mut processing_state, &mut receipt_sink)?;
 
@@ -1536,11 +1443,10 @@ impl Runtime {
             &apply_state.config.congestion_control_config,
         );
 
-        // Step 5: validate and apply the state update.
+        // Step 4: validate and apply the state update.
         self.validate_apply_state_update(
             processing_state,
             process_receipts_result,
-            validator_accounts_update,
             receipt_sink,
             state_patch,
         )
@@ -1579,28 +1485,6 @@ impl Runtime {
         state_update.commit(StateChangeCause::Migration);
     }
 
-    /// Helper function that checks `RelaxedChunkValidation`. If it is enabled, we log a debug
-    /// message and return `Ok(())` to skip the transaction. Otherwise, we return `Err(e.into())`.
-    fn handle_invalid_transaction<E: std::fmt::Debug + Clone + Into<RuntimeError>>(
-        e: E,
-        tx_hash: &CryptoHash,
-        protocol_version: ProtocolVersion,
-        reason: &str,
-    ) -> Result<(), RuntimeError> {
-        if ProtocolFeature::RelaxedChunkValidation.enabled(protocol_version) {
-            tracing::debug!(
-                target: "runtime",
-                "invalid transaction ignored ({}) => tx_hash: {}, error: {:?}",
-                reason,
-                tx_hash,
-                e
-            );
-            Ok(())
-        } else {
-            Err(e.into())
-        }
-    }
-
     /// Processes a collection of transactions.
     ///
     /// Fills the `processing_state` with local receipts generated during processing of the
@@ -1611,14 +1495,14 @@ impl Runtime {
     fn process_transactions<'a>(
         &self,
         processing_state: &mut ApplyProcessingReceiptState<'a>,
+        signed_txs: SignedValidPeriodTransactions,
         receipt_sink: &mut ReceiptSink,
     ) -> Result<(), RuntimeError> {
         let total = &mut processing_state.total;
         let apply_state = &mut processing_state.apply_state;
         let state_update = &mut processing_state.state_update;
 
-        let signed_txs =
-            processing_state.transactions.transactions.into_iter().cloned().collect::<Vec<_>>();
+        let signed_txs = signed_txs.into_par_iter_nonexpired_transactions();
         for (tx_hash, result) in Self::parallel_validate_transactions(
             &apply_state.config,
             apply_state.gas_price,
@@ -1636,12 +1520,12 @@ impl Runtime {
                     ) {
                         Ok(outcome) => outcome,
                         Err(err) => {
-                            Self::handle_invalid_transaction(
-                                err,
-                                &tx_hash,
-                                processing_state.protocol_version,
-                                "process_transaction error",
-                            )?;
+                            tracing::debug!(
+                                target: "runtime",
+                                ?tx_hash,
+                                ?err,
+                                "invalid transaction ignored (process_transaction error)",
+                            );
                             continue;
                         }
                     };
@@ -1659,18 +1543,15 @@ impl Runtime {
                     let compute =
                         compute.expect("`process_transaction` must populate compute usage");
                     total.add(outcome_with_id.outcome.gas_burnt, compute)?;
-                    if !ProtocolFeature::ComputeCosts.enabled(processing_state.protocol_version) {
-                        assert_eq!(total.compute, total.gas, "Compute usage must match burnt gas");
-                    }
                     processing_state.outcomes.push(outcome_with_id);
                 }
                 Err(err) => {
-                    Self::handle_invalid_transaction(
-                        err,
-                        &tx_hash,
-                        processing_state.protocol_version,
-                        "parallel validation error",
-                    )?;
+                    tracing::debug!(
+                        target: "runtime",
+                        ?tx_hash,
+                        ?err,
+                        "invalid transaction ignored (parallel validation error)",
+                    );
                 }
             }
         }
@@ -1744,9 +1625,6 @@ impl Runtime {
             span.record("gas_burnt", gas_burnt);
             span.record("compute_usage", compute_usage);
 
-            if !ProtocolFeature::ComputeCosts.enabled(processing_state.protocol_version) {
-                assert_eq!(total.compute, total.gas, "Compute usage must match burnt gas");
-            }
             processing_state.outcomes.push(outcome_with_id);
         }
         Ok(())
@@ -2079,7 +1957,6 @@ impl Runtime {
         &self,
         processing_state: ApplyProcessingReceiptState<'a>,
         process_receipts_result: ProcessReceiptsResult,
-        validator_accounts_update: &Option<ValidatorAccountsUpdate>,
         receipt_sink: ReceiptSink,
         state_patch: SandboxStatePatch,
     ) -> Result<ApplyResult, RuntimeError> {
@@ -2108,30 +1985,28 @@ impl Runtime {
         // this shard is fully congested.
         let delayed_receipts_count = pending_delayed_receipts.upper_bound_len();
         let mut own_congestion_info = receipt_sink.own_congestion_info();
-        if let Some(congestion_info) = &mut own_congestion_info {
-            pending_delayed_receipts.apply_congestion_changes(congestion_info)?;
+        pending_delayed_receipts.apply_congestion_changes(&mut own_congestion_info)?;
 
-            let (all_shards, shard_seed) =
-                if ProtocolFeature::SimpleNightshadeV4.enabled(protocol_version) {
-                    let shard_ids = shard_layout.shard_ids().collect_vec();
-                    let shard_index = shard_layout
-                        .get_shard_index(apply_state.shard_id)
-                        .map_err(Into::<EpochError>::into)?
-                        .try_into()
-                        .expect("Shard Index must fit within u64");
+        let (all_shards, shard_seed) =
+            if ProtocolFeature::SimpleNightshadeV4.enabled(protocol_version) {
+                let shard_ids = shard_layout.shard_ids().collect_vec();
+                let shard_index = shard_layout
+                    .get_shard_index(apply_state.shard_id)
+                    .map_err(Into::<EpochError>::into)?
+                    .try_into()
+                    .expect("Shard Index must fit within u64");
 
-                    (shard_ids, shard_index)
-                } else {
-                    (apply_state.congestion_info.all_shards(), apply_state.shard_id.into())
-                };
+                (shard_ids, shard_index)
+            } else {
+                (apply_state.congestion_info.all_shards(), apply_state.shard_id.into())
+            };
 
-            let congestion_seed = apply_state.block_height.wrapping_add(shard_seed);
-            congestion_info.finalize_allowed_shard(
-                apply_state.shard_id,
-                &all_shards,
-                congestion_seed,
-            );
-        }
+        let congestion_seed = apply_state.block_height.wrapping_add(shard_seed);
+        own_congestion_info.finalize_allowed_shard(
+            apply_state.shard_id,
+            &all_shards,
+            congestion_seed,
+        );
 
         let bandwidth_requests = receipt_sink.generate_bandwidth_requests(
             &state_update,
@@ -2139,20 +2014,6 @@ impl Runtime {
             true,
             &mut stats,
         )?;
-
-        if !ProtocolFeature::RemoveCheckBalance.enabled(protocol_version) {
-            check_balance(
-                &apply_state.config,
-                &state_update,
-                validator_accounts_update,
-                processing_state.incoming_receipts,
-                &processed_delayed_receipts,
-                &promise_yield_result.timeout_receipts,
-                processing_state.transactions,
-                &receipt_sink.outgoing_receipts(),
-                &stats.balance,
-            )?;
-        }
 
         state_update.commit(StateChangeCause::UpdatedDelayedReceipts);
         self.apply_state_patch(&mut state_update, state_patch);
@@ -2222,7 +2083,7 @@ impl Runtime {
             proof,
             delayed_receipts_count,
             metrics: Some(processing_state.metrics),
-            congestion_info: own_congestion_info,
+            congestion_info: Some(own_congestion_info),
             bandwidth_requests,
             bandwidth_scheduler_state_hash,
             contract_updates,
@@ -2231,18 +2092,9 @@ impl Runtime {
 }
 
 impl ApplyState {
-    fn own_congestion_info(
-        &self,
-        protocol_version: ProtocolVersion,
-        trie: &dyn TrieAccess,
-    ) -> Result<Option<CongestionInfo>, RuntimeError> {
-        if !ProtocolFeature::CongestionControl.enabled(protocol_version) {
-            debug_assert!(self.congestion_info.is_empty());
-            return Ok(None);
-        }
-
+    fn own_congestion_info(&self, trie: &dyn TrieAccess) -> Result<CongestionInfo, RuntimeError> {
         if let Some(congestion_info) = self.congestion_info.get(&self.shard_id) {
-            return Ok(Some(congestion_info.congestion_info));
+            return Ok(congestion_info.congestion_info);
         }
 
         tracing::warn!(target: "runtime", "starting to bootstrap congestion info, this might take a while");
@@ -2251,7 +2103,7 @@ impl ApplyState {
         let time = start.elapsed();
         tracing::warn!(target: "runtime","bootstrapping congestion info done after {time:#.1?}");
         let computed = result?;
-        Ok(Some(computed))
+        Ok(computed)
     }
 }
 
@@ -2290,7 +2142,6 @@ fn action_transfer_or_implicit_account_creation(
             receipt.receiver_id(),
             deposit,
             apply_state.block_height,
-            apply_state.current_protocol_version,
             epoch_info_provider,
         );
     })
@@ -2436,7 +2287,6 @@ fn resolve_promise_yield_timeouts(
         total.compute,
     );
     Ok(ResolvePromiseYieldTimeoutsResult {
-        timeout_receipts,
         initial_promise_yield_indices,
         promise_yield_indices,
         processed_yield_timeouts,
@@ -2471,7 +2321,6 @@ struct ProcessReceiptsResult {
 }
 
 struct ResolvePromiseYieldTimeoutsResult {
-    timeout_receipts: Vec<Receipt>,
     initial_promise_yield_indices: PromiseYieldIndices,
     promise_yield_indices: PromiseYieldIndices,
     processed_yield_timeouts: Vec<PromiseYieldTimeout>,
@@ -2484,7 +2333,6 @@ struct ApplyProcessingState<'a> {
     prefetcher: Option<TriePrefetcher>,
     state_update: TrieUpdate,
     epoch_info_provider: &'a dyn EpochInfoProvider,
-    transactions: SignedValidPeriodTransactions<'a>,
     total: TotalResourceGuard,
     stats: ChunkApplyStatsV0,
 }
@@ -2494,7 +2342,6 @@ impl<'a> ApplyProcessingState<'a> {
         apply_state: &'a ApplyState,
         trie: Trie,
         epoch_info_provider: &'a dyn EpochInfoProvider,
-        transactions: SignedValidPeriodTransactions<'a>,
     ) -> Self {
         let protocol_version = apply_state.current_protocol_version;
         let prefetcher = TriePrefetcher::new_if_enabled(&trie);
@@ -2514,7 +2361,6 @@ impl<'a> ApplyProcessingState<'a> {
             prefetcher,
             state_update,
             epoch_info_provider,
-            transactions,
             total,
             stats,
         }
@@ -2528,7 +2374,6 @@ impl<'a> ApplyProcessingState<'a> {
         let pipeline_manager = pipelining::ReceiptPreparationPipeline::new(
             Arc::clone(&self.apply_state.config),
             self.apply_state.cache.as_ref().map(|v| v.handle()),
-            self.apply_state.current_protocol_version,
             self.state_update.contract_storage(),
         );
         ApplyProcessingReceiptState {
@@ -2538,7 +2383,6 @@ impl<'a> ApplyProcessingState<'a> {
             prefetcher: self.prefetcher,
             state_update: self.state_update,
             epoch_info_provider: self.epoch_info_provider,
-            transactions: self.transactions,
             total: self.total,
             stats: self.stats,
             outcomes: Vec::new(),
@@ -2550,43 +2394,6 @@ impl<'a> ApplyProcessingState<'a> {
     }
 }
 
-#[derive(Clone, Copy)]
-pub struct SignedValidPeriodTransactions<'a> {
-    transactions: &'a [SignedTransaction],
-    /// List of the transactions that are valid and should be processed by `apply`.
-    ///
-    /// This list is exactly the length of the corresponding `Self::transactions` field. Element at
-    /// the index N in this array corresponds to an element at index N in the transactions list.
-    ///
-    /// Transactions for which a `false` is stored here must be ignored/dropped/skipped.
-    ///
-    /// All elements will be true for protocol versions where `RelaxedChunkValidation` is not
-    /// enabled.
-    transaction_validity_check_passed: &'a [bool],
-}
-
-impl<'a> SignedValidPeriodTransactions<'a> {
-    pub fn new(transactions: &'a [SignedTransaction], validity_check_results: &'a [bool]) -> Self {
-        assert_eq!(transactions.len(), validity_check_results.len());
-        Self { transactions, transaction_validity_check_passed: validity_check_results }
-    }
-
-    pub fn empty() -> Self {
-        Self::new(&[], &[])
-    }
-
-    pub fn iter_nonexpired_transactions(&self) -> impl Iterator<Item = &'a SignedTransaction> {
-        self.transactions
-            .into_iter()
-            .zip(self.transaction_validity_check_passed.into_iter())
-            .filter_map(|(t, v)| v.then_some(t))
-    }
-
-    pub fn len(&self) -> usize {
-        self.transactions.len()
-    }
-}
-
 /// Similar to [ApplyProcessingState], with the difference that this contains extra state used
 /// by receipt processing.
 struct ApplyProcessingReceiptState<'a> {
@@ -2595,7 +2402,6 @@ struct ApplyProcessingReceiptState<'a> {
     prefetcher: Option<TriePrefetcher>,
     state_update: TrieUpdate,
     epoch_info_provider: &'a dyn EpochInfoProvider,
-    transactions: SignedValidPeriodTransactions<'a>,
     total: TotalResourceGuard,
     stats: ChunkApplyStatsV0,
     outcomes: Vec<ExecutionOutcomeWithId>,
@@ -2762,7 +2568,6 @@ pub mod estimator {
         let empty_pipeline = ReceiptPreparationPipeline::new(
             std::sync::Arc::clone(&apply_state.config),
             apply_state.cache.as_ref().map(|c| c.handle()),
-            apply_state.current_protocol_version,
             state_update.contract_storage(),
         );
         let apply_result = Runtime {}.apply_action_receipt(

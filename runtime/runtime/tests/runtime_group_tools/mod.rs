@@ -7,13 +7,12 @@ use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
 use near_primitives::congestion_info::{BlockCongestionInfo, ExtendedCongestionInfo};
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::receipt::Receipt;
-use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::state_record::{StateRecord, state_record_to_account_id};
 use near_primitives::test_utils::MockEpochInfoProvider;
 use near_primitives::transaction::{ExecutionOutcomeWithId, SignedTransaction};
 use near_primitives::types::{AccountId, AccountInfo, Balance};
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
+use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives_core::account::id::AccountIdRef;
 use near_store::ShardTries;
 use near_store::genesis::GenesisStateApplier;
@@ -93,16 +92,12 @@ impl StandaloneRuntime {
             &genesis,
             account_ids,
         );
-        let congestion_info = if ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
-            genesis
-                .config
-                .shard_layout
-                .shard_ids()
-                .map(|shard_id| (shard_id, ExtendedCongestionInfo::default()))
-                .collect()
-        } else {
-            Default::default()
-        };
+        let congestion_info = genesis
+            .config
+            .shard_layout
+            .shard_ids()
+            .map(|shard_id| (shard_id, ExtendedCongestionInfo::default()))
+            .collect();
         let congestion_info = BlockCongestionInfo::new(congestion_info);
 
         let apply_state = ApplyState {
@@ -121,8 +116,6 @@ impl StandaloneRuntime {
             config: Arc::new(runtime_config),
             cache: None,
             is_new_chunk: true,
-            migration_data: Arc::new(MigrationData::default()),
-            migration_flags: MigrationFlags::default(),
             congestion_info,
             bandwidth_requests: BlockBandwidthRequests::empty(),
             trie_access_tracker_state: Default::default(),
@@ -141,7 +134,7 @@ impl StandaloneRuntime {
     pub fn process_block(
         &mut self,
         receipts: &[Receipt],
-        transactions: &[SignedTransaction],
+        transactions: Vec<SignedTransaction>,
     ) -> ProcessBlockOutcome {
         // TODO - the shard id is correct but the shard version is hardcoded. It
         // would be better to store the shard layout in self and read the uid
@@ -150,7 +143,7 @@ impl StandaloneRuntime {
         let shard_uid = ShardUId::new(0, shard_id);
         let trie = self.tries.get_trie_for_shard(shard_uid, self.root);
         let validity = vec![true; transactions.len()];
-        let transactions = SignedValidPeriodTransactions::new(transactions, &validity);
+        let transactions = SignedValidPeriodTransactions::new(transactions, validity);
         let apply_result = self
             .runtime
             .apply(
@@ -367,10 +360,12 @@ impl RuntimeGroup {
                     mut outgoing_receipts,
                     mut execution_outcomes,
                     mut has_queued_receipts,
-                } = runtime
-                    .process_block(&mailbox.incoming_receipts, &mailbox.incoming_transactions);
+                } = runtime.process_block(
+                    &mailbox.incoming_receipts,
+                    mailbox.incoming_transactions.clone(),
+                );
                 while has_queued_receipts {
-                    let process_outcome = runtime.process_block(&[], &[]);
+                    let process_outcome = runtime.process_block(&[], vec![]);
                     outgoing_receipts.extend(process_outcome.outgoing_receipts);
                     execution_outcomes.extend(process_outcome.execution_outcomes);
                     has_queued_receipts = process_outcome.has_queued_receipts;

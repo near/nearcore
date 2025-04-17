@@ -114,8 +114,7 @@
             "nanos": 100000000
         }
     },
-    "tracked_accounts": [],
-    "tracked_shards": [0],
+    "tracked_shards_config": "AllShards",
     "archive": false,
     "view_client_threads": 4
 }

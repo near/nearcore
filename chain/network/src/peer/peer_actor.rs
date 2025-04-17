@@ -2,7 +2,7 @@ use crate::accounts_data::AccountDataError;
 use crate::client::{
     AnnounceAccountRequest, BlockHeadersRequest, BlockHeadersResponse, BlockRequest, BlockResponse,
     EpochSyncRequestMessage, EpochSyncResponseMessage, OptimisticBlockMessage, ProcessTxRequest,
-    RecvChallenge, StateRequestHeader, StateRequestPart, StateResponseReceived,
+    StateRequestHeader, StateRequestPart, StateResponseReceived,
 };
 use crate::concurrency::atomic_cell::AtomicCell;
 use crate::concurrency::demux;
@@ -1087,10 +1087,7 @@ impl PeerActor {
                     }
                     None
                 }
-                PeerMessage::Challenge(challenge) => {
-                    network_state.client.send_async(RecvChallenge(*challenge)).await.ok();
-                    None
-                }
+                PeerMessage::Challenge(_) => None,
                 PeerMessage::StateRequestHeader(shard_id, sync_hash) => network_state
                     .client
                     .send_async(StateRequestHeader { shard_id, sync_hash })

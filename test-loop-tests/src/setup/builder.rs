@@ -10,18 +10,18 @@ use near_async::test_loop::TestLoopV2;
 use near_async::time::{Clock, Duration};
 use near_chain_configs::{
     ClientConfig, DumpConfig, ExternalStorageConfig, ExternalStorageLocation, Genesis,
-    StateSyncConfig, SyncConfig,
+    StateSyncConfig, SyncConfig, TrackedShardsConfig,
 };
 use near_parameters::RuntimeConfigStore;
 use near_primitives::epoch_manager::EpochConfigStore;
-use near_primitives::types::{AccountId, ShardId};
+use near_primitives::types::AccountId;
 use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
 use near_primitives::version::PROTOCOL_UPGRADE_SCHEDULE;
 use near_store::Store;
 use near_store::genesis::initialize_genesis_state;
 use near_store::test_utils::{create_test_split_store, create_test_store};
 
-use crate::utils::peer_manager_actor::TestLoopNetworkSharedState;
+use crate::utils::peer_manager_actor::{TestLoopNetworkSharedState, UnreachableActor};
 
 use super::env::TestLoopEnv;
 use super::setup::setup_client;
@@ -202,13 +202,17 @@ impl TestLoopBuilder {
         TestLoopEnv { test_loop, node_datas: datas, shared_state }
     }
 
-    fn setup_shared_state(self) -> (TestLoopV2, SharedState) {
+    fn setup_shared_state(mut self) -> (TestLoopV2, SharedState) {
+        let unreachable_actor_sender =
+            self.test_loop.data.register_actor("UnreachableActor", UnreachableActor {}, None);
+        self.test_loop.remove_events_with_identifier("UnreachableActor");
+
         let shared_state = SharedState {
             genesis: self.genesis.unwrap(),
             tempdir: self.test_loop_data_dir,
             epoch_config_store: self.epoch_config_store.unwrap(),
             runtime_config_store: self.runtime_config_store,
-            network_shared_state: TestLoopNetworkSharedState::new(),
+            network_shared_state: TestLoopNetworkSharedState::new(unreachable_actor_sender),
             upgrade_schedule: self.upgrade_schedule,
             chunks_storage: Default::default(),
             drop_conditions: Default::default(),
@@ -231,10 +235,10 @@ impl TestLoopBuilder {
             // * single shard tracking for validators
             // * all shard tracking for non-validators (RPCs and archival)
             let is_validator = genesis.config.validators.iter().any(|v| v.account_id == account_id);
-            client_config.tracked_shards = if is_validator && !self.track_all_shards {
-                Vec::new()
+            client_config.tracked_shards_config = if is_validator && !self.track_all_shards {
+                TrackedShardsConfig::NoShards
             } else {
-                vec![ShardId::new(666)]
+                TrackedShardsConfig::AllShards
             };
 
             if let Some(config_modifier) = &self.config_modifier {

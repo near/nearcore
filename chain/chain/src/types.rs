@@ -12,7 +12,6 @@ use near_primitives::apply::ApplyChunkReason;
 use near_primitives::bandwidth_scheduler::BandwidthRequests;
 use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
 pub use near_primitives::block::{Block, BlockHeader, Tip};
-use near_primitives::challenge::ChallengesResult;
 use near_primitives::chunk_apply_stats::ChunkApplyStatsV0;
 use near_primitives::congestion_info::BlockCongestionInfo;
 use near_primitives::congestion_info::CongestionInfo;
@@ -24,7 +23,6 @@ use near_primitives::receipt::{PromiseYieldTimeout, Receipt};
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::shard_layout::ShardUId;
-use near_primitives::state::PartialState;
 use near_primitives::state_part::PartId;
 use near_primitives::stateless_validation::contract_distribution::ContractUpdates;
 use near_primitives::transaction::ValidatedTransaction;
@@ -291,7 +289,6 @@ pub struct ApplyChunkBlockContext {
     pub prev_block_hash: CryptoHash,
     pub block_timestamp: u64,
     pub gas_price: Balance,
-    pub challenges_result: ChallengesResult,
     pub random_seed: CryptoHash,
     pub congestion_info: BlockCongestionInfo,
     pub bandwidth_requests: BlockBandwidthRequests,
@@ -310,7 +307,6 @@ impl ApplyChunkBlockContext {
             prev_block_hash: *header.prev_hash(),
             block_timestamp: header.raw_timestamp(),
             gas_price,
-            challenges_result: header.challenges_result().clone(),
             random_seed: *header.random_value(),
             congestion_info,
             bandwidth_requests,
@@ -323,7 +319,6 @@ pub struct ApplyChunkShardContext<'a> {
     pub last_validator_proposals: ValidatorStakeIter<'a>,
     pub gas_limit: Gas,
     pub is_new_chunk: bool,
-    pub is_first_block_with_chunk_of_version: bool,
 }
 
 /// Contains transactions that were fetched from the transaction pool
@@ -334,8 +329,6 @@ pub struct PreparedTransactions {
     pub transactions: Vec<ValidatedTransaction>,
     /// Describes which limit was hit when preparing the transactions.
     pub limited_by: Option<PrepareTransactionsLimit>,
-    /// May contain partial state that was used to verify transactions when preparing.
-    pub storage_proof: Option<PartialState>,
 }
 
 /// Chunk producer prepares transactions from the transaction pool
@@ -371,9 +364,6 @@ impl From<&Block> for PrepareTransactionsBlockContext {
 pub struct PrepareTransactionsChunkContext {
     pub shard_id: ShardId,
     pub gas_limit: Gas,
-    /// Size of transactions added in the last existing chunk.
-    /// Used to calculate the allowed size of transactions in a newly produced chunk.
-    pub last_chunk_transactions_size: usize,
 }
 
 /// Bridge between the chain and the runtime.
@@ -461,7 +451,7 @@ pub trait RuntimeAdapter: Send + Sync {
         chunk: ApplyChunkShardContext,
         block: ApplyChunkBlockContext,
         receipts: &[Receipt],
-        transactions: SignedValidPeriodTransactions<'_>,
+        transactions: SignedValidPeriodTransactions,
     ) -> Result<ApplyChunkResult, Error>;
 
     /// Query runtime with given `path` and `data`.
@@ -537,7 +527,7 @@ pub trait RuntimeAdapter: Send + Sync {
 /// The last known / checked height and time when we have processed it.
 /// Required to keep track of skipped blocks and not fallback to produce blocks at lower height.
 #[derive(
-    BorshSerialize, BorshDeserialize, Debug, Clone, Default, serde::Serialize, ProtocolSchema,
+    BorshSerialize, BorshDeserialize, Debug, Clone, Copy, Default, serde::Serialize, ProtocolSchema,
 )]
 pub struct LatestKnown {
     pub height: BlockHeight,
@@ -548,7 +538,7 @@ pub struct LatestKnown {
 mod tests {
     use near_async::time::{Clock, Utc};
     use near_primitives::block::Approval;
-    use near_primitives::genesis::genesis_chunks;
+    use near_primitives::genesis::{genesis_block, genesis_chunks};
     use near_primitives::hash::hash;
     use near_primitives::merkle::verify_path;
     use near_primitives::test_utils::{TestBlockBuilder, create_test_signer};
@@ -563,14 +553,14 @@ mod tests {
         let shard_ids: Vec<_> = (0..32).map(ShardId::new).collect();
         let genesis_chunks = genesis_chunks(
             vec![Trie::EMPTY_ROOT],
-            vec![Some(Default::default()); shard_ids.len()],
+            vec![Default::default(); shard_ids.len()],
             &shard_ids,
             1_000_000,
             0,
             PROTOCOL_VERSION,
         );
         let genesis_bps: Vec<ValidatorStake> = Vec::new();
-        let genesis = Block::genesis(
+        let genesis = genesis_block(
             PROTOCOL_VERSION,
             genesis_chunks.into_iter().map(|chunk| chunk.take_header()).collect(),
             Utc::now_utc(),

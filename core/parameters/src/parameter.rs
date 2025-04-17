@@ -165,7 +165,6 @@ pub enum Parameter {
     MaxGasBurnt,
     MaxGasBurntView,
     MaxStackHeight,
-    ContractPrepareVersion,
     InitialMemoryPages,
     MaxMemoryPages,
     RegistersMemoryLimit,
@@ -187,25 +186,17 @@ pub enum Parameter {
     MaxPromisesPerFunctionCallAction,
     MaxNumberInputDataDependencies,
     MaxFunctionsNumberPerContract,
-    Wasmer2StackLimit,
     MaxLocalsPerContract,
     AccountIdValidityRulesVersion,
     YieldTimeoutLengthInBlocks,
     MaxYieldPayloadSize,
 
     // Contract runtime features
-    #[strum(serialize = "disable_9393_fix")]
-    Disable9393Fix,
     FlatStorageReads,
     ImplicitAccountCreation,
     FixContractLoadingCost,
-    MathExtension,
-    Ed25519Verify,
-    AltBn128,
-    FunctionCallWeight,
     VmKind,
     EthImplicitAccounts,
-    YieldResume,
     DiscardCustomSections,
 
     // Congestion Control
@@ -282,7 +273,6 @@ impl Parameter {
         [
             Parameter::MaxGasBurnt,
             Parameter::MaxStackHeight,
-            Parameter::ContractPrepareVersion,
             Parameter::InitialMemoryPages,
             Parameter::MaxMemoryPages,
             Parameter::RegistersMemoryLimit,
@@ -304,7 +294,6 @@ impl Parameter {
             Parameter::MaxPromisesPerFunctionCallAction,
             Parameter::MaxNumberInputDataDependencies,
             Parameter::MaxFunctionsNumberPerContract,
-            Parameter::Wasmer2StackLimit,
             Parameter::MaxLocalsPerContract,
             Parameter::AccountIdValidityRulesVersion,
             Parameter::YieldTimeoutLengthInBlocks,

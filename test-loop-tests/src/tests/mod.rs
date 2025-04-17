@@ -1,14 +1,15 @@
 mod bandwidth_scheduler;
 mod bandwidth_scheduler_protocol_upgrade;
 mod chunk_validator_kickout;
+mod chunks_management;
 mod congestion_control;
 mod congestion_control_genesis_bootstrap;
+mod consensus;
 mod contract_distribution_cross_shard;
 mod contract_distribution_simple;
 mod create_delete_account;
 mod epoch_sync;
 mod fix_chunk_producer_stake_threshold;
-mod fix_min_stake_ratio;
 mod fix_stake_threshold;
 mod garbage_collection;
 mod global_contracts;

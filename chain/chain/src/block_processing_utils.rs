@@ -4,7 +4,6 @@ use crate::near_chain_primitives::error::BlockKnownError::KnownInProcessing;
 use crate::orphan::OrphanMissingChunks;
 use near_async::time::Instant;
 use near_primitives::block::Block;
-use near_primitives::challenge::{ChallengeBody, ChallengesResult};
 use near_primitives::hash::CryptoHash;
 use near_primitives::optimistic_block::{BlockToApply, OptimisticBlock};
 use near_primitives::sharding::{ReceiptProof, ShardChunkHeader, StateSyncInfo};
@@ -32,8 +31,6 @@ pub(crate) struct BlockPreprocessInfo {
     pub(crate) is_caught_up: bool,
     pub(crate) state_sync_info: Option<StateSyncInfo>,
     pub(crate) incoming_receipts: HashMap<ShardId, Vec<ReceiptProof>>,
-    pub(crate) challenges_result: ChallengesResult,
-    pub(crate) challenged_blocks: Vec<CryptoHash>,
     pub(crate) provenance: Provenance,
     /// Used to get notified when the applying chunks of a block finishes.
     pub(crate) apply_chunks_done_waiter: ApplyChunksDoneWaiter,
@@ -83,7 +80,6 @@ impl From<AddError> for near_chain_primitives::Error {
 pub struct BlockProcessingArtifact {
     pub orphans_missing_chunks: Vec<OrphanMissingChunks>,
     pub blocks_missing_chunks: Vec<BlockMissingChunks>,
-    pub challenges: Vec<ChallengeBody>,
     pub invalid_chunks: Vec<ShardChunkHeader>,
 }
 

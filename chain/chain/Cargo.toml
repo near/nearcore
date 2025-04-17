@@ -22,7 +22,6 @@ itoa.workspace = true
 lru.workspace = true
 more-asserts.workspace = true
 num-rational.workspace = true
-once_cell.workspace = true
 rand_chacha.workspace = true
 rand.workspace = true
 rayon.workspace = true
@@ -54,10 +53,10 @@ near-store.workspace = true
 node-runtime.workspace = true
 near-parameters.workspace = true
 near-vm-runner.workspace = true
-near-mainnet-res.workspace = true
 near-schema-checker-lib.workspace = true
 
 [dev-dependencies]
+near-mainnet-res.workspace = true
 near-primitives = { workspace = true, features = ["clock"] }
 near-test-contracts.workspace = true
 serde_json.workspace = true

@@ -48,7 +48,6 @@ use near_network::types::{
 };
 use near_primitives::block::{Approval, ApprovalInner, ApprovalMessage, Block, BlockHeader, Tip};
 use near_primitives::block_header::ApprovalType;
-use near_primitives::challenge::{Challenge, ChallengeBody};
 use near_primitives::epoch_info::RngSeed;
 use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
@@ -144,8 +143,6 @@ pub struct Client {
     chain_sender_for_state_sync: ChainSenderForStateSync,
     // Sender to be able to send a message to myself.
     pub myself_sender: ClientSenderForClient,
-    /// List of currently accumulated challenges.
-    pub challenges: HashMap<CryptoHash, Challenge>,
     /// Blocks that have been re-broadcast recently. They should not be broadcast again.
     rebroadcasted_blocks: lru::LruCache<CryptoHash, ()>,
     /// Last time the head was updated, or our head was rebroadcasted. Used to re-broadcast the head
@@ -352,7 +349,6 @@ impl Client {
             state_sync_future_spawner,
             chain_sender_for_state_sync,
             myself_sender,
-            challenges: Default::default(),
             rebroadcasted_blocks: lru::LruCache::new(
                 NonZeroUsize::new(NUM_REBROADCAST_BLOCKS).unwrap(),
             ),
@@ -406,14 +402,11 @@ impl Client {
                 ) {
                     // By now the chunk must be in store, otherwise the block would have been orphaned
                     let chunk = self.chain.get_chunk(&chunk_header.chunk_hash()).unwrap();
-                    let transactions = chunk.transactions();
+                    let transactions = chunk.to_transactions();
                     let mut pool_guard = self.chunk_producer.sharded_tx_pool.lock().unwrap();
                     pool_guard.remove_transactions(shard_uid, transactions);
                 }
             }
-        }
-        for challenge in block.challenges().iter() {
-            self.challenges.remove(&challenge.hash);
         }
         Ok(())
     }
@@ -445,7 +438,7 @@ impl Client {
                     let chunk = self.chain.get_chunk(&chunk_header.chunk_hash()).unwrap();
 
                     let validated_txs = chunk
-                        .transactions()
+                        .to_transactions()
                         .into_iter()
                         .cloned()
                         .filter_map(|signed_tx| {
@@ -469,17 +462,14 @@ impl Client {
                         pool_guard.reintroduce_transactions(shard_uid, validated_txs)
                     };
 
-                    if reintroduced_count < chunk.transactions().len() {
+                    if reintroduced_count < chunk.to_transactions().len() {
                         debug!(target: "client",
                             reintroduced_count,
-                            num_tx = chunk.transactions().len(),
+                            num_tx = chunk.to_transactions().len(),
                             "Reintroduced transactions");
                     }
                 }
             }
-        }
-        for challenge in block.challenges().iter() {
-            self.challenges.insert(challenge.hash, challenge.clone());
         }
         Ok(())
     }
@@ -803,7 +793,7 @@ impl Client {
         let max_gas_price = self.chain.block_economics_config.max_gas_price();
 
         let next_bp_hash = if prev_epoch_id != epoch_id {
-            Chain::compute_bp_hash(self.epoch_manager.as_ref(), next_epoch_id, epoch_id)?
+            Chain::compute_bp_hash(self.epoch_manager.as_ref(), next_epoch_id)?
         } else {
             prev_next_bp_hash
         };
@@ -821,7 +811,6 @@ impl Client {
         // The number of leaves in Block Merkle Tree is the amount of Blocks on the Canonical Chain by construction.
         // The ordinal of the next Block will be equal to this amount plus one.
         let block_ordinal: NumBlocks = block_merkle_tree.size() + 1;
-        let prev_block_extra = self.chain.get_block_extra(&prev_hash)?;
         let prev_block = self.chain.get_block(&prev_hash)?;
         let mut chunk_headers =
             Chain::get_prev_chunk_headers(self.epoch_manager.as_ref(), &prev_block)?;
@@ -888,17 +877,10 @@ impl Client {
             None
         };
 
-        // Get all the current challenges.
-        // TODO(2445): Enable challenges when they are working correctly.
-        // let challenges = self.challenges.drain().map(|(_, challenge)| challenge).collect();
-        let this_epoch_protocol_version =
-            self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
         let next_epoch_protocol_version =
             self.epoch_manager.get_epoch_protocol_version(&next_epoch_id)?;
 
         let block = Block::produce(
-            this_epoch_protocol_version,
-            next_epoch_protocol_version,
             self.upgrade_schedule
                 .protocol_version_to_vote_for(self.clock.now_utc(), next_epoch_protocol_version),
             prev_header,
@@ -914,8 +896,6 @@ impl Client {
             min_gas_price,
             max_gas_price,
             minted_amount,
-            prev_block_extra.challenges_result.clone(),
-            vec![],
             &*validator_signer,
             next_bp_hash,
             block_merkle_root,
@@ -932,22 +912,6 @@ impl Client {
         metrics::BLOCK_PRODUCED_TOTAL.inc();
 
         Ok(Some(block))
-    }
-
-    fn send_challenges(
-        &mut self,
-        challenges: Vec<ChallengeBody>,
-        signer: &Option<Arc<ValidatorSigner>>,
-    ) {
-        if let Some(validator_signer) = &signer {
-            for body in challenges {
-                let challenge = Challenge::produce(body, &**validator_signer);
-                self.challenges.insert(challenge.hash, challenge.clone());
-                self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
-                    NetworkRequests::Challenge(challenge),
-                ));
-            }
-        }
     }
 
     /// Processes received block. Ban peer if the block header is invalid or the block is ill-formed.
@@ -1132,7 +1096,7 @@ impl Client {
         was_requested: bool,
         peer_id: &PeerId,
     ) -> Result<(), near_chain::Error> {
-        let res = self.chain.process_block_header(block.header(), &mut vec![]);
+        let res = self.chain.process_block_header(block.header());
         let res = res.and_then(|_| self.chain.validate_block(block));
         match res {
             Ok(_) => {
@@ -1197,32 +1161,7 @@ impl Client {
             )
         };
 
-        self.process_block_processing_artifact(block_processing_artifacts, &signer);
-
-        // Send out challenge if the block was found to be invalid.
-        if let Some(signer) = signer {
-            if let Err(e) = &result {
-                match e {
-                    near_chain::Error::InvalidChunkProofs(chunk_proofs) => {
-                        self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
-                            NetworkRequests::Challenge(Challenge::produce(
-                                ChallengeBody::ChunkProofs(*chunk_proofs.clone()),
-                                &*signer,
-                            )),
-                        ));
-                    }
-                    near_chain::Error::InvalidChunkState(chunk_state) => {
-                        self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
-                            NetworkRequests::Challenge(Challenge::produce(
-                                ChallengeBody::ChunkState(*chunk_state.clone()),
-                                &*signer,
-                            )),
-                        ));
-                    }
-                    _ => {}
-                }
-            }
-        }
+        self.process_block_processing_artifact(block_processing_artifacts);
 
         result
     }
@@ -1250,7 +1189,7 @@ impl Client {
                 header_head: self.chain.header_head().unwrap(),
             });
         }
-        self.process_block_processing_artifact(block_processing_artifacts, signer);
+        self.process_block_processing_artifact(block_processing_artifacts);
         let accepted_blocks_hashes =
             accepted_blocks.iter().map(|accepted_block| accepted_block.hash).collect();
         for accepted_block in accepted_blocks {
@@ -1274,16 +1213,12 @@ impl Client {
     pub(crate) fn process_block_processing_artifact(
         &mut self,
         block_processing_artifacts: BlockProcessingArtifact,
-        signer: &Option<Arc<ValidatorSigner>>,
     ) {
         let BlockProcessingArtifact {
             orphans_missing_chunks,
             blocks_missing_chunks,
-            challenges,
             invalid_chunks,
         } = block_processing_artifacts;
-        // Send out challenges that accumulated via on_challenge.
-        self.send_challenges(challenges, &signer);
         // For any missing chunk, let the ShardsManager know of the chunk header so that it may
         // apply forwarded parts. This may end up completing the chunk.
         let missing_chunks = blocks_missing_chunks
@@ -1364,7 +1299,7 @@ impl Client {
             .record_chunk_collected(partial_chunk.height_created(), shard_index);
 
         // TODO(#10569) We would like a proper error handling here instead of `expect`.
-        persist_chunk(partial_chunk, shard_chunk, self.chain.mut_chain_store())
+        persist_chunk(Arc::new(partial_chunk), shard_chunk, self.chain.mut_chain_store())
             .expect("Could not persist chunk");
         // We're marking chunk as accepted.
         self.chain.blocks_with_missing_chunks.accept_chunk(&chunk_header.chunk_hash());
@@ -1392,16 +1327,13 @@ impl Client {
     pub fn sync_block_headers(
         &mut self,
         headers: Vec<BlockHeader>,
-        signer: &Option<Arc<ValidatorSigner>>,
     ) -> Result<(), near_chain::Error> {
         if matches!(self.sync_handler.sync_status, SyncStatus::EpochSync(_)) {
             return Err(near_chain::Error::Other(
                 "Cannot sync block headers during an epoch sync".to_owned(),
             ));
         };
-        let mut challenges = vec![];
-        self.chain.sync_block_headers(headers, &mut challenges)?;
-        self.send_challenges(challenges, signer);
+        self.chain.sync_block_headers(headers)?;
         self.shards_manager_adapter.send(ShardsManagerRequestFromClient::UpdateChainHeads {
             head: self.chain.head().unwrap(),
             header_head: self.chain.header_head().unwrap(),
@@ -1785,7 +1717,7 @@ impl Client {
                 Ok(Some(result)) => {
                     let shard_chunk = self
                         .persist_and_distribute_encoded_chunk(
-                            result.chunk,
+                            result.encoded_chunk,
                             result.encoded_chunk_parts_paths,
                             result.receipts,
                             validator_id.clone(),
@@ -1796,7 +1728,6 @@ impl Client {
                         block.header(),
                         &last_header,
                         &shard_chunk,
-                        result.transactions_storage_proof,
                         &Some(signer.clone()),
                     ) {
                         tracing::error!(target: "client", ?err, "Failed to send chunk state witness to chunk validators");
@@ -1824,8 +1755,9 @@ impl Client {
             self.epoch_manager.as_ref(),
             &self.shard_tracker,
         )?;
+        let partial_chunk_arc = Arc::new(partial_chunk.clone());
         persist_chunk(
-            partial_chunk.clone(),
+            Arc::clone(&partial_chunk_arc),
             Some(shard_chunk.clone()),
             self.chain.mut_chain_store(),
         )?;
@@ -1833,10 +1765,10 @@ impl Client {
         let chunk_header = encoded_chunk.cloned_header();
         if let Some(chunk_distribution) = &self.chunk_distribution_network {
             if chunk_distribution.enabled() {
-                let partial_chunk = partial_chunk.clone();
+                let partial_chunk_arc = Arc::clone(&partial_chunk_arc);
                 let mut thread_local_client = chunk_distribution.clone();
                 near_performance_metrics::actix::spawn("ChunkDistributionNetwork", async move {
-                    if let Err(err) = thread_local_client.publish_chunk(&partial_chunk).await {
+                    if let Err(err) = thread_local_client.publish_chunk(&partial_chunk_arc).await {
                         error!(target: "client", ?err, "Failed to distribute chunk via Chunk Distribution Network");
                     }
                 });
@@ -1924,7 +1856,7 @@ impl Client {
             &mut blocks_processing_artifacts,
             apply_chunks_done_sender,
         );
-        self.process_block_processing_artifact(blocks_processing_artifacts, signer);
+        self.process_block_processing_artifact(blocks_processing_artifacts);
     }
 
     pub fn is_validator(&self, epoch_id: &EpochId, signer: &Option<Arc<ValidatorSigner>>) -> bool {
@@ -2228,39 +2160,12 @@ impl Client {
                             &catchup.done_blocks,
                         )?;
 
-                        self.process_block_processing_artifact(block_processing_artifacts, &signer);
+                        self.process_block_processing_artifact(block_processing_artifacts);
                     }
                 }
             }
         }
 
-        Ok(())
-    }
-
-    /// When accepting challenge, we verify that it's valid given signature with current validators.
-    pub fn process_challenge(&mut self, _challenge: Challenge) -> Result<(), Error> {
-        // TODO(2445): Enable challenges when they are working correctly.
-        //        if self.challenges.contains_key(&challenge.hash) {
-        //            return Ok(());
-        //        }
-        //        debug!(target: "client", "Received challenge: {:?}", challenge);
-        //        let head = self.chain.head()?;
-        //        if self.runtime_adapter.verify_validator_or_fisherman_signature(
-        //            &head.epoch_id,
-        //            &head.prev_block_hash,
-        //            &challenge.account_id,
-        //            challenge.hash.as_ref(),
-        //            &challenge.signature,
-        //        )? {
-        //            // If challenge is not double sign, we should process it right away to invalidate the chain.
-        //            match challenge.body {
-        //                ChallengeBody::BlockDoubleSign(_) => {}
-        //                _ => {
-        //                    self.chain.process_challenge(&challenge);
-        //                }
-        //            }
-        //            self.challenges.insert(challenge.hash, challenge);
-        //        }
         Ok(())
     }
 }
@@ -2376,10 +2281,12 @@ impl Client {
         // convert config tracked shards
         // runtime will track all shards if config tracked shards is not empty
         // https://github.com/near/nearcore/issues/4930
-        let tracked_shards = if self.config.tracked_shards.is_empty() {
-            vec![]
-        } else {
+        let tracked_shards = if self.config.tracked_shards_config.tracks_all_shards() {
             self.epoch_manager.shard_ids(&tip.epoch_id)?
+        } else {
+            // TODO(archival_v2): Revisit this to determine if improvements can be made
+            // and if the issue described above has been resolved.
+            vec![]
         };
         let tier1_accounts = self.get_tier1_accounts(&tip)?;
         let block = self.chain.get_block(&tip.last_block_hash)?;

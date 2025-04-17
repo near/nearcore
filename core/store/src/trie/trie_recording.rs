@@ -308,7 +308,7 @@ mod trie_recording_tests {
     use near_primitives::state::ValueRef;
     use near_primitives::types::StateRoot;
     use near_primitives::types::chunk_extra::ChunkExtra;
-    use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
+    use near_primitives::version::PROTOCOL_VERSION;
     use rand::prelude::SliceRandom;
     use rand::{Rng, random, thread_rng};
     use std::cell::{Cell, RefCell};
@@ -365,10 +365,6 @@ mod trie_recording_tests {
             &trie_changes,
         );
 
-        let congestion_info = ProtocolFeature::CongestionControl
-            .enabled(PROTOCOL_VERSION)
-            .then(CongestionInfo::default);
-
         // ChunkExtra is needed for in-memory trie loading code to query state roots.
         let chunk_extra = ChunkExtra::new(
             PROTOCOL_VERSION,
@@ -378,7 +374,7 @@ mod trie_recording_tests {
             0,
             0,
             0,
-            congestion_info,
+            Some(CongestionInfo::default()),
             BandwidthRequests::default_for_protocol_version(PROTOCOL_VERSION),
         );
         let mut update_for_chunk_extra = tries_for_building.store_update();

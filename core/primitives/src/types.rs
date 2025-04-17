@@ -1,11 +1,11 @@
 use crate::account::{AccessKey, Account};
-use crate::challenge::ChallengesResult;
 use crate::errors::EpochError;
 use crate::hash::CryptoHash;
 use crate::serialize::dec_format;
 use crate::shard_layout::ShardLayout;
 use crate::trie_key::TrieKey;
 use borsh::{BorshDeserialize, BorshSerialize};
+pub use chunk_validator_stats::ChunkStats;
 use near_crypto::PublicKey;
 /// Reexport primitive types
 pub use near_primitives_core::types::*;
@@ -16,8 +16,6 @@ use std::sync::Arc;
 use std::sync::LazyLock;
 
 mod chunk_validator_stats;
-
-pub use chunk_validator_stats::ChunkStats;
 
 /// Hash used by to store state root.
 pub type StateRoot = CryptoHash;
@@ -730,12 +728,6 @@ pub struct ValidatorStakeV1 {
     pub stake: Balance,
 }
 
-/// Information after block was processed.
-#[derive(Debug, PartialEq, BorshSerialize, BorshDeserialize, Clone, Eq, ProtocolSchema)]
-pub struct BlockExtra {
-    pub challenges_result: ChallengesResult,
-}
-
 pub mod chunk_extra {
     use crate::bandwidth_scheduler::BandwidthRequests;
     use crate::congestion_info::CongestionInfo;
@@ -819,12 +811,7 @@ pub mod chunk_extra {
         /// used as part of regular processing.
         pub fn new_with_only_state_root(state_root: &StateRoot) -> Self {
             // TODO(congestion_control) - integration with resharding
-            let congestion_control = if ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION)
-            {
-                Some(CongestionInfo::default())
-            } else {
-                None
-            };
+            let congestion_control = Some(CongestionInfo::default());
             Self::new(
                 PROTOCOL_VERSION,
                 state_root,
@@ -861,8 +848,7 @@ pub mod chunk_extra {
                     congestion_info: congestion_info.unwrap(),
                     bandwidth_requests: bandwidth_requests.unwrap(),
                 })
-            } else if ProtocolFeature::CongestionControl.enabled(protocol_version) {
-                assert!(congestion_info.is_some());
+            } else if congestion_info.is_some() {
                 Self::V3(ChunkExtraV3 {
                     state_root: *state_root,
                     outcome_root,
@@ -873,7 +859,6 @@ pub mod chunk_extra {
                     congestion_info: congestion_info.unwrap(),
                 })
             } else {
-                assert!(congestion_info.is_none());
                 Self::V2(ChunkExtraV2 {
                     state_root: *state_root,
                     outcome_root,
@@ -956,22 +941,23 @@ pub mod chunk_extra {
         }
 
         #[inline]
-        pub fn congestion_info(&self) -> Option<CongestionInfo> {
+        pub fn congestion_info(&self) -> CongestionInfo {
             match self {
-                Self::V1(_) => None,
-                Self::V2(_) => None,
-                Self::V3(v3) => v3.congestion_info.into(),
-                Self::V4(v4) => v4.congestion_info.into(),
+                Self::V1(_) | Self::V2(_) => {
+                    debug_assert!(false, "Calling congestion_info on V1 or V2 header version");
+                    Default::default()
+                }
+                Self::V3(v3) => v3.congestion_info,
+                Self::V4(v4) => v4.congestion_info,
             }
         }
 
         #[inline]
-        pub fn congestion_info_mut(&mut self) -> Option<&mut CongestionInfo> {
+        pub fn congestion_info_mut(&mut self) -> &mut CongestionInfo {
             match self {
-                Self::V1(_) => None,
-                Self::V2(_) => None,
-                Self::V3(v3) => Some(&mut v3.congestion_info),
-                Self::V4(v4) => Some(&mut v4.congestion_info),
+                Self::V1(_) | Self::V2(_) => panic!("Calling congestion_info_mut on V1 or V2"),
+                Self::V3(v3) => &mut v3.congestion_info,
+                Self::V4(v4) => &mut v4.congestion_info,
             }
         }
 
@@ -1134,8 +1120,8 @@ pub enum ValidatorInfoIdentifier {
     ProtocolSchema,
 )]
 pub enum ValidatorKickoutReason {
-    /// Slashed validators are kicked out.
-    Slashed,
+    /// Deprecated
+    _UnusedSlashed,
     /// Validator didn't produce enough blocks.
     NotEnoughBlocks { produced: NumBlocks, expected: NumBlocks },
     /// Validator didn't produce enough chunks.
@@ -1170,16 +1156,11 @@ pub trait EpochInfoProvider: Send + Sync {
     fn validator_stake(
         &self,
         epoch_id: &EpochId,
-        last_block_hash: &CryptoHash,
         account_id: &AccountId,
     ) -> Result<Option<Balance>, EpochError>;
 
     /// Get the total stake of the given epoch.
-    fn validator_total_stake(
-        &self,
-        epoch_id: &EpochId,
-        last_block_hash: &CryptoHash,
-    ) -> Result<Balance, EpochError>;
+    fn validator_total_stake(&self, epoch_id: &EpochId) -> Result<Balance, EpochError>;
 
     fn minimum_stake(&self, prev_block_hash: &CryptoHash) -> Result<Balance, EpochError>;
 

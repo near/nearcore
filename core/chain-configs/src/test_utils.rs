@@ -108,7 +108,6 @@ impl Genesis {
             minimum_stake_divisor: epoch_config.minimum_stake_divisor,
             num_chunk_producer_seats: epoch_config.num_chunk_producer_seats,
             num_chunk_validator_seats: epoch_config.num_chunk_validator_seats,
-            num_chunk_only_producer_seats: epoch_config.num_chunk_only_producer_seats,
             minimum_validators_per_shard: epoch_config.minimum_validators_per_shard,
             minimum_stake_ratio: epoch_config.minimum_stake_ratio,
             chunk_producer_assignment_changes_limit: epoch_config

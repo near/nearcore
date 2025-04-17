@@ -22,7 +22,6 @@ use near_primitives::congestion_info::{
 use near_primitives::errors::{ActionErrorKind, FunctionCallError, TxExecutionError};
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum, ReceiptPriority, ReceiptV0};
-use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::state::PartialState;
 use near_primitives::stateless_validation::contract_distribution::CodeHash;
@@ -45,7 +44,7 @@ use near_store::{
     set_account,
 };
 use near_vm_runner::{ContractCode, FilesystemContractRuntimeCache};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::sync::Arc;
 use testlib::runtime_utils::{alice_account, bob_account};
 
@@ -151,12 +150,9 @@ fn setup_runtime_for_shard(
     let root = tries.apply_all(&trie_changes, shard_uid, &mut store_update);
     store_update.commit().unwrap();
     let contract_cache = FilesystemContractRuntimeCache::test().unwrap();
-    let shards_congestion_info = if ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
-        let shard_ids = shard_layout.shard_ids();
-        shard_ids.map(|shard_id| (shard_id, ExtendedCongestionInfo::default())).collect()
-    } else {
-        [].into()
-    };
+    let shard_ids = shard_layout.shard_ids();
+    let shards_congestion_info =
+        shard_ids.map(|shard_id| (shard_id, ExtendedCongestionInfo::default())).collect();
     let congestion_info = BlockCongestionInfo::new(shards_congestion_info);
     let apply_state = ApplyState {
         apply_reason: ApplyChunkReason::UpdateTrackedShard,
@@ -174,8 +170,6 @@ fn setup_runtime_for_shard(
         config: Arc::new(RuntimeConfig::test()),
         cache: Some(Box::new(contract_cache)),
         is_new_chunk: true,
-        migration_data: Arc::new(MigrationData::default()),
-        migration_flags: MigrationFlags::default(),
         congestion_info,
         bandwidth_requests: BlockBandwidthRequests::empty(),
         trie_access_tracker_state: Default::default(),
@@ -214,7 +208,6 @@ fn test_apply_check_balance_validation_rewards() {
         validator_rewards: vec![(alice_account(), reward)].into_iter().collect(),
         last_proposals: Default::default(),
         protocol_treasury_account_id: None,
-        slashing_info: HashMap::default(),
     };
 
     runtime
@@ -559,7 +552,7 @@ fn test_apply_delayed_receipts_local_tx() {
             &None,
             &apply_state,
             &receipts[0..2],
-            SignedValidPeriodTransactions::new(&local_transactions[0..4], &[true; 4]),
+            SignedValidPeriodTransactions::new(local_transactions[0..4].to_vec(), vec![true; 4]),
             &epoch_info_provider,
             Default::default(),
         )
@@ -605,7 +598,7 @@ fn test_apply_delayed_receipts_local_tx() {
             &None,
             &apply_state,
             &receipts[2..3],
-            SignedValidPeriodTransactions::new(&local_transactions[4..5], &[true]),
+            SignedValidPeriodTransactions::new(local_transactions[4..5].to_vec(), vec![true]),
             &epoch_info_provider,
             Default::default(),
         )
@@ -645,7 +638,7 @@ fn test_apply_delayed_receipts_local_tx() {
             &None,
             &apply_state,
             &receipts[3..4],
-            SignedValidPeriodTransactions::new(&local_transactions[5..9], &[true; 4]),
+            SignedValidPeriodTransactions::new(local_transactions[5..9].to_vec(), vec![true; 4]),
             &epoch_info_provider,
             Default::default(),
         )
@@ -987,7 +980,6 @@ fn test_delete_key_underflow() {
     assert_eq!(final_account_state.storage_usage(), 0);
 }
 
-// This test only works on platforms that support wasmer2.
 #[test]
 #[cfg(target_arch = "x86_64")]
 fn test_contract_precompilation() {
@@ -2433,15 +2425,13 @@ fn test_congestion_delayed_receipts_accounting() {
         .unwrap();
 
     assert_eq!(n - 1, apply_result.delayed_receipts_count);
-    if ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
-        let congestion = apply_result.congestion_info.unwrap();
-        let expected_delayed_gas =
-            (n - 1) * compute_receipt_congestion_gas(&receipts[0], &apply_state.config).unwrap();
-        let expected_receipts_bytes = (n - 1) * compute_receipt_size(&receipts[0]).unwrap() as u64;
+    let congestion = apply_result.congestion_info.unwrap();
+    let expected_delayed_gas =
+        (n - 1) * compute_receipt_congestion_gas(&receipts[0], &apply_state.config).unwrap();
+    let expected_receipts_bytes = (n - 1) * compute_receipt_size(&receipts[0]).unwrap() as u64;
 
-        assert_eq!(expected_delayed_gas as u128, congestion.delayed_receipts_gas());
-        assert_eq!(expected_receipts_bytes, congestion.receipt_bytes());
-    }
+    assert_eq!(expected_delayed_gas as u128, congestion.delayed_receipts_gas());
+    assert_eq!(expected_receipts_bytes, congestion.receipt_bytes());
 }
 
 /// Test that the outgoing receipts buffer works as intended.
@@ -2455,10 +2445,6 @@ fn test_congestion_delayed_receipts_accounting() {
 /// necessary changes to the balance checker.
 #[test]
 fn test_congestion_buffering() {
-    if !ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
-        return;
-    }
-
     init_test_logger();
 
     // In the test setup with MockEpochInfoProvider, bob_account is on shard 0 while alice_account
@@ -2695,9 +2681,6 @@ fn check_congestion_info_bootstrapping(is_new_chunk: bool, want: Option<Congesti
 /// be triggered on missed chunks.)
 #[test]
 fn test_congestion_info_bootstrapping() {
-    if !ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     let is_new_chunk = true;
     check_congestion_info_bootstrapping(is_new_chunk, Some(CongestionInfo::default()));
 
@@ -2745,7 +2728,7 @@ fn test_deploy_and_call_local_receipt() {
             &None,
             &apply_state,
             &[],
-            SignedValidPeriodTransactions::new(&[tx], &[true]),
+            SignedValidPeriodTransactions::new(vec![tx], vec![true]),
             &epoch_info_provider,
             Default::default(),
         )
@@ -2816,7 +2799,7 @@ fn test_deploy_and_call_local_receipts() {
             &None,
             &apply_state,
             &[],
-            SignedValidPeriodTransactions::new(&[tx1, tx2], &[true; 2]),
+            SignedValidPeriodTransactions::new(vec![tx1, tx2], vec![true; 2]),
             &epoch_info_provider,
             Default::default(),
         )
@@ -2914,7 +2897,7 @@ fn test_transaction_ordering_with_apply() {
     );
 
     let validity_flags = vec![true; txs.len()];
-    let signed_valid_period_txs = SignedValidPeriodTransactions::new(&txs, &validity_flags);
+    let signed_valid_period_txs = SignedValidPeriodTransactions::new(txs, validity_flags);
     let apply_result = runtime
         .apply(
             tries.get_trie_for_shard(ShardUId::single_shard(), root),
@@ -2993,7 +2976,7 @@ fn test_transaction_multiple_access_keys_with_apply() {
         );
 
     let validity_flags = vec![true; txs.len()];
-    let signed_valid_period_txs = SignedValidPeriodTransactions::new(&txs, &validity_flags);
+    let signed_valid_period_txs = SignedValidPeriodTransactions::new(txs.clone(), validity_flags);
     let apply_result = runtime
         .apply(
             tries.get_trie_for_shard(ShardUId::single_shard(), root),
@@ -3019,4 +3002,40 @@ fn test_transaction_multiple_access_keys_with_apply() {
 
     assert!(account.amount() < to_yocto(994_000));
     assert!(account.amount() > to_yocto(993_000));
+}
+
+#[test]
+fn test_expired_transaction() {
+    let alice_signer = InMemorySigner::test_signer(&alice_account());
+    let expired_tx = vec![SignedTransaction::send_money(
+        1,
+        alice_account(),
+        alice_account(),
+        &alice_signer,
+        1,
+        CryptoHash::default(),
+    )];
+    let (runtime, tries, root, apply_state, _signers, epoch_info_provider) = setup_runtime(
+        vec![alice_account(), bob_account()],
+        to_yocto(1_000_000),
+        to_yocto(500_000),
+        10u64.pow(15),
+    );
+    let signed_valid_period_txs = SignedValidPeriodTransactions::new(expired_tx, vec![false]);
+    let apply_result = runtime
+        .apply(
+            tries.get_trie_for_shard(ShardUId::single_shard(), root),
+            &None,
+            &apply_state,
+            &[],
+            signed_valid_period_txs,
+            &epoch_info_provider,
+            Default::default(),
+        )
+        .expect("apply should succeed");
+    assert_eq!(
+        apply_result.outcomes.len(),
+        0,
+        "should have not produced any outcomes for the expired tx"
+    );
 }

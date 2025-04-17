@@ -1,4 +1,5 @@
 use assert_matches::assert_matches;
+use near_chain::test_utils::is_optimistic_block_in_processing;
 use near_chain::validate::validate_chunk_with_chunk_extra;
 use near_chain::{Provenance, test_utils};
 use near_chain_configs::Genesis;
@@ -15,7 +16,7 @@ use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::ShardId;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::utils::MaybeValidated;
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
+use near_primitives::version::PROTOCOL_VERSION;
 use near_store::ShardUId;
 
 use crate::env::test_env::TestEnv;
@@ -26,7 +27,7 @@ use crate::env::test_env_builder::TestEnvBuilder;
 /// if the second block is not requested
 #[test]
 fn test_not_process_height_twice() {
-    let mut env = TestEnv::default_builder_with_genesis().build();
+    let mut env = TestEnv::default_builder().build();
     let block = env.clients[0].produce_block(1).unwrap().unwrap();
     // modify the block and resign it
     let mut duplicate_block = block.clone();
@@ -75,9 +76,7 @@ fn test_bad_shard_id() {
     // modify chunk 0 to have shard_id 1
     let chunk = chunks.get(0).unwrap();
     let outgoing_receipts_root = chunks.get(1).unwrap().prev_outgoing_receipts_root();
-    let congestion_info = ProtocolFeature::CongestionControl
-        .enabled(PROTOCOL_VERSION)
-        .then_some(CongestionInfo::default());
+    let congestion_info = CongestionInfo::default();
     let mut modified_chunk = ShardChunkHeaderV3::new(
         PROTOCOL_VERSION,
         *chunk.prev_block_hash(),
@@ -215,10 +214,6 @@ impl BadCongestionInfoMode {
 }
 
 fn test_bad_congestion_info_impl(mode: BadCongestionInfoMode) {
-    if !ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
-        return;
-    }
-
     let accounts = TestEnvBuilder::make_accounts(1);
     let genesis = Genesis::test_sharded_new_version(accounts, 1, vec![1, 1, 1, 1]);
     let mut env = TestEnv::builder_from_genesis(&genesis).build();
@@ -232,7 +227,7 @@ fn test_bad_congestion_info_impl(mode: BadCongestionInfoMode) {
     let chunks: Vec<_> = block.chunks().iter_deprecated().cloned().collect();
     let chunk = chunks.get(0).unwrap();
 
-    let mut congestion_info = chunk.congestion_info().unwrap_or_default();
+    let mut congestion_info = chunk.congestion_info();
     mode.corrupt(&mut congestion_info);
 
     let mut modified_chunk_header = ShardChunkHeaderV3::new(
@@ -250,7 +245,7 @@ fn test_bad_congestion_info_impl(mode: BadCongestionInfoMode) {
         chunk.prev_outgoing_receipts_root(),
         chunk.tx_root(),
         chunk.prev_validator_proposals().collect(),
-        Some(congestion_info),
+        congestion_info,
         chunk.bandwidth_requests().cloned(),
         &validator_signer,
     );
@@ -326,13 +321,26 @@ fn test_process_optimistic_block() {
     let prev_block = env.clients[0].produce_block(1).unwrap().unwrap();
     env.process_block(0, prev_block, Provenance::PRODUCED);
     assert!(!env.clients[0].is_optimistic_block_done(2), "Optimistic block should not be ready");
+
+    // Produce and save optimistic block to be used at block production.
     let optimistic_block = env.clients[0].produce_optimistic_block_on_head(2).unwrap().unwrap();
-    // Store optimistic block to be used at block production.
     env.clients[0].save_optimistic_block(&optimistic_block);
     assert!(env.clients[0].is_optimistic_block_done(2), "Optimistic block should be ready");
 
-    // TODO(#10584): Process chunks with optimistic block
-
+    // Check that block data matches optimistic block data.
     let block = env.clients[0].produce_block(2).unwrap().unwrap();
     check_block_produced_from_optimistic_block(&block, &optimistic_block);
+
+    // Start processing block and then optimistic block.
+    // Check that optimistic block is not in processing.
+    let signer = env.clients[0].validator_signer.get();
+    let me = signer.as_ref().map(|signer| signer.validator_id().clone());
+    env.clients[0].start_process_block(block.into(), Provenance::NONE, None, &signer).unwrap();
+    let optimistic_block_hash = *optimistic_block.hash();
+    env.clients[0].chain.preprocess_optimistic_block(optimistic_block, &me, None);
+    assert!(
+        !is_optimistic_block_in_processing(&env.clients[0].chain, &optimistic_block_hash),
+        "Optimistic block should not be in processing because block processing already started"
+    );
+    // TODO(#10584): Process chunks with optimistic block
 }

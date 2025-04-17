@@ -1,28 +1,41 @@
 //! Universal compilation.
 
+#[cfg(not(windows))]
 use super::code_memory::{ARCH_FUNCTION_ALIGNMENT, DATA_SECTION_ALIGNMENT};
+#[cfg(not(windows))]
 use super::executable::{UniversalExecutableRef, unrkyv};
+#[cfg(not(windows))]
 use super::{CodeMemory, UniversalArtifact, UniversalExecutable};
 use crate::EngineId;
 use near_vm_compiler::Compiler;
-use near_vm_compiler::{
-    CompileError, CustomSectionProtection, CustomSectionRef, FunctionBodyRef, JumpTable,
-    SectionIndex, Target,
-};
-use near_vm_types::entity::{EntityRef, PrimaryMap};
+use near_vm_compiler::{CompileError, SectionIndex, Target};
+#[cfg(not(windows))]
+use near_vm_compiler::{CustomSectionProtection, CustomSectionRef, FunctionBodyRef, JumpTable};
+#[cfg(not(windows))]
+use near_vm_types::entity::EntityRef;
+use near_vm_types::entity::PrimaryMap;
+#[cfg(not(windows))]
 use near_vm_types::{
-    DataInitializer, ExportIndex, Features, FunctionIndex, FunctionType, FunctionTypeRef,
-    GlobalInit, GlobalType, ImportCounts, ImportIndex, LocalFunctionIndex, LocalGlobalIndex,
-    MemoryIndex, SignatureIndex, TableIndex,
+    DataInitializer, ExportIndex, FunctionIndex, FunctionTypeRef, GlobalInit, GlobalType,
+    ImportCounts, ImportIndex, LocalFunctionIndex, LocalGlobalIndex, MemoryIndex, SignatureIndex,
+    TableIndex,
 };
+use near_vm_types::{Features, FunctionType};
 use near_vm_vm::{
-    FuncDataRegistry, FunctionBodyPtr, SectionBodyPtr, SignatureRegistry, Tunables,
-    VMCallerCheckedAnyfunc, VMFuncRef, VMImportType, VMLocalFunction, VMOffsets,
-    VMSharedSignatureIndex, VMTrampoline,
+    FuncDataRegistry, SignatureRegistry, Tunables, VMCallerCheckedAnyfunc, VMFuncRef,
+    VMSharedSignatureIndex,
 };
+#[cfg(not(windows))]
+use near_vm_vm::{
+    FunctionBodyPtr, SectionBodyPtr, VMImportType, VMLocalFunction, VMOffsets, VMTrampoline,
+};
+#[cfg(not(windows))]
 use rkyv::Archived;
+#[cfg(not(windows))]
 use rkyv::tuple::ArchivedTuple3;
+#[cfg(not(windows))]
 use std::collections::BTreeMap;
+#[cfg(not(windows))]
 use std::convert::TryFrom;
 use std::sync::{Arc, Mutex};
 
@@ -182,6 +195,7 @@ impl UniversalEngine {
     }
 
     /// Load a [`UniversalExecutable`](crate::UniversalExecutable) with this engine.
+    #[cfg(not(windows))]
     #[tracing::instrument(target = "near_vm", level = "trace", skip_all)]
     pub fn load_universal_executable(
         &self,
@@ -305,6 +319,7 @@ impl UniversalEngine {
     }
 
     /// Load a [`UniversalExecutableRef`](crate::UniversalExecutableRef) with this engine.
+    #[cfg(not(windows))]
     pub fn load_universal_executable_ref(
         &self,
         executable: &UniversalExecutableRef,
@@ -493,6 +508,7 @@ pub struct UniversalEngineInner {
     /// The compiler
     compiler: Option<Box<dyn Compiler>>,
     /// Pool from which code memory can be allocated.
+    #[allow(unused)] // Silence unused variable warning on windows builds
     code_memory_pool: super::MemoryPool,
     /// The features to compile the Wasm module with
     features: Features,
@@ -525,6 +541,7 @@ impl UniversalEngineInner {
     }
 
     /// Allocate compiled functions into memory
+    #[cfg(not(windows))]
     #[allow(clippy::type_complexity)]
     pub(crate) fn allocate<'a>(
         &mut self,
@@ -688,11 +705,13 @@ impl UniversalEngineInner {
     }
 }
 
+#[cfg(not(windows))]
 fn round_up(size: usize, multiple: usize) -> usize {
     debug_assert!(multiple.is_power_of_two());
     (size + (multiple - 1)) & !(multiple - 1)
 }
 
+#[cfg(not(windows))]
 fn function_allocation_size(func: FunctionBodyRef<'_>) -> usize {
     func.body.len()
 }

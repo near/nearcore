@@ -846,3 +846,5 @@ mod tests {
         assert_eq!(tx_1.get_size(), limit, "TX size changed");
     }
 }
+
+// cspell:ignore AAABBB, ABABAB
