@@ -408,10 +408,10 @@ tweak_config_forknet_node() {
         '.rpc.addr |= $val' ${CONFIG} >tmp.$$.json && mv tmp.$$.json ${CONFIG} || rm tmp.$$.json
     
     # Set boot nodes if provided
-    if [ -n "$boot_nodes" ]; then
-        jq --arg val "${boot_nodes}" \
-            '.network.boot_nodes |= $val' ${CONFIG} >tmp.$$.json && mv tmp.$$.json ${CONFIG} || rm tmp.$$.json
-    fi
+    # if [ -n "$boot_nodes" ]; then
+    #     jq --arg val "${boot_nodes}" \
+    #         '.network.boot_nodes |= $val' ${CONFIG} >tmp.$$.json && mv tmp.$$.json ${CONFIG} || rm tmp.$$.json
+    # fi
     
     # Edit configs
     edit_genesis ${GENESIS}
