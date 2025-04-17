@@ -654,11 +654,6 @@ impl ForkNetworkCommand {
 
         let prev_state_roots = get_genesis_state_roots(&store).unwrap().unwrap();
         let shard_uids = epoch_config.shard_layout.shard_uids().collect::<Vec<_>>();
-        let state_roots_map: HashMap<ShardUId, StateRoot> = shard_uids
-            .iter()
-            .enumerate()
-            .map(|(idx, shard_uid)| (*shard_uid, prev_state_roots[idx].clone()))
-            .collect();
 
         let epoch_manager =
             EpochManager::new_arc_handle(store.clone(), &genesis.config, Some(home_dir));
@@ -693,7 +688,8 @@ impl ForkNetworkCommand {
         let state_roots = self.add_benchmark_accounts(
             &store,
             runtime.as_ref(),
-            &state_roots_map,
+            &shard_uids,
+            prev_state_roots,
             &runtime_config,
             home_dir,
             &target_shard_layout,
@@ -1237,7 +1233,8 @@ impl ForkNetworkCommand {
         &self,
         store: &Store,
         runtime: &dyn RuntimeAdapter,
-        state_roots_map: &HashMap<ShardUId, StateRoot>,
+        shard_uids: &[ShardUId],
+        mut state_roots: Vec<StateRoot>,
         runtime_config: &Arc<RuntimeConfig>,
         home_dir: &Path,
         shard_layout: &ShardLayout,
@@ -1252,15 +1249,6 @@ impl ForkNetworkCommand {
         }
 
         let flat_store = store.flat_store();
-        let update_state = ShardUpdateState::new_update_state(
-            &flat_store,
-            &shard_layout,
-            &shard_layout,
-            state_roots_map,
-        )?;
-        let mut storage_mutator =
-            StorageMutator::new(runtime.get_tries(), update_state.clone(), shard_layout.clone())?;
-
         let accounts_path = home_dir.join("user-data");
         let _ = std::fs::remove_dir_all(&accounts_path);
 
@@ -1275,6 +1263,23 @@ impl ForkNetworkCommand {
             .chain(boundary_account_ids.into_iter())
             .collect::<Vec<_>>();
         for (account_prefix_idx, account_prefix) in account_prefixes.into_iter().enumerate() {
+            let state_roots_map: HashMap<ShardUId, StateRoot> = shard_uids
+                .iter()
+                .enumerate()
+                .map(|(idx, shard_uid)| (*shard_uid, state_roots[idx].clone()))
+                .collect();
+            let update_state = ShardUpdateState::new_update_state(
+                &flat_store,
+                &shard_layout,
+                &shard_layout,
+                &state_roots_map,
+            )?;
+            let mut storage_mutator = StorageMutator::new(
+                runtime.get_tries(),
+                update_state.clone(),
+                shard_layout.clone(),
+            )?;
+
             let shard_id = shard_layout.get_shard_id(account_prefix_idx).unwrap();
             let shard_accounts_path = accounts_path.join(format!("shard_{}", shard_id));
             std::fs::create_dir_all(&shard_accounts_path)?;
@@ -1314,8 +1319,9 @@ impl ForkNetworkCommand {
                 let account_writer = BufWriter::new(account_file);
                 serde_json::to_writer(account_writer, &account_data)?;
             }
+
+            state_roots = storage_mutator.commit()?;
         }
-        let state_roots = storage_mutator.commit()?;
 
         Ok(state_roots)
     }
