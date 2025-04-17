@@ -387,8 +387,8 @@ tweak_config_forknet() {
     cd ${PYTEST_PATH}
     
     # Upload bench.sh and test case files to all nodes
-    # $MIRROR --host-type nodes upload-file --src ${cwd}/bench.sh --dst ${BENCHNET_DIR}
-    # $MIRROR --host-type nodes upload-file --src ${cwd}/cases --dst ${BENCHNET_DIR}
+    $MIRROR --host-type nodes upload-file --src ${cwd}/bench.sh --dst ${BENCHNET_DIR}
+    $MIRROR --host-type nodes upload-file --src ${cwd}/cases --dst ${BENCHNET_DIR}
     
     # Apply custom configs to RPC node
     local cmd="cd ${BENCHNET_DIR}; ${FORKNET_ENV} ./bench.sh tweak-config-forknet-node ${CASE} ${FORKNET_BOOT_NODES}"
@@ -538,9 +538,14 @@ create_accounts_on_tracked_shard() {
         echo "shard=${shard}"
         exit 1
     fi
-    local prefix=$(printf "a%02d" ${shard})
     local data_dir="${USERS_DATA_DIR}/shard"
-    create_sub_accounts ${shard} ${prefix} ${data_dir}
+    echo "Copying user data from ${NEAR_HOME}/user-data/shard_${shard} to ${data_dir}"
+    rm -rf ${data_dir}
+    mkdir -p ${data_dir}
+    cp -r ${NEAR_HOME}/user-data/shard_${shard}/ ${data_dir}/
+
+    # local prefix=$(printf "a%02d" ${shard})
+    # create_sub_accounts ${shard} ${prefix} ${data_dir}
 }
 
 create_accounts() {
