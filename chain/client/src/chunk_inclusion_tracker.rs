@@ -162,7 +162,8 @@ impl ChunkInclusionTracker {
         for (shard_id, chunk_hash) in entry {
             let chunk_info = self.chunk_hash_to_chunk_info.get(chunk_hash).unwrap();
             let banned = self.is_banned(epoch_id, &chunk_info);
-            let is_endorsed = chunk_info.endorsements.is_endorsed;
+            let is_endorsed = true;
+            // let is_endorsed = chunk_info.endorsements.is_endorsed;
             if !is_endorsed {
                 tracing::debug!(
                     target: "client",

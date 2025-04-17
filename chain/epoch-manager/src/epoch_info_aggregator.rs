@@ -134,50 +134,51 @@ impl EpochInfoAggregator {
             // NOTE:(#11900): If the chunk endorsements received from the chunk validators are not recorded in the block header,
             // we use the chunk production stats as the endorsements stats, ie. if the chunk is produced then we assume that
             // the endorsements from all the chunk validators assigned to that chunk are received (hence the `else` branch below).
-            let chunk_endorsements = if let Some(chunk_endorsements) =
-                block_info.chunk_endorsements()
-            {
-                // For old chunks, we optimize the block and its header by not including the chunk endorsements and
-                // corresponding bitmaps. Thus, we expect that the bitmap is non-empty for new chunks only.
-                if *mask {
-                    debug_assert!(
-                        chunk_endorsements.len(shard_index).unwrap()
-                            == chunk_validators.len().div_ceil(8) * 8,
-                        "Chunk endorsement bitmap length is inconsistent with number of chunk validators. Bitmap length={}, num validators={}, shard_index={}",
-                        chunk_endorsements.len(shard_index).unwrap(),
-                        chunk_validators.len(),
-                        shard_index
-                    );
-                    chunk_endorsements.iter(shard_index)
-                } else {
-                    debug_assert_eq!(
-                        chunk_endorsements.len(shard_index).unwrap(),
-                        0,
-                        "Chunk endorsement bitmap must be empty for missing chunk. Bitmap length={}, shard_index={}",
-                        chunk_endorsements.len(shard_index).unwrap(),
-                        shard_index
-                    );
-                    Box::new(std::iter::repeat(false).take(chunk_validators.len()))
-                }
-            } else {
-                Box::new(std::iter::repeat(*mask).take(chunk_validators.len()))
-            };
-            for (chunk_validator_id, endorsement_produced) in
-                chunk_validators.iter().zip(chunk_endorsements)
-            {
-                tracker
-                    .entry(*chunk_validator_id)
-                    .and_modify(|stats| {
-                        let endorsement_stats = stats.endorsement_stats_mut();
-                        if endorsement_produced {
-                            endorsement_stats.produced += 1;
-                        }
-                        endorsement_stats.expected += 1;
-                    })
-                    .or_insert_with(|| {
-                        ChunkStats::new_with_endorsement(u64::from(endorsement_produced), 1)
-                    });
-            }
+
+            // let chunk_endorsements = if let Some(chunk_endorsements) =
+            //     block_info.chunk_endorsements()
+            // {
+            //     // For old chunks, we optimize the block and its header by not including the chunk endorsements and
+            //     // corresponding bitmaps. Thus, we expect that the bitmap is non-empty for new chunks only.
+            //     if *mask {
+            //         debug_assert!(
+            //             chunk_endorsements.len(shard_index).unwrap()
+            //                 == chunk_validators.len().div_ceil(8) * 8,
+            //             "Chunk endorsement bitmap length is inconsistent with number of chunk validators. Bitmap length={}, num validators={}, shard_index={}",
+            //             chunk_endorsements.len(shard_index).unwrap(),
+            //             chunk_validators.len(),
+            //             shard_index
+            //         );
+            //         chunk_endorsements.iter(shard_index)
+            //     } else {
+            //         debug_assert_eq!(
+            //             chunk_endorsements.len(shard_index).unwrap(),
+            //             0,
+            //             "Chunk endorsement bitmap must be empty for missing chunk. Bitmap length={}, shard_index={}",
+            //             chunk_endorsements.len(shard_index).unwrap(),
+            //             shard_index
+            //         );
+            //         Box::new(std::iter::repeat(false).take(chunk_validators.len()))
+            //     }
+            // } else {
+            //     Box::new(std::iter::repeat(*mask).take(chunk_validators.len()))
+            // };
+            // for (chunk_validator_id, endorsement_produced) in
+            //     chunk_validators.iter().zip(chunk_endorsements)
+            // {
+            //     tracker
+            //         .entry(*chunk_validator_id)
+            //         .and_modify(|stats| {
+            //             let endorsement_stats = stats.endorsement_stats_mut();
+            //             if endorsement_produced {
+            //                 endorsement_stats.produced += 1;
+            //             }
+            //             endorsement_stats.expected += 1;
+            //         })
+            //         .or_insert_with(|| {
+            //             ChunkStats::new_with_endorsement(u64::from(endorsement_produced), 1)
+            //         });
+            // }
         }
 
         // Step 3: update version tracker

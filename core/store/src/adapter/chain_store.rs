@@ -243,10 +243,11 @@ impl ChainStoreAdapter {
         block_hash: &CryptoHash,
         shard_uid: &ShardUId,
     ) -> Result<Arc<ChunkExtra>, Error> {
-        option_to_not_found(
+        Ok(option_to_not_found(
             self.store.get_ser(DBCol::ChunkExtra, &get_block_shard_uid(block_hash, shard_uid)),
             format_args!("CHUNK EXTRA: {}:{:?}", block_hash, shard_uid),
         )
+        .expect("chunk extra access"))
     }
 
     pub fn get_chunk_apply_stats(

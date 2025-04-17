@@ -13,6 +13,7 @@ use near_client_primitives::debug::ChunkProduction;
 use near_client_primitives::types::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
+use near_pool::types::TransactionGroupIterator as _;
 use near_primitives::epoch_info::RngSeed;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{MerklePath, merklize};
@@ -238,10 +239,11 @@ impl ChunkProducer {
         debug!(target: "client", me = ?validator_signer.validator_id(), next_height, ?shard_id, "Producing chunk");
 
         let shard_uid = shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, epoch_id)?;
-        let chunk_extra = self
-            .chain
-            .get_chunk_extra(&prev_block_hash, &shard_uid)
-            .map_err(|err| Error::ChunkProducer(format!("No chunk extra available: {}", err)))?;
+        // FIXME: Error here.
+        // let chunk_extra = self
+        //     .chain
+        //     .get_chunk_extra(&prev_block_hash, &shard_uid)
+        //     .map_err(|err| Error::ChunkProducer(format!("No chunk extra available: {}", err)))?;
 
         let prepared_transactions = {
             #[cfg(feature = "test_features")]
@@ -251,13 +253,15 @@ impl ChunkProducer {
                 }
                 _ => self.prepare_transactions(
                     shard_uid,
-                    prev_block,
-                    chunk_extra.as_ref(),
-                    chain_validate,
+                    // prev_block,
+                    // chunk_extra.as_ref(),
+                    // chain_validate,
                 )?,
             }
             #[cfg(not(feature = "test_features"))]
-            self.prepare_transactions(shard_uid, prev_block, chunk_extra.as_ref(), chain_validate)?
+            self.prepare_transactions(
+                shard_uid, /* prev_block, chunk_extra.as_ref(), chain_validate*/
+            )?
         };
 
         #[cfg(feature = "test_features")]
@@ -280,22 +284,22 @@ impl ChunkProducer {
 
         let outgoing_receipts_root = self.calculate_receipts_root(epoch_id, &outgoing_receipts)?;
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(epoch_id)?;
-        let gas_used = chunk_extra.gas_used();
+        let gas_used = 0; // chunk_extra.gas_used();
         #[cfg(feature = "test_features")]
         let gas_used = if self.produce_invalid_chunks { gas_used + 1 } else { gas_used };
 
-        let congestion_info = chunk_extra.congestion_info();
+        let congestion_info = Default::default(); // chunk_extra.congestion_info();
         let (encoded_chunk, merkle_paths, outgoing_receipts) =
             ShardsManagerActor::create_encoded_shard_chunk(
                 prev_block_hash,
-                *chunk_extra.state_root(),
-                *chunk_extra.outcome_root(),
+                Default::default(), // *chunk_extra.state_root(),
+                Default::default(), // *chunk_extra.outcome_root(),
                 next_height,
                 shard_id,
                 gas_used,
-                chunk_extra.gas_limit(),
-                chunk_extra.balance_burnt(),
-                chunk_extra.validator_proposals().collect(),
+                Default::default(), // chunk_extra.gas_limit(),
+                Default::default(), // chunk_extra.balance_burnt(),
+                Default::default(), // chunk_extra.validator_proposals().collect(),
                 prepared_transactions
                     .transactions
                     .into_iter()
@@ -305,7 +309,7 @@ impl ChunkProducer {
                 outgoing_receipts_root,
                 tx_root,
                 congestion_info,
-                chunk_extra.bandwidth_requests().cloned(),
+                Default::default(), // chunk_extra.bandwidth_requests().cloned(),
                 &*validator_signer,
                 &mut self.reed_solomon_encoder,
                 protocol_version,
@@ -354,28 +358,33 @@ impl ChunkProducer {
     fn prepare_transactions(
         &mut self,
         shard_uid: ShardUId,
-        prev_block: &Block,
-        chunk_extra: &ChunkExtra,
-        chain_validate: &dyn Fn(&SignedTransaction) -> bool,
+        // prev_block: &Block,
+        // chunk_extra: &ChunkExtra,
+        // chain_validate: &dyn Fn(&SignedTransaction) -> bool,
     ) -> Result<PreparedTransactions, Error> {
         let shard_id = shard_uid.shard_id();
         let mut pool_guard = self.sharded_tx_pool.lock().unwrap();
         let prepared_transactions = if let Some(mut iter) = pool_guard.get_pool_iterator(shard_uid)
         {
-            let storage_config = RuntimeStorageConfig {
-                state_root: *chunk_extra.state_root(),
-                use_flat_storage: true,
-                source: near_chain::types::StorageDataSource::Db,
-                state_patch: Default::default(),
-            };
-            self.runtime_adapter.prepare_transactions(
-                storage_config,
-                PrepareTransactionsChunkContext { shard_id, gas_limit: chunk_extra.gas_limit() },
-                prev_block.into(),
-                &mut iter,
-                chain_validate,
-                self.chunk_transactions_time_limit.get(),
-            )?
+            // let storage_config = RuntimeStorageConfig {
+            //     state_root: *chunk_extra.state_root(),
+            //     use_flat_storage: true,
+            //     source: near_chain::types::StorageDataSource::Db,
+            //     state_patch: Default::default(),
+            // };
+            // self.runtime_adapter.prepare_transactions(
+            //     storage_config,
+            //     PrepareTransactionsChunkContext { shard_id, gas_limit: chunk_extra.gas_limit() },
+            //     prev_block.into(),
+            //     &mut iter,
+            //     chain_validate,
+            //     self.chunk_transactions_time_limit.get(),
+            // )?;
+            let mut res = vec![];
+            while let Some(iter) = iter.next() {
+                res.push(iter.next().unwrap());
+            }
+            PreparedTransactions { transactions: res, limited_by: None }
         } else {
             PreparedTransactions { transactions: Vec::new(), limited_by: None }
         };

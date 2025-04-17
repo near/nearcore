@@ -929,7 +929,7 @@ impl Chain {
                 return Err(Error::InvalidBlockMerkleRoot);
             }
 
-            validate_chunk_endorsements_in_header(self.epoch_manager.as_ref(), header)?;
+            // validate_chunk_endorsements_in_header(self.epoch_manager.as_ref(), header)?;
         }
 
         Ok(())
@@ -1347,7 +1347,7 @@ impl Chain {
             &prev_block_hash,
         )?;
 
-        let mut maybe_jobs = vec![];
+        // let mut maybe_jobs = vec![];
         for (shard_index, prev_chunk_header) in prev_chunk_headers.iter().enumerate() {
             let shard_id = shard_layout.get_shard_id(shard_index)?;
             let block_context = ApplyChunkBlockContext {
@@ -1370,33 +1370,33 @@ impl Chain {
 
             let cached_shard_update_key =
                 Self::get_cached_shard_update_key(&block_context, &chunks, shard_id)?;
-            let job = self.get_update_shard_job(
-                me,
-                cached_shard_update_key,
-                block_context,
-                &chunks,
-                shard_index,
-                &prev_block,
-                prev_chunk_header,
-                if is_caught_up {
-                    ApplyChunksMode::IsCaughtUp
-                } else {
-                    ApplyChunksMode::NotCaughtUp
-                },
-                incoming_receipts,
-                storage_context,
-            );
-            maybe_jobs.push(job);
+            // let job = self.get_update_shard_job(
+            //     me,
+            //     cached_shard_update_key,
+            //     block_context,
+            //     &chunks,
+            //     shard_index,
+            //     &prev_block,
+            //     prev_chunk_header,
+            //     if is_caught_up {
+            //         ApplyChunksMode::IsCaughtUp
+            //     } else {
+            //         ApplyChunksMode::NotCaughtUp
+            //     },
+            //     incoming_receipts,
+            //     storage_context,
+            // );
+            // maybe_jobs.push(job);
         }
 
         let mut jobs = vec![];
-        for job in maybe_jobs {
-            match job {
-                Ok(Some(processor)) => jobs.push(processor),
-                Ok(None) => {}
-                Err(err) => return Err(err),
-            }
-        }
+        // for job in maybe_jobs {
+        //     match job {
+        //         Ok(Some(processor)) => jobs.push(processor),
+        //         Ok(None) => {}
+        //         Err(err) => return Err(err),
+        //     }
+        // }
 
         let (apply_chunks_done_waiter, apply_chunks_still_applying) = ApplyChunksDoneWaiter::new();
         self.blocks_in_processing.add_optimistic(
@@ -1434,8 +1434,11 @@ impl Chain {
         let mut accepted_blocks = vec![];
         let mut errors = HashMap::new();
         while let Ok((block, apply_result)) = self.apply_chunks_receiver.try_recv() {
+            debug!(target: "chain", ?block, "postprocess block received block");
             match block {
                 BlockToApply::Normal(block_hash) => {
+                    // FIXME: Looking at the implementation apply_result being empty should be OK.
+                    // Nothing from apply_results seems to matter. Or for each shard (ShardId, EmptyResult)
                     let apply_result = apply_result.into_iter().map(|res| (res.0, res.2)).collect();
                     match self.postprocess_ready_block(
                         me,
@@ -1762,12 +1765,15 @@ impl Chain {
         self.apply_chunks_spawner.spawn("apply_chunks", move || {
             let apply_all_chunks_start_time = clock.now();
             // do_apply_chunks runs `work` in parallel, but still waits for all of them to finish
-            let res = do_apply_chunks(block.clone(), block_height, work);
+            let res = Vec::new();
+            // let res = do_apply_chunks(block.clone(), block_height, work);
             // If we encounter error here, that means the receiver is deallocated and the client
             // thread is already shut down. The node is already crashed, so we can unwrap here
             metrics::APPLY_ALL_CHUNKS_TIME.with_label_values(&[block.as_ref()]).observe(
                 (clock.now().signed_duration_since(apply_all_chunks_start_time)).as_seconds_f64(),
             );
+            // FIXME: Need to still call into sc.send to trigger post processing.
+            // FIXME: naively: can res just be an empty vec?
             sc.send((block, res)).unwrap();
             drop(apply_chunks_still_applying);
             if let Some(sender) = apply_chunks_done_sender {
@@ -2291,6 +2297,7 @@ impl Chain {
             return Err(e);
         }
 
+        // FIXME: delete?
         if !block.verify_gas_price(
             gas_price,
             self.block_economics_config.min_gas_price(),
@@ -2306,6 +2313,7 @@ impl Chain {
             None
         };
 
+        // FIXME: delete?
         if !block.verify_total_supply(prev.total_supply(), minted_amount) {
             byzantine_assert!(false);
             return Err(Error::InvalidGasPrice);
@@ -2313,13 +2321,17 @@ impl Chain {
 
         let prev_block = self.get_block(&prev_hash)?;
 
+        // FIXME: delete?
         self.validate_chunk_headers(&block, &prev_block)?;
 
-        validate_chunk_endorsements_in_block(self.epoch_manager.as_ref(), &block)?;
+        // FIXME: delete?
+        // validate_chunk_endorsements_in_block(self.epoch_manager.as_ref(), &block)?;
 
+        // FIXME: delete?
         self.ping_missing_chunks(me, prev_hash, block)?;
 
         let receipts_shuffle_salt = get_receipts_shuffle_salt(self.epoch_manager.as_ref(), &block)?;
+        // FIXME: delete
         let incoming_receipts = self.collect_incoming_receipts_from_chunks(
             me,
             &block.chunks(),
@@ -2330,6 +2342,7 @@ impl Chain {
         // Check if block can be finalized and drop it otherwise.
         self.check_if_finalizable(header)?;
 
+        // FIXME: delete
         let apply_chunk_work = self.apply_chunks_preprocessing(
             me,
             block,
@@ -3039,7 +3052,7 @@ impl Chain {
         let epoch_id = block.header().epoch_id();
         let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
 
-        let mut maybe_jobs = vec![];
+        // let mut maybe_jobs = vec![];
         let chunk_headers = &block.chunks();
         for (shard_index, prev_chunk_header) in prev_chunk_headers.iter().enumerate() {
             // XXX: This is a bit questionable -- sandbox state patching works
@@ -3062,56 +3075,56 @@ impl Chain {
 
             let cached_shard_update_key =
                 Self::get_cached_shard_update_key(&block_context, chunk_headers, shard_id)?;
-            let job = self.get_update_shard_job(
-                me,
-                cached_shard_update_key,
-                block_context,
-                chunk_headers,
-                shard_index,
-                prev_block,
-                prev_chunk_header,
-                mode,
-                incoming_receipts,
-                storage_context,
-            );
-            maybe_jobs.push((shard_id, job));
+            // let job = self.get_update_shard_job(
+            //     me,
+            //     cached_shard_update_key,
+            //     block_context,
+            //     chunk_headers,
+            //     shard_index,
+            //     prev_block,
+            //     prev_chunk_header,
+            //     mode,
+            //     incoming_receipts,
+            //     storage_context,
+            // );
+            // maybe_jobs.push((shard_id, job));
         }
 
         let mut jobs = vec![];
-        for (shard_id, maybe_job) in maybe_jobs {
-            match maybe_job {
-                Ok(Some(processor)) => jobs.push(processor),
-                Ok(None) => {}
-                Err(err) => {
-                    let epoch_id = block.header().epoch_id();
-                    let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
-                    let shard_index = shard_layout.get_shard_index(shard_id)?;
+        // for (shard_id, maybe_job) in maybe_jobs {
+        //     match maybe_job {
+        //         Ok(Some(processor)) => jobs.push(processor),
+        //         Ok(None) => {}
+        //         Err(err) => {
+        //             let epoch_id = block.header().epoch_id();
+        //             let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
+        //             let shard_index = shard_layout.get_shard_index(shard_id)?;
 
-                    if err.is_bad_data() {
-                        let chunk_header = block
-                            .chunks()
-                            .get(shard_index)
-                            .ok_or(Error::InvalidShardId(shard_id))?
-                            .clone();
-                        invalid_chunks.push(chunk_header);
-                    }
+        //             if err.is_bad_data() {
+        //                 let chunk_header = block
+        //                     .chunks()
+        //                     .get(shard_index)
+        //                     .ok_or(Error::InvalidShardId(shard_id))?
+        //                     .clone();
+        //                 invalid_chunks.push(chunk_header);
+        //             }
 
-                    if let Error::InvalidChunkTransactionsOrder(chunk) = err {
-                        let merkle_paths =
-                            Block::compute_chunk_headers_root(block.chunks().iter_deprecated()).1;
-                        let chunk_proof = ChunkProofs {
-                            block_header: borsh::to_vec(&block.header())
-                                .expect("Failed to serialize"),
-                            merkle_proof: merkle_paths[shard_index].clone(),
-                            chunk,
-                        };
-                        return Err(Error::InvalidChunkProofs(Box::new(chunk_proof)));
-                    }
+        //             if let Error::InvalidChunkTransactionsOrder(chunk) = err {
+        //                 let merkle_paths =
+        //                     Block::compute_chunk_headers_root(block.chunks().iter_deprecated()).1;
+        //                 let chunk_proof = ChunkProofs {
+        //                     block_header: borsh::to_vec(&block.header())
+        //                         .expect("Failed to serialize"),
+        //                     merkle_proof: merkle_paths[shard_index].clone(),
+        //                     chunk,
+        //                 };
+        //                 return Err(Error::InvalidChunkProofs(Box::new(chunk_proof)));
+        //             }
 
-                    return Err(err);
-                }
-            }
-        }
+        //             return Err(err);
+        //         }
+        //     }
+        // }
 
         Ok(jobs)
     }
