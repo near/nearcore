@@ -658,11 +658,8 @@ impl ForkNetworkCommand {
             .map(|(idx, shard_uid)| (*shard_uid, prev_state_roots[idx].clone()))
             .collect();
 
-        let epoch_manager = EpochManager::new_arc_handle(
-            store.clone(),
-            &near_config.genesis.config,
-            Some(home_dir),
-        );
+        let epoch_manager =
+            EpochManager::new_arc_handle(store.clone(), &genesis.config, Some(home_dir));
         let runtime = NightshadeRuntime::from_config(
             home_dir,
             store.clone(),
