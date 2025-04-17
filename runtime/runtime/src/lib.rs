@@ -419,7 +419,7 @@ impl Runtime {
                         })
                         .collect(),
                     updated_account: None,
-                    updated_keys: BTreeMap::<PublicKey, AccessKey>::default(),
+                    updated_keys: Default::default(),
                 };
             }
         };
@@ -456,14 +456,15 @@ impl Runtime {
             };
 
             let ephemeral_access_key = {
-                let pk = validated_tx.public_key().clone();
+                let pk = validated_tx.public_key();
 
                 match ephemeral_keys.entry(pk.clone()) {
                     Entry::Occupied(ak) => ak.into_mut(),
                     Entry::Vacant(entry) => {
-                        match get_access_key(state_update, validated_tx.signer_id(), &pk) {
+                        match get_access_key(state_update, validated_tx.signer_id(), pk) {
                             Ok(Some(loaded_ak)) => entry.insert(loaded_ak),
                             Ok(None) => {
+                                // TODO: consider retaining in the map the fact that the key did not exist
                                 processed_transactions.push(ProcessedTransaction {
                                     index: idx,
                                     result: PerTransactionResult::Failure {
@@ -471,7 +472,7 @@ impl Runtime {
                                         error: InvalidTxError::InvalidAccessKeyError(
                                             InvalidAccessKeyError::AccessKeyNotFound {
                                                 account_id: validated_tx.signer_id().clone(),
-                                                public_key: pk.into(),
+                                                public_key: pk.clone().into(),
                                             },
                                         ),
                                     },
@@ -486,6 +487,7 @@ impl Runtime {
                                         error: storage_err.into(),
                                     },
                                 });
+                                // TODO: we may not need to do the work processing the remainder of this batch or the other batches if we hit a storage error
                                 continue;
                             }
                         }
