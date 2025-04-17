@@ -699,20 +699,13 @@ impl ForkNetworkCommand {
             &target_shard_layout,
             num_accounts_per_shard,
         )?;
-        let runtime = NightshadeRuntime::from_config(
-            home_dir,
-            store.clone(),
-            &near_config,
-            epoch_manager.clone(),
-        )
-        .context("could not create the transaction runtime")?;
+
         let (genesis_block, _) = Chain::make_genesis_block(
             epoch_manager.as_ref(),
             runtime.as_ref(),
             &chain_genesis,
             state_roots,
         )?;
-        let flat_storage_manager = runtime.get_flat_storage_manager();
         let mut store_update = store.store_update();
         for shard_uid in shard_uids {
             flat_storage_manager.set_flat_storage_for_genesis(
