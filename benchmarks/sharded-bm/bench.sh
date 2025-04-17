@@ -271,6 +271,7 @@ gen_localnet_for_forknet() {
     fi
     
     echo "===> Initializing nodes homes for forknet using new-test"
+    local cwd=$(pwd)
     cd ${PYTEST_PATH}
     
     # Upload bench.sh and test case files to all nodes
@@ -387,7 +388,6 @@ edit_log_config() {
 tweak_config_forknet() {
     gen_localnet_for_forknet
     fetch_forknet_details
-    local cwd=$(pwd)
     cd ${PYTEST_PATH}
     
     # Apply custom configs to RPC node
