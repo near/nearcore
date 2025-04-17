@@ -53,24 +53,24 @@ impl From<ExternalError> for VMLogicError {
     }
 }
 
-pub struct RuntimeExtValuePtr<'a, 'b>(
-    TrieUpdateValuePtr<'a>,
-    AccessOptions<'b>,
-    Arc<AccountingState>,
-);
+pub struct RuntimeExtValuePtr<'a, 'b> {
+    value_ptr: TrieUpdateValuePtr<'a>,
+    deref_options: AccessOptions<'b>,
+    accounting_state: Arc<AccountingState>,
+}
 
 impl<'a, 'b> ValuePtr for RuntimeExtValuePtr<'a, 'b> {
     fn len(&self) -> u32 {
-        self.0.len()
+        self.value_ptr.len()
     }
 
     fn deref(&self, access_tracker: &mut dyn StorageAccessTracker) -> ExtResult<Vec<u8>> {
-        match &self.0 {
+        match &self.value_ptr {
             TrieUpdateValuePtr::MemoryRef(data) => Ok(data.to_vec()),
             TrieUpdateValuePtr::Ref(trie, optimized_value_ref) => {
-                let start_ttn = self.2.get_counts();
-                let result = trie.deref_optimized(self.1, &optimized_value_ref);
-                self.2.commit_counts_since(start_ttn, access_tracker)?;
+                let start_ttn = self.accounting_state.get_counts();
+                let result = trie.deref_optimized(self.deref_options, &optimized_value_ref);
+                self.accounting_state.commit_counts_since(start_ttn, access_tracker)?;
                 Ok(result.map_err(wrap_storage_error)?)
             }
         }
@@ -196,21 +196,22 @@ impl<'a> External for RuntimeExt<'a> {
             StorageGetMode::FlatStorage => KeyLookupMode::MemOrFlatOrTrie,
             StorageGetMode::Trie => KeyLookupMode::MemOrTrie,
         };
-        let options = AccessOptions::contract_runtime(&self.trie_access_tracker);
+        let deref_options = AccessOptions::contract_runtime(&self.trie_access_tracker);
         // SUBTLE: unlike `write` or `remove` which does not record TTN fees if the read operations
         // fail for the evicted values, this will record the TTN fees unconditionally.
-        let result =
-            self.trie_update.get_ref(&storage_key, mode, options).map_err(wrap_storage_error).map(
-                |option| {
-                    option.map(|ptr| {
-                        Box::new(RuntimeExtValuePtr(
-                            ptr,
-                            options,
-                            Arc::clone(&self.trie_access_tracker.state),
-                        )) as Box<dyn ValuePtr>
-                    })
-                },
-            );
+        let result = self
+            .trie_update
+            .get_ref(&storage_key, mode, deref_options)
+            .map_err(wrap_storage_error)
+            .map(|option| {
+                option.map(|value_ptr| {
+                    Box::new(RuntimeExtValuePtr {
+                        value_ptr,
+                        deref_options,
+                        accounting_state: Arc::clone(&self.trie_access_tracker.state),
+                    }) as Box<dyn ValuePtr>
+                })
+            });
         let _delta =
             self.trie_access_tracker.state.commit_counts_since(start_ttn, access_tracker)?;
         #[cfg(feature = "io_trace")]
@@ -560,8 +561,8 @@ pub struct AccountingState {
 impl AccountingState {
     fn get_counts(&self) -> TrieNodesCount {
         TrieNodesCount {
-            db_reads: self.db_reads.load(Ordering::Acquire),
-            mem_reads: self.mem_reads.load(Ordering::Acquire),
+            db_reads: self.db_reads.load(Ordering::Relaxed),
+            mem_reads: self.mem_reads.load(Ordering::Relaxed),
         }
     }
 
@@ -572,12 +573,12 @@ impl AccountingState {
     ) -> Result<TrieNodesCount, VMLogicError> {
         let db_read_delta = self
             .db_reads
-            .load(Ordering::Acquire)
+            .load(Ordering::Relaxed)
             .checked_sub(snapshot.db_reads)
             .ok_or(InconsistentStateError::IntegerOverflow)?;
         let mem_read_delta = self
             .mem_reads
-            .load(Ordering::Acquire)
+            .load(Ordering::Relaxed)
             .checked_sub(snapshot.mem_reads)
             .ok_or(InconsistentStateError::IntegerOverflow)?;
         into.trie_node_touched(db_read_delta)?;
@@ -607,12 +608,12 @@ impl Debug for AccountingAccessTracker {
 impl AccessTracker for AccountingAccessTracker {
     fn track_mem_lookup(&self, key: &CryptoHash) -> Option<Arc<[u8]>> {
         let value = Arc::clone(self.state.cache.lock().unwrap().get(key)?);
-        self.state.mem_reads.fetch_add(1, Ordering::Release);
+        self.state.mem_reads.fetch_add(1, Ordering::Relaxed);
         Some(value)
     }
 
     fn track_disk_lookup(&self, key: CryptoHash, value: Arc<[u8]>) {
-        self.state.db_reads.fetch_add(1, Ordering::Release);
+        self.state.db_reads.fetch_add(1, Ordering::Relaxed);
         if self.allow_insert {
             self.state.cache.lock().unwrap().insert(key, value);
         }
