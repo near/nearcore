@@ -1,4 +1,4 @@
-use chrono::{DateTime, NaiveDateTime, Utc};
+use chrono::{DateTime, Duration, NaiveDateTime, Utc};
 use near_primitives_core::types::ProtocolVersion;
 use std::{env, ops::RangeInclusive};
 
@@ -56,7 +56,7 @@ impl ProtocolUpgradeVotingSchedule {
         RangeInclusive::new(start, end)
             .enumerate()
             .map(|(i, version)| {
-                let time = Utc::now() - chrono::Duration::minutes((end - start) as i64 - i as i64);
+                let time = Utc::now() - Duration::minutes((end - start + 1) as i64 - i as i64);
                 (time, version)
             })
             .collect()
