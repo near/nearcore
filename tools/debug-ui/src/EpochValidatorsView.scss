@@ -138,6 +138,12 @@
     @extend .validator-role;
     background-color: lightblue;
 }
+.new-chunk-producer {
+    color: red;
+}
+.old-chunk-producer {
+    color: black;
+}
 
 .chunk-validator {
     @extend .validator-role;
