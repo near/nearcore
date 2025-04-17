@@ -601,6 +601,7 @@ impl ForkNetworkCommand {
             new_validator_accounts.clone(),
             home_dir,
             near_config,
+            None,
         )
     }
 
@@ -728,6 +729,7 @@ impl ForkNetworkCommand {
             validators.clone(),
             home_dir,
             near_config,
+            Some(epoch_config),
         )
     }
 
@@ -856,6 +858,7 @@ impl ForkNetworkCommand {
     /// in `home_dir`.
     fn override_epoch_configs(
         &self,
+        base_epoch_config: Option<EpochConfig>,
         first_version: ProtocolVersion,
         num_seats: &Option<NumSeats>,
         home_dir: &Path,
@@ -868,9 +871,11 @@ impl ForkNetworkCommand {
             anyhow::anyhow!("Failed to create directory {:?}", epoch_config_dir)
         })?;
 
-        let base_epoch_config_store =
-            EpochConfigStore::for_chain_id(near_primitives::chains::MAINNET, None)
-                .expect("Could not load the EpochConfigStore for mainnet.");
+        let base_epoch_config_store = match base_epoch_config {
+            Some(base_epoch_config) => base_epoch_config,
+            None => EpochConfigStore::for_chain_id(near_primitives::chains::MAINNET, None)
+                .expect("Could not load the EpochConfigStore for mainnet."),
+        };
         let mut new_epoch_configs = BTreeMap::new();
         for version in first_version..=PROTOCOL_VERSION {
             let mut config = base_epoch_config_store.get_config(version).as_ref().clone();
@@ -1356,6 +1361,7 @@ impl ForkNetworkCommand {
         new_validator_accounts: Vec<AccountInfo>,
         home_dir: &Path,
         near_config: &mut NearConfig,
+        base_epoch_config: Option<EpochConfig>,
     ) -> anyhow::Result<()> {
         let new_chain_id = chain_id.clone();
         near_config.genesis.config.chain_id = new_chain_id.clone();
@@ -1369,8 +1375,12 @@ impl ForkNetworkCommand {
         // This is based on the assumption that epoch length is part of genesis config and not epoch config.
         near_config.genesis.config.epoch_length = epoch_length;
 
-        let epoch_config =
-            self.override_epoch_configs(genesis_protocol_version, num_seats, home_dir)?;
+        let epoch_config = self.override_epoch_configs(
+            base_epoch_config,
+            genesis_protocol_version,
+            num_seats,
+            home_dir,
+        )?;
 
         let original_config = near_config.genesis.config.clone();
 
