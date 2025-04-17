@@ -273,7 +273,7 @@ impl Test {
 }
 
 #[test]
-fn slow_chunks_produced_and_distributed_all_in_all_shards() {
+fn slow_test_chunks_produced_and_distributed_all_in_all_shards() {
     Test {
         min_validators: 4,
         test4_config: Test4Config { drop_messages_from: &[], assert_missed_chunk: false },
@@ -364,7 +364,8 @@ fn slow_test_chunks_produced_and_distributed_chunk_distribution_network_incorrec
 }
 
 #[test]
-fn slow_chunks_produced_and_distributed_all_in_all_shards_should_succeed_even_without_forwarding() {
+fn slow_test_chunks_produced_and_distributed_all_in_all_shards_should_succeed_even_without_forwarding()
+ {
     Test {
         min_validators: 4,
         test4_config: Test4Config { drop_messages_from: &[], assert_missed_chunk: false },
