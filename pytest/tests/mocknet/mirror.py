@@ -505,7 +505,7 @@ def run_env_cmd(args, traffic_generator, nodes):
 
 
 def filter_hosts(args, traffic_generator, nodes):
-    if args.host_filter is not None:
+    if args.host_filter is not None and traffic_generator is not None:
         if not re.search(args.host_filter, traffic_generator.name()):
             traffic_generator = None
         nodes = [h for h in nodes if re.search(args.host_filter, h.name())]

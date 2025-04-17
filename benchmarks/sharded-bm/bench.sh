@@ -477,10 +477,8 @@ create_accounts_forknet() {
             "cd ${BENCHNET_DIR}; \
             ${FORKNET_ENV} ./bench.sh create-accounts-local ${CASE} ${RPC_URL}"
     else
-        for node in ${FORKNET_CP_NODES}; do
-            $MIRROR --host-filter ".*${node}" run-cmd --cmd \
-                "cd ${BENCHNET_DIR}; ${FORKNET_ENV} ./bench.sh create-accounts-on-tracked-shard ${CASE} ${RPC_URL}"
-        done
+        $MIRROR --host-filter nodes run-cmd --cmd \
+            "cd ${BENCHNET_DIR}; ${FORKNET_ENV} ./bench.sh create-accounts-on-tracked-shard ${CASE} ${RPC_URL}"
     fi
     cd -
 }
@@ -539,10 +537,10 @@ create_accounts_on_tracked_shard() {
         exit 1
     fi
     local data_dir="${USERS_DATA_DIR}/shard"
-    echo "Copying user data from ${NEAR_HOME}/user-data/shard_${shard} to ${data_dir}"
+    echo "Copying user data from ${NEAR_HOME}/user-data/shard_${shard}/* to ${data_dir}"
     rm -rf ${data_dir}
     mkdir -p ${data_dir}
-    cp -r ${NEAR_HOME}/user-data/shard_${shard}/ ${data_dir}/
+    cp -r ${NEAR_HOME}/user-data/shard_${shard}/* ${data_dir}/
 
     # local prefix=$(printf "a%02d" ${shard})
     # create_sub_accounts ${shard} ${prefix} ${data_dir}
