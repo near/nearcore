@@ -2,6 +2,7 @@ use crate::adapter::{StoreAdapter, StoreUpdateAdapter};
 use crate::db::TestDB;
 use crate::flat::{BlockInfo, FlatStorageManager, FlatStorageReadyStatus, FlatStorageStatus};
 use crate::metadata::{DB_VERSION, DbKind, DbVersion};
+use crate::trie::AccessOptions;
 use crate::{
     DBCol, NodeStorage, ShardTries, StateSnapshotConfig, Store, Trie, TrieConfig, get,
     get_delayed_receipt_indices, get_promise_yield_indices,
@@ -190,7 +191,7 @@ pub fn test_populate_trie(
     changes: Vec<(Vec<u8>, Option<Vec<u8>>)>,
 ) -> CryptoHash {
     let trie = tries.get_trie_for_shard(shard_uid, *root);
-    let trie_changes = trie.update(changes.iter().cloned()).unwrap();
+    let trie_changes = trie.update(changes.iter().cloned(), AccessOptions::DEFAULT).unwrap();
     let mut store_update = tries.store_update();
     tries.apply_memtrie_changes(&trie_changes, shard_uid, 1); // TODO: don't hardcode block height
     let root = tries.apply_all(&trie_changes, shard_uid, &mut store_update);
@@ -198,7 +199,7 @@ pub fn test_populate_trie(
     let deduped = simplify_changes(&changes);
     let trie = tries.get_trie_for_shard(shard_uid, root);
     for (key, value) in deduped {
-        assert_eq!(trie.get(&key), Ok(value));
+        assert_eq!(trie.get(&key, AccessOptions::DEFAULT), Ok(value));
     }
     root
 }

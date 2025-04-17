@@ -60,6 +60,7 @@ use near_primitives::utils::{
 use near_primitives::version::ProtocolVersion;
 use near_primitives_core::apply::ApplyChunkReason;
 use near_primitives_core::version::ProtocolFeature;
+use near_store::trie::AccessOptions;
 use near_store::trie::receipts_column_helper::DelayedReceiptQueue;
 use near_store::trie::update::TrieUpdateResult;
 use near_store::{
@@ -133,6 +134,8 @@ pub struct ApplyState {
     pub config: Arc<RuntimeConfig>,
     /// Cache for compiled contracts.
     pub cache: Option<Box<dyn ContractRuntimeCache>>,
+    /// Cache for trie node accesses.
+    pub trie_access_tracker_state: Arc<ext::AccountingState>,
     /// Whether the chunk being applied is new.
     pub is_new_chunk: bool,
     /// Congestion level on each shard based on the latest known chunk header of each shard.
@@ -522,7 +525,7 @@ impl Runtime {
                         let identifier = GlobalContractIdentifier::AccountId(account_id.clone());
                         let key = TrieKey::GlobalContractCode { identifier: identifier.into() };
                         let value_ref = state_update
-                            .get_ref(&key, KeyLookupMode::MemOrFlatOrTrie)?
+                            .get_ref(&key, KeyLookupMode::MemOrFlatOrTrie, AccessOptions::DEFAULT)?
                             .ok_or_else(|| {
                                 let TrieKey::GlobalContractCode { identifier } = key else {
                                     unreachable!()
@@ -1578,7 +1581,6 @@ impl Runtime {
 
         let state_update = &mut processing_state.state_update;
         let trie = state_update.trie();
-        let node_counter_before = trie.get_trie_nodes_count();
         let recorded_storage_size_before = trie.recorded_storage_size();
         let storage_proof_size_upper_bound_before = trie.recorded_storage_size_upper_bound();
 
@@ -1592,9 +1594,6 @@ impl Runtime {
 
         let shard_id_str = processing_state.apply_state.shard_id.to_string();
         let trie = processing_state.state_update.trie();
-
-        let node_counter_after = trie.get_trie_nodes_count();
-        tracing::trace!(target: "runtime", ?node_counter_before, ?node_counter_after);
 
         let recorded_storage_diff = trie.recorded_storage_size() - recorded_storage_size_before;
         let recorded_storage_upper_bound_diff =
@@ -2241,7 +2240,7 @@ fn resolve_promise_yield_timeouts(
             receiver_id: queue_entry.account_id.clone(),
             data_id: queue_entry.data_id,
         };
-        if state_update.contains_key(&promise_yield_key)? {
+        if state_update.contains_key(&promise_yield_key, AccessOptions::DEFAULT)? {
             let new_receipt_id = create_receipt_id_from_receipt_id(
                 processing_state.protocol_version,
                 &queue_entry.data_id,

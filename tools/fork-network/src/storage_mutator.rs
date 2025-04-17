@@ -15,6 +15,7 @@ use near_primitives::types::{
 use near_store::adapter::StoreUpdateAdapter;
 use near_store::adapter::flat_store::FlatStoreAdapter;
 use near_store::flat::{BlockInfo, FlatStateChanges, FlatStorageReadyStatus, FlatStorageStatus};
+use near_store::trie::AccessOptions;
 use near_store::trie::update::TrieUpdateResult;
 use near_store::{DBCol, ShardTries};
 
@@ -395,7 +396,7 @@ fn commit_to_existing_state(
 
     let trie_changes = shard_tries
         .get_trie_for_shard(shard_uid, root.state_root)
-        .update(updates)
+        .update(updates, AccessOptions::DEFAULT)
         .with_context(|| format!("failed updating trie for shard {}", shard_uid))?;
     tracing::info!(
         ?shard_uid,

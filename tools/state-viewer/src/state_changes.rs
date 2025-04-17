@@ -12,6 +12,7 @@ use near_primitives::types::{
     StateRoot,
 };
 use near_primitives_core::types::BlockHeight;
+use near_store::trie::AccessOptions;
 use near_store::{KeyForStateChanges, Store, WrappedTrieChanges};
 use nearcore::{NearConfig, NightshadeRuntime, NightshadeRuntimeExt};
 use std::path::{Path, PathBuf};
@@ -184,12 +185,16 @@ fn apply_state_changes(
             let trie = runtime.get_trie_for_shard(shard_id, block_hash, state_root, false).unwrap();
 
             let trie_update = trie
-                .update(state_changes.iter().map(|raw_state_changes_with_trie_key| {
-                    tracing::debug!(target: "state-changes", ?raw_state_changes_with_trie_key);
-                    let raw_key = raw_state_changes_with_trie_key.trie_key.to_vec();
-                    let data = raw_state_changes_with_trie_key.changes.last().unwrap().data.clone();
-                    (raw_key, data)
-                }))
+                .update(
+                    state_changes.iter().map(|raw_state_changes_with_trie_key| {
+                        tracing::debug!(target: "state-changes", ?raw_state_changes_with_trie_key);
+                        let raw_key = raw_state_changes_with_trie_key.trie_key.to_vec();
+                        let data =
+                            raw_state_changes_with_trie_key.changes.last().unwrap().data.clone();
+                        (raw_key, data)
+                    }),
+                    AccessOptions::DEFAULT,
+                )
                 .unwrap();
 
             tracing::info!(target: "state-change", block_height, ?block_hash, ?shard_uid, old_state_root = ?trie_update.old_root, new_state_root = ?trie_update.new_root, "Applied state changes");

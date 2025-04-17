@@ -226,6 +226,7 @@ impl TrieViewer {
             is_new_chunk: false,
             congestion_info: Default::default(),
             bandwidth_requests: BlockBandwidthRequests::empty(),
+            trie_access_tracker_state: Default::default(),
         };
         let function_call = FunctionCallAction {
             method_name: method_name.to_string(),
@@ -273,6 +274,7 @@ impl TrieViewer {
             epoch_info_provider,
             view_state.current_protocol_version,
             config.wasm_config.storage_get_mode,
+            Arc::clone(&apply_state.trie_access_tracker_state),
         );
         let outcome = execute_function_call(
             contract,

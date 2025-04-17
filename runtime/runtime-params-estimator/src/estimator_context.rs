@@ -190,6 +190,7 @@ impl<'c> EstimatorContext<'c> {
             is_new_chunk: true,
             congestion_info,
             bandwidth_requests: BlockBandwidthRequests::empty(),
+            trie_access_tracker_state: Default::default(),
         }
     }
 
