@@ -16,6 +16,7 @@ use near_store::adapter::flat_store::FlatStoreAdapter;
 use near_store::flat::{
     FlatStateChanges, FlatStateDelta, FlatStateDeltaMetadata, FlatStorageStatus,
 };
+use near_store::trie::AccessOptions;
 use near_store::{DBCol, Mode, NodeStorage, ShardUId, Store, StoreOpener};
 use nearcore::{NearConfig, NightshadeRuntime, NightshadeRuntimeExt, load_config};
 use std::{path::PathBuf, sync::Arc};
@@ -444,7 +445,11 @@ impl FlatStorageCommand {
                     // Take *previous* value for the key from trie corresponding
                     // to pre-state-root for this block.
                     let prev_value_ref = trie
-                        .get_optimized_ref(trie_key, near_store::KeyLookupMode::MemOrTrie)?
+                        .get_optimized_ref(
+                            trie_key,
+                            near_store::KeyLookupMode::MemOrTrie,
+                            AccessOptions::DEFAULT,
+                        )?
                         .map(|value_ref| value_ref.into_value_ref());
                     let value_ref =
                         flat_store.get(shard_uid, trie_key)?.map(|val| val.to_value_ref());
@@ -458,7 +463,8 @@ impl FlatStorageCommand {
                         None => None,
                         Some(value_ref) => {
                             if value_ref.len() <= FlatStateValue::INLINE_DISK_VALUE_THRESHOLD {
-                                let value = trie.retrieve_value(&value_ref.hash)?;
+                                let value =
+                                    trie.retrieve_value(&value_ref.hash, AccessOptions::DEFAULT)?;
                                 Some(FlatStateValue::Inlined(value))
                             } else {
                                 Some(FlatStateValue::Ref(value_ref))

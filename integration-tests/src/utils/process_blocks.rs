@@ -1,3 +1,5 @@
+use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
+use crate::env::test_env::TestEnv;
 use near_chain::{Block, Provenance};
 use near_chain_configs::Genesis;
 use near_client::ProcessTxResponse;
@@ -11,9 +13,6 @@ use near_primitives::types::{AccountId, BlockHeight};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_vm_runner::logic::ProtocolVersion;
 use node_runtime::config::Rational32;
-
-use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
-use crate::env::test_env::TestEnv;
 
 pub fn set_block_protocol_version(
     block: &mut Block,

@@ -15,6 +15,7 @@ use near_primitives::{
     },
     types::{AccountId, ShardId},
 };
+use std::sync::Arc;
 use tracing::{debug_span, error};
 
 pub fn need_receipt(
@@ -229,7 +230,7 @@ fn create_partial_chunk(
 }
 
 pub fn persist_chunk(
-    partial_chunk: PartialEncodedChunk,
+    partial_chunk: Arc<PartialEncodedChunk>,
     shard_chunk: Option<ShardChunk>,
     store: &mut ChainStore,
 ) -> Result<(), Error> {

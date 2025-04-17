@@ -1,10 +1,6 @@
-use itertools::Itertools;
-use near_async::messaging::CanSend;
 use near_async::test_loop::TestLoopV2;
 use near_async::test_loop::data::TestLoopData;
 use near_async::time::Duration;
-use near_client::SetNetworkInfo;
-use near_network::types::NetworkInfo;
 use near_primitives::types::AccountId;
 use near_store::adapter::StoreAdapter;
 use std::sync::atomic::Ordering;
@@ -117,26 +113,9 @@ impl TestLoopEnv {
     ///
     /// Additionally, we set the NetworkInfo for this node which is required for state sync to work.
     pub fn restart_node(&mut self, new_identifier: &str, node_state: NodeSetupState) {
-        // get the HeightHeightPeerInfo from all nodes
-        let highest_height_peers = self
-            .node_datas
-            .iter()
-            .filter(|data| data.account_id != node_state.account_id)
-            .map(|data| data.get_highest_height_peer_info(&self.test_loop.data))
-            .collect_vec();
-
         // setup_client handles adding the account_id and peer_id details to network_shared_state
         let node_data =
             setup_client(new_identifier, &mut self.test_loop, node_state, &self.shared_state);
-
-        // Note: TestLoopEnv does not currently propagate the network info to other peers. This is because
-        // the networking layer is completely mocked out. So in order to allow the new node to sync, we
-        // need to manually propagate the network info to the new node.
-        node_data
-            .client_sender
-            .send(SetNetworkInfo(NetworkInfo { highest_height_peers, ..NetworkInfo::default() }));
-
-        // Finally push node_data into node_datas
         self.node_datas.push(node_data);
     }
 

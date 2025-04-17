@@ -21,7 +21,7 @@ use near_store::Store;
 use near_store::genesis::initialize_genesis_state;
 use near_store::test_utils::{create_test_split_store, create_test_store};
 
-use crate::utils::peer_manager_actor::TestLoopNetworkSharedState;
+use crate::utils::peer_manager_actor::{TestLoopNetworkSharedState, UnreachableActor};
 
 use super::env::TestLoopEnv;
 use super::setup::setup_client;
@@ -202,13 +202,17 @@ impl TestLoopBuilder {
         TestLoopEnv { test_loop, node_datas: datas, shared_state }
     }
 
-    fn setup_shared_state(self) -> (TestLoopV2, SharedState) {
+    fn setup_shared_state(mut self) -> (TestLoopV2, SharedState) {
+        let unreachable_actor_sender =
+            self.test_loop.data.register_actor("UnreachableActor", UnreachableActor {}, None);
+        self.test_loop.remove_events_with_identifier("UnreachableActor");
+
         let shared_state = SharedState {
             genesis: self.genesis.unwrap(),
             tempdir: self.test_loop_data_dir,
             epoch_config_store: self.epoch_config_store.unwrap(),
             runtime_config_store: self.runtime_config_store,
-            network_shared_state: TestLoopNetworkSharedState::new(),
+            network_shared_state: TestLoopNetworkSharedState::new(unreachable_actor_sender),
             upgrade_schedule: self.upgrade_schedule,
             chunks_storage: Default::default(),
             drop_conditions: Default::default(),

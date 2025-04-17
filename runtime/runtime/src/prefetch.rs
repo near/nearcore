@@ -390,6 +390,7 @@ mod tests {
     use near_primitives::{trie_key::TrieKey, types::AccountId};
     use near_store::adapter::StoreAdapter;
     use near_store::test_utils::{create_test_store, test_populate_trie};
+    use near_store::trie::AccessOptions;
     use near_store::{ShardTries, ShardUId, StateSnapshotConfig, Trie, TrieConfig};
     use std::str::FromStr;
     use std::time::{Duration, Instant};
@@ -558,7 +559,7 @@ mod tests {
         // Read all prefetched values to ensure everything gets removed from the staging area.
         for trie_key in &prefetch_keys {
             let storage_key = trie_key.to_vec();
-            let _value = trie.get(&storage_key).unwrap();
+            let _value = trie.get(&storage_key, AccessOptions::DEFAULT).unwrap();
         }
         assert_eq!(
             prefetch_api.num_prefetched_and_staged(),

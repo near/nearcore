@@ -41,9 +41,8 @@ use near_primitives::views::{
 use near_store::ShardUId;
 use near_store::db::metadata::DbKind;
 use near_vm_runner::logic::ProtocolVersion;
-use once_cell::sync::OnceCell;
 use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use time::ext::InstantExt as _;
 
 use crate::utils::mock_partial_witness_adapter::MockPartialWitnessAdapter;
@@ -67,7 +66,7 @@ pub struct TestEnv {
     pub clients: Vec<Client>,
     pub tx_request_handlers: Vec<TxRequestHandler>,
     pub(crate) account_indices: AccountIndices,
-    pub(crate) paused_blocks: Arc<Mutex<HashMap<CryptoHash, Arc<OnceCell<()>>>>>,
+    pub(crate) paused_blocks: Arc<Mutex<HashMap<CryptoHash, Arc<OnceLock<()>>>>>,
     // random seed to be inject in each client according to AccountId
     // if not set, a default constant TEST_SEED will be injected
     pub(crate) seeds: HashMap<AccountId, RngSeed>,
@@ -183,7 +182,7 @@ impl TestEnv {
     /// add something more robust.
     pub fn pause_block_processing(&mut self, capture: &mut TracingCapture, block: &CryptoHash) {
         let paused_blocks = Arc::clone(&self.paused_blocks);
-        paused_blocks.lock().unwrap().insert(*block, Arc::new(OnceCell::new()));
+        paused_blocks.lock().unwrap().insert(*block, Arc::new(OnceLock::new()));
         capture.set_callback(move |msg| {
             if msg.starts_with("do_apply_chunks") {
                 let cell = paused_blocks.lock().unwrap().iter().find_map(|(block_hash, cell)| {

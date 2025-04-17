@@ -20,6 +20,7 @@ use near_client::{
 };
 use near_epoch_manager::EpochManager;
 use near_epoch_manager::shard_tracker::ShardTracker;
+use near_primitives::genesis::GenesisId;
 use near_primitives::network::PeerId;
 use near_primitives::test_utils::create_test_signer;
 use near_store::adapter::StoreAdapter;
@@ -241,6 +242,11 @@ pub fn setup_client(
         test_loop.clock(),
         &account_id,
         network_shared_state,
+        client_adapter.as_multi_sender(),
+        GenesisId {
+            chain_id: client_config.chain_id.clone(),
+            hash: *client_actor.client.chain.genesis().hash(),
+        },
         Arc::new(test_loop.future_spawner(identifier)),
     );
 

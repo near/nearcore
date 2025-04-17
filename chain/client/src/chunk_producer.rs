@@ -45,7 +45,7 @@ pub enum AdvProduceChunksMode {
 }
 
 pub struct ProduceChunkResult {
-    pub chunk: EncodedShardChunk,
+    pub encoded_chunk: EncodedShardChunk,
     pub encoded_chunk_parts_paths: Vec<MerklePath>,
     pub receipts: Vec<Receipt>,
 }
@@ -340,7 +340,7 @@ impl ChunkProducer {
         }
 
         Ok(Some(ProduceChunkResult {
-            chunk: encoded_chunk,
+            encoded_chunk,
             encoded_chunk_parts_paths: merkle_paths,
             receipts: outgoing_receipts,
         }))

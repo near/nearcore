@@ -49,6 +49,7 @@ use near_store::adapter::StoreAdapter;
 use near_store::adapter::trie_store::TrieStoreAdapter;
 use near_store::flat::FlatStorageChunkView;
 use near_store::flat::FlatStorageManager;
+use near_store::trie::AccessOptions;
 use near_store::{DBCol, Store, Trie, TrieCache, TrieCachingStorage, TrieConfig, TrieDBStorage};
 use nearcore::NightshadeRuntimeExt;
 use nearcore::{NearConfig, NightshadeRuntime};
@@ -376,7 +377,7 @@ pub(crate) fn dump_account_storage(
             key: storage_key.as_bytes().to_vec(),
         };
         let key = key.to_vec();
-        let item = trie.get(&key);
+        let item = trie.get(&key, AccessOptions::DEFAULT);
         let value = item.unwrap();
         if let Some(value) = value {
             let record = StateRecord::from_raw_key_value(&key, value).unwrap();

@@ -104,17 +104,7 @@ mirror_cmd() {
 
 start_nodes_forknet() {
     cd ${PYTEST_PATH}
-    
-    fetch_forknet_details
-    local tracing_param=""
-    if [ ! -z "${TRACING_SERVER_INTERNAL_IP}" ]; then
-        tracing_param="${TRACING_SERVER_INTERNAL_IP}"
-        echo "Will start nodes with tracing enabled to: ${tracing_param}"
-    else
-        echo "No tracing server found, will start nodes without tracing"
-    fi
-    $MIRROR --host-type nodes run-cmd --cmd "cd ${BENCHNET_DIR}; ${FORKNET_ENV} ./bench.sh start-neard0 ${CASE} ${tracing_param}"
-
+    $MIRROR start-nodes
     cd -
 }
 
@@ -122,16 +112,15 @@ start_neard0() {
     local cmd_suffix=""
     local tracing_ip=${2:-$TRACING_SERVER_INTERNAL_IP}
     local neard_cmd="${FORKNET_NEARD_PATH} --home ${NEAR_HOME} run"
-    local tracing_address=""
 
     if [ ! -z "${tracing_ip}" ]; then
         echo "Tracing server internal IP: ${tracing_ip}"
-        tracing_address="http://${tracing_ip}:4317/"
+        export OTEL_EXPORTER_OTLP_TRACES_ENDPOINT="http://${tracing_ip}:4317/"
     else
         echo "Tracing server internal IP is not set."
     fi
 
-    OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=${tracing_address} nohup ${neard_cmd} > ${FORKNET_NEARD_LOG} 2>&1 &
+    nohup ${neard_cmd} > ${FORKNET_NEARD_LOG} 2>&1 &
 }
 
 start_nodes_local() {
@@ -159,7 +148,7 @@ start_nodes() {
 
 stop_nodes_forknet() {
     cd ${PYTEST_PATH}
-    $MIRROR --host-type nodes run-cmd --cmd "killall --wait neard0 || true"
+    $MIRROR stop-nodes
     cd -
 }
 
@@ -383,13 +372,23 @@ edit_log_config() {
     touch ${1}
     jq -s 'reduce .[] as $item ({}; . * $item)' \
         ${1} ${BASE_LOG_CONFIG_PATCH} >tmp.$$.json && mv tmp.$$.json ${1} || rm tmp.$$.json
+    if [ -z "${TRACING_SERVER_INTERNAL_IP}" ]; then
+        jq '.opentelemetry = null' ${1} >tmp.$$.json && mv tmp.$$.json ${1} || rm tmp.$$.json
+    fi
 }
 
 tweak_config_forknet() {
     gen_localnet_for_forknet
     fetch_forknet_details
+
     cd ${PYTEST_PATH}
     
+    if [ ! -z "${TRACING_SERVER_INTERNAL_IP}" ]; then
+        echo "Will start nodes with tracing enabled to: ${TRACING_SERVER_INTERNAL_IP}"
+        FORKNET_ENV="${FORKNET_ENV} TRACING_SERVER_INTERNAL_IP=${TRACING_SERVER_INTERNAL_IP}"
+        $MIRROR --host-type nodes env --key-value "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://${TRACING_SERVER_INTERNAL_IP}:4317"
+    fi
+
     # Apply custom configs to RPC node
     local cmd="cd ${BENCHNET_DIR}; ${FORKNET_ENV} ./bench.sh tweak-config-forknet-node ${CASE} ${FORKNET_BOOT_NODES}"
     $MIRROR --host-type nodes run-cmd --cmd "${cmd}"
@@ -606,25 +605,16 @@ native_transfers_injection() {
     cd ${PYTEST_PATH}
     # Create a glob pattern for the host filter
     host_filter=$(echo ${FORKNET_CP_NODES} | sed 's/ /|/g')
-    # Stop neard0 on all chunk producer nodes
-    $MIRROR --host-filter ".*(${host_filter})" run-cmd --cmd "killall --wait neard0 || true"
+    
+    $MIRROR stop-nodes
     # Update the CONFIG file on all chunk producer nodes
     $MIRROR --host-filter ".*(${host_filter})" run-cmd --cmd "jq --arg tps ${tps} \
         --arg volume ${volume} --arg accounts_path ${accounts_path} \
         '.tx_generator = {\"tps\": ${tps}, \"volume\": ${volume}, \
         \"accounts_path\": \"${accounts_path}\", \"thread_count\": 2}' ${CONFIG} > tmp.$$.json && \
         mv tmp.$$.json ${CONFIG} || rm tmp.$$.json"
-    # Restart neard on all chunk producer nodes
-    local tracing_param=""
-    if [ ! -z "${TRACING_SERVER_INTERNAL_IP}" ]; then
-        tracing_param="${TRACING_SERVER_INTERNAL_IP}"
-        echo "Will start nodes with tracing enabled to: ${tracing_param}"
-    else
-        echo "No tracing server found, will start nodes without tracing"
-    fi
-    $MIRROR --host-filter ".*(${host_filter})" run-cmd --cmd \
-        "cd ${BENCHNET_DIR}; \
-        ${FORKNET_ENV} ./bench.sh start-neard0 ${CASE} ${tracing_param}"
+    $MIRROR start-nodes
+
     cd -
 }
 
@@ -646,10 +636,11 @@ stop_injection() {
     cd ${PYTEST_PATH}
     # Create a glob pattern for the host filter
     host_filter=$(echo ${FORKNET_CP_NODES} | sed 's/ /|/g')
-    # Stop neard0 on all chunk producer nodes
-    $MIRROR --host-filter ".*(${host_filter})" run-cmd --cmd "killall --wait neard0 || true"
+    
+    $MIRROR stop-nodes
     # Remove tx generator from config on all chunk producer nodes
     $MIRROR --host-filter ".*(${host_filter})" run-cmd --cmd "jq 'del(.tx_generator)' ${CONFIG} > tmp.$$.json && mv tmp.$$.json ${CONFIG} || rm tmp.$$.json"
+    
     cd -
     echo "=> Done"
 }
