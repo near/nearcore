@@ -103,6 +103,7 @@ impl TrieRecorder {
         PartialStorage { nodes: PartialState::TrieValues(nodes) }
     }
 
+    // TODO(resharding): remove this method after proper fix for refcount issue
     pub fn recorded_iter<'a>(&'a self) -> impl Iterator<Item = (&'a CryptoHash, &'a Arc<[u8]>)> {
         self.recorded.iter()
     }
