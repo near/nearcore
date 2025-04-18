@@ -17,6 +17,10 @@
         "nanos": 800000000
     },
     "consensus": {
+        "block_production_tracking_delay": {
+            "secs": 0,
+            "nanos": 10000000
+        },
         "min_block_production_delay": {
             "secs": 2,
             "nanos": 500000000
@@ -28,6 +32,10 @@
         "max_block_wait_delay": {
             "secs": 30,
             "nanos": 0
+        },
+        "doomslug_step_period": {
+            "secs": 0,
+            "nanos": 10000000
         }
     }
 }
