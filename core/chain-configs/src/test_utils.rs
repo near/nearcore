@@ -50,12 +50,12 @@ impl Genesis {
         shard_layout: ShardLayout,
     ) -> Self {
         let mut account_infos = vec![];
-        for account in accounts.into_iter() {
+        for (i, account) in accounts.into_iter().enumerate() {
             let signer = InMemorySigner::test_signer(&account);
             account_infos.push(AccountInfo {
                 account_id: account.clone(),
                 public_key: signer.public_key(),
-                amount: TESTING_INIT_STAKE,
+                amount: if i < num_validator_seats as usize { TESTING_INIT_STAKE } else { 0 },
             });
         }
         let genesis_time = from_timestamp(clock.now_utc().unix_timestamp_nanos() as u64);
@@ -73,16 +73,15 @@ impl Genesis {
         let mut validators = vec![];
         let mut records = vec![];
         for (i, account_info) in account_infos.into_iter().enumerate() {
-            let i = i as NumSeats;
-            if i < num_validator_seats {
+            if i < num_validator_seats as usize {
                 validators.push(account_info.clone());
             }
             add_account_with_key(
                 &mut records,
                 account_info.account_id,
                 &account_info.public_key,
-                if i < num_validator_seats { 0 } else { account_info.amount },
-                if i < num_validator_seats { account_info.amount } else { 0 },
+                TESTING_INIT_BALANCE - account_info.amount,
+                account_info.amount,
                 CryptoHash::default(),
             );
         }
