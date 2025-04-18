@@ -187,7 +187,8 @@ impl TrieUpdate {
             AccountContract::None | AccountContract::GlobalByAccount(_) => None,
             AccountContract::Local(hash) | AccountContract::Global(hash) => Some(*hash),
         };
-        self.get(&key).map(|opt| opt.map(|code| ContractCode::new(code, code_hash)))
+        self.get(&key, AccessOptions::DEFAULT)
+            .map(|opt| opt.map(|code| ContractCode::new(code, code_hash)))
     }
 
     /// Returns the size (in num bytes) of the contract code for the given account.
@@ -369,8 +370,9 @@ impl TrieUpdate {
             AccountContract::GlobalByAccount(account_id) => {
                 let identifier = GlobalContractIdentifier::AccountId(account_id.clone());
                 let key = TrieKey::GlobalContractCode { identifier: identifier.into() };
-                let value_ref =
-                    self.get_ref(&key, KeyLookupMode::MemOrFlatOrTrie)?.ok_or_else(|| {
+                let value_ref = self
+                    .get_ref(&key, KeyLookupMode::MemOrFlatOrTrie, AccessOptions::DEFAULT)?
+                    .ok_or_else(|| {
                         let TrieKey::GlobalContractCode { identifier } = key else {
                             unreachable!()
                         };
