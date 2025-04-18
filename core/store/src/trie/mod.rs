@@ -1712,7 +1712,6 @@ impl Trie {
         &self,
         boundary_account: &AccountId,
         retain_mode: RetainMode,
-        opts: AccessOptions,
     ) -> Result<TrieChanges, StorageError> {
         if self.memtries.is_some() {
             // Get child trie_changes for all child memtries
@@ -1723,7 +1722,11 @@ impl Trie {
                     let inner_guard = memtrie.read().unwrap();
                     let mut trie_update =
                         inner_guard.update(self.root, TrackingMode::None).unwrap();
-                    trie_update.retain_split_shard(boundary_account, retain_mode);
+                    trie_update.retain_split_shard(
+                        boundary_account,
+                        retain_mode,
+                        AccessOptions::DEFAULT,
+                    );
                     (*shard_uid, trie_update.to_memtrie_changes_only())
                 })
                 .collect::<HashMap<_, _>>();
@@ -1737,15 +1740,16 @@ impl Trie {
                 None => TrackingMode::Refcounts,
             };
             let mut trie_update = guard.update(self.root, tracking_mode)?;
-            trie_update.retain_split_shard(boundary_account, retain_mode);
+            trie_update.retain_split_shard(boundary_account, retain_mode, AccessOptions::DEFAULT);
 
             let mut trie_changes = trie_update.to_trie_changes();
             trie_changes.children_memtrie_changes = children_memtrie_changes;
             Ok(trie_changes)
         } else {
             let mut trie_update = TrieStorageUpdate::new(&self);
-            let root_node = self.move_node_to_mutable(&mut trie_update, &self.root, opts)?;
-            trie_update.retain_split_shard(boundary_account, retain_mode);
+            let root_node =
+                self.move_node_to_mutable(&mut trie_update, &self.root, AccessOptions::DEFAULT)?;
+            trie_update.retain_split_shard(boundary_account, retain_mode, AccessOptions::DEFAULT);
             #[cfg(test)]
             {
                 self.memory_usage_verify(&trie_update, GenericNodeOrIndex::Updated(root_node.0));
