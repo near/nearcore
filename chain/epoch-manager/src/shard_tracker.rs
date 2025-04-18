@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use crate::EpochManagerAdapter;
 use itertools::Itertools;
 use near_cache::SyncLruCache;
@@ -9,6 +7,7 @@ use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::StateSyncInfo;
 use near_primitives::types::{AccountId, EpochId, ShardId};
+use std::sync::Arc;
 
 // bit mask for which shard to track
 type BitMask = Vec<bool>;

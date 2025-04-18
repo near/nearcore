@@ -91,11 +91,11 @@ impl TrieViewer {
         account_id: &AccountId,
     ) -> Result<ContractCode, errors::ViewContractCodeError> {
         let account = self.view_account(state_update, account_id)?;
-        state_update
-            .get_code(account_id.clone(), account.local_contract_hash().unwrap_or_default())?
-            .ok_or_else(|| errors::ViewContractCodeError::NoContractCode {
+        state_update.get_account_contract_code(account_id, account.contract().as_ref())?.ok_or_else(
+            || errors::ViewContractCodeError::NoContractCode {
                 contract_account_id: account_id.clone(),
-            })
+            },
+        )
     }
 
     pub fn view_access_key(
@@ -226,6 +226,7 @@ impl TrieViewer {
             is_new_chunk: false,
             congestion_info: Default::default(),
             bandwidth_requests: BlockBandwidthRequests::empty(),
+            trie_access_tracker_state: Default::default(),
         };
         let function_call = FunctionCallAction {
             method_name: method_name.to_string(),
@@ -254,12 +255,8 @@ impl TrieViewer {
             state_update.contract_storage(),
         );
         let view_config = Some(ViewConfig { max_gas_burnt: self.max_gas_burnt_view });
-        let contract = pipeline.get_contract(
-            &receipt,
-            account.local_contract_hash().unwrap_or_default(),
-            0,
-            view_config.clone(),
-        );
+        let code_hash = state_update.get_account_contract_hash(account.contract().as_ref())?;
+        let contract = pipeline.get_contract(&receipt, code_hash, 0, view_config.clone());
 
         let mut runtime_ext = RuntimeExt::new(
             &mut state_update,
@@ -273,6 +270,7 @@ impl TrieViewer {
             epoch_info_provider,
             view_state.current_protocol_version,
             config.wasm_config.storage_get_mode,
+            Arc::clone(&apply_state.trie_access_tracker_state),
         );
         let outcome = execute_function_call(
             contract,

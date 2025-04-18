@@ -252,6 +252,7 @@ impl NightshadeRuntime {
             is_new_chunk,
             congestion_info,
             bandwidth_requests,
+            trie_access_tracker_state: Default::default(),
         };
 
         let instant = Instant::now();
@@ -578,7 +579,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                 // flat storage by not charging gas for trie nodes.
                 // WARNING: should never be used in production! Consider this option only for debugging or replaying blocks.
                 let mut trie = self.tries.get_trie_for_shard(shard_uid, storage_config.state_root);
-                trie.set_charge_gas_for_trie_node_access(false);
+                trie.set_use_trie_accounting_cache(false);
                 trie
             }
             StorageDataSource::Recorded(storage) => Trie::from_recorded_storage(
@@ -790,7 +791,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                     storage_config.state_root,
                     false,
                 )?;
-                trie.set_charge_gas_for_trie_node_access(false);
+                trie.set_use_trie_accounting_cache(false);
                 trie
             }
             StorageDataSource::Recorded(storage) => Trie::from_recorded_storage(
