@@ -664,9 +664,10 @@ pub fn validate_chunk_state_witness(
                     retain_mode,
                 )?;
 
-                let new_root = parent_trie.retain_split_shard(&boundary_account, retain_mode)?;
+                let trie_changes =
+                    parent_trie.retain_split_shard(&boundary_account, retain_mode)?;
 
-                (child_shard_uid, new_root, child_congestion_info)
+                (child_shard_uid, trie_changes.new_root, child_congestion_info)
             }
         };
 

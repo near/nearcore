@@ -290,6 +290,8 @@ where
     N: Debug,
     V: Debug + HasValueLength,
 {
+    /// Splits the trie, separating entries by the boundary account.
+    /// Leaves the left or right part of the trie, depending on the retain mode.
     fn retain_split_shard(&mut self, boundary_account: &AccountId, retain_mode: RetainMode);
 }
 
@@ -299,6 +301,8 @@ where
     V: Debug + HasValueLength,
     T: GenericTrieUpdateRetainInner<'a, N, V>,
 {
+    /// Splits the trie, separating entries by the boundary account.
+    /// Leaves the left or right part of the trie, depending on the retain mode.
     fn retain_split_shard(&mut self, boundary_account: &AccountId, retain_mode: RetainMode) {
         let intervals = boundary_account_to_intervals(boundary_account, retain_mode);
         let intervals_nibbles = intervals_to_nibbles(&intervals);

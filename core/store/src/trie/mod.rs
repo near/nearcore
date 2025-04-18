@@ -610,6 +610,7 @@ impl Trie {
         trie
     }
 
+    // TODO(resharding): remove this method after proper fix for refcount issue
     pub fn take_recorder(self) -> Option<RwLock<TrieRecorder>> {
         self.recorder
     }
@@ -1651,16 +1652,46 @@ impl Trie {
         &self,
         boundary_account: &AccountId,
         retain_mode: RetainMode,
-    ) -> Result<StateRoot, StorageError> {
-        let mut trie_update = TrieStorageUpdate::new(&self);
-        let root_node = self.move_node_to_mutable(&mut trie_update, &self.root)?;
-        trie_update.retain_split_shard(boundary_account, retain_mode);
-        #[cfg(test)]
-        {
-            self.memory_usage_verify(&trie_update, GenericNodeOrIndex::Updated(root_node.0));
+    ) -> Result<TrieChanges, StorageError> {
+        if self.memtries.is_some() {
+            // Get child trie_changes for all child memtries
+            let children_memtrie_changes = self
+                .children_memtries
+                .iter()
+                .map(|(shard_uid, memtrie)| {
+                    let inner_guard = memtrie.read().unwrap();
+                    let mut trie_update =
+                        inner_guard.update(self.root, TrackingMode::None).unwrap();
+                    trie_update.retain_split_shard(boundary_account, retain_mode);
+                    (*shard_uid, trie_update.to_memtrie_changes_only())
+                })
+                .collect::<HashMap<_, _>>();
+
+            // Get trie_update for memtrie
+            let guard = self.memtries.as_ref().unwrap().read().unwrap();
+            let mut recorder =
+                self.recorder.as_ref().map(|recorder| recorder.write().expect("no poison"));
+            let tracking_mode = match &mut recorder {
+                Some(recorder) => TrackingMode::RefcountsAndAccesses(recorder.deref_mut()),
+                None => TrackingMode::Refcounts,
+            };
+            let mut trie_update = guard.update(self.root, tracking_mode)?;
+            trie_update.retain_split_shard(boundary_account, retain_mode);
+
+            let mut trie_changes = trie_update.to_trie_changes();
+            trie_changes.children_memtrie_changes = children_memtrie_changes;
+            Ok(trie_changes)
+        } else {
+            let mut trie_update = TrieStorageUpdate::new(&self);
+            let root_node = self.move_node_to_mutable(&mut trie_update, &self.root)?;
+            trie_update.retain_split_shard(boundary_account, retain_mode);
+            #[cfg(test)]
+            {
+                self.memory_usage_verify(&trie_update, GenericNodeOrIndex::Updated(root_node.0));
+            }
+            let trie_changes = trie_update.flatten_nodes(&self.root, root_node.0)?;
+            Ok(trie_changes)
         }
-        let result = trie_update.flatten_nodes(&self.root, root_node.0)?;
-        Ok(result.new_root)
     }
 }
 
