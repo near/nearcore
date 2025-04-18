@@ -43,6 +43,8 @@ pub const DEFAULT_EXTERNAL_STORAGE_FALLBACK_THRESHOLD: u64 = 3;
 pub enum TrackedShardsConfig {
     /// Tracks no shards (light client).
     NoShards,
+    /// Tracks arbitrary shards.
+    Shards(Vec<ShardId>),
     /// Tracks all shards.
     AllShards,
     /// Tracks shards that are assigned to given validator account.

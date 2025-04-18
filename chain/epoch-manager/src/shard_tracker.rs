@@ -1,3 +1,6 @@
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
+
 use crate::EpochManagerAdapter;
 use itertools::Itertools;
 use near_cache::SyncLruCache;
@@ -7,7 +10,7 @@ use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::StateSyncInfo;
 use near_primitives::types::{AccountId, EpochId, ShardId};
-use std::sync::Arc;
+use near_primitives::version::PROD_GENESIS_PROTOCOL_VERSION;
 
 // bit mask for which shard to track
 type BitMask = Vec<bool>;
@@ -28,8 +31,11 @@ pub enum EpochSelection {
 #[derive(Clone)]
 pub struct ShardTracker {
     tracked_shards_config: TrackedShardsConfig,
-    /// Stores shard tracking information by epoch, only useful if TrackedState == Accounts
-    tracking_shards_cache: Arc<SyncLruCache<EpochId, BitMask>>,
+    /// Stores shard tracking information by epoch, only useful if TrackedShardsConfig == Accounts
+    tracked_accounts_shards_cache: Arc<SyncLruCache<EpochId, BitMask>>,
+    /// Only relevant if `TrackedShardsConfig == Shards(tracked_shards)`.
+    /// Caches whether a shard is a descendant of any of the `tracked_shards`.
+    descendant_of_tracked_shard_cache: Arc<Mutex<HashMap<ShardId, bool>>>,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
 }
 
@@ -43,7 +49,8 @@ impl ShardTracker {
             // 1024 epochs on mainnet is about 512 days which is more than enough,
             // and this is a cache anyway. The data size is pretty small as well,
             // only one bit per shard per epoch.
-            tracking_shards_cache: Arc::new(SyncLruCache::new(1024)),
+            tracked_accounts_shards_cache: Arc::new(SyncLruCache::new(1024)),
+            descendant_of_tracked_shard_cache: Arc::new(Mutex::new(HashMap::new())),
             epoch_manager,
         }
     }
@@ -60,9 +67,29 @@ impl ShardTracker {
         match &self.tracked_shards_config {
             TrackedShardsConfig::NoShards => Ok(false),
             TrackedShardsConfig::AllShards => Ok(true),
+            TrackedShardsConfig::Shards(tracked_shards) => {
+                let shard_layout = self.epoch_manager.get_shard_layout(epoch_id)?;
+                if !shard_layout.shard_ids().contains(&shard_id) {
+                    return Err(EpochError::ShardingError(format!("Invalid shard id {shard_id}")));
+                }
+                if let Some(is_tracked) =
+                    self.descendant_of_tracked_shard_cache.lock().unwrap().get(&shard_id)
+                {
+                    return Ok(*is_tracked);
+                }
+
+                let is_tracked = check_if_descendant_of_tracked_shard(
+                    shard_id,
+                    &tracked_shards,
+                    &epoch_id,
+                    &self.epoch_manager,
+                )?;
+                self.descendant_of_tracked_shard_cache.lock().unwrap().insert(shard_id, is_tracked);
+                Ok(is_tracked)
+            }
             TrackedShardsConfig::Accounts(tracked_accounts) => {
                 let shard_layout = self.epoch_manager.get_shard_layout(epoch_id)?;
-                let tracking_mask = self.tracking_shards_cache.get_or_try_put(
+                let tracking_mask = self.tracked_accounts_shards_cache.get_or_try_put(
                     *epoch_id,
                     |_| -> Result<Vec<bool>, EpochError> {
                         let mut tracking_mask =
@@ -340,6 +367,33 @@ impl ShardTracker {
             Ok(Some(state_sync_info))
         }
     }
+}
+
+/// Checks whether `shard_id` is a descendant of any of the `tracked_shards`.
+/// Assumes that `shard_id` exists in the shard layout of `epoch_id`.
+fn check_if_descendant_of_tracked_shard(
+    mut shard_id: ShardId,
+    tracked_shards: &Vec<ShardId>,
+    epoch_id: &EpochId,
+    epoch_manager: &Arc<dyn EpochManagerAdapter>,
+) -> Result<bool, EpochError> {
+    if tracked_shards.contains(&shard_id) {
+        // `shard_id` is one of the `tracked_shards` (a shard is a descendant of itself)
+        return Ok(true);
+    }
+    let mut protocol_version = epoch_manager.get_epoch_protocol_version(epoch_id)?;
+    while protocol_version > PROD_GENESIS_PROTOCOL_VERSION {
+        let shard_layout = epoch_manager.get_shard_layout_from_protocol_version(protocol_version);
+        protocol_version -= 1;
+        let Some(parent_shard_id) = shard_layout.try_get_parent_shard_id(shard_id)? else {
+            continue;
+        };
+        if tracked_shards.contains(&parent_shard_id) {
+            return Ok(true);
+        }
+        shard_id = parent_shard_id;
+    }
+    Ok(false)
 }
 
 #[cfg(test)]
