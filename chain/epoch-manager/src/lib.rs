@@ -34,7 +34,6 @@ use near_store::adapter::StoreAdapter;
 use near_store::{DBCol, HEADER_HEAD_KEY, Store, StoreUpdate};
 use num_rational::BigRational;
 use reward_calculator::ValidatorOnlineThresholds;
-use shard_assignment::ValidatorRestrictionsBuilder;
 use shard_assignment::build_assignment_restrictions_v77_to_v78;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::Path;
