@@ -155,6 +155,7 @@ def stop_runner_cmd(args, traffic_generator, nodes):
 # returns boot nodes and validators we want for the new test network
 def get_network_nodes(new_test_rpc_responses, num_validators):
     validators = []
+    non_validators = []
     boot_nodes = []
     for node, response in new_test_rpc_responses:
         if len(validators) < num_validators:
@@ -167,6 +168,8 @@ def get_network_nodes(new_test_rpc_responses, num_validators):
                     'public_key': response['validator_public_key'],
                     'amount': str(10**33),
                 })
+        else:
+            non_validators.append(node.ip_addr())
         if len(boot_nodes) < 20:
             boot_nodes.append(
                 f'{response["node_key"]}@{node.ip_addr()}:{response["listen_port"]}'
@@ -300,17 +303,16 @@ def new_test_cmd(args, traffic_generator, nodes):
 
     validators, boot_nodes = get_network_nodes(zip(nodes, test_keys),
                                                args.num_validators)
+    logger.info("""Setting validators: {0}
+Run `status` to check if the nodes are ready. After they're ready,
+ you can run `start-nodes` and `start-traffic`""".format(validators))
 
-    logger.info("""setting validators: {0}
-Then running neard amend-genesis on all nodes, and starting neard to compute genesis \
-state roots. This will take a few hours. Run `status` to check if the nodes are \
-ready. After they're ready, you can run `start-traffic`""".format(validators))
     pmap(
         lambda node: node.neard_runner_network_init(
             validators,
             boot_nodes,
-            "empty",
-            "/home/ubuntu/bench/cases/forknet/realistic_20_cp_1_rpc_20_shard",
+            args.state_source,
+            args.patches_path,
             args.epoch_length,
             args.num_seats,
             args.new_chain_id,
@@ -323,7 +325,9 @@ ready. After they're ready, you can run `start-traffic`""".format(validators))
         location = _get_state_parts_location(args)
     logger.info('Applying default config changes')
     pmap(lambda node: _apply_config_changes(node, location), targeted)
-    pmap(lambda node: _apply_stateless_config(args, node), nodes)
+    if args.stateless_setup:
+        logger.info('Configuring nodes for stateless protocol')
+        pmap(lambda node: _apply_stateless_config(args, node), nodes)
 
     _clear_state_parts_if_exists(location, nodes)
 
@@ -627,11 +631,14 @@ if __name__ == '__main__':
     and records files, and then starts the neard nodes and waits for them to be online
     after computing the genesis state roots. This step takes a long time (a few hours).
     ''')
+    new_test_parser.add_argument('--state-source', type=str, default='dump')
+    new_test_parser.add_argument('--patches-path', type=str)
     new_test_parser.add_argument('--epoch-length', type=int)
     new_test_parser.add_argument('--num-validators', type=int)
     new_test_parser.add_argument('--num-seats', type=int)
     new_test_parser.add_argument('--new-chain-id', type=str)
     new_test_parser.add_argument('--genesis-protocol-version', type=int)
+    new_test_parser.add_argument('--stateless-setup', action='store_true')
     new_test_parser.add_argument(
         '--gcs-state-sync',
         action='store_true',

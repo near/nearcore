@@ -470,12 +470,12 @@ pub(crate) fn commit_shard(
     let new_root = match root.as_mut() {
         Some(root) => {
             commit_to_existing_state(shard_tries, shard_uid, root, updates)?;
-            root.state_root.clone()
+            root.state_root
         }
         None => {
             let state_root = commit_to_new_state(shard_tries, shard_uid, updates)?;
             // TODO: load memtrie
-            *root = Some(InProgressRoot { state_root: state_root.clone(), update_height: 1 });
+            *root = Some(InProgressRoot { state_root, update_height: 1 });
             state_root
         }
     };

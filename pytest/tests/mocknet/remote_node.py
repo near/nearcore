@@ -139,9 +139,6 @@ def get_nodes(mocknet_id: str):
                     f'more than one traffic generator instance found. {traffic_generator.instance_name} and {n.instance_name}'
                 )
 
-            ### HACK ###
-            continue
-
             traffic_generator = n
         else:
             nodes.append(n)

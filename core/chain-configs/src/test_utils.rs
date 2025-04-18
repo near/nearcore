@@ -81,7 +81,7 @@ impl Genesis {
                 &mut records,
                 account_info.account_id,
                 &account_info.public_key,
-                if i < num_validator_seats { 0 } else { account_info.amount.clone() },
+                if i < num_validator_seats { 0 } else { account_info.amount },
                 if i < num_validator_seats { account_info.amount } else { 0 },
                 CryptoHash::default(),
             );
@@ -134,6 +134,15 @@ impl Genesis {
             ..Default::default()
         };
         Genesis::new(config, records.into()).unwrap()
+    }
+
+    pub fn test(accounts: Vec<AccountId>, num_validator_seats: NumSeats) -> Self {
+        Self::from_accounts(
+            Clock::real(),
+            accounts,
+            num_validator_seats,
+            ShardLayout::single_shard(),
+        )
     }
 
     pub fn test_sharded(

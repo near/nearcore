@@ -54,9 +54,8 @@ PYTEST_PATH="../../pytest/"
 TX_GENERATOR=$(jq -r '.tx_generator.enabled // false' ${BM_PARAMS})
 CREATE_ACCOUNTS_RPS=$(jq -r '.account_rps // 100' ${BM_PARAMS})
 
-# TODO: is taken from params.json anyway
+# TODO: it is taken from params.json anyway
 EPOCH_LENGTH=$(jq -r '.epoch_length // 1000' ${BM_PARAMS})
-NUM_SEATS=$(jq -r '.num_seats // 100' ${BM_PARAMS})
 
 echo "Test case: ${CASE}"
 echo "Num nodes: ${NUM_NODES}"
@@ -173,7 +172,8 @@ stop_nodes() {
 reset_forknet() {
     cd ${PYTEST_PATH}
     $MIRROR --host-type nodes run-cmd --cmd \
-        "find ${NEAR_HOME}/data -mindepth 1 -delete ; rm -rf ${BENCHNET_DIR}"
+        "find ${NEAR_HOME}/data -mindepth 1 -delete ; rm -rf ${BENCHNET_DIR} "
+    $MIRROR reset --backup-id start --yes
     if [ "${TX_GENERATOR}" = true ]; then
         $MIRROR --host-type nodes run-cmd --cmd \
             "jq 'del(.tx_generator)' ${CONFIG} > tmp.$$.json && \
@@ -246,14 +246,7 @@ fetch_forknet_details() {
     fi
 }
 
-gen_localnet_for_forknet() {
-    # This function initializes the nodes using the mirror.py new-test command
-    # which automatically:
-    #  1. Calls do_new_test on each node to initialize validator keys
-    #  2. Collects the validator keys from all nodes
-    #  3. Calls do_network_init to distribute validators.json to all nodes
-    #  4. Each node detects validators.json and initializes the network
-    
+gen_forknet() {
     if [ "${GEN_LOCALNET_DONE}" = true ]; then
         echo "Will use existing nodes homes for forknet"
         return 0
@@ -268,8 +261,9 @@ gen_localnet_for_forknet() {
     $MIRROR --host-type nodes upload-file --src ${cwd}/cases --dst ${BENCHNET_DIR}
 
     echo "Running new-test to initialize nodes and collect validator keys"
-    $MIRROR new-test --epoch-length ${EPOCH_LENGTH} --num-validators ${NUM_CHUNK_PRODUCERS} \
-        --new-chain-id ${FORKNET_NAME} --yes
+    $MIRROR new-test --state-source empty --patches-path "/home/ubuntu/bench/${CASE}" \
+        --epoch-length ${EPOCH_LENGTH} --num-validators ${NUM_CHUNK_PRODUCERS} \
+        --new-chain-id ${FORKNET_NAME} --stateless-setup --yes
     
     echo "Waiting for node initialization to complete..."
     $MIRROR status
@@ -310,7 +304,7 @@ init_forknet() {
     cd -
     
     # Initialize the network using new-test command
-    gen_localnet_for_forknet
+    gen_forknet
 }
 
 init_local() {
@@ -378,7 +372,7 @@ edit_log_config() {
 }
 
 tweak_config_forknet() {
-    gen_localnet_for_forknet
+    gen_forknet
     fetch_forknet_details
 
     cd ${PYTEST_PATH}
@@ -389,30 +383,21 @@ tweak_config_forknet() {
         $MIRROR --host-type nodes env --key-value "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://${TRACING_SERVER_INTERNAL_IP}:4317"
     fi
 
-    # Apply custom configs to RPC node
+    # Apply custom configs
     local cmd="cd ${BENCHNET_DIR}; ${FORKNET_ENV} ./bench.sh tweak-config-forknet-node ${CASE} ${FORKNET_BOOT_NODES}"
     $MIRROR --host-type nodes run-cmd --cmd "${cmd}"
 
+    # TODO: Apply custom configs to RPC node to set up all shards tracking
+    # local cmd="
+    #     jq '.tracked_shards_config = \"AllShards\" | .store.load_mem_tries_for_tracked_shards = false' ${CONFIG} > tmp.$$.json && \
+    #     mv tmp.$$.json ${CONFIG} || rm tmp.$$.json
+    # "
+    # $MIRROR --host-filter ".*${FORKNET_RPC_NODE_ID}" run-cmd --cmd "${cmd}"
+    
     cd -
 }
 
 tweak_config_forknet_node() {
-    local node_type=${1}
-    local boot_nodes=${2}
-    
-    # Set network and RPC addresses to listen on all interfaces
-    jq --arg val "0.0.0.0:24567" \
-        '.network.addr |= $val' ${CONFIG} >tmp.$$.json && mv tmp.$$.json ${CONFIG} || rm tmp.$$.json
-    jq --arg val "0.0.0.0:3030" \
-        '.rpc.addr |= $val' ${CONFIG} >tmp.$$.json && mv tmp.$$.json ${CONFIG} || rm tmp.$$.json
-    
-    # Set boot nodes if provided
-    # if [ -n "$boot_nodes" ]; then
-    #     jq --arg val "${boot_nodes}" \
-    #         '.network.boot_nodes |= $val' ${CONFIG} >tmp.$$.json && mv tmp.$$.json ${CONFIG} || rm tmp.$$.json
-    # fi
-    
-    # Edit configs
     edit_genesis ${GENESIS}
     edit_config ${CONFIG}
     edit_log_config ${LOG_CONFIG}
@@ -476,7 +461,8 @@ create_accounts_forknet() {
             "cd ${BENCHNET_DIR}; \
             ${FORKNET_ENV} ./bench.sh create-accounts-local ${CASE} ${RPC_URL}"
     else
-        $MIRROR --host-filter nodes run-cmd --cmd \
+        local host_filter=$(echo ${FORKNET_CP_NODES} | sed 's/ /|/g')
+        $MIRROR --host-filter ".*(${host_filter})" run-cmd --cmd \
             "cd ${BENCHNET_DIR}; ${FORKNET_ENV} ./bench.sh create-accounts-on-tracked-shard ${CASE} ${RPC_URL}"
     fi
     cd -
@@ -535,14 +521,12 @@ create_accounts_on_tracked_shard() {
         echo "shard=${shard}"
         exit 1
     fi
-    local data_dir="${USERS_DATA_DIR}/shard"
-    echo "Copying user data from ${NEAR_HOME}/user-data/shard_${shard}/* to ${data_dir}"
+    local source_file="${NEAR_HOME}/user-data/shard_${shard}.json"
+    local data_dir="${USERS_DATA_DIR}/shard.json"
+    echo "Copying user data from ${source_file} to ${data_dir}"
     rm -rf ${data_dir}
-    mkdir -p ${data_dir}
-    cp -r ${NEAR_HOME}/user-data/shard_${shard}/* ${data_dir}/
-
-    # local prefix=$(printf "a%02d" ${shard})
-    # create_sub_accounts ${shard} ${prefix} ${data_dir}
+    mkdir -p ${USERS_DATA_DIR}
+    cp ${source_file} ${data_dir}
 }
 
 create_accounts() {
@@ -601,7 +585,7 @@ native_transfers_injection() {
     fetch_forknet_details
     local tps=$(jq -r '.tx_generator.tps' ${BM_PARAMS})
     local volume=$(jq -r '.tx_generator.volume' ${BM_PARAMS})
-    local accounts_path="${BENCHNET_DIR}/${USERS_DATA_DIR}/shard"
+    local accounts_path="${BENCHNET_DIR}/${USERS_DATA_DIR}/shard.json"
     cd ${PYTEST_PATH}
     # Create a glob pattern for the host filter
     host_filter=$(echo ${FORKNET_CP_NODES} | sed 's/ /|/g')
@@ -690,7 +674,7 @@ get_traces() {
         return 1
     fi
     
-    local cur_time="$(date +%s)"
+    local cur_time="${2:-$(date +%s)}"
     local lag_secs=10
     local len_secs=10
     local output_dir=${1:-.}
@@ -760,7 +744,7 @@ stop-injection)
     ;;
 
 get-traces)
-    get_traces ${2}
+    get_traces ${2} ${3}
     ;;
 
 mirror)

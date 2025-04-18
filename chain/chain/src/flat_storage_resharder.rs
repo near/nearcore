@@ -1515,7 +1515,6 @@ mod tests {
     fn create_chain_resharder_sender<T: TestSender>(
         shard_layout: ShardLayout,
     ) -> (Chain, FlatStorageResharder, Arc<T>) {
-        let num_shards = shard_layout.shard_ids().count();
         let genesis = Genesis::from_accounts(
             Clock::real(),
             vec![account!("aa"), account!("mm"), account!("vv")],
