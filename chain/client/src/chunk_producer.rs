@@ -17,7 +17,7 @@ use near_primitives::epoch_info::RngSeed;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{MerklePath, merklize};
 use near_primitives::receipt::Receipt;
-use near_primitives::sharding::{EncodedShardChunk, ShardChunkHeader};
+use near_primitives::sharding::{EncodedShardChunk, ShardChunk, ShardChunkHeader};
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::chunk_extra::ChunkExtra;
@@ -46,6 +46,7 @@ pub enum AdvProduceChunksMode {
 
 pub struct ProduceChunkResult {
     pub encoded_chunk: EncodedShardChunk,
+    pub shard_chunk: ShardChunk,
     pub encoded_chunk_parts_paths: Vec<MerklePath>,
     pub receipts: Vec<Receipt>,
 }
@@ -285,7 +286,7 @@ impl ChunkProducer {
         let gas_used = if self.produce_invalid_chunks { gas_used + 1 } else { gas_used };
 
         let congestion_info = chunk_extra.congestion_info();
-        let (encoded_chunk, merkle_paths, outgoing_receipts) =
+        let (encoded_chunk, shard_chunk, merkle_paths) =
             ShardsManagerActor::create_encoded_shard_chunk(
                 prev_block_hash,
                 *chunk_extra.state_root(),
@@ -297,7 +298,7 @@ impl ChunkProducer {
                 chunk_extra.balance_burnt(),
                 chunk_extra.validator_proposals().collect(),
                 prepared_transactions.transactions,
-                outgoing_receipts,
+                outgoing_receipts.clone(),
                 outgoing_receipts_root,
                 tx_root,
                 congestion_info,
@@ -341,6 +342,7 @@ impl ChunkProducer {
 
         Ok(Some(ProduceChunkResult {
             encoded_chunk,
+            shard_chunk,
             encoded_chunk_parts_paths: merkle_paths,
             receipts: outgoing_receipts,
         }))

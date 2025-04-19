@@ -1201,15 +1201,17 @@ impl ShardsManagerActor {
     ) -> Result<Option<(ShardChunk, PartialEncodedChunk)>, Error> {
         match self.check_chunk_complete(&mut encoded_chunk) {
             ChunkStatus::Complete(merkle_paths) => {
+                let shard_chunk = encoded_chunk.decode_chunk()?;
                 self.requested_partial_encoded_chunks.remove(&encoded_chunk.chunk_hash());
                 match decode_encoded_chunk(
                     &encoded_chunk,
+                    &shard_chunk,
                     merkle_paths,
                     me,
                     self.epoch_manager.as_ref(),
                     &self.shard_tracker,
                 ) {
-                    Ok(chunk) => Ok(Some(chunk)),
+                    Ok(partial_encoded_chunk) => Ok(Some((shard_chunk, partial_encoded_chunk))),
                     Err(err) => {
                         self.encoded_chunks.remove(&encoded_chunk.chunk_hash());
                         Err(err)
@@ -2015,7 +2017,7 @@ impl ShardsManagerActor {
         signer: &ValidatorSigner,
         rs: &ReedSolomon,
         protocol_version: ProtocolVersion,
-    ) -> (EncodedShardChunk, Vec<MerklePath>, Vec<Receipt>) {
+    ) -> (EncodedShardChunk, ShardChunk, Vec<MerklePath>) {
         EncodedShardChunk::new(
             prev_block_hash,
             prev_state_root,
