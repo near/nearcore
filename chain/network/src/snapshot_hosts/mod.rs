@@ -12,6 +12,8 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
 use near_primitives::types::ShardId;
 use parking_lot::Mutex;
+use rand::prelude::IteratorRandom;
+use rand::thread_rng;
 use rayon::iter::ParallelBridge;
 use sha2::{Digest, Sha256};
 use std::collections::{BinaryHeap, HashMap, HashSet};
@@ -168,15 +170,8 @@ impl Inner {
         Some(d)
     }
 
-    /// Given a state part request produced by the local node,
-    /// selects a host to which the request should be routed.
-    pub fn select_host_for_part(
-        &mut self,
-        sync_hash: &CryptoHash,
-        shard_id: ShardId,
-        part_id: u64,
-    ) -> Option<PeerId> {
-        // Reset internal state if the sync_hash has changed
+    /// Clears internal state if the sync hash has changed.
+    fn maybe_update_sync_hash(&mut self, sync_hash: &CryptoHash) {
         if self.sync_hash != Some(*sync_hash) {
             self.sync_hash = Some(*sync_hash);
             self.hosts_for_shard.clear();
@@ -193,6 +188,29 @@ impl Inner {
                 }
             }
         }
+    }
+
+    /// Given a state header request produced by the local node,
+    /// selects a host to which the request should be routed.
+    pub fn select_host_for_header(
+        &mut self,
+        sync_hash: &CryptoHash,
+        shard_id: ShardId,
+    ) -> Option<PeerId> {
+        self.maybe_update_sync_hash(sync_hash);
+
+        self.hosts_for_shard.get(&shard_id)?.iter().choose(&mut thread_rng()).cloned()
+    }
+
+    /// Given a state part request produced by the local node,
+    /// selects a host to which the request should be routed.
+    pub fn select_host_for_part(
+        &mut self,
+        sync_hash: &CryptoHash,
+        shard_id: ShardId,
+        part_id: u64,
+    ) -> Option<PeerId> {
+        self.maybe_update_sync_hash(sync_hash);
 
         let selector =
             self.peer_selector.entry((shard_id, part_id)).or_insert(PartPeerSelector::default());
@@ -319,6 +337,15 @@ impl SnapshotHostsCache {
 
     pub(crate) fn get_host_info(&self, peer_id: &PeerId) -> Option<Arc<SnapshotHostInfo>> {
         self.0.lock().hosts.peek(peer_id).cloned()
+    }
+
+    /// Given a state header request, selects a peer host to which the request should be sent.
+    pub fn select_host_for_header(
+        &self,
+        sync_hash: &CryptoHash,
+        shard_id: ShardId,
+    ) -> Option<PeerId> {
+        self.0.lock().select_host_for_header(sync_hash, shard_id)
     }
 
     /// Given a state part request, selects a peer host to which the request should be sent.

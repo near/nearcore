@@ -236,6 +236,7 @@ fn get_key_and_token_cost(message: &PeerMessage) -> Option<(RateLimitedPeerMessa
             RoutedMessageBody::_UnusedEpochSyncRequest => None,
             RoutedMessageBody::_UnusedEpochSyncResponse(_) => None,
             RoutedMessageBody::StatePartRequest(_) => None, // TODO
+            RoutedMessageBody::StateHeaderRequest(_) => None, // TODO
             RoutedMessageBody::Ping(_)
             | RoutedMessageBody::Pong(_)
             | RoutedMessageBody::_UnusedChunkEndorsement

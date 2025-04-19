@@ -395,6 +395,62 @@ fn run_test_with_added_node(state: TestState) {
     // sync hash block before starting the new node.
     let sync_hash = await_sync_hash(&mut env);
 
+    // In TestLoop the network infrastructure doesn't exist. State sync happens by
+    // writing to and reading from a local directory.
+    //
+    // Here we query the clients directly to confirm that those nodes which are expected
+    // to generate state responses in peer-to-peer sync are capable of doing so.
+    env.test_loop.run_until(
+        |data| {
+            for test_data in &env.node_datas {
+                let client = data.get_mut(&test_data.view_client_sender.actor_handle());
+
+                let account_id = test_data.account_id.clone();
+                let epoch_id = client.chain.head().unwrap().epoch_id;
+                let shard_ids = client.chain.epoch_manager.shard_ids(&epoch_id).unwrap();
+
+                for shard_id in shard_ids {
+                    // Get the header and part regardless of whether the node was tracking the
+                    // shard. It shouldn't crash on unexpected requests.
+                    let header = client
+                        .chain
+                        .state_sync_adapter
+                        .get_state_response_header(shard_id, sync_hash);
+                    let part = client
+                        .chain
+                        .state_sync_adapter
+                        .get_state_response_part(shard_id, 0, sync_hash);
+
+                    let was_tracking = client
+                        .chain
+                        .epoch_manager
+                        .cared_about_shard_prev_epoch_from_prev_block(
+                            &sync_hash,
+                            &account_id,
+                            shard_id,
+                        )
+                        .unwrap();
+                    if !was_tracking {
+                        continue;
+                    }
+
+                    // The node is expected to serve the state if it was tracking the shard
+                    // in the previous epoch. We make the run_until wait until we get back
+                    // Ok responses for both the header and part.
+                    if header.is_err() {
+                        return false;
+                    }
+                    if part.is_err() {
+                        return false;
+                    }
+                }
+            }
+
+            true
+        },
+        Duration::seconds(1),
+    );
+
     // Add new node which will sync from scratch.
     let genesis = env.shared_state.genesis.clone();
     let tempdir_path = env.shared_state.tempdir.path().to_path_buf();
