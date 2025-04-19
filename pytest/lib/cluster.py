@@ -382,6 +382,15 @@ class BaseNode(object):
                 "finality": finality
             })
 
+    def get_access_key(self, account_id, public_key, finality='optimistic'):
+        return self.json_rpc(
+            'query', {
+                "request_type": "view_access_key",
+                "account_id": account_id,
+                "public_key": public_key,
+                "finality": finality
+            })
+
     def wait_at_least_one_block(self):
         start_height = self.get_latest_block().height
         timeout_sec = 5
@@ -504,7 +513,7 @@ class LocalNode(BaseNode):
         self.change_config({
             'network': {
                 'addr': f'0.0.0.0:{port}',
-                'blacklist': blacklist
+                'blacklist': list(blacklist)
             },
             'rpc': {
                 'addr': f'0.0.0.0:{rpc_port}',
@@ -561,6 +570,7 @@ class LocalNode(BaseNode):
                 logger.info(f'Waiting for previous proxy instance to close')
                 time.sleep(1)
 
+        print(f"{cmd}")
         self.run_cmd(cmd=cmd, extra_env=extra_env)
 
         if not skip_starting_proxy:
@@ -796,16 +806,19 @@ chmod +x neard
                             f'/home/{self.machine.username}/.near/')
 
 
-def spin_up_node(config,
-                 near_root,
-                 node_dir,
-                 ordinal,
-                 *,
-                 boot_node: BootNode = None,
-                 blacklist=[],
-                 proxy=None,
-                 skip_starting_proxy=False,
-                 single_node=False) -> BaseNode:
+def spin_up_node(
+    config,
+    near_root,
+    node_dir,
+    ordinal,
+    *,
+    boot_node: BootNode = None,
+    blacklist=(),
+    proxy=None,
+    skip_starting_proxy=False,
+    single_node=False,
+    sleep_after_start=3,
+) -> BaseNode:
     is_local = config['local']
 
     args = make_boot_nodes_arg(boot_node)
@@ -845,7 +858,7 @@ def spin_up_node(config,
         proxy.proxify_node(node)
 
     node.start(boot_node=boot_node, skip_starting_proxy=skip_starting_proxy)
-    time.sleep(3)
+    time.sleep(sleep_after_start)
     logger.info(f"node {ordinal} started")
     return node
 
