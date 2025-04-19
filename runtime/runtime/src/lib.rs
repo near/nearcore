@@ -442,7 +442,12 @@ impl Runtime {
                 }
             };
 
-            let cost = match tx_cost(&apply_state.config, validated_tx.to_tx(), gas_price) {
+            let cost = match tx_cost(
+                &apply_state.config,
+                validated_tx.to_tx(),
+                gas_price,
+                current_protocol_version,
+            ) {
                 Ok(c) => c,
                 Err(e) => {
                     processed_transactions.push(ProcessedTransaction {
