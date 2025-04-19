@@ -324,7 +324,7 @@ impl OptimisticBlockChunksPool {
             return;
         }
 
-        tracing::info!(
+        tracing::debug!(
             target: "chunks",
             ?prev_block_hash,
             optimistic_block_hash = ?block.hash(),
