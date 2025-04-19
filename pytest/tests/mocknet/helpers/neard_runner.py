@@ -398,11 +398,15 @@ class NeardRunner:
         with open(self.tmp_near_home_path('config.json'), 'w') as f:
             json.dump(config, f, indent=2)
 
-    def reset_starting_data_dir(self):
+    def remove_data_dir(self):
         try:
+            logging.info("removing the old directory")
             shutil.rmtree(self.target_near_home_path('data'))
         except FileNotFoundError:
-            pass
+            logging.info("no old directory to remove")
+
+    def reset_starting_data_dir(self):
+        self.remove_data_dir()
         if not self.legacy_records:
             cmd = [
                 self.data['binaries'][0]['system_path'],
@@ -522,6 +526,8 @@ class NeardRunner:
     def do_network_init(self,
                         validators,
                         boot_nodes,
+                        state_source="dump",
+                        patches_path=None,
                         epoch_length=1000,
                         num_seats=100,
                         new_chain_id=None,
@@ -567,6 +573,8 @@ class NeardRunner:
             with open(self.home_path('network_init.json'), 'w') as f:
                 json.dump(
                     {
+                        'state_source': state_source,
+                        'patches_path': patches_path,
                         'boot_nodes': boot_nodes,
                         'epoch_length': epoch_length,
                         'num_seats': num_seats,
@@ -1053,6 +1061,39 @@ class NeardRunner:
         backup_data = {'backup_id': backup_id, 'description': description}
         self.set_state(TestState.MAKING_BACKUP, data=backup_data)
 
+    def deprecated_set_validators(self, network_init_params, new_chain_id):
+        cmd = [
+            self.data['binaries'][0]['system_path'],
+            'amend-genesis',
+            '--genesis-file-in',
+            self.setup_path('genesis.json'),
+            '--records-file-in',
+            self.setup_path('records.json'),
+            '--genesis-file-out',
+            self.target_near_home_path('genesis.json'),
+            '--records-file-out',
+            self.target_near_home_path('records.json'),
+            '--validators',
+            self.home_path('validators.json'),
+            '--chain-id',
+            new_chain_id if new_chain_id is not None else 'mocknet',
+            '--transaction-validity-period',
+            '10000',
+            '--epoch-length',
+            str(network_init_params['epoch_length']),
+            '--num-seats',
+            str(network_init_params['num_seats']),
+            '--protocol-reward-rate',
+            '1/10',
+        ]
+        if network_init_params['protocol_version'] is not None:
+            cmd.append('--protocol-version')
+            cmd.append(str(network_init_params['protocol_version']))
+
+        self.run_neard(cmd)
+        self.set_state(TestState.AMEND_GENESIS)
+        self.save_data()
+
     def network_init(self):
         # wait til we get a network_init RPC
         if not os.path.exists(self.home_path('validators.json')):
@@ -1075,66 +1116,44 @@ class NeardRunner:
 
         new_chain_id = n.get('new_chain_id')
 
-        if self.legacy_records:
-            cmd = [
-                self.data['binaries'][0]['system_path'],
-                'amend-genesis',
-                '--genesis-file-in',
-                self.setup_path('genesis.json'),
-                '--records-file-in',
-                self.setup_path('records.json'),
-                '--genesis-file-out',
-                self.target_near_home_path('genesis.json'),
-                '--records-file-out',
-                self.target_near_home_path('records.json'),
-                '--validators',
-                self.home_path('validators.json'),
-                '--chain-id',
-                new_chain_id if new_chain_id is not None else 'mocknet',
-                '--transaction-validity-period',
-                '10000',
-                '--epoch-length',
-                str(n['epoch_length']),
-                '--num-seats',
-                str(n['num_seats']),
-                '--protocol-reward-rate',
-                '1/10',
-            ]
-            if n['protocol_version'] is not None:
-                cmd.append('--protocol-version')
-                cmd.append(str(n['protocol_version']))
+        if self.legacy_records and n.get('state_source') == 'dump':
+            self.deprecated_set_validators(n, new_chain_id)
+            return
 
-            self.run_neard(cmd)
-            self.set_state(TestState.AMEND_GENESIS)
-        else:
-            cmd = [
-                self.data['binaries'][0]['system_path'],
-                '--home',
-                self.target_near_home_path(),
-                'fork-network',
-                'set-validators',
-                '--validators',
-                self.home_path('validators.json'),
-                '--epoch-length',
-                str(n['epoch_length']),
-                '--genesis-time',
-                str(n['genesis_time']),
-                '--num-seats',
-                str(n['num_seats']),
-            ]
-            if new_chain_id is not None:
-                cmd.append('--chain-id')
-                cmd.append(new_chain_id)
-            else:
-                cmd.append('--chain-id-suffix')
-                cmd.append('_mocknet')
+        if n.get('state_source') == 'empty':
+            self.remove_data_dir()
 
-            if n['protocol_version'] is not None:
-                cmd.append('--protocol-version')
-                cmd.append(str(n['protocol_version']))
+        cmd = [
+            self.data['binaries'][0]['system_path'],
+            '--home',
+            self.target_near_home_path(),
+            'fork-network',
+            'set-validators',
+            '--state-source',
+            n['state_source'],
+            '--validators',
+            self.home_path('validators.json'),
+            '--epoch-length',
+            str(n['epoch_length']),
+            '--genesis-time',
+            str(n['genesis_time']),
+            '--num-seats',
+            str(n['num_seats']),
+        ]
+        if n['patches_path'] is not None:
+            cmd.append('--patches-path')
+            cmd.append(n['patches_path'])
 
-            self.run_neard(cmd)
-            self.set_state(TestState.SET_VALIDATORS)
+        if new_chain_id is not None:
+            cmd.append('--chain-id')
+            cmd.append(new_chain_id)
+
+        if n['protocol_version'] is not None:
+            cmd.append('--protocol-version')
+            cmd.append(str(n['protocol_version']))
+
+        self.run_neard(cmd)
+        self.set_state(TestState.SET_VALIDATORS)
         self.save_data()
 
     def check_set_validators(self):
@@ -1345,11 +1364,7 @@ class NeardRunner:
             logging.error(f'backup dir {backup_path} does not exist')
             self.set_state(TestState.ERROR)
             self.save_data()
-        try:
-            logging.info("removing the old directory")
-            shutil.rmtree(self.target_near_home_path('data'))
-        except FileNotFoundError:
-            pass
+        self.remove_data_dir()
         self.run_restore_from_backup_cmd(backup_path)
         self.set_state(TestState.STOPPED)
         self.save_data()
