@@ -865,10 +865,12 @@ class RosettaTestCase(unittest.TestCase):
         result = RosettaExecResult(self.rosetta, block, receipt_id)
         related = result.related(0)
         hasGasRefund = related is not None
-        relatedTransactions = ( {'related_transactions': [{
-                    'direction': 'forward',
-                    'transaction_identifier': related.identifier
-                }]} if hasGasRefund else {})
+        relatedTransactions = ({
+            'related_transactions': [{
+                'direction': 'forward',
+                'transaction_identifier': related.identifier
+            }]
+        } if hasGasRefund else {})
 
         self.assertEqual(
             {
@@ -895,8 +897,7 @@ class RosettaTestCase(unittest.TestCase):
                         }
                     }
                 }],
-                **relatedTransactions,
-                'metadata': {
+                **relatedTransactions, 'metadata': {
                     'type': 'TRANSACTION'
                 }
             }, result.transaction())
