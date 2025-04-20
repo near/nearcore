@@ -296,6 +296,13 @@ pub enum ProtocolFeature {
     /// Enable optimistic block production.
     ProduceOptimisticBlock,
     GlobalContracts,
+    /// NEP: https://github.com/near/NEPs/pull/536
+    ///
+    /// Reduce the number of gas refund receipts by charging the current gas
+    /// price rather than a pessimistic gas price. Also, introduce a new fee of
+    /// 5% for gas refunds and charge the signer this fee for gas refund
+    /// receipts.
+    ReducedGasRefunds,
 }
 
 impl ProtocolFeature {
@@ -395,6 +402,7 @@ impl ProtocolFeature {
             // that always enables this for mocknet (see config_mocknet function).
             ProtocolFeature::ShuffleShardAssignments => 143,
             ProtocolFeature::ExcludeExistingCodeFromWitnessForCodeLen => 148,
+            ProtocolFeature::ReducedGasRefunds => 149,
             // Place features that are not yet in Nightly below this line.
         }
     }

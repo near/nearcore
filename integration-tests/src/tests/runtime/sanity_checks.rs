@@ -3,7 +3,7 @@ use near_chain_configs::Genesis;
 use near_parameters::{ExtCosts, RuntimeConfig, RuntimeConfigStore};
 use near_primitives::serialize::to_base64;
 use near_primitives::types::AccountId;
-use near_primitives::version::PROTOCOL_VERSION;
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::{
     CostGasUsed, ExecutionOutcomeWithIdView, ExecutionStatusView, FinalExecutionStatus,
 };
@@ -60,7 +60,9 @@ fn setup_runtime_node_with_contract(wasm_binary: &[u8]) -> RuntimeNode {
         )
         .unwrap();
     assert_eq!(tx_result.status, FinalExecutionStatus::SuccessValue(Vec::new()));
-    assert_eq!(tx_result.receipts_outcome.len(), 2);
+    let num_expected_receipts =
+        if ProtocolFeature::ReducedGasRefunds.enabled(PROTOCOL_VERSION) { 1 } else { 2 };
+    assert_eq!(tx_result.receipts_outcome.len(), num_expected_receipts);
 
     let tx_result =
         node_user.deploy_contract(test_contract_account(), wasm_binary.to_vec()).unwrap();
@@ -127,7 +129,10 @@ fn test_cost_sanity() {
     assert_eq!(res.transaction_outcome.outcome.metadata.gas_profile, None);
 
     let receipts_status = get_receipts_status_with_clear_hash(&res.receipts_outcome);
-    insta::assert_yaml_snapshot!("receipts_status", receipts_status);
+    insta::assert_yaml_snapshot!(
+        if cfg!(feature = "nightly") { "receipts_status_nightly" } else { "receipts_status" },
+        receipts_status
+    );
 
     let receipts_gas_profile = res
         .receipts_outcome
@@ -178,7 +183,14 @@ fn test_cost_sanity_nondeterministic() {
     assert_eq!(res.transaction_outcome.outcome.metadata.gas_profile, None);
 
     let receipts_status = get_receipts_status_with_clear_hash(&res.receipts_outcome);
-    insta::assert_yaml_snapshot!("receipts_status_nondeterministic", receipts_status);
+    insta::assert_yaml_snapshot!(
+        if cfg!(feature = "nightly") {
+            "receipts_status_nondeterministic_nightly"
+        } else {
+            "receipts_status_nondeterministic"
+        },
+        receipts_status
+    );
 
     let receipts_gas_profile = res
         .receipts_outcome
