@@ -303,6 +303,8 @@ pub enum ProtocolFeature {
     /// 5% for gas refunds and charge the signer this fee for gas refund
     /// receipts.
     ReducedGasRefunds,
+    /// Move from ChunkStateWitness being a single struct to a versioned enum.
+    VersionedStateWitness,
 }
 
 impl ProtocolFeature {
@@ -403,6 +405,7 @@ impl ProtocolFeature {
             ProtocolFeature::ShuffleShardAssignments => 143,
             ProtocolFeature::ExcludeExistingCodeFromWitnessForCodeLen => 148,
             ProtocolFeature::ReducedGasRefunds => 149,
+            ProtocolFeature::VersionedStateWitness => 150,
             // Place features that are not yet in Nightly below this line.
         }
     }
@@ -422,7 +425,7 @@ pub const MIN_SUPPORTED_PROTOCOL_VERSION: ProtocolVersion = 75;
 const STABLE_PROTOCOL_VERSION: ProtocolVersion = 78;
 
 // On nightly, pick big enough version to support all features.
-const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 149;
+const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 150;
 
 /// Largest protocol version supported by the current binary.
 pub const PROTOCOL_VERSION: ProtocolVersion =

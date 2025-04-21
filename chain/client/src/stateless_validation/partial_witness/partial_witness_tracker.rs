@@ -420,7 +420,7 @@ impl PartialEncodedStateWitnessTracker {
                 }
             };
 
-            let (mut witness, raw_witness_size) = self.decode_state_witness(&encoded_witness)?;
+            let (witness, raw_witness_size) = self.decode_state_witness(&encoded_witness)?;
             if witness.chunk_production_key() != key {
                 return Err(Error::InvalidPartialChunkStateWitness(format!(
                     "Decoded witness key {:?} doesn't match partial witness {:?}",
@@ -430,7 +430,8 @@ impl PartialEncodedStateWitnessTracker {
             }
 
             // Merge accessed contracts into the main transition's partial state.
-            let PartialState::TrieValues(values) = &mut witness.main_state_transition.base_state;
+            let PartialState::TrieValues(mut values) =
+                witness.main_state_transition().base_state.clone();
             values.extend(accessed_contracts.into_iter().map(|code| code.0.into()));
 
             tracing::debug!(target: "client", ?key, "Sending encoded witness to client.");
@@ -483,7 +484,7 @@ impl PartialEncodedStateWitnessTracker {
         let decode_start = std::time::Instant::now();
         let (witness, raw_witness_size) = encoded_witness.decode()?;
         let decode_elapsed_seconds = decode_start.elapsed().as_secs_f64();
-        let witness_shard = witness.chunk_header.shard_id();
+        let witness_shard = witness.chunk_header().shard_id();
 
         // Record metrics after validating the witness
         near_chain::stateless_validation::metrics::CHUNK_STATE_WITNESS_DECODE_TIME
