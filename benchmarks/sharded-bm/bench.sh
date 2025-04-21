@@ -588,14 +588,14 @@ native_transfers_injection() {
     # Create a glob pattern for the host filter
     host_filter=$(echo ${FORKNET_CP_NODES} | sed 's/ /|/g')
     
-    $MIRROR stop-nodes
     # Update the CONFIG file on all chunk producer nodes
+    $MIRROR --host-filter ".*(${host_filter})" stop-nodes
     $MIRROR --host-filter ".*(${host_filter})" run-cmd --cmd "jq --arg tps ${tps} \
         --arg volume ${volume} --arg accounts_path ${accounts_path} \
         '.tx_generator = {\"tps\": ${tps}, \"volume\": ${volume}, \
         \"accounts_path\": \"${accounts_path}\", \"thread_count\": 2}' ${CONFIG} > tmp.$$.json && \
         mv tmp.$$.json ${CONFIG} || rm tmp.$$.json"
-    $MIRROR start-nodes
+    $MIRROR --host-filter ".*(${host_filter})" start-nodes
 
     cd -
 }
