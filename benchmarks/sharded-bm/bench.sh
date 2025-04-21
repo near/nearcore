@@ -171,6 +171,7 @@ reset_forknet() {
     cd ${PYTEST_PATH}
     $MIRROR --host-type nodes run-cmd --cmd \
         "find ${NEAR_HOME}/data -mindepth 1 -delete ; rm -rf ${BENCHNET_DIR} "
+    $MIRROR --host-type nodes env --clear-all
     $MIRROR reset --backup-id start --yes
     if [ "${TX_GENERATOR}" = true ]; then
         $MIRROR --host-type nodes run-cmd --cmd \
