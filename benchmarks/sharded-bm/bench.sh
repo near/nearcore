@@ -53,9 +53,7 @@ RUN_ON_FORKNET=$(jq 'has("forknet")' ${BM_PARAMS})
 PYTEST_PATH="../../pytest/"
 TX_GENERATOR=$(jq -r '.tx_generator.enabled // false' ${BM_PARAMS})
 CREATE_ACCOUNTS_RPS=$(jq -r '.account_rps // 100' ${BM_PARAMS})
-
-# TODO: it is taken from params.json anyway
-EPOCH_LENGTH=$(jq -r '.epoch_length // 1000' ${BM_PARAMS})
+EPOCH_LENGTH=$(jq -r '.epoch_length // 1000' ${BASE_GENESIS_PATCH})
 
 echo "Test case: ${CASE}"
 echo "Num nodes: ${NUM_NODES}"
@@ -261,7 +259,7 @@ gen_forknet() {
     $MIRROR --host-type nodes upload-file --src ${cwd}/cases --dst ${BENCHNET_DIR}
 
     echo "Running new-test to initialize nodes and collect validator keys"
-    $MIRROR new-test --state-source empty --patches-path "/home/ubuntu/bench/${CASE}" \
+    $MIRROR new-test --state-source empty --patches-path "${BENCHNET_DIR}/${CASE}" \
         --epoch-length ${EPOCH_LENGTH} --num-validators ${NUM_CHUNK_PRODUCERS} \
         --new-chain-id ${FORKNET_NAME} --stateless-setup --yes
     
