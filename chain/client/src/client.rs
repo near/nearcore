@@ -48,7 +48,6 @@ use near_network::types::{
 };
 use near_primitives::block::{Approval, ApprovalInner, ApprovalMessage, Block, BlockHeader, Tip};
 use near_primitives::block_header::ApprovalType;
-use near_primitives::challenge::{Challenge, ChallengeBody};
 use near_primitives::epoch_info::RngSeed;
 use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
@@ -1164,31 +1163,6 @@ impl Client {
 
         self.process_block_processing_artifact(block_processing_artifacts);
 
-        // Send out challenge if the block was found to be invalid.
-        if let Some(signer) = signer {
-            if let Err(e) = &result {
-                match e {
-                    near_chain::Error::InvalidChunkProofs(chunk_proofs) => {
-                        self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
-                            NetworkRequests::Challenge(Challenge::produce(
-                                ChallengeBody::ChunkProofs(*chunk_proofs.clone()),
-                                &*signer,
-                            )),
-                        ));
-                    }
-                    near_chain::Error::InvalidChunkState(chunk_state) => {
-                        self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
-                            NetworkRequests::Challenge(Challenge::produce(
-                                ChallengeBody::ChunkState(*chunk_state.clone()),
-                                &*signer,
-                            )),
-                        ));
-                    }
-                    _ => {}
-                }
-            }
-        }
-
         result
     }
 
@@ -1325,7 +1299,7 @@ impl Client {
             .record_chunk_collected(partial_chunk.height_created(), shard_index);
 
         // TODO(#10569) We would like a proper error handling here instead of `expect`.
-        persist_chunk(partial_chunk, shard_chunk, self.chain.mut_chain_store())
+        persist_chunk(Arc::new(partial_chunk), shard_chunk, self.chain.mut_chain_store())
             .expect("Could not persist chunk");
         // We're marking chunk as accepted.
         self.chain.blocks_with_missing_chunks.accept_chunk(&chunk_header.chunk_hash());
@@ -1743,7 +1717,7 @@ impl Client {
                 Ok(Some(result)) => {
                     let _shard_chunk = self
                         .persist_and_distribute_encoded_chunk(
-                            result.chunk,
+                            result.encoded_chunk,
                             result.encoded_chunk_parts_paths,
                             result.receipts,
                             validator_id.clone(),
@@ -1781,8 +1755,9 @@ impl Client {
             self.epoch_manager.as_ref(),
             &self.shard_tracker,
         )?;
+        let partial_chunk_arc = Arc::new(partial_chunk.clone());
         persist_chunk(
-            partial_chunk.clone(),
+            Arc::clone(&partial_chunk_arc),
             Some(shard_chunk.clone()),
             self.chain.mut_chain_store(),
         )?;
@@ -1790,10 +1765,10 @@ impl Client {
         let chunk_header = encoded_chunk.cloned_header();
         if let Some(chunk_distribution) = &self.chunk_distribution_network {
             if chunk_distribution.enabled() {
-                let partial_chunk = partial_chunk.clone();
+                let partial_chunk_arc = Arc::clone(&partial_chunk_arc);
                 let mut thread_local_client = chunk_distribution.clone();
                 near_performance_metrics::actix::spawn("ChunkDistributionNetwork", async move {
-                    if let Err(err) = thread_local_client.publish_chunk(&partial_chunk).await {
+                    if let Err(err) = thread_local_client.publish_chunk(&partial_chunk_arc).await {
                         error!(target: "client", ?err, "Failed to distribute chunk via Chunk Distribution Network");
                     }
                 });
@@ -2193,33 +2168,6 @@ impl Client {
 
         Ok(())
     }
-
-    /// When accepting challenge, we verify that it's valid given signature with current validators.
-    pub fn process_challenge(&mut self, _challenge: Challenge) -> Result<(), Error> {
-        // TODO(2445): Enable challenges when they are working correctly.
-        //        if self.challenges.contains_key(&challenge.hash) {
-        //            return Ok(());
-        //        }
-        //        debug!(target: "client", "Received challenge: {:?}", challenge);
-        //        let head = self.chain.head()?;
-        //        if self.runtime_adapter.verify_validator_or_fisherman_signature(
-        //            &head.epoch_id,
-        //            &head.prev_block_hash,
-        //            &challenge.account_id,
-        //            challenge.hash.as_ref(),
-        //            &challenge.signature,
-        //        )? {
-        //            // If challenge is not double sign, we should process it right away to invalidate the chain.
-        //            match challenge.body {
-        //                ChallengeBody::BlockDoubleSign(_) => {}
-        //                _ => {
-        //                    self.chain.process_challenge(&challenge);
-        //                }
-        //            }
-        //            self.challenges.insert(challenge.hash, challenge);
-        //        }
-        Ok(())
-    }
 }
 
 /* implements functions used to communicate with network */
@@ -2333,10 +2281,12 @@ impl Client {
         // convert config tracked shards
         // runtime will track all shards if config tracked shards is not empty
         // https://github.com/near/nearcore/issues/4930
-        let tracked_shards = if self.config.tracked_shards.is_empty() {
-            vec![]
-        } else {
+        let tracked_shards = if self.config.tracked_shards_config.tracks_all_shards() {
             self.epoch_manager.shard_ids(&tip.epoch_id)?
+        } else {
+            // TODO(archival_v2): Revisit this to determine if improvements can be made
+            // and if the issue described above has been resolved.
+            vec![]
         };
         let tier1_accounts = self.get_tier1_accounts(&tip)?;
         let block = self.chain.get_block(&tip.last_block_hash)?;

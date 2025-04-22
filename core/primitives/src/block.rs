@@ -5,7 +5,7 @@ use crate::block::BlockValidityError::{
 };
 use crate::block_body::{BlockBody, BlockBodyV1, ChunkEndorsementSignatures};
 pub use crate::block_header::*;
-use crate::challenge::Challenges;
+use crate::challenge::Challenge;
 use crate::congestion_info::{BlockCongestionInfo, ExtendedCongestionInfo};
 use crate::hash::CryptoHash;
 use crate::merkle::{MerklePath, merklize, verify_path};
@@ -38,14 +38,14 @@ pub enum BlockValidityError {
     InvalidChunkHeaderRoot,
     InvalidTransactionRoot,
     InvalidChunkMask,
-    InvalidChallengeRoot,
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq, ProtocolSchema)]
 pub struct BlockV1 {
     pub header: BlockHeader,
     pub chunks: Vec<ShardChunkHeaderV1>,
-    pub challenges: Challenges,
+    #[deprecated]
+    pub challenges: Vec<Challenge>,
 
     // Data to confirm the correctness of randomness beacon output
     pub vrf_value: near_crypto::vrf::Value,
@@ -56,7 +56,8 @@ pub struct BlockV1 {
 pub struct BlockV2 {
     pub header: BlockHeader,
     pub chunks: Vec<ShardChunkHeader>,
-    pub challenges: Challenges,
+    #[deprecated]
+    pub challenges: Vec<Challenge>,
 
     // Data to confirm the correctness of randomness beacon output
     pub vrf_value: near_crypto::vrf::Value,

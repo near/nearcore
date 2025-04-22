@@ -258,6 +258,8 @@ pub enum ProtocolFeature {
     SimpleNightshadeV4,
     /// Resharding V3 - Adding "earn.kaiching" boundary.
     SimpleNightshadeV5,
+    /// Resharding V3 - Adding "750" boundary.
+    SimpleNightshadeV6,
     /// Exclude contract code from the chunk state witness and distribute it to chunk validators separately.
     #[deprecated]
     _DeprecatedExcludeContractCodeFromStateWitness,
@@ -294,6 +296,13 @@ pub enum ProtocolFeature {
     /// Enable optimistic block production.
     ProduceOptimisticBlock,
     GlobalContracts,
+    /// NEP: https://github.com/near/NEPs/pull/536
+    ///
+    /// Reduce the number of gas refund receipts by charging the current gas
+    /// price rather than a pessimistic gas price. Also, introduce a new fee of
+    /// 5% for gas refunds and charge the signer this fee for gas refund
+    /// receipts.
+    ReducedGasRefunds,
 }
 
 impl ProtocolFeature {
@@ -385,6 +394,7 @@ impl ProtocolFeature {
             ProtocolFeature::GlobalContracts
             | ProtocolFeature::BlockHeightForReceiptId
             | ProtocolFeature::ProduceOptimisticBlock => 77,
+            ProtocolFeature::SimpleNightshadeV6 => 78,
 
             // Nightly features:
             ProtocolFeature::FixContractLoadingCost => 129,
@@ -392,6 +402,7 @@ impl ProtocolFeature {
             // that always enables this for mocknet (see config_mocknet function).
             ProtocolFeature::ShuffleShardAssignments => 143,
             ProtocolFeature::ExcludeExistingCodeFromWitnessForCodeLen => 148,
+            ProtocolFeature::ReducedGasRefunds => 149,
             // Place features that are not yet in Nightly below this line.
         }
     }
@@ -408,7 +419,7 @@ pub const PROD_GENESIS_PROTOCOL_VERSION: ProtocolVersion = 29;
 pub const MIN_SUPPORTED_PROTOCOL_VERSION: ProtocolVersion = 75;
 
 /// Current protocol version used on the mainnet with all stable features.
-const STABLE_PROTOCOL_VERSION: ProtocolVersion = 77;
+const STABLE_PROTOCOL_VERSION: ProtocolVersion = 78;
 
 // On nightly, pick big enough version to support all features.
 const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 149;

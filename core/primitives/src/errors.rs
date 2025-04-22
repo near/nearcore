@@ -62,8 +62,6 @@ pub enum RuntimeError {
     /// Unexpected error which is typically related to the node storage corruption.
     /// It's possible the input state is invalid or malicious.
     StorageError(StorageError),
-    /// An error happens if `check_balance` fails, which is likely an indication of an invalid state.
-    BalanceMismatchError(Box<BalanceMismatchError>),
     /// The incoming receipt didn't pass the validation, it's likely a malicious behavior.
     ReceiptValidationError(ReceiptValidationError),
     /// Error when accessing validator information. Happens inside epoch manager.
@@ -775,102 +773,6 @@ impl Display for InvalidAccessKeyError {
 
 impl std::error::Error for InvalidAccessKeyError {}
 
-/// Happens when the input balance doesn't match the output balance in Runtime apply.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize, serde::Serialize, ProtocolSchema)]
-pub struct BalanceMismatchError {
-    // Input balances
-    #[serde(with = "dec_format")]
-    pub incoming_validator_rewards: Balance,
-    #[serde(with = "dec_format")]
-    pub initial_accounts_balance: Balance,
-    #[serde(with = "dec_format")]
-    pub incoming_receipts_balance: Balance,
-    #[serde(with = "dec_format")]
-    pub processed_delayed_receipts_balance: Balance,
-    #[serde(with = "dec_format")]
-    pub initial_postponed_receipts_balance: Balance,
-    #[serde(with = "dec_format")]
-    pub forwarded_buffered_receipts_balance: Balance,
-    // Output balances
-    #[serde(with = "dec_format")]
-    pub final_accounts_balance: Balance,
-    #[serde(with = "dec_format")]
-    pub outgoing_receipts_balance: Balance,
-    #[serde(with = "dec_format")]
-    pub new_delayed_receipts_balance: Balance,
-    #[serde(with = "dec_format")]
-    pub final_postponed_receipts_balance: Balance,
-    #[serde(with = "dec_format")]
-    pub tx_burnt_amount: Balance,
-    #[serde(with = "dec_format")]
-    pub slashed_burnt_amount: Balance,
-    #[serde(with = "dec_format")]
-    pub new_buffered_receipts_balance: Balance,
-    #[serde(with = "dec_format")]
-    pub other_burnt_amount: Balance,
-}
-
-impl Display for BalanceMismatchError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
-        // Using saturating add to avoid overflow in display
-        let initial_balance = self
-            .incoming_validator_rewards
-            .saturating_add(self.initial_accounts_balance)
-            .saturating_add(self.incoming_receipts_balance)
-            .saturating_add(self.processed_delayed_receipts_balance)
-            .saturating_add(self.initial_postponed_receipts_balance)
-            .saturating_add(self.forwarded_buffered_receipts_balance);
-        let final_balance = self
-            .final_accounts_balance
-            .saturating_add(self.outgoing_receipts_balance)
-            .saturating_add(self.new_delayed_receipts_balance)
-            .saturating_add(self.final_postponed_receipts_balance)
-            .saturating_add(self.tx_burnt_amount)
-            .saturating_add(self.slashed_burnt_amount)
-            .saturating_add(self.other_burnt_amount)
-            .saturating_add(self.new_buffered_receipts_balance);
-
-        write!(
-            f,
-            "Balance Mismatch Error. The input balance {} doesn't match output balance {}\n\
-             Inputs:\n\
-             \tIncoming validator rewards sum: {}\n\
-             \tInitial accounts balance sum: {}\n\
-             \tIncoming receipts balance sum: {}\n\
-             \tProcessed delayed receipts balance sum: {}\n\
-             \tInitial postponed receipts balance sum: {}\n\
-             \tForwarded buffered receipts sum: {}\n\
-             Outputs:\n\
-             \tFinal accounts balance sum: {}\n\
-             \tOutgoing receipts balance sum: {}\n\
-             \tNew delayed receipts balance sum: {}\n\
-             \tFinal postponed receipts balance sum: {}\n\
-             \tTx fees burnt amount: {}\n\
-             \tSlashed amount: {}\n\
-             \tNew buffered receipts balance sum: {}\n\
-             \tOther burnt amount: {}",
-            initial_balance,
-            final_balance,
-            self.incoming_validator_rewards,
-            self.initial_accounts_balance,
-            self.incoming_receipts_balance,
-            self.processed_delayed_receipts_balance,
-            self.initial_postponed_receipts_balance,
-            self.forwarded_buffered_receipts_balance,
-            self.final_accounts_balance,
-            self.outgoing_receipts_balance,
-            self.new_delayed_receipts_balance,
-            self.final_postponed_receipts_balance,
-            self.tx_burnt_amount,
-            self.slashed_burnt_amount,
-            self.new_buffered_receipts_balance,
-            self.other_burnt_amount,
-        )
-    }
-}
-
-impl std::error::Error for BalanceMismatchError {}
-
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, ProtocolSchema)]
 pub struct IntegerOverflowError;
 
@@ -897,12 +799,6 @@ impl From<IntegerOverflowError> for RuntimeError {
 impl From<StorageError> for RuntimeError {
     fn from(e: StorageError) -> Self {
         RuntimeError::StorageError(e)
-    }
-}
-
-impl From<BalanceMismatchError> for RuntimeError {
-    fn from(e: BalanceMismatchError) -> Self {
-        RuntimeError::BalanceMismatchError(Box::new(e))
     }
 }
 

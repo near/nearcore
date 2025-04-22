@@ -120,8 +120,7 @@ if __name__ == '__main__':
 
     archival_node_config_changes = {
         "archive": True,
-        # This makes the node track all shards.
-        "tracked_shards": [0],
+        "tracked_shards_config": "AllShards",
         "network": {
             "ttl_account_id_router": {
                 "secs": 1,

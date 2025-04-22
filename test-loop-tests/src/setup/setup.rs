@@ -19,7 +19,8 @@ use near_client::{
     Client, PartialWitnessActor, TxRequestHandler, TxRequestHandlerConfig, ViewClientActorInner,
 };
 use near_epoch_manager::EpochManager;
-use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
+use near_epoch_manager::shard_tracker::ShardTracker;
+use near_primitives::genesis::GenesisId;
 use near_primitives::network::PeerId;
 use near_primitives::test_utils::create_test_signer;
 use near_store::adapter::StoreAdapter;
@@ -77,7 +78,7 @@ pub fn setup_client(
         epoch_config_store.clone(),
     );
     let shard_tracker =
-        ShardTracker::new(TrackedConfig::from_config(&client_config), epoch_manager.clone());
+        ShardTracker::new(client_config.tracked_shards_config.clone(), epoch_manager.clone());
 
     let contract_cache = FilesystemContractRuntimeCache::test().expect("filesystem contract cache");
     let runtime_adapter = NightshadeRuntime::test_with_trie_config(
@@ -155,7 +156,7 @@ pub fn setup_client(
             epoch_config_store.clone(),
         );
         let view_shard_tracker =
-            ShardTracker::new(TrackedConfig::from_config(&client_config), epoch_manager.clone());
+            ShardTracker::new(client_config.tracked_shards_config.clone(), epoch_manager.clone());
         let view_runtime_adapter = NightshadeRuntime::test_with_trie_config(
             &homedir,
             split_store.clone(),
@@ -241,6 +242,11 @@ pub fn setup_client(
         test_loop.clock(),
         &account_id,
         network_shared_state,
+        client_adapter.as_multi_sender(),
+        GenesisId {
+            chain_id: client_config.chain_id.clone(),
+            hash: *client_actor.client.chain.genesis().hash(),
+        },
         Arc::new(test_loop.future_spawner(identifier)),
     );
 

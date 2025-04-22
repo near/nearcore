@@ -5,7 +5,9 @@ use near_actix_test_utils::run_actix;
 use near_async::time::Duration;
 use near_chain::Provenance;
 use near_chain_configs::ExternalStorageLocation::Filesystem;
-use near_chain_configs::{DumpConfig, ExternalStorageConfig, Genesis, SyncConfig};
+use near_chain_configs::{
+    DumpConfig, ExternalStorageConfig, Genesis, SyncConfig, TrackedShardsConfig,
+};
 use near_client::{GetBlock, ProcessTxResponse};
 use near_client_primitives::types::GetValidatorInfo;
 use near_crypto::InMemorySigner;
@@ -331,7 +333,7 @@ fn ultra_slow_test_sync_state_dump() {
             // An epoch passes in about 9 seconds.
             near1.client_config.min_block_production_delay = Duration::milliseconds(300);
             near1.client_config.max_block_production_delay = Duration::milliseconds(600);
-            near1.client_config.tracked_shards = vec![ShardId::new(0)]; // Track all shards.
+            near1.client_config.tracked_shards_config = TrackedShardsConfig::AllShards;
 
             near1.client_config.state_sync.dump = Some(DumpConfig {
                 location: Filesystem { root_dir: dump_dir.path().to_path_buf() },
@@ -376,7 +378,8 @@ fn ultra_slow_test_sync_state_dump() {
                                 near2.client_config.block_header_fetch_horizon =
                                     block_header_fetch_horizon;
                                 near2.client_config.block_fetch_horizon = block_fetch_horizon;
-                                near2.client_config.tracked_shards = vec![ShardId::new(0)]; // Track all shards.
+                                near2.client_config.tracked_shards_config =
+                                    TrackedShardsConfig::AllShards;
                                 near2.client_config.state_sync_enabled = true;
                                 near2.client_config.state_sync_external_timeout =
                                     Duration::seconds(2);
@@ -688,7 +691,7 @@ fn slow_test_state_sync_headers() {
             let mut near1 =
                 load_test_config("test1", tcp::ListenerAddr::reserve_for_test(), genesis.clone());
             near1.client_config.min_num_peers = 0;
-            near1.client_config.tracked_shards = vec![ShardId::new(0)]; // Track all shards.
+            near1.client_config.tracked_shards_config = TrackedShardsConfig::AllShards;
             near1.config.store.enable_state_snapshot();
 
             let nearcore::NearNode { view_client: view_client1, .. } =
@@ -852,7 +855,9 @@ fn slow_test_state_sync_headers_no_tracked_shards() {
             let port1 = tcp::ListenerAddr::reserve_for_test();
             let mut near1 = load_test_config("test1", port1, genesis.clone());
             near1.client_config.min_num_peers = 0;
-            near1.client_config.tracked_shards = vec![ShardId::new(0)]; // Track all shards, it is a validator.
+            // TODO(archival_v2): Since stateless validation, validators do not need to track all shards.
+            // That should likely be changed to `TrackedShardsConfig::NoShards`.
+            near1.client_config.tracked_shards_config = TrackedShardsConfig::AllShards; // Track all shards, it is a validator.
             near1.config.store.disable_state_snapshot();
             near1.config.state_sync_enabled = false;
             near1.client_config.state_sync_enabled = false;
@@ -864,7 +869,7 @@ fn slow_test_state_sync_headers_no_tracked_shards() {
             near2.network_config.peer_store.boot_nodes =
                 convert_boot_nodes(vec![("test1", *port1)]);
             near2.client_config.min_num_peers = 0;
-            near2.client_config.tracked_shards = vec![]; // Track no shards.
+            near2.client_config.tracked_shards_config = TrackedShardsConfig::NoShards;
             near2.config.store.enable_state_snapshot();
             near2.config.state_sync_enabled = false;
             near2.client_config.state_sync_enabled = false;

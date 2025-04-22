@@ -49,7 +49,7 @@ pub enum AdvProduceChunksMode {
 }
 
 pub struct ProduceChunkResult {
-    pub chunk: EncodedShardChunk,
+    pub encoded_chunk: EncodedShardChunk,
     pub encoded_chunk_parts_paths: Vec<MerklePath>,
     pub receipts: Vec<Receipt>,
 }
@@ -306,11 +306,7 @@ impl ChunkProducer {
                 Default::default(), // chunk_extra.gas_limit(),
                 Default::default(), // chunk_extra.balance_burnt(),
                 Default::default(), // chunk_extra.validator_proposals().collect(),
-                prepared_transactions
-                    .transactions
-                    .into_iter()
-                    .map(|vt| vt.into_signed_tx())
-                    .collect::<Vec<_>>(),
+                prepared_transactions.transactions,
                 outgoing_receipts,
                 outgoing_receipts_root,
                 tx_root,
@@ -354,7 +350,7 @@ impl ChunkProducer {
         }
 
         Ok(Some(ProduceChunkResult {
-            chunk: encoded_chunk,
+            encoded_chunk,
             encoded_chunk_parts_paths: merkle_paths,
             receipts: outgoing_receipts,
         }))

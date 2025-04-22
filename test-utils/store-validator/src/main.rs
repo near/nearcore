@@ -1,10 +1,7 @@
 use clap::{Arg, Command};
 use near_chain::store_validator::StoreValidator;
 use near_chain_configs::GenesisValidationMode;
-use near_epoch_manager::{
-    EpochManager,
-    shard_tracker::{ShardTracker, TrackedConfig},
-};
+use near_epoch_manager::{EpochManager, shard_tracker::ShardTracker};
 use near_o11y::testonly::init_integration_logger;
 use nearcore::{NightshadeRuntimeExt, get_default_home, load_config};
 use std::path::PathBuf;
@@ -41,7 +38,7 @@ fn main() {
     let epoch_manager =
         EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config, Some(home_dir));
     let shard_tracker = ShardTracker::new(
-        TrackedConfig::from_config(&near_config.client_config),
+        near_config.client_config.tracked_shards_config.clone(),
         epoch_manager.clone(),
     );
     let runtime = nearcore::NightshadeRuntime::from_config(

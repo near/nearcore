@@ -1,4 +1,4 @@
-use crate::challenge::Challenges;
+use crate::challenge::Challenge;
 use crate::sharding::ShardChunkHeader;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::Signature;
@@ -10,7 +10,7 @@ use near_schema_checker_lib::ProtocolSchema;
 pub struct BlockBodyV1 {
     pub chunks: Vec<ShardChunkHeader>,
     #[deprecated]
-    pub challenges: Challenges,
+    pub challenges: Vec<Challenge>,
 
     // Data to confirm the correctness of randomness beacon output
     pub vrf_value: Value,
@@ -29,7 +29,7 @@ impl BlockBodyV1 {
 pub struct BlockBodyV2 {
     pub chunks: Vec<ShardChunkHeader>,
     #[deprecated]
-    pub challenges: Challenges,
+    pub challenges: Vec<Challenge>,
 
     // Data to confirm the correctness of randomness beacon output
     pub vrf_value: Value,
@@ -56,13 +56,13 @@ pub enum BlockBody {
 }
 
 impl BlockBody {
-    #[allow(deprecated)]
     pub fn new(
         chunks: Vec<ShardChunkHeader>,
         vrf_value: Value,
         vrf_proof: Proof,
         chunk_endorsements: Vec<ChunkEndorsementSignatures>,
     ) -> Self {
+        #[allow(deprecated)]
         BlockBody::V2(BlockBodyV2 {
             chunks,
             challenges: vec![],

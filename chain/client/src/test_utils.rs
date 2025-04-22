@@ -2,9 +2,6 @@
 // code so we're in the clear.
 #![allow(clippy::arc_with_non_send_sync)]
 
-use std::mem::swap;
-use std::sync::{Arc, RwLock};
-
 use crate::Client;
 use crate::chunk_producer::ProduceChunkResult;
 use crate::client::CatchupState;
@@ -22,13 +19,15 @@ use near_primitives::merkle::{PartialMerkleTree, merklize};
 use near_primitives::optimistic_block::BlockToApply;
 use near_primitives::sharding::{EncodedShardChunk, ShardChunk};
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
-use near_primitives::transaction::SignedTransaction;
+use near_primitives::transaction::ValidatedTransaction;
 use near_primitives::types::{BlockHeight, EpochId, ShardId};
 use near_primitives::utils::MaybeValidated;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::ShardUId;
 use num_rational::Ratio;
 use reed_solomon_erasure::galois_8::ReedSolomon;
+use std::mem::swap;
+use std::sync::{Arc, RwLock};
 
 impl Client {
     /// Unlike Client::start_process_block, which returns before the block finishes processing
@@ -103,11 +102,8 @@ impl Client {
 
     /// Manually produce a single chunk on the given shard and send out the corresponding network messages
     pub fn produce_one_chunk(&mut self, height: BlockHeight, shard_id: ShardId) -> ShardChunk {
-        let ProduceChunkResult {
-            chunk: encoded_chunk,
-            encoded_chunk_parts_paths: merkle_paths,
-            receipts,
-        } = create_chunk_on_height_for_shard(self, height, shard_id);
+        let ProduceChunkResult { encoded_chunk, encoded_chunk_parts_paths: merkle_paths, receipts } =
+            create_chunk_on_height_for_shard(self, height, shard_id);
         let signer = self.validator_signer.get();
         let shard_chunk = self
             .persist_and_distribute_encoded_chunk(
@@ -164,54 +160,49 @@ pub fn create_chunk_on_height(client: &mut Client, next_height: BlockHeight) -> 
     create_chunk_on_height_for_shard(client, next_height, ShardUId::single_shard().shard_id())
 }
 
-pub fn create_chunk_with_transactions(
-    client: &mut Client,
-    transactions: Vec<SignedTransaction>,
-) -> (ProduceChunkResult, Block) {
-    create_chunk(client, Some(transactions), None)
-}
-
 /// Create a chunk with specified transactions and possibly a new state root.
-/// Useful for writing tests with challenges.
 pub fn create_chunk(
     client: &mut Client,
-    replace_transactions: Option<Vec<SignedTransaction>>,
-    replace_tx_root: Option<CryptoHash>,
+    validated_txs: Vec<ValidatedTransaction>,
 ) -> (ProduceChunkResult, Block) {
     let last_block = client.chain.get_block_by_height(client.chain.head().unwrap().height).unwrap();
     let next_height = last_block.header().height() + 1;
     let signer = client.validator_signer.get().unwrap();
-    let ProduceChunkResult { mut chunk, encoded_chunk_parts_paths: mut merkle_paths, receipts } =
-        client
-            .chunk_producer
-            .produce_chunk(
-                &last_block,
-                last_block.header().epoch_id(),
-                last_block.chunks()[0].clone(),
-                next_height,
-                ShardId::new(0),
-                &signer,
-                &client.chain.transaction_validity_check(last_block.header().clone()),
-            )
-            .unwrap()
-            .unwrap();
-    let should_replace = replace_transactions.is_some() || replace_tx_root.is_some();
-    let transactions = replace_transactions.unwrap_or_else(Vec::new);
-    let tx_root = match replace_tx_root {
-        Some(root) => root,
-        None => merklize(&transactions).0,
-    };
-    // reconstruct the chunk with changes (if any)
-    if should_replace {
+    let ProduceChunkResult {
+        mut encoded_chunk,
+        encoded_chunk_parts_paths: mut merkle_paths,
+        receipts,
+    } = client
+        .chunk_producer
+        .produce_chunk(
+            &last_block,
+            last_block.header().epoch_id(),
+            last_block.chunks()[0].clone(),
+            next_height,
+            ShardId::new(0),
+            &signer,
+            &client.chain.transaction_validity_check(last_block.header().clone()),
+        )
+        .unwrap()
+        .unwrap();
+    let signed_txs = validated_txs
+        .iter()
+        .cloned()
+        .map(|validated_tx| validated_tx.into_signed_tx())
+        .collect::<Vec<_>>();
+    let tx_root = merklize(&signed_txs).0;
+
+    // reconstruct the chunk with changes
+    {
         // The best way it to decode chunk, replace transactions and then recreate encoded chunk.
         let total_parts = client.chain.epoch_manager.num_total_parts();
         let data_parts = client.chain.epoch_manager.num_data_parts();
-        let decoded_chunk = chunk.decode_chunk(data_parts).unwrap();
+        let decoded_chunk = encoded_chunk.decode_chunk().unwrap();
         let parity_parts = total_parts - data_parts;
         let rs = ReedSolomon::new(data_parts, parity_parts).unwrap();
 
-        let header = chunk.cloned_header();
-        let (mut encoded_chunk, mut new_merkle_paths, _) = EncodedShardChunk::new(
+        let header = encoded_chunk.cloned_header();
+        let (mut new_encoded_chunk, mut new_merkle_paths, _) = EncodedShardChunk::new(
             *header.prev_block_hash(),
             header.prev_state_root(),
             header.prev_outcome_root(),
@@ -223,7 +214,7 @@ pub fn create_chunk(
             header.prev_balance_burnt(),
             tx_root,
             header.prev_validator_proposals().collect(),
-            transactions,
+            validated_txs,
             decoded_chunk.prev_outgoing_receipts().to_vec(),
             header.prev_outgoing_receipts_root(),
             header.congestion_info(),
@@ -231,10 +222,10 @@ pub fn create_chunk(
             &*signer,
             PROTOCOL_VERSION,
         );
-        swap(&mut chunk, &mut encoded_chunk);
+        swap(&mut encoded_chunk, &mut new_encoded_chunk);
         swap(&mut merkle_paths, &mut new_merkle_paths);
     }
-    match &mut chunk {
+    match &mut encoded_chunk {
         EncodedShardChunk::V1(chunk) => {
             chunk.header.height_included = next_height;
         }
@@ -248,14 +239,14 @@ pub fn create_chunk(
 
     let signer = client.validator_signer.get().unwrap();
     let endorsement =
-        ChunkEndorsement::new(EpochId::default(), &chunk.cloned_header(), signer.as_ref());
+        ChunkEndorsement::new(EpochId::default(), &encoded_chunk.cloned_header(), signer.as_ref());
     block_merkle_tree.insert(*last_block.hash());
     let block = Block::produce(
         PROTOCOL_VERSION,
         last_block.header(),
         next_height,
         last_block.header().block_ordinal() + 1,
-        vec![chunk.cloned_header()],
+        vec![encoded_chunk.cloned_header()],
         vec![vec![Some(Box::new(endorsement.signature()))]],
         *last_block.header().epoch_id(),
         *last_block.header().next_epoch_id(),
@@ -272,7 +263,7 @@ pub fn create_chunk(
         None,
         None,
     );
-    (ProduceChunkResult { chunk, encoded_chunk_parts_paths: merkle_paths, receipts }, block)
+    (ProduceChunkResult { encoded_chunk, encoded_chunk_parts_paths: merkle_paths, receipts }, block)
 }
 
 /// Keep running catchup until there is no more catchup work that can be done

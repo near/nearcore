@@ -114,8 +114,7 @@
             "nanos": 100000000
         }
     },
-    "tracked_accounts": [],
-    "tracked_shards": [0],
+    "tracked_shards_config": "AllShards",
     "archive": false,
     "gc_blocks_limit": 42,
     "gc_fork_clean_step": 420,

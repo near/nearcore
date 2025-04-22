@@ -2,24 +2,6 @@
 
 extern crate core;
 
-pub use near_primitives::errors::{MissingTrieValueContext, StorageError};
-pub use near_primitives::shard_layout::ShardUId;
-
-pub mod adapter;
-pub mod archive;
-mod columns;
-pub mod config;
-pub mod contract;
-pub mod db;
-pub mod flat;
-pub mod genesis;
-pub mod metrics;
-pub mod migrations;
-mod node_storage;
-mod store;
-pub mod trie;
-mod utils;
-
 pub use crate::columns::DBCol;
 pub use crate::config::{Mode, StoreConfig};
 pub use crate::db::{
@@ -43,6 +25,23 @@ pub use crate::trie::{
     estimator,
 };
 pub use crate::utils::*;
+pub use near_primitives::errors::{MissingTrieValueContext, StorageError};
+pub use near_primitives::shard_layout::ShardUId;
+
+pub mod adapter;
+pub mod archive;
+mod columns;
+pub mod config;
+pub mod contract;
+pub mod db;
+pub mod flat;
+pub mod genesis;
+pub mod metrics;
+pub mod migrations;
+mod node_storage;
+mod store;
+pub mod trie;
+mod utils;
 
 #[cfg(test)]
 mod tests {

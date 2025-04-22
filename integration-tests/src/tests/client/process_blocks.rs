@@ -1,8 +1,10 @@
-use std::collections::{HashSet, VecDeque};
-use std::str::FromStr;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, RwLock};
-
+use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
+use crate::env::setup::{setup_mock, setup_mock_all_validators};
+use crate::env::test_env::TestEnv;
+use crate::env::test_env_builder::TestEnvBuilder;
+use crate::utils::process_blocks::{
+    deploy_test_contract, prepare_env_with_congestion, set_block_protocol_version,
+};
 use actix::System;
 use assert_matches::assert_matches;
 use futures::{FutureExt, future};
@@ -67,14 +69,10 @@ use near_store::test_utils::create_test_node_storage_with_cold;
 use near_store::{DBCol, TrieChanges, get};
 use rand::prelude::StdRng;
 use rand::{Rng, SeedableRng};
-
-use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
-use crate::env::setup::{setup_mock, setup_mock_all_validators};
-use crate::env::test_env::TestEnv;
-use crate::env::test_env_builder::TestEnvBuilder;
-use crate::utils::process_blocks::{
-    deploy_test_contract, prepare_env_with_congestion, set_block_protocol_version,
-};
+use std::collections::{HashSet, VecDeque};
+use std::str::FromStr;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, RwLock};
 
 /// Runs block producing client and stops after network mock received two blocks.
 #[test]
@@ -2181,10 +2179,7 @@ fn test_validate_chunk_extra() {
     let validator_signer = create_test_signer("test0");
     let next_height = last_block.header().height() + 1;
     let ProduceChunkResult {
-        chunk: encoded_chunk,
-        encoded_chunk_parts_paths: merkle_paths,
-        receipts,
-        ..
+        encoded_chunk, encoded_chunk_parts_paths: merkle_paths, receipts, ..
     } = create_chunk_on_height(&mut env.clients[0], next_height);
     let mut block1 = env.clients[0].produce_block(next_height).unwrap().unwrap();
     let mut block2 = env.clients[0].produce_block(next_height + 1).unwrap().unwrap();
@@ -2914,15 +2909,14 @@ fn produce_chunks(env: &mut TestEnv, epoch_id: &EpochId, height: u64) {
             .unwrap()
             .take_account_id();
 
-        let produce_chunk_result = create_chunk_on_height(env.client(&chunk_producer), height);
-        let ProduceChunkResult { chunk, encoded_chunk_parts_paths, receipts, .. } =
-            produce_chunk_result;
+        let ProduceChunkResult { encoded_chunk, encoded_chunk_parts_paths, receipts, .. } =
+            create_chunk_on_height(env.client(&chunk_producer), height);
 
         for client in &mut env.clients {
             let validator_id = client.validator_signer.get().unwrap().validator_id().clone();
             client
                 .persist_and_distribute_encoded_chunk(
-                    chunk.clone(),
+                    encoded_chunk.clone(),
                     encoded_chunk_parts_paths.clone(),
                     receipts.clone(),
                     validator_id,
@@ -3088,7 +3082,7 @@ fn test_fork_receipt_ids() {
     // Construct two blocks that contain the same chunk and make the chunk unavailable.
     let validator_signer = create_test_signer("test0");
     let last_height = produced_block.header().height();
-    let ProduceChunkResult { chunk: encoded_chunk, .. } =
+    let ProduceChunkResult { encoded_chunk, .. } =
         create_chunk_on_height(&mut env.clients[0], last_height + 1);
     let mut block1 = env.clients[0].produce_block(last_height + 1).unwrap().unwrap();
     let mut block2 = env.clients[0].produce_block(last_height + 2).unwrap().unwrap();
@@ -3145,7 +3139,7 @@ fn test_fork_execution_outcome() {
     // Construct two blocks that contain the same chunk and make the chunk unavailable.
     let validator_signer = create_test_signer("test0");
     let next_height = last_height + 1;
-    let ProduceChunkResult { chunk: encoded_chunk, .. } =
+    let ProduceChunkResult { encoded_chunk, .. } =
         create_chunk_on_height(&mut env.clients[0], next_height);
     let mut block1 = env.clients[0].produce_block(last_height + 1).unwrap().unwrap();
     let mut block2 = env.clients[0].produce_block(last_height + 2).unwrap().unwrap();

@@ -3,7 +3,7 @@ use super::mem::memtries::MemTries;
 use super::state_snapshot::{StateSnapshot, StateSnapshotConfig};
 use crate::adapter::StoreAdapter;
 use crate::adapter::trie_store::{TrieStoreAdapter, TrieStoreUpdateAdapter};
-use crate::flat::{FlatStorageManager, FlatStorageStatus};
+use crate::flat::FlatStorageManager;
 use crate::trie::config::TrieConfig;
 use crate::trie::mem::loading::load_trie_from_flat_state_and_delta;
 use crate::trie::prefetching_trie_storage::PrefetchingThreadsHandle;
@@ -110,7 +110,11 @@ impl ShardTries {
         skip_all,
         fields(is_view)
     )]
-    fn get_trie_cache_for(&self, shard_uid: ShardUId, is_view: bool) -> Option<TrieCache> {
+    pub(crate) fn get_trie_cache_for(
+        &self,
+        shard_uid: ShardUId,
+        is_view: bool,
+    ) -> Option<TrieCache> {
         self.trie_cache_enabled(shard_uid, is_view).then(|| {
             let caches_to_use = if is_view { &self.0.view_caches } else { &self.0.caches };
             let mut caches = caches_to_use.lock().expect(POISONED_LOCK_ERR);
@@ -173,22 +177,6 @@ impl ShardTries {
 
     pub fn get_trie_for_shard(&self, shard_uid: ShardUId, state_root: StateRoot) -> Trie {
         self.get_trie_for_shard_internal(shard_uid, state_root, false, None)
-    }
-
-    pub fn get_trie_with_block_hash_for_shard_from_snapshot(
-        &self,
-        shard_uid: ShardUId,
-        state_root: StateRoot,
-        block_hash: &CryptoHash,
-    ) -> Result<Trie, StorageError> {
-        let (store, flat_storage_manager) = self.get_state_snapshot(block_hash)?;
-        let cache = self
-            .get_trie_cache_for(shard_uid, true)
-            .expect("trie cache should be enabled for view calls");
-        let storage = Arc::new(TrieCachingStorage::new(store, cache, shard_uid, true, None));
-        let flat_storage_chunk_view = flat_storage_manager.chunk_view(shard_uid, *block_hash);
-
-        Ok(Trie::new(storage, state_root, flat_storage_chunk_view))
     }
 
     pub fn get_trie_with_block_hash_for_shard(
@@ -435,17 +423,6 @@ impl ShardTries {
             );
             None
         }
-    }
-
-    /// Returns the status of the given shard of flat storage in the state snapshot.
-    /// `sync_prev_prev_hash` needs to match the block hash that identifies that snapshot.
-    pub fn get_snapshot_flat_storage_status(
-        &self,
-        sync_prev_prev_hash: CryptoHash,
-        shard_uid: ShardUId,
-    ) -> Result<FlatStorageStatus, StorageError> {
-        let (_store, manager) = self.get_state_snapshot(&sync_prev_prev_hash)?;
-        Ok(manager.get_flat_storage_status(shard_uid))
     }
 
     /// Retains in-memory tries for given shards, i.e. unload tries from memory for shards that are NOT

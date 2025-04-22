@@ -81,7 +81,7 @@ if [ "${RUN_ON_FORKNET}" = true ]; then
     NUM_SHARDS=$(jq '.shard_layout.V2.shard_ids | length' ${GENESIS} 2>/dev/null) || true
     NODE_BINARY_URL=$(jq -r '.forknet.binary_url' ${BM_PARAMS})
     VALIDATOR_KEY=${NEAR_HOME}/validator_key.json
-    MIRROR="${VIRTUAL_ENV}/python3 tests/mocknet/MIRROR.py --chain-id mainnet --start-height ${FORKNET_START_HEIGHT} \
+    MIRROR="${VIRTUAL_ENV}/python3 tests/mocknet/mirror.py --chain-id mainnet --start-height ${FORKNET_START_HEIGHT} \
         --unique-id ${FORKNET_NAME}"
     echo "Forknet name: ${FORKNET_NAME}"
 else
@@ -100,12 +100,33 @@ mirror_cmd() {
 
 start_nodes_forknet() {
     cd ${PYTEST_PATH}
-    $MIRROR --host-type nodes run-cmd --cmd "cd ${BENCHNET_DIR}; ${FORKNET_ENV} ./bench.sh start-neard0 ${CASE}"
+    
+    fetch_forknet_details
+    local tracing_param=""
+    if [ ! -z "${TRACING_SERVER_INTERNAL_IP}" ]; then
+        tracing_param="${TRACING_SERVER_INTERNAL_IP}"
+        echo "Will start nodes with tracing enabled to: ${tracing_param}"
+    else
+        echo "No tracing server found, will start nodes without tracing"
+    fi
+    $MIRROR --host-type nodes run-cmd --cmd "cd ${BENCHNET_DIR}; ${FORKNET_ENV} ./bench.sh start-neard0 ${CASE} ${tracing_param}"
+
     cd -
 }
 
 start_neard0() {
-    nohup ${FORKNET_NEARD_PATH} --home ${NEAR_HOME} run &> ${FORKNET_NEARD_LOG} &
+    local cmd_suffix=""
+    local tracing_ip=${2:-$TRACING_SERVER_INTERNAL_IP}
+    local neard_cmd="${FORKNET_NEARD_PATH} --home ${NEAR_HOME} run"
+
+    if [ ! -z "${tracing_ip}" ]; then
+        echo "Tracing server internal IP: ${tracing_ip}"
+        export OTEL_EXPORTER_OTLP_TRACES_ENDPOINT="http://${tracing_ip}:4317/"
+    else
+        echo "Tracing server internal IP is not set."
+    fi
+
+    nohup ${neard_cmd} > ${FORKNET_NEARD_LOG} 2>&1 &
 }
 
 start_nodes_local() {
@@ -191,7 +212,7 @@ fetch_forknet_details() {
     # Get all instances for this forknet
     local instances=$(gcloud compute instances list \
         --project=nearone-mocknet \
-        --filter="name~'-${FORKNET_NAME}-' AND -name~'traffic'" \
+        --filter="name~'-${FORKNET_NAME}-' AND -name~'traffic' AND -name~'tracing'" \
         --format="get(name,networkInterfaces[0].networkIP)")    
     local total_lines=$(echo "$instances" | wc -l | tr -d ' ')
     local num_cp_instances=$((total_lines - 1))
@@ -218,6 +239,17 @@ fetch_forknet_details() {
     echo "Forknet RPC address: ${FORKNET_RPC_ADDR}"
     echo "Forknet RPC node: ${FORKNET_RPC_NODE_ID}"
     echo "Forknet CP nodes: ${FORKNET_CP_NODES}"
+    # Try to get tracing server IP if it exists
+    local tracing_instances=$(gcloud compute instances list \
+        --project=nearone-mocknet \
+        --filter="name~'-${FORKNET_NAME}-' AND name~'tracing'" \
+        --format="get(networkInterfaces[0].networkIP,networkInterfaces[0].accessConfigs[0].natIP)")
+    if [ ! -z "$tracing_instances" ]; then
+        TRACING_SERVER_INTERNAL_IP=$(echo "$tracing_instances" | awk '{print $1}')
+        TRACING_SERVER_EXTERNAL_IP=$(echo "$tracing_instances" | awk '{print $2}')
+        echo "Tracing server internal IP: ${TRACING_SERVER_INTERNAL_IP}"
+        echo "Tracing server external IP: ${TRACING_SERVER_EXTERNAL_IP}"
+    fi
 }
 
 gen_localnet_for_forknet() {
@@ -250,8 +282,17 @@ init_forknet() {
         $MIRROR --host-type nodes update-binaries || true
     fi
     $MIRROR --host-type nodes run-cmd --cmd "mkdir -p ${BENCHNET_DIR}"
-    $MIRROR --host-type nodes upload-file --src ${SYNTH_BM_BIN} --dst ${BENCHNET_DIR}
-    $MIRROR --host-type nodes run-cmd --cmd "chmod +x ${BENCHNET_DIR}/${SYNTH_BM_BASENAME}"
+
+    # Check if SYNTH_BM_BIN is a URL or a filepath
+    if [[ "${SYNTH_BM_BIN}" =~ ^https?:// ]]; then
+        # It's a URL, download it on remote machines
+        $MIRROR --host-type nodes run-cmd --cmd "cd ${BENCHNET_DIR} && curl -L -o ${SYNTH_BM_BASENAME} ${SYNTH_BM_BIN} && chmod +x ${SYNTH_BM_BASENAME}"
+    else
+        # It's a filepath, upload it from local machine
+        $MIRROR --host-type nodes upload-file --src ${SYNTH_BM_BIN} --dst ${BENCHNET_DIR}
+        $MIRROR --host-type nodes run-cmd --cmd "chmod +x ${BENCHNET_DIR}/${SYNTH_BM_BASENAME}"
+    fi
+
     cd -
 }
 
@@ -319,6 +360,10 @@ edit_log_config() {
 tweak_config_forknet() {
     gen_localnet_for_forknet
     fetch_forknet_details
+    if [ ! -z "${TRACING_SERVER_INTERNAL_IP}" ]; then
+        FORKNET_ENV="${FORKNET_ENV} TRACING_SERVER_INTERNAL_IP=${TRACING_SERVER_INTERNAL_IP}"
+    fi
+
     local cwd=$(pwd)
     cd ${PYTEST_PATH}
     $MIRROR --host-type nodes upload-file --src ${cwd}/bench.sh --dst ${BENCHNET_DIR}
@@ -349,6 +394,9 @@ tweak_config_forknet_node() {
         '.network.addr |= $val' ${CONFIG} >tmp.$$.json && mv tmp.$$.json ${CONFIG} || rm tmp.$$.json
     jq --arg val "0.0.0.0:3030" \
         '.rpc.addr |= $val' ${CONFIG} >tmp.$$.json && mv tmp.$$.json ${CONFIG} || rm tmp.$$.json
+    if [ -z "${TRACING_SERVER_INTERNAL_IP}" ]; then
+        jq '.opentelemetry = null' ${LOG_CONFIG} >tmp.$$.json && mv tmp.$$.json ${LOG_CONFIG} || rm tmp.$$.json
+    fi
     if [ -n "$boot_nodes" ]; then
         jq --arg val "${boot_nodes}" \
             '.network.boot_nodes |= $val' ${CONFIG} >tmp.$$.json && mv tmp.$$.json ${CONFIG} || rm tmp.$$.json
@@ -548,9 +596,16 @@ native_transfers_injection() {
         \"accounts_path\": \"${accounts_path}\", \"thread_count\": 2}' ${CONFIG} > tmp.$$.json && \
         mv tmp.$$.json ${CONFIG} || rm tmp.$$.json"
     # Restart neard on all chunk producer nodes
+    local tracing_param=""
+    if [ ! -z "${TRACING_SERVER_INTERNAL_IP}" ]; then
+        tracing_param="${TRACING_SERVER_INTERNAL_IP}"
+        echo "Will start nodes with tracing enabled to: ${tracing_param}"
+    else
+        echo "No tracing server found, will start nodes without tracing"
+    fi
     $MIRROR --host-filter ".*(${host_filter})" run-cmd --cmd \
         "cd ${BENCHNET_DIR}; \
-        ${FORKNET_ENV} ./bench.sh start-neard0 ${CASE}"
+        ${FORKNET_ENV} ./bench.sh start-neard0 ${CASE} ${tracing_param}"
     cd -
 }
 
@@ -617,6 +672,46 @@ monitor() {
     done
 }
 
+get_traces() {
+    fetch_forknet_details
+    echo "=> Fetching latest traces"
+    if [ -z "${TRACING_SERVER_EXTERNAL_IP}" ]; then
+        echo "Error: TRACING_SERVER_EXTERNAL_IP is not set."
+        return 1
+    fi
+    
+    local cur_time="$(date +%s)"
+    local lag_secs=10
+    local len_secs=10
+    local output_dir=${1:-.}
+    
+    local start_time=$(bc <<< "$cur_time - $lag_secs - $len_secs")
+    start_time="$start_time""000"
+    local end_time=$(bc <<< "$cur_time - $lag_secs")
+    end_time="$end_time""000"
+    
+    echo "Current time: $cur_time"
+    echo "Start time: $start_time"
+    echo "End time: $end_time"
+    
+    mkdir -p "${output_dir}"
+    
+    local trace_file="${output_dir}/trace_${start_time}.json"
+    local profile_file="${output_dir}/profile_${start_time}.json"
+    
+    curl -X POST http://${TRACING_SERVER_EXTERNAL_IP}:8080/raw_trace \
+        -H 'Content-Type: application/json' \
+        -d "{\"start_timestamp_unix_ms\": $start_time, \"end_timestamp_unix_ms\": $end_time, \"filter\": {\"nodes\": [],\"threads\": []}}" \
+        -o "${trace_file}"
+    
+    curl -X POST http://${TRACING_SERVER_EXTERNAL_IP}:8080/profile \
+        -H 'Content-Type: application/json' \
+        -d "{\"start_timestamp_unix_ms\": $start_time, \"end_timestamp_unix_ms\": $end_time, \"filter\": {\"nodes\": [],\"threads\": []}}" \
+        -o "${profile_file}"
+        
+    echo "=> Traces saved to ${trace_file} and ${profile_file}"
+}
+
 case "${1}" in
 reset)
     reset
@@ -654,6 +749,10 @@ stop-injection)
     stop_injection
     ;;
 
+get-traces)
+    get_traces ${2}
+    ;;
+
 mirror)
     mirror_cmd "$@"
     ;;
@@ -664,7 +763,7 @@ tweak-config-forknet-node)
     ;;
 
 start-neard0)
-    start_neard0
+    start_neard0 ${2} ${3}
     ;;
 
 create-accounts-local)
@@ -680,6 +779,6 @@ create-accounts-on-tracked-shard)
     ;;
 
 *)
-    echo "Usage: ${0} {reset|init|tweak-config|create-accounts|native-transfers|monitor|start-nodes|stop-nodes|stop-injection|mirror}"
+    echo "Usage: ${0} {reset|init|tweak-config|create-accounts|native-transfers|monitor|start-nodes|stop-nodes|stop-injection|get-traces|mirror}"
     ;;
 esac

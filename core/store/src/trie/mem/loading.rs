@@ -3,6 +3,7 @@ use super::memtries::MemTries;
 use super::node::MemTrieNodeId;
 use crate::adapter::StoreAdapter;
 use crate::flat::FlatStorageStatus;
+use crate::trie::AccessOptions;
 use crate::trie::mem::arena::Arena;
 use crate::trie::mem::construction::TrieConstructor;
 use crate::trie::mem::memtrie_update::TrackingMode;
@@ -162,7 +163,7 @@ pub fn load_trie_from_flat_state_and_delta(
                     Some(value) => {
                         trie_update.insert_memtrie_only(&key, value)?;
                     }
-                    None => trie_update.generic_delete(0, &key)?,
+                    None => trie_update.generic_delete(0, &key, AccessOptions::DEFAULT)?,
                 };
             }
 
@@ -191,6 +192,7 @@ mod tests {
     use crate::trie::mem::lookup::memtrie_lookup;
     use crate::trie::mem::nibbles_utils::{all_two_nibble_nibbles, multi_hex_to_nibbles};
     use crate::trie::update::TrieUpdateResult;
+    use crate::trie::{AccessOptions, AccessTracker};
     use crate::{DBCol, KeyLookupMode, NibbleSlice, ShardTries, Store, Trie, TrieUpdate};
     use near_primitives::bandwidth_scheduler::BandwidthRequests;
     use near_primitives::congestion_info::CongestionInfo;
@@ -241,10 +243,21 @@ mod tests {
             &CryptoHash::default(),
             false,
         ));
-        let _mode_guard = trie_update.with_trie_cache();
+
+        #[derive(Debug, Default)]
+        struct Tracker(std::cell::Cell<u64>);
+        impl AccessTracker for Tracker {
+            fn track_mem_lookup(&self, _: &CryptoHash) -> Option<std::sync::Arc<[u8]>> {
+                None
+            }
+
+            fn track_disk_lookup(&self, _: CryptoHash, _: std::sync::Arc<[u8]>) {
+                self.0.set(self.0.get() + 1);
+            }
+        }
         let trie = trie_update.trie();
         let root = in_memory_trie.get_root(&state_root).unwrap();
-
+        let opts = AccessOptions::DEFAULT;
         // Check access to each key to make sure the in-memory trie is consistent with
         // real trie. Check non-existent keys too.
         for key in keys.iter().chain([b"not in trie".to_vec()].iter()) {
@@ -252,15 +265,17 @@ mod tests {
             let actual_value_ref = memtrie_lookup(root, key, Some(&mut nodes_accessed))
                 .map(|v| v.to_optimized_value_ref());
             let expected_value_ref =
-                trie.get_optimized_ref(key, KeyLookupMode::MemOrFlatOrTrie).unwrap();
+                trie.get_optimized_ref(key, KeyLookupMode::MemOrFlatOrTrie, opts).unwrap();
             assert_eq!(actual_value_ref, expected_value_ref, "{:?}", NibbleSlice::new(key));
 
             // Do another access with the trie to see how many nodes we're supposed to
             // have accessed.
+            let trk = Tracker::default();
+            let track_opts = AccessOptions { trie_access_tracker: &trk, ..AccessOptions::DEFAULT };
             let temp_trie = shard_tries.get_trie_for_shard(shard_uid, state_root);
-            temp_trie.get_optimized_ref(key, KeyLookupMode::MemOrTrie).unwrap();
+            temp_trie.get_optimized_ref(key, KeyLookupMode::MemOrTrie, track_opts).unwrap();
             assert_eq!(
-                temp_trie.get_trie_nodes_count().db_reads,
+                trk.0.get(),
                 nodes_accessed.len() as u64,
                 "Number of accessed nodes does not equal number of trie nodes along the way"
             );
@@ -268,7 +283,7 @@ mod tests {
             // Check that the accessed nodes are consistent with those from disk.
             for (node_hash, serialized_node) in nodes_accessed {
                 let expected_serialized_node =
-                    trie.internal_retrieve_trie_node(&node_hash, false, true).unwrap();
+                    trie.internal_retrieve_trie_node(&node_hash, false, opts).unwrap();
                 assert_eq!(expected_serialized_node, serialized_node);
             }
         }

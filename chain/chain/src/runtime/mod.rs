@@ -252,6 +252,7 @@ impl NightshadeRuntime {
             is_new_chunk,
             congestion_info,
             bandwidth_requests,
+            trie_access_tracker_state: Default::default(),
         };
 
         let instant = Instant::now();
@@ -271,8 +272,6 @@ impl NightshadeRuntime {
                     tracing::warn!("Invalid tx {:?}", err);
                     Error::InvalidTransactions
                 }
-                // TODO(#2152): process gracefully
-                RuntimeError::BalanceMismatchError(e) => panic!("{}", e),
                 // TODO(#2152): process gracefully
                 RuntimeError::UnexpectedIntegerOverflow(reason) => {
                     panic!("RuntimeError::UnexpectedIntegerOverflow {reason}")
@@ -400,7 +399,7 @@ impl NightshadeRuntime {
 
         let trie_with_state =
             self.tries.get_trie_with_block_hash_for_shard(shard_uid, *state_root, &prev_hash, true);
-        let (partial_state, nibbles_begin, nibbles_end) = match trie_with_state
+        let (path_boundary_nodes, nibbles_begin, nibbles_end) = match trie_with_state
             .get_state_part_boundaries(part_id)
         {
             Ok(res) => res,
@@ -410,12 +409,17 @@ impl NightshadeRuntime {
             }
         };
 
-        // TODO: Make it impossible for the snapshot data to be deleted while the snapshot is in use.
-        let snapshot_trie = self
-            .tries
-            .get_trie_with_block_hash_for_shard_from_snapshot(shard_uid, *state_root, &prev_hash)
-            .map_err(|err| Error::Other(err.to_string()))?;
-        let state_part = borsh::to_vec(&match snapshot_trie.get_trie_nodes_for_part_with_flat_storage(part_id, partial_state, nibbles_begin, nibbles_end, &trie_with_state) {
+        let trie_nodes = self.tries.get_trie_nodes_for_part_from_snapshot(
+            shard_uid,
+            state_root,
+            &prev_hash,
+            part_id,
+            path_boundary_nodes,
+            nibbles_begin,
+            nibbles_end,
+            trie_with_state,
+        );
+        let state_part = borsh::to_vec(&match trie_nodes {
             Ok(partial_state) => partial_state,
             Err(err) => {
                 error!(target: "runtime", ?err, part_id.idx, part_id.total, %prev_hash, %state_root, %shard_id, "Can't get trie nodes for state part");
@@ -526,7 +530,8 @@ impl RuntimeAdapter for NightshadeRuntime {
     ) -> Result<(), InvalidTxError> {
         let runtime_config = self.runtime_config_store.get_config(current_protocol_version);
 
-        let cost = tx_cost(runtime_config, &validated_tx.to_tx(), gas_price)?;
+        let cost =
+            tx_cost(runtime_config, &validated_tx.to_tx(), gas_price, current_protocol_version)?;
         let shard_uid = shard_layout
             .account_id_to_shard_uid(validated_tx.to_signed_tx().transaction.signer_id());
         let state_update = self.tries.new_trie_update(shard_uid, state_root);
@@ -575,7 +580,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                 // flat storage by not charging gas for trie nodes.
                 // WARNING: should never be used in production! Consider this option only for debugging or replaying blocks.
                 let mut trie = self.tries.get_trie_for_shard(shard_uid, storage_config.state_root);
-                trie.set_charge_gas_for_trie_node_access(false);
+                trie.set_use_trie_accounting_cache(false);
                 trie
             }
             StorageDataSource::Recorded(storage) => Trie::from_recorded_storage(
@@ -672,28 +677,27 @@ impl RuntimeAdapter for NightshadeRuntime {
                 let (mut signer, mut access_key) =
                     get_signer_and_access_key(&state_update, &validated_tx)
                         .map_err(|_| Error::InvalidTransactions)?;
-                let verify_result =
-                    tx_cost(runtime_config, &validated_tx.to_tx(), prev_block.next_gas_price)
-                        .map_err(InvalidTxError::from)
-                        .and_then(|cost| {
-                            verify_and_charge_tx_ephemeral(
-                                runtime_config,
-                                &mut signer,
-                                &mut access_key,
-                                &validated_tx,
-                                &cost,
-                                Some(next_block_height),
-                            )
-                        })
-                        .and_then(|verification_res| {
-                            set_tx_state_changes(
-                                &mut state_update,
-                                &validated_tx,
-                                &signer,
-                                &access_key,
-                            );
-                            Ok(verification_res)
-                        });
+                let verify_result = tx_cost(
+                    runtime_config,
+                    &validated_tx.to_tx(),
+                    prev_block.next_gas_price,
+                    protocol_version,
+                )
+                .map_err(InvalidTxError::from)
+                .and_then(|cost| {
+                    verify_and_charge_tx_ephemeral(
+                        runtime_config,
+                        &mut signer,
+                        &mut access_key,
+                        &validated_tx,
+                        &cost,
+                        Some(next_block_height),
+                    )
+                })
+                .and_then(|verification_res| {
+                    set_tx_state_changes(&mut state_update, &validated_tx, &signer, &access_key);
+                    Ok(verification_res)
+                });
 
                 match verify_result {
                     Ok(cost) => {
@@ -787,7 +791,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                     storage_config.state_root,
                     false,
                 )?;
-                trie.set_charge_gas_for_trie_node_access(false);
+                trie.set_use_trie_accounting_cache(false);
                 trie
             }
             StorageDataSource::Recorded(storage) => Trie::from_recorded_storage(

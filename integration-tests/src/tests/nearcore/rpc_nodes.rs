@@ -22,7 +22,7 @@ use near_primitives::transaction::{PartialExecutionStatus, SignedTransaction};
 use near_primitives::types::{
     BlockId, BlockReference, EpochId, EpochReference, Finality, TransactionOrReceiptId,
 };
-use near_primitives::version::ProtocolVersion;
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature, ProtocolVersion};
 use near_primitives::views::{ExecutionOutcomeView, ExecutionStatusView, TxExecutionStatus};
 use std::time::Duration;
 
@@ -382,9 +382,15 @@ fn ultra_slow_test_tx_not_enough_balance_must_return_error() {
                 }
                 sleep(std::time::Duration::from_millis(500)).await;
             }
+            let expected_cost = if ProtocolFeature::ReducedGasRefunds.enabled(PROTOCOL_VERSION) {
+                "1100000000000044636512500000000000"
+            } else {
+                "1100000000000045306060187500000000"
+            };
             let _ = client
                 .broadcast_tx_commit(to_base64(&bytes))
                 .map_err(|err| {
+                    println!("testing: {:?}", err.data);
                     assert_eq!(
                         err.data.unwrap(),
                         serde_json::json!({"TxExecutionError": {
@@ -392,7 +398,7 @@ fn ultra_slow_test_tx_not_enough_balance_must_return_error() {
                                 "NotEnoughBalance": {
                                     "signer_id": "near.0",
                                     "balance": "950000000000000000000000000000000", // If something changes in setup just update this value
-                                    "cost": "1100000000000045306060187500000000",
+                                    "cost": expected_cost,
                                 }
                             }
                         }})

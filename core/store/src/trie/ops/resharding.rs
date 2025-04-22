@@ -7,6 +7,7 @@ use near_primitives::trie_key::col;
 use near_primitives::types::AccountId;
 
 use crate::NibbleSlice;
+use crate::trie::AccessOptions;
 
 use super::interface::{
     GenericNodeOrIndex, GenericUpdatedTrieNode, GenericUpdatedTrieNodeWithSize, HasValueLength,
@@ -153,6 +154,7 @@ where
         node_id: UpdatedNodeId,
         key_nibbles: Vec<u8>,
         intervals_nibbles: &[Range<Vec<u8>>],
+        opts: AccessOptions,
     ) -> Result<(), StorageError> {
         let decision = retain_decision(&key_nibbles, intervals_nibbles);
         match decision {
@@ -202,12 +204,13 @@ where
                         continue;
                     };
 
-                    let new_child_id = self.ensure_updated(old_child_id)?;
+                    let new_child_id = self.ensure_updated(old_child_id, opts)?;
                     let child_key_nibbles = [key_nibbles.clone(), vec![i as u8]].concat();
                     self.retain_multi_range_recursive(
                         new_child_id,
                         child_key_nibbles,
                         intervals_nibbles,
+                        opts,
                     )?;
 
                     let GenericUpdatedTrieNodeWithSize { node, memory_usage: child_memory_usage } =
@@ -225,11 +228,16 @@ where
                 self.place_node_at(node_id, GenericUpdatedTrieNodeWithSize { node, memory_usage });
             }
             GenericUpdatedTrieNode::Extension { extension, child } => {
-                let new_child_id = self.ensure_updated(child)?;
+                let new_child_id = self.ensure_updated(child, opts)?;
                 let extension_nibbles =
                     NibbleSlice::from_encoded(&extension).0.iter().collect_vec();
                 let child_key = [key_nibbles, extension_nibbles].concat();
-                self.retain_multi_range_recursive(new_child_id, child_key, intervals_nibbles)?;
+                self.retain_multi_range_recursive(
+                    new_child_id,
+                    child_key,
+                    intervals_nibbles,
+                    opts,
+                )?;
 
                 let node = GenericUpdatedTrieNode::Extension {
                     extension,
@@ -242,7 +250,7 @@ where
         }
 
         // We may need to change node type to keep the trie structure unique.
-        self.squash_node(node_id)
+        self.squash_node(node_id, opts)
     }
 }
 
@@ -290,7 +298,12 @@ where
     N: Debug,
     V: Debug + HasValueLength,
 {
-    fn retain_split_shard(&mut self, boundary_account: &AccountId, retain_mode: RetainMode);
+    fn retain_split_shard(
+        &mut self,
+        boundary_account: &AccountId,
+        retain_mode: RetainMode,
+        opts: AccessOptions,
+    );
 }
 
 impl<'a, N, V, T> GenericTrieUpdateRetain<'a, N, V> for T
@@ -299,10 +312,15 @@ where
     V: Debug + HasValueLength,
     T: GenericTrieUpdateRetainInner<'a, N, V>,
 {
-    fn retain_split_shard(&mut self, boundary_account: &AccountId, retain_mode: RetainMode) {
+    fn retain_split_shard(
+        &mut self,
+        boundary_account: &AccountId,
+        retain_mode: RetainMode,
+        opts: AccessOptions,
+    ) {
         let intervals = boundary_account_to_intervals(boundary_account, retain_mode);
         let intervals_nibbles = intervals_to_nibbles(&intervals);
-        self.retain_multi_range_recursive(0, vec![], &intervals_nibbles).unwrap();
+        self.retain_multi_range_recursive(0, vec![], &intervals_nibbles, opts).unwrap();
     }
 }
 
@@ -317,7 +335,9 @@ pub fn retain_split_shard_custom_ranges<'a, N, V>(
     V: Debug + HasValueLength,
 {
     let intervals_nibbles = intervals_to_nibbles(retain_multi_ranges);
-    update.retain_multi_range_recursive(0, vec![], &intervals_nibbles).unwrap();
+    update
+        .retain_multi_range_recursive(0, vec![], &intervals_nibbles, AccessOptions::DEFAULT)
+        .unwrap();
 }
 
 #[cfg(test)]

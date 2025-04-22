@@ -146,6 +146,9 @@ export FORKNET_START_HEIGHT=<forknet start height>
 ./bench.sh create-accounts
 ./bench.sh native-transfers
 
+# Collect latest OTLP traces, if you set tracing_server = true in main.tf for your cluster
+./bench.sh get-traces
+
 # If you are using transaction generator and want to stop it
 ./bench.sh stop-injection
 ```

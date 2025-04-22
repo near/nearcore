@@ -34,7 +34,7 @@ use near_client::{
 };
 use near_epoch_manager::EpochManager;
 use near_epoch_manager::EpochManagerAdapter;
-use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
+use near_epoch_manager::shard_tracker::ShardTracker;
 use near_network::PeerManagerActor;
 use near_primitives::genesis::GenesisId;
 use near_primitives::types::EpochId;
@@ -279,8 +279,10 @@ pub fn start_with_config_and_synchronization(
         Some(home_dir),
     );
 
-    let shard_tracker =
-        ShardTracker::new(TrackedConfig::from_config(&config.client_config), epoch_manager.clone());
+    let shard_tracker = ShardTracker::new(
+        config.client_config.tracked_shards_config.clone(),
+        epoch_manager.clone(),
+    );
     let runtime = NightshadeRuntime::from_config(
         home_dir,
         storage.get_hot_store(),
@@ -300,7 +302,7 @@ pub fn start_with_config_and_synchronization(
                 Some(home_dir),
             );
             let view_shard_tracker = ShardTracker::new(
-                TrackedConfig::from_config(&config.client_config),
+                config.client_config.tracked_shards_config.clone(),
                 epoch_manager.clone(),
             );
             let view_runtime = NightshadeRuntime::from_config(

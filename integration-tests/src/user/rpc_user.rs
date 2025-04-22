@@ -1,9 +1,6 @@
 use std::sync::Arc;
-use std::thread;
-use std::time::Duration;
 
 use futures::{Future, TryFutureExt};
-
 use near_client::StatusResponse;
 use near_crypto::{PublicKey, Signer};
 use near_jsonrpc::client::{JsonRpcClient, new_client};
@@ -139,13 +136,8 @@ impl User for RpcUser {
         &self,
         transaction: SignedTransaction,
     ) -> Result<FinalExecutionOutcomeView, CommitError> {
-        let bytes = borsh::to_vec(&transaction).unwrap();
-        let result = self.actix(move |client| client.broadcast_tx_commit(to_base64(&bytes)));
-        // Wait for one more block, to make sure all nodes actually apply the state transition.
-        let height = self.get_best_height().unwrap();
-        while height == self.get_best_height().unwrap() {
-            thread::sleep(Duration::from_millis(50));
-        }
+        let result =
+            self.actix(move |client| client.send_tx(transaction, TxExecutionStatus::Final));
         match result {
             Ok(outcome) => Ok(outcome.final_execution_outcome.unwrap().into_outcome()),
             Err(err) => Err(CommitError::Server(

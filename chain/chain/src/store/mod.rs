@@ -1,11 +1,8 @@
-use std::collections::hash_map::Entry;
-use std::collections::{BTreeMap, HashMap, HashSet};
-use std::io;
-use std::ops::Deref;
-
+use crate::types::{Block, BlockHeader, LatestKnown};
 use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::Utc;
-
+pub use latest_witnesses::LatestWitnessesInfo;
+pub use merkle_proof::MerkleProofAccess;
 use near_chain_primitives::error::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::block::Tip;
@@ -41,22 +38,22 @@ use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use near_primitives::views::LightClientBlockView;
 use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
+use near_store::db::{STATE_SYNC_DUMP_KEY, StoreStatistics};
 use near_store::{
     CHUNK_TAIL_KEY, DBCol, FINAL_HEAD_KEY, FORK_TAIL_KEY, HEAD_KEY, HEADER_HEAD_KEY,
     KeyForStateChanges, LARGEST_TARGET_HEIGHT_KEY, LATEST_KNOWN_KEY, PartialStorage, Store,
     StoreUpdate, TAIL_KEY, WrappedTrieChanges,
 };
-use utils::check_transaction_validity_period;
-
-use crate::types::{Block, BlockHeader, LatestKnown};
-use near_store::db::{STATE_SYNC_DUMP_KEY, StoreStatistics};
+use std::collections::hash_map::Entry;
+use std::collections::{BTreeMap, HashMap, HashSet};
+use std::io;
+use std::ops::Deref;
 use std::sync::Arc;
+use utils::check_transaction_validity_period;
 
 mod latest_witnesses;
 mod merkle_proof;
 pub mod utils;
-pub use latest_witnesses::LatestWitnessesInfo;
-pub use merkle_proof::MerkleProofAccess;
 
 /// Filter receipts mode for incoming receipts collection.
 pub enum ReceiptFilter {
@@ -171,9 +168,6 @@ pub trait ChainStoreAccess {
         shard_id: ShardId,
     ) -> Result<Arc<Vec<ReceiptProof>>, Error>;
 
-    /// Returns whether the block with the given hash was challenged
-    fn is_block_challenged(&self, hash: &CryptoHash) -> Result<bool, Error>;
-
     fn get_blocks_to_catchup(&self, prev_hash: &CryptoHash) -> Result<Vec<CryptoHash>, Error>;
 
     /// Returns encoded chunk if it's invalid otherwise None.
@@ -268,7 +262,8 @@ pub fn filter_incoming_receipts_for_shard(
 /// All chain-related database operations.
 pub struct ChainStore {
     store: ChainStoreAdapter,
-    latest_known: once_cell::unsync::OnceCell<LatestKnown>,
+    // TODO(store): Use std::cell::OnceCell once OnceCell::get_or_try_init stabilizes.
+    latest_known: std::cell::Cell<Option<LatestKnown>>,
     /// save_trie_changes should be set to true iff
     /// - archive is false - non-archival nodes need trie changes to perform garbage collection
     /// - archive is true, cold_store is configured and migration to split_storage is finished - node
@@ -305,7 +300,7 @@ impl ChainStore {
     ) -> ChainStore {
         ChainStore {
             store: store.chain_store(),
-            latest_known: once_cell::unsync::OnceCell::new(),
+            latest_known: std::cell::Cell::new(None),
             save_trie_changes,
             transaction_validity_period,
         }
@@ -576,14 +571,15 @@ impl ChainStore {
     /// Returns latest known height and time it was seen.
     /// TODO(store): What is this doing here? Cleanup
     pub fn get_latest_known(&self) -> Result<LatestKnown, Error> {
-        self.latest_known
-            .get_or_try_init(|| {
-                option_to_not_found(
-                    self.store.store().get_ser(DBCol::BlockMisc, LATEST_KNOWN_KEY),
-                    "LATEST_KNOWN_KEY",
-                )
-            })
-            .cloned()
+        if let Some(latest_known) = self.latest_known.get() {
+            return Ok(latest_known);
+        }
+        let latest_known: LatestKnown = option_to_not_found(
+            self.store.store().get_ser(DBCol::BlockMisc, LATEST_KNOWN_KEY),
+            "LATEST_KNOWN_KEY",
+        )?;
+        self.latest_known.set(Some(latest_known));
+        Ok(latest_known)
     }
 
     /// Save the latest known.
@@ -591,7 +587,7 @@ impl ChainStore {
     pub fn save_latest_known(&mut self, latest_known: LatestKnown) -> Result<(), Error> {
         let mut store_update = self.store.store().store_update();
         store_update.set_ser(DBCol::BlockMisc, LATEST_KNOWN_KEY, &latest_known)?;
-        self.latest_known = once_cell::unsync::OnceCell::from(latest_known);
+        self.latest_known.set(Some(latest_known));
         store_update.commit().map_err(|err| err.into())
     }
 
@@ -960,10 +956,6 @@ impl ChainStoreAccess for ChainStore {
         ChainStoreAdapter::get_blocks_to_catchup(self, hash)
     }
 
-    fn is_block_challenged(&self, hash: &CryptoHash) -> Result<bool, Error> {
-        ChainStoreAdapter::is_block_challenged(self, hash)
-    }
-
     fn is_invalid_chunk(
         &self,
         chunk_hash: &ChunkHash,
@@ -1054,7 +1046,6 @@ pub struct ChainStoreUpdate<'a> {
     remove_prev_blocks_to_catchup: Vec<CryptoHash>,
     add_state_sync_infos: Vec<StateSyncInfo>,
     remove_state_sync_infos: Vec<CryptoHash>,
-    challenged_blocks: HashSet<CryptoHash>,
     chunk_apply_stats: HashMap<(CryptoHash, ShardId), ChunkApplyStats>,
 }
 
@@ -1078,7 +1069,6 @@ impl<'a> ChainStoreUpdate<'a> {
             remove_prev_blocks_to_catchup: vec![],
             add_state_sync_infos: vec![],
             remove_state_sync_infos: vec![],
-            challenged_blocks: HashSet::default(),
             chunk_apply_stats: HashMap::default(),
         }
     }
@@ -1317,13 +1307,6 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
         self.chain_store.get_blocks_to_catchup(prev_hash)
     }
 
-    fn is_block_challenged(&self, hash: &CryptoHash) -> Result<bool, Error> {
-        if self.challenged_blocks.contains(hash) {
-            return Ok(true);
-        }
-        self.chain_store.is_block_challenged(hash)
-    }
-
     fn is_invalid_chunk(
         &self,
         chunk_hash: &ChunkHash,
@@ -1396,7 +1379,7 @@ impl<'a> ChainStoreUpdate<'a> {
     /// Update both header and block body head.
     pub fn save_head(&mut self, t: &Tip) -> Result<(), Error> {
         self.save_body_head(t)?;
-        self.save_header_head_if_not_challenged(t)
+        self.save_header_head(t)
     }
 
     /// Update block body head and latest known height.
@@ -1411,13 +1394,9 @@ impl<'a> ChainStoreUpdate<'a> {
         Ok(())
     }
 
-    /// This function checks that the block is not on a chain with challenged blocks and updates
-    /// fields in ChainStore that stores information of the canonical chain
-    fn update_height_if_not_challenged(
-        &mut self,
-        height: BlockHeight,
-        hash: CryptoHash,
-    ) -> Result<(), Error> {
+    /// Updates fields in the ChainStore that store information about the
+    /// canonical chain.
+    fn update_height(&mut self, height: BlockHeight, hash: CryptoHash) -> Result<(), Error> {
         let mut prev_hash = hash;
         let mut prev_height = height;
         loop {
@@ -1438,12 +1417,6 @@ impl<'a> ChainStoreUpdate<'a> {
                     return Ok(());
                 }
                 _ => {
-                    // TODO: remove this check from this function and use Chain::check_if_challenged_block_on_chain
-                    // I'm not doing that now because I'm afraid that this will make header sync take
-                    // even longer.
-                    if self.is_block_challenged(&header_hash)? {
-                        return Err(Error::ChallengedBlockOnChain);
-                    }
                     self.chain_store_cache_update
                         .height_to_hashes
                         .insert(header_height, Some(header_hash));
@@ -1458,9 +1431,9 @@ impl<'a> ChainStoreUpdate<'a> {
     }
 
     /// Update header head and height to hash index for this branch.
-    pub fn save_header_head_if_not_challenged(&mut self, t: &Tip) -> Result<(), Error> {
+    pub fn save_header_head(&mut self, t: &Tip) -> Result<(), Error> {
         if t.height > self.chain_store.get_genesis_height() {
-            self.update_height_if_not_challenged(t.height, t.prev_block_hash)?;
+            self.update_height(t.height, t.prev_block_hash)?;
         }
         self.try_save_latest_known(t.height)?;
 
@@ -1547,10 +1520,10 @@ impl<'a> ChainStoreUpdate<'a> {
         self.chain_store_cache_update.chunks.insert(chunk.chunk_hash(), Arc::new(chunk));
     }
 
-    pub fn save_partial_chunk(&mut self, partial_chunk: PartialEncodedChunk) {
+    pub fn save_partial_chunk(&mut self, partial_chunk: Arc<PartialEncodedChunk>) {
         self.chain_store_cache_update
             .partial_chunks
-            .insert(partial_chunk.chunk_hash(), Arc::new(partial_chunk));
+            .insert(partial_chunk.chunk_hash(), partial_chunk);
     }
 
     pub fn save_block_merkle_tree(
@@ -1679,10 +1652,6 @@ impl<'a> ChainStoreUpdate<'a> {
 
     pub fn remove_state_sync_info(&mut self, hash: CryptoHash) {
         self.remove_state_sync_infos.push(hash);
-    }
-
-    pub fn save_challenged_block(&mut self, hash: CryptoHash) {
-        self.challenged_blocks.insert(hash);
     }
 
     pub fn save_invalid_chunk(&mut self, chunk: EncodedShardChunk) {
@@ -2100,9 +2069,6 @@ impl<'a> ChainStoreUpdate<'a> {
         for hash in self.remove_state_sync_infos.drain(..) {
             store_update.delete(DBCol::StateDlInfos, hash.as_ref());
         }
-        for hash in self.challenged_blocks.drain() {
-            store_update.set_ser(DBCol::ChallengedBlocks, hash.as_ref(), &true)?;
-        }
         for (chunk_hash, chunk) in self.chain_store_cache_update.invalid_chunks.iter() {
             store_update.insert_ser(DBCol::InvalidChunks, chunk_hash.as_ref(), chunk)?;
         }
@@ -2170,9 +2136,7 @@ mod tests {
                 TestBlockBuilder::new(Clock::real(), &prev_block, signer.clone()).height(i).build();
             prev_block = block.clone();
             store_update.save_block_header(block.header().clone()).unwrap();
-            store_update
-                .update_height_if_not_challenged(block.header().height(), *block.hash())
-                .unwrap();
+            store_update.update_height(block.header().height(), *block.hash()).unwrap();
             long_fork.push(block);
             store_update.commit().unwrap();
         }
@@ -2207,9 +2171,7 @@ mod tests {
                 TestBlockBuilder::new(Clock::real(), &prev_block, signer.clone()).height(i).build();
             prev_block = block.clone();
             store_update.save_block_header(block.header().clone()).unwrap();
-            store_update
-                .update_height_if_not_challenged(block.header().height(), *block.hash())
-                .unwrap();
+            store_update.update_height(block.header().height(), *block.hash()).unwrap();
             blocks.push(block);
             store_update.commit().unwrap();
         }
@@ -2227,9 +2189,7 @@ mod tests {
 
         let mut store_update = chain.mut_chain_store().store_update();
         store_update.save_block_header(new_block.header().clone()).unwrap();
-        store_update
-            .update_height_if_not_challenged(new_block.header().height(), *new_block.hash())
-            .unwrap();
+        store_update.update_height(new_block.header().height(), *new_block.hash()).unwrap();
         store_update.commit().unwrap();
         assert_eq!(
             chain
