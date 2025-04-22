@@ -517,20 +517,13 @@ impl ShardChunkHeader {
         &self,
         version: ProtocolVersion,
     ) -> Result<(), BadHeaderForProtocolVersionError> {
-        // TODO: should this check minimum version?
         let is_valid = match &self {
             ShardChunkHeader::V1(_) => false,
             ShardChunkHeader::V2(_) => false,
             ShardChunkHeader::V3(header) => match header.inner {
                 ShardChunkHeaderInner::V1(_) => false,
-                // In bandwidth scheduler version v3 and v4 are allowed. The first chunk in
-                // the bandwidth scheduler version will be v3 because the chunk extra for the
-                // last chunk of previous version doesn't have bandwidth requests.
-                // v2 is also allowed in the bandwidth scheduler version because there
-                // are multiple tests which upgrade from an old version directly to the
-                // latest version. TODO(#12328) - don't allow InnerV2 in bandwidth scheduler version.
-                ShardChunkHeaderInner::V2(_) => true,
-                ShardChunkHeaderInner::V3(_) => true,
+                ShardChunkHeaderInner::V2(_) => false,
+                ShardChunkHeaderInner::V3(_) => false,
                 ShardChunkHeaderInner::V4(_) => true,
             },
         };
