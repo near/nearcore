@@ -405,27 +405,14 @@ impl ReceiptSinkV2 {
         // limit" is the safest approach to ensure availability.
         let default_gas_limit = Gas::MAX;
 
-        let default_size_limit =
-            if ProtocolFeature::BandwidthScheduler.enabled(apply_state.current_protocol_version) {
-                // With bandwidth scheduler, a shard is not allowed to send any receipts if it doesn't have a grant.
-                0
-            } else {
-                // Use the usual size limit that most senders have
-                apply_state.config.congestion_control_config.outgoing_receipts_usual_size_limit
-            };
+        // Since bandwidth scheduler, a shard is not allowed to send any receipts if it doesn't have a grant.
+        let default_size_limit = 0;
 
         let default_outgoing_limit =
             OutgoingLimit { gas: default_gas_limit, size: default_size_limit };
         let forward_limit = outgoing_limit.entry(shard).or_insert(default_outgoing_limit);
 
-        let can_forward =
-            if ProtocolFeature::BandwidthScheduler.enabled(apply_state.current_protocol_version) {
-                forward_limit.gas >= gas && forward_limit.size >= size
-            } else {
-                forward_limit.gas > gas && forward_limit.size > size
-            };
-
-        if can_forward {
+        if forward_limit.gas >= gas && forward_limit.size >= size {
             tracing::trace!(target: "runtime", ?shard, receipt_id=?receipt.receipt_id(), "forwarding buffered receipt");
             outgoing_receipts.push(receipt);
             // underflow impossible: checked forward_limit > gas/size_to_forward above

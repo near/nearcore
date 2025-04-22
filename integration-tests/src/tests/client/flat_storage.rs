@@ -11,7 +11,6 @@ use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::ShardId;
-use near_primitives::version::ProtocolFeature;
 use near_primitives_core::types::BlockHeight;
 use near_store::adapter::StoreAdapter;
 use near_store::test_utils::create_test_store;
@@ -53,12 +52,7 @@ fn test_flat_storage_iter() {
 
     // Since the BandwidthScheduler feature there is one more entry on every shard - BandwidthSchedulerState
     // The test should expect one more entry on every shard.
-    let protocol_version_modifier =
-        if ProtocolFeature::BandwidthScheduler.enabled(genesis.config.protocol_version) {
-            1
-        } else {
-            0
-        };
+    let bandwidth_scheduler_modifier = 1;
 
     let [s0, s1, s2] = shard_layout.shard_ids().collect_vec()[..] else {
         panic!("Expected 3 shards in the shard layout!");
@@ -74,7 +68,7 @@ fn test_flat_storage_iter() {
         }
 
         if shard_id == s0 {
-            let expected = 2 + protocol_version_modifier;
+            let expected = 2 + bandwidth_scheduler_modifier;
             assert_eq!(expected, items.len());
             // Two entries - one for 'near' system account, the other for the contract.
             // (with newer protocol: +1 for BandwidthSchedulerState)
@@ -86,7 +80,7 @@ fn test_flat_storage_iter() {
         if shard_id == s1 {
             // Two entries - one for account, the other for contract.
             // (with newer protocol: +1 for BandwidthSchedulerState)
-            let expected = 2 + protocol_version_modifier;
+            let expected = 2 + bandwidth_scheduler_modifier;
             assert_eq!(expected, items.len());
             assert_eq!(
                 TrieKey::Account { account_id: "test0".parse().unwrap() }.to_vec(),
@@ -96,7 +90,7 @@ fn test_flat_storage_iter() {
         if shard_id == s2 {
             // Test1 account was not created yet - so no entries.
             // (with newer protocol: +1 for BandwidthSchedulerState)
-            let expected = 0 + protocol_version_modifier;
+            let expected = 0 + bandwidth_scheduler_modifier;
             assert_eq!(expected, items.len());
         }
     }
