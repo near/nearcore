@@ -1953,7 +1953,7 @@ impl Chain {
         for (shard_id, cached_shard_update_key, apply_result) in apply_result.into_iter() {
             match apply_result {
                 Ok(result) => {
-                    info!(
+                    debug!(
                         target: "chain", ?prev_block_hash, block_height,
                         ?shard_id, ?cached_shard_update_key,
                         "Caching ShardUpdate result from OptimisticBlock"
