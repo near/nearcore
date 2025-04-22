@@ -50,10 +50,6 @@ fn test_flat_storage_iter() {
         env.produce_block(0, height);
     }
 
-    // Since the BandwidthScheduler feature there is one more entry on every shard - BandwidthSchedulerState
-    // The test should expect one more entry on every shard.
-    let bandwidth_scheduler_modifier = 1;
-
     let [s0, s1, s2] = shard_layout.shard_ids().collect_vec()[..] else {
         panic!("Expected 3 shards in the shard layout!");
     };
@@ -68,10 +64,10 @@ fn test_flat_storage_iter() {
         }
 
         if shard_id == s0 {
-            let expected = 2 + bandwidth_scheduler_modifier;
-            assert_eq!(expected, items.len());
             // Two entries - one for 'near' system account, the other for the contract.
             // (with newer protocol: +1 for BandwidthSchedulerState)
+            let expected = 3;
+            assert_eq!(expected, items.len());
             assert_eq!(
                 TrieKey::Account { account_id: "near".parse().unwrap() }.to_vec(),
                 items[0].as_ref().unwrap().0.to_vec()
@@ -80,7 +76,7 @@ fn test_flat_storage_iter() {
         if shard_id == s1 {
             // Two entries - one for account, the other for contract.
             // (with newer protocol: +1 for BandwidthSchedulerState)
-            let expected = 2 + bandwidth_scheduler_modifier;
+            let expected = 3;
             assert_eq!(expected, items.len());
             assert_eq!(
                 TrieKey::Account { account_id: "test0".parse().unwrap() }.to_vec(),
@@ -90,7 +86,7 @@ fn test_flat_storage_iter() {
         if shard_id == s2 {
             // Test1 account was not created yet - so no entries.
             // (with newer protocol: +1 for BandwidthSchedulerState)
-            let expected = 0 + bandwidth_scheduler_modifier;
+            let expected = 1;
             assert_eq!(expected, items.len());
         }
     }
