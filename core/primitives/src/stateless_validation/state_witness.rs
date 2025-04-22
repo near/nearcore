@@ -301,6 +301,13 @@ impl ChunkStateWitness {
         }
     }
 
+    pub fn mut_main_state_transition(&mut self) -> &mut ChunkStateTransition {
+        match self {
+            ChunkStateWitness::V1(witness) => &mut witness.main_state_transition,
+            ChunkStateWitness::V2(witness) => &mut witness.main_state_transition,
+        }
+    }
+
     pub fn source_receipt_proofs(&self) -> &HashMap<ChunkHash, ReceiptProof> {
         match self {
             ChunkStateWitness::V1(witness) => &witness.source_receipt_proofs,

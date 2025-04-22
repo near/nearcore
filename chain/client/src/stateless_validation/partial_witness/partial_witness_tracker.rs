@@ -420,7 +420,7 @@ impl PartialEncodedStateWitnessTracker {
                 }
             };
 
-            let (witness, raw_witness_size) = self.decode_state_witness(&encoded_witness)?;
+            let (mut witness, raw_witness_size) = self.decode_state_witness(&encoded_witness)?;
             if witness.chunk_production_key() != key {
                 return Err(Error::InvalidPartialChunkStateWitness(format!(
                     "Decoded witness key {:?} doesn't match partial witness {:?}",
@@ -430,8 +430,8 @@ impl PartialEncodedStateWitnessTracker {
             }
 
             // Merge accessed contracts into the main transition's partial state.
-            let PartialState::TrieValues(mut values) =
-                witness.main_state_transition().base_state.clone();
+            let PartialState::TrieValues(values) =
+                &mut witness.mut_main_state_transition().base_state;
             values.extend(accessed_contracts.into_iter().map(|code| code.0.into()));
 
             tracing::debug!(target: "client", ?key, "Sending encoded witness to client.");
