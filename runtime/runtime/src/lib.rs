@@ -1550,7 +1550,6 @@ impl Runtime {
         let own_congestion_info =
             apply_state.own_congestion_info(&processing_state.state_update)?;
         let mut receipt_sink = ReceiptSink::new(
-            processing_state.protocol_version,
             &processing_state.state_update.trie,
             apply_state,
             own_congestion_info,
@@ -2342,7 +2341,7 @@ fn action_transfer_or_implicit_account_creation(
 fn missing_chunk_apply_result(
     delayed_receipts: &DelayedReceiptQueueWrapper,
     processing_state: ApplyProcessingState,
-    bandwidth_scheduler_output: &Option<BandwidthSchedulerOutput>,
+    bandwidth_scheduler_output: &BandwidthSchedulerOutput,
 ) -> Result<ApplyResult, RuntimeError> {
     let TrieUpdateResult { trie, trie_changes, state_changes, contract_updates } =
         processing_state.state_update.finalize()?;
@@ -2381,10 +2380,7 @@ fn missing_chunk_apply_result(
         metrics: None,
         congestion_info,
         bandwidth_requests: previous_bandwidth_requests,
-        bandwidth_scheduler_state_hash: bandwidth_scheduler_output
-            .as_ref()
-            .map(|o| o.scheduler_state_hash)
-            .unwrap_or_default(),
+        bandwidth_scheduler_state_hash: bandwidth_scheduler_output.scheduler_state_hash,
         contract_updates,
     });
 }
@@ -2744,7 +2740,6 @@ pub mod estimator {
             state_update,
             std::iter::once(shard_uid.shard_id()),
             ReceiptGroupsConfig::default_config(),
-            apply_state.current_protocol_version,
         )?;
 
         let mut receipt_sink = ReceiptSink::V2(ReceiptSinkV2 {
@@ -2754,7 +2749,6 @@ pub mod estimator {
             outgoing_receipts: Vec::new(),
             outgoing_metadatas,
             bandwidth_scheduler_output: None,
-            protocol_version: apply_state.current_protocol_version,
             stats: ReceiptSinkStats::default(),
         });
         let empty_pipeline = ReceiptPreparationPipeline::new(

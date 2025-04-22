@@ -542,9 +542,7 @@ impl ShardChunkHeader {
         &self,
         version: ProtocolVersion,
     ) -> Result<(), BadHeaderForProtocolVersionError> {
-        const BANDWIDTH_SCHEDULER_VERSION: ProtocolVersion =
-            ProtocolFeature::BandwidthScheduler.protocol_version();
-
+        // TODO: should this check minimum version?
         let is_valid = match &self {
             ShardChunkHeader::V1(_) => false,
             ShardChunkHeader::V2(_) => false,
@@ -558,7 +556,7 @@ impl ShardChunkHeader {
                 // latest version. TODO(#12328) - don't allow InnerV2 in bandwidth scheduler version.
                 ShardChunkHeaderInner::V2(_) => true,
                 ShardChunkHeaderInner::V3(_) => true,
-                ShardChunkHeaderInner::V4(_) => version >= BANDWIDTH_SCHEDULER_VERSION,
+                ShardChunkHeaderInner::V4(_) => true,
             },
         };
 
