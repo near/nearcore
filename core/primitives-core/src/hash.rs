@@ -111,8 +111,8 @@ impl schemars::JsonSchema for CryptoHash {
         "CryptoHash".to_string().into()
     }
 
-    fn json_schema(gen: &mut schemars::SchemaGenerator) -> schemars::Schema {
-        String::json_schema(gen)
+    fn json_schema(generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
+        String::json_schema(generator)
     }
 }
 

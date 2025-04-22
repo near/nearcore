@@ -2053,6 +2053,7 @@ pub enum ReceiptEnumView {
         target_shard: ShardId,
         already_delivered_shards: Vec<ShardId>,
         #[serde_as(as = "Base64")]
+        #[cfg_attr(feature = "schemars", schemars(with = "String"))]
         code: Vec<u8>,
     },
 }

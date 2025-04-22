@@ -47,8 +47,8 @@ impl<T: schemars::JsonSchema> schemars::JsonSchema for MutableConfigValue<T> {
         "MutableConfigValue".to_string().into()
     }
 
-    fn json_schema(gen: &mut schemars::SchemaGenerator) -> schemars::Schema {
-        String::json_schema(gen)
+    fn json_schema(generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
+        String::json_schema(generator)
     }
 }
 

@@ -301,8 +301,8 @@ impl schemars::JsonSchema for ShardLayoutV2 {
         "ShardLayoutV2".to_string().into()
     }
 
-    fn json_schema(gen: &mut schemars::SchemaGenerator) -> schemars::Schema {
-        SerdeShardLayoutV2::json_schema(gen)
+    fn json_schema(generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
+        SerdeShardLayoutV2::json_schema(generator)
     }
 }
 

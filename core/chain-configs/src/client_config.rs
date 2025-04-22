@@ -552,6 +552,7 @@ pub struct ClientConfig {
     #[cfg_attr(feature = "schemars", schemars(with = "[u64;2]"))]
     pub max_block_wait_delay: Duration,
     /// Multiplier for the wait time for all chunks to be received.
+    #[cfg_attr(feature = "schemars", schemars(with = "[i32; 2]"))]
     pub chunk_wait_mult: Rational32,
     /// Skip waiting for sync (for testing or single node testnet).
     pub skip_sync_wait: bool,
@@ -619,6 +620,7 @@ pub struct ClientConfig {
     pub block_header_fetch_horizon: BlockHeightDelta,
     /// Garbage collection configuration.
     pub gc: GCConfig,
+    #[cfg_attr(feature = "schemars", schemars(with = "[i32; 2]"))]
     pub tracked_shards_config: TrackedShardsConfig,
     /// Not clear old data, set `true` for archive nodes.
     pub archive: bool,
