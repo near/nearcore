@@ -29,6 +29,16 @@ pub struct BandwidthSchedulerOutput {
     pub scheduler_state_hash: CryptoHash,
 }
 
+impl BandwidthSchedulerOutput {
+    pub(crate) fn default_from(params: BandwidthSchedulerParams) -> Self {
+        BandwidthSchedulerOutput {
+            granted_bandwidth: GrantedBandwidth::default(),
+            params,
+            scheduler_state_hash: CryptoHash::default(),
+        }
+    }
+}
+
 /// Run the bandwidth scheduler algorithm to figure out how many bytes
 /// of outgoing receipts can be sent between shards at the current height.
 pub fn run_bandwidth_scheduler(

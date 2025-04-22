@@ -50,7 +50,7 @@ pub struct ReceiptSinkV2 {
     pub(crate) outgoing_limit: HashMap<ShardId, OutgoingLimit>,
     pub(crate) outgoing_buffers: ShardsOutgoingReceiptBuffer,
     pub(crate) outgoing_metadatas: OutgoingMetadatas,
-    pub(crate) bandwidth_scheduler_output: Option<BandwidthSchedulerOutput>,
+    pub(crate) bandwidth_scheduler_output: BandwidthSchedulerOutput,
     pub(crate) stats: ReceiptSinkStats,
 }
 
@@ -113,7 +113,6 @@ impl ReceiptSink {
             outgoing_limit.iter().map(|(shard_id, limit)| (*shard_id, (limit.size, limit.gas))),
         );
 
-        let bandwidth_scheduler_output = Some(bandwidth_scheduler_output);
         Ok(ReceiptSink::V2(ReceiptSinkV2 {
             own_congestion_info: prev_own_congestion_info,
             outgoing_receipts: Vec::new(),
@@ -181,9 +180,9 @@ impl ReceiptSink {
         }
     }
 
-    pub(crate) fn bandwidth_scheduler_output(&self) -> Option<&BandwidthSchedulerOutput> {
+    pub(crate) fn bandwidth_scheduler_output(&self) -> &BandwidthSchedulerOutput {
         match self {
-            ReceiptSink::V2(inner) => inner.bandwidth_scheduler_output.as_ref(),
+            ReceiptSink::V2(inner) => &inner.bandwidth_scheduler_output,
         }
     }
 
@@ -194,7 +193,7 @@ impl ReceiptSink {
         shard_layout: &ShardLayout,
         side_effects: bool,
         stats: &mut ChunkApplyStatsV0,
-    ) -> Result<Option<BandwidthRequests>, StorageError> {
+    ) -> Result<BandwidthRequests, StorageError> {
         match self {
             ReceiptSink::V2(inner) => {
                 inner.generate_bandwidth_requests(trie, shard_layout, side_effects, stats)
@@ -471,28 +470,21 @@ impl ReceiptSinkV2 {
         shard_layout: &ShardLayout,
         side_effects: bool,
         stats: &mut ChunkApplyStatsV0,
-    ) -> Result<Option<BandwidthRequests>, StorageError> {
-        let params = match self.bandwidth_scheduler_output {
-            Some(ref output) => output.params,
-            None => return Ok(None),
-        };
+    ) -> Result<BandwidthRequests, StorageError> {
+        let params = &self.bandwidth_scheduler_output.params;
 
         let mut requests = Vec::new();
         for shard_id in shard_layout.shard_ids() {
-            if let Some(request) = self.generate_bandwidth_request(
-                shard_id,
-                trie,
-                shard_layout,
-                side_effects,
-                &params,
-            )? {
+            if let Some(request) =
+                self.generate_bandwidth_request(shard_id, trie, shard_layout, side_effects, params)?
+            {
                 requests.push(request);
             }
         }
 
         let bandwidth_requests = BandwidthRequests::V1(BandwidthRequestsV1 { requests });
         stats.set_new_bandwidth_requests(&bandwidth_requests, &params);
-        Ok(Some(bandwidth_requests))
+        Ok(bandwidth_requests)
     }
 
     fn generate_bandwidth_request(
