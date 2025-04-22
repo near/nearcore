@@ -333,6 +333,11 @@ impl<'a> ValidatorRestrictionsBuilder<'a> {
             }
         };
 
+        if prev_shard_index >= self.prev_epoch_info.chunk_producers_settlement().len() {
+            debug!(target: "epoch-manager", ?prev_shard_id, "Shard index not found in the previous epoch info. Skipping restriction.");
+            return self;
+        }
+
         self.prev_epoch_info.chunk_producers_settlement()[prev_shard_index].iter().for_each(
             |validator_id| {
                 let account_id =
@@ -386,11 +391,11 @@ impl AssignmentRestrictions {
         account_id: &AccountId,
         new_shard_index: ShardIndex,
     ) -> bool {
-        // The index is guaranteed to be valid by the caller.
-        let new_shard_id = self.new_shard_layout.get_shard_id(new_shard_index).unwrap();
-        self.validator_restrictions
-            .get(account_id)
-            .map_or(true, |restrictions| !restrictions.contains(&new_shard_id))
+        self.new_shard_layout.get_shard_id(new_shard_index).map_or(true, |new_shard_id| {
+            self.validator_restrictions
+                .get(account_id)
+                .map_or(true, |restrictions| !restrictions.contains(&new_shard_id))
+        })
     }
 }
 
