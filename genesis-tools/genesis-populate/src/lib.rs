@@ -283,7 +283,6 @@ impl GenesisBuilder {
                 genesis.hash(),
                 &shard_uid,
                 ChunkExtra::new(
-                    self.genesis.config.protocol_version,
                     &state_root,
                     CryptoHash::default(),
                     vec![],
@@ -291,7 +290,7 @@ impl GenesisBuilder {
                     self.genesis.config.gas_limit,
                     0,
                     Some(congestion_info),
-                    chunk_header.bandwidth_requests().cloned(),
+                    chunk_header.bandwidth_requests().cloned().unwrap_or_default(),
                 ),
             );
         }

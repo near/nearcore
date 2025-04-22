@@ -6,7 +6,7 @@ use bitvec::slice::BitSlice;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_parameters::RuntimeConfig;
 use near_primitives_core::hash::CryptoHash;
-use near_primitives_core::types::{ProtocolVersion, ShardId};
+use near_primitives_core::types::ShardId;
 use near_schema_checker_lib::ProtocolSchema;
 
 /// Represents size of receipts, in the context of cross-shard bandwidth, in bytes.
@@ -34,11 +34,11 @@ impl BandwidthRequests {
     pub fn empty() -> BandwidthRequests {
         BandwidthRequests::V1(BandwidthRequestsV1 { requests: Vec::new() })
     }
+}
 
-    pub fn default_for_protocol_version(
-        protocol_version: ProtocolVersion,
-    ) -> Option<BandwidthRequests> {
-        Some(BandwidthRequests::empty())
+impl Default for BandwidthRequests {
+    fn default() -> Self {
+        BandwidthRequests::empty()
     }
 }
 

@@ -218,9 +218,8 @@ pub fn create_chunk(
             decoded_chunk.prev_outgoing_receipts().to_vec(),
             header.prev_outgoing_receipts_root(),
             header.congestion_info(),
-            header.bandwidth_requests().cloned(),
+            header.bandwidth_requests().cloned().unwrap_or_default(),
             &*signer,
-            PROTOCOL_VERSION,
         );
         swap(&mut encoded_chunk, &mut new_encoded_chunk);
         swap(&mut merkle_paths, &mut new_merkle_paths);

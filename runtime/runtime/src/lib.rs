@@ -299,7 +299,7 @@ pub struct ApplyResult {
     pub delayed_receipts_count: u64,
     pub metrics: Option<metrics::ApplyMetrics>,
     pub congestion_info: Option<CongestionInfo>,
-    pub bandwidth_requests: Option<BandwidthRequests>,
+    pub bandwidth_requests: BandwidthRequests,
     /// Used only for a sanity check.
     pub bandwidth_scheduler_state_hash: CryptoHash,
     /// Contracts accessed and deployed while applying the chunk.
@@ -2275,7 +2275,7 @@ impl Runtime {
             delayed_receipts_count,
             metrics: Some(processing_state.metrics),
             congestion_info: Some(own_congestion_info),
-            bandwidth_requests,
+            bandwidth_requests: bandwidth_requests.expect("bandwidth requests should be present"),
             bandwidth_scheduler_state_hash,
             contract_updates,
         })
@@ -2363,7 +2363,8 @@ fn missing_chunk_apply_result(
         .bandwidth_requests
         .shards_bandwidth_requests
         .get(&processing_state.apply_state.shard_id)
-        .cloned();
+        .cloned()
+        .unwrap_or_default();
 
     return Ok(ApplyResult {
         state_root: trie_changes.new_root,
