@@ -359,7 +359,7 @@ impl TrieUpdate {
             .or_else(|err| {
                 // If the value for the trie key is not found, we treat it as if the contract does not exist.
                 // In this case, we ignore the error and skip recording the contract call below.
-                if matches!(err, StorageError::MissingTrieValue(_, _)) {
+                if matches!(err, StorageError::MissingTrieValue(_)) {
                     Ok(None)
                 } else {
                     Err(err)

@@ -10,6 +10,7 @@ use std::hash::{Hash, Hasher};
 use std::io::{Error, ErrorKind, Read, Write};
 use std::str::FromStr;
 use std::sync::LazyLock;
+use schemars;
 
 pub static SECP256K1: LazyLock<secp256k1::Secp256k1<secp256k1::All>> =
     LazyLock::new(secp256k1::Secp256k1::new);
@@ -67,7 +68,7 @@ fn split_key_type_data(value: &str) -> Result<(KeyType, &str), crate::errors::Pa
 }
 
 #[derive(
-    Clone, Eq, Ord, PartialEq, PartialOrd, derive_more::AsRef, derive_more::From, ProtocolSchema,
+    Clone, Eq, Ord, PartialEq, PartialOrd, derive_more::AsRef, derive_more::From, ProtocolSchema
 )]
 #[cfg_attr(test, derive(bolero::TypeGenerator))]
 #[as_ref(forward)]
@@ -91,8 +92,9 @@ impl std::fmt::Debug for Secp256K1PublicKey {
 }
 
 #[derive(
-    Clone, Eq, Ord, PartialEq, PartialOrd, derive_more::AsRef, derive_more::From, ProtocolSchema,
+    Clone, Eq, Ord, PartialEq, PartialOrd, derive_more::AsRef, derive_more::From, ProtocolSchema
 )]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(test, derive(bolero::TypeGenerator))]
 #[as_ref(forward)]
 pub struct ED25519PublicKey(pub [u8; ed25519_dalek::PUBLIC_KEY_LENGTH]);
@@ -269,6 +271,17 @@ impl FromStr for PublicKey {
             KeyType::ED25519 => Self::ED25519(ED25519PublicKey(decode_bs58(key_data)?)),
             KeyType::SECP256K1 => Self::SECP256K1(Secp256K1PublicKey(decode_bs58(key_data)?)),
         })
+    }
+}
+
+#[cfg(feature = "schemars")]
+impl schemars::JsonSchema for PublicKey {
+    fn schema_name() -> std::borrow::Cow<'static, str> {
+        "PublicKey".to_string().into()
+    }
+
+    fn json_schema(gen: &mut schemars::SchemaGenerator) -> schemars::Schema {
+        String::json_schema(gen)
     }
 }
 
@@ -499,6 +512,12 @@ impl Debug for Secp256K1Signature {
     }
 }
 
+// #[derive(Debug, serde::Serialize, serde::Deserialize, JsonSchema)]
+// pub struct MyWrapper {
+//     #[schemars(flatten)]
+//     inner: ed25519_dalek::Signature,
+// }
+
 /// Signature container supporting different curves.
 #[derive(Clone, PartialEq, Eq, ProtocolSchema)]
 pub enum Signature {
@@ -698,6 +717,17 @@ impl<'de> serde::Deserialize<'de> for Signature {
         s.parse().map_err(|err: crate::errors::ParseSignatureError| {
             serde::de::Error::custom(err.to_string())
         })
+    }
+}
+
+#[cfg(feature = "schemars")]
+impl schemars::JsonSchema for Signature {
+    fn schema_name() -> std::borrow::Cow<'static, str> {
+        "Signature".to_string().into()
+    }
+
+    fn json_schema(gen: &mut schemars::SchemaGenerator) -> schemars::Schema {
+        String::json_schema(gen)
     }
 }
 

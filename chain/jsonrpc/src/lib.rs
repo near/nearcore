@@ -30,7 +30,7 @@ use near_jsonrpc_primitives::types::split_storage::{
     RpcSplitStorageInfoRequest, RpcSplitStorageInfoResponse,
 };
 use near_jsonrpc_primitives::types::transactions::{
-    RpcSendTransactionRequest, RpcTransactionResponse,
+    RpcSendTransactionRequest, RpcTransactionResponse
 };
 use near_network::debug::GetDebugStatus;
 use near_network::tcp::{self, ListenerAddr};
@@ -46,6 +46,10 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::time::{sleep, timeout};
 use tracing::{error, info};
+use schemars::schema_for;
+
+use std::fs::File;
+use std::io::Write;
 
 mod api;
 mod metrics;
@@ -309,6 +313,13 @@ impl JsonRpcHandler {
     // `process_request` increments affected metrics but the request processing is done by
     // `process_request_internal`.
     async fn process_request(&self, request: Request) -> Result<Value, RpcError> {
+        let schema = schema_for!(        near_jsonrpc_primitives::types::query::RpcQueryResponse       );
+        let json_schema = serde_json::to_string_pretty(&schema).unwrap();
+        let file = File::create("output.txt"); // Overwrites if file exists
+        if let Ok(mut thefile) = file {
+            let _ = thefile.write_all(        format!("{}", json_schema).as_bytes()    ); // Writing bytes
+        }
+
         let timer = Instant::now();
         let (metrics_name, response) = self.process_request_internal(request).await;
 

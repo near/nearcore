@@ -34,6 +34,7 @@ members = [
     "chain/jsonrpc/client",
     "chain/jsonrpc/fuzz",
     "chain/jsonrpc/jsonrpc-tests",
+    "chain/jsonrpc/openapi",
     "chain/network",
     "chain/pool",
     "chain/rosetta-rpc",
@@ -235,6 +236,7 @@ near-account-id = { version = "1.1.1", features = [
     "internal_unstable",
     "serde",
     "borsh",
+    "schemars-alpha",
 ] }
 near-actix-test-utils = { path = "test-utils/actix-test-utils" }
 near-amend-genesis = { path = "tools/amend-genesis" }
@@ -291,7 +293,7 @@ near-store = { path = "core/store" }
 near-transactions-generator = { path = "benchmarks/transactions-generator" }
 near-telemetry = { path = "chain/telemetry" }
 near-test-contracts = { path = "runtime/near-test-contracts" }
-near-time = { path = "core/time" }
+near-time = { path = "core/time", features = ["clock"] }
 near-undo-block = { path = "tools/undo-block" }
 near-dump-test-contract = { path = "tools/dump-test-contract" }
 near-vm-test-api = { path = "runtime/near-vm/test-api" }
@@ -311,6 +313,7 @@ num-bigint = "0.3"
 num_cpus = "1.11"
 num-rational = { version = "0.3.1", features = ["serde"] }
 num-traits = "0.2.15"
+okapi = { git = "https://github.com/polyprogrammist/okapi.git", branch = "alpha", features = ["schemars-alpha"] }
 object_store = { version = "0.12", features = ["gcp"] }
 openssl-probe = "0.1.4"
 opentelemetry = { version = "0.22.0", features = ["trace"] }
@@ -365,6 +368,7 @@ serde_json = "1.0.68"
 serde_repr = "0.1.8"
 serde_with = { version = "3.0", features = ["base64"] }
 serde_yaml = "0.9"
+schemars = { version = "1.0.0-alpha.17", features = ["chrono04"]}
 sha2 = "0.10"
 sha3 = "0.10"
 smallvec = "1.6"
