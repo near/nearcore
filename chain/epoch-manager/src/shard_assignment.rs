@@ -9,6 +9,7 @@ use near_primitives::utils::min_heap::{MinHeap, PeekMut};
 use near_store::trie::ShardUId;
 use rand::Rng;
 use std::collections::{BTreeSet, HashMap, HashSet};
+use tracing::{self, debug};
 
 /// Marker struct to communicate the error where you try to assign validators to shards
 /// and there are not enough to even meet the minimum per shard.
@@ -324,7 +325,13 @@ impl<'a> ValidatorRestrictionsBuilder<'a> {
         prev_shard_id: ShardId,
         new_shard_id: ShardId,
     ) -> Self {
-        let prev_shard_index = self.prev_shard_layout.get_shard_index(prev_shard_id).unwrap();
+        let prev_shard_index = match self.prev_shard_layout.get_shard_index(prev_shard_id) {
+            Ok(index) => index,
+            Err(_) => {
+                debug!(target: "epoch-manager", ?prev_shard_id, "Shard id not found in the previous shard layout. Skipping restriction.");
+                return self;
+            }
+        };
 
         self.prev_epoch_info.chunk_producers_settlement()[prev_shard_index].iter().for_each(
             |validator_id| {
