@@ -1714,23 +1714,6 @@ impl Trie {
         retain_mode: RetainMode,
     ) -> Result<TrieChanges, StorageError> {
         if self.memtries.is_some() {
-            // Get child trie_changes for all child memtries
-            let children_memtrie_changes = self
-                .children_memtries
-                .iter()
-                .map(|(shard_uid, memtrie)| {
-                    let inner_guard = memtrie.read().unwrap();
-                    let mut trie_update =
-                        inner_guard.update(self.root, TrackingMode::None).unwrap();
-                    trie_update.retain_split_shard(
-                        boundary_account,
-                        retain_mode,
-                        AccessOptions::DEFAULT,
-                    );
-                    (*shard_uid, trie_update.to_memtrie_changes_only())
-                })
-                .collect::<HashMap<_, _>>();
-
             // Get trie_update for memtrie
             let guard = self.memtries.as_ref().unwrap().read().unwrap();
             let mut recorder =
@@ -1741,9 +1724,22 @@ impl Trie {
             };
             let mut trie_update = guard.update(self.root, tracking_mode)?;
             trie_update.retain_split_shard(boundary_account, retain_mode, AccessOptions::DEFAULT);
-
             let mut trie_changes = trie_update.to_trie_changes();
-            trie_changes.children_memtrie_changes = children_memtrie_changes;
+
+            // Get child trie_changes for all child memtries
+            for (shard_uid, memtrie) in &self.children_memtries {
+                let inner_guard = memtrie.read().unwrap();
+                let mut trie_update = inner_guard.update(self.root, TrackingMode::None).unwrap();
+                trie_update.retain_split_shard(
+                    boundary_account,
+                    retain_mode,
+                    AccessOptions::DEFAULT,
+                );
+                trie_changes
+                    .children_memtrie_changes
+                    .insert(*shard_uid, trie_update.to_memtrie_changes_only());
+            }
+
             Ok(trie_changes)
         } else {
             let mut trie_update = TrieStorageUpdate::new(&self);

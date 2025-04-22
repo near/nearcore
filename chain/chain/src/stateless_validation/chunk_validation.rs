@@ -660,7 +660,7 @@ pub fn validate_chunk_state_witness(
                     &parent_shard_layout,
                     parent_congestion_info,
                     &child_shard_layout,
-                    child_shard_uid,
+                    &child_shard_uid,
                     retain_mode,
                 )?;
 

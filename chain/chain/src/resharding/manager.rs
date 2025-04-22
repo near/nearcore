@@ -192,25 +192,44 @@ impl ReshardingManager {
     ) -> Result<(), Error> {
         let block_hash = block.hash();
         let block_height = block.header().height();
-        let parent_shard_uid = split_shard_event.parent_shard;
+        let ReshardingSplitShardParams {
+            left_child_shard,
+            right_child_shard,
+            parent_shard: parent_shard_uid,
+            boundary_account,
+            ..
+        } = split_shard_event;
         let _span = tracing::debug_span!(
             target: "resharding", "process_memtrie_resharding_storage_update",
             ?block_hash, block_height, ?parent_shard_uid)
         .entered();
 
         let parent_chunk_extra =
-            self.store.chain_store().get_chunk_extra(block_hash, &parent_shard_uid)?;
+            self.store.chain_store().get_chunk_extra(block_hash, parent_shard_uid)?;
         let mut store_update = self.store.trie_store().store_update();
 
         // TODO(resharding): leave only tracked shards.
-        for (new_shard_uid, retain_mode) in [
-            (split_shard_event.left_child_shard, RetainMode::Left),
-            (split_shard_event.right_child_shard, RetainMode::Right),
-        ] {
-            tracing::info!(target: "resharding", ?new_shard_uid, ?retain_mode, "Splitting parent memtrie");
+        for (new_shard_uid, retain_mode) in
+            [(left_child_shard, RetainMode::Left), (right_child_shard, RetainMode::Right)]
+        {
             let parent_trie = tries
-                .get_trie_for_shard(parent_shard_uid, *parent_chunk_extra.state_root())
+                .get_trie_for_shard(*parent_shard_uid, *parent_chunk_extra.state_root())
                 .recording_reads_new_recorder();
+
+            if !parent_trie.has_memtries() {
+                tracing::error!(
+                    "Memtrie not loaded. Cannot process memtrie resharding storage
+                     update for block {:?}, shard {:?}",
+                    block_hash,
+                    parent_shard_uid,
+                );
+                return Err(Error::Other("Memtrie not loaded".to_string()));
+            }
+
+            tracing::info!(
+                target: "resharding", ?new_shard_uid, ?retain_mode,
+                "Creating child trie by retaining nodes in parent memtrie..."
+            );
 
             // Get the congestion info for the child.
             // We need to record this as this is used later in ImplicitTransitionParams::Resharding chunk validation.
@@ -230,10 +249,9 @@ impl ReshardingManager {
             )?;
 
             // Split the parent trie and create a new child trie.
-            let trie_changes =
-                parent_trie.retain_split_shard(&split_shard_event.boundary_account, retain_mode)?;
-            let new_root = tries.apply_all(&trie_changes, parent_shard_uid, &mut store_update);
-            tries.apply_memtrie_changes(&trie_changes, parent_shard_uid, block_height);
+            let trie_changes = parent_trie.retain_split_shard(boundary_account, retain_mode)?;
+            let new_root = tries.apply_all(&trie_changes, *parent_shard_uid, &mut store_update);
+            tries.apply_memtrie_changes(&trie_changes, *parent_shard_uid, block_height);
 
             // TODO(resharding): remove duplicate_nodes_at_split_boundary method after proper fix for refcount issue
             let trie_recorder = parent_trie.take_recorder().unwrap();
@@ -241,7 +259,7 @@ impl ReshardingManager {
             Self::duplicate_nodes_at_split_boundary(
                 &mut store_update,
                 trie_recorder.recorded_iter(),
-                parent_shard_uid,
+                *parent_shard_uid,
             );
 
             // TODO(resharding): set all fields of `ChunkExtra`. Consider stronger
@@ -262,12 +280,12 @@ impl ReshardingManager {
                 Default::default(),
             );
 
-            tracing::info!(target: "resharding", ?new_shard_uid, ?new_root, "Splitting parent memtrie done");
+            tracing::info!(target: "resharding", ?new_shard_uid, ?new_root, "Child trie created");
         }
 
         // After committing the split changes, the parent trie has the state root of both the children.
         // Now we can freeze the parent memtrie and copy it to the children.
-        tries.freeze_parent_memtrie(parent_shard_uid, split_shard_event.children_shards())?;
+        tries.freeze_parent_memtrie(*parent_shard_uid, split_shard_event.children_shards())?;
 
         chain_store_update.merge(store_update.into());
         chain_store_update.commit()?;
@@ -280,7 +298,7 @@ impl ReshardingManager {
         parent_shard_layout: &ShardLayout,
         parent_congestion_info: CongestionInfo,
         child_shard_layout: &ShardLayout,
-        child_shard_uid: ShardUId,
+        child_shard_uid: &ShardUId,
         retain_mode: RetainMode,
     ) -> Result<CongestionInfo, Error> {
         // Get the congestion info based on the parent shard.
@@ -347,7 +365,7 @@ impl ReshardingManager {
 
     fn finalize_allowed_shard(
         child_shard_layout: &ShardLayout,
-        child_shard_uid: ShardUId,
+        child_shard_uid: &ShardUId,
         congestion_info: &mut CongestionInfo,
     ) -> Result<(), Error> {
         let all_shards = child_shard_layout.shard_ids().collect_vec();
