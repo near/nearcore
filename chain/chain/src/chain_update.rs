@@ -90,7 +90,6 @@ impl<'a> ChainUpdate<'a> {
         let prev_hash = block.header().prev_hash();
         let height = block.header().height();
         match result {
-            // FIXME: Can ShardUpdateResult just have additional "ignored in enum"?
             ShardUpdateResult::NewChunk(NewChunkResult { gas_limit, shard_uid, apply_result }) => {
                 let (outcome_root, outcome_paths) =
                     ApplyChunkResult::compute_outcomes_proof(&apply_result.outcomes);

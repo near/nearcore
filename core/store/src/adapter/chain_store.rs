@@ -247,7 +247,7 @@ impl ChainStoreAdapter {
             self.store.get_ser(DBCol::ChunkExtra, &get_block_shard_uid(block_hash, shard_uid)),
             format_args!("CHUNK EXTRA: {}:{:?}", block_hash, shard_uid),
         )
-        .expect("chunk extra access"))
+        .expect("chunk extra access shouldn't happen in spice"))
     }
 
     pub fn get_chunk_apply_stats(

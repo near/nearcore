@@ -20,21 +20,12 @@ fn slow_test_client_with_multi_test_loop() {
 
     let accounts =
         (0..100).map(|i| format!("account{}", i).parse().unwrap()).collect::<Vec<AccountId>>();
-    let validators_only = (0..5).map(|i| format!("cv{i}")).collect_vec();
-    let block_and_chunk_producers = accounts.iter().take(NUM_CLIENTS).cloned().collect_vec();
-
-    let clients = block_and_chunk_producers
-        .iter()
-        .cloned()
-        .chain(validators_only.clone().into_iter().map(|a| a.parse().unwrap()))
-        .collect_vec();
+    let clients = accounts.iter().take(NUM_CLIENTS).cloned().collect_vec();
 
     let epoch_length = 10;
     let shard_layout = ShardLayout::simple_v1(&["account3", "account5", "account7"]);
-    let validators_spec = ValidatorsSpec::desired_roles(
-        &block_and_chunk_producers.iter().map(|t| t.as_str()).collect_vec(),
-        &validators_only.iter().map(String::as_str).collect_vec(),
-    );
+    let validators_spec =
+        ValidatorsSpec::desired_roles(&clients.iter().map(|t| t.as_str()).collect_vec(), &[]);
     let genesis = TestLoopBuilder::new_genesis_builder()
         .epoch_length(epoch_length)
         .shard_layout(shard_layout)
@@ -62,7 +53,7 @@ fn slow_test_client_with_multi_test_loop() {
     };
     tracing::info!("First epoch tracked shards: {:?}", first_epoch_tracked_shards);
 
-    // execute_money_transfers(&mut test_loop, &node_datas, &accounts).unwrap();
+    execute_money_transfers(&mut test_loop, &node_datas, &accounts).unwrap();
 
     // Make sure the chain progresses for several epochs.
     let client_handle = node_datas[0].client_sender.actor_handle();
@@ -70,16 +61,16 @@ fn slow_test_client_with_multi_test_loop() {
         |test_loop_data| {
             test_loop_data.get(&client_handle).client.chain.head().unwrap().height > 10050
         },
-        Duration::seconds(60),
+        Duration::seconds(10),
     );
 
-    // let clients = node_datas
-    //     .iter()
-    //     .map(|data| &test_loop.data.get(&data.client_sender.actor_handle()).client)
-    //     .collect_vec();
-    // let later_epoch_tracked_shards = clients.tracked_shards_for_each_client();
-    // tracing::info!("Later epoch tracked shards: {:?}", later_epoch_tracked_shards);
-    // assert_ne!(first_epoch_tracked_shards, later_epoch_tracked_shards);
+    let clients = node_datas
+        .iter()
+        .map(|data| &test_loop.data.get(&data.client_sender.actor_handle()).client)
+        .collect_vec();
+    let later_epoch_tracked_shards = clients.tracked_shards_for_each_client();
+    tracing::info!("Later epoch tracked shards: {:?}", later_epoch_tracked_shards);
+    assert_ne!(first_epoch_tracked_shards, later_epoch_tracked_shards);
 
     // Give the test a chance to finish off remaining events in the event loop, which can
     // be important for properly shutting down the nodes.

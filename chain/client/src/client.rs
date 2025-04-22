@@ -1218,7 +1218,6 @@ impl Client {
         self.process_block_processing_artifact(block_processing_artifacts);
         let accepted_blocks_hashes =
             accepted_blocks.iter().map(|accepted_block| accepted_block.hash).collect();
-        debug!(target: "client", ?accepted_blocks_hashes, "accepted_blocks");
         for accepted_block in accepted_blocks {
             self.on_block_accepted_with_optional_chunk_produce(
                 accepted_block.hash,
@@ -1742,7 +1741,7 @@ impl Client {
             );
             match result {
                 Ok(Some(result)) => {
-                    let shard_chunk = self
+                    let _shard_chunk = self
                         .persist_and_distribute_encoded_chunk(
                             result.chunk,
                             result.encoded_chunk_parts_paths,
@@ -1750,8 +1749,6 @@ impl Client {
                             validator_id.clone(),
                         )
                         .expect("Failed to process produced chunk");
-                    // FIXME: Witness should be relevant only relevant to verify application.
-                    //
                     // if let Err(err) = self.send_chunk_state_witness_to_chunk_validators(
                     //     &epoch_id,
                     //     block.header(),
@@ -1762,9 +1759,7 @@ impl Client {
                     //     tracing::error!(target: "client", ?err, "Failed to send chunk state witness to chunk validators");
                     // }
                 }
-                Ok(None) => {
-                    panic!("Didn't produce chunk");
-                }
+                Ok(None) => {}
                 Err(err) => {
                     error!(target: "client", ?err, "Error producing chunk");
                 }

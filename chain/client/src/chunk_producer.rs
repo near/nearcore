@@ -3,7 +3,10 @@ use crate::metrics;
 use itertools::Itertools;
 use near_async::time::{Clock, Duration, Instant};
 use near_chain::types::{
-    PrepareTransactionsChunkContext, PreparedTransactions, RuntimeAdapter, RuntimeStorageConfig,
+    // PrepareTransactionsChunkContext,
+    PreparedTransactions,
+    RuntimeAdapter,
+    // RuntimeStorageConfig,
 };
 use near_chain::{Block, Chain, ChainStore};
 use near_chain_configs::MutableConfigValue;
@@ -21,7 +24,7 @@ use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{EncodedShardChunk, ShardChunkHeader};
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::chunk_extra::ChunkExtra;
+// use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, EpochId, ShardId};
 use near_primitives::validator_signer::ValidatorSigner;
 use near_store::ShardUId;
@@ -52,6 +55,7 @@ pub struct ProduceChunkResult {
 }
 
 /// Handles chunk production.
+#[allow(unused_variables, dead_code)]
 pub struct ChunkProducer {
     /// Adversarial controls - should be enabled only to test disruptive
     /// behavior on chain.
@@ -206,6 +210,7 @@ impl ChunkProducer {
         ?epoch_id,
         chunk_hash = tracing::field::Empty,
     ))]
+    #[allow(unused_variables)]
     fn produce_chunk_internal(
         &mut self,
         prev_block: &Block,
@@ -239,7 +244,6 @@ impl ChunkProducer {
         debug!(target: "client", me = ?validator_signer.validator_id(), next_height, ?shard_id, "Producing chunk");
 
         let shard_uid = shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, epoch_id)?;
-        // FIXME: Error here.
         // let chunk_extra = self
         //     .chain
         //     .get_chunk_extra(&prev_block_hash, &shard_uid)
@@ -281,6 +285,8 @@ impl ChunkProducer {
             shard_id,
             last_header.height_included(),
         )?;
+        // Since we don't apply chunks with SPICE we should never have any outgoing_receipts.
+        assert_eq!(outgoing_receipts, vec![]);
 
         let outgoing_receipts_root = self.calculate_receipts_root(epoch_id, &outgoing_receipts)?;
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(epoch_id)?;
@@ -362,7 +368,7 @@ impl ChunkProducer {
         // chunk_extra: &ChunkExtra,
         // chain_validate: &dyn Fn(&SignedTransaction) -> bool,
     ) -> Result<PreparedTransactions, Error> {
-        let shard_id = shard_uid.shard_id();
+        // let shard_id = shard_uid.shard_id();
         let mut pool_guard = self.sharded_tx_pool.lock().unwrap();
         let prepared_transactions = if let Some(mut iter) = pool_guard.get_pool_iterator(shard_uid)
         {
