@@ -695,9 +695,9 @@ impl ForkNetworkCommand {
         let epoch_config_store = EpochConfigStore::test(new_epoch_configs);
 
         epoch_config_store.dump_epoch_configs_between(
-            &first_version,
-            &PROTOCOL_VERSION,
-            epoch_config_dir.to_str().unwrap(),
+            Some(&first_version),
+            None,
+            &epoch_config_dir,
         );
         tracing::info!(target: "near", "Generated epoch configs files in {}", epoch_config_dir.display());
         Ok(first_config)

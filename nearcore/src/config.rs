@@ -833,10 +833,7 @@ pub fn init_configs(
     fs::create_dir_all(dir).with_context(|| anyhow!("Failed to create directory {:?}", dir))?;
 
     assert_ne!(chain_id, Some("".to_string()));
-    let chain_id = match chain_id {
-        Some(chain_id) => chain_id,
-        None => random_chain_id(),
-    };
+    let chain_id = chain_id.unwrap_or_else(random_chain_id);
 
     // Check if config already exists in home dir.
     if dir.join(CONFIG_FILENAME).exists() {
@@ -1292,7 +1289,7 @@ pub fn init_localnet_configs(
     for i in 0..num_all_nodes as usize {
         let config = &configs[i];
         let node_dir = dir.join(format!("{}{}", prefix, i));
-        fs::create_dir_all(node_dir.clone()).expect("Failed to create directory");
+        fs::create_dir_all(&node_dir).expect("Failed to create directory");
 
         validator_signers[i]
             .write_to_file(&node_dir.join(&config.validator_key_file))
