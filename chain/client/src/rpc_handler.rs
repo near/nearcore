@@ -87,6 +87,7 @@ pub struct RpcHandlerConfig {
 }
 
 /// Accepts and processes rpc requests (`process_tx`, etc) and does some preprocessing on incoming data.
+///
 /// Supposed to run multithreaded.
 /// Connects to the Client actor via (thread-safe) queues and pools to pass the data for consumption.
 #[derive(Clone)]
