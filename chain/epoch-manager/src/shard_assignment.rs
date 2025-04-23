@@ -337,16 +337,15 @@ impl<'a> ValidatorRestrictionsBuilder<'a> {
             return self;
         }
 
-        self.prev_epoch_info.chunk_producers_settlement()[prev_shard_index].iter().for_each(
-            |validator_id| {
-                let account_id =
-                    self.prev_epoch_info.get_validator(*validator_id).take_account_id();
-                self.validator_restrictions
-                    .entry(account_id)
-                    .or_insert_with(HashSet::new)
-                    .insert(new_shard_id);
-            },
-        );
+        for account_id in self.prev_epoch_info.chunk_producers_settlement()[prev_shard_index]
+            .iter()
+            .map(|validator_id| self.prev_epoch_info.get_validator(*validator_id).take_account_id())
+        {
+            self.validator_restrictions
+                .entry(account_id)
+                .or_insert_with(HashSet::new)
+                .insert(new_shard_id);
+        }
         self
     }
 
