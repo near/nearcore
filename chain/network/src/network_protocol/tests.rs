@@ -116,7 +116,7 @@ fn serialize_deserialize() -> anyhow::Result<()> {
         PeerMessage::PeersRequest(PeersRequest { max_peers: None, max_direct_peers: None }),
         PeerMessage::PeersResponse(PeersResponse {
             peers: (0..5).map(|_| data::make_peer_info(&mut rng)).collect(),
-            direct_peers: vec![], // TODO: populate this field once borsh support is dropped
+            direct_peers: (0..5).map(|_| data::make_peer_info(&mut rng)).collect(),
         }),
         PeerMessage::BlockHeadersRequest(chain.blocks.iter().map(|b| *b.hash()).collect()),
         PeerMessage::BlockHeaders(chain.get_block_headers()),

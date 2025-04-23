@@ -105,8 +105,8 @@ async fn test_peer_communication() -> anyhow::Result<()> {
             tracking_shards: Default::default(),
         }),
         inbound.cfg.id(),
-        1,    // ttl
-        None, // TODO(gprusak): this should be clock.now_utc(), once borsh support is dropped.
+        1, // ttl
+        Some(clock.now_utc()),
     )));
     outbound.send(want.clone()).await;
     events.recv_until(message_processed(want)).await;
@@ -122,8 +122,8 @@ async fn test_peer_communication() -> anyhow::Result<()> {
             receipts: vec![],
         }),
         inbound.cfg.id(),
-        1,    // ttl
-        None, // TODO(gprusak): this should be clock.now_utc(), once borsh support is dropped.
+        1, // ttl
+        Some(clock.now_utc()),
     )));
     outbound.send(want.clone()).await;
     events.recv_until(message_processed(want)).await;
