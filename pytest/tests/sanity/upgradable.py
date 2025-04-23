@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Test if the node is backwards compatible with the latest release."""
-
+import dataclasses
 import os
 import random
 import re
@@ -30,6 +30,14 @@ def get_executables() -> branches.ABExecutables:
     return _EXECUTABLES
 
 
+def get_proto_version(exe: pathlib.Path) -> (int, int):
+    line = subprocess.check_output((exe, '--version'), text=True)
+    m = re.search(r'\(release (.*?)\) .* \(protocol ([0-9]+)\)', line)
+    assert m, (f'Unable to extract protocol version number from {exe};\n'
+               f'Got {line.rstrip()} on standard output')
+    return m.group(1), int(m.group(2))
+
+
 def test_protocol_versions() -> None:
     """Verify that mainnet, testnet and current protocol versions differ by ≤ 1.
 
@@ -43,13 +51,6 @@ def test_protocol_versions() -> None:
     """
     executables = get_executables()
     testnet = branches.get_executables_for('testnet')
-
-    def get_proto_version(exe: pathlib.Path) -> int:
-        line = subprocess.check_output((exe, '--version'), text=True)
-        m = re.search(r'\(release (.*?)\) .* \(protocol ([0-9]+)\)', line)
-        assert m, (f'Unable to extract protocol version number from {exe};\n'
-                   f'Got {line.rstrip()} on standard output')
-        return m.group(1), int(m.group(2))
 
     main_release, main_proto = get_proto_version(executables.stable.neard)
     test_release, test_proto = get_proto_version(testnet.neard)
@@ -206,6 +207,21 @@ class TrafficGenerator(threading.Thread):
         assert self._failed_txs == 0, f"{self._failed_txs} transactions failed"
 
 
+@dataclasses.dataclass
+class Protocols:
+    stable: int
+    current: int
+
+    @classmethod
+    def from_executables(
+        cls,
+        executables: branches.ABExecutables,
+    ) -> 'Protocols':
+        _, stable = get_proto_version(executables.stable.neard)
+        _, current = get_proto_version(executables.current.neard)
+        return cls(stable, current)
+
+
 class TestUpgrade:
 
     def __init__(
@@ -219,6 +235,7 @@ class TestUpgrade:
         self._epoch_length = epoch_length
 
         self._executables = get_executables()
+        self._protocols = Protocols.from_executables(self._executables)
         node_dirs = self.configure_nodes()
         nodes = self.start_nodes(node_dirs)
 
@@ -274,7 +291,6 @@ class TestUpgrade:
         logger.info(' '.join(str(arg) for arg in cmd))
         subprocess.check_call(cmd)
         genesis_config_changes = [
-            ("chain_id", "mainnet"),
             ("epoch_length", self._epoch_length),
             ("num_block_producer_seats", 10),
             ("num_block_producer_seats_per_shard", [10]),
@@ -287,11 +303,28 @@ class TestUpgrade:
         ]
         for node_dir in node_dirs:
             cluster.apply_genesis_changes(node_dir, genesis_config_changes)
-        for node_dir in node_dirs[:-1]:
+        for node_dir in node_dirs[:self._num_validators]:
             # Validators should track only assigned shards
             cluster.apply_config_changes(node_dir, {'tracked_shards': []})
 
+        # Dump epoch configs to use mainnet shard layout
+        for node_dir in node_dirs[:self._num_validators - 1]:
+            self.dump_epoch_configs(node_dir, self._protocols.stable)
+        for node_dir in node_dirs[self._num_validators - 1:]:
+            self.dump_epoch_configs(node_dir, self._protocols.current)
+
         return node_dirs
+
+    def dump_epoch_configs(self, node_dir: str, last_protocol_version: int):
+        cmd = (
+            self._executables.current.neard,
+            f'--home={node_dir}',
+            'dump-epoch-configs',
+            f'--chain-id=mainnet',
+            f'--last-version={last_protocol_version}',
+        )
+        logger.info(' '.join(str(arg) for arg in cmd))
+        subprocess.check_call(cmd)
 
     def start_nodes(
         self,
@@ -319,6 +352,7 @@ class TestUpgrade:
         # Restart stable nodes into new version.
         for node in self._stable_nodes:
             node.kill()
+            self.dump_epoch_configs(node.node_dir, self._protocols.current)
             node.near_root = self._executables.current.root
             node.binary_name = self._executables.current.neard
             node.start(
