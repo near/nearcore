@@ -512,12 +512,6 @@ impl Debug for Secp256K1Signature {
     }
 }
 
-// #[derive(Debug, serde::Serialize, serde::Deserialize, JsonSchema)]
-// pub struct MyWrapper {
-//     #[schemars(flatten)]
-//     inner: ed25519_dalek::Signature,
-// }
-
 /// Signature container supporting different curves.
 #[derive(Clone, PartialEq, Eq, ProtocolSchema)]
 pub enum Signature {
