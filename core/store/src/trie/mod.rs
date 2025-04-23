@@ -651,6 +651,7 @@ impl Trie {
         trie
     }
 
+    // TODO(resharding): remove this method after proper fix for refcount issue
     pub fn take_recorder(self) -> Option<RwLock<TrieRecorder>> {
         self.recorder
     }
@@ -1711,17 +1712,59 @@ impl Trie {
         &self,
         boundary_account: &AccountId,
         retain_mode: RetainMode,
-        opts: AccessOptions,
-    ) -> Result<StateRoot, StorageError> {
+    ) -> Result<TrieChanges, StorageError> {
+        if self.memtries.is_some() {
+            self.retain_split_shard_with_memtrie(boundary_account, retain_mode)
+        } else {
+            self.retain_split_shard_with_trie_storage(boundary_account, retain_mode)
+        }
+    }
+
+    fn retain_split_shard_with_memtrie(
+        &self,
+        boundary_account: &AccountId,
+        retain_mode: RetainMode,
+    ) -> Result<TrieChanges, StorageError> {
+        // Get trie_update for memtrie
+        let guard = self.memtries.as_ref().unwrap().read().unwrap();
+        let mut recorder =
+            self.recorder.as_ref().map(|recorder| recorder.write().expect("no poison"));
+        let tracking_mode = match &mut recorder {
+            Some(recorder) => TrackingMode::RefcountsAndAccesses(recorder.deref_mut()),
+            None => TrackingMode::Refcounts,
+        };
+        let mut trie_update = guard.update(self.root, tracking_mode)?;
+        trie_update.retain_split_shard(boundary_account, retain_mode, AccessOptions::DEFAULT);
+        let mut trie_changes = trie_update.to_trie_changes();
+
+        // Get child trie_changes for all child memtries
+        for (shard_uid, memtrie) in &self.children_memtries {
+            let inner_guard = memtrie.read().unwrap();
+            let mut trie_update = inner_guard.update(self.root, TrackingMode::None).unwrap();
+            trie_update.retain_split_shard(boundary_account, retain_mode, AccessOptions::DEFAULT);
+            trie_changes
+                .children_memtrie_changes
+                .insert(*shard_uid, trie_update.to_memtrie_changes_only());
+        }
+
+        Ok(trie_changes)
+    }
+
+    fn retain_split_shard_with_trie_storage(
+        &self,
+        boundary_account: &AccountId,
+        retain_mode: RetainMode,
+    ) -> Result<TrieChanges, StorageError> {
         let mut trie_update = TrieStorageUpdate::new(&self);
-        let root_node = self.move_node_to_mutable(&mut trie_update, &self.root, opts)?;
-        trie_update.retain_split_shard(boundary_account, retain_mode, opts);
+        let root_node =
+            self.move_node_to_mutable(&mut trie_update, &self.root, AccessOptions::DEFAULT)?;
+        trie_update.retain_split_shard(boundary_account, retain_mode, AccessOptions::DEFAULT);
         #[cfg(test)]
         {
             self.memory_usage_verify(&trie_update, GenericNodeOrIndex::Updated(root_node.0));
         }
-        let result = trie_update.flatten_nodes(&self.root, root_node.0)?;
-        Ok(result.new_root)
+        let trie_changes = trie_update.flatten_nodes(&self.root, root_node.0)?;
+        Ok(trie_changes)
     }
 }
 
