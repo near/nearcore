@@ -465,7 +465,7 @@ impl PartialEncodedStateWitnessTracker {
             if let Some((evicted_key, evicted_entry)) =
                 parts_cache.push(key.clone(), CacheEntry::new(key.shard_id))
             {
-                tracing::warn!(
+                tracing::debug!(
                     target: "client",
                     ?evicted_key,
                     data_parts_present = ?evicted_entry.data_parts_present(),
