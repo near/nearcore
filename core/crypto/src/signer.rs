@@ -120,8 +120,8 @@ impl InMemorySigner {
         Signer::InMemory(Self { account_id, public_key: secret_key.public_key(), secret_key })
     }
 
-    pub fn from_file(path: &Path) -> io::Result<Signer> {
-        KeyFile::from_file(path).map(Self::from).map(|s| Signer::InMemory(s))
+    pub fn from_file(path: &Path) -> io::Result<Self> {
+        KeyFile::from_file(path).map(Self::from)
     }
 
     pub fn public_key(&self) -> PublicKey {

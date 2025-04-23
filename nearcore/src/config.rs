@@ -729,8 +729,8 @@ fn generate_or_load_key(
 ) -> anyhow::Result<Option<Signer>> {
     let path = home_dir.join(filename);
     if path.exists() {
-        let signer = InMemorySigner::from_file(&path)
-            .with_context(|| format!("Failed initializing signer from {}", path.display()))?;
+        let signer = Signer::from(InMemorySigner::from_file(&path)
+            .with_context(|| format!("Failed initializing signer from {}", path.display()))?);
         if let Some(account_id) = account_id {
             if account_id != signer.get_account_id() {
                 return Err(anyhow!(
@@ -965,7 +965,7 @@ pub fn init_configs(
         }
         _ => {
             let validator_file = dir.join(&config.validator_key_file);
-            let signer = InMemorySigner::from_file(&validator_file).unwrap();
+            let signer = Signer::from(InMemorySigner::from_file(&validator_file).unwrap());
 
             let mut records = vec![];
             add_account_with_key(

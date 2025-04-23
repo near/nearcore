@@ -1,6 +1,6 @@
 use clap::{Arg, Command};
 use near_chain_configs::BLOCK_PRODUCER_KICKOUT_THRESHOLD;
-use near_crypto::{InMemorySigner, KeyFile};
+use near_crypto::{InMemorySigner, KeyFile, Signer};
 use near_o11y::tracing::{error, info};
 use near_primitives::views::CurrentEpochValidatorInfo;
 use nearcore::config::{CONFIG_FILENAME, Config};
@@ -76,9 +76,9 @@ fn main() {
     let key_file = KeyFile::from_file(&key_path)
         .unwrap_or_else(|e| panic!("Failed to open key file at {:?}: {:#}", &key_path, e));
     // Support configuring if there is another key.
-    let signer = InMemorySigner::from_file(&key_path).unwrap_or_else(|e| {
+    let signer = Signer::from(InMemorySigner::from_file(&key_path).unwrap_or_else(|e| {
         panic!("Failed to initialize signer from key file at {:?}: {:#}", key_path, e)
-    });
+    }));
     let account_id = signer.get_account_id();
     let mut last_stake_amount = stake_amount;
 

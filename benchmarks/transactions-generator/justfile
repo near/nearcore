@@ -14,30 +14,20 @@ init-localnet:
     jq '.rpc.addr="0.0.0.0:4040"' {{near_config_file}} > tmp_config.json && mv tmp_config.json {{near_config_file}}
 
 
-run-localnet loglevel="info":
+run-localnet loglevel="debug":
     RUST_LOG={{loglevel}} \
     {{neard}} --home {{near_localnet_home}} run
 
-create-accounts num_accounts="50000":
-    #!/bin/bash
-    {{neard}} --home {{near_localnet_home}} run &
-    NEARD_PID=$!
-    sleep 5
-    RUST_LOG=info \
-    ../synth-bm/target/release/near-synth-bm create-sub-accounts \
-        --rpc-url {{rpc_url}} \
-        --signer-key-path {{near_localnet_home}}/validator_key.json \
-        --nonce 1 \
-        --sub-account-prefix 'a' \
-        --num-sub-accounts {{num_accounts}} \
-        --deposit 953060601875000000010000 \
-        --channel-buffer-size 1200 \
-        --requests-per-second 500  \
-        --user-data-dir user-data
-    kill ${NEARD_PID}
-    
-enable-tx tps:
-    jq '.tx_generator={"tps": {{tps}}, "volume": 0, "accounts_path": "{{near_accounts_path}}", "thread_count": 2}' {{near_config_file}} > tmp_config.json
+
+enable-tx tps num_accounts:
+    jq '.tx_generator={"tps": {{tps}}, \
+        "accounts_config": { \
+            "accounts_path": "{{near_accounts_path}}", \
+            "signer_key_path": "{{near_localnet_home}}/validator_key.json", \
+            "num_accounts": {{num_accounts}}, \
+            "prefixes": ["a"], \
+            "tps": 10000 \
+        }}' {{near_config_file}} > tmp_config.json
     mv tmp_config.json {{near_config_file}}
 
 unlimit:
@@ -48,11 +38,10 @@ unlimit:
      | .transaction_request_handler_threads = 4' {{near_config_file}} > tmp_config.json \
     && mv tmp_config.json {{near_config_file}}
 
-do-it tps="20000" timeout="2m":
+do-it tps="20000" num_accounts="100000" timeout="2m":
     #!/usr/bin/env bash
     just init-localnet
     just unlimit
-    just create-accounts
-    just enable-tx {{tps}}
+    just enable-tx {{tps}} {{num_accounts}}
     timeout {{timeout}} just run-localnet
     [ $? -eq 124 ] && exit 0 || exit $?

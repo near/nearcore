@@ -124,7 +124,7 @@ impl InMemoryValidatorSigner {
 
     pub fn from_file(path: &Path) -> std::io::Result<ValidatorSigner> {
         let signer = InMemorySigner::from_file(path)?;
-        Ok(Self::from_signer(signer))
+        Ok(Self::from_signer(Signer::from(signer)))
     }
 
     pub fn validator_id(&self) -> &AccountId {
