@@ -116,9 +116,6 @@ impl RpcHandler {
         network_adapter: PeerManagerAdapter,
     ) -> Self {
         let chain_store = runtime.store().chain_store();
-        // let chunk_endorsement_tracker =
-        //     ChunkEndorsementTracker::new(epoch_manager.clone(),
-        //        chain_store.store_ref().clone());
 
         Self {
             config,
