@@ -2,6 +2,13 @@
 # This specifies the version of Rust we use to build.
 # Individual crates in the workspace may support a lower version, as indicated by `rust-version` field in each crate's `Cargo.toml`.
 # The version specified below, should be at least as high as the maximum `rust-version` within the workspace.
+
+# XXX: Do not bump this version yet.  1.87 adds supports for bulk memory in wasm
+# and we do not support contracts with bulk memory yet.  Increasing the version
+# number here will make it harder for contract developers to build and test
+# their contracts.  See
+# https://near.zulipchat.com/#narrow/channel/295306-contract-runtime/topic/bulk.20memory.20support
+# for more details.
 channel = "1.86.0"
 components = ["rustfmt", "clippy", "rust-analyzer", "rust-src"]
 targets = ["wasm32-unknown-unknown"]
