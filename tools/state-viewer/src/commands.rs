@@ -1069,18 +1069,18 @@ pub(crate) fn print_epoch_analysis(
             epoch_heights_to_infos.get(&next_next_epoch_height).unwrap();
         let rng_seed = stored_next_next_epoch_info.rng_seed();
 
-        let chunk_producer_assignment_restrictions = if !ProtocolFeature::SimpleNightshadeV6
-            .enabled(next_epoch_info.protocol_version())
-            && ProtocolFeature::SimpleNightshadeV6.enabled(next_next_protocol_version)
-        {
-            build_assignment_restrictions_v77_to_v78(
-                &next_epoch_info,
-                &next_epoch_config.shard_layout,
-                next_next_epoch_config.shard_layout.clone(),
-            )
-        } else {
-            None
-        };
+        let next_epoch_v6 =
+            ProtocolFeature::SimpleNightshadeV6.enabled(next_epoch_info.protocol_version());
+        let next_next_epoch_v6 =
+            ProtocolFeature::SimpleNightshadeV6.enabled(next_next_protocol_version);
+        let chunk_producer_assignment_restrictions =
+            (!next_epoch_v6 && next_next_epoch_v6).then(|| {
+                build_assignment_restrictions_v77_to_v78(
+                    &next_epoch_info,
+                    &next_epoch_config.shard_layout,
+                    next_next_epoch_config.shard_layout.clone(),
+                )
+            });
 
         let next_next_epoch_info = proposals_to_epoch_info(
             &next_next_epoch_config,

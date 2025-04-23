@@ -9,7 +9,6 @@ use near_primitives::utils::min_heap::{MinHeap, PeekMut};
 use near_store::trie::ShardUId;
 use rand::Rng;
 use std::collections::{BTreeSet, HashMap, HashSet};
-use tracing::{self, debug};
 
 /// Marker struct to communicate the error where you try to assign validators to shards
 /// and there are not enough to even meet the minimum per shard.
@@ -328,13 +327,13 @@ impl<'a> ValidatorRestrictionsBuilder<'a> {
         let prev_shard_index = match self.prev_shard_layout.get_shard_index(prev_shard_id) {
             Ok(index) => index,
             Err(_) => {
-                debug!(target: "epoch-manager", ?prev_shard_id, "Shard id not found in the previous shard layout. Skipping restriction.");
+                tracing::debug!(target: "epoch-manager", ?prev_shard_id, "Shard id not found in the previous shard layout. Skipping restriction.");
                 return self;
             }
         };
 
         if prev_shard_index >= self.prev_epoch_info.chunk_producers_settlement().len() {
-            debug!(target: "epoch-manager", ?prev_shard_id, "Shard index not found in the previous epoch info. Skipping restriction.");
+            tracing::debug!(target: "epoch-manager", ?prev_shard_id, "Shard index not found in the previous epoch info. Skipping restriction.");
             return self;
         }
 
@@ -360,14 +359,12 @@ pub fn build_assignment_restrictions_v77_to_v78(
     prev_epoch_info: &EpochInfo,
     prev_shard_layout: &ShardLayout,
     new_shard_layout: ShardLayout,
-) -> Option<AssignmentRestrictions> {
-    Some(
-        ValidatorRestrictionsBuilder::new(prev_epoch_info, prev_shard_layout)
-            .restrict_shard_id_transition(ShardId::new(5), ShardId::new(10))
-            .restrict_shard_id_transition(ShardId::new(5), ShardId::new(11))
-            .restrict_shard_id_transition(ShardId::new(0), ShardId::new(5))
-            .build(new_shard_layout),
-    )
+) -> AssignmentRestrictions {
+    ValidatorRestrictionsBuilder::new(prev_epoch_info, prev_shard_layout)
+        .restrict_shard_id_transition(ShardId::new(5), ShardId::new(10))
+        .restrict_shard_id_transition(ShardId::new(5), ShardId::new(11))
+        .restrict_shard_id_transition(ShardId::new(0), ShardId::new(5))
+        .build(new_shard_layout)
 }
 
 /// A struct that contains the restrictions on the assignment of validators to shards.
