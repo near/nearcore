@@ -19,6 +19,7 @@ use near_o11y::{
     default_subscriber_with_opentelemetry,
 };
 use near_ping::PingCommand;
+use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::compute_root_from_path;
 use near_primitives::types::{Gas, NumSeats, NumShards, ProtocolVersion, ShardId};
@@ -152,6 +153,9 @@ impl NeardCmd {
             NeardSubCommand::DumpTestContracts(cmd) => {
                 cmd.run()?;
             }
+            NeardSubCommand::DumpEpochConfigs(cmd) => {
+                cmd.run(&home_dir)?;
+            }
         };
         Ok(())
     }
@@ -261,6 +265,9 @@ pub(super) enum NeardSubCommand {
 
     /// Placeholder for test contracts subcommand
     DumpTestContracts(DumpTestContractCommand),
+
+    /// Dump hard-coded epoch configs into JSON files
+    DumpEpochConfigs(DumpEpochConfigsCommand),
 }
 
 #[allow(unused)]
@@ -800,6 +807,59 @@ fn make_env_filter(verbose: Option<&str>) -> Result<EnvFilter, BuildEnvFilterErr
         env_filter
     };
     Ok(env_filter)
+}
+
+#[derive(Debug, Clone, PartialEq, strum::EnumString, strum::AsRefStr)]
+#[strum(serialize_all = "lowercase")]
+pub(super) enum DumpEpochChainId {
+    Mainnet,
+    Testnet,
+}
+
+#[derive(clap::Parser)]
+pub(super) struct DumpEpochConfigsCommand {
+    /// Minimum protocol version to include in the output (inclusive lower bound).
+    /// If omitted, earliest known protocol version is used.
+    #[clap(long)]
+    first_version: Option<ProtocolVersion>,
+
+    /// Maximum protocol version to include in the output (inclusive upper bound).
+    /// If omitted, latest known protocol version is used.
+    #[clap(long)]
+    last_version: Option<ProtocolVersion>,
+
+    /// ID of the chain for which epoch configs will be dumped.
+    #[clap(long)]
+    chain_id: DumpEpochChainId,
+
+    /// Directory where epoch config files will be saved.
+    /// If it doesn't exist, it will be created.
+    /// If not provided, `<neard_home>/epoch_configs` will be used.
+    #[clap(long)]
+    output_dir: Option<PathBuf>,
+}
+
+impl DumpEpochConfigsCommand {
+    pub fn run(self, home_dir: &Path) -> anyhow::Result<()> {
+        let output_dir = self.output_dir.unwrap_or_else(|| home_dir.join("epoch_configs"));
+        if !output_dir.exists() {
+            std::fs::create_dir_all(&output_dir).with_context(|| {
+                anyhow::anyhow!("Failed to create output directory {}", output_dir.display())
+            })?;
+        } else if !output_dir.is_dir() {
+            anyhow::bail!("Output directory {} is not a directory", output_dir.display());
+        }
+
+        EpochConfigStore::for_chain_id(self.chain_id.as_ref(), None)
+            .unwrap()
+            .dump_epoch_configs_between(
+                self.first_version.as_ref(),
+                self.last_version.as_ref(),
+                &output_dir,
+            );
+
+        Ok(())
+    }
 }
 
 #[derive(clap::Parser)]
