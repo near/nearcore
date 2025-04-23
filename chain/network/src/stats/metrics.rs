@@ -1,4 +1,3 @@
-use crate::network_protocol::Encoding;
 use crate::network_protocol::{RoutedMessageBody, RoutedMessageV2};
 use crate::tcp;
 use crate::types::PeerType;
@@ -59,14 +58,13 @@ impl Drop for GaugePoint {
 pub struct Connection {
     pub tier: tcp::Tier,
     pub type_: PeerType,
-    pub encoding: Option<Encoding>,
 }
 
 impl Labels for Connection {
     type Array = [&'static str; 3];
     const NAMES: Self::Array = ["tier", "peer_type", "encoding"];
     fn values(&self) -> Self::Array {
-        [self.tier.into(), self.type_.into(), self.encoding.map(|e| e.into()).unwrap_or("unknown")]
+        [self.tier.into(), self.type_.into(), "Proto"]
     }
 }
 

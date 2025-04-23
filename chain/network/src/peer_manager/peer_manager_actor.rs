@@ -280,7 +280,7 @@ impl PeerManagerActor {
                                     // a proper connection.
                                     tracing::debug!(target: "network", from = ?stream.peer_addr, "got new connection");
                                     if let Err(err) =
-                                        PeerActor::spawn(clock.clone(), stream, None, state.clone())
+                                        PeerActor::spawn(clock.clone(), stream, state.clone())
                                     {
                                         tracing::info!(target:"network", ?err, "PeerActor::spawn()");
                                     }
@@ -632,7 +632,7 @@ impl PeerManagerActor {
                     async move {
                         let result = async {
                             let stream = tcp::Stream::connect(&peer_info, tcp::Tier::T2, &state.config.socket_options).await.context("tcp::Stream::connect()")?;
-                            PeerActor::spawn_and_handshake(clock.clone(),stream,None,state.clone()).await.context("PeerActor::spawn()")?;
+                            PeerActor::spawn_and_handshake(clock.clone(),stream,state.clone()).await.context("PeerActor::spawn()")?;
                             anyhow::Ok(())
                         }.await;
 
@@ -1180,9 +1180,7 @@ impl PeerManagerActor {
             }
             PeerManagerMessageRequest::OutboundTcpConnect(stream) => {
                 let peer_addr = stream.peer_addr;
-                if let Err(err) =
-                    PeerActor::spawn(self.clock.clone(), stream, None, self.state.clone())
-                {
+                if let Err(err) = PeerActor::spawn(self.clock.clone(), stream, self.state.clone()) {
                     tracing::info!(target:"network", ?err, ?peer_addr, "spawn_outbound()");
                 }
                 PeerManagerMessageResponse::OutboundTcpConnect
@@ -1306,7 +1304,7 @@ impl actix::Handler<WithSpanContext<Tier3Request>> for PeerManagerActor {
                             tcp::Tier::T3,
                             &state.config.socket_options
                         ).await.context("tcp::Stream::connect()")?;
-                        PeerActor::spawn_and_handshake(clock.clone(),stream,None,state.clone()).await.context("PeerActor::spawn()")?;
+                        PeerActor::spawn_and_handshake(clock.clone(),stream,state.clone()).await.context("PeerActor::spawn()")?;
                         anyhow::Ok(())
                     }.await;
 

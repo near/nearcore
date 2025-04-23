@@ -1,6 +1,6 @@
 use crate::broadcast::Receiver;
 use crate::config::NetworkConfig;
-use crate::network_protocol::{Encoding, PeerMessage};
+use crate::network_protocol::PeerMessage;
 use crate::network_protocol::{PartialEncodedChunkRequestMsg, RoutedMessageBody, testonly as data};
 use crate::peer::testonly::{Event, PeerConfig, PeerHandle};
 use crate::peer_manager::peer_manager_actor::Event as PME;
@@ -134,16 +134,10 @@ async fn setup_test_peers(clock: &mut FakeClock, mut rng: &mut Rng) -> (PeerHand
         network_config
     };
 
-    let inbound_cfg = PeerConfig {
-        chain: chain.clone(),
-        network: add_rate_limits(chain.make_config(&mut rng)),
-        force_encoding: Some(Encoding::Proto),
-    };
-    let outbound_cfg = PeerConfig {
-        chain: chain.clone(),
-        network: add_rate_limits(chain.make_config(&mut rng)),
-        force_encoding: Some(Encoding::Proto),
-    };
+    let inbound_cfg =
+        PeerConfig { chain: chain.clone(), network: add_rate_limits(chain.make_config(&mut rng)) };
+    let outbound_cfg =
+        PeerConfig { chain: chain.clone(), network: add_rate_limits(chain.make_config(&mut rng)) };
     let (outbound_stream, inbound_stream) =
         tcp::Stream::loopback(inbound_cfg.id(), tcp::Tier::T2).await;
     let mut inbound = PeerHandle::start_endpoint(clock.clock(), inbound_cfg, inbound_stream).await;

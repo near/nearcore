@@ -12,7 +12,7 @@ use crate::network_protocol::StateResponseInfoV2;
 use crate::network_protocol::SyncSnapshotHosts;
 use crate::network_protocol::testonly as data;
 use crate::network_protocol::{
-    EdgeState, Encoding, PeerInfo, PeerMessage, SignedAccountData, SyncAccountsData,
+    EdgeState, PeerInfo, PeerMessage, SignedAccountData, SyncAccountsData,
 };
 use crate::peer;
 use crate::peer::peer_actor::ClosingReason;
@@ -252,11 +252,7 @@ impl ActorHandler {
         let conn = RawConnection {
             events,
             stream,
-            cfg: peer::testonly::PeerConfig {
-                network: network_cfg,
-                chain,
-                force_encoding: Some(Encoding::Proto),
-            },
+            cfg: peer::testonly::PeerConfig { network: network_cfg, chain },
         };
         // Wait until the TCP connection is accepted or rejected.
         // The Handshake is not performed yet.
@@ -291,11 +287,7 @@ impl ActorHandler {
         let conn = RawConnection {
             events,
             stream: inbound_stream,
-            cfg: peer::testonly::PeerConfig {
-                network: network_cfg,
-                chain,
-                force_encoding: Some(Encoding::Proto),
-            },
+            cfg: peer::testonly::PeerConfig { network: network_cfg, chain },
         };
         // Wait until the handshake started or connection is closed.
         // The Handshake is not performed yet.

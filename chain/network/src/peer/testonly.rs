@@ -28,7 +28,6 @@ use std::sync::Arc;
 pub struct PeerConfig {
     pub chain: Arc<data::Chain>,
     pub network: NetworkConfig,
-    pub force_encoding: Option<crate::network_protocol::Encoding>,
 }
 
 impl PeerConfig {
@@ -151,8 +150,7 @@ impl PeerHandle {
         ));
         let actix = ActixSystem::spawn({
             let clock = clock.clone();
-            let cfg = cfg.clone();
-            move || PeerActor::spawn(clock, stream, cfg.force_encoding, network_state).unwrap().0
+            move || PeerActor::spawn(clock, stream, network_state).unwrap().0
         })
         .await;
         Self { actix, cfg, events: recv, edge: None }
