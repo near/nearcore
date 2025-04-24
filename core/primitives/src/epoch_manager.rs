@@ -354,40 +354,37 @@ impl EpochConfigStore {
     fn load_epoch_config_from_file_system(
         directory: &str,
     ) -> BTreeMap<ProtocolVersion, Arc<EpochConfig>> {
-        let mut store = BTreeMap::new();
-        let entries = fs::read_dir(directory).expect("Failed opening epoch config directory");
-
-        for entry in entries {
-            if let Ok(entry) = entry {
-                let path = entry.path();
-
-                // Check if the file has a .json extension
-                if path.extension().and_then(|ext| ext.to_str()) == Some("json") {
-                    // Extract the file name (without extension)
-                    if let Some(file_stem) = path.file_stem().and_then(|s| s.to_str()) {
-                        let version: ProtocolVersion =
-                            file_stem.parse().expect("Invalid protocol version");
-                        if version > PROTOCOL_VERSION {
-                            tracing::debug!(target: "epoch_manager", ?version, "Skipping config for this version because it is greater than supported version");
-                            continue;
-                        }
-
-                        let content = fs::read_to_string(&path).expect("Failed to read file");
-                        let config: EpochConfig =
-                            serde_json::from_str(&content).unwrap_or_else(|e| {
-                                panic!(
-                                "Failed to load epoch config from file system for version {}: {:#}",
-                                version, e
-                            )
-                            });
-
-                        store.insert(version, Arc::new(config));
-                    }
-                }
-            }
-        }
-
-        store
+        fs::read_dir(directory)
+            .expect("Failed opening epoch config directory")
+            .filter_map(Result::ok)
+            // Get the path of each entry in the directory
+            .map(|entry| entry.path())
+            // Check if the file has a .json extension
+            .filter(|path| path.extension().and_then(|ext| ext.to_str()) == Some("json"))
+            // Extract the file name (without extension)
+            .filter_map(|path| {
+                path.file_stem().and_then(|s| s.to_str()).map(|s| (s.to_string(), path.clone()))
+            })
+            // Extract the protocol version from the file name
+            .map(|(file_stem, path)| {
+                (file_stem.parse::<ProtocolVersion>().expect("Invalid protocol version"), path)
+            })
+            // Only load configs for supported protocol versions
+            .filter(|(version, _)| *version <= PROTOCOL_VERSION)
+            // Load the config file
+            .map(|(version, path)| {
+                (version, fs::read_to_string(&path).expect("Failed to read file"))
+            })
+            // Deserialize the config
+            .map(|(version, content)| {
+                (
+                    version,
+                    Arc::new(serde_json::from_str::<EpochConfig>(&content).unwrap_or_else(|_| {
+                        panic!("Failed to deserialize epoch config for version {}", version)
+                    })),
+                )
+            })
+            .collect()
     }
 
     pub fn test(store: BTreeMap<ProtocolVersion, Arc<EpochConfig>>) -> Self {
