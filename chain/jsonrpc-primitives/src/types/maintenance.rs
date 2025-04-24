@@ -1,7 +1,7 @@
 use serde_json::Value;
 
 pub type RpcMaintenanceWindowsResponse =
-    Vec<(near_primitives::types::BlockHeight, near_primitives::types::BlockHeight)>;
+    Vec<std::ops::Range<near_primitives::types::BlockHeight>>;
 
 #[derive(thiserror::Error, Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]

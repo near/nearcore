@@ -19,7 +19,7 @@ use near_jsonrpc_primitives::types::{
         RpcLightClientExecutionProofResponse, RpcLightClientNextBlockRequest,
         RpcLightClientNextBlockResponse,
     },
-    maintenance::RpcMaintenanceWindowsRequest,
+    maintenance::{RpcMaintenanceWindowsRequest, RpcMaintenanceWindowsResponse},
     network_info::RpcNetworkInfoResponse,
     receipts::{RpcReceiptRequest, RpcReceiptResponse},
     split_storage::{RpcSplitStorageInfoRequest, RpcSplitStorageInfoResponse},
@@ -406,14 +406,6 @@ pub struct RpcError {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub data: Option<serde_json::Value>,
 }
-
-#[derive(Clone, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
-pub struct MaintenanceWindow {
-    pub start: near_primitives::types::BlockHeight,
-    pub finish: near_primitives::types::BlockHeight,
-}
-
-pub type RpcMaintenanceWindowsResponse = Vec<MaintenanceWindow>;
 
 #[derive(JsonSchema)]
 struct RpcHealthRequest;

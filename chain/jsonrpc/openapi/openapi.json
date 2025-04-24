@@ -186,7 +186,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/JsonRpcResponse_for_Array_of_MaintenanceWindow_and_RpcError"
+                  "$ref": "#/components/schemas/JsonRpcResponse_for_Array_of_Range_of_uint64_and_RpcError"
                 }
               }
             }
@@ -6808,13 +6808,13 @@
         "title": "JsonRpcRequest_for_validators",
         "type": "object"
       },
-      "JsonRpcResponse_for_Array_of_MaintenanceWindow_and_RpcError": {
+      "JsonRpcResponse_for_Array_of_Range_of_uint64_and_RpcError": {
         "anyOf": [
           {
             "properties": {
               "result": {
                 "items": {
-                  "$ref": "#/components/schemas/MaintenanceWindow"
+                  "$ref": "#/components/schemas/Range_of_uint64"
                 },
                 "type": "array"
               }
@@ -6848,7 +6848,7 @@
           "jsonrpc",
           "id"
         ],
-        "title": "JsonRpcResponse_for_Array_of_MaintenanceWindow_and_RpcError",
+        "title": "JsonRpcResponse_for_Array_of_Range_of_uint64_and_RpcError",
         "type": "object"
       },
       "JsonRpcResponse_for_Array_of_ValidatorStakeView_and_RpcError": {
@@ -7949,25 +7949,6 @@
         ],
         "type": "string"
       },
-      "MaintenanceWindow": {
-        "properties": {
-          "finish": {
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
-          },
-          "start": {
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
-          }
-        },
-        "required": [
-          "start",
-          "finish"
-        ],
-        "type": "object"
-      },
       "MerklePathItem": {
         "properties": {
           "direction": {
@@ -8301,6 +8282,25 @@
       },
       "PublicKey": {
         "type": "string"
+      },
+      "Range_of_uint64": {
+        "properties": {
+          "end": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "start": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "start",
+          "end"
+        ],
+        "type": "object"
       },
       "ReceiptEnumView": {
         "oneOf": [
