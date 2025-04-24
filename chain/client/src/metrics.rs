@@ -452,9 +452,9 @@ pub(crate) static PRODUCE_AND_DISTRIBUTE_CHUNK_TIME: LazyLock<HistogramVec> = La
 /// Sets metrics which export node’s max supported protocol version, used
 /// database version and build information.  The latter is taken from
 /// `neard_version` argument.
-pub(crate) fn export_version(neard_version: &near_primitives::version::Version) {
+pub(crate) fn export_version(chain_id: &str, neard_version: &near_primitives::version::Version) {
     NODE_PROTOCOL_VERSION.set(near_primitives::version::PROTOCOL_VERSION.into());
-    let schedule = near_primitives::version::PROTOCOL_UPGRADE_SCHEDULE;
+    let schedule = near_primitives::version::get_protocol_upgrade_schedule(chain_id);
     for (datetime, protocol_version) in schedule.schedule().iter() {
         NODE_PROTOCOL_UPGRADE_VOTING_START
             .with_label_values(&[&protocol_version.to_string()])
