@@ -8,6 +8,7 @@ use crate::types::{
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::serialize::dec_format;
+use near_primitives_core::version::PROTOCOL_VERSION;
 use near_schema_checker_lib::ProtocolSchema;
 use std::collections::{BTreeMap, HashMap};
 use std::fs;
@@ -366,6 +367,10 @@ impl EpochConfigStore {
                     if let Some(file_stem) = path.file_stem().and_then(|s| s.to_str()) {
                         let version: ProtocolVersion =
                             file_stem.parse().expect("Invalid protocol version");
+                        if version > PROTOCOL_VERSION {
+                            tracing::debug!(target: "epoch_manager", ?version, "Skipping config for this version because it is greater than supported version");
+                            continue;
+                        }
 
                         let content = fs::read_to_string(&path).expect("Failed to read file");
                         let config: EpochConfig =
