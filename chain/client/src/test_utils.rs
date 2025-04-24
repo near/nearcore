@@ -219,7 +219,7 @@ pub fn create_chunk(
             decoded_chunk.prev_outgoing_receipts().to_vec(),
             header.prev_outgoing_receipts_root(),
             header.congestion_info(),
-            header.bandwidth_requests().cloned().unwrap_or(BandwidthRequests::empty()),
+            header.bandwidth_requests().cloned().unwrap_or_else(BandwidthRequests::empty),
             &*signer,
         );
         swap(&mut encoded_chunk, &mut new_encoded_chunk);

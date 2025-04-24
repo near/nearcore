@@ -306,7 +306,7 @@ impl ChunkProducer {
                 outgoing_receipts_root,
                 tx_root,
                 congestion_info,
-                bandwidth_requests.cloned().unwrap_or(BandwidthRequests::empty()),
+                bandwidth_requests.cloned().unwrap_or_else(BandwidthRequests::empty),
                 &*validator_signer,
                 &mut self.reed_solomon_encoder,
             );

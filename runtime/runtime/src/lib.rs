@@ -2363,7 +2363,7 @@ fn missing_chunk_apply_result(
         .shards_bandwidth_requests
         .get(&processing_state.apply_state.shard_id)
         .cloned()
-        .unwrap_or(BandwidthRequests::empty());
+        .unwrap_or_else(BandwidthRequests::empty);
 
     return Ok(ApplyResult {
         state_root: trie_changes.new_root,

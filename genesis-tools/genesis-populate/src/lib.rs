@@ -294,7 +294,7 @@ impl GenesisBuilder {
                     chunk_header
                         .bandwidth_requests()
                         .cloned()
-                        .unwrap_or(BandwidthRequests::empty()),
+                        .unwrap_or_else(BandwidthRequests::empty),
                 ),
             );
         }

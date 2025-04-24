@@ -92,7 +92,7 @@ fn test_bad_shard_id() {
         chunk.tx_root(),
         chunk.prev_validator_proposals().collect(),
         congestion_info,
-        chunk.bandwidth_requests().cloned().unwrap_or(BandwidthRequests::empty()),
+        chunk.bandwidth_requests().cloned().unwrap_or_else(BandwidthRequests::empty),
         &validator_signer,
     );
     modified_chunk.height_included = 2;
@@ -244,7 +244,7 @@ fn test_bad_congestion_info_impl(mode: BadCongestionInfoMode) {
         chunk.tx_root(),
         chunk.prev_validator_proposals().collect(),
         congestion_info,
-        chunk.bandwidth_requests().cloned().unwrap_or(BandwidthRequests::empty()),
+        chunk.bandwidth_requests().cloned().unwrap_or_else(BandwidthRequests::empty),
         &validator_signer,
     );
     modified_chunk_header.height_included = 2;
