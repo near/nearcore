@@ -354,6 +354,9 @@ impl<'a> ValidatorRestrictionsBuilder<'a> {
     }
 }
 
+/// Builds the assignment restrictions for the transition from protocol version v77 to v78.
+/// The reason for this restriction is that shard s5.v3 and s0.v3 are very large.
+/// Loading both into memory at the same time will cause the node to get close to 64GB of memory usage.
 pub fn build_assignment_restrictions_v77_to_v78(
     prev_epoch_info: &EpochInfo,
     prev_shard_layout: &ShardLayout,
