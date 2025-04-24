@@ -41,7 +41,6 @@ pub struct ClientSenderForTestLoopNetwork {
     pub block: AsyncSender<BlockResponse, ()>,
     pub block_headers: AsyncSender<BlockHeadersResponse, ActixResult<BlockHeadersResponse>>,
     pub block_approval: AsyncSender<BlockApproval, ()>,
-    pub chunk_endorsement: AsyncSender<ChunkEndorsementMessage, ()>,
     pub epoch_sync_request: Sender<EpochSyncRequestMessage>,
     pub epoch_sync_response: Sender<EpochSyncResponseMessage>,
     pub optimistic_block_receiver: Sender<OptimisticBlockMessage>,
@@ -51,6 +50,7 @@ pub struct ClientSenderForTestLoopNetwork {
 #[derive(Clone, MultiSend, MultiSenderFrom)]
 pub struct TxRequestHandleSenderForTestLoopNetwork {
     pub transaction: AsyncSender<ProcessTxRequest, ProcessTxResponse>,
+    pub chunk_endorsement: AsyncSender<ChunkEndorsementMessage, ()>,
 }
 
 #[derive(Clone, MultiSend, MultiSenderFrom)]
@@ -206,7 +206,7 @@ struct TestLoopNetworkSharedStateInner {
 struct OneClientSenders {
     client_sender: ClientSenderForTestLoopNetwork,
     view_client_sender: ViewClientSenderForTestLoopNetwork,
-    tx_processor_sender: TxRequestHandleSenderForTestLoopNetwork,
+    rpc_handler_sender: TxRequestHandleSenderForTestLoopNetwork,
     partial_witness_sender: PartialWitnessSenderForNetwork,
     shards_manager_sender: Sender<ShardsManagerRequestFromNetwork>,
     peer_manager_sender: Sender<TestLoopNetworkBlockInfo>,
@@ -232,7 +232,7 @@ fn to_drop_events_senders(s: TestLoopSender<UnreachableActor>) -> Arc<OneClientS
     Arc::new(OneClientSenders {
         client_sender: s.clone().into_multi_sender(),
         view_client_sender: s.clone().into_multi_sender(),
-        tx_processor_sender: s.clone().into_multi_sender(),
+        rpc_handler_sender: s.clone().into_multi_sender(),
         partial_witness_sender: s.clone().into_multi_sender(),
         shards_manager_sender: s.clone().into_sender(),
         peer_manager_sender: s.into_sender(),
@@ -272,7 +272,7 @@ impl TestLoopNetworkSharedState {
             Arc::new(OneClientSenders {
                 client_sender: ClientSenderForTestLoopNetwork::from(data),
                 view_client_sender: ViewClientSenderForTestLoopNetwork::from(data),
-                tx_processor_sender: TxRequestHandleSenderForTestLoopNetwork::from(data),
+                rpc_handler_sender: TxRequestHandleSenderForTestLoopNetwork::from(data),
                 partial_witness_sender: PartialWitnessSenderForNetwork::from(data),
                 shards_manager_sender: Sender::<ShardsManagerRequestFromNetwork>::from(data),
                 peer_manager_sender: Sender::<TestLoopNetworkBlockInfo>::from(data),
@@ -451,7 +451,7 @@ fn network_message_to_client_handler(
             assert_ne!(account, my_account_id, "Sending message to self not supported.");
             let future = shared_state
                 .senders_for_account(&my_account_id, &account)
-                .tx_processor_sender
+                .rpc_handler_sender
                 .send_async(ProcessTxRequest {
                     transaction,
                     is_forwarded: true,
@@ -463,7 +463,7 @@ fn network_message_to_client_handler(
         NetworkRequests::ChunkEndorsement(target, endorsement) => {
             let future = shared_state
                 .senders_for_account(&my_account_id, &target)
-                .client_sender
+                .rpc_handler_sender
                 .send_async(ChunkEndorsementMessage(endorsement));
             drop(future);
             None
