@@ -486,11 +486,11 @@ impl JsonRpcHandler {
         request: Request,
     ) -> Result<Result<Value, RpcError>, Request> {
         Ok(match request.method.as_ref() {
-            "adv_disable_header_sync" => self.adv_disable_header_sync(request.params).await,
-            "adv_disable_doomslug" => self.adv_disable_doomslug(request.params).await,
-            "adv_produce_blocks" => self.adv_produce_blocks(request.params).await,
-            "adv_produce_chunks" => self.adv_produce_chunks(request.params).await,
-            "adv_switch_to_height" => self.adv_switch_to_height(request.params).await,
+            "adv_disable_header_sync" => self.adv_disable_header_sync(request.params),
+            "adv_disable_doomslug" => self.adv_disable_doomslug(request.params),
+            "adv_produce_blocks" => self.adv_produce_blocks(request.params),
+            "adv_produce_chunks" => self.adv_produce_chunks(request.params),
+            "adv_switch_to_height" => self.adv_switch_to_height(request.params),
             "adv_get_saved_blocks" => self.adv_get_saved_blocks(request.params).await,
             "adv_check_store" => self.adv_check_store(request.params).await,
             _ => return Err(request),
@@ -1302,32 +1302,32 @@ impl JsonRpcHandler {
 
 #[cfg(feature = "test_features")]
 impl JsonRpcHandler {
-    async fn adv_disable_header_sync(&self, _params: Value) -> Result<Value, RpcError> {
+    fn adv_disable_header_sync(&self, _params: Value) -> Result<Value, RpcError> {
         self.client_sender.send(near_client::NetworkAdversarialMessage::AdvDisableHeaderSync);
         self.view_client_sender.send(near_client::NetworkAdversarialMessage::AdvDisableHeaderSync);
         Ok(Value::String(String::new()))
     }
 
-    async fn adv_disable_doomslug(&self, _params: Value) -> Result<Value, RpcError> {
+    fn adv_disable_doomslug(&self, _params: Value) -> Result<Value, RpcError> {
         self.client_sender.send(near_client::NetworkAdversarialMessage::AdvDisableDoomslug);
         self.view_client_sender.send(near_client::NetworkAdversarialMessage::AdvDisableDoomslug);
         Ok(Value::String(String::new()))
     }
 
-    async fn adv_produce_blocks(&self, params: Value) -> Result<Value, RpcError> {
+    fn adv_produce_blocks(&self, params: Value) -> Result<Value, RpcError> {
         let (num_blocks, only_valid) = crate::api::Params::parse(params)?;
         self.client_sender
             .send(near_client::NetworkAdversarialMessage::AdvProduceBlocks(num_blocks, only_valid));
         Ok(Value::String(String::new()))
     }
 
-    async fn adv_produce_chunks(&self, params: Value) -> Result<Value, RpcError> {
+    fn adv_produce_chunks(&self, params: Value) -> Result<Value, RpcError> {
         let mode = crate::api::Params::parse(params)?;
         self.client_sender.send(near_client::NetworkAdversarialMessage::AdvProduceChunks(mode));
         Ok(Value::String(String::new()))
     }
 
-    async fn adv_switch_to_height(&self, params: Value) -> Result<Value, RpcError> {
+    fn adv_switch_to_height(&self, params: Value) -> Result<Value, RpcError> {
         let (height,) = crate::api::Params::parse(params)?;
         self.client_sender.send(near_client::NetworkAdversarialMessage::AdvSwitchToHeight(height));
         self.view_client_sender
