@@ -130,8 +130,7 @@ struct SetValidatorsCmd {
     pub validators: PathBuf,
     #[arg(short, long, default_value = "1000")]
     pub epoch_length: NumBlocks,
-    /// Sets the chain id to this value. By default, if this value is not set, the initial chain_id
-    /// will be reused by appending the suffix.
+    /// Sets the chain id.
     #[arg(long, default_value = "mocknet")]
     pub chain_id: String,
     /// Timestamp that should be set in the genesis block. This is required if you want
@@ -561,6 +560,7 @@ impl ForkNetworkCommand {
         );
 
         // 2. Update the epoch configs.
+        // We only fork mainnet for now, so we use mainnet epoch configs as base ones.
         let base_epoch_config_store =
             EpochConfigStore::for_chain_id(near_primitives::chains::MAINNET, None)
                 .expect("Could not load the EpochConfigStore for mainnet.");
