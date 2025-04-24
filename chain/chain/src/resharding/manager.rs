@@ -10,17 +10,14 @@ use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::block::Block;
 use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::hash::CryptoHash;
-use near_primitives::shard_layout::{ShardLayout, get_block_shard_uid};
-use near_primitives::state::PartialState;
+use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::chunk_extra::ChunkExtra;
+use near_store::adapter::StoreAdapter;
 use near_store::adapter::trie_store::{TrieStoreUpdateAdapter, get_shard_uid_mapping};
-use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::flat::BlockInfo;
-use near_store::trie::mem::memtrie_update::TrackingMode;
 use near_store::trie::ops::resharding::RetainMode;
 use near_store::trie::outgoing_metadata::ReceiptGroupsQueue;
-use near_store::trie::{AccessOptions, TrieRecorder};
-use near_store::{DBCol, ShardTries, ShardUId, Store, TrieAccess};
+use near_store::{ShardTries, ShardUId, Store, TrieAccess};
 use std::io;
 use std::num::NonZero;
 use std::sync::Arc;
@@ -138,9 +135,8 @@ impl ReshardingManager {
         self.process_memtrie_resharding_storage_update(
             chain_store_update,
             block,
-            shard_uid,
             tries,
-            split_shard_event.clone(),
+            &split_shard_event,
         )?;
 
         // Trigger resharding of flat storage.
@@ -191,30 +187,36 @@ impl ReshardingManager {
         &mut self,
         mut chain_store_update: ChainStoreUpdate,
         block: &Block,
-        parent_shard_uid: ShardUId,
         tries: ShardTries,
-        split_shard_event: ReshardingSplitShardParams,
+        split_shard_event: &ReshardingSplitShardParams,
     ) -> Result<(), Error> {
         let block_hash = block.hash();
         let block_height = block.header().height();
+        let ReshardingSplitShardParams {
+            left_child_shard,
+            right_child_shard,
+            parent_shard: parent_shard_uid,
+            boundary_account,
+            ..
+        } = split_shard_event;
         let _span = tracing::debug_span!(
             target: "resharding", "process_memtrie_resharding_storage_update",
             ?block_hash, block_height, ?parent_shard_uid)
         .entered();
 
-        tries.freeze_parent_memtrie(parent_shard_uid, split_shard_event.children_shards())?;
-
-        let parent_chunk_extra = self.get_chunk_extra(block_hash, &parent_shard_uid)?;
-        let boundary_account = split_shard_event.boundary_account;
-
-        let mut trie_store_update = self.store.store_update();
+        let parent_chunk_extra =
+            self.store.chain_store().get_chunk_extra(block_hash, parent_shard_uid)?;
+        let mut store_update = self.store.trie_store().store_update();
 
         // TODO(resharding): leave only tracked shards.
-        for (new_shard_uid, retain_mode) in [
-            (split_shard_event.left_child_shard, RetainMode::Left),
-            (split_shard_event.right_child_shard, RetainMode::Right),
-        ] {
-            let Some(memtries) = tries.get_memtries(new_shard_uid) else {
+        for (new_shard_uid, retain_mode) in
+            [(left_child_shard, RetainMode::Left), (right_child_shard, RetainMode::Right)]
+        {
+            let parent_trie = tries
+                .get_trie_for_shard(*parent_shard_uid, *parent_chunk_extra.state_root())
+                .recording_reads_new_recorder();
+
+            if !parent_trie.has_memtries() {
                 tracing::error!(
                     "Memtrie not loaded. Cannot process memtrie resharding storage
                      update for block {:?}, shard {:?}",
@@ -222,39 +224,20 @@ impl ReshardingManager {
                     parent_shard_uid,
                 );
                 return Err(Error::Other("Memtrie not loaded".to_string()));
-            };
+            }
 
             tracing::info!(
                 target: "resharding", ?new_shard_uid, ?retain_mode,
-                "Creating child memtrie by retaining nodes in parent memtrie..."
+                "Creating child trie by retaining nodes in parent memtrie..."
             );
-            let mut memtries = memtries.write().unwrap();
-            let mut trie_recorder = TrieRecorder::new(None);
-            let mode = TrackingMode::RefcountsAndAccesses(&mut trie_recorder);
-            let memtrie_update = memtries.update(*parent_chunk_extra.state_root(), mode)?;
-
-            let trie_changes = memtrie_update.retain_split_shard(
-                &boundary_account,
-                retain_mode,
-                AccessOptions::DEFAULT,
-            );
-            Self::duplicate_nodes_at_split_boundary(
-                &mut trie_store_update.trie_store_update(),
-                trie_recorder.recorded_iter(),
-                parent_shard_uid,
-            );
-            let memtrie_changes = trie_changes.memtrie_changes.as_ref().unwrap();
-            let new_state_root = memtries.apply_memtrie_changes(block_height, memtrie_changes);
-            drop(memtries);
 
             // Get the congestion info for the child.
+            // We need to record this as this is used later in ImplicitTransitionParams::Resharding chunk validation.
             let parent_epoch_id = block.header().epoch_id();
             let parent_shard_layout = self.epoch_manager.get_shard_layout(&parent_epoch_id)?;
-            let parent_state_root = *parent_chunk_extra.state_root();
-            let parent_trie = tries.get_trie_for_shard(parent_shard_uid, parent_state_root);
             let parent_congestion_info = parent_chunk_extra.congestion_info();
-            let parent_trie = parent_trie.recording_reads_with_recorder(trie_recorder.into());
-            let child_epoch_id = self.epoch_manager.get_next_epoch_id(block.hash())?;
+
+            let child_epoch_id = self.epoch_manager.get_next_epoch_id(&block_hash)?;
             let child_shard_layout = self.epoch_manager.get_shard_layout(&child_epoch_id)?;
             let child_congestion_info = Self::get_child_congestion_info(
                 &parent_trie,
@@ -265,45 +248,46 @@ impl ReshardingManager {
                 retain_mode,
             )?;
 
+            // Split the parent trie and create a new child trie.
+            let trie_changes = parent_trie.retain_split_shard(boundary_account, retain_mode)?;
+            let new_root = tries.apply_all(&trie_changes, *parent_shard_uid, &mut store_update);
+            tries.apply_memtrie_changes(&trie_changes, *parent_shard_uid, block_height);
+
+            // TODO(resharding): remove duplicate_nodes_at_split_boundary method after proper fix for refcount issue
             let trie_recorder = parent_trie.take_recorder().unwrap();
-            let partial_storage = trie_recorder.write().expect("no poison").recorded_storage();
-            let partial_state_len = match &partial_storage.nodes {
-                PartialState::TrieValues(values) => values.len(),
-            };
+            let mut trie_recorder = trie_recorder.write().expect("no poison");
+            Self::duplicate_nodes_at_split_boundary(
+                &mut store_update,
+                trie_recorder.recorded_iter(),
+                *parent_shard_uid,
+            );
 
             // TODO(resharding): set all fields of `ChunkExtra`. Consider stronger
             // typing. Clarify where it should happen when `State` and
             // `FlatState` update is implemented.
             let mut child_chunk_extra = ChunkExtra::clone(&parent_chunk_extra);
-            *child_chunk_extra.state_root_mut() = new_state_root;
+            *child_chunk_extra.state_root_mut() = new_root;
             *child_chunk_extra.congestion_info_mut() = child_congestion_info;
 
             chain_store_update.save_chunk_extra(block_hash, &new_shard_uid, child_chunk_extra);
             chain_store_update.save_state_transition_data(
                 *block_hash,
                 new_shard_uid.shard_id(),
-                Some(partial_storage),
+                Some(trie_recorder.recorded_storage()),
                 CryptoHash::default(),
                 // No contract code is accessed or deployed during resharding.
                 // TODO(#11099): Confirm if sending no contracts is ok here.
                 Default::default(),
             );
 
-            // Commit `TrieChanges` directly. They are needed to serve reads of
-            // new nodes from `DBCol::State` while memtrie is properly created
-            // from flat storage.
-            tries.apply_insertions(
-                &trie_changes,
-                new_shard_uid,
-                &mut trie_store_update.trie_store_update(),
-            );
-            tracing::info!(
-                target: "resharding", ?new_shard_uid, ?new_state_root, ?partial_state_len,
-                "Child memtrie created"
-            );
+            tracing::info!(target: "resharding", ?new_shard_uid, ?new_root, "Child trie created");
         }
 
-        chain_store_update.merge(trie_store_update);
+        // After committing the split changes, the parent trie has the state root of both the children.
+        // Now we can freeze the parent memtrie and copy it to the children.
+        tries.freeze_parent_memtrie(*parent_shard_uid, split_shard_event.children_shards())?;
+
+        chain_store_update.merge(store_update.into());
         chain_store_update.commit()?;
 
         Ok(())
@@ -314,7 +298,7 @@ impl ReshardingManager {
         parent_shard_layout: &ShardLayout,
         parent_congestion_info: CongestionInfo,
         child_shard_layout: &ShardLayout,
-        child_shard_uid: ShardUId,
+        child_shard_uid: &ShardUId,
         retain_mode: RetainMode,
     ) -> Result<CongestionInfo, Error> {
         // Get the congestion info based on the parent shard.
@@ -381,7 +365,7 @@ impl ReshardingManager {
 
     fn finalize_allowed_shard(
         child_shard_layout: &ShardLayout,
-        child_shard_uid: ShardUId,
+        child_shard_uid: &ShardUId,
         congestion_info: &mut CongestionInfo,
     ) -> Result<(), Error> {
         let all_shards = child_shard_layout.shard_ids().collect_vec();
@@ -401,23 +385,5 @@ impl ReshardingManager {
         let congestion_seed = own_shard_index;
         congestion_info.finalize_allowed_shard(own_shard, &all_shards, congestion_seed);
         Ok(())
-    }
-
-    // TODO(store): Use proper store interface
-    fn get_chunk_extra(
-        &self,
-        block_hash: &CryptoHash,
-        shard_uid: &ShardUId,
-    ) -> Result<Arc<ChunkExtra>, Error> {
-        let key = get_block_shard_uid(block_hash, shard_uid);
-        let value = self
-            .store
-            .get_ser(DBCol::ChunkExtra, &key)
-            .map_err(|e| Error::DBNotFoundErr(e.to_string()))?;
-        value.ok_or_else(|| {
-            Error::DBNotFoundErr(
-                format_args!("CHUNK EXTRA: {}:{:?}", block_hash, shard_uid).to_string(),
-            )
-        })
     }
 }

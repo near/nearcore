@@ -235,7 +235,7 @@ fn send_txs_between_shards(
         *nonce += 1;
 
         let future = get_wrapped(node_datas, client_idx)
-            .tx_processor_sender
+            .rpc_handler_sender
             .clone()
             //.with_delay(Duration::milliseconds(300 * txs_sent as i64))
             .send_async(ProcessTxRequest {

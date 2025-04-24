@@ -298,6 +298,8 @@ where
     N: Debug,
     V: Debug + HasValueLength,
 {
+    /// Splits the trie, separating entries by the boundary account.
+    /// Leaves the left or right part of the trie, depending on the retain mode.
     fn retain_split_shard(
         &mut self,
         boundary_account: &AccountId,
@@ -312,6 +314,8 @@ where
     V: Debug + HasValueLength,
     T: GenericTrieUpdateRetainInner<'a, N, V>,
 {
+    /// Splits the trie, separating entries by the boundary account.
+    /// Leaves the left or right part of the trie, depending on the retain mode.
     fn retain_split_shard(
         &mut self,
         boundary_account: &AccountId,
