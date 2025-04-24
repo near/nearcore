@@ -464,8 +464,7 @@ pub enum ParsePeerMessageError {
 }
 
 impl PeerMessage {
-    /// Serializes a message in the given encoding.
-    /// Also attaches current Span's context to the message.
+    /// Serializes a message and attaches current Span's context to the message.
     pub(crate) fn serialize(&self) -> Vec<u8> {
         let mut msg = proto::PeerMessage::from(self);
         let cx = Span::current().context();

@@ -61,10 +61,10 @@ pub struct Connection {
 }
 
 impl Labels for Connection {
-    type Array = [&'static str; 3];
-    const NAMES: Self::Array = ["tier", "peer_type", "encoding"];
+    type Array = [&'static str; 2];
+    const NAMES: Self::Array = ["tier", "peer_type"];
     fn values(&self) -> Self::Array {
-        [self.tier.into(), self.type_.into(), "Proto"]
+        [self.tier.into(), self.type_.into()]
     }
 }
 
