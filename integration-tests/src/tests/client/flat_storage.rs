@@ -32,15 +32,13 @@ fn setup_env(genesis: &Genesis, store: Store) -> TestEnv {
 #[test]
 fn test_flat_storage_iter() {
     init_test_logger();
-    let num_shards = 3;
     let boundary_accounts = vec!["test0".parse().unwrap(), "test1".parse().unwrap()];
     let shard_layout = ShardLayout::multi_shard_custom(boundary_accounts, 0);
 
-    let genesis = Genesis::test_with_seeds(
+    let genesis = Genesis::from_accounts(
         Clock::real(),
         vec!["test0".parse().unwrap()],
         1,
-        vec![1; num_shards],
         shard_layout.clone(),
     );
 
