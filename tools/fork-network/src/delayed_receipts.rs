@@ -173,7 +173,7 @@ pub(crate) fn write_delayed_receipts(
         let value = borsh::to_vec(&indices).unwrap();
         updates.push((TrieKey::DelayedReceiptIndices, Some(value)));
         crate::storage_mutator::commit_shard(shard_uid, &shard_tries, update_state, updates)
-            .context("failed committing trie changes")?
+            .context("failed committing trie changes")?;
     }
 
     Ok(())
