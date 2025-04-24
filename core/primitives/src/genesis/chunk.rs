@@ -83,7 +83,7 @@ fn genesis_chunk(
         vec![],
         CryptoHash::default(),
         congestion_info,
-        BandwidthRequests::default(),
+        BandwidthRequests::empty(),
         &EmptyValidatorSigner::default().into(),
     );
     encoded_chunk

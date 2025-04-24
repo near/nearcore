@@ -304,7 +304,7 @@ impl ShardChunkHeader {
             Default::default(),
             Default::default(),
             congestion_info,
-            BandwidthRequests::default(),
+            BandwidthRequests::empty(),
             &EmptyValidatorSigner::default().into(),
         ))
     }

@@ -819,7 +819,7 @@ pub mod chunk_extra {
                 0,
                 0,
                 congestion_control,
-                BandwidthRequests::default(),
+                BandwidthRequests::empty(),
             )
         }
 

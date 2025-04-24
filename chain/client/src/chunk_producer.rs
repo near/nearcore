@@ -13,6 +13,7 @@ use near_client_primitives::debug::ChunkProduction;
 use near_client_primitives::types::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
+use near_primitives::bandwidth_scheduler::BandwidthRequests;
 use near_primitives::epoch_info::RngSeed;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{MerklePath, merklize};
@@ -300,7 +301,7 @@ impl ChunkProducer {
                 outgoing_receipts_root,
                 tx_root,
                 congestion_info,
-                chunk_extra.bandwidth_requests().cloned().unwrap_or_default(),
+                chunk_extra.bandwidth_requests().cloned().unwrap_or(BandwidthRequests::empty()),
                 &*validator_signer,
                 &mut self.reed_solomon_encoder,
             );

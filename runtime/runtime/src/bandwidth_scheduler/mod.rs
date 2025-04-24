@@ -30,7 +30,8 @@ pub struct BandwidthSchedulerOutput {
 }
 
 impl BandwidthSchedulerOutput {
-    pub(crate) fn default_from(params: BandwidthSchedulerParams) -> Self {
+    /// Create a new BandwidthSchedulerOutput with no granted bandwidth.
+    pub(crate) fn no_granted_bandwidth(params: BandwidthSchedulerParams) -> Self {
         BandwidthSchedulerOutput {
             granted_bandwidth: GrantedBandwidth::default(),
             params,

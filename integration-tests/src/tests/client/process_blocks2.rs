@@ -6,6 +6,7 @@ use near_chain_configs::Genesis;
 use near_crypto::vrf::Value;
 use near_crypto::{KeyType, PublicKey, Signature};
 use near_network::types::{NetworkRequests, PeerManagerMessageRequest};
+use near_primitives::bandwidth_scheduler::BandwidthRequests;
 use near_primitives::block::Block;
 use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::network::PeerId;
@@ -91,7 +92,7 @@ fn test_bad_shard_id() {
         chunk.tx_root(),
         chunk.prev_validator_proposals().collect(),
         congestion_info,
-        chunk.bandwidth_requests().cloned().unwrap_or_default(),
+        chunk.bandwidth_requests().cloned().unwrap_or(BandwidthRequests::empty()),
         &validator_signer,
     );
     modified_chunk.height_included = 2;
@@ -243,7 +244,7 @@ fn test_bad_congestion_info_impl(mode: BadCongestionInfoMode) {
         chunk.tx_root(),
         chunk.prev_validator_proposals().collect(),
         congestion_info,
-        chunk.bandwidth_requests().cloned().unwrap_or_default(),
+        chunk.bandwidth_requests().cloned().unwrap_or(BandwidthRequests::empty()),
         &validator_signer,
     );
     modified_chunk_header.height_included = 2;

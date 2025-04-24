@@ -2363,7 +2363,7 @@ fn missing_chunk_apply_result(
         .shards_bandwidth_requests
         .get(&processing_state.apply_state.shard_id)
         .cloned()
-        .unwrap_or_default();
+        .unwrap_or(BandwidthRequests::empty());
 
     return Ok(ApplyResult {
         state_root: trie_changes.new_root,
@@ -2757,7 +2757,7 @@ pub mod estimator {
             outgoing_buffers: ShardsOutgoingReceiptBuffer::load(&state_update.trie)?,
             outgoing_receipts: Vec::new(),
             outgoing_metadatas,
-            bandwidth_scheduler_output: BandwidthSchedulerOutput::default_from(params),
+            bandwidth_scheduler_output: BandwidthSchedulerOutput::no_granted_bandwidth(params),
             stats: ReceiptSinkStats::default(),
         });
         let empty_pipeline = ReceiptPreparationPipeline::new(

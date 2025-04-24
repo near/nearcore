@@ -36,12 +36,6 @@ impl BandwidthRequests {
     }
 }
 
-impl Default for BandwidthRequests {
-    fn default() -> Self {
-        BandwidthRequests::empty()
-    }
-}
-
 #[derive(
     BorshSerialize,
     BorshDeserialize,

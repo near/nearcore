@@ -11,6 +11,7 @@ use near_chain_configs::Genesis;
 use near_crypto::InMemorySigner;
 use near_epoch_manager::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
 use near_primitives::account::{AccessKey, Account, AccountContract};
+use near_primitives::bandwidth_scheduler::BandwidthRequests;
 use near_primitives::block::Tip;
 use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::epoch_block_info::BlockInfo;
@@ -290,7 +291,10 @@ impl GenesisBuilder {
                     self.genesis.config.gas_limit,
                     0,
                     Some(congestion_info),
-                    chunk_header.bandwidth_requests().cloned().unwrap_or_default(),
+                    chunk_header
+                        .bandwidth_requests()
+                        .cloned()
+                        .unwrap_or(BandwidthRequests::empty()),
                 ),
             );
         }
