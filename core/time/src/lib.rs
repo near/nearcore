@@ -67,10 +67,7 @@ pub struct DurationSchemeProvider {
 
 impl From<Duration> for DurationSchemeProvider {
     fn from(duration: Duration) -> Self {
-        Self {
-            secs: duration.whole_seconds(),
-            nanos: duration.subsec_nanoseconds(),
-        }
+        Self { secs: duration.whole_seconds(), nanos: duration.subsec_nanoseconds() }
     }
 }
 

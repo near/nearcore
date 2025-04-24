@@ -1,7 +1,7 @@
 use near_primitives::views::SplitStorageInfoView;
+use schemars;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use schemars;
 
 use crate::types::status::RpcStatusError;
 

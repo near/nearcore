@@ -1,6 +1,6 @@
+use schemars;
 use serde_json::Value;
 use std::sync::Arc;
-use schemars;
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]

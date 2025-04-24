@@ -30,7 +30,7 @@ use near_jsonrpc_primitives::types::split_storage::{
     RpcSplitStorageInfoRequest, RpcSplitStorageInfoResponse,
 };
 use near_jsonrpc_primitives::types::transactions::{
-    RpcSendTransactionRequest, RpcTransactionResponse
+    RpcSendTransactionRequest, RpcTransactionResponse,
 };
 use near_network::debug::GetDebugStatus;
 use near_network::tcp::{self, ListenerAddr};

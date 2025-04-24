@@ -3,6 +3,7 @@ use near_schema_checker_lib::ProtocolSchema;
 use borsh::{BorshDeserialize, BorshSerialize};
 use ed25519_dalek::ed25519::signature::{Signer, Verifier};
 use primitive_types::U256;
+use schemars;
 use secp256k1::Message;
 use std::convert::AsRef;
 use std::fmt::{Debug, Display, Formatter};
@@ -10,7 +11,6 @@ use std::hash::{Hash, Hasher};
 use std::io::{Error, ErrorKind, Read, Write};
 use std::str::FromStr;
 use std::sync::LazyLock;
-use schemars;
 
 pub static SECP256K1: LazyLock<secp256k1::Secp256k1<secp256k1::All>> =
     LazyLock::new(secp256k1::Secp256k1::new);
@@ -68,7 +68,7 @@ fn split_key_type_data(value: &str) -> Result<(KeyType, &str), crate::errors::Pa
 }
 
 #[derive(
-    Clone, Eq, Ord, PartialEq, PartialOrd, derive_more::AsRef, derive_more::From, ProtocolSchema
+    Clone, Eq, Ord, PartialEq, PartialOrd, derive_more::AsRef, derive_more::From, ProtocolSchema,
 )]
 #[cfg_attr(test, derive(bolero::TypeGenerator))]
 #[as_ref(forward)]
@@ -92,7 +92,7 @@ impl std::fmt::Debug for Secp256K1PublicKey {
 }
 
 #[derive(
-    Clone, Eq, Ord, PartialEq, PartialOrd, derive_more::AsRef, derive_more::From, ProtocolSchema
+    Clone, Eq, Ord, PartialEq, PartialOrd, derive_more::AsRef, derive_more::From, ProtocolSchema,
 )]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(test, derive(bolero::TypeGenerator))]

@@ -3,7 +3,7 @@ use std::num::NonZero;
 use std::sync::Arc;
 
 use borsh::BorshDeserialize;
-use near_primitives::errors::{MissingTrieValueContext, StorageError, MissingTrieValue};
+use near_primitives::errors::{MissingTrieValue, MissingTrieValueContext, StorageError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::{ShardUId, get_block_shard_uid};
 use near_primitives::types::RawStateChangesWithTrieKey;
@@ -42,7 +42,10 @@ impl TrieStoreAdapter {
             .store
             .get(DBCol::State, key.as_ref())
             .map_err(|_| StorageError::StorageInternalError)?
-            .ok_or(StorageError::MissingTrieValue(MissingTrieValue { context: MissingTrieValueContext::TrieStorage, hash: *hash }))?;
+            .ok_or(StorageError::MissingTrieValue(MissingTrieValue {
+                context: MissingTrieValueContext::TrieStorage,
+                hash: *hash,
+            }))?;
         Ok(val.into())
     }
 

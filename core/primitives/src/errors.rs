@@ -125,8 +125,8 @@ impl MissingTrieValueContext {
 )]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct MissingTrieValue {
-    pub context: MissingTrieValueContext, 
-    pub hash: CryptoHash
+    pub context: MissingTrieValueContext,
+    pub hash: CryptoHash,
 }
 
 /// Errors which may occur during working with trie storages, storing

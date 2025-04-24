@@ -1,7 +1,7 @@
 use crate::adapter::trie_store::TrieStoreAdapter;
 use crate::trie::config::TrieConfig;
 use crate::trie::prefetching_trie_storage::PrefetcherResult;
-use crate::{MissingTrieValueContext, PrefetchApi, StorageError, MissingTrieValue, metrics};
+use crate::{MissingTrieValue, MissingTrieValueContext, PrefetchApi, StorageError, metrics};
 use lru::LruCache;
 use near_o11y::log_assert;
 use near_o11y::metrics::prometheus;

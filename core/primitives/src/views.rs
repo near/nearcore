@@ -819,21 +819,25 @@ pub struct BlockHeaderView {
     /// Legacy json number. Should not be used.
     pub timestamp: u64,
     #[serde(with = "dec_format")]
-    #[cfg_attr(feature = "schemars", schemars(with = "String"))] 
+    #[cfg_attr(feature = "schemars", schemars(with = "String"))]
     pub timestamp_nanosec: u64,
     pub random_value: CryptoHash,
     pub validator_proposals: Vec<ValidatorStakeView>,
     pub chunk_mask: Vec<bool>,
-    #[serde(with = "dec_format")] #[cfg_attr(feature = "schemars", schemars(with = "String"))]
+    #[serde(with = "dec_format")]
+    #[cfg_attr(feature = "schemars", schemars(with = "String"))]
     pub gas_price: Balance,
     pub block_ordinal: Option<NumBlocks>,
     /// TODO(2271): deprecated.
-    #[serde(with = "dec_format")] #[cfg_attr(feature = "schemars", schemars(with = "String"))]
+    #[serde(with = "dec_format")]
+    #[cfg_attr(feature = "schemars", schemars(with = "String"))]
     pub rent_paid: Balance,
     /// TODO(2271): deprecated.
-    #[serde(with = "dec_format")] #[cfg_attr(feature = "schemars", schemars(with = "String"))]
+    #[serde(with = "dec_format")]
+    #[cfg_attr(feature = "schemars", schemars(with = "String"))]
     pub validator_reward: Balance,
-    #[serde(with = "dec_format")] #[cfg_attr(feature = "schemars", schemars(with = "String"))]
+    #[serde(with = "dec_format")]
+    #[cfg_attr(feature = "schemars", schemars(with = "String"))]
     pub total_supply: Balance,
     // Deprecated
     pub challenges_result: Vec<SlashedValidator>,
@@ -1001,12 +1005,15 @@ pub struct ChunkHeaderView {
     pub gas_used: Gas,
     pub gas_limit: Gas,
     /// TODO(2271): deprecated.
-    #[serde(with = "dec_format")] #[cfg_attr(feature = "schemars", schemars(with = "String"))]
+    #[serde(with = "dec_format")]
+    #[cfg_attr(feature = "schemars", schemars(with = "String"))]
     pub rent_paid: Balance,
     /// TODO(2271): deprecated.
-    #[serde(with = "dec_format")] #[cfg_attr(feature = "schemars", schemars(with = "String"))]
+    #[serde(with = "dec_format")]
+    #[cfg_attr(feature = "schemars", schemars(with = "String"))]
     pub validator_reward: Balance,
-    #[serde(with = "dec_format")] #[cfg_attr(feature = "schemars", schemars(with = "String"))]
+    #[serde(with = "dec_format")]
+    #[cfg_attr(feature = "schemars", schemars(with = "String"))]
     pub balance_burnt: Balance,
     pub outgoing_receipts_root: CryptoHash,
     pub tx_root: CryptoHash,
@@ -1438,7 +1445,11 @@ pub enum FinalExecutionStatus {
     /// The execution has failed with the given error.
     Failure(TxExecutionError),
     /// The execution has succeeded and returned some value or an empty vec encoded in base64.
-    SuccessValue(#[serde_as(as = "Base64")] #[cfg_attr(feature = "schemars", schemars(with = "String"))] Vec<u8>),
+    SuccessValue(
+        #[serde_as(as = "Base64")]
+        #[cfg_attr(feature = "schemars", schemars(with = "String"))]
+        Vec<u8>,
+    ),
 }
 
 impl fmt::Debug for FinalExecutionStatus {
@@ -1481,7 +1492,11 @@ pub enum ExecutionStatusView {
     /// The execution has failed.
     Failure(TxExecutionError),
     /// The final action succeeded and returned some value or an empty vec encoded in base64.
-    SuccessValue(#[serde_as(as = "Base64")] #[cfg_attr(feature = "schemars", schemars(with = "String"))] Vec<u8>),
+    SuccessValue(
+        #[serde_as(as = "Base64")]
+        #[cfg_attr(feature = "schemars", schemars(with = "String"))]
+        Vec<u8>,
+    ),
     /// The final action of the receipt returned a promise or the signed transaction was converted
     /// to a receipt. Contains the receipt_id of the generated receipt.
     SuccessReceiptId(CryptoHash),
@@ -1850,7 +1865,7 @@ impl TxStatusView {
 /// Execution outcome of the transaction and all the subsequent receipts.
 /// Could be not finalized yet
 #[derive(
-    BorshSerialize, BorshDeserialize, serde::Serialize, serde::Deserialize, PartialEq, Eq, Clone
+    BorshSerialize, BorshDeserialize, serde::Serialize, serde::Deserialize, PartialEq, Eq, Clone,
 )]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct FinalExecutionOutcomeView {
@@ -1908,7 +1923,7 @@ pub mod validator_stake_view {
     use serde::Deserialize;
 
     #[derive(
-        BorshSerialize, BorshDeserialize, serde::Serialize, Deserialize, Debug, Clone, Eq, PartialEq
+        BorshSerialize, BorshDeserialize, serde::Serialize, Deserialize, Debug, Clone, Eq, PartialEq,
     )]
     #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
     #[serde(tag = "validator_stake_struct_version")]
@@ -1971,7 +1986,8 @@ pub mod validator_stake_view {
 pub struct ValidatorStakeViewV1 {
     pub account_id: AccountId,
     pub public_key: PublicKey,
-    #[serde(with = "dec_format")] #[cfg_attr(feature = "schemars", schemars(with = "String"))]
+    #[serde(with = "dec_format")]
+    #[cfg_attr(feature = "schemars", schemars(with = "String"))]
     pub stake: Balance,
 }
 
@@ -2583,10 +2599,12 @@ pub struct SplitStorageInfoView {
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct CongestionInfoView {
-    #[serde(with = "dec_format")] #[cfg_attr(feature = "schemars", schemars(with = "String"))]
+    #[serde(with = "dec_format")]
+    #[cfg_attr(feature = "schemars", schemars(with = "String"))]
     pub delayed_receipts_gas: u128,
 
-    #[serde(with = "dec_format")] #[cfg_attr(feature = "schemars", schemars(with = "String"))]
+    #[serde(with = "dec_format")]
+    #[cfg_attr(feature = "schemars", schemars(with = "String"))]
     pub buffered_receipts_gas: u128,
 
     pub receipt_bytes: u64,

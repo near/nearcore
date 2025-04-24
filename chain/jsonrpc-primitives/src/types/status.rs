@@ -58,7 +58,10 @@ pub enum RpcStatusError {
     #[error("Node is syncing")]
     NodeIsSyncing,
     #[error("No blocks for {elapsed:?}")]
-    NoNewBlocks { #[cfg_attr(feature = "schemars", schemars(with = "DurationSchemeProvider"))] elapsed: time::Duration },
+    NoNewBlocks {
+        #[cfg_attr(feature = "schemars", schemars(with = "DurationSchemeProvider"))]
+        elapsed: time::Duration,
+    },
     #[error("Epoch Out Of Bounds {epoch_id:?}")]
     EpochOutOfBounds { epoch_id: near_primitives::types::EpochId },
     #[error("The node reached its limits. Try again later. More details: {error_message}")]

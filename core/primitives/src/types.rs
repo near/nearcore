@@ -81,7 +81,11 @@ pub struct AccountInfo {
 )]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(transparent)]
-pub struct StoreKey(#[serde_as(as = "Base64")] #[cfg_attr(feature = "schemars", schemars(with = "String"))] Vec<u8>);
+pub struct StoreKey(
+    #[serde_as(as = "Base64")]
+    #[cfg_attr(feature = "schemars", schemars(with = "String"))]
+    Vec<u8>,
+);
 
 /// This type is used to mark values returned from store (arrays of bytes).
 ///
@@ -103,7 +107,11 @@ pub struct StoreKey(#[serde_as(as = "Base64")] #[cfg_attr(feature = "schemars", 
 )]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(transparent)]
-pub struct StoreValue(#[serde_as(as = "Base64")] #[cfg_attr(feature = "schemars", schemars(with = "String"))] Vec<u8>);
+pub struct StoreValue(
+    #[serde_as(as = "Base64")]
+    #[cfg_attr(feature = "schemars", schemars(with = "String"))]
+    Vec<u8>,
+);
 
 /// This type is used to mark function arguments.
 ///
@@ -126,7 +134,11 @@ pub struct StoreValue(#[serde_as(as = "Base64")] #[cfg_attr(feature = "schemars"
 )]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(transparent)]
-pub struct FunctionArgs(#[serde_as(as = "Base64")] #[cfg_attr(feature = "schemars", schemars(with = "String"))] Vec<u8>);
+pub struct FunctionArgs(
+    #[serde_as(as = "Base64")]
+    #[cfg_attr(feature = "schemars", schemars(with = "String"))]
+    Vec<u8>,
+);
 
 /// A structure used to indicate the kind of state changes due to transaction/receipt processing, etc.
 #[derive(Debug, Clone)]
