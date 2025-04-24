@@ -285,6 +285,11 @@ impl ChunkProducer {
         let gas_used = if self.produce_invalid_chunks { gas_used + 1 } else { gas_used };
 
         let congestion_info = chunk_extra.congestion_info();
+        let bandwidth_requests = chunk_extra.bandwidth_requests();
+        debug_assert!(
+            bandwidth_requests.is_some(),
+            "Expected bandwidth_request to be Some after BandwidthScheduler feature enabled"
+        );
         let (encoded_chunk, merkle_paths, outgoing_receipts) =
             ShardsManagerActor::create_encoded_shard_chunk(
                 prev_block_hash,
@@ -301,7 +306,7 @@ impl ChunkProducer {
                 outgoing_receipts_root,
                 tx_root,
                 congestion_info,
-                chunk_extra.bandwidth_requests().cloned().unwrap_or(BandwidthRequests::empty()),
+                bandwidth_requests.cloned().unwrap_or(BandwidthRequests::empty()),
                 &*validator_signer,
                 &mut self.reed_solomon_encoder,
             );
