@@ -22,7 +22,7 @@ pub fn prepare_contract(
     config: &Config,
     kind: VMKind,
 ) -> Result<Vec<u8>, PrepareError> {
-    let features = crate::features::WasmFeatures::new();
+    let features = crate::features::WasmFeatures::new(config);
     prepare_v2::prepare_contract(original_code, features, config, kind)
 }
 

@@ -214,6 +214,8 @@ pub struct VMConfigView {
     pub vm_kind: crate::vm::VMKind,
     /// See [VMConfig::discard_custom_sections](crate::vm::Config::discard_custom_sections).
     pub discard_custom_sections: bool,
+    /// See [VMConfig::saturating_float_to_int](crate::vm::Config::saturating_float_to_int).
+    pub saturating_float_to_int: bool,
 
     /// See [VMConfig::storage_get_mode](crate::vm::Config::storage_get_mode).
     pub storage_get_mode: crate::vm::StorageGetMode,
@@ -244,6 +246,7 @@ impl From<crate::vm::Config> for VMConfigView {
             implicit_account_creation: config.implicit_account_creation,
             vm_kind: config.vm_kind,
             eth_implicit_accounts: config.eth_implicit_accounts,
+            saturating_float_to_int: config.saturating_float_to_int,
         }
     }
 }
@@ -261,6 +264,7 @@ impl From<VMConfigView> for crate::vm::Config {
             implicit_account_creation: view.implicit_account_creation,
             vm_kind: view.vm_kind,
             eth_implicit_accounts: view.eth_implicit_accounts,
+            saturating_float_to_int: view.saturating_float_to_int,
         }
     }
 }

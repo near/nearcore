@@ -128,11 +128,12 @@ impl NearVM {
             })
             .clone();
 
+        let features = crate::features::WasmFeatures::new(&config).into();
         Self {
             config,
             engine: Universal::new(compiler)
                 .target(target)
-                .features(crate::features::WasmFeatures::new().into())
+                .features(features)
                 .code_memory_pool(code_memory_pool)
                 .engine(),
         }
