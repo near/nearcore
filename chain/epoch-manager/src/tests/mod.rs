@@ -2173,9 +2173,9 @@ fn test_validator_kickout_determinism() {
         (ShardId::new(0), chunk_stats0.clone().into_iter().collect()),
         (ShardId::new(1), chunk_stats1.clone().into_iter().collect()),
     ]);
-    let chunk_stats0: Vec<_> = chunk_stats0.into_iter().rev().collect();
+    let chunk_stats0 = chunk_stats0.into_iter().rev();
     let chunk_stats_tracker2 = HashMap::from([
-        (ShardId::new(0), chunk_stats0.into_iter().collect()),
+        (ShardId::new(0), chunk_stats0.collect()),
         (ShardId::new(1), chunk_stats1.into_iter().collect()),
     ]);
     let (_validator_stats, kickouts1) = EpochManager::compute_validators_to_reward_and_kickout(

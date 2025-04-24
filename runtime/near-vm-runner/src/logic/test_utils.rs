@@ -38,6 +38,7 @@ pub fn test_memory_like(factory: impl FnOnce() -> Box<dyn MemoryLike>) {
         }
     }
 
+    #[allow(clippy::large_stack_arrays)]
     let mut ctx = TestContext { mem: factory(), buf: [0; PAGE as usize + 1] };
 
     // Test memory is initialized to zero.

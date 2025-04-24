@@ -601,7 +601,7 @@ impl ForkNetworkCommand {
         // 4. Create new genesis with updated state roots and validators.
         let mut original_genesis_config = near_config.genesis.config.clone();
         let genesis_file = near_config.config.genesis_file.clone();
-        original_genesis_config.chain_id = chain_id.clone();
+        original_genesis_config.chain_id.clone_from(chain_id);
         original_genesis_config.genesis_time = genesis_time;
         original_genesis_config.protocol_version = protocol_version;
         original_genesis_config.genesis_height = flat_head.height + 1;
@@ -686,7 +686,7 @@ impl ForkNetworkCommand {
         }
         let genesis_protocol_version = genesis.config.protocol_version;
         genesis.config.epoch_length = epoch_length;
-        genesis.config.chain_id = chain_id.clone();
+        genesis.config.chain_id.clone_from(chain_id);
         initialize_sharded_genesis_state(store.clone(), &genesis, &epoch_config, Some(home_dir));
         genesis.to_file(home_dir.join(&near_config.config.genesis_file));
         near_config.genesis = genesis.clone();

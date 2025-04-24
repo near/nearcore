@@ -380,7 +380,7 @@ impl JsonRpcHandler {
             "block" => process_method_call(request, |params| self.block(params)).await,
             "broadcast_tx_async" => {
                 process_method_call(request, |params| async {
-                    let tx = self.send_tx_async(params).await.to_string();
+                    let tx = self.send_tx_async(params).to_string();
                     Result::<_, std::convert::Infallible>::Ok(tx)
                 })
                 .await
@@ -472,6 +472,7 @@ impl JsonRpcHandler {
     /// request.  Otherwise returns `Ok(response)` where `response` is the
     /// result of handling the request.
     #[cfg(not(feature = "test_features"))]
+    #[allow(clippy::unused_async)]
     async fn process_adversarial_request_internal(
         &self,
         request: Request,
@@ -533,10 +534,7 @@ impl JsonRpcHandler {
         self.peer_manager_sender.send_async(msg).await.map_err(RpcFrom::rpc_from)
     }
 
-    async fn send_tx_async(
-        &self,
-        request_data: near_jsonrpc_primitives::types::transactions::RpcSendTransactionRequest,
-    ) -> CryptoHash {
+    fn send_tx_async(&self, request_data: RpcSendTransactionRequest) -> CryptoHash {
         let tx = request_data.signed_transaction;
         let hash = tx.get_hash();
         self.process_tx_sender.send(ProcessTxRequest {
@@ -698,7 +696,7 @@ impl JsonRpcHandler {
         near_jsonrpc_primitives::types::transactions::RpcTransactionError,
     > {
         if request_data.wait_until == TxExecutionStatus::None {
-            self.send_tx_async(request_data).await;
+            self.send_tx_async(request_data);
             return Ok(RpcTransactionResponse {
                 final_execution_outcome: None,
                 final_execution_status: TxExecutionStatus::None,
