@@ -27,8 +27,7 @@ use metrics::ApplyMetrics;
 pub use near_crypto;
 use near_parameters::{ActionCosts, RuntimeConfig};
 pub use near_primitives;
-use near_primitives::account::{AccessKey, Account, AccountContract};
-use near_primitives::action::GlobalContractIdentifier;
+use near_primitives::account::{AccessKey, Account};
 use near_primitives::bandwidth_scheduler::{BandwidthRequests, BlockBandwidthRequests};
 use near_primitives::chunk_apply_stats::{BalanceStats, ChunkApplyStatsV0};
 use near_primitives::congestion_info::{BlockCongestionInfo, CongestionInfo};
@@ -65,8 +64,8 @@ use near_primitives_core::version::ProtocolFeature;
 use near_store::trie::receipts_column_helper::DelayedReceiptQueue;
 use near_store::trie::update::TrieUpdateResult;
 use near_store::{
-    KeyLookupMode, PartialStorage, StorageError, Trie, TrieAccess, TrieChanges, TrieUpdate, get,
-    get_account, get_postponed_receipt, get_promise_yield_receipt, get_pure, get_received_data,
+    PartialStorage, StorageError, Trie, TrieAccess, TrieChanges, TrieUpdate, get, get_account,
+    get_postponed_receipt, get_promise_yield_receipt, get_pure, get_received_data,
     has_received_data, remove_account, remove_postponed_receipt, remove_promise_yield_receipt, set,
     set_access_key, set_account, set_postponed_receipt, set_promise_yield_receipt,
     set_received_data,
@@ -538,31 +537,8 @@ impl Runtime {
             Action::FunctionCall(function_call) => {
                 let account = account.as_mut().expect(EXPECT_ACCOUNT_EXISTS);
                 let account_contract = account.contract();
-
-                let code_hash = match account_contract.as_ref() {
-                    AccountContract::None => CryptoHash::default(),
-                    AccountContract::Local(code_hash) | AccountContract::Global(code_hash) => {
-                        *code_hash
-                    }
-                    AccountContract::GlobalByAccount(account_id) => {
-                        let identifier = GlobalContractIdentifier::AccountId(account_id.clone());
-                        let key = TrieKey::GlobalContractCode { identifier: identifier.into() };
-                        let value_ref = state_update
-                            .get_ref(&key, KeyLookupMode::MemOrFlatOrTrie)?
-                            .ok_or_else(|| {
-                                let TrieKey::GlobalContractCode { identifier } = key else {
-                                    unreachable!()
-                                };
-                                RuntimeError::StorageError(StorageError::StorageInconsistentState(
-                                    format!(
-                                        "Global contract identifier not found {:?}",
-                                        identifier
-                                    ),
-                                ))
-                            })?;
-                        value_ref.value_hash()
-                    }
-                };
+                let code_hash =
+                    state_update.get_account_contract_hash(account_contract.as_ref())?;
                 let contract =
                     preparation_pipeline.get_contract(receipt, code_hash, action_index, None);
                 let is_last_action = action_index + 1 == actions.len();
