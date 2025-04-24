@@ -176,7 +176,7 @@ impl TxGenerator {
         runner_state: RunnerState,
     ) -> anyhow::Result<Vec<task::JoinHandle<()>>> {
         // TODO(slavas): generate accounts on the fly?
-        let mut accounts = account::accounts_from_dir(&config.accounts_path)?;
+        let mut accounts = account::accounts_from_path(&config.accounts_path)?;
         if accounts.is_empty() {
             anyhow::bail!("No active accounts available");
         }

@@ -1092,11 +1092,10 @@ pub fn create_localnet_configs_from_seeds(
     let accounts_to_add_to_genesis: Vec<AccountId> =
         seeds.iter().map(|s| s.parse().unwrap()).collect();
 
-    let genesis = Genesis::test_with_seeds(
+    let genesis = Genesis::from_accounts(
         Clock::real(),
         accounts_to_add_to_genesis,
         num_validators,
-        get_num_seats_per_shard(num_shards, num_validators),
         shard_layout,
     );
     let mut configs = vec![];
