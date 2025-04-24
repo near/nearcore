@@ -309,8 +309,8 @@ pub struct ValidatorRestrictionsBuilder<'a> {
     prev_epoch_info: &'a EpochInfo,
     prev_shard_layout: &'a ShardLayout,
 
-    /// A mapping from validator account id to the list of shard ids that it cannot be assigned to.
-    validator_restrictions: HashMap<AccountId, HashSet<ShardId>>,
+    /// A mapping from shard id to the list of validator account ids that cannot be assigned to it.
+    validator_restrictions: HashMap<ShardId, HashSet<AccountId>>,
 }
 
 impl<'a> ValidatorRestrictionsBuilder<'a> {
@@ -342,9 +342,9 @@ impl<'a> ValidatorRestrictionsBuilder<'a> {
             .map(|validator_id| self.prev_epoch_info.get_validator(*validator_id).take_account_id())
         {
             self.validator_restrictions
-                .entry(account_id)
+                .entry(new_shard_id)
                 .or_insert_with(HashSet::new)
-                .insert(new_shard_id);
+                .insert(account_id);
         }
         self
     }
@@ -369,14 +369,14 @@ pub fn build_assignment_restrictions_v77_to_v78(
 /// A struct that contains the restrictions on the assignment of validators to shards.
 pub struct AssignmentRestrictions {
     new_shard_layout: ShardLayout,
-    /// A mapping from validator account id to the list of shard ids that it cannot be assigned to.
-    validator_restrictions: HashMap<AccountId, HashSet<ShardId>>,
+    /// A mapping from shard id to the list of validator account ids that cannot be assigned to it.
+    validator_restrictions: HashMap<ShardId, HashSet<AccountId>>,
 }
 
 impl AssignmentRestrictions {
     pub fn new(
         new_shard_layout: ShardLayout,
-        validator_restrictions: HashMap<AccountId, HashSet<ShardId>>,
+        validator_restrictions: HashMap<ShardId, HashSet<AccountId>>,
     ) -> Self {
         Self { new_shard_layout, validator_restrictions }
     }
@@ -389,8 +389,8 @@ impl AssignmentRestrictions {
     ) -> bool {
         self.new_shard_layout.get_shard_id(new_shard_index).map_or(true, |new_shard_id| {
             self.validator_restrictions
-                .get(account_id)
-                .map_or(true, |restrictions| !restrictions.contains(&new_shard_id))
+                .get(&new_shard_id)
+                .map_or(true, |restrictions| !restrictions.contains(account_id))
         })
     }
 }
@@ -712,36 +712,50 @@ mod tests {
 
         // It will naturally assign vec![vec![0, 3, 6], vec![1, 4], vec![2, 5]]
         // Let's add some restrictions
-        let mut validator_restrictions: HashMap<AccountId, HashSet<ShardId>> = HashMap::new();
+        let mut validator_restrictions: HashMap<ShardId, HashSet<AccountId>> = HashMap::new();
         // test01 cannot be assigned to shard idx 1
-        validator_restrictions.insert(
-            chunk_producers[1].account_id().clone(),
-            HashSet::from([shard_layout.get_shard_id(1).unwrap()]),
-        );
+        validator_restrictions
+            .entry(shard_layout.get_shard_id(1).unwrap())
+            .or_insert_with(HashSet::new)
+            .insert(chunk_producers[1].account_id().clone());
+
         // test04 cannot be assigned to shard idx 1 or 2
-        validator_restrictions.insert(
-            chunk_producers[4].account_id().clone(),
-            HashSet::from([
-                shard_layout.get_shard_id(1).unwrap(),
-                shard_layout.get_shard_id(2).unwrap(),
-            ]),
-        );
+        validator_restrictions
+            .entry(shard_layout.get_shard_id(1).unwrap())
+            .or_insert_with(HashSet::new)
+            .insert(chunk_producers[4].account_id().clone());
+        validator_restrictions
+            .entry(shard_layout.get_shard_id(2).unwrap())
+            .or_insert_with(HashSet::new)
+            .insert(chunk_producers[4].account_id().clone());
+
+        // Now we have restrictions on
+        // shard idx 1: test01 and test04
+        // shard idx 2: test04
         let restrictions1 =
             AssignmentRestrictions::new(shard_layout.clone(), validator_restrictions.clone());
 
         // test05 cannot be assigned to shard idx 1
-        validator_restrictions.insert(
-            chunk_producers[5].account_id().clone(),
-            HashSet::from([shard_layout.get_shard_id(1).unwrap()]),
-        );
+        validator_restrictions
+            .entry(shard_layout.get_shard_id(1).unwrap())
+            .or_insert_with(HashSet::new)
+            .insert(chunk_producers[5].account_id().clone());
+
+        // Now we have restrictions on
+        // shard idx 1: test01, test04, test05
+        // shard idx 2: test04
         let restrictions2 =
             AssignmentRestrictions::new(shard_layout.clone(), validator_restrictions.clone());
 
-        // test05 cannot be assigned to shard idx 1 and 2
+        // test05 cannot be assigned to shard idx 2
         validator_restrictions
-            .entry(chunk_producers[5].account_id().clone())
-            .or_insert(HashSet::new())
-            .insert(shard_layout.get_shard_id(2).unwrap());
+            .entry(shard_layout.get_shard_id(2).unwrap())
+            .or_insert_with(HashSet::new)
+            .insert(chunk_producers[5].account_id().clone());
+
+        // Now we have restrictions on
+        // shard idx 1: test01, test04, test05
+        // shard idx 2: test04, test05
         let restrictions3 = AssignmentRestrictions::new(shard_layout, validator_restrictions);
 
         for (name, restrictions, target_assignment) in [
