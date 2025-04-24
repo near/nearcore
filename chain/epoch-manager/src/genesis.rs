@@ -70,6 +70,7 @@ impl EpochManager {
                 0,
                 genesis_protocol_version,
                 false,
+                None,
             )
         }
     }
