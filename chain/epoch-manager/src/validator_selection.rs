@@ -181,7 +181,11 @@ pub fn proposals_to_epoch_info(
         "Proposals should not have duplicates"
     );
 
-    let num_shards = epoch_config.shard_layout.shard_ids().count();
+    let num_shards = epoch_config
+        .shard_layout
+        .num_shards()
+        .try_into()
+        .expect("number of shards above usize range");
     let mut stake_change = BTreeMap::new();
     let proposals = apply_epoch_update_to_proposals(
         proposals,
