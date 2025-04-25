@@ -138,15 +138,17 @@ type BlocksTableProps = {
 
 const BlocksTable = ({ rows, knownProducers, expandAll, hideMissingHeights }: BlocksTableProps) => {
     let numGraphColumns = 1; // either 1 or 2; determines the width of leftmost td
-    let numShards = 0;
+    let shardIds = new Set<number>();
     for (const row of rows) {
         if ('block' in row) {
             numGraphColumns = Math.max(numGraphColumns, (row.graphColumn || 0) + 1);
-            for (const chunk of row.block.chunks) {
-                numShards = Math.max(numShards, chunk.shard_id + 1);
+            for (const [shard_index, chunk] of row.block.chunks.entries()) {
+                shardIds.add(chunk.shard_id);
+
             }
         }
     }
+    let numShards = shardIds.size;
     const header = (
         <tr>
             <th>Chain</th>
@@ -155,9 +157,9 @@ const BlocksTable = ({ rows, knownProducers, expandAll, hideMissingHeights }: Bl
             <th>Processing Time (ms)</th>
             <th>Block Delay (s)</th>
             <th>Gas price ratio</th>
-            {[...Array(numShards).keys()].map((i) => (
-                <th key={i} colSpan={3}>
-                    Shard {i} (hash/gas(Tgas)/time(ms))
+            {[...shardIds].map((shard_id) => (
+                <th key={shard_id} colSpan={3}>
+                    Shard {shard_id} (hash/gas(Tgas)/time(ms))
                 </th>
             ))}
         </tr>
@@ -187,7 +189,8 @@ const BlocksTable = ({ rows, knownProducers, expandAll, hideMissingHeights }: Bl
         const block = row.block;
 
         const chunkCells = [] as ReactElement[];
-        block.chunks.forEach((chunk, shardId) => {
+        block.chunks.forEach((chunk) => {
+            let shardId = chunk.shard_id;
             chunkCells.push(
                 <Fragment key={shardId}>
                     <td className={row.chunkSkipped[shardId] ? 'skipped-chunk' : ''}>
@@ -207,9 +210,8 @@ const BlocksTable = ({ rows, knownProducers, expandAll, hideMissingHeights }: Bl
         tableRows.push(
             <tr
                 key={block.block_hash}
-                className={`block-row ${
-                    row.block.is_on_canonical_chain ? '' : 'not-on-canonical-chain'
-                }`}>
+                className={`block-row ${row.block.is_on_canonical_chain ? '' : 'not-on-canonical-chain'
+                    }`}>
                 <td className="graph-node-cell">
                     <div
                         id={`graph-node-${i}`}
@@ -269,13 +271,11 @@ type LatestBlockViewProps = {
 const calculateAvgBlockTime = (blocks: BlockTableRowBlock[]): number => {
     let totalTime = 0;
     let count = 0;
-    
     for (let i = 1; i < blocks.length; i++) {
-        const timeDiff = (blocks[i-1].block.block_timestamp - blocks[i].block.block_timestamp) / 1e9;
+        const timeDiff = (blocks[i - 1].block.block_timestamp - blocks[i].block.block_timestamp) / 1e9;
         totalTime += timeDiff;
         count++;
     }
-    
     return count > 0 ? totalTime / count : 0;
 };
 
@@ -384,8 +384,8 @@ export const LatestBlocksView = ({ addr }: LatestBlockViewProps) => {
                     <span className="prompt">
                         {(() => {
                             let blocksText = `${numBlocks == null ? '' : numBlocks} blocks`;
-                            let promptText = height == null ? 
-                                `Displaying most recent ${blocksText}` : 
+                            let promptText = height == null ?
+                                `Displaying most recent ${blocksText}` :
                                 `Displaying ${blocksText} from height ${height}`;
                             if (mode != null && mode != 'all') {
                                 promptText += ` in mode ${mode}`;
@@ -425,14 +425,14 @@ export const LatestBlocksView = ({ addr }: LatestBlockViewProps) => {
                 </div>
                 {!!error && <div className="error">{(error as Error).stack}</div>}
                 <div className="missed-blocks">
-                    Missing blocks: {canonicalHeightCount - numCanonicalBlocks} {}
-                    Produced: {numCanonicalBlocks} {}
+                    Missing blocks: {canonicalHeightCount - numCanonicalBlocks} { }
+                    Produced: {numCanonicalBlocks} { }
                     Missing Rate:{' '}
                     {(
                         ((canonicalHeightCount - numCanonicalBlocks) / canonicalHeightCount) *
                         100
                     ).toFixed(2)}
-                    % {}
+                    % { }
                     Average Block Time:{' '}
                     {calculateAvgBlockTime(
                         rows.filter((row): row is BlockTableRowBlock => 'block' in row)
@@ -465,8 +465,8 @@ export const LatestBlocksView = ({ addr }: LatestBlockViewProps) => {
                     <div className="missed-chunks">
                         {numChunksSkipped.map((numSkipped, shardId) => (
                             <div key={shardId}>
-                                Shard {shardId}: Missing chunks: {numSkipped} {}
-                                Produced: {numCanonicalBlocks - numSkipped} {}
+                                Shard {shardId}: Missing chunks: {numSkipped} { }
+                                Produced: {numCanonicalBlocks - numSkipped} { }
                                 Missing Rate: {((numSkipped / numCanonicalBlocks) * 100).toFixed(2)}
                                 %
                             </div>
