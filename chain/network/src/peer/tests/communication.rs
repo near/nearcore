@@ -15,8 +15,8 @@ use near_o11y::testonly::init_test_logger;
 use near_primitives::version::{PEER_MIN_ALLOWED_PROTOCOL_VERSION, PROTOCOL_VERSION};
 use std::sync::Arc;
 
-#[tokio::test]
 #[allow(clippy::large_stack_frames)]
+#[tokio::test]
 async fn test_peer_communication() -> anyhow::Result<()> {
     init_test_logger();
     let mut rng = make_rng(89028037453);
