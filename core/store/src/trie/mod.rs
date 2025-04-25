@@ -680,10 +680,9 @@ impl Trie {
     }
 
     pub fn check_proof_size_limit_exceed(&self) -> bool {
-        self.recorder
-            .as_ref()
-            .map(|recorder| recorder.read().expect("no poison").check_proof_size_limit_exceed())
-            .unwrap_or_default()
+        self.recorder.as_ref().is_some_and(|recorder| {
+            recorder.read().expect("no poison").check_proof_size_limit_exceed()
+        })
     }
 
     /// Constructs a Trie from the partial storage (i.e. state proof) that

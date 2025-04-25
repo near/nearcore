@@ -931,8 +931,7 @@ fn new_peer_info_view(chain: &Chain, connected_peer_info: &ConnectedPeerInfo) ->
         is_highest_block_invalid: full_peer_info
             .chain_info
             .last_block
-            .map(|x| chain.is_block_invalid(&x.hash))
-            .unwrap_or_default(),
+            .is_some_and(|x| chain.is_block_invalid(&x.hash)),
         tracked_shards: full_peer_info.chain_info.tracked_shards.clone(),
         archival: full_peer_info.chain_info.archival,
         peer_id: full_peer_info.peer_info.id.public_key().clone(),
