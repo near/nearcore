@@ -6,10 +6,8 @@ use near_primitives::errors::StorageError;
 use near_primitives::receipt::TrieQueueIndices;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{Gas, ShardId};
-use near_primitives::version::ProtocolFeature;
 
 use near_schema_checker_lib::ProtocolSchema;
-use near_vm_runner::logic::ProtocolVersion;
 
 use crate::{TrieUpdate, get, set};
 
@@ -39,12 +37,7 @@ impl OutgoingMetadatas {
         trie: &dyn TrieAccess,
         shard_ids: impl IntoIterator<Item = ShardId>,
         groups_config: ReceiptGroupsConfig,
-        protocol_version: ProtocolVersion,
     ) -> Result<Self, StorageError> {
-        if !ProtocolFeature::BandwidthScheduler.enabled(protocol_version) {
-            return Ok(Self::new(groups_config));
-        }
-
         let mut metadatas = BTreeMap::new();
         for shard_id in shard_ids.into_iter() {
             let metadata = ReceiptGroupsQueue::load(trie, shard_id)?;
