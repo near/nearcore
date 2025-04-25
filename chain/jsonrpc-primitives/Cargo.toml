@@ -40,3 +40,4 @@ protocol_schema = [
   "near-primitives/protocol_schema",
   "near-schema-checker-lib/protocol_schema",
 ]
+schemars = ["dep:schemars", "near-primitives/schemars", "near-time/schemars", "near-crypto/schemars", "near-chain-configs/schemars"]
