@@ -71,7 +71,7 @@ use near_primitives::views::{CatchupStatusView, DroppedReason};
 use std::cmp::max;
 use std::collections::HashMap;
 use std::num::NonZeroUsize;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use tracing::{debug, debug_span, error, info, warn};
 
 #[cfg(feature = "test_features")]
@@ -165,7 +165,7 @@ pub struct Client {
     /// Also tracks banned chunk producers and filters out chunks produced by them
     pub chunk_inclusion_tracker: ChunkInclusionTracker,
     /// Tracks chunk endorsements received from chunk validators. Used to filter out chunks ready for inclusion
-    pub chunk_endorsement_tracker: ChunkEndorsementTracker,
+    pub chunk_endorsement_tracker: Arc<Mutex<ChunkEndorsementTracker>>,
     /// Adapter to send request to partial_witness_actor to distribute state witness.
     pub partial_witness_adapter: PartialWitnessSenderForClient,
     // Optional value used for the Chunk Distribution Network Feature.
@@ -300,8 +300,10 @@ impl Client {
             config.chunk_wait_mult,
             doomslug_threshold_mode,
         );
-        let chunk_endorsement_tracker =
-            ChunkEndorsementTracker::new(epoch_manager.clone(), chain.chain_store().store());
+        let chunk_endorsement_tracker = Arc::new(Mutex::new(ChunkEndorsementTracker::new(
+            epoch_manager.clone(),
+            chain.chain_store().store(),
+        )));
         let chunk_producer = ChunkProducer::new(
             clock.clone(),
             config.produce_chunk_add_transactions_time_limit.clone(),
@@ -681,10 +683,9 @@ impl Client {
         );
 
         if prepare_chunk_headers {
-            self.chunk_inclusion_tracker.prepare_chunk_headers_ready_for_inclusion(
-                &head.last_block_hash,
-                &mut self.chunk_endorsement_tracker,
-            )?;
+            let mut tracker = self.chunk_endorsement_tracker.lock().unwrap();
+            self.chunk_inclusion_tracker
+                .prepare_chunk_headers_ready_for_inclusion(&head.last_block_hash, &mut tracker)?;
         }
 
         self.produce_block_on(height, head.last_block_hash)

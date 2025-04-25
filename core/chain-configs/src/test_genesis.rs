@@ -548,9 +548,9 @@ impl ValidatorsSpec {
         ValidatorsSpec::DesiredRoles {
             block_and_chunk_producers: block_and_chunk_producers
                 .iter()
-                .map(|s| s.to_string())
+                .map(|s| (*s).to_string())
                 .collect(),
-            chunk_validators_only: chunk_validators_only.iter().map(|s| s.to_string()).collect(),
+            chunk_validators_only: chunk_validators_only.iter().map(|s| (*s).to_string()).collect(),
         }
     }
 

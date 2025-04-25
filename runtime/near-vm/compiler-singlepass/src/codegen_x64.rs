@@ -1777,6 +1777,7 @@ impl<'a> FuncGen<'a> {
         None
     }
 
+    #[allow(clippy::large_stack_frames)]
     #[tracing::instrument(target = "near_vm", level = "trace", skip(self))]
     pub(crate) fn feed_operator(&mut self, op: Operator) -> Result<(), CodegenError> {
         assert!(self.fp_stack.len() <= self.value_stack.len());

@@ -8,6 +8,7 @@ use crate::types::{
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::serialize::dec_format;
+use near_primitives_core::version::PROTOCOL_VERSION;
 use near_schema_checker_lib::ProtocolSchema;
 use std::collections::{BTreeMap, HashMap};
 use std::fs;
@@ -353,36 +354,30 @@ impl EpochConfigStore {
     fn load_epoch_config_from_file_system(
         directory: &str,
     ) -> BTreeMap<ProtocolVersion, Arc<EpochConfig>> {
-        let mut store = BTreeMap::new();
-        let entries = fs::read_dir(directory).expect("Failed opening epoch config directory");
-
-        for entry in entries {
-            if let Ok(entry) = entry {
-                let path = entry.path();
-
-                // Check if the file has a .json extension
-                if path.extension().and_then(|ext| ext.to_str()) == Some("json") {
-                    // Extract the file name (without extension)
-                    if let Some(file_stem) = path.file_stem().and_then(|s| s.to_str()) {
-                        let version: ProtocolVersion =
-                            file_stem.parse().expect("Invalid protocol version");
-
-                        let content = fs::read_to_string(&path).expect("Failed to read file");
-                        let config: EpochConfig =
-                            serde_json::from_str(&content).unwrap_or_else(|e| {
-                                panic!(
-                                "Failed to load epoch config from file system for version {}: {:#}",
-                                version, e
-                            )
-                            });
-
-                        store.insert(version, Arc::new(config));
-                    }
-                }
+        fn get_epoch_config(
+            dir_entry: fs::DirEntry,
+        ) -> Option<(ProtocolVersion, Arc<EpochConfig>)> {
+            let path = dir_entry.path();
+            if !(path.extension()? == "json") {
+                return None;
             }
+            let file_name = path.file_stem()?.to_str()?.to_string();
+            let protocol_version = file_name.parse().expect("Invalid protocol version");
+            if protocol_version > PROTOCOL_VERSION {
+                return None;
+            }
+            let contents = fs::read_to_string(&path).ok()?;
+            let epoch_config = serde_json::from_str(&contents).unwrap_or_else(|_| {
+                panic!("Failed to parse epoch config for version {}", protocol_version)
+            });
+            Some((protocol_version, epoch_config))
         }
 
-        store
+        fs::read_dir(directory)
+            .expect("Failed opening epoch config directory")
+            .filter_map(Result::ok)
+            .filter_map(get_epoch_config)
+            .collect()
     }
 
     pub fn test(store: BTreeMap<ProtocolVersion, Arc<EpochConfig>>) -> Self {
@@ -449,6 +444,7 @@ mod tests {
     use super::EpochConfigStore;
     use crate::epoch_manager::EpochConfig;
     use near_primitives_core::types::ProtocolVersion;
+    use near_primitives_core::version::PROTOCOL_VERSION;
     use std::fs;
     use std::path::Path;
 
@@ -475,6 +471,45 @@ mod tests {
         let epoch_config_55: EpochConfig = serde_json::from_str(&contents_55).unwrap();
         let epoch_config_48 = parse_config_file("mainnet", 48).unwrap();
         assert_eq!(epoch_config_55, epoch_config_48);
+    }
+
+    #[test]
+    fn test_dump_and_load_epoch_configs_mainnet() {
+        let tmp_dir = tempfile::tempdir().unwrap();
+        let epoch_configs = EpochConfigStore::for_chain_id("mainnet", None).unwrap();
+        epoch_configs.dump_epoch_configs_between(
+            Some(&55),
+            Some(&68),
+            tmp_dir.path().to_str().unwrap(),
+        );
+
+        let loaded_epoch_configs = EpochConfigStore::test(
+            EpochConfigStore::load_epoch_config_from_file_system(tmp_dir.path().to_str().unwrap()),
+        );
+
+        // Insert a config for an newer protocol version. It should be ignored.
+        EpochConfigStore::dump_epoch_config(
+            tmp_dir.path(),
+            &(PROTOCOL_VERSION + 1),
+            &epoch_configs.get_config(PROTOCOL_VERSION),
+        );
+
+        let loaded_after_insert_epoch_configs = EpochConfigStore::test(
+            EpochConfigStore::load_epoch_config_from_file_system(tmp_dir.path().to_str().unwrap()),
+        );
+        assert_eq!(loaded_epoch_configs.store, loaded_after_insert_epoch_configs.store);
+
+        // Insert a config for an older protocol version. It should be loaded.
+        EpochConfigStore::dump_epoch_config(
+            tmp_dir.path(),
+            &(PROTOCOL_VERSION - 22),
+            &epoch_configs.get_config(PROTOCOL_VERSION),
+        );
+
+        let loaded_after_insert_epoch_configs = EpochConfigStore::test(
+            EpochConfigStore::load_epoch_config_from_file_system(tmp_dir.path().to_str().unwrap()),
+        );
+        assert_ne!(loaded_epoch_configs.store, loaded_after_insert_epoch_configs.store);
     }
 
     fn parse_config_file(chain_id: &str, protocol_version: ProtocolVersion) -> Option<EpochConfig> {

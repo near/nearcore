@@ -627,7 +627,7 @@ impl TriePath {
 
     /// Format of nibbles is an array of 4-bit integers.
     pub fn nibbles_to_hex(nibbles: &[u8]) -> String {
-        nibbles.iter().map(|x| format!("{:x}", x)).collect::<Vec<_>>().join("")
+        nibbles.iter().map(|x| format!("{:x}", x)).collect()
     }
 
     /// Format of returned value is an array of 4-bit integers, or None if parsing failed.

@@ -624,7 +624,7 @@ pub struct Listener {
 }
 
 impl Listener {
-    pub async fn bind(
+    pub fn bind(
         addr: tcp::ListenerAddr,
         secret_key: SecretKey,
         chain_id: &str,

@@ -110,7 +110,7 @@ impl RuntimeError {
         source: RuntimeErrorSource,
         native_trace: Backtrace,
     ) -> Self {
-        let frames: Vec<usize> = native_trace
+        let wasm_trace = native_trace
             .frames()
             .iter()
             .filter_map(|frame| {
@@ -128,15 +128,11 @@ impl RuntimeError {
                     // the stack). In that case we want to lookup information for the
                     // previous instruction (the call instruction) so we subtract one as
                     // the lookup.
-                    let pc_to_lookup = if Some(pc) == trap_pc { pc } else { pc - 1 };
-                    Some(pc_to_lookup)
+                    let pc = if Some(pc) == trap_pc { pc } else { pc - 1 };
+                    info.lookup_frame_info(pc)
                 }
             })
             .collect();
-
-        // Let's construct the trace
-        let wasm_trace =
-            frames.into_iter().filter_map(|pc| info.lookup_frame_info(pc)).collect::<Vec<_>>();
 
         Self { inner: Arc::new(RuntimeErrorInner { source, wasm_trace, native_trace }) }
     }
