@@ -138,17 +138,28 @@ type BlocksTableProps = {
 
 const BlocksTable = ({ rows, knownProducers, expandAll, hideMissingHeights }: BlocksTableProps) => {
     let numGraphColumns = 1; // either 1 or 2; determines the width of leftmost td
-    let shardIds = new Set<number>();
-    for (const row of rows) {
+    const shardIdsSet = new Set<number>();
+    for (const row of rows.slice()) {
         if ('block' in row) {
             numGraphColumns = Math.max(numGraphColumns, (row.graphColumn || 0) + 1);
-            for (const [shard_index, chunk] of row.block.chunks.entries()) {
-                shardIds.add(chunk.shard_id);
-
+            for (const chunk of row.block.chunks) {
+                shardIdsSet.add(chunk.shard_id);
             }
         }
     }
-    let numShards = shardIds.size;
+
+    // Set the shard ids and precompute the mapping from the ShardId to the
+    // ShardUIIndex. Please keep in mind that the ShardUIIndex is different than
+    // the ShardIndex. That is because during resharding we need to display
+    // chunks from multiple shard layouts on a single page.
+    const numShards = shardIdsSet.size;
+    const shardIds = [...shardIdsSet];
+
+    const shardIdToUIIndex = new Map<number, number>();
+    shardIds.forEach((shardId, index) => {
+        shardIdToUIIndex.set(shardId, index);
+    });
+
     const header = (
         <tr>
             <th>Chain</th>
@@ -186,26 +197,32 @@ const BlocksTable = ({ rows, knownProducers, expandAll, hideMissingHeights }: Bl
             }
             continue;
         }
-        const block = row.block;
 
-        const chunkCells = [] as ReactElement[];
-        block.chunks.forEach((chunk) => {
-            let shardId = chunk.shard_id;
-            chunkCells.push(
-                <Fragment key={shardId}>
-                    <td className={row.chunkSkipped[shardId] ? 'skipped-chunk' : ''}>
-                        <HashElement
-                            hashValue={chunk.chunk_hash}
-                            creator={chunk.chunk_producer || ''}
-                            expandAll={expandAll}
-                            knownProducers={knownProducers}
-                        />
-                    </td>
-                    <td>{(chunk.gas_used / (1024 * 1024 * 1024 * 1024)).toFixed(1)}</td>
-                    <td>{chunk.processing_time_ms}</td>
-                </Fragment>
-            );
-        });
+        // The default empty cell for chunks for shards that are not present in
+        // this block. This is only useful during resharding, otherwise all
+        // blocks have the same shard layout and shard ids.
+        // TODO add some style
+        const empty = <Fragment><td colSpan={3}></td></Fragment>;
+
+        const block = row.block;
+        const chunkCells = Array(numShards).fill(empty) as ReactElement[];
+        for (const chunk of block.chunks) {
+            const shardId = chunk.shard_id;
+            const shardUIIndex = shardIdToUIIndex.get(shardId);
+
+            const chunk_info = <HashElement
+                hashValue={chunk.chunk_hash}
+                creator={chunk.chunk_producer || ''}
+                expandAll={expandAll}
+                knownProducers={knownProducers}
+            />;
+            const fragment = <Fragment key={shardId}>
+                <td className={row.chunkSkipped[shardId] ? 'skipped-chunk' : ''}>{chunk_info}</td>
+                <td>{(chunk.gas_used / (1024 * 1024 * 1024 * 1024)).toFixed(1)}</td>
+                <td>{chunk.processing_time_ms}</td>
+            </Fragment>;
+            chunkCells[shardUIIndex!] = fragment;
+        }
 
         tableRows.push(
             <tr
