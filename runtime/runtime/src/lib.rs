@@ -965,11 +965,24 @@ impl Runtime {
         let receiver_reward = if apply_state.config.fees.refund_gas_price_changes {
             // Use current gas price for reward calculation
             let full_reward = safe_gas_to_balance(apply_state.gas_price, receiver_gas_reward)?;
-            // When refunding the gas price difference, if we run a deficit, subtract it from rewards.
+            // Pre NEP-536:
+            // When refunding the gas price difference, if we run a deficit,
+            // subtract it from contract rewards. This is a (arguably weird) bit
+            // of cross-financing the missing funds to pay gas at the current
+            // rate.
+            // We should charge the caller more but we can't at this point. The
+            // pessimistic gas pricing was not pessimistic enough, which may
+            // happen when receipts are delayed.
+            // To recover the losses, take as much as we can from the reward
+            // that rightfully belongs to the contract owner.
             full_reward.saturating_sub(gas_refund_result.price_deficit)
         } else {
             // Use receipt gas price for reward calculation
             safe_gas_to_balance(action_receipt.gas_price, receiver_gas_reward)?
+            // Post NEP-536:
+            // No shenanigans here. We are not refunding gas price differences,
+            // we just use the receipt gas price and call it the correct price.
+            // No deficits to try and recover.
         };
         if receiver_reward > 0 {
             let mut account = get_account(state_update, account_id)?;
