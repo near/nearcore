@@ -117,9 +117,7 @@ assigning_clones = "deny"
 clone_on_copy = "deny"
 derivable_impls = "deny"
 inefficient_to_string = "deny"
-large_enum_variant = "deny"
 large_futures = "deny"
-large_stack_arrays = "deny"
 large_stack_frames = "deny"
 large_types_passed_by_value = "deny"
 len_zero = "deny"
@@ -132,7 +130,6 @@ unnecessary_box_returns = "deny"
 unnecessary_join = "deny"
 unnecessary_lazy_evaluations = "deny"
 unused_async = "deny"
-zero_sized_map_values = "deny"
 
 [workspace.lints.rust]
 # Will take effect since Rust 1.80, produces unused warning before it: https://github.com/rust-lang/cargo/pull/13913

@@ -41,6 +41,7 @@ use near_primitives::types::{AccountId, BlockId, BlockReference};
 use near_primitives::views::{QueryRequest, TxExecutionStatus};
 use serde_json::{Value, json};
 use std::path::PathBuf;
+use std::pin::Pin;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::time::{sleep, timeout};
@@ -133,17 +134,17 @@ fn serialize_response(value: impl serde::ser::Serialize) -> Result<Value, RpcErr
 /// be parsed (using [`RpcRequest::parse`]) from the `request.params`.  Ok
 /// results of the `callback` will be converted into a [`Value`] via serde
 /// serialization.
-async fn process_method_call<R, V, E, F>(
+fn process_method_call<'a, R, V, E, F>(
     request: Request,
-    callback: impl FnOnce(R) -> F,
-) -> Result<Value, RpcError>
+    callback: impl FnOnce(R) -> F + 'a,
+) -> Pin<Box<dyn Future<Output = Result<Value, RpcError>> + 'a>>
 where
     R: RpcRequest,
     V: serde::ser::Serialize,
-    RpcError: std::convert::From<E>,
-    F: std::future::Future<Output = Result<V, E>>,
+    RpcError: From<E>,
+    F: Future<Output = Result<V, E>>,
 {
-    serialize_response(callback(R::parse(request.params)?).await?)
+    Box::pin(async move { serialize_response(callback(R::parse(request.params)?).await?) })
 }
 
 #[easy_ext::ext(FromNetworkClientResponses)]

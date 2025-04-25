@@ -7,6 +7,7 @@ use super::{MemSlice, MemoryLike};
 /// available.
 ///
 /// Panics if any of the tests fails.
+#[allow(clippy::large_stack_frames)]
 pub fn test_memory_like(factory: impl FnOnce() -> Box<dyn MemoryLike>) {
     const PAGE: u64 = 0x10000;
 
