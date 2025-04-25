@@ -71,6 +71,20 @@ pub static NUM_OPTIMISTIC_ORPHANS: LazyLock<IntGauge> = LazyLock::new(|| {
     try_create_int_gauge("near_num_optimistic_orphans", "Number of optimistic orphan blocks.")
         .unwrap()
 });
+pub static NUM_PENDING_BLOCKS: LazyLock<IntGauge> = LazyLock::new(|| {
+    try_create_int_gauge(
+        "near_num_pending_blocks",
+        "Number of blocks pending execution due to optimistic blocks in processing.",
+    )
+    .unwrap()
+});
+pub static BLOCK_PENDING_EXECUTION_DELAY: LazyLock<Histogram> = LazyLock::new(|| {
+    try_create_histogram(
+        "near_block_pending_execution_delay",
+        "Time taken for a block to wait in pending execution pool",
+    )
+    .unwrap()
+});
 pub static HEADER_HEAD_HEIGHT: LazyLock<IntGauge> = LazyLock::new(|| {
     try_create_int_gauge("near_header_head_height", "Height of the header head").unwrap()
 });

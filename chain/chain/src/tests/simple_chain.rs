@@ -5,8 +5,8 @@ use assert_matches::assert_matches;
 use near_async::time::{Clock, Duration, FakeClock, Utc};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::{
-    block::MaybeNew, hash::CryptoHash, sharding::ShardChunkHeader, test_utils::TestBlockBuilder,
-    version::PROTOCOL_VERSION,
+    block::MaybeNew, hash::CryptoHash, optimistic_block::OptimisticBlock,
+    sharding::ShardChunkHeader, test_utils::TestBlockBuilder, version::PROTOCOL_VERSION,
 };
 use num_rational::Ratio;
 
@@ -24,9 +24,9 @@ fn build_chain() {
     // stabilizing any existing protocol features, this indicates bug in your
     // code which unexpectedly changes the protocol.
     //
-    // To update the hashes you can use cargo-insta.  Note that you’ll need to
+    // To update the hashes you can use cargo-insta.  Note that you'll need to
     // run the test twice: once with default features and once with
-    // ‘nightly’ feature enabled:
+    // 'nightly' feature enabled:
     //
     //     cargo install cargo-insta
     //     cargo insta test --accept -p near-chain                    -- tests::simple_chain::build_chain
@@ -286,4 +286,158 @@ fn block_chunk_headers_iter() {
     assert_eq!(old_headers.len(), 8);
     assert_eq!(new_headers.len(), 8);
     assert_eq!(raw_headers.count(), old_headers.len() + new_headers.len());
+}
+
+#[cfg(feature = "test_features")]
+#[test]
+fn test_optimistic_block_in_processing() {
+    init_test_logger();
+    let clock = Clock::real();
+    let (mut chain, _, _, signer) = setup(clock.clone());
+    let me = Some(signer.validator_id().clone());
+
+    // Create a genesis block
+    let genesis = chain.get_block(&chain.genesis().hash().clone()).unwrap();
+
+    // Create block 1
+    let block1 = TestBlockBuilder::new(clock.clone(), &genesis, signer.clone()).build();
+    chain.process_block_test(&me, block1.clone()).unwrap();
+
+    // Create block 2 (but don't process it yet)
+    let block2 = TestBlockBuilder::new(clock, &block1, signer.clone()).build();
+
+    // Create optimistic block at height 2 based on block 1
+    let optimistic_block = OptimisticBlock::adv_produce(
+        &block1.header(),
+        2,
+        &*signer,
+        block2.header().raw_timestamp(),
+        None,
+        near_primitives::optimistic_block::OptimisticBlockAdvType::Normal,
+    );
+    chain
+        .process_optimistic_block(
+            &me,
+            optimistic_block,
+            block2.chunks().iter_raw().cloned().collect(),
+            None,
+        )
+        .unwrap();
+
+    let result = chain.start_process_block_async(
+        &me,
+        block2.clone().into(),
+        crate::Provenance::PRODUCED,
+        &mut BlockProcessingArtifact::default(),
+        None,
+    );
+    let Err(err) = &result else {
+        panic!("Block processing should not succeed");
+    };
+
+    // If it returns an error, it should be OptimisticBlockInProcessing
+    assert_matches!(err, Error::OptimisticBlockInProcessing);
+
+    // Verify the block is in the pending pool
+    assert!(chain.blocks_pending_execution.contains_key(&block2.header().height()));
+
+    let mut block_processing_artifact = BlockProcessingArtifact::default();
+    // This should process optimistic block
+    while wait_for_all_blocks_in_processing(&mut chain) {
+        chain.postprocess_ready_blocks(&me, &mut block_processing_artifact, None);
+    }
+
+    // Verify the block is no longer in the pending pool
+    assert!(!chain.blocks_pending_execution.contains_key(&block2.header().height()));
+
+    // Wait for the pending block to be processed
+    while wait_for_all_blocks_in_processing(&mut chain) {
+        chain.postprocess_ready_blocks(&me, &mut block_processing_artifact, None);
+    }
+
+    // Verify the block is now in the chain
+    assert_eq!(chain.head().unwrap().height, 2);
+}
+
+#[cfg(feature = "test_features")]
+#[test]
+fn test_multiple_pending_blocks() {
+    init_test_logger();
+    let clock = Clock::real();
+    let (mut chain, _, _, signer) = setup(clock.clone());
+    let me = Some(signer.validator_id().clone());
+    // Create a genesis block
+    let genesis = chain.get_block(&chain.genesis().hash().clone()).unwrap();
+
+    // Create block 1
+    let block1 = TestBlockBuilder::new(clock.clone(), &genesis, signer.clone()).build();
+    chain.process_block_test(&me, block1.clone()).unwrap();
+
+    // Create an optimistic block at height 2
+    let now = clock.now_utc().unix_timestamp_nanos() as u64;
+    let optimistic_block = OptimisticBlock::adv_produce(
+        &block1.header(),
+        2,
+        &*signer,
+        now,
+        None,
+        near_primitives::optimistic_block::OptimisticBlockAdvType::Normal,
+    );
+
+    // Process the optimistic block
+    let chunk_headers = block1.chunks().iter_raw().cloned().collect();
+    chain.process_optimistic_block(&me, optimistic_block, chunk_headers, None).unwrap();
+
+    // Create multiple regular blocks at height 2 with different timestamps
+    let block2a = TestBlockBuilder::new(clock.clone(), &block1, signer.clone()).build();
+    let result_a = chain.process_block_test(&me, block2a.clone());
+
+    // The block might be marked as pending or it might be accepted if the optimistic block
+    // was processed quickly
+    match result_a {
+        Err(Error::OptimisticBlockInProcessing) => {
+            // Verify the block is in the pending pool
+            assert!(chain.blocks_pending_execution.contains_key(&block2a.header().height()));
+
+            // Create another block
+            let block2b = TestBlockBuilder::new(clock, &block1, signer).build();
+            let result_b = chain.process_block_test(&me, block2b);
+
+            // This might also be marked as pending or it might be rejected because there's already
+            // a pending block at this height
+            match result_b {
+                Err(Error::OptimisticBlockInProcessing) => {
+                    // Only one block should be in the pending pool at a given height
+                    // The second block should have been rejected with a warning
+                    assert!(
+                        chain.blocks_pending_execution.contains_key(&block2a.header().height())
+                    );
+                }
+                _ => {
+                    // If the optimistic block was processed quickly, this is fine too
+                }
+            }
+
+            // Process optimistic block
+            let mut block_processing_artifact = BlockProcessingArtifact::default();
+            while wait_for_all_blocks_in_processing(&mut chain) {
+                chain.postprocess_ready_blocks(&me, &mut block_processing_artifact, None);
+            }
+
+            // Verify the pending block was processed
+            while wait_for_all_blocks_in_processing(&mut chain) {
+                chain.postprocess_ready_blocks(&me, &mut block_processing_artifact, None);
+            }
+        }
+        Ok(()) => {
+            // The optimistic block was processed quickly, and the regular block was accepted
+            // This is fine too
+        }
+        Err(e) => {
+            panic!("Unexpected error: {:?}", e);
+        }
+    }
+
+    // Verify the block is now in the chain
+    assert_eq!(chain.head().unwrap().height, 2);
 }

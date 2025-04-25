@@ -16,7 +16,7 @@ type BitMask = Vec<bool>;
 /// For supported configurations, see the `TrackedShardsConfig` documentation.
 #[derive(Clone)]
 pub struct ShardTracker {
-    tracked_shards_config: TrackedShardsConfig,
+    pub tracked_shards_config: TrackedShardsConfig,
     /// Stores shard tracking information by epoch, only useful if TrackedState == Accounts
     tracking_shards_cache: Arc<SyncLruCache<EpochId, BitMask>>,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
