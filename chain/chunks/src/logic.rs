@@ -16,7 +16,7 @@ use near_primitives::{
     types::{AccountId, ShardId},
 };
 use std::sync::Arc;
-use tracing::{debug_span, error};
+use tracing::debug_span;
 
 pub fn need_receipt(
     prev_block_hash: &CryptoHash,
@@ -150,11 +150,12 @@ pub fn make_partial_encoded_chunk_from_owned_parts_and_needed_receipts(
 
 pub fn decode_encoded_chunk(
     encoded_chunk: &EncodedShardChunk,
+    shard_chunk: &ShardChunk,
     merkle_paths: Vec<MerklePath>,
     me: Option<&AccountId>,
     epoch_manager: &dyn EpochManagerAdapter,
     shard_tracker: &ShardTracker,
-) -> Result<(ShardChunk, PartialEncodedChunk), Error> {
+) -> Result<PartialEncodedChunk, Error> {
     let chunk_hash = encoded_chunk.chunk_hash();
     let span = debug_span!(
         target: "chunks",
@@ -167,10 +168,6 @@ pub fn decode_encoded_chunk(
         ?chunk_hash)
     .entered();
 
-    let shard_chunk = encoded_chunk.decode_chunk().map_err(|err| {
-        error!(target: "chunks", ?chunk_hash, ?me, "reconstructed, but failed to decode chunk");
-        err
-    })?;
     if !validate_chunk_proofs(&shard_chunk, epoch_manager)? {
         return Err(Error::InvalidChunk);
     }
@@ -178,16 +175,15 @@ pub fn decode_encoded_chunk(
     span.record("encoded_length", encoded_chunk.encoded_length());
     span.record("num_tx", shard_chunk.to_transactions().len());
 
-    let partial_chunk = create_partial_chunk(
+    create_partial_chunk(
         encoded_chunk,
         merkle_paths,
         shard_chunk.prev_outgoing_receipts().to_vec(),
         me,
         epoch_manager,
         shard_tracker,
-    )?;
-
-    Ok((shard_chunk, partial_chunk))
+    )
+    .map_err(Error::from)
 }
 
 fn create_partial_chunk(

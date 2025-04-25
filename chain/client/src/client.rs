@@ -7,7 +7,6 @@ use crate::chunk_inclusion_tracker::ChunkInclusionTracker;
 use crate::chunk_producer::ChunkProducer;
 use crate::client_actor::ClientSenderForClient;
 use crate::debug::BlockProductionTracker;
-use crate::metrics;
 use crate::stateless_validation::chunk_endorsement::ChunkEndorsementTracker;
 use crate::stateless_validation::chunk_validator::ChunkValidator;
 use crate::stateless_validation::partial_witness::partial_witness_actor::PartialWitnessSenderForClient;
@@ -17,6 +16,7 @@ use crate::sync::handler::SyncHandler;
 use crate::sync::header::HeaderSync;
 use crate::sync::state::chain_requests::ChainSenderForStateSync;
 use crate::sync::state::{StateSync, StateSyncResult};
+use crate::{ProduceChunkResult, metrics};
 use itertools::Itertools;
 use near_async::futures::{AsyncComputationSpawner, FutureSpawner};
 use near_async::messaging::IntoSender;
@@ -1716,15 +1716,12 @@ impl Client {
                 },
             );
             match result {
-                Ok(Some(result)) => {
-                    let shard_chunk = self
-                        .persist_and_distribute_encoded_chunk(
-                            result.encoded_chunk,
-                            result.encoded_chunk_parts_paths,
-                            result.receipts,
-                            validator_id.clone(),
-                        )
-                        .expect("Failed to process produced chunk");
+                Ok(Some(ProduceChunkResult {
+                    encoded_chunk,
+                    encoded_chunk_parts_paths,
+                    receipts,
+                    shard_chunk,
+                })) => {
                     if let Err(err) = self.send_chunk_state_witness_to_chunk_validators(
                         &epoch_id,
                         block.header(),
@@ -1734,6 +1731,14 @@ impl Client {
                     ) {
                         tracing::error!(target: "client", ?err, "Failed to send chunk state witness to chunk validators");
                     }
+                    self.persist_and_distribute_encoded_chunk(
+                        encoded_chunk,
+                        shard_chunk,
+                        encoded_chunk_parts_paths,
+                        receipts,
+                        validator_id.clone(),
+                    )
+                    .expect("Failed to process produced chunk");
                 }
                 Ok(None) => {}
                 Err(err) => {
@@ -1746,12 +1751,14 @@ impl Client {
     pub fn persist_and_distribute_encoded_chunk(
         &mut self,
         encoded_chunk: EncodedShardChunk,
+        shard_chunk: ShardChunk,
         merkle_paths: Vec<MerklePath>,
         receipts: Vec<Receipt>,
         validator_id: AccountId,
-    ) -> Result<ShardChunk, Error> {
-        let (shard_chunk, partial_chunk) = decode_encoded_chunk(
+    ) -> Result<(), Error> {
+        let partial_chunk = decode_encoded_chunk(
             &encoded_chunk,
+            &shard_chunk,
             merkle_paths.clone(),
             Some(&validator_id),
             self.epoch_manager.as_ref(),
@@ -1760,7 +1767,7 @@ impl Client {
         let partial_chunk_arc = Arc::new(partial_chunk.clone());
         persist_chunk(
             Arc::clone(&partial_chunk_arc),
-            Some(shard_chunk.clone()),
+            Some(shard_chunk),
             self.chain.mut_chain_store(),
         )?;
 
@@ -1785,7 +1792,7 @@ impl Client {
             merkle_paths,
             outgoing_receipts: receipts,
         });
-        Ok(shard_chunk)
+        Ok(())
     }
 
     pub fn request_missing_chunks(
