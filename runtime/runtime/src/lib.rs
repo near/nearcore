@@ -299,7 +299,7 @@ pub struct ApplyResult {
     pub delayed_receipts_count: u64,
     pub metrics: Option<metrics::ApplyMetrics>,
     pub congestion_info: Option<CongestionInfo>,
-    pub bandwidth_requests: Option<BandwidthRequests>,
+    pub bandwidth_requests: BandwidthRequests,
     /// Used only for a sanity check.
     pub bandwidth_scheduler_state_hash: CryptoHash,
     /// Contracts accessed and deployed while applying the chunk.
@@ -1550,7 +1550,6 @@ impl Runtime {
         let own_congestion_info =
             apply_state.own_congestion_info(&processing_state.state_update)?;
         let mut receipt_sink = ReceiptSink::new(
-            processing_state.protocol_version,
             &processing_state.state_update.trie,
             apply_state,
             own_congestion_info,
@@ -2256,10 +2255,9 @@ impl Runtime {
         metrics::report_recorded_column_sizes(&trie, &apply_state);
         let proof = trie.recorded_storage();
         let processed_yield_timeouts = promise_yield_result.processed_yield_timeouts;
-        let bandwidth_scheduler_state_hash = receipt_sink
-            .bandwidth_scheduler_output()
-            .map(|o| o.scheduler_state_hash)
-            .unwrap_or_default();
+        let bandwidth_scheduler_state_hash =
+            receipt_sink.bandwidth_scheduler_output().scheduler_state_hash;
+
         let outgoing_receipts =
             receipt_sink.finalize_stats_get_outgoing_receipts(&mut stats.receipt_sink);
         Ok(ApplyResult {
@@ -2342,7 +2340,7 @@ fn action_transfer_or_implicit_account_creation(
 fn missing_chunk_apply_result(
     delayed_receipts: &DelayedReceiptQueueWrapper,
     processing_state: ApplyProcessingState,
-    bandwidth_scheduler_output: &Option<BandwidthSchedulerOutput>,
+    bandwidth_scheduler_output: &BandwidthSchedulerOutput,
 ) -> Result<ApplyResult, RuntimeError> {
     let TrieUpdateResult { trie, trie_changes, state_changes, contract_updates } =
         processing_state.state_update.finalize()?;
@@ -2364,7 +2362,8 @@ fn missing_chunk_apply_result(
         .bandwidth_requests
         .shards_bandwidth_requests
         .get(&processing_state.apply_state.shard_id)
-        .cloned();
+        .cloned()
+        .unwrap_or_else(BandwidthRequests::empty);
 
     return Ok(ApplyResult {
         state_root: trie_changes.new_root,
@@ -2381,10 +2380,7 @@ fn missing_chunk_apply_result(
         metrics: None,
         congestion_info,
         bandwidth_requests: previous_bandwidth_requests,
-        bandwidth_scheduler_state_hash: bandwidth_scheduler_output
-            .as_ref()
-            .map(|o| o.scheduler_state_hash)
-            .unwrap_or_default(),
+        bandwidth_scheduler_state_hash: bandwidth_scheduler_output.scheduler_state_hash,
         contract_updates,
     });
 }
@@ -2707,8 +2703,10 @@ fn schedule_contract_preparation<'b, R: MaybeRefReceipt>(
 pub mod estimator {
     use super::{ReceiptSink, Runtime};
     use crate::ApplyState;
+    use crate::BandwidthSchedulerOutput;
     use crate::congestion_control::ReceiptSinkV2;
     use crate::pipelining::ReceiptPreparationPipeline;
+    use near_primitives::bandwidth_scheduler::BandwidthSchedulerParams;
     use near_primitives::chunk_apply_stats::{ChunkApplyStatsV0, ReceiptSinkStats};
     use near_primitives::congestion_info::CongestionInfo;
     use near_primitives::errors::RuntimeError;
@@ -2720,6 +2718,7 @@ pub mod estimator {
     use near_store::trie::receipts_column_helper::ShardsOutgoingReceiptBuffer;
     use near_store::{ShardUId, TrieUpdate};
     use std::collections::HashMap;
+    use std::num::NonZeroU64;
 
     pub fn apply_action_receipt(
         state_update: &mut TrieUpdate,
@@ -2742,8 +2741,13 @@ pub mod estimator {
             state_update,
             std::iter::once(shard_uid.shard_id()),
             ReceiptGroupsConfig::default_config(),
-            apply_state.current_protocol_version,
         )?;
+
+        let shard_layout = epoch_info_provider.shard_layout(&apply_state.epoch_id)?;
+        let params = BandwidthSchedulerParams::new(
+            NonZeroU64::new(shard_layout.num_shards()).expect("ShardLayout has zero shards!"),
+            &apply_state.config,
+        );
 
         let mut receipt_sink = ReceiptSink::V2(ReceiptSinkV2 {
             own_congestion_info: congestion_info,
@@ -2751,8 +2755,7 @@ pub mod estimator {
             outgoing_buffers: ShardsOutgoingReceiptBuffer::load(&state_update.trie)?,
             outgoing_receipts: Vec::new(),
             outgoing_metadatas,
-            bandwidth_scheduler_output: None,
-            protocol_version: apply_state.current_protocol_version,
+            bandwidth_scheduler_output: BandwidthSchedulerOutput::no_granted_bandwidth(params),
             stats: ReceiptSinkStats::default(),
         });
         let empty_pipeline = ReceiptPreparationPipeline::new(
