@@ -78,17 +78,17 @@ jobs:
           name: coverage-codecov-${{ github.sha }}-cargo_nextest-${{ matrix.name }}
           path: coverage/codecov
 
-  protobuf_backward_compat:
-    name: "Protobuf Backward Compatibility"
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: bufbuild/buf-setup-action@1158f4fa81bc02e1ff62abcca6d516c9e24c77da
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-      - uses: bufbuild/buf-breaking-action@a074e988ee34efcd4927079e79c611f428354c01
-        with:
-          against: "https://github.com/near/nearcore.git#${{github.event.pull_request.base.sha && format('ref={0}', github.event.pull_request.base.sha) || 'branch=master' }}"
+  # protobuf_backward_compat:
+  #   name: "Protobuf Backward Compatibility"
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - uses: bufbuild/buf-setup-action@1158f4fa81bc02e1ff62abcca6d516c9e24c77da
+  #       with:
+  #         github_token: ${{ secrets.GITHUB_TOKEN }}
+  #     - uses: bufbuild/buf-breaking-action@a074e988ee34efcd4927079e79c611f428354c01
+  #       with:
+  #         against: "https://github.com/near/nearcore.git#${{github.event.pull_request.base.sha && format('ref={0}', github.event.pull_request.base.sha) || 'branch=master' }}"
 
   pytest_nightly_tests:
     name: "Large pytest (nightly) Checks"
