@@ -594,36 +594,30 @@ impl EpochConfigStore {
     fn load_epoch_config_from_file_system(
         directory: &str,
     ) -> BTreeMap<ProtocolVersion, Arc<EpochConfig>> {
-        let mut store = BTreeMap::new();
-        let entries = fs::read_dir(directory).expect("Failed opening epoch config directory");
-
-        for entry in entries {
-            if let Ok(entry) = entry {
-                let path = entry.path();
-
-                // Check if the file has a .json extension
-                if path.extension().and_then(|ext| ext.to_str()) == Some("json") {
-                    // Extract the file name (without extension)
-                    if let Some(file_stem) = path.file_stem().and_then(|s| s.to_str()) {
-                        let version: ProtocolVersion =
-                            file_stem.parse().expect("Invalid protocol version");
-
-                        let content = fs::read_to_string(&path).expect("Failed to read file");
-                        let config: EpochConfig =
-                            serde_json::from_str(&content).unwrap_or_else(|e| {
-                                panic!(
-                                "Failed to load epoch config from file system for version {}: {:#}",
-                                version, e
-                            )
-                            });
-
-                        store.insert(version, Arc::new(config));
-                    }
-                }
+        fn get_epoch_config(
+            dir_entry: fs::DirEntry,
+        ) -> Option<(ProtocolVersion, Arc<EpochConfig>)> {
+            let path = dir_entry.path();
+            if !(path.extension()? == "json") {
+                return None;
             }
+            let file_name = path.file_stem()?.to_str()?.to_string();
+            let protocol_version = file_name.parse().expect("Invalid protocol version");
+            if protocol_version > PROTOCOL_VERSION {
+                return None;
+            }
+            let contents = fs::read_to_string(&path).ok()?;
+            let epoch_config = serde_json::from_str(&contents).unwrap_or_else(|_| {
+                panic!("Failed to parse epoch config for version {}", protocol_version)
+            });
+            Some((protocol_version, epoch_config))
         }
 
-        store
+        fs::read_dir(directory)
+            .expect("Failed opening epoch config directory")
+            .filter_map(Result::ok)
+            .filter_map(get_epoch_config)
+            .collect()
     }
 
     pub fn test(store: BTreeMap<ProtocolVersion, Arc<EpochConfig>>) -> Self {
