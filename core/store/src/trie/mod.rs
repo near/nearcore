@@ -38,7 +38,6 @@ pub use raw_node::{Children, RawTrieNode, RawTrieNodeWithSize};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt::Write;
 use std::hash::Hash;
-use std::ops::DerefMut;
 use std::str;
 use std::sync::{Arc, RwLock, RwLockReadGuard};
 pub use trie_recording::{SubtreeSize, TrieRecorder, TrieRecorderStats};
@@ -1589,7 +1588,7 @@ impl Trie {
             None
         };
         let tracking_mode = match &mut recorder {
-            Some(recorder) => TrackingMode::RefcountsAndAccesses(recorder.deref_mut()),
+            Some(recorder) => TrackingMode::RefcountsAndAccesses(&mut *recorder),
             None => TrackingMode::Refcounts,
         };
         let mut trie_update = guard.update(self.root, tracking_mode)?;
@@ -1730,7 +1729,7 @@ impl Trie {
         let mut recorder =
             self.recorder.as_ref().map(|recorder| recorder.write().expect("no poison"));
         let tracking_mode = match &mut recorder {
-            Some(recorder) => TrackingMode::RefcountsAndAccesses(recorder.deref_mut()),
+            Some(recorder) => TrackingMode::RefcountsAndAccesses(&mut *recorder),
             None => TrackingMode::Refcounts,
         };
         let mut trie_update = guard.update(self.root, tracking_mode)?;

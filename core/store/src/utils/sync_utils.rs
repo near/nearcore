@@ -47,7 +47,7 @@ impl<T> Deref for MonitorReadGuard<'_, T> {
     type Target = T;
 
     fn deref(&self) -> &Self::Target {
-        self.guard.deref()
+        &*self.guard
     }
 }
 
@@ -55,13 +55,13 @@ impl<T> Deref for MonitorWriteGuard<'_, T> {
     type Target = T;
 
     fn deref(&self) -> &Self::Target {
-        self.guard.deref()
+        &*self.guard
     }
 }
 
 impl<T> DerefMut for MonitorWriteGuard<'_, T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        self.guard.deref_mut()
+        &mut *self.guard
     }
 }
 

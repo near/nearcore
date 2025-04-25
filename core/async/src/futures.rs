@@ -159,7 +159,7 @@ where
         near_performance_metrics::actix::run_later(
             self,
             dur.max(Duration::ZERO).unsigned_abs(),
-            move |obj, ctx| f(obj.deref_mut(), ctx),
+            move |obj, ctx| f(&mut *obj, ctx),
         );
     }
 }
