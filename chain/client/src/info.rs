@@ -809,7 +809,7 @@ impl std::fmt::Display for BlocksInfo {
             }
         };
 
-        for block_info in self.blocks_info.iter() {
+        for block_info in &self.blocks_info {
             let mut all_chunks_received = true;
             let chunk_status = block_info
                 .chunks_info

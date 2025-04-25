@@ -264,7 +264,7 @@ impl DumpState {
     /// For each shard, checks the filenames that exist in `external` and sets the corresponding `parts_missing` fields
     /// to contain the parts that haven't yet been uploaded, so that we only try to generate those.
     async fn set_missing_parts(&self, external: &ExternalConnection, chain_id: &str) {
-        for (shard_id, s) in self.dump_state.iter() {
+        for (shard_id, s) in &self.dump_state {
             match get_missing_part_ids_for_epoch(
                 *shard_id,
                 chain_id,
@@ -306,7 +306,7 @@ impl DumpState {
     /// Sets the `canceled` variable to true and waits for all tasks to exit
     async fn cancel(&mut self) {
         self.canceled.store(true, Ordering::Relaxed);
-        for (_shard_id, d) in self.dump_state.iter() {
+        for (_shard_id, d) in &self.dump_state {
             // Set it to -1 to tell the existing tasks not to set the metrics anymore
             d.parts_dumped.store(-1, Ordering::SeqCst);
         }
@@ -881,7 +881,7 @@ impl StateDumper {
     /// Sets the in-memory and on-disk state to reflect that we're currently dumping state for a new epoch,
     /// with the info and progress represented in `dump`.
     fn new_dump(&mut self, dump: DumpState, sync_hash: CryptoHash) -> anyhow::Result<()> {
-        for (shard_id, _) in dump.dump_state.iter() {
+        for (shard_id, _) in &dump.dump_state {
             self.chain
                 .chain_store()
                 .set_state_sync_dump_progress(

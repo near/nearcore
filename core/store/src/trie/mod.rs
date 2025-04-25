@@ -409,7 +409,7 @@ impl TrieRefcountDeltaMap {
         let num_insertions = self.map.iter().filter(|(_h, (_v, rc))| *rc > 0).count();
         let mut insertions = Vec::with_capacity(num_insertions);
         let mut deletions = Vec::with_capacity(self.map.len().saturating_sub(num_insertions));
-        for (hash, (value, rc)) in self.map.into_iter() {
+        for (hash, (value, rc)) in self.map {
             if rc > 0 {
                 insertions.push(TrieRefcountAddition {
                     trie_node_or_value_hash: hash,

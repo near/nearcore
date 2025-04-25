@@ -68,7 +68,7 @@ fn compute_fields_hash(
     for (field_name, (type_name, generic_params)) in fields {
         field_name.hash(hasher);
         type_name.hash(hasher);
-        for &param_type_id in generic_params.iter() {
+        for &param_type_id in *generic_params {
             compute_type_hash(param_type_id, structs, types_in_compute, hasher);
         }
     }

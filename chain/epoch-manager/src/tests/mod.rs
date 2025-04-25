@@ -1642,7 +1642,7 @@ fn test_validator_consistency() {
     let epoch_id = epoch_manager.get_epoch_id(&h[0]).unwrap();
     let epoch_info = epoch_manager.get_epoch_info(&epoch_id).unwrap();
     let mut actual_block_producers = HashSet::new();
-    for index in epoch_info.block_producers_settlement().into_iter() {
+    for index in epoch_info.block_producers_settlement() {
         let bp = epoch_info.validator_account_id(*index).clone();
         actual_block_producers.insert(bp);
     }

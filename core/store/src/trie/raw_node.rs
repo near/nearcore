@@ -78,7 +78,7 @@ impl<T: BorshSerialize> BorshSerialize for Children<T> {
     fn serialize<W: std::io::Write>(&self, wr: &mut W) -> std::io::Result<()> {
         let mut bitmap: u16 = 0;
         let mut pos: u16 = 1;
-        for child in self.0.iter() {
+        for child in &self.0 {
             if child.is_some() {
                 bitmap |= pos
             }

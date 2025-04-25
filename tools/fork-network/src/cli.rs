@@ -387,7 +387,7 @@ impl ForkNetworkCommand {
         store_update.set_ser(DBCol::Misc, EPOCH_ID_KEY, epoch_id)?;
         store_update.set_ser(DBCol::Misc, FLAT_HEAD_KEY, &desired_flat_head)?;
         store_update.set_ser(DBCol::Misc, SHARD_LAYOUT_KEY, &target_shard_layout)?;
-        for (shard_uid, state_root) in state_roots.iter() {
+        for (shard_uid, state_root) in &state_roots {
             store_update.set_ser(DBCol::Misc, &make_state_roots_key(*shard_uid), state_root)?;
         }
         store_update.commit()?;
@@ -1235,7 +1235,7 @@ impl ForkNetworkCommand {
         let liquid_balance = 100_000_000 * NEAR_BASE;
         let storage_bytes = runtime_config.fees.storage_usage_config.num_bytes_account;
         let new_validators = Self::read_validators(validators, home_dir)?;
-        for validator_account in new_validators.into_iter() {
+        for validator_account in new_validators {
             let shard_id = shard_layout.account_id_to_shard_id(&validator_account.account_id);
             let shard_idx = shard_layout.get_shard_index(shard_id).unwrap();
             new_validator_accounts.push(validator_account.clone());

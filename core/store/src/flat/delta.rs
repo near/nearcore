@@ -107,7 +107,7 @@ impl FlatStateChanges {
     /// Creates delta using raw state changes for some block.
     pub fn from_state_changes(changes: &[RawStateChangesWithTrieKey]) -> Self {
         let mut delta = HashMap::new();
-        for change in changes.iter() {
+        for change in changes {
             let key = change.trie_key.to_vec();
             // `RawStateChangesWithTrieKey` stores all sequential changes for a key within a chunk, so it is sufficient
             // to take only the last change.
@@ -137,7 +137,7 @@ impl FlatStateChanges {
         store_update: &mut FlatStoreUpdateAdapter,
         shard_uid: ShardUId,
     ) {
-        for (key, value) in self.0.into_iter() {
+        for (key, value) in self.0 {
             store_update.set(shard_uid, key, value);
         }
     }

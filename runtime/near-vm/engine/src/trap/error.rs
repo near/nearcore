@@ -197,7 +197,7 @@ impl fmt::Display for RuntimeError {
         if trace.is_empty() {
             return Ok(());
         }
-        for frame in self.trace().iter() {
+        for frame in self.trace() {
             let name = frame.module_name();
             let func_index = frame.func_index();
             writeln!(f)?;

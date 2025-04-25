@@ -167,7 +167,7 @@ impl UniversalEngine {
         let mut function_bodies = PrimaryMap::with_capacity(functions.len());
         let mut function_relocations = PrimaryMap::with_capacity(functions.len());
         let mut function_jt_offsets = PrimaryMap::with_capacity(functions.len());
-        for (_, func) in functions.into_iter() {
+        for (_, func) in functions {
             function_bodies.push(func.body);
             function_relocations.push(func.relocations);
             function_jt_offsets.push(func.jt_offsets);

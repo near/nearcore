@@ -132,6 +132,8 @@ unnecessary_lazy_evaluations = "deny"
 unused_async = "deny"
 
 explicit_deref_methods = "deny"
+explicit_into_iter_loop = "deny"
+explicit_iter_loop = "deny"
 
 [workspace.lints.rust]
 # Will take effect since Rust 1.80, produces unused warning before it: https://github.com/rust-lang/cargo/pull/13913

@@ -1314,7 +1314,7 @@ pub fn build_funcrefs<'a>(
 ) -> BoxedSlice<FunctionIndex, VMCallerCheckedAnyfunc> {
     let mut func_refs =
         PrimaryMap::with_capacity(imports.functions.len() + finished_functions.len());
-    for (_, import) in imports.functions.iter() {
+    for (_, import) in &imports.functions {
         let anyfunc = VMCallerCheckedAnyfunc {
             func_ptr: *(import.body),
             type_index: import.signature,

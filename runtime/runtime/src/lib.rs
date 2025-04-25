@@ -1853,7 +1853,7 @@ impl Runtime {
             &mut prep_lookahead_iter,
         );
 
-        for receipt in local_receipts.iter() {
+        for receipt in &local_receipts {
             if processing_state.total.compute >= compute_limit
                 || processing_state.state_update.trie.check_proof_size_limit_exceed()
             {
@@ -2028,7 +2028,7 @@ impl Runtime {
             &mut prep_lookahead_iter,
         );
 
-        for receipt in processing_state.incoming_receipts.iter() {
+        for receipt in processing_state.incoming_receipts {
             // Validating new incoming no matter whether we have available gas or not. We don't
             // want to store invalid receipts in state as delayed.
             validate_receipt(
