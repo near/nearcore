@@ -444,6 +444,7 @@ mod tests {
     use super::EpochConfigStore;
     use crate::epoch_manager::EpochConfig;
     use near_primitives_core::types::ProtocolVersion;
+    use near_primitives_core::version::PROTOCOL_VERSION;
     use std::fs;
     use std::path::Path;
 
@@ -470,6 +471,45 @@ mod tests {
         let epoch_config_55: EpochConfig = serde_json::from_str(&contents_55).unwrap();
         let epoch_config_48 = parse_config_file("mainnet", 48).unwrap();
         assert_eq!(epoch_config_55, epoch_config_48);
+    }
+
+    #[test]
+    fn test_dump_and_load_epoch_configs_mainnet() {
+        let tmp_dir = tempfile::tempdir().unwrap();
+        let epoch_configs = EpochConfigStore::for_chain_id("mainnet", None).unwrap();
+        epoch_configs.dump_epoch_configs_between(
+            Some(&55),
+            Some(&68),
+            tmp_dir.path().to_str().unwrap(),
+        );
+
+        let loaded_epoch_configs = EpochConfigStore::test(
+            EpochConfigStore::load_epoch_config_from_file_system(tmp_dir.path().to_str().unwrap()),
+        );
+
+        // Insert a config for an newer protocol version. It should be ignored.
+        EpochConfigStore::dump_epoch_config(
+            tmp_dir.path(),
+            &(PROTOCOL_VERSION + 1),
+            &epoch_configs.get_config(PROTOCOL_VERSION),
+        );
+
+        let loaded_after_insert_epoch_configs = EpochConfigStore::test(
+            EpochConfigStore::load_epoch_config_from_file_system(tmp_dir.path().to_str().unwrap()),
+        );
+        assert_eq!(loaded_epoch_configs.store, loaded_after_insert_epoch_configs.store);
+
+        // Insert a config for an older protocol version. It should be loaded.
+        EpochConfigStore::dump_epoch_config(
+            tmp_dir.path(),
+            &(PROTOCOL_VERSION - 22),
+            &epoch_configs.get_config(PROTOCOL_VERSION),
+        );
+
+        let loaded_after_insert_epoch_configs = EpochConfigStore::test(
+            EpochConfigStore::load_epoch_config_from_file_system(tmp_dir.path().to_str().unwrap()),
+        );
+        assert_ne!(loaded_epoch_configs.store, loaded_after_insert_epoch_configs.store);
     }
 
     fn parse_config_file(chain_id: &str, protocol_version: ProtocolVersion) -> Option<EpochConfig> {
