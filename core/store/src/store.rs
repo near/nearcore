@@ -394,7 +394,7 @@ impl StoreUpdate {
         )
     )]
     pub fn commit(self) -> io::Result<()> {
-        let _span = debug_span!(target: "chain", "new_testing_span_1").entered();
+        let _span = tracing::debug_span!(target: "chain", "new_testing_span_1").entered();
         debug_assert!(
             {
                 let non_refcount_keys = self
