@@ -2404,7 +2404,6 @@ fn resolve_promise_yield_timeouts(
     let mut new_receipt_index: usize = 0;
 
     let mut processed_yield_timeouts = vec![];
-    let mut timeout_receipts = vec![];
     let yield_processing_start = std::time::Instant::now();
     while promise_yield_indices.first_index < promise_yield_indices.next_available_index {
         if total.compute >= compute_limit || state_update.trie.check_proof_size_limit_exceed() {
@@ -2459,12 +2458,11 @@ fn resolve_promise_yield_timeouts(
             // the current chunk. The ordering will be maintained because the receipts are
             // destined for the same shard; the timeout will be processed second and discarded.
             receipt_sink.forward_or_buffer_receipt(
-                resume_receipt.clone(),
+                resume_receipt,
                 apply_state,
                 &mut state_update,
                 processing_state.epoch_info_provider,
             )?;
-            timeout_receipts.push(resume_receipt);
         }
 
         processed_yield_timeouts.push(queue_entry);

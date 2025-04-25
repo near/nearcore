@@ -46,10 +46,19 @@ impl Account {
     }
 }
 
-/// Tries to deserialize all json files in `dir` as [`Account`].
-pub fn accounts_from_dir(dir: &Path) -> anyhow::Result<Vec<Account>> {
+/// Tries to deserialize all json files in `path` as [`Account`].
+/// If `path` is a file, tries to deserialize it as a list of [`Account`].
+pub fn accounts_from_path(path: &Path) -> anyhow::Result<Vec<Account>> {
+    if path.is_file() {
+        let content = fs::read_to_string(path)?;
+        let accounts: Vec<Account> = serde_json::from_str(&content)
+            .with_context(|| format!("failed reading file {path:?} as a list of 'Account'"))?;
+        return Ok(accounts);
+    }
+
+    // Otherwise, proceed with the original directory reading logic
     let mut accounts = vec![];
-    for entry in fs::read_dir(dir)? {
+    for entry in fs::read_dir(path)? {
         let entry = entry?;
         let file_type = entry.file_type()?;
         if !file_type.is_file() {

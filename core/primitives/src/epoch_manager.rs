@@ -12,7 +12,7 @@ use near_schema_checker_lib::ProtocolSchema;
 use std::collections::{BTreeMap, HashMap};
 use std::fs;
 use std::ops::Bound;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 pub const AGGREGATOR_KEY: &[u8] = b"AGGREGATOR";
@@ -409,7 +409,7 @@ impl EpochConfigStore {
             .1
     }
 
-    fn dump_epoch_config(directory: &str, version: &ProtocolVersion, config: &Arc<EpochConfig>) {
+    fn dump_epoch_config(directory: &Path, version: &ProtocolVersion, config: &Arc<EpochConfig>) {
         let content = serde_json::to_string_pretty(config.as_ref()).unwrap();
         let path = PathBuf::from(directory).join(format!("{}.json", version));
         fs::write(path, content).unwrap();
@@ -419,21 +419,27 @@ impl EpochConfigStore {
     /// If the beginning version doesn't exist, the closest config to it will be dumped.
     pub fn dump_epoch_configs_between(
         &self,
-        first_version: &ProtocolVersion,
-        last_version: &ProtocolVersion,
-        directory: &str,
+        first_version: Option<&ProtocolVersion>,
+        last_version: Option<&ProtocolVersion>,
+        directory: impl AsRef<Path>,
     ) {
         // Dump all the configs between the beginning and end versions, inclusive.
         self.store
             .iter()
-            .filter(|(version, _)| *version >= first_version && *version <= last_version)
+            .filter(|(version, _)| {
+                first_version.is_none_or(|first_version| *version >= first_version)
+            })
+            .filter(|(version, _)| last_version.is_none_or(|last_version| *version <= last_version))
             .for_each(|(version, config)| {
-                Self::dump_epoch_config(directory, version, config);
+                Self::dump_epoch_config(directory.as_ref(), version, config);
             });
+
         // Dump the closest config to the beginning version if it doesn't exist.
-        if !self.store.contains_key(&first_version) {
-            let config = self.get_config(*first_version);
-            Self::dump_epoch_config(directory, first_version, config);
+        if let Some(first_version) = first_version {
+            if !self.store.contains_key(&first_version) {
+                let config = self.get_config(*first_version);
+                Self::dump_epoch_config(directory.as_ref(), first_version, config);
+            }
         }
     }
 }
@@ -450,8 +456,8 @@ mod tests {
     fn test_dump_epoch_configs_mainnet() {
         let tmp_dir = tempfile::tempdir().unwrap();
         EpochConfigStore::for_chain_id("mainnet", None).unwrap().dump_epoch_configs_between(
-            &55,
-            &68,
+            Some(&55),
+            Some(&68),
             tmp_dir.path().to_str().unwrap(),
         );
 

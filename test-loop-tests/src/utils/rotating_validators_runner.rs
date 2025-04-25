@@ -138,7 +138,7 @@ impl RotatingValidatorsRunner {
             self.skip_next_restaking = false;
         } else {
             let tx_processor_senders: Vec<_> =
-                env.node_datas.iter().map(|data| data.tx_processor_sender.clone()).collect();
+                env.node_datas.iter().map(|data| data.rpc_handler_sender.clone()).collect();
             let txs = self.restake_validators_txs(&env, self.validators_index);
             for tx in txs.iter() {
                 // In case some nodes are misbehaving we are sending transaction to each one.
