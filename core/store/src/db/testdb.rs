@@ -56,7 +56,7 @@ impl Database for TestDB {
             .take_while(move |(k, _)| k.starts_with(&key_prefix))
             .map(|(k, v)| Ok((k.clone().into_boxed_slice(), v.clone().into_boxed_slice())))
             .collect::<Vec<io::Result<_>>>();
-        refcount::iter_with_rc_logic(col, iterator.into_iter())
+        refcount::iter_with_rc_logic(col, iterator)
     }
 
     fn iter_range<'a>(
@@ -72,7 +72,7 @@ impl Database for TestDB {
             .range((lower, upper))
             .map(|(k, v)| Ok((k.clone().into_boxed_slice(), v.clone().into_boxed_slice())))
             .collect::<Vec<io::Result<_>>>();
-        refcount::iter_with_rc_logic(col, iterator.into_iter())
+        refcount::iter_with_rc_logic(col, iterator)
     }
 
     fn write(&self, transaction: DBTransaction) -> io::Result<()> {

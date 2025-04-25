@@ -909,9 +909,7 @@ async fn get_current_epoch_state_roots(
                 }
             }
             Err(e) => {
-                if let Some(RpcErrorKind::HandlerError(serde_json::Value::Object(err))) =
-                    &e.error_struct
-                {
+                if let Some(RpcErrorKind::HandlerError(err)) = &e.error_struct {
                     if let Some(serde_json::Value::String(name)) = err.get("name") {
                         if name.as_str() == "UNKNOWN_BLOCK" {
                             continue;

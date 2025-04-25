@@ -465,7 +465,7 @@ mod test {
         let files =
             rt.block_on(async { connection.list_objects(ShardId::new(0), &dir).await.unwrap() });
         tracing::debug!("Files before upload: {:?}", files);
-        assert_eq!(files.into_iter().filter(|x| *x == filename).collect::<Vec<String>>().len(), 0);
+        assert_eq!(files.into_iter().filter(|x| *x == filename).count(), 0);
 
         // Uploading the file.
         rt.block_on(async {
@@ -479,7 +479,7 @@ mod test {
         let files =
             rt.block_on(async { connection.list_objects(ShardId::new(0), &dir).await.unwrap() });
         tracing::debug!("Files after upload: {:?}", files);
-        assert_eq!(files.into_iter().filter(|x| *x == filename).collect::<Vec<String>>().len(), 1);
+        assert_eq!(files.into_iter().filter(|x| *x == filename).count(), 1);
 
         // And the data should match generates data.
         let download_data = rt.block_on(async {
