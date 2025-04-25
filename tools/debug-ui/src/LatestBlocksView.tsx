@@ -227,8 +227,7 @@ const BlocksTable = ({ rows, knownProducers, expandAll, hideMissingHeights }: Bl
         tableRows.push(
             <tr
                 key={block.block_hash}
-                className={`block-row ${row.block.is_on_canonical_chain ? '' : 'not-on-canonical-chain'
-                    }`}>
+                className={`block-row ${row.block.is_on_canonical_chain ? '' : 'not-on-canonical-chain'}`}>
                 <td className="graph-node-cell">
                     <div
                         id={`graph-node-${i}`}
