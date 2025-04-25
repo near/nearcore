@@ -313,7 +313,7 @@ num-bigint = "0.3"
 num_cpus = "1.11"
 num-rational = { version = "0.3.1", features = ["serde"] }
 num-traits = "0.2.15"
-okapi = { git = "https://github.com/polyprogrammist/okapi.git", branch = "alpha", features = ["schemars-alpha"] }
+okapi = { git = "https://github.com/near/near-okapi-fork.git", rev = "fd7de89e130ab99a546f04e3faefcd53044f98d0", features = ["schemars-alpha"] }
 object_store = { version = "0.12", features = ["gcp"] }
 openssl-probe = "0.1.4"
 opentelemetry = { version = "0.22.0", features = ["trace"] }

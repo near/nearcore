@@ -5814,7 +5814,7 @@ dependencies = [
 [[package]]
 name = "okapi"
 version = "0.7.0"
-source = "git+https://github.com/polyprogrammist/okapi.git?branch=alpha#181b76ddacca310578ddf96e938af7bbb0e667f4"
+source = "git+https://github.com/near/near-okapi-fork.git?rev=fd7de89e130ab99a546f04e3faefcd53044f98d0#fd7de89e130ab99a546f04e3faefcd53044f98d0"
 dependencies = [
  "log",
  "schemars 0.8.22",
