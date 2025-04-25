@@ -41,6 +41,7 @@ use near_primitives::types::{AccountId, BlockId, BlockReference};
 use near_primitives::views::{QueryRequest, TxExecutionStatus};
 use serde_json::{Value, json};
 use std::path::PathBuf;
+use std::pin::Pin;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::time::{sleep, timeout};
@@ -133,17 +134,17 @@ fn serialize_response(value: impl serde::ser::Serialize) -> Result<Value, RpcErr
 /// be parsed (using [`RpcRequest::parse`]) from the `request.params`.  Ok
 /// results of the `callback` will be converted into a [`Value`] via serde
 /// serialization.
-async fn process_method_call<R, V, E, F>(
+fn process_method_call<'a, R, V, E, F>(
     request: Request,
-    callback: impl FnOnce(R) -> F,
-) -> Result<Value, RpcError>
+    callback: impl FnOnce(R) -> F + 'a,
+) -> Pin<Box<dyn Future<Output = Result<Value, RpcError>> + 'a>>
 where
     R: RpcRequest,
     V: serde::ser::Serialize,
-    RpcError: std::convert::From<E>,
-    F: std::future::Future<Output = Result<V, E>>,
+    RpcError: From<E>,
+    F: Future<Output = Result<V, E>>,
 {
-    serialize_response(callback(R::parse(request.params)?).await?)
+    Box::pin(async move { serialize_response(callback(R::parse(request.params)?).await?) })
 }
 
 #[easy_ext::ext(FromNetworkClientResponses)]
@@ -380,7 +381,7 @@ impl JsonRpcHandler {
             "block" => process_method_call(request, |params| self.block(params)).await,
             "broadcast_tx_async" => {
                 process_method_call(request, |params| async {
-                    let tx = self.send_tx_async(params).await.to_string();
+                    let tx = self.send_tx_async(params).to_string();
                     Result::<_, std::convert::Infallible>::Ok(tx)
                 })
                 .await
@@ -472,6 +473,7 @@ impl JsonRpcHandler {
     /// request.  Otherwise returns `Ok(response)` where `response` is the
     /// result of handling the request.
     #[cfg(not(feature = "test_features"))]
+    #[allow(clippy::unused_async)]
     async fn process_adversarial_request_internal(
         &self,
         request: Request,
@@ -485,11 +487,11 @@ impl JsonRpcHandler {
         request: Request,
     ) -> Result<Result<Value, RpcError>, Request> {
         Ok(match request.method.as_ref() {
-            "adv_disable_header_sync" => self.adv_disable_header_sync(request.params).await,
-            "adv_disable_doomslug" => self.adv_disable_doomslug(request.params).await,
-            "adv_produce_blocks" => self.adv_produce_blocks(request.params).await,
-            "adv_produce_chunks" => self.adv_produce_chunks(request.params).await,
-            "adv_switch_to_height" => self.adv_switch_to_height(request.params).await,
+            "adv_disable_header_sync" => self.adv_disable_header_sync(request.params),
+            "adv_disable_doomslug" => self.adv_disable_doomslug(request.params),
+            "adv_produce_blocks" => self.adv_produce_blocks(request.params),
+            "adv_produce_chunks" => self.adv_produce_chunks(request.params),
+            "adv_switch_to_height" => self.adv_switch_to_height(request.params),
             "adv_get_saved_blocks" => self.adv_get_saved_blocks(request.params).await,
             "adv_check_store" => self.adv_check_store(request.params).await,
             _ => return Err(request),
@@ -533,10 +535,7 @@ impl JsonRpcHandler {
         self.peer_manager_sender.send_async(msg).await.map_err(RpcFrom::rpc_from)
     }
 
-    async fn send_tx_async(
-        &self,
-        request_data: near_jsonrpc_primitives::types::transactions::RpcSendTransactionRequest,
-    ) -> CryptoHash {
+    fn send_tx_async(&self, request_data: RpcSendTransactionRequest) -> CryptoHash {
         let tx = request_data.signed_transaction;
         let hash = tx.get_hash();
         self.process_tx_sender.send(ProcessTxRequest {
@@ -698,7 +697,7 @@ impl JsonRpcHandler {
         near_jsonrpc_primitives::types::transactions::RpcTransactionError,
     > {
         if request_data.wait_until == TxExecutionStatus::None {
-            self.send_tx_async(request_data).await;
+            self.send_tx_async(request_data);
             return Ok(RpcTransactionResponse {
                 final_execution_outcome: None,
                 final_execution_status: TxExecutionStatus::None,
@@ -1304,32 +1303,32 @@ impl JsonRpcHandler {
 
 #[cfg(feature = "test_features")]
 impl JsonRpcHandler {
-    async fn adv_disable_header_sync(&self, _params: Value) -> Result<Value, RpcError> {
+    fn adv_disable_header_sync(&self, _params: Value) -> Result<Value, RpcError> {
         self.client_sender.send(near_client::NetworkAdversarialMessage::AdvDisableHeaderSync);
         self.view_client_sender.send(near_client::NetworkAdversarialMessage::AdvDisableHeaderSync);
         Ok(Value::String(String::new()))
     }
 
-    async fn adv_disable_doomslug(&self, _params: Value) -> Result<Value, RpcError> {
+    fn adv_disable_doomslug(&self, _params: Value) -> Result<Value, RpcError> {
         self.client_sender.send(near_client::NetworkAdversarialMessage::AdvDisableDoomslug);
         self.view_client_sender.send(near_client::NetworkAdversarialMessage::AdvDisableDoomslug);
         Ok(Value::String(String::new()))
     }
 
-    async fn adv_produce_blocks(&self, params: Value) -> Result<Value, RpcError> {
+    fn adv_produce_blocks(&self, params: Value) -> Result<Value, RpcError> {
         let (num_blocks, only_valid) = crate::api::Params::parse(params)?;
         self.client_sender
             .send(near_client::NetworkAdversarialMessage::AdvProduceBlocks(num_blocks, only_valid));
         Ok(Value::String(String::new()))
     }
 
-    async fn adv_produce_chunks(&self, params: Value) -> Result<Value, RpcError> {
+    fn adv_produce_chunks(&self, params: Value) -> Result<Value, RpcError> {
         let mode = crate::api::Params::parse(params)?;
         self.client_sender.send(near_client::NetworkAdversarialMessage::AdvProduceChunks(mode));
         Ok(Value::String(String::new()))
     }
 
-    async fn adv_switch_to_height(&self, params: Value) -> Result<Value, RpcError> {
+    fn adv_switch_to_height(&self, params: Value) -> Result<Value, RpcError> {
         let (height,) = crate::api::Params::parse(params)?;
         self.client_sender.send(near_client::NetworkAdversarialMessage::AdvSwitchToHeight(height));
         self.view_client_sender

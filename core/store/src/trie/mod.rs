@@ -2165,9 +2165,8 @@ mod tests {
             let trie = tries.get_trie_for_shard(ShardUId::single_shard(), state_root);
 
             // Those known keys.
-            for (key, value) in
-                trie_changes.into_iter().collect::<std::collections::HashMap<_, _>>()
-            {
+            #[allow(clippy::needless_collect)] // It is necessary to build a map to deduplicate keys
+            for (key, value) in trie_changes.into_iter().collect::<HashMap<_, _>>() {
                 if let Some(value) = value {
                     let want = Some(Ok((key.clone(), value)));
                     let mut iterator = trie.disk_iter().unwrap();

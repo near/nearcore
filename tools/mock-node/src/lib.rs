@@ -459,7 +459,7 @@ struct MockNode {
 }
 
 impl MockNode {
-    async fn new(
+    fn new(
         chain: ChainStoreAdapter,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
         genesis_hash: CryptoHash,
@@ -483,8 +483,7 @@ impl MockNode {
             archival,
             None,
             handshake_protocol_version,
-        )
-        .await?;
+        )?;
 
         Ok(Self {
             listener,

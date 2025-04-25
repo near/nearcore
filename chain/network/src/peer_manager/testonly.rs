@@ -372,7 +372,7 @@ impl ActorHandler {
     pub async fn disconnect(&self, peer_id: &PeerId) {
         let peer_id = peer_id.clone();
         self.with_state(move |s| async move {
-            let stopped: Vec<()> = s
+            let num_stopped = s
                 .tier2
                 .load()
                 .ready
@@ -382,8 +382,8 @@ impl ActorHandler {
                     c.stop(None);
                     ()
                 })
-                .collect();
-            assert!(stopped.len() == 1);
+                .count();
+            assert_eq!(num_stopped, 1);
         })
         .await
     }

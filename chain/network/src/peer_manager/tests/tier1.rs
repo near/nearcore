@@ -289,6 +289,7 @@ async fn account_keys_change() {
 // then proxy1 is available and proxy0 is not. In both situations validator should be reachable,
 // as long as it manages to advertise the currently available proxy and the TIER1 nodes connect to
 // that proxy.
+#[allow(clippy::large_stack_frames)]
 #[tokio::test]
 async fn proxy_change() {
     init_test_logger();

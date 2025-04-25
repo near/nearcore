@@ -180,7 +180,11 @@ pub fn proposals_to_epoch_info(
         "Proposals should not have duplicates"
     );
 
-    let shard_ids: Vec<_> = epoch_config.shard_layout.shard_ids().collect();
+    let num_shards = epoch_config
+        .shard_layout
+        .num_shards()
+        .try_into()
+        .expect("number of shards above usize range");
     let mut stake_change = BTreeMap::new();
     let proposals = apply_epoch_update_to_proposals(
         proposals,
@@ -248,7 +252,6 @@ pub fn proposals_to_epoch_info(
         // With this number of mandates per shard and 6 shards, the theory calculations predict the
         // protocol is secure for 40 years (at 90% confidence).
         let target_mandates_per_shard = epoch_config.target_validator_mandates_per_shard as usize;
-        let num_shards = shard_ids.len();
         let validator_mandates_config =
             ValidatorMandatesConfig::new(target_mandates_per_shard, num_shards);
         // We can use `all_validators` to construct mandates Since a validator's position in
@@ -870,9 +873,8 @@ mod tests {
         )
         .unwrap();
 
-        let fishermen: Vec<AccountId> =
-            epoch_info.fishermen_iter().map(|v| v.take_account_id()).collect();
-        assert!(fishermen.is_empty());
+        let fishermen = epoch_info.fishermen_iter().map(|v| v.take_account_id());
+        assert_eq!(fishermen.count(), 0);
 
         // too low stakes are kicked out
         let kickout = epoch_info.validator_kickout();
