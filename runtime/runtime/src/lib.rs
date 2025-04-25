@@ -1167,13 +1167,20 @@ impl Runtime {
             config.fees.fee(ActionCosts::new_action_receipt).exec_fee(),
         )?;
         let deposit_refund = if result.result.is_err() { total_deposit } else { 0 };
-        let gas_refund = if result.result.is_err() {
+        let gross_gas_refund = if result.result.is_err() {
             safe_add_gas(prepaid_gas, prepaid_exec_gas)? - result.gas_burnt
         } else {
             safe_add_gas(prepaid_gas, prepaid_exec_gas)? - result.gas_used
         };
+        let refund_penalty: Gas = config.fees.gas_penalty_for_gas_refund(gross_gas_refund);
+        debug_assert!(
+            refund_penalty <= gross_gas_refund,
+            "gas_penalty_for_gas_refund returned larger penalty than input"
+        );
+        let net_gas_refund = gross_gas_refund - refund_penalty;
+
         // Refund for the unused portion of the gas at the price at which this gas was purchased.
-        let mut gas_balance_refund = safe_gas_to_balance(action_receipt.gas_price, gas_refund)?;
+        let mut gas_balance_refund = safe_gas_to_balance(action_receipt.gas_price, net_gas_refund)?;
         let mut gas_deficit_amount = 0;
         if current_gas_price > action_receipt.gas_price {
             // In a rare scenario, when the current gas price is higher than the purchased gas

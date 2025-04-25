@@ -299,6 +299,8 @@ impl TryFrom<&ParameterTable> for RuntimeConfig {
                 pessimistic_gas_price_inflation_ratio: params
                     .get(Parameter::PessimisticGasPriceInflation)?,
                 refund_gas_price_changes: params.get(Parameter::RefundGasPriceChanges)?,
+                gas_refund_penalty: params.get(Parameter::GasRefundPenalty)?,
+                min_gas_refund_penalty: params.get(Parameter::MinGasRefundPenalty)?,
                 storage_usage_config: StorageUsageConfig {
                     storage_amount_per_byte: params.get(Parameter::StorageAmountPerByte)?,
                     num_bytes_account: params.get(Parameter::StorageNumBytesAccount)?,
