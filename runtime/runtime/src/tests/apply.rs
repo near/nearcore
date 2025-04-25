@@ -809,7 +809,11 @@ fn test_apply_deficit_gas_for_function_call_covered() {
         }),
     })];
     let total_receipt_cost = Balance::from(gas + expected_gas_burnt) * gas_price;
-    let expected_gas_burnt_amount = Balance::from(expected_gas_burnt) * GAS_PRICE;
+    let expected_gas_burnt_amount = if apply_state.config.fees.refund_gas_price_changes {
+        Balance::from(expected_gas_burnt) * GAS_PRICE
+    } else {
+        Balance::from(expected_gas_burnt) * gas_price
+    };
     let expected_refund = total_receipt_cost - expected_gas_burnt_amount;
 
     let result = runtime
@@ -823,8 +827,15 @@ fn test_apply_deficit_gas_for_function_call_covered() {
             Default::default(),
         )
         .unwrap();
-    // We used part of the prepaid gas to paying extra fees.
-    assert_eq!(result.stats.balance.gas_deficit_amount, 0);
+    if apply_state.config.fees.refund_gas_price_changes {
+        // We used part of the prepaid gas to paying extra fees.
+        assert_eq!(result.stats.balance.gas_deficit_amount, 0);
+    } else {
+        assert_eq!(
+            result.stats.balance.gas_deficit_amount,
+            Balance::from(expected_gas_burnt) * (GAS_PRICE - gas_price)
+        );
+    }
     // The refund is less than the received amount.
     match result.outgoing_receipts[0].receipt() {
         ReceiptEnum::Action(ActionReceipt { actions, .. }) => {
@@ -876,8 +887,12 @@ fn test_apply_deficit_gas_for_function_call_partial() {
         }),
     })];
     let total_receipt_cost = Balance::from(gas + expected_gas_burnt) * gas_price;
-    let expected_gas_burnt_amount = Balance::from(expected_gas_burnt) * GAS_PRICE;
-    let expected_deficit = expected_gas_burnt_amount - total_receipt_cost;
+    let expected_deficit = if apply_state.config.fees.refund_gas_price_changes {
+        let expected_gas_burnt_amount = Balance::from(expected_gas_burnt) * GAS_PRICE;
+        expected_gas_burnt_amount - total_receipt_cost
+    } else {
+        Balance::from(expected_gas_burnt) * (GAS_PRICE - gas_price)
+    };
 
     let result = runtime
         .apply(
@@ -892,8 +907,22 @@ fn test_apply_deficit_gas_for_function_call_partial() {
         .unwrap();
     // Used full prepaid gas, but it still not enough to cover deficit.
     assert_eq!(result.stats.balance.gas_deficit_amount, expected_deficit);
-    // Burnt all the fees + all prepaid gas.
-    assert_eq!(result.stats.balance.tx_burnt_amount, total_receipt_cost);
+    if apply_state.config.fees.refund_gas_price_changes {
+        // Burnt all the fees + all prepaid gas.
+        assert_eq!(result.stats.balance.tx_burnt_amount, total_receipt_cost);
+        assert_eq!(result.outgoing_receipts.len(), 0);
+    } else {
+        // The deficit does not affect refunds in this config, hence we expect
+        assert_eq!(result.outcomes.len(), 1, "should only have fn call outcome");
+        assert_eq!(result.outgoing_receipts.len(), 1, "should only have refund receipt");
+        let expected_refund =
+            total_receipt_cost - Balance::from(result.outcomes[0].outcome.gas_burnt) * gas_price;
+        let ReceiptEnum::Action(receipt) = result.outgoing_receipts[0].receipt() else {
+            panic!("expected refund action receipt")
+        };
+        assert_eq!(receipt.actions[0].get_deposit_balance(), expected_refund);
+        assert_eq!(result.stats.balance.tx_burnt_amount, total_receipt_cost - expected_refund);
+    }
 }
 
 #[test]

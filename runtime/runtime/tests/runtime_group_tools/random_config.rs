@@ -1,6 +1,6 @@
 use near_parameters::{Fee, RuntimeConfig, RuntimeFeesConfig, StorageUsageConfig};
 use near_primitives::num_rational::Rational32;
-use rand::{RngCore, thread_rng};
+use rand::{Rng, RngCore, thread_rng};
 
 pub fn random_config() -> RuntimeConfig {
     let mut rng = thread_rng();
@@ -25,6 +25,7 @@ pub fn random_config() -> RuntimeConfig {
                 (101 + rng.next_u32() % 10).try_into().unwrap(),
                 100,
             ),
+            refund_gas_price_changes: rng.gen_bool(0.5),
         }),
         ..RuntimeConfig::test()
     }

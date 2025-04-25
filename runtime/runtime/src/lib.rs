@@ -369,6 +369,15 @@ impl Default for ActionResult {
     }
 }
 
+/// Lists the balance differences between
+#[derive(Debug, Default)]
+pub struct GasRefundResult {
+    /// The deficit due to increased gas prices since receipt creation.
+    pub price_deficit: Balance,
+    /// The surplus due to decreased gas prices since receipt creation.
+    pub price_surplus: Balance,
+}
+
 pub struct Runtime {}
 
 impl Runtime {
@@ -900,7 +909,7 @@ impl Runtime {
             }
         }
 
-        let gas_deficit_amount = if receipt.predecessor_id().is_system() {
+        let gas_refund_result = if receipt.predecessor_id().is_system() {
             // If the refund fails tokens are burned.
             if result.result.is_err() {
                 stats.balance.other_burnt_amount = safe_add_balance(
@@ -908,7 +917,7 @@ impl Runtime {
                     total_deposit(&action_receipt.actions)?,
                 )?
             }
-            0
+            GasRefundResult::default()
         } else {
             // Calculating and generating refunds
             self.generate_refund_receipts(
@@ -920,7 +929,7 @@ impl Runtime {
             )?
         };
         stats.balance.gas_deficit_amount =
-            safe_add_balance(stats.balance.gas_deficit_amount, gas_deficit_amount)?;
+            safe_add_balance(stats.balance.gas_deficit_amount, gas_refund_result.price_deficit)?;
 
         // Moving validator proposals
         validator_proposals.append(&mut result.validator_proposals);
@@ -939,9 +948,10 @@ impl Runtime {
         // If the receipt is a refund, then we consider it free without burnt gas.
         let gas_burnt: Gas =
             if receipt.predecessor_id().is_system() { 0 } else { result.gas_burnt };
-        // `gas_deficit_amount` is strictly less than `gas_price * gas_burnt`.
-        let mut tx_burnt_amount =
-            safe_gas_to_balance(apply_state.gas_price, gas_burnt)? - gas_deficit_amount;
+        // `price_deficit` is strictly less than `gas_price * gas_burnt`.
+        let mut tx_burnt_amount = safe_gas_to_balance(apply_state.gas_price, gas_burnt)?
+            - gas_refund_result.price_deficit;
+        tx_burnt_amount = safe_add_balance(tx_burnt_amount, gas_refund_result.price_surplus)?;
         // The amount of tokens burnt for the execution of this receipt. It's used in the execution
         // outcome.
         let tokens_burnt = tx_burnt_amount;
@@ -952,8 +962,15 @@ impl Runtime {
             / *apply_state.config.fees.burnt_gas_reward.denom() as u64;
         // The balance that the current account should receive as a reward for function call
         // execution.
-        let receiver_reward = safe_gas_to_balance(apply_state.gas_price, receiver_gas_reward)?
-            .saturating_sub(gas_deficit_amount);
+        let receiver_reward = if apply_state.config.fees.refund_gas_price_changes {
+            // Use current gas price for reward calculation
+            let full_reward = safe_gas_to_balance(apply_state.gas_price, receiver_gas_reward)?;
+            // When refunding the gas price difference, if we run a deficit, subtract it from rewards.
+            full_reward.saturating_sub(gas_refund_result.price_deficit)
+        } else {
+            // Use receipt gas price for reward calculation
+            safe_gas_to_balance(action_receipt.gas_price, receiver_gas_reward)?
+        };
         if receiver_reward > 0 {
             let mut account = get_account(state_update, account_id)?;
             if let Some(ref mut account) = account {
@@ -1079,7 +1096,7 @@ impl Runtime {
         action_receipt: &ActionReceipt,
         result: &mut ActionResult,
         config: &RuntimeConfig,
-    ) -> Result<Balance, RuntimeError> {
+    ) -> Result<GasRefundResult, RuntimeError> {
         let total_deposit = total_deposit(&action_receipt.actions)?;
         let prepaid_gas = safe_add_gas(
             total_prepaid_gas(&action_receipt.actions)?,
@@ -1097,32 +1114,45 @@ impl Runtime {
         };
         // Refund for the unused portion of the gas at the price at which this gas was purchased.
         let mut gas_balance_refund = safe_gas_to_balance(action_receipt.gas_price, gas_refund)?;
-        let mut gas_deficit_amount = 0;
+
+        let mut gas_deficit = 0;
+        let mut gas_surplus = 0;
+
+        let price_delta = current_gas_price.abs_diff(action_receipt.gas_price);
+        let value_delta = safe_gas_to_balance(price_delta, result.gas_burnt)?;
         if current_gas_price > action_receipt.gas_price {
-            // In a rare scenario, when the current gas price is higher than the purchased gas
-            // price, the difference is subtracted from the refund. If the refund doesn't have
-            // enough balance to cover the difference, then the remaining balance is considered
-            // the deficit and it's reported in the stats for the balance checker.
-            gas_deficit_amount = safe_gas_to_balance(
-                current_gas_price - action_receipt.gas_price,
-                result.gas_burnt,
-            )?;
-            if gas_balance_refund >= gas_deficit_amount {
-                gas_balance_refund -= gas_deficit_amount;
-                gas_deficit_amount = 0;
-            } else {
-                gas_deficit_amount -= gas_balance_refund;
-                gas_balance_refund = 0;
-            }
+            // price increased, burning resulted in a deficit
+            gas_deficit = value_delta;
         } else {
-            // Refund for the difference of the purchased gas price and the current gas price.
-            gas_balance_refund = safe_add_balance(
-                gas_balance_refund,
-                safe_gas_to_balance(
-                    action_receipt.gas_price - current_gas_price,
-                    result.gas_burnt,
-                )?,
-            )?;
+            // price decreased, burning resulted in a surplus
+            gas_surplus = value_delta;
+        };
+
+        if config.fees.refund_gas_price_changes {
+            // In this version of the protocol, we rebalance the gas
+            // deficit/surplus by subtracting/adding to the paid out refund.
+            // Ideally, this should result in deficit = 0 and surplus = 0;
+            if gas_deficit > 0 {
+                // In a rare scenario, when the current gas price is higher than the purchased gas
+                // price, the difference is subtracted from the refund. If the refund doesn't have
+                // enough balance to cover the difference, then the remaining balance is considered
+                // the deficit and it's reported in the stats for the balance checker.
+                if gas_balance_refund >= gas_deficit {
+                    gas_balance_refund -= gas_deficit;
+                    gas_deficit = 0;
+                } else {
+                    gas_deficit -= gas_balance_refund;
+                    gas_balance_refund = 0;
+                }
+            } else if gas_surplus > 0 {
+                // Refund for the difference of the purchased gas price and the current gas price.
+                gas_balance_refund = safe_add_balance(gas_balance_refund, gas_surplus)?;
+                gas_surplus = 0;
+            }
+            debug_assert_eq!(
+                gas_surplus, 0,
+                "must not run a surplus with `refund_gas_price_changes` enabled"
+            );
         }
 
         if deposit_refund > 0 {
@@ -1142,7 +1172,8 @@ impl Runtime {
                 receipt.priority(),
             ));
         }
-        Ok(gas_deficit_amount)
+
+        Ok(GasRefundResult { price_deficit: gas_deficit, price_surplus: gas_surplus })
     }
 
     fn process_receipt(
