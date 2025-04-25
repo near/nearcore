@@ -1,3 +1,4 @@
+#[cfg(feature = "schemars")]
 use schemars;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

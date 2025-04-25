@@ -59,7 +59,7 @@ impl From<Instant> for Deadline {
     }
 }
 
-#[derive(schemars::JsonSchema)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct DurationSchemeProvider {
     pub secs: i64,
     pub nanos: i32,

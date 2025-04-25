@@ -6,13 +6,15 @@ use near_primitives::types::{
     AccountId, BlockHeight, BlockHeightDelta, Gas, NumBlocks, NumSeats, ShardId,
 };
 use near_primitives::version::Version;
-use near_time::{Duration, DurationSchemeProvider};
+use near_time::Duration;
 use num_rational::Rational32;
 use std::cmp::{max, min};
 use std::num::NonZero;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
+#[cfg(feature = "schemars")]
+use near_time::DurationSchemeProvider;
 
 pub const TEST_STATE_SYNC_TIMEOUT: i64 = 5;
 
