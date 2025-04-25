@@ -110,13 +110,26 @@ correctness = { level = "deny", priority = -50 }
 suspicious = { level = "deny", priority = -50 }
 perf = { level = "deny", priority = -50 }
 # overrides clippy::perf = "deny": https://github.com/rust-lang/rust-clippy/issues/8111
+
 single_char_pattern = "allow"
+
+assigning_clones = "deny"
 clone_on_copy = "deny"
 derivable_impls = "deny"
-redundant_clone = "deny"
+inefficient_to_string = "deny"
+large_futures = "deny"
+large_stack_frames = "deny"
+large_types_passed_by_value = "deny"
 len_zero = "deny"
+needless_collect = "deny"
+redundant_clone = "deny"
+same_functions_in_if_condition = "deny"
 or_fun_call = "deny"
+unchecked_duration_subtraction = "deny"
+unnecessary_box_returns = "deny"
+unnecessary_join = "deny"
 unnecessary_lazy_evaluations = "deny"
+unused_async = "deny"
 
 [workspace.lints.rust]
 # Will take effect since Rust 1.80, produces unused warning before it: https://github.com/rust-lang/cargo/pull/13913
@@ -271,7 +284,7 @@ near-schema-checker-macro = { path = "core/schema-checker/schema-checker-macro" 
 near-schema-checker-core = { path = "core/schema-checker/schema-checker-core" }
 near-schema-checker-lib = { path = "core/schema-checker/schema-checker-lib" }
 near-store = { path = "core/store" }
-near-transactions-generator = { path = "benchmarks/transactions-generator"}
+near-transactions-generator = { path = "benchmarks/transactions-generator" }
 near-telemetry = { path = "chain/telemetry" }
 near-test-contracts = { path = "runtime/near-test-contracts" }
 near-time = { path = "core/time" }

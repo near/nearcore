@@ -129,17 +129,17 @@ pub(crate) fn refcount_merge<'a>(
 /// Iterator treats empty value as no value and strips refcount
 pub(crate) fn iter_with_rc_logic<'a>(
     col: DBCol,
-    iterator: impl Iterator<Item = io::Result<(Box<[u8]>, Box<[u8]>)>> + 'a,
+    iterator: impl IntoIterator<Item = io::Result<(Box<[u8]>, Box<[u8]>)>> + 'a,
 ) -> crate::db::DBIterator<'a> {
     if col.is_rc() {
-        Box::new(iterator.filter_map(|item| match item {
+        Box::new(iterator.into_iter().filter_map(|item| match item {
             Err(err) => Some(Err(err)),
             Ok((key, value)) => {
                 strip_refcount(value.into_vec()).map(|value| Ok((key, value.into_boxed_slice())))
             }
         }))
     } else {
-        Box::new(iterator)
+        Box::new(iterator.into_iter())
     }
 }
 
