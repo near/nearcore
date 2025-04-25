@@ -8,6 +8,7 @@ mod consensus;
 mod contract_distribution_cross_shard;
 mod contract_distribution_simple;
 mod create_delete_account;
+mod cross_shard_tx;
 mod epoch_sync;
 mod fix_chunk_producer_stake_threshold;
 mod fix_stake_threshold;
