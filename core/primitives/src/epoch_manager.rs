@@ -354,36 +354,29 @@ impl EpochConfigStore {
     fn load_epoch_config_from_file_system(
         directory: &str,
     ) -> BTreeMap<ProtocolVersion, Arc<EpochConfig>> {
+        fn get_epoch_config(
+            dir_entry: fs::DirEntry,
+        ) -> Option<(ProtocolVersion, Arc<EpochConfig>)> {
+            let path = dir_entry.path();
+            if !(path.extension()? == "json") {
+                return None;
+            }
+            let file_name = path.file_stem()?.to_str()?.to_string();
+            let protocol_version = file_name.parse().expect("Invalid protocol version");
+            if protocol_version > PROTOCOL_VERSION {
+                return None;
+            }
+            let contents = fs::read_to_string(&path).ok()?;
+            let epoch_config = serde_json::from_str(&contents).unwrap_or_else(|_| {
+                panic!("Failed to parse epoch config for version {}", protocol_version)
+            });
+            Some((protocol_version, epoch_config))
+        }
+
         fs::read_dir(directory)
             .expect("Failed opening epoch config directory")
             .filter_map(Result::ok)
-            // Get the path of each entry in the directory
-            .map(|entry| entry.path())
-            // Check if the file has a .json extension
-            .filter(|path| path.extension().and_then(|ext| ext.to_str()) == Some("json"))
-            // Extract the file name (without extension)
-            .filter_map(|path| {
-                path.file_stem().and_then(|s| s.to_str()).map(|s| (s.to_string(), path.clone()))
-            })
-            // Extract the protocol version from the file name
-            .map(|(file_stem, path)| {
-                (file_stem.parse::<ProtocolVersion>().expect("Invalid protocol version"), path)
-            })
-            // Only load configs for supported protocol versions
-            .filter(|(version, _)| *version <= PROTOCOL_VERSION)
-            // Load the config file
-            .map(|(version, path)| {
-                (version, fs::read_to_string(&path).expect("Failed to read file"))
-            })
-            // Deserialize the config
-            .map(|(version, content)| {
-                (
-                    version,
-                    Arc::new(serde_json::from_str::<EpochConfig>(&content).unwrap_or_else(|_| {
-                        panic!("Failed to deserialize epoch config for version {}", version)
-                    })),
-                )
-            })
+            .filter_map(get_epoch_config)
             .collect()
     }
 
