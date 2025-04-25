@@ -16,7 +16,7 @@ use near_parameters::RuntimeConfigStore;
 use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::types::AccountId;
 use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
-use near_primitives::version::PROTOCOL_UPGRADE_SCHEDULE;
+use near_primitives::version::get_protocol_upgrade_schedule;
 use near_store::Store;
 use near_store::genesis::initialize_genesis_state;
 use near_store::test_utils::{create_test_split_store, create_test_store};
@@ -54,7 +54,8 @@ pub(crate) struct TestLoopBuilder {
     /// Whether to load mem tries for the tracked shards.
     load_memtries_for_tracked_shards: bool,
     /// Upgrade schedule which determines when the clients start voting for new protocol versions.
-    upgrade_schedule: ProtocolUpgradeVotingSchedule,
+    /// If not explicitly set, the chain_id from genesis determines the schedule.
+    upgrade_schedule: Option<ProtocolUpgradeVotingSchedule>,
 }
 
 impl TestLoopBuilder {
@@ -72,7 +73,7 @@ impl TestLoopBuilder {
             warmup_pending: Arc::new(AtomicBool::new(true)),
             track_all_shards: false,
             load_memtries_for_tracked_shards: true,
-            upgrade_schedule: PROTOCOL_UPGRADE_SCHEDULE.clone(),
+            upgrade_schedule: None,
         }
     }
 
@@ -151,7 +152,7 @@ impl TestLoopBuilder {
     }
 
     pub fn protocol_upgrade_schedule(mut self, schedule: ProtocolUpgradeVotingSchedule) -> Self {
-        self.upgrade_schedule = schedule;
+        self.upgrade_schedule = Some(schedule);
         self
     }
 
@@ -207,13 +208,16 @@ impl TestLoopBuilder {
             self.test_loop.data.register_actor("UnreachableActor", UnreachableActor {}, None);
         self.test_loop.remove_events_with_identifier("UnreachableActor");
 
+        let upgrade_schedule = self.upgrade_schedule.unwrap_or_else(|| {
+            get_protocol_upgrade_schedule(&self.genesis.as_ref().unwrap().config.chain_id)
+        });
         let shared_state = SharedState {
             genesis: self.genesis.unwrap(),
             tempdir: self.test_loop_data_dir,
             epoch_config_store: self.epoch_config_store.unwrap(),
             runtime_config_store: self.runtime_config_store,
             network_shared_state: TestLoopNetworkSharedState::new(unreachable_actor_sender),
-            upgrade_schedule: self.upgrade_schedule,
+            upgrade_schedule,
             chunks_storage: Default::default(),
             drop_conditions: Default::default(),
             load_memtries_for_tracked_shards: self.load_memtries_for_tracked_shards,

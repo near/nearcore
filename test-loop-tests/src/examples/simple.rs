@@ -16,7 +16,7 @@ use near_primitives::network::PeerId;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::AccountId;
-use near_primitives::version::{PROTOCOL_UPGRADE_SCHEDULE, PROTOCOL_VERSION};
+use near_primitives::version::{PROTOCOL_VERSION, get_protocol_upgrade_schedule};
 use near_store::adapter::StoreAdapter;
 
 use crate::utils::ONE_NEAR;
@@ -83,6 +83,7 @@ fn test_client_with_simple_test_loop() {
 
     let sync_jobs_actor = SyncJobsActor::new(client_adapter.as_multi_sender());
 
+    let protocol_upgrade_schedule = get_protocol_upgrade_schedule(&chain_genesis.chain_id);
     let client = Client::new(
         test_loop.clock(),
         client_config,
@@ -102,7 +103,7 @@ fn test_client_with_simple_test_loop() {
         Arc::new(test_loop.future_spawner("node0")),
         noop().into_multi_sender(),
         client_adapter.as_multi_sender(),
-        PROTOCOL_UPGRADE_SCHEDULE.clone(),
+        protocol_upgrade_schedule,
     )
     .unwrap();
 

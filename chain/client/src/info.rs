@@ -82,7 +82,7 @@ impl InfoHelper {
         client_config: &ClientConfig,
     ) -> Self {
         set_open_files_limit(0);
-        metrics::export_version(&client_config.version);
+        metrics::export_version(&client_config.chain_id, &client_config.version);
         InfoHelper {
             clock: clock.clone(),
             nearcore_version: client_config.version.clone(),
