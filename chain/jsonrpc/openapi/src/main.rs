@@ -390,7 +390,7 @@ pub struct RpcLightClientExecutionProofRequest {
     #[serde(flatten)]
     pub id: TransactionOrReceiptId,
     #[serde(rename = "type")]
-    pub thetype: TypeTransactionOrReceiptId,
+    pub type_transaction_or_receipt_id: TypeTransactionOrReceiptId,
     pub light_client_head: near_primitives::hash::CryptoHash,
 }
 
