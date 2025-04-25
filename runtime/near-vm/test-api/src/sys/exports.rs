@@ -59,7 +59,7 @@ impl LikeNamespace for Exports {
 ///
 /// [`Instance`]: crate::Instance
 pub trait Exportable<'a>: Sized {
-    /// This function is used when providedd the [`Extern`] as exportable, so it
+    /// This function is used when provided the [`Extern`] as exportable, so it
     /// can be used while instantiating the [`Module`].
     ///
     /// [`Module`]: crate::Module

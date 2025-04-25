@@ -1,3 +1,6 @@
+// cspell:ignore NOENT, RDONLY, RGRP, RUSR, TRUNC, WGRP, WRONLY, WUSR
+// cspell:ignore mikan, fstat, openat, renameat
+
 use crate::ContractCode;
 use crate::errors::ContractPrecompilatonResult;
 use crate::logic::Config;
@@ -7,13 +10,17 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use near_parameters::vm::VMKind;
 use near_primitives_core::hash::CryptoHash;
 use near_schema_checker_lib::ProtocolSchema;
-use rand::Rng as _;
+
 use std::any::Any;
 use std::collections::HashMap;
 use std::fmt;
-use std::io::{Read, Write};
 use std::num::NonZeroUsize;
 use std::sync::{Arc, Mutex};
+
+#[cfg(not(windows))]
+use rand::Rng as _;
+#[cfg(not(windows))]
+use std::io::{Read, Write};
 
 #[derive(Debug, Clone, BorshSerialize, ProtocolSchema)]
 enum ContractCacheKey {
@@ -31,14 +38,6 @@ enum ContractCacheKey {
 
 fn vm_hash(vm_kind: VMKind) -> u64 {
     match vm_kind {
-        #[cfg(all(feature = "wasmer0_vm", target_arch = "x86_64"))]
-        VMKind::Wasmer0 => crate::wasmer_runner::wasmer0_vm_hash(),
-        #[cfg(not(all(feature = "wasmer0_vm", target_arch = "x86_64")))]
-        VMKind::Wasmer0 => panic!("Wasmer0 is not enabled"),
-        #[cfg(all(feature = "wasmer2_vm", target_arch = "x86_64"))]
-        VMKind::Wasmer2 => crate::wasmer2_runner::wasmer2_vm_hash(),
-        #[cfg(not(all(feature = "wasmer2_vm", target_arch = "x86_64")))]
-        VMKind::Wasmer2 => panic!("Wasmer2 is not enabled"),
         #[cfg(feature = "wasmtime_vm")]
         VMKind::Wasmtime => crate::wasmtime_runner::wasmtime_vm_hash(),
         #[cfg(not(feature = "wasmtime_vm"))]
@@ -47,6 +46,8 @@ fn vm_hash(vm_kind: VMKind) -> u64 {
         VMKind::NearVm => crate::near_vm_runner::near_vm_vm_hash(),
         #[cfg(not(all(feature = "near_vm", target_arch = "x86_64")))]
         VMKind::NearVm => panic!("NearVM is not enabled"),
+
+        VMKind::Wasmer0 | VMKind::Wasmer2 => unreachable!(),
     }
 }
 
@@ -216,17 +217,20 @@ impl fmt::Debug for MockContractRuntimeCache {
 /// This cache however does not implement any clean-up policies. While it is possible to truncate
 /// a file that has been written to the cache before (`put` an empty buffer), the file will remain
 /// in place until an operator (or somebody else) removes files at their own discretion.
+#[cfg(not(windows))]
 #[derive(Clone)]
 pub struct FilesystemContractRuntimeCache {
     state: Arc<FilesystemContractRuntimeCacheState>,
 }
 
+#[cfg(not(windows))]
 struct FilesystemContractRuntimeCacheState {
     dir: rustix::fd::OwnedFd,
     any_cache: AnyCache,
     test_temp_dir: Option<tempfile::TempDir>,
 }
 
+#[cfg(not(windows))]
 impl FilesystemContractRuntimeCache {
     pub fn new<SP: AsRef<std::path::Path> + ?Sized>(
         home_dir: &std::path::Path,
@@ -279,14 +283,17 @@ impl FilesystemContractRuntimeCache {
 /// Byte added after a serialized payload representing a compilation failure.
 ///
 /// This is ASCII LF.
+#[cfg(not(windows))]
 const ERROR_TAG: u8 = 0b00001010;
 /// Byte added after a serialized payload representing the contract code.
 ///
 /// Value is fairly arbitrarily chosen such that a couple of bit flips do not make this an
 /// [`ERROR_TAG`].
+#[cfg(not(windows))]
 const CODE_TAG: u8 = 0b10010101;
 
 /// Cache for compiled contracts code in plain filesystem.
+#[cfg(not(windows))]
 impl ContractRuntimeCache for FilesystemContractRuntimeCache {
     fn handle(&self) -> Box<dyn ContractRuntimeCache> {
         Box::new(self.clone())
@@ -375,7 +382,7 @@ impl ContractRuntimeCache for FilesystemContractRuntimeCache {
             Ok(file) => file,
         };
         let stat = rustix::fs::fstat(&file)?;
-        // TODO: explore mmaping the file and lending the map to the caller via a closure callback.
+        // TODO: explore mmap-ing the file and lending the map to the caller via a closure callback.
         // This would require some additional refactor work, but would likely help us to reduce the
         // system call overhead in this area.
         let mut buffer = Vec::with_capacity(stat.st_size.try_into().unwrap());
@@ -693,7 +700,7 @@ mod tests {
             assert_eq!(cache.has(contract2.hash()).unwrap(), false);
         };
 
-        // Insert the keys, and then ckear the cache, and assert that keys no longer exist after clear.
+        // Insert the keys, and then clear the cache, and assert that keys no longer exist after clear.
         insert_and_assert_keys_exist();
         cache.test_only_clear().unwrap();
         assert_keys_absent();

@@ -37,6 +37,70 @@ pub const DEFAULT_STATE_SYNC_NUM_CONCURRENT_REQUESTS_ON_CATCHUP_EXTERNAL: u32 = 
 /// before giving up and downloading it from external storage.
 pub const DEFAULT_EXTERNAL_STORAGE_FALLBACK_THRESHOLD: u64 = 3;
 
+/// Describes the expected behavior of the node regarding shard tracking.
+/// If the node is an active validator, it will also track the shards it is responsible for as a validator.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub enum TrackedShardsConfig {
+    /// Tracks no shards (light client).
+    NoShards,
+    /// Tracks all shards.
+    AllShards,
+    /// Tracks shards that are assigned to given validator account.
+    ShadowValidator(AccountId),
+    /// Rotate between these sets of tracked shards.
+    /// Used to simulate the behavior of chunk only producers without staking tokens.
+    Schedule(Vec<Vec<ShardId>>),
+    /// Tracks shards that contain one of the given account.
+    Accounts(Vec<AccountId>),
+}
+
+impl TrackedShardsConfig {
+    pub fn new_empty() -> Self {
+        TrackedShardsConfig::NoShards
+    }
+
+    pub fn tracks_all_shards(&self) -> bool {
+        matches!(self, TrackedShardsConfig::AllShards)
+    }
+
+    pub fn tracks_any_account(&self) -> bool {
+        if let TrackedShardsConfig::Accounts(accounts) = &self {
+            return !accounts.is_empty();
+        }
+        false
+    }
+
+    /// For backward compatibility, we support `tracked_shards`, `tracked_shard_schedule`,
+    /// `tracked_shadow_validator`, and `tracked_accounts` as separate configuration fields,
+    /// in that order of priority.
+    pub fn from_deprecated_config_values(
+        tracked_shards: &Option<Vec<ShardId>>,
+        tracked_shard_schedule: &Option<Vec<Vec<ShardId>>>,
+        tracked_shadow_validator: &Option<AccountId>,
+        tracked_accounts: &Option<Vec<AccountId>>,
+    ) -> Self {
+        if let Some(tracked_shards) = tracked_shards {
+            // Historically, a non-empty `tracked_shards` list indicated tracking all shards, regardless of its contents.
+            // For more details, see https://github.com/near/nearcore/pull/4668.
+            if !tracked_shards.is_empty() {
+                return TrackedShardsConfig::AllShards;
+            }
+        }
+        if let Some(tracked_shard_schedule) = tracked_shard_schedule {
+            if !tracked_shard_schedule.is_empty() {
+                return TrackedShardsConfig::Schedule(tracked_shard_schedule.clone());
+            }
+        }
+        if let Some(validator_id) = tracked_shadow_validator {
+            return TrackedShardsConfig::ShadowValidator(validator_id.clone());
+        }
+        if let Some(accounts) = tracked_accounts {
+            return TrackedShardsConfig::Accounts(accounts.clone());
+        }
+        TrackedShardsConfig::NoShards
+    }
+}
+
 /// Configuration for garbage collection.
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize, PartialEq)]
 #[serde(default)]
@@ -503,16 +567,7 @@ pub struct ClientConfig {
     pub block_header_fetch_horizon: BlockHeightDelta,
     /// Garbage collection configuration.
     pub gc: GCConfig,
-    /// Accounts that this client tracks.
-    pub tracked_accounts: Vec<AccountId>,
-    /// Track shards that should be tracked by given validator.
-    pub tracked_shadow_validator: Option<AccountId>,
-    /// Shards that this client tracks.
-    pub tracked_shards: Vec<ShardId>,
-    /// Rotate between these sets of tracked shards.
-    /// Used to simulate the behavior of chunk only producers without staking tokens.
-    /// This field is only used if `tracked_shards` is empty.
-    pub tracked_shard_schedule: Vec<Vec<ShardId>>,
+    pub tracked_shards_config: TrackedShardsConfig,
     /// Not clear old data, set `true` for archive nodes.
     pub archive: bool,
     /// save_trie_changes should be set to true iff
@@ -636,10 +691,7 @@ impl ClientConfig {
             doomslug_step_period: Duration::milliseconds(100),
             block_header_fetch_horizon: 50,
             gc: GCConfig { gc_blocks_limit: 100, ..GCConfig::default() },
-            tracked_accounts: vec![],
-            tracked_shadow_validator: None,
-            tracked_shards: vec![],
-            tracked_shard_schedule: vec![],
+            tracked_shards_config: TrackedShardsConfig::NoShards,
             archive,
             save_trie_changes,
             log_summary_style: LogSummaryStyle::Colored,

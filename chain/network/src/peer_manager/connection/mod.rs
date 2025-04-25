@@ -15,7 +15,7 @@ use arc_swap::ArcSwap;
 use near_async::time;
 use near_crypto::PublicKey;
 use near_o11y::WithSpanContextExt;
-use near_primitives::block::GenesisId;
+use near_primitives::genesis::GenesisId;
 use near_primitives::network::PeerId;
 use near_primitives::types::ShardId;
 use std::collections::{HashMap, hash_map::Entry};

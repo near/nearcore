@@ -197,10 +197,10 @@ impl TriePrefetcher {
     /// for some transactions may have been initiated.
     pub(crate) fn prefetch_transactions_data(
         &mut self,
-        transactions: SignedValidPeriodTransactions<'_>,
+        signed_txs: &SignedValidPeriodTransactions,
     ) -> Result<(), PrefetchError> {
         if self.prefetch_api.enable_receipt_prefetching {
-            for t in transactions.iter_nonexpired_transactions() {
+            for t in signed_txs.iter_nonexpired_transactions() {
                 let account_id = t.transaction.signer_id().clone();
                 let trie_key = TrieKey::Account { account_id };
                 self.prefetch_trie_key(trie_key)?;
@@ -390,6 +390,7 @@ mod tests {
     use near_primitives::{trie_key::TrieKey, types::AccountId};
     use near_store::adapter::StoreAdapter;
     use near_store::test_utils::{create_test_store, test_populate_trie};
+    use near_store::trie::AccessOptions;
     use near_store::{ShardTries, ShardUId, StateSnapshotConfig, Trie, TrieConfig};
     use std::str::FromStr;
     use std::time::{Duration, Instant};
@@ -462,7 +463,7 @@ mod tests {
     #[test]
     fn test_prefetch_non_existing_account() {
         let existing_accounts = ["alice.near", "bob.near"];
-        let non_existing_account = ["charlotta.near"];
+        let non_existing_account = ["charlotte.near"];
         // Most importantly, it should not crash.
         // Secondly, it should prefetch the root extension + the first branch.
         let expected_prefetched = 2;
@@ -483,7 +484,7 @@ mod tests {
             trie_config,
             &shard_uids,
             flat_storage_manager,
-            StateSnapshotConfig::default(),
+            StateSnapshotConfig::Disabled,
         );
 
         let mut kvs = vec![];
@@ -558,7 +559,7 @@ mod tests {
         // Read all prefetched values to ensure everything gets removed from the staging area.
         for trie_key in &prefetch_keys {
             let storage_key = trie_key.to_vec();
-            let _value = trie.get(&storage_key).unwrap();
+            let _value = trie.get(&storage_key, AccessOptions::DEFAULT).unwrap();
         }
         assert_eq!(
             prefetch_api.num_prefetched_and_staged(),

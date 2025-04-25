@@ -2,6 +2,7 @@ use assert_matches::assert_matches;
 use itertools::Itertools;
 use near_async::test_loop::data::TestLoopData;
 use near_async::time::Duration;
+use near_chain_configs::TrackedShardsConfig;
 use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::action::{GlobalContractDeployMode, GlobalContractIdentifier};
@@ -381,7 +382,7 @@ fn setup_global_contracts(
     }
 
     // Make sure the global contract is deployed before the usage transactions.
-    env.test_loop.run_for(Duration::seconds(2));
+    env.test_loop.run_for(Duration::seconds(5));
     check_txs(&env.test_loop.data, &env.node_datas, client_account_id, &test_setup_transactions);
 
     *test_setup_transactions = vec![];
@@ -419,8 +420,8 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
         // Set the tracked shard schedule if specified for the client at the given index.
         if let Some(tracked_shard_schedule) = &tracked_shard_schedule {
             if client_index == tracked_shard_schedule.client_index {
-                config.tracked_shards = vec![];
-                config.tracked_shard_schedule = tracked_shard_schedule.schedule.clone();
+                config.tracked_shards_config =
+                    TrackedShardsConfig::Schedule(tracked_shard_schedule.schedule.clone());
             }
         }
     });
@@ -957,6 +958,7 @@ fn slow_test_resharding_v3_track_all_shards() {
         TestReshardingParametersBuilder::default()
             .track_all_shards(true)
             .all_chunks_expected(true)
+            .epoch_length(INCREASED_EPOCH_LENGTH)
             .build(),
     );
 }
@@ -1151,13 +1153,13 @@ fn slow_test_resharding_v3_delayed_receipts_left_child() {
     test_resharding_v3_base(params);
 }
 
-// TODO(stedfn): remove "nightly_protocol" feature once we have a new protocol version.
+// TODO(stedfn): remove "nightly" feature once we have a new protocol version.
 // Global contracts + resharding tests start with PROTOCOL_VERSION - 1 before the resharding
 // and then PROTOCOL_VERSION after the resharding. Currently, global contracts are enabled in
 // the latest PROTOCOL_VERSION, 77, so PROTOCOL_VERSION - 1 will not work until a new version
 // is released.
 #[test]
-#[cfg_attr(not(all(feature = "test_features", feature = "nightly_protocol")), ignore)]
+#[cfg_attr(not(all(feature = "test_features", feature = "nightly")), ignore)]
 fn slow_test_resharding_v3_global_contract_by_hash() {
     let code_hash = CryptoHash::hash_bytes(&near_test_contracts::rs_contract());
     test_resharding_v3_global_contract_base(
@@ -1166,9 +1168,9 @@ fn slow_test_resharding_v3_global_contract_by_hash() {
     );
 }
 
-// TODO(stedfn): remove "nightly_protocol" feature once we have a new protocol version (explanation above).
+// TODO(stedfn): remove "nightly" feature once we have a new protocol version (explanation above).
 #[test]
-#[cfg_attr(not(all(feature = "test_features", feature = "nightly_protocol")), ignore)]
+#[cfg_attr(not(all(feature = "test_features", feature = "nightly")), ignore)]
 fn slow_test_resharding_v3_global_contract_by_account_id() {
     test_resharding_v3_global_contract_base(
         GlobalContractIdentifier::AccountId("account4".parse().unwrap()),

@@ -39,7 +39,7 @@ use anyhow::Context;
 use arc_swap::ArcSwap;
 use near_async::messaging::{CanSend, SendAsync, Sender};
 use near_async::time;
-use near_primitives::block::GenesisId;
+use near_primitives::genesis::GenesisId;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
 use near_primitives::types::AccountId;

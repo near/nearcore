@@ -170,6 +170,8 @@ fn adjust_op(op: &mut DBOp) -> bool {
 
 #[cfg(test)]
 mod test {
+    use near_primitives::hash::CryptoHash;
+
     use super::*;
 
     const HEIGHT_LE: &[u8] = &42u64.to_le_bytes();
@@ -208,7 +210,7 @@ mod test {
             }
         }
         fn hash(chunk: &[u8]) -> String {
-            crate::CryptoHash::from(chunk.try_into().unwrap()).to_string()
+            CryptoHash::from(chunk.try_into().unwrap()).to_string()
         }
         match key.len() {
             8 => chunk(key),

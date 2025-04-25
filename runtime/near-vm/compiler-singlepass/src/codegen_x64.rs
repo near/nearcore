@@ -1,3 +1,5 @@
+// cspell:disable
+
 use crate::address_map::get_function_address_map;
 use crate::{config::Singlepass, emitter_x64::*, machine::Machine, x64_decl::*};
 use dynasmrt::{DynamicLabel, VecAssembler, x64::X64Relocation};
@@ -349,21 +351,10 @@ impl<'a> FuncGen<'a> {
     }
 
     fn emit_gas_const(&mut self, cost: u64) {
-        if self.config.disable_9393_fix {
-            // emit_gas only supports Imm32 with an argument up-to i32::MAX, but we made *this*
-            // single-letter oversight at some point & the bug made its way into mainnet. Now that
-            // we need to maintain backwards compatibility and replayability of the old
-            // transactions, we end up with this wonderful and slightly horrifying monument to our
-            // former selves :)
-            if let Ok(cost) = u32::try_from(cost) {
-                return self.emit_gas(Location::Imm32(cost));
-            }
-        } else {
-            if let Ok(cost) = i32::try_from(cost) {
-                // This as `u32` cast is valid, as fallible u64->i32 conversions can’t produce a
-                // negative integer.
-                return self.emit_gas(Location::Imm32(cost as u32));
-            }
+        if let Ok(cost) = i32::try_from(cost) {
+            // This as `u32` cast is valid, as fallible u64->i32 conversions can’t produce a
+            // negative integer.
+            return self.emit_gas(Location::Imm32(cost as u32));
         }
         let cost_reg = self.machine.acquire_temp_gpr().unwrap();
         self.assembler.emit_mov(Size::S64, Location::Imm64(cost), Location::GPR(cost_reg));
@@ -379,7 +370,7 @@ impl<'a> FuncGen<'a> {
         }
 
         match cost_location {
-            Location::Imm32(v) if self.config.disable_9393_fix || v <= (i32::MAX as u32) => {}
+            Location::Imm32(v) if v <= (i32::MAX as u32) => {}
             Location::Imm32(v) => {
                 panic!("emit_gas can take only an imm32 <= 0xFFF_FFFF, got 0x{v:X}")
             }
@@ -1309,19 +1300,19 @@ impl<'a> FuncGen<'a> {
 
         let align = memarg.align;
         if check_alignment && align != 1 {
-            let tmp_aligncheck = self.machine.acquire_temp_gpr().unwrap();
+            let tmp_align_check = self.machine.acquire_temp_gpr().unwrap();
             self.assembler.emit_mov(
                 Size::S32,
                 Location::GPR(tmp_addr),
-                Location::GPR(tmp_aligncheck),
+                Location::GPR(tmp_align_check),
             );
             self.assembler.emit_and(
                 Size::S64,
                 Location::Imm32((align - 1).into()),
-                Location::GPR(tmp_aligncheck),
+                Location::GPR(tmp_align_check),
             );
             self.assembler.emit_jmp(Condition::NotEqual, self.special_labels.heap_access_oob);
-            self.machine.release_temp_gpr(tmp_aligncheck);
+            self.machine.release_temp_gpr(tmp_align_check);
         }
 
         cb(self, tmp_addr).unwrap();
@@ -1747,7 +1738,7 @@ impl<'a> FuncGen<'a> {
 
     /// Introduce additional local variables to this function.
     ///
-    /// Calling this after [`emit_head`](Self::emit_head) has been invoked is non-sensical.
+    /// Calling this after [`emit_head`](Self::emit_head) has been invoked is nonsensical.
     pub(crate) fn feed_local(&mut self, local_count: u32, local_type: WpType) {
         // FIXME: somehow verify that we haven't invoked `emit_head` yet? Doing so could lead us to
         // generate code that accesses the stack buffer out of bounds.
@@ -1786,6 +1777,7 @@ impl<'a> FuncGen<'a> {
         None
     }
 
+    #[allow(clippy::large_stack_frames)]
     #[tracing::instrument(target = "near_vm", level = "trace", skip(self))]
     pub(crate) fn feed_operator(&mut self, op: Operator) -> Result<(), CodegenError> {
         assert!(self.fp_stack.len() <= self.value_stack.len());

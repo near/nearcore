@@ -11,7 +11,7 @@ use near_chain::types::ChainConfig;
 use near_chain::{Chain, ChainGenesis, ChainStore, DoomslugThresholdMode};
 use near_chain_configs::MutableConfigValue;
 use near_epoch_manager::EpochManager;
-use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
+use near_epoch_manager::shard_tracker::ShardTracker;
 use near_store::adapter::StoreAdapter;
 use near_store::flat::FlatStorageReshardingStatus;
 use near_store::{ShardUId, StoreOpener};
@@ -62,8 +62,10 @@ fn create_chain_and_executor(
         &config,
         epoch_manager.clone(),
     )?;
-    let shard_tracker =
-        ShardTracker::new(TrackedConfig::from_config(&config.client_config), epoch_manager.clone());
+    let shard_tracker = ShardTracker::new(
+        config.client_config.tracked_shards_config.clone(),
+        epoch_manager.clone(),
+    );
     let chain_genesis = ChainGenesis::new(&config.genesis.config);
     let chain_config = ChainConfig {
         save_trie_changes: config.client_config.save_trie_changes,

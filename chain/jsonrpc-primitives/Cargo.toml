@@ -25,16 +25,10 @@ near-client-primitives = { workspace = true, optional = true }
 near-schema-checker-lib.workspace = true
 
 [features]
-nightly_protocol = [
-  "near-chain-configs/nightly_protocol",
-  "near-client-primitives/nightly_protocol",
-  "near-primitives/nightly_protocol",
-]
 nightly = [
   "near-chain-configs/nightly",
   "near-client-primitives/nightly",
   "near-primitives/nightly",
-  "nightly_protocol",
 ]
 full = ["debug_types"]
 debug_types = ["near-client-primitives"]

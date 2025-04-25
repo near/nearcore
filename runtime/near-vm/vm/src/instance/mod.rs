@@ -399,7 +399,7 @@ impl Instance {
     pub(crate) fn table_index(&self, table: &VMTableDefinition) -> LocalTableIndex {
         let begin: *const VMTableDefinition = self.tables_ptr() as *const _;
         let end: *const VMTableDefinition = table;
-        // TODO: Use `offset_from` once it stablizes.
+        // TODO: Use `offset_from` once it stabilizes.
         let index = LocalTableIndex::new(
             (end as usize - begin as usize) / mem::size_of::<VMTableDefinition>(),
         );
@@ -411,7 +411,7 @@ impl Instance {
     pub(crate) fn memory_index(&self, memory: &VMMemoryDefinition) -> LocalMemoryIndex {
         let begin: *const VMMemoryDefinition = self.memories_ptr() as *const _;
         let end: *const VMMemoryDefinition = memory;
-        // TODO: Use `offset_from` once it stablizes.
+        // TODO: Use `offset_from` once it stabilizes.
         let index = LocalMemoryIndex::new(
             (end as usize - begin as usize) / mem::size_of::<VMMemoryDefinition>(),
         );
@@ -1186,7 +1186,7 @@ pub unsafe fn initialize_host_envs<Err: Sized>(
 fn get_memory_init_start(init: &DataInitializer<'_>, instance: &Instance) -> usize {
     let mut start = init.location.offset;
     if let Some(base) = init.location.base {
-        // SAFE: wasm checking verifies that gloals referenced for base are u32.
+        // SAFE: wasm checking verifies that globals referenced for base are u32.
         let val = unsafe { instance.global(base).to_u32() };
         start += usize::try_from(val).unwrap();
     }

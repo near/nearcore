@@ -138,7 +138,7 @@ pub enum PrepareError {
     /// Error happened during instantiation.
     ///
     /// This might indicate that `start` function trapped, or module isn't
-    /// instantiable and/or unlinkable.
+    /// instantiable and/or un-linkable.
     Instantiate,
     /// Error creating memory.
     Memory,
@@ -251,7 +251,7 @@ pub enum HostError {
     ECRecoverError {
         msg: String,
     },
-    /// Invalid input to alt_bn128 familiy of functions (e.g., point which isn't
+    /// Invalid input to alt_bn128 family of functions (e.g., point which isn't
     /// on the curve).
     AltBn128InvalidInput {
         msg: String,

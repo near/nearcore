@@ -1,0 +1,15 @@
+{
+    "chunk_producers": 50,
+    "rpcs": 1,
+    "base_config_patch": "../../base_config_patch.json",
+    "base_genesis_patch": "../../50_shards_genesis_patch.json",
+    "num_accounts": 20,
+    "tx_generator": {
+        "enabled": true,
+        "tps": 1300,
+        "volume": 0
+    },
+    "forknet": {
+        "binary_url": "https://s3-us-west-1.amazonaws.com/build.nearprotocol.com/nearcore/Linux/tx-generator-neard/neard"
+    }
+}

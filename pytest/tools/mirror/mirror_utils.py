@@ -598,7 +598,10 @@ def start_source_chain(config, num_source_validators=3):
 
     config_changes = {}
     for i in range(num_source_validators + 1):
-        config_changes[i] = {"tracked_shards": [0, 1, 2, 3], "archive": True}
+        config_changes[i] = {
+            "tracked_shards_config": "AllShards",
+            "archive": True
+        }
 
     config = load_config()
     near_root, source_node_dirs = init_cluster(

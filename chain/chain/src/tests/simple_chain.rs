@@ -35,7 +35,7 @@ fn build_chain() {
     if cfg!(feature = "nightly") {
         insta::assert_snapshot!(hash, @"24ZC3eGVvtFdTEok4wPGBzx3x61tWqQpves7nFvow2zf");
     } else {
-        insta::assert_snapshot!(hash, @"H9Zwj5FbNS5qHQQy82CN4vmUgQL2ZKuYqxAmf1uiZASW");
+        insta::assert_snapshot!(hash, @"t1RB3jTh9mMtkQ1YFWxGMYefGcppSLYcJjvH7BXoSTz");
     }
 
     for i in 1..5 {
@@ -53,7 +53,7 @@ fn build_chain() {
     if cfg!(feature = "nightly") {
         insta::assert_snapshot!(hash, @"9enFQNcVUW65x3oW2iVdYSBxK9qFNETAixEQZLzXWeaQ");
     } else {
-        insta::assert_snapshot!(hash, @"5GJyJaskWo6dM6mqKUni4HktC7mBcPJ1Be2wpyQM3Ryc");
+        insta::assert_snapshot!(hash, @"2HKQZ9swQZnWwv23TF6uYBfQ9up7faG3zvDDvjgvSgkf");
     }
 }
 
@@ -70,8 +70,6 @@ fn build_chain_with_orphans() {
     let last_block = &blocks[blocks.len() - 1];
     let block = Block::produce(
         PROTOCOL_VERSION,
-        PROTOCOL_VERSION,
-        PROTOCOL_VERSION,
         last_block.header(),
         10,
         last_block.header().block_ordinal() + 1,
@@ -85,8 +83,6 @@ fn build_chain_with_orphans() {
         0,
         100,
         Some(0),
-        vec![],
-        vec![],
         &*signer,
         *last_block.header().next_bp_hash(),
         CryptoHash::default(),
@@ -285,11 +281,11 @@ fn block_chunk_headers_iter() {
         })
         .collect();
 
-    let raw_headers: Vec<&ShardChunkHeader> = chunks.iter_raw().collect();
+    let raw_headers = chunks.iter_raw();
 
     assert_eq!(old_headers.len(), 8);
     assert_eq!(new_headers.len(), 8);
-    assert_eq!(raw_headers.len(), old_headers.len() + new_headers.len());
+    assert_eq!(raw_headers.count(), old_headers.len() + new_headers.len());
 }
 
 #[cfg(feature = "test_features")]
@@ -298,18 +294,43 @@ fn test_optimistic_block_in_processing() {
     init_test_logger();
     let clock = Clock::real();
     let (mut chain, _, _, signer) = setup(clock.clone());
+    let me = Some(signer.validator_id().clone());
 
     // Create a genesis block
     let genesis = chain.get_block(&chain.genesis().hash().clone()).unwrap();
 
     // Create block 1
     let block1 = TestBlockBuilder::new(clock.clone(), &genesis, signer.clone()).build();
-    chain.process_block_test(&None, block1.clone()).unwrap();
+    chain.process_block_test(&me, block1.clone()).unwrap();
 
-    // Create block 2
-    let block2 = TestBlockBuilder::new(clock, &block1, signer).build();
-    let result = chain.process_block_test(&None, block2.clone());
+    // Create block 2 (but don't process it yet)
+    let block2 = TestBlockBuilder::new(clock, &block1, signer.clone()).build();
 
+    // Create optimistic block at height 2 based on block 1
+    let optimistic_block = OptimisticBlock::adv_produce(
+        &block1.header(),
+        2,
+        &*signer,
+        block2.header().raw_timestamp(),
+        None,
+        near_primitives::optimistic_block::OptimisticBlockAdvType::Normal,
+    );
+    chain
+        .process_optimistic_block(
+            &me,
+            optimistic_block,
+            block2.chunks().iter_raw().cloned().collect(),
+            None,
+        )
+        .unwrap();
+
+    let result = chain.start_process_block_async(
+        &me,
+        block2.clone().into(),
+        crate::Provenance::PRODUCED,
+        &mut BlockProcessingArtifact::default(),
+        None,
+    );
     let Err(err) = &result else {
         panic!("Block processing should not succeed");
     };
@@ -323,7 +344,7 @@ fn test_optimistic_block_in_processing() {
     let mut block_processing_artifact = BlockProcessingArtifact::default();
     // This should process optimistic block
     while wait_for_all_blocks_in_processing(&mut chain) {
-        chain.postprocess_ready_blocks(&None, &mut block_processing_artifact, None);
+        chain.postprocess_ready_blocks(&me, &mut block_processing_artifact, None);
     }
 
     // Verify the block is no longer in the pending pool
@@ -331,7 +352,7 @@ fn test_optimistic_block_in_processing() {
 
     // Wait for the pending block to be processed
     while wait_for_all_blocks_in_processing(&mut chain) {
-        chain.postprocess_ready_blocks(&None, &mut block_processing_artifact, None);
+        chain.postprocess_ready_blocks(&me, &mut block_processing_artifact, None);
     }
 
     // Verify the block is now in the chain
@@ -344,13 +365,13 @@ fn test_multiple_pending_blocks() {
     init_test_logger();
     let clock = Clock::real();
     let (mut chain, _, _, signer) = setup(clock.clone());
-
+    let me = Some(signer.validator_id().clone());
     // Create a genesis block
     let genesis = chain.get_block(&chain.genesis().hash().clone()).unwrap();
 
     // Create block 1
     let block1 = TestBlockBuilder::new(clock.clone(), &genesis, signer.clone()).build();
-    chain.process_block_test(&None, block1.clone()).unwrap();
+    chain.process_block_test(&me, block1.clone()).unwrap();
 
     // Create an optimistic block at height 2
     let now = clock.now_utc().unix_timestamp_nanos() as u64;
@@ -365,11 +386,11 @@ fn test_multiple_pending_blocks() {
 
     // Process the optimistic block
     let chunk_headers = block1.chunks().iter_raw().cloned().collect();
-    chain.process_optimistic_block(&None, optimistic_block, chunk_headers, None).unwrap();
+    chain.process_optimistic_block(&me, optimistic_block, chunk_headers, None).unwrap();
 
     // Create multiple regular blocks at height 2 with different timestamps
     let block2a = TestBlockBuilder::new(clock.clone(), &block1, signer.clone()).build();
-    let result_a = chain.process_block_test(&None, block2a.clone());
+    let result_a = chain.process_block_test(&me, block2a.clone());
 
     // The block might be marked as pending or it might be accepted if the optimistic block
     // was processed quickly
@@ -380,7 +401,7 @@ fn test_multiple_pending_blocks() {
 
             // Create another block
             let block2b = TestBlockBuilder::new(clock, &block1, signer).build();
-            let result_b = chain.process_block_test(&None, block2b);
+            let result_b = chain.process_block_test(&me, block2b);
 
             // This might also be marked as pending or it might be rejected because there's already
             // a pending block at this height
@@ -400,12 +421,12 @@ fn test_multiple_pending_blocks() {
             // Process optimistic block
             let mut block_processing_artifact = BlockProcessingArtifact::default();
             while wait_for_all_blocks_in_processing(&mut chain) {
-                chain.postprocess_ready_blocks(&None, &mut block_processing_artifact, None);
+                chain.postprocess_ready_blocks(&me, &mut block_processing_artifact, None);
             }
 
             // Verify the pending block was processed
             while wait_for_all_blocks_in_processing(&mut chain) {
-                chain.postprocess_ready_blocks(&None, &mut block_processing_artifact, None);
+                chain.postprocess_ready_blocks(&me, &mut block_processing_artifact, None);
             }
         }
         Ok(()) => {

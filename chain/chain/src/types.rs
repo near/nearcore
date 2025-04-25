@@ -12,8 +12,6 @@ use near_primitives::apply::ApplyChunkReason;
 use near_primitives::bandwidth_scheduler::BandwidthRequests;
 use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
 pub use near_primitives::block::{Block, BlockHeader, Tip};
-use near_primitives::challenge::ChallengesResult;
-use near_primitives::checked_feature;
 use near_primitives::chunk_apply_stats::ChunkApplyStatsV0;
 use near_primitives::congestion_info::BlockCongestionInfo;
 use near_primitives::congestion_info::CongestionInfo;
@@ -25,7 +23,6 @@ use near_primitives::receipt::{PromiseYieldTimeout, Receipt};
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::shard_layout::ShardUId;
-use near_primitives::state::PartialState;
 use near_primitives::state_part::PartId;
 use near_primitives::stateless_validation::contract_distribution::ContractUpdates;
 use near_primitives::transaction::ValidatedTransaction;
@@ -36,10 +33,8 @@ use near_primitives::types::{
     StateRoot, StateRootNode,
 };
 use near_primitives::utils::to_timestamp;
-use near_primitives::version::{
-    MIN_GAS_PRICE_NEP_92, MIN_GAS_PRICE_NEP_92_FIX, MIN_PROTOCOL_VERSION_NEP_92,
-    MIN_PROTOCOL_VERSION_NEP_92_FIX, ProtocolVersion,
-};
+use near_primitives::version::PROD_GENESIS_PROTOCOL_VERSION;
+use near_primitives::version::{MIN_GAS_PRICE_NEP_92_FIX, ProtocolVersion};
 use near_primitives::views::{QueryRequest, QueryResponse};
 use near_schema_checker_lib::ProtocolSchema;
 use near_store::flat::FlatStorageManager;
@@ -156,38 +151,19 @@ impl BlockEconomicsConfig {
     /// been overwritten at specific protocol versions. Chains with a genesis
     /// version higher than those changes are not overwritten and will instead
     /// respect the value defined in genesis.
-    pub fn min_gas_price(&self, protocol_version: ProtocolVersion) -> Balance {
-        if self.genesis_protocol_version < MIN_PROTOCOL_VERSION_NEP_92 {
-            if protocol_version >= MIN_PROTOCOL_VERSION_NEP_92_FIX {
-                MIN_GAS_PRICE_NEP_92_FIX
-            } else if protocol_version >= MIN_PROTOCOL_VERSION_NEP_92 {
-                MIN_GAS_PRICE_NEP_92
-            } else {
-                self.genesis_min_gas_price
-            }
-        } else if self.genesis_protocol_version < MIN_PROTOCOL_VERSION_NEP_92_FIX {
-            if protocol_version >= MIN_PROTOCOL_VERSION_NEP_92_FIX {
-                MIN_GAS_PRICE_NEP_92_FIX
-            } else {
-                MIN_GAS_PRICE_NEP_92
-            }
+    pub fn min_gas_price(&self) -> Balance {
+        if self.genesis_protocol_version == PROD_GENESIS_PROTOCOL_VERSION {
+            MIN_GAS_PRICE_NEP_92_FIX
         } else {
             self.genesis_min_gas_price
         }
     }
 
-    pub fn max_gas_price(&self, protocol_version: ProtocolVersion) -> Balance {
-        if checked_feature!("stable", CapMaxGasPrice, protocol_version) {
-            std::cmp::min(
-                self.genesis_max_gas_price,
-                Self::MAX_GAS_MULTIPLIER * self.min_gas_price(protocol_version),
-            )
-        } else {
-            self.genesis_max_gas_price
-        }
+    pub fn max_gas_price(&self) -> Balance {
+        std::cmp::min(self.genesis_max_gas_price, Self::MAX_GAS_MULTIPLIER * self.min_gas_price())
     }
 
-    pub fn gas_price_adjustment_rate(&self, _protocol_version: ProtocolVersion) -> Rational32 {
+    pub fn gas_price_adjustment_rate(&self) -> Rational32 {
         self.gas_price_adjustment_rate
     }
 }
@@ -216,6 +192,7 @@ pub struct ChainGenesis {
     pub transaction_validity_period: NumBlocks,
     pub epoch_length: BlockHeightDelta,
     pub protocol_version: ProtocolVersion,
+    pub chain_id: String,
 }
 
 #[derive(Clone)]
@@ -256,6 +233,7 @@ impl ChainGenesis {
             transaction_validity_period: genesis_config.transaction_validity_period,
             epoch_length: genesis_config.epoch_length,
             protocol_version: genesis_config.protocol_version,
+            chain_id: genesis_config.chain_id.clone(),
         }
     }
 }
@@ -311,7 +289,6 @@ pub struct ApplyChunkBlockContext {
     pub prev_block_hash: CryptoHash,
     pub block_timestamp: u64,
     pub gas_price: Balance,
-    pub challenges_result: ChallengesResult,
     pub random_seed: CryptoHash,
     pub congestion_info: BlockCongestionInfo,
     pub bandwidth_requests: BlockBandwidthRequests,
@@ -330,7 +307,6 @@ impl ApplyChunkBlockContext {
             prev_block_hash: *header.prev_hash(),
             block_timestamp: header.raw_timestamp(),
             gas_price,
-            challenges_result: header.challenges_result().clone(),
             random_seed: *header.random_value(),
             congestion_info,
             bandwidth_requests,
@@ -343,7 +319,6 @@ pub struct ApplyChunkShardContext<'a> {
     pub last_validator_proposals: ValidatorStakeIter<'a>,
     pub gas_limit: Gas,
     pub is_new_chunk: bool,
-    pub is_first_block_with_chunk_of_version: bool,
 }
 
 /// Contains transactions that were fetched from the transaction pool
@@ -354,8 +329,6 @@ pub struct PreparedTransactions {
     pub transactions: Vec<ValidatedTransaction>,
     /// Describes which limit was hit when preparing the transactions.
     pub limited_by: Option<PrepareTransactionsLimit>,
-    /// May contain partial state that was used to verify transactions when preparing.
-    pub storage_proof: Option<PartialState>,
 }
 
 /// Chunk producer prepares transactions from the transaction pool
@@ -391,9 +364,6 @@ impl From<&Block> for PrepareTransactionsBlockContext {
 pub struct PrepareTransactionsChunkContext {
     pub shard_id: ShardId,
     pub gas_limit: Gas,
-    /// Size of transactions added in the last existing chunk.
-    /// Used to calculate the allowed size of transactions in a newly produced chunk.
-    pub last_chunk_transactions_size: usize,
 }
 
 /// Bridge between the chain and the runtime.
@@ -481,7 +451,7 @@ pub trait RuntimeAdapter: Send + Sync {
         chunk: ApplyChunkShardContext,
         block: ApplyChunkBlockContext,
         receipts: &[Receipt],
-        transactions: SignedValidPeriodTransactions<'_>,
+        transactions: SignedValidPeriodTransactions,
     ) -> Result<ApplyChunkResult, Error>;
 
     /// Query runtime with given `path` and `data`.
@@ -557,7 +527,7 @@ pub trait RuntimeAdapter: Send + Sync {
 /// The last known / checked height and time when we have processed it.
 /// Required to keep track of skipped blocks and not fallback to produce blocks at lower height.
 #[derive(
-    BorshSerialize, BorshDeserialize, Debug, Clone, Default, serde::Serialize, ProtocolSchema,
+    BorshSerialize, BorshDeserialize, Debug, Clone, Copy, Default, serde::Serialize, ProtocolSchema,
 )]
 pub struct LatestKnown {
     pub height: BlockHeight,
@@ -567,7 +537,8 @@ pub struct LatestKnown {
 #[cfg(test)]
 mod tests {
     use near_async::time::{Clock, Utc};
-    use near_primitives::block::{Approval, genesis_chunks};
+    use near_primitives::block::Approval;
+    use near_primitives::genesis::{genesis_block, genesis_chunks};
     use near_primitives::hash::hash;
     use near_primitives::merkle::verify_path;
     use near_primitives::test_utils::{TestBlockBuilder, create_test_signer};
@@ -582,21 +553,21 @@ mod tests {
         let shard_ids: Vec<_> = (0..32).map(ShardId::new).collect();
         let genesis_chunks = genesis_chunks(
             vec![Trie::EMPTY_ROOT],
-            vec![Some(Default::default()); shard_ids.len()],
+            vec![Default::default(); shard_ids.len()],
             &shard_ids,
             1_000_000,
             0,
             PROTOCOL_VERSION,
         );
         let genesis_bps: Vec<ValidatorStake> = Vec::new();
-        let genesis = Block::genesis(
+        let genesis = genesis_block(
             PROTOCOL_VERSION,
             genesis_chunks.into_iter().map(|chunk| chunk.take_header()).collect(),
             Utc::now_utc(),
             0,
             100,
             1_000_000_000,
-            CryptoHash::hash_borsh(genesis_bps),
+            &genesis_bps,
         );
         let signer = Arc::new(create_test_signer("other"));
         let b1 = TestBlockBuilder::new(Clock::real(), &genesis, signer.clone()).build();

@@ -1,0 +1,10 @@
+pessimistic_gas_price_inflation: {
+  old: {
+    numerator: 103,
+    denominator: 100,
+  },
+  new: {
+    numerator: 1,
+    denominator: 1,
+  }
+}

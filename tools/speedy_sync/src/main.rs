@@ -5,7 +5,8 @@ use near_chain::types::{ChainConfig, Tip};
 use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode};
 use near_chain_configs::{GenesisValidationMode, MutableConfigValue, ReshardingConfig};
 use near_epoch_manager::EpochManager;
-use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
+use near_epoch_manager::epoch_info_aggregator::EpochInfoAggregator;
+use near_epoch_manager::shard_tracker::ShardTracker;
 use near_primitives::block::Block;
 use near_primitives::block_header::BlockHeader;
 use near_primitives::epoch_block_info::BlockInfo;
@@ -16,7 +17,6 @@ use near_primitives::merkle::PartialMerkleTree;
 use near_primitives::types::EpochId;
 use near_primitives::utils::index_to_bytes;
 use near_store::HEADER_HEAD_KEY;
-use near_store::epoch_info_aggregator::EpochInfoAggregator;
 use near_store::{DBCol, Mode, NodeStorage, Store, StoreUpdate};
 use near_time::Clock;
 use nearcore::{NightshadeRuntime, NightshadeRuntimeExt};
@@ -236,7 +236,7 @@ fn load_snapshot(load_cmd: LoadCmd) {
     let epoch_manager =
         EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config, Some(home_dir));
     let shard_tracker = ShardTracker::new(
-        TrackedConfig::from_config(&near_config.client_config),
+        near_config.client_config.tracked_shards_config.clone(),
         epoch_manager.clone(),
     );
     let runtime = NightshadeRuntime::from_config(

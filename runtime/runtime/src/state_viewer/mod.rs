@@ -11,7 +11,6 @@ use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
 use near_primitives::borsh::BorshDeserialize;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum, ReceiptV1};
-use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
 use near_primitives::transaction::FunctionCallAction;
 use near_primitives::trie_key::trie_key_parsers;
 use near_primitives::types::{
@@ -92,11 +91,11 @@ impl TrieViewer {
         account_id: &AccountId,
     ) -> Result<ContractCode, errors::ViewContractCodeError> {
         let account = self.view_account(state_update, account_id)?;
-        state_update
-            .get_code(account_id.clone(), account.local_contract_hash().unwrap_or_default())?
-            .ok_or_else(|| errors::ViewContractCodeError::NoContractCode {
+        state_update.get_account_contract_code(account_id, account.contract().as_ref())?.ok_or_else(
+            || errors::ViewContractCodeError::NoContractCode {
                 contract_account_id: account_id.clone(),
-            })
+            },
+        )
     }
 
     pub fn view_access_key(
@@ -225,10 +224,9 @@ impl TrieViewer {
             config: Arc::clone(config),
             cache: view_state.cache,
             is_new_chunk: false,
-            migration_data: Arc::new(MigrationData::default()),
-            migration_flags: MigrationFlags::default(),
             congestion_info: Default::default(),
             bandwidth_requests: BlockBandwidthRequests::empty(),
+            trie_access_tracker_state: Default::default(),
         };
         let function_call = FunctionCallAction {
             method_name: method_name.to_string(),
@@ -254,16 +252,11 @@ impl TrieViewer {
         let pipeline = ReceiptPreparationPipeline::new(
             Arc::clone(config),
             apply_state.cache.as_ref().map(|v| v.handle()),
-            apply_state.current_protocol_version,
             state_update.contract_storage(),
         );
         let view_config = Some(ViewConfig { max_gas_burnt: self.max_gas_burnt_view });
-        let contract = pipeline.get_contract(
-            &receipt,
-            account.local_contract_hash().unwrap_or_default(),
-            0,
-            view_config.clone(),
-        );
+        let code_hash = state_update.get_account_contract_hash(account.contract().as_ref())?;
+        let contract = pipeline.get_contract(&receipt, code_hash, 0, view_config.clone());
 
         let mut runtime_ext = RuntimeExt::new(
             &mut state_update,
@@ -272,12 +265,12 @@ impl TrieViewer {
             account,
             empty_hash,
             view_state.epoch_id,
-            view_state.prev_block_hash,
             view_state.block_hash,
             view_state.block_height,
             epoch_info_provider,
             view_state.current_protocol_version,
             config.wasm_config.storage_get_mode,
+            Arc::clone(&apply_state.trie_access_tracker_state),
         );
         let outcome = execute_function_call(
             contract,

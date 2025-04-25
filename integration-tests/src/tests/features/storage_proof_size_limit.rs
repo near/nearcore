@@ -132,7 +132,7 @@ fn test_storage_proof_size_limit() {
     let read2_txs =
         [make_read_transaction(0, 3), make_read_transaction(3, 6), make_read_transaction(6, 9)];
     for read2_tx in &read2_txs {
-        let response = env.tx_request_handlers[0].process_tx(read2_tx.clone(), false, false);
+        let response = env.rpc_handlers[0].process_tx(read2_tx.clone(), false, false);
         assert_eq!(response, ProcessTxResponse::ValidTx);
     }
 
@@ -149,24 +149,24 @@ fn test_storage_proof_size_limit() {
 
     // Chunk A - 3 submitted transactions
     let chunk = next_chunk();
-    assert_eq!(chunk.transactions().len(), 3);
+    assert_eq!(chunk.to_transactions().len(), 3);
     assert_eq!(chunk.prev_outgoing_receipts().len(), 0);
 
     // Chunk B - 3 FunctionCall receipts (converted from transactions)
     let chunk = next_chunk();
-    assert_eq!(chunk.transactions().len(), 0);
+    assert_eq!(chunk.to_transactions().len(), 0);
     assert_eq!(count_function_call_receipts(chunk.prev_outgoing_receipts()), 3);
     assert_eq!(count_transfer_receipts(chunk.prev_outgoing_receipts()), 0);
 
     // Chunk C - 2 transfer receipts from two executed FunctionCalls, third FunctionCall moved to delayed receipt queue
     let chunk = next_chunk();
-    assert_eq!(chunk.transactions().len(), 0);
+    assert_eq!(chunk.to_transactions().len(), 0);
     assert_eq!(count_function_call_receipts(chunk.prev_outgoing_receipts()), 0);
     assert_eq!(count_transfer_receipts(chunk.prev_outgoing_receipts()), 2);
 
     // Chunk D - 1 transfer receipt from the third FunctionCall
     let chunk = next_chunk();
-    assert_eq!(chunk.transactions().len(), 0);
+    assert_eq!(chunk.to_transactions().len(), 0);
     assert_eq!(count_function_call_receipts(chunk.prev_outgoing_receipts()), 0);
     assert_eq!(count_transfer_receipts(chunk.prev_outgoing_receipts()), 1);
 }

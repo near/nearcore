@@ -1,7 +1,7 @@
 #[cfg(unix)]
 use anyhow::Context;
 use near_amend_genesis::AmendGenesisCommand;
-use near_chain_configs::GenesisValidationMode;
+use near_chain_configs::{GenesisValidationMode, TrackedShardsConfig};
 use near_client::ConfigUpdater;
 use near_cold_store_tool::ColdStoreCommand;
 use near_config_utils::DownloadConfigType;
@@ -19,6 +19,7 @@ use near_o11y::{
     default_subscriber_with_opentelemetry,
 };
 use near_ping::PingCommand;
+use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::compute_root_from_path;
 use near_primitives::types::{Gas, NumSeats, NumShards, ProtocolVersion, ShardId};
@@ -26,8 +27,8 @@ use near_replay_archive_tool::ReplayArchiveCommand;
 use near_state_parts::cli::StatePartsCommand;
 use near_state_parts_dump_check::cli::StatePartsDumpCheckCommand;
 use near_state_viewer::StateViewerSubCommand;
-use near_store::Mode;
 use near_store::db::RocksDB;
+use near_store::{Mode, ShardUId};
 use near_undo_block::cli::UndoBlockCommand;
 use serde_json::Value;
 use std::fs::File;
@@ -152,6 +153,9 @@ impl NeardCmd {
             NeardSubCommand::DumpTestContracts(cmd) => {
                 cmd.run()?;
             }
+            NeardSubCommand::DumpEpochConfigs(cmd) => {
+                cmd.run(&home_dir)?;
+            }
         };
         Ok(())
     }
@@ -261,6 +265,9 @@ pub(super) enum NeardSubCommand {
 
     /// Placeholder for test contracts subcommand
     DumpTestContracts(DumpTestContractCommand),
+
+    /// Dump hard-coded epoch configs into JSON files
+    DumpEpochConfigs(DumpEpochConfigsCommand),
 }
 
 #[allow(unused)]
@@ -341,12 +348,10 @@ pub(super) struct InitCmd {
 ///
 /// The detection is done by checking that `NEAR_RELEASE_BUILD` environment
 /// variable was set to `release` during compilation (which is what Makefile
-/// sets) and that neither `nightly` nor `nightly_protocol` features are
-/// enabled.
+/// sets) and that the `nightly` feature is not enabled.
 fn check_release_build(chain: &str) {
-    let is_release_build = option_env!("NEAR_RELEASE_BUILD") == Some("release")
-        && !cfg!(feature = "nightly")
-        && !cfg!(feature = "nightly_protocol");
+    let is_release_build =
+        option_env!("NEAR_RELEASE_BUILD") == Some("release") && !cfg!(feature = "nightly");
     if !is_release_build
         && [near_primitives::chains::MAINNET, near_primitives::chains::TESTNET].contains(&chain)
     {
@@ -656,22 +661,23 @@ pub(super) struct LocalnetCmd {
 }
 
 impl LocalnetCmd {
-    fn parse_tracked_shards(tracked_shards: &str, num_shards: NumShards) -> Vec<ShardId> {
+    fn parse_tracked_shards(tracked_shards: &str) -> TrackedShardsConfig {
         if tracked_shards.to_lowercase() == "all" {
-            let tracked_shards = 0..num_shards;
-            return tracked_shards.map(ShardId::new).collect();
+            return TrackedShardsConfig::AllShards;
         }
         if tracked_shards.to_lowercase() == "none" {
-            return vec![];
+            return TrackedShardsConfig::NoShards;
         }
-        tracked_shards
-            .split(',')
-            .map(|shard_id| shard_id.parse::<ShardId>().expect("Shard id must be an integer"))
-            .collect()
+        let _tracked_shards = tracked_shards.split(',').map(|shard_id| {
+            let shard_id = shard_id.parse::<ShardId>().expect("Shard id must be an integer");
+            ShardUId::new(0, shard_id)
+        });
+        // TODO(archival_v2): When `TrackedShardsConfig::Shards` is added, use it here together with `tracked_shards`.
+        TrackedShardsConfig::AllShards
     }
 
     pub(super) fn run(self, home_dir: &Path) {
-        let tracked_shards = Self::parse_tracked_shards(&self.tracked_shards, self.shards);
+        let tracked_shards_config = Self::parse_tracked_shards(&self.tracked_shards);
         nearcore::config::init_localnet_configs(
             home_dir,
             self.shards,
@@ -680,7 +686,7 @@ impl LocalnetCmd {
             self.non_validators_rpc,
             self.non_validators,
             &self.prefix,
-            tracked_shards,
+            tracked_shards_config,
         );
     }
 }
@@ -801,6 +807,59 @@ fn make_env_filter(verbose: Option<&str>) -> Result<EnvFilter, BuildEnvFilterErr
         env_filter
     };
     Ok(env_filter)
+}
+
+#[derive(Debug, Clone, PartialEq, strum::EnumString, strum::AsRefStr)]
+#[strum(serialize_all = "lowercase")]
+pub(super) enum DumpEpochChainId {
+    Mainnet,
+    Testnet,
+}
+
+#[derive(clap::Parser)]
+pub(super) struct DumpEpochConfigsCommand {
+    /// Minimum protocol version to include in the output (inclusive lower bound).
+    /// If omitted, earliest known protocol version is used.
+    #[clap(long)]
+    first_version: Option<ProtocolVersion>,
+
+    /// Maximum protocol version to include in the output (inclusive upper bound).
+    /// If omitted, latest known protocol version is used.
+    #[clap(long)]
+    last_version: Option<ProtocolVersion>,
+
+    /// ID of the chain for which epoch configs will be dumped.
+    #[clap(long)]
+    chain_id: DumpEpochChainId,
+
+    /// Directory where epoch config files will be saved.
+    /// If it doesn't exist, it will be created.
+    /// If not provided, `<neard_home>/epoch_configs` will be used.
+    #[clap(long)]
+    output_dir: Option<PathBuf>,
+}
+
+impl DumpEpochConfigsCommand {
+    pub fn run(self, home_dir: &Path) -> anyhow::Result<()> {
+        let output_dir = self.output_dir.unwrap_or_else(|| home_dir.join("epoch_configs"));
+        if !output_dir.exists() {
+            std::fs::create_dir_all(&output_dir).with_context(|| {
+                anyhow::anyhow!("Failed to create output directory {}", output_dir.display())
+            })?;
+        } else if !output_dir.is_dir() {
+            anyhow::bail!("Output directory {} is not a directory", output_dir.display());
+        }
+
+        EpochConfigStore::for_chain_id(self.chain_id.as_ref(), None)
+            .unwrap()
+            .dump_epoch_configs_between(
+                self.first_version.as_ref(),
+                self.last_version.as_ref(),
+                &output_dir,
+            );
+
+        Ok(())
+    }
 }
 
 #[derive(clap::Parser)]

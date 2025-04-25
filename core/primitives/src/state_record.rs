@@ -1,6 +1,7 @@
 use crate::account::{AccessKey, Account};
 use crate::hash::{CryptoHash, hash};
 use crate::receipt::{Receipt, ReceiptOrStateStoredReceipt, ReceivedData};
+use crate::shard_layout::ShardLayout;
 use crate::trie_key::trie_key_parsers::{
     parse_account_id_from_access_key_key, parse_account_id_from_account_key,
     parse_account_id_from_contract_code_key, parse_account_id_from_contract_data_key,
@@ -12,6 +13,7 @@ use crate::trie_key::{TrieKey, col};
 use crate::types::{AccountId, StoreKey, StoreValue};
 use borsh::BorshDeserialize;
 use near_crypto::PublicKey;
+use near_primitives_core::types::ShardId;
 use serde_with::base64::Base64;
 use serde_with::serde_as;
 use std::fmt::{Display, Formatter};
@@ -181,6 +183,20 @@ fn to_printable(blob: &[u8]) -> String {
         match String::from_utf8(blob.to_vec()) {
             Ok(v) => v,
             Err(_e) => format!("0x{}", hex::encode(blob)),
+        }
+    }
+}
+
+pub fn state_record_to_shard_id(state_record: &StateRecord, shard_layout: &ShardLayout) -> ShardId {
+    match state_record {
+        StateRecord::Account { account_id, .. }
+        | StateRecord::AccessKey { account_id, .. }
+        | StateRecord::Contract { account_id, .. }
+        | StateRecord::ReceivedData { account_id, .. }
+        | StateRecord::Data { account_id, .. } => shard_layout.account_id_to_shard_id(account_id),
+        StateRecord::PostponedReceipt(receipt) => receipt.receiver_shard_id(shard_layout).unwrap(),
+        StateRecord::DelayedReceipt(receipt) => {
+            receipt.receipt.receiver_shard_id(shard_layout).unwrap()
         }
     }
 }

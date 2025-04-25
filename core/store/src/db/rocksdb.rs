@@ -1,6 +1,6 @@
 use crate::config::Mode;
 use crate::db::{DBIterator, DBOp, DBSlice, DBTransaction, Database, StatsValue, refcount};
-use crate::{DBCol, StoreConfig, StoreStatistics, Temperature, metadata, metrics};
+use crate::{DBCol, StoreConfig, StoreStatistics, Temperature, metrics};
 use ::rocksdb::{
     BlockBasedOptions, Cache, ColumnFamily, DB, Env, IteratorMode, Options, ReadOptions, WriteBatch,
 };
@@ -12,6 +12,8 @@ use std::path::Path;
 use std::sync::LazyLock;
 use strum::IntoEnumIterator;
 use tracing::warn;
+
+use super::metadata;
 
 mod instance_tracker;
 pub(crate) mod snapshot;
@@ -673,7 +675,7 @@ impl RocksDB {
                 })
                 .collect::<Vec<_>>();
             if !values.is_empty() {
-                // TODO(mina86): Once const_str_from_utf8 is stabilised we might
+                // TODO(mina86): Once const_str_from_utf8 is stabilized we might
                 // be able convert this runtime UTF-8 validation into const.
                 let stat_name = prop_name.to_str().unwrap();
                 result.data.push((stat_name.to_string(), values));

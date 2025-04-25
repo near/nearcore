@@ -44,6 +44,7 @@ impl Server {
                 realm: String::default(),
                 auth_handler: Arc::new(TestAuthHandler),
                 channel_bind_timeout: std::time::Duration::from_secs(0),
+                alloc_close_notify: None,
             })
             .await
             .unwrap(),

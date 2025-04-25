@@ -18,8 +18,12 @@ GGAS = 10**9
 
 def test_deploy_global_contract():
     n = 2
-    val_client_config_changes = {i: {"tracked_shards": []} for i in range(n)}
-    rpc_client_config_changes = {n: {"tracked_shards": [0, 1]}}
+    val_client_config_changes = {
+        i: {
+            "tracked_shards_config": "NoShards"
+        } for i in range(n)
+    }
+    rpc_client_config_changes = {n: {"tracked_shards_config": "AllShards"}}
 
     client_config_changes = {
         **val_client_config_changes,

@@ -18,11 +18,6 @@ clap.workspace = true
 near-test-contracts.workspace = true
 
 [features]
-nightly_protocol = []
-nightly = [
-  "near-test-contracts/nightly",
-  "nightly_protocol",
-]
 test_features = [
   "near-test-contracts/test_features",
 ]

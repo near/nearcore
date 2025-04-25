@@ -1,3 +1,4 @@
+version: "3"
 services:
   mongo:
     image: mongo
@@ -33,3 +34,5 @@ services:
     ports:
       - ${QUERY_PORT:-8080}:8080
     command: /app/near-tracing querier --mongodb-uri=mongodb://root:insecure@mongo:27017/
+
+# cspell:ignore ADMINPASSWORD, ADMINUSERNAME, BASICAUTH, INITDB

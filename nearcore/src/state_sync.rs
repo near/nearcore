@@ -84,7 +84,7 @@ impl StateSyncDumper {
                     tracing::info!(target: "state_sync_dump", "Set the environment variable 'SERVICE_ACCOUNT' to '{credentials_file:?}'");
                 }
                 ExternalConnection::GCS {
-                    gcs_client: Arc::new(cloud_storage::Client::default()),
+                    gcs_client: Arc::new(object_store::gcp::GoogleCloudStorageBuilder::new().with_bucket_name(&bucket).build().unwrap()),
                     reqwest_client: Arc::new(reqwest::Client::default()),
                     bucket,
                 }
@@ -824,7 +824,7 @@ impl StateDumper {
     /// starts one PartUploader::upload_state_part() future. It also starts one future that will examine the results
     /// of those futures as they finish, and that will send on `senders` either the first error that occurs or Ok(())
     /// when all parts have been uploaded for the shard.
-    async fn start_upload_parts(
+    fn start_upload_parts(
         &mut self,
         mut senders: HashMap<ShardId, oneshot::Sender<anyhow::Result<()>>>,
         dump: &DumpState,
@@ -918,7 +918,7 @@ impl StateDumper {
                     self.store_headers(&mut dump).await?;
 
                     dump.set_missing_parts(&self.external, &self.chain_id).await;
-                    self.start_upload_parts(senders, &dump).await;
+                    self.start_upload_parts(senders, &dump);
                     self.new_dump(dump, *sync_header.hash())?;
                 }
                 NewDump::NoTrackedShards => {
@@ -1000,7 +1000,7 @@ impl StateDumper {
         match self.get_dump_state(&sync_header)? {
             NewDump::Dump(mut dump, sender) => {
                 self.store_headers(&mut dump).await?;
-                self.start_upload_parts(sender, &dump).await;
+                self.start_upload_parts(sender, &dump);
                 self.new_dump(dump, *sync_header.hash())?;
             }
             NewDump::NoTrackedShards => {

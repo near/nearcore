@@ -1,5 +1,7 @@
 # Checks that creating a forked network with the neard fork-network commands works
 
+# cspell:words subaccounts
+
 import base58
 import os
 import json
@@ -234,10 +236,10 @@ def main():
                           genesis_config_changes=[["epoch_length", 100]],
                           client_config_changes={
                               1: {
-                                  "tracked_shards": [0]
+                                  "tracked_shards_config": "AllShards"
                               },
                               2: {
-                                  "tracked_shards": [0]
+                                  "tracked_shards_config": "AllShards"
                               },
                           })
 

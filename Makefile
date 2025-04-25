@@ -1,3 +1,5 @@
+#cspell:words BUILDKIT
+
 export DOCKER_BUILDKIT = 1
 export CARGO_BUILD_RUSTFLAGS = -D warnings
 export NEAR_RELEASE_BUILD = no

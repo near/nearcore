@@ -154,7 +154,7 @@ impl Default for LargeContract {
 }
 
 impl LargeContract {
-    /// Construct a contract with many entitites.
+    /// Construct a contract with many entities.
     ///
     /// Currently supports constructing contracts that contain a specified number of functions with the
     /// specified number of locals each.

@@ -3,7 +3,6 @@ use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, RwLock};
 
 use itertools::Itertools;
-use near_chain_configs::MIN_GAS_PRICE;
 use near_crypto::{PublicKey, Signer};
 use near_jsonrpc_primitives::errors::ServerError;
 use near_parameters::RuntimeConfig;
@@ -13,11 +12,10 @@ use near_primitives::congestion_info::{BlockCongestionInfo, ExtendedCongestionIn
 use near_primitives::errors::{RuntimeError, TxExecutionError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
-use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
 use near_primitives::test_utils::MockEpochInfoProvider;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, BlockHeightDelta, MerkleHash, ShardId};
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
+use near_primitives::types::{AccountId, Balance, BlockHeightDelta, MerkleHash, ShardId};
+use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{
     AccessKeyView, AccountView, BlockView, CallResult, ChunkView, ContractCodeView,
     ExecutionOutcomeView, ExecutionOutcomeWithIdView, ExecutionStatusView,
@@ -59,6 +57,7 @@ pub struct RuntimeUser {
     pub transactions: RefCell<HashSet<SignedTransaction>>,
     pub epoch_info_provider: MockEpochInfoProvider,
     pub runtime_config: Arc<RuntimeConfig>,
+    pub gas_price: Balance,
 }
 
 impl RuntimeUser {
@@ -66,6 +65,7 @@ impl RuntimeUser {
         account_id: AccountId,
         signer: Arc<Signer>,
         client: Arc<RwLock<MockClient>>,
+        gas_price: Balance,
     ) -> Self {
         let runtime_config = Arc::new(client.read().unwrap().runtime_config.clone());
         RuntimeUser {
@@ -78,6 +78,7 @@ impl RuntimeUser {
             transactions: RefCell::new(Default::default()),
             epoch_info_provider: MockEpochInfoProvider::default(),
             runtime_config,
+            gas_price,
         }
     }
 
@@ -105,9 +106,10 @@ impl RuntimeUser {
             } else {
                 let shard_uid = ShardUId::single_shard();
                 let mut trie = client.tries.get_trie_for_shard(shard_uid, client.state_root);
-                trie.set_charge_gas_for_trie_node_access(true);
+                trie.set_use_trie_accounting_cache(true);
                 trie
             };
+            let validity_check_results = vec![true; txs.len()];
             let apply_result = client
                 .runtime
                 .apply(
@@ -115,7 +117,7 @@ impl RuntimeUser {
                     &None,
                     &apply_state,
                     &receipts,
-                    SignedValidPeriodTransactions::new(&txs, &vec![true; txs.len()]),
+                    SignedValidPeriodTransactions::new(txs, validity_check_results),
                     &self.epoch_info_provider,
                     Default::default(),
                 )
@@ -123,7 +125,6 @@ impl RuntimeUser {
                     RuntimeError::InvalidTxError(e) => {
                         ServerError::TxExecutionError(TxExecutionError::InvalidTxError(e))
                     }
-                    RuntimeError::BalanceMismatchError(e) => panic!("{}", e),
                     RuntimeError::StorageError(e) => panic!("Storage error {:?}", e),
                     RuntimeError::UnexpectedIntegerOverflow(reason) => {
                         panic!("UnexpectedIntegerOverflow error {reason}")
@@ -182,11 +183,8 @@ impl RuntimeUser {
         let shard_ids = shard_layout.shard_ids().collect_vec();
         let shard_id = *shard_ids.first().unwrap();
 
-        let congestion_info = if ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
-            shard_ids.into_iter().map(|id| (id, ExtendedCongestionInfo::default())).collect()
-        } else {
-            Default::default()
-        };
+        let congestion_info =
+            shard_ids.into_iter().map(|id| (id, ExtendedCongestionInfo::default())).collect();
         let congestion_info = BlockCongestionInfo::new(congestion_info);
 
         ApplyState {
@@ -197,7 +195,7 @@ impl RuntimeUser {
             block_timestamp: 0,
             shard_id,
             epoch_height: 0,
-            gas_price: MIN_GAS_PRICE,
+            gas_price: self.gas_price,
             gas_limit: None,
             random_seed: Default::default(),
             epoch_id: Default::default(),
@@ -205,10 +203,9 @@ impl RuntimeUser {
             config: self.runtime_config.clone(),
             cache: None,
             is_new_chunk: true,
-            migration_data: Arc::new(MigrationData::default()),
-            migration_flags: MigrationFlags::default(),
             congestion_info,
             bandwidth_requests: BlockBandwidthRequests::empty(),
+            trie_access_tracker_state: Default::default(),
         }
     }
 

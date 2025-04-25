@@ -8,7 +8,8 @@ use near_chain::{ChainStore, ChainStoreAccess, types::RuntimeAdapter};
 use near_chain_configs::{GCConfig, MutableValidatorSigner};
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_tracker::ShardTracker;
-use near_store::{Store, metadata::DbKind};
+use near_store::Store;
+use near_store::db::metadata::DbKind;
 use std::sync::Arc;
 use tracing::warn;
 

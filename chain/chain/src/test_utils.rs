@@ -94,6 +94,10 @@ pub fn is_block_in_processing(chain: &Chain, block_hash: &CryptoHash) -> bool {
     chain.blocks_in_processing.contains(&BlockToApply::Normal(*block_hash))
 }
 
+pub fn is_optimistic_block_in_processing(chain: &Chain, block_height: u64) -> bool {
+    chain.blocks_in_processing.contains(&BlockToApply::Optimistic(block_height))
+}
+
 pub fn wait_for_block_in_processing(
     chain: &Chain,
     hash: &CryptoHash,
@@ -167,7 +171,7 @@ pub fn setup_with_tx_validity_period(
         noop().into_multi_sender(),
     )
     .unwrap();
-
+    chain.init_flat_storage().unwrap();
     let signer = Arc::new(create_test_signer("test"));
     (chain, epoch_manager, runtime, signer)
 }
@@ -243,7 +247,7 @@ pub fn display_chain(me: &Option<AccountId>, chain: &mut Chain, tail: bool) {
                             format_hash(chunk_header.chunk_hash().0),
                             chunk_header.shard_id(),
                             chunk_producer,
-                            chunk.transactions().len(),
+                            chunk.to_transactions().len(),
                             chunk.prev_outgoing_receipts().len()
                         );
                     } else if let Ok(partial_chunk) =
@@ -293,10 +297,7 @@ mod test {
         for shard_id in shard_layout.shard_ids() {
             let shard_receipts: Vec<Receipt> = receipts
                 .iter()
-                .filter(|&receipt| {
-                    receipt.send_to_all_shards()
-                        || shard_layout.account_id_to_shard_id(receipt.receiver_id()) == shard_id
-                })
+                .filter(|&receipt| receipt.receiver_shard_id(shard_layout).unwrap() == shard_id)
                 .cloned()
                 .collect();
             receipts_hashes.push(CryptoHash::hash_borsh(ReceiptList(shard_id, &shard_receipts)));
@@ -321,7 +322,7 @@ mod test {
         let naive_result = naive_build_receipt_hashes(&receipts, &shard_layout);
         let naive_duration = start.elapsed();
         let start = Clock::real().now();
-        let prod_result = Chain::build_receipts_hashes(&receipts, &shard_layout);
+        let prod_result = Chain::build_receipts_hashes(&receipts, &shard_layout).unwrap();
         let prod_duration = start.elapsed();
         assert_eq!(naive_result, prod_result);
         // production implementation is at least 50% faster

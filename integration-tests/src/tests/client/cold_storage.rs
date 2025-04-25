@@ -16,8 +16,7 @@ use near_store::archive::cold_storage::{
     copy_all_data_to_cold, test_cold_genesis_update, test_get_store_initial_writes,
     test_get_store_reads, update_cold_db, update_cold_head,
 };
-use near_store::metadata::DB_VERSION;
-use near_store::metadata::DbKind;
+use near_store::db::metadata::{DB_VERSION, DbKind};
 use near_store::test_utils::create_test_node_storage_with_cold;
 use near_store::{COLD_HEAD_KEY, DBCol, HEAD_KEY, Store};
 use nearcore::{NearConfig, cold_storage::spawn_cold_store_loop};
@@ -128,7 +127,7 @@ fn test_storage_after_commit_of_cold_update() {
         if height == 1 {
             let tx = create_tx_deploy_contract(height, &signer, last_hash);
             assert_eq!(
-                env.tx_request_handlers[0].process_tx(tx, false, false),
+                env.rpc_handlers[0].process_tx(tx, false, false),
                 ProcessTxResponse::ValidTx
             );
         }
@@ -139,14 +138,14 @@ fn test_storage_after_commit_of_cold_update() {
             for i in 0..5 {
                 let tx = create_tx_function_call(height * 10 + i, &signer, last_hash);
                 assert_eq!(
-                    env.tx_request_handlers[0].process_tx(tx, false, false),
+                    env.rpc_handlers[0].process_tx(tx, false, false),
                     ProcessTxResponse::ValidTx
                 );
             }
             for i in 0..5 {
                 let tx = create_tx_send_money(height * 10 + i, &signer, last_hash);
                 assert_eq!(
-                    env.tx_request_handlers[0].process_tx(tx, false, false),
+                    env.rpc_handlers[0].process_tx(tx, false, false),
                     ProcessTxResponse::ValidTx
                 );
             }
@@ -198,12 +197,13 @@ fn test_storage_after_commit_of_cold_update() {
         let client_store = env.clients[0].runtime_adapter.store();
         let cold_store = &storage.get_cold_store().unwrap();
         let num_checks = check_iter(client_store, cold_store, col, &no_check_rules);
-        // assert that this test actually checks something
-        // apart from StateChangesForSplitStates, StateHeaders, and StateShardUIdMapping, that are empty
+        // assert that this test actually checks something.  Note that some
+        // columns are expected to be empty.
         assert!(
             col == DBCol::StateChangesForSplitStates
                 || col == DBCol::StateHeaders
                 || col == DBCol::StateShardUIdMapping
+                || col == DBCol::BlockExtra
                 || num_checks > 0
         );
     }
@@ -280,7 +280,7 @@ fn test_cold_db_copy_with_height_skips() {
             for i in 0..5 {
                 let tx = create_tx_send_money(height * 10 + i, &signer, last_hash);
                 assert_eq!(
-                    env.tx_request_handlers[0].process_tx(tx, false, false),
+                    env.rpc_handlers[0].process_tx(tx, false, false),
                     ProcessTxResponse::ValidTx
                 );
             }
@@ -332,12 +332,13 @@ fn test_cold_db_copy_with_height_skips() {
             let client_store = env.clients[0].runtime_adapter.store();
             let cold_store = storage.get_cold_store().unwrap();
             let num_checks = check_iter(&client_store, &cold_store, col, &no_check_rules);
-            // assert that this test actually checks something
-            // apart from StateChangesForSplitStates, StateHeaders, and StateShardUIdMapping, that are empty
+            // assert that this test actually checks something.  Note that some
+            // columns are expected to be empty.
             assert!(
                 col == DBCol::StateChangesForSplitStates
                     || col == DBCol::StateHeaders
                     || col == DBCol::StateShardUIdMapping
+                    || col == DBCol::BlockExtra
                     || num_checks > 0
             );
         }
@@ -368,7 +369,7 @@ fn test_initial_copy_to_cold(batch_size: usize) {
         for i in 0..5 {
             let tx = create_tx_send_money(height * 10 + i, &signer, last_hash);
             assert_eq!(
-                env.tx_request_handlers[0].process_tx(tx, false, false),
+                env.rpc_handlers[0].process_tx(tx, false, false),
                 ProcessTxResponse::ValidTx
             );
         }
@@ -390,10 +391,11 @@ fn test_initial_copy_to_cold(batch_size: usize) {
             continue;
         }
         let num_checks = check_iter(&client_store, &cold_store, col, &vec![]);
-        // StateChangesForSplitStates, StateHeaders, and StateShardUIdMapping are empty
+        // Some columns are expected to be empty
         if col == DBCol::StateChangesForSplitStates
             || col == DBCol::StateHeaders
             || col == DBCol::StateShardUIdMapping
+            || col == DBCol::BlockExtra
         {
             continue;
         }
@@ -458,7 +460,7 @@ fn test_cold_loop_on_gc_boundary() {
         for i in 0..5 {
             let tx = create_tx_send_money(height * 10 + i, &signer, last_hash);
             assert_eq!(
-                env.tx_request_handlers[0].process_tx(tx, false, false),
+                env.rpc_handlers[0].process_tx(tx, false, false),
                 ProcessTxResponse::ValidTx
             );
         }
@@ -480,7 +482,7 @@ fn test_cold_loop_on_gc_boundary() {
         for i in 0..5 {
             let tx = create_tx_send_money(height * 10 + i, &signer, last_hash);
             assert_eq!(
-                env.tx_request_handlers[0].process_tx(tx, false, false),
+                env.rpc_handlers[0].process_tx(tx, false, false),
                 ProcessTxResponse::ValidTx
             );
         }

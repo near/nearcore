@@ -45,7 +45,7 @@ development:
 
 https://near.github.io/nearcore/
 
-If you are looking for relatively simple tasks to familiarise yourself with
+If you are looking for relatively simple tasks to familiarize yourself with
 `nearcore`, please check out issues labeled with the `C-good-first-issue` label
 [here](https://github.com/near/nearcore/labels/C-good-first-issue).  If you see
 one that looks interesting and is unassigned or has not been actively worked on
@@ -140,7 +140,7 @@ discussions take place on zulip so if you are interested in becoming a
 code reviewer, please reach out to us there.
 
 The person who clicks the "Merge when ready" button is the one who
-guarantees that no unreviewed code was added between the approving review
+guarantees that no un-reviewed code was added between the approving review
 and the commit that is being landed. They must be especially careful of
 commits that might have happened before the review, but not have been
 reviewed (eg. because the review was already in progress), as they will

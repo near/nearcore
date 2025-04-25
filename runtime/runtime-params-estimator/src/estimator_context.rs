@@ -12,12 +12,11 @@ use near_primitives::chunk_apply_stats::ChunkApplyStatsV0;
 use near_primitives::congestion_info::{BlockCongestionInfo, ExtendedCongestionInfo};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
-use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
 use near_primitives::state::FlatStateValue;
 use near_primitives::test_utils::MockEpochInfoProvider;
 use near_primitives::transaction::{ExecutionStatus, SignedTransaction};
 use near_primitives::types::{Gas, MerkleHash};
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
+use near_primitives::version::PROTOCOL_VERSION;
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::flat::{
     BlockInfo, FlatStateChanges, FlatStateDelta, FlatStateDeltaMetadata, FlatStorage,
@@ -29,8 +28,8 @@ use near_vm_runner::FilesystemContractRuntimeCache;
 use near_vm_runner::logic::LimitConfig;
 use node_runtime::config::tx_cost;
 use node_runtime::{
-    ApplyState, Runtime, SignedValidPeriodTransactions, commit_charging_for_tx,
-    verify_and_charge_tx_ephemeral,
+    ApplyState, Runtime, SignedValidPeriodTransactions, get_signer_and_access_key,
+    set_tx_state_changes, verify_and_charge_tx_ephemeral,
 };
 use std::collections::HashMap;
 use std::iter;
@@ -110,7 +109,7 @@ impl<'c> EstimatorContext<'c> {
             trie_config,
             &[shard_uid],
             flat_storage_manager,
-            StateSnapshotConfig::default(),
+            StateSnapshotConfig::Disabled,
         );
         if self.config.memtrie {
             // NOTE: Since the store loaded from the state dump only contains the state, we directly provide the state root
@@ -168,11 +167,7 @@ impl<'c> EstimatorContext<'c> {
         runtime_config.congestion_control_config = CongestionControlConfig::test_disabled();
 
         let shard_id = ShardUId::single_shard().shard_id();
-        let congestion_info = if ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
-            [(shard_id, ExtendedCongestionInfo::default())].into()
-        } else {
-            Default::default()
-        };
+        let congestion_info = [(shard_id, ExtendedCongestionInfo::default())].into();
         let congestion_info = BlockCongestionInfo::new(congestion_info);
 
         ApplyState {
@@ -193,10 +188,9 @@ impl<'c> EstimatorContext<'c> {
             config: Arc::new(runtime_config),
             cache: Some(Box::new(cache)),
             is_new_chunk: true,
-            migration_data: Arc::new(MigrationData::default()),
-            migration_flags: MigrationFlags::default(),
             congestion_info,
             bandwidth_requests: BlockBandwidthRequests::empty(),
+            trie_access_tracker_state: Default::default(),
         }
     }
 
@@ -288,7 +282,7 @@ impl Testbed<'_> {
             let gas_cost = {
                 self.clear_caches();
                 let start = GasCost::measure(self.config.metric);
-                self.process_block_impl(&block, allow_failures);
+                self.process_block_impl(block, allow_failures);
                 extra_blocks = self.process_blocks_until_no_receipts(allow_failures);
                 start.elapsed()
             };
@@ -311,7 +305,7 @@ impl Testbed<'_> {
 
     pub(crate) fn process_block(&mut self, block: Vec<SignedTransaction>, block_latency: usize) {
         let allow_failures = false;
-        self.process_block_impl(&block, allow_failures);
+        self.process_block_impl(block, allow_failures);
         let extra_blocks = self.process_blocks_until_no_receipts(allow_failures);
         assert_eq!(block_latency, extra_blocks);
     }
@@ -349,10 +343,11 @@ impl Testbed<'_> {
 
     fn process_block_impl(
         &mut self,
-        transactions: &[SignedTransaction],
+        transactions: Vec<SignedTransaction>,
         allow_failures: bool,
     ) -> Gas {
         let trie = self.trie();
+        let validity_check_results = vec![true; transactions.len()];
         let apply_result = self
             .runtime
             .apply(
@@ -360,7 +355,7 @@ impl Testbed<'_> {
                 &None,
                 &self.apply_state,
                 &self.prev_receipts,
-                SignedValidPeriodTransactions::new(transactions, &vec![true; transactions.len()]),
+                SignedValidPeriodTransactions::new(transactions, validity_check_results),
                 &self.epoch_info_provider,
                 Default::default(),
             )
@@ -418,7 +413,7 @@ impl Testbed<'_> {
     fn process_blocks_until_no_receipts(&mut self, allow_failures: bool) -> usize {
         let mut n = 0;
         while self.has_unprocessed_receipts() {
-            self.process_block_impl(&[], allow_failures);
+            self.process_block_impl(vec![], allow_failures);
             n += 1;
         }
         n
@@ -463,18 +458,21 @@ impl Testbed<'_> {
         )
         .expect("expected no validation error");
         let cost =
-            tx_cost(&self.apply_state.config, &validated_tx, gas_price, PROTOCOL_VERSION).unwrap();
+            tx_cost(&self.apply_state.config, &validated_tx.to_tx(), gas_price, PROTOCOL_VERSION)
+                .unwrap();
+        let (mut signer, mut access_key) = get_signer_and_access_key(&state_update, &validated_tx)
+            .expect("getting signer and access key should not fail in estimator");
 
-        let vr = verify_and_charge_tx_ephemeral(
+        verify_and_charge_tx_ephemeral(
             &self.apply_state.config,
-            &state_update,
+            &mut signer,
+            &mut access_key,
             &validated_tx,
             &cost,
             block_height,
-            PROTOCOL_VERSION,
         )
         .expect("tx verification should not fail in estimator");
-        commit_charging_for_tx(&mut state_update, &validated_tx, &vr.signer, &vr.access_key);
+        set_tx_state_changes(&mut state_update, &validated_tx, &signer, &access_key);
         clock.elapsed()
     }
 

@@ -16,6 +16,7 @@ use near_o11y::testonly::init_test_logger;
 use near_primitives::version::{PEER_MIN_ALLOWED_PROTOCOL_VERSION, PROTOCOL_VERSION};
 use std::sync::Arc;
 
+#[allow(clippy::large_stack_frames)]
 async fn test_peer_communication(
     outbound_encoding: Option<Encoding>,
     inbound_encoding: Option<Encoding>,
@@ -144,12 +145,6 @@ async fn test_peer_communication(
     let mut events = inbound.events.from_now();
     let want = data::make_signed_transaction(&mut rng);
     let want = PeerMessage::Transaction(want);
-    outbound.send(want.clone()).await;
-    events.recv_until(message_processed(want)).await;
-
-    tracing::info!(target:"test","Challenge");
-    let mut events = inbound.events.from_now();
-    let want = PeerMessage::Challenge(Box::new(data::make_challenge(&mut rng)));
     outbound.send(want.clone()).await;
     events.recv_until(message_processed(want)).await;
 

@@ -30,7 +30,7 @@ use near_async::messaging::{SendAsync, Sender};
 use near_async::time;
 use near_o11y::{WithSpanContext, handler_debug_span, handler_trace_span};
 use near_performance_metrics_macros::perf;
-use near_primitives::block::GenesisId;
+use near_primitives::genesis::GenesisId;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::views::{
     ConnectionInfoView, EdgeView, KnownPeerStateView, NetworkGraphView, NetworkRoutesView,
@@ -1053,13 +1053,6 @@ impl PeerManagerActor {
                 } else {
                     NetworkResponses::RouteNotFound
                 }
-            }
-            NetworkRequests::Challenge(challenge) => {
-                // TODO(illia): smarter routing?
-                self.state
-                    .tier2
-                    .broadcast_message(Arc::new(PeerMessage::Challenge(Box::new(challenge))));
-                NetworkResponses::NoResponse
             }
             NetworkRequests::ChunkStateWitnessAck(target, ack) => {
                 self.state.send_message_to_account(

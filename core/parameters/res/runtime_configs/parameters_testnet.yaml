@@ -205,7 +205,6 @@ wasm_yield_resume_byte: 300_000_000_000_000
 max_gas_burnt: 200_000_000_000_000
 max_gas_burnt_view: 200_000_000_000_000
 max_stack_height: 16_384
-contract_prepare_version: 0
 initial_memory_pages: 1_024
 max_memory_pages: 2_048
 registers_memory_limit: 1_073_741_824
@@ -229,17 +228,11 @@ max_number_input_data_dependencies: 128
 yield_timeout_length_in_blocks: 200
 max_yield_payload_size: 1_024 # kiB
 
-disable_9393_fix: false
 flat_storage_reads: false
 implicit_account_creation: false
 fix_contract_loading_cost: false
-math_extension: false
-ed25519_verify: false
-alt_bn128: false
-function_call_weight: false
 vm_kind: Wasmer0
 eth_implicit_accounts: false
-yield_resume: false
 discard_custom_sections: false
 
 # TODO What should be the config for testnet?

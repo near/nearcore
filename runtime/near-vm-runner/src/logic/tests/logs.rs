@@ -5,6 +5,8 @@ use crate::logic::{MemSlice, VMLogic, VMLogicError};
 use crate::map;
 use near_parameters::ExtCosts;
 
+// cspell:ignore blabla, foobarbaz
+
 #[test]
 fn test_valid_utf8() {
     let mut logic_builder = VMLogicBuilder::default();

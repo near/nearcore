@@ -259,7 +259,7 @@ fn run_chain_for_some_blocks_while_sending_money_around(
                 );
                 // Process the txn in all shards, because they may not always
                 // get a chance to produce the txn if they don't track the shard.
-                for tx_processor in &env.tx_request_handlers {
+                for tx_processor in &env.rpc_handlers {
                     match tx_processor.process_tx(txn.clone(), false, false) {
                         ProcessTxResponse::NoResponse => panic!("No response"),
                         ProcessTxResponse::InvalidTx(err) => panic!("Invalid tx: {}", err),
@@ -338,7 +338,7 @@ fn run_chain_for_some_blocks_while_sending_money_around(
                 let client = &env.clients[i];
                 if let Ok(chunk) = client.chain.get_chunk(&chunk.chunk_hash()) {
                     if chunks_found == 0 {
-                        total_txs_included_in_chunks += chunk.transactions().len();
+                        total_txs_included_in_chunks += chunk.to_transactions().len();
                     }
                     chunks_found += 1;
                 }

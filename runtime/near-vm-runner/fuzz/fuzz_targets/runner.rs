@@ -22,8 +22,7 @@ fn run_fuzz(code: &ContractCode, config: Arc<RuntimeConfig>) -> VMOutcome {
     let method_name = find_entry_point(code).unwrap_or_else(|| "main".to_string());
     let mut context = create_context(vec![]);
     context.prepaid_gas = 10u64.pow(14);
-    let mut wasm_config = near_parameters::vm::Config::clone(&config.wasm_config);
-    wasm_config.limit_config.wasmer2_stack_limit = i32::MAX; // If we can crash wasmer2 even without the secondary stack limit it's still good to know
+    let wasm_config = near_parameters::vm::Config::clone(&config.wasm_config);
     let vm_kind = config.wasm_config.vm_kind;
     let fees = Arc::clone(&config.fees);
     let gas_counter = context.make_gas_counter(&wasm_config);

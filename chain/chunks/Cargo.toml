@@ -44,17 +44,6 @@ near-performance-metrics-macros.workspace = true
 assert_matches.workspace = true
 
 [features]
-nightly_protocol = [
-  "near-async/nightly_protocol",
-  "near-chain-configs/nightly_protocol",
-  "near-chain/nightly_protocol",
-  "near-epoch-manager/nightly_protocol",
-  "near-network/nightly_protocol",
-  "near-o11y/nightly_protocol",
-  "near-pool/nightly_protocol",
-  "near-primitives/nightly_protocol",
-  "near-store/nightly_protocol",
-]
 nightly = [
   "near-async/nightly",
   "near-chain-configs/nightly",
@@ -65,7 +54,6 @@ nightly = [
   "near-pool/nightly",
   "near-primitives/nightly",
   "near-store/nightly",
-  "nightly_protocol",
 ]
 byzantine_asserts = ["near-chain/byzantine_asserts"]
 expensive_tests = []

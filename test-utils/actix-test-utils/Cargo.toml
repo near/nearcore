@@ -19,8 +19,4 @@ near-store.workspace = true
 [features]
 nightly = [
   "near-store/nightly",
-  "nightly_protocol",
-]
-nightly_protocol = [
-  "near-store/nightly_protocol",
 ]

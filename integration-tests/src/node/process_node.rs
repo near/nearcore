@@ -133,8 +133,6 @@ impl ProcessNode {
         if std::env::var("NIGHTLY_RUNNER").is_err() {
             let mut command = Command::new("cargo");
             command.args(&["run", "-p", "neard"]);
-            #[cfg(feature = "nightly_protocol")]
-            command.args(&["--features", "nightly_protocol"]);
             #[cfg(feature = "nightly")]
             command.args(&["--features", "nightly"]);
             command.args(&["--bin", "neard", "--", "--home"]);
