@@ -420,8 +420,12 @@ pub struct NetworkInfo {
 pub enum NetworkResponses {
     NoResponse,
     RouteNotFound,
-    AwaitingIpSelfDiscovery,
+    /// For some requests, it is necessary that the node has successfully
+    /// performed IP self-discovery
+    MyPublicAddrNotKnown,
     NoDestinationsAvailable,
+    /// Occurs in response to NetworkRequests which do not specify a target peer;
+    /// the network layer selects and returns the destination for the message.
     SelectedDestination(PeerId),
 }
 

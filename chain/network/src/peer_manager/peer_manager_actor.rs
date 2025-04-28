@@ -822,7 +822,7 @@ impl PeerManagerActor {
                 // The node needs to include its own public address in the request
                 // so that the response can be sent over a direct Tier3 connection.
                 let Some(addr) = *self.state.my_public_addr.read() else {
-                    return NetworkResponses::AwaitingIpSelfDiscovery;
+                    return NetworkResponses::MyPublicAddrNotKnown;
                 };
 
                 // Select a peer which has advertised availability of the desired
@@ -864,7 +864,7 @@ impl PeerManagerActor {
                 // The node needs to include its own public address in the request
                 // so that the response can be sent over a direct Tier3 connection.
                 let Some(addr) = *self.state.my_public_addr.read() else {
-                    return NetworkResponses::AwaitingIpSelfDiscovery;
+                    return NetworkResponses::MyPublicAddrNotKnown;
                 };
 
                 // Select a peer which has advertised availability of the desired
@@ -1319,11 +1319,11 @@ impl actix::Handler<WithSpanContext<Tier3Request>> for PeerManagerActor {
                                 PeerMessage::VersionedStateResponse(*client_response.0)
                             }
                             Ok(None) => {
-                                tracing::debug!(target: "network", "client declined to respond to {:?}", request);
+                                tracing::debug!(target: "network", ?request, "client declined to respond");
                                 return;
                             }
                             Err(err) => {
-                                tracing::error!(target: "network", ?err, "client failed to respond to {:?}", request);
+                                tracing::error!(target: "network", ?request, ?err, "client failed to respond");
                                 return;
                             }
                         }

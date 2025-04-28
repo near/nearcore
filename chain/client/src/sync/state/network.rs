@@ -177,12 +177,12 @@ impl StateSyncDownloadSourcePeer {
                 increment_download_count(key.shard_id, typ, "network", "route_not_found");
                 return Err(near_chain::Error::Other("Route not found".to_owned()));
             }
-            NetworkResponses::AwaitingIpSelfDiscovery => {
+            NetworkResponses::MyPublicAddrNotKnown => {
                 increment_download_count(
                     key.shard_id,
                     typ,
                     "network",
-                    "awaiting_ip_self_discovery",
+                    "my_public_addr_not_known",
                 );
                 return Err(near_chain::Error::Other("Awaiting IP self-discovery".to_owned()));
             }
