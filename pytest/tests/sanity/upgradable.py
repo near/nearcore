@@ -38,74 +38,6 @@ def get_proto_version(exe: pathlib.Path) -> (int, int):
     return m.group(1), int(m.group(2))
 
 
-def test_protocol_versions() -> None:
-    """Verify that mainnet, testnet and current protocol versions differ by ≤ 1.
-
-    Checks whether the protocol versions used by the latest mainnet, the latest
-    testnet and current binary do not differed by more than one.  Some protocol
-    features implementations rely on the fact that no protocol version is
-    skipped.  See <https://github.com/near/nearcore/issues/4956>.
-
-    This test downloads the latest official mainnet and testnet binaries.  If
-    that fails for whatever reason, builds each of those executables.
-    """
-    executables = get_executables()
-    testnet = branches.get_executables_for('testnet')
-
-    main_release, main_proto = get_proto_version(executables.stable.neard)
-    test_release, test_proto = get_proto_version(testnet.neard)
-    _, head_proto = get_proto_version(executables.current.neard)
-
-    logger.info(f'Got protocol {main_proto} in mainnet release {main_release}.')
-    logger.info(f'Got protocol {test_proto} in testnet release {test_release}.')
-    logger.info(f'Got protocol {head_proto} on master branch.')
-
-    if head_proto == 69:
-        # In the congestion control and stateless validation release allow
-        # increasing the protocol version by 2.
-        ok = (head_proto in (test_proto, test_proto + 1, test_proto + 2) and
-              test_proto in (main_proto, main_proto + 1, main_proto + 2))
-    elif head_proto == 70:
-        # Before stateless validation launch (protocol version 69) on mainnet,
-        # we have protocol version 70 stabilized in master, while mainnet
-        # protocol version is still 67.
-        allowed_head_proto = (
-            test_proto,
-            test_proto + 1,
-            test_proto + 2,
-            test_proto + 3,
-        )
-        allowed_main_proto = (
-            main_proto,
-            main_proto + 1,
-            main_proto + 2,
-            main_proto + 3,
-        )
-        ok = (head_proto in allowed_head_proto and
-              test_proto in allowed_main_proto)
-    elif head_proto == 76 or head_proto == 77:
-        allowed_head_proto = (
-            test_proto,
-            test_proto + 1,
-            test_proto + 2,
-            test_proto + 3,
-        )
-        allowed_main_proto = (
-            main_proto,
-            main_proto + 1,
-            main_proto + 2,
-            main_proto + 3,
-        )
-        ok = (head_proto in allowed_head_proto and
-              test_proto in allowed_main_proto)
-    else:
-        # Otherwise only allow increasing the protocol version by 1.
-        ok = (head_proto in (test_proto, test_proto + 1) and
-              test_proto in (main_proto, main_proto + 1))
-    assert ok, ('If changed, protocol version of a new release can increase by '
-                'at most one.')
-
-
 class TrafficGenerator(threading.Thread):
     """ A thread which keeps sending transactions to random addresses until stopped. """
 
@@ -220,6 +152,7 @@ class Protocols:
     ) -> 'Protocols':
         _, stable = get_proto_version(executables.stable.neard)
         _, current = get_proto_version(executables.current.neard)
+        assert current >= stable, "cannot downgrade protocol version"
         return cls(stable, current)
 
 
@@ -261,23 +194,34 @@ class TestUpgrade:
         traffic_generator.call_test_contract()
         traffic_generator.start()
 
-        self.wait_epoch()  # Wait till the end of epoch to check endorsements
-        self.assert_no_missed_endorsements()
+        try:
+            self.wait_epoch()
+            self.assert_no_missed_endorsements()
 
-        traffic_generator.pause()
-        self.upgrade_nodes()
-        self.wait_epoch()  # Skip this epoch, because nodes are starting
-        time.sleep(1)
-        traffic_generator.resume()
+            traffic_generator.pause()
+            self.upgrade_nodes()
+            self.wait_epoch()  # Skip this epoch, because nodes are starting
+            time.sleep(1)
+            traffic_generator.resume()
 
-        self.wait_epoch()  # Wait till the end of epoch to check endorsements
+            # Protocol version should update by one each epoch
+            for expected_version in range(
+                    self._protocols.stable + 1,
+                    self._protocols.current + 1,
+            ):
+                self.wait_epoch()
+                self.assert_no_missed_endorsements()
+                self.assert_protocol_version(expected_version)
 
-        traffic_generator.stop()
-        traffic_generator.join(timeout=10)
+            # Run one more epoch with the latest protocol version
+            self.wait_epoch()
+            self.assert_no_missed_endorsements()
+
+        finally:
+            traffic_generator.stop()
+            traffic_generator.join(timeout=10)
+
         traffic_generator.assert_no_failed_txs()
-
-        self.assert_no_missed_endorsements()
-        self.assert_protocol_version()
 
     def configure_nodes(self) -> list[str]:
         node_root = utils.get_near_tempdir('upgradable', clean=True)
@@ -358,7 +302,9 @@ class TestUpgrade:
             node.binary_name = self._executables.current.neard
             node.start(
                 boot_node=self._stable_nodes[0],
-                extra_env={"NEAR_TESTS_PROTOCOL_UPGRADE_OVERRIDE": "now"},
+                extra_env={
+                    "NEAR_TESTS_PROTOCOL_UPGRADE_OVERRIDE": "sequential"
+                },
             )
 
     def wait_epoch(self) -> None:
@@ -386,13 +332,11 @@ class TestUpgrade:
             num_missed = missed_endorsements[validator_id]
             assert num_missed == 0, f'validator {validator_id} missed {num_missed} endorsements'
 
-    def assert_protocol_version(self) -> None:
-        latest_protocol_version = self._current_node.get_status()["latest_protocol_version"]  # yapf: disable
+    def assert_protocol_version(self, expected_version: int) -> None:
         for node in self._stable_nodes:
             protocol_version = node.get_status()['protocol_version']
-            assert protocol_version == latest_protocol_version, \
-                "Latest protocol version %d should match active protocol version %d" % (
-                    latest_protocol_version, protocol_version)
+            assert protocol_version == expected_version, \
+                f"Wrong protocol version: {protocol_version} expected: {expected_version}"
 
 
 def test_upgrade() -> None:
@@ -404,7 +348,6 @@ def test_upgrade() -> None:
 
 
 def main():
-    # test_protocol_versions()
     test_upgrade()
 
 
