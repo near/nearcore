@@ -132,6 +132,7 @@ use near_primitives::types::{
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::MaybeValidated;
 use near_primitives::validator_signer::ValidatorSigner;
+use near_primitives::version::ProtocolVersion;
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::chunk_store::ChunkStoreAdapter;
 use near_store::{DBCol, HEAD_KEY, HEADER_HEAD_KEY, Store};
@@ -2010,9 +2011,10 @@ impl ShardsManagerActor {
         prev_outgoing_receipts_root: CryptoHash,
         tx_root: CryptoHash,
         congestion_info: CongestionInfo,
-        bandwidth_requests: BandwidthRequests,
+        bandwidth_requests: Option<BandwidthRequests>,
         signer: &ValidatorSigner,
         rs: &ReedSolomon,
+        protocol_version: ProtocolVersion,
     ) -> (EncodedShardChunk, Vec<MerklePath>, Vec<Receipt>) {
         EncodedShardChunk::new(
             prev_block_hash,
@@ -2032,6 +2034,7 @@ impl ShardsManagerActor {
             congestion_info,
             bandwidth_requests,
             signer,
+            protocol_version,
         )
     }
 

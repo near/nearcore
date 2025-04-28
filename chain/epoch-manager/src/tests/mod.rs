@@ -2832,6 +2832,7 @@ fn test_block_and_chunk_producer_not_kicked_out_for_low_endorsements() {
 
 fn test_chunk_header(h: &[CryptoHash], signer: &ValidatorSigner) -> ShardChunkHeader {
     ShardChunkHeader::V3(ShardChunkHeaderV3::new(
+        PROTOCOL_VERSION,
         h[0],
         h[2],
         h[2],
@@ -2846,7 +2847,7 @@ fn test_chunk_header(h: &[CryptoHash], signer: &ValidatorSigner) -> ShardChunkHe
         h[2],
         vec![],
         Default::default(),
-        BandwidthRequests::empty(),
+        BandwidthRequests::default_for_protocol_version(PROTOCOL_VERSION),
         signer,
     ))
 }

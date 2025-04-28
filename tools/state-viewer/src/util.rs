@@ -9,7 +9,7 @@ use near_epoch_manager::{
 };
 use near_primitives::{
     errors::EpochError,
-    types::{BlockHeight, Gas, ShardId, StateRoot, chunk_extra::ChunkExtra},
+    types::{BlockHeight, Gas, ProtocolVersion, ShardId, StateRoot, chunk_extra::ChunkExtra},
 };
 use near_store::{ShardUId, Store};
 use nearcore::{NearConfig, NightshadeRuntime, NightshadeRuntimeExt};
@@ -141,9 +141,14 @@ fn chunk_extras_equal(l: &ChunkExtra, r: &ChunkExtra) -> bool {
     l.validator_proposals().collect::<Vec<_>>() == r.validator_proposals().collect::<Vec<_>>()
 }
 
-pub fn resulting_chunk_extra(result: &ApplyChunkResult, gas_limit: Gas) -> ChunkExtra {
+pub fn resulting_chunk_extra(
+    result: &ApplyChunkResult,
+    gas_limit: Gas,
+    protocol_version: ProtocolVersion,
+) -> ChunkExtra {
     let (outcome_root, _) = ApplyChunkResult::compute_outcomes_proof(&result.outcomes);
     ChunkExtra::new(
+        protocol_version,
         &result.new_root,
         outcome_root,
         result.validator_proposals.clone(),
@@ -164,11 +169,15 @@ pub fn check_apply_block_result(
 ) -> anyhow::Result<()> {
     let height = block.header().height();
     let block_hash = block.header().hash();
+    let protocol_version = block.header().latest_protocol_version();
     let epoch_id = block.header().epoch_id();
     let shard_layout = epoch_manager.get_shard_layout(epoch_id).unwrap();
     let shard_index = shard_layout.get_shard_index(shard_id).map_err(Into::<EpochError>::into)?;
-    let new_chunk_extra =
-        resulting_chunk_extra(apply_result, block.chunks()[shard_index].gas_limit());
+    let new_chunk_extra = resulting_chunk_extra(
+        apply_result,
+        block.chunks()[shard_index].gas_limit(),
+        protocol_version,
+    );
     println!(
         "apply chunk for shard {} at height {}, resulting chunk extra {:?}",
         shard_id, height, &new_chunk_extra,
