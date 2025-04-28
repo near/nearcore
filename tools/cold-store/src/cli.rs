@@ -8,9 +8,10 @@ use near_epoch_manager::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
 use near_primitives::block::Tip;
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::hash::CryptoHash;
+use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::archive::cold_storage::{copy_all_data_to_cold, update_cold_db, update_cold_head};
 use near_store::metadata::DbKind;
-use near_store::{COLD_HEAD_KEY, FINAL_HEAD_KEY, HEAD_KEY, TAIL_KEY};
+use near_store::{COLD_HEAD_KEY, FINAL_HEAD_KEY, HEAD_KEY, ShardUId, StoreUpdate, TAIL_KEY};
 use near_store::{DBCol, NodeStorage, Store, StoreOpener};
 use nearcore::NearConfig;
 use rand::seq::SliceRandom;
@@ -57,6 +58,8 @@ enum SubCommand {
     /// Modifies cold db from config to be considered not initialized.
     /// Doesn't actually delete any data, except for HEAD and COLD_HEAD in BlockMisc.
     ResetCold(ResetColdCmd),
+    /// Backfills hot db with given Trie node from cold db.
+    BackfillTrieNodeFromCold(BackfillTrieNodeFromColdCmd),
 }
 
 impl ColdStoreCommand {
@@ -96,6 +99,7 @@ impl ColdStoreCommand {
             SubCommand::PrepareHot(cmd) => cmd.run(&storage, &home_dir, &near_config),
             SubCommand::CheckStateRoot(cmd) => cmd.run(&storage),
             SubCommand::ResetCold(cmd) => cmd.run(&storage),
+            SubCommand::BackfillTrieNodeFromCold(cmd) => cmd.run(&storage),
         }
     }
 
@@ -671,6 +675,34 @@ impl ResetColdCmd {
         let mut store_update = cold_store.store_update();
         store_update.delete(DBCol::BlockMisc, HEAD_KEY);
         store_update.delete(DBCol::BlockMisc, COLD_HEAD_KEY);
+        store_update.commit()?;
+        Ok(())
+    }
+}
+
+#[derive(clap::Args)]
+struct BackfillTrieNodeFromColdCmd {
+    shard_uid: ShardUId,
+    node_hash: CryptoHash,
+}
+
+impl BackfillTrieNodeFromColdCmd {
+    pub fn run(self, storage: &NodeStorage) -> anyhow::Result<()> {
+        let cold_store = storage
+            .get_cold_store()
+            .ok_or_else(|| anyhow::anyhow!("Cold storage is not configured"))?;
+        let data = cold_store
+            .trie_store()
+            .get(self.shard_uid, &self.node_hash)
+            .expect("Trie node does not exist in cold db");
+
+        let mut store_update = storage.get_hot_store().store_update();
+        store_update.trie_store_update().increment_refcount_by(
+            self.shard_uid,
+            &self.node_hash,
+            &data,
+            StoreUpdate::ONE,
+        );
         store_update.commit()?;
         Ok(())
     }
