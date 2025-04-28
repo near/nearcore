@@ -836,21 +836,19 @@ impl PeerManagerActor {
                     return NetworkResponses::NoDestinationsAvailable;
                 };
 
-                if !self.state.send_message_to_peer(
+                let routed_message = self.state.sign_message(
                     &self.clock,
-                    tcp::Tier::T2,
-                    self.state.sign_message(
-                        &self.clock,
-                        RawRoutedMessage {
-                            target: PeerIdOrHash::PeerId(peer_id.clone()),
-                            body: RoutedMessageBody::StateHeaderRequest(StateHeaderRequest {
-                                shard_id,
-                                sync_hash,
-                                addr,
-                            }),
-                        },
-                    ),
-                ) {
+                    RawRoutedMessage {
+                        target: PeerIdOrHash::PeerId(peer_id.clone()),
+                        body: RoutedMessageBody::StateHeaderRequest(StateHeaderRequest {
+                            shard_id,
+                            sync_hash,
+                            addr,
+                        }),
+                    },
+                );
+
+                if !self.state.send_message_to_peer(&self.clock, tcp::Tier::T2, routed_message) {
                     return NetworkResponses::RouteNotFound;
                 }
 
@@ -880,22 +878,20 @@ impl PeerManagerActor {
                     return NetworkResponses::NoDestinationsAvailable;
                 };
 
-                if !self.state.send_message_to_peer(
+                let routed_message = self.state.sign_message(
                     &self.clock,
-                    tcp::Tier::T2,
-                    self.state.sign_message(
-                        &self.clock,
-                        RawRoutedMessage {
-                            target: PeerIdOrHash::PeerId(peer_id.clone()),
-                            body: RoutedMessageBody::StatePartRequest(StatePartRequest {
-                                shard_id,
-                                sync_hash,
-                                part_id,
-                                addr,
-                            }),
-                        },
-                    ),
-                ) {
+                    RawRoutedMessage {
+                        target: PeerIdOrHash::PeerId(peer_id.clone()),
+                        body: RoutedMessageBody::StatePartRequest(StatePartRequest {
+                            shard_id,
+                            sync_hash,
+                            part_id,
+                            addr,
+                        }),
+                    },
+                );
+
+                if !self.state.send_message_to_peer(&self.clock, tcp::Tier::T2, routed_message) {
                     return NetworkResponses::RouteNotFound;
                 }
 

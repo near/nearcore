@@ -159,34 +159,36 @@ impl StateSyncDownloadSourcePeer {
             .start_timer();
 
         handle.set_status("Sending network request");
-        let request_sent_to_peer = match request_sender.send_async(network_request).await {
-            Ok(response) => match response.as_network_response() {
-                NetworkResponses::SelectedDestination(peer_id) => peer_id,
-                NetworkResponses::NoDestinationsAvailable => {
-                    increment_download_count(key.shard_id, typ, "network", "no_hosts_available");
-                    return Err(near_chain::Error::Other("No hosts available".to_owned()));
-                }
-                NetworkResponses::RouteNotFound => {
-                    increment_download_count(key.shard_id, typ, "network", "route_not_found");
-                    return Err(near_chain::Error::Other("Route not found".to_owned()));
-                }
-                NetworkResponses::AwaitingIpSelfDiscovery => {
-                    increment_download_count(
-                        key.shard_id,
-                        typ,
-                        "network",
-                        "awaiting_ip_self_discovery",
-                    );
-                    return Err(near_chain::Error::Other("Awaiting IP self-discovery".to_owned()));
-                }
-                NetworkResponses::NoResponse => {
-                    increment_download_count(key.shard_id, typ, "network", "no_response");
-                    return Err(near_chain::Error::Other("No response".to_owned()));
-                }
-            },
+        let network_response = match request_sender.send_async(network_request).await {
+            Ok(response) => response.as_network_response(),
             Err(e) => {
                 increment_download_count(key.shard_id, typ, "network", "failed_to_send");
                 return Err(near_chain::Error::Other(format!("Failed to send request: {}", e)));
+            }
+        };
+
+        let request_sent_to_peer = match network_response {
+            NetworkResponses::SelectedDestination(peer_id) => peer_id,
+            NetworkResponses::NoDestinationsAvailable => {
+                increment_download_count(key.shard_id, typ, "network", "no_hosts_available");
+                return Err(near_chain::Error::Other("No hosts available".to_owned()));
+            }
+            NetworkResponses::RouteNotFound => {
+                increment_download_count(key.shard_id, typ, "network", "route_not_found");
+                return Err(near_chain::Error::Other("Route not found".to_owned()));
+            }
+            NetworkResponses::AwaitingIpSelfDiscovery => {
+                increment_download_count(
+                    key.shard_id,
+                    typ,
+                    "network",
+                    "awaiting_ip_self_discovery",
+                );
+                return Err(near_chain::Error::Other("Awaiting IP self-discovery".to_owned()));
+            }
+            NetworkResponses::NoResponse => {
+                increment_download_count(key.shard_id, typ, "network", "no_response");
+                return Err(near_chain::Error::Other("No response".to_owned()));
             }
         };
 
