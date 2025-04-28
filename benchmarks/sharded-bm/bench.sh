@@ -257,16 +257,16 @@ gen_forknet() {
     $MIRROR --host-type nodes upload-file --src ${cwd}/cases --dst ${BENCHNET_DIR}
 
     echo "Running new-test to initialize nodes and collect validator keys"
-    $MIRROR new-test --state-source empty --patches-path "${BENCHNET_DIR}/${CASE}" \
+    $MIRROR --host-type nodes new-test --state-source empty --patches-path "${BENCHNET_DIR}/${CASE}" \
         --epoch-length ${EPOCH_LENGTH} --num-validators ${NUM_CHUNK_PRODUCERS} \
         --new-chain-id ${FORKNET_NAME} --stateless-setup --yes
     
     echo "Waiting for node initialization to complete..."
-    $MIRROR status
-    while ! $MIRROR status | grep -q "all.*nodes ready"; do
+    $MIRROR --host-type nodes status
+    while ! $MIRROR --host-type nodes status | grep -q "all.*nodes ready"; do
         echo "Waiting for nodes to be ready..."
         sleep 10
-        $MIRROR status
+        $MIRROR --host-type nodes status
     done
     
     cd -
