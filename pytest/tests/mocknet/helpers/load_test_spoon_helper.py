@@ -124,7 +124,6 @@ def main():
         logger.info(
             f'Account {account.key.account_id} balance after initialization: {balance}'
         )
-        time.sleep(max(1.0, start_time + (i + 1) * delay - time.monotonic()))
 
     logger.info('Done deploying')
 

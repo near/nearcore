@@ -263,13 +263,18 @@ class BaseNode(object):
         return json.loads(r.content)
 
     def send_tx(self, signed_tx):
-        return self.json_rpc('broadcast_tx_async',
-                             [base64.b64encode(signed_tx).decode('utf8')])
+        params = {
+            'signed_tx_base64': base64.b64encode(signed_tx).decode('utf8'),
+            "wait_until": "None"
+        }
+        return self.json_rpc('send_tx', params)
 
     def send_tx_and_wait(self, signed_tx, timeout):
-        return self.json_rpc('broadcast_tx_commit',
-                             [base64.b64encode(signed_tx).decode('utf8')],
-                             timeout=timeout)
+        params = {
+            'signed_tx_base64': base64.b64encode(signed_tx).decode('utf8'),
+            "wait_until": "EXECUTED"
+        }
+        return self.json_rpc('send_tx', params, timeout=timeout)
 
     def get_status(self,
                    check_storage: bool = True,
@@ -381,16 +386,6 @@ class BaseNode(object):
                 "account_id": acc,
                 "finality": finality
             })
-
-    def wait_at_least_one_block(self):
-        start_height = self.get_latest_block().height
-        timeout_sec = 5
-        started = time.monotonic()
-        while time.monotonic() - started < timeout_sec:
-            height = self.get_latest_block().height
-            if height > start_height:
-                break
-            time.sleep(0.2)
 
     def get_nonce_for_pk(self, acc, pk, finality='optimistic'):
         for access_key in self.get_access_key_list(acc,

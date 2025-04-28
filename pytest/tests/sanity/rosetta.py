@@ -697,7 +697,6 @@ class RosettaTestCase(unittest.TestCase):
                                                block_hash)
         res = self.node.send_tx_and_wait(tx, 100)
         logger.info(f'Storage deposit: {res}')
-        self.node.wait_at_least_one_block()
 
         ### 4. Rosetta ft_call
         ft_result = self.rosetta.ft_transfer(src=validator,

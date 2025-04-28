@@ -78,7 +78,6 @@ def main(argv):
             logger.info(
                 f'Account {account.key.account_id} balance after initialization: {account.get_amount_yoctonear()}'
             )
-            mocknet_helpers.wait_at_least_one_block()
 
     total_tx_sent = 0
     start_time = time.monotonic()

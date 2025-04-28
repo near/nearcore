@@ -201,10 +201,9 @@ def send_random_transactions(test_state):
 
 
 def init_ft(node_account):
-    tx_res = node_account.send_deploy_contract_tx(
+    tx_res = node_account.send_deploy_contract_tx_sync(
         '/home/ubuntu/fungible_token.wasm')
     logger.info(f'ft deployment {tx_res}')
-    mocknet_helpers.wait_at_least_one_block()
 
     s = f'{{"owner_id": "{node_account.key.account_id}", "total_supply": "{10**33}"}}'
     tx_res = node_account.send_call_contract_raw_tx(node_account.key.account_id,
@@ -215,24 +214,18 @@ def init_ft(node_account):
 
 def init_ft_account(node_account, account):
     s = f'{{"account_id": "{account.key.account_id}"}}'
-    tx_res = account.send_call_contract_raw_tx(node_account.key.account_id,
-                                               'storage_deposit',
-                                               s.encode('utf-8'),
-                                               (10**24) // 800)
+    tx_res = account.send_call_contract_raw_tx_sync(node_account.key.account_id,
+                                                    'storage_deposit',
+                                                    s.encode('utf-8'),
+                                                    (10**24) // 800)
     logger.info(f'Account {account.key.account_id} storage_deposit {tx_res}')
-
-    # The next transaction depends on the previous transaction succeeded.
-    # Sleeping for 1 second is the poor man's solution for waiting for that transaction to succeed.
-    # This works because the contracts are being deployed slow enough to keep block production above 1 bps.
-    mocknet_helpers.wait_at_least_one_block()
 
     s = f'{{"receiver_id": "{account.key.account_id}", "amount": "{10**18}"}}'
     logger.info(
         f'Calling function "ft_transfer" with arguments {s} on account {account.key.account_id}'
     )
-    tx_res = node_account.send_call_contract_raw_tx(node_account.key.account_id,
-                                                    'ft_transfer',
-                                                    s.encode('utf-8'), 1)
+    tx_res = node_account.send_call_contract_raw_tx_sync(
+        node_account.key.account_id, 'ft_transfer', s.encode('utf-8'), 1)
     logger.info(
         f'{node_account.key.account_id} ft_transfer to {account.key.account_id} {tx_res}'
     )

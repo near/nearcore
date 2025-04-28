@@ -87,19 +87,6 @@ def retry_and_ignore_errors(f):
     return None
 
 
-def wait_at_least_one_block():
-    status = get_status()
-    start_height = status['sync_info']['latest_block_height']
-    timeout_sec = 5
-    started = time.monotonic()
-    while time.monotonic() - started < timeout_sec:
-        status = get_status()
-        height = status['sync_info']['latest_block_height']
-        if height > start_height:
-            break
-        time.sleep(1.0)
-
-
 def get_amount_yoctonear(account_id, addr=LOCAL_ADDR, port=RPC_PORT):
     j = json_rpc('query', {
         'request_type': 'view_account',

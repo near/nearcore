@@ -60,12 +60,18 @@ class Account:
         return json.loads(r.content)
 
     def send_tx(self, signed_tx):
-        return self.json_rpc('broadcast_tx_async',
-                             [base64.b64encode(signed_tx).decode('utf-8')])
+        params = {
+            'signed_tx_base64': base64.b64encode(signed_tx).decode('utf8'),
+            "wait_until": "None"
+        }
+        return self.json_rpc('send_tx', params)
 
     def send_tx_sync(self, signed_tx):
-        return self.json_rpc('broadcast_tx_commit',
-                             [base64.b64encode(signed_tx).decode('utf-8')])
+        params = {
+            'signed_tx_base64': base64.b64encode(signed_tx).decode('utf8'),
+            "wait_until": "EXECUTED"
+        }
+        return self.json_rpc('send_tx', params)
 
     def prep_tx(self):
         self.tx_timestamps.append(time.time())
@@ -87,6 +93,13 @@ class Account:
         tx = sign_deploy_contract_tx(self.key, wasm_binary, self.nonce,
                                      base_block_hash or self.base_block_hash)
         return self.send_tx(tx)
+
+    def send_deploy_contract_tx_sync(self, wasm_filename, base_block_hash=None):
+        wasm_binary = load_binary_file(wasm_filename)
+        self.prep_tx()
+        tx = sign_deploy_contract_tx(self.key, wasm_binary, self.nonce,
+                                     base_block_hash or self.base_block_hash)
+        return self.send_tx_sync(tx)
 
     def send_call_contract_tx(self, method_name, args, base_block_hash=None):
         return self.send_call_contract_raw_tx(self.key.account_id,
