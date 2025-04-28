@@ -30,6 +30,7 @@ pub struct WasmFeatures {
 }
 
 impl WasmFeatures {
+    #[allow(unused)]
     pub fn new(config: &vm::Config) -> Self {
         Self { saturating_float_to_int: config.saturating_float_to_int }
     }
