@@ -157,7 +157,7 @@ fn test_expired_tx() {
                                         .broadcast_tx_commit(to_base64(&bytes))
                                         .map_err(|err| {
                                             assert_eq!(
-                                                err.data.unwrap(),
+                                                *err.data.unwrap(),
                                                 serde_json::json!({"TxExecutionError": {
                                                     "InvalidTxError": "Expired"
                                                 }})

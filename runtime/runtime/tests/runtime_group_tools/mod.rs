@@ -7,13 +7,12 @@ use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
 use near_primitives::congestion_info::{BlockCongestionInfo, ExtendedCongestionInfo};
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::receipt::Receipt;
-use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::state_record::{StateRecord, state_record_to_account_id};
 use near_primitives::test_utils::MockEpochInfoProvider;
 use near_primitives::transaction::{ExecutionOutcomeWithId, SignedTransaction};
 use near_primitives::types::{AccountId, AccountInfo, Balance};
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
+use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives_core::account::id::AccountIdRef;
 use near_store::ShardTries;
 use near_store::genesis::GenesisStateApplier;
@@ -93,16 +92,12 @@ impl StandaloneRuntime {
             &genesis,
             account_ids,
         );
-        let congestion_info = if ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
-            genesis
-                .config
-                .shard_layout
-                .shard_ids()
-                .map(|shard_id| (shard_id, ExtendedCongestionInfo::default()))
-                .collect()
-        } else {
-            Default::default()
-        };
+        let congestion_info = genesis
+            .config
+            .shard_layout
+            .shard_ids()
+            .map(|shard_id| (shard_id, ExtendedCongestionInfo::default()))
+            .collect();
         let congestion_info = BlockCongestionInfo::new(congestion_info);
 
         let apply_state = ApplyState {
@@ -121,10 +116,9 @@ impl StandaloneRuntime {
             config: Arc::new(runtime_config),
             cache: None,
             is_new_chunk: true,
-            migration_data: Arc::new(MigrationData::default()),
-            migration_flags: MigrationFlags::default(),
             congestion_info,
             bandwidth_requests: BlockBandwidthRequests::empty(),
+            trie_access_tracker_state: Default::default(),
         };
 
         Self {
@@ -168,11 +162,11 @@ impl StandaloneRuntime {
         store_update.commit().unwrap();
         self.apply_state.block_height += 1;
 
-        if let Some(bandwidth_requests) = apply_result.bandwidth_requests {
-            self.apply_state.bandwidth_requests = BlockBandwidthRequests {
-                shards_bandwidth_requests: [(shard_id, bandwidth_requests)].into_iter().collect(),
-            }
-        }
+        self.apply_state.bandwidth_requests = BlockBandwidthRequests {
+            shards_bandwidth_requests: [(shard_id, apply_result.bandwidth_requests)]
+                .into_iter()
+                .collect(),
+        };
 
         let mut has_queued_receipts = false;
         if let Some(congestion_info) = apply_result.congestion_info {

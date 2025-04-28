@@ -4,6 +4,8 @@ use crate::hash::{CryptoHash, hash};
 use crate::merkle::{MerklePath, combine_hash, merklize, verify_path};
 use crate::receipt::Receipt;
 use crate::transaction::SignedTransaction;
+#[cfg(feature = "solomon")]
+use crate::transaction::ValidatedTransaction;
 use crate::types::validator_stake::{ValidatorStake, ValidatorStakeIter, ValidatorStakeV1};
 use crate::types::{Balance, BlockHeight, Gas, MerkleHash, ShardId, StateRoot};
 use crate::validator_signer::{EmptyValidatorSigner, ValidatorSigner};
@@ -11,7 +13,6 @@ use crate::version::ProtocolVersion;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::Signature;
 use near_fmt::AbbrBytes;
-use near_primitives_core::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_schema_checker_lib::ProtocolSchema;
 use shard_chunk_header_inner::ShardChunkHeaderInnerV4;
 use std::cmp::Ordering;
@@ -233,7 +234,6 @@ impl ShardChunkHeaderV3 {
     }
 
     pub fn new(
-        protocol_version: ProtocolVersion,
         prev_block_hash: CryptoHash,
         prev_state_root: StateRoot,
         prev_outcome_root: CryptoHash,
@@ -247,70 +247,27 @@ impl ShardChunkHeaderV3 {
         prev_outgoing_receipts_root: CryptoHash,
         tx_root: CryptoHash,
         prev_validator_proposals: Vec<ValidatorStake>,
-        congestion_info: Option<CongestionInfo>,
-        bandwidth_requests: Option<BandwidthRequests>,
+        congestion_info: CongestionInfo,
+        bandwidth_requests: BandwidthRequests,
         signer: &ValidatorSigner,
     ) -> Self {
-        let inner = if let Some(bandwidth_requests) = bandwidth_requests {
-            // `bandwidth_requests` can only be `Some` when bandwidth scheduler is enabled.
-            assert!(ProtocolFeature::BandwidthScheduler.enabled(protocol_version));
-
-            // Congestion control has to be enabled before bandwidth scheduler
-            assert!(ProtocolFeature::CongestionControl.enabled(protocol_version));
-            ShardChunkHeaderInner::V4(ShardChunkHeaderInnerV4 {
-                prev_block_hash,
-                prev_state_root,
-                prev_outcome_root,
-                encoded_merkle_root,
-                encoded_length,
-                height_created: height,
-                shard_id,
-                prev_gas_used,
-                gas_limit,
-                prev_balance_burnt,
-                prev_outgoing_receipts_root,
-                tx_root,
-                prev_validator_proposals,
-                congestion_info: congestion_info
-                    .expect("Congestion info must exist when bandwidth scheduler is enabled"),
-                bandwidth_requests,
-            })
-        } else if let Some(congestion_info) = congestion_info {
-            // `congestion_info`` can only be `Some` when congestion control is enabled.
-            assert!(ProtocolFeature::CongestionControl.enabled(protocol_version));
-            ShardChunkHeaderInner::V3(ShardChunkHeaderInnerV3 {
-                prev_block_hash,
-                prev_state_root,
-                prev_outcome_root,
-                encoded_merkle_root,
-                encoded_length,
-                height_created: height,
-                shard_id,
-                prev_gas_used,
-                gas_limit,
-                prev_balance_burnt,
-                prev_outgoing_receipts_root,
-                tx_root,
-                prev_validator_proposals,
-                congestion_info,
-            })
-        } else {
-            ShardChunkHeaderInner::V2(ShardChunkHeaderInnerV2 {
-                prev_block_hash,
-                prev_state_root,
-                prev_outcome_root,
-                encoded_merkle_root,
-                encoded_length,
-                height_created: height,
-                shard_id,
-                prev_gas_used,
-                gas_limit,
-                prev_balance_burnt,
-                prev_outgoing_receipts_root,
-                tx_root,
-                prev_validator_proposals,
-            })
-        };
+        let inner = ShardChunkHeaderInner::V4(ShardChunkHeaderInnerV4 {
+            prev_block_hash,
+            prev_state_root,
+            prev_outcome_root,
+            encoded_merkle_root,
+            encoded_length,
+            height_created: height,
+            shard_id,
+            prev_gas_used,
+            gas_limit,
+            prev_balance_burnt,
+            prev_outgoing_receipts_root,
+            tx_root,
+            prev_validator_proposals,
+            congestion_info,
+            bandwidth_requests,
+        });
         Self::from_inner(inner, signer)
     }
 
@@ -330,12 +287,9 @@ pub enum ShardChunkHeader {
 
 impl ShardChunkHeader {
     pub fn new_dummy(height: BlockHeight, shard_id: ShardId, prev_block_hash: CryptoHash) -> Self {
-        let congestion_info = ProtocolFeature::CongestionControl
-            .enabled(PROTOCOL_VERSION)
-            .then_some(CongestionInfo::default());
+        let congestion_info = CongestionInfo::default();
 
         ShardChunkHeader::V3(ShardChunkHeaderV3::new(
-            PROTOCOL_VERSION,
             prev_block_hash,
             Default::default(),
             Default::default(),
@@ -350,7 +304,7 @@ impl ShardChunkHeader {
             Default::default(),
             Default::default(),
             congestion_info,
-            BandwidthRequests::default_for_protocol_version(PROTOCOL_VERSION),
+            BandwidthRequests::empty(),
             &EmptyValidatorSigner::default().into(),
         ))
     }
@@ -539,12 +493,13 @@ impl ShardChunkHeader {
         }
     }
 
-    /// Congestion info, if the feature is enabled on the chunk, `None` otherwise.
     #[inline]
-    pub fn congestion_info(&self) -> Option<CongestionInfo> {
+    pub fn congestion_info(&self) -> CongestionInfo {
         match self {
-            ShardChunkHeader::V1(_) => None,
-            ShardChunkHeader::V2(_) => None,
+            ShardChunkHeader::V1(_) | ShardChunkHeader::V2(_) => {
+                debug_assert!(false, "Calling congestion_info on V1 or V2 header version");
+                Default::default()
+            }
             ShardChunkHeader::V3(header) => header.inner.congestion_info(),
         }
     }
@@ -562,32 +517,14 @@ impl ShardChunkHeader {
         &self,
         version: ProtocolVersion,
     ) -> Result<(), BadHeaderForProtocolVersionError> {
-        const BLOCK_HEADER_V3_VERSION: ProtocolVersion =
-            ProtocolFeature::BlockHeaderV3.protocol_version();
-        const CONGESTION_CONTROL_VERSION: ProtocolVersion =
-            ProtocolFeature::CongestionControl.protocol_version();
-        const BANDWIDTH_SCHEDULER_VERSION: ProtocolVersion =
-            ProtocolFeature::BandwidthScheduler.protocol_version();
-
         let is_valid = match &self {
             ShardChunkHeader::V1(_) => false,
-            ShardChunkHeader::V2(_) => version < BLOCK_HEADER_V3_VERSION,
+            ShardChunkHeader::V2(_) => false,
             ShardChunkHeader::V3(header) => match header.inner {
-                ShardChunkHeaderInner::V1(_) => {
-                    version >= BLOCK_HEADER_V3_VERSION && version < CONGESTION_CONTROL_VERSION
-                }
-                // Note that we allow V2 in the congestion control version.
-                // That is because the first chunk where this feature is
-                // enabled does not have the congestion info.
-                // In bandwidth scheduler version v3 and v4 are allowed. The first chunk in
-                // the bandwidth scheduler version will be v3 because the chunk extra for the
-                // last chunk of previous version doesn't have bandwidth requests.
-                // v2 is also allowed in the bandwidth scheduler version because there
-                // are multiple tests which upgrade from an old version directly to the
-                // latest version. TODO(#12328) - don't allow InnerV2 in bandwidth scheduler version.
-                ShardChunkHeaderInner::V2(_) => version >= BLOCK_HEADER_V3_VERSION,
-                ShardChunkHeaderInner::V3(_) => version >= CONGESTION_CONTROL_VERSION,
-                ShardChunkHeaderInner::V4(_) => version >= BANDWIDTH_SCHEDULER_VERSION,
+                ShardChunkHeaderInner::V1(_) => false,
+                ShardChunkHeaderInner::V2(_) => false,
+                ShardChunkHeaderInner::V3(_) => false,
+                ShardChunkHeaderInner::V4(_) => true,
             },
         };
 
@@ -727,6 +664,19 @@ impl PartialEncodedChunk {
                 Self::V1(PartialEncodedChunkV1 { header, parts, prev_outgoing_receipts })
             }
             header => Self::V2(PartialEncodedChunkV2 { header, parts, prev_outgoing_receipts }),
+        }
+    }
+
+    pub fn into_parts_and_receipt_proofs(
+        self,
+    ) -> (impl Iterator<Item = PartialEncodedChunkPart>, impl Iterator<Item = ReceiptProof>) {
+        match self {
+            Self::V1(PartialEncodedChunkV1 { header: _, parts, prev_outgoing_receipts }) => {
+                (parts.into_iter(), prev_outgoing_receipts.into_iter())
+            }
+            Self::V2(PartialEncodedChunkV2 { header: _, parts, prev_outgoing_receipts }) => {
+                (parts.into_iter(), prev_outgoing_receipts.into_iter())
+            }
         }
     }
 
@@ -1031,10 +981,17 @@ impl ShardChunk {
     }
 
     #[inline]
-    pub fn transactions(&self) -> &[SignedTransaction] {
+    pub fn to_transactions(&self) -> &[SignedTransaction] {
         match self {
             Self::V1(chunk) => &chunk.transactions,
             Self::V2(chunk) => &chunk.transactions,
+        }
+    }
+
+    pub fn into_transactions(self) -> Vec<SignedTransaction> {
+        match self {
+            Self::V1(chunk) => chunk.transactions,
+            Self::V2(chunk) => chunk.transactions,
         }
     }
 
@@ -1088,7 +1045,7 @@ impl EncodedShardChunkBody {
     pub fn num_fetched_parts(&self) -> usize {
         let mut fetched_parts: usize = 0;
 
-        for part in self.parts.iter() {
+        for part in &self.parts {
             if part.is_some() {
                 fetched_parts += 1;
             }
@@ -1211,68 +1168,43 @@ impl EncodedShardChunk {
         prev_balance_burnt: Balance,
         tx_root: CryptoHash,
         prev_validator_proposals: Vec<ValidatorStake>,
-        transactions: Vec<SignedTransaction>,
-        prev_outgoing_receipts: &[Receipt],
+        validated_txs: Vec<ValidatedTransaction>,
+        prev_outgoing_receipts: Vec<Receipt>,
         prev_outgoing_receipts_root: CryptoHash,
-        congestion_info: Option<CongestionInfo>,
-        bandwidth_requests: Option<BandwidthRequests>,
+        congestion_info: CongestionInfo,
+        bandwidth_requests: BandwidthRequests,
         signer: &ValidatorSigner,
-        protocol_version: ProtocolVersion,
-    ) -> (Self, Vec<MerklePath>) {
-        let (transaction_receipts_parts, encoded_length) = crate::reed_solomon::reed_solomon_encode(
-            rs,
-            &TransactionReceipt(transactions, prev_outgoing_receipts.to_vec()),
-        );
-        let content = EncodedShardChunkBody { parts: transaction_receipts_parts };
+    ) -> (Self, Vec<MerklePath>, Vec<Receipt>) {
+        let signed_txs =
+            validated_txs.into_iter().map(|validated_tx| validated_tx.into_signed_tx()).collect();
+        let transaction_receipt = TransactionReceipt(signed_txs, prev_outgoing_receipts);
+        let (parts, encoded_length) =
+            crate::reed_solomon::reed_solomon_encode(rs, &transaction_receipt);
+        let TransactionReceipt(_signed_txs, prev_outgoing_receipts) = transaction_receipt;
+
+        let content = EncodedShardChunkBody { parts };
         let (encoded_merkle_root, merkle_paths) = content.get_merkle_hash_and_paths();
 
-        let block_header_v3_version = Some(ProtocolFeature::BlockHeaderV3.protocol_version());
-
-        if block_header_v3_version.is_none() || protocol_version < block_header_v3_version.unwrap()
-        {
-            let validator_proposals =
-                prev_validator_proposals.into_iter().map(|v| v.into_v1()).collect();
-            let header = ShardChunkHeaderV2::new(
-                prev_block_hash,
-                prev_state_root,
-                prev_outcome_root,
-                encoded_merkle_root,
-                encoded_length as u64,
-                height,
-                shard_id,
-                prev_gas_used,
-                gas_limit,
-                prev_balance_burnt,
-                prev_outgoing_receipts_root,
-                tx_root,
-                validator_proposals,
-                signer,
-            );
-            let chunk = EncodedShardChunkV2 { header: ShardChunkHeader::V2(header), content };
-            (Self::V2(chunk), merkle_paths)
-        } else {
-            let header = ShardChunkHeaderV3::new(
-                protocol_version,
-                prev_block_hash,
-                prev_state_root,
-                prev_outcome_root,
-                encoded_merkle_root,
-                encoded_length as u64,
-                height,
-                shard_id,
-                prev_gas_used,
-                gas_limit,
-                prev_balance_burnt,
-                prev_outgoing_receipts_root,
-                tx_root,
-                prev_validator_proposals,
-                congestion_info,
-                bandwidth_requests,
-                signer,
-            );
-            let chunk = EncodedShardChunkV2 { header: ShardChunkHeader::V3(header), content };
-            (Self::V2(chunk), merkle_paths)
-        }
+        let header = ShardChunkHeader::V3(ShardChunkHeaderV3::new(
+            prev_block_hash,
+            prev_state_root,
+            prev_outcome_root,
+            encoded_merkle_root,
+            encoded_length as u64,
+            height,
+            shard_id,
+            prev_gas_used,
+            gas_limit,
+            prev_balance_burnt,
+            prev_outgoing_receipts_root,
+            tx_root,
+            prev_validator_proposals,
+            congestion_info,
+            bandwidth_requests,
+            signer,
+        ));
+        let encoded_chunk = Self::V2(EncodedShardChunkV2 { header, content });
+        (encoded_chunk, merkle_paths, prev_outgoing_receipts)
     }
 
     pub fn chunk_hash(&self) -> ChunkHash {
@@ -1342,11 +1274,10 @@ impl EncodedShardChunk {
         PartialEncodedChunkWithArcReceipts { header, parts, prev_outgoing_receipts }
     }
 
-    pub fn decode_chunk(&self, data_parts: usize) -> Result<ShardChunk, std::io::Error> {
+    pub fn decode_chunk(&self) -> Result<ShardChunk, std::io::Error> {
         let _span = debug_span!(
             target: "sharding",
             "decode_chunk",
-            data_parts,
             height_included = self.cloned_header().height_included(),
             shard_id = ?self.cloned_header().shard_id(),
             chunk_hash = ?self.chunk_hash())

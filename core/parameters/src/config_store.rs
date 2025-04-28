@@ -56,6 +56,7 @@ static CONFIG_DIFFS: &[(ProtocolVersion, &str)] = &[
     (74, include_config!("74.yaml")),
     (77, include_config!("77.yaml")),
     (129, include_config!("129.yaml")),
+    (149, include_config!("149.yaml")),
 ];
 
 /// Testnet parameters for versions <= 29, which (incorrectly) differed from mainnet parameters
@@ -194,9 +195,11 @@ impl RuntimeConfigStore {
             near_primitives_core::chains::CONGESTION_CONTROL_TEST => {
                 let mut config_store = Self::new(None);
 
-                // Get the original congestion control config. The nayduck tests
-                // are tuned to this config.
-                let source_protocol_version = ProtocolFeature::CongestionControl.protocol_version();
+                // TODO(limited_replayability): Move tests to use config from latest protocol version.
+                // Get the original congestion control config. The nayduck tests are tuned to this config.
+                #[allow(deprecated)]
+                let source_protocol_version =
+                    ProtocolFeature::_DeprecatedCongestionControl.protocol_version();
                 let source_runtime_config = config_store.get_config(source_protocol_version);
 
                 let mut config = RuntimeConfig::clone(config_store.get_config(PROTOCOL_VERSION));
@@ -252,13 +255,10 @@ impl RuntimeConfigStore {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use near_primitives_core::version::ProtocolFeature::{
-        DecreaseFunctionCallBaseCost, LowerStorageKeyLimit,
-    };
+    use crate::cost::ActionCosts;
     use std::collections::HashSet;
 
     const GENESIS_PROTOCOL_VERSION: ProtocolVersion = 29;
-    const RECEIPTS_DEPTH: u64 = 63;
 
     #[test]
     fn all_configs_are_specified() {
@@ -289,26 +289,6 @@ mod tests {
     }
 
     #[test]
-    fn test_max_prepaid_gas() {
-        let store = RuntimeConfigStore::new(None);
-        for (protocol_version, config) in store.store.iter() {
-            if *protocol_version >= DecreaseFunctionCallBaseCost.protocol_version() {
-                continue;
-            }
-
-            // TODO(#10955): Enforce the depth limit directly, regardless of the gas costs.
-            assert!(
-                config.wasm_config.limit_config.max_total_prepaid_gas
-                    / config.fees.min_receipt_with_function_call_gas()
-                    <= 63,
-                "The maximum desired depth of receipts for protocol version {} should be at most {}",
-                protocol_version,
-                RECEIPTS_DEPTH
-            );
-        }
-    }
-
-    #[test]
     fn test_override_account_length() {
         // Check that default value is 32.
         let base_store = RuntimeConfigStore::new(None);
@@ -324,43 +304,38 @@ mod tests {
         assert_eq!(new_cfg.account_creation_config.min_allowed_top_level_account_length, 0);
     }
 
-    // Check that for protocol version with lowered data receipt cost, runtime config passed to
-    // config store is overridden.
     #[test]
-    #[cfg(not(feature = "calimero_zero_storage"))]
-    fn test_override_runtime_config() {
-        use crate::ActionCosts;
-        use near_primitives_core::version::ProtocolFeature::LowerDataReceiptAndEcrecoverBaseCost;
-
-        let store = RuntimeConfigStore::new(None);
-        let config = store.get_config(0);
-
-        let mut base_params = BASE_CONFIG.parse().unwrap();
+    fn test_parameter_merging() {
+        let mut base_params: ParameterTable = BASE_CONFIG.parse().unwrap();
         let base_config = RuntimeConfig::new(&base_params).unwrap();
-        assert_eq!(config.as_ref(), &base_config);
-        assert_eq!(base_config.storage_amount_per_byte(), 100_000_000_000_000_000_000u128);
-        let expected_config = RuntimeConfig::new(&base_params).unwrap();
-        assert_eq!(**config, expected_config);
 
-        let config = store.get_config(LowerDataReceiptAndEcrecoverBaseCost.protocol_version());
-        assert_eq!(config.fees.fee(ActionCosts::new_data_receipt_base).send_sir, 36_486_732_312);
-        for (ver, diff) in &CONFIG_DIFFS[..] {
-            if *ver <= LowerDataReceiptAndEcrecoverBaseCost.protocol_version() {
-                base_params.apply_diff(diff.parse().unwrap()).unwrap();
-            }
+        let mock_diff_str = r#"
+        max_length_storage_key: { old: 4_194_304, new: 42 }
+        action_receipt_creation: {
+          old: {
+            send_sir: 108_059_500_000,
+            send_not_sir: 108_059_500_000,
+            execution: 108_059_500_000,
+          },
+          new: {
+            send_sir: 100000000,
+            send_not_sir: 108_059_500_000,
+            execution: 108_059_500_000,
+          },
         }
-        let expected_config = RuntimeConfig::new(&base_params).unwrap();
-        assert_eq!(config.as_ref(), &expected_config);
-    }
+        "#;
 
-    #[test]
-    fn test_lower_max_length_storage_key() {
-        let store = RuntimeConfigStore::new(None);
-        let base_cfg = store.get_config(LowerStorageKeyLimit.protocol_version() - 1);
-        let new_cfg = store.get_config(LowerStorageKeyLimit.protocol_version());
-        assert!(
-            base_cfg.wasm_config.limit_config.max_length_storage_key
-                > new_cfg.wasm_config.limit_config.max_length_storage_key
+        let mock_diff: ParameterTableDiff = mock_diff_str.parse().unwrap();
+
+        base_params.apply_diff(mock_diff).unwrap();
+        let modified_config = RuntimeConfig::new(&base_params).unwrap();
+
+        assert_eq!(modified_config.wasm_config.limit_config.max_length_storage_key, 42);
+        assert_eq!(modified_config.fees.fee(ActionCosts::new_action_receipt).send_sir, 100000000);
+
+        assert_eq!(
+            base_config.storage_amount_per_byte(),
+            modified_config.storage_amount_per_byte()
         );
     }
 
@@ -433,7 +408,7 @@ mod tests {
     #[cfg(feature = "calimero_zero_storage")]
     fn test_calimero_storage_costs_zero() {
         let store = RuntimeConfigStore::new(None);
-        for (_, config) in store.store.iter() {
+        for (_, config) in &store.store {
             assert_eq!(config.storage_amount_per_byte(), 0u128);
         }
     }

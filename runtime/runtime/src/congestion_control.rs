@@ -24,19 +24,11 @@ use near_store::trie::receipts_column_helper::{
     DelayedReceiptQueue, ShardsOutgoingReceiptBuffer, TrieQueue,
 };
 use near_store::{StorageError, TrieAccess, TrieUpdate};
-use near_vm_runner::logic::ProtocolVersion;
 use std::borrow::Cow;
 use std::collections::{BTreeSet, HashMap};
 
-/// Handle receipt forwarding for different protocol versions.
 pub enum ReceiptSink {
-    V1(ReceiptSinkV1),
     V2(ReceiptSinkV2),
-}
-
-/// Always put receipt to the outgoing receipts.
-pub struct ReceiptSinkV1 {
-    pub(crate) outgoing_receipts: Vec<Receipt>,
 }
 
 /// A helper struct to buffer or forward receipts.
@@ -58,8 +50,7 @@ pub struct ReceiptSinkV2 {
     pub(crate) outgoing_limit: HashMap<ShardId, OutgoingLimit>,
     pub(crate) outgoing_buffers: ShardsOutgoingReceiptBuffer,
     pub(crate) outgoing_metadatas: OutgoingMetadatas,
-    pub(crate) bandwidth_scheduler_output: Option<BandwidthSchedulerOutput>,
-    pub(crate) protocol_version: ProtocolVersion,
+    pub(crate) bandwidth_scheduler_output: BandwidthSchedulerOutput,
     pub(crate) stats: ReceiptSinkStats,
 }
 
@@ -78,75 +69,59 @@ enum ReceiptForwarding {
 
 impl ReceiptSink {
     pub(crate) fn new(
-        protocol_version: ProtocolVersion,
         trie: &dyn TrieAccess,
         apply_state: &ApplyState,
-        prev_own_congestion_info: Option<CongestionInfo>,
-        bandwidth_scheduler_output: Option<BandwidthSchedulerOutput>,
+        prev_own_congestion_info: CongestionInfo,
+        bandwidth_scheduler_output: BandwidthSchedulerOutput,
     ) -> Result<Self, StorageError> {
-        if let Some(own_congestion_info) = prev_own_congestion_info {
-            debug_assert!(ProtocolFeature::CongestionControl.enabled(protocol_version));
-            let outgoing_buffers = ShardsOutgoingReceiptBuffer::load(trie)?;
+        let outgoing_buffers = ShardsOutgoingReceiptBuffer::load(trie)?;
 
-            let outgoing_limit: HashMap<ShardId, OutgoingLimit> = apply_state
-                .congestion_info
-                .iter()
-                .map(|(&shard_id, congestion)| {
-                    let other_congestion_control = CongestionControl::new(
-                        apply_state.config.congestion_control_config,
-                        congestion.congestion_info,
-                        congestion.missed_chunks_count,
-                    );
-                    let gas_limit = if shard_id != apply_state.shard_id {
-                        other_congestion_control.outgoing_gas_limit(apply_state.shard_id)
-                    } else {
-                        // No gas limits on receipts that stay on the same shard. Backpressure
-                        // wouldn't help, the receipt takes the same memory if buffered or
-                        // in the delayed receipts queue.
-                        Gas::MAX
-                    };
+        let outgoing_limit: HashMap<ShardId, OutgoingLimit> = apply_state
+            .congestion_info
+            .iter()
+            .map(|(&shard_id, congestion)| {
+                let other_congestion_control = CongestionControl::new(
+                    apply_state.config.congestion_control_config,
+                    congestion.congestion_info,
+                    congestion.missed_chunks_count,
+                );
+                let gas_limit = if shard_id != apply_state.shard_id {
+                    other_congestion_control.outgoing_gas_limit(apply_state.shard_id)
+                } else {
+                    // No gas limits on receipts that stay on the same shard. Backpressure
+                    // wouldn't help, the receipt takes the same memory if buffered or
+                    // in the delayed receipts queue.
+                    Gas::MAX
+                };
 
-                    let size_limit =
-                        if ProtocolFeature::BandwidthScheduler.enabled(protocol_version) {
-                            bandwidth_scheduler_output
-                                .as_ref()
-                                .expect("BandwidthScheduler is enabled and should produce output")
-                                .granted_bandwidth
-                                .get_granted_bandwidth(apply_state.shard_id, shard_id)
-                        } else {
-                            other_congestion_control.outgoing_size_limit(apply_state.shard_id)
-                        };
+                let size_limit = bandwidth_scheduler_output
+                    .granted_bandwidth
+                    .get_granted_bandwidth(apply_state.shard_id, shard_id);
 
-                    (shard_id, OutgoingLimit { gas: gas_limit, size: size_limit })
-                })
-                .collect();
+                (shard_id, OutgoingLimit { gas: gas_limit, size: size_limit })
+            })
+            .collect();
 
-            let outgoing_metadatas = OutgoingMetadatas::load(
-                trie,
-                outgoing_buffers.shards(),
-                ReceiptGroupsConfig::default_config(),
-                apply_state.current_protocol_version,
-            )?;
+        let outgoing_metadatas = OutgoingMetadatas::load(
+            trie,
+            outgoing_buffers.shards(),
+            ReceiptGroupsConfig::default_config(),
+        )?;
 
-            let mut stats = ReceiptSinkStats::default();
-            stats.set_outgoing_limits(
-                outgoing_limit.iter().map(|(shard_id, limit)| (*shard_id, (limit.size, limit.gas))),
-            );
+        let mut stats = ReceiptSinkStats::default();
+        stats.set_outgoing_limits(
+            outgoing_limit.iter().map(|(shard_id, limit)| (*shard_id, (limit.size, limit.gas))),
+        );
 
-            Ok(ReceiptSink::V2(ReceiptSinkV2 {
-                own_congestion_info,
-                outgoing_receipts: Vec::new(),
-                outgoing_limit,
-                outgoing_buffers,
-                outgoing_metadatas,
-                bandwidth_scheduler_output,
-                protocol_version,
-                stats,
-            }))
-        } else {
-            debug_assert!(!ProtocolFeature::CongestionControl.enabled(protocol_version));
-            Ok(ReceiptSink::V1(ReceiptSinkV1 { outgoing_receipts: Vec::new() }))
-        }
+        Ok(ReceiptSink::V2(ReceiptSinkV2 {
+            own_congestion_info: prev_own_congestion_info,
+            outgoing_receipts: Vec::new(),
+            outgoing_limit,
+            outgoing_buffers,
+            outgoing_metadatas,
+            bandwidth_scheduler_output,
+            stats,
+        }))
     }
 
     /// Forward receipts already in the buffer to the outgoing receipts vector, as
@@ -158,7 +133,6 @@ impl ReceiptSink {
         epoch_info_provider: &dyn EpochInfoProvider,
     ) -> Result<(), RuntimeError> {
         match self {
-            ReceiptSink::V1(_inner) => Ok(()),
             ReceiptSink::V2(inner) => {
                 inner.forward_from_buffer(state_update, apply_state, epoch_info_provider)
             }
@@ -176,10 +150,6 @@ impl ReceiptSink {
         epoch_info_provider: &dyn EpochInfoProvider,
     ) -> Result<(), RuntimeError> {
         match self {
-            ReceiptSink::V1(inner) => {
-                inner.forward(receipt);
-                Ok(())
-            }
             ReceiptSink::V2(inner) => inner.forward_or_buffer_receipt(
                 receipt,
                 apply_state,
@@ -196,7 +166,6 @@ impl ReceiptSink {
         stats: &mut ReceiptSinkStats,
     ) -> Vec<Receipt> {
         match self {
-            ReceiptSink::V1(inner) => inner.outgoing_receipts,
             ReceiptSink::V2(mut inner) => {
                 inner.record_outgoing_buffer_stats();
                 *stats = inner.stats;
@@ -205,17 +174,15 @@ impl ReceiptSink {
         }
     }
 
-    pub(crate) fn own_congestion_info(&self) -> Option<CongestionInfo> {
+    pub(crate) fn own_congestion_info(&self) -> CongestionInfo {
         match self {
-            ReceiptSink::V1(_) => None,
-            ReceiptSink::V2(inner) => Some(inner.own_congestion_info),
+            ReceiptSink::V2(inner) => inner.own_congestion_info,
         }
     }
 
-    pub(crate) fn bandwidth_scheduler_output(&self) -> Option<&BandwidthSchedulerOutput> {
+    pub(crate) fn bandwidth_scheduler_output(&self) -> &BandwidthSchedulerOutput {
         match self {
-            ReceiptSink::V1(_) => None,
-            ReceiptSink::V2(inner) => inner.bandwidth_scheduler_output.as_ref(),
+            ReceiptSink::V2(inner) => &inner.bandwidth_scheduler_output,
         }
     }
 
@@ -226,20 +193,12 @@ impl ReceiptSink {
         shard_layout: &ShardLayout,
         side_effects: bool,
         stats: &mut ChunkApplyStatsV0,
-    ) -> Result<Option<BandwidthRequests>, StorageError> {
+    ) -> Result<BandwidthRequests, StorageError> {
         match self {
-            ReceiptSink::V1(_) => Ok(None),
             ReceiptSink::V2(inner) => {
                 inner.generate_bandwidth_requests(trie, shard_layout, side_effects, stats)
             }
         }
-    }
-}
-
-impl ReceiptSinkV1 {
-    /// V1 can only forward receipts.
-    pub(crate) fn forward(&mut self, receipt: Receipt) {
-        self.outgoing_receipts.push(receipt);
     }
 }
 
@@ -445,27 +404,14 @@ impl ReceiptSinkV2 {
         // limit" is the safest approach to ensure availability.
         let default_gas_limit = Gas::MAX;
 
-        let default_size_limit =
-            if ProtocolFeature::BandwidthScheduler.enabled(apply_state.current_protocol_version) {
-                // With bandwidth scheduler, a shard is not allowed to send any receipts if it doesn't have a grant.
-                0
-            } else {
-                // Use the usual size limit that most senders have
-                apply_state.config.congestion_control_config.outgoing_receipts_usual_size_limit
-            };
+        // Since bandwidth scheduler, a shard is not allowed to send any receipts if it doesn't have a grant.
+        let default_size_limit = 0;
 
         let default_outgoing_limit =
             OutgoingLimit { gas: default_gas_limit, size: default_size_limit };
         let forward_limit = outgoing_limit.entry(shard).or_insert(default_outgoing_limit);
 
-        let can_forward =
-            if ProtocolFeature::BandwidthScheduler.enabled(apply_state.current_protocol_version) {
-                forward_limit.gas >= gas && forward_limit.size >= size
-            } else {
-                forward_limit.gas > gas && forward_limit.size > size
-            };
-
-        if can_forward {
+        if forward_limit.gas >= gas && forward_limit.size >= size {
             tracing::trace!(target: "runtime", ?shard, receipt_id=?receipt.receipt_id(), "forwarding buffered receipt");
             outgoing_receipts.push(receipt);
             // underflow impossible: checked forward_limit > gas/size_to_forward above
@@ -494,8 +440,7 @@ impl ReceiptSinkV2 {
             true => {
                 let metadata =
                     StateStoredReceiptMetadata { congestion_gas: gas, congestion_size: size };
-                let receipt =
-                    StateStoredReceipt::new_owned(receipt, metadata, self.protocol_version);
+                let receipt = StateStoredReceipt::new_owned(receipt, metadata);
                 let receipt = ReceiptOrStateStoredReceipt::StateStoredReceipt(receipt);
                 receipt
             }
@@ -525,33 +470,21 @@ impl ReceiptSinkV2 {
         shard_layout: &ShardLayout,
         side_effects: bool,
         stats: &mut ChunkApplyStatsV0,
-    ) -> Result<Option<BandwidthRequests>, StorageError> {
-        if !ProtocolFeature::BandwidthScheduler.enabled(self.protocol_version) {
-            return Ok(None);
-        }
-
-        let params = self
-            .bandwidth_scheduler_output
-            .as_ref()
-            .expect("BandwidthScheduler is enabled and should produce params")
-            .params;
+    ) -> Result<BandwidthRequests, StorageError> {
+        let params = &self.bandwidth_scheduler_output.params;
 
         let mut requests = Vec::new();
         for shard_id in shard_layout.shard_ids() {
-            if let Some(request) = self.generate_bandwidth_request(
-                shard_id,
-                trie,
-                shard_layout,
-                side_effects,
-                &params,
-            )? {
+            if let Some(request) =
+                self.generate_bandwidth_request(shard_id, trie, shard_layout, side_effects, params)?
+            {
                 requests.push(request);
             }
         }
 
         let bandwidth_requests = BandwidthRequests::V1(BandwidthRequestsV1 { requests });
         stats.set_new_bandwidth_requests(&bandwidth_requests, &params);
-        Ok(Some(bandwidth_requests))
+        Ok(bandwidth_requests)
     }
 
     fn generate_bandwidth_request(
@@ -872,11 +805,7 @@ impl<'a> DelayedReceiptQueueWrapper<'a> {
             true => {
                 let metadata =
                     StateStoredReceiptMetadata { congestion_gas: gas, congestion_size: size };
-                let receipt = StateStoredReceipt::new_borrowed(
-                    receipt,
-                    metadata,
-                    apply_state.current_protocol_version,
-                );
+                let receipt = StateStoredReceipt::new_borrowed(receipt, metadata);
                 ReceiptOrStateStoredReceipt::StateStoredReceipt(receipt)
             }
             false => ReceiptOrStateStoredReceipt::Receipt(Cow::Borrowed(receipt)),

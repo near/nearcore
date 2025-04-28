@@ -10,11 +10,11 @@ use crate::prefetch::TriePrefetcher;
 pub use crate::types::SignedValidPeriodTransactions;
 use crate::verifier::{StorageStakingError, check_storage_stake, validate_receipt};
 pub use crate::verifier::{
-    ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT, set_tx_state_changes, validate_transaction,
-    verify_and_charge_tx_ephemeral,
+    ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT, get_signer_and_access_key, set_tx_state_changes,
+    validate_transaction, verify_and_charge_tx_ephemeral,
 };
 use bandwidth_scheduler::{BandwidthSchedulerOutput, run_bandwidth_scheduler};
-use config::{TransactionCost, total_prepaid_send_fees, tx_cost};
+use config::{total_prepaid_send_fees, tx_cost};
 use congestion_control::ReceiptSink;
 pub use congestion_control::bootstrap_congestion_info;
 use global_contracts::{
@@ -24,23 +24,22 @@ use global_contracts::{
 use itertools::Itertools;
 use metrics::ApplyMetrics;
 pub use near_crypto;
+use near_crypto::PublicKey;
 use near_parameters::{ActionCosts, RuntimeConfig};
 pub use near_primitives;
-use near_primitives::account::{AccessKey, Account, AccountContract};
-use near_primitives::action::GlobalContractIdentifier;
+use near_primitives::account::{AccessKey, Account};
 use near_primitives::bandwidth_scheduler::{BandwidthRequests, BlockBandwidthRequests};
 use near_primitives::chunk_apply_stats::ChunkApplyStatsV0;
 use near_primitives::congestion_info::{BlockCongestionInfo, CongestionInfo};
 use near_primitives::errors::{
-    ActionError, ActionErrorKind, EpochError, IntegerOverflowError, InvalidTxError, RuntimeError,
-    TxExecutionError,
+    ActionError, ActionErrorKind, EpochError, IntegerOverflowError, InvalidAccessKeyError,
+    InvalidTxError, RuntimeError, TxExecutionError,
 };
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{
     ActionReceipt, DataReceipt, PromiseYieldIndices, PromiseYieldTimeout, Receipt, ReceiptEnum,
     ReceiptOrStateStoredReceipt, ReceiptV0, ReceivedData,
 };
-use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::state_record::StateRecord;
 use near_primitives::stateless_validation::contract_distribution::ContractUpdates;
@@ -61,14 +60,14 @@ use near_primitives::utils::{
 use near_primitives::version::ProtocolVersion;
 use near_primitives_core::apply::ApplyChunkReason;
 use near_primitives_core::version::ProtocolFeature;
+use near_store::trie::AccessOptions;
 use near_store::trie::receipts_column_helper::DelayedReceiptQueue;
 use near_store::trie::update::TrieUpdateResult;
 use near_store::{
-    KeyLookupMode, PartialStorage, StorageError, Trie, TrieAccess, TrieChanges, TrieUpdate, get,
+    PartialStorage, StorageError, Trie, TrieAccess, TrieChanges, TrieUpdate, get, get_access_key,
     get_account, get_postponed_receipt, get_promise_yield_receipt, get_pure, get_received_data,
-    has_received_data, remove_account, remove_postponed_receipt, remove_promise_yield_receipt, set,
-    set_access_key, set_account, set_postponed_receipt, set_promise_yield_receipt,
-    set_received_data,
+    has_received_data, remove_postponed_receipt, remove_promise_yield_receipt, set, set_access_key,
+    set_account, set_postponed_receipt, set_promise_yield_receipt, set_received_data,
 };
 use near_vm_runner::ContractCode;
 use near_vm_runner::ContractRuntimeCache;
@@ -79,7 +78,8 @@ pub use near_vm_runner::with_ext_cost_counter;
 use pipelining::ReceiptPreparationPipeline;
 use rayon::prelude::*;
 use std::cmp::max;
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::btree_map::Entry;
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 use tracing::{debug, instrument};
 use verifier::ValidateReceiptMode;
@@ -135,13 +135,10 @@ pub struct ApplyState {
     pub config: Arc<RuntimeConfig>,
     /// Cache for compiled contracts.
     pub cache: Option<Box<dyn ContractRuntimeCache>>,
+    /// Cache for trie node accesses.
+    pub trie_access_tracker_state: Arc<ext::AccountingState>,
     /// Whether the chunk being applied is new.
     pub is_new_chunk: bool,
-    /// Data for migrations that may need to be applied at the start of an epoch when protocol
-    /// version changes
-    pub migration_data: Arc<MigrationData>,
-    /// Flags for migrations indicating whether they can be applied at this block
-    pub migration_flags: MigrationFlags,
     /// Congestion level on each shard based on the latest known chunk header of each shard.
     ///
     /// The map must be empty if congestion control is disabled in the previous
@@ -171,6 +168,97 @@ impl ApplyState {
     }
 }
 
+/// Represents a collection of transactions that share the same `signer_id`,
+/// sorted by ascending input order or nonce.
+struct TransactionBatch<'a> {
+    indices: &'a [usize],
+    signed_txs: &'a [SignedTransaction],
+}
+
+impl<'a> TransactionBatch<'a> {
+    fn iter(&self) -> impl Iterator<Item = (usize, &SignedTransaction)> + '_ {
+        self.indices.iter().map(|i| (*i, &self.signed_txs[*i]))
+    }
+
+    fn get_account(&self, state_update: &TrieUpdate) -> Result<Account, InvalidTxError> {
+        debug_assert!(!self.indices.is_empty());
+        let signer_id = self.signed_txs[self.indices[0]].transaction.signer_id();
+        match get_account(state_update, signer_id)? {
+            Some(acc) => Ok(acc),
+            None => Err(InvalidTxError::SignerDoesNotExist { signer_id: signer_id.clone() }),
+        }
+    }
+}
+
+struct TransactionBatches<'a> {
+    signed_txs: &'a [SignedTransaction],
+    indices: Vec<usize>,
+}
+
+impl<'a> TransactionBatches<'a> {
+    pub fn new(signed_txs: &'a [SignedTransaction]) -> Self {
+        let mut indices: Vec<usize> = (0..signed_txs.len()).collect();
+        indices.sort_by_key(|&i| {
+            let tx = &signed_txs[i].transaction;
+            (tx.signer_id().clone(), i)
+        });
+        Self { signed_txs, indices }
+    }
+
+    /// Returns a parallel iterator that yields `TransactionBatch` for each signer.
+    pub fn par_batches(
+        &'a self,
+    ) -> impl rayon::iter::ParallelIterator<Item = TransactionBatch<'a>> + 'a {
+        self.indices
+            .par_chunk_by(|&left, &right| {
+                let left_tx = &self.signed_txs[left].transaction;
+                let right_tx = &self.signed_txs[right].transaction;
+                left_tx.signer_id() == right_tx.signer_id()
+            })
+            .map(|chunk| TransactionBatch { indices: chunk, signed_txs: self.signed_txs })
+    }
+}
+
+/// Holds either a successful or a failed outcome for a single transaction.
+#[derive(Debug)]
+enum PerTransactionResult {
+    Success {
+        validated_tx: Box<ValidatedTransaction>,
+        verification_result: VerificationResult,
+        receipt: Box<Receipt>,
+        outcome: Box<ExecutionOutcomeWithId>,
+    },
+
+    Failure {
+        tx_hash: CryptoHash,
+        error: InvalidTxError,
+    },
+}
+
+#[derive(Debug)]
+struct ProcessedTransaction {
+    /// Index of the transaction in the incoming transactions slice.
+    index: usize,
+    result: PerTransactionResult,
+}
+
+#[derive(Debug)]
+struct BatchOutput {
+    processed_transactions: Vec<ProcessedTransaction>,
+    updated_account: Option<Account>,
+    updated_keys: BTreeMap<PublicKey, AccessKey>,
+}
+
+impl BatchOutput {
+    /// Returns the `signer_id` of the first non-failed transaction in the batch if such exists or None.
+    fn signer_id(&self) -> Option<&AccountId> {
+        self.processed_transactions.iter().find_map(|pt| match &pt.result {
+            PerTransactionResult::Success { validated_tx, .. } => Some(validated_tx.signer_id()),
+            PerTransactionResult::Failure { .. } => None,
+        })
+    }
+}
+
 /// Contains information to update validators accounts at the first block of a new epoch.
 #[derive(Debug)]
 pub struct ValidatorAccountsUpdate {
@@ -194,10 +282,6 @@ pub struct VerificationResult {
     pub receipt_gas_price: Balance,
     /// The balance that was burnt to convert the transaction into a receipt and send it.
     pub burnt_amount: Balance,
-    /// The signer that was updated to charge for the transaction.
-    pub signer: Account,
-    /// The access key that was updated to charge for the transaction.
-    pub access_key: AccessKey,
 }
 
 #[derive(Debug)]
@@ -215,7 +299,7 @@ pub struct ApplyResult {
     pub delayed_receipts_count: u64,
     pub metrics: Option<metrics::ApplyMetrics>,
     pub congestion_info: Option<CongestionInfo>,
-    pub bandwidth_requests: Option<BandwidthRequests>,
+    pub bandwidth_requests: BandwidthRequests,
     /// Used only for a sanity check.
     pub bandwidth_scheduler_state_hash: CryptoHash,
     /// Contracts accessed and deployed while applying the chunk.
@@ -302,136 +386,193 @@ impl Runtime {
         debug!(target: "runtime", "{}", log_str);
     }
 
-    fn parallel_validate_transactions(
-        config: &RuntimeConfig,
-        gas_price: Balance,
-        signed_txs: impl IntoParallelIterator<Item = SignedTransaction>,
-        current_protocol_version: ProtocolVersion,
-    ) -> Vec<(CryptoHash, Result<(ValidatedTransaction, TransactionCost), InvalidTxError>)> {
-        signed_txs
-            .into_par_iter()
-            .map(|signed_tx| {
-                (
-                    signed_tx.get_hash(),
-                    match validate_transaction(config, signed_tx, current_protocol_version) {
-                        Ok(validated_tx) => {
-                            match tx_cost(
-                                config,
-                                &validated_tx.to_tx(),
-                                gas_price,
-                                current_protocol_version,
-                            ) {
-                                Ok(cost) => Ok((validated_tx, cost)),
-                                Err(e) => Err(InvalidTxError::from(e)),
-                            }
-                        }
-                        Err((e, _tx)) => Err(e),
-                    },
-                )
-            })
-            .collect()
-    }
-
-    /// Takes one signed transaction, verifies it and converts it to a receipt.
-    ///
-    /// Add the produced receipt either to the new local receipts if the signer is the same
-    /// as receiver or to the new outgoing receipts.
-    ///
-    /// When transaction is converted to a receipt, the account is charged for the full value of
-    /// the generated receipt.
-    ///
-    /// In case of successful verification, returns the receipt and `ExecutionOutcomeWithId` for
-    /// the transaction.
-    ///
-    /// In case of an error, returns either `InvalidTxError` if the transaction verification failed
-    /// or a `StorageError` wrapped into `RuntimeError`.
-    #[instrument(target = "runtime", level = "debug", "process_transaction", skip_all, fields(
-        tx_hash = %validated_tx.get_hash(),
-        gas_burnt = tracing::field::Empty,
-        compute_usage = tracing::field::Empty,
-    ))]
-    fn process_transaction(
+    /// Process all transactions for the same signer in ascending order of their indices.
+    fn process_batched_transactions(
         &self,
-        state_update: &mut TrieUpdate,
+        batch: TransactionBatch,
         apply_state: &ApplyState,
-        validated_tx: &ValidatedTransaction,
-        transaction_cost: &TransactionCost,
-        stats: &mut ChunkApplyStatsV0,
-    ) -> Result<(Receipt, ExecutionOutcomeWithId), InvalidTxError> {
-        let span = tracing::Span::current();
-        metrics::TRANSACTION_PROCESSED_TOTAL.inc();
+        state_update: &TrieUpdate,
+        gas_price: Balance,
+        block_height: BlockHeight,
+        current_protocol_version: ProtocolVersion,
+    ) -> BatchOutput {
+        debug_assert!(!batch.indices.is_empty());
 
-        let verification_result = verify_and_charge_tx_ephemeral(
-            &apply_state.config,
-            state_update,
-            validated_tx,
-            transaction_cost,
-            Some(apply_state.block_height),
-            apply_state.current_protocol_version,
-        );
-        let verification_result = match verification_result {
-            Ok(ok) => ok,
-            Err(e) => {
-                metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
-                state_update.rollback();
-                return Err(e);
+        let mut processed_transactions = Vec::with_capacity(batch.indices.len());
+
+        let mut ephemeral_signer = match batch.get_account(state_update) {
+            Ok(signer) => signer,
+            Err(err) => {
+                debug!(target: "runtime", ?err, "failed to retrieve the account for the transactions batch");
+
+                return BatchOutput {
+                    processed_transactions: batch
+                        .iter()
+                        .map(|(i, tx)| ProcessedTransaction {
+                            index: i,
+                            result: PerTransactionResult::Failure {
+                                tx_hash: tx.get_hash(),
+                                error: err.clone(),
+                            },
+                        })
+                        .collect(),
+                    updated_account: None,
+                    updated_keys: Default::default(),
+                };
             }
         };
 
-        metrics::TRANSACTION_PROCESSED_SUCCESSFULLY_TOTAL.inc();
-        set_tx_state_changes(
-            state_update,
-            validated_tx,
-            &verification_result.signer,
-            &verification_result.access_key,
-        );
-        state_update
-            .commit(StateChangeCause::TransactionProcessing { tx_hash: validated_tx.get_hash() });
-        let receipt_id = create_receipt_id_from_transaction(
-            apply_state.current_protocol_version,
-            validated_tx.to_hash(),
-            &apply_state.block_hash,
-            apply_state.block_height,
-        );
-        let receipt = Receipt::V0(ReceiptV0 {
-            predecessor_id: validated_tx.signer_id().clone(),
-            receiver_id: validated_tx.receiver_id().clone(),
-            receipt_id,
-            receipt: ReceiptEnum::Action(ActionReceipt {
-                signer_id: validated_tx.signer_id().clone(),
-                signer_public_key: validated_tx.public_key().clone(),
-                gas_price: verification_result.receipt_gas_price,
-                output_data_receivers: vec![],
-                input_data_ids: vec![],
-                actions: validated_tx.actions().to_vec(),
-            }),
-        });
+        let mut ephemeral_keys = BTreeMap::<PublicKey, AccessKey>::new();
 
-        match safe_add_balance(stats.balance.tx_burnt_amount, verification_result.burnt_amount) {
-            Ok(new) => stats.balance.tx_burnt_amount = new,
-            Err(_) => return Err(InvalidTxError::CostOverflow),
+        for (idx, signed_tx) in batch.iter() {
+            let tx_hash = signed_tx.get_hash();
+
+            let validated_tx = match validate_transaction(
+                &apply_state.config,
+                signed_tx.clone(),
+                current_protocol_version,
+            ) {
+                Ok(ok) => ok,
+                Err((err, _orig)) => {
+                    processed_transactions.push(ProcessedTransaction {
+                        index: idx,
+                        result: PerTransactionResult::Failure { tx_hash, error: err },
+                    });
+                    continue;
+                }
+            };
+
+            let cost = match tx_cost(
+                &apply_state.config,
+                validated_tx.to_tx(),
+                gas_price,
+                current_protocol_version,
+            ) {
+                Ok(c) => c,
+                Err(e) => {
+                    processed_transactions.push(ProcessedTransaction {
+                        index: idx,
+                        result: PerTransactionResult::Failure { tx_hash, error: e.into() },
+                    });
+                    continue;
+                }
+            };
+
+            let ephemeral_access_key = {
+                let pk = validated_tx.public_key();
+
+                match ephemeral_keys.entry(pk.clone()) {
+                    Entry::Occupied(ak) => ak.into_mut(),
+                    Entry::Vacant(entry) => {
+                        match get_access_key(state_update, validated_tx.signer_id(), pk) {
+                            Ok(Some(loaded_ak)) => entry.insert(loaded_ak),
+                            Ok(None) => {
+                                // TODO: consider retaining in the map the fact that the key did not exist
+                                processed_transactions.push(ProcessedTransaction {
+                                    index: idx,
+                                    result: PerTransactionResult::Failure {
+                                        tx_hash,
+                                        error: InvalidTxError::InvalidAccessKeyError(
+                                            InvalidAccessKeyError::AccessKeyNotFound {
+                                                account_id: validated_tx.signer_id().clone(),
+                                                public_key: pk.clone().into(),
+                                            },
+                                        ),
+                                    },
+                                });
+                                continue;
+                            }
+                            Err(storage_err) => {
+                                processed_transactions.push(ProcessedTransaction {
+                                    index: idx,
+                                    result: PerTransactionResult::Failure {
+                                        tx_hash,
+                                        error: storage_err.into(),
+                                    },
+                                });
+                                // TODO: we may not need to do the work processing the remainder of this batch or the other batches if we hit a storage error
+                                continue;
+                            }
+                        }
+                    }
+                }
+            };
+
+            let verification_result = match verify_and_charge_tx_ephemeral(
+                &apply_state.config,
+                &mut ephemeral_signer,
+                ephemeral_access_key,
+                &validated_tx,
+                &cost,
+                Some(block_height),
+            ) {
+                Ok(v) => v,
+                Err(e) => {
+                    processed_transactions.push(ProcessedTransaction {
+                        index: idx,
+                        result: PerTransactionResult::Failure { tx_hash, error: e },
+                    });
+                    continue;
+                }
+            };
+
+            let (receipt, outcome) = {
+                let receipt_id = create_receipt_id_from_transaction(
+                    current_protocol_version,
+                    validated_tx.to_hash(),
+                    &apply_state.block_hash,
+                    apply_state.block_height,
+                );
+                let receipt = Receipt::V0(ReceiptV0 {
+                    predecessor_id: validated_tx.signer_id().clone(),
+                    receiver_id: validated_tx.receiver_id().clone(),
+                    receipt_id,
+                    receipt: ReceiptEnum::Action(ActionReceipt {
+                        signer_id: validated_tx.signer_id().clone(),
+                        signer_public_key: validated_tx.public_key().clone(),
+                        gas_price: verification_result.receipt_gas_price,
+                        output_data_receivers: vec![],
+                        input_data_ids: vec![],
+                        actions: validated_tx.actions().to_vec(),
+                    }),
+                });
+                let gas_burnt = verification_result.gas_burnt;
+                let compute_usage = gas_burnt;
+                let outcome = ExecutionOutcomeWithId {
+                    id: validated_tx.get_hash(),
+                    outcome: ExecutionOutcome {
+                        status: ExecutionStatus::SuccessReceiptId(*receipt.receipt_id()),
+                        logs: vec![],
+                        receipt_ids: vec![*receipt.receipt_id()],
+                        gas_burnt,
+                        // TODO(#8806): Support compute costs for actions. For now they match burnt gas.
+                        compute_usage: Some(compute_usage),
+                        tokens_burnt: verification_result.burnt_amount,
+                        executor_id: validated_tx.signer_id().clone(),
+                        // TODO: profile data is only counted in apply_action, which only happened at process_receipt
+                        // VerificationResult needs updates to incorporate profile data to support profile data of txns
+                        metadata: ExecutionMetadata::V1,
+                    },
+                };
+                (receipt, outcome)
+            };
+
+            processed_transactions.push(ProcessedTransaction {
+                index: idx,
+                result: PerTransactionResult::Success {
+                    validated_tx: Box::new(validated_tx),
+                    verification_result,
+                    receipt: Box::new(receipt),
+                    outcome: Box::new(outcome),
+                },
+            });
         }
-        let gas_burnt = verification_result.gas_burnt;
-        let compute_usage = verification_result.gas_burnt;
-        let outcome = ExecutionOutcomeWithId {
-            id: validated_tx.get_hash(),
-            outcome: ExecutionOutcome {
-                status: ExecutionStatus::SuccessReceiptId(*receipt.receipt_id()),
-                logs: vec![],
-                receipt_ids: vec![*receipt.receipt_id()],
-                gas_burnt,
-                // TODO(#8806): Support compute costs for actions. For now they match burnt gas.
-                compute_usage: Some(compute_usage),
-                tokens_burnt: verification_result.burnt_amount,
-                executor_id: validated_tx.signer_id().clone(),
-                // TODO: profile data is only counted in apply_action, which only happened at process_receipt
-                // VerificationResult needs updates to incorporate profile data to support profile data of txns
-                metadata: ExecutionMetadata::V1,
-            },
-        };
-        span.record("gas_burnt", gas_burnt);
-        span.record("compute_usage", compute_usage);
-        Ok((receipt, outcome))
+
+        BatchOutput {
+            processed_transactions,
+            updated_account: Some(ephemeral_signer),
+            updated_keys: ephemeral_keys,
+        }
     }
 
     fn apply_action(
@@ -532,31 +673,8 @@ impl Runtime {
             Action::FunctionCall(function_call) => {
                 let account = account.as_mut().expect(EXPECT_ACCOUNT_EXISTS);
                 let account_contract = account.contract();
-
-                let code_hash = match account_contract.as_ref() {
-                    AccountContract::None => CryptoHash::default(),
-                    AccountContract::Local(code_hash) | AccountContract::Global(code_hash) => {
-                        *code_hash
-                    }
-                    AccountContract::GlobalByAccount(account_id) => {
-                        let identifier = GlobalContractIdentifier::AccountId(account_id.clone());
-                        let key = TrieKey::GlobalContractCode { identifier: identifier.into() };
-                        let value_ref = state_update
-                            .get_ref(&key, KeyLookupMode::MemOrFlatOrTrie)?
-                            .ok_or_else(|| {
-                                let TrieKey::GlobalContractCode { identifier } = key else {
-                                    unreachable!()
-                                };
-                                RuntimeError::StorageError(StorageError::StorageInconsistentState(
-                                    format!(
-                                        "Global contract identifier not found {:?}",
-                                        identifier
-                                    ),
-                                ))
-                            })?;
-                        value_ref.value_hash()
-                    }
-                };
+                let code_hash =
+                    state_update.get_account_contract_hash(account_contract.as_ref())?;
                 let contract =
                     preparation_pipeline.get_contract(receipt, code_hash, action_index, None);
                 let is_last_action = action_index + 1 == actions.len();
@@ -757,11 +875,7 @@ impl Runtime {
         // Going to check balance covers account's storage.
         if result.result.is_ok() {
             if let Some(ref mut account) = account {
-                match check_storage_stake(
-                    account,
-                    &apply_state.config,
-                    apply_state.current_protocol_version,
-                ) {
+                match check_storage_stake(account, &apply_state.config) {
                     Ok(()) => {
                         set_account(state_update, account_id.clone(), account);
                     }
@@ -1346,26 +1460,6 @@ impl Runtime {
         Ok(())
     }
 
-    pub fn apply_migrations(
-        &self,
-        state_update: &mut TrieUpdate,
-        migration_flags: &MigrationFlags,
-        protocol_version: ProtocolVersion,
-    ) -> Result<(), StorageError> {
-        // Remove the only testnet account with large storage key.
-        if ProtocolFeature::RemoveAccountWithLongStorageKey.protocol_version() == protocol_version
-            && migration_flags.is_first_block_with_chunk_of_version
-        {
-            let account_id = "contractregistry.testnet".parse().unwrap();
-            if get_account(state_update, &account_id)?.is_some() {
-                remove_account(state_update, &account_id)?;
-                state_update.commit(StateChangeCause::Migration);
-            }
-        }
-
-        Ok(())
-    }
-
     /// Applies new signed transactions and incoming receipts for some chunk/shard on top of
     /// given trie and the given state root.
     ///
@@ -1405,10 +1499,9 @@ impl Runtime {
 
         // What this function does can be broken down conceptually into the following steps:
         // 1. Update validator accounts.
-        // 2. Apply migrations.
-        // 3. Process transactions.
-        // 4. Process receipts.
-        // 5. Validate and apply the state update.
+        // 2. Process transactions.
+        // 3. Process receipts.
+        // 4. Validate and apply the state update.
         let mut processing_state =
             ApplyProcessingState::new(&apply_state, trie, epoch_info_provider);
         processing_state.stats.transactions_num = signed_txs.len().try_into().unwrap();
@@ -1427,14 +1520,6 @@ impl Runtime {
                 validator_accounts_update,
             )?;
         }
-
-        // Step 2: apply migrations.
-        self.apply_migrations(
-            &mut processing_state.state_update,
-            &apply_state.migration_flags,
-            processing_state.protocol_version,
-        )
-        .map_err(RuntimeError::StorageError)?;
 
         let delayed_receipts = DelayedReceiptQueueWrapper::new(
             DelayedReceiptQueue::load(&processing_state.state_update)?,
@@ -1462,12 +1547,9 @@ impl Runtime {
 
         let mut processing_state =
             processing_state.into_processing_receipt_state(incoming_receipts, delayed_receipts);
-        let own_congestion_info = apply_state.own_congestion_info(
-            processing_state.protocol_version,
-            &processing_state.state_update,
-        )?;
+        let own_congestion_info =
+            apply_state.own_congestion_info(&processing_state.state_update)?;
         let mut receipt_sink = ReceiptSink::new(
-            processing_state.protocol_version,
             &processing_state.state_update.trie,
             apply_state,
             own_congestion_info,
@@ -1480,10 +1562,10 @@ impl Runtime {
             processing_state.epoch_info_provider,
         )?;
 
-        // Step 3: process transactions.
+        // Step 2: process transactions.
         self.process_transactions(&mut processing_state, signed_txs, &mut receipt_sink)?;
 
-        // Step 4: process receipts.
+        // Step 3: process receipts.
         let process_receipts_result =
             self.process_receipts(&mut processing_state, &mut receipt_sink)?;
 
@@ -1495,7 +1577,7 @@ impl Runtime {
             &apply_state.config.congestion_control_config,
         );
 
-        // Step 5: validate and apply the state update.
+        // Step 4: validate and apply the state update.
         self.validate_apply_state_update(
             processing_state,
             process_receipts_result,
@@ -1554,58 +1636,112 @@ impl Runtime {
         let apply_state = &mut processing_state.apply_state;
         let state_update = &mut processing_state.state_update;
 
-        let signed_txs = signed_txs.into_par_iter_nonexpired_transactions();
-        for (tx_hash, result) in Self::parallel_validate_transactions(
-            &apply_state.config,
-            apply_state.gas_price,
-            signed_txs,
-            apply_state.current_protocol_version,
-        ) {
-            match result {
-                Ok((validated_tx, cost)) => {
-                    let (receipt, outcome_with_id) = match self.process_transaction(
-                        state_update,
-                        apply_state,
-                        &validated_tx,
-                        &cost,
-                        &mut processing_state.stats,
+        let tx_vec = signed_txs.into_iter_nonexpired_transactions().collect::<Vec<_>>();
+        let tx_batches = TransactionBatches::new(&tx_vec);
+
+        let batch_outputs = tx_batches
+            .par_batches()
+            .map(|batch| {
+                self.process_batched_transactions(
+                    batch,
+                    apply_state,
+                    state_update,
+                    apply_state.gas_price,
+                    apply_state.block_height,
+                    apply_state.current_protocol_version,
+                )
+            })
+            .collect_vec_list();
+
+        let mut all_processed = Vec::new();
+        for batch_vec in batch_outputs {
+            for batch_out in batch_vec {
+                let signer_id = match batch_out.signer_id() {
+                    Some(id) => id,
+                    None => continue,
+                };
+
+                for (public_key, access_key) in &batch_out.updated_keys {
+                    set_access_key(state_update, signer_id.clone(), public_key.clone(), access_key);
+                }
+                set_account(
+                    state_update,
+                    signer_id.clone(),
+                    &batch_out.updated_account.expect("any successfully validated transaction means account should have been updated"),
+                );
+
+                let last_tx_hash = batch_out
+                    .processed_transactions
+                    .iter()
+                    .rev()
+                    .find_map(|pt| match &pt.result {
+                        PerTransactionResult::Success { validated_tx, .. } => {
+                            Some(validated_tx.get_hash())
+                        }
+                        PerTransactionResult::Failure { .. } => None,
+                    })
+                    .unwrap_or_default();
+                state_update
+                    .commit(StateChangeCause::TransactionProcessing { tx_hash: last_tx_hash });
+                all_processed.extend(batch_out.processed_transactions);
+            }
+        }
+
+        all_processed.sort_by_key(|pt| pt.index);
+
+        for processed in all_processed {
+            metrics::TRANSACTION_PROCESSED_TOTAL.inc();
+            match processed.result {
+                PerTransactionResult::Success {
+                    validated_tx,
+                    verification_result,
+                    outcome,
+                    receipt,
+                } => {
+                    match safe_add_balance(
+                        processing_state.stats.balance.tx_burnt_amount,
+                        verification_result.burnt_amount,
                     ) {
-                        Ok(outcome) => outcome,
+                        Ok(new_balance) => {
+                            processing_state.stats.balance.tx_burnt_amount = new_balance;
+                        }
                         Err(err) => {
+                            metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
                             tracing::debug!(
                                 target: "runtime",
-                                ?tx_hash,
+                                tx_hash=?validated_tx.get_hash(),
                                 ?err,
-                                "invalid transaction ignored (process_transaction error)",
+                                "invalid transaction ignored (burnt gas overflow)",
                             );
                             continue;
                         }
-                    };
-                    if receipt.receiver_id() == validated_tx.signer_id() {
-                        processing_state.local_receipts.push_back(receipt);
+                    }
+
+                    metrics::TRANSACTION_PROCESSED_SUCCESSFULLY_TOTAL.inc();
+                    if receipt.receiver_id() == validated_tx.to_tx().signer_id() {
+                        processing_state.local_receipts.push_back(*receipt);
                     } else {
                         receipt_sink.forward_or_buffer_receipt(
-                            receipt,
+                            *receipt,
                             apply_state,
                             state_update,
                             processing_state.epoch_info_provider,
                         )?;
                     }
-                    let compute = outcome_with_id.outcome.compute_usage;
+                    let compute = outcome.outcome.compute_usage;
                     let compute =
                         compute.expect("`process_transaction` must populate compute usage");
-                    total.add(outcome_with_id.outcome.gas_burnt, compute)?;
-                    if !ProtocolFeature::ComputeCosts.enabled(processing_state.protocol_version) {
-                        assert_eq!(total.compute, total.gas, "Compute usage must match burnt gas");
-                    }
-                    processing_state.outcomes.push(outcome_with_id);
+                    total.add(outcome.outcome.gas_burnt, compute)?;
+                    processing_state.outcomes.push(*outcome);
                 }
-                Err(err) => {
+
+                PerTransactionResult::Failure { error, tx_hash } => {
+                    metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
                     tracing::debug!(
                         target: "runtime",
                         ?tx_hash,
-                        ?err,
-                        "invalid transaction ignored (parallel validation error)",
+                        ?error,
+                        "invalid transaction ignored",
                     );
                 }
             }
@@ -1636,7 +1772,6 @@ impl Runtime {
 
         let state_update = &mut processing_state.state_update;
         let trie = state_update.trie();
-        let node_counter_before = trie.get_trie_nodes_count();
         let recorded_storage_size_before = trie.recorded_storage_size();
         let storage_proof_size_upper_bound_before = trie.recorded_storage_size_upper_bound();
 
@@ -1650,9 +1785,6 @@ impl Runtime {
 
         let shard_id_str = processing_state.apply_state.shard_id.to_string();
         let trie = processing_state.state_update.trie();
-
-        let node_counter_after = trie.get_trie_nodes_count();
-        tracing::trace!(target: "runtime", ?node_counter_before, ?node_counter_after);
 
         let recorded_storage_diff = trie.recorded_storage_size() - recorded_storage_size_before;
         let recorded_storage_upper_bound_diff =
@@ -1684,9 +1816,6 @@ impl Runtime {
             span.record("gas_burnt", gas_burnt);
             span.record("compute_usage", compute_usage);
 
-            if !ProtocolFeature::ComputeCosts.enabled(processing_state.protocol_version) {
-                assert_eq!(total.compute, total.gas, "Compute usage must match burnt gas");
-            }
             processing_state.outcomes.push(outcome_with_id);
         }
         Ok(())
@@ -1723,7 +1852,7 @@ impl Runtime {
             &mut prep_lookahead_iter,
         );
 
-        for receipt in local_receipts.iter() {
+        for receipt in &local_receipts {
             if processing_state.total.compute >= compute_limit
                 || processing_state.state_update.trie.check_proof_size_limit_exceed()
             {
@@ -1898,7 +2027,7 @@ impl Runtime {
             &mut prep_lookahead_iter,
         );
 
-        for receipt in processing_state.incoming_receipts.iter() {
+        for receipt in processing_state.incoming_receipts {
             // Validating new incoming no matter whether we have available gas or not. We don't
             // want to store invalid receipts in state as delayed.
             validate_receipt(
@@ -2047,30 +2176,28 @@ impl Runtime {
         // this shard is fully congested.
         let delayed_receipts_count = pending_delayed_receipts.upper_bound_len();
         let mut own_congestion_info = receipt_sink.own_congestion_info();
-        if let Some(congestion_info) = &mut own_congestion_info {
-            pending_delayed_receipts.apply_congestion_changes(congestion_info)?;
+        pending_delayed_receipts.apply_congestion_changes(&mut own_congestion_info)?;
 
-            let (all_shards, shard_seed) =
-                if ProtocolFeature::SimpleNightshadeV4.enabled(protocol_version) {
-                    let shard_ids = shard_layout.shard_ids().collect_vec();
-                    let shard_index = shard_layout
-                        .get_shard_index(apply_state.shard_id)
-                        .map_err(Into::<EpochError>::into)?
-                        .try_into()
-                        .expect("Shard Index must fit within u64");
+        let (all_shards, shard_seed) =
+            if ProtocolFeature::SimpleNightshadeV4.enabled(protocol_version) {
+                let shard_ids = shard_layout.shard_ids().collect_vec();
+                let shard_index = shard_layout
+                    .get_shard_index(apply_state.shard_id)
+                    .map_err(Into::<EpochError>::into)?
+                    .try_into()
+                    .expect("Shard Index must fit within u64");
 
-                    (shard_ids, shard_index)
-                } else {
-                    (apply_state.congestion_info.all_shards(), apply_state.shard_id.into())
-                };
+                (shard_ids, shard_index)
+            } else {
+                (apply_state.congestion_info.all_shards(), apply_state.shard_id.into())
+            };
 
-            let congestion_seed = apply_state.block_height.wrapping_add(shard_seed);
-            congestion_info.finalize_allowed_shard(
-                apply_state.shard_id,
-                &all_shards,
-                congestion_seed,
-            );
-        }
+        let congestion_seed = apply_state.block_height.wrapping_add(shard_seed);
+        own_congestion_info.finalize_allowed_shard(
+            apply_state.shard_id,
+            &all_shards,
+            congestion_seed,
+        );
 
         let bandwidth_requests = receipt_sink.generate_bandwidth_requests(
             &state_update,
@@ -2128,10 +2255,9 @@ impl Runtime {
         metrics::report_recorded_column_sizes(&trie, &apply_state);
         let proof = trie.recorded_storage();
         let processed_yield_timeouts = promise_yield_result.processed_yield_timeouts;
-        let bandwidth_scheduler_state_hash = receipt_sink
-            .bandwidth_scheduler_output()
-            .map(|o| o.scheduler_state_hash)
-            .unwrap_or_default();
+        let bandwidth_scheduler_state_hash =
+            receipt_sink.bandwidth_scheduler_output().scheduler_state_hash;
+
         let outgoing_receipts =
             receipt_sink.finalize_stats_get_outgoing_receipts(&mut stats.receipt_sink);
         Ok(ApplyResult {
@@ -2147,7 +2273,7 @@ impl Runtime {
             proof,
             delayed_receipts_count,
             metrics: Some(processing_state.metrics),
-            congestion_info: own_congestion_info,
+            congestion_info: Some(own_congestion_info),
             bandwidth_requests,
             bandwidth_scheduler_state_hash,
             contract_updates,
@@ -2156,18 +2282,9 @@ impl Runtime {
 }
 
 impl ApplyState {
-    fn own_congestion_info(
-        &self,
-        protocol_version: ProtocolVersion,
-        trie: &dyn TrieAccess,
-    ) -> Result<Option<CongestionInfo>, RuntimeError> {
-        if !ProtocolFeature::CongestionControl.enabled(protocol_version) {
-            debug_assert!(self.congestion_info.is_empty());
-            return Ok(None);
-        }
-
+    fn own_congestion_info(&self, trie: &dyn TrieAccess) -> Result<CongestionInfo, RuntimeError> {
         if let Some(congestion_info) = self.congestion_info.get(&self.shard_id) {
-            return Ok(Some(congestion_info.congestion_info));
+            return Ok(congestion_info.congestion_info);
         }
 
         tracing::warn!(target: "runtime", "starting to bootstrap congestion info, this might take a while");
@@ -2176,7 +2293,7 @@ impl ApplyState {
         let time = start.elapsed();
         tracing::warn!(target: "runtime","bootstrapping congestion info done after {time:#.1?}");
         let computed = result?;
-        Ok(Some(computed))
+        Ok(computed)
     }
 }
 
@@ -2215,7 +2332,6 @@ fn action_transfer_or_implicit_account_creation(
             receipt.receiver_id(),
             deposit,
             apply_state.block_height,
-            apply_state.current_protocol_version,
             epoch_info_provider,
         );
     })
@@ -2224,7 +2340,7 @@ fn action_transfer_or_implicit_account_creation(
 fn missing_chunk_apply_result(
     delayed_receipts: &DelayedReceiptQueueWrapper,
     processing_state: ApplyProcessingState,
-    bandwidth_scheduler_output: &Option<BandwidthSchedulerOutput>,
+    bandwidth_scheduler_output: &BandwidthSchedulerOutput,
 ) -> Result<ApplyResult, RuntimeError> {
     let TrieUpdateResult { trie, trie_changes, state_changes, contract_updates } =
         processing_state.state_update.finalize()?;
@@ -2246,7 +2362,8 @@ fn missing_chunk_apply_result(
         .bandwidth_requests
         .shards_bandwidth_requests
         .get(&processing_state.apply_state.shard_id)
-        .cloned();
+        .cloned()
+        .unwrap_or_else(BandwidthRequests::empty);
 
     return Ok(ApplyResult {
         state_root: trie_changes.new_root,
@@ -2263,10 +2380,7 @@ fn missing_chunk_apply_result(
         metrics: None,
         congestion_info,
         bandwidth_requests: previous_bandwidth_requests,
-        bandwidth_scheduler_state_hash: bandwidth_scheduler_output
-            .as_ref()
-            .map(|o| o.scheduler_state_hash)
-            .unwrap_or_default(),
+        bandwidth_scheduler_state_hash: bandwidth_scheduler_output.scheduler_state_hash,
         contract_updates,
     });
 }
@@ -2286,7 +2400,6 @@ fn resolve_promise_yield_timeouts(
     let mut new_receipt_index: usize = 0;
 
     let mut processed_yield_timeouts = vec![];
-    let mut timeout_receipts = vec![];
     let yield_processing_start = std::time::Instant::now();
     while promise_yield_indices.first_index < promise_yield_indices.next_available_index {
         if total.compute >= compute_limit || state_update.trie.check_proof_size_limit_exceed() {
@@ -2314,7 +2427,7 @@ fn resolve_promise_yield_timeouts(
             receiver_id: queue_entry.account_id.clone(),
             data_id: queue_entry.data_id,
         };
-        if state_update.contains_key(&promise_yield_key)? {
+        if state_update.contains_key(&promise_yield_key, AccessOptions::DEFAULT)? {
             let new_receipt_id = create_receipt_id_from_receipt_id(
                 processing_state.protocol_version,
                 &queue_entry.data_id,
@@ -2341,12 +2454,11 @@ fn resolve_promise_yield_timeouts(
             // the current chunk. The ordering will be maintained because the receipts are
             // destined for the same shard; the timeout will be processed second and discarded.
             receipt_sink.forward_or_buffer_receipt(
-                resume_receipt.clone(),
+                resume_receipt,
                 apply_state,
                 &mut state_update,
                 processing_state.epoch_info_provider,
             )?;
-            timeout_receipts.push(resume_receipt);
         }
 
         processed_yield_timeouts.push(queue_entry);
@@ -2448,7 +2560,6 @@ impl<'a> ApplyProcessingState<'a> {
         let pipeline_manager = pipelining::ReceiptPreparationPipeline::new(
             Arc::clone(&self.apply_state.config),
             self.apply_state.cache.as_ref().map(|v| v.handle()),
-            self.apply_state.current_protocol_version,
             self.state_update.contract_storage(),
         );
         ApplyProcessingReceiptState {
@@ -2592,8 +2703,10 @@ fn schedule_contract_preparation<'b, R: MaybeRefReceipt>(
 pub mod estimator {
     use super::{ReceiptSink, Runtime};
     use crate::ApplyState;
+    use crate::BandwidthSchedulerOutput;
     use crate::congestion_control::ReceiptSinkV2;
     use crate::pipelining::ReceiptPreparationPipeline;
+    use near_primitives::bandwidth_scheduler::BandwidthSchedulerParams;
     use near_primitives::chunk_apply_stats::{ChunkApplyStatsV0, ReceiptSinkStats};
     use near_primitives::congestion_info::CongestionInfo;
     use near_primitives::errors::RuntimeError;
@@ -2605,6 +2718,7 @@ pub mod estimator {
     use near_store::trie::receipts_column_helper::ShardsOutgoingReceiptBuffer;
     use near_store::{ShardUId, TrieUpdate};
     use std::collections::HashMap;
+    use std::num::NonZeroU64;
 
     pub fn apply_action_receipt(
         state_update: &mut TrieUpdate,
@@ -2627,8 +2741,13 @@ pub mod estimator {
             state_update,
             std::iter::once(shard_uid.shard_id()),
             ReceiptGroupsConfig::default_config(),
-            apply_state.current_protocol_version,
         )?;
+
+        let shard_layout = epoch_info_provider.shard_layout(&apply_state.epoch_id)?;
+        let params = BandwidthSchedulerParams::new(
+            NonZeroU64::new(shard_layout.num_shards()).expect("ShardLayout has zero shards!"),
+            &apply_state.config,
+        );
 
         let mut receipt_sink = ReceiptSink::V2(ReceiptSinkV2 {
             own_congestion_info: congestion_info,
@@ -2636,14 +2755,12 @@ pub mod estimator {
             outgoing_buffers: ShardsOutgoingReceiptBuffer::load(&state_update.trie)?,
             outgoing_receipts: Vec::new(),
             outgoing_metadatas,
-            bandwidth_scheduler_output: None,
-            protocol_version: apply_state.current_protocol_version,
+            bandwidth_scheduler_output: BandwidthSchedulerOutput::no_granted_bandwidth(params),
             stats: ReceiptSinkStats::default(),
         });
         let empty_pipeline = ReceiptPreparationPipeline::new(
             std::sync::Arc::clone(&apply_state.config),
             apply_state.cache.as_ref().map(|c| c.handle()),
-            apply_state.current_protocol_version,
             state_update.contract_storage(),
         );
         let apply_result = Runtime {}.apply_action_receipt(

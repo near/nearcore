@@ -231,7 +231,7 @@ impl ShowKeysCmd {
                 vec![crate::key_util::default_extra_key(secret.as_ref())]
             }
         };
-        for key in keys.iter() {
+        for key in &keys {
             if let Some(k) = &key.original_key {
                 println!("original pub key: {}", k);
             }

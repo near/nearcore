@@ -22,7 +22,7 @@ use near_primitives::transaction::{PartialExecutionStatus, SignedTransaction};
 use near_primitives::types::{
     BlockId, BlockReference, EpochId, EpochReference, Finality, TransactionOrReceiptId,
 };
-use near_primitives::version::ProtocolVersion;
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature, ProtocolVersion};
 use near_primitives::views::{ExecutionOutcomeView, ExecutionStatusView, TxExecutionStatus};
 use std::time::Duration;
 
@@ -85,7 +85,7 @@ fn outcome_view_to_hashes(outcome: &ExecutionOutcomeView) -> Vec<CryptoHash> {
         outcome.executor_id.clone(),
         status,
     ))];
-    for log in outcome.logs.iter() {
+    for log in &outcome.logs {
         result.push(hash(log.as_bytes()));
     }
     result
@@ -321,7 +321,7 @@ fn ultra_slow_test_query_rpc_account_view_account_does_not_exist_must_return_err
             break match query_response {
                 Ok(result) => panic!("expected error but received Ok: {:?}", result.kind),
                 Err(err) => {
-                    let value = err.data.unwrap();
+                    let value = *err.data.unwrap();
                     if value == serde_json::to_value("Block either has never been observed on the node or has been garbage collected: Finality(Final)").unwrap() {
                                 println!("No blocks are produced yet, retry.");
                                 sleep(std::time::Duration::from_millis(100)).await;
@@ -382,17 +382,23 @@ fn ultra_slow_test_tx_not_enough_balance_must_return_error() {
                 }
                 sleep(std::time::Duration::from_millis(500)).await;
             }
+            let expected_cost = if ProtocolFeature::ReducedGasRefunds.enabled(PROTOCOL_VERSION) {
+                "1100000000000044636512500000000000"
+            } else {
+                "1100000000000045306060187500000000"
+            };
             let _ = client
                 .broadcast_tx_commit(to_base64(&bytes))
                 .map_err(|err| {
+                    println!("testing: {:?}", err.data);
                     assert_eq!(
-                        err.data.unwrap(),
+                        *err.data.unwrap(),
                         serde_json::json!({"TxExecutionError": {
                             "InvalidTxError": {
                                 "NotEnoughBalance": {
                                     "signer_id": "near.0",
                                     "balance": "950000000000000000000000000000000", // If something changes in setup just update this value
-                                    "cost": "1100000000000045306060187500000000",
+                                    "cost": expected_cost,
                                 }
                             }
                         }})
@@ -449,7 +455,7 @@ fn ultra_slow_test_check_unknown_tx_must_return_error() {
                             })
                             .map_err(|err| {
                                 assert_eq!(
-                                    err.data.unwrap(),
+                                    *err.data.unwrap(),
                                     serde_json::json!(format!(
                                         "Transaction {} doesn't exist",
                                         tx_hash
@@ -509,7 +515,7 @@ fn ultra_slow_test_tx_status_on_lightclient_must_return_does_not_track_shard() {
                             .tx(request)
                             .map_err(|err| {
                                 assert_eq!(
-                                    err.data.unwrap(),
+                                    *err.data.unwrap(),
                                     serde_json::json!("Node doesn't track this shard. Cannot determine whether the transaction is valid")
                                 );
                                 System::current().stop();

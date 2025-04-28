@@ -11,7 +11,7 @@
     "date-fns": "^3.6.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
-    "react-router-dom": "^6.21.1",
+    "react-router-dom": "^7.5.2",
     "react-scripts": "^5.0.1",
     "react-tooltip": "^5.22.0",
     "react-xarrows": "^2.0.2"
@@ -36,6 +36,7 @@
     ]
   },
   "devDependencies": {
+    "@types/lodash": "^4.17.16",
     "@typescript-eslint/eslint-plugin": "^5.52.0",
     "@typescript-eslint/parser": "^5.52.0",
     "eslint": "^8.34.0",

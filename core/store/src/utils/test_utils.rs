@@ -2,6 +2,7 @@ use crate::adapter::{StoreAdapter, StoreUpdateAdapter};
 use crate::db::TestDB;
 use crate::flat::{BlockInfo, FlatStorageManager, FlatStorageReadyStatus, FlatStorageStatus};
 use crate::metadata::{DB_VERSION, DbKind, DbVersion};
+use crate::trie::AccessOptions;
 use crate::{
     DBCol, NodeStorage, ShardTries, StateSnapshotConfig, Store, Trie, TrieConfig, get,
     get_delayed_receipt_indices, get_promise_yield_indices,
@@ -17,7 +18,6 @@ use near_primitives::state::FlatStateValue;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::StateRoot;
 use near_primitives::types::chunk_extra::ChunkExtra;
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use rand::Rng;
 use rand::seq::SliceRandom;
 use std::collections::HashMap;
@@ -133,7 +133,7 @@ impl TestTriesBuilder {
             },
             &shard_uids,
             flat_storage_manager,
-            StateSnapshotConfig::default(),
+            StateSnapshotConfig::Disabled,
         );
         if self.enable_flat_storage {
             let mut store_update = tries.store_update();
@@ -153,11 +153,8 @@ impl TestTriesBuilder {
         }
         if self.enable_in_memory_tries {
             // ChunkExtra is needed for in-memory trie loading code to query state roots.
-            let congestion_info = ProtocolFeature::CongestionControl
-                .enabled(PROTOCOL_VERSION)
-                .then(CongestionInfo::default);
+            let congestion_info = Some(CongestionInfo::default());
             let chunk_extra = ChunkExtra::new(
-                PROTOCOL_VERSION,
                 &Trie::EMPTY_ROOT,
                 CryptoHash::default(),
                 Vec::new(),
@@ -165,7 +162,7 @@ impl TestTriesBuilder {
                 0,
                 0,
                 congestion_info,
-                BandwidthRequests::default_for_protocol_version(PROTOCOL_VERSION),
+                BandwidthRequests::empty(),
             );
             let mut update_for_chunk_extra = store.store_update();
             for shard_uid in &shard_uids {
@@ -192,7 +189,7 @@ pub fn test_populate_trie(
     changes: Vec<(Vec<u8>, Option<Vec<u8>>)>,
 ) -> CryptoHash {
     let trie = tries.get_trie_for_shard(shard_uid, *root);
-    let trie_changes = trie.update(changes.iter().cloned()).unwrap();
+    let trie_changes = trie.update(changes.iter().cloned(), AccessOptions::DEFAULT).unwrap();
     let mut store_update = tries.store_update();
     tries.apply_memtrie_changes(&trie_changes, shard_uid, 1); // TODO: don't hardcode block height
     let root = tries.apply_all(&trie_changes, shard_uid, &mut store_update);
@@ -200,7 +197,7 @@ pub fn test_populate_trie(
     let deduped = simplify_changes(&changes);
     let trie = tries.get_trie_for_shard(shard_uid, root);
     for (key, value) in deduped {
-        assert_eq!(trie.get(&key), Ok(value));
+        assert_eq!(trie.get(&key, AccessOptions::DEFAULT), Ok(value));
     }
     root
 }
@@ -373,7 +370,7 @@ pub fn gen_larger_changes(rng: &mut impl Rng, max_size: usize) -> Vec<(Vec<u8>, 
 
 pub fn simplify_changes(changes: &[(Vec<u8>, Option<Vec<u8>>)]) -> Vec<(Vec<u8>, Option<Vec<u8>>)> {
     let mut state: HashMap<Vec<u8>, Vec<u8>> = HashMap::new();
-    for (key, value) in changes.iter() {
+    for (key, value) in changes {
         if let Some(value) = value {
             state.insert(key.clone(), value.clone());
         } else {

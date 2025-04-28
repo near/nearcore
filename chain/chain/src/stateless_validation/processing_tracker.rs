@@ -1,18 +1,16 @@
-use std::sync::Arc;
-
-use once_cell::sync::OnceCell;
+use std::sync::{Arc, OnceLock};
 
 /// `ProcessingDoneTracker` can be used in conjunction with a `ProcessingDoneWaiter`
 /// to wait until some processing is finished. `ProcessingDoneTracker` should be
 /// kept alive as long as the processing is ongoing, then once it's dropped,
 /// the paired `ProcessingDoneWaiter` will be notified that the processing has finished.
 /// Does NOT implement `Clone`, if you want to clone it, wrap it in an `Arc`.
-pub struct ProcessingDoneTracker(Arc<OnceCell<()>>);
+pub struct ProcessingDoneTracker(Arc<OnceLock<()>>);
 
 impl ProcessingDoneTracker {
     /// Create a new `ProcessingDoneTracker`
     pub fn new() -> ProcessingDoneTracker {
-        ProcessingDoneTracker(Arc::new(OnceCell::new()))
+        ProcessingDoneTracker(Arc::new(OnceLock::new()))
     }
 
     /// Create a `ProcessingDoneWaiter` paired to this `ProcessingDoneTracker`.
@@ -26,7 +24,7 @@ impl Drop for ProcessingDoneTracker {
     fn drop(&mut self) {
         // Set a value to notify waiters that the processing has finished.
         //
-        // OnceCell::set() returns an Err when the cell already has a value.
+        // OnceLock::set() returns an Err when the cell already has a value.
         // This should be impossible, as there's only one ProcessingDoneTracker
         // that will set this value when dropped, so it's safe to unwrap() it.
         self.0.set(()).unwrap();
@@ -37,7 +35,7 @@ impl Drop for ProcessingDoneTracker {
 /// The `wait()` method will block until the paired `ProcessingDoneTracker` is dropped.
 /// A new instance of `ProcessingDoneWaiter` can be created by calling `ProcessingDoneTracker::make_waiter`.
 #[derive(Clone)]
-pub struct ProcessingDoneWaiter(Arc<OnceCell<()>>);
+pub struct ProcessingDoneWaiter(Arc<OnceLock<()>>);
 
 impl ProcessingDoneWaiter {
     /// Wait until the processing is finished.

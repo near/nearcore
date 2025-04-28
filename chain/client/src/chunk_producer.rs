@@ -13,6 +13,7 @@ use near_client_primitives::debug::ChunkProduction;
 use near_client_primitives::types::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
+use near_primitives::bandwidth_scheduler::BandwidthRequests;
 use near_primitives::epoch_info::RngSeed;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{MerklePath, merklize};
@@ -45,7 +46,7 @@ pub enum AdvProduceChunksMode {
 }
 
 pub struct ProduceChunkResult {
-    pub chunk: EncodedShardChunk,
+    pub encoded_chunk: EncodedShardChunk,
     pub encoded_chunk_parts_paths: Vec<MerklePath>,
     pub receipts: Vec<Receipt>,
 }
@@ -279,36 +280,36 @@ impl ChunkProducer {
         )?;
 
         let outgoing_receipts_root = self.calculate_receipts_root(epoch_id, &outgoing_receipts)?;
-        let protocol_version = self.epoch_manager.get_epoch_protocol_version(epoch_id)?;
         let gas_used = chunk_extra.gas_used();
         #[cfg(feature = "test_features")]
         let gas_used = if self.produce_invalid_chunks { gas_used + 1 } else { gas_used };
 
         let congestion_info = chunk_extra.congestion_info();
-        let (encoded_chunk, merkle_paths) = ShardsManagerActor::create_encoded_shard_chunk(
-            prev_block_hash,
-            *chunk_extra.state_root(),
-            *chunk_extra.outcome_root(),
-            next_height,
-            shard_id,
-            gas_used,
-            chunk_extra.gas_limit(),
-            chunk_extra.balance_burnt(),
-            chunk_extra.validator_proposals().collect(),
-            prepared_transactions
-                .transactions
-                .into_iter()
-                .map(|vt| vt.into_signed_tx())
-                .collect::<Vec<_>>(),
-            &outgoing_receipts,
-            outgoing_receipts_root,
-            tx_root,
-            congestion_info,
-            chunk_extra.bandwidth_requests().cloned(),
-            &*validator_signer,
-            &mut self.reed_solomon_encoder,
-            protocol_version,
+        let bandwidth_requests = chunk_extra.bandwidth_requests();
+        debug_assert!(
+            bandwidth_requests.is_some(),
+            "Expected bandwidth_request to be Some after BandwidthScheduler feature enabled"
         );
+        let (encoded_chunk, merkle_paths, outgoing_receipts) =
+            ShardsManagerActor::create_encoded_shard_chunk(
+                prev_block_hash,
+                *chunk_extra.state_root(),
+                *chunk_extra.outcome_root(),
+                next_height,
+                shard_id,
+                gas_used,
+                chunk_extra.gas_limit(),
+                chunk_extra.balance_burnt(),
+                chunk_extra.validator_proposals().collect(),
+                prepared_transactions.transactions,
+                outgoing_receipts,
+                outgoing_receipts_root,
+                tx_root,
+                congestion_info,
+                bandwidth_requests.cloned().unwrap_or_else(BandwidthRequests::empty),
+                &*validator_signer,
+                &mut self.reed_solomon_encoder,
+            );
 
         span.record("chunk_hash", tracing::field::debug(encoded_chunk.chunk_hash()));
         debug!(target: "client",
@@ -343,7 +344,7 @@ impl ChunkProducer {
         }
 
         Ok(Some(ProduceChunkResult {
-            chunk: encoded_chunk,
+            encoded_chunk,
             encoded_chunk_parts_paths: merkle_paths,
             receipts: outgoing_receipts,
         }))

@@ -11,7 +11,7 @@ use near_chain::{ChainGenesis, ChainStoreAccess, Provenance};
 use near_chain_configs::{Genesis, GenesisConfig};
 use near_chunks::client::ShardsManagerResponse;
 use near_chunks::test_utils::{MockClientAdapterForShardsManager, SynchronousShardsManagerAdapter};
-use near_client::{Client, DistributeStateWitnessRequest, TxRequestHandler};
+use near_client::{Client, DistributeStateWitnessRequest, RpcHandler};
 use near_crypto::{InMemorySigner, Signer};
 use near_epoch_manager::shard_assignment::{account_id_to_shard_id, shard_id_to_uid};
 use near_network::client::ProcessTxResponse;
@@ -41,9 +41,8 @@ use near_primitives::views::{
 use near_store::ShardUId;
 use near_store::db::metadata::DbKind;
 use near_vm_runner::logic::ProtocolVersion;
-use once_cell::sync::OnceCell;
 use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use time::ext::InstantExt as _;
 
 use crate::utils::mock_partial_witness_adapter::MockPartialWitnessAdapter;
@@ -65,9 +64,9 @@ pub struct TestEnv {
     pub partial_witness_adapters: Vec<MockPartialWitnessAdapter>,
     pub shards_manager_adapters: Vec<SynchronousShardsManagerAdapter>,
     pub clients: Vec<Client>,
-    pub tx_request_handlers: Vec<TxRequestHandler>,
+    pub rpc_handlers: Vec<RpcHandler>,
     pub(crate) account_indices: AccountIndices,
-    pub(crate) paused_blocks: Arc<Mutex<HashMap<CryptoHash, Arc<OnceCell<()>>>>>,
+    pub(crate) paused_blocks: Arc<Mutex<HashMap<CryptoHash, Arc<OnceLock<()>>>>>,
     // random seed to be inject in each client according to AccountId
     // if not set, a default constant TEST_SEED will be injected
     pub(crate) seeds: HashMap<AccountId, RngSeed>,
@@ -82,16 +81,11 @@ pub struct StateWitnessPropagationOutput {
 }
 
 impl TestEnv {
-    pub fn default_builder() -> TestEnvBuilder {
-        let clock = Clock::real();
-        TestEnvBuilder::new(GenesisConfig::test(clock.clone())).clock(clock)
-    }
-
     pub fn builder(genesis_config: &GenesisConfig) -> TestEnvBuilder {
         TestEnvBuilder::new(genesis_config.clone())
     }
 
-    pub fn default_builder_with_genesis() -> TestEnvBuilder {
+    pub fn default_builder() -> TestEnvBuilder {
         let genesis = Genesis::test(vec!["test0".parse().unwrap()], 1);
         TestEnvBuilder::from_genesis(genesis)
     }
@@ -188,7 +182,7 @@ impl TestEnv {
     /// add something more robust.
     pub fn pause_block_processing(&mut self, capture: &mut TracingCapture, block: &CryptoHash) {
         let paused_blocks = Arc::clone(&self.paused_blocks);
-        paused_blocks.lock().unwrap().insert(*block, Arc::new(OnceCell::new()));
+        paused_blocks.lock().unwrap().insert(*block, Arc::new(OnceLock::new()));
         capture.set_callback(move |msg| {
             if msg.starts_with("do_apply_chunks") {
                 let cell = paused_blocks.lock().unwrap().iter().find_map(|(block_hash, cell)| {
@@ -220,8 +214,8 @@ impl TestEnv {
         self.account_indices.lookup_mut(&mut self.clients, account_id)
     }
 
-    pub fn tx_processor(&self, account_id: &AccountId) -> &TxRequestHandler {
-        self.account_indices.lookup(&self.tx_request_handlers, account_id)
+    pub fn rpc_handler(&self, account_id: &AccountId) -> &RpcHandler {
+        self.account_indices.lookup(&self.rpc_handlers, account_id)
     }
 
     pub fn shards_manager(&self, account: &AccountId) -> &SynchronousShardsManagerAdapter {
@@ -465,10 +459,8 @@ impl TestEnv {
                         tracing::warn!(target: "test", "Client not found for account_id {}", account_id);
                         return None;
                     }
-                    let processing_result = self
-                        .client(&account_id)
-                        .chunk_endorsement_tracker
-                        .process_chunk_endorsement(endorsement);
+                    let mut tracker = self.client(&account_id).chunk_endorsement_tracker.lock().unwrap();
+                    let processing_result = tracker.process_chunk_endorsement(endorsement);
                     if !allow_errors {
                         processing_result.unwrap();
                     }
@@ -533,7 +525,7 @@ impl TestEnv {
             100,
             self.clients[id].chain.head().unwrap().last_block_hash,
         );
-        self.tx_request_handlers[id].process_tx(tx, false, false)
+        self.rpc_handlers[id].process_tx(tx, false, false)
     }
 
     /// This function used to be able to upgrade to a specific protocol version
@@ -818,7 +810,7 @@ impl TestEnv {
         tx: SignedTransaction,
     ) -> Result<FinalExecutionOutcomeView, InvalidTxError> {
         let tx_hash = tx.get_hash();
-        let response = self.tx_request_handlers[0].process_tx(tx, false, false);
+        let response = self.rpc_handlers[0].process_tx(tx, false, false);
         // Check if the transaction got rejected
         match response {
             ProcessTxResponse::NoResponse

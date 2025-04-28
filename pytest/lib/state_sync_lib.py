@@ -11,7 +11,7 @@ def approximate_epoch_height(block_height, epoch_length):
     return int((block_height - 1) / epoch_length)
 
 
-def get_state_sync_configs_pair(tracked_shards=[0]):
+def get_state_sync_configs_pair(tracked_shards_config='AllShards'):
     state_parts_dir = str(pathlib.Path(tempfile.gettempdir()) / "state_parts")
 
     config_dump = {
@@ -29,7 +29,7 @@ def get_state_sync_configs_pair(tracked_shards=[0]):
             }
         },
         "store.state_snapshot_config.state_snapshot_type": "Enabled",
-        "tracked_shards": [0],  # Track all shards
+        "tracked_shards_config": 'AllShards'
     }
     config_sync = {
         "consensus.state_sync_external_timeout": {
@@ -57,8 +57,8 @@ def get_state_sync_configs_pair(tracked_shards=[0]):
         },
         "state_sync_enabled": True,
     }
-    if tracked_shards is not None:
-        config_sync['tracked_shards'] = tracked_shards
+    if tracked_shards_config is not None:
+        config_sync['tracked_shards_config'] = tracked_shards_config
 
     return (config_dump, config_sync)
 
@@ -102,7 +102,7 @@ def get_state_sync_config_combined():
         },
         "state_sync_enabled": True,
         "store.state_snapshot_config.state_snapshot_type": "Enabled",
-        "tracked_shards": [0],  # Track all shards
+        "tracked_shards_config": 'AllShards'
     }
 
     return config

@@ -107,8 +107,7 @@ pub struct ApplyChunkResult {
     /// version and Some otherwise.
     pub congestion_info: Option<CongestionInfo>,
     /// Requests for bandwidth to send receipts to other shards.
-    /// Will be None for protocol versions that don't have the BandwidthScheduler feature enabled.
-    pub bandwidth_requests: Option<BandwidthRequests>,
+    pub bandwidth_requests: BandwidthRequests,
     /// Used only for a sanity check.
     pub bandwidth_scheduler_state_hash: CryptoHash,
     /// Contracts accessed and deployed while applying the chunk.
@@ -126,7 +125,7 @@ impl ApplyChunkResult {
         outcomes: &[ExecutionOutcomeWithId],
     ) -> (MerkleHash, Vec<MerklePath>) {
         let mut result = Vec::with_capacity(outcomes.len());
-        for outcome_with_id in outcomes.iter() {
+        for outcome_with_id in outcomes {
             result.push(outcome_with_id.to_hashes());
         }
         merklize(&result)
@@ -319,7 +318,6 @@ pub struct ApplyChunkShardContext<'a> {
     pub last_validator_proposals: ValidatorStakeIter<'a>,
     pub gas_limit: Gas,
     pub is_new_chunk: bool,
-    pub is_first_block_with_chunk_of_version: bool,
 }
 
 /// Contains transactions that were fetched from the transaction pool
@@ -528,7 +526,7 @@ pub trait RuntimeAdapter: Send + Sync {
 /// The last known / checked height and time when we have processed it.
 /// Required to keep track of skipped blocks and not fallback to produce blocks at lower height.
 #[derive(
-    BorshSerialize, BorshDeserialize, Debug, Clone, Default, serde::Serialize, ProtocolSchema,
+    BorshSerialize, BorshDeserialize, Debug, Clone, Copy, Default, serde::Serialize, ProtocolSchema,
 )]
 pub struct LatestKnown {
     pub height: BlockHeight,
@@ -539,7 +537,7 @@ pub struct LatestKnown {
 mod tests {
     use near_async::time::{Clock, Utc};
     use near_primitives::block::Approval;
-    use near_primitives::genesis::genesis_chunks;
+    use near_primitives::genesis::{genesis_block, genesis_chunks};
     use near_primitives::hash::hash;
     use near_primitives::merkle::verify_path;
     use near_primitives::test_utils::{TestBlockBuilder, create_test_signer};
@@ -554,14 +552,14 @@ mod tests {
         let shard_ids: Vec<_> = (0..32).map(ShardId::new).collect();
         let genesis_chunks = genesis_chunks(
             vec![Trie::EMPTY_ROOT],
-            vec![Some(Default::default()); shard_ids.len()],
+            vec![Default::default(); shard_ids.len()],
             &shard_ids,
             1_000_000,
             0,
             PROTOCOL_VERSION,
         );
         let genesis_bps: Vec<ValidatorStake> = Vec::new();
-        let genesis = Block::genesis(
+        let genesis = genesis_block(
             PROTOCOL_VERSION,
             genesis_chunks.into_iter().map(|chunk| chunk.take_header()).collect(),
             Utc::now_utc(),

@@ -6,7 +6,7 @@ use near_jsonrpc_primitives::types::changes::{
     RpcStateChangesInBlockByTypeRequest, RpcStateChangesInBlockByTypeResponse,
 };
 use near_jsonrpc_primitives::types::transactions::{
-    RpcTransactionResponse, RpcTransactionStatusRequest,
+    RpcSendTransactionRequest, RpcTransactionResponse, RpcTransactionStatusRequest,
 };
 use near_jsonrpc_primitives::types::validator::RpcValidatorsOrderedRequest;
 use near_primitives::hash::CryptoHash;
@@ -278,6 +278,15 @@ impl JsonRpcClient {
             _ => EpochReference::Latest,
         };
         call_method(&self.client, &self.server_addr, "validators", epoch_reference)
+    }
+
+    pub fn send_tx(
+        &self,
+        signed_transaction: near_primitives::transaction::SignedTransaction,
+        wait_until: near_primitives::views::TxExecutionStatus,
+    ) -> RpcRequest<RpcTransactionResponse> {
+        let request = RpcSendTransactionRequest { signed_transaction, wait_until };
+        call_method(&self.client, &self.server_addr, "send_tx", request)
     }
 }
 

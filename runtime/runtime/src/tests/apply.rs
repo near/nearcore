@@ -22,7 +22,6 @@ use near_primitives::congestion_info::{
 use near_primitives::errors::{ActionErrorKind, FunctionCallError, TxExecutionError};
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum, ReceiptPriority, ReceiptV0};
-use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::state::PartialState;
 use near_primitives::stateless_validation::contract_distribution::CodeHash;
@@ -38,6 +37,7 @@ use near_primitives::types::{
 use near_primitives::utils::create_receipt_id_from_transaction;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_store::test_utils::TestTriesBuilder;
+use near_store::trie::AccessOptions;
 use near_store::trie::receipts_column_helper::ShardsOutgoingReceiptBuffer;
 use near_store::{
     MissingTrieValueContext, ShardTries, StorageError, Trie, get_account, set_access_key,
@@ -150,12 +150,9 @@ fn setup_runtime_for_shard(
     let root = tries.apply_all(&trie_changes, shard_uid, &mut store_update);
     store_update.commit().unwrap();
     let contract_cache = FilesystemContractRuntimeCache::test().unwrap();
-    let shards_congestion_info = if ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
-        let shard_ids = shard_layout.shard_ids();
-        shard_ids.map(|shard_id| (shard_id, ExtendedCongestionInfo::default())).collect()
-    } else {
-        [].into()
-    };
+    let shard_ids = shard_layout.shard_ids();
+    let shards_congestion_info =
+        shard_ids.map(|shard_id| (shard_id, ExtendedCongestionInfo::default())).collect();
     let congestion_info = BlockCongestionInfo::new(shards_congestion_info);
     let apply_state = ApplyState {
         apply_reason: ApplyChunkReason::UpdateTrackedShard,
@@ -173,10 +170,9 @@ fn setup_runtime_for_shard(
         config: Arc::new(RuntimeConfig::test()),
         cache: Some(Box::new(contract_cache)),
         is_new_chunk: true,
-        migration_data: Arc::new(MigrationData::default()),
-        migration_flags: MigrationFlags::default(),
         congestion_info,
         bandwidth_requests: BlockBandwidthRequests::empty(),
+        trie_access_tracker_state: Default::default(),
     };
 
     (runtime, tries, root, apply_state, signers)
@@ -984,7 +980,6 @@ fn test_delete_key_underflow() {
     assert_eq!(final_account_state.storage_usage(), 0);
 }
 
-// This test only works on platforms that support wasmer2.
 #[test]
 #[cfg(target_arch = "x86_64")]
 fn test_contract_precompilation() {
@@ -1260,12 +1255,12 @@ fn test_main_storage_proof_size_soft_limit() {
     let storage = Trie::from_recorded_storage(partial_storage, root, false);
     let code_key = TrieKey::ContractCode { account_id: alice_account() };
     assert_matches!(
-        storage.get(&code_key.to_vec()),
+        storage.get(&code_key.to_vec(), AccessOptions::DEFAULT),
         Err(StorageError::MissingTrieValue(MissingTrieValueContext::TrieMemoryPartialStorage, _))
     );
     let code_key = TrieKey::ContractCode { account_id: bob_account() };
     assert_matches!(
-        storage.get(&code_key.to_vec()),
+        storage.get(&code_key.to_vec(), AccessOptions::DEFAULT),
         Err(StorageError::MissingTrieValue(MissingTrieValueContext::TrieMemoryPartialStorage, _))
     );
 }
@@ -1378,12 +1373,12 @@ fn test_exclude_contract_code_from_witness() {
     let storage = Trie::from_recorded_storage(partial_storage, root, false);
     let code_key = TrieKey::ContractCode { account_id: alice_account() };
     assert_matches!(
-        storage.get(&code_key.to_vec()),
+        storage.get(&code_key.to_vec(), AccessOptions::DEFAULT),
         Err(StorageError::MissingTrieValue(MissingTrieValueContext::TrieMemoryPartialStorage, _))
     );
     let code_key = TrieKey::ContractCode { account_id: bob_account() };
     assert_matches!(
-        storage.get(&code_key.to_vec()),
+        storage.get(&code_key.to_vec(), AccessOptions::DEFAULT),
         Err(StorageError::MissingTrieValue(MissingTrieValueContext::TrieMemoryPartialStorage, _))
     );
 }
@@ -1483,12 +1478,12 @@ fn test_exclude_contract_code_from_witness_with_failed_call() {
     let storage = Trie::from_recorded_storage(partial_storage, root, false);
     let code_key = TrieKey::ContractCode { account_id: alice_account() };
     assert_matches!(
-        storage.get(&code_key.to_vec()),
+        storage.get(&code_key.to_vec(), AccessOptions::DEFAULT),
         Err(StorageError::MissingTrieValue(MissingTrieValueContext::TrieMemoryPartialStorage, _))
     );
     let code_key = TrieKey::ContractCode { account_id: bob_account() };
     assert_matches!(
-        storage.get(&code_key.to_vec()),
+        storage.get(&code_key.to_vec(), AccessOptions::DEFAULT),
         Err(StorageError::MissingTrieValue(MissingTrieValueContext::TrieMemoryPartialStorage, _))
     );
 }
@@ -2430,15 +2425,13 @@ fn test_congestion_delayed_receipts_accounting() {
         .unwrap();
 
     assert_eq!(n - 1, apply_result.delayed_receipts_count);
-    if ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
-        let congestion = apply_result.congestion_info.unwrap();
-        let expected_delayed_gas =
-            (n - 1) * compute_receipt_congestion_gas(&receipts[0], &apply_state.config).unwrap();
-        let expected_receipts_bytes = (n - 1) * compute_receipt_size(&receipts[0]).unwrap() as u64;
+    let congestion = apply_result.congestion_info.unwrap();
+    let expected_delayed_gas =
+        (n - 1) * compute_receipt_congestion_gas(&receipts[0], &apply_state.config).unwrap();
+    let expected_receipts_bytes = (n - 1) * compute_receipt_size(&receipts[0]).unwrap() as u64;
 
-        assert_eq!(expected_delayed_gas as u128, congestion.delayed_receipts_gas());
-        assert_eq!(expected_receipts_bytes, congestion.receipt_bytes());
-    }
+    assert_eq!(expected_delayed_gas as u128, congestion.delayed_receipts_gas());
+    assert_eq!(expected_receipts_bytes, congestion.receipt_bytes());
 }
 
 /// Test that the outgoing receipts buffer works as intended.
@@ -2452,10 +2445,6 @@ fn test_congestion_delayed_receipts_accounting() {
 /// necessary changes to the balance checker.
 #[test]
 fn test_congestion_buffering() {
-    if !ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
-        return;
-    }
-
     init_test_logger();
 
     // In the test setup with MockEpochInfoProvider, bob_account is on shard 0 while alice_account
@@ -2692,9 +2681,6 @@ fn check_congestion_info_bootstrapping(is_new_chunk: bool, want: Option<Congesti
 /// be triggered on missed chunks.)
 #[test]
 fn test_congestion_info_bootstrapping() {
-    if !ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     let is_new_chunk = true;
     check_congestion_info_bootstrapping(is_new_chunk, Some(CongestionInfo::default()));
 

@@ -102,7 +102,7 @@ pub async fn build_streamer_message(
         })
         .collect::<Vec<_>>();
 
-    for chunk in chunks.into_iter() {
+    for chunk in chunks {
         let views::ChunkView { transactions, author, header, receipts: chunk_non_local_receipts } =
             chunk;
 
@@ -453,7 +453,8 @@ pub(crate) async fn start(
         for block_height in start_syncing_block_height..=latest_block_height {
             metrics::CURRENT_BLOCK_HEIGHT.set(block_height as i64);
             if let Ok(block) = fetch_block_by_height(&view_client, block_height).await {
-                let response = build_streamer_message(&view_client, block, &shard_tracker).await;
+                let response =
+                    Box::pin(build_streamer_message(&view_client, block, &shard_tracker)).await;
 
                 match response {
                     Ok(streamer_message) => {

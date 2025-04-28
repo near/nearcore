@@ -25,7 +25,6 @@ futures.workspace = true
 itertools.workspace = true
 lru.workspace = true
 num-rational.workspace = true
-once_cell.workspace = true
 percent-encoding.workspace = true
 rand.workspace = true
 rayon.workspace = true

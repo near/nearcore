@@ -9,12 +9,11 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use itertools::Itertools;
 use near_crypto::{KeyType, PublicKey};
 use near_fmt::AbbrBytes;
-use near_primitives_core::types::{Gas, ProtocolVersion};
-use near_primitives_core::version::ProtocolFeature;
+use near_primitives_core::types::Gas;
 use near_schema_checker_lib::ProtocolSchema;
 use serde_with::base64::Base64;
 use serde_with::serde_as;
-use std::borrow::{Borrow, Cow};
+use std::borrow::Cow;
 use std::collections::{BTreeMap, HashMap};
 use std::fmt;
 use std::io::{self, Read};
@@ -191,32 +190,15 @@ impl ReceiptOrStateStoredReceipt<'_> {
 }
 
 impl<'a> StateStoredReceipt<'a> {
-    pub fn new_owned(
-        receipt: Receipt,
-        metadata: StateStoredReceiptMetadata,
-        protocol_version: ProtocolVersion,
-    ) -> Self {
+    pub fn new_owned(receipt: Receipt, metadata: StateStoredReceiptMetadata) -> Self {
         let receipt = Cow::Owned(receipt);
-
-        if ProtocolFeature::BandwidthScheduler.enabled(protocol_version) {
-            Self::V1(StateStoredReceiptV1 { receipt, metadata })
-        } else {
-            Self::V0(StateStoredReceiptV0 { receipt, metadata })
-        }
+        Self::V1(StateStoredReceiptV1 { receipt, metadata })
     }
 
-    pub fn new_borrowed(
-        receipt: &'a Receipt,
-        metadata: StateStoredReceiptMetadata,
-        protocol_version: ProtocolVersion,
-    ) -> Self {
+    pub fn new_borrowed(receipt: &'a Receipt, metadata: StateStoredReceiptMetadata) -> Self {
         let receipt = Cow::Borrowed(receipt);
 
-        if ProtocolFeature::BandwidthScheduler.enabled(protocol_version) {
-            Self::V1(StateStoredReceiptV1 { receipt, metadata })
-        } else {
-            Self::V0(StateStoredReceiptV0 { receipt, metadata })
-        }
+        Self::V1(StateStoredReceiptV1 { receipt, metadata })
     }
 
     pub fn into_receipt(self) -> Receipt {
@@ -407,15 +389,6 @@ impl ReceiptPriority {
         match self {
             ReceiptPriority::Priority(value) => *value,
             ReceiptPriority::NoPriority => 0,
-        }
-    }
-}
-
-impl Borrow<CryptoHash> for Receipt {
-    fn borrow(&self) -> &CryptoHash {
-        match self {
-            Receipt::V0(receipt) => &receipt.receipt_id,
-            Receipt::V1(receipt) => &receipt.receipt_id,
         }
     }
 }
@@ -896,8 +869,6 @@ pub type ReceiptResult = HashMap<ShardId, Vec<Receipt>>;
 
 #[cfg(test)]
 mod tests {
-    use near_primitives_core::version::PROTOCOL_VERSION;
-
     use super::*;
 
     fn get_receipt_v0() -> Receipt {
@@ -953,7 +924,7 @@ mod tests {
 
     fn test_state_stored_receipt_serialization_impl(receipt: Receipt) {
         let metadata = StateStoredReceiptMetadata { congestion_gas: 42, congestion_size: 43 };
-        let receipt = StateStoredReceipt::new_owned(receipt, metadata, PROTOCOL_VERSION);
+        let receipt = StateStoredReceipt::new_owned(receipt, metadata);
 
         let serialized_receipt = borsh::to_vec(&receipt).unwrap();
         let deserialized_receipt = StateStoredReceipt::try_from_slice(&serialized_receipt).unwrap();
@@ -1006,8 +977,7 @@ mod tests {
         {
             let receipt = get_receipt_v0();
             let metadata = StateStoredReceiptMetadata { congestion_gas: 42, congestion_size: 43 };
-            let state_stored_receipt =
-                StateStoredReceipt::new_owned(receipt, metadata, PROTOCOL_VERSION);
+            let state_stored_receipt = StateStoredReceipt::new_owned(receipt, metadata);
 
             let serialized_receipt = borsh::to_vec(&state_stored_receipt).unwrap();
             let deserialized_receipt =
@@ -1039,8 +1009,7 @@ mod tests {
         {
             let receipt = get_receipt_v0();
             let metadata = StateStoredReceiptMetadata { congestion_gas: 42, congestion_size: 43 };
-            let state_stored_receipt =
-                StateStoredReceipt::new_owned(receipt, metadata, PROTOCOL_VERSION);
+            let state_stored_receipt = StateStoredReceipt::new_owned(receipt, metadata);
             let receipt_or_state_stored_receipt =
                 ReceiptOrStateStoredReceipt::StateStoredReceipt(state_stored_receipt);
 

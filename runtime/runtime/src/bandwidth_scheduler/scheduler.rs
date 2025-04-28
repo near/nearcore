@@ -155,6 +155,7 @@ use rand_chacha::ChaCha20Rng;
 
 /// How many bytes of outgoing receipts can be sent from one shard to another at the current height.
 /// Produced by the bandwidth scheduler.
+#[derive(Default)]
 pub struct GrantedBandwidth {
     pub granted: BTreeMap<(ShardId, ShardId), Bandwidth>,
 }
@@ -360,7 +361,7 @@ impl BandwidthScheduler {
             // Shuffle requests that have the same allowance to resolve ties. Without the shuffle one link
             // could end up being processed before the other every time, which is not fair.
             requests.shuffle(&mut self.rng);
-            for mut request in requests.into_iter() {
+            for mut request in requests {
                 // Try to grant the first bandwidth increase from the request.
                 let Some(bandwidth_increase) = request.bandwidth_increases.pop_front() else {
                     continue;

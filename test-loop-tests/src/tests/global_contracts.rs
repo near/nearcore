@@ -15,7 +15,8 @@ use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, Balance, Gas, StorageUsage};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{
-    AccountView, FinalExecutionOutcomeView, FinalExecutionStatus, QueryRequest, QueryResponseKind,
+    AccountView, CallResult, ContractCodeView, FinalExecutionOutcomeView, FinalExecutionStatus,
+    QueryRequest, QueryResponseKind,
 };
 use near_vm_runner::ContractCode;
 
@@ -111,6 +112,16 @@ fn test_global_contract_update() {
     env.shutdown();
 }
 
+#[test]
+fn test_global_contract_by_account_id_rpc_calls() {
+    test_global_contract_rpc_calls(GlobalContractDeployMode::AccountId);
+}
+
+#[test]
+fn test_global_contract_by_hash_rpc_calls() {
+    test_global_contract_rpc_calls(GlobalContractDeployMode::CodeHash);
+}
+
 fn test_deploy_and_call_global_contract(deploy_mode: GlobalContractDeployMode) {
     const INITIAL_BALANCE: Balance = 1000 * ONE_NEAR;
     let mut env = GlobalContractsTestEnv::setup(INITIAL_BALANCE);
@@ -142,6 +153,23 @@ fn test_deploy_and_call_global_contract(deploy_mode: GlobalContractDeployMode) {
             baseline_storage_usage + env.contract.code().len() as StorageUsage
         );
     }
+
+    env.shutdown();
+}
+
+fn test_global_contract_rpc_calls(deploy_mode: GlobalContractDeployMode) {
+    let mut env = GlobalContractsTestEnv::setup(1000 * ONE_NEAR);
+    env.deploy_global_contract(deploy_mode.clone());
+    let target_account = env.account_shard_0.clone();
+    let identifier = env.global_contract_identifier(&deploy_mode);
+    env.use_global_contract(&target_account, identifier);
+    env.env.test_loop.run_for(Duration::seconds(2));
+
+    let view_call_result = env.view_call_global_contract(&target_account);
+    assert_eq!(view_call_result.logs, vec!["hello".to_owned()]);
+
+    let view_code_result = env.view_code(&target_account);
+    assert_eq!(view_code_result.hash, *env.contract.hash());
 
     env.shutdown();
 }
@@ -293,6 +321,19 @@ impl GlobalContractsTestEnv {
         self.run_tx(tx);
     }
 
+    fn view_call_global_contract(&mut self, account: &AccountId) -> CallResult {
+        let response = self.clients().runtime_query(
+            account,
+            QueryRequest::CallFunction {
+                account_id: account.clone(),
+                method_name: "log_something".to_owned(),
+                args: Vec::new().into(),
+            },
+        );
+        let QueryResponseKind::CallResult(call_result) = response.kind else { unreachable!() };
+        call_result
+    }
+
     fn deploy_global_contract_cost(&self) -> Balance {
         let contract_size = self.contract.code().len();
         let runtime_config = self.runtime_config_store.get_config(PROTOCOL_VERSION);
@@ -326,16 +367,23 @@ impl GlobalContractsTestEnv {
         // Need to wait a bit for RPC node to catch up with the results
         // of previously submitted txs
         self.env.test_loop.run_for(Duration::seconds(2));
-        let clients: Vec<&Client> = self
-            .env
-            .node_datas
-            .iter()
-            .map(|data| &self.env.test_loop.data.get(&data.client_sender.actor_handle()).client)
-            .collect();
-        let response = clients
-            .runtime_query(&account, QueryRequest::ViewAccount { account_id: account.clone() });
+        self.view_account(&account)
+    }
+
+    fn view_account(&self, account: &AccountId) -> AccountView {
+        let response = self
+            .clients()
+            .runtime_query(account, QueryRequest::ViewAccount { account_id: account.clone() });
         let QueryResponseKind::ViewAccount(account_view) = response.kind else { unreachable!() };
         account_view
+    }
+
+    fn view_code(&self, account: &AccountId) -> ContractCodeView {
+        let response = self
+            .clients()
+            .runtime_query(account, QueryRequest::ViewCode { account_id: account.clone() });
+        let QueryResponseKind::ViewCode(contract_code_view) = response.kind else { unreachable!() };
+        contract_code_view
     }
 
     fn next_nonce(&mut self) -> u64 {
@@ -381,6 +429,14 @@ impl GlobalContractsTestEnv {
                 GlobalContractIdentifier::AccountId(self.deploy_account.clone())
             }
         }
+    }
+
+    fn clients(&self) -> Vec<&Client> {
+        self.env
+            .node_datas
+            .iter()
+            .map(|data| &self.env.test_loop.data.get(&data.client_sender.actor_handle()).client)
+            .collect()
     }
 
     fn shutdown(self) {

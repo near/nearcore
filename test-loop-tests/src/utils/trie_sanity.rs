@@ -70,7 +70,7 @@ impl TrieSanityCheck {
         }
 
         let mut check = HashMap::new();
-        for account_id in self.accounts.iter() {
+        for account_id in &self.accounts {
             let check_shard_uids = self.get_epoch_check_for_account(
                 client,
                 tip,
@@ -174,8 +174,8 @@ impl TrieSanityCheck {
             let check = self.checks.get(&epoch_id).unwrap_or_else(|| {
                 panic!("No trie comparison checks made for epoch {}", &epoch_id.0)
             });
-            for (account_id, checked_shards) in check.iter() {
-                for (shard_uid, checked) in checked_shards.iter() {
+            for (account_id, checked_shards) in check {
+                for (shard_uid, checked) in checked_shards {
                     assert!(
                         checked,
                         "No trie comparison checks made for account {} epoch {} shard {}",
@@ -413,7 +413,7 @@ pub fn check_state_shard_uid_mapping_after_resharding(
         get_tracked_shards_from_prev_block(client, resharding_block_hash);
 
     // Sanity checks if the node tracks all shards (e.g. it is RPC node).
-    if !client.config.tracked_shards.is_empty() {
+    if client.config.tracked_shards_config.tracks_all_shards() {
         assert_eq!(tracked_mapped_children.len(), 2);
         assert_eq!(shards_tracked_after_resharding.len(), shard_layout.num_shards() as usize,);
     }

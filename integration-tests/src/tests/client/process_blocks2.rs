@@ -6,6 +6,7 @@ use near_chain_configs::Genesis;
 use near_crypto::vrf::Value;
 use near_crypto::{KeyType, PublicKey, Signature};
 use near_network::types::{NetworkRequests, PeerManagerMessageRequest};
+use near_primitives::bandwidth_scheduler::BandwidthRequests;
 use near_primitives::block::Block;
 use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::network::PeerId;
@@ -16,7 +17,6 @@ use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::ShardId;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::utils::MaybeValidated;
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_store::ShardUId;
 
 use crate::env::test_env::TestEnv;
@@ -27,7 +27,7 @@ use crate::env::test_env_builder::TestEnvBuilder;
 /// if the second block is not requested
 #[test]
 fn test_not_process_height_twice() {
-    let mut env = TestEnv::default_builder_with_genesis().build();
+    let mut env = TestEnv::default_builder().build();
     let block = env.clients[0].produce_block(1).unwrap().unwrap();
     // modify the block and resign it
     let mut duplicate_block = block.clone();
@@ -76,11 +76,8 @@ fn test_bad_shard_id() {
     // modify chunk 0 to have shard_id 1
     let chunk = chunks.get(0).unwrap();
     let outgoing_receipts_root = chunks.get(1).unwrap().prev_outgoing_receipts_root();
-    let congestion_info = ProtocolFeature::CongestionControl
-        .enabled(PROTOCOL_VERSION)
-        .then_some(CongestionInfo::default());
+    let congestion_info = CongestionInfo::default();
     let mut modified_chunk = ShardChunkHeaderV3::new(
-        PROTOCOL_VERSION,
         *chunk.prev_block_hash(),
         chunk.prev_state_root(),
         chunk.prev_outcome_root(),
@@ -95,7 +92,7 @@ fn test_bad_shard_id() {
         chunk.tx_root(),
         chunk.prev_validator_proposals().collect(),
         congestion_info,
-        chunk.bandwidth_requests().cloned(),
+        chunk.bandwidth_requests().cloned().unwrap_or_else(BandwidthRequests::empty),
         &validator_signer,
     );
     modified_chunk.height_included = 2;
@@ -216,10 +213,6 @@ impl BadCongestionInfoMode {
 }
 
 fn test_bad_congestion_info_impl(mode: BadCongestionInfoMode) {
-    if !ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
-        return;
-    }
-
     let accounts = TestEnvBuilder::make_accounts(1);
     let genesis = Genesis::test_sharded_new_version(accounts, 1, vec![1, 1, 1, 1]);
     let mut env = TestEnv::builder_from_genesis(&genesis).build();
@@ -233,11 +226,10 @@ fn test_bad_congestion_info_impl(mode: BadCongestionInfoMode) {
     let chunks: Vec<_> = block.chunks().iter_deprecated().cloned().collect();
     let chunk = chunks.get(0).unwrap();
 
-    let mut congestion_info = chunk.congestion_info().unwrap_or_default();
+    let mut congestion_info = chunk.congestion_info();
     mode.corrupt(&mut congestion_info);
 
     let mut modified_chunk_header = ShardChunkHeaderV3::new(
-        PROTOCOL_VERSION,
         *chunk.prev_block_hash(),
         chunk.prev_state_root(),
         chunk.prev_outcome_root(),
@@ -251,8 +243,8 @@ fn test_bad_congestion_info_impl(mode: BadCongestionInfoMode) {
         chunk.prev_outgoing_receipts_root(),
         chunk.tx_root(),
         chunk.prev_validator_proposals().collect(),
-        Some(congestion_info),
-        chunk.bandwidth_requests().cloned(),
+        congestion_info,
+        chunk.bandwidth_requests().cloned().unwrap_or_else(BandwidthRequests::empty),
         &validator_signer,
     );
     modified_chunk_header.height_included = 2;

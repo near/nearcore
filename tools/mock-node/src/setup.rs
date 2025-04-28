@@ -4,7 +4,7 @@ use crate::{MockNetworkConfig, MockNode};
 use anyhow::Context;
 use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode};
 use near_chain_configs::GenesisValidationMode;
-use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
+use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::{EpochManager, EpochManagerAdapter};
 use near_network::tcp;
 use near_primitives::shard_layout::ShardLayout;
@@ -65,8 +65,7 @@ pub(crate) fn setup_mock_peer(
             network_start_height,
             network_config,
             handshake_protocol_version,
-        )
-        .await?;
+        )?;
         mock.run(target_height).await
     });
     mock_peer
@@ -99,7 +98,7 @@ pub fn setup_mock_node(
     let epoch_manager =
         EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config, Some(home_dir));
     let shard_tracker = ShardTracker::new(
-        TrackedConfig::from_config(&near_config.client_config),
+        near_config.client_config.tracked_shards_config.clone(),
         epoch_manager.clone(),
     );
     let runtime =

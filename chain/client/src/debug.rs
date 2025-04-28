@@ -320,10 +320,7 @@ impl ClientActorInner {
             .epoch_manager
             .get_epoch_block_producers_ordered(epoch_id)?
             .into_iter()
-            .map(|validator_stake| ValidatorInfo {
-                account_id: validator_stake.take_account_id(),
-                is_slashed: false,
-            })
+            .map(|validator_stake| ValidatorInfo { account_id: validator_stake.take_account_id() })
             .collect();
         let chunk_producers = self
             .client
@@ -673,7 +670,7 @@ impl ClientActorInner {
                                 )
                                 .map(|s| s.whole_milliseconds() as u64),
                                 congestion_level,
-                                congestion_info: chunk.congestion_info(),
+                                congestion_info: Some(chunk.congestion_info()),
                                 endorsement_ratio,
                             }
                         })
@@ -934,8 +931,7 @@ fn new_peer_info_view(chain: &Chain, connected_peer_info: &ConnectedPeerInfo) ->
         is_highest_block_invalid: full_peer_info
             .chain_info
             .last_block
-            .map(|x| chain.is_block_invalid(&x.hash))
-            .unwrap_or_default(),
+            .is_some_and(|x| chain.is_block_invalid(&x.hash)),
         tracked_shards: full_peer_info.chain_info.tracked_shards.clone(),
         archival: full_peer_info.chain_info.archival,
         peer_id: full_peer_info.peer_info.id.public_key().clone(),

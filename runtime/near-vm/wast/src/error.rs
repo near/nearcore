@@ -29,7 +29,7 @@ impl fmt::Display for DirectiveErrors {
         // operation succeeded or failed. Note that `write!` uses syntax which
         // is very similar to `println!`.
         writeln!(f, "Failed directives on {}:", self.filename)?;
-        for error in self.errors.iter() {
+        for error in &self.errors {
             writeln!(f, "  • {} ({}:{})", error.message, error.line, error.col)?;
         }
         Ok(())

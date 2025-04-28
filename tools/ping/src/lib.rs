@@ -138,7 +138,7 @@ impl AppInfo {
     }
 
     fn pick_next_target(&self) -> Option<PeerId> {
-        for (target, pending_pings) in self.requests.iter() {
+        for (target, pending_pings) in &self.requests {
             if pending_pings.len() < MAX_PINGS_IN_FLIGHT {
                 return Some(target.peer_id.clone());
             }

@@ -6,7 +6,7 @@ use near_client::sync::external::{
     external_storage_location, external_storage_location_directory, get_num_parts_from_filename,
 };
 use near_epoch_manager::EpochManager;
-use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
+use near_epoch_manager::shard_tracker::ShardTracker;
 use near_primitives::epoch_info::EpochInfo;
 use near_primitives::state::PartialState;
 use near_primitives::state_part::PartId;
@@ -105,7 +105,7 @@ impl StatePartsSubCommand {
             Some(home_dir),
         );
         let shard_tracker = ShardTracker::new(
-            TrackedConfig::from_config(&near_config.client_config),
+            near_config.client_config.tracked_shards_config.clone(),
             epoch_manager.clone(),
         );
         let runtime = NightshadeRuntime::from_config(

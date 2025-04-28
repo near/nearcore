@@ -105,8 +105,7 @@ impl NearVM {
     pub(crate) fn new_for_target(config: Arc<Config>, target: near_vm_compiler::Target) -> Self {
         // We only support singlepass compiler at the moment.
         assert_eq!(VM_CONFIG.compiler, NearVmCompiler::Singlepass);
-        let mut compiler = Singlepass::new();
-        compiler.set_9393_fix(!config.disable_9393_fix);
+        let compiler = Singlepass::new();
         // We only support universal engine at the moment.
         assert_eq!(VM_CONFIG.engine, NearVmEngine::Universal);
 
@@ -129,13 +128,11 @@ impl NearVM {
             })
             .clone();
 
-        let features =
-            crate::features::WasmFeatures::from(config.limit_config.contract_prepare_version);
         Self {
             config,
             engine: Universal::new(compiler)
                 .target(target)
-                .features(features.into())
+                .features(crate::features::WasmFeatures::new().into())
                 .code_memory_pool(code_memory_pool)
                 .engine(),
         }

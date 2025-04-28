@@ -122,7 +122,7 @@ impl AccountRecords {
                 }
                 *total_supply += account.amount() + account.locked();
                 seq.serialize_element(&StateRecord::Account { account_id, account })?;
-                for record in self.extra_records.iter() {
+                for record in &self.extra_records {
                     seq.serialize_element(record)?;
                 }
             }
@@ -142,7 +142,7 @@ fn validator_records(
     num_bytes_account: u64,
 ) -> anyhow::Result<HashMap<AccountId, AccountRecords>> {
     let mut records = HashMap::new();
-    for AccountInfo { account_id, public_key, amount } in validators.iter() {
+    for AccountInfo { account_id, public_key, amount } in validators {
         let mut r = AccountRecords::new_validator(*amount, num_bytes_account);
         r.keys.insert(public_key.clone(), AccessKey::full_access());
         if records.insert(account_id.clone(), r).is_some() {
@@ -1044,7 +1044,7 @@ mod test {
 
     #[test]
     fn test_amend_genesis() {
-        for t in TEST_CASES.iter() {
+        for t in TEST_CASES {
             t.run().unwrap();
         }
     }

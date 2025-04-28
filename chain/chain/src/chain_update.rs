@@ -95,15 +95,11 @@ impl<'a> ChainUpdate<'a> {
                     ApplyChunkResult::compute_outcomes_proof(&apply_result.outcomes);
                 let shard_id = shard_uid.shard_id();
 
-                let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(prev_hash)?;
-                let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
-
                 // Save state root after applying transactions.
                 self.chain_store_update.save_chunk_extra(
                     block_hash,
                     &shard_uid,
                     ChunkExtra::new(
-                        protocol_version,
                         &apply_result.new_root,
                         outcome_root,
                         apply_result.validator_proposals,
@@ -254,7 +250,7 @@ impl<'a> ChainUpdate<'a> {
         }
 
         self.chain_store_update.save_block_header(block.header().clone())?;
-        self.update_header_head_if_not_challenged(block.header())?;
+        self.update_header_head(block.header())?;
 
         // If block checks out, record validator proposals for given block.
         let last_final_block = block.header().last_final_block();
@@ -350,14 +346,14 @@ impl<'a> ChainUpdate<'a> {
     }
 
     /// Update the header head if this header has most work.
-    pub(crate) fn update_header_head_if_not_challenged(
+    pub(crate) fn update_header_head(
         &mut self,
         header: &BlockHeader,
     ) -> Result<Option<Tip>, Error> {
         let header_head = self.chain_store_update.header_head()?;
         if header.height() > header_head.height {
             let tip = Tip::from_header(header);
-            self.chain_store_update.save_header_head_if_not_challenged(&tip)?;
+            self.chain_store_update.save_header_head(&tip)?;
             debug!(target: "chain", "Header head updated to {} at {}", tip.last_block_hash, tip.height);
             metrics::HEADER_HEAD_HEIGHT.set(tip.height as i64);
 
@@ -435,7 +431,7 @@ impl<'a> ChainUpdate<'a> {
 
         // Getting actual incoming receipts.
         let mut receipt_proof_responses: Vec<ReceiptProofResponse> = vec![];
-        for incoming_receipt_proof in incoming_receipts_proofs.iter() {
+        for incoming_receipt_proof in &incoming_receipts_proofs {
             let ReceiptProofResponse(hash, _) = incoming_receipt_proof;
             let block_header = self.chain_store_update.get_block_header(hash)?;
             if block_header.height() <= chunk.height_included() {
@@ -458,15 +454,8 @@ impl<'a> ChainUpdate<'a> {
 
         let chunk_header = chunk.cloned_header();
         let gas_limit = chunk_header.gas_limit();
-        // This is set to false because the value is only relevant
-        // during protocol version RestoreReceiptsAfterFixApplyChunks.
-        // TODO(nikurt): Determine the value correctly.
-        let is_first_block_with_chunk_of_version = false;
-
         let block = self.chain_store_update.get_block(block_header.hash())?;
-        let epoch_id = self.epoch_manager.get_epoch_id(block_header.hash())?;
-        let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
-        let transactions = chunk.transactions().to_vec();
+        let transactions = chunk.to_transactions().to_vec();
         let transaction_validity = if let Some(prev_block_header) = prev_block_header {
             self.chain_store_update
                 .chain_store()
@@ -482,7 +471,6 @@ impl<'a> ChainUpdate<'a> {
                 shard_id,
                 gas_limit,
                 last_validator_proposals: chunk_header.prev_validator_proposals(),
-                is_first_block_with_chunk_of_version,
                 is_new_chunk: true,
             },
             ApplyChunkBlockContext {
@@ -519,7 +507,6 @@ impl<'a> ChainUpdate<'a> {
         self.chain_store_update.save_trie_changes(*block_header.hash(), apply_result.trie_changes);
 
         let chunk_extra = ChunkExtra::new(
-            protocol_version,
             &apply_result.new_root,
             outcome_root,
             apply_result.validator_proposals,
@@ -599,7 +586,6 @@ impl<'a> ChainUpdate<'a> {
                 last_validator_proposals: chunk_extra.validator_proposals(),
                 gas_limit: chunk_extra.gas_limit(),
                 is_new_chunk: false,
-                is_first_block_with_chunk_of_version: false,
             },
             ApplyChunkBlockContext::from_header(
                 &block_header,

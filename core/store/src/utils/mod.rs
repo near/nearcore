@@ -1,8 +1,9 @@
 pub(crate) mod sync_utils;
 pub mod test_utils;
 
-use std::io;
-
+use crate::db::{GENESIS_CONGESTION_INFO_KEY, GENESIS_HEIGHT_KEY};
+use crate::trie::AccessOptions;
+use crate::{DBCol, GENESIS_STATE_ROOTS_KEY, Store, StoreUpdate, TrieAccess, TrieUpdate};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::PublicKey;
 use near_primitives::account::{AccessKey, Account};
@@ -16,9 +17,7 @@ use near_primitives::receipt::{
 };
 use near_primitives::trie_key::{TrieKey, trie_key_parsers};
 use near_primitives::types::{AccountId, BlockHeight, StateRoot};
-
-use crate::db::{GENESIS_CONGESTION_INFO_KEY, GENESIS_HEIGHT_KEY};
-use crate::{DBCol, GENESIS_STATE_ROOTS_KEY, Store, StoreUpdate, TrieAccess, TrieUpdate};
+use std::io;
 
 /// Reads an object from Trie.
 /// # Errors
@@ -27,7 +26,7 @@ pub fn get<T: BorshDeserialize>(
     trie: &dyn TrieAccess,
     key: &TrieKey,
 ) -> Result<Option<T>, StorageError> {
-    match trie.get(key)? {
+    match trie.get(key, AccessOptions::DEFAULT)? {
         None => Ok(None),
         Some(data) => match T::try_from_slice(&data) {
             Err(err) => Err(StorageError::StorageInconsistentState(format!(
@@ -43,7 +42,7 @@ pub fn get_pure<T: BorshDeserialize>(
     trie: &dyn TrieAccess,
     key: &TrieKey,
 ) -> Result<Option<T>, StorageError> {
-    match trie.get_no_side_effects(key)? {
+    match trie.get(key, AccessOptions::NO_SIDE_EFFECTS)? {
         None => Ok(None),
         Some(data) => match T::try_from_slice(&data) {
             Err(_err) => {
@@ -93,7 +92,10 @@ pub fn has_received_data(
     receiver_id: &AccountId,
     data_id: CryptoHash,
 ) -> Result<bool, StorageError> {
-    trie.contains_key(&TrieKey::ReceivedData { receiver_id: receiver_id.clone(), data_id })
+    trie.contains_key(
+        &TrieKey::ReceivedData { receiver_id: receiver_id.clone(), data_id },
+        AccessOptions::DEFAULT,
+    )
 }
 
 pub fn set_postponed_receipt(state_update: &mut TrieUpdate, receipt: &Receipt) {
@@ -211,7 +213,10 @@ pub fn has_promise_yield_receipt(
     receiver_id: AccountId,
     data_id: CryptoHash,
 ) -> Result<bool, StorageError> {
-    trie.contains_key(&TrieKey::PromiseYieldReceipt { receiver_id, data_id })
+    trie.contains_key(
+        &TrieKey::PromiseYieldReceipt { receiver_id, data_id },
+        AccessOptions::DEFAULT,
+    )
 }
 
 pub fn get_buffered_receipt_indices(

@@ -21,7 +21,7 @@ use near_primitives::transaction::{
 };
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
-    AccountId, Balance, BlockHeight, EpochInfoProvider, Gas, StorageUsage, TrieCacheMode,
+    AccountId, Balance, BlockHeight, EpochInfoProvider, Gas, StorageUsage,
 };
 use near_primitives::utils::account_is_implicit;
 use near_primitives::version::ProtocolVersion;
@@ -86,20 +86,8 @@ pub(crate) fn execute_function_call(
         output_data_receivers,
     };
 
-    // Enable caching chunk mode for the function call. This allows to charge for nodes touched in a chunk only once for
-    // the first access time. Although nodes are accessed for other actions as well, we do it only here because we
-    // charge only for trie nodes touched during function calls.
-    // TODO (#5920): Consider using RAII for switching the state back
-
     near_vm_runner::reset_metrics();
-    let mode = if ProtocolFeature::ChunkNodesCache.enabled(runtime_ext.protocol_version()) {
-        Some(TrieCacheMode::CachingChunk)
-    } else {
-        None
-    };
-    let mode_guard = runtime_ext.trie_update.with_trie_cache_mode(mode);
     let result = near_vm_runner::run(contract, runtime_ext, &context, Arc::clone(&config.fees));
-    drop(mode_guard);
     near_vm_runner::report_metrics(
         &apply_state.shard_id.to_string(),
         &apply_state.apply_reason.to_string(),
@@ -184,7 +172,6 @@ pub(crate) fn action_function_call(
         code_hash,
         account_contract.as_ref(),
         apply_state.apply_reason.clone(),
-        apply_state.current_protocol_version,
     )?;
 
     #[cfg(feature = "test_features")]
@@ -198,12 +185,12 @@ pub(crate) fn action_function_call(
         account.clone(),
         *action_hash,
         apply_state.epoch_id,
-        apply_state.prev_block_hash,
         apply_state.block_hash,
         apply_state.block_height,
         epoch_info_provider,
         apply_state.current_protocol_version,
         config.wasm_config.storage_get_mode,
+        Arc::clone(&apply_state.trie_access_tracker_state),
     );
     let outcome = execute_function_call(
         contract,
@@ -493,7 +480,6 @@ pub(crate) fn action_implicit_account_creation_transfer(
     account_id: &AccountId,
     deposit: Balance,
     block_height: BlockHeight,
-    current_protocol_version: ProtocolVersion,
     epoch_info_provider: &dyn EpochInfoProvider,
 ) {
     *actor_id = account_id.clone();
@@ -502,11 +488,8 @@ pub(crate) fn action_implicit_account_creation_transfer(
             let mut access_key = AccessKey::full_access();
             // Set default nonce for newly created access key to avoid transaction hash collision.
             // See <https://github.com/near/nearcore/issues/3779>.
-            if ProtocolFeature::AccessKeyNonceForImplicitAccounts.enabled(current_protocol_version)
-            {
-                access_key.nonce = (block_height - 1)
-                    * near_primitives::account::AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER;
-            }
+            access_key.nonce = (block_height - 1)
+                * near_primitives::account::AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER;
 
             // unwrap: here it's safe because the `account_id` has already been determined to be implicit by `get_account_type`
             let public_key = PublicKey::from_near_implicit_account(account_id).unwrap();
@@ -526,42 +509,35 @@ pub(crate) fn action_implicit_account_creation_transfer(
         // Invariant: The `account_id` is implicit.
         // It holds because in the only calling site, we've checked the permissions before.
         AccountType::EthImplicitAccount => {
-            if ProtocolFeature::EthImplicitAccounts.enabled(current_protocol_version) {
-                let chain_id = epoch_info_provider.chain_id();
+            let chain_id = epoch_info_provider.chain_id();
 
-                // We deploy "near[wallet contract hash]" magic bytes as the contract code,
-                // to mark that this is a neard-defined contract. It will not be used on a function call.
-                // Instead, neard-defined Wallet Contract implementation will be used.
-                let magic_bytes = wallet_contract_magic_bytes(&chain_id, current_protocol_version);
+            // We deploy "near[wallet contract hash]" magic bytes as the contract code,
+            // to mark that this is a neard-defined contract. It will not be used on a function call.
+            // Instead, neard-defined Wallet Contract implementation will be used.
+            let magic_bytes = wallet_contract_magic_bytes(&chain_id);
 
-                let storage_usage = fee_config.storage_usage_config.num_bytes_account
-                    + magic_bytes.code().len() as u64
-                    + fee_config.storage_usage_config.num_extra_bytes_record;
+            let storage_usage = fee_config.storage_usage_config.num_bytes_account
+                + magic_bytes.code().len() as u64
+                + fee_config.storage_usage_config.num_extra_bytes_record;
 
-                let contract_hash = *magic_bytes.hash();
-                *account = Some(Account::new(
-                    deposit,
-                    0,
-                    AccountContract::from_local_code_hash(contract_hash),
-                    storage_usage,
-                ));
-                state_update.set_code(account_id.clone(), &magic_bytes);
+            let contract_hash = *magic_bytes.hash();
+            *account = Some(Account::new(
+                deposit,
+                0,
+                AccountContract::from_local_code_hash(contract_hash),
+                storage_usage,
+            ));
+            state_update.set_code(account_id.clone(), &magic_bytes);
 
-                // Precompile Wallet Contract and store result (compiled code or error) in the database.
-                // Note this contract is shared among ETH-implicit accounts and `precompile_contract`
-                // is a no-op if the contract was already compiled.
-                precompile_contract(
-                    &wallet_contract(contract_hash).expect("should definitely exist"),
-                    Arc::clone(&apply_state.config.wasm_config),
-                    apply_state.cache.as_deref(),
-                )
-                .ok();
-            } else {
-                // This panic is unreachable as this is an implicit account creation transfer.
-                // `check_account_existence` would fail because in this protocol version `account_is_implicit`
-                // would return false for an account that is of the ETH-implicit type.
-                panic!("must be near-implicit");
-            }
+            // Precompile Wallet Contract and store result (compiled code or error) in the database.
+            // Note this contract is shared among ETH-implicit accounts and `precompile_contract`
+            // is a no-op if the contract was already compiled.
+            precompile_contract(
+                &wallet_contract(contract_hash).expect("should definitely exist"),
+                Arc::clone(&apply_state.config.wasm_config),
+                apply_state.cache.as_deref(),
+            )
+            .ok();
         }
         // This panic is unreachable as this is an implicit account creation transfer.
         // `check_account_existence` would fail because `account_is_implicit` would return false for a Named account.
@@ -1151,7 +1127,6 @@ mod tests {
     use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
     use near_primitives::congestion_info::BlockCongestionInfo;
     use near_primitives::errors::InvalidAccessKeyError;
-    use near_primitives::runtime::migration_data::MigrationFlags;
     use near_primitives::transaction::CreateAccountAction;
     use near_primitives::types::{EpochId, StateChangeCause};
     use near_primitives::version::PROTOCOL_VERSION;
@@ -1413,10 +1388,9 @@ mod tests {
             config: Arc::new(RuntimeConfig::test()),
             cache: None,
             is_new_chunk: false,
-            migration_data: Arc::default(),
-            migration_flags: MigrationFlags::default(),
             congestion_info: BlockCongestionInfo::default(),
             bandwidth_requests: BlockBandwidthRequests::empty(),
+            trie_access_tracker_state: Default::default(),
         }
     }
 

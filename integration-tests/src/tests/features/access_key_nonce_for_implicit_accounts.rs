@@ -1,10 +1,13 @@
+use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
+use crate::env::test_env::TestEnv;
+use crate::utils::process_blocks::produce_blocks_from_height;
 use assert_matches::assert_matches;
 use near_async::messaging::CanSend;
 use near_chain::orphan::NUM_ORPHAN_ANCESTORS_CHECK;
 use near_chain::{ChainStoreAccess as _, Error, Provenance};
 use near_chain_configs::{Genesis, NEAR_BASE};
 use near_chunks::metrics::PARTIAL_ENCODED_CHUNK_FORWARD_CACHED_WITHOUT_HEADER;
-use near_client::test_utils::create_chunk_with_transactions;
+use near_client::test_utils::create_chunk;
 use near_client::{ProcessTxResponse, ProduceChunkResult};
 use near_crypto::{InMemorySigner, KeyType, SecretKey, Signer};
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
@@ -15,19 +18,15 @@ use near_primitives::account::AccessKey;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::ChunkHash;
-use near_primitives::transaction::SignedTransaction;
+use near_primitives::transaction::{SignedTransaction, ValidatedTransaction};
 use near_primitives::types::{AccountId, BlockHeight};
 use near_primitives::utils::derive_near_implicit_account_id;
-use near_primitives::version::{ProtocolFeature, ProtocolVersion};
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolVersion};
 use near_primitives::views::FinalExecutionStatus;
 use rand::seq::SliceRandom;
 use rand::{Rng, thread_rng};
 use std::collections::HashSet;
 use tracing::debug;
-
-use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
-use crate::env::test_env::TestEnv;
-use crate::utils::process_blocks::produce_blocks_from_height;
 
 /// Try to process tx in the next blocks, check that tx and all generated receipts succeed.
 /// Return height of the next block.
@@ -38,7 +37,7 @@ fn check_tx_processing(
     blocks_number: u64,
 ) -> BlockHeight {
     let tx_hash = tx.get_hash();
-    assert_eq!(env.tx_request_handlers[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
+    assert_eq!(env.rpc_handlers[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
     let next_height = produce_blocks_from_height(env, blocks_number, height);
     let final_outcome = env.clients[0].chain.get_final_transaction_result(&tx_hash).unwrap();
     assert_matches!(final_outcome.status, FinalExecutionStatus::SuccessValue(_));
@@ -74,11 +73,11 @@ fn test_transaction_hash_collision() {
     );
 
     assert_eq!(
-        env.tx_request_handlers[0].process_tx(send_money_tx.clone(), false, false),
+        env.rpc_handlers[0].process_tx(send_money_tx.clone(), false, false),
         ProcessTxResponse::ValidTx
     );
     assert_eq!(
-        env.tx_request_handlers[0].process_tx(delete_account_tx, false, false),
+        env.rpc_handlers[0].process_tx(delete_account_tx, false, false),
         ProcessTxResponse::ValidTx
     );
 
@@ -96,7 +95,7 @@ fn test_transaction_hash_collision() {
         *genesis_block.hash(),
     );
     assert_eq!(
-        env.tx_request_handlers[0].process_tx(create_account_tx, false, false),
+        env.rpc_handlers[0].process_tx(create_account_tx, false, false),
         ProcessTxResponse::ValidTx
     );
     for i in 4..8 {
@@ -104,7 +103,7 @@ fn test_transaction_hash_collision() {
     }
 
     assert_matches!(
-        env.tx_request_handlers[0].process_tx(send_money_tx, false, false),
+        env.rpc_handlers[0].process_tx(send_money_tx, false, false),
         ProcessTxResponse::InvalidTx(_)
     );
 }
@@ -175,11 +174,8 @@ fn get_status_of_tx_hash_collision_for_near_implicit_account(
         100,
         *block.hash(),
     );
-    let response = env.tx_request_handlers[0].process_tx(
-        send_money_from_near_implicit_account_tx,
-        false,
-        false,
-    );
+    let response =
+        env.rpc_handlers[0].process_tx(send_money_from_near_implicit_account_tx, false, false);
 
     // Check that sending money from NEAR-implicit account with correct nonce is still valid.
     let send_money_from_near_implicit_account_tx = SignedTransaction::send_money(
@@ -198,7 +194,6 @@ fn get_status_of_tx_hash_collision_for_near_implicit_account(
 /// Test that duplicate transactions from NEAR-implicit accounts are properly rejected.
 #[test]
 fn test_transaction_hash_collision_for_near_implicit_account_fail() {
-    let protocol_version = ProtocolFeature::AccessKeyNonceForImplicitAccounts.protocol_version();
     let secret_key = SecretKey::from_seed(KeyType::ED25519, "test");
     let public_key = secret_key.public_key();
     let near_implicit_account_id = derive_near_implicit_account_id(public_key.unwrap_as_ed25519());
@@ -206,29 +201,10 @@ fn test_transaction_hash_collision_for_near_implicit_account_fail() {
         InMemorySigner::from_secret_key(near_implicit_account_id, secret_key);
     assert_matches!(
         get_status_of_tx_hash_collision_for_near_implicit_account(
-            protocol_version,
+            PROTOCOL_VERSION,
             near_implicit_account_signer
         ),
         ProcessTxResponse::InvalidTx(InvalidTxError::InvalidNonce { .. })
-    );
-}
-
-/// Test that duplicate transactions from NEAR-implicit accounts are not rejected until protocol upgrade.
-#[test]
-fn test_transaction_hash_collision_for_near_implicit_account_ok() {
-    let protocol_version =
-        ProtocolFeature::AccessKeyNonceForImplicitAccounts.protocol_version() - 1;
-    let secret_key = SecretKey::from_seed(KeyType::ED25519, "test");
-    let public_key = secret_key.public_key();
-    let near_implicit_account_id = derive_near_implicit_account_id(public_key.unwrap_as_ed25519());
-    let near_implicit_account_signer =
-        InMemorySigner::from_secret_key(near_implicit_account_id, secret_key);
-    assert_matches!(
-        get_status_of_tx_hash_collision_for_near_implicit_account(
-            protocol_version,
-            near_implicit_account_signer
-        ),
-        ProcessTxResponse::ValidTx
     );
 }
 
@@ -242,24 +218,26 @@ fn test_chunk_transaction_validity() {
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
     let signer = InMemorySigner::test_signer(&"test0".parse().unwrap());
-    let tx = SignedTransaction::send_money(
+    let validated_tx = ValidatedTransaction::new_for_test(SignedTransaction::send_money(
         1,
         "test1".parse().unwrap(),
         "test0".parse().unwrap(),
         &signer,
         100,
         *genesis_block.hash(),
-    );
+    ));
     for i in 1..200 {
         env.produce_block(0, i);
     }
     let (
-        ProduceChunkResult { chunk, encoded_chunk_parts_paths: merkle_paths, receipts, .. },
+        ProduceChunkResult {
+            encoded_chunk, encoded_chunk_parts_paths: merkle_paths, receipts, ..
+        },
         block,
-    ) = create_chunk_with_transactions(&mut env.clients[0], vec![tx]);
+    ) = create_chunk(&mut env.clients[0], vec![validated_tx]);
     let validator_id = env.clients[0].validator_signer.get().unwrap().validator_id().clone();
     env.clients[0]
-        .persist_and_distribute_encoded_chunk(chunk, merkle_paths, receipts, validator_id)
+        .persist_and_distribute_encoded_chunk(encoded_chunk, merkle_paths, receipts, validator_id)
         .unwrap();
     let res = env.clients[0].process_block_test(block.into(), Provenance::NONE);
     match res.as_deref() {
@@ -298,7 +276,7 @@ fn test_transaction_nonce_too_large() {
         *genesis_block.hash(),
     );
     assert_matches!(
-        env.tx_request_handlers[0].process_tx(tx, false, false),
+        env.rpc_handlers[0].process_tx(tx, false, false),
         ProcessTxResponse::InvalidTx(InvalidTxError::InvalidAccessKeyError(_))
     );
 }

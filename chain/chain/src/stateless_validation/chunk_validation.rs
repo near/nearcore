@@ -27,7 +27,7 @@ use near_primitives::stateless_validation::state_witness::{
     ChunkStateWitness, EncodedChunkStateWitness,
 };
 use near_primitives::types::chunk_extra::ChunkExtra;
-use near_primitives::types::{AccountId, ProtocolVersion, ShardId, ShardIndex};
+use near_primitives::types::{AccountId, ShardId, ShardIndex};
 use near_primitives::utils::compression::CompressedData;
 use near_store::flat::BlockInfo;
 use near_store::trie::ops::resharding::RetainMode;
@@ -359,13 +359,8 @@ pub fn pre_validate_chunk_state_witness(
             .block_congestion_info()
             .get(&last_chunk_shard_id)
             .map(|info| info.congestion_info);
-        let genesis_protocol_version = epoch_manager.get_epoch_protocol_version(&epoch_id)?;
-        let chunk_extra = chain.genesis_chunk_extra(
-            &shard_layout,
-            last_chunk_shard_id,
-            genesis_protocol_version,
-            congestion_info,
-        )?;
+        let chunk_extra =
+            chain.genesis_chunk_extra(&shard_layout, last_chunk_shard_id, congestion_info)?;
         MainTransition::Genesis {
             chunk_extra,
             block_hash: *last_chunk_block.hash(),
@@ -382,7 +377,6 @@ pub fn pre_validate_chunk_state_witness(
                 &store.get_block_header(last_chunk_block.header().prev_hash())?,
                 true,
             )?,
-            is_first_block_with_chunk_of_version: false,
             storage_context: StorageContext {
                 storage_data_source: StorageDataSource::Recorded(PartialStorage {
                     nodes: state_witness.main_state_transition.base_state.clone(),
@@ -552,8 +546,7 @@ pub fn validate_chunk_state_witness(
                     runtime_adapter,
                 )?;
                 let outgoing_receipts = std::mem::take(&mut main_apply_result.outgoing_receipts);
-                let chunk_extra =
-                    apply_result_to_chunk_extra(protocol_version, main_apply_result, &chunk_header);
+                let chunk_extra = apply_result_to_chunk_extra(main_apply_result, &chunk_header);
 
                 (chunk_extra, outgoing_receipts)
             }
@@ -635,8 +628,7 @@ pub fn validate_chunk_state_witness(
                     shard_context,
                     runtime_adapter,
                 )?;
-                let congestion_info =
-                    chunk_extra.congestion_info().expect("The congestion info must exist!");
+                let congestion_info = chunk_extra.congestion_info();
                 (shard_uid, apply_result.new_root, congestion_info)
             }
             ImplicitTransitionParams::Resharding(
@@ -653,8 +645,7 @@ pub fn validate_chunk_state_witness(
                 // because only the parent trie has the needed information.
                 let epoch_id = epoch_manager.get_epoch_id(&block_hash)?;
                 let parent_shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
-                let parent_congestion_info =
-                    chunk_extra.congestion_info().expect("The congestion info must exist");
+                let parent_congestion_info = chunk_extra.congestion_info();
 
                 let child_epoch_id = epoch_manager.get_next_epoch_id(&block_hash)?;
                 let child_shard_layout = epoch_manager.get_shard_layout(&child_epoch_id)?;
@@ -663,19 +654,19 @@ pub fn validate_chunk_state_witness(
                     &parent_shard_layout,
                     parent_congestion_info,
                     &child_shard_layout,
-                    child_shard_uid,
+                    &child_shard_uid,
                     retain_mode,
                 )?;
 
-                let new_root = parent_trie.retain_split_shard(&boundary_account, retain_mode)?;
+                let trie_changes =
+                    parent_trie.retain_split_shard(&boundary_account, retain_mode)?;
 
-                (child_shard_uid, new_root, child_congestion_info)
+                (child_shard_uid, trie_changes.new_root, child_congestion_info)
             }
         };
 
         *chunk_extra.state_root_mut() = new_state_root;
-        *chunk_extra.congestion_info_mut().expect("The congestion info must exist!") =
-            new_congestion_info;
+        *chunk_extra.congestion_info_mut() = new_congestion_info;
         if chunk_extra.state_root() != &transition.post_state_root {
             // This is an early check, it's not for correctness, only for better
             // error reporting in case of an invalid state witness due to a bug.
@@ -702,13 +693,11 @@ pub fn validate_chunk_state_witness(
 }
 
 pub fn apply_result_to_chunk_extra(
-    protocol_version: ProtocolVersion,
     apply_result: ApplyChunkResult,
     chunk: &ShardChunkHeader,
 ) -> ChunkExtra {
     let (outcome_root, _) = ApplyChunkResult::compute_outcomes_proof(&apply_result.outcomes);
     ChunkExtra::new(
-        protocol_version,
         &apply_result.new_root,
         outcome_root,
         apply_result.validator_proposals,

@@ -40,6 +40,7 @@ use near_store::adapter::flat_store::encode_flat_state_db_key;
 use near_store::db::GENESIS_CONGESTION_INFO_KEY;
 use near_store::flat::delta::KeyForFlatStateDelta;
 use near_store::flat::{FlatStateChanges, FlatStateDeltaMetadata, FlatStorageStatus};
+use near_store::trie::AccessOptions;
 use near_store::{
     CHUNK_TAIL_KEY, COLD_HEAD_KEY, DBCol, FINAL_HEAD_KEY, FORK_TAIL_KEY, GENESIS_STATE_ROOTS_KEY,
     HEAD_KEY, HEADER_HEAD_KEY, LARGEST_TARGET_HEIGHT_KEY, LATEST_KNOWN_KEY, NibbleSlice,
@@ -194,7 +195,7 @@ impl EntityDebugHandlerImpl {
                     )?
                     .ok_or_else(|| anyhow!("Flat state changes not found"))?;
                 let mut changes_view = Vec::new();
-                for (key, value) in changes.0.into_iter() {
+                for (key, value) in changes.0 {
                     let key = hex::encode(&key);
                     let value = match value {
                         Some(v) => {
@@ -502,7 +503,7 @@ fn serialize_trie_node(
                 .copied()
                 .chain(extension_nibbles.0.iter())
                 .collect::<Vec<_>>();
-            let data = trie.retrieve_value(&value.hash)?;
+            let data = trie.retrieve_value(&value.hash, AccessOptions::DEFAULT)?;
             entity_data.add_string("leaf_path", &TriePath::nibbles_to_hex(&leaf_nibbles));
             entity_data.add_string("value", &hex::encode(&data))
         }
@@ -519,7 +520,7 @@ fn serialize_trie_node(
             }
         }
         near_store::RawTrieNode::BranchWithValue(value, children) => {
-            let data = trie.retrieve_value(&value.hash)?;
+            let data = trie.retrieve_value(&value.hash, AccessOptions::DEFAULT)?;
             entity_data.add_string("leaf_path", &TriePath::nibbles_to_hex(&trie_path.path));
             entity_data.add_string("value", &hex::encode(&data));
             for index in 0..16 {
@@ -626,7 +627,7 @@ impl TriePath {
 
     /// Format of nibbles is an array of 4-bit integers.
     pub fn nibbles_to_hex(nibbles: &[u8]) -> String {
-        nibbles.iter().map(|x| format!("{:x}", x)).collect::<Vec<_>>().join("")
+        nibbles.iter().map(|x| format!("{:x}", x)).collect()
     }
 
     /// Format of returned value is an array of 4-bit integers, or None if parsing failed.

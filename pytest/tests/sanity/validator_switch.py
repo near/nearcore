@@ -16,7 +16,7 @@ import utils
 
 EPOCH_LENGTH = 20
 tracked_shards = {
-    "tracked_shards": [0],  # Track all shards
+    "tracked_shards_config": "AllShards",
     "state_sync_enabled": True,
     "store.state_snapshot_config.state_snapshot_type": "Enabled"
 }

@@ -91,7 +91,7 @@ impl TriePrefetcher {
         &mut self,
         receipts: &[Receipt],
     ) -> Result<(), PrefetchError> {
-        for receipt in receipts.iter() {
+        for receipt in receipts {
             let is_refund = receipt.predecessor_id().is_system();
             let action_receipt = match receipt.receipt() {
                 ReceiptEnum::Action(action_receipt) | ReceiptEnum::PromiseYield(action_receipt) => {
@@ -271,7 +271,7 @@ impl TriePrefetcher {
             return Ok(());
         };
 
-        for tuple in list.iter() {
+        for tuple in list {
             let Some(tuple) = tuple.as_array() else {
                 continue;
             };
@@ -308,7 +308,7 @@ impl TriePrefetcher {
         let Some(list) = list.as_array() else {
             return Ok(());
         };
-        for tuple in list.iter() {
+        for tuple in list {
             let Some(tuple) = tuple.as_array() else { continue };
             let Some(user_account) = tuple.first().and_then(|a| a.as_str()) else { continue };
             let mut account_data_key = Vec::with_capacity(4 + 8 + user_account.len());
@@ -346,7 +346,7 @@ impl TriePrefetcher {
             return Ok(());
         };
 
-        for tuple in list.iter() {
+        for tuple in list {
             let Some(tuple) = tuple.as_array() else {
                 continue;
             };
@@ -390,6 +390,7 @@ mod tests {
     use near_primitives::{trie_key::TrieKey, types::AccountId};
     use near_store::adapter::StoreAdapter;
     use near_store::test_utils::{create_test_store, test_populate_trie};
+    use near_store::trie::AccessOptions;
     use near_store::{ShardTries, ShardUId, StateSnapshotConfig, Trie, TrieConfig};
     use std::str::FromStr;
     use std::time::{Duration, Instant};
@@ -483,7 +484,7 @@ mod tests {
             trie_config,
             &shard_uids,
             flat_storage_manager,
-            StateSnapshotConfig::default(),
+            StateSnapshotConfig::Disabled,
         );
 
         let mut kvs = vec![];
@@ -558,7 +559,7 @@ mod tests {
         // Read all prefetched values to ensure everything gets removed from the staging area.
         for trie_key in &prefetch_keys {
             let storage_key = trie_key.to_vec();
-            let _value = trie.get(&storage_key).unwrap();
+            let _value = trie.get(&storage_key, AccessOptions::DEFAULT).unwrap();
         }
         assert_eq!(
             prefetch_api.num_prefetched_and_staged(),

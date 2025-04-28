@@ -5,7 +5,7 @@ use primitive_types::{U256, U512};
 
 use near_chain_configs::GenesisConfig;
 use near_primitives::types::{AccountId, Balance, BlockChunkValidatorStats};
-use near_primitives::version::{ProtocolFeature, ProtocolVersion};
+use near_primitives::version::ProtocolVersion;
 
 use crate::validator_stats::get_validator_online_ratio;
 
@@ -34,6 +34,7 @@ pub struct RewardCalculator {
     pub protocol_reward_rate: Rational32,
     pub protocol_treasury_account: AccountId,
     pub num_seconds_per_year: u64,
+    pub genesis_protocol_version: ProtocolVersion,
 }
 
 impl RewardCalculator {
@@ -45,6 +46,7 @@ impl RewardCalculator {
             protocol_reward_rate: config.protocol_reward_rate,
             protocol_treasury_account: config.protocol_treasury_account.clone(),
             num_seconds_per_year: NUM_SECONDS_IN_A_YEAR,
+            genesis_protocol_version: config.protocol_version,
         }
     }
 
@@ -57,13 +59,12 @@ impl RewardCalculator {
         validator_stake: &HashMap<AccountId, Balance>,
         total_supply: Balance,
         protocol_version: ProtocolVersion,
-        genesis_protocol_version: ProtocolVersion,
         epoch_duration: u64,
         online_thresholds: ValidatorOnlineThresholds,
     ) -> (HashMap<AccountId, Balance>, Balance) {
         let mut res = HashMap::new();
         let num_validators = validator_block_chunk_stats.len();
-        let use_hardcoded_value = genesis_protocol_version < protocol_version;
+        let use_hardcoded_value = protocol_version > self.genesis_protocol_version;
         let max_inflation_rate =
             if use_hardcoded_value { Rational32::new_raw(1, 20) } else { self.max_inflation_rate };
         let protocol_reward_rate = if use_hardcoded_value {
@@ -104,19 +105,9 @@ impl RewardCalculator {
             let online_min_denom =
                 U256::from(*online_thresholds.online_min_threshold.denom() as u64);
             // If average of produced blocks below online min threshold, validator gets 0 reward.
-            let chunk_only_producers_enabled =
-                ProtocolFeature::ChunkOnlyProducers.enabled(protocol_version);
             let reward = if average_produced_numer * online_min_denom
                 < online_min_numer * average_produced_denom
-                || (chunk_only_producers_enabled
-                    && expected_chunks == 0
-                    && expected_blocks == 0
-                    && expected_endorsements == 0)
-                // This is for backwards compatibility. In 2021 December, after we changed to 4 shards,
-                // mainnet was ran without SynchronizeBlockChunkProduction for some time and it's
-                // possible that some validators have expected blocks or chunks to be zero.
-                || (!chunk_only_producers_enabled
-                    && (expected_chunks == 0 || expected_blocks == 0))
+                || (expected_chunks == 0 && expected_blocks == 0 && expected_endorsements == 0)
             {
                 0
             } else {
@@ -168,6 +159,7 @@ mod tests {
             protocol_reward_rate: Ratio::new(0, 1),
             protocol_treasury_account: "near".parse().unwrap(),
             num_seconds_per_year: 1000000,
+            genesis_protocol_version: PROTOCOL_VERSION,
         };
         let validator_block_chunk_stats = HashMap::from([
             (
@@ -192,7 +184,6 @@ mod tests {
             validator_block_chunk_stats,
             &validator_stake,
             total_supply,
-            PROTOCOL_VERSION,
             PROTOCOL_VERSION,
             epoch_length * NUM_NS_IN_SECOND,
             ValidatorOnlineThresholds {
@@ -222,6 +213,7 @@ mod tests {
             protocol_reward_rate: Ratio::new(0, 10),
             protocol_treasury_account: "near".parse().unwrap(),
             num_seconds_per_year: 1000,
+            genesis_protocol_version: PROTOCOL_VERSION,
         };
         let validator_block_chunk_stats = HashMap::from([
             (
@@ -257,7 +249,6 @@ mod tests {
             &validator_stake,
             total_supply,
             PROTOCOL_VERSION,
-            PROTOCOL_VERSION,
             epoch_length * NUM_NS_IN_SECOND,
             ValidatorOnlineThresholds {
                 online_min_threshold: Ratio::new(9, 10),
@@ -290,6 +281,7 @@ mod tests {
             protocol_reward_rate: Ratio::new(0, 10),
             protocol_treasury_account: "near".parse().unwrap(),
             num_seconds_per_year: 1000,
+            genesis_protocol_version: PROTOCOL_VERSION,
         };
         let validator_block_chunk_stats = HashMap::from([
             (
@@ -337,7 +329,6 @@ mod tests {
             &validator_stake,
             total_supply,
             PROTOCOL_VERSION,
-            PROTOCOL_VERSION,
             epoch_length * NUM_NS_IN_SECOND,
             ValidatorOnlineThresholds {
                 online_min_threshold: Ratio::new(9, 10),
@@ -372,6 +363,7 @@ mod tests {
             protocol_reward_rate: Ratio::new(0, 10),
             protocol_treasury_account: "near".parse().unwrap(),
             num_seconds_per_year: 1000,
+            genesis_protocol_version: PROTOCOL_VERSION,
         };
         let validator_block_chunk_stats = HashMap::from([
             // Blocks, chunks, endorsements
@@ -425,7 +417,6 @@ mod tests {
             &validator_stake,
             total_supply,
             PROTOCOL_VERSION,
-            PROTOCOL_VERSION,
             epoch_length * NUM_NS_IN_SECOND,
             ValidatorOnlineThresholds {
                 online_min_threshold: Ratio::new(9, 10),
@@ -460,6 +451,7 @@ mod tests {
             protocol_reward_rate: Ratio::new(0, 10),
             protocol_treasury_account: "near".parse().unwrap(),
             num_seconds_per_year: 1000,
+            genesis_protocol_version: PROTOCOL_VERSION,
         };
         let validator_block_chunk_stats = HashMap::from([
             // Blocks, chunks, endorsements - endorsement ratio cutoff is exceeded
@@ -513,7 +505,6 @@ mod tests {
             &validator_stake,
             total_supply,
             PROTOCOL_VERSION,
-            PROTOCOL_VERSION,
             epoch_length * NUM_NS_IN_SECOND,
             ValidatorOnlineThresholds {
                 online_min_threshold: Ratio::new(9, 10),
@@ -552,6 +543,7 @@ mod tests {
             protocol_reward_rate: Ratio::new(1, 10),
             protocol_treasury_account: "near".parse().unwrap(),
             num_seconds_per_year: 60 * 60 * 24 * 365,
+            genesis_protocol_version: PROTOCOL_VERSION,
         };
         let validator_block_chunk_stats = HashMap::from([(
             "test".parse().unwrap(),
@@ -570,7 +562,6 @@ mod tests {
             validator_block_chunk_stats,
             &validator_stake,
             total_supply,
-            PROTOCOL_VERSION,
             PROTOCOL_VERSION,
             epoch_length * NUM_NS_IN_SECOND,
             ValidatorOnlineThresholds {

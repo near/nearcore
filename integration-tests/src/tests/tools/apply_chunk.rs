@@ -31,10 +31,7 @@ fn send_txs(env: &mut TestEnv, signers: &[Signer], height: u64, hash: CryptoHash
             100,
             hash,
         );
-        assert_eq!(
-            env.tx_request_handlers[0].process_tx(tx, false, false),
-            ProcessTxResponse::ValidTx
-        );
+        assert_eq!(env.rpc_handlers[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
     }
 }
 
@@ -196,11 +193,11 @@ fn test_apply_tx_apply_receipt() {
             .collect::<Vec<_>>();
 
         if height >= 2 {
-            for &shard_id in shard_ids.iter() {
+            for &shard_id in &shard_ids {
                 let shard_index = shard_layout.get_shard_index(shard_id).unwrap();
                 let chunk = chain_store.get_chunk(&chunk_hashes[shard_index]).unwrap();
 
-                for tx in chunk.transactions() {
+                for tx in chunk.to_transactions() {
                     let results = apply_tx(
                         &genesis.config,
                         &epoch_manager,
@@ -247,7 +244,7 @@ fn test_apply_tx_apply_receipt() {
     for chunk_hash in chunks {
         let chunk = chain_store.get_chunk(&chunk_hash).unwrap();
 
-        for tx in chunk.transactions() {
+        for tx in chunk.to_transactions() {
             let results = apply_tx(
                 &genesis.config,
                 &epoch_manager,
