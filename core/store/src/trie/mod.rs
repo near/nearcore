@@ -1849,11 +1849,11 @@ mod tests {
     use near_primitives::shard_layout::ShardLayout;
     use rand::Rng;
 
-    use crate::{MissingTrieValueContext, MissingTrieValue};
     use crate::test_utils::{
         TestTriesBuilder, create_test_store, gen_changes, simplify_changes,
         test_populate_flat_storage, test_populate_trie,
     };
+    use crate::{MissingTrieValue, MissingTrieValueContext};
 
     use super::*;
 

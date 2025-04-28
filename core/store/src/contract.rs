@@ -191,7 +191,7 @@ mod tests {
 
     use itertools::Itertools;
     use near_primitives::{
-        errors::{MissingTrieValueContext, StorageError, MissingTrieValue},
+        errors::{MissingTrieValue, MissingTrieValueContext, StorageError},
         hash::CryptoHash,
         stateless_validation::contract_distribution::CodeHash,
     };
@@ -217,9 +217,10 @@ mod tests {
         fn retrieve_raw_bytes(&self, hash: &CryptoHash) -> Result<Arc<[u8]>, StorageError> {
             match self.store.get(hash) {
                 Some(data) => Ok(data.clone()),
-                None => {
-                    Err(StorageError::MissingTrieValue(MissingTrieValue{ context: MissingTrieValueContext::TrieStorage, hash: *hash }))
-                }
+                None => Err(StorageError::MissingTrieValue(MissingTrieValue {
+                    context: MissingTrieValueContext::TrieStorage,
+                    hash: *hash,
+                })),
             }
         }
     }

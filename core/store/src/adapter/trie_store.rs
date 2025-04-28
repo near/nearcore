@@ -222,7 +222,7 @@ fn get_key_from_shard_uid_and_hash(
 #[cfg(test)]
 mod tests {
     use assert_matches::assert_matches;
-    use near_primitives::errors::{StorageError, MissingTrieValue};
+    use near_primitives::errors::{MissingTrieValue, StorageError};
     use near_primitives::hash::CryptoHash;
     use near_primitives::shard_layout::ShardUId;
 
@@ -244,7 +244,7 @@ mod tests {
 
         assert_matches!(
             store.get(shard_uids[0], &dummy_hash),
-            Err(StorageError::MissingTrieValue(MissingTrieValue{context: _, hash: _}))
+            Err(StorageError::MissingTrieValue(MissingTrieValue { context: _, hash: _ }))
         );
         {
             let mut store_update = store.store_update();
