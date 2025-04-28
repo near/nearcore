@@ -102,7 +102,7 @@ pub async fn build_streamer_message(
         })
         .collect::<Vec<_>>();
 
-    for chunk in chunks.into_iter() {
+    for chunk in chunks {
         let views::ChunkView { transactions, author, header, receipts: chunk_non_local_receipts } =
             chunk;
 
@@ -134,6 +134,7 @@ pub async fn build_streamer_message(
                 .filter(|tx| tx.transaction.signer_id == tx.transaction.receiver_id)
                 .collect::<Vec<&IndexerTransactionWithOutcome>>(),
             &block,
+            protocol_config_view.protocol_version,
         )
         .await?;
 
@@ -340,6 +341,7 @@ async fn find_local_receipt_by_id_in_block(
 ) -> Result<Option<views::ReceiptView>, FailedToFetchData> {
     let chunks = fetch_block_new_chunks(&client, &block, shard_tracker).await?;
 
+    let protocol_config_view = fetch_protocol_config(&client, block.header.hash).await?;
     let mut shards_outcomes = fetch_outcomes(&client, block.header.hash).await?;
 
     for chunk in chunks {
@@ -366,6 +368,7 @@ async fn find_local_receipt_by_id_in_block(
                 &runtime_config,
                 vec![&indexer_transaction],
                 &block,
+                protocol_config_view.protocol_version,
             )
             .await?;
 
@@ -450,7 +453,8 @@ pub(crate) async fn start(
         for block_height in start_syncing_block_height..=latest_block_height {
             metrics::CURRENT_BLOCK_HEIGHT.set(block_height as i64);
             if let Ok(block) = fetch_block_by_height(&view_client, block_height).await {
-                let response = build_streamer_message(&view_client, block, &shard_tracker).await;
+                let response =
+                    Box::pin(build_streamer_message(&view_client, block, &shard_tracker)).await;
 
                 match response {
                     Ok(streamer_message) => {

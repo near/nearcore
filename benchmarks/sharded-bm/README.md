@@ -102,7 +102,7 @@ Debug UI works, just use the machine public IP.
 The first step is to create VMs to run the nodes.
 
 You should be able to use any valid forknet image with [forknet terraform recipes](https://docs.nearone.org/doc/mocknet-guide-7VnYUXjs2A).
-This [commit](https://github.com/Near-One/infra-ops/commit/f293a6b9ff4d8918925e4fd34a306f4cb7b0144d) is an example infra suitable for the benchmark. You can do something similar and deploy it with:
+This [setup](https://github.com/Near-One/infra-ops/tree/tpsnet/provisioning/terraform/infra/network/mocknet/tpsnet) is an example infra suitable for the benchmark. You can do something similar and deploy it with:
 
 ```sh
 terraform init
@@ -121,18 +121,15 @@ gcloud compute instances list --project=nearone-mocknet --filter <UNIQUE ID>
    - Benchmarks require one RPC node exactly. RPC node will be selected automatically and it will be the 'last' GCP instance.
    - The number of nodes deployed in terraform must match the number of nodes expected in the benchmark scenario.
    - Nodes will run the `neard` binary specified in `forknet.binary_url`
-
 2. Make sure you have a `near-synth-bm` binary that can be run on a mainnet node.
-
 3. Follow these instructions (they work on macOS as well):
 
 <!-- cspell:words BENCHNET -->
 ```sh
 export CASE=cases/forknet/10_cp_1_rpc_10_shard/
 export VIRTUAL_ENV=<absolute path to virtual env bin directory>
-export SYNTH_BM_BIN=<absolute path to near-synth-bm binary>
+export SYNTH_BM_BIN=<absolute path or URL to near-synth-bm binary>
 export GEN_NODES_DIR=<absolute path to directory of your choice to store nodes configs>
-export NEARD=<absolute path to neard binary>
 export FORKNET_NAME=<unique name of forknet> 
 export FORKNET_START_HEIGHT=<forknet start height>
 
@@ -167,8 +164,8 @@ Grafana mostly, [Blockchain utilization dashboard](https://grafana.nearone.org/g
 
 ### Known issues
 
-- starting and stopping `neard` in forknet could be done with `mirror` commands
-- sometimes forknet commands fail, and they must be issues again
+- It is not possible to configure the number of RPC nodes
+- There is no support for Chunk Validator nodes at all
 
 ## Transaction injection
 

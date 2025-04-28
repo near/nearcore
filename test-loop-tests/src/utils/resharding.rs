@@ -1170,7 +1170,7 @@ pub(crate) fn delayed_receipts_repro_missing_trie_value(
                 // been executed correctly.
                 (Some(resharding), latest) if latest == resharding + 5 + 5 => {
                     let txs = txs.take();
-                    for (tx, tx_height) in txs.iter() {
+                    for (tx, tx_height) in &txs {
                         let tx_outcome =
                             client_actor.client.chain.get_partial_transaction_result(&tx);
                         let status = tx_outcome.as_ref().map(|o| o.status.clone());

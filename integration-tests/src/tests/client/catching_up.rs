@@ -9,7 +9,7 @@ use near_actix_test_utils::run_actix;
 use near_async::time::Clock;
 use near_chain::test_utils::{ValidatorSchedule, account_id_to_shard_id};
 use near_chain_configs::TEST_STATE_SYNC_TIMEOUT;
-use near_client::{Query, TxRequestHandlerActor};
+use near_client::{Query, RpcHandlerActor};
 use near_crypto::InMemorySigner;
 use near_network::client::ProcessTxRequest;
 use near_network::types::PeerInfo;
@@ -18,7 +18,6 @@ use near_o11y::WithSpanContextExt;
 use near_o11y::testonly::init_integration_logger;
 use near_primitives::hash::{CryptoHash, hash as hash_func};
 use near_primitives::network::PeerId;
-use near_primitives::receipt::Receipt;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockHeight, BlockHeightDelta, BlockReference, ShardId};
@@ -64,7 +63,7 @@ fn get_validators_and_key_pairs() -> (ValidatorSchedule, Vec<PeerInfo>) {
 }
 
 fn send_tx(
-    connector: &Addr<TxRequestHandlerActor>,
+    connector: &Addr<RpcHandlerActor>,
     from: AccountId,
     to: AccountId,
     amount: u128,
@@ -193,7 +192,7 @@ fn test_catchup_receipts_sync_common(wait_till: u64, send: u64, sync_hold: bool)
                                 );
                                 for i in 0..16 {
                                     send_tx(
-                                        &connectors1.write().unwrap()[i].tx_processor_actor,
+                                        &connectors1.write().unwrap()[i].rpc_handler_actor,
                                         account_from.clone(),
                                         account_to.clone(),
                                         111,
@@ -231,13 +230,13 @@ fn test_catchup_receipts_sync_common(wait_till: u64, send: u64, sync_hold: bool)
                             // The chunk producers in all epochs before `distant` need to be trying to
                             //     include the receipt. The `distant` epoch is the first one that
                             //     will get the receipt through the state sync.
-                            let receipts: Vec<Receipt> = partial_encoded_chunk
+                            let num_receipts = partial_encoded_chunk
                                 .prev_outgoing_receipts
                                 .iter()
                                 .map(|x| x.0.clone())
                                 .flatten()
-                                .collect();
-                            if !receipts.is_empty() {
+                                .count();
+                            if num_receipts > 0 {
                                 assert_eq!(
                                     partial_encoded_chunk.header.shard_id(),
                                     source_shard_id
@@ -493,7 +492,7 @@ fn test_catchup_random_single_part_sync_common(skip_15: bool, non_zero: bool, he
                                         for conn in 0..validators.len() {
                                             send_tx(
                                                 &connectors1.write().unwrap()[conn]
-                                                    .tx_processor_actor,
+                                                    .rpc_handler_actor,
                                                 validator1.clone(),
                                                 validator2.clone(),
                                                 amount,

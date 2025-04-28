@@ -3,6 +3,8 @@
 use near_primitives::account::AccessKeyPermission;
 use near_primitives::action::DeployGlobalContractAction;
 use near_primitives::errors::IntegerOverflowError;
+use near_primitives::version::ProtocolFeature;
+use near_vm_runner::logic::ProtocolVersion;
 use num_bigint::BigUint;
 use num_traits::cast::ToPrimitive;
 use num_traits::pow::Pow;
@@ -241,6 +243,7 @@ pub fn tx_cost(
     config: &RuntimeConfig,
     tx: &Transaction,
     gas_price: Balance,
+    protocol_version: ProtocolVersion,
 ) -> Result<TransactionCost, IntegerOverflowError> {
     let sender_is_receiver = tx.receiver_id() == tx.signer_id();
     let fees = &config.fees;
@@ -253,27 +256,10 @@ pub fn tx_cost(
         total_prepaid_gas(&tx.actions())?,
         total_prepaid_send_fees(config, &tx.actions())?,
     )?;
-    // If signer is equals to receiver the receipt will be processed at the same block as this
-    // transaction. Otherwise it will processed in the next block and the gas might be inflated.
-    let initial_receipt_hop = if sender_is_receiver { 0 } else { 1 };
-    // The pessimistic gas pricing is a best-effort limit which can be breached in case of
-    // congestion when receipts are delayed before they execute. Hence there is not much
-    // value to tie this limit to the function call base cost. Making it constant limits
-    // overcharging to 6x, which was the value before the cost increase.
-    let minimum_new_receipt_gas = 4_855_842_000_000; // 4.855TGas.
-    // In case the config is free, we don't care about the maximum depth.
-    let receipt_gas_price = if gas_price == 0 {
-        0
+    let receipt_gas_price = if ProtocolFeature::ReducedGasRefunds.enabled(protocol_version) {
+        gas_price
     } else {
-        let maximum_depth =
-            if minimum_new_receipt_gas > 0 { prepaid_gas / minimum_new_receipt_gas } else { 0 };
-        let inflation_exponent = u8::try_from(initial_receipt_hop + maximum_depth)
-            .map_err(|_| IntegerOverflowError {})?;
-        safe_gas_price_inflated(
-            gas_price,
-            fees.pessimistic_gas_price_inflation_ratio,
-            inflation_exponent,
-        )?
+        pessimistic_gas_price(gas_price, sender_is_receiver, fees, prepaid_gas)?
     };
 
     let mut gas_remaining =
@@ -354,6 +340,40 @@ pub fn total_prepaid_gas(actions: &[Action]) -> Result<Gas, IntegerOverflowError
         total_gas = safe_add_gas(total_gas, action_gas)?;
     }
     Ok(total_gas)
+}
+
+/// Calculates a maximum expected gas price increase during the execution of the transaction.
+///
+/// Note: this is no longer used with ProtocolFeature::ReducedGasRefunds
+fn pessimistic_gas_price(
+    gas_price: u128,
+    sender_is_receiver: bool,
+    fees: &std::sync::Arc<near_parameters::RuntimeFeesConfig>,
+    prepaid_gas: u64,
+) -> Result<u128, IntegerOverflowError> {
+    // If signer is equals to receiver the receipt will be processed at the same block as this
+    // transaction. Otherwise it will processed in the next block and the gas might be inflated.
+    let initial_receipt_hop = if sender_is_receiver { 0 } else { 1 };
+    // The pessimistic gas pricing is a best-effort limit which can be breached in case of
+    // congestion when receipts are delayed before they execute. Hence there is not much
+    // value to tie this limit to the function call base cost. Making it constant limits
+    // overcharging to 6x, which was the value before the cost increase.
+    let minimum_new_receipt_gas = 4_855_842_000_000; // 4.855TGas.
+    // In case the config is free, we don't care about the maximum depth.
+    let receipt_gas_price = if gas_price == 0 {
+        0
+    } else {
+        let maximum_depth =
+            if minimum_new_receipt_gas > 0 { prepaid_gas / minimum_new_receipt_gas } else { 0 };
+        let inflation_exponent = u8::try_from(initial_receipt_hop + maximum_depth)
+            .map_err(|_| IntegerOverflowError {})?;
+        safe_gas_price_inflated(
+            gas_price,
+            fees.pessimistic_gas_price_inflation_ratio,
+            inflation_exponent,
+        )?
+    };
+    Ok(receipt_gas_price)
 }
 
 #[cfg(test)]

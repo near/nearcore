@@ -54,6 +54,7 @@ async fn connection_tie_break() {
     drop(inbound);
 }
 
+#[allow(clippy::large_stack_frames)]
 #[tokio::test]
 async fn duplicate_connections() {
     init_test_logger();

@@ -25,7 +25,9 @@ use near_chain::{
     get_incoming_receipts_for_shard,
 };
 use near_chain_configs::GenesisChangeConfig;
-use near_epoch_manager::shard_assignment::{shard_id_to_index, shard_id_to_uid};
+use near_epoch_manager::shard_assignment::{
+    build_assignment_restrictions_v77_to_v78, shard_id_to_index, shard_id_to_uid,
+};
 use near_epoch_manager::{EpochManager, EpochManagerAdapter, proposals_to_epoch_info};
 use near_primitives::account::id::AccountId;
 use near_primitives::apply::ApplyChunkReason;
@@ -42,13 +44,14 @@ use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::trie_key::col::COLUMNS_WITH_ACCOUNT_ID_IN_KEY;
 use near_primitives::types::{BlockHeight, EpochId, ShardId};
-use near_primitives::version::PROTOCOL_VERSION;
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives_core::types::{Balance, EpochHeight};
 use near_store::TrieStorage;
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::trie_store::TrieStoreAdapter;
 use near_store::flat::FlatStorageChunkView;
 use near_store::flat::FlatStorageManager;
+use near_store::trie::AccessOptions;
 use near_store::{DBCol, Store, Trie, TrieCache, TrieCachingStorage, TrieConfig, TrieDBStorage};
 use nearcore::NightshadeRuntimeExt;
 use nearcore::{NearConfig, NightshadeRuntime};
@@ -376,7 +379,7 @@ pub(crate) fn dump_account_storage(
             key: storage_key.as_bytes().to_vec(),
         };
         let key = key.to_vec();
-        let item = trie.get(&key);
+        let item = trie.get(&key, AccessOptions::DEFAULT);
         let value = item.unwrap();
         if let Some(value) = value {
             let record = StateRecord::from_raw_key_value(&key, value).unwrap();
@@ -1066,6 +1069,19 @@ pub(crate) fn print_epoch_analysis(
             epoch_heights_to_infos.get(&next_next_epoch_height).unwrap();
         let rng_seed = stored_next_next_epoch_info.rng_seed();
 
+        let next_epoch_v6 =
+            ProtocolFeature::SimpleNightshadeV6.enabled(next_epoch_info.protocol_version());
+        let next_next_epoch_v6 =
+            ProtocolFeature::SimpleNightshadeV6.enabled(next_next_protocol_version);
+        let chunk_producer_assignment_restrictions =
+            (!next_epoch_v6 && next_next_epoch_v6).then(|| {
+                build_assignment_restrictions_v77_to_v78(
+                    &next_epoch_info,
+                    &next_epoch_config.shard_layout,
+                    next_next_epoch_config.shard_layout.clone(),
+                )
+            });
+
         let next_next_epoch_info = proposals_to_epoch_info(
             &next_next_epoch_config,
             rng_seed,
@@ -1076,6 +1092,7 @@ pub(crate) fn print_epoch_analysis(
             stored_next_next_epoch_info.minted_amount(),
             next_next_protocol_version,
             has_same_shard_layout,
+            chunk_producer_assignment_restrictions,
         )
         .unwrap();
 

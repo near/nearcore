@@ -672,8 +672,7 @@ impl NetworkState {
             .get(account_id)
             .iter()
             .flat_map(|keys| keys.iter())
-            .flat_map(|key| accounts_data.data.get(key))
-            .next()
+            .find_map(|key| accounts_data.data.get(key))
             .map(|data| data.peer_id.clone());
         // Find the target peer_id:
         // - first look it up in self.accounts_data

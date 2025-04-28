@@ -57,7 +57,7 @@ impl ContractSizeStats {
         println!("");
         println!("Analyzed {} accounts", self.total_accounts);
         println!("Accounts per shard:");
-        for (shard_uid, count) in self.shard_accounts.iter() {
+        for (shard_uid, count) in &self.shard_accounts {
             println!("{}: {}", shard_uid, count);
         }
         println!("");

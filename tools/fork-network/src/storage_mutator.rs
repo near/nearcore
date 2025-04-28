@@ -15,6 +15,7 @@ use near_primitives::types::{
 use near_store::adapter::StoreUpdateAdapter;
 use near_store::adapter::flat_store::FlatStoreAdapter;
 use near_store::flat::{BlockInfo, FlatStateChanges, FlatStorageReadyStatus, FlatStorageStatus};
+use near_store::trie::AccessOptions;
 use near_store::trie::update::TrieUpdateResult;
 use near_store::{DBCol, ShardTries};
 
@@ -91,7 +92,7 @@ impl ShardUpdateState {
         assert_eq!(&source_shards, &state_roots.iter().map(|(k, _v)| *k).collect::<HashSet<_>>());
         let target_shards = target_shard_layout.shard_uids().collect::<HashSet<_>>();
         let mut update_state = vec![None; target_shards.len()];
-        for (shard_uid, state_root) in state_roots.iter() {
+        for (shard_uid, state_root) in state_roots {
             if !target_shards.contains(shard_uid) {
                 continue;
             }
@@ -366,15 +367,18 @@ impl StorageMutator {
     }
 
     /// Commits any pending trie changes for all shards
-    pub(crate) fn commit(self) -> anyhow::Result<()> {
+    pub(crate) fn commit(self) -> anyhow::Result<Vec<StateRoot>> {
         let Self { updates, shard_tries, target_shard_layout, .. } = self;
+        let mut state_roots = Vec::new();
 
         for (shard_index, update) in updates.into_iter().enumerate() {
             let shard_id = target_shard_layout.get_shard_id(shard_index).unwrap();
             let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &target_shard_layout);
-            commit_shard(shard_uid, &shard_tries, &update.update_state, update.updates)?;
+            let new_state_root =
+                commit_shard(shard_uid, &shard_tries, &update.update_state, update.updates)?;
+            state_roots.push(new_state_root);
         }
-        Ok(())
+        Ok(state_roots)
     }
 }
 
@@ -395,7 +399,7 @@ fn commit_to_existing_state(
 
     let trie_changes = shard_tries
         .get_trie_for_shard(shard_uid, root.state_root)
-        .update(updates)
+        .update(updates, AccessOptions::DEFAULT)
         .with_context(|| format!("failed updating trie for shard {}", shard_uid))?;
     tracing::info!(
         ?shard_uid,
@@ -460,23 +464,23 @@ pub(crate) fn commit_shard(
     shard_tries: &ShardTries,
     update_state: &ShardUpdateState,
     updates: Vec<(TrieKey, Option<Vec<u8>>)>,
-) -> anyhow::Result<()> {
-    if updates.is_empty() {
-        return Ok(());
-    }
-
+) -> anyhow::Result<StateRoot> {
     let mut root = update_state.root.lock().unwrap();
 
-    match root.as_mut() {
-        Some(root) => commit_to_existing_state(shard_tries, shard_uid, root, updates)?,
+    let new_root = match root.as_mut() {
+        Some(root) => {
+            commit_to_existing_state(shard_tries, shard_uid, root, updates)?;
+            root.state_root
+        }
         None => {
             let state_root = commit_to_new_state(shard_tries, shard_uid, updates)?;
             // TODO: load memtrie
             *root = Some(InProgressRoot { state_root, update_height: 1 });
+            state_root
         }
     };
 
-    Ok(())
+    Ok(new_root)
 }
 
 pub(crate) fn write_bandwidth_scheduler_state(
@@ -520,7 +524,8 @@ pub(crate) fn write_bandwidth_scheduler_state(
     for shard_idx in target_shard_layout.shard_indexes() {
         mutator.set_bandwidth_scheduler_state(shard_idx, new_state.clone())?;
     }
-    mutator.commit()
+    mutator.commit()?;
+    Ok(())
 }
 
 // After we rewrite everything in the trie to the target shards, write flat storage statuses for new shards

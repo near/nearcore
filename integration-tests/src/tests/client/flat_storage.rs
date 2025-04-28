@@ -15,6 +15,7 @@ use near_primitives::version::ProtocolFeature;
 use near_primitives_core::types::BlockHeight;
 use near_store::adapter::StoreAdapter;
 use near_store::test_utils::create_test_store;
+use near_store::trie::AccessOptions;
 use near_store::{KeyLookupMode, Store};
 
 use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
@@ -31,15 +32,13 @@ fn setup_env(genesis: &Genesis, store: Store) -> TestEnv {
 #[test]
 fn test_flat_storage_iter() {
     init_test_logger();
-    let num_shards = 3;
     let boundary_accounts = vec!["test0".parse().unwrap(), "test1".parse().unwrap()];
     let shard_layout = ShardLayout::multi_shard_custom(boundary_accounts, 0);
 
-    let genesis = Genesis::test_with_seeds(
+    let genesis = Genesis::from_accounts(
         Clock::real(),
         vec!["test0".parse().unwrap()],
         1,
-        vec![1; num_shards],
         shard_layout.clone(),
     );
 
@@ -128,10 +127,7 @@ fn test_not_supported_block() {
             1,
             genesis_hash,
         );
-        assert_eq!(
-            env.tx_request_handlers[0].process_tx(tx, false, false),
-            ProcessTxResponse::ValidTx
-        );
+        assert_eq!(env.rpc_handlers[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
     }
 
     let flat_head_height = START_HEIGHT - 4;
@@ -162,8 +158,11 @@ fn test_not_supported_block() {
         if height == flat_head_height {
             env.produce_block(0, START_HEIGHT);
         }
-        get_ref_results
-            .push(trie.get_optimized_ref(&trie_key_bytes, KeyLookupMode::MemOrFlatOrTrie));
+        get_ref_results.push(trie.get_optimized_ref(
+            &trie_key_bytes,
+            KeyLookupMode::MemOrFlatOrTrie,
+            AccessOptions::DEFAULT,
+        ));
     }
 
     // The first result should be FlatStorageError, because we can't read from first chunk view anymore.

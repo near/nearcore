@@ -176,7 +176,7 @@ impl TxGenerator {
         runner_state: RunnerState,
     ) -> anyhow::Result<Vec<task::JoinHandle<()>>> {
         // TODO(slavas): generate accounts on the fly?
-        let mut accounts = account::accounts_from_dir(&config.accounts_path)?;
+        let mut accounts = account::accounts_from_path(&config.accounts_path)?;
         if accounts.is_empty() {
             anyhow::bail!("No active accounts available");
         }
@@ -185,7 +185,7 @@ impl TxGenerator {
         let sender = view_client_sender.clone();
         let txs = tx.clone();
         tokio::spawn(async move {
-            for account in accounts.iter_mut() {
+            for account in &mut accounts {
                 let (id, pk) = (account.id.clone(), account.public_key.clone());
                 match Self::get_client_nonce(sender.clone(), id, pk).await {
                     Ok(nonce) => {

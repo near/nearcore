@@ -1,3 +1,4 @@
+use super::AccessOptions;
 use crate::adapter::trie_store::TrieStoreAdapter;
 use crate::config::PrefetchConfig;
 use crate::sync_utils::Monitor;
@@ -476,7 +477,7 @@ impl PrefetchApi {
                             Trie::new(Arc::new(prefetcher_storage.clone()), trie_root, None);
                         let storage_key = trie_key.to_vec();
                         metric_prefetch_sent.inc();
-                        match prefetcher_trie.get(&storage_key) {
+                        match prefetcher_trie.get(&storage_key, AccessOptions::DEFAULT) {
                             Ok(_maybe_value) => {
                                 near_o11y::io_trace!(count: "prefetch");
                             }

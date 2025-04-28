@@ -175,7 +175,7 @@ impl ChainStateSyncAdapter {
 
         // Collecting proofs for incoming receipts.
         let mut root_proofs = vec![];
-        for receipt_response in incoming_receipts_proofs.iter() {
+        for receipt_response in &incoming_receipts_proofs {
             let ReceiptProofResponse(block_hash, receipt_proofs) = receipt_response;
             let block_header = self.chain_store.get_block_header(&block_hash)?.clone();
             let block = self.chain_store.get_block(&block_hash)?;

@@ -55,7 +55,7 @@ fn generate_accounts(boundary_accounts: &[String]) -> Vec<Vec<(AccountId, Nonce)
     let accounts_per_shard = 5;
     let mut accounts = Vec::new();
     let mut account_base = "0";
-    for a in boundary_accounts.iter() {
+    for a in boundary_accounts {
         accounts.push(
             (0..accounts_per_shard)
                 .map(|i| (format!("{}{}", account_base, i).parse().unwrap(), 1))
@@ -147,8 +147,8 @@ fn setup_initial_blockchain(
         .transaction_validity_period(1000)
         .validators_spec(validators_spec.clone());
     if let Some(accounts) = accounts.as_ref() {
-        for accounts in accounts.iter() {
-            for (account, _nonce) in accounts.iter() {
+        for accounts in accounts {
+            for (account, _nonce) in accounts {
                 genesis_builder =
                     genesis_builder.add_user_account_simple(account.clone(), 10000 * ONE_NEAR);
             }
@@ -235,7 +235,7 @@ fn send_txs_between_shards(
         *nonce += 1;
 
         let future = get_wrapped(node_datas, client_idx)
-            .tx_processor_sender
+            .rpc_handler_sender
             .clone()
             //.with_delay(Duration::milliseconds(300 * txs_sent as i64))
             .send_async(ProcessTxRequest {

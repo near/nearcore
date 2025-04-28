@@ -1,4 +1,5 @@
 use near_async::time::Clock;
+use near_store::trie::AccessOptions;
 use rand::Rng;
 use std::sync::Arc;
 
@@ -111,7 +112,8 @@ fn do_fork(
             let trie_changes_data = gen_changes(&mut rng, max_changes);
             let state_root = prev_state_roots[shard_id as usize];
             let trie = tries.get_trie_for_shard(shard_uid, state_root);
-            let trie_changes = trie.update(trie_changes_data.iter().cloned()).unwrap();
+            let trie_changes =
+                trie.update(trie_changes_data.iter().cloned(), AccessOptions::DEFAULT).unwrap();
             if verbose {
                 println!("state new {:?} {:?}", block.header().height(), trie_changes_data);
             }
@@ -166,7 +168,7 @@ fn gc_fork_common(simple_chains: Vec<SimpleChain>, max_changes: usize) {
     ));
 
     let mut final_height = None;
-    for simple_chain in simple_chains.iter() {
+    for simple_chain in &simple_chains {
         let (source_block1, state_root1, _) = states1[simple_chain.from as usize].clone();
         do_fork(
             source_block1.clone(),
@@ -204,7 +206,7 @@ fn gc_fork_common(simple_chains: Vec<SimpleChain>, max_changes: usize) {
     let mut state_roots2 = vec![];
     state_roots2.push(Trie::EMPTY_ROOT);
 
-    for simple_chain in simple_chains.iter() {
+    for simple_chain in &simple_chains {
         if simple_chain.is_removed {
             for _ in 0..simple_chain.length {
                 // This chain is deleted in Chain1
@@ -224,7 +226,10 @@ fn gc_fork_common(simple_chains: Vec<SimpleChain>, max_changes: usize) {
             // Apply to Trie 2 the same changes (changes1) as applied to Trie 1
             let trie_changes2 = tries2
                 .get_trie_for_shard(shard_uid, state_root2)
-                .update(changes1[shard_to_check_trie as usize].iter().cloned())
+                .update(
+                    changes1[shard_to_check_trie as usize].iter().cloned(),
+                    AccessOptions::DEFAULT,
+                )
                 .unwrap();
             // i == gc_height is the only height should be processed here
             let mut update2 = tries2.store_update();
@@ -243,7 +248,7 @@ fn gc_fork_common(simple_chains: Vec<SimpleChain>, max_changes: usize) {
     }
 
     let mut start_index = 1; // zero is for genesis
-    for simple_chain in simple_chains.iter() {
+    for simple_chain in &simple_chains {
         if simple_chain.is_removed {
             for i in start_index..start_index + simple_chain.length {
                 let (block1, _, _) = states1[i as usize].clone();

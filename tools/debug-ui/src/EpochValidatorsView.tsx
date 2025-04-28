@@ -1,3 +1,4 @@
+import { partition } from 'lodash';
 import { useQuery } from '@tanstack/react-query';
 import { useId, useState } from 'react';
 import { Tooltip } from 'react-tooltip';
@@ -324,12 +325,12 @@ export const EpochValidatorsView = ({ addr }: EpochValidatorViewProps) => {
                     return (
                         <tr key={validator.accountId}>
                             <td>{validator.accountId}</td>
-                            <td>{renderRoles(validator.roles[0], validator.kickoutReason, true)}</td>
+                            <td>{renderRoles(validator.roles[0], validator.roles[1], validator.kickoutReason, true)}</td>
                             <td>
                             {drawStakeBar(validator.next?.stake ?? null, maxStake, totalStake)}
                         </td>
                         <td>{drawStakeBar(validator.proposalStake, maxStake, totalStake)}</td>
-                        <td>{renderRoles(validator.roles[1], validator.kickoutReason)}</td>
+                        <td>{renderRoles(validator.roles[1], validator.roles[2] ?? validator.roles[1], validator.kickoutReason)}</td>
                         <td>
                             {drawStakeBar(
                                 validator.current?.stake ?? null,
@@ -356,7 +357,7 @@ export const EpochValidatorsView = ({ addr }: EpochValidatorViewProps) => {
                             )}
                         </td>
                         {validator.roles.slice(2).map((roles: ValidatorRole[], i: number) => (
-                            <td key={i}>{renderRoles(roles, validator.kickoutReason)}</td>
+                            <td key={i}>{renderRoles(roles, validator.roles[3 + i] ?? roles, validator.kickoutReason)}</td>
                         ))}
                         </tr>
                     );
@@ -512,7 +513,7 @@ function drawStakeBar(stake: number | null, maxStake: number, totalStake: number
     );
 }
 
-function renderRoles(roles: ValidatorRole[], kickoutReason: ValidatorKickoutReason | null = null, isNextEpoch: boolean = false): JSX.Element {
+function renderRoles(roles: ValidatorRole[], prev_roles: ValidatorRole[], kickoutReason: ValidatorKickoutReason | null = null, isNextEpoch: boolean = false): JSX.Element {
     if (isNextEpoch && kickoutReason) {
         return <span className="kickout">✖ <KickoutReason reason={kickoutReason} /></span>;
     }
@@ -524,8 +525,21 @@ function renderRoles(roles: ValidatorRole[], kickoutReason: ValidatorKickoutReas
                 renderedItems.push(<span className="block-producer">BP</span>);
                 break;
             case 'ChunkProducer':
+                const [old_shards, new_shards] =
+                    partition(role.shards, (shard) => prev_roles?.some(prev_role => prev_role.kind === 'ChunkProducer' && prev_role.shards.includes(shard)));
+                // Create a list of shard elements with commas between them
+                const shardElements = [
+                    ...old_shards.map(shard => <text className="old-chunk-producer">{shard}</text>),
+                    ...new_shards.map(shard => <text className="new-chunk-producer">{shard}</text>)
+                ].reduce((acc, element, index) => {
+                    if (index === 0) {
+                        return [element];
+                    }
+                    return [...acc, <>,</>, element];
+                }, [] as JSX.Element[]);
+                
                 renderedItems.push(
-                    <span className="chunk-producer">CP({role.shards.join(',')})</span>
+                    <span className="chunk-producer">CP({shardElements})</span>
                 );
                 break;
             case 'ChunkValidator':

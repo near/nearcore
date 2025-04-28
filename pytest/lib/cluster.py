@@ -4,6 +4,8 @@ import copy
 import json
 import os
 import pathlib
+from typing import Optional
+
 import rc
 from geventhttpclient import Session, useragent
 import shutil
@@ -295,6 +297,10 @@ class BaseNode(object):
         return r.content
 
     def get_latest_block(self, **kw) -> BlockId:
+        """
+        Get the hash and height of the latest block.
+        If you need the whole block info, use `.get_block_by_finality('optimistic')`
+        """
         sync_info = self.get_status(**kw)['sync_info']
         return BlockId(height=sync_info['latest_block_height'],
                        hash=sync_info['latest_block_hash'])
@@ -382,6 +388,15 @@ class BaseNode(object):
                 "finality": finality
             })
 
+    def get_access_key(self, account_id, public_key, finality='optimistic'):
+        return self.json_rpc(
+            'query', {
+                "request_type": "view_access_key",
+                "account_id": account_id,
+                "public_key": public_key,
+                "finality": finality
+            })
+
     def wait_at_least_one_block(self):
         start_height = self.get_latest_block().height
         timeout_sec = 5
@@ -406,10 +421,40 @@ class BaseNode(object):
         return self.json_rpc('block', {'block_id': block_height}, **kwargs)
 
     def get_final_block(self, **kwargs):
-        return self.json_rpc('block', {'finality': 'final'}, **kwargs)
+        return self.get_block_by_finality('final')
+
+    def get_block_by_finality(self, finality, **kwargs):
+        assert finality in ('final', 'optimistic'), \
+            f"invalid finality value: {finality}"
+        return self.json_rpc('block', {'finality': finality}, **kwargs)
 
     def get_chunk(self, chunk_id):
         return self.json_rpc('chunk', [chunk_id])
+
+    def get_prev_epoch_id(self) -> str:
+        """ Get ID of the previous epoch. """
+        latest_block = self.get_block_by_finality('optimistic')['result']
+        next_epoch_id = latest_block['header']['next_epoch_id']
+        # Next epoch ID is a hash of some block from the previous epoch
+        return self.get_epoch_id(block_hash=next_epoch_id)
+
+    def get_epoch_id(
+        self,
+        block_height: Optional[int] = None,
+        block_hash: Optional[str] = None,
+    ) -> str:
+        """
+        Get epoch ID for a given block (either by block height or hash).
+        If neither height nor hash is given, return the current epoch ID.
+        """
+        assert block_height is None or block_hash is None, "use either height or has, not both"
+        if block_height is not None:
+            block = self.get_block_by_height(block_height)['result']
+        elif block_hash is not None:
+            block = self.get_block(block_hash)['result']
+        else:
+            block = self.get_block_by_finality('optimistic')['result']
+        return block['header']['epoch_id']
 
     # Get the transaction status.
     #
@@ -504,7 +549,7 @@ class LocalNode(BaseNode):
         self.change_config({
             'network': {
                 'addr': f'0.0.0.0:{port}',
-                'blacklist': blacklist
+                'blacklist': list(blacklist)
             },
             'rpc': {
                 'addr': f'0.0.0.0:{rpc_port}',
@@ -796,16 +841,19 @@ chmod +x neard
                             f'/home/{self.machine.username}/.near/')
 
 
-def spin_up_node(config,
-                 near_root,
-                 node_dir,
-                 ordinal,
-                 *,
-                 boot_node: BootNode = None,
-                 blacklist=[],
-                 proxy=None,
-                 skip_starting_proxy=False,
-                 single_node=False) -> BaseNode:
+def spin_up_node(
+    config,
+    near_root,
+    node_dir,
+    ordinal,
+    *,
+    boot_node: BootNode = None,
+    blacklist=(),
+    proxy=None,
+    skip_starting_proxy=False,
+    single_node=False,
+    sleep_after_start=3,
+) -> BaseNode:
     is_local = config['local']
 
     args = make_boot_nodes_arg(boot_node)
@@ -845,7 +893,7 @@ def spin_up_node(config,
         proxy.proxify_node(node)
 
     node.start(boot_node=boot_node, skip_starting_proxy=skip_starting_proxy)
-    time.sleep(3)
+    time.sleep(sleep_after_start)
     logger.info(f"node {ordinal} started")
     return node
 

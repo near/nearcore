@@ -10,6 +10,7 @@ macro_rules! test_prohibited {
     };
 }
 
+#[allow(clippy::large_stack_frames)]
 #[test]
 fn test_prohibited_view_methods() {
     test_prohibited!(signer_account_id, 0);
