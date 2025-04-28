@@ -370,7 +370,7 @@ pub fn gen_larger_changes(rng: &mut impl Rng, max_size: usize) -> Vec<(Vec<u8>, 
 
 pub fn simplify_changes(changes: &[(Vec<u8>, Option<Vec<u8>>)]) -> Vec<(Vec<u8>, Option<Vec<u8>>)> {
     let mut state: HashMap<Vec<u8>, Vec<u8>> = HashMap::new();
-    for (key, value) in changes.iter() {
+    for (key, value) in changes {
         if let Some(value) = value {
             state.insert(key.clone(), value.clone());
         } else {

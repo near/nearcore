@@ -408,7 +408,7 @@ mod tests {
     #[cfg(feature = "calimero_zero_storage")]
     fn test_calimero_storage_costs_zero() {
         let store = RuntimeConfigStore::new(None);
-        for (_, config) in store.store.iter() {
+        for (_, config) in &store.store {
             assert_eq!(config.storage_amount_per_byte(), 0u128);
         }
     }

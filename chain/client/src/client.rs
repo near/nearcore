@@ -2303,9 +2303,7 @@ impl Client {
 impl Client {
     pub fn get_catchup_status(&self) -> Result<Vec<CatchupStatusView>, near_chain::Error> {
         let mut ret = vec![];
-        for (sync_hash, CatchupState { sync_status, catchup, .. }) in
-            self.catchup_state_syncs.iter()
-        {
+        for (sync_hash, CatchupState { sync_status, catchup, .. }) in &self.catchup_state_syncs {
             let sync_block_height = self.chain.get_block_header(sync_hash)?.height();
             let shard_sync_status: HashMap<_, _> = sync_status
                 .sync_status

@@ -108,8 +108,8 @@ fn slow_test_repro_1183() {
                     }
 
                     let mut nonce_delta = 0;
-                    for from in ["test1", "test2", "test3", "test4"].iter() {
-                        for to in ["test1", "test2", "test3", "test4"].iter() {
+                    for from in &["test1", "test2", "test3", "test4"] {
+                        for to in &["test1", "test2", "test3", "test4"] {
                             let (from, to) = (from.parse().unwrap(), to.parse().unwrap());
                             // This test uses the V0 shard layout so it's ok to
                             // cast ShardId to ShardIndex.

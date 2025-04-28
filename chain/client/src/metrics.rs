@@ -455,7 +455,7 @@ pub(crate) static PRODUCE_AND_DISTRIBUTE_CHUNK_TIME: LazyLock<HistogramVec> = La
 pub(crate) fn export_version(chain_id: &str, neard_version: &near_primitives::version::Version) {
     NODE_PROTOCOL_VERSION.set(near_primitives::version::PROTOCOL_VERSION.into());
     let schedule = near_primitives::version::get_protocol_upgrade_schedule(chain_id);
-    for (datetime, protocol_version) in schedule.schedule().iter() {
+    for (datetime, protocol_version) in schedule.schedule() {
         NODE_PROTOCOL_UPGRADE_VOTING_START
             .with_label_values(&[&protocol_version.to_string()])
             .set(datetime.timestamp());

@@ -892,7 +892,7 @@ async fn get_current_epoch_state_roots(
         // Since head_height was gotten with Finality::Final, we know any of these are on the canonical chain
         match rpc_client.block_by_id(BlockId::Height(height)).await {
             Ok(block) => {
-                for chunk in block.chunks.iter() {
+                for chunk in &block.chunks {
                     if chunk.height_included == height {
                         let Some(n) = num_new_chunks.get_mut(&chunk.shard_id) else {
                             anyhow::bail!(

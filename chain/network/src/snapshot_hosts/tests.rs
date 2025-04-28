@@ -318,12 +318,12 @@ async fn run_select_peer_test(
 
     tracing::debug!("start run_select_peer_test");
 
-    for action in actions.iter() {
+    for action in actions {
         tracing::debug!("run_select_peer_test action {:?}", action);
         match action {
             SelectPeerAction::InsertHosts(hosts) => {
                 let mut new_hosts = Vec::new();
-                for h in hosts.iter() {
+                for h in *hosts {
                     new_hosts.push(peers[*h].clone());
                 }
                 let (_res, err) = cache.insert(new_hosts).await;
@@ -376,7 +376,7 @@ async fn test_select_peer() {
         peers.iter().map(|info| &info.peer_id).collect::<Vec<_>>()
     );
 
-    for t in SELECT_PEER_CASES.iter() {
+    for t in SELECT_PEER_CASES {
         run_select_peer_test(
             &t.actions,
             &peers[..t.num_peers],

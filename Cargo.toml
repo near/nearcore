@@ -109,18 +109,23 @@ all = { level = "allow", priority = -100 }
 correctness = { level = "deny", priority = -50 }
 suspicious = { level = "deny", priority = -50 }
 perf = { level = "deny", priority = -50 }
-# overrides clippy::perf = "deny": https://github.com/rust-lang/rust-clippy/issues/8111
 
+# overrides clippy::perf = "deny": https://github.com/rust-lang/rust-clippy/issues/8111
 single_char_pattern = "allow"
 
 assigning_clones = "deny"
 clone_on_copy = "deny"
 derivable_impls = "deny"
+explicit_deref_methods = "deny"
+explicit_into_iter_loop = "deny"
+explicit_iter_loop = "deny"
+flat_map_option = "deny"
 inefficient_to_string = "deny"
 large_futures = "deny"
 large_stack_frames = "deny"
 large_types_passed_by_value = "deny"
 len_zero = "deny"
+manual_is_variant_and = "deny"
 needless_collect = "deny"
 redundant_clone = "deny"
 same_functions_in_if_condition = "deny"

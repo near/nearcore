@@ -1154,7 +1154,7 @@ impl Chain {
             };
             let partial_encoded_chunk =
                 self.chain_store.get_partial_chunk(&chunk_header.chunk_hash()).unwrap();
-            for receipt in partial_encoded_chunk.prev_outgoing_receipts().iter() {
+            for receipt in partial_encoded_chunk.prev_outgoing_receipts() {
                 let ReceiptProof(_, shard_proof) = receipt;
                 let ShardProof { to_shard_id, .. } = shard_proof;
                 receipt_proofs_by_shard_id
@@ -1164,7 +1164,7 @@ impl Chain {
             }
         }
         // sort the receipts deterministically so the order that they will be processed is deterministic
-        for (_, receipt_proofs) in receipt_proofs_by_shard_id.iter_mut() {
+        for (_, receipt_proofs) in &mut receipt_proofs_by_shard_id {
             shuffle_receipt_proofs(receipt_proofs, shuffle_salt);
         }
 
@@ -1476,7 +1476,7 @@ impl Chain {
         }
 
         // Validate header and then add to the chain.
-        for header in headers.iter() {
+        for header in &headers {
             match check_header_known(self, header)? {
                 Ok(_) => {}
                 Err(_) => continue,
@@ -1809,7 +1809,7 @@ impl Chain {
         let block_start_processing_time = block_preprocess_info.block_start_processing_time;
         // TODO(#8055): this zip relies on the ordering of the apply_results.
         // TODO(wacban): do the above todo
-        for (shard_id, apply_result) in apply_results.iter() {
+        for (shard_id, apply_result) in &apply_results {
             let shard_index = shard_layout.get_shard_index(*shard_id)?;
             if let Err(err) = apply_result {
                 if err.is_bad_data() {
@@ -1950,7 +1950,7 @@ impl Chain {
 
         let prev_block_hash = optimistic_block.prev_block_hash();
         let block_height = optimistic_block.height();
-        for (shard_id, cached_shard_update_key, apply_result) in apply_result.into_iter() {
+        for (shard_id, cached_shard_update_key, apply_result) in apply_result {
             match apply_result {
                 Ok(result) => {
                     debug!(
@@ -2723,7 +2723,7 @@ impl Chain {
 
         chain_store_update.commit()?;
 
-        for hash in affected_blocks.iter() {
+        for hash in affected_blocks {
             self.check_orphans(
                 me,
                 *hash,
@@ -3456,7 +3456,7 @@ impl Chain {
 
             let block = self.get_block(&block_hash)?;
             let chunks = block.chunks();
-            for &shard_id in shard_ids.iter() {
+            for &shard_id in &shard_ids {
                 let shard_index = shard_layout.get_shard_index(shard_id)?;
                 let chunk_header =
                     &chunks.get(shard_index).ok_or(Error::InvalidShardId(shard_id))?;

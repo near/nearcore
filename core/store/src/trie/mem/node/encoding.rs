@@ -263,7 +263,7 @@ impl MemTrieNodeId {
             }
             let alloc_size = node_ptr.size_of_allocation();
             arena.dealloc(self.pos, alloc_size);
-            for child in children_to_unref.iter() {
+            for child in &children_to_unref {
                 MemTrieNodeId { pos: *child }.remove_ref(arena);
             }
         }

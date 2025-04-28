@@ -39,7 +39,7 @@ impl OutgoingMetadatas {
         groups_config: ReceiptGroupsConfig,
     ) -> Result<Self, StorageError> {
         let mut metadatas = BTreeMap::new();
-        for shard_id in shard_ids.into_iter() {
+        for shard_id in shard_ids {
             let metadata = ReceiptGroupsQueue::load(trie, shard_id)?;
             if let Some(metadata) = metadata {
                 metadatas.insert(shard_id, metadata);

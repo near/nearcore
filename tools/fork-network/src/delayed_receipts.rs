@@ -106,7 +106,7 @@ pub(crate) fn write_delayed_receipts(
     target_shard_layout: &ShardLayout,
     default_key: &PublicKey,
 ) -> anyhow::Result<()> {
-    for t in trackers.iter() {
+    for t in &trackers {
         assert_eq!(update_state.len(), t.indices.len());
     }
 

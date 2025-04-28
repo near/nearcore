@@ -58,7 +58,7 @@ fn get_incoming_receipts(
 
     for chunk in chunks {
         if let Ok(partial_encoded_chunk) = chain_store.get_partial_chunk(&chunk.chunk_hash()) {
-            for receipt in partial_encoded_chunk.prev_outgoing_receipts().iter() {
+            for receipt in partial_encoded_chunk.prev_outgoing_receipts() {
                 let ReceiptProof(_, shard_proof) = receipt;
                 if shard_proof.to_shard_id == shard_id {
                     receipt_proofs.push(receipt.clone());
@@ -459,7 +459,7 @@ fn apply_receipt_in_chunk(
                 };
                 non_applied_chunks.insert((height, chunk.shard_id()), chunk_hash.clone());
 
-                for receipt in chunk.prev_outgoing_receipts().iter() {
+                for receipt in chunk.prev_outgoing_receipts() {
                     if receipt.get_hash() == *id {
                         let shard_layout =
                             epoch_manager.get_shard_layout_from_prev_block(chunk.prev_block())?;

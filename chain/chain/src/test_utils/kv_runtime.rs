@@ -770,7 +770,7 @@ impl EpochManagerAdapter for MockEpochManager {
         account_id: &AccountId,
     ) -> Result<ValidatorStake, EpochError> {
         let validators = &self.validators_by_valset[self.get_valset_for_epoch(epoch_id)?];
-        for validator_stake in validators.block_producers.iter() {
+        for validator_stake in &validators.block_producers {
             if validator_stake.account_id() == account_id {
                 return Ok(validator_stake.clone());
             }
@@ -1050,7 +1050,7 @@ impl RuntimeAdapter for KeyValueRuntime {
 
         let mut balance_transfers = vec![];
 
-        for receipt in receipts.iter() {
+        for receipt in receipts {
             if let ReceiptEnum::Action(action) | ReceiptEnum::PromiseYield(action) =
                 receipt.receipt()
             {

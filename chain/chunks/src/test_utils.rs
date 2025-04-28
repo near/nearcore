@@ -218,7 +218,7 @@ impl ChunkTestFixture {
         let parts = part_ords
             .iter()
             .copied()
-            .flat_map(|ord| self.mock_chunk_parts.iter().find(|part| part.part_ord == ord))
+            .filter_map(|ord| self.mock_chunk_parts.iter().find(|part| part.part_ord == ord))
             .cloned()
             .collect();
         PartialEncodedChunk::V2(PartialEncodedChunkV2 {
