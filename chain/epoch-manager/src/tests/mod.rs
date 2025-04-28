@@ -1826,18 +1826,14 @@ fn test_all_kickout_edge_case() {
 }
 
 fn check_validators(epoch_info: &EpochInfo, expected_validators: &[(&str, u128)]) {
-    for (v, (account_id, stake)) in
-        epoch_info.validators_iter().zip(expected_validators.into_iter())
-    {
+    for (v, (account_id, stake)) in epoch_info.validators_iter().zip_eq(expected_validators) {
         assert_eq!(v.account_id(), *account_id);
         assert_eq!(v.stake(), *stake);
     }
 }
 
 fn check_fishermen(epoch_info: &EpochInfo, expected_fishermen: &[(&str, u128)]) {
-    assert_eq!(epoch_info.fishermen_iter().len(), expected_fishermen.len());
-    for (v, (account_id, stake)) in epoch_info.fishermen_iter().zip(expected_fishermen.into_iter())
-    {
+    for (v, (account_id, stake)) in epoch_info.fishermen_iter().zip_eq(expected_fishermen) {
         assert_eq!(v.account_id(), *account_id);
         assert_eq!(v.stake(), *stake);
     }
