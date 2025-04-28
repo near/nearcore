@@ -162,11 +162,11 @@ impl StandaloneRuntime {
         store_update.commit().unwrap();
         self.apply_state.block_height += 1;
 
-        if let Some(bandwidth_requests) = apply_result.bandwidth_requests {
-            self.apply_state.bandwidth_requests = BlockBandwidthRequests {
-                shards_bandwidth_requests: [(shard_id, bandwidth_requests)].into_iter().collect(),
-            }
-        }
+        self.apply_state.bandwidth_requests = BlockBandwidthRequests {
+            shards_bandwidth_requests: [(shard_id, apply_result.bandwidth_requests)]
+                .into_iter()
+                .collect(),
+        };
 
         let mut has_queued_receipts = false;
         if let Some(congestion_info) = apply_result.congestion_info {

@@ -155,13 +155,14 @@ impl RuntimeUser {
             receipts = apply_result.outgoing_receipts;
             txs = vec![];
 
-            if let Some(bandwidth_requests) = apply_result.bandwidth_requests {
-                apply_state.bandwidth_requests = BlockBandwidthRequests {
-                    shards_bandwidth_requests: [(apply_state.shard_id, bandwidth_requests)]
-                        .into_iter()
-                        .collect(),
-                };
-            }
+            apply_state.bandwidth_requests = BlockBandwidthRequests {
+                shards_bandwidth_requests: [(
+                    apply_state.shard_id,
+                    apply_result.bandwidth_requests,
+                )]
+                .into_iter()
+                .collect(),
+            };
             let mut have_queued_receipts = false;
             if let Some(congestion_info) = apply_result.congestion_info {
                 if congestion_info.receipt_bytes() > 0 {
