@@ -104,7 +104,7 @@ fn schemas_map<T: JsonSchema>() -> SchemasMap {
     }));
     let generator = schemars::SchemaGenerator::new(settings);
 
-    let root_schema = generator.clone().into_root_schema_for::<T>();
+    let root_schema = generator.into_root_schema_for::<T>();
 
     let the_schema = root_schema.as_value();
 
@@ -224,7 +224,7 @@ fn add_spec_for_path_internal<RequestType: JsonSchema, ResponseType: JsonSchema>
             "params",
             "method"
         ],
-        "title": request_struct_name.clone(),
+        "title": request_struct_name,
         "type": "object"
     });
     if let Some(obj) = request_map.as_object_mut() {
@@ -232,16 +232,16 @@ fn add_spec_for_path_internal<RequestType: JsonSchema, ResponseType: JsonSchema>
     }
 
     let mut schemas = request_map;
-    okapi::merge::merge_map_json(&mut schemas, response_map.clone(), "name");
+    okapi::merge::merge_map_json(&mut schemas, response_map, "name");
 
     let paths = paths_map(
-        format!("#/components/schemas/{}", request_struct_name.clone()),
+        format!("#/components/schemas/{}", request_struct_name),
         format!("#/components/schemas/{}", ResponseType::schema_name()),
         method_name,
     );
 
     okapi::merge::merge_map_json(all_schemas, schemas.clone(), "name");
-    all_paths.extend(paths.clone());
+    all_paths.extend(paths);
 }
 
 fn add_spec_for_path<Request: JsonSchema, Response: JsonSchema>(

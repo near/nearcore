@@ -191,7 +191,7 @@ mod tests {
 
     use itertools::Itertools;
     use near_primitives::{
-        errors::{MissingTrieValueContext, StorageError},
+        errors::{MissingTrieValueContext, StorageError, MissingTrieValue},
         hash::CryptoHash,
         stateless_validation::contract_distribution::CodeHash,
     };
@@ -218,7 +218,7 @@ mod tests {
             match self.store.get(hash) {
                 Some(data) => Ok(data.clone()),
                 None => {
-                    Err(StorageError::MissingTrieValue(MissingTrieValueContext::TrieStorage, *hash))
+                    Err(StorageError::MissingTrieValue(MissingTrieValue{ context: MissingTrieValueContext::TrieStorage, hash: *hash }))
                 }
             }
         }
