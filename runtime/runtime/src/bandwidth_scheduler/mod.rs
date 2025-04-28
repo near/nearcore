@@ -31,6 +31,7 @@ pub struct BandwidthSchedulerOutput {
 
 impl BandwidthSchedulerOutput {
     /// Create a new BandwidthSchedulerOutput with no granted bandwidth.
+    #[cfg(feature = "estimator")]
     pub(crate) fn no_granted_bandwidth(params: BandwidthSchedulerParams) -> Self {
         BandwidthSchedulerOutput {
             granted_bandwidth: GrantedBandwidth::default(),
