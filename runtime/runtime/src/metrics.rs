@@ -786,7 +786,7 @@ fn report_outgoing_buffers(
     inner: &crate::congestion_control::ReceiptSinkV2,
     sender_shard_label: String,
 ) {
-    for (receiver_shard_id, unused_capacity) in inner.outgoing_limit.iter() {
+    for (receiver_shard_id, unused_capacity) in &inner.outgoing_limit {
         let receiver_shard_label = receiver_shard_id.to_string();
 
         CONGESTION_RECEIPT_FORWARDING_UNUSED_CAPACITY_GAS
@@ -816,7 +816,7 @@ pub fn report_recorded_column_sizes(trie: &Trie, apply_state: &ApplyState) {
     let mut total_size = SubtreeSize::default();
 
     let shard_id_str = apply_state.shard_id.to_string();
-    for column in trie_recorder_stats.trie_column_sizes.iter() {
+    for column in &trie_recorder_stats.trie_column_sizes {
         let column_size = column.size.nodes_size.saturating_add(column.size.values_size);
         CHUNK_RECORDED_TRIE_COLUMN_SIZE
             .with_label_values(&[shard_id_str.as_str(), column.column_name])

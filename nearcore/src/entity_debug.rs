@@ -195,7 +195,7 @@ impl EntityDebugHandlerImpl {
                     )?
                     .ok_or_else(|| anyhow!("Flat state changes not found"))?;
                 let mut changes_view = Vec::new();
-                for (key, value) in changes.0.into_iter() {
+                for (key, value) in changes.0 {
                     let key = hex::encode(&key);
                     let value = match value {
                         Some(v) => {
@@ -627,7 +627,7 @@ impl TriePath {
 
     /// Format of nibbles is an array of 4-bit integers.
     pub fn nibbles_to_hex(nibbles: &[u8]) -> String {
-        nibbles.iter().map(|x| format!("{:x}", x)).collect::<Vec<_>>().join("")
+        nibbles.iter().map(|x| format!("{:x}", x)).collect()
     }
 
     /// Format of returned value is an array of 4-bit integers, or None if parsing failed.

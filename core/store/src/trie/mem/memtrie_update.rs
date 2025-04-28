@@ -3,14 +3,12 @@ use std::collections::{BTreeMap, HashMap};
 use near_primitives::errors::StorageError;
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::state::FlatStateValue;
-use near_primitives::types::AccountId;
 
 use crate::trie::ops::insert_delete::GenericTrieUpdateInsertDelete;
 use crate::trie::ops::interface::{
     GenericNodeOrIndex, GenericTrieNode, GenericTrieNodeWithSize, GenericTrieUpdate,
     GenericTrieValue, GenericUpdatedTrieNode, GenericUpdatedTrieNodeWithSize, UpdatedNodeId,
 };
-use crate::trie::ops::resharding::{GenericTrieUpdateRetain, RetainMode};
 use crate::trie::trie_recording::TrieRecorder;
 use crate::trie::{AccessOptions, Children, MemTrieChanges, TrieRefcountDeltaMap};
 use crate::{RawTrieNode, RawTrieNodeWithSize, TrieChanges};
@@ -348,7 +346,7 @@ impl<'a, M: ArenaMemory> MemTrieUpdate<'a, M> {
                 }
             };
 
-        for node_id in ordered_nodes.iter() {
+        for node_id in ordered_nodes {
             let node = updated_nodes[*node_id].as_ref().unwrap();
             let raw_node = match &node.node {
                 UpdatedMemTrieNode::Empty => unreachable!(),
@@ -456,22 +454,6 @@ impl<'a, M: ArenaMemory> MemTrieUpdate<'a, M> {
             children_memtrie_changes: Default::default(),
         }
     }
-
-    /// Splits the trie, separating entries by the boundary account.
-    /// Leaves the left or right part of the trie, depending on the retain mode.
-    ///
-    /// Returns the changes to be applied to in-memory trie and the proof of
-    /// the split operation. Doesn't modifies trie itself, it's a caller's
-    /// responsibility to apply the changes.
-    pub fn retain_split_shard(
-        mut self,
-        boundary_account: &AccountId,
-        retain_mode: RetainMode,
-        opts: AccessOptions,
-    ) -> TrieChanges {
-        GenericTrieUpdateRetain::retain_split_shard(&mut self, boundary_account, retain_mode, opts);
-        self.to_trie_changes()
-    }
 }
 
 /// Applies the given memtrie changes to the in-memory trie data structure.
@@ -493,7 +475,7 @@ pub(super) fn construct_root_from_changes<A: ArenaMut>(
     let mut updated_to_new_map = HashMap::<UpdatedNodeId, MemTrieNodeId>::new();
     let updated_nodes = &changes.updated_nodes;
     let node_ids_with_hashes = &changes.node_ids_with_hashes;
-    for (node_id, node_hash) in node_ids_with_hashes.iter() {
+    for (node_id, node_hash) in node_ids_with_hashes {
         let node = updated_nodes.get(*node_id).unwrap().clone().unwrap();
         let node = match &node.node {
             UpdatedMemTrieNode::Empty => unreachable!(),

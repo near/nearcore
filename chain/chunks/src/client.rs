@@ -249,7 +249,7 @@ mod tests {
         tracing::info!("checking the pool after resharding");
         {
             let shard_ids: Vec<_> = new_shard_layout.shard_ids().collect();
-            for &shard_id in shard_ids.iter() {
+            for &shard_id in &shard_ids {
                 let shard_uid = ShardUId::new(new_shard_layout.version(), shard_id);
                 let pool = pool.pool_for_shard(shard_uid);
                 let pool_len = pool.len();

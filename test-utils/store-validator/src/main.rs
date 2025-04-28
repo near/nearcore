@@ -68,7 +68,7 @@ fn main() {
         White.style().bold().paint("Conditions validated:"),
         Green.style().bold().paint(store_validator.tests_done().to_string())
     );
-    for error in store_validator.errors.iter() {
+    for error in &store_validator.errors {
         println!(
             "{}  {}  {}",
             Red.style().bold().paint(&error.col),

@@ -13,6 +13,7 @@ use crate::client::{CatchupState, Client, EPOCH_START_INFO_BLOCKS};
 use crate::config_updater::ConfigUpdater;
 use crate::debug::new_network_info_view;
 use crate::info::{InfoHelper, display_sync_status};
+use crate::stateless_validation::chunk_endorsement::ChunkEndorsementTracker;
 use crate::stateless_validation::partial_witness::partial_witness_actor::PartialWitnessSenderForClient;
 use crate::sync::handler::SyncHandlerRequest;
 use crate::sync::state::chain_requests::{
@@ -52,8 +53,8 @@ use near_client_primitives::types::{
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_network::client::{
-    BlockApproval, BlockHeadersResponse, BlockResponse, ChunkEndorsementMessage,
-    OptimisticBlockMessage, SetNetworkInfo, StateResponseReceived,
+    BlockApproval, BlockHeadersResponse, BlockResponse, OptimisticBlockMessage, SetNetworkInfo,
+    StateResponseReceived,
 };
 use near_network::types::ReasonForBan;
 use near_network::types::{
@@ -70,7 +71,7 @@ use near_primitives::types::{AccountId, BlockHeight};
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::MaybeValidated;
 use near_primitives::validator_signer::ValidatorSigner;
-use near_primitives::version::{PROTOCOL_UPGRADE_SCHEDULE, PROTOCOL_VERSION, ProtocolFeature};
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature, get_protocol_upgrade_schedule};
 use near_primitives::views::{DetailedDebugStatus, ValidatorInfo};
 #[cfg(feature = "test_features")]
 use near_store::DBCol;
@@ -119,6 +120,7 @@ pub struct StartClientResult {
     pub client_arbiter_handle: actix::ArbiterHandle,
     pub resharding_handle: ReshardingHandle,
     pub tx_pool: Arc<Mutex<ShardedTransactionPool>>,
+    pub chunk_endorsement_tracker: Arc<Mutex<ChunkEndorsementTracker>>,
 }
 
 /// Starts client in a separate Arbiter (thread).
@@ -151,6 +153,7 @@ pub fn start_client(
 
     let chain_sender_for_state_sync = LateBoundSender::<ChainSenderForStateSync>::new();
     let client_sender_for_client = LateBoundSender::<ClientSenderForClient>::new();
+    let protocol_upgrade_schedule = get_protocol_upgrade_schedule(client_config.chain_id.as_str());
     let client = Client::new(
         clock.clone(),
         client_config,
@@ -170,7 +173,7 @@ pub fn start_client(
         state_sync_future_spawner,
         chain_sender_for_state_sync.as_multi_sender(),
         client_sender_for_client.as_multi_sender(),
-        PROTOCOL_UPGRADE_SCHEDULE.clone(),
+        protocol_upgrade_schedule,
     )
     .unwrap();
     let resharding_handle = client.chain.resharding_manager.resharding_handle.clone();
@@ -192,7 +195,8 @@ pub fn start_client(
     )
     .unwrap();
     let tx_pool = client_actor_inner.client.chunk_producer.sharded_tx_pool.clone();
-
+    let chunk_endorsement_tracker =
+        Arc::clone(&client_actor_inner.client.chunk_endorsement_tracker);
     let client_addr = ClientActor::start_in_arbiter(&client_arbiter_handle, move |_| {
         ActixWrapper::new(client_actor_inner)
     });
@@ -208,6 +212,7 @@ pub fn start_client(
         client_arbiter_handle,
         resharding_handle,
         tx_pool,
+        chunk_endorsement_tracker,
     }
 }
 
@@ -1098,10 +1103,12 @@ impl ClientActorInner {
                 continue;
             }
 
-            self.client.chunk_inclusion_tracker.prepare_chunk_headers_ready_for_inclusion(
-                prev_block_hash,
-                &mut self.client.chunk_endorsement_tracker,
-            )?;
+            {
+                let mut tracker = self.client.chunk_endorsement_tracker.lock().unwrap();
+                self.client
+                    .chunk_inclusion_tracker
+                    .prepare_chunk_headers_ready_for_inclusion(prev_block_hash, &mut tracker)?;
+            }
             let num_chunks = self
                 .client
                 .chunk_inclusion_tracker
@@ -1934,15 +1941,6 @@ impl Handler<ChunkStateWitnessMessage> for ClientActorInner {
             self.client.process_chunk_state_witness(witness, raw_witness_size, None, signer)
         {
             tracing::error!(target: "client", ?err, "Error processing chunk state witness");
-        }
-    }
-}
-
-impl Handler<ChunkEndorsementMessage> for ClientActorInner {
-    #[perf]
-    fn handle(&mut self, msg: ChunkEndorsementMessage) {
-        if let Err(err) = self.client.chunk_endorsement_tracker.process_chunk_endorsement(msg.0) {
-            tracing::error!(target: "client", ?err, "Error processing chunk endorsement");
         }
     }
 }

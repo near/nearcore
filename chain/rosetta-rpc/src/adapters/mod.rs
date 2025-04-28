@@ -744,7 +744,7 @@ impl TryFrom<Vec<crate::models::Operation>> for NearActions {
                                 receiver_id: delegate_action_operation.receiver_id.address.into(),
                                 actions: {
                                     let mut non_delegate_actions = vec![];
-                                    for action in actions.into_iter() {
+                                    for action in actions {
                                         non_delegate_actions.push(match action.try_into() {
                                             Ok(a) => a,
                                             Err(_) => {

@@ -25,7 +25,7 @@ use near_primitives::types::{
     EpochInfoProvider, ShardId, ValidatorId, ValidatorInfoIdentifier, ValidatorKickoutReason,
     ValidatorStats,
 };
-use near_primitives::version::ProtocolVersion;
+use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use near_primitives::views::{
     CurrentEpochValidatorInfo, EpochValidatorInfo, NextEpochValidatorInfo, ValidatorKickoutView,
 };
@@ -33,6 +33,7 @@ use near_store::adapter::StoreAdapter;
 use near_store::{DBCol, HEADER_HEAD_KEY, Store, StoreUpdate};
 use num_rational::BigRational;
 use reward_calculator::ValidatorOnlineThresholds;
+use shard_assignment::build_assignment_restrictions_v77_to_v78;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::Path;
 use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
@@ -361,7 +362,7 @@ impl EpochManager {
                 .unwrap_or(&ValidatorStats { expected: 0, produced: 0 })
                 .clone();
             let mut chunk_stats = ChunkStats::default();
-            for (_, tracker) in chunk_stats_tracker.iter() {
+            for (_, tracker) in chunk_stats_tracker {
                 if let Some(stat) = tracker.get(&(i as u64)) {
                     *chunk_stats.expected_mut() += stat.expected();
                     *chunk_stats.produced_mut() += stat.produced();
@@ -421,7 +422,7 @@ impl EpochManager {
         );
         let mut all_kicked_out = true;
         let mut validator_kickout = HashMap::new();
-        for (account_id, stats) in validator_block_chunk_stats.iter() {
+        for (account_id, stats) in &validator_block_chunk_stats {
             if exempted_validators.contains(account_id) {
                 all_kicked_out = false;
                 continue;
@@ -606,7 +607,7 @@ impl EpochManager {
             assert!(block_info.timestamp_nanosec() > last_block_in_last_epoch.timestamp_nanosec());
             let epoch_duration =
                 block_info.timestamp_nanosec() - last_block_in_last_epoch.timestamp_nanosec();
-            for (account_id, reason) in validator_kickout.iter() {
+            for (account_id, reason) in &validator_kickout {
                 if matches!(
                     reason,
                     ValidatorKickoutReason::NotEnoughBlocks { .. }
@@ -639,6 +640,18 @@ impl EpochManager {
         let next_epoch_version = next_epoch_info.protocol_version();
         let next_shard_layout = self.config.for_protocol_version(next_epoch_version).shard_layout;
         let has_same_shard_layout = next_shard_layout == next_next_epoch_config.shard_layout;
+
+        let next_epoch_v6 = ProtocolFeature::SimpleNightshadeV6.enabled(next_epoch_version);
+        let next_next_epoch_v6 =
+            ProtocolFeature::SimpleNightshadeV6.enabled(next_next_epoch_version);
+        let chunk_producer_assignment_restrictions =
+            (!next_epoch_v6 && next_next_epoch_v6).then(|| {
+                build_assignment_restrictions_v77_to_v78(
+                    &next_epoch_info,
+                    &next_shard_layout,
+                    next_next_epoch_config.shard_layout.clone(),
+                )
+            });
         let next_next_epoch_info = match proposals_to_epoch_info(
             &next_next_epoch_config,
             rng_seed,
@@ -649,6 +662,7 @@ impl EpochManager {
             minted_amount,
             next_next_epoch_version,
             has_same_shard_layout,
+            chunk_producer_assignment_restrictions,
         ) {
             Ok(next_next_epoch_info) => next_next_epoch_info,
             Err(EpochError::ThresholdError { stake_sum, num_seats }) => {
@@ -1089,7 +1103,7 @@ impl EpochManager {
                         let mut chunks_stats_by_shard: HashMap<ShardId, ChunkStats> =
                             HashMap::new();
                         let mut chunk_stats = ChunkStats::default();
-                        for (shard, tracker) in aggregator.shard_tracker.iter() {
+                        for (shard, tracker) in &aggregator.shard_tracker {
                             if let Some(stats) = tracker.get(&(validator_id as u64)) {
                                 let produced = stats.produced();
                                 let expected = stats.expected();

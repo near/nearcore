@@ -1045,7 +1045,7 @@ impl EncodedShardChunkBody {
     pub fn num_fetched_parts(&self) -> usize {
         let mut fetched_parts: usize = 0;
 
-        for part in self.parts.iter() {
+        for part in &self.parts {
             if part.is_some() {
                 fetched_parts += 1;
             }

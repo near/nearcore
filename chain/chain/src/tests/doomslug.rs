@@ -79,7 +79,7 @@ fn one_iter(
 
     chain_lengths.insert(block_hash(1, 0), 1);
 
-    for ds in doomslugs.iter_mut() {
+    for ds in &mut doomslugs {
         ds.set_tip(block_hash(1, 0), 1, 1);
         hash_to_block_info.insert(block_hash(1, 0), (1, 1, block_hash(1, 0)));
     }
@@ -91,7 +91,7 @@ fn one_iter(
         let mut new_block_queue = vec![];
 
         // 1. Process approvals
-        for approval in approval_queue.into_iter() {
+        for approval in approval_queue {
             if approval.1 > clock.now() {
                 new_approval_queue.push(approval);
             } else {
@@ -113,7 +113,7 @@ fn one_iter(
         approval_queue = new_approval_queue;
 
         // 2. Process blocks
-        for block in block_queue.into_iter() {
+        for block in block_queue {
             if block.3 > clock.now() {
                 new_block_queue.push(block);
             } else {
@@ -182,7 +182,7 @@ fn one_iter(
 
                         if target_height >= 2048 {
                             println!("Largest produced_height: {}", largest_produced_height);
-                            for ds in doomslugs.iter() {
+                            for ds in &doomslugs {
                                 println!(
                                     "  - tip: ({:?}), final_height: {}, timer height: {}",
                                     ds.get_tip(),
@@ -261,7 +261,7 @@ fn one_iter(
 
     // We successfully got to the `height_goal`. Check that all the blocks are building only on
     // doomslug final blocks
-    for (block_hash, (block_height, _, _)) in hash_to_block_info.iter() {
+    for (block_hash, (block_height, _, _)) in &hash_to_block_info {
         let mut seen_hashes = HashSet::new();
         let mut block_hash = *block_hash;
         seen_hashes.insert(block_hash);
@@ -276,7 +276,7 @@ fn one_iter(
             }
         }
 
-        for (block_hash, height) in blocks_with_finality.iter() {
+        for (block_hash, height) in &blocks_with_finality {
             assert!(*height >= *block_height || seen_hashes.contains(block_hash));
         }
     }

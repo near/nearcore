@@ -53,7 +53,7 @@ fn test_invalid_account_id() {
             Transaction::V0(TransactionV0 { nonce: 11, block_hash: tip.last_block_hash, ..tx })
                 .sign(&signer);
         assert_eq!(
-            env.tx_request_handlers[0].process_tx(signed_transaction, false, false),
+            env.rpc_handlers[0].process_tx(signed_transaction, false, false),
             ProcessTxResponse::InvalidTx(InvalidTxError::ActionsValidation(
                 ActionsValidationError::InvalidAccountId { account_id: "#".to_string() }
             ))
@@ -96,7 +96,7 @@ fn test_very_long_account_id() {
     .sign(&signer);
 
     assert_eq!(
-        env.tx_request_handlers[0].process_tx(tx, false, false),
+        env.rpc_handlers[0].process_tx(tx, false, false),
         ProcessTxResponse::InvalidTx(InvalidTxError::ActionsValidation(
             ActionsValidationError::InvalidAccountId { account_id: "A".repeat(128) }
         ))

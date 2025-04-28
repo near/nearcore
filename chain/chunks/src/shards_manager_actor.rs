@@ -241,7 +241,7 @@ impl RequestPool {
     pub fn fetch(&mut self, current_time: time::Instant) -> Vec<(ChunkHash, ChunkRequestInfo)> {
         let mut removed_requests = HashSet::<ChunkHash>::default();
         let mut requests = Vec::new();
-        for (chunk_hash, chunk_request) in self.requests.iter_mut() {
+        for (chunk_hash, chunk_request) in &mut self.requests {
             if current_time - chunk_request.added >= self.max_duration {
                 debug!(target: "chunks", "Evicted chunk requested that was never fetched {} (shard_id: {})", chunk_hash.0, chunk_request.shard_id);
                 removed_requests.insert(chunk_hash.clone());
@@ -1236,7 +1236,7 @@ impl ShardsManagerActor {
 
         // check part merkle proofs
         let num_total_parts = self.epoch_manager.num_total_parts();
-        for part_info in forward.parts.iter() {
+        for part_info in &forward.parts {
             self.validate_part(forward.merkle_root, part_info, num_total_parts)?;
         }
 
@@ -1588,14 +1588,14 @@ impl ShardsManagerActor {
 
         // 1.d Checking part_ords' validity
         let num_total_parts = self.epoch_manager.num_total_parts();
-        for part_info in parts.iter() {
+        for part_info in &parts {
             // TODO: only validate parts we care about
             // https://github.com/near/nearcore/issues/5885
             self.validate_part(header.encoded_merkle_root(), part_info, num_total_parts)?;
         }
 
         // 1.e Checking receipts validity
-        for proof in prev_outgoing_receipts.iter() {
+        for proof in &prev_outgoing_receipts {
             // TODO: only validate receipts we care about
             // https://github.com/near/nearcore/issues/5885
             // we can't simply use prev_block_hash to check if the node tracks this shard or not
@@ -1810,7 +1810,7 @@ impl ShardsManagerActor {
                 self.epoch_manager.num_total_parts(),
             );
 
-            for (part_ord, part_entry) in entry.parts.iter() {
+            for (part_ord, part_entry) in &entry.parts {
                 encoded_chunk.content_mut().parts[*part_ord as usize] =
                     Some(part_entry.part.clone());
             }
