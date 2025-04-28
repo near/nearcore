@@ -369,6 +369,15 @@ impl Default for ActionResult {
     }
 }
 
+/// Lists the balance differences between
+#[derive(Debug, Default)]
+pub struct GasRefundResult {
+    /// The deficit due to increased gas prices since receipt creation.
+    pub price_deficit: Balance,
+    /// The surplus due to decreased gas prices since receipt creation.
+    pub price_surplus: Balance,
+}
+
 pub struct Runtime {}
 
 impl Runtime {
@@ -900,7 +909,7 @@ impl Runtime {
             }
         }
 
-        let gas_deficit_amount = if receipt.predecessor_id().is_system() {
+        let gas_refund_result = if receipt.predecessor_id().is_system() {
             // If the refund fails tokens are burned.
             if result.result.is_err() {
                 stats.balance.other_burnt_amount = safe_add_balance(
@@ -908,7 +917,7 @@ impl Runtime {
                     total_deposit(&action_receipt.actions)?,
                 )?
             }
-            0
+            GasRefundResult::default()
         } else {
             // Calculating and generating refunds
             self.generate_refund_receipts(
@@ -920,7 +929,7 @@ impl Runtime {
             )?
         };
         stats.balance.gas_deficit_amount =
-            safe_add_balance(stats.balance.gas_deficit_amount, gas_deficit_amount)?;
+            safe_add_balance(stats.balance.gas_deficit_amount, gas_refund_result.price_deficit)?;
 
         // Moving validator proposals
         validator_proposals.append(&mut result.validator_proposals);
@@ -939,9 +948,10 @@ impl Runtime {
         // If the receipt is a refund, then we consider it free without burnt gas.
         let gas_burnt: Gas =
             if receipt.predecessor_id().is_system() { 0 } else { result.gas_burnt };
-        // `gas_deficit_amount` is strictly less than `gas_price * gas_burnt`.
-        let mut tx_burnt_amount =
-            safe_gas_to_balance(apply_state.gas_price, gas_burnt)? - gas_deficit_amount;
+        // `price_deficit` is strictly less than `gas_price * gas_burnt`.
+        let mut tx_burnt_amount = safe_gas_to_balance(apply_state.gas_price, gas_burnt)?
+            - gas_refund_result.price_deficit;
+        tx_burnt_amount = safe_add_balance(tx_burnt_amount, gas_refund_result.price_surplus)?;
         // The amount of tokens burnt for the execution of this receipt. It's used in the execution
         // outcome.
         let tokens_burnt = tx_burnt_amount;
@@ -952,8 +962,28 @@ impl Runtime {
             / *apply_state.config.fees.burnt_gas_reward.denom() as u64;
         // The balance that the current account should receive as a reward for function call
         // execution.
-        let receiver_reward = safe_gas_to_balance(apply_state.gas_price, receiver_gas_reward)?
-            .saturating_sub(gas_deficit_amount);
+        let receiver_reward = if apply_state.config.fees.refund_gas_price_changes {
+            // Use current gas price for reward calculation
+            let full_reward = safe_gas_to_balance(apply_state.gas_price, receiver_gas_reward)?;
+            // Pre NEP-536:
+            // When refunding the gas price difference, if we run a deficit,
+            // subtract it from contract rewards. This is a (arguably weird) bit
+            // of cross-financing the missing funds to pay gas at the current
+            // rate.
+            // We should charge the caller more but we can't at this point. The
+            // pessimistic gas pricing was not pessimistic enough, which may
+            // happen when receipts are delayed.
+            // To recover the losses, take as much as we can from the reward
+            // that rightfully belongs to the contract owner.
+            full_reward.saturating_sub(gas_refund_result.price_deficit)
+        } else {
+            // Use receipt gas price for reward calculation
+            safe_gas_to_balance(action_receipt.gas_price, receiver_gas_reward)?
+            // Post NEP-536:
+            // No shenanigans here. We are not refunding gas price differences,
+            // we just use the receipt gas price and call it the correct price.
+            // No deficits to try and recover.
+        };
         if receiver_reward > 0 {
             let mut account = get_account(state_update, account_id)?;
             if let Some(ref mut account) = account {
@@ -1079,6 +1109,53 @@ impl Runtime {
         action_receipt: &ActionReceipt,
         result: &mut ActionResult,
         config: &RuntimeConfig,
+    ) -> Result<GasRefundResult, RuntimeError> {
+        if config.fees.refund_gas_price_changes {
+            let price_deficit = self.refund_unspent_gas_and_unspent_gas_and_deposits(
+                current_gas_price,
+                receipt,
+                action_receipt,
+                result,
+                config,
+            )?;
+            Ok(GasRefundResult { price_deficit, price_surplus: 0 })
+        } else {
+            self.refund_unspent_gas_and_deposits(
+                current_gas_price,
+                receipt,
+                action_receipt,
+                result,
+                config,
+            )
+        }
+    }
+
+    /// How we used to handle refunds, prior to NEP-536.
+    ///
+    /// In the old model, we tried to always bill the user the exact gas price
+    /// of the block where the gas is spent. That means, a transaction uses a
+    /// different gas price on every hop. But gas is purchased all at the start,
+    /// at the receipt gas price.
+    ///
+    /// To deal with a price increase during execution, we charged a pessimistic
+    /// gas price. The pessimistic price is an estimation of how expensive gas
+    /// could realistically become while the transaction executes. It's not a
+    /// guaranteed to stay below that limit, though.
+    ///
+    /// The pessimistic price is usually several times higher than the real
+    /// execution price. Thus, it is important to refund the difference between
+    /// the purchase price and the execution price.
+    ///
+    /// NEP-536 removes this concept because we no longer want to waste runtime
+    /// throughput with a somewhat useless refund receipts for essentially every
+    /// function call.
+    fn refund_unspent_gas_and_unspent_gas_and_deposits(
+        &self,
+        current_gas_price: Balance,
+        receipt: &Receipt,
+        action_receipt: &ActionReceipt,
+        result: &mut ActionResult,
+        config: &RuntimeConfig,
     ) -> Result<Balance, RuntimeError> {
         let total_deposit = total_deposit(&action_receipt.actions)?;
         let prepaid_gas = safe_add_gas(
@@ -1143,6 +1220,77 @@ impl Runtime {
             ));
         }
         Ok(gas_deficit_amount)
+    }
+
+    /// How we handle refunds since NEP-536.
+    ///
+    /// In this model, the user purchases gas at one price. This price stays the
+    /// same for the entire execution of the transaction, even if the blockchain
+    /// price changes.
+    ///
+    /// In this configuration, gas price changes do not affect refunds, either.
+    /// Thus, we only create refunds for unspent gas and for deposits.
+    fn refund_unspent_gas_and_deposits(
+        &self,
+        current_gas_price: Balance,
+        receipt: &Receipt,
+        action_receipt: &ActionReceipt,
+        result: &mut ActionResult,
+        config: &RuntimeConfig,
+    ) -> Result<GasRefundResult, RuntimeError> {
+        let total_deposit = total_deposit(&action_receipt.actions)?;
+        let prepaid_gas = safe_add_gas(
+            total_prepaid_gas(&action_receipt.actions)?,
+            total_prepaid_send_fees(config, &action_receipt.actions)?,
+        )?;
+        let prepaid_exec_gas = safe_add_gas(
+            total_prepaid_exec_fees(config, &action_receipt.actions, receipt.receiver_id())?,
+            config.fees.fee(ActionCosts::new_action_receipt).exec_fee(),
+        )?;
+        let deposit_refund = if result.result.is_err() { total_deposit } else { 0 };
+        let gas_refund = if result.result.is_err() {
+            safe_add_gas(prepaid_gas, prepaid_exec_gas)? - result.gas_burnt
+        } else {
+            safe_add_gas(prepaid_gas, prepaid_exec_gas)? - result.gas_used
+        };
+        // Refund for the unused portion of the gas at the price at which this gas was purchased.
+        let gas_balance_refund = safe_gas_to_balance(action_receipt.gas_price, gas_refund)?;
+
+        let mut gas_refund_result = GasRefundResult { price_deficit: 0, price_surplus: 0 };
+
+        if current_gas_price > action_receipt.gas_price {
+            // price increased, burning resulted in a deficit
+            gas_refund_result.price_deficit = safe_gas_to_balance(
+                current_gas_price - action_receipt.gas_price,
+                result.gas_burnt,
+            )?;
+        } else {
+            // price decreased, burning resulted in a surplus
+            gas_refund_result.price_surplus = safe_gas_to_balance(
+                action_receipt.gas_price - current_gas_price,
+                result.gas_burnt,
+            )?;
+        };
+
+        if deposit_refund > 0 {
+            result.new_receipts.push(Receipt::new_balance_refund(
+                receipt.predecessor_id(),
+                deposit_refund,
+                receipt.priority(),
+            ));
+        }
+        if gas_balance_refund > 0 {
+            // Gas refunds refund the allowance of the access key, so if the key exists on the
+            // account it will increase the allowance by the refund amount.
+            result.new_receipts.push(Receipt::new_gas_refund(
+                &action_receipt.signer_id,
+                gas_balance_refund,
+                action_receipt.signer_public_key.clone(),
+                receipt.priority(),
+            ));
+        }
+
+        Ok(gas_refund_result)
     }
 
     fn process_receipt(
