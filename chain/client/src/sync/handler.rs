@@ -329,7 +329,7 @@ impl SyncHandler {
         needed_block_hashes.append(&mut extra_block_hashes);
         let mut blocks_to_request = vec![];
 
-        for hash in needed_block_hashes.clone().into_iter() {
+        for hash in needed_block_hashes.clone() {
             let (request_block, have_block) =
                 self.sync_block_status(chain, &sync_hash, &hash, now)?;
             tracing::trace!(target: "sync", ?hash, ?request_block, ?have_block, "request_sync_blocks");

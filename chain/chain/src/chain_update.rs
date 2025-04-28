@@ -431,7 +431,7 @@ impl<'a> ChainUpdate<'a> {
 
         // Getting actual incoming receipts.
         let mut receipt_proof_responses: Vec<ReceiptProofResponse> = vec![];
-        for incoming_receipt_proof in incoming_receipts_proofs.iter() {
+        for incoming_receipt_proof in &incoming_receipts_proofs {
             let ReceiptProofResponse(hash, _) = incoming_receipt_proof;
             let block_header = self.chain_store_update.get_block_header(hash)?;
             if block_header.height() <= chunk.height_included() {

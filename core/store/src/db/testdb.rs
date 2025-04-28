@@ -147,7 +147,7 @@ impl Database for TestDB {
                     }
                 }
                 let new_col = &mut db[col];
-                for (key, value) in map.iter() {
+                for (key, value) in map {
                     new_col.insert(key.clone(), value.clone());
                 }
             }

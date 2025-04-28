@@ -222,7 +222,7 @@ impl TrieUpdate {
 
     pub fn commit(&mut self, event: StateChangeCause) {
         let prospective = std::mem::take(&mut self.prospective);
-        for (raw_key, TrieKeyValueUpdate { trie_key, value }) in prospective.into_iter() {
+        for (raw_key, TrieKeyValueUpdate { trie_key, value }) in prospective {
             self.committed
                 .entry(raw_key)
                 .or_insert_with(|| RawStateChangesWithTrieKey { trie_key, changes: Vec::new() })

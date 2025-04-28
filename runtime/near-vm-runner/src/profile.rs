@@ -154,13 +154,13 @@ impl BorshDeserialize for ProfileDataV3 {
 impl BorshSerialize for ProfileDataV3 {
     fn serialize<W: std::io::Write>(&self, writer: &mut W) -> Result<(), std::io::Error> {
         let mut actions_costs: Vec<u64> = vec![0u64; ActionCosts::LENGTH];
-        for (cost, gas) in self.actions_profile.iter() {
+        for (cost, gas) in &self.actions_profile {
             actions_costs[borsh_action_index(cost)] = *gas;
         }
         BorshSerialize::serialize(&actions_costs, writer)?;
 
         let mut ext_costs: Vec<u64> = vec![0u64; ExtCosts::LENGTH];
-        for (cost, gas) in self.wasm_ext_profile.iter() {
+        for (cost, gas) in &self.wasm_ext_profile {
             ext_costs[borsh_ext_index(cost)] = *gas;
         }
         BorshSerialize::serialize(&ext_costs, writer)?;

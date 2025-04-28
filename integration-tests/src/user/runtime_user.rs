@@ -90,7 +90,7 @@ impl RuntimeUser {
         use_flat_storage: bool,
     ) -> Result<(), ServerError> {
         let mut receipts = prev_receipts;
-        for transaction in transactions.iter() {
+        for transaction in &transactions {
             self.transactions.borrow_mut().insert(transaction.clone());
         }
         let mut txs = transactions;
@@ -149,7 +149,7 @@ impl RuntimeUser {
             }
             update.commit().unwrap();
             client.state_root = apply_result.state_root;
-            for receipt in apply_result.outgoing_receipts.iter() {
+            for receipt in &apply_result.outgoing_receipts {
                 self.receipts.borrow_mut().insert(*receipt.receipt_id(), receipt.clone());
             }
             receipts = apply_result.outgoing_receipts;

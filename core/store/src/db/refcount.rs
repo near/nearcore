@@ -308,7 +308,7 @@ mod test {
             let got = super::iter_with_rc_logic(col, iter)
                 .map(Result::unwrap)
                 .map(|(key, value)| {
-                    assert_eq!(KEY, key.deref());
+                    assert_eq!(&*key, KEY);
                     value
                 })
                 .collect::<Vec<_>>();

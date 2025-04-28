@@ -121,7 +121,7 @@ impl EpochManager {
         // Collect proposals into block producer assignments.
         let mut chunk_producers_settlement: Vec<Vec<ValidatorId>> = vec![];
         let mut last_index: u64 = 0;
-        for num_seats_in_shard in epoch_config.num_block_producer_seats_per_shard.iter() {
+        for num_seats_in_shard in &epoch_config.num_block_producer_seats_per_shard {
             let mut shard_settlement: Vec<ValidatorId> = vec![];
             for _ in 0..*num_seats_in_shard {
                 let proposal_index = block_producers_settlement[last_index as usize];
@@ -166,7 +166,7 @@ pub(crate) fn find_threshold(
         }
         let mid = (left + right) / 2;
         let mut current_sum: Balance = 0;
-        for item in stakes.iter() {
+        for item in stakes {
             current_sum += item / mid;
             if current_sum >= u128::from(num_seats) {
                 left = mid;

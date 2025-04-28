@@ -408,7 +408,7 @@ impl ChainStore {
             .flatten()
             .cloned()
             .collect::<Vec<_>>();
-        for block_hash in blocks_current_height.iter() {
+        for block_hash in &blocks_current_height {
             let mut current_hash = *block_hash;
             loop {
                 if *gc_blocks_remaining == 0 {

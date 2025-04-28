@@ -125,7 +125,7 @@ impl ApplyChunkResult {
         outcomes: &[ExecutionOutcomeWithId],
     ) -> (MerkleHash, Vec<MerklePath>) {
         let mut result = Vec::with_capacity(outcomes.len());
-        for outcome_with_id in outcomes.iter() {
+        for outcome_with_id in outcomes {
             result.push(outcome_with_id.to_hashes());
         }
         merklize(&result)

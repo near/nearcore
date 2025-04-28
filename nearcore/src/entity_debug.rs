@@ -195,7 +195,7 @@ impl EntityDebugHandlerImpl {
                     )?
                     .ok_or_else(|| anyhow!("Flat state changes not found"))?;
                 let mut changes_view = Vec::new();
-                for (key, value) in changes.0.into_iter() {
+                for (key, value) in changes.0 {
                     let key = hex::encode(&key);
                     let value = match value {
                         Some(v) => {
