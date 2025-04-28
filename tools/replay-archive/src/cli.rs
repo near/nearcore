@@ -270,7 +270,7 @@ impl ReplayController {
     }
 
     fn replay_chunk(
-        &mut self,
+        &self,
         block: &Block,
         prev_block: &Block,
         shard_uid: ShardUId,
@@ -429,7 +429,7 @@ impl ReplayController {
         Ok(())
     }
 
-    fn update_epoch_manager(&mut self, block: &Block) -> Result<()> {
+    fn update_epoch_manager(&self, block: &Block) -> Result<()> {
         let last_finalized_height =
             self.chain_store.get_block_height(block.header().last_final_block())?;
         let store_update = self.epoch_manager.add_validator_proposals(

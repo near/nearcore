@@ -264,7 +264,7 @@ impl BlockSync {
     /// Checks if we should run block sync and ask for more full blocks.
     /// Block sync is due either if the chain head has changed since the last request
     /// or if time since the last request is > BLOCK_REQUEST_TIMEOUT_MS
-    fn block_sync_due(&mut self, head: &Tip, header_head: &Tip) -> BlockSyncDue {
+    fn block_sync_due(&self, head: &Tip, header_head: &Tip) -> BlockSyncDue {
         if self.check_state_needed(head, header_head) {
             return BlockSyncDue::StateSync;
         }

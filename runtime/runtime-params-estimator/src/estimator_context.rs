@@ -67,7 +67,7 @@ impl<'c> EstimatorContext<'c> {
         Self { cached, config }
     }
 
-    pub(crate) fn testbed(&mut self) -> Testbed<'_> {
+    pub(crate) fn testbed(&self) -> Testbed<'_> {
         // Copies dump from another directory and loads the state from it.
         let workdir = tempfile::Builder::new().prefix("runtime_testbed").tempdir().unwrap();
         let StateDump { store, roots } = StateDump::from_dir(
@@ -310,7 +310,7 @@ impl Testbed<'_> {
         assert_eq!(block_latency, extra_blocks);
     }
 
-    pub(crate) fn trie_caching_storage(&mut self) -> TrieCachingStorage {
+    pub(crate) fn trie_caching_storage(&self) -> TrieCachingStorage {
         let store = self.tries.store();
         let is_view = false;
         let prefetcher = None;
@@ -324,7 +324,7 @@ impl Testbed<'_> {
         caching_storage
     }
 
-    pub(crate) fn clear_caches(&mut self) {
+    pub(crate) fn clear_caches(&self) {
         // Flush out writes hanging in memtable
         self.tries.store().store().flush().unwrap();
 
@@ -440,7 +440,7 @@ impl Testbed<'_> {
     /// workload done on the sender's shard before an action receipt is created.
     /// Network costs for sending are not included.
     pub(crate) fn verify_transaction(
-        &mut self,
+        &self,
         signed_tx: SignedTransaction,
         metric: GasMetric,
     ) -> GasCost {
@@ -479,7 +479,7 @@ impl Testbed<'_> {
     /// Process only the execution step of an action receipt.
     ///
     /// Use this method to estimate action exec costs.
-    pub(crate) fn apply_action_receipt(&mut self, receipt: &Receipt, metric: GasMetric) -> GasCost {
+    pub(crate) fn apply_action_receipt(&self, receipt: &Receipt, metric: GasMetric) -> GasCost {
         let mut state_update = TrieUpdate::new(self.trie());
         let mut outgoing_receipts = vec![];
         let mut validator_proposals = vec![];
@@ -508,7 +508,7 @@ impl Testbed<'_> {
     }
 
     /// Instantiate a new trie for the estimator.
-    fn trie(&mut self) -> near_store::Trie {
+    fn trie(&self) -> near_store::Trie {
         // We generated `finality_lag` fake blocks earlier, so the fake height
         // will be at the same number.
         let tip_height = self.config.finality_lag;

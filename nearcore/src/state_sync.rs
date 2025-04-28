@@ -619,7 +619,7 @@ impl StateDumper {
     /// already having been fully dumped. For each shard ID whose state for `epoch_id` has already been dumped, we remove it
     /// from `dump` and `senders` so that we don't start the state dump logic for it.
     fn check_old_progress(
-        &mut self,
+        &self,
         epoch_id: &EpochId,
         dump: &mut DumpState,
         senders: &mut HashMap<ShardId, oneshot::Sender<anyhow::Result<()>>>,
@@ -698,7 +698,7 @@ impl StateDumper {
     /// if we're not tracking anything, or a `DumpState` struct, which holds one `ShardDump` initialized by `get_shard_dump()`
     /// for each shard that we track. This, and the associated oneshot::Senders will then hold all the state related to the
     /// progress of dumping the current epoch's state. This is to be called at startup and also upon each new epoch.
-    fn get_dump_state(&mut self, sync_header: &BlockHeader) -> anyhow::Result<NewDump> {
+    fn get_dump_state(&self, sync_header: &BlockHeader) -> anyhow::Result<NewDump> {
         let epoch_info = self
             .epoch_manager
             .get_epoch_info(sync_header.epoch_id())
@@ -760,7 +760,7 @@ impl StateDumper {
 
     /// For each shard we're dumping state for, check whether the state sync header is already stored in the external storage,
     /// and set `header_to_dump` to None if so, so we don't waste time uploading it again.
-    async fn check_stored_headers(&mut self, dump: &mut DumpState) -> anyhow::Result<()> {
+    fn check_stored_headers(&self, dump: &mut DumpState) -> impl Future<Output = ()> {
         let uploader = Arc::new(HeaderUploader {
             clock: self.clock.clone(),
             external: self.external.clone(),
@@ -773,27 +773,28 @@ impl StateDumper {
             .iter()
             .map(|(shard_id, _)| (uploader.clone(), *shard_id))
             .collect::<Vec<_>>();
-        let headers_stored = tokio_stream::iter(shards)
-            .filter_map(|(uploader, shard_id)| async move {
-                let stored = uploader.header_stored(shard_id).await;
-                if stored { Some(futures::future::ready(shard_id)) } else { None }
-            })
-            .buffer_unordered(10)
-            .collect::<Vec<_>>()
-            .await;
-        for shard_id in headers_stored {
-            tracing::info!(
-                target: "state_sync_dump", %shard_id, epoch_height = %dump.epoch_height,
-                "Header already saved to external storage."
-            );
-            let s = dump.dump_state.get_mut(&shard_id).unwrap();
-            s.header_to_dump = None;
+        async move {
+            let headers_stored = tokio_stream::iter(shards)
+                .filter_map(|(uploader, shard_id)| async move {
+                    let stored = uploader.header_stored(shard_id).await;
+                    if stored { Some(futures::future::ready(shard_id)) } else { None }
+                })
+                .buffer_unordered(10)
+                .collect::<Vec<_>>()
+                .await;
+            for shard_id in headers_stored {
+                tracing::info!(
+                    target: "state_sync_dump", %shard_id, epoch_height = %dump.epoch_height,
+                    "Header already saved to external storage."
+                );
+                let s = dump.dump_state.get_mut(&shard_id).unwrap();
+                s.header_to_dump = None;
+            }
         }
-        Ok(())
     }
 
     /// try to upload the state sync header for each shard we're dumping state for
-    async fn store_headers(&mut self, dump: &mut DumpState) -> anyhow::Result<()> {
+    fn store_headers(&self, dump: &mut DumpState) -> impl Future<Output = ()> {
         let uploader = Arc::new(HeaderUploader {
             clock: self.clock.clone(),
             external: self.external.clone(),
@@ -815,9 +816,6 @@ impl StateDumper {
             })
             .buffer_unordered(10)
             .collect::<()>()
-            .await;
-
-        Ok(())
     }
 
     /// Start uploading state parts. For each shard we're dumping state for and each state part in that shard, this
@@ -825,7 +823,7 @@ impl StateDumper {
     /// of those futures as they finish, and that will send on `senders` either the first error that occurs or Ok(())
     /// when all parts have been uploaded for the shard.
     fn start_upload_parts(
-        &mut self,
+        &self,
         mut senders: HashMap<ShardId, oneshot::Sender<anyhow::Result<()>>>,
         dump: &DumpState,
     ) {
@@ -914,8 +912,8 @@ impl StateDumper {
                         return Ok(());
                     }
 
-                    self.check_stored_headers(&mut dump).await?;
-                    self.store_headers(&mut dump).await?;
+                    self.check_stored_headers(&mut dump).await;
+                    self.store_headers(&mut dump).await;
 
                     dump.set_missing_parts(&self.external, &self.chain_id).await;
                     self.start_upload_parts(senders, &dump);
@@ -965,11 +963,15 @@ impl StateDumper {
     // Checks which parts have already been uploaded possibly by other nodes
     // We use &mut so the do_state_sync_dump() future will be Send, which it won't be if we use a normal
     // reference because of the Chain field
-    async fn check_stored_parts(&mut self) {
+    fn check_stored_parts(&self) -> impl Future<Output = ()> {
         let CurrentDump::InProgress(dump) = &self.current_dump else {
-            return;
+            return futures::future::Either::Left(futures::future::ready(()));
         };
-        dump.set_missing_parts(&self.external, &self.chain_id).await;
+        let external = self.external.clone();
+        let chain_id = self.chain_id.clone();
+        futures::future::Either::Right(async move {
+            dump.set_missing_parts(&external, &chain_id).await;
+        })
     }
 
     /// Check whether there's a new epoch to dump state for. In that case, we start dumping
@@ -999,7 +1001,7 @@ impl StateDumper {
         };
         match self.get_dump_state(&sync_header)? {
             NewDump::Dump(mut dump, sender) => {
-                self.store_headers(&mut dump).await?;
+                self.store_headers(&mut dump).await;
                 self.start_upload_parts(sender, &dump);
                 self.new_dump(dump, *sync_header.hash())?;
             }

@@ -203,7 +203,7 @@ pub struct Store(std::sync::Arc<dyn near_store::db::Database>);
 pub struct StoreUpdate(near_store::db::DBTransaction);
 
 impl Store {
-    pub fn new_update(&mut self) -> StoreUpdate {
+    pub fn new_update(&self) -> StoreUpdate {
         Default::default()
     }
 

@@ -90,7 +90,7 @@ impl crate::CongestionStrategy for NepStrategy {
 
 impl NepStrategy {
     // Step 1: Compute bandwidth limits to other shards based on the congestion information
-    fn init_send_limit(&mut self, ctx: &mut ChunkExecutionContext<'_>) {
+    fn init_send_limit(&mut self, ctx: &ChunkExecutionContext<'_>) {
         self.outgoing_gas_limit.clear();
 
         for shard_id in self.other_shards.clone() {
@@ -160,7 +160,7 @@ impl NepStrategy {
     // should stop accepting any transactions.
     //
     // TODO consider smooth slow down
-    fn get_global_stop(&mut self, ctx: &mut ChunkExecutionContext<'_>) -> bool {
+    fn get_global_stop(&self, ctx: &ChunkExecutionContext<'_>) -> bool {
         for shard_id in self.all_shards.clone() {
             let CongestedShardsInfo { outgoing_congestion, .. } = self.get_info(ctx, &shard_id);
             if outgoing_congestion > self.global_outgoing_congestion_limit {
@@ -175,7 +175,7 @@ impl NepStrategy {
     // transaction should be rejected.
     //
     // TODO consider smooth slow down
-    fn get_filter_stop(&mut self, ctx: &mut ChunkExecutionContext<'_>, tx: TransactionId) -> bool {
+    fn get_filter_stop(&self, ctx: &ChunkExecutionContext<'_>, tx: TransactionId) -> bool {
         let filter_outgoing_congestion_limit = 0.5;
 
         let receiver = ctx.tx_receiver(tx);
@@ -216,7 +216,7 @@ impl NepStrategy {
     }
 
     // Step 6: Compute own congestion information for the next block
-    fn update_block_info(&mut self, ctx: &mut ChunkExecutionContext<'_>) {
+    fn update_block_info(&self, ctx: &mut ChunkExecutionContext<'_>) {
         let incoming_congestion = self.get_incoming_congestion(ctx);
         let outgoing_congestion = self.get_outgoing_congestion(ctx);
 
@@ -294,11 +294,7 @@ impl NepStrategy {
         ctx.forward_receipt(receipt);
     }
 
-    fn get_info(
-        &mut self,
-        ctx: &mut ChunkExecutionContext<'_>,
-        shard_id: &ShardId,
-    ) -> CongestedShardsInfo {
+    fn get_info(&self, ctx: &ChunkExecutionContext<'_>, shard_id: &ShardId) -> CongestedShardsInfo {
         let Some(info) = ctx.prev_block_info().get(&shard_id) else {
             // If there is no info assume there is no congestion.
             return CongestedShardsInfo::default();

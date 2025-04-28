@@ -117,7 +117,7 @@ async fn wait_for_similar_messages(
 /// Rate limits configuration:
 /// - `BlockRequest`, `PartialEncodedChunkRequest`: bucket_start = 5, bucket_max = 10, refill_rate = 2.5/s
 /// - `Transaction`: bucket_start = bucket_max = 50, refill_rate = 5/s
-async fn setup_test_peers(clock: &mut FakeClock, mut rng: &mut Rng) -> (PeerHandle, PeerHandle) {
+async fn setup_test_peers(clock: &FakeClock, mut rng: &mut Rng) -> (PeerHandle, PeerHandle) {
     let chain = Arc::new(data::Chain::make(clock, &mut rng, 12));
 
     // Customize the network configuration to set some arbitrary rate limits.
