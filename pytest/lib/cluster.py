@@ -4,6 +4,8 @@ import copy
 import json
 import os
 import pathlib
+from typing import Optional
+
 import rc
 from geventhttpclient import Session, useragent
 import shutil
@@ -295,6 +297,10 @@ class BaseNode(object):
         return r.content
 
     def get_latest_block(self, **kw) -> BlockId:
+        """
+        Get the hash and height of the latest block.
+        If you need the whole block info, use `.get_block_by_finality('optimistic')`
+        """
         sync_info = self.get_status(**kw)['sync_info']
         return BlockId(height=sync_info['latest_block_height'],
                        hash=sync_info['latest_block_hash'])
@@ -415,10 +421,40 @@ class BaseNode(object):
         return self.json_rpc('block', {'block_id': block_height}, **kwargs)
 
     def get_final_block(self, **kwargs):
-        return self.json_rpc('block', {'finality': 'final'}, **kwargs)
+        return self.get_block_by_finality('final')
+
+    def get_block_by_finality(self, finality, **kwargs):
+        assert finality in ('final', 'optimistic'), \
+            f"invalid finality value: {finality}"
+        return self.json_rpc('block', {'finality': finality}, **kwargs)
 
     def get_chunk(self, chunk_id):
         return self.json_rpc('chunk', [chunk_id])
+
+    def get_prev_epoch_id(self) -> str:
+        """ Get ID of the previous epoch. """
+        latest_block = self.get_block_by_finality('optimistic')['result']
+        next_epoch_id = latest_block['header']['next_epoch_id']
+        # Next epoch ID is a hash of some block from the previous epoch
+        return self.get_epoch_id(block_hash=next_epoch_id)
+
+    def get_epoch_id(
+        self,
+        block_height: Optional[int] = None,
+        block_hash: Optional[str] = None,
+    ) -> str:
+        """
+        Get epoch ID for a given block (either by block height or hash).
+        If neither height nor hash is given, return the current epoch ID.
+        """
+        assert block_height is None or block_hash is None, "use either height or has, not both"
+        if block_height is not None:
+            block = self.get_block_by_height(block_height)['result']
+        elif block_hash is not None:
+            block = self.get_block(block_hash)['result']
+        else:
+            block = self.get_block_by_finality('optimistic')['result']
+        return block['header']['epoch_id']
 
     # Get the transaction status.
     #
@@ -570,7 +606,6 @@ class LocalNode(BaseNode):
                 logger.info(f'Waiting for previous proxy instance to close')
                 time.sleep(1)
 
-        print(f"{cmd}")
         self.run_cmd(cmd=cmd, extra_env=extra_env)
 
         if not skip_starting_proxy:

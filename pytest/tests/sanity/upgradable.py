@@ -107,6 +107,7 @@ def test_protocol_versions() -> None:
 
 
 class TrafficGenerator(threading.Thread):
+    """ A thread which keeps sending transactions to random addresses until stopped. """
 
     def __init__(self, rpc_node: cluster.LocalNode, **kwargs) -> None:
         super().__init__(**kwargs)
@@ -330,7 +331,7 @@ class TestUpgrade:
         self,
         node_dirs: list[str],
     ) -> list[cluster.LocalNode]:
-        # Start 3 stable nodes and one current node.
+        # Start `self._num_validators - 1` stable nodes and one current node.
         stable_config = self._executables.stable.node_config()
         current_config = self._executables.current.node_config()
         stable_root = self._executables.stable.root
@@ -360,29 +361,16 @@ class TestUpgrade:
                 extra_env={"NEAR_TESTS_PROTOCOL_UPGRADE_OVERRIDE": "now"},
             )
 
-    def get_prev_epoch_id(self) -> str:
-        height = self._rpc_node.get_latest_block().height
-        latest_block = self._rpc_node.get_block_by_height(height)['result']
-        next_epoch_id = latest_block['header']['next_epoch_id']
-        # Next epoch ID is a hash of some block from the previous epoch
-        prev_epoch_block = self._rpc_node.get_block(next_epoch_id)['result']
-        return prev_epoch_block['header']['epoch_id']
-
-    def get_epoch_id(self, block_height: int) -> str:
-        block = self._rpc_node.get_block_by_height(block_height)['result']
-        return block['header']['epoch_id']
-
     def wait_epoch(self) -> None:
-        latest_block_height = self._rpc_node.get_latest_block().height
-        start_epoch = self.get_epoch_id(latest_block_height)
+        start_epoch = self._rpc_node.get_epoch_id()
         logger.info(f"Current epoch is {start_epoch}. Waiting for next epoch")
         for height, _ in utils.poll_blocks(self._rpc_node):
-            epoch = self.get_epoch_id(height)
+            epoch = self._rpc_node.get_epoch_id(block_height=height)
             if epoch != start_epoch:
                 break
 
     def get_missed_endorsements(self) -> dict:
-        prev_epoch_id = self.get_prev_epoch_id()
+        prev_epoch_id = self._rpc_node.get_prev_epoch_id()
         validators = self._rpc_node.get_validators(prev_epoch_id)['result']['current_validators']  # yapf: disable
         return {
             v['account_id']: v['num_expected_endorsements'] - v['num_produced_endorsements']
