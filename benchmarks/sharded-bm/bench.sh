@@ -216,9 +216,6 @@ fetch_forknet_details() {
         echo "FORKNET_RPC_INTERNAL_IP is empty! something went wrong while listing GCP instances"
         exit 1
     fi
-    # Extract the public key from the node_key.json file
-    NODE_PUBLIC_KEY=$(jq -r '.public_key' ${GEN_NODES_DIR}/node${NUM_CHUNK_PRODUCERS}/node_key.json)
-    FORKNET_BOOT_NODES="${NODE_PUBLIC_KEY}@${FORKNET_RPC_INTERNAL_IP}:24567"
     # Verify we have the correct number of chunk producers
     if [ "$num_cp_instances" -ne "$NUM_CHUNK_PRODUCERS" ]; then
         echo "Error: Expected ${NUM_CHUNK_PRODUCERS} chunk producers but found ${num_cp_instances}"
@@ -383,7 +380,7 @@ tweak_config_forknet() {
     fi
 
     # Apply custom configs
-    local cmd="cd ${BENCHNET_DIR}; ${FORKNET_ENV} ./bench.sh tweak-config-forknet-node ${CASE} ${FORKNET_BOOT_NODES}"
+    local cmd="cd ${BENCHNET_DIR}; ${FORKNET_ENV} ./bench.sh tweak-config-forknet-node ${CASE}"
     $MIRROR --host-type nodes run-cmd --cmd "${cmd}"
 
     # TODO: Apply custom configs to RPC node to set up all shards tracking
@@ -752,7 +749,7 @@ mirror)
 
 # Forknet specific methods, not part of user API.
 tweak-config-forknet-node)
-    tweak_config_forknet_node ${2} ${3}
+    tweak_config_forknet_node
     ;;
 
 start-neard0)

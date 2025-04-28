@@ -690,7 +690,7 @@ impl PartialWitnessActor {
         let contracts = contract_codes.into_iter().map(|contract| contract.into()).collect();
         let compressed_deploys = ChunkContractDeploys::compress_contracts(&contracts)?;
         let validator_parts = self.generate_contract_deploys_parts(&key, compressed_deploys)?;
-        for (part_owner, deploys_part) in validator_parts.into_iter() {
+        for (part_owner, deploys_part) in validator_parts {
             self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
                 NetworkRequests::PartialEncodedContractDeploys(vec![part_owner], deploys_part),
             ));

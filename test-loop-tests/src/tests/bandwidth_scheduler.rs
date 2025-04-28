@@ -577,7 +577,7 @@ impl WorkloadGenerator {
             let (last_block_hash, nonce) = get_last_block_and_nonce(test_loop, node_datas);
             tracing::info!(target: "scheduler_test", "Adding access keys with nonce {}", nonce);
 
-            for (account, usable_signers) in available_signers.iter() {
+            for (account, usable_signers) in &available_signers {
                 let Some(to_add) = signers_to_add.get_mut(account) else {
                     continue;
                 };

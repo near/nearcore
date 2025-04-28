@@ -506,7 +506,7 @@ pub fn run_txs_parallel(
         |tl_data| {
             let client = &tl_data.get(&node_datas[0].client_sender.actor_handle()).client;
             let mut all_ready = true;
-            for runner in tx_runners.iter_mut() {
+            for runner in &mut tx_runners {
                 match runner.poll_assert_success(tx_processor_sender, client, &future_spawner) {
                     Poll::Pending => all_ready = false,
                     Poll::Ready(_) => {}

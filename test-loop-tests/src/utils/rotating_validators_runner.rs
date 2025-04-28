@@ -135,9 +135,9 @@ impl RotatingValidatorsRunner {
             env.node_datas.iter().map(|data| data.rpc_handler_sender.clone()).collect();
 
         let txs = self.restake_validators_txs(&env, self.validators_index);
-        for tx in txs.iter() {
+        for tx in &txs {
             // In case some nodes are misbehaving we are sending transaction to each one.
-            for tx_processor_sender in tx_processor_senders.iter() {
+            for tx_processor_sender in &tx_processor_senders {
                 let process_tx_request = ProcessTxRequest {
                     transaction: tx.clone(),
                     is_forwarded: false,

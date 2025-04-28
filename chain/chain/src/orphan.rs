@@ -412,7 +412,7 @@ impl Chain {
         }
         if let Some(orphans) = self.orphans.remove_by_prev_hash(prev_hash) {
             debug!(target: "chain", found_orphans = orphans.len(), "Check orphans");
-            for orphan in orphans.into_iter() {
+            for orphan in orphans {
                 let block_hash = orphan.hash();
                 self.blocks_delay_tracker.mark_block_unorphaned(&block_hash);
                 let res = self.start_process_block_async(

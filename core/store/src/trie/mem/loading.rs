@@ -151,7 +151,7 @@ pub fn load_trie_from_flat_state_and_delta(
     }
 
     debug!(target: "memtrie", %shard_uid, "{} deltas to apply", sorted_deltas.len());
-    for (height, hash, prev_hash) in sorted_deltas.into_iter() {
+    for (height, hash, prev_hash) in sorted_deltas {
         let delta = flat_store.get_delta(shard_uid, hash).unwrap();
         if let Some(changes) = delta {
             let old_state_root = get_state_root(store, prev_hash, shard_uid)?;

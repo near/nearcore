@@ -52,7 +52,7 @@ impl Actor for TelemetryActor {}
 
 impl TelemetryActor {
     pub fn new(config: TelemetryConfig) -> Self {
-        for endpoint in config.endpoints.iter() {
+        for endpoint in &config.endpoints {
             if endpoint.is_empty() {
                 panic!(
                     "All telemetry endpoints must be valid URLs. Received: {:?}",
@@ -85,7 +85,7 @@ impl Handler<TelemetryEvent> for TelemetryActor {
             // request per `self.config.reporting_interval`.
             return;
         }
-        for endpoint in self.config.endpoints.iter() {
+        for endpoint in &self.config.endpoints {
             let endpoint = endpoint.clone();
             near_performance_metrics::actix::spawn(
                 "telemetry",

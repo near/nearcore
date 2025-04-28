@@ -102,7 +102,7 @@ pub async fn build_streamer_message(
         })
         .collect::<Vec<_>>();
 
-    for chunk in chunks.into_iter() {
+    for chunk in chunks {
         let views::ChunkView { transactions, author, header, receipts: chunk_non_local_receipts } =
             chunk;
 

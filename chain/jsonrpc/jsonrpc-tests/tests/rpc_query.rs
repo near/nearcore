@@ -186,7 +186,7 @@ fn test_query_account() {
             })
             .await
             .unwrap();
-        for query_response in [query_response_1, query_response_2, query_response_3].iter() {
+        for query_response in &[query_response_1, query_response_2, query_response_3] {
             assert_eq!(query_response.block_height, 0);
             assert_eq!(query_response.block_hash, block_hash);
             let account_info = if let QueryResponseKind::ViewAccount(ref account) =

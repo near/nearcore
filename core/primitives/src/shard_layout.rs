@@ -853,7 +853,7 @@ fn validate_and_derive_shard_parent_map_v2(
     shards_split_map: &ShardsSplitMapV2,
 ) -> ShardsParentMapV2 {
     let mut shards_parent_map = ShardsParentMapV2::new();
-    for (&parent_shard_id, child_shard_ids) in shards_split_map.iter() {
+    for (&parent_shard_id, child_shard_ids) in shards_split_map {
         for &child_shard_id in child_shard_ids {
             let prev = shards_parent_map.insert(child_shard_id, parent_shard_id);
             assert!(prev.is_none(), "no shard should appear in the map twice");

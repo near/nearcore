@@ -362,7 +362,7 @@ impl EpochManager {
                 .unwrap_or(&ValidatorStats { expected: 0, produced: 0 })
                 .clone();
             let mut chunk_stats = ChunkStats::default();
-            for (_, tracker) in chunk_stats_tracker.iter() {
+            for (_, tracker) in chunk_stats_tracker {
                 if let Some(stat) = tracker.get(&(i as u64)) {
                     *chunk_stats.expected_mut() += stat.expected();
                     *chunk_stats.produced_mut() += stat.produced();
@@ -422,7 +422,7 @@ impl EpochManager {
         );
         let mut all_kicked_out = true;
         let mut validator_kickout = HashMap::new();
-        for (account_id, stats) in validator_block_chunk_stats.iter() {
+        for (account_id, stats) in &validator_block_chunk_stats {
             if exempted_validators.contains(account_id) {
                 all_kicked_out = false;
                 continue;
@@ -607,7 +607,7 @@ impl EpochManager {
             assert!(block_info.timestamp_nanosec() > last_block_in_last_epoch.timestamp_nanosec());
             let epoch_duration =
                 block_info.timestamp_nanosec() - last_block_in_last_epoch.timestamp_nanosec();
-            for (account_id, reason) in validator_kickout.iter() {
+            for (account_id, reason) in &validator_kickout {
                 if matches!(
                     reason,
                     ValidatorKickoutReason::NotEnoughBlocks { .. }
@@ -1103,7 +1103,7 @@ impl EpochManager {
                         let mut chunks_stats_by_shard: HashMap<ShardId, ChunkStats> =
                             HashMap::new();
                         let mut chunk_stats = ChunkStats::default();
-                        for (shard, tracker) in aggregator.shard_tracker.iter() {
+                        for (shard, tracker) in &aggregator.shard_tracker {
                             if let Some(stats) = tracker.get(&(validator_id as u64)) {
                                 let produced = stats.produced();
                                 let expected = stats.expected();

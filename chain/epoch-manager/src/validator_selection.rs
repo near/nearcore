@@ -129,9 +129,9 @@ fn get_chunk_producers_assignment(
     let num_chunk_producers = chunk_producers.len();
     let minimum_validators_per_shard = epoch_config.minimum_validators_per_shard as usize;
     let mut prev_chunk_producers_assignment = vec![];
-    for validator_ids in prev_epoch_info.chunk_producers_settlement().iter() {
+    for validator_ids in prev_epoch_info.chunk_producers_settlement() {
         let mut validator_stakes = vec![];
-        for validator_id in validator_ids.iter() {
+        for validator_id in validator_ids {
             validator_stakes.push(prev_epoch_info.get_validator(*validator_id));
         }
         prev_chunk_producers_assignment.push(validator_stakes);
@@ -202,7 +202,7 @@ pub fn proposals_to_epoch_info(
     // Add kickouts for validators which fell out of validator set.
     // Used for querying epoch info by RPC.
     let threshold = validator_roles.threshold;
-    for OrderedValidatorStake(p) in validator_roles.unselected_proposals.iter() {
+    for OrderedValidatorStake(p) in &validator_roles.unselected_proposals {
         let stake = p.stake();
         let account_id = p.account_id();
         *stake_change.get_mut(account_id).unwrap() = 0;

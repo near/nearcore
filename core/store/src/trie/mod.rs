@@ -38,7 +38,6 @@ pub use raw_node::{Children, RawTrieNode, RawTrieNodeWithSize};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt::Write;
 use std::hash::Hash;
-use std::ops::DerefMut;
 use std::str;
 use std::sync::{Arc, RwLock, RwLockReadGuard};
 pub use trie_recording::{SubtreeSize, TrieRecorder, TrieRecorderStats};
@@ -410,7 +409,7 @@ impl TrieRefcountDeltaMap {
         let num_insertions = self.map.iter().filter(|(_h, (_v, rc))| *rc > 0).count();
         let mut insertions = Vec::with_capacity(num_insertions);
         let mut deletions = Vec::with_capacity(self.map.len().saturating_sub(num_insertions));
-        for (hash, (value, rc)) in self.map.into_iter() {
+        for (hash, (value, rc)) in self.map {
             if rc > 0 {
                 insertions.push(TrieRefcountAddition {
                     trie_node_or_value_hash: hash,
@@ -681,10 +680,9 @@ impl Trie {
     }
 
     pub fn check_proof_size_limit_exceed(&self) -> bool {
-        self.recorder
-            .as_ref()
-            .map(|recorder| recorder.read().expect("no poison").check_proof_size_limit_exceed())
-            .unwrap_or_default()
+        self.recorder.as_ref().is_some_and(|recorder| {
+            recorder.read().expect("no poison").check_proof_size_limit_exceed()
+        })
     }
 
     /// Constructs a Trie from the partial storage (i.e. state proof) that
@@ -1589,7 +1587,7 @@ impl Trie {
             None
         };
         let tracking_mode = match &mut recorder {
-            Some(recorder) => TrackingMode::RefcountsAndAccesses(recorder.deref_mut()),
+            Some(recorder) => TrackingMode::RefcountsAndAccesses(&mut *recorder),
             None => TrackingMode::Refcounts,
         };
         let mut trie_update = guard.update(self.root, tracking_mode)?;
@@ -1730,7 +1728,7 @@ impl Trie {
         let mut recorder =
             self.recorder.as_ref().map(|recorder| recorder.write().expect("no poison"));
         let tracking_mode = match &mut recorder {
-            Some(recorder) => TrackingMode::RefcountsAndAccesses(recorder.deref_mut()),
+            Some(recorder) => TrackingMode::RefcountsAndAccesses(&mut *recorder),
             None => TrackingMode::Refcounts,
         };
         let mut trie_update = guard.update(self.root, tracking_mode)?;
