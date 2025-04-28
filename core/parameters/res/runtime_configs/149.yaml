@@ -8,3 +8,4 @@ pessimistic_gas_price_inflation: {
     denominator: 1,
   }
 }
+refund_gas_price_changes: { old: true, new: false }

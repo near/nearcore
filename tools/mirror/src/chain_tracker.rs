@@ -396,7 +396,7 @@ impl TxTracker {
         source_height: BlockHeight,
     ) -> anyhow::Result<()> {
         let source_height = Some(source_height);
-        for access_key in nonce_updates.iter() {
+        for access_key in nonce_updates {
             let info = self.get_target_nonce(db, &access_key, source_height).unwrap();
 
             if info.last_height < source_height {
@@ -419,13 +419,13 @@ impl TxTracker {
         target_view_client: &Addr<ViewClientActor>,
         db: &DB,
     ) -> anyhow::Result<()> {
-        for c in block.chunks.iter() {
-            for tx in c.txs.iter() {
+        for c in &block.chunks {
+            for tx in &c.txs {
                 let updates = match tx {
                     crate::TargetChainTx::Ready(tx) => &tx.nonce_updates,
                     crate::TargetChainTx::AwaitingNonce(tx) => &tx.nonce_updates,
                 };
-                for access_key in updates.iter() {
+                for access_key in updates {
                     Self::store_target_nonce(target_view_client, db, access_key).await?;
                 }
             }
@@ -437,7 +437,7 @@ impl TxTracker {
         self.height_queued = Some(block.source_height);
         self.next_heights.pop_front().unwrap();
 
-        for c in block.chunks.iter() {
+        for c in &block.chunks {
             if !c.txs.is_empty() {
                 self.nonempty_height_queued = Some(block.source_height);
             }
@@ -562,7 +562,7 @@ impl TxTracker {
         let mut log_message = String::new();
         let now = Instant::now();
 
-        for s in msg.shards.iter() {
+        for s in &msg.shards {
             let mut other_txs = 0;
             if let Some(c) = &s.chunk {
                 if c.header.height_included == msg.block.header.height {
@@ -573,7 +573,7 @@ impl TxTracker {
                         gas_pretty(c.header.gas_used)
                     )
                     .unwrap();
-                    for tx in c.transactions.iter() {
+                    for tx in &c.transactions {
                         if let Some(info) = self.sent_txs.get(&tx.transaction.hash) {
                             write!(
                             log_message,
@@ -634,7 +634,7 @@ impl TxTracker {
 
         let new_updater = NonceUpdater::ChainObjectId(*receipt_id);
 
-        for access_key in access_keys.iter() {
+        for access_key in &access_keys {
             let mut n = crate::read_target_nonce(db, &access_key.0, &access_key.1)?.unwrap();
             assert!(n.pending_outcomes.remove(tx_hash));
             n.pending_outcomes.insert(*receipt_id);
@@ -645,7 +645,7 @@ impl TxTracker {
 
                 if !txs_awaiting_nonce.is_empty() {
                     let mut tx_block_queue = tx_block_queue.lock().unwrap();
-                    for r in txs_awaiting_nonce.iter() {
+                    for r in &txs_awaiting_nonce {
                         let tx = Self::get_tx(&mut tx_block_queue, r);
 
                         match tx {
@@ -694,7 +694,7 @@ impl TxTracker {
 
             if !txs_awaiting_nonce.is_empty() {
                 let mut tx_block_queue = tx_block_queue.lock().unwrap();
-                for r in txs_awaiting_nonce.iter() {
+                for r in &txs_awaiting_nonce {
                     let tx = Self::get_tx(&mut tx_block_queue, r);
 
                     match tx {
@@ -725,7 +725,7 @@ impl TxTracker {
             }
 
             let info = self.nonces.get_mut(&access_key).unwrap();
-            for r in to_remove.iter() {
+            for r in &to_remove {
                 info.txs_awaiting_nonce.remove(r);
             }
             info.target_nonce.nonce = std::cmp::max(info.target_nonce.nonce, nonce);
@@ -916,7 +916,7 @@ impl TxTracker {
                 assert!(
                     &tx.nonce_updates == &self.updater_to_keys.remove(&updater).unwrap_or_default()
                 );
-                for access_key in tx.nonce_updates.iter() {
+                for access_key in &tx.nonce_updates {
                     let mut t =
                         crate::read_target_nonce(db, &access_key.0, &access_key.1)?.unwrap();
                     t.pending_outcomes.insert(hash);
@@ -932,7 +932,7 @@ impl TxTracker {
 
                     if !txs_awaiting_nonce.is_empty() {
                         let mut tx_block_queue = tx_block_queue.lock().unwrap();
-                        for r in txs_awaiting_nonce.iter() {
+                        for r in &txs_awaiting_nonce {
                             let t = Self::get_tx(&mut tx_block_queue, r);
 
                             match t {
@@ -1053,7 +1053,7 @@ impl TxTracker {
                     let mut to_remove = Vec::new();
                     if !txs_awaiting_nonce.is_empty() {
                         let mut tx_block_queue = tx_block_queue.lock().unwrap();
-                        for r in txs_awaiting_nonce.iter() {
+                        for r in &txs_awaiting_nonce {
                             let target_tx = Self::get_tx(&mut tx_block_queue, r);
                             match target_tx {
                                 TargetChainTx::AwaitingNonce(tx) => {
@@ -1077,7 +1077,7 @@ impl TxTracker {
                     }
 
                     let info = self.nonces.get_mut(&access_key).unwrap();
-                    for r in to_remove.iter() {
+                    for r in &to_remove {
                         info.txs_awaiting_nonce.remove(r);
                     }
 
@@ -1112,7 +1112,7 @@ impl TxTracker {
         let (txs_sent, provenance) = match sent_batch {
             SentBatch::MappedBlock(b) => {
                 self.height_popped = Some(b.source_height);
-                for (tx_ref, tx) in b.txs.iter() {
+                for (tx_ref, tx) in &b.txs {
                     match tx {
                         TargetChainTx::AwaitingNonce(t) => {
                             self.nonces

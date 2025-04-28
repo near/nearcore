@@ -336,7 +336,7 @@ impl EpochConfigStore {
     /// Loads the default epoch configs for the given chain from the CONFIGS array.
     fn load_default_epoch_configs(chain_id: &str) -> BTreeMap<ProtocolVersion, Arc<EpochConfig>> {
         let mut store = BTreeMap::new();
-        for (chain, version, content) in CONFIGS.iter() {
+        for (chain, version, content) in CONFIGS {
             if *chain == chain_id {
                 let config: EpochConfig = serde_json::from_str(*content).unwrap_or_else(|e| {
                     panic!(

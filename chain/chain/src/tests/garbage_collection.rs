@@ -168,7 +168,7 @@ fn gc_fork_common(simple_chains: Vec<SimpleChain>, max_changes: usize) {
     ));
 
     let mut final_height = None;
-    for simple_chain in simple_chains.iter() {
+    for simple_chain in &simple_chains {
         let (source_block1, state_root1, _) = states1[simple_chain.from as usize].clone();
         do_fork(
             source_block1.clone(),
@@ -206,7 +206,7 @@ fn gc_fork_common(simple_chains: Vec<SimpleChain>, max_changes: usize) {
     let mut state_roots2 = vec![];
     state_roots2.push(Trie::EMPTY_ROOT);
 
-    for simple_chain in simple_chains.iter() {
+    for simple_chain in &simple_chains {
         if simple_chain.is_removed {
             for _ in 0..simple_chain.length {
                 // This chain is deleted in Chain1
@@ -248,7 +248,7 @@ fn gc_fork_common(simple_chains: Vec<SimpleChain>, max_changes: usize) {
     }
 
     let mut start_index = 1; // zero is for genesis
-    for simple_chain in simple_chains.iter() {
+    for simple_chain in &simple_chains {
         if simple_chain.is_removed {
             for i in start_index..start_index + simple_chain.length {
                 let (block1, _, _) = states1[i as usize].clone();

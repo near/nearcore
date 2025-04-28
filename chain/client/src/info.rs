@@ -464,7 +464,7 @@ impl InfoHelper {
             config_updater.report_status();
         }
         let (cpu_usage, memory_usage) = proc_info.unwrap_or_default();
-        let is_validator = validator_info.map(|v| v.is_validator).unwrap_or_default();
+        let is_validator = validator_info.is_some_and(|v| v.is_validator);
         (metrics::IS_VALIDATOR.set(is_validator as i64));
         (metrics::RECEIVED_BYTES_PER_SECOND.set(network_info.received_bytes_per_sec as i64));
         (metrics::SENT_BYTES_PER_SECOND.set(network_info.sent_bytes_per_sec as i64));
@@ -809,7 +809,7 @@ impl std::fmt::Display for BlocksInfo {
             }
         };
 
-        for block_info in self.blocks_info.iter() {
+        for block_info in &self.blocks_info {
             let mut all_chunks_received = true;
             let chunk_status = block_info
                 .chunks_info

@@ -51,7 +51,7 @@ impl<T> Children<T> {
     /// Iterates over existing children; `None` entries are omitted.
     #[inline]
     pub fn iter<'a>(&'a self) -> impl Iterator<Item = (u8, &'a T)> {
-        self.0.iter().enumerate().flat_map(|(i, el)| Some(i as u8).zip(el.as_ref()))
+        self.0.iter().enumerate().filter_map(|(i, el)| Some(i as u8).zip(el.as_ref()))
     }
 }
 
@@ -78,14 +78,14 @@ impl<T: BorshSerialize> BorshSerialize for Children<T> {
     fn serialize<W: std::io::Write>(&self, wr: &mut W) -> std::io::Result<()> {
         let mut bitmap: u16 = 0;
         let mut pos: u16 = 1;
-        for child in self.0.iter() {
+        for child in &self.0 {
             if child.is_some() {
                 bitmap |= pos
             }
             pos <<= 1;
         }
         bitmap.serialize(wr)?;
-        self.0.iter().flat_map(Option::as_ref).map(|child| child.serialize(wr)).collect()
+        self.0.iter().filter_map(Option::as_ref).map(|child| child.serialize(wr)).collect()
     }
 }
 
