@@ -4,6 +4,7 @@ use super::test_vm_config;
 #[cfg(feature = "prepare")]
 use crate::tests::with_vm_variants;
 use expect_test::expect;
+use near_primitives_core::version::ProtocolFeature;
 
 static SIMD: &str = r#"
 (module
@@ -121,4 +122,35 @@ fn ensure_fails_execution() {
             Err: ...
         "#]]);
     }
+}
+
+#[test]
+fn extension_saturating_float_to_int() {
+    #[allow(deprecated)]
+    test_builder()
+        .wat(
+            r#"
+            (module
+                (func $test_trunc (param $x f64) (result i32) (i32.trunc_sat_f64_s (local.get $x)))
+            )
+            "#,
+        )
+        .protocol_features(&[
+            ProtocolFeature::SaturatingFloatToInt,
+            ProtocolFeature::FixContractLoadingCost,
+        ])
+        .expects(&[
+            expect![[r#"
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 0 used gas 0
+                Err: PrepareError: Error happened while deserializing the module.
+            "#]],
+            expect![[r#"
+                VMOutcome: balance 0 storage_usage 0 return data None burnt gas 0 used gas 0
+                Err: MethodNotFound
+            "#]],
+            expect![[r#"
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 100803663 used gas 100803663
+                Err: MethodNotFound
+            "#]],
+        ]);
 }
