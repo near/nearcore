@@ -107,7 +107,8 @@ pub struct ApplyChunkResult {
     /// version and Some otherwise.
     pub congestion_info: Option<CongestionInfo>,
     /// Requests for bandwidth to send receipts to other shards.
-    pub bandwidth_requests: BandwidthRequests,
+    /// Will be None for protocol versions that don't have the BandwidthScheduler feature enabled.
+    pub bandwidth_requests: Option<BandwidthRequests>,
     /// Used only for a sanity check.
     pub bandwidth_scheduler_state_hash: CryptoHash,
     /// Contracts accessed and deployed while applying the chunk.

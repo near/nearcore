@@ -6,7 +6,6 @@ use near_chain_configs::Genesis;
 use near_crypto::vrf::Value;
 use near_crypto::{KeyType, PublicKey, Signature};
 use near_network::types::{NetworkRequests, PeerManagerMessageRequest};
-use near_primitives::bandwidth_scheduler::BandwidthRequests;
 use near_primitives::block::Block;
 use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::network::PeerId;
@@ -17,6 +16,7 @@ use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::ShardId;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::utils::MaybeValidated;
+use near_primitives::version::PROTOCOL_VERSION;
 use near_store::ShardUId;
 
 use crate::env::test_env::TestEnv;
@@ -78,6 +78,7 @@ fn test_bad_shard_id() {
     let outgoing_receipts_root = chunks.get(1).unwrap().prev_outgoing_receipts_root();
     let congestion_info = CongestionInfo::default();
     let mut modified_chunk = ShardChunkHeaderV3::new(
+        PROTOCOL_VERSION,
         *chunk.prev_block_hash(),
         chunk.prev_state_root(),
         chunk.prev_outcome_root(),
@@ -92,7 +93,7 @@ fn test_bad_shard_id() {
         chunk.tx_root(),
         chunk.prev_validator_proposals().collect(),
         congestion_info,
-        chunk.bandwidth_requests().cloned().unwrap_or_else(BandwidthRequests::empty),
+        chunk.bandwidth_requests().cloned(),
         &validator_signer,
     );
     modified_chunk.height_included = 2;
@@ -230,6 +231,7 @@ fn test_bad_congestion_info_impl(mode: BadCongestionInfoMode) {
     mode.corrupt(&mut congestion_info);
 
     let mut modified_chunk_header = ShardChunkHeaderV3::new(
+        PROTOCOL_VERSION,
         *chunk.prev_block_hash(),
         chunk.prev_state_root(),
         chunk.prev_outcome_root(),
@@ -244,7 +246,7 @@ fn test_bad_congestion_info_impl(mode: BadCongestionInfoMode) {
         chunk.tx_root(),
         chunk.prev_validator_proposals().collect(),
         congestion_info,
-        chunk.bandwidth_requests().cloned().unwrap_or_else(BandwidthRequests::empty),
+        chunk.bandwidth_requests().cloned(),
         &validator_signer,
     );
     modified_chunk_header.height_included = 2;

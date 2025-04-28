@@ -155,7 +155,6 @@ use rand_chacha::ChaCha20Rng;
 
 /// How many bytes of outgoing receipts can be sent from one shard to another at the current height.
 /// Produced by the bandwidth scheduler.
-#[derive(Default)]
 pub struct GrantedBandwidth {
     pub granted: BTreeMap<(ShardId, ShardId), Bandwidth>,
 }
