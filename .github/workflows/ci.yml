@@ -353,7 +353,7 @@ jobs:
             os: warp-ubuntu-2204-x64-2x
           - name: Windows
             id: win
-            os: windows-latest
+            os: warp-windows-latest-x64-2x
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
