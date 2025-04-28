@@ -395,8 +395,7 @@ impl ProtocolFeature {
             ProtocolFeature::GlobalContracts
             | ProtocolFeature::BlockHeightForReceiptId
             | ProtocolFeature::ProduceOptimisticBlock => 77,
-            ProtocolFeature::SimpleNightshadeV6 |
-            ProtocolFeature::SaturatingFloatToInt => 78,
+            ProtocolFeature::SimpleNightshadeV6 | ProtocolFeature::SaturatingFloatToInt => 78,
 
             // Nightly features:
             ProtocolFeature::FixContractLoadingCost => 129,

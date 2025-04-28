@@ -26,14 +26,12 @@ mod opts {
 #[derive(Clone, Copy)]
 #[allow(unused)]
 pub struct WasmFeatures {
-    saturating_float_to_int: bool
+    saturating_float_to_int: bool,
 }
 
 impl WasmFeatures {
     pub fn new(config: &vm::Config) -> Self {
-        Self {
-            saturating_float_to_int: config.saturating_float_to_int,
-        }
+        Self { saturating_float_to_int: config.saturating_float_to_int }
     }
 }
 
