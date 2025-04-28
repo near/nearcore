@@ -9,7 +9,8 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use itertools::Itertools;
 use near_crypto::{KeyType, PublicKey};
 use near_fmt::AbbrBytes;
-use near_primitives_core::types::Gas;
+use near_primitives_core::types::{Gas, ProtocolVersion};
+use near_primitives_core::version::ProtocolFeature;
 use near_schema_checker_lib::ProtocolSchema;
 use serde_with::base64::Base64;
 use serde_with::serde_as;
@@ -190,15 +191,32 @@ impl ReceiptOrStateStoredReceipt<'_> {
 }
 
 impl<'a> StateStoredReceipt<'a> {
-    pub fn new_owned(receipt: Receipt, metadata: StateStoredReceiptMetadata) -> Self {
+    pub fn new_owned(
+        receipt: Receipt,
+        metadata: StateStoredReceiptMetadata,
+        protocol_version: ProtocolVersion,
+    ) -> Self {
         let receipt = Cow::Owned(receipt);
-        Self::V1(StateStoredReceiptV1 { receipt, metadata })
+
+        if ProtocolFeature::BandwidthScheduler.enabled(protocol_version) {
+            Self::V1(StateStoredReceiptV1 { receipt, metadata })
+        } else {
+            Self::V0(StateStoredReceiptV0 { receipt, metadata })
+        }
     }
 
-    pub fn new_borrowed(receipt: &'a Receipt, metadata: StateStoredReceiptMetadata) -> Self {
+    pub fn new_borrowed(
+        receipt: &'a Receipt,
+        metadata: StateStoredReceiptMetadata,
+        protocol_version: ProtocolVersion,
+    ) -> Self {
         let receipt = Cow::Borrowed(receipt);
 
-        Self::V1(StateStoredReceiptV1 { receipt, metadata })
+        if ProtocolFeature::BandwidthScheduler.enabled(protocol_version) {
+            Self::V1(StateStoredReceiptV1 { receipt, metadata })
+        } else {
+            Self::V0(StateStoredReceiptV0 { receipt, metadata })
+        }
     }
 
     pub fn into_receipt(self) -> Receipt {
@@ -869,6 +887,8 @@ pub type ReceiptResult = HashMap<ShardId, Vec<Receipt>>;
 
 #[cfg(test)]
 mod tests {
+    use near_primitives_core::version::PROTOCOL_VERSION;
+
     use super::*;
 
     fn get_receipt_v0() -> Receipt {
@@ -924,7 +944,7 @@ mod tests {
 
     fn test_state_stored_receipt_serialization_impl(receipt: Receipt) {
         let metadata = StateStoredReceiptMetadata { congestion_gas: 42, congestion_size: 43 };
-        let receipt = StateStoredReceipt::new_owned(receipt, metadata);
+        let receipt = StateStoredReceipt::new_owned(receipt, metadata, PROTOCOL_VERSION);
 
         let serialized_receipt = borsh::to_vec(&receipt).unwrap();
         let deserialized_receipt = StateStoredReceipt::try_from_slice(&serialized_receipt).unwrap();
@@ -977,7 +997,8 @@ mod tests {
         {
             let receipt = get_receipt_v0();
             let metadata = StateStoredReceiptMetadata { congestion_gas: 42, congestion_size: 43 };
-            let state_stored_receipt = StateStoredReceipt::new_owned(receipt, metadata);
+            let state_stored_receipt =
+                StateStoredReceipt::new_owned(receipt, metadata, PROTOCOL_VERSION);
 
             let serialized_receipt = borsh::to_vec(&state_stored_receipt).unwrap();
             let deserialized_receipt =
@@ -1009,7 +1030,8 @@ mod tests {
         {
             let receipt = get_receipt_v0();
             let metadata = StateStoredReceiptMetadata { congestion_gas: 42, congestion_size: 43 };
-            let state_stored_receipt = StateStoredReceipt::new_owned(receipt, metadata);
+            let state_stored_receipt =
+                StateStoredReceipt::new_owned(receipt, metadata, PROTOCOL_VERSION);
             let receipt_or_state_stored_receipt =
                 ReceiptOrStateStoredReceipt::StateStoredReceipt(state_stored_receipt);
 

@@ -163,9 +163,11 @@ impl Chain {
     fn create_genesis_chunk_extra(
         state_root: &StateRoot,
         gas_limit: Gas,
+        genesis_protocol_version: ProtocolVersion,
         congestion_info: Option<CongestionInfo>,
     ) -> ChunkExtra {
         ChunkExtra::new(
+            genesis_protocol_version,
             state_root,
             CryptoHash::default(),
             vec![],
@@ -173,7 +175,7 @@ impl Chain {
             gas_limit,
             0,
             congestion_info,
-            BandwidthRequests::empty(),
+            BandwidthRequests::default_for_protocol_version(genesis_protocol_version),
         )
     }
 
@@ -192,6 +194,7 @@ impl Chain {
         &self,
         shard_layout: &ShardLayout,
         shard_id: ShardId,
+        genesis_protocol_version: ProtocolVersion,
         congestion_info: Option<CongestionInfo>,
     ) -> Result<ChunkExtra, Error> {
         let shard_index = shard_layout.get_shard_index(shard_id)?;
@@ -211,7 +214,12 @@ impl Chain {
                 ))
             })?
             .gas_limit();
-        Ok(Self::create_genesis_chunk_extra(&state_root, gas_limit, congestion_info))
+        Ok(Self::create_genesis_chunk_extra(
+            &state_root,
+            gas_limit,
+            genesis_protocol_version,
+            congestion_info,
+        ))
     }
 
     /// Saves the `[ChunkExtra]`s for all shards in the genesis block.
@@ -235,6 +243,7 @@ impl Chain {
                 Self::create_genesis_chunk_extra(
                     state_root,
                     chunk_header.gas_limit(),
+                    genesis_protocol_version,
                     congestion_info,
                 )
             };
