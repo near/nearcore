@@ -168,6 +168,7 @@ MaybeEncodedShardChunk = 1535469720
 MerklePathItem = 2615629611
 MessageDiscriminant = 3240833245
 MethodResolveError = 1206790835
+MissingTrieValue = 856208857
 MissingTrieValueContext = 2666011379
 NextEpochValidatorInfo = 3660299258
 NonDelegateAction = 3326479987

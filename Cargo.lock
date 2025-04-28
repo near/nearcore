@@ -4235,8 +4235,8 @@ dependencies = [
  "near-primitives",
  "near-time",
  "num-rational 0.3.2",
- "schemars 1.0.0-alpha.17",
  "parking_lot 0.12.1",
+ "schemars 1.0.0-alpha.17",
  "serde",
  "serde_json",
  "sha2 0.10.6",
@@ -4584,6 +4584,7 @@ dependencies = [
  "schemars 1.0.0-alpha.17",
  "serde",
  "serde_json",
+ "serde_with",
  "tokio",
  "tracing",
 ]
@@ -5180,8 +5181,8 @@ dependencies = [
 name = "near-time"
 version = "0.0.0"
 dependencies = [
- "schemars 1.0.0-alpha.17",
  "parking_lot 0.12.1",
+ "schemars 1.0.0-alpha.17",
  "serde",
  "serde_json",
  "time",
