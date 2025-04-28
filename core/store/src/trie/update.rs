@@ -254,13 +254,12 @@ impl TrieUpdate {
         let TrieUpdate { trie, committed, contract_storage, .. } = self;
         let mut state_changes = Vec::with_capacity(committed.len());
         let trie_changes = trie.update(
-            committed.into_iter().map(|(k, changes_with_trie_key)| {
+            committed.into_iter().map(|(k, mut changes_with_trie_key)| {
                 let data = changes_with_trie_key
                     .changes
-                    .last()
+                    .pop()
                     .expect("Committed entry should have at least one change")
-                    .data
-                    .clone();
+                    .data;
                 state_changes.push(changes_with_trie_key);
                 (k, data)
             }),
