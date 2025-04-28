@@ -23,7 +23,6 @@ def get_state_sync_config_p2p(tracked_shards_config):
             "secs": 0,
             "nanos": 500000000
         },
-        "state_sync_enabled": True,
         "store.state_snapshot_config.state_snapshot_type": "Enabled",
     }
     if tracked_shards_config is not None:
@@ -83,7 +82,6 @@ def get_state_sync_configs_pair(tracked_shards_config='AllShards'):
                 }
             }
         },
-        "state_sync_enabled": True,
     }
     if tracked_shards_config is not None:
         config_sync['tracked_shards_config'] = tracked_shards_config
@@ -136,7 +134,6 @@ def get_state_sync_config_combined():
                 }
             }
         },
-        "state_sync_enabled": True,
         "store.state_snapshot_config.state_snapshot_type": "Enabled",
         "tracked_shards_config": 'AllShards'
     }
