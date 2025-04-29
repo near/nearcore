@@ -750,7 +750,7 @@ impl ForkNetworkCommand {
     }
 
     /// Deletes DB columns that are not needed in the new chain.
-    fn finalize(&self, near_config: &mut NearConfig, home_dir: &Path) -> anyhow::Result<()> {
+    fn finalize(&self, near_config: &NearConfig, home_dir: &Path) -> anyhow::Result<()> {
         tracing::info!("Delete unneeded columns in the original DB");
         let mut unwanted_cols = Vec::new();
         for col in DBCol::iter() {

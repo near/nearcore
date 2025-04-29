@@ -264,7 +264,8 @@ pub enum ProtocolFeature {
     #[deprecated]
     _DeprecatedExcludeContractCodeFromStateWitness,
     /// A scheduler which limits bandwidth for sending receipts between shards.
-    BandwidthScheduler,
+    #[deprecated]
+    _DeprecatedBandwidthScheduler,
     /// Indicates that the "sync_hash" used to identify the point in the chain to sync state to
     /// should no longer be the first block of the epoch, but a couple blocks after that in order
     /// to sync the current epoch's state. This is not strictly a protocol feature, but is included
@@ -387,7 +388,7 @@ impl ProtocolFeature {
             | ProtocolFeature::_DeprecatedFixChunkProducerStakingThreshold
             | ProtocolFeature::_DeprecatedRelaxedChunkValidation
             | ProtocolFeature::_DeprecatedRemoveCheckBalance
-            | ProtocolFeature::BandwidthScheduler
+            | ProtocolFeature::_DeprecatedBandwidthScheduler
             | ProtocolFeature::_DeprecatedCurrentEpochStateSync => 74,
             ProtocolFeature::SimpleNightshadeV4 => 75,
             ProtocolFeature::SimpleNightshadeV5 => 76,
