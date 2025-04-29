@@ -146,7 +146,7 @@ impl ShardTracker {
                     .cares_about_shard_next_epoch_from_prev_block(parent_hash, account_id, shard_id)
                     .unwrap_or(false),
             };
-            
+
             if account_cares_about_shard {
                 // An account has to track this shard because of its validation duties.
                 return true;
@@ -159,7 +159,7 @@ impl ShardTracker {
                 // We have access to the node config. Use the config to find a definite answer.
             }
         }
-        
+
         match self.tracked_shards_config {
             TrackedShardsConfig::NoShards => {
                 // Avoid looking up EpochId as a performance optimization.
@@ -169,16 +169,17 @@ impl ShardTracker {
                 // Avoid looking up EpochId as a performance optimization.
                 true
             }
-            _ => {
-                match epoch_selection {
-                    EpochSelection::Previous => 
-                        self.tracks_shard_prev_epoch_from_prev_block(shard_id, parent_hash).unwrap_or(false),
-                    EpochSelection::Current => 
-                        self.tracks_shard(shard_id, parent_hash).unwrap_or(false),
-                    EpochSelection::Next => 
-                        self.tracks_shard_next_epoch_from_prev_block(shard_id, parent_hash).unwrap_or(false),
+            _ => match epoch_selection {
+                EpochSelection::Previous => self
+                    .tracks_shard_prev_epoch_from_prev_block(shard_id, parent_hash)
+                    .unwrap_or(false),
+                EpochSelection::Current => {
+                    self.tracks_shard(shard_id, parent_hash).unwrap_or(false)
                 }
-            }
+                EpochSelection::Next => self
+                    .tracks_shard_next_epoch_from_prev_block(shard_id, parent_hash)
+                    .unwrap_or(false),
+            },
         }
     }
 
@@ -195,7 +196,13 @@ impl ShardTracker {
         shard_id: ShardId,
         is_me: bool,
     ) -> bool {
-        self.cares_about_shard_in_epoch(account_id, parent_hash, shard_id, is_me, EpochSelection::Previous)
+        self.cares_about_shard_in_epoch(
+            account_id,
+            parent_hash,
+            shard_id,
+            is_me,
+            EpochSelection::Previous,
+        )
     }
 
     /// Whether the client cares about some shard right now.
@@ -211,7 +218,13 @@ impl ShardTracker {
         shard_id: ShardId,
         is_me: bool,
     ) -> bool {
-        self.cares_about_shard_in_epoch(account_id, parent_hash, shard_id, is_me, EpochSelection::Current)
+        self.cares_about_shard_in_epoch(
+            account_id,
+            parent_hash,
+            shard_id,
+            is_me,
+            EpochSelection::Current,
+        )
     }
 
     /// Whether the client cares about some shard in the next epoch.
@@ -230,7 +243,13 @@ impl ShardTracker {
         shard_id: ShardId,
         is_me: bool,
     ) -> bool {
-        self.cares_about_shard_in_epoch(account_id, parent_hash, shard_id, is_me, EpochSelection::Next)
+        self.cares_about_shard_in_epoch(
+            account_id,
+            parent_hash,
+            shard_id,
+            is_me,
+            EpochSelection::Next,
+        )
     }
 
     // TODO(robin-near): I think we only need the shard_tracker if is_me is false.
