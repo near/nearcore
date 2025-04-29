@@ -9,9 +9,9 @@ use near_primitives::block::Tip;
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::hash::CryptoHash;
 use near_store::archive::cold_storage::{copy_all_data_to_cold, update_cold_db, update_cold_head};
-use near_store::metadata::DbKind;
-use near_store::{DBCol, NodeStorage, Store, StoreOpener};
+use near_store::db::metadata::DbKind;
 use near_store::{COLD_HEAD_KEY, FINAL_HEAD_KEY, HEAD_KEY, TAIL_KEY};
+use near_store::{DBCol, NodeStorage, Store, StoreOpener};
 use nearcore::NearConfig;
 use rand::seq::SliceRandom;
 use std::io::Result;
@@ -591,7 +591,7 @@ impl CheckStateRootCmd {
             .ok_or_else(|| anyhow::anyhow!("Cold storage is not configured"))?;
 
         let hashes = self.state_root_selector.get_hashes(storage, &cold_store)?;
-        for hash in hashes.iter() {
+        for hash in &hashes {
             Self::check_trie(
                 &cold_store,
                 &hash,

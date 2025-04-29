@@ -1,6 +1,6 @@
 use near_store::{
-    checkpoint_hot_storage_and_cleanup_columns, config::ArchivalConfig, Mode, NodeStorage,
-    StoreConfig, STATE_SNAPSHOT_COLUMNS,
+    Mode, NodeStorage, STATE_SNAPSHOT_COLUMNS, StoreConfig,
+    checkpoint_hot_storage_and_cleanup_columns, config::ArchivalConfig,
 };
 use std::path::{Path, PathBuf};
 

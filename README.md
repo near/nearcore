@@ -16,6 +16,7 @@
 ![Prerelease Status][prerelease]
 [![codecov][codecov-badge]][codecov-url]
 [![Discord chat][discord-badge]][discord-url]
+[![Twitter][twitter-badge]][twitter-url]
 [![Telegram Group][telegram-badge]][telegram-url]
 
 [buildkite]: https://github.com/near/nearcore/actions
@@ -24,9 +25,11 @@
 [ci-badge-master]: https://badge.buildkite.com/a81147cb62c585cc434459eedd1d25e521453120ead9ee6c64.svg?branch=master
 [ci-url]: https://buildkite.com/nearprotocol/nearcore
 [codecov-badge]: https://codecov.io/gh/nearprotocol/nearcore/branch/master/graph/badge.svg
-[codecov-url]: https://codecov.io/gh/nearprotocol/nearcore
+[codecov-url]: https://codecov.io/gh/near/nearcore
 [discord-badge]: https://img.shields.io/discord/490367152054992913.svg
 [discord-url]: https://near.chat
+[twitter-badge]: https://img.shields.io/twitter/follow/NEARProtocol
+[twitter-url]: https://x.com/NEARProtocol
 [telegram-badge]: https://cdn.jsdelivr.net/gh/Patrolavia/telegram-badge@8fe3382b3fd3a1c533ba270e608035a27e430c2e/chat.svg
 [telegram-url]: https://t.me/cryptonear
 

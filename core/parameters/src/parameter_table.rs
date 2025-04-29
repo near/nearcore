@@ -298,10 +298,13 @@ impl TryFrom<&ParameterTable> for RuntimeConfig {
                 burnt_gas_reward: params.get(Parameter::BurntGasReward)?,
                 pessimistic_gas_price_inflation_ratio: params
                     .get(Parameter::PessimisticGasPriceInflation)?,
+                refund_gas_price_changes: params.get(Parameter::RefundGasPriceChanges)?,
                 storage_usage_config: StorageUsageConfig {
                     storage_amount_per_byte: params.get(Parameter::StorageAmountPerByte)?,
                     num_bytes_account: params.get(Parameter::StorageNumBytesAccount)?,
                     num_extra_bytes_record: params.get(Parameter::StorageNumExtraBytesRecord)?,
+                    global_contract_storage_amount_per_byte: params
+                        .get(Parameter::GlobalContractStorageAmountPerByte)?,
                 },
             }),
             wasm_config: Arc::new(Config {
@@ -313,7 +316,6 @@ impl TryFrom<&ParameterTable> for RuntimeConfig {
                 vm_kind: params.get(Parameter::VmKind)?,
                 grow_mem_cost: params.get(Parameter::WasmGrowMemCost)?,
                 regular_op_cost: params.get(Parameter::WasmRegularOpCost)?,
-                disable_9393_fix: params.get(Parameter::Disable9393Fix)?,
                 discard_custom_sections: params.get(Parameter::DiscardCustomSections)?,
                 limit_config: serde_yaml::from_value(params.yaml_map(Parameter::vm_limits()))
                     .map_err(InvalidConfigError::InvalidYaml)?,
@@ -323,12 +325,7 @@ impl TryFrom<&ParameterTable> for RuntimeConfig {
                     false => StorageGetMode::Trie,
                 },
                 implicit_account_creation: params.get(Parameter::ImplicitAccountCreation)?,
-                math_extension: params.get(Parameter::MathExtension)?,
-                ed25519_verify: params.get(Parameter::Ed25519Verify)?,
-                alt_bn128: params.get(Parameter::AltBn128)?,
-                function_call_weight: params.get(Parameter::FunctionCallWeight)?,
                 eth_implicit_accounts: params.get(Parameter::EthImplicitAccounts)?,
-                yield_resume_host_functions: params.get(Parameter::YieldResume)?,
             }),
             account_creation_config: AccountCreationConfig {
                 min_allowed_top_level_account_length: params
@@ -526,8 +523,8 @@ fn canonicalize_yaml_string(value: &str) -> Result<serde_yaml::Value, InvalidCon
 #[cfg(test)]
 mod tests {
     use super::{
-        parse_parameter_value, InvalidConfigError, ParameterTable, ParameterTableDiff,
-        ParameterValue,
+        InvalidConfigError, ParameterTable, ParameterTableDiff, ParameterValue,
+        parse_parameter_value,
     };
     use crate::Parameter;
     use assert_matches::assert_matches;

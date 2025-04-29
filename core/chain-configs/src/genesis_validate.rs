@@ -95,7 +95,11 @@ impl<'a> GenesisValidator<'a> {
             .collect::<HashMap<_, _>>();
 
         if validators.len() != self.genesis_config.validators.len() {
-            let error_message = format!("Duplicate account in validators. The number of account_ids: {} does not match the number of validators: {}.", self.account_ids.len(), validators.len());
+            let error_message = format!(
+                "Duplicate account in validators. The number of account_ids: {} does not match the number of validators: {}.",
+                self.account_ids.len(),
+                validators.len()
+            );
             self.validation_errors.push_genesis_semantics_error(error_message)
         }
 
@@ -105,7 +109,10 @@ impl<'a> GenesisValidator<'a> {
         }
 
         if self.total_supply != self.genesis_config.total_supply {
-            let error_message = format!("wrong total supply. account.locked() + account.amount() = {} is not equal to the total supply = {} specified in genesis config.", self.total_supply, self.genesis_config.total_supply);
+            let error_message = format!(
+                "wrong total supply. account.locked() + account.amount() = {} is not equal to the total supply = {} specified in genesis config.",
+                self.total_supply, self.genesis_config.total_supply
+            );
             self.validation_errors.push_genesis_semantics_error(error_message)
         }
 
@@ -198,13 +205,13 @@ mod test {
 
     use crate::GenesisRecords;
     use near_crypto::{KeyType, PublicKey};
-    use near_primitives::account::{AccessKey, Account};
+    use near_primitives::account::{AccessKey, Account, AccountContract};
     use near_primitives::types::AccountInfo;
 
     const VALID_ED25519_RISTRETTO_KEY: &str = "ed25519:KuTCtARNzxZQ3YvXDeLjx83FDqxv2SdQTSbiq876zR7";
 
     fn create_account() -> Account {
-        Account::new(100, 10, Default::default(), 0)
+        Account::new(100, 10, AccountContract::None, 0)
     }
 
     #[test]

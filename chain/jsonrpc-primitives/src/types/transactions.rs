@@ -130,7 +130,7 @@ impl From<RpcTransactionError> for crate::errors::RpcError {
                 return Self::new_internal_error(
                     None,
                     format!("Failed to serialize RpcTransactionError: {:?}", err),
-                )
+                );
             }
         };
 

@@ -1,9 +1,9 @@
 use crate::concurrency::{Once, RateLimiter, WeakMap};
 use log::info;
-use near_async::messaging::noop;
 use near_async::messaging::CanSend;
 use near_async::messaging::IntoSender;
 use near_async::messaging::Sender;
+use near_async::messaging::noop;
 use near_async::time;
 use near_network::client::{
     AnnounceAccountRequest, BlockHeadersResponse, BlockResponse, ClientSenderForNetwork,
@@ -231,11 +231,11 @@ impl Network {
         ClientSenderForNetwork {
             tx_status_request: Sender::from_async_fn(|_| None),
             tx_status_response: noop().into_sender(),
+            transaction: noop().into_sender(),
             state_request_header: Sender::from_async_fn(|_| None),
             state_request_part: Sender::from_async_fn(|_| None),
             state_response: noop().into_sender(),
             block_approval: noop().into_sender(),
-            transaction: noop().into_sender(),
             block_request: Sender::from_async_fn(|_| None),
             block_headers_request: Sender::from_async_fn(|_| None),
             block: Sender::from_async_fn(move |block: BlockResponse| {
@@ -248,7 +248,6 @@ impl Network {
                 }
                 Ok(())
             }),
-            challenge: noop().into_sender(),
             network_info: Sender::from_async_fn(move |info: SetNetworkInfo| {
                 let mut n = data.lock().unwrap();
                 n.info_ = Arc::new(info.0);
@@ -266,6 +265,7 @@ impl Network {
             chunk_endorsement: noop().into_sender(),
             epoch_sync_request: noop().into_sender(),
             epoch_sync_response: noop().into_sender(),
+            optimistic_block_receiver: noop().into_sender(),
         }
     }
 }

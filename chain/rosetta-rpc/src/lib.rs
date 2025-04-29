@@ -7,22 +7,22 @@ use actix::Addr;
 use actix_cors::Cors;
 use actix_web::{App, HttpServer, ResponseError};
 use paperclip::actix::{
-    api_v2_operation,
+    OpenApiExt, api_v2_operation,
     web::{self, Json},
-    OpenApiExt,
 };
 use strum::IntoEnumIterator;
 
 pub use config::RosettaRpcConfig;
 use near_chain_configs::Genesis;
-use near_client::{ClientActor, ViewClientActor};
+use near_client::{ClientActor, RpcHandlerActor, ViewClientActor};
 use near_o11y::WithSpanContextExt;
-use near_primitives::borsh::BorshDeserialize;
+use near_primitives::{account::AccountContract, borsh::BorshDeserialize};
 
 mod adapters;
 mod config;
 mod errors;
 mod models;
+pub mod test;
 mod types;
 mod utils;
 
@@ -369,7 +369,7 @@ async fn account_balance(
             Err(crate::errors::ErrorKind::NotFound(_)) => (
                 block.header.hash,
                 block.header.height,
-                near_primitives::account::Account::new(0, 0, Default::default(), 0).into(),
+                near_primitives::account::Account::new(0, 0, AccountContract::None, 0).into(),
             ),
             Err(err) => return Err(err.into()),
         };
@@ -412,11 +412,7 @@ async fn account_balance(
                         // retrieve contract address from global config if not provided in query
                         config_currencies.as_ref().clone().and_then(|currencies| {
                             currencies.iter().find_map(|c| {
-                                if c.symbol == currency.symbol {
-                                    c.metadata.clone()
-                                } else {
-                                    None
-                                }
+                                if c.symbol == currency.symbol { c.metadata.clone() } else { None }
                             })
                         })
                     })
@@ -787,6 +783,7 @@ async fn construction_hash(
 /// mempool. Otherwise, it should return an error.
 async fn construction_submit(
     client_addr: web::Data<Addr<ClientActor>>,
+    tx_handler_addr: web::Data<Addr<RpcHandlerActor>>,
     body: Json<models::ConstructionSubmitRequest>,
 ) -> Result<Json<models::TransactionIdentifierResponse>, models::Error> {
     let Json(models::ConstructionSubmitRequest { network_identifier, signed_transaction }) = body;
@@ -794,7 +791,7 @@ async fn construction_submit(
     check_network_identifier(&client_addr, network_identifier).await?;
 
     let transaction_hash = signed_transaction.as_ref().get_hash();
-    let transaction_submission = client_addr
+    let transaction_submission = tx_handler_addr
         .send(
             near_client::ProcessTxRequest {
                 transaction: signed_transaction.into_inner(),
@@ -845,6 +842,7 @@ pub fn start_rosetta_rpc(
     genesis_block_hash: &near_primitives::hash::CryptoHash,
     client_addr: Addr<ClientActor>,
     view_client_addr: Addr<ViewClientActor>,
+    tx_handler_addr: Addr<RpcHandlerActor>,
 ) -> actix_web::dev::ServerHandle {
     let crate::config::RosettaRpcConfig { addr, cors_allowed_origins, limits, currencies } = config;
     let block_id = models::BlockIdentifier::new(genesis.config.genesis_height, genesis_block_hash);
@@ -868,6 +866,7 @@ pub fn start_rosetta_rpc(
             .app_data(web::Data::from(genesis.clone()))
             .app_data(web::Data::new(client_addr.clone()))
             .app_data(web::Data::new(view_client_addr.clone()))
+            .app_data(web::Data::new(tx_handler_addr.clone()))
             .app_data(web::Data::new(currencies.clone()))
             .wrap(get_cors(&cors_allowed_origins))
             .wrap_api()

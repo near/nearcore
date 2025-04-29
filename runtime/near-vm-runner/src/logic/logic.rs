@@ -5,14 +5,15 @@ use super::gas_counter::GasCounter;
 use super::recorded_storage_counter::RecordedStorageCounter;
 use super::types::{PromiseIndex, PromiseResult, ReceiptIndex, ReturnData};
 use super::utils::split_method_names;
-use super::ValuePtr;
 use super::{HostError, VMLogicError};
-use crate::bls12381_impl;
 use crate::ProfileDataV3;
+use crate::bls12381_impl;
+use crate::logic::gas_counter::FreeGasCounter;
+use ExtCosts::*;
 use near_crypto::Secp256K1Signature;
-use near_parameters::vm::{Config, StorageGetMode};
+use near_parameters::vm::Config;
 use near_parameters::{
-    transfer_exec_fee, transfer_send_fee, ActionCosts, ExtCosts, RuntimeFeesConfig,
+    ActionCosts, ExtCosts, RuntimeFeesConfig, transfer_exec_fee, transfer_send_fee,
 };
 use near_primitives_core::config::INLINE_DISK_VALUE_THRESHOLD;
 use near_primitives_core::hash::CryptoHash;
@@ -21,15 +22,8 @@ use near_primitives_core::types::{
 };
 use std::mem::size_of;
 use std::sync::Arc;
-use ExtCosts::*;
 
 pub type Result<T, E = VMLogicError> = ::std::result::Result<T, E>;
-
-#[cfg(feature = "io_trace")]
-fn base64(s: &[u8]) -> String {
-    use base64::Engine;
-    base64::engine::general_purpose::STANDARD.encode(s)
-}
 
 /// Structure representing the results and outcomes of a contract execution.
 ///
@@ -212,13 +206,13 @@ macro_rules! get_memory_or_register {
 /// This exists for historical reasons because we must maintain when errors are
 /// returned.  In the old days, between reading the public key and decoding it
 /// we could return unrelated error.  Because of that we cannot change the code
-/// to return deserialisation errors immediately after reading the public key.
+/// to return deserialization errors immediately after reading the public key.
 ///
-/// This struct abstracts away the fact that we’re deserialising the key
+/// This struct abstracts away the fact that we’re deserializing the key
 /// immediately.  Decoding errors are detected as soon as this object is created
 /// but they are communicated to the user only once they call [`Self::decode`].
 ///
-/// Why not just keep the old ways without this noise?  By doing deserialisation
+/// Why not just keep the old ways without this noise? By doing deserialization
 /// immediately we’re copying the data onto the stack without having to allocate
 /// a temporary vector.
 struct PublicKeyBuffer(Result<near_crypto::PublicKey, ()>);
@@ -451,7 +445,7 @@ impl<'a> VMLogic<'a> {
     /// * The cost is 0
     /// * It's up to the caller to set correct len
     #[cfg(feature = "sandbox")]
-    fn sandbox_get_utf8_string(&mut self, len: u64, ptr: u64) -> Result<String> {
+    fn sandbox_get_utf8_string(&self, len: u64, ptr: u64) -> Result<String> {
         let buf = self.memory.view_for_free(MemSlice { ptr, len })?.into_owned();
         String::from_utf8(buf).map_err(|_| HostError::BadUTF8.into())
     }
@@ -874,6 +868,8 @@ impl<'a> VMLogic<'a> {
     /// `base + write_register_base + write_register_byte * num_bytes +
     ///  alt_bn128_g1_multiexp_base +
     ///  alt_bn128_g1_multiexp_element * num_elements`
+    ///
+    /// cspell:words Pippenger
     pub fn alt_bn128_g1_multiexp(
         &mut self,
         value_len: u64,
@@ -2993,7 +2989,7 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
         // We return an illegally constructed AccountId here for the sake of ensuring
         // backwards compatibility. For paths previously involving validation, like receipts
         // we retain validation further down the line in node-runtime/verifier.rs#fn(validate_receipt)
-        // mimicing previous behaviour.
+        // mimicking previous behaviour.
         let account_id = String::from_utf8(buf.into_owned())
             .map(
                 #[allow(deprecated)]
@@ -3057,34 +3053,7 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
         }
         self.result_state.gas_counter.pay_per(storage_write_key_byte, key.len() as u64)?;
         self.result_state.gas_counter.pay_per(storage_write_value_byte, value.len() as u64)?;
-        let nodes_before = self.ext.get_trie_nodes_count();
-        // For storage write, we need to first perform a read on the key to calculate the TTN cost.
-        // This storage_get must be performed through trie instead of through FlatStorage
-        let evicted_ptr = self.ext.storage_get(&key, StorageGetMode::Trie)?;
-        let evicted = Self::deref_value(
-            &mut self.result_state.gas_counter,
-            storage_write_evicted_byte,
-            evicted_ptr,
-        )?;
-        let nodes_delta = self
-            .ext
-            .get_trie_nodes_count()
-            .checked_sub(&nodes_before)
-            .ok_or(InconsistentStateError::IntegerOverflow)?;
-
-        #[cfg(feature = "io_trace")]
-        tracing::trace!(
-            target = "io_tracer",
-            storage_op = "write",
-            key = base64(&key),
-            size = value_len,
-            evicted_len = evicted.as_ref().map(Vec::len),
-            tn_mem_reads = nodes_delta.mem_reads,
-            tn_db_reads = nodes_delta.db_reads,
-        );
-
-        self.result_state.gas_counter.add_trie_fees(&nodes_delta)?;
-        self.ext.storage_set(&key, &value)?;
+        let evicted = self.ext.storage_set(&mut self.result_state.gas_counter, &key, &value)?;
         let storage_config = &self.fees_config.storage_usage_config;
         self.recorded_storage_counter.observe_size(self.ext.get_recorded_storage_size())?;
         match evicted {
@@ -3125,20 +3094,6 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
         }
     }
 
-    fn deref_value<'s>(
-        gas_counter: &mut GasCounter,
-        cost_per_byte: ExtCosts,
-        value_ptr: Option<Box<dyn ValuePtr + 's>>,
-    ) -> Result<Option<Vec<u8>>> {
-        match value_ptr {
-            Some(value_ptr) => {
-                gas_counter.pay_per(cost_per_byte, value_ptr.len() as u64)?;
-                value_ptr.deref().map(Some)
-            }
-            None => Ok(None),
-        }
-    }
-
     /// Reads the value stored under the given key.
     /// * If key is used copies the content of the value into the `register_id`, even if the content
     ///   is zero bytes. Returns `1`;
@@ -3168,14 +3123,7 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
             .into());
         }
         self.result_state.gas_counter.pay_per(storage_read_key_byte, key.len() as u64)?;
-        let nodes_before = self.ext.get_trie_nodes_count();
-        let read = self.ext.storage_get(&key, self.config.storage_get_mode);
-        let nodes_delta = self
-            .ext
-            .get_trie_nodes_count()
-            .checked_sub(&nodes_before)
-            .ok_or(InconsistentStateError::IntegerOverflow)?;
-        self.result_state.gas_counter.add_trie_fees(&nodes_delta)?;
+        let read = self.ext.storage_get(&mut self.result_state.gas_counter, &key);
         let read = match read? {
             Some(read) => {
                 // Here we'll do u32 -> usize -> u64, which is always infallible
@@ -3187,20 +3135,10 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
                         .gas_counter
                         .pay_per(storage_large_read_overhead_byte, read_len as u64)?;
                 }
-                Some(read.deref()?)
+                Some(read.deref(&mut FreeGasCounter)?)
             }
             None => None,
         };
-
-        #[cfg(feature = "io_trace")]
-        tracing::trace!(
-            target = "io_tracer",
-            storage_op = "read",
-            key = base64(&key),
-            size = read.as_ref().map(Vec::len),
-            tn_db_reads = nodes_delta.db_reads,
-            tn_mem_reads = nodes_delta.mem_reads,
-        );
 
         self.recorded_storage_counter.observe_size(self.ext.get_recorded_storage_size())?;
         match read {
@@ -3253,34 +3191,7 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
             .into());
         }
         self.result_state.gas_counter.pay_per(storage_remove_key_byte, key.len() as u64)?;
-        let nodes_before = self.ext.get_trie_nodes_count();
-        // To delete a key, we need to first perform a read on the key to calculate the TTN cost.
-        // This storage_get must be performed through trie instead of through FlatStorage
-        let removed_ptr = self.ext.storage_get(&key, StorageGetMode::Trie)?;
-        let removed = Self::deref_value(
-            &mut self.result_state.gas_counter,
-            storage_remove_ret_value_byte,
-            removed_ptr,
-        )?;
-
-        self.ext.storage_remove(&key)?;
-        let nodes_delta = self
-            .ext
-            .get_trie_nodes_count()
-            .checked_sub(&nodes_before)
-            .ok_or(InconsistentStateError::IntegerOverflow)?;
-
-        #[cfg(feature = "io_trace")]
-        tracing::trace!(
-            target = "io_tracer",
-            storage_op = "remove",
-            key = base64(&key),
-            evicted_len = removed.as_ref().map(Vec::len),
-            tn_mem_reads = nodes_delta.mem_reads,
-            tn_db_reads = nodes_delta.db_reads,
-        );
-
-        self.result_state.gas_counter.add_trie_fees(&nodes_delta)?;
+        let removed = self.ext.storage_remove(&mut self.result_state.gas_counter, &key)?;
         let storage_config = &self.fees_config.storage_usage_config;
         self.recorded_storage_counter.observe_size(self.ext.get_recorded_storage_size())?;
         match removed {
@@ -3331,24 +3242,8 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
             .into());
         }
         self.result_state.gas_counter.pay_per(storage_has_key_byte, key.len() as u64)?;
-        let nodes_before = self.ext.get_trie_nodes_count();
-        let res = self.ext.storage_has_key(&key, self.config.storage_get_mode);
-        let nodes_delta = self
-            .ext
-            .get_trie_nodes_count()
-            .checked_sub(&nodes_before)
-            .ok_or(InconsistentStateError::IntegerOverflow)?;
+        let res = self.ext.storage_has_key(&mut self.result_state.gas_counter, &key);
 
-        #[cfg(feature = "io_trace")]
-        tracing::trace!(
-            target = "io_tracer",
-            storage_op = "exists",
-            key = base64(&key),
-            tn_mem_reads = nodes_delta.mem_reads,
-            tn_db_reads = nodes_delta.db_reads,
-        );
-
-        self.result_state.gas_counter.add_trie_fees(&nodes_delta)?;
         self.recorded_storage_counter.observe_size(self.ext.get_recorded_storage_size())?;
         Ok(res? as u64)
     }
@@ -3465,10 +3360,7 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
     ///
     /// This is meant for use in tests and implementation of VMs only. Implementations of host
     /// functions should be using `pay_*` functions instead.
-    #[cfg(any(
-        test,
-        all(any(feature = "wasmer2_vm", feature = "near_vm"), target_arch = "x86_64")
-    ))]
+    #[cfg(any(test, all(feature = "near_vm", target_arch = "x86_64")))]
     pub(crate) fn gas_counter(&mut self) -> &mut GasCounter {
         &mut self.result_state.gas_counter
     }

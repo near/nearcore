@@ -4,7 +4,7 @@ use near_client::GetBlock;
 use near_network::test_utils::wait_or_timeout;
 use near_o11y::WithSpanContextExt;
 use near_primitives::types::{BlockHeightDelta, NumSeats, NumShards};
-use rand::{thread_rng, Rng};
+use rand::{Rng, thread_rng};
 use std::ops::ControlFlow;
 
 fn run_heavy_nodes(

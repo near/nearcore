@@ -1,3 +1,5 @@
+// cspell:ignore waitlist
+
 use super::{NearVmMemory, VM_CONFIG};
 use crate::cache::CompiledContractInfo;
 use crate::errors::ContractPrecompilatonResult;
@@ -11,12 +13,12 @@ use crate::logic::{
 use crate::near_vm_runner::{NearVmCompiler, NearVmEngine};
 use crate::runner::VMResult;
 use crate::{
-    get_contract_cache_key, imports, CompiledContract, Contract, ContractCode, ContractRuntimeCache,
+    CompiledContract, Contract, ContractCode, ContractRuntimeCache, get_contract_cache_key, imports,
 };
-use crate::{prepare, NoContractRuntimeCache};
+use crate::{NoContractRuntimeCache, prepare};
 use memoffset::offset_of;
-use near_parameters::vm::VMKind;
 use near_parameters::RuntimeFeesConfig;
+use near_parameters::vm::VMKind;
 use near_vm_compiler_singlepass::Singlepass;
 use near_vm_engine::universal::{
     MemoryPool, Universal, UniversalArtifact, UniversalEngine, UniversalExecutable,
@@ -44,7 +46,7 @@ fn get_entrypoint_index(
     if let Some(near_vm_types::ExportIndex::Function(index)) = artifact.export_field(method_name) {
         let signature = artifact.function_signature(index).expect("index should produce signature");
         let signature =
-            artifact.engine().lookup_signature(signature).expect("signature store invlidated?");
+            artifact.engine().lookup_signature(signature).expect("signature store invalidated?");
         if signature.params().is_empty() && signature.results().is_empty() {
             Ok(index)
         } else {
@@ -103,8 +105,7 @@ impl NearVM {
     pub(crate) fn new_for_target(config: Arc<Config>, target: near_vm_compiler::Target) -> Self {
         // We only support singlepass compiler at the moment.
         assert_eq!(VM_CONFIG.compiler, NearVmCompiler::Singlepass);
-        let mut compiler = Singlepass::new();
-        compiler.set_9393_fix(!config.disable_9393_fix);
+        let compiler = Singlepass::new();
         // We only support universal engine at the moment.
         assert_eq!(VM_CONFIG.engine, NearVmEngine::Universal);
 
@@ -127,13 +128,11 @@ impl NearVM {
             })
             .clone();
 
-        let features =
-            crate::features::WasmFeatures::from(config.limit_config.contract_prepare_version);
         Self {
             config,
             engine: Universal::new(compiler)
                 .target(target)
-                .features(features.into())
+                .features(crate::features::WasmFeatures::new().into())
                 .code_memory_pool(code_memory_pool)
                 .engine(),
         }
@@ -514,7 +513,7 @@ impl near_vm_vm::Tunables for &NearVM {
         vm_definition_location: std::ptr::NonNull<near_vm_vm::VMTableDefinition>,
     ) -> Result<std::sync::Arc<dyn near_vm_vm::Table>, String> {
         // This is called when instantiating a module.
-        Ok(Arc::new(LinearTable::from_definition(&ty, &style, vm_definition_location)?))
+        unsafe { Ok(Arc::new(LinearTable::from_definition(&ty, &style, vm_definition_location)?)) }
     }
 
     fn stack_init_gas_cost(&self, stack_size: u64) -> u64 {
@@ -805,7 +804,7 @@ impl<'e, 'l, 'lr> Resolver for NearVmImports<'e, 'l, 'lr> {
                                 // SAFETY: here we erase the lifetime of the `vmlogic` reference,
                                 // but we believe that the lifetimes on `NearVmImports` enforce
                                 // sufficiently that it isn't possible to call this exported
-                                // function when vmlogic is no loger live.
+                                // function when vmlogic is no longer live.
                                 vmctx: near_vm_vm::VMFunctionEnvironment {
                                     host_env: self.vmlogic as *const _ as *mut _
                                 },

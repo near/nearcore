@@ -117,7 +117,7 @@ as our panic strategy and define a panic handler to abort execution.
 [package]
 name = "hello-near"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 
 [lib]
 crate-type = ["cdylib"]

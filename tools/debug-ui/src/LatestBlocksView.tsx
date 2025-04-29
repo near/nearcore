@@ -1,5 +1,5 @@
-import { Fragment, ReactElement, useCallback, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { Fragment, ReactElement, useCallback, useMemo, useState } from 'react';
 import Xarrow, { Xwrapper, useXarrow } from 'react-xarrows';
 import { DebugBlockStatus, MissedHeightInfo, fetchBlockStatus, fetchFullStatus } from './api';
 import './LatestBlocksView.scss';
@@ -138,15 +138,28 @@ type BlocksTableProps = {
 
 const BlocksTable = ({ rows, knownProducers, expandAll, hideMissingHeights }: BlocksTableProps) => {
     let numGraphColumns = 1; // either 1 or 2; determines the width of leftmost td
-    let numShards = 0;
-    for (const row of rows) {
+    const shardIdsSet = new Set<number>();
+    for (const row of rows.slice()) {
         if ('block' in row) {
             numGraphColumns = Math.max(numGraphColumns, (row.graphColumn || 0) + 1);
             for (const chunk of row.block.chunks) {
-                numShards = Math.max(numShards, chunk.shard_id + 1);
+                shardIdsSet.add(chunk.shard_id);
             }
         }
     }
+
+    // Set the shard ids and precompute the mapping from the ShardId to the
+    // ShardUIIndex. Please keep in mind that the ShardUIIndex is different than
+    // the ShardIndex. That is because during resharding we need to display
+    // chunks from multiple shard layouts on a single page.
+    const numShards = shardIdsSet.size;
+    const shardIds = [...shardIdsSet];
+
+    const shardIdToUIIndex = new Map<number, number>();
+    shardIds.forEach((shardId, index) => {
+        shardIdToUIIndex.set(shardId, index);
+    });
+
     const header = (
         <tr>
             <th>Chain</th>
@@ -155,9 +168,9 @@ const BlocksTable = ({ rows, knownProducers, expandAll, hideMissingHeights }: Bl
             <th>Processing Time (ms)</th>
             <th>Block Delay (s)</th>
             <th>Gas price ratio</th>
-            {[...Array(numShards).keys()].map((i) => (
-                <th key={i} colSpan={3}>
-                    Shard {i} (hash/gas(Tgas)/time(ms))
+            {[...shardIds].map((shard_id) => (
+                <th key={shard_id} colSpan={3}>
+                    Shard {shard_id} (hash/gas(Tgas)/time(ms))
                 </th>
             ))}
         </tr>
@@ -184,32 +197,37 @@ const BlocksTable = ({ rows, knownProducers, expandAll, hideMissingHeights }: Bl
             }
             continue;
         }
-        const block = row.block;
 
-        const chunkCells = [] as ReactElement[];
-        block.chunks.forEach((chunk, shardId) => {
-            chunkCells.push(
-                <Fragment key={shardId}>
-                    <td className={row.chunkSkipped[shardId] ? 'skipped-chunk' : ''}>
-                        <HashElement
-                            hashValue={chunk.chunk_hash}
-                            creator={chunk.chunk_producer || ''}
-                            expandAll={expandAll}
-                            knownProducers={knownProducers}
-                        />
-                    </td>
-                    <td>{(chunk.gas_used / (1024 * 1024 * 1024 * 1024)).toFixed(1)}</td>
-                    <td>{chunk.processing_time_ms}</td>
-                </Fragment>
-            );
-        });
+        // The default empty cell for chunks for shards that are not present in
+        // this block. This is only useful during resharding, otherwise all
+        // blocks have the same shard layout and shard ids.
+        // TODO add some style
+        const empty = <Fragment><td colSpan={3}></td></Fragment>;
+
+        const block = row.block;
+        const chunkCells = Array(numShards).fill(empty) as ReactElement[];
+        for (const chunk of block.chunks) {
+            const shardId = chunk.shard_id;
+            const shardUIIndex = shardIdToUIIndex.get(shardId);
+
+            const chunk_info = <HashElement
+                hashValue={chunk.chunk_hash}
+                creator={chunk.chunk_producer || ''}
+                expandAll={expandAll}
+                knownProducers={knownProducers}
+            />;
+            const fragment = <Fragment key={shardId}>
+                <td className={row.chunkSkipped[shardId] ? 'skipped-chunk' : ''}>{chunk_info}</td>
+                <td>{(chunk.gas_used / (1024 * 1024 * 1024 * 1024)).toFixed(1)}</td>
+                <td>{chunk.processing_time_ms}</td>
+            </Fragment>;
+            chunkCells[shardUIIndex!] = fragment;
+        }
 
         tableRows.push(
             <tr
                 key={block.block_hash}
-                className={`block-row ${
-                    row.block.is_on_canonical_chain ? '' : 'not-on-canonical-chain'
-                }`}>
+                className={`block-row ${row.block.is_on_canonical_chain ? '' : 'not-on-canonical-chain'}`}>
                 <td className="graph-node-cell">
                     <div
                         id={`graph-node-${i}`}
@@ -266,12 +284,27 @@ type LatestBlockViewProps = {
     addr: string;
 };
 
+const calculateAvgBlockTime = (blocks: BlockTableRowBlock[]): number => {
+    let totalTime = 0;
+    let count = 0;
+    for (let i = 1; i < blocks.length; i++) {
+        const timeDiff = (blocks[i - 1].block.block_timestamp - blocks[i].block.block_timestamp) / 1e9;
+        totalTime += timeDiff;
+        count++;
+    }
+    return count > 0 ? totalTime / count : 0;
+};
+
 export const LatestBlocksView = ({ addr }: LatestBlockViewProps) => {
     const [height, setHeight] = useState<number | null>(null);
     const [heightInInput, setHeightInInput] = useState<string>('');
     const [expandAll, setExpandAll] = useState(false);
     const [hideMissingHeights, setHideMissingHeights] = useState(false);
     const [showMissingChunksStats, setShowMissingChunksStats] = useState(false);
+    const [numBlocks, setNumBlocks] = useState<number | null>(null);
+    const [numBlocksInInput, setNumBlocksInInput] = useState<string>('');
+    const [mode, setMode] = useState<string | null>(null);
+    const [modeInInput, setModeInInput] = useState<string>('');
     const updateXarrow = useXarrow();
 
     const { data: status } = useQuery(
@@ -282,7 +315,9 @@ export const LatestBlocksView = ({ addr }: LatestBlockViewProps) => {
         data: blockData,
         error,
         isLoading,
-    } = useQuery(['latestBlocks', addr, height], async () => await fetchBlockStatus(addr, height));
+    } = useQuery(['latestBlocks', addr, height, mode, numBlocks], async () => {
+        return await fetchBlockStatus(addr, height, mode, numBlocks);
+    });
 
     const { rows, knownProducerSet } = useMemo(() => {
         if (status && blockData) {
@@ -339,18 +374,40 @@ export const LatestBlocksView = ({ addr }: LatestBlockViewProps) => {
     }, [rows]);
 
     const goToHeightCallback = useCallback(() => {
-        const height = parseInt(heightInInput);
-        setHeight(height);
-    }, [heightInInput]);
+        if (heightInInput != '') {
+            const height = parseInt(heightInInput);
+            setHeight(height);
+        } else {
+            setHeight(null);
+        }
+        if (numBlocksInInput != '') {
+            const numBlocks = Math.min(parseInt(numBlocksInInput), 1000);
+            setNumBlocks(numBlocks);
+        } else {
+            setNumBlocks(null);
+        }
+        if (modeInInput != '') {
+            setMode(modeInInput);
+        } else {
+            setMode(null);
+        }
+    }, [heightInInput, numBlocksInInput, modeInInput]);
 
     return (
         <Xwrapper>
             <div className="latest-blocks-view">
                 <div className="height-controller">
                     <span className="prompt">
-                        {height == null
-                            ? 'Displaying most recent blocks'
-                            : `Displaying blocks from height ${height}`}
+                        {(() => {
+                            let blocksText = `${numBlocks == null ? '' : numBlocks} blocks`;
+                            let promptText = height == null ?
+                                `Displaying most recent ${blocksText}` :
+                                `Displaying ${blocksText} from height ${height}`;
+                            if (mode != null && mode != 'all') {
+                                promptText += ` in mode ${mode}`;
+                            }
+                            return promptText;
+                        })()}
                     </span>
                     <input
                         type="text"
@@ -358,6 +415,22 @@ export const LatestBlocksView = ({ addr }: LatestBlockViewProps) => {
                         value={heightInInput}
                         onChange={(e) => setHeightInInput(e.target.value)}
                     />
+                    <input
+                        type="text"
+                        placeholder="enter number of blocks"
+                        value={numBlocksInInput}
+                        onChange={(e) => setNumBlocksInInput(e.target.value)}
+                    />
+                    <select
+                        value={modeInInput}
+                        onChange={(e) => setModeInInput(e.target.value)}
+                    >
+                        <option value="all">All</option>
+                        <option value="first_block_miss">Jump To Block Miss</option>
+                        <option value="first_chunk_miss">Jump To Chunk Miss</option>
+                        <option value="first_block_produced">Jump To Block Produced</option>
+                        <option value="all_chunks_included">Jump To All Chunks Included</option>
+                    </select>
                     <button onClick={goToHeightCallback}>Go</button>
                     <button onClick={() => setHeight(null)}>Show HEADER_HEAD</button>
                 </div>
@@ -368,14 +441,18 @@ export const LatestBlocksView = ({ addr }: LatestBlockViewProps) => {
                 </div>
                 {!!error && <div className="error">{(error as Error).stack}</div>}
                 <div className="missed-blocks">
-                    Missing blocks: {canonicalHeightCount - numCanonicalBlocks} {}
-                    Produced: {numCanonicalBlocks} {}
+                    Missing blocks: {canonicalHeightCount - numCanonicalBlocks} { }
+                    Produced: {numCanonicalBlocks} { }
                     Missing Rate:{' '}
                     {(
                         ((canonicalHeightCount - numCanonicalBlocks) / canonicalHeightCount) *
                         100
                     ).toFixed(2)}
-                    %
+                    % { }
+                    Average Block Time:{' '}
+                    {calculateAvgBlockTime(
+                        rows.filter((row): row is BlockTableRowBlock => 'block' in row)
+                    ).toFixed(2)}s
                 </div>
                 <button
                     onClick={() => {
@@ -404,8 +481,8 @@ export const LatestBlocksView = ({ addr }: LatestBlockViewProps) => {
                     <div className="missed-chunks">
                         {numChunksSkipped.map((numSkipped, shardId) => (
                             <div key={shardId}>
-                                Shard {shardId}: Missing chunks: {numSkipped} {}
-                                Produced: {numCanonicalBlocks - numSkipped} {}
+                                Shard {shardId}: Missing chunks: {numSkipped} { }
+                                Produced: {numCanonicalBlocks - numSkipped} { }
                                 Missing Rate: {((numSkipped / numCanonicalBlocks) * 100).toFixed(2)}
                                 %
                             </div>

@@ -28,22 +28,22 @@ use actix::{Actor as _, AsyncContext as _};
 use anyhow::Context as _;
 use near_async::messaging::{SendAsync, Sender};
 use near_async::time;
-use near_o11y::{handler_debug_span, handler_trace_span, WithSpanContext};
+use near_o11y::{WithSpanContext, handler_debug_span, handler_trace_span};
 use near_performance_metrics_macros::perf;
-use near_primitives::block::GenesisId;
+use near_primitives::genesis::GenesisId;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::views::{
     ConnectionInfoView, EdgeView, KnownPeerStateView, NetworkGraphView, NetworkRoutesView,
     PeerStoreView, RecentOutboundConnectionsView, SnapshotHostInfoView, SnapshotHostsView,
 };
 use network_protocol::MAX_SHARDS_PER_SNAPSHOT_HOST_INFO;
+use rand::Rng;
 use rand::seq::{IteratorRandom, SliceRandom};
 use rand::thread_rng;
-use rand::Rng;
 use std::cmp::min;
 use std::collections::HashSet;
-use std::sync::atomic::Ordering;
 use std::sync::Arc;
+use std::sync::atomic::Ordering;
 use tracing::Instrument as _;
 
 /// Ratio between consecutive attempts to establish connection with another peer.
@@ -259,7 +259,7 @@ impl PeerManagerActor {
                 // Start server if address provided.
                 if let Some(server_addr) = &state.config.node_addr {
                     tracing::debug!(target: "network", at = ?server_addr, "starting public server");
-                    let mut listener = match server_addr.listener() {
+                    let listener = match server_addr.listener() {
                         Ok(it) => it,
                         Err(e) => {
                             panic!("failed to start listening on server_addr={server_addr:?} e={e:?}")
@@ -357,7 +357,7 @@ impl PeerManagerActor {
 
     /// Periodically prints bandwidth stats for each peer.
     fn report_bandwidth_stats_trigger(
-        &mut self,
+        &self,
         ctx: &mut actix::Context<Self>,
         every: time::Duration,
     ) {
@@ -783,6 +783,14 @@ impl PeerManagerActor {
                 self.state.tier2.broadcast_message(Arc::new(PeerMessage::Block(block)));
                 NetworkResponses::NoResponse
             }
+            NetworkRequests::OptimisticBlock { optimistic_block } => {
+                // TODO(#10584): send this message to all the producers.
+                // Maybe we just need to send this to the next producers.
+                self.state
+                    .tier1
+                    .broadcast_message(Arc::new(PeerMessage::OptimisticBlock(optimistic_block)));
+                NetworkResponses::NoResponse
+            }
             NetworkRequests::Approval { approval_message } => {
                 self.state.send_message_to_account(
                     &self.clock,
@@ -856,17 +864,17 @@ impl PeerManagerActor {
                     }
                 }
 
-                if success {
-                    NetworkResponses::NoResponse
-                } else {
-                    NetworkResponses::RouteNotFound
-                }
+                if success { NetworkResponses::NoResponse } else { NetworkResponses::RouteNotFound }
             }
             NetworkRequests::SnapshotHostInfo { sync_hash, mut epoch_height, mut shards } => {
                 if shards.len() > MAX_SHARDS_PER_SNAPSHOT_HOST_INFO {
-                    tracing::warn!("PeerManager: Sending out a SnapshotHostInfo message with {} shards, \
+                    tracing::warn!(
+                        "PeerManager: Sending out a SnapshotHostInfo message with {} shards, \
                                     this is more than the allowed limit. The list of shards will be truncated. \
-                                    Please adjust the MAX_SHARDS_PER_SNAPSHOT_HOST_INFO constant ({})", shards.len(), MAX_SHARDS_PER_SNAPSHOT_HOST_INFO);
+                                    Please adjust the MAX_SHARDS_PER_SNAPSHOT_HOST_INFO constant ({})",
+                        shards.len(),
+                        MAX_SHARDS_PER_SNAPSHOT_HOST_INFO
+                    );
 
                     // We can's send out more than MAX_SHARDS_PER_SNAPSHOT_HOST_INFO shards because other nodes would
                     // ban us for abusive behavior. Let's truncate the shards vector by choosing a random subset of
@@ -1045,13 +1053,6 @@ impl PeerManagerActor {
                 } else {
                     NetworkResponses::RouteNotFound
                 }
-            }
-            NetworkRequests::Challenge(challenge) => {
-                // TODO(illia): smarter routing?
-                self.state
-                    .tier2
-                    .broadcast_message(Arc::new(PeerMessage::Challenge(Box::new(challenge))));
-                NetworkResponses::NoResponse
             }
             NetworkRequests::ChunkStateWitnessAck(target, ack) => {
                 self.state.send_message_to_account(

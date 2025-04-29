@@ -20,7 +20,9 @@ pub enum RpcQueryError {
         block_height: near_primitives::types::BlockHeight,
         block_hash: near_primitives::hash::CryptoHash,
     },
-    #[error("Block either has never been observed on the node or has been garbage collected: {block_reference:?}")]
+    #[error(
+        "Block either has never been observed on the node or has been garbage collected: {block_reference:?}"
+    )]
     UnknownBlock { block_reference: near_primitives::types::BlockReference },
     #[error("Account ID {requested_account_id} is invalid")]
     InvalidAccount {
@@ -92,7 +94,7 @@ impl From<RpcQueryError> for crate::errors::RpcError {
                 return Self::new_internal_error(
                     None,
                     format!("Failed to serialize RpcQueryError: {:?}", err),
-                )
+                );
             }
         };
         Self::new_internal_or_handler_error(error_data, error_data_value)

@@ -41,7 +41,7 @@ class CongestionControlBootstrapTest(unittest.TestCase):
                                     ["chunk_producer_kickout_threshold", 0]],
             client_config_changes={
                 i: {
-                    "tracked_shards": [0],
+                    "tracked_shards_config": "AllShards",
                     "gc_num_epochs_to_keep": 2
                 } for i in range(4)
             })

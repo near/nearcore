@@ -70,7 +70,6 @@ impl ExecutionToReceipts {
             .collect();
 
         let execution_outcomes: Vec<ExecutionOutcomeWithIdView> = map
-            .clone()
             .map_err(crate::errors::ErrorKind::InternalInvariantError)?
             .into_iter()
             .flat_map(|(_k, v)| v)
@@ -80,13 +79,11 @@ impl ExecutionToReceipts {
             &execution_outcomes,
             &block.header,
             currencies,
-        )
-        .await?;
+        )?;
         Ok(Self { map: map_hash_to_receipts, transactions, receipts, events })
     }
 
     /// Creates an empty mapping.  This is useful for tests.
-    #[cfg(test)]
     pub(crate) fn empty() -> Self {
         Self {
             map: Default::default(),
@@ -156,11 +153,6 @@ fn convert_cause_to_transaction_id(
         }
         StateChangeCauseView::Migration => {
             Ok((TransactionIdentifier::block_event("migration", block_hash), None))
-        }
-        StateChangeCauseView::ReshardingV2 => {
-            Err(crate::errors::ErrorKind::InternalInvariantError(
-                "State Change 'ReshardingV2' should never be observed".to_string(),
-            ))
         }
         StateChangeCauseView::BandwidthSchedulerStateUpdate => {
             Err(crate::errors::ErrorKind::InternalInvariantError(
@@ -322,11 +314,7 @@ pub(crate) async fn convert_block_changes_to_transactions(
                                 _ => 0,
                             })
                             .sum::<u128>();
-                        if total_sum == 0 {
-                            None
-                        } else {
-                            Some(total_sum)
-                        }
+                        if total_sum == 0 { None } else { Some(total_sum) }
                     }),
                     _ => None,
                 };
@@ -362,7 +350,7 @@ pub(crate) async fn convert_block_changes_to_transactions(
                 return Err(crate::errors::ErrorKind::InternalInvariantError(format!(
                     "queried AccountChanges, but received {:?}.",
                     unexpected_value
-                )))
+                )));
             }
         }
     }

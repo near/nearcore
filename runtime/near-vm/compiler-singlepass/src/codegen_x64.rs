@@ -1,6 +1,8 @@
+// cspell:disable
+
 use crate::address_map::get_function_address_map;
 use crate::{config::Singlepass, emitter_x64::*, machine::Machine, x64_decl::*};
-use dynasmrt::{x64::X64Relocation, DynamicLabel, VecAssembler};
+use dynasmrt::{DynamicLabel, VecAssembler, x64::X64Relocation};
 use finite_wasm::gas::InstrumentationKind;
 use memoffset::offset_of;
 use near_vm_compiler::wasmparser::{BlockType as WpBlockType, MemArg, Operator, ValType as WpType};
@@ -10,15 +12,15 @@ use near_vm_compiler::{
     RelocationKind, RelocationTarget, SectionBody, SectionIndex, SourceLoc, Target,
 };
 use near_vm_types::{
-    entity::{EntityRef, PrimaryMap, SecondaryMap},
     FastGasCounter, FunctionType,
+    entity::{EntityRef, PrimaryMap, SecondaryMap},
 };
 use near_vm_types::{
     FunctionIndex, GlobalIndex, LocalFunctionIndex, LocalMemoryIndex, MemoryIndex, ModuleInfo,
     SignatureIndex, TableIndex, Type,
 };
 use near_vm_vm::{TableStyle, TrapCode, VMBuiltinFunctionIndex, VMOffsets};
-use smallvec::{smallvec, SmallVec};
+use smallvec::{SmallVec, smallvec};
 use std::convert::TryFrom;
 use std::iter;
 use std::slice;
@@ -349,21 +351,10 @@ impl<'a> FuncGen<'a> {
     }
 
     fn emit_gas_const(&mut self, cost: u64) {
-        if self.config.disable_9393_fix {
-            // emit_gas only supports Imm32 with an argument up-to i32::MAX, but we made *this*
-            // single-letter oversight at some point & the bug made its way into mainnet. Now that
-            // we need to maintain backwards compatibility and replayability of the old
-            // transactions, we end up with this wonderful and slightly horrifying monument to our
-            // former selves :)
-            if let Ok(cost) = u32::try_from(cost) {
-                return self.emit_gas(Location::Imm32(cost));
-            }
-        } else {
-            if let Ok(cost) = i32::try_from(cost) {
-                // This as `u32` cast is valid, as fallible u64->i32 conversions can’t produce a
-                // negative integer.
-                return self.emit_gas(Location::Imm32(cost as u32));
-            }
+        if let Ok(cost) = i32::try_from(cost) {
+            // This as `u32` cast is valid, as fallible u64->i32 conversions can’t produce a
+            // negative integer.
+            return self.emit_gas(Location::Imm32(cost as u32));
         }
         let cost_reg = self.machine.acquire_temp_gpr().unwrap();
         self.assembler.emit_mov(Size::S64, Location::Imm64(cost), Location::GPR(cost_reg));
@@ -379,7 +370,7 @@ impl<'a> FuncGen<'a> {
         }
 
         match cost_location {
-            Location::Imm32(v) if self.config.disable_9393_fix || v <= (i32::MAX as u32) => {}
+            Location::Imm32(v) if v <= (i32::MAX as u32) => {}
             Location::Imm32(v) => {
                 panic!("emit_gas can take only an imm32 <= 0xFFF_FFFF, got 0x{v:X}")
             }
@@ -558,7 +549,7 @@ impl<'a> FuncGen<'a> {
             Location::Imm32(_) | Location::Imm64(_) => {
                 return Err(CodegenError {
                     message: "emit_relaxed_zx_sx dst Imm: unreachable code".to_string(),
-                })
+                });
             }
             Location::Memory(_, _) => {
                 let tmp_dst = m.acquire_temp_gpr().unwrap();
@@ -575,7 +566,7 @@ impl<'a> FuncGen<'a> {
             _ => {
                 return Err(CodegenError {
                     message: "emit_relaxed_zx_sx dst: unreachable code".to_string(),
-                })
+                });
             }
         };
 
@@ -595,7 +586,7 @@ impl<'a> FuncGen<'a> {
             _ => {
                 return Err(CodegenError {
                     message: "emit_relaxed_zx_sx src: unreachable code".to_string(),
-                })
+                });
             }
         }
         Ok(())
@@ -721,7 +712,7 @@ impl<'a> FuncGen<'a> {
             _ => {
                 return Err(CodegenError {
                     message: "emit_relaxed_avx_base src1: unreachable code".to_string(),
-                })
+                });
             }
         };
 
@@ -745,7 +736,7 @@ impl<'a> FuncGen<'a> {
             _ => {
                 return Err(CodegenError {
                     message: "emit_relaxed_avx_base src2: unreachable code".to_string(),
-                })
+                });
             }
         };
 
@@ -760,7 +751,7 @@ impl<'a> FuncGen<'a> {
             _ => {
                 return Err(CodegenError {
                     message: "emit_relaxed_avx_base dst: unreachable code".to_string(),
-                })
+                });
             }
         }
 
@@ -829,7 +820,7 @@ impl<'a> FuncGen<'a> {
             _ => {
                 return Err(CodegenError {
                     message: "emit_cmpop_i32_dynamic_b ret: unreachable code".to_string(),
-                })
+                });
             }
         }
         self.value_stack.push(ret);
@@ -870,7 +861,7 @@ impl<'a> FuncGen<'a> {
             _ => {
                 return Err(CodegenError {
                     message: "emit_cmpop_i64_dynamic_b ret: unreachable code".to_string(),
-                })
+                });
             }
         }
         self.value_stack.push(ret);
@@ -919,7 +910,7 @@ impl<'a> FuncGen<'a> {
             _ => {
                 return Err(CodegenError {
                     message: "emit_xcnt_i32 loc: unreachable code".to_string(),
-                })
+                });
             }
         }
         self.value_stack.push(ret);
@@ -961,7 +952,7 @@ impl<'a> FuncGen<'a> {
             _ => {
                 return Err(CodegenError {
                     message: "emit_xcnt_i64 loc: unreachable code".to_string(),
-                })
+                });
             }
         }
         self.value_stack.push(ret);
@@ -1046,7 +1037,7 @@ impl<'a> FuncGen<'a> {
 
         // Save used GPRs.
         let used_gprs = self.machine.get_used_gprs();
-        for r in used_gprs.iter() {
+        for r in &used_gprs {
             self.assembler.emit_push(Size::S64, Location::GPR(*r));
         }
 
@@ -1150,7 +1141,7 @@ impl<'a> FuncGen<'a> {
                 _ => {
                     return Err(CodegenError {
                         message: "emit_call_native loc: unreachable code".to_string(),
-                    })
+                    });
                 }
             }
         }
@@ -1309,19 +1300,19 @@ impl<'a> FuncGen<'a> {
 
         let align = memarg.align;
         if check_alignment && align != 1 {
-            let tmp_aligncheck = self.machine.acquire_temp_gpr().unwrap();
+            let tmp_align_check = self.machine.acquire_temp_gpr().unwrap();
             self.assembler.emit_mov(
                 Size::S32,
                 Location::GPR(tmp_addr),
-                Location::GPR(tmp_aligncheck),
+                Location::GPR(tmp_align_check),
             );
             self.assembler.emit_and(
                 Size::S64,
                 Location::Imm32((align - 1).into()),
-                Location::GPR(tmp_aligncheck),
+                Location::GPR(tmp_align_check),
             );
             self.assembler.emit_jmp(Condition::NotEqual, self.special_labels.heap_access_oob);
-            self.machine.release_temp_gpr(tmp_aligncheck);
+            self.machine.release_temp_gpr(tmp_align_check);
         }
 
         cb(self, tmp_addr).unwrap();
@@ -1747,7 +1738,7 @@ impl<'a> FuncGen<'a> {
 
     /// Introduce additional local variables to this function.
     ///
-    /// Calling this after [`emit_head`](Self::emit_head) has been invoked is non-sensical.
+    /// Calling this after [`emit_head`](Self::emit_head) has been invoked is nonsensical.
     pub(crate) fn feed_local(&mut self, local_count: u32, local_type: WpType) {
         // FIXME: somehow verify that we haven't invoked `emit_head` yet? Doing so could lead us to
         // generate code that accesses the stack buffer out of bounds.
@@ -1786,6 +1777,7 @@ impl<'a> FuncGen<'a> {
         None
     }
 
+    #[allow(clippy::large_stack_frames)]
     #[tracing::instrument(target = "near_vm", level = "trace", skip(self))]
     pub(crate) fn feed_operator(&mut self, op: Operator) -> Result<(), CodegenError> {
         assert!(self.fp_stack.len() <= self.value_stack.len());
@@ -2088,7 +2080,7 @@ impl<'a> FuncGen<'a> {
                     _ => {
                         return Err(CodegenError {
                             message: "I32Clz src: unreachable code".to_string(),
-                        })
+                        });
                     }
                 };
 
@@ -2102,7 +2094,7 @@ impl<'a> FuncGen<'a> {
                     _ => {
                         return Err(CodegenError {
                             message: "I32Clz dst: unreachable code".to_string(),
-                        })
+                        });
                     }
                 };
 
@@ -2149,7 +2141,7 @@ impl<'a> FuncGen<'a> {
                     _ => {
                         return Err(CodegenError {
                             message: "I32Ctz src: unreachable code".to_string(),
-                        })
+                        });
                     }
                 };
 
@@ -2163,7 +2155,7 @@ impl<'a> FuncGen<'a> {
                     _ => {
                         return Err(CodegenError {
                             message: "I32Ctz dst: unreachable code".to_string(),
-                        })
+                        });
                     }
                 };
 
@@ -2304,7 +2296,7 @@ impl<'a> FuncGen<'a> {
                     _ => {
                         return Err(CodegenError {
                             message: "I64Clz src: unreachable code".to_string(),
-                        })
+                        });
                     }
                 };
 
@@ -2318,7 +2310,7 @@ impl<'a> FuncGen<'a> {
                     _ => {
                         return Err(CodegenError {
                             message: "I64Clz dst: unreachable code".to_string(),
-                        })
+                        });
                     }
                 };
 
@@ -2365,7 +2357,7 @@ impl<'a> FuncGen<'a> {
                     _ => {
                         return Err(CodegenError {
                             message: "I64Ctz src: unreachable code".to_string(),
-                        })
+                        });
                     }
                 };
 
@@ -2379,7 +2371,7 @@ impl<'a> FuncGen<'a> {
                     _ => {
                         return Err(CodegenError {
                             message: "I64Ctz dst: unreachable code".to_string(),
-                        })
+                        });
                     }
                 };
 
@@ -2566,7 +2558,7 @@ impl<'a> FuncGen<'a> {
                         _ => {
                             return Err(CodegenError {
                                 message: "F32Max src1: unreachable code".to_string(),
-                            })
+                            });
                         }
                     };
                     let src2 = match loc_b {
@@ -2596,7 +2588,7 @@ impl<'a> FuncGen<'a> {
                         _ => {
                             return Err(CodegenError {
                                 message: "F32Max src2: unreachable code".to_string(),
-                            })
+                            });
                         }
                     };
 
@@ -2644,7 +2636,7 @@ impl<'a> FuncGen<'a> {
                         _ => {
                             return Err(CodegenError {
                                 message: "F32Max ret: unreachable code".to_string(),
-                            })
+                            });
                         }
                     }
 
@@ -2694,7 +2686,7 @@ impl<'a> FuncGen<'a> {
                         _ => {
                             return Err(CodegenError {
                                 message: "F32Min src1: unreachable code".to_string(),
-                            })
+                            });
                         }
                     };
                     let src2 = match loc_b {
@@ -2724,7 +2716,7 @@ impl<'a> FuncGen<'a> {
                         _ => {
                             return Err(CodegenError {
                                 message: "F32Min src2: unreachable code".to_string(),
-                            })
+                            });
                         }
                     };
 
@@ -2782,7 +2774,7 @@ impl<'a> FuncGen<'a> {
                         _ => {
                             return Err(CodegenError {
                                 message: "F32Min ret: unreachable code".to_string(),
-                            })
+                            });
                         }
                     }
 
@@ -2854,7 +2846,7 @@ impl<'a> FuncGen<'a> {
                 if self.assembler.arch_supports_canonicalize_nan()
                     && self.config.enable_nan_canonicalization
                 {
-                    for (fp, loc, tmp) in [(fp_src1, loc_a, tmp1), (fp_src2, loc_b, tmp2)].iter() {
+                    for (fp, loc, tmp) in &[(fp_src1, loc_a, tmp1), (fp_src2, loc_b, tmp2)] {
                         match fp.canonicalization {
                             Some(_) => {
                                 self.canonicalize_nan(Size::S32, *loc, Location::GPR(*tmp));
@@ -3000,7 +2992,7 @@ impl<'a> FuncGen<'a> {
                         _ => {
                             return Err(CodegenError {
                                 message: "F64Max src1: unreachable code".to_string(),
-                            })
+                            });
                         }
                     };
                     let src2 = match loc_b {
@@ -3030,7 +3022,7 @@ impl<'a> FuncGen<'a> {
                         _ => {
                             return Err(CodegenError {
                                 message: "F64Max src2: unreachable code".to_string(),
-                            })
+                            });
                         }
                     };
 
@@ -3078,7 +3070,7 @@ impl<'a> FuncGen<'a> {
                         _ => {
                             return Err(CodegenError {
                                 message: "F64Max ret: unreachable code".to_string(),
-                            })
+                            });
                         }
                     }
 
@@ -3129,7 +3121,7 @@ impl<'a> FuncGen<'a> {
                         _ => {
                             return Err(CodegenError {
                                 message: "F64Min src1: unreachable code".to_string(),
-                            })
+                            });
                         }
                     };
                     let src2 = match loc_b {
@@ -3159,7 +3151,7 @@ impl<'a> FuncGen<'a> {
                         _ => {
                             return Err(CodegenError {
                                 message: "F64Min src2: unreachable code".to_string(),
-                            })
+                            });
                         }
                     };
 
@@ -3217,7 +3209,7 @@ impl<'a> FuncGen<'a> {
                         _ => {
                             return Err(CodegenError {
                                 message: "F64Min ret: unreachable code".to_string(),
-                            })
+                            });
                         }
                     }
 
@@ -3289,7 +3281,7 @@ impl<'a> FuncGen<'a> {
                 if self.assembler.arch_supports_canonicalize_nan()
                     && self.config.enable_nan_canonicalization
                 {
-                    for (fp, loc, tmp) in [(fp_src1, loc_a, tmp1), (fp_src2, loc_b, tmp2)].iter() {
+                    for (fp, loc, tmp) in &[(fp_src1, loc_a, tmp1), (fp_src2, loc_b, tmp2)] {
                         match fp.canonicalization {
                             Some(_) => {
                                 self.canonicalize_nan(Size::S64, *loc, Location::GPR(*tmp));
@@ -4873,7 +4865,7 @@ impl<'a> FuncGen<'a> {
                         WpBlockType::FuncType(_) => {
                             return Err(CodegenError {
                                 message: "If: multi-value returns not yet implemented".to_string(),
-                            })
+                            });
                         }
                     },
                     value_stack_depth: self.value_stack.len(),
@@ -4938,7 +4930,7 @@ impl<'a> FuncGen<'a> {
                     _ => {
                         return Err(CodegenError {
                             message: "Else: frame.if_else unreachable code".to_string(),
-                        })
+                        });
                     }
                 }
             }
@@ -5011,7 +5003,7 @@ impl<'a> FuncGen<'a> {
                             return Err(CodegenError {
                                 message: "Block: multi-value returns not yet implemented"
                                     .to_string(),
-                            })
+                            });
                         }
                     },
                     value_stack_depth: self.value_stack.len(),
@@ -5045,7 +5037,7 @@ impl<'a> FuncGen<'a> {
                             return Err(CodegenError {
                                 message: "Loop: multi-value returns not yet implemented"
                                     .to_string(),
-                            })
+                            });
                         }
                     },
                     value_stack_depth: self.value_stack.len(),
@@ -5524,7 +5516,7 @@ impl<'a> FuncGen<'a> {
                         _ => {
                             return Err(CodegenError {
                                 message: "I64Load32U ret: unreachable code".to_string(),
-                            })
+                            });
                         }
                     }
                     this.emit_relaxed_binop(
@@ -5814,7 +5806,7 @@ impl<'a> FuncGen<'a> {
                 );
                 self.assembler.emit_jmp_location(Location::GPR(GPR::RDX));
 
-                for target in targets.iter() {
+                for target in &targets {
                     let label = self.assembler.get_label();
                     self.assembler.emit_label(label);
                     table.push(label);
@@ -6208,7 +6200,7 @@ impl<'a> FuncGen<'a> {
                         _ => {
                             return Err(CodegenError {
                                 message: "I64AtomicLoad32U ret: unreachable code".to_string(),
-                            })
+                            });
                         }
                     }
                     this.emit_relaxed_binop(
@@ -7133,11 +7125,7 @@ impl<'a> FuncGen<'a> {
 
                 let compare = self.machine.reserve_unused_temp_gpr(GPR::RAX);
                 let value = if cmp == Location::GPR(GPR::R14) {
-                    if new == Location::GPR(GPR::R13) {
-                        GPR::R12
-                    } else {
-                        GPR::R13
-                    }
+                    if new == Location::GPR(GPR::R13) { GPR::R12 } else { GPR::R13 }
                 } else {
                     GPR::R14
                 };
@@ -7167,11 +7155,7 @@ impl<'a> FuncGen<'a> {
 
                 let compare = self.machine.reserve_unused_temp_gpr(GPR::RAX);
                 let value = if cmp == Location::GPR(GPR::R14) {
-                    if new == Location::GPR(GPR::R13) {
-                        GPR::R12
-                    } else {
-                        GPR::R13
-                    }
+                    if new == Location::GPR(GPR::R13) { GPR::R12 } else { GPR::R13 }
                 } else {
                     GPR::R14
                 };
@@ -7201,11 +7185,7 @@ impl<'a> FuncGen<'a> {
 
                 let compare = self.machine.reserve_unused_temp_gpr(GPR::RAX);
                 let value = if cmp == Location::GPR(GPR::R14) {
-                    if new == Location::GPR(GPR::R13) {
-                        GPR::R12
-                    } else {
-                        GPR::R13
-                    }
+                    if new == Location::GPR(GPR::R13) { GPR::R12 } else { GPR::R13 }
                 } else {
                     GPR::R14
                 };
@@ -7235,11 +7215,7 @@ impl<'a> FuncGen<'a> {
 
                 let compare = self.machine.reserve_unused_temp_gpr(GPR::RAX);
                 let value = if cmp == Location::GPR(GPR::R14) {
-                    if new == Location::GPR(GPR::R13) {
-                        GPR::R12
-                    } else {
-                        GPR::R13
-                    }
+                    if new == Location::GPR(GPR::R13) { GPR::R12 } else { GPR::R13 }
                 } else {
                     GPR::R14
                 };
@@ -7269,11 +7245,7 @@ impl<'a> FuncGen<'a> {
 
                 let compare = self.machine.reserve_unused_temp_gpr(GPR::RAX);
                 let value = if cmp == Location::GPR(GPR::R14) {
-                    if new == Location::GPR(GPR::R13) {
-                        GPR::R12
-                    } else {
-                        GPR::R13
-                    }
+                    if new == Location::GPR(GPR::R13) { GPR::R12 } else { GPR::R13 }
                 } else {
                     GPR::R14
                 };
@@ -7303,11 +7275,7 @@ impl<'a> FuncGen<'a> {
 
                 let compare = self.machine.reserve_unused_temp_gpr(GPR::RAX);
                 let value = if cmp == Location::GPR(GPR::R14) {
-                    if new == Location::GPR(GPR::R13) {
-                        GPR::R12
-                    } else {
-                        GPR::R13
-                    }
+                    if new == Location::GPR(GPR::R13) { GPR::R12 } else { GPR::R13 }
                 } else {
                     GPR::R14
                 };
@@ -7337,11 +7305,7 @@ impl<'a> FuncGen<'a> {
 
                 let compare = self.machine.reserve_unused_temp_gpr(GPR::RAX);
                 let value = if cmp == Location::GPR(GPR::R14) {
-                    if new == Location::GPR(GPR::R13) {
-                        GPR::R12
-                    } else {
-                        GPR::R13
-                    }
+                    if new == Location::GPR(GPR::R13) { GPR::R12 } else { GPR::R13 }
                 } else {
                     GPR::R14
                 };

@@ -54,7 +54,7 @@ use sha2::Digest;
 use std::str::FromStr;
 use tracing::{debug, warn};
 
-use crate::{metrics, SignedValidPeriodTransactions};
+use crate::{SignedValidPeriodTransactions, metrics};
 /// Transaction runtime view of the prefetching subsystem.
 pub(crate) struct TriePrefetcher {
     prefetch_api: PrefetchApi,
@@ -87,11 +87,8 @@ impl TriePrefetcher {
     /// Returns an error if prefetching for any receipt fails.
     /// The function is not idempotent; in case of failure, prefetching
     /// for some receipts may have been initiated.
-    pub(crate) fn prefetch_receipts_data(
-        &mut self,
-        receipts: &[Receipt],
-    ) -> Result<(), PrefetchError> {
-        for receipt in receipts.iter() {
+    pub(crate) fn prefetch_receipts_data(&self, receipts: &[Receipt]) -> Result<(), PrefetchError> {
+        for receipt in receipts {
             let is_refund = receipt.predecessor_id().is_system();
             let action_receipt = match receipt.receipt() {
                 ReceiptEnum::Action(action_receipt) | ReceiptEnum::PromiseYield(action_receipt) => {
@@ -196,11 +193,11 @@ impl TriePrefetcher {
     /// The function is not idempotent; in case of failure, prefetching
     /// for some transactions may have been initiated.
     pub(crate) fn prefetch_transactions_data(
-        &mut self,
-        transactions: SignedValidPeriodTransactions<'_>,
+        &self,
+        signed_txs: &SignedValidPeriodTransactions,
     ) -> Result<(), PrefetchError> {
         if self.prefetch_api.enable_receipt_prefetching {
-            for t in transactions.iter_nonexpired_transactions() {
+            for t in signed_txs.iter_nonexpired_transactions() {
                 let account_id = t.transaction.signer_id().clone();
                 let trie_key = TrieKey::Account { account_id };
                 self.prefetch_trie_key(trie_key)?;
@@ -271,7 +268,7 @@ impl TriePrefetcher {
             return Ok(());
         };
 
-        for tuple in list.iter() {
+        for tuple in list {
             let Some(tuple) = tuple.as_array() else {
                 continue;
             };
@@ -308,7 +305,7 @@ impl TriePrefetcher {
         let Some(list) = list.as_array() else {
             return Ok(());
         };
-        for tuple in list.iter() {
+        for tuple in list {
             let Some(tuple) = tuple.as_array() else { continue };
             let Some(user_account) = tuple.first().and_then(|a| a.as_str()) else { continue };
             let mut account_data_key = Vec::with_capacity(4 + 8 + user_account.len());
@@ -346,7 +343,7 @@ impl TriePrefetcher {
             return Ok(());
         };
 
-        for tuple in list.iter() {
+        for tuple in list {
             let Some(tuple) = tuple.as_array() else {
                 continue;
             };
@@ -390,6 +387,7 @@ mod tests {
     use near_primitives::{trie_key::TrieKey, types::AccountId};
     use near_store::adapter::StoreAdapter;
     use near_store::test_utils::{create_test_store, test_populate_trie};
+    use near_store::trie::AccessOptions;
     use near_store::{ShardTries, ShardUId, StateSnapshotConfig, Trie, TrieConfig};
     use std::str::FromStr;
     use std::time::{Duration, Instant};
@@ -462,7 +460,7 @@ mod tests {
     #[test]
     fn test_prefetch_non_existing_account() {
         let existing_accounts = ["alice.near", "bob.near"];
-        let non_existing_account = ["charlotta.near"];
+        let non_existing_account = ["charlotte.near"];
         // Most importantly, it should not crash.
         // Secondly, it should prefetch the root extension + the first branch.
         let expected_prefetched = 2;
@@ -483,7 +481,7 @@ mod tests {
             trie_config,
             &shard_uids,
             flat_storage_manager,
-            StateSnapshotConfig::default(),
+            StateSnapshotConfig::Disabled,
         );
 
         let mut kvs = vec![];
@@ -558,7 +556,7 @@ mod tests {
         // Read all prefetched values to ensure everything gets removed from the staging area.
         for trie_key in &prefetch_keys {
             let storage_key = trie_key.to_vec();
-            let _value = trie.get(&storage_key).unwrap();
+            let _value = trie.get(&storage_key, AccessOptions::DEFAULT).unwrap();
         }
         assert_eq!(
             prefetch_api.num_prefetched_and_staged(),

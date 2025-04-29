@@ -197,21 +197,14 @@ expression: config_view
     "grow_mem_cost": 1,
     "regular_op_cost": 822756,
     "vm_kind": "<REDACTED>",
-    "disable_9393_fix": true,
     "discard_custom_sections": false,
     "storage_get_mode": "FlatStorage",
     "fix_contract_loading_cost": false,
     "implicit_account_creation": true,
-    "math_extension": true,
-    "ed25519_verify": true,
-    "alt_bn128": true,
-    "function_call_weight": true,
     "eth_implicit_accounts": false,
-    "yield_resume_host_functions": false,
     "limit_config": {
       "max_gas_burnt": 300000000000000,
       "max_stack_height": 262144,
-      "contract_prepare_version": 2,
       "initial_memory_pages": 1024,
       "max_memory_pages": 2048,
       "registers_memory_limit": 1073741824,
@@ -227,18 +220,17 @@ expression: config_view
       "max_length_returned_data": 4194304,
       "max_contract_size": 4194304,
       "max_transaction_size": 4194304,
-      "max_receipt_size": 999999999999999,
+      "max_receipt_size": 4294967295,
       "max_length_storage_key": 2048,
       "max_length_storage_value": 4194304,
       "max_promises_per_function_call_action": 1024,
       "max_number_input_data_dependencies": 128,
       "max_functions_number_per_contract": 10000,
-      "wasmer2_stack_limit": 204800,
       "max_locals_per_contract": 1000000,
       "account_id_validity_rules_version": 1,
       "yield_timeout_length_in_blocks": 200,
       "max_yield_payload_size": 1024,
-      "per_receipt_storage_proof_size_limit": 999999999999999
+      "per_receipt_storage_proof_size_limit": 4294967295
     }
   },
   "account_creation_config": {
@@ -256,12 +248,12 @@ expression: config_view
     "max_tx_gas": 9223372036854775807,
     "min_tx_gas": 9223372036854775807,
     "reject_tx_congestion_threshold": 1.0,
-    "outgoing_receipts_usual_size_limit": 999999999999999,
-    "outgoing_receipts_big_size_limit": 999999999999999
+    "outgoing_receipts_usual_size_limit": 4294967295,
+    "outgoing_receipts_big_size_limit": 4294967295
   },
   "witness_config": {
-    "main_storage_proof_size_soft_limit": 999999999999999,
-    "combined_transactions_size_limit": 999999999999999,
-    "new_transactions_validation_state_size_soft_limit": 999999999999999
+    "main_storage_proof_size_soft_limit": 4294967295,
+    "combined_transactions_size_limit": 4294967295,
+    "new_transactions_validation_state_size_soft_limit": 4294967295
   }
 }

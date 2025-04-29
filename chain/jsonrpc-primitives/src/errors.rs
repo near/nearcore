@@ -1,6 +1,6 @@
 use near_primitives::errors::TxExecutionError;
 use near_schema_checker_lib::ProtocolSchema;
-use serde_json::{to_value, Value};
+use serde_json::{Value, to_value};
 use std::fmt;
 
 #[derive(Debug, serde::Serialize)]
@@ -20,15 +20,15 @@ pub struct RpcError {
     pub message: String,
     /// Deprecated please use the `error_struct` instead
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub data: Option<Value>,
+    pub data: Option<Box<Value>>,
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize, Clone, PartialEq)]
 #[serde(tag = "name", content = "cause", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum RpcErrorKind {
     RequestValidationError(RpcRequestValidationErrorKind),
-    HandlerError(Value),
-    InternalError(Value),
+    HandlerError(Box<Value>),
+    InternalError(Box<Value>),
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize, Clone, PartialEq)]
@@ -51,6 +51,7 @@ impl RpcError {
     ///
     /// Mostly for completeness, doesn't do anything but filling in the corresponding fields.
     pub fn new(code: i64, message: String, data: Option<Value>) -> Self {
+        let data = data.map(Box::new);
         RpcError { code, message, data, error_struct: None }
     }
 
@@ -63,7 +64,7 @@ impl RpcError {
                 return Self::server_error(Some(format!(
                     "Failed to serialize invalid parameters error: {:?}",
                     err.to_string()
-                )))
+                )));
             }
         };
         RpcError::new(-32_602, "Invalid params".to_owned(), Some(value))
@@ -84,7 +85,7 @@ impl RpcError {
         RpcError {
             code: -32_700,
             message: "Parse error".to_owned(),
-            data: Some(Value::String(e.clone())),
+            data: Some(Box::new(Value::String(e.clone()))),
             error_struct: Some(RpcErrorKind::RequestValidationError(
                 RpcRequestValidationErrorKind::ParseError { error_message: e },
             )),
@@ -113,11 +114,11 @@ impl RpcError {
         RpcError {
             code: -32_000,
             message: "Server error".to_owned(),
-            data: error_data,
-            error_struct: Some(RpcErrorKind::InternalError(serde_json::json!({
+            data: error_data.map(Box::new),
+            error_struct: Some(RpcErrorKind::InternalError(Box::new(serde_json::json!({
                 "name": "INTERNAL_ERROR",
                 "info": serde_json::json!({"error_message": info})
-            }))),
+            })))),
         }
     }
 
@@ -125,8 +126,8 @@ impl RpcError {
         RpcError {
             code: -32_000,
             message: "Server error".to_owned(),
-            data: error_data,
-            error_struct: Some(RpcErrorKind::HandlerError(error_struct)),
+            data: error_data.map(Box::new),
+            error_struct: Some(RpcErrorKind::HandlerError(Box::new(error_struct))),
         }
     }
 
@@ -135,7 +136,7 @@ impl RpcError {
         RpcError {
             code: -32_601,
             message: "Method not found".to_owned(),
-            data: Some(Value::String(method.clone())),
+            data: Some(Box::new(Value::String(method.clone()))),
             error_struct: Some(RpcErrorKind::RequestValidationError(
                 RpcRequestValidationErrorKind::MethodNotFound { method_name: method },
             )),
@@ -179,7 +180,7 @@ impl From<ServerError> for RpcError {
                 return RpcError::new_internal_error(
                     None,
                     "Failed to serialize ServerError".to_string(),
-                )
+                );
             }
         };
         match e {

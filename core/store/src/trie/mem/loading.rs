@@ -3,6 +3,7 @@ use super::memtries::MemTries;
 use super::node::MemTrieNodeId;
 use crate::adapter::StoreAdapter;
 use crate::flat::FlatStorageStatus;
+use crate::trie::AccessOptions;
 use crate::trie::mem::arena::Arena;
 use crate::trie::mem::construction::TrieConstructor;
 use crate::trie::mem::memtrie_update::TrackingMode;
@@ -11,7 +12,7 @@ use crate::trie::ops::insert_delete::GenericTrieUpdateInsertDelete;
 use crate::{DBCol, NibbleSlice, Store};
 use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
-use near_primitives::shard_layout::{get_block_shard_uid, ShardUId};
+use near_primitives::shard_layout::{ShardUId, get_block_shard_uid};
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, StateRoot};
 use std::collections::BTreeSet;
@@ -126,9 +127,9 @@ pub fn load_trie_from_flat_state_and_delta(
         FlatStorageStatus::Ready(status) => status.flat_head,
         other => {
             return Err(StorageError::MemTrieLoadingError(format!(
-                            "Cannot load memtries when flat storage is not ready for shard {}, actual status: {:?}",
-                            shard_uid, other
-                        )));
+                "Cannot load memtries when flat storage is not ready for shard {}, actual status: {:?}",
+                shard_uid, other
+            )));
         }
     };
 
@@ -150,7 +151,7 @@ pub fn load_trie_from_flat_state_and_delta(
     }
 
     debug!(target: "memtrie", %shard_uid, "{} deltas to apply", sorted_deltas.len());
-    for (height, hash, prev_hash) in sorted_deltas.into_iter() {
+    for (height, hash, prev_hash) in sorted_deltas {
         let delta = flat_store.get_delta(shard_uid, hash).unwrap();
         if let Some(changes) = delta {
             let old_state_root = get_state_root(store, prev_hash, shard_uid)?;
@@ -162,7 +163,7 @@ pub fn load_trie_from_flat_state_and_delta(
                     Some(value) => {
                         trie_update.insert_memtrie_only(&key, value)?;
                     }
-                    None => trie_update.generic_delete(0, &key)?,
+                    None => trie_update.generic_delete(0, &key, AccessOptions::DEFAULT)?,
                 };
             }
 
@@ -184,23 +185,23 @@ mod tests {
     use crate::flat::test_utils::MockChain;
     use crate::flat::{BlockInfo, FlatStorageReadyStatus, FlatStorageStatus};
     use crate::test_utils::{
-        create_test_store, simplify_changes, test_populate_flat_storage, test_populate_trie,
-        TestTriesBuilder,
+        TestTriesBuilder, create_test_store, simplify_changes, test_populate_flat_storage,
+        test_populate_trie,
     };
     use crate::trie::mem::loading::load_trie_from_flat_state;
     use crate::trie::mem::lookup::memtrie_lookup;
     use crate::trie::mem::nibbles_utils::{all_two_nibble_nibbles, multi_hex_to_nibbles};
     use crate::trie::update::TrieUpdateResult;
+    use crate::trie::{AccessOptions, AccessTracker};
     use crate::{DBCol, KeyLookupMode, NibbleSlice, ShardTries, Store, Trie, TrieUpdate};
     use near_primitives::bandwidth_scheduler::BandwidthRequests;
     use near_primitives::congestion_info::CongestionInfo;
     use near_primitives::hash::CryptoHash;
-    use near_primitives::shard_layout::{get_block_shard_uid, ShardUId};
+    use near_primitives::shard_layout::{ShardUId, get_block_shard_uid};
     use near_primitives::state::FlatStateValue;
     use near_primitives::trie_key::TrieKey;
     use near_primitives::types::chunk_extra::ChunkExtra;
     use near_primitives::types::{StateChangeCause, StateRoot};
-    use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
     use rand::rngs::StdRng;
     use rand::{Rng, SeedableRng};
 
@@ -241,11 +242,21 @@ mod tests {
             &CryptoHash::default(),
             false,
         ));
-        let _mode_guard = trie_update
-            .with_trie_cache_mode(Some(near_primitives::types::TrieCacheMode::CachingChunk));
+
+        #[derive(Debug, Default)]
+        struct Tracker(std::cell::Cell<u64>);
+        impl AccessTracker for Tracker {
+            fn track_mem_lookup(&self, _: &CryptoHash) -> Option<std::sync::Arc<[u8]>> {
+                None
+            }
+
+            fn track_disk_lookup(&self, _: CryptoHash, _: std::sync::Arc<[u8]>) {
+                self.0.set(self.0.get() + 1);
+            }
+        }
         let trie = trie_update.trie();
         let root = in_memory_trie.get_root(&state_root).unwrap();
-
+        let opts = AccessOptions::DEFAULT;
         // Check access to each key to make sure the in-memory trie is consistent with
         // real trie. Check non-existent keys too.
         for key in keys.iter().chain([b"not in trie".to_vec()].iter()) {
@@ -253,15 +264,17 @@ mod tests {
             let actual_value_ref = memtrie_lookup(root, key, Some(&mut nodes_accessed))
                 .map(|v| v.to_optimized_value_ref());
             let expected_value_ref =
-                trie.get_optimized_ref(key, KeyLookupMode::FlatStorage).unwrap();
+                trie.get_optimized_ref(key, KeyLookupMode::MemOrFlatOrTrie, opts).unwrap();
             assert_eq!(actual_value_ref, expected_value_ref, "{:?}", NibbleSlice::new(key));
 
             // Do another access with the trie to see how many nodes we're supposed to
             // have accessed.
+            let trk = Tracker::default();
+            let track_opts = AccessOptions { trie_access_tracker: &trk, ..AccessOptions::DEFAULT };
             let temp_trie = shard_tries.get_trie_for_shard(shard_uid, state_root);
-            temp_trie.get_optimized_ref(key, KeyLookupMode::Trie).unwrap();
+            temp_trie.get_optimized_ref(key, KeyLookupMode::MemOrTrie, track_opts).unwrap();
             assert_eq!(
-                temp_trie.get_trie_nodes_count().db_reads,
+                trk.0.get(),
                 nodes_accessed.len() as u64,
                 "Number of accessed nodes does not equal number of trie nodes along the way"
             );
@@ -269,7 +282,7 @@ mod tests {
             // Check that the accessed nodes are consistent with those from disk.
             for (node_hash, serialized_node) in nodes_accessed {
                 let expected_serialized_node =
-                    trie.internal_retrieve_trie_node(&node_hash, false, true).unwrap();
+                    trie.internal_retrieve_trie_node(&node_hash, false, opts).unwrap();
                 assert_eq!(expected_serialized_node, serialized_node);
             }
         }
@@ -284,7 +297,7 @@ mod tests {
                 let mut key = Vec::new();
                 let key_len = rng.gen_range(0..=max_key_len);
                 for _ in 0..key_len {
-                    let byte: u8 = rng.gen();
+                    let byte: u8 = rng.r#gen();
                     key.push(byte);
                 }
                 keys.push(key);
@@ -518,20 +531,15 @@ mod tests {
         shard_uid: ShardUId,
         state_root: StateRoot,
     ) {
-        let congestion_info = ProtocolFeature::CongestionControl
-            .enabled(PROTOCOL_VERSION)
-            .then(CongestionInfo::default);
-
         let chunk_extra = ChunkExtra::new(
-            PROTOCOL_VERSION,
             &state_root,
             CryptoHash::default(),
             Vec::new(),
             0,
             0,
             0,
-            congestion_info,
-            BandwidthRequests::default_for_protocol_version(PROTOCOL_VERSION),
+            Some(CongestionInfo::default()),
+            BandwidthRequests::empty(),
         );
         let mut store_update = store.store_update();
         store_update

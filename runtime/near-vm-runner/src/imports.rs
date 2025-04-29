@@ -47,12 +47,7 @@
 //! make imports retroactively available to old transactions. So
 //! `for_each_available_import` takes care to invoke `M!` only for currently
 //! available imports.
-#![cfg(any(
-    feature = "wasmer0_vm",
-    feature = "wasmer2_vm",
-    feature = "near_vm",
-    feature = "wasmtime_vm"
-))]
+#![cfg(any(feature = "near_vm", feature = "wasmtime_vm"))]
 
 macro_rules! call_with_name {
     ( $M:ident => @in $mod:ident : $func:ident < [ $( $arg_name:ident : $arg_type:ident ),* ] -> [ $( $returns:ident ),* ] > ) => {
@@ -68,13 +63,14 @@ macro_rules! call_with_name {
 
 macro_rules! imports {
     (
-      $($(#[$config_field:ident])? $(##[$feature_name:literal])?
+      $($(#[$config_field:ident])? $(#[[$feature_name:literal]])?
         $( @in $mod:ident : )?
         $( @as $name:ident : )?
         $func:ident < [ $( $arg_name:ident : $arg_type:ident ),* ] -> [ $( $returns:ident ),* ] >,)*
     ) => {
         macro_rules! for_each_available_import {
             ($config:expr, $M:ident) => {$(
+                let _ = &$config;
                 $(#[cfg(feature = $feature_name)])?
                 if true $(&& ($config).$config_field)? {
                     $crate::imports::call_with_name!($M => $( @in $mod : )? $( @as $name : )? $func < [ $( $arg_name : $arg_type ),* ] -> [ $( $returns ),* ] >);
@@ -124,15 +120,15 @@ imports! {
     sha256<[value_len: u64, value_ptr: u64, register_id: u64] -> []>,
     keccak256<[value_len: u64, value_ptr: u64, register_id: u64] -> []>,
     keccak512<[value_len: u64, value_ptr: u64, register_id: u64] -> []>,
-    #[ed25519_verify] ed25519_verify<[sig_len: u64,
+    ed25519_verify<[sig_len: u64,
         sig_ptr: u64,
         msg_len: u64,
         msg_ptr: u64,
         pub_key_len: u64,
         pub_key_ptr: u64
     ] -> [u64]>,
-    #[math_extension] ripemd160<[value_len: u64, value_ptr: u64, register_id: u64] -> []>,
-    #[math_extension] ecrecover<[hash_len: u64, hash_ptr: u64, sign_len: u64, sig_ptr: u64, v: u64, malleability_flag: u64, register_id: u64] -> [u64]>,
+    ripemd160<[value_len: u64, value_ptr: u64, register_id: u64] -> []>,
+    ecrecover<[hash_len: u64, hash_ptr: u64, sign_len: u64, sig_ptr: u64, v: u64, malleability_flag: u64, register_id: u64] -> [u64]>,
     // #####################
     // # Miscellaneous API #
     // #####################
@@ -183,7 +179,7 @@ imports! {
         amount_ptr: u64,
         gas: u64
     ] -> []>,
-    #[function_call_weight] promise_batch_action_function_call_weight<[
+    promise_batch_action_function_call_weight<[
         promise_index: u64,
         method_name_len: u64,
         method_name_ptr: u64,
@@ -230,7 +226,7 @@ imports! {
     // #######################
     // # Promise API yield/resume #
     // #######################
-    #[yield_resume_host_functions] promise_yield_create<[
+    promise_yield_create<[
         method_name_len: u64,
         method_name_ptr: u64,
         arguments_len: u64,
@@ -239,7 +235,7 @@ imports! {
         gas_weight: u64,
         register_id: u64
     ] -> [u64]>,
-    #[yield_resume_host_functions] promise_yield_resume<[
+    promise_yield_resume<[
         data_id_len: u64,
         data_id_ptr: u64,
         payload_len: u64,
@@ -271,9 +267,9 @@ imports! {
     // #############
     // # Alt BN128 #
     // #############
-    #[alt_bn128] alt_bn128_g1_multiexp<[value_len: u64, value_ptr: u64, register_id: u64] -> []>,
-    #[alt_bn128] alt_bn128_g1_sum<[value_len: u64, value_ptr: u64, register_id: u64] -> []>,
-    #[alt_bn128] alt_bn128_pairing_check<[value_len: u64, value_ptr: u64] -> [u64]>,
+    alt_bn128_g1_multiexp<[value_len: u64, value_ptr: u64, register_id: u64] -> []>,
+    alt_bn128_g1_sum<[value_len: u64, value_ptr: u64, register_id: u64] -> []>,
+    alt_bn128_pairing_check<[value_len: u64, value_ptr: u64] -> [u64]>,
     // #############
     // # BLS12-381 #
     // #############
@@ -290,18 +286,18 @@ imports! {
     // #############
     // #  Sandbox  #
     // #############
-    ##["sandbox"] sandbox_debug_log<[len: u64, ptr: u64] -> []>,
+    #[["sandbox"]] sandbox_debug_log<[len: u64, ptr: u64] -> []>,
 
     // Sleep for the given number of nanoseconds. This is the ultimate
     // undercharging function as it doesn't consume much gas or computes but
     // takes a lot of time to execute. It must always be gated behind a feature
     // flag and it must never be released to production.
-    ##["test_features"] sleep_nanos<[duration: u64] -> []>,
+    #[["test_features"]] sleep_nanos<[duration: u64] -> []>,
 
     // Burn the given amount of gas. This is the ultimate overcharging function
     // as it doesn't take almost any resources to execute but burns a lot of
     // gas.
-    ##["test_features"] burn_gas<[gas: u64] -> []>,
+    #[["test_features"]] burn_gas<[gas: u64] -> []>,
 }
 
 pub(crate) use {call_with_name, for_each_available_import};

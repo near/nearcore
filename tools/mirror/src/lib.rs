@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_chain_configs::GenesisValidationMode;
 use near_chain_primitives::error::QueryError as RuntimeQueryError;
-use near_client::{ClientActor, ViewClientActor};
+use near_client::{ClientActor, RpcHandlerActor, ViewClientActor};
 use near_client::{ProcessTxRequest, ProcessTxResponse};
 use near_client_primitives::types::{
     GetBlock, GetBlockError, GetChunkError, GetExecutionOutcomeError, GetReceiptError, Query,
@@ -870,7 +870,7 @@ impl<T: ChainAccess> TxMirror<T> {
     }
 
     async fn send_transactions<'a, I: Iterator<Item = &'a mut TargetChainTx>>(
-        target_client: &Addr<ClientActor>,
+        target_client: &Addr<RpcHandlerActor>,
         txs: I,
     ) -> anyhow::Result<()> {
         for tx in txs {
@@ -934,7 +934,7 @@ impl<T: ChainAccess> TxMirror<T> {
 
         let mut account_created = false;
         let mut full_key_added = false;
-        for action in tx.transaction.actions().iter() {
+        for action in tx.transaction.actions() {
             match &action {
                 Action::AddKey(add_key) => {
                     if add_key.access_key.permission == AccessKeyPermission::FullAccess {
@@ -1118,7 +1118,7 @@ impl<T: ChainAccess> TxMirror<T> {
             Ok(keys) => {
                 let mut key = None;
                 let mut first_key = None;
-                for k in keys.iter() {
+                for k in &keys {
                     let target_secret_key = crate::key_mapping::map_key(k, self.secret.as_ref());
                     if fetch_access_key_nonce(
                         target_view_client,
@@ -1158,8 +1158,9 @@ impl<T: ChainAccess> TxMirror<T> {
                 }
             }
             Err(e) => {
-                return Err(e)
-                    .with_context(|| format!("failed fetching access key for {}", &predecessor_id))
+                return Err(e).with_context(|| {
+                    format!("failed fetching access key for {}", &predecessor_id)
+                });
             }
         };
 
@@ -1260,7 +1261,7 @@ impl<T: ChainAccess> TxMirror<T> {
             return Ok(());
         }
 
-        for id in outcome.outcome.receipt_ids.iter() {
+        for id in &outcome.outcome.receipt_ids {
             let receipt = match self.source_chain_access.get_receipt(id).await {
                 Ok(r) => r,
                 Err(ChainError::Unknown) => {
@@ -1285,7 +1286,7 @@ impl<T: ChainAccess> TxMirror<T> {
                 // implicit accounts, etc...
                 let mut key_added = false;
                 let mut account_created = false;
-                for a in r.actions.iter() {
+                for a in &r.actions {
                     match a {
                         Action::AddKey(_) => key_added = true,
                         Action::CreateAccount(_) => account_created = true,
@@ -1574,7 +1575,10 @@ impl<T: ChainAccess> TxMirror<T> {
                 .await?;
             } else {
                 // shouldn't happen
-                tracing::warn!("something is wrong as there are no chunks to send transactions for at height {}", source_height);
+                tracing::warn!(
+                    "something is wrong as there are no chunks to send transactions for at height {}",
+                    source_height
+                );
             }
         }
         Ok(MappedBlock { source_height, source_hash: source_block.hash, chunks })
@@ -1585,7 +1589,7 @@ impl<T: ChainAccess> TxMirror<T> {
     // Returns the number of blocks worth of txs queued at the end.
     // `have_stop_height` refers to whether we're going to stop sending transactions and exit after a particular height
     async fn queue_txs(
-        &mut self,
+        &self,
         tracker: &Mutex<crate::chain_tracker::TxTracker>,
         tx_block_queue: &Mutex<VecDeque<MappedBlock>>,
         target_view_client: &Addr<ViewClientActor>,
@@ -1647,10 +1651,10 @@ impl<T: ChainAccess> TxMirror<T> {
     // TODO: here we're just sending it and forgetting about it, but would be good to
     // retry later if the tx got lost for some reason
     async fn unstake(
-        &mut self,
+        &self,
         tracker: &Mutex<crate::chain_tracker::TxTracker>,
         tx_block_queue: &Mutex<VecDeque<MappedBlock>>,
-        target_client: &Addr<ClientActor>,
+        target_client: &Addr<RpcHandlerActor>,
         target_view_client: &Addr<ViewClientActor>,
         stakes: HashMap<(AccountId, PublicKey), AccountId>,
         source_hash: &CryptoHash,
@@ -1693,7 +1697,7 @@ impl<T: ChainAccess> TxMirror<T> {
         tx_block_queue: Arc<Mutex<VecDeque<MappedBlock>>>,
         mut send_time: Pin<Box<tokio::time::Sleep>>,
         send_delay: Arc<Mutex<Duration>>,
-        target_client: Addr<ClientActor>,
+        target_client: Addr<RpcHandlerActor>,
     ) -> anyhow::Result<()> {
         let mut sent_source_height = None;
 
@@ -1754,7 +1758,11 @@ impl<T: ChainAccess> TxMirror<T> {
         tx_block_queue: Arc<Mutex<VecDeque<MappedBlock>>>,
         home_dir: PathBuf,
         db: Arc<DB>,
-        clients_tx: tokio::sync::oneshot::Sender<(Addr<ClientActor>, Addr<ViewClientActor>)>,
+        clients_tx: tokio::sync::oneshot::Sender<(
+            Addr<ClientActor>,
+            Addr<ViewClientActor>,
+            Addr<RpcHandlerActor>,
+        )>,
         accounts_to_unstake: mpsc::Sender<HashMap<(AccountId, PublicKey), AccountId>>,
         target_height: Arc<RwLock<BlockHeight>>,
         target_head: Arc<RwLock<CryptoHash>>,
@@ -1767,7 +1775,7 @@ impl<T: ChainAccess> TxMirror<T> {
             validate_genesis: false,
         })
         .context("failed to start target chain indexer")?;
-        let (target_view_client, target_client) = target_indexer.client_actors();
+        let (target_view_client, target_client, rpc_handler) = target_indexer.client_actors();
         let mut target_stream = target_indexer.streamer();
         let (first_target_height, first_target_head) = Self::index_target_chain(
             &tracker,
@@ -1780,7 +1788,9 @@ impl<T: ChainAccess> TxMirror<T> {
         .await?;
         *target_height.write().unwrap() = first_target_height;
         *target_head.write().unwrap() = first_target_head;
-        clients_tx.send((target_client.clone(), target_view_client.clone())).unwrap();
+        clients_tx
+            .send((target_client.clone(), target_view_client.clone(), rpc_handler.clone()))
+            .unwrap();
 
         loop {
             let msg = target_stream.recv().await.unwrap();
@@ -1807,10 +1817,10 @@ impl<T: ChainAccess> TxMirror<T> {
     }
 
     async fn queue_txs_loop(
-        &mut self,
+        &self,
         tracker: Arc<Mutex<crate::chain_tracker::TxTracker>>,
         tx_block_queue: Arc<Mutex<VecDeque<MappedBlock>>>,
-        target_client: Addr<ClientActor>,
+        target_client: Addr<RpcHandlerActor>,
         target_view_client: Addr<ViewClientActor>,
         mut blocks_sent: mpsc::Receiver<TxBatch>,
         mut accounts_to_unstake: mpsc::Receiver<HashMap<(AccountId, PublicKey), AccountId>>,
@@ -1933,7 +1943,7 @@ impl<T: ChainAccess> TxMirror<T> {
     }
 
     async fn run(
-        mut self,
+        self,
         stop_height: Option<BlockHeight>,
         target_home: PathBuf,
     ) -> anyhow::Result<()> {
@@ -2004,7 +2014,7 @@ impl<T: ChainAccess> TxMirror<T> {
         });
 
         // wait til we set the values in target_height and target_head after receiving a message from the indexer
-        let (target_client, target_view_client) = clients_rx.await.unwrap();
+        let (_target_client, target_view_client, rpc_handler) = clients_rx.await.unwrap();
 
         // Wait at least 15 seconds before sending any transactions because for
         // a few seconds after the node starts, transaction routing requests
@@ -2052,7 +2062,7 @@ impl<T: ChainAccess> TxMirror<T> {
                     let mut tx_block_queue = tx_block_queue.lock().unwrap();
                     TxBatch::from(&tx_block_queue.pop_front().unwrap())
                 };
-                Self::send_transactions(&target_client, b.txs.iter_mut().map(|(_tx_ref, tx)| tx))
+                Self::send_transactions(&rpc_handler, b.txs.iter_mut().map(|(_tx_ref, tx)| tx))
                     .await?;
                 let mut tracker = tracker.lock().unwrap();
                 send_delay = tracker.on_txs_sent(
@@ -2076,7 +2086,7 @@ impl<T: ChainAccess> TxMirror<T> {
         let send_delay2 = send_delay.clone();
         let (blocks_sent_tx, blocks_sent_rx) = mpsc::channel(10);
         let tx_block_queue2 = tx_block_queue.clone();
-        let target_client2 = target_client.clone();
+        let rpc_handler2 = rpc_handler.clone();
         let db = self.db.clone();
         let send_txs_thread = actix::Arbiter::new();
         let (send_txs_done_tx, send_txs_done_rx) =
@@ -2088,14 +2098,14 @@ impl<T: ChainAccess> TxMirror<T> {
                 tx_block_queue2,
                 send_time,
                 send_delay2,
-                target_client2,
+                rpc_handler2,
             )
             .await;
             send_txs_done_tx.send(res).unwrap();
         });
         tokio::select! {
             res = self.queue_txs_loop(
-                tracker, tx_block_queue, target_client, target_view_client,
+                tracker, tx_block_queue, rpc_handler, target_view_client,
                 blocks_sent_rx, unstake_rx, send_delay, target_height, target_head,
                 source_hash, stop_height.is_some(),
             ) => {

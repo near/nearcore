@@ -1,7 +1,7 @@
 [workspace.package]
 authors = ["Aurora Labs <hello@aurora.dev>"]
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 homepage = "https://github.com/aurora-is-near/eth-wallet-contract"
 repository = "https://github.com/aurora-is-near/eth-wallet-contract"
 license = "CC0-1.0"

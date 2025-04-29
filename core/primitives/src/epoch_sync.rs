@@ -3,10 +3,12 @@ use crate::epoch_info::EpochInfo;
 use crate::merkle::PartialMerkleTree;
 use crate::types::validator_stake::ValidatorStake;
 use crate::utils::compression::CompressedData;
+use crate::version::BLOCK_HEADER_V3_PROTOCOL_VERSION;
 use crate::{block_header::BlockHeader, merkle::MerklePathItem};
 use borsh::{BorshDeserialize, BorshSerialize};
 use bytesize::ByteSize;
 use near_crypto::Signature;
+use near_primitives_core::types::ProtocolVersion;
 use near_schema_checker_lib::ProtocolSchema;
 use std::fmt::Debug;
 
@@ -89,6 +91,12 @@ impl Debug for CompressedEpochSyncProof {
             .field("proof", &self.decode())
             .finish()
     }
+}
+
+/// For epoch sync we need to keep track of when the block producer hash format changed.
+/// This is required for the correct calculation of the proof. See [`use_versioned_bp_hash_format`]
+pub fn should_use_versioned_bp_hash_format(protocol_version: ProtocolVersion) -> bool {
+    protocol_version >= BLOCK_HEADER_V3_PROTOCOL_VERSION
 }
 
 /// Data needed for each epoch covered in the epoch sync proof.

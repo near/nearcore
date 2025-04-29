@@ -1,8 +1,8 @@
 use super::arena::ArenaMut;
 use super::freelist::{ReusableVecU8, VecU8Freelist};
 use super::node::MemTrieNodeId;
-use crate::trie::mem::node::InputMemTrieNode;
 use crate::NibbleSlice;
+use crate::trie::mem::node::InputMemTrieNode;
 use near_primitives::state::FlatStateValue;
 use smallvec::SmallVec;
 
@@ -132,7 +132,7 @@ impl TrieConstructionSegment {
             assert!(!self.children.is_empty());
             assert!(self.child.is_none());
             let mut children = [None; 16];
-            for (i, child) in self.children.iter() {
+            for (i, child) in &self.children {
                 children[*i as usize] = Some(*child);
             }
             if let Some(value) = &self.value {

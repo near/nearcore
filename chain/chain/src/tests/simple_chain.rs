@@ -35,7 +35,7 @@ fn build_chain() {
     if cfg!(feature = "nightly") {
         insta::assert_snapshot!(hash, @"24ZC3eGVvtFdTEok4wPGBzx3x61tWqQpves7nFvow2zf");
     } else {
-        insta::assert_snapshot!(hash, @"3e2u5p2hUijQd7o5Dg1pK9QAHGZ9uCK19KDV86TJW78f");
+        insta::assert_snapshot!(hash, @"t1RB3jTh9mMtkQ1YFWxGMYefGcppSLYcJjvH7BXoSTz");
     }
 
     for i in 1..5 {
@@ -53,7 +53,7 @@ fn build_chain() {
     if cfg!(feature = "nightly") {
         insta::assert_snapshot!(hash, @"9enFQNcVUW65x3oW2iVdYSBxK9qFNETAixEQZLzXWeaQ");
     } else {
-        insta::assert_snapshot!(hash, @"Gh5KqeboPbLh2ZwTqQLY2n5FQdPasFAEkPVfnM66LGjn");
+        insta::assert_snapshot!(hash, @"2HKQZ9swQZnWwv23TF6uYBfQ9up7faG3zvDDvjgvSgkf");
     }
 }
 
@@ -70,8 +70,6 @@ fn build_chain_with_orphans() {
     let last_block = &blocks[blocks.len() - 1];
     let block = Block::produce(
         PROTOCOL_VERSION,
-        PROTOCOL_VERSION,
-        PROTOCOL_VERSION,
         last_block.header(),
         10,
         last_block.header().block_ordinal() + 1,
@@ -85,8 +83,6 @@ fn build_chain_with_orphans() {
         0,
         100,
         Some(0),
-        vec![],
-        vec![],
         &*signer,
         *last_block.header().next_bp_hash(),
         CryptoHash::default(),
@@ -285,9 +281,9 @@ fn block_chunk_headers_iter() {
         })
         .collect();
 
-    let raw_headers: Vec<&ShardChunkHeader> = chunks.iter_raw().collect();
+    let raw_headers = chunks.iter_raw();
 
     assert_eq!(old_headers.len(), 8);
     assert_eq!(new_headers.len(), 8);
-    assert_eq!(raw_headers.len(), old_headers.len() + new_headers.len());
+    assert_eq!(raw_headers.count(), old_headers.len() + new_headers.len());
 }

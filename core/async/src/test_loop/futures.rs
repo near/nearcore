@@ -24,11 +24,11 @@
 //!      DelaySender<MessageWithCallback<Request, Response>> to
 //!      AsyncSender<Request, Response>.
 
-use super::data::TestLoopData;
 use super::PendingEventsSender;
+use super::data::TestLoopData;
 use crate::futures::{AsyncComputationSpawner, FutureSpawner};
 use futures::future::BoxFuture;
-use futures::task::{waker_ref, ArcWake};
+use futures::task::{ArcWake, waker_ref};
 use near_time::Duration;
 use std::sync::{Arc, Mutex};
 use std::task::Context;

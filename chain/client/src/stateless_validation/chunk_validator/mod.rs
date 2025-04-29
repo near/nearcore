@@ -11,11 +11,12 @@ use near_chain::types::RuntimeAdapter;
 use near_chain::validate::validate_chunk_with_chunk_extra;
 use near_chain::{Block, Chain};
 use near_chain_primitives::Error;
-use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_epoch_manager::EpochManagerAdapter;
+use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_network::types::{NetworkRequests, PeerManagerMessageRequest};
 use near_o11y::log_assert;
 use near_primitives::sharding::ShardChunkHeader;
+use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::stateless_validation::state_witness::{
     ChunkStateWitness, ChunkStateWitnessAck, ChunkStateWitnessSize,
@@ -90,7 +91,6 @@ impl ChunkValidator {
             &state_witness,
             chain,
             self.epoch_manager.as_ref(),
-            self.runtime_adapter.as_ref(),
         )?;
 
         let chunk_header = state_witness.chunk_header.clone();
@@ -108,6 +108,14 @@ impl ChunkValidator {
         let prev_block = chain.get_block(prev_block_hash)?;
         let last_header =
             Chain::get_prev_chunk_header(epoch_manager.as_ref(), &prev_block, shard_id)?;
+
+        let chunk_production_key = ChunkProductionKey {
+            shard_id,
+            epoch_id,
+            height_created: chunk_header.height_created(),
+        };
+        let chunk_producer_name =
+            epoch_manager.get_chunk_producer_info(&chunk_production_key)?.take_account_id();
 
         if let Ok(prev_chunk_extra) = chain.get_chunk_extra(prev_block_hash, &shard_uid) {
             match validate_chunk_with_chunk_extra(
@@ -131,6 +139,8 @@ impl ChunkValidator {
                     tracing::error!(
                         target: "client",
                         ?err,
+                        ?chunk_producer_name,
+                        ?chunk_production_key,
                         "Failed to validate chunk using existing chunk extra",
                     );
                     near_chain::stateless_validation::metrics::CHUNK_WITNESS_VALIDATION_FAILED_TOTAL
@@ -171,6 +181,8 @@ impl ChunkValidator {
                     tracing::error!(
                         target: "client",
                         ?err,
+                        ?chunk_producer_name,
+                        ?chunk_production_key,
                         "Failed to validate chunk"
                     );
                 }
@@ -180,12 +192,16 @@ impl ChunkValidator {
     }
 }
 
+/// Sends the chunk endorsement to the next
+/// `NUM_NEXT_BLOCK_PRODUCERS_TO_SEND_CHUNK_ENDORSEMENT` block producers.
+/// Additionally returns chunk endorsement if the signer is one of these block
+/// producers, to be able to process it immediately.
 pub(crate) fn send_chunk_endorsement_to_block_producers(
     chunk_header: &ShardChunkHeader,
     epoch_manager: &dyn EpochManagerAdapter,
     signer: &ValidatorSigner,
     network_sender: &Sender<PeerManagerMessageRequest>,
-) {
+) -> Option<ChunkEndorsement> {
     let epoch_id =
         epoch_manager.get_epoch_id_from_prev_block(chunk_header.prev_block_hash()).unwrap();
 
@@ -210,11 +226,16 @@ pub(crate) fn send_chunk_endorsement_to_block_producers(
     );
 
     let endorsement = ChunkEndorsement::new(epoch_id, chunk_header, signer);
+    let mut send_to_itself = None;
     for block_producer in block_producers {
+        if &block_producer == signer.validator_id() {
+            send_to_itself = Some(endorsement.clone());
+        }
         network_sender.send(PeerManagerMessageRequest::NetworkRequests(
             NetworkRequests::ChunkEndorsement(block_producer, endorsement.clone()),
         ));
     }
+    send_to_itself
 }
 
 impl Client {

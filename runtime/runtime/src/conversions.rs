@@ -76,12 +76,6 @@ mod function_call_error {
     }
 }
 
-impl Convert<near_store::trie::TrieNodesCount> for near_vm_runner::logic::TrieNodesCount {
-    fn convert(other: near_store::trie::TrieNodesCount) -> Self {
-        Self { db_reads: other.db_reads, mem_reads: other.mem_reads }
-    }
-}
-
 mod profile_data_v3 {
     use near_vm_runner::ProfileDataV3 as From;
     impl super::Convert<From> for near_primitives::profile_data_v3::ProfileDataV3 {

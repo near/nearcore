@@ -1,15 +1,15 @@
 # FIXME: some of these tests don't work very well on MacOS at the moment. Should fix
 # them at earliest convenience :)
-# Also in addition to this, the `nextest-integration` test is currently disabled on macos
 platform_excludes := if os() == "macos" {
-    "--exclude node-runtime --exclude runtime-params-estimator --exclude near-network --exclude estimator-warehouse --exclude integration-tests"
+    "--exclude runtime-params-estimator --exclude near-network --exclude estimator-warehouse"
 } else if os() == "windows" {
     "--exclude node-runtime --exclude runtime-params-estimator --exclude near-network --exclude estimator-warehouse --exclude integration-tests"
 } else {
     ""
 }
 
-nightly_flags := "--features nightly,test_features"
+nightly_test_flags := "--features nightly,test_features"
+stable_test_flags := "--features test_features"
 
 export RUST_BACKTRACE := env("RUST_BACKTRACE", "short")
 ci_hack_nextest_profile := if env("CI_HACKS", "0") == "1" { "--profile ci" } else { "" }
@@ -44,9 +44,9 @@ nextest TYPE *FLAGS:
         --cargo-profile dev-release \
         {{ ci_hack_nextest_profile }} \
         {{ platform_excludes }} \
-        {{ if TYPE == "nightly" { nightly_flags } \
-           else if TYPE == "stable" { "" } \
-           else { error("TYPE is neighter 'nightly' nor 'stable'") } }} \
+        {{ if TYPE == "nightly" { nightly_test_flags } \
+           else if TYPE == "stable" { stable_test_flags } \
+           else { error("TYPE is neither 'nightly' nor 'stable'") } }} \
         {{ FLAGS }}
 
 nextest-slow TYPE *FLAGS: (nextest TYPE "--ignore-default-filter -E 'default() + test(/^(.*::slow_test|slow_test)/)'" FLAGS)
@@ -115,7 +115,6 @@ tar-bins-for-coverage-ci:
 python-style-checks:
     python3 scripts/check_nightly.py
     python3 scripts/check_pytests.py
-    python3 scripts/fix_nightly_feature_flags.py
     ./scripts/formatting --check
 
 install-rustc-nightly:
@@ -152,7 +151,28 @@ check-protocol-schema:
 publishable := "cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.publish == null or (.publish | length > 0)) | .name'"
 check-publishable-separately *OPTIONS:
     #!/usr/bin/env bash
+    REPORT=""
+    FINAL_RESULT=0
     for pkg in $({{ publishable }}); do
-        echo "Checking $pkg..."
-        cargo check -p $pkg {{ OPTIONS }}
+        pkg_name=$(echo $pkg | tr -d '\n' | tr -d '\r') # remove trailing newline from package name
+        echo "Checking $pkg_name..."
+        # Skip the `cargo check -p near-vm-runner --all-features` check on windows, it's broken:
+        # See https://near.zulipchat.com/#narrow/channel/295302-general/topic/Crates.20windows.20support/near/509548123
+        # TODO - fix by removing the old broken crate
+        if [ "{{ os() }}" == "windows" ] && [ "$pkg_name" == "near-vm-runner" ] && [[ "{{ OPTIONS }}" == *"--all-features"* ]]; then
+            echo "Skipping"
+            REPORT="$REPORT\n$pkg_name: SKIPPED"
+            continue
+        fi
+        env RUSTFLAGS="-D warnings" \
+        cargo check -p $pkg_name --examples --tests {{ OPTIONS }}
+        res=$?
+        if [ $res -eq 0 ]; then
+            REPORT="$REPORT\n$pkg_name: OK"
+        else
+            REPORT="$REPORT\n$pkg_name: FAIL"
+            FINAL_RESULT=1
+        fi
     done
+    echo -e $REPORT
+    exit $FINAL_RESULT

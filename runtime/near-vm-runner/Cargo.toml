@@ -14,7 +14,6 @@ workspace = true
 
 [dependencies]
 anyhow = { workspace = true, optional = true }
-base64 = { workspace = true, optional = true }
 blst.workspace = true
 bn.workspace = true
 borsh.workspace = true
@@ -24,8 +23,9 @@ finite-wasm = { workspace = true, features = ["instrument"], optional = true }
 lru.workspace = true
 memoffset = { workspace = true, optional = true }
 num-rational.workspace = true
-parity-wasm = { workspace = true, optional = true }
 prefix-sum-vec = { workspace = true, optional = true }
+prometheus = { workspace = true, optional = true }
+rand.workspace = true
 rayon.workspace = true
 ripemd.workspace = true
 rustix = { workspace = true, features = ["fs"] }
@@ -38,7 +38,6 @@ strum.workspace = true
 tempfile.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
-prometheus = { workspace = true, optional = true }
 wasm-encoder = { workspace = true, optional = true }
 wasmparser = { workspace = true, optional = true }
 wasmtime = { workspace = true, features = ["runtime"], optional = true }
@@ -51,20 +50,7 @@ near-schema-checker-lib.workspace = true
 
 bytesize.workspace = true
 
-# Old versions of pwasm-utils we need to preserve backwards compatibility under
-# old protocol versions.
-pwasm-utils_12 = { workspace = true, optional = true }
-parity-wasm_41 = { workspace = true, optional = true }
-
 [target.'cfg(target_arch = "x86_64")'.dependencies]
-wasmer-runtime = { workspace = true, optional = true }
-wasmer-runtime-core = { workspace = true, optional = true }
-wasmer-compiler = { workspace = true, optional = true }
-wasmer-compiler-singlepass = { workspace = true, optional = true }
-wasmer-engine = { workspace = true, optional = true }
-wasmer-engine-universal = { workspace = true, optional = true }
-wasmer-types = { workspace = true, optional = true }
-wasmer-vm = { workspace = true, optional = true }
 near-vm-compiler = { workspace = true, optional = true }
 near-vm-compiler-singlepass = { workspace = true, optional = true }
 near-vm-engine = { workspace = true, optional = true }
@@ -85,30 +71,13 @@ cov-mark.workspace = true
 expect-test.workspace = true
 hex.workspace = true
 near-test-contracts.workspace = true
-rand.workspace = true
 serde_json = { workspace = true, features = ["preserve_order"] }
 wasmprinter.workspace = true
 wasm-smith.workspace = true
 wat.workspace = true
 
 [features]
-nightly_protocol = [
-  "near-o11y/nightly_protocol",
-  "near-parameters/nightly_protocol",
-  "near-primitives-core/nightly_protocol",
-]
-wasmer0_vm = ["wasmer-runtime", "wasmer-runtime-core", "prepare"]
 wasmtime_vm = ["wasmtime", "anyhow", "prepare"]
-wasmer2_vm = [
-  "wasmer-compiler",
-  "wasmer-compiler-singlepass",
-  "wasmer-engine",
-  "wasmer-engine-universal",
-  "wasmer-types",
-  "wasmer-vm",
-  "memoffset",
-  "prepare",
-]
 near_vm = [
   "near-vm-compiler",
   "near-vm-compiler-singlepass",
@@ -122,31 +91,20 @@ prepare = [
   "finite-wasm",
   "wasm-encoder",
   "wasmparser",
-  "parity-wasm",
-  "parity-wasm_41",
-  "pwasm-utils_12",
   "prefix-sum-vec",
   "metrics",
 ]
 
 no_cpu_compatibility_checks = []
 
-protocol_feature_fix_contract_loading_cost = [
-  "near-primitives-core/protocol_feature_fix_contract_loading_cost",
-]
-
 metrics = ["prometheus", "near-o11y"]
-
 
 nightly = [
   "near-o11y/nightly",
   "near-parameters/nightly",
   "near-primitives-core/nightly",
-  "nightly_protocol",
-  "protocol_feature_fix_contract_loading_cost",
 ]
 sandbox = ["near-o11y/sandbox"]
-io_trace = ["base64"]
 test_features = []
 protocol_schema = [
   "near-crypto/protocol_schema",

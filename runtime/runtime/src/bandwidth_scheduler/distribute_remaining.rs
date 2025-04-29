@@ -276,11 +276,7 @@ mod tests {
         println!("active_links: {:?}", active_links);
 
         fn generate_budget(rng: &mut ChaCha20Rng) -> Bandwidth {
-            if rng.gen_bool(0.1) {
-                0
-            } else {
-                rng.gen_range(0..1000)
-            }
+            if rng.gen_bool(0.1) { 0 } else { rng.gen_range(0..1000) }
         }
         let sender_budgets: Vec<Bandwidth> =
             (0..num_shards).map(|_| generate_budget(&mut rng)).collect();

@@ -8,11 +8,11 @@ use near_async::futures::{AsyncComputationSpawner, AsyncComputationSpawnerExt};
 use near_async::messaging::{Actor, CanSend, Handler, Sender};
 use near_async::time::Clock;
 use near_async::{MultiSend, MultiSenderFrom};
-use near_chain::types::RuntimeAdapter;
 use near_chain::Error;
+use near_chain::types::RuntimeAdapter;
 use near_chain_configs::MutableValidatorSigner;
-use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_epoch_manager::EpochManagerAdapter;
+use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_network::state_witness::{
     ChunkContractAccessesMessage, ChunkStateWitnessAckMessage, ContractCodeRequestMessage,
     ContractCodeResponseMessage, PartialEncodedContractDeploysMessage,
@@ -23,6 +23,7 @@ use near_parameters::RuntimeConfig;
 use near_performance_metrics_macros::perf;
 use near_primitives::reed_solomon::{ReedSolomonEncoder, ReedSolomonEncoderCache};
 use near_primitives::sharding::ShardChunkHeader;
+use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::contract_distribution::{
     ChunkContractAccesses, ChunkContractDeploys, CodeBytes, CodeHash, ContractCodeRequest,
     ContractCodeResponse, ContractUpdates, MainTransitionKey, PartialEncodedContractDeploys,
@@ -33,12 +34,11 @@ use near_primitives::stateless_validation::state_witness::{
     ChunkStateWitness, ChunkStateWitnessAck, EncodedChunkStateWitness,
 };
 use near_primitives::stateless_validation::stored_chunk_state_transition_data::StoredChunkStateTransitionData;
-use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::types::{AccountId, EpochId, ShardId};
 use near_primitives::validator_signer::ValidatorSigner;
 use near_store::adapter::trie_store::TrieStoreAdapter;
 use near_store::{DBCol, StorageError, TrieDBStorage, TrieStorage};
-use near_vm_runner::{get_contract_cache_key, ContractCode, ContractRuntimeCache};
+use near_vm_runner::{ContractCode, ContractRuntimeCache, get_contract_cache_key};
 use rand::Rng;
 
 use crate::client_actor::ClientSenderForPartialWitness;
@@ -371,7 +371,7 @@ impl PartialWitnessActor {
 
     /// Function to handle receiving partial_encoded_state_witness message from chunk producer.
     fn handle_partial_encoded_state_witness(
-        &mut self,
+        &self,
         partial_witness: PartialEncodedStateWitness,
     ) -> Result<(), Error> {
         tracing::debug!(target: "client", ?partial_witness, "Receive PartialEncodedStateWitnessMessage");
@@ -416,16 +416,18 @@ impl PartialWitnessActor {
                     ));
                 }
                 Ok(false) => {
-                    // TODO: ban sending peer
-                    tracing::warn!(
+                    tracing::debug!(
                         target: "client",
-                        "Received invalid partial encoded state witness"
+                        chunk_production_key = ?partial_witness.chunk_production_key(),
+                        "Received irrelevant partial encoded state witness",
                     );
                 }
                 Err(err) => {
+                    // TODO: ban sending peer
                     tracing::warn!(
                         target: "client",
-                        "Encountered error during validation: {}",
+                        chunk_production_key = ?partial_witness.chunk_production_key(),
+                        "Received invalid partial encoded state witness: {}",
                         err
                     );
                 }
@@ -437,7 +439,7 @@ impl PartialWitnessActor {
 
     /// Function to handle receiving partial_encoded_state_witness_forward message from chunk producer.
     fn handle_partial_encoded_state_witness_forward(
-        &mut self,
+        &self,
         partial_witness: PartialEncodedStateWitness,
     ) -> Result<(), Error> {
         tracing::debug!(target: "client", ?partial_witness, "Receive PartialEncodedStateWitnessForwardMessage");
@@ -463,16 +465,18 @@ impl PartialWitnessActor {
                         }
                     }
                     Ok(false) => {
-                        // TODO: ban sending peer
-                        tracing::warn!(
+                        tracing::debug!(
                             target: "client",
-                            "Received invalid partial encoded state witness"
+                            chunk_production_key = ?partial_witness.chunk_production_key(),
+                            "Received irrelevant partial encoded state witness",
                         );
                     }
                     Err(err) => {
+                        // TODO: ban sending peer
                         tracing::warn!(
                             target: "client",
-                            "Encountered error during validation: {}",
+                            chunk_production_key = ?partial_witness.chunk_production_key(),
+                            "Received invalid partial encoded state witness: {}",
                             err
                         );
                     }
@@ -590,10 +594,7 @@ impl PartialWitnessActor {
     /// Handles contract code accesses message from chunk producer.
     /// This is sent in parallel to a chunk state witness and contains the hashes
     /// of the contract code accessed when applying the previous chunk of the witness.
-    fn handle_chunk_contract_accesses(
-        &mut self,
-        accesses: ChunkContractAccesses,
-    ) -> Result<(), Error> {
+    fn handle_chunk_contract_accesses(&self, accesses: ChunkContractAccesses) -> Result<(), Error> {
         let signer = self.my_validator_signer()?;
         if !validate_chunk_contract_accesses(
             self.epoch_manager.as_ref(),
@@ -607,7 +608,7 @@ impl PartialWitnessActor {
         let contracts_cache = self.runtime.compiled_contract_cache();
         let runtime_config = self
             .runtime
-            .get_runtime_config(self.epoch_manager.get_epoch_protocol_version(&key.epoch_id)?)?;
+            .get_runtime_config(self.epoch_manager.get_epoch_protocol_version(&key.epoch_id)?);
         let missing_contract_hashes = HashSet::from_iter(
             accesses
                 .contracts()
@@ -686,7 +687,7 @@ impl PartialWitnessActor {
         let contracts = contract_codes.into_iter().map(|contract| contract.into()).collect();
         let compressed_deploys = ChunkContractDeploys::compress_contracts(&contracts)?;
         let validator_parts = self.generate_contract_deploys_parts(&key, compressed_deploys)?;
-        for (part_owner, deploys_part) in validator_parts.into_iter() {
+        for (part_owner, deploys_part) in validator_parts {
             self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
                 NetworkRequests::PartialEncodedContractDeploys(vec![part_owner], deploys_part),
             ));
@@ -784,10 +785,7 @@ impl PartialWitnessActor {
     }
 
     /// Handles contract code responses message from chunk producer.
-    fn handle_contract_code_response(
-        &mut self,
-        response: ContractCodeResponse,
-    ) -> Result<(), Error> {
+    fn handle_contract_code_response(&self, response: ContractCodeResponse) -> Result<(), Error> {
         let key = response.chunk_production_key().clone();
         let contracts = response.decompress_contracts()?;
         self.partial_witness_tracker.store_accessed_contract_codes(key, contracts)
@@ -802,7 +800,7 @@ impl PartialWitnessActor {
     }
 
     fn ordered_contract_deploys_validators(
-        &mut self,
+        &self,
         key: &ChunkProductionKey,
     ) -> Result<Vec<AccountId>, Error> {
         let chunk_producers = HashSet::<AccountId>::from_iter(

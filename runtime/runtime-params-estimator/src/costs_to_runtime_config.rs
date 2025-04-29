@@ -73,6 +73,10 @@ fn runtime_fees_config(cost_table: &CostTable) -> anyhow::Result<RuntimeFeesConf
             ActionCosts::new_action_receipt => fee(Cost::ActionReceiptCreation)?,
             ActionCosts::new_data_receipt_base => fee(Cost::DataReceiptCreationBase)?,
             ActionCosts::new_data_receipt_byte => fee(Cost::DataReceiptCreationPerByte)?,
+            ActionCosts::deploy_global_contract_base => fee(Cost::ActionDeployGlobalContractBase)?,
+            ActionCosts::deploy_global_contract_byte => fee(Cost::ActionDeployGlobalContractPerByte)?,
+            ActionCosts::use_global_contract_base => fee(Cost::ActionUseGlobalContractBase)?,
+            ActionCosts::use_global_contract_byte => fee(Cost::ActionUseGlobalContractPerIdentifierByte)?,
         },
         ..RuntimeFeesConfig::clone(&actual_fees_config)
     };

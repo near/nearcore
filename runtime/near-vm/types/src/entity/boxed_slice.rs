@@ -3,9 +3,9 @@
 
 //! Boxed slices for `PrimaryMap`.
 
+use crate::entity::EntityRef;
 use crate::entity::iter::{Iter, IterMut};
 use crate::entity::keys::Keys;
-use crate::entity::EntityRef;
 use crate::lib::std::boxed::Box;
 use crate::lib::std::marker::PhantomData;
 use crate::lib::std::ops::{Index, IndexMut};
@@ -33,9 +33,10 @@ where
     ///
     /// # Safety
     ///
-    /// This relies on `raw` pointing to a valid slice of `V`s.
+    /// Same safety invariants as for [`Box::from_raw`].
     pub unsafe fn from_raw(raw: *mut [V]) -> Self {
-        Self { elems: Box::from_raw(raw), unused: PhantomData }
+        // SAFE: delegated invariants to the caller
+        Self { elems: unsafe { Box::from_raw(raw) }, unused: PhantomData }
     }
 
     /// Check if `k` is a valid key in the map.
@@ -192,7 +193,7 @@ mod tests {
             i += 1;
         }
         i = 0;
-        for (key_mut, value_mut) in m.iter_mut() {
+        for (key_mut, value_mut) in &mut m {
             assert_eq!(key_mut.index(), i);
             match i {
                 0 => assert_eq!(*value_mut, 12),

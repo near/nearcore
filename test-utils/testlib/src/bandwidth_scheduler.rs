@@ -3,8 +3,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use bytesize::ByteSize;
 use near_primitives::bandwidth_scheduler::{Bandwidth, BandwidthSchedulerParams};
 use near_primitives::types::{BlockHeight, ShardIndex};
-use rand::seq::SliceRandom;
 use rand::Rng;
+use rand::seq::SliceRandom;
 use rand_chacha::ChaCha20Rng;
 
 const MAX_RECEIPT_SIZE: u64 = 4 * 1024 * 1024;
@@ -494,6 +494,7 @@ impl std::fmt::Display for TestSummary {
             "  worst_link_estimation_ratio {:.2} (Should be at least 0.5)",
             self.worst_link_estimation_ratio
         )?;
+        writeln!(f, "  max_shard_bandwidth {:?}", self.max_shard_bandwidth)?;
         writeln!(f, "}}")
     }
 }

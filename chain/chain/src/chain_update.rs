@@ -9,11 +9,11 @@ use crate::types::{
     RuntimeStorageConfig,
 };
 use crate::update_shard::{NewChunkResult, OldChunkResult, ShardUpdateResult};
-use crate::{metrics, DoomslugThresholdMode};
 use crate::{Chain, Doomslug};
+use crate::{DoomslugThresholdMode, metrics};
 use near_chain_primitives::error::Error;
-use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_epoch_manager::EpochManagerAdapter;
+use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::block::{Block, Tip};
 use near_primitives::block_header::BlockHeader;
@@ -23,11 +23,11 @@ use near_primitives::shard_layout::ShardUId;
 use near_primitives::sharding::ShardChunk;
 use near_primitives::state_sync::{ReceiptProofResponse, ShardStateSyncResponseHeader};
 use near_primitives::types::chunk_extra::ChunkExtra;
-use near_primitives::types::{BlockExtra, BlockHeight, ShardId};
+use near_primitives::types::{BlockHeight, ShardId};
 use near_primitives::views::LightClientBlockView;
 use node_runtime::SignedValidPeriodTransactions;
 use std::sync::Arc;
-use tracing::{debug, info, warn};
+use tracing::{debug, warn};
 
 /// Chain update helper, contains information that is needed to process block
 /// and decide to accept it or reject it.
@@ -95,15 +95,11 @@ impl<'a> ChainUpdate<'a> {
                     ApplyChunkResult::compute_outcomes_proof(&apply_result.outcomes);
                 let shard_id = shard_uid.shard_id();
 
-                let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(prev_hash)?;
-                let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
-
                 // Save state root after applying transactions.
                 self.chain_store_update.save_chunk_extra(
                     block_hash,
                     &shard_uid,
                     ChunkExtra::new(
-                        protocol_version,
                         &apply_result.new_root,
                         outcome_root,
                         apply_result.validator_proposals,
@@ -147,6 +143,11 @@ impl<'a> ChainUpdate<'a> {
                         apply_result.contract_updates,
                     );
                 }
+                self.chain_store_update.save_chunk_apply_stats(
+                    *block_hash,
+                    shard_id,
+                    apply_result.stats,
+                );
             }
             ShardUpdateResult::OldChunk(OldChunkResult { shard_uid, apply_result }) => {
                 // The chunk is missing but some fields may need to be updated
@@ -177,6 +178,11 @@ impl<'a> ChainUpdate<'a> {
                         apply_result.contract_updates,
                     );
                 }
+                self.chain_store_update.save_chunk_apply_stats(
+                    *block_hash,
+                    shard_uid.shard_id(),
+                    apply_result.stats,
+                );
             }
         };
         Ok(())
@@ -224,14 +230,8 @@ impl<'a> ChainUpdate<'a> {
         }).collect::<Result<Vec<_>, Error>>()?;
         self.apply_chunk_postprocessing(block, results, should_save_state_transition_data)?;
 
-        let BlockPreprocessInfo {
-            is_caught_up,
-            state_sync_info,
-            incoming_receipts,
-            challenges_result,
-            challenged_blocks,
-            ..
-        } = block_preprocess_info;
+        let BlockPreprocessInfo { is_caught_up, state_sync_info, incoming_receipts, .. } =
+            block_preprocess_info;
 
         if !is_caught_up {
             debug!(target: "chain", %prev_hash, hash = %*block.hash(), "Add block to catch up");
@@ -249,13 +249,8 @@ impl<'a> ChainUpdate<'a> {
             self.chain_store_update.add_state_sync_info(state_sync_info);
         }
 
-        self.chain_store_update.save_block_extra(block.hash(), BlockExtra { challenges_result });
-        for block_hash in challenged_blocks {
-            self.mark_block_as_challenged(&block_hash, Some(block.hash()))?;
-        }
-
         self.chain_store_update.save_block_header(block.header().clone())?;
-        self.update_header_head_if_not_challenged(block.header())?;
+        self.update_header_head(block.header())?;
 
         // If block checks out, record validator proposals for given block.
         let last_final_block = block.header().last_final_block();
@@ -320,7 +315,7 @@ impl<'a> ChainUpdate<'a> {
     }
 
     #[allow(dead_code)]
-    fn verify_orphan_header_approvals(&mut self, header: &BlockHeader) -> Result<(), Error> {
+    fn verify_orphan_header_approvals(&self, header: &BlockHeader) -> Result<(), Error> {
         let prev_hash = header.prev_hash();
         let prev_height = match header.prev_height() {
             None => {
@@ -351,14 +346,14 @@ impl<'a> ChainUpdate<'a> {
     }
 
     /// Update the header head if this header has most work.
-    pub(crate) fn update_header_head_if_not_challenged(
+    pub(crate) fn update_header_head(
         &mut self,
         header: &BlockHeader,
     ) -> Result<Option<Tip>, Error> {
         let header_head = self.chain_store_update.header_head()?;
         if header.height() > header_head.height {
             let tip = Tip::from_header(header);
-            self.chain_store_update.save_header_head_if_not_challenged(&tip)?;
+            self.chain_store_update.save_header_head(&tip)?;
             debug!(target: "chain", "Header head updated to {} at {}", tip.last_block_hash, tip.height);
             metrics::HEADER_HEAD_HEIGHT.set(tip.height as i64);
 
@@ -405,66 +400,6 @@ impl<'a> ChainUpdate<'a> {
         }
     }
 
-    /// Marks a block as invalid,
-    pub(crate) fn mark_block_as_challenged(
-        &mut self,
-        block_hash: &CryptoHash,
-        challenger_hash: Option<&CryptoHash>,
-    ) -> Result<(), Error> {
-        info!(target: "chain", "Marking {} as challenged block (challenged in {:?}) and updating the chain.", block_hash, challenger_hash);
-        let block_header = match self.chain_store_update.get_block_header(block_hash) {
-            Ok(block_header) => block_header,
-            Err(e) => match e {
-                Error::DBNotFoundErr(_) => {
-                    // The block wasn't seen yet, still challenge is good.
-                    self.chain_store_update.save_challenged_block(*block_hash);
-                    return Ok(());
-                }
-                _ => return Err(e),
-            },
-        };
-
-        let cur_block_at_same_height =
-            match self.chain_store_update.get_block_hash_by_height(block_header.height()) {
-                Ok(bh) => Some(bh),
-                Err(e) => match e {
-                    Error::DBNotFoundErr(_) => None,
-                    _ => return Err(e),
-                },
-            };
-
-        self.chain_store_update.save_challenged_block(*block_hash);
-
-        // If the block being invalidated is on the canonical chain, update head
-        if cur_block_at_same_height == Some(*block_hash) {
-            // We only consider two candidates for the new head: the challenger and the block
-            //   immediately preceding the block being challenged
-            // It could be that there is a better chain known. However, it is extremely unlikely,
-            //   and even if there's such chain available, the very next block built on it will
-            //   bring this node's head to that chain.
-            let prev_header = self.chain_store_update.get_block_header(block_header.prev_hash())?;
-            let prev_height = prev_header.height();
-            let new_head_header = if let Some(hash) = challenger_hash {
-                let challenger_header = self.chain_store_update.get_block_header(hash)?;
-                if challenger_header.height() > prev_height {
-                    challenger_header
-                } else {
-                    prev_header
-                }
-            } else {
-                prev_header
-            };
-            let last_final_block = *new_head_header.last_final_block();
-
-            let tip = Tip::from_header(&new_head_header);
-            self.chain_store_update.save_head(&tip)?;
-            let new_final_header = self.chain_store_update.get_block_header(&last_final_block)?;
-            self.chain_store_update.save_final_head(&Tip::from_header(&new_final_header))?;
-        }
-
-        Ok(())
-    }
-
     /// This method is called when the state sync is finished for a shard. It
     /// applies the chunk at the height included of the chunk in the sync hash
     /// and stores the results in the db.
@@ -496,7 +431,7 @@ impl<'a> ChainUpdate<'a> {
 
         // Getting actual incoming receipts.
         let mut receipt_proof_responses: Vec<ReceiptProofResponse> = vec![];
-        for incoming_receipt_proof in incoming_receipts_proofs.iter() {
+        for incoming_receipt_proof in &incoming_receipts_proofs {
             let ReceiptProofResponse(hash, _) = incoming_receipt_proof;
             let block_header = self.chain_store_update.get_block_header(hash)?;
             if block_header.height() <= chunk.height_included() {
@@ -519,25 +454,16 @@ impl<'a> ChainUpdate<'a> {
 
         let chunk_header = chunk.cloned_header();
         let gas_limit = chunk_header.gas_limit();
-        // This is set to false because the value is only relevant
-        // during protocol version RestoreReceiptsAfterFixApplyChunks.
-        // TODO(nikurt): Determine the value correctly.
-        let is_first_block_with_chunk_of_version = false;
-
         let block = self.chain_store_update.get_block(block_header.hash())?;
-        let epoch_id = self.epoch_manager.get_epoch_id(block_header.hash())?;
-        let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
-        let transactions = chunk.transactions();
+        let transactions = chunk.to_transactions().to_vec();
         let transaction_validity = if let Some(prev_block_header) = prev_block_header {
-            self.chain_store_update.chain_store().compute_transaction_validity(
-                protocol_version,
-                &prev_block_header,
-                &chunk,
-            )?
+            self.chain_store_update
+                .chain_store()
+                .compute_transaction_validity(&prev_block_header, &chunk)
         } else {
             vec![true; transactions.len()]
         };
-        let transactions = SignedValidPeriodTransactions::new(transactions, &transaction_validity);
+        let transactions = SignedValidPeriodTransactions::new(transactions, transaction_validity);
         let apply_result = self.runtime_adapter.apply_chunk(
             RuntimeStorageConfig::new(chunk_header.prev_state_root(), true),
             ApplyChunkReason::UpdateTrackedShard,
@@ -545,7 +471,6 @@ impl<'a> ChainUpdate<'a> {
                 shard_id,
                 gas_limit,
                 last_validator_proposals: chunk_header.prev_validator_proposals(),
-                is_first_block_with_chunk_of_version,
                 is_new_chunk: true,
             },
             ApplyChunkBlockContext {
@@ -554,7 +479,6 @@ impl<'a> ChainUpdate<'a> {
                 prev_block_hash: *chunk_header.prev_block_hash(),
                 block_timestamp: block_header.raw_timestamp(),
                 gas_price,
-                challenges_result: block_header.challenges_result().clone(),
                 random_seed: *block_header.random_value(),
                 congestion_info: block.block_congestion_info(),
                 bandwidth_requests: block.block_bandwidth_requests(),
@@ -583,7 +507,6 @@ impl<'a> ChainUpdate<'a> {
         self.chain_store_update.save_trie_changes(*block_header.hash(), apply_result.trie_changes);
 
         let chunk_extra = ChunkExtra::new(
-            protocol_version,
             &apply_result.new_root,
             outcome_root,
             apply_result.validator_proposals,
@@ -663,7 +586,6 @@ impl<'a> ChainUpdate<'a> {
                 last_validator_proposals: chunk_extra.validator_proposals(),
                 gas_limit: chunk_extra.gas_limit(),
                 is_new_chunk: false,
-                is_first_block_with_chunk_of_version: false,
             },
             ApplyChunkBlockContext::from_header(
                 &block_header,
@@ -672,7 +594,7 @@ impl<'a> ChainUpdate<'a> {
                 block.block_bandwidth_requests(),
             ),
             &[],
-            SignedValidPeriodTransactions::new(&[], &[]),
+            SignedValidPeriodTransactions::empty(),
         )?;
         let flat_storage_manager = self.runtime_adapter.get_flat_storage_manager();
         let store_update = flat_storage_manager.save_flat_state_changes(

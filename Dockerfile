@@ -13,7 +13,9 @@ RUN apt-get update -qq && apt-get install -y \
     clang \
     && rm -rf /var/lib/apt/lists/*
 
-COPY ./rust-toolchain.toml /tmp/rust-toolchain.toml
+VOLUME [ /near ]
+WORKDIR /near
+COPY . .
 
 ENV RUSTUP_HOME=/usr/local/rustup \
     CARGO_HOME=/usr/local/cargo \
@@ -22,9 +24,7 @@ ENV RUSTUP_HOME=/usr/local/rustup \
 RUN curl https://sh.rustup.rs -sSf | \
     sh -s -- -y --no-modify-path --default-toolchain none
 
-VOLUME [ /near ]
-WORKDIR /near
-COPY . .
+RUN rustup toolchain install
 
 ENV PORTABLE=ON
 ARG make_target=

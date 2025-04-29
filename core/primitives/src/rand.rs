@@ -28,7 +28,7 @@ impl WeightedIndex {
 
         let mut no_alias_odds = weights;
         let mut weight_sum: Balance = 0;
-        for w in no_alias_odds.iter_mut() {
+        for w in &mut no_alias_odds {
             weight_sum += *w;
             *w *= n;
         }

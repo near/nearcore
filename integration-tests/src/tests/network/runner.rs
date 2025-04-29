@@ -1,9 +1,9 @@
 use actix::{Actor, Addr};
-use anyhow::{anyhow, bail, Context};
+use anyhow::{Context, anyhow, bail};
 use near_async::actix::AddrWithAutoSpanContextExt;
-use near_async::actix_wrapper::{spawn_actix_actor, ActixWrapper};
+use near_async::actix_wrapper::{ActixWrapper, spawn_actix_actor};
 use near_async::futures::ActixFutureSpawner;
-use near_async::messaging::{noop, IntoMultiSender, IntoSender, LateBoundSender};
+use near_async::messaging::{IntoMultiSender, IntoSender, LateBoundSender, noop};
 use near_async::time::{self, Clock};
 use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
 use near_chain::types::RuntimeAdapter;
@@ -11,21 +11,24 @@ use near_chain::{Chain, ChainGenesis};
 use near_chain_configs::{ClientConfig, Genesis, GenesisConfig, MutableConfigValue};
 use near_chunks::shards_manager_actor::start_shards_manager;
 use near_client::adapter::client_sender_for_network;
-use near_client::{start_client, PartialWitnessActor, ViewClientActorInner};
-use near_epoch_manager::shard_tracker::ShardTracker;
+use near_client::{
+    PartialWitnessActor, RpcHandlerConfig, StartClientResult, ViewClientActorInner,
+    spawn_rpc_handler_actor, start_client,
+};
 use near_epoch_manager::EpochManager;
+use near_epoch_manager::shard_tracker::ShardTracker;
+use near_network::PeerManagerActor;
 use near_network::actix::ActixSystem;
 use near_network::blacklist;
 use near_network::config;
 use near_network::tcp;
-use near_network::test_utils::{expected_routing_tables, peer_id_from_seed, GetInfo};
+use near_network::test_utils::{GetInfo, expected_routing_tables, peer_id_from_seed};
 use near_network::types::{
     PeerInfo, PeerManagerMessageRequest, PeerManagerMessageResponse, ROUTED_MESSAGE_TTL,
 };
-use near_network::PeerManagerActor;
-use near_o11y::testonly::init_test_logger;
 use near_o11y::WithSpanContextExt;
-use near_primitives::block::GenesisId;
+use near_o11y::testonly::init_test_logger;
+use near_primitives::genesis::GenesisId;
 use near_primitives::network::PeerId;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::{AccountId, ValidatorId};
@@ -96,7 +99,7 @@ fn setup_network_node(
     let network_adapter = LateBoundSender::new();
     let shards_manager_adapter = LateBoundSender::new();
     let adv = near_client::adversarial::Controls::default();
-    let client_actor = start_client(
+    let StartClientResult { client_actor, tx_pool, chunk_endorsement_tracker, .. } = start_client(
         Clock::real(),
         client_config.clone(),
         chain_genesis.clone(),
@@ -117,8 +120,7 @@ fn setup_network_node(
         true,
         None,
         noop().into_multi_sender(),
-    )
-    .client_actor;
+    );
     let view_client_addr = ViewClientActorInner::spawn_actix_actor(
         Clock::real(),
         validator_signer.clone(),
@@ -129,6 +131,22 @@ fn setup_network_node(
         network_adapter.as_multi_sender(),
         client_config.clone(),
         adv,
+    );
+    let rpc_handler_config = RpcHandlerConfig {
+        handler_threads: client_config.transaction_request_handler_threads,
+        tx_routing_height_horizon: client_config.tx_routing_height_horizon,
+        epoch_length: client_config.epoch_length,
+        transaction_validity_period: genesis.config.transaction_validity_period,
+    };
+    let rpc_handler = spawn_rpc_handler_actor(
+        rpc_handler_config,
+        tx_pool,
+        chunk_endorsement_tracker,
+        epoch_manager.clone(),
+        shard_tracker.clone(),
+        validator_signer.clone(),
+        runtime.clone(),
+        network_adapter.as_multi_sender(),
     );
     let (shards_manager_actor, _) = start_shards_manager(
         epoch_manager.clone(),
@@ -155,7 +173,7 @@ fn setup_network_node(
         time::Clock::real(),
         db.clone(),
         config,
-        client_sender_for_network(client_actor, view_client_addr),
+        client_sender_for_network(client_actor, view_client_addr, rpc_handler),
         network_adapter.as_multi_sender(),
         shards_manager_adapter.as_sender(),
         partial_witness_actor.with_auto_span_context().into_multi_sender(),
@@ -411,7 +429,7 @@ impl Runner {
     where
         F: FnMut(&mut TestConfig) -> (),
     {
-        for test_config in self.test_config.iter_mut() {
+        for test_config in &mut self.test_config {
             apply(test_config);
         }
     }

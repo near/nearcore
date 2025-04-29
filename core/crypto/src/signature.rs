@@ -776,8 +776,9 @@ impl std::convert::From<DecodeBs58Error> for crate::errors::ParseSignatureError 
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::{KeyType, PublicKey, SecretKey, Signature};
 
+    #[cfg(feature = "rand")]
     #[test]
     fn test_sign_verify() {
         for key_type in [KeyType::ED25519, KeyType::SECP256K1] {
@@ -813,6 +814,7 @@ mod tests {
         let _ = signature.verify(&[], &PublicKey::empty(KeyType::SECP256K1));
     }
 
+    #[cfg(feature = "rand")]
     #[test]
     fn test_json_serialize_ed25519() {
         let sk = SecretKey::from_seed(KeyType::ED25519, "test");
@@ -840,6 +842,7 @@ mod tests {
         assert_eq!(signature, signature2);
     }
 
+    #[cfg(feature = "rand")]
     #[test]
     fn test_json_serialize_secp256k1() {
         use sha2::Digest;
@@ -867,9 +870,12 @@ mod tests {
         assert_eq!(signature, signature2);
     }
 
+    #[cfg(feature = "rand")]
     #[test]
     fn test_borsh_serialization() {
+        use borsh::BorshDeserialize;
         use sha2::Digest;
+
         let data = sha2::Sha256::digest(b"123").to_vec();
         for key_type in [KeyType::ED25519, KeyType::SECP256K1] {
             let sk = SecretKey::from_seed(key_type, "test");

@@ -39,18 +39,15 @@ use near_chain_configs::{ClientConfig, MutableValidatorSigner, UpdatableClientCo
 use near_chunks::adapter::ShardsManagerRequestFromClient;
 use near_chunks::logic::{decode_encoded_chunk, persist_chunk};
 use near_client_primitives::types::{Error, StateSyncStatus, SyncStatus};
-use near_epoch_manager::shard_assignment::{account_id_to_shard_id, shard_id_to_uid};
-use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::EpochManagerAdapter;
-use near_network::client::ProcessTxResponse;
+use near_epoch_manager::shard_assignment::shard_id_to_uid;
+use near_epoch_manager::shard_tracker::ShardTracker;
 use near_network::types::{AccountKeys, ChainInfo, PeerManagerMessageRequest, SetChainInfo};
 use near_network::types::{
     HighestHeightPeerInfo, NetworkRequests, PeerManagerAdapter, ReasonForBan,
 };
-use near_pool::InsertTransactionResult;
 use near_primitives::block::{Approval, ApprovalInner, ApprovalMessage, Block, BlockHeader, Tip};
 use near_primitives::block_header::ApprovalType;
-use near_primitives::challenge::{Challenge, ChallengeBody};
 use near_primitives::epoch_info::RngSeed;
 use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
@@ -63,8 +60,8 @@ use near_primitives::sharding::{
     StateSyncInfoV1,
 };
 use near_primitives::stateless_validation::ChunkProductionKey;
-use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, ApprovalStake, BlockHeight, EpochId, NumBlocks, ShardId};
+use near_primitives::transaction::ValidatedTransaction;
+use near_primitives::types::{AccountId, ApprovalStake, BlockHeight, EpochId, NumBlocks};
 use near_primitives::unwrap_or_return;
 use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
 use near_primitives::utils::MaybeValidated;
@@ -72,10 +69,10 @@ use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{CatchupStatusView, DroppedReason};
 use std::cmp::max;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::num::NonZeroUsize;
-use std::sync::Arc;
-use tracing::{debug, debug_span, error, info, trace, warn};
+use std::sync::{Arc, Mutex};
+use tracing::{debug, debug_span, error, info, warn};
 
 #[cfg(feature = "test_features")]
 use crate::chunk_producer::AdvProduceChunksMode;
@@ -146,8 +143,6 @@ pub struct Client {
     chain_sender_for_state_sync: ChainSenderForStateSync,
     // Sender to be able to send a message to myself.
     pub myself_sender: ClientSenderForClient,
-    /// List of currently accumulated challenges.
-    pub challenges: HashMap<CryptoHash, Challenge>,
     /// Blocks that have been re-broadcast recently. They should not be broadcast again.
     rebroadcasted_blocks: lru::LruCache<CryptoHash, ()>,
     /// Last time the head was updated, or our head was rebroadcasted. Used to re-broadcast the head
@@ -170,7 +165,7 @@ pub struct Client {
     /// Also tracks banned chunk producers and filters out chunks produced by them
     pub chunk_inclusion_tracker: ChunkInclusionTracker,
     /// Tracks chunk endorsements received from chunk validators. Used to filter out chunks ready for inclusion
-    pub chunk_endorsement_tracker: ChunkEndorsementTracker,
+    pub chunk_endorsement_tracker: Arc<Mutex<ChunkEndorsementTracker>>,
     /// Adapter to send request to partial_witness_actor to distribute state witness.
     pub partial_witness_adapter: PartialWitnessSenderForClient,
     // Optional value used for the Chunk Distribution Network Feature.
@@ -302,10 +297,13 @@ impl Client {
             config.max_block_production_delay,
             config.max_block_production_delay / 10,
             config.max_block_wait_delay,
+            config.chunk_wait_mult,
             doomslug_threshold_mode,
         );
-        let chunk_endorsement_tracker =
-            ChunkEndorsementTracker::new(epoch_manager.clone(), chain.chain_store().store());
+        let chunk_endorsement_tracker = Arc::new(Mutex::new(ChunkEndorsementTracker::new(
+            epoch_manager.clone(),
+            chain.chain_store().store(),
+        )));
         let chunk_producer = ChunkProducer::new(
             clock.clone(),
             config.produce_chunk_add_transactions_time_limit.clone(),
@@ -353,7 +351,6 @@ impl Client {
             state_sync_future_spawner,
             chain_sender_for_state_sync,
             myself_sender,
-            challenges: Default::default(),
             rebroadcasted_blocks: lru::LruCache::new(
                 NonZeroUsize::new(NUM_REBROADCAST_BLOCKS).unwrap(),
             ),
@@ -389,7 +386,7 @@ impl Client {
 
     pub fn remove_transactions_for_block(
         &mut self,
-        me: AccountId,
+        me: &AccountId,
         block: &Block,
     ) -> Result<(), Error> {
         let epoch_id = self.epoch_manager.get_epoch_id(block.hash())?;
@@ -400,33 +397,32 @@ impl Client {
             let shard_uid = shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, &epoch_id)?;
             if block.header().height() == chunk_header.height_included() {
                 if self.shard_tracker.cares_about_shard_this_or_next_epoch(
-                    Some(&me),
+                    Some(me),
                     block.header().prev_hash(),
                     shard_id,
                     true,
                 ) {
                     // By now the chunk must be in store, otherwise the block would have been orphaned
                     let chunk = self.chain.get_chunk(&chunk_header.chunk_hash()).unwrap();
-                    let transactions = chunk.transactions();
-                    self.chunk_producer
-                        .sharded_tx_pool
-                        .remove_transactions(shard_uid, transactions);
+                    let transactions = chunk.to_transactions();
+                    let mut pool_guard = self.chunk_producer.sharded_tx_pool.lock().unwrap();
+                    pool_guard.remove_transactions(shard_uid, transactions);
                 }
             }
-        }
-        for challenge in block.challenges().iter() {
-            self.challenges.remove(&challenge.hash);
         }
         Ok(())
     }
 
     pub fn reintroduce_transactions_for_block(
         &mut self,
-        me: AccountId,
+        me: &AccountId,
         block: &Block,
     ) -> Result<(), Error> {
         let epoch_id = self.epoch_manager.get_epoch_id(block.hash())?;
-        let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
+        let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
+        let shard_layout =
+            self.epoch_manager.get_shard_layout_from_protocol_version(protocol_version);
+        let config = self.runtime_adapter.get_runtime_config(protocol_version);
 
         for (shard_index, chunk_header) in block.chunks().iter_deprecated().enumerate() {
             let shard_id = shard_layout.get_shard_id(shard_index);
@@ -435,28 +431,47 @@ impl Client {
 
             if block.header().height() == chunk_header.height_included() {
                 if self.shard_tracker.cares_about_shard_this_or_next_epoch(
-                    Some(&me),
+                    Some(me),
                     block.header().prev_hash(),
                     shard_id,
                     false,
                 ) {
                     // By now the chunk must be in store, otherwise the block would have been orphaned
                     let chunk = self.chain.get_chunk(&chunk_header.chunk_hash()).unwrap();
-                    let reintroduced_count = self
-                        .chunk_producer
-                        .sharded_tx_pool
-                        .reintroduce_transactions(shard_uid, &chunk.transactions());
-                    if reintroduced_count < chunk.transactions().len() {
+
+                    let validated_txs = chunk
+                        .to_transactions()
+                        .into_iter()
+                        .cloned()
+                        .filter_map(|signed_tx| {
+                            match ValidatedTransaction::new(&config, signed_tx) {
+                                Ok(validated_tx) => Some(validated_tx),
+                                Err((err, signed_tx)) => {
+                                    debug!(
+                                        target: "client",
+                                        "Validating signed tx ({:?}) failed with error {:?}",
+                                        signed_tx,
+                                        err
+                                    );
+                                    None
+                                }
+                            }
+                        })
+                        .collect::<Vec<_>>();
+
+                    let reintroduced_count = {
+                        let mut pool_guard = self.chunk_producer.sharded_tx_pool.lock().unwrap();
+                        pool_guard.reintroduce_transactions(shard_uid, validated_txs)
+                    };
+
+                    if reintroduced_count < chunk.to_transactions().len() {
                         debug!(target: "client",
                             reintroduced_count,
-                            num_tx = chunk.transactions().len(),
+                            num_tx = chunk.to_transactions().len(),
                             "Reintroduced transactions");
                     }
                 }
             }
-        }
-        for challenge in block.challenges().iter() {
-            self.challenges.insert(challenge.hash, challenge.clone());
         }
         Ok(())
     }
@@ -530,7 +545,10 @@ impl Client {
             .get_epoch_protocol_version(&epoch_id)
             .expect("Epoch info should be ready at this point");
         if protocol_version > PROTOCOL_VERSION {
-            panic!("The client protocol version is older than the protocol version of the network. Please update nearcore. Client protocol version:{}, network protocol version {}", PROTOCOL_VERSION, protocol_version);
+            panic!(
+                "The client protocol version is older than the protocol version of the network. Please update nearcore. Client protocol version:{}, network protocol version {}",
+                PROTOCOL_VERSION, protocol_version
+            );
         }
 
         if !self.can_produce_block(
@@ -665,10 +683,9 @@ impl Client {
         );
 
         if prepare_chunk_headers {
-            self.chunk_inclusion_tracker.prepare_chunk_headers_ready_for_inclusion(
-                &head.last_block_hash,
-                &mut self.chunk_endorsement_tracker,
-            )?;
+            let mut tracker = self.chunk_endorsement_tracker.lock().unwrap();
+            self.chunk_inclusion_tracker
+                .prepare_chunk_headers_ready_for_inclusion(&head.last_block_hash, &mut tracker)?;
         }
 
         self.produce_block_on(height, head.last_block_hash)
@@ -749,7 +766,10 @@ impl Client {
             .get_epoch_protocol_version(&epoch_id)
             .expect("Epoch info should be ready at this point");
         if protocol_version > PROTOCOL_VERSION {
-            panic!("The client protocol version is older than the protocol version of the network. Please update nearcore. Client protocol version:{}, network protocol version {}", PROTOCOL_VERSION, protocol_version);
+            panic!(
+                "The client protocol version is older than the protocol version of the network. Please update nearcore. Client protocol version:{}, network protocol version {}",
+                PROTOCOL_VERSION, protocol_version
+            );
         }
 
         let approvals = self
@@ -768,14 +788,13 @@ impl Client {
             .get_next_epoch_id_from_prev_block(&prev_hash)
             .expect("Epoch hash should exist at this point");
 
-        let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
         let gas_price_adjustment_rate =
-            self.chain.block_economics_config.gas_price_adjustment_rate(protocol_version);
-        let min_gas_price = self.chain.block_economics_config.min_gas_price(protocol_version);
-        let max_gas_price = self.chain.block_economics_config.max_gas_price(protocol_version);
+            self.chain.block_economics_config.gas_price_adjustment_rate();
+        let min_gas_price = self.chain.block_economics_config.min_gas_price();
+        let max_gas_price = self.chain.block_economics_config.max_gas_price();
 
         let next_bp_hash = if prev_epoch_id != epoch_id {
-            Chain::compute_bp_hash(self.epoch_manager.as_ref(), next_epoch_id, epoch_id)?
+            Chain::compute_bp_hash(self.epoch_manager.as_ref(), next_epoch_id)?
         } else {
             prev_next_bp_hash
         };
@@ -793,7 +812,6 @@ impl Client {
         // The number of leaves in Block Merkle Tree is the amount of Blocks on the Canonical Chain by construction.
         // The ordinal of the next Block will be equal to this amount plus one.
         let block_ordinal: NumBlocks = block_merkle_tree.size() + 1;
-        let prev_block_extra = self.chain.get_block_extra(&prev_hash)?;
         let prev_block = self.chain.get_block(&prev_hash)?;
         let mut chunk_headers =
             Chain::get_prev_chunk_headers(self.epoch_manager.as_ref(), &prev_block)?;
@@ -860,17 +878,10 @@ impl Client {
             None
         };
 
-        // Get all the current challenges.
-        // TODO(2445): Enable challenges when they are working correctly.
-        // let challenges = self.challenges.drain().map(|(_, challenge)| challenge).collect();
-        let this_epoch_protocol_version =
-            self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
         let next_epoch_protocol_version =
             self.epoch_manager.get_epoch_protocol_version(&next_epoch_id)?;
 
         let block = Block::produce(
-            this_epoch_protocol_version,
-            next_epoch_protocol_version,
             self.upgrade_schedule
                 .protocol_version_to_vote_for(self.clock.now_utc(), next_epoch_protocol_version),
             prev_header,
@@ -886,8 +897,6 @@ impl Client {
             min_gas_price,
             max_gas_price,
             minted_amount,
-            prev_block_extra.challenges_result.clone(),
-            vec![],
             &*validator_signer,
             next_bp_hash,
             block_merkle_root,
@@ -904,22 +913,6 @@ impl Client {
         metrics::BLOCK_PRODUCED_TOTAL.inc();
 
         Ok(Some(block))
-    }
-
-    fn send_challenges(
-        &mut self,
-        challenges: Vec<ChallengeBody>,
-        signer: &Option<Arc<ValidatorSigner>>,
-    ) {
-        if let Some(validator_signer) = &signer {
-            for body in challenges {
-                let challenge = Challenge::produce(body, &**validator_signer);
-                self.challenges.insert(challenge.hash, challenge.clone());
-                self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
-                    NetworkRequests::Challenge(challenge),
-                ));
-            }
-        }
     }
 
     /// Processes received block. Ban peer if the block header is invalid or the block is ill-formed.
@@ -980,7 +973,7 @@ impl Client {
     /// blocks multiple times.
     /// Then it process the block header. If the header if valid, broadcast the block to its peers
     /// Then it starts the block processing process to process the full block.
-    pub(crate) fn receive_block_impl(
+    pub fn receive_block_impl(
         &mut self,
         block: Block,
         peer_id: PeerId,
@@ -1031,11 +1024,32 @@ impl Client {
         res
     }
 
-    #[allow(unused)]
-    pub fn receive_optimistic_block(&mut self, block: OptimisticBlock) {
+    /// Check optimistic block and start processing if is valid.
+    pub fn receive_optimistic_block(&mut self, block: OptimisticBlock, peer_id: &PeerId) {
         let _span = debug_span!(target: "client", "receive_optimistic_block").entered();
-        self.chain.optimistic_block_chunks.add_block(block);
-        self.maybe_process_optimistic_block();
+        debug!(target: "client", ?block, ?peer_id, "Received optimistic block");
+
+        // Pre-validate the optimistic block.
+        if let Err(e) = self.chain.pre_check_optimistic_block(&block) {
+            near_chain::metrics::NUM_INVALID_OPTIMISTIC_BLOCKS.inc();
+            debug!(target: "client", ?e, "Optimistic block is invalid");
+            return;
+        }
+
+        if let Err(_) = self.chain.get_block_header(&block.prev_block_hash()) {
+            // If the previous block is not found, add the block to the orphan
+            // pool for now.
+            self.chain.save_optimistic_orphan(block);
+            return;
+        }
+
+        let signer = self.validator_signer.get();
+        let me = signer.as_ref().map(|signer| signer.validator_id().clone());
+        self.chain.preprocess_optimistic_block(
+            block,
+            &me,
+            Some(self.myself_sender.apply_chunks_done.clone()),
+        );
     }
 
     /// To protect ourselves from spamming, we do some pre-check on block height before we do any
@@ -1083,7 +1097,7 @@ impl Client {
         was_requested: bool,
         peer_id: &PeerId,
     ) -> Result<(), near_chain::Error> {
-        let res = self.chain.process_block_header(block.header(), &mut vec![]);
+        let res = self.chain.process_block_header(block.header());
         let res = res.and_then(|_| self.chain.validate_block(block));
         match res {
             Ok(_) => {
@@ -1148,32 +1162,7 @@ impl Client {
             )
         };
 
-        self.process_block_processing_artifact(block_processing_artifacts, &signer);
-
-        // Send out challenge if the block was found to be invalid.
-        if let Some(signer) = signer {
-            if let Err(e) = &result {
-                match e {
-                    near_chain::Error::InvalidChunkProofs(chunk_proofs) => {
-                        self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
-                            NetworkRequests::Challenge(Challenge::produce(
-                                ChallengeBody::ChunkProofs(*chunk_proofs.clone()),
-                                &*signer,
-                            )),
-                        ));
-                    }
-                    near_chain::Error::InvalidChunkState(chunk_state) => {
-                        self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
-                            NetworkRequests::Challenge(Challenge::produce(
-                                ChallengeBody::ChunkState(*chunk_state.clone()),
-                                &*signer,
-                            )),
-                        ));
-                    }
-                    _ => {}
-                }
-            }
-        }
+        self.process_block_processing_artifact(block_processing_artifacts);
 
         result
     }
@@ -1201,7 +1190,7 @@ impl Client {
                 header_head: self.chain.header_head().unwrap(),
             });
         }
-        self.process_block_processing_artifact(block_processing_artifacts, signer);
+        self.process_block_processing_artifact(block_processing_artifacts);
         let accepted_blocks_hashes =
             accepted_blocks.iter().map(|accepted_block| accepted_block.hash).collect();
         for accepted_block in accepted_blocks {
@@ -1225,16 +1214,12 @@ impl Client {
     pub(crate) fn process_block_processing_artifact(
         &mut self,
         block_processing_artifacts: BlockProcessingArtifact,
-        signer: &Option<Arc<ValidatorSigner>>,
     ) {
         let BlockProcessingArtifact {
             orphans_missing_chunks,
             blocks_missing_chunks,
-            challenges,
             invalid_chunks,
         } = block_processing_artifacts;
-        // Send out challenges that accumulated via on_challenge.
-        self.send_challenges(challenges, &signer);
         // For any missing chunk, let the ShardsManager know of the chunk header so that it may
         // apply forwarded parts. This may end up completing the chunk.
         let missing_chunks = blocks_missing_chunks
@@ -1315,14 +1300,19 @@ impl Client {
             .record_chunk_collected(partial_chunk.height_created(), shard_index);
 
         // TODO(#10569) We would like a proper error handling here instead of `expect`.
-        persist_chunk(partial_chunk, shard_chunk, self.chain.mut_chain_store())
+        persist_chunk(Arc::new(partial_chunk), shard_chunk, self.chain.mut_chain_store())
             .expect("Could not persist chunk");
         // We're marking chunk as accepted.
         self.chain.blocks_with_missing_chunks.accept_chunk(&chunk_header.chunk_hash());
         self.chain.optimistic_block_chunks.add_chunk(&shard_layout, chunk_header);
         // If this was the last chunk that was missing for a block, it will be processed now.
         self.process_blocks_with_missing_chunks(apply_chunks_done_sender, &signer);
-        self.maybe_process_optimistic_block();
+
+        let me = signer.as_ref().map(|signer| signer.validator_id().clone());
+        self.chain.maybe_process_optimistic_block(
+            &me,
+            Some(self.myself_sender.apply_chunks_done.clone()),
+        );
     }
 
     /// Called asynchronously when the ShardsManager finishes processing a chunk but the chunk
@@ -1338,16 +1328,13 @@ impl Client {
     pub fn sync_block_headers(
         &mut self,
         headers: Vec<BlockHeader>,
-        signer: &Option<Arc<ValidatorSigner>>,
     ) -> Result<(), near_chain::Error> {
         if matches!(self.sync_handler.sync_status, SyncStatus::EpochSync(_)) {
             return Err(near_chain::Error::Other(
                 "Cannot sync block headers during an epoch sync".to_owned(),
             ));
         };
-        let mut challenges = vec![];
-        self.chain.sync_block_headers(headers, &mut challenges)?;
-        self.send_challenges(challenges, signer);
+        self.chain.sync_block_headers(headers)?;
         self.shards_manager_adapter.send(ShardsManagerRequestFromClient::UpdateChainHeads {
             head: self.chain.head().unwrap(),
             header_head: self.chain.header_head().unwrap(),
@@ -1515,9 +1502,9 @@ impl Client {
                 match (old_shard_layout, new_shard_layout) {
                     (Ok(old_shard_layout), Ok(new_shard_layout)) => {
                         if old_shard_layout != new_shard_layout {
-                            self.chunk_producer
-                                .sharded_tx_pool
-                                .reshard(&old_shard_layout, &new_shard_layout);
+                            let mut guarded_pool =
+                                self.chunk_producer.sharded_tx_pool.lock().unwrap();
+                            guarded_pool.reshard(&old_shard_layout, &new_shard_layout);
                         }
                     }
                     (old_shard_layout, new_shard_layout) => {
@@ -1576,7 +1563,18 @@ impl Client {
             BlockStatus::Next => {
                 // If this block immediately follows the current tip, remove
                 // transactions from the tx pool.
-                self.remove_transactions_for_block(validator_id, block).unwrap_or_default();
+                match self.remove_transactions_for_block(&validator_id, block) {
+                    Ok(()) => (),
+                    Err(err) => {
+                        tracing::debug!(
+                            target: "client",
+                            "validator {}: removing txs for block {:?} failed with {:?}",
+                            validator_id,
+                            block,
+                            err
+                        );
+                    }
+                }
             }
             BlockStatus::Fork => {
                 // If it's a fork, no need to reconcile transactions or produce chunks.
@@ -1613,17 +1611,35 @@ impl Client {
 
                 for to_reintroduce_hash in to_reintroduce {
                     if let Ok(block) = self.chain.get_block(&to_reintroduce_hash) {
-                        let block = block.clone();
-                        self.reintroduce_transactions_for_block(validator_id.clone(), &block)
-                            .unwrap_or_default();
+                        match self.reintroduce_transactions_for_block(&validator_id, &block) {
+                            Ok(()) => (),
+                            Err(err) => {
+                                tracing::debug!(
+                                    target: "client",
+                                    "validator {}: reintroducing txs for block {:?} failed with {:?}",
+                                    validator_id,
+                                    block,
+                                    err
+                                );
+                            }
+                        }
                     }
                 }
 
                 for to_remove_hash in to_remove {
                     if let Ok(block) = self.chain.get_block(&to_remove_hash) {
-                        let block = block.clone();
-                        self.remove_transactions_for_block(validator_id.clone(), &block)
-                            .unwrap_or_default();
+                        match self.remove_transactions_for_block(&validator_id, &block) {
+                            Ok(()) => (),
+                            Err(err) => {
+                                tracing::debug!(
+                                    target: "client",
+                                    "validator {}: removing txs for block {:?} failed with {:?}",
+                                    validator_id,
+                                    block,
+                                    err
+                                );
+                            }
+                        }
                     }
                 }
             }
@@ -1687,14 +1703,22 @@ impl Client {
                 last_header.clone(),
                 next_height,
                 shard_id,
-                Some(signer),
-                &self.chain.transaction_validity_check(block.header().clone()),
+                signer,
+                &|tx| {
+                    #[cfg(features = "test_features")]
+                    match self.adv_produce_chunks {
+                        Some(AdvProduceChunksMode::ProduceWithoutTxValidityCheck) => true,
+                        _ => chain.transaction_validity_check(block.header().clone())(tx),
+                    }
+                    #[cfg(not(features = "test_features"))]
+                    self.chain.transaction_validity_check(block.header().clone())(tx)
+                },
             );
             match result {
                 Ok(Some(result)) => {
                     let shard_chunk = self
                         .persist_and_distribute_encoded_chunk(
-                            result.chunk,
+                            result.encoded_chunk,
                             result.encoded_chunk_parts_paths,
                             result.receipts,
                             validator_id.clone(),
@@ -1705,7 +1729,6 @@ impl Client {
                         block.header(),
                         &last_header,
                         &shard_chunk,
-                        result.transactions_storage_proof,
                         &Some(signer.clone()),
                     ) {
                         tracing::error!(target: "client", ?err, "Failed to send chunk state witness to chunk validators");
@@ -1733,8 +1756,9 @@ impl Client {
             self.epoch_manager.as_ref(),
             &self.shard_tracker,
         )?;
+        let partial_chunk_arc = Arc::new(partial_chunk.clone());
         persist_chunk(
-            partial_chunk.clone(),
+            Arc::clone(&partial_chunk_arc),
             Some(shard_chunk.clone()),
             self.chain.mut_chain_store(),
         )?;
@@ -1742,10 +1766,10 @@ impl Client {
         let chunk_header = encoded_chunk.cloned_header();
         if let Some(chunk_distribution) = &self.chunk_distribution_network {
             if chunk_distribution.enabled() {
-                let partial_chunk = partial_chunk.clone();
+                let partial_chunk_arc = Arc::clone(&partial_chunk_arc);
                 let mut thread_local_client = chunk_distribution.clone();
                 near_performance_metrics::actix::spawn("ChunkDistributionNetwork", async move {
-                    if let Err(err) = thread_local_client.publish_chunk(&partial_chunk).await {
+                    if let Err(err) = thread_local_client.publish_chunk(&partial_chunk_arc).await {
                         error!(target: "client", ?err, "Failed to distribute chunk via Chunk Distribution Network");
                     }
                 });
@@ -1833,43 +1857,7 @@ impl Client {
             &mut blocks_processing_artifacts,
             apply_chunks_done_sender,
         );
-        self.process_block_processing_artifact(blocks_processing_artifacts, signer);
-    }
-
-    pub fn maybe_process_optimistic_block(&mut self) {
-        let Some((block, chunks)) = self.chain.optimistic_block_chunks.take_latest_ready_block()
-        else {
-            return;
-        };
-
-        let signer = self.validator_signer.get();
-        let me = signer.as_ref().map(|signer| signer.validator_id());
-        let prev_block_hash = *block.prev_block_hash();
-        let block_hash = *block.hash();
-        let block_height = block.height();
-        let apply_chunks_done_sender = self.myself_sender.apply_chunks_done.clone();
-        match self.chain.process_optimistic_block(
-            &me.map(|x| x.clone()),
-            block,
-            chunks,
-            apply_chunks_done_sender,
-        ) {
-            Ok(()) => {
-                info!(
-                    target: "chain", prev_block_hash = ?prev_block_hash,
-                    hash = ?block_hash, height = block_height,
-                    "Processed optimistic block"
-                );
-            }
-            Err(err) => {
-                warn!(
-                    target: "chain", err = ?err,
-                    prev_block_hash = ?prev_block_hash,
-                    hash = ?block_hash, height = block_height,
-                    "Failed to process optimistic block"
-                );
-            }
-        }
+        self.process_block_processing_artifact(blocks_processing_artifacts);
     }
 
     pub fn is_validator(&self, epoch_id: &EpochId, signer: &Option<Arc<ValidatorSigner>>) -> bool {
@@ -2049,311 +2037,6 @@ impl Client {
         self.doomslug.on_approval_message(approval, &block_producer_stakes);
     }
 
-    /// Forwards given transaction to upcoming validators.
-    fn forward_tx(
-        &self,
-        epoch_id: &EpochId,
-        tx: &SignedTransaction,
-        signer: &Option<Arc<ValidatorSigner>>,
-    ) -> Result<(), Error> {
-        let shard_id = account_id_to_shard_id(
-            self.epoch_manager.as_ref(),
-            tx.transaction.signer_id(),
-            epoch_id,
-        )?;
-        // Use the header head to make sure the list of validators is as
-        // up-to-date as possible.
-        let head = self.chain.header_head()?;
-        let maybe_next_epoch_id = self.get_next_epoch_id_if_at_boundary(&head)?;
-
-        let mut validators = HashSet::new();
-        for horizon in (2..=self.config.tx_routing_height_horizon)
-            .chain(vec![self.config.tx_routing_height_horizon * 2].into_iter())
-        {
-            let target_height = head.height + horizon - 1;
-            let validator = self
-                .epoch_manager
-                .get_chunk_producer_info(&ChunkProductionKey {
-                    epoch_id: *epoch_id,
-                    height_created: target_height,
-                    shard_id,
-                })?
-                .take_account_id();
-            validators.insert(validator);
-            if let Some(next_epoch_id) = &maybe_next_epoch_id {
-                let next_shard_id = account_id_to_shard_id(
-                    self.epoch_manager.as_ref(),
-                    tx.transaction.signer_id(),
-                    next_epoch_id,
-                )?;
-                let validator = self
-                    .epoch_manager
-                    .get_chunk_producer_info(&ChunkProductionKey {
-                        epoch_id: *next_epoch_id,
-                        height_created: target_height,
-                        shard_id: next_shard_id,
-                    })?
-                    .take_account_id();
-                validators.insert(validator);
-            }
-        }
-
-        if let Some(account_id) = signer.as_ref().map(|bp| bp.validator_id()) {
-            validators.remove(account_id);
-        }
-        for validator in validators {
-            let tx_hash = tx.get_hash();
-            trace!(target: "client", me = ?signer.as_ref().map(|bp| bp.validator_id()), ?tx_hash, ?validator, ?shard_id, "Routing a transaction");
-
-            // Send message to network to actually forward transaction.
-            self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
-                NetworkRequests::ForwardTx(validator, tx.clone()),
-            ));
-        }
-
-        Ok(())
-    }
-
-    /// Submits the transaction for future inclusion into the chain.
-    ///
-    /// If accepted, it will be added to the transaction pool and possibly forwarded to another
-    /// validator.
-    #[must_use]
-    pub fn process_tx(
-        &mut self,
-        tx: SignedTransaction,
-        is_forwarded: bool,
-        check_only: bool,
-    ) -> ProcessTxResponse {
-        let signer = self.validator_signer.get();
-        unwrap_or_return!(self.process_tx_internal(&tx, is_forwarded, check_only, &signer), {
-            let me = signer.as_ref().map(|signer| signer.validator_id());
-            warn!(target: "client", ?me, ?tx, "Dropping tx");
-            ProcessTxResponse::NoResponse
-        })
-    }
-
-    /// If we are close to epoch boundary, return next epoch id, otherwise return None.
-    fn get_next_epoch_id_if_at_boundary(&self, head: &Tip) -> Result<Option<EpochId>, Error> {
-        let next_epoch_started =
-            self.epoch_manager.is_next_block_epoch_start(&head.last_block_hash)?;
-        if next_epoch_started {
-            return Ok(None);
-        }
-        let next_epoch_estimated_height =
-            self.epoch_manager.get_epoch_start_height(&head.last_block_hash)?
-                + self.config.epoch_length;
-
-        let epoch_boundary_possible =
-            head.height + self.config.tx_routing_height_horizon >= next_epoch_estimated_height;
-        if epoch_boundary_possible {
-            Ok(Some(self.epoch_manager.get_next_epoch_id_from_prev_block(&head.last_block_hash)?))
-        } else {
-            Ok(None)
-        }
-    }
-
-    /// If we're a validator in one of the next few chunks, but epoch switch could happen soon,
-    /// we forward to a validator from next epoch.
-    fn possibly_forward_tx_to_next_epoch(
-        &mut self,
-        tx: &SignedTransaction,
-        signer: &Option<Arc<ValidatorSigner>>,
-    ) -> Result<(), Error> {
-        let head = self.chain.head()?;
-        if let Some(next_epoch_id) = self.get_next_epoch_id_if_at_boundary(&head)? {
-            self.forward_tx(&next_epoch_id, tx, signer)?;
-        } else {
-            self.forward_tx(&head.epoch_id, tx, signer)?;
-        }
-        Ok(())
-    }
-
-    /// Process transaction and either add it to the mempool or return to redirect to another validator.
-    fn process_tx_internal(
-        &mut self,
-        tx: &SignedTransaction,
-        is_forwarded: bool,
-        check_only: bool,
-        signer: &Option<Arc<ValidatorSigner>>,
-    ) -> Result<ProcessTxResponse, Error> {
-        let head = self.chain.head()?;
-        let me = signer.as_ref().map(|vs| vs.validator_id());
-        let cur_block = self.chain.get_head_block()?;
-        let cur_block_header = cur_block.header();
-        // here it is fine to use `cur_block_header` as it is a best effort estimate. If the transaction
-        // were to be included, the block that the chunk points to will have height >= height of
-        // `cur_block_header`.
-        if let Err(e) = self
-            .chain
-            .chain_store()
-            .check_transaction_validity_period(&cur_block_header, tx.transaction.block_hash())
-        {
-            debug!(target: "client", ?tx, "Invalid tx: expired or from a different fork");
-            return Ok(ProcessTxResponse::InvalidTx(e));
-        }
-        let gas_price = cur_block_header.next_gas_price();
-        let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&head.last_block_hash)?;
-        let receiver_shard = account_id_to_shard_id(
-            self.epoch_manager.as_ref(),
-            tx.transaction.receiver_id(),
-            &epoch_id,
-        )?;
-        let receiver_congestion_info =
-            cur_block.block_congestion_info().get(&receiver_shard).copied();
-        let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
-
-        if let Some(err) = self
-            .runtime_adapter
-            .validate_tx(
-                gas_price,
-                None,
-                tx,
-                true,
-                &epoch_id,
-                protocol_version,
-                receiver_congestion_info,
-            )
-            .expect("no storage errors")
-        {
-            debug!(target: "client", tx_hash = ?tx.get_hash(), ?err, "Invalid tx during basic validation");
-            return Ok(ProcessTxResponse::InvalidTx(err));
-        }
-
-        let shard_id = account_id_to_shard_id(
-            self.epoch_manager.as_ref(),
-            tx.transaction.signer_id(),
-            &epoch_id,
-        )?;
-        let care_about_shard =
-            self.shard_tracker.care_about_shard(me, &head.last_block_hash, shard_id, true);
-        let will_care_about_shard =
-            self.shard_tracker.will_care_about_shard(me, &head.last_block_hash, shard_id, true);
-        if care_about_shard || will_care_about_shard {
-            let shard_uid = shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, &epoch_id)?;
-            let state_root = match self.chain.get_chunk_extra(&head.last_block_hash, &shard_uid) {
-                Ok(chunk_extra) => *chunk_extra.state_root(),
-                Err(_) => {
-                    // Not being able to fetch a state root most likely implies that we haven't
-                    //     caught up with the next epoch yet.
-                    if is_forwarded {
-                        return Err(Error::Other("Node has not caught up yet".to_string()));
-                    } else {
-                        self.forward_tx(&epoch_id, tx, signer)?;
-                        return Ok(ProcessTxResponse::RequestRouted);
-                    }
-                }
-            };
-            if let Some(err) = self
-                .runtime_adapter
-                .validate_tx(
-                    gas_price,
-                    Some(state_root),
-                    tx,
-                    false,
-                    &epoch_id,
-                    protocol_version,
-                    receiver_congestion_info,
-                )
-                .expect("no storage errors")
-            {
-                debug!(target: "client", ?err, "Invalid tx");
-                Ok(ProcessTxResponse::InvalidTx(err))
-            } else if check_only {
-                Ok(ProcessTxResponse::ValidTx)
-            } else {
-                // Transactions only need to be recorded if the node is a validator.
-                if me.is_some() {
-                    match self
-                        .chunk_producer
-                        .sharded_tx_pool
-                        .insert_transaction(shard_uid, tx.clone())
-                    {
-                        InsertTransactionResult::Success => {
-                            trace!(target: "client", ?shard_uid, tx_hash = ?tx.get_hash(), "Recorded a transaction.");
-                        }
-                        InsertTransactionResult::Duplicate => {
-                            trace!(target: "client", ?shard_uid, tx_hash = ?tx.get_hash(), "Duplicate transaction, not forwarding it.");
-                            return Ok(ProcessTxResponse::ValidTx);
-                        }
-                        InsertTransactionResult::NoSpaceLeft => {
-                            if is_forwarded {
-                                trace!(target: "client", ?shard_uid, tx_hash = ?tx.get_hash(), "Transaction pool is full, dropping the transaction.");
-                            } else {
-                                trace!(target: "client", ?shard_uid, tx_hash = ?tx.get_hash(), "Transaction pool is full, trying to forward the transaction.");
-                            }
-                        }
-                    }
-                }
-
-                // Active validator:
-                //   possibly forward to next epoch validators
-                // Not active validator:
-                //   forward to current epoch validators,
-                //   possibly forward to next epoch validators
-                if self.active_validator(shard_id, signer)? {
-                    trace!(target: "client", account = ?me, ?shard_id, tx_hash = ?tx.get_hash(), is_forwarded, "Recording a transaction.");
-                    metrics::TRANSACTION_RECEIVED_VALIDATOR.inc();
-
-                    if !is_forwarded {
-                        self.possibly_forward_tx_to_next_epoch(tx, signer)?;
-                    }
-                    Ok(ProcessTxResponse::ValidTx)
-                } else if !is_forwarded {
-                    trace!(target: "client", ?shard_id, tx_hash = ?tx.get_hash(), "Forwarding a transaction.");
-                    metrics::TRANSACTION_RECEIVED_NON_VALIDATOR.inc();
-                    self.forward_tx(&epoch_id, tx, signer)?;
-                    Ok(ProcessTxResponse::RequestRouted)
-                } else {
-                    trace!(target: "client", ?shard_id, tx_hash = ?tx.get_hash(), "Non-validator received a forwarded transaction, dropping it.");
-                    metrics::TRANSACTION_RECEIVED_NON_VALIDATOR_FORWARDED.inc();
-                    Ok(ProcessTxResponse::NoResponse)
-                }
-            }
-        } else if check_only {
-            Ok(ProcessTxResponse::DoesNotTrackShard)
-        } else if is_forwarded {
-            // Received forwarded transaction but we are not tracking the shard
-            debug!(target: "client", ?me, ?shard_id, tx_hash = ?tx.get_hash(), "Received forwarded transaction but no tracking shard");
-            Ok(ProcessTxResponse::NoResponse)
-        } else {
-            // We are not tracking this shard, so there is no way to validate this tx. Just rerouting.
-            self.forward_tx(&epoch_id, tx, signer)?;
-            Ok(ProcessTxResponse::RequestRouted)
-        }
-    }
-
-    /// Determine if I am a validator in next few blocks for specified shard, assuming epoch doesn't change.
-    fn active_validator(
-        &self,
-        shard_id: ShardId,
-        signer: &Option<Arc<ValidatorSigner>>,
-    ) -> Result<bool, Error> {
-        let head = self.chain.head()?;
-        let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&head.last_block_hash)?;
-
-        let account_id = if let Some(vs) = signer.as_ref() {
-            vs.validator_id()
-        } else {
-            return Ok(false);
-        };
-
-        for i in 1..=self.config.tx_routing_height_horizon {
-            let chunk_producer = self
-                .epoch_manager
-                .get_chunk_producer_info(&ChunkProductionKey {
-                    epoch_id,
-                    height_created: head.height + i,
-                    shard_id,
-                })?
-                .take_account_id();
-            if &chunk_producer == account_id {
-                return Ok(true);
-            }
-        }
-        Ok(false)
-    }
-
     /// Find the sync hash. Most of the time it will already be set in `state_sync_info`. If not, try to find it,
     /// and set the corresponding field in `state_sync_info`.
     fn get_catchup_sync_hash_v1(
@@ -2478,39 +2161,12 @@ impl Client {
                             &catchup.done_blocks,
                         )?;
 
-                        self.process_block_processing_artifact(block_processing_artifacts, &signer);
+                        self.process_block_processing_artifact(block_processing_artifacts);
                     }
                 }
             }
         }
 
-        Ok(())
-    }
-
-    /// When accepting challenge, we verify that it's valid given signature with current validators.
-    pub fn process_challenge(&mut self, _challenge: Challenge) -> Result<(), Error> {
-        // TODO(2445): Enable challenges when they are working correctly.
-        //        if self.challenges.contains_key(&challenge.hash) {
-        //            return Ok(());
-        //        }
-        //        debug!(target: "client", "Received challenge: {:?}", challenge);
-        //        let head = self.chain.head()?;
-        //        if self.runtime_adapter.verify_validator_or_fisherman_signature(
-        //            &head.epoch_id,
-        //            &head.prev_block_hash,
-        //            &challenge.account_id,
-        //            challenge.hash.as_ref(),
-        //            &challenge.signature,
-        //        )? {
-        //            // If challenge is not double sign, we should process it right away to invalidate the chain.
-        //            match challenge.body {
-        //                ChallengeBody::BlockDoubleSign(_) => {}
-        //                _ => {
-        //                    self.chain.process_challenge(&challenge);
-        //                }
-        //            }
-        //            self.challenges.insert(challenge.hash, challenge);
-        //        }
         Ok(())
     }
 }
@@ -2626,10 +2282,12 @@ impl Client {
         // convert config tracked shards
         // runtime will track all shards if config tracked shards is not empty
         // https://github.com/near/nearcore/issues/4930
-        let tracked_shards = if self.config.tracked_shards.is_empty() {
-            vec![]
-        } else {
+        let tracked_shards = if self.config.tracked_shards_config.tracks_all_shards() {
             self.epoch_manager.shard_ids(&tip.epoch_id)?
+        } else {
+            // TODO(archival_v2): Revisit this to determine if improvements can be made
+            // and if the issue described above has been resolved.
+            vec![]
         };
         let tier1_accounts = self.get_tier1_accounts(&tip)?;
         let block = self.chain.get_block(&tip.last_block_hash)?;
@@ -2645,9 +2303,7 @@ impl Client {
 impl Client {
     pub fn get_catchup_status(&self) -> Result<Vec<CatchupStatusView>, near_chain::Error> {
         let mut ret = vec![];
-        for (sync_hash, CatchupState { sync_status, catchup, .. }) in
-            self.catchup_state_syncs.iter()
-        {
+        for (sync_hash, CatchupState { sync_status, catchup, .. }) in &self.catchup_state_syncs {
             let sync_block_height = self.chain.get_block_header(sync_hash)?.height();
             let shard_sync_status: HashMap<_, _> = sync_status
                 .sync_status

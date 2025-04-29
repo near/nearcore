@@ -1,5 +1,5 @@
-use super::encoding::BorshFixedSize;
 use super::FlexibleDataHeader;
+use super::encoding::BorshFixedSize;
 use crate::trie::mem::arena::{ArenaMemory, ArenaMemoryMut, ArenaSlice, ArenaSliceMut};
 use borsh::{BorshDeserialize, BorshSerialize};
 

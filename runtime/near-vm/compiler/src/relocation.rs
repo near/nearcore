@@ -13,8 +13,8 @@ use crate::lib::std::fmt;
 use crate::lib::std::vec::Vec;
 use crate::section::SectionIndex;
 use crate::{Addend, CodeOffset, JumpTable};
-use near_vm_types::entity::PrimaryMap;
 use near_vm_types::LocalFunctionIndex;
+use near_vm_types::entity::PrimaryMap;
 use near_vm_vm::libcalls::LibCall;
 
 /// Relocation kinds for every ISA.

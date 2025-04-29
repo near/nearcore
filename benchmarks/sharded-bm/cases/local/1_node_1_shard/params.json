@@ -1,0 +1,10 @@
+{
+    "chunk_producers": 1,
+    "rpcs": 0,
+    "base_config_patch": "../../base_config_patch.json",
+    "base_genesis_patch": "../../1_shard_genesis_patch.json",
+    "num_accounts": 1000,
+    "channel_buffer_size": 60000,
+    "requests_per_second": 4000,
+    "num_transfers": 300000
+}

@@ -1,4 +1,4 @@
-use crate::{GGas, ReceiptDefinition, ShardId, GGAS};
+use crate::{GGAS, GGas, ReceiptDefinition, ShardId};
 
 // The refund is just a Transfer. I think this it is fairly small but I didn't
 // check the exact number.

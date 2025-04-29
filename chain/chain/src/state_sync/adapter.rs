@@ -5,10 +5,11 @@ use crate::store::utils::{
 };
 use crate::types::RuntimeAdapter;
 use crate::validate::validate_chunk_proofs;
-use crate::{byzantine_assert, metrics, ReceiptFilter};
+use crate::{ReceiptFilter, byzantine_assert, metrics};
 use near_async::time::{Clock, Instant};
 use near_chain_primitives::error::{Error, LogTransientStorageError};
 use near_epoch_manager::EpochManagerAdapter;
+use near_primitives::block::Tip;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, verify_path};
 use near_primitives::sharding::{
@@ -16,14 +17,14 @@ use near_primitives::sharding::{
 };
 use near_primitives::state_part::PartId;
 use near_primitives::state_sync::{
-    get_num_state_parts, ReceiptProofResponse, RootProof, ShardStateSyncResponseHeader,
-    ShardStateSyncResponseHeaderV2, StateHeaderKey, StatePartKey,
+    ReceiptProofResponse, RootProof, ShardStateSyncResponseHeader, ShardStateSyncResponseHeaderV2,
+    StateHeaderKey, StatePartKey, get_num_state_parts,
 };
 use near_primitives::types::ShardId;
 use near_primitives::views::RequestedStatePartsView;
-use near_store::adapter::chain_store::ChainStoreAdapter;
-use near_store::adapter::StoreAdapter;
 use near_store::DBCol;
+use near_store::adapter::StoreAdapter;
+use near_store::adapter::chain_store::ChainStoreAdapter;
 use std::collections::HashSet;
 use std::sync::Arc;
 use time::ext::InstantExt as _;
@@ -174,7 +175,7 @@ impl ChainStateSyncAdapter {
 
         // Collecting proofs for incoming receipts.
         let mut root_proofs = vec![];
-        for receipt_response in incoming_receipts_proofs.iter() {
+        for receipt_response in &incoming_receipts_proofs {
             let ReceiptProofResponse(block_hash, receipt_proofs) = receipt_response;
             let block_header = self.chain_store.get_block_header(&block_hash)?.clone();
             let block = self.chain_store.get_block(&block_hash)?;
@@ -354,7 +355,7 @@ impl ChainStateSyncAdapter {
     }
 
     pub fn set_state_header(
-        &mut self,
+        &self,
         shard_id: ShardId,
         sync_hash: CryptoHash,
         shard_state_header: ShardStateSyncResponseHeader,
@@ -517,7 +518,7 @@ impl ChainStateSyncAdapter {
     }
 
     pub fn set_state_part(
-        &mut self,
+        &self,
         shard_id: ShardId,
         sync_hash: CryptoHash,
         part_id: PartId,
@@ -544,5 +545,10 @@ impl ChainStateSyncAdapter {
 
     pub fn get_requested_state_parts(&self) -> Vec<RequestedStatePartsView> {
         self.requested_state_parts.get_requested_state_parts()
+    }
+
+    /// Returns whether `tip.last_block_hash` is the block that will appear immediately before the "sync_hash" block.
+    pub fn is_sync_prev_hash(&self, tip: &Tip) -> Result<bool, Error> {
+        crate::state_sync::utils::is_sync_prev_hash(&self.chain_store, tip)
     }
 }

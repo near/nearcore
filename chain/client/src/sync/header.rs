@@ -312,7 +312,7 @@ impl HeaderSync {
 
     /// Request headers from a given peer to advance the chain.
     fn request_headers(
-        &mut self,
+        &self,
         chain: &Chain,
         peer: &HighestHeightPeerInfo,
     ) -> Result<(), near_chain::Error> {
@@ -337,7 +337,7 @@ impl HeaderSync {
     // back, then 8 blocks back, etc, until we reach the most recent final block. The reason
     // why we stop at the final block is because the consensus guarantees us that the final
     // blocks observed by all nodes are on the same fork.
-    fn get_locator(&mut self, chain: &Chain) -> Result<Vec<CryptoHash>, near_chain::Error> {
+    fn get_locator(&self, chain: &Chain) -> Result<Vec<CryptoHash>, near_chain::Error> {
         let store = chain.chain_store();
         let tip = store.header_head()?;
         // We could just get the ordinal from the header, but it's off by one: #8177.
@@ -393,7 +393,7 @@ mod test {
     use near_async::time::{Clock, Duration, FakeClock, Utc};
     use near_chain::test_utils::{process_block_sync, setup, setup_with_tx_validity_period};
     use near_chain::types::Tip;
-    use near_chain::{retrieve_headers, BlockProcessingArtifact, Provenance};
+    use near_chain::{BlockProcessingArtifact, Provenance, retrieve_headers};
     use near_chain_configs::MutableConfigValue;
     use near_client_primitives::types::SyncStatus;
     use near_crypto::{KeyType, PublicKey};
@@ -401,7 +401,8 @@ mod test {
     use near_network::types::{
         BlockInfo, FullPeerInfo, HighestHeightPeerInfo, NetworkRequests, PeerInfo,
     };
-    use near_primitives::block::{Approval, Block, GenesisId};
+    use near_primitives::block::{Approval, Block};
+    use near_primitives::genesis::GenesisId;
     use near_primitives::merkle::PartialMerkleTree;
     use near_primitives::network::PeerId;
     use near_primitives::test_utils::TestBlockBuilder;
@@ -411,7 +412,7 @@ mod test {
     use std::sync::Arc;
     use std::thread;
 
-    use crate::sync::header::{get_locator_ordinals, HeaderSync, MAX_BLOCK_HEADERS};
+    use crate::sync::header::{HeaderSync, MAX_BLOCK_HEADERS, get_locator_ordinals};
 
     #[test]
     fn test_get_locator_ordinals() {
@@ -516,14 +517,16 @@ mod test {
             },
         };
         let head = chain.head().unwrap();
-        assert!(header_sync
-            .run(
-                &mut sync_status,
-                &mut chain,
-                head.height,
-                &[<FullPeerInfo as Into<Option<_>>>::into(peer1.clone()).unwrap()]
-            )
-            .is_ok());
+        assert!(
+            header_sync
+                .run(
+                    &mut sync_status,
+                    &mut chain,
+                    head.height,
+                    &[<FullPeerInfo as Into<Option<_>>>::into(peer1.clone()).unwrap()]
+                )
+                .is_ok()
+        );
         assert!(sync_status.is_syncing());
         // Check that it queried last block, and then stepped down to genesis block to find common block with the peer.
 
@@ -618,14 +621,16 @@ mod test {
             },
         };
         let head = chain.head().unwrap();
-        assert!(header_sync
-            .run(
-                &mut sync_status,
-                &mut chain,
-                head.height,
-                &[<FullPeerInfo as Into<Option<_>>>::into(peer1.clone()).unwrap()]
-            )
-            .is_ok());
+        assert!(
+            header_sync
+                .run(
+                    &mut sync_status,
+                    &mut chain,
+                    head.height,
+                    &[<FullPeerInfo as Into<Option<_>>>::into(peer1.clone()).unwrap()]
+                )
+                .is_ok()
+        );
         assert!(sync_status.is_syncing());
         // Check that it queried last block, and then stepped down to genesis block to find common block with the peer.
 
@@ -780,8 +785,6 @@ mod test {
             };
             let block = Block::produce(
                 PROTOCOL_VERSION,
-                PROTOCOL_VERSION,
-                PROTOCOL_VERSION,
                 last_block.header(),
                 this_height,
                 last_block.header().block_ordinal() + 1,
@@ -808,8 +811,6 @@ mod test {
                 0,
                 100,
                 Some(0),
-                vec![],
-                vec![],
                 signer2.as_ref(),
                 *last_block.header().next_bp_hash(),
                 block_merkle_tree.root(),
@@ -818,7 +819,7 @@ mod test {
                 None,
             );
             block_merkle_tree.insert(*block.hash());
-            chain2.process_block_header(block.header(), &mut Vec::new()).unwrap(); // just to validate
+            chain2.process_block_header(block.header()).unwrap(); // just to validate
             process_block_sync(
                 &mut chain2,
                 &None,
@@ -852,14 +853,16 @@ mod test {
                 // sync is done.
                 break;
             }
-            assert!(header_sync
-                .run(
-                    &mut sync_status,
-                    &mut chain,
-                    header_head.height,
-                    &[<FullPeerInfo as Into<Option<_>>>::into(peer1.clone()).unwrap()]
-                )
-                .is_ok());
+            assert!(
+                header_sync
+                    .run(
+                        &mut sync_status,
+                        &mut chain,
+                        header_head.height,
+                        &[<FullPeerInfo as Into<Option<_>>>::into(peer1.clone()).unwrap()]
+                    )
+                    .is_ok()
+            );
             match sync_status {
                 SyncStatus::HeaderSync { .. } => {}
                 _ => panic!("Unexpected sync status: {:?}", sync_status),
@@ -877,7 +880,7 @@ mod test {
                         retrieve_headers(chain2.chain_store(), hashes, MAX_BLOCK_HEADERS, None)
                             .unwrap();
                     assert!(!headers.is_empty(), "No headers were returned");
-                    match chain.sync_block_headers(headers, &mut Vec::new()) {
+                    match chain.sync_block_headers(headers) {
                         Ok(_) => {}
                         Err(e) => {
                             panic!("Error inserting headers: {:?}", e);

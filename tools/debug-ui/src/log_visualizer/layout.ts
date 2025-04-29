@@ -44,7 +44,7 @@ class OneRowLayout {
 
     public arrowLayout = new Map<ArrowRowPosition, ArrowLayoutStrip>();
 
-    constructor(public readonly time: number) {}
+    constructor(public readonly time: number) { }
 }
 
 // The layout parameters for a single column of items.
@@ -74,8 +74,9 @@ class OneColumnLayout {
     public startOffset = 0;
     public itemOffset = 0;
     public itemEndOffset = 0;
-
     public arrowLayout = new Map<ArrowColumnPosition, ArrowLayoutStrip>();
+
+    constructor(public identifier: string) { }
 }
 
 // The computed layout parameters for a unique vertical position of horizontal
@@ -125,12 +126,20 @@ export class Layouts {
         const sortedItems = [...items.getAllNonAttachedItems()];
         const nextRowForColumn: number[] = [];
         let currentTime = 0;
+
+        const columnIdentifiers = new Set<string>();
         for (const item of sortedItems) {
-            while (this.columns.length <= item.column) {
-                this.columns.push(new OneColumnLayout());
-                nextRowForColumn.push(0);
-            }
+            columnIdentifiers.add(item.identifier);
         }
+
+        // Convert the set to an sorted mapping
+        const columnIdentifierMap = new Map<string, number>();
+        Array.from(columnIdentifiers).sort().forEach((identifier, index) => {
+            columnIdentifierMap.set(identifier, index);
+            this.columns.push(new OneColumnLayout(identifier));
+            nextRowForColumn.push(0);
+        });
+
         sortedItems.sort((a, b) => {
             if (a.time < b.time) {
                 return -1;
@@ -142,6 +151,7 @@ export class Layouts {
             return a.id - b.id;
         });
         for (const item of sortedItems) {
+            item.columnNumber = columnIdentifierMap.get(item.identifier)!;
             if (item.time > currentTime) {
                 currentTime = item.time;
                 for (let i = 0; i < this.columns.length; i++) {
@@ -159,13 +169,13 @@ export class Layouts {
             if (parentItem !== null) {
                 // Make sure that the child item is always placed below the parent; otherwise the arrows would
                 // point backwards.
-                nextRowForColumn[item.column] = Math.max(
-                    nextRowForColumn[item.column],
-                    parentItem.row + 1
+                nextRowForColumn[item.columnNumber] = Math.max(
+                    nextRowForColumn[item.columnNumber],
+                    parentItem.rowNumber + 1
                 );
             }
-            item.row = nextRowForColumn[item.column]++;
-            if (item.row >= this.rows.length) {
+            item.rowNumber = nextRowForColumn[item.columnNumber]++;
+            if (item.rowNumber >= this.rows.length) {
                 this.rows.push(new OneRowLayout(item.time));
             }
         }

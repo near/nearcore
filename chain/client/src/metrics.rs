@@ -1,9 +1,10 @@
 use near_o11y::metrics::{
-    exponential_buckets, linear_buckets, try_create_counter, try_create_counter_vec,
+    Counter, CounterVec, Gauge, Histogram, HistogramVec, IntCounter, IntCounterVec, IntGauge,
+    IntGaugeVec, exponential_buckets, linear_buckets, try_create_counter, try_create_counter_vec,
     try_create_gauge, try_create_histogram, try_create_histogram_vec, try_create_int_counter,
-    try_create_int_counter_vec, try_create_int_gauge, try_create_int_gauge_vec, Counter,
-    CounterVec, Gauge, Histogram, HistogramVec, IntCounter, IntCounterVec, IntGauge, IntGaugeVec,
+    try_create_int_counter_vec, try_create_int_gauge, try_create_int_gauge_vec,
 };
+use near_store::db::metadata::DB_VERSION;
 use std::sync::LazyLock;
 
 pub(crate) static BLOCK_PRODUCED_TOTAL: LazyLock<IntCounter> = LazyLock::new(|| {
@@ -26,6 +27,15 @@ pub(crate) static CHUNK_PRODUCED_TOTAL: LazyLock<IntCounter> = LazyLock::new(|| 
     try_create_int_counter(
         "near_chunk_produced_total",
         "Total number of chunks produced since starting this node",
+    )
+    .unwrap()
+});
+
+pub static CHUNK_TRANSACTIONS_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
+    try_create_int_counter_vec(
+        "near_chunk_transactions_total",
+        "Total number of transactions included in chunks produced by this node",
+        &["shard_id"],
     )
     .unwrap()
 });
@@ -442,15 +452,15 @@ pub(crate) static PRODUCE_AND_DISTRIBUTE_CHUNK_TIME: LazyLock<HistogramVec> = La
 /// Sets metrics which export node’s max supported protocol version, used
 /// database version and build information.  The latter is taken from
 /// `neard_version` argument.
-pub(crate) fn export_version(neard_version: &near_primitives::version::Version) {
+pub(crate) fn export_version(chain_id: &str, neard_version: &near_primitives::version::Version) {
     NODE_PROTOCOL_VERSION.set(near_primitives::version::PROTOCOL_VERSION.into());
-    let schedule = near_primitives::version::PROTOCOL_UPGRADE_SCHEDULE;
-    for (datetime, protocol_version) in schedule.schedule().iter() {
+    let schedule = near_primitives::version::get_protocol_upgrade_schedule(chain_id);
+    for (datetime, protocol_version) in schedule.schedule() {
         NODE_PROTOCOL_UPGRADE_VOTING_START
             .with_label_values(&[&protocol_version.to_string()])
             .set(datetime.timestamp());
     }
-    NODE_DB_VERSION.set(near_store::metadata::DB_VERSION.into());
+    NODE_DB_VERSION.set(DB_VERSION.into());
     NODE_BUILD_INFO.reset();
     NODE_BUILD_INFO
         .with_label_values(&[

@@ -2,8 +2,8 @@ use crate::errors::ContractPrecompilatonResult;
 use crate::logic::errors::{CacheError, CompilationError, VMRunnerError};
 use crate::logic::{External, VMContext, VMOutcome};
 use crate::{ContractCode, ContractRuntimeCache};
-use near_parameters::vm::{Config, VMKind};
 use near_parameters::RuntimeFeesConfig;
+use near_parameters::vm::{Config, VMKind};
 use std::sync::Arc;
 
 /// Returned by VM::run method.
@@ -46,9 +46,9 @@ pub fn prepare(
     method: &str,
 ) -> Box<dyn crate::PreparedContract> {
     let vm_kind = wasm_config.vm_kind;
-    let runtime = vm_kind
-        .runtime(wasm_config)
-        .unwrap_or_else(|| panic!("the {vm_kind:?} runtime has not been enabled at compile time"));
+    let runtime = vm_kind.runtime(wasm_config).unwrap_or_else(|| {
+        panic!("the {vm_kind:?} runtime has not been enabled at compile time or has been removed")
+    });
     runtime.prepare(contract, cache, gas_counter, method)
 }
 
@@ -162,20 +162,17 @@ pub trait VMKindExt {
 impl VMKindExt for VMKind {
     fn is_available(&self) -> bool {
         match self {
-            Self::Wasmer0 => cfg!(all(feature = "wasmer0_vm", target_arch = "x86_64")),
+            #[allow(deprecated)]
+            Self::Wasmer0 => false,
+            Self::Wasmer2 => false,
             Self::Wasmtime => cfg!(feature = "wasmtime_vm"),
-            Self::Wasmer2 => cfg!(all(feature = "wasmer2_vm", target_arch = "x86_64")),
             Self::NearVm => cfg!(all(feature = "near_vm", target_arch = "x86_64")),
         }
     }
     fn runtime(&self, config: std::sync::Arc<Config>) -> Option<Box<dyn VM>> {
         match self {
-            #[cfg(all(feature = "wasmer0_vm", target_arch = "x86_64"))]
-            Self::Wasmer0 => Some(Box::new(crate::wasmer_runner::Wasmer0VM::new(config))),
             #[cfg(feature = "wasmtime_vm")]
             Self::Wasmtime => Some(Box::new(crate::wasmtime_runner::WasmtimeVM::new(config))),
-            #[cfg(all(feature = "wasmer2_vm", target_arch = "x86_64"))]
-            Self::Wasmer2 => Some(Box::new(crate::wasmer2_runner::Wasmer2VM::new(config))),
             #[cfg(all(feature = "near_vm", target_arch = "x86_64"))]
             Self::NearVm => Some(Box::new(crate::near_vm_runner::NearVM::new(config))),
             #[allow(unreachable_patterns)] // reachable when some of the VMs are disabled.

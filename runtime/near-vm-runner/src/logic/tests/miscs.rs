@@ -1,6 +1,6 @@
+use crate::logic::HostError;
 use crate::logic::tests::helpers::*;
 use crate::logic::tests::vm_logic_builder::VMLogicBuilder;
-use crate::logic::HostError;
 use crate::map;
 use hex::FromHex;
 use near_parameters::ExtCosts;

@@ -1,0 +1,24 @@
+{
+  "chain_id": "benchmarknet",
+  "epoch_length": 15000,
+  "gas_limit": "20000000000000000",
+  "shard_layout": {
+    "V2": {
+      "boundary_accounts": ["a01", "a02", "a03", "a04"],
+      "shard_ids": [0, 1, 2, 3, 4],
+      "id_to_index_map": {
+        "0": 0, "1": 1, "2": 2, "3": 3, "4": 4
+      },
+      "index_to_id_map": {
+        "0": 0, "1": 1, "2": 2, "3": 3, "4": 4
+      },
+      "shards_split_map": {
+        "0": [0], "1": [1], "2": [2], "3": [3], "4": [4]
+      },
+      "shards_parent_map": {
+        "0": 0, "1": 1, "2": 2, "3": 3, "4": 4
+      },
+      "version": 3
+    }
+  }
+}

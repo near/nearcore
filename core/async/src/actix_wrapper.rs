@@ -1,7 +1,7 @@
 use std::ops::{Deref, DerefMut};
 
 use actix::Actor;
-use near_o11y::{handler_debug_span, WithSpanContext};
+use near_o11y::{WithSpanContext, handler_debug_span};
 
 use crate::futures::DelayedActionRunner;
 use crate::messaging;

@@ -1,7 +1,9 @@
 use near_chain_primitives::error::Error;
+use near_primitives::block::Tip;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::EpochId;
-use near_primitives::version::ProtocolFeature;
+use near_store::adapter::StoreAdapter;
+use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::{DBCol, Store, StoreUpdate};
 
 use borsh::BorshDeserialize;
@@ -203,10 +205,10 @@ pub(crate) fn update_sync_hashes<T: ChainStoreAccess>(
     on_new_header(chain_store, store_update, header)
 }
 
-///. Returns whether `block_hash` is the block that will appear immediately before the "sync_hash" block. That is,
-/// whether it is going to be the prev_hash of the "sync_hash" block, when it is found.
+/// Returns whether `tip.last_block_hash` is the block that will appear immediately before the "sync_hash" block.
+/// That is, whether it is going to be the prev_hash of the "sync_hash" block, when it is found.
 ///
-/// `block_hash` is the prev_hash of the future "sync_hash" block iff it is the first block for which the
+/// `tip.last_block_hash` is the prev_hash of the future "sync_hash" block iff it is the first block for which the
 /// number of new chunks in the epoch in each shard is at least 2
 ///
 /// This function can only return true before we save the "sync_hash" block to the `StateSyncHashes` column,
@@ -214,19 +216,25 @@ pub(crate) fn update_sync_hashes<T: ChainStoreAccess>(
 ///
 /// This is used when making state snapshots, because in that case we don't need to wait for the "sync_hash"
 /// block to be finalized to take a snapshot of the state as of its prev prev block
-pub(crate) fn is_sync_prev_hash(
-    store: &Store,
-    block_hash: &CryptoHash,
-    prev_hash: &CryptoHash,
-) -> Result<bool, Error> {
-    let Some(new_chunks) = get_state_sync_new_chunks(store, block_hash)? else {
+pub(crate) fn is_sync_prev_hash(chain_store: &ChainStoreAdapter, tip: &Tip) -> Result<bool, Error> {
+    // Usually, if we're returning true from this function, this call to get_current_epoch_sync_hash()
+    // will return None because we're calling it during block preprocessing and the sync hash hasn't been
+    // found yet. But we still need to check this because it's possible that the sync hash was found
+    // during header sync, in which case the contents of the StateSyncNewChunks column will have been cleared,
+    // and the conditions below can't be checked.
+    if let Some(sync_hash) = chain_store.get_current_epoch_sync_hash(&tip.epoch_id)? {
+        let sync_header = chain_store.get_block_header(&sync_hash)?;
+        return Ok(sync_header.prev_hash() == &tip.last_block_hash);
+    }
+    let store = chain_store.store_ref();
+    let Some(new_chunks) = get_state_sync_new_chunks(store, &tip.last_block_hash)? else {
         return Ok(false);
     };
     let done = new_chunks.iter().all(|num_chunks| *num_chunks >= 2);
     if !done {
         return Ok(false);
     }
-    let Some(prev_new_chunks) = get_state_sync_new_chunks(store, prev_hash)? else {
+    let Some(prev_new_chunks) = get_state_sync_new_chunks(store, &tip.prev_block_hash)? else {
         return Ok(false);
     };
     let prev_done = prev_new_chunks.iter().all(|num_chunks| *num_chunks >= 2);
@@ -234,7 +242,6 @@ pub(crate) fn is_sync_prev_hash(
 }
 
 impl Chain {
-    // TODO(current_epoch_state_sync): move state sync related code to state sync files
     /// Find the hash that should be used as the reference point when requesting state sync
     /// headers and parts from other nodes for the epoch the block with hash `block_hash` belongs to.
     /// If syncing to the state of that epoch (the new way), this block hash might not yet be known,
@@ -246,23 +253,11 @@ impl Chain {
             return Ok(None);
         }
         let header = self.get_block_header(block_hash)?;
-        let protocol_version = self.epoch_manager.get_epoch_protocol_version(header.epoch_id())?;
-        if ProtocolFeature::CurrentEpochStateSync.enabled(protocol_version) {
-            self.chain_store.get_current_epoch_sync_hash(header.epoch_id())
-        } else {
-            // In the first epoch, it doesn't make sense to sync state to the previous epoch.
-            if header.epoch_id() == &EpochId::default() {
-                return Ok(None);
-            }
-            Ok(Some(*self.epoch_manager.get_block_info(block_hash)?.epoch_first_block()))
-        }
+        self.chain_store.get_current_epoch_sync_hash(header.epoch_id())
     }
 
     /// Select the block hash we are using to sync state. It will sync with the state before applying the
     /// content of such block.
-    ///
-    /// The selected block will always be the first block on a new epoch:
-    /// <https://github.com/nearprotocol/nearcore/issues/2021#issuecomment-583039862>.
     pub fn find_sync_hash(&self) -> Result<Option<CryptoHash>, Error> {
         let header_head = self.header_head()?;
         let sync_hash = match self.get_sync_hash(&header_head.last_block_hash)? {
@@ -281,30 +276,28 @@ impl Chain {
         Ok(Some(sync_hash))
     }
 
-    /// Returns the list of extra block hashes for blocks that should be
-    /// downloaded before the state sync. The extra blocks are needed when there
-    /// are missing chunks in blocks leading to the sync hash block. We need to
-    /// ensure that for every shard we have at least one new chunk.
+    /// Returns the hashes of all extra blocks which must be downloaded for state sync.
+    /// Excludes the sync hash block and its prev block.
     ///
-    /// This is implemented by finding the minimum height included of the sync
-    /// hash block and finding all blocks till that height.
-    pub fn get_extra_sync_block_hashes(&self, block_hash: CryptoHash) -> Vec<CryptoHash> {
-        // Get the block. It's possible that the block is not yet available.
+    /// For each shard, the node needs blocks going back to (and including)
+    /// the last new chunk before the sync hash block, to be used in:
+    ///
+    ///  - set_state_finalize upon completing state sync
+    ///  - collect_incoming_receipts_from_chunks when processing blocks after state sync
+    pub fn get_extra_sync_block_hashes(&self, sync_prev_hash: &CryptoHash) -> Vec<CryptoHash> {
+        // Get the sync prev block. It's possible that the block is not yet available.
         // It's ok because we will retry this method later.
-        let block = self.get_block(&block_hash);
-        let Ok(block) = block else {
+        let Ok(sync_prev_block) = self.get_block(&sync_prev_hash) else {
             return vec![];
         };
 
-        let min_height_included =
-            block.chunks().iter_deprecated().map(|chunk| chunk.height_included()).min();
-        let Some(min_height_included) = min_height_included else {
-            tracing::warn!(target: "sync", ?block_hash, "get_extra_sync_block_hashes: Cannot find the min block height");
+        let Some(min_height_included) = sync_prev_block.chunks().min_height_included() else {
+            tracing::warn!(target: "sync", ?sync_prev_hash, "get_extra_sync_block_hashes: Cannot find the min block height");
             return vec![];
         };
 
         let mut extra_block_hashes = vec![];
-        let mut next_hash = *block.header().prev_hash();
+        let mut next_hash = *sync_prev_block.header().prev_hash();
         loop {
             let next_header = self.get_block_header(&next_hash);
             let Ok(next_header) = next_header else {
@@ -312,14 +305,13 @@ impl Chain {
                 break;
             };
 
-            if next_header.height() + 1 < min_height_included {
+            if next_header.height() < min_height_included {
                 break;
             }
-
             extra_block_hashes.push(next_hash);
+
             next_hash = *next_header.prev_hash();
         }
-
         extra_block_hashes
     }
 }

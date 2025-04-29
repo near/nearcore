@@ -1,17 +1,18 @@
 use crate::config::Mode;
-use crate::db::{refcount, DBIterator, DBOp, DBSlice, DBTransaction, Database, StatsValue};
-use crate::{metadata, metrics, DBCol, StoreConfig, StoreStatistics, Temperature};
+use crate::db::{DBIterator, DBOp, DBSlice, DBTransaction, Database, StatsValue, refcount};
+use crate::{DBCol, StoreConfig, StoreStatistics, Temperature, metrics};
 use ::rocksdb::{
-    BlockBasedOptions, Cache, ColumnFamily, Env, IteratorMode, Options, ReadOptions, WriteBatch, DB,
+    BlockBasedOptions, Cache, ColumnFamily, DB, Env, IteratorMode, Options, ReadOptions, WriteBatch,
 };
 use anyhow::Context;
 use itertools::Itertools;
 use std::io;
-use std::ops::Deref;
 use std::path::Path;
 use std::sync::LazyLock;
 use strum::IntoEnumIterator;
 use tracing::warn;
+
+use super::metadata;
 
 mod instance_tracker;
 pub(crate) mod snapshot;
@@ -441,11 +442,7 @@ impl Database for RocksDB {
             }
         }
         self.get_cf_statistics(&mut result);
-        if result.data.is_empty() {
-            None
-        } else {
-            Some(result)
-        }
+        if result.data.is_empty() { None } else { Some(result) }
     }
 
     #[tracing::instrument(
@@ -668,7 +665,7 @@ impl RocksDB {
 
     /// Gets every int property in CF_PROPERTY_NAMES for every column in DBCol.
     fn get_cf_statistics(&self, result: &mut StoreStatistics) {
-        for prop_name in CF_PROPERTY_NAMES.deref() {
+        for prop_name in &*CF_PROPERTY_NAMES {
             let values = self
                 .cf_handles()
                 .filter_map(|(col, handle)| {
@@ -677,12 +674,22 @@ impl RocksDB {
                 })
                 .collect::<Vec<_>>();
             if !values.is_empty() {
-                // TODO(mina86): Once const_str_from_utf8 is stabilised we might
+                // TODO(mina86): Once const_str_from_utf8 is stabilized we might
                 // be able convert this runtime UTF-8 validation into const.
                 let stat_name = prop_name.to_str().unwrap();
                 result.data.push((stat_name.to_string(), values));
             }
         }
+    }
+
+    /// Deletes all data in `cols`. This should also remove all sst files
+    pub fn clear_cols(&mut self, cols: &[DBCol]) -> anyhow::Result<()> {
+        for col in cols {
+            self.db
+                .drop_cf(col_name(*col))
+                .with_context(|| format!("failed to drop column family {:?}", col,))?;
+        }
+        Ok(())
     }
 }
 

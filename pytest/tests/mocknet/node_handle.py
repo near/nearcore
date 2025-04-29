@@ -38,6 +38,9 @@ class NodeHandle:
     def run_cmd(self, cmd, raise_on_fail=False, return_on_fail=False):
         return self.node.run_cmd(cmd, raise_on_fail, return_on_fail)
 
+    def upload_file(self, src, dst):
+        return self.node.upload_file(src, dst)
+
     def init_neard_runner(self, config, remove_home_dir=False):
         self.node.stop_neard_runner()
         self.node.init()
@@ -109,6 +112,8 @@ class NodeHandle:
     def neard_runner_network_init(self,
                                   validators,
                                   boot_nodes,
+                                  state_source,
+                                  patches_path,
                                   epoch_length,
                                   num_seats,
                                   new_chain_id,
@@ -117,6 +122,8 @@ class NodeHandle:
         params = {
             'validators': validators,
             'boot_nodes': boot_nodes,
+            'state_source': state_source,
+            'patches_path': patches_path,
             'epoch_length': epoch_length,
             'num_seats': num_seats,
             'new_chain_id': new_chain_id,

@@ -61,7 +61,7 @@ fn assert_eq_points(left: &[u8], right: &[u8]) {
     assert_eq!(
         left,
         right,
-        "differet poits on the cureve\n  left: {}\n  right {}\n",
+        "different points on the curve\n  left: {}\n  right {}\n",
         render_le_bytes(left),
         render_le_bytes(right)
     );
@@ -79,7 +79,7 @@ fn check_result<T, U>(
             None
         }
         (Ok(_), Err(msg)) => panic!("expected `{msg}` error"),
-        (Err(err), _) => panic!("unexpected eror: `{}`", err),
+        (Err(err), _) => panic!("unexpected error: `{}`", err),
     }
 }
 
@@ -98,8 +98,8 @@ fn test_alt_bn128_g1_multiexp() {
         }
     }
     #[track_caller]
-    fn check_ok(input: &[u8], expcted: &[u8]) {
-        check(input, Ok(expcted))
+    fn check_ok(input: &[u8], expected: &[u8]) {
+        check(input, Ok(expected))
     }
     #[track_caller]
     fn check_err(input: &[u8], expected_err: &str) {
@@ -162,8 +162,8 @@ fn test_alt_bn128_g1_sum() {
         }
     }
     #[track_caller]
-    fn check_ok(input: &[u8], expcted: &[u8]) {
-        check(input, Ok(expcted))
+    fn check_ok(input: &[u8], expected: &[u8]) {
+        check(input, Ok(expected))
     }
     #[track_caller]
     fn check_err(input: &[u8], expected_err: &str) {
@@ -225,8 +225,8 @@ fn test_alt_bn128_pairing_check() {
         }
     }
     #[track_caller]
-    fn check_ok(input: &[u8], expcted: u64) {
-        check(input, Ok(expcted))
+    fn check_ok(input: &[u8], expected: u64) {
+        check(input, Ok(expected))
     }
     #[track_caller]
     fn check_err(input: &[u8], expected_err: &str) {

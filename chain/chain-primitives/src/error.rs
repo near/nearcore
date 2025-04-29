@@ -1,5 +1,5 @@
 use near_primitives::block::BlockValidityError;
-use near_primitives::challenge::{ChunkProofs, ChunkState, MaybeEncodedShardChunk};
+use near_primitives::challenge::{ChunkProofs, MaybeEncodedShardChunk};
 use near_primitives::errors::{ChunkAccessError, EpochError, StorageError};
 use near_primitives::shard_layout::ShardLayoutError;
 use near_primitives::sharding::{BadHeaderForProtocolVersionError, ChunkHash, ShardChunkHeader};
@@ -110,15 +110,9 @@ pub enum Error {
     /// Invalid transactions in the block.
     #[error("Invalid Transactions")]
     InvalidTransactions,
-    /// Invalid Challenge Root (doesn't match actual challenge)
-    #[error("Invalid Challenge Root")]
-    InvalidChallengeRoot,
     /// Invalid challenge (wrong signature or format).
     #[error("Invalid Challenge")]
     InvalidChallenge,
-    /// Incorrect (malicious) challenge (slash the sender).
-    #[error("Malicious Challenge")]
-    MaliciousChallenge,
     /// Incorrect number of chunk headers
     #[error("Incorrect Number of Chunk Headers")]
     IncorrectNumberOfChunkHeaders,
@@ -131,9 +125,6 @@ pub enum Error {
     /// One of the chunks has invalid proofs
     #[error("Invalid Chunk Proofs")]
     InvalidChunkProofs(Box<ChunkProofs>),
-    /// Invalid chunk state.
-    #[error("Invalid Chunk State")]
-    InvalidChunkState(Box<ChunkState>),
     #[error("Invalid Chunk State Witness: {0}")]
     InvalidChunkStateWitness(String),
     #[error("Invalid Partial Chunk State Witness: {0}")]
@@ -224,9 +215,6 @@ pub enum Error {
     /// Epoch out of bounds. Usually if received block is too far in the future or alternative fork.
     #[error("Epoch Out Of Bounds: {:?}", _0)]
     EpochOutOfBounds(EpochId),
-    /// A challenged block is on the chain that was attempted to become the head
-    #[error("Challenged block on chain")]
-    ChallengedBlockOnChain,
     /// Block cannot be finalized.
     #[error("Block cannot be finalized")]
     CannotBeFinalized,
@@ -284,7 +272,6 @@ impl Error {
             | Error::Other(_)
             | Error::ValidatorError(_)
             | Error::EpochOutOfBounds(_)
-            | Error::ChallengedBlockOnChain
             | Error::CannotBeFinalized
             | Error::StorageError(_)
             | Error::GCError(_)
@@ -297,7 +284,6 @@ impl Error {
             | Error::InvalidChunk(_)
             | Error::InvalidChunkTransactionsOrder(_)
             | Error::InvalidChunkProofs(_)
-            | Error::InvalidChunkState(_)
             | Error::InvalidChunkStateWitness(_)
             | Error::InvalidPartialChunkStateWitness(_)
             | Error::InvalidChunkEndorsement
@@ -314,7 +300,6 @@ impl Error {
             | Error::InvalidTransactions
             | Error::InvalidChallenge
             | Error::InvalidSplitShardsIds(_, _)
-            | Error::MaliciousChallenge
             | Error::IncorrectNumberOfChunkHeaders
             | Error::InvalidEpochHash
             | Error::InvalidEpochSyncProof(_)
@@ -339,7 +324,6 @@ impl Error {
             | Error::InvalidProtocolVersion
             | Error::NotAValidator(_)
             | Error::NotAChunkValidator
-            | Error::InvalidChallengeRoot
             | Error::BadHeaderForProtocolVersion(_) => true,
         }
     }
@@ -368,7 +352,6 @@ impl Error {
             Error::Other(_) => "other",
             Error::ValidatorError(_) => "validator_error",
             Error::EpochOutOfBounds(_) => "epoch_out_of_bounds",
-            Error::ChallengedBlockOnChain => "challenged_block_on_chain",
             Error::CannotBeFinalized => "cannot_be_finalized",
             Error::StorageError(_) => "storage_error",
             Error::GCError(_) => "gc_error",
@@ -380,7 +363,6 @@ impl Error {
             Error::InvalidChunk(_) => "invalid_chunk",
             Error::InvalidChunkTransactionsOrder(_) => "invalid_chunk_transactions_order",
             Error::InvalidChunkProofs(_) => "invalid_chunk_proofs",
-            Error::InvalidChunkState(_) => "invalid_chunk_state",
             Error::InvalidChunkStateWitness(_) => "invalid_chunk_state_witness",
             Error::InvalidPartialChunkStateWitness(_) => "invalid_partial_chunk_state_witness",
             Error::InvalidChunkEndorsement => "invalid_chunk_endorsement",
@@ -397,7 +379,6 @@ impl Error {
             Error::InvalidTransactions => "invalid_transactions",
             Error::InvalidChallenge => "invalid_challenge",
             Error::InvalidSplitShardsIds(_, _) => "invalid_split_shard_ids",
-            Error::MaliciousChallenge => "malicious_challenge",
             Error::IncorrectNumberOfChunkHeaders => "incorrect_number_of_chunk_headers",
             Error::InvalidEpochHash => "invalid_epoch_hash",
             Error::InvalidEpochSyncProof(_) => "invalid_epoch_sync_proof",
@@ -422,7 +403,6 @@ impl Error {
             Error::InvalidProtocolVersion => "invalid_protocol_version",
             Error::NotAValidator(_) => "not_a_validator",
             Error::NotAChunkValidator => "not_a_chunk_validator",
-            Error::InvalidChallengeRoot => "invalid_challenge_root",
             Error::ReshardingError(_) => "resharding_error",
             Error::BadHeaderForProtocolVersion(_) => "bad_header_for_protocol_version",
         }
@@ -472,7 +452,6 @@ impl From<BlockValidityError> for Error {
             BlockValidityError::InvalidTransactionRoot => Error::InvalidTxRoot,
             BlockValidityError::InvalidChunkHeaderRoot => Error::InvalidChunkHeadersRoot,
             BlockValidityError::InvalidChunkMask => Error::InvalidChunkMask,
-            BlockValidityError::InvalidChallengeRoot => Error::InvalidChallengeRoot,
         }
     }
 }

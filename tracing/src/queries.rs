@@ -2,12 +2,12 @@ use crate::db::Database;
 use crate::profile::{Category, Profile, ProfileMeta, StringTableBuilder, Thread};
 use actix_cors::Cors;
 use actix_web::middleware::Compress;
-use actix_web::{post, web, App, Error, HttpResponse, HttpServer};
+use actix_web::{App, Error, HttpResponse, HttpServer, post, web};
 use bson::doc;
 use mongodb::options::FindOptions;
 use opentelemetry_proto::tonic::collector::trace::v1::ExportTraceServiceRequest;
-use opentelemetry_proto::tonic::common::v1::any_value::Value;
 use opentelemetry_proto::tonic::common::v1::AnyValue;
+use opentelemetry_proto::tonic::common::v1::any_value::Value;
 use opentelemetry_proto::tonic::resource::v1::Resource;
 use opentelemetry_proto::tonic::trace::v1::Span;
 use prost::Message;
@@ -287,3 +287,5 @@ struct OneNodeResult {
 struct OneThreadResult {
     spans: Vec<Span>,
 }
+
+// cspell:ignore Kvlist, stackwalk

@@ -1,13 +1,13 @@
 use near_async::messaging::CanSend;
 use near_chain::types::{EpochManagerAdapter, Tip};
 use near_chain::{Chain, ChainStore};
-use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
-use near_epoch_manager::test_utils::setup_epoch_manager_with_block_and_chunk_producers;
+use near_chain_configs::TrackedShardsConfig;
 use near_epoch_manager::EpochManagerHandle;
+use near_epoch_manager::shard_tracker::ShardTracker;
+use near_epoch_manager::test_utils::setup_epoch_manager_with_block_and_chunk_producers;
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_network::test_utils::MockPeerManagerAdapter;
 use near_primitives::bandwidth_scheduler::BandwidthRequests;
-use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{self, MerklePath};
 use near_primitives::receipt::Receipt;
@@ -19,9 +19,8 @@ use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::MerkleHash;
 use near_primitives::types::{AccountId, EpochId};
-use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
-use near_store::adapter::chunk_store::ChunkStoreAdapter;
 use near_store::adapter::StoreAdapter;
+use near_store::adapter::chunk_store::ChunkStoreAdapter;
 use near_store::set_genesis_height;
 use near_store::test_utils::create_test_store;
 use reed_solomon_erasure::galois_8::ReedSolomon;
@@ -86,7 +85,11 @@ impl ChunkTestFixture {
         let epoch_manager = epoch_manager.into_handle();
         let shard_layout = epoch_manager.get_shard_layout(&EpochId::default()).unwrap();
         let shard_tracker = ShardTracker::new(
-            if track_all_shards { TrackedConfig::AllShards } else { TrackedConfig::new_empty() },
+            if track_all_shards {
+                TrackedShardsConfig::AllShards
+            } else {
+                TrackedShardsConfig::NoShards
+            },
             Arc::new(epoch_manager.clone()),
         );
         let mock_network = Arc::new(MockPeerManagerAdapter::default());
@@ -124,7 +127,7 @@ impl ChunkTestFixture {
                 if v == &&mock_chunk_producer {
                     false
                 } else {
-                    let tracks_shard = shard_tracker.care_about_shard(
+                    let tracks_shard = shard_tracker.cares_about_shard(
                         Some(*v),
                         &mock_ancestor_hash,
                         mock_shard_id,
@@ -145,14 +148,10 @@ impl ChunkTestFixture {
             .find(|v| v != &mock_chunk_producer && v != &mock_shard_tracker)
             .unwrap();
 
-        let receipts = Vec::new();
         let shard_layout = epoch_manager.get_shard_layout(&EpochId::default()).unwrap();
-        let receipts_hashes = Chain::build_receipts_hashes(&receipts, &shard_layout);
+        let receipts_hashes = Chain::build_receipts_hashes(&[], &shard_layout).unwrap();
         let (receipts_root, _) = merkle::merklize(&receipts_hashes);
-        let congestion_info = ProtocolFeature::CongestionControl
-            .enabled(PROTOCOL_VERSION)
-            .then_some(CongestionInfo::default());
-        let (mock_chunk, mock_merkle_paths) = ShardsManagerActor::create_encoded_shard_chunk(
+        let (mock_chunk, mock_merkle_paths, _) = ShardsManagerActor::create_encoded_shard_chunk(
             mock_parent_hash,
             Default::default(),
             Default::default(),
@@ -163,16 +162,14 @@ impl ChunkTestFixture {
             0,
             Vec::new(),
             Vec::new(),
-            &receipts,
+            vec![],
             receipts_root,
             MerkleHash::default(),
-            congestion_info,
-            BandwidthRequests::default_for_protocol_version(PROTOCOL_VERSION),
+            Default::default(),
+            BandwidthRequests::empty(),
             &signer,
             &rs,
-            PROTOCOL_VERSION,
-        )
-        .unwrap();
+        );
 
         let all_part_ords: Vec<u64> =
             (0..mock_chunk.content().parts.len()).map(|p| p as u64).collect();
@@ -201,7 +198,7 @@ impl ChunkTestFixture {
             mock_part_ords,
             mock_encoded_chunk: mock_chunk,
             mock_merkle_paths,
-            mock_outgoing_receipts: receipts,
+            mock_outgoing_receipts: vec![],
             mock_chunk_part_owner,
             mock_shard_tracker,
             mock_chunk_header: encoded_chunk.cloned_header(),
@@ -221,7 +218,7 @@ impl ChunkTestFixture {
         let parts = part_ords
             .iter()
             .copied()
-            .flat_map(|ord| self.mock_chunk_parts.iter().find(|part| part.part_ord == ord))
+            .filter_map(|ord| self.mock_chunk_parts.iter().find(|part| part.part_ord == ord))
             .cloned()
             .collect();
         PartialEncodedChunk::V2(PartialEncodedChunkV2 {

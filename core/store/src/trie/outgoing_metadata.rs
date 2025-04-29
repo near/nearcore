@@ -6,14 +6,13 @@ use near_primitives::errors::StorageError;
 use near_primitives::receipt::TrieQueueIndices;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{Gas, ShardId};
-use near_primitives::version::ProtocolFeature;
+
 use near_schema_checker_lib::ProtocolSchema;
-use near_vm_runner::logic::ProtocolVersion;
 
-use crate::{get, set, TrieUpdate};
+use crate::{TrieUpdate, get, set};
 
-use super::receipts_column_helper::TrieQueue;
 use super::TrieAccess;
+use super::receipts_column_helper::TrieQueue;
 
 /// Keeps metadata about receipts stored in the outgoing buffers.
 #[derive(Debug)]
@@ -38,14 +37,9 @@ impl OutgoingMetadatas {
         trie: &dyn TrieAccess,
         shard_ids: impl IntoIterator<Item = ShardId>,
         groups_config: ReceiptGroupsConfig,
-        protocol_version: ProtocolVersion,
     ) -> Result<Self, StorageError> {
-        if !ProtocolFeature::BandwidthScheduler.enabled(protocol_version) {
-            return Ok(Self::new(groups_config));
-        }
-
         let mut metadatas = BTreeMap::new();
-        for shard_id in shard_ids.into_iter() {
+        for shard_id in shard_ids {
             let metadata = ReceiptGroupsQueue::load(trie, shard_id)?;
             if let Some(metadata) = metadata {
                 metadatas.insert(shard_id, metadata);
@@ -639,7 +633,7 @@ mod tests {
             } else if !can_push {
                 false
             } else {
-                rng.gen::<bool>()
+                rng.r#gen::<bool>()
             };
 
             if should_push {
@@ -658,7 +652,7 @@ mod tests {
                 test_queue.update_on_receipt_popped(receipt_size, receipt_gas);
             }
 
-            if rng.gen::<bool>() {
+            if rng.r#gen::<bool>() {
                 // Reload the queue from trie. Tests that all changes are persisted after every operation.
                 groups_queue =
                     ReceiptGroupsQueue::load(trie_update, ShardId::new(0)).unwrap().unwrap();

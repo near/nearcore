@@ -1,8 +1,8 @@
 /// Conversion functions for the messages representing network primitives.
 use super::*;
 
-use crate::network_protocol::proto;
 use crate::network_protocol::PeerAddr;
+use crate::network_protocol::proto;
 use crate::network_protocol::{Edge, PartialEdgeInfo, PeerInfo};
 use borsh::BorshDeserialize as _;
 use near_primitives::network::AnnounceAccount;

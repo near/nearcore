@@ -2,8 +2,8 @@
 //! Useful for querying from RPC.
 
 use crate::{
-    metrics, sync, GetChunk, GetExecutionOutcomeResponse, GetNextLightClientBlock, GetShardChunk,
-    GetStateChanges, GetStateChangesInBlock, GetValidatorInfo, GetValidatorOrdered,
+    GetChunk, GetExecutionOutcomeResponse, GetNextLightClientBlock, GetShardChunk, GetStateChanges,
+    GetStateChangesInBlock, GetValidatorInfo, GetValidatorOrdered, metrics, sync,
 };
 use actix::{Addr, SyncArbiter};
 use near_async::actix_wrapper::SyncActixWrapper;
@@ -11,8 +11,8 @@ use near_async::messaging::{Actor, CanSend, Handler};
 use near_async::time::{Clock, Duration, Instant};
 use near_chain::types::{RuntimeAdapter, Tip};
 use near_chain::{
-    get_epoch_block_producers_view, retrieve_headers, Chain, ChainGenesis, ChainStoreAccess,
-    DoomslugThresholdMode, MerkleProofAccess,
+    Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode, MerkleProofAccess,
+    get_epoch_block_producers_view, retrieve_headers,
 };
 
 use near_chain_configs::{ClientConfig, MutableValidatorSigner, ProtocolConfigView};
@@ -27,9 +27,9 @@ use near_client_primitives::types::{
     GetStateChangesWithCauseInBlockForTrackedShards, GetValidatorInfoError, Query, QueryError,
     TxStatus, TxStatusError,
 };
+use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_assignment::{account_id_to_shard_id, shard_id_to_uid};
 use near_epoch_manager::shard_tracker::ShardTracker;
-use near_epoch_manager::EpochManagerAdapter;
 use near_network::client::{
     AnnounceAccountRequest, BlockHeadersRequest, BlockRequest, StateRequestHeader,
     StateRequestPart, StateResponse, TxStatusRequest, TxStatusResponse,
@@ -42,7 +42,7 @@ use near_performance_metrics_macros::perf;
 use near_primitives::block::{Block, BlockHeader};
 use near_primitives::epoch_info::EpochInfo;
 use near_primitives::hash::CryptoHash;
-use near_primitives::merkle::{merklize, PartialMerkleTree};
+use near_primitives::merkle::{PartialMerkleTree, merklize};
 use near_primitives::network::AnnounceAccount;
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::ShardChunk;
@@ -64,8 +64,7 @@ use near_primitives::views::{
     SignedTransactionView, SplitStorageInfoView, StateChangesKindsView, StateChangesView,
     TxExecutionStatus, TxStatusView,
 };
-use near_store::flat::{FlatStorageReadyStatus, FlatStorageStatus};
-use near_store::{DBCol, COLD_HEAD_KEY, FINAL_HEAD_KEY, HEAD_KEY};
+use near_store::{COLD_HEAD_KEY, DBCol, FINAL_HEAD_KEY, HEAD_KEY};
 use std::cmp::Ordering;
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 use std::hash::Hash;
@@ -99,7 +98,7 @@ pub struct ViewClientActorInner {
     /// Lock the value of mutable validator signer for the duration of a request to ensure consistency.
     /// Please note that the locked value should not be stored anywhere or passed through the thread boundary.
     validator: MutableValidatorSigner,
-    chain: Chain,
+    pub chain: Chain,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
     shard_tracker: ShardTracker,
     runtime: Arc<dyn RuntimeAdapter>,
@@ -349,7 +348,7 @@ impl ViewClientActorInner {
         Ok(windows)
     }
 
-    fn handle_query(&mut self, msg: Query) -> Result<QueryResponse, QueryError> {
+    fn handle_query(&self, msg: Query) -> Result<QueryResponse, QueryError> {
         let header = self.get_block_header_by_reference(&msg.block_reference);
         let header = match header {
             Ok(Some(header)) => Ok(header),
@@ -536,7 +535,7 @@ impl ViewClientActorInner {
     }
 
     fn get_tx_status(
-        &mut self,
+        &self,
         tx_hash: CryptoHash,
         signer_account_id: AccountId,
         fetch_receipt: bool,
@@ -563,7 +562,7 @@ impl ViewClientActorInner {
             account_id_to_shard_id(self.epoch_manager.as_ref(), &signer_account_id, &head.epoch_id)
                 .map_err(|err| TxStatusError::InternalError(err.to_string()))?;
         // Check if we are tracking this shard.
-        if self.shard_tracker.care_about_shard(
+        if self.shard_tracker.cares_about_shard(
             validator_signer.as_ref().map(|v| v.validator_id()),
             &head.prev_block_hash,
             target_shard_id,
@@ -644,7 +643,7 @@ impl ViewClientActorInner {
     }
 
     fn retrieve_headers(
-        &mut self,
+        &self,
         hashes: Vec<CryptoHash>,
     ) -> Result<Vec<BlockHeader>, near_chain::Error> {
         retrieve_headers(self.chain.chain_store(), hashes, sync::header::MAX_BLOCK_HEADERS, None)
@@ -684,27 +683,6 @@ impl ViewClientActorInner {
         }
         cache.push_back(now);
         false
-    }
-
-    fn has_state_snapshot(&self, sync_hash: &CryptoHash, shard_id: ShardId) -> Result<bool, Error> {
-        let header = self.chain.get_block_header(sync_hash)?;
-        let prev_header = self.chain.get_block_header(header.prev_hash())?;
-        let prev_epoch_id = prev_header.epoch_id();
-        let shard_uid = shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, prev_epoch_id)?;
-        let sync_prev_prev_hash = prev_header.prev_hash();
-        let status = self
-            .runtime
-            .get_tries()
-            .get_snapshot_flat_storage_status(*sync_prev_prev_hash, shard_uid)
-            .map_err(|err| Error::Other(err.to_string()))?;
-        match status {
-            FlatStorageStatus::Ready(FlatStorageReadyStatus { flat_head }) => {
-                let flat_head_header = self.chain.get_block_header(&flat_head.hash)?;
-                let flat_head_epoch_id = flat_head_header.epoch_id();
-                Ok(flat_head_epoch_id == prev_epoch_id)
-            }
-            _ => Ok(false),
-        }
     }
 }
 
@@ -997,7 +975,7 @@ impl Handler<GetStateChangesWithCauseInBlockForTrackedShards> for ViewClientActo
             ) {
                 Ok(shard_id) => shard_id,
                 Err(err) => {
-                    return Err(GetStateChangesError::IOError { error_message: err.to_string() })
+                    return Err(GetStateChangesError::IOError { error_message: err.to_string() });
                 }
             };
 
@@ -1042,11 +1020,7 @@ impl Handler<GetNextLightClientBlock> for ViewClientActorInner {
                 self.chain.chain_store(),
             )?;
 
-            if ret.inner_lite.height <= last_height {
-                Ok(None)
-            } else {
-                Ok(Some(Arc::new(ret)))
-            }
+            if ret.inner_lite.height <= last_height { Ok(None) } else { Ok(Some(Arc::new(ret))) }
         } else {
             match self.chain.chain_store().get_epoch_light_client_block(&last_next_epoch_id.0) {
                 Ok(light_block) => Ok(Some(light_block)),
@@ -1131,7 +1105,7 @@ impl Handler<GetExecutionOutcome> for ViewClientActorInner {
                     &head.epoch_id,
                 )
                 .into_chain_error()?;
-                if self.shard_tracker.care_about_shard(
+                if self.shard_tracker.cares_about_shard(
                     self.validator.get().map(|v| v.validator_id().clone()).as_ref(),
                     &head.last_block_hash,
                     target_shard_id,
@@ -1219,7 +1193,7 @@ impl Handler<GetProtocolConfig> for ViewClientActorInner {
             .start_timer();
         let header = match self.get_block_header_by_reference(&msg.0)? {
             None => {
-                return Err(GetProtocolConfigError::UnknownBlock("EarliestAvailable".to_string()))
+                return Err(GetProtocolConfigError::UnknownBlock("EarliestAvailable".to_string()));
             }
             Some(header) => header,
         };
@@ -1311,11 +1285,7 @@ impl Handler<BlockRequest> for ViewClientActorInner {
         let _timer =
             metrics::VIEW_CLIENT_MESSAGE_TIME.with_label_values(&["BlockRequest"]).start_timer();
         let BlockRequest(hash) = msg;
-        if let Ok(block) = self.chain.get_block(&hash) {
-            Some(Box::new(block))
-        } else {
-            None
-        }
+        if let Ok(block) = self.chain.get_block(&hash) { Some(Box::new(block)) } else { None }
     }
 }
 
@@ -1386,19 +1356,18 @@ impl Handler<StateRequestHeader> for ViewClientActorInner {
                     }
                 };
 
-                let can_generate = self.has_state_snapshot(&sync_hash, shard_id).is_ok();
                 ShardStateSyncResponse::V3(ShardStateSyncResponseV3 {
                     header: Some(header),
                     part: None,
-                    cached_parts: None,
-                    can_generate,
+                    cached_parts: None,  // Unused
+                    can_generate: false, // Unused
                 })
             }
             None => ShardStateSyncResponse::V3(ShardStateSyncResponseV3 {
                 header: None,
                 part: None,
-                cached_parts: None,
-                can_generate: false,
+                cached_parts: None,  // Unused
+                can_generate: false, // Unused
             }),
         };
         let info = StateResponseInfo::V2(Box::new(StateResponseInfoV2 {
@@ -1420,10 +1389,6 @@ impl Handler<StateRequestPart> for ViewClientActorInner {
         let StateRequestPart { shard_id, sync_hash, part_id } = msg;
         if self.throttle_state_sync_request() {
             metrics::STATE_SYNC_REQUESTS_THROTTLED_TOTAL.inc();
-            return None;
-        }
-        if let Err(err) = self.has_state_snapshot(&sync_hash, shard_id) {
-            tracing::debug!(target: "sync", ?err, ?sync_hash, "Node doesn't have a matching state snapshot");
             return None;
         }
         tracing::debug!(target: "sync", ?shard_id, ?sync_hash, ?part_id, "Computing state request part");
@@ -1460,12 +1425,11 @@ impl Handler<StateRequestPart> for ViewClientActorInner {
                 None
             }
         };
-        let can_generate = part.is_some();
         let state_response = ShardStateSyncResponse::V3(ShardStateSyncResponseV3 {
             header: None,
             part,
-            cached_parts: None,
-            can_generate,
+            cached_parts: None,  // Unused
+            can_generate: false, // Unused
         });
         let info = StateResponseInfo::V2(Box::new(StateResponseInfoV2 {
             shard_id,

@@ -1,6 +1,6 @@
+use crate::Metric;
 use crate::db::{Db, EstimationRow};
 use crate::zulip::{ZulipEndpoint, ZulipReport};
-use crate::Metric;
 use std::collections::BTreeSet;
 
 #[derive(clap::Parser, Debug)]

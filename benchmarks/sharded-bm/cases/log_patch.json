@@ -1,0 +1,5 @@
+{
+    "rust_log": "transaction-generator=info,tokio_reactor=info,config=info,near=info,stats=info,telemetry=info,db=info,delay_detector=info,near-performance-metrics=info,state_viewer=info,warn",
+    "verbose_module": null,
+    "opentelemetry": "client=debug,chain=debug,stateless_validation=debug,info"
+}

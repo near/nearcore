@@ -8,8 +8,8 @@ use near_vm_test_api::*;
 use std::convert::Infallible;
 use std::sync::atomic::AtomicBool;
 use std::sync::{
-    atomic::{AtomicUsize, Ordering::SeqCst},
     Arc,
+    atomic::{AtomicUsize, Ordering::SeqCst},
 };
 
 fn get_module(store: &Store) -> Result<Module> {

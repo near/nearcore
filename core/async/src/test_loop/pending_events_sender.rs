@@ -6,29 +6,32 @@ use super::data::TestLoopData;
 
 type TestLoopCallback = Box<dyn FnOnce(&mut TestLoopData) + Send>;
 
+/// RawPendingEventsSender is used to construct a new PendingEventsSender with an identifier.
+/// RawPendingEventsSender can not directly be used to send events.
+#[derive(Clone)]
+pub struct RawPendingEventsSender(Arc<dyn Fn(CallbackEvent) + Send + Sync>);
+
+impl RawPendingEventsSender {
+    pub(crate) fn new(f: impl Fn(CallbackEvent) + Send + Sync + 'static) -> Self {
+        Self(Arc::new(f))
+    }
+
+    pub(crate) fn for_identifier(&self, identifier: &str) -> PendingEventsSender {
+        PendingEventsSender { identifier: identifier.to_string(), sender: self.clone() }
+    }
+}
+
 /// Interface to send an event with a delay (in virtual time).
+/// This is constructed from a RawPendingEventsSender with an identifier.
+/// The identifier is used to distinguish between different nodes.
+/// Usually we used the `account_id` of the node as the identifier.
 #[derive(Clone)]
 pub struct PendingEventsSender {
-    client_index: usize,
-    sender: Arc<dyn Fn(CallbackEvent) + Send + Sync>,
+    identifier: String,
+    sender: RawPendingEventsSender,
 }
 
 impl PendingEventsSender {
-    pub(crate) fn new(f: impl Fn(CallbackEvent) + Send + Sync + 'static) -> Self {
-        Self { client_index: 0, sender: Arc::new(f) }
-    }
-
-    pub(crate) fn set_index(&mut self, index: usize) {
-        self.client_index = index;
-    }
-
-    /// Set the index of the actor that is sending the event.
-    /// This is purely for debug purposes and does not affect the execution of the event.
-    pub fn for_index(mut self, index: usize) -> Self {
-        self.set_index(index);
-        self
-    }
-
     /// Schedule a callback to be executed. TestLoop follows the fifo order of executing events.
     pub fn send(&self, description: String, callback: TestLoopCallback) {
         self.send_with_delay(description, callback, Duration::ZERO);
@@ -41,8 +44,8 @@ impl PendingEventsSender {
         callback: TestLoopCallback,
         delay: Duration,
     ) {
-        let description = format!("({},{})", self.client_index, description);
-        (self.sender)(CallbackEvent { description, callback, delay });
+        let identifier = self.identifier.clone();
+        (self.sender.0)(CallbackEvent { identifier, description, callback, delay });
     }
 }
 
@@ -54,5 +57,6 @@ impl PendingEventsSender {
 pub(crate) struct CallbackEvent {
     pub(crate) callback: TestLoopCallback,
     pub(crate) delay: Duration,
+    pub(crate) identifier: String,
     pub(crate) description: String,
 }

@@ -3,11 +3,11 @@ use std::sync::Arc;
 use near_chain_primitives::Error;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{
-    combine_hash, Direction, MerklePath, MerklePathItem, PartialMerkleTree,
+    Direction, MerklePath, MerklePathItem, PartialMerkleTree, combine_hash,
 };
 use near_primitives::types::NumBlocks;
-use near_store::adapter::StoreAdapter;
 use near_store::Store;
+use near_store::adapter::StoreAdapter;
 
 /// Implement block merkle proof retrieval.
 ///
@@ -136,8 +136,8 @@ impl MerkleProofAccess for Store {
 mod tests {
     use super::MerkleProofAccess;
     use near_o11y::testonly::init_test_logger;
-    use near_primitives::hash::{hash, CryptoHash};
-    use near_primitives::merkle::{verify_hash, MerklePath, PartialMerkleTree};
+    use near_primitives::hash::{CryptoHash, hash};
+    use near_primitives::merkle::{MerklePath, PartialMerkleTree, verify_hash};
     use near_primitives::types::NumBlocks;
     use std::collections::HashMap;
     use std::ops::RangeInclusive;

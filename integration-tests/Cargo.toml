@@ -23,6 +23,7 @@ derive_more.workspace = true
 futures.workspace = true
 hex.workspace = true
 itertools.workspace = true
+num-rational.workspace = true
 parking_lot.workspace = true
 primitive-types.workspace = true
 rand.workspace = true
@@ -33,6 +34,8 @@ smart-default.workspace = true
 stdx.workspace = true
 strum.workspace = true
 tempfile.workspace = true
+thiserror.workspace = true
+time.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 wat.workspace = true
@@ -48,7 +51,7 @@ near-crypto.workspace = true
 near-epoch-manager.workspace = true
 near-fmt.workspace = true
 near-jsonrpc.workspace = true
-near-jsonrpc-client.workspace = true
+near-jsonrpc-client-internal.workspace = true
 near-jsonrpc-primitives.workspace = true
 near-network.workspace = true
 near-parameters.workspace = true
@@ -59,6 +62,7 @@ near-o11y.workspace = true
 near-telemetry.workspace = true
 near-test-contracts.workspace = true
 near-performance-metrics.workspace = true
+near-rosetta-rpc.workspace = true
 near-vm-runner = { workspace = true, features = ["prepare"] }
 near-wallet-contract.workspace = true
 nearcore.workspace = true
@@ -73,6 +77,7 @@ aurora-engine-types.workspace = true
 derive_builder.workspace = true
 ethabi.workspace = true
 insta.workspace = true
+near-state-viewer.workspace = true
 near-undo-block.workspace = true
 rlp.workspace = true
 sha3.workspace = true
@@ -91,9 +96,6 @@ test_features = [
   "near-vm-runner/test_features",
   "near-test-contracts/test_features",
 ]
-protocol_feature_fix_contract_loading_cost = [
-  "nearcore/protocol_feature_fix_contract_loading_cost",
-]
 
 nightly = [
   "near-actix-test-utils/nightly",
@@ -105,7 +107,7 @@ nightly = [
   "near-client/nightly",
   "near-epoch-manager/nightly",
   "near-fmt/nightly",
-  "near-jsonrpc-client/nightly",
+  "near-jsonrpc-client-internal/nightly",
   "near-jsonrpc-primitives/nightly",
   "near-jsonrpc/nightly",
   "near-network/nightly",
@@ -113,43 +115,15 @@ nightly = [
   "near-parameters/nightly",
   "near-primitives-core/nightly",
   "near-primitives/nightly",
+  "near-rosetta-rpc/nightly",
   "near-store/nightly",
   "near-telemetry/nightly",
   "near-undo-block/nightly",
   "near-vm-runner/nightly",
   "near-wallet-contract/nightly",
   "nearcore/nightly",
-  "nightly_protocol",
   "node-runtime/nightly",
-  "protocol_feature_fix_contract_loading_cost",
   "testlib/nightly",
-]
-nightly_protocol = [
-  "near-actix-test-utils/nightly_protocol",
-  "near-async/nightly_protocol",
-  "near-chain-configs/nightly_protocol",
-  "near-chain/nightly_protocol",
-  "near-chunks/nightly_protocol",
-  "near-client-primitives/nightly_protocol",
-  "near-client/nightly_protocol",
-  "near-epoch-manager/nightly_protocol",
-  "near-fmt/nightly_protocol",
-  "near-jsonrpc-client/nightly_protocol",
-  "near-jsonrpc-primitives/nightly_protocol",
-  "near-jsonrpc/nightly_protocol",
-  "near-network/nightly_protocol",
-  "near-o11y/nightly_protocol",
-  "near-parameters/nightly_protocol",
-  "near-primitives-core/nightly_protocol",
-  "near-primitives/nightly_protocol",
-  "near-store/nightly_protocol",
-  "near-telemetry/nightly_protocol",
-  "near-undo-block/nightly_protocol",
-  "near-vm-runner/nightly_protocol",
-  "near-wallet-contract/nightly_protocol",
-  "nearcore/nightly_protocol",
-  "node-runtime/nightly_protocol",
-  "testlib/nightly_protocol",
 ]
 sandbox = [
   "near-chain/sandbox",

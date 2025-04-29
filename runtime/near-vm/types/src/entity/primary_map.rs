@@ -4,10 +4,10 @@
 //! Densely numbered entity references as mapping keys.
 use rkyv::Archive;
 
+use crate::entity::EntityRef;
 use crate::entity::boxed_slice::BoxedSlice;
 use crate::entity::iter::{IntoIter, Iter, IterMut};
 use crate::entity::keys::Keys;
-use crate::entity::EntityRef;
 use crate::lib::std::boxed::Box;
 use crate::lib::std::iter::FromIterator;
 use crate::lib::std::marker::PhantomData;
@@ -330,7 +330,7 @@ mod tests {
             i += 1;
         }
         i = 0;
-        for (key_mut, value_mut) in m.iter_mut() {
+        for (key_mut, value_mut) in &mut m {
             assert_eq!(key_mut.index(), i);
             match i {
                 0 => assert_eq!(*value_mut, 12),

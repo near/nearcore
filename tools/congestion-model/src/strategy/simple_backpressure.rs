@@ -1,6 +1,6 @@
 use crate::model::ChunkExecutionContext;
 use crate::strategy::QueueFactory;
-use crate::{QueueId, Receipt, ShardId, GAS_LIMIT, TX_GAS_LIMIT};
+use crate::{GAS_LIMIT, QueueId, Receipt, ShardId, TX_GAS_LIMIT};
 
 /// Have a fixed max queue size per shard and apply backpressure by stop
 /// forwarding receipts when a receiving shard has reached its limit.
@@ -81,7 +81,7 @@ impl SimpleBackpressure {
         ctx.incoming_receipts().len() + ctx.queue(self.delayed_outgoing_receipts.unwrap()).len()
     }
 
-    fn congested(&mut self, ctx: &mut ChunkExecutionContext) -> bool {
+    fn congested(&self, ctx: &mut ChunkExecutionContext) -> bool {
         let congested = self.total_queued_receipts(ctx) > self.max_receipts;
         congested
     }

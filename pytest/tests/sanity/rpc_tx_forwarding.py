@@ -18,7 +18,7 @@ nodes = start_cluster(
     2, 2, 4, None, [["min_gas_price", 0], ["epoch_length", 10],
                     ["block_producer_kickout_threshold", 70]], {
                         0: {
-                            "tracked_shards": [],
+                            "tracked_shards_config": "NoShards",
                             "consensus": {
                                 "state_sync_external_timeout": {
                                     "secs": 2,
@@ -35,7 +35,7 @@ nodes = start_cluster(
                             }
                         },
                         1: {
-                            "tracked_shards": [],
+                            "tracked_shards_config": "NoShards",
                             "consensus": {
                                 "state_sync_external_timeout": {
                                     "secs": 2,
@@ -52,7 +52,7 @@ nodes = start_cluster(
                             }
                         },
                         2: {
-                            "tracked_shards": [],
+                            "tracked_shards_config": "NoShards",
                             "consensus": {
                                 "state_sync_external_timeout": {
                                     "secs": 2,
@@ -69,7 +69,7 @@ nodes = start_cluster(
                             }
                         },
                         3: {
-                            "tracked_shards": [0, 1, 2, 3],
+                            "tracked_shards_config": "AllShards",
                             "consensus": {
                                 "state_sync_external_timeout": {
                                     "secs": 2,

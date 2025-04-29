@@ -152,7 +152,7 @@ impl TryFrom<&net::PeerMessage> for mem::PeerMessage {
             }
             net::PeerMessage::RequestUpdateNonce(e) => mem::PeerMessage::RequestUpdateNonce(e),
             net::PeerMessage::_ResponseUpdateNonce => {
-                return Err(Self::Error::DeprecatedResponseUpdateNonce)
+                return Err(Self::Error::DeprecatedResponseUpdateNonce);
             }
             net::PeerMessage::PeersRequest => mem::PeerMessage::PeersRequest(PeersRequest {
                 max_peers: None,
@@ -167,6 +167,7 @@ impl TryFrom<&net::PeerMessage> for mem::PeerMessage {
             net::PeerMessage::BlockHeaders(bhs) => mem::PeerMessage::BlockHeaders(bhs),
             net::PeerMessage::BlockRequest(bh) => mem::PeerMessage::BlockRequest(bh),
             net::PeerMessage::Block(b) => mem::PeerMessage::Block(b),
+            net::PeerMessage::OptimisticBlock(ob) => mem::PeerMessage::OptimisticBlock(ob),
             net::PeerMessage::Transaction(t) => mem::PeerMessage::Transaction(t),
             net::PeerMessage::Routed(r) => mem::PeerMessage::Routed(Box::new(RoutedMessageV2 {
                 msg: *r,
@@ -184,13 +185,13 @@ impl TryFrom<&net::PeerMessage> for mem::PeerMessage {
             net::PeerMessage::_EpochSyncRequest => return Err(Self::Error::DeprecatedEpochSync),
             net::PeerMessage::_EpochSyncResponse => return Err(Self::Error::DeprecatedEpochSync),
             net::PeerMessage::_EpochSyncFinalizationRequest => {
-                return Err(Self::Error::DeprecatedEpochSync)
+                return Err(Self::Error::DeprecatedEpochSync);
             }
             net::PeerMessage::_EpochSyncFinalizationResponse => {
-                return Err(Self::Error::DeprecatedEpochSync)
+                return Err(Self::Error::DeprecatedEpochSync);
             }
             net::PeerMessage::_RoutingTableSyncV2 => {
-                return Err(Self::Error::DeprecatedRoutingTableSyncV2)
+                return Err(Self::Error::DeprecatedRoutingTableSyncV2);
             }
             net::PeerMessage::DistanceVector(dv) => mem::PeerMessage::DistanceVector(dv.into()),
             net::PeerMessage::StateRequestHeader(shard_id, sync_hash) => {
@@ -246,6 +247,7 @@ impl From<&mem::PeerMessage> for net::PeerMessage {
             mem::PeerMessage::BlockHeaders(bhs) => net::PeerMessage::BlockHeaders(bhs),
             mem::PeerMessage::BlockRequest(bh) => net::PeerMessage::BlockRequest(bh),
             mem::PeerMessage::Block(b) => net::PeerMessage::Block(b),
+            mem::PeerMessage::OptimisticBlock(ob) => net::PeerMessage::OptimisticBlock(ob),
             mem::PeerMessage::Transaction(t) => net::PeerMessage::Transaction(t),
             mem::PeerMessage::Routed(r) => net::PeerMessage::Routed(Box::new(r.msg.clone())),
             mem::PeerMessage::Disconnect(_) => net::PeerMessage::Disconnect,

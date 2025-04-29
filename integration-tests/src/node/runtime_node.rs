@@ -3,19 +3,20 @@ use std::sync::{Arc, RwLock};
 use near_chain_configs::Genesis;
 use near_crypto::{InMemorySigner, Signer};
 use near_parameters::{RuntimeConfig, RuntimeConfigStore};
-use near_primitives::types::AccountId;
+use near_primitives::types::{AccountId, Balance};
 use testlib::runtime_utils::{add_test_contract, alice_account, bob_account, carol_account};
 
 use crate::node::Node;
-use crate::runtime_utils::get_runtime_and_trie_from_genesis;
 use crate::user::runtime_user::MockClient;
 use crate::user::{RuntimeUser, User};
+use crate::utils::runtime_utils::get_runtime_and_trie_from_genesis;
 
 pub struct RuntimeNode {
     pub client: Arc<RwLock<MockClient>>,
     pub signer: Arc<Signer>,
     pub genesis: Genesis,
     account_id: AccountId,
+    gas_price: Balance,
 }
 
 impl RuntimeNode {
@@ -41,7 +42,8 @@ impl RuntimeNode {
             epoch_length: genesis.config.epoch_length,
             runtime_config,
         }));
-        RuntimeNode { signer, client, genesis, account_id: account_id.clone() }
+        let gas_price = genesis.config.min_gas_price;
+        RuntimeNode { signer, client, genesis, account_id: account_id.clone(), gas_price }
     }
 
     pub fn new_from_genesis(account_id: &AccountId, genesis: Genesis) -> Self {
@@ -70,6 +72,7 @@ impl RuntimeNode {
     pub fn free(account_id: &AccountId) -> Self {
         let mut genesis =
             Genesis::test(vec![alice_account(), bob_account(), "carol.near".parse().unwrap()], 3);
+        genesis.config.min_gas_price = 0;
         add_test_contract(&mut genesis, &bob_account());
         Self::new_from_genesis_and_config(account_id, genesis, RuntimeConfig::free())
     }
@@ -105,14 +108,15 @@ impl Node for RuntimeNode {
             self.account_id.clone(),
             self.signer.clone(),
             self.client.clone(),
+            self.gas_price,
         ))
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::node::runtime_node::RuntimeNode;
     use crate::node::Node;
+    use crate::node::runtime_node::RuntimeNode;
     use testlib::fees_utils::FeeHelper;
     use testlib::runtime_utils::{alice_account, bob_account};
 

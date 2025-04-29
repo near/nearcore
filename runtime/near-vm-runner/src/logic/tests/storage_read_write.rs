@@ -1,5 +1,6 @@
+use crate::logic::External;
+use crate::logic::gas_counter::FreeGasCounter;
 use crate::logic::tests::vm_logic_builder::VMLogicBuilder;
-use crate::logic::{External, StorageGetMode};
 
 #[test]
 fn test_storage_write_with_register() {
@@ -14,8 +15,8 @@ fn test_storage_write_with_register() {
 
     logic.storage_write(u64::MAX, 1 as _, u64::MAX, 2 as _, 0).expect("storage write ok");
 
-    let value_ptr = logic_builder.ext.storage_get(key, StorageGetMode::Trie).unwrap().unwrap();
-    assert_eq!(value_ptr.deref().unwrap(), val.to_vec());
+    let value_ptr = logic_builder.ext.storage_get(&mut FreeGasCounter, key).unwrap().unwrap();
+    assert_eq!(value_ptr.deref(&mut FreeGasCounter).unwrap(), val.to_vec());
 }
 
 #[test]
@@ -24,8 +25,7 @@ fn test_storage_read_with_register() {
 
     let key: &[u8] = b"foo";
     let val: &[u8] = b"bar";
-
-    logic_builder.ext.storage_set(key, val).unwrap();
+    logic_builder.ext.storage_set(&mut FreeGasCounter, key, val).unwrap();
     let mut logic = logic_builder.build();
 
     logic.wrapped_internal_write_register(1, key).unwrap();
@@ -55,7 +55,7 @@ fn test_storage_has_key_with_register() {
 
     let key: &[u8] = b"foo";
     let val: &[u8] = b"bar";
-    logic_builder.ext.storage_set(key, val).unwrap();
+    logic_builder.ext.storage_set(&mut FreeGasCounter, key, val).unwrap();
 
     let mut logic = logic_builder.build();
 

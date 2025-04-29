@@ -22,8 +22,8 @@ use std::io;
 
 use rocksdb::compaction_filter::Decision;
 
-use crate::db::RocksDB;
 use crate::DBCol;
+use crate::db::RocksDB;
 
 /// Extracts reference count from raw value and returns it along with the value.
 ///
@@ -41,11 +41,7 @@ pub fn decode_value_with_rc(bytes: &[u8]) -> (Option<&[u8]>, i64) {
         }
         Some((head, tail)) => {
             let rc = i64::from_le_bytes(*tail);
-            if rc <= 0 {
-                (None, rc)
-            } else {
-                (Some(head), rc)
-            }
+            if rc <= 0 { (None, rc) } else { (Some(head), rc) }
         }
     }
 }
@@ -127,27 +123,23 @@ pub(crate) fn refcount_merge<'a>(
     // TODO(resharding) We should preserve negative refcounts, but we don't because of ReshardingV3.
     // Resharding can result in some data being double deleted, that would result in negative refcount forever
     // and lead to issue if the same data will be reintroduced later.
-    if rc <= 0 {
-        Vec::new()
-    } else {
-        [payload.unwrap_or(b""), &rc.to_le_bytes()].concat()
-    }
+    if rc <= 0 { Vec::new() } else { [payload.unwrap_or(b""), &rc.to_le_bytes()].concat() }
 }
 
 /// Iterator treats empty value as no value and strips refcount
 pub(crate) fn iter_with_rc_logic<'a>(
     col: DBCol,
-    iterator: impl Iterator<Item = io::Result<(Box<[u8]>, Box<[u8]>)>> + 'a,
+    iterator: impl IntoIterator<Item = io::Result<(Box<[u8]>, Box<[u8]>)>> + 'a,
 ) -> crate::db::DBIterator<'a> {
     if col.is_rc() {
-        Box::new(iterator.filter_map(|item| match item {
+        Box::new(iterator.into_iter().filter_map(|item| match item {
             Err(err) => Some(Err(err)),
             Ok((key, value)) => {
                 strip_refcount(value.into_vec()).map(|value| Ok((key, value.into_boxed_slice())))
             }
         }))
     } else {
-        Box::new(iterator)
+        Box::new(iterator.into_iter())
     }
 }
 
@@ -168,11 +160,7 @@ impl RocksDB {
         _key: &[u8],
         value: &[u8],
     ) -> Decision {
-        if value.is_empty() {
-            Decision::Remove
-        } else {
-            Decision::Keep
-        }
+        if value.is_empty() { Decision::Remove } else { Decision::Keep }
     }
 }
 
@@ -320,7 +308,7 @@ mod test {
             let got = super::iter_with_rc_logic(col, iter)
                 .map(Result::unwrap)
                 .map(|(key, value)| {
-                    assert_eq!(KEY, key.deref());
+                    assert_eq!(&*key, KEY);
                     value
                 })
                 .collect::<Vec<_>>();

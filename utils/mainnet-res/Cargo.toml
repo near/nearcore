@@ -22,9 +22,4 @@ near-primitives.workspace = true
 nightly = [
   "near-chain-configs/nightly",
   "near-primitives/nightly",
-  "nightly_protocol",
-]
-nightly_protocol = [
-  "near-chain-configs/nightly_protocol",
-  "near-primitives/nightly_protocol",
 ]

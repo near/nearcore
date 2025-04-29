@@ -12,13 +12,14 @@ pub use crate::network_protocol::{
 use crate::routing::routing_table_view::RoutingTableInfo;
 pub use crate::state_sync::StateSyncResponse;
 use near_async::messaging::{AsyncSender, Sender};
-use near_async::{time, MultiSend, MultiSendMessage, MultiSenderFrom};
+use near_async::{MultiSend, MultiSendMessage, MultiSenderFrom, time};
 use near_crypto::PublicKey;
-use near_primitives::block::{ApprovalMessage, Block, GenesisId};
-use near_primitives::challenge::Challenge;
+use near_primitives::block::{ApprovalMessage, Block};
 use near_primitives::epoch_sync::CompressedEpochSyncProof;
+use near_primitives::genesis::GenesisId;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
+use near_primitives::optimistic_block::OptimisticBlock;
 use near_primitives::sharding::PartialEncodedChunkWithArcReceipts;
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::stateless_validation::contract_distribution::{
@@ -240,6 +241,8 @@ impl From<NetworkResponses> for PeerManagerMessageResponse {
 pub enum NetworkRequests {
     /// Sends block, either when block was just produced or when requested.
     Block { block: Block },
+    /// Sends optimistic block as soon as the production window for the height starts.
+    OptimisticBlock { optimistic_block: OptimisticBlock },
     /// Sends approval.
     Approval { approval_message: ApprovalMessage },
     /// Request block with given hash from given peer.
@@ -281,8 +284,6 @@ pub enum NetworkRequests {
     ForwardTx(AccountId, SignedTransaction),
     /// Query transaction status
     TxStatus(AccountId, AccountId, CryptoHash),
-    /// A challenge to invalidate a block.
-    Challenge(Challenge),
     /// Acknowledgement to a chunk's state witness, sent back to the originating chunk producer.
     ChunkStateWitnessAck(AccountId, ChunkStateWitnessAck),
     /// Message for a chunk endorsement, sent by a chunk validator to the block producer.
@@ -397,7 +398,7 @@ pub struct ConnectedPeerInfo {
     pub nonce: u64,
 }
 
-#[derive(Debug, Clone, actix::MessageResponse, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, actix::MessageResponse, PartialEq, Eq)]
 pub struct NetworkInfo {
     /// TIER2 connections.
     pub connected_peers: Vec<ConnectedPeerInfo>,

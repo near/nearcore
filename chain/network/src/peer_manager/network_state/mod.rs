@@ -17,9 +17,9 @@ use crate::peer_manager::connection;
 use crate::peer_manager::connection_store;
 use crate::peer_manager::peer_store;
 use crate::private_actix::RegisterPeerError;
-use crate::routing::route_back_cache::RouteBackCache;
 #[cfg(feature = "distance_vector_routing")]
 use crate::routing::NetworkTopologyChange;
+use crate::routing::route_back_cache::RouteBackCache;
 use crate::shards_manager::ShardsManagerRequestFromNetwork;
 use crate::snapshot_hosts::{SnapshotHostInfoError, SnapshotHostsCache};
 use crate::state_witness::{
@@ -39,15 +39,15 @@ use anyhow::Context;
 use arc_swap::ArcSwap;
 use near_async::messaging::{CanSend, SendAsync, Sender};
 use near_async::time;
-use near_primitives::block::GenesisId;
+use near_primitives::genesis::GenesisId;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
 use near_primitives::types::AccountId;
 use parking_lot::{Mutex, RwLock};
 use std::net::SocketAddr;
 use std::num::NonZeroUsize;
-use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
+use std::sync::atomic::AtomicUsize;
 use tracing::Instrument as _;
 
 mod routing;
@@ -672,8 +672,7 @@ impl NetworkState {
             .get(account_id)
             .iter()
             .flat_map(|keys| keys.iter())
-            .flat_map(|key| accounts_data.data.get(key))
-            .next()
+            .find_map(|key| accounts_data.data.get(key))
             .map(|data| data.peer_id.clone());
         // Find the target peer_id:
         // - first look it up in self.accounts_data

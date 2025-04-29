@@ -4,14 +4,14 @@ use crate::{MockNetworkConfig, MockNode};
 use anyhow::Context;
 use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode};
 use near_chain_configs::GenesisValidationMode;
-use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
+use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::{EpochManager, EpochManagerAdapter};
 use near_network::tcp;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::BlockHeight;
 use near_primitives::version::ProtocolVersion;
-use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::adapter::StoreAdapter;
+use near_store::adapter::chain_store::ChainStoreAdapter;
 
 use near_time::Clock;
 
@@ -21,6 +21,13 @@ use std::cmp::min;
 use std::path::Path;
 use std::sync::Arc;
 
+/// Starts a mock server listening on the addr specified in `config`
+/// The `archival` field does not refer to whether the database is archival
+/// (which is still controlled by `config`), but tells whether the mock server should
+/// advertise itself as archival in handshakes with peers. We might want to use the mock
+/// server with clients with `state_sync_enabled=false` in the config and with a head
+/// more than one epoch behind ours. In that case, if the client believes we're not archival,
+/// it wont send us any chunk part requests for old chunks.
 pub(crate) fn setup_mock_peer(
     chain: Chain,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
@@ -30,6 +37,7 @@ pub(crate) fn setup_mock_peer(
     target_height: BlockHeight,
     shard_layout: ShardLayout,
     handshake_protocol_version: Option<ProtocolVersion>,
+    archival: bool,
 ) -> tokio::task::JoinHandle<anyhow::Result<()>> {
     let network_start_height = match network_start_height {
         None => target_height,
@@ -39,12 +47,11 @@ pub(crate) fn setup_mock_peer(
     let secret_key = config.network_config.node_key;
     let chain_id = config.genesis.config.chain_id;
     let block_production_delay = config.client_config.min_block_production_delay;
-    let archival = config.client_config.archive;
     let listen_addr = match config.network_config.node_addr {
         Some(a) => a,
         None => tcp::ListenerAddr::new("127.0.0.1".parse().unwrap()),
     };
-    let mock_peer = actix::spawn(async move {
+    let mock_peer = tokio::spawn(async move {
         let mock = MockNode::new(
             ChainStoreAdapter::new(chain.chain_store().store()),
             epoch_manager,
@@ -58,8 +65,7 @@ pub(crate) fn setup_mock_peer(
             network_start_height,
             network_config,
             handshake_protocol_version,
-        )
-        .await?;
+        )?;
         mock.run(target_height).await
     });
     mock_peer
@@ -76,6 +82,7 @@ pub fn setup_mock_node(
     network_start_height: Option<BlockHeight>,
     target_height: Option<BlockHeight>,
     handshake_protocol_version: Option<ProtocolVersion>,
+    archival: bool,
 ) -> anyhow::Result<tokio::task::JoinHandle<anyhow::Result<()>>> {
     let near_config = nearcore::config::load_config(home_dir, GenesisValidationMode::Full)
         .context("Error loading config")?;
@@ -91,7 +98,7 @@ pub fn setup_mock_node(
     let epoch_manager =
         EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config, Some(home_dir));
     let shard_tracker = ShardTracker::new(
-        TrackedConfig::from_config(&near_config.client_config),
+        near_config.client_config.tracked_shards_config.clone(),
         epoch_manager.clone(),
     );
     let runtime =
@@ -125,5 +132,6 @@ pub fn setup_mock_node(
         target_height,
         shard_layout,
         handshake_protocol_version,
+        archival,
     ))
 }

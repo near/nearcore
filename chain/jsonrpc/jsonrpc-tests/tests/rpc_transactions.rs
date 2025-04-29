@@ -2,7 +2,7 @@ use std::sync::{Arc, Mutex};
 
 use actix::{Actor, System};
 
-use futures::{future, FutureExt, TryFutureExt};
+use futures::{FutureExt, TryFutureExt, future};
 
 use near_actix_test_utils::run_actix;
 use near_crypto::InMemorySigner;
@@ -10,7 +10,7 @@ use near_jsonrpc::client::new_client;
 use near_jsonrpc_primitives::types::transactions::{RpcTransactionStatusRequest, TransactionInfo};
 use near_network::test_utils::WaitOrTimeoutActor;
 use near_o11y::testonly::{init_integration_logger, init_test_logger};
-use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::serialize::to_base64;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::BlockReference;
@@ -25,7 +25,8 @@ fn test_send_tx_async() {
     init_test_logger();
 
     run_actix(async {
-        let (_, addr) = test_utils::start_all(Clock::real(), test_utils::NodeType::Validator);
+        let (_, addr, _runtime_temp_dir) =
+            test_utils::start_all(Clock::real(), test_utils::NodeType::Validator);
 
         let client = new_client(&format!("http://{}", addr));
 
@@ -119,7 +120,7 @@ fn test_send_tx_commit() {
 fn test_expired_tx() {
     init_integration_logger();
     run_actix(async {
-        let (_, addr) = test_utils::start_all_with_validity_period(
+        let (_, addr, _runtime_tempdir) = test_utils::start_all_with_validity_period(
             Clock::real(),
             test_utils::NodeType::Validator,
             1,
@@ -156,7 +157,7 @@ fn test_expired_tx() {
                                         .broadcast_tx_commit(to_base64(&bytes))
                                         .map_err(|err| {
                                             assert_eq!(
-                                                err.data.unwrap(),
+                                                *err.data.unwrap(),
                                                 serde_json::json!({"TxExecutionError": {
                                                     "InvalidTxError": "Expired"
                                                 }})

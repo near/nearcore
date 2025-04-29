@@ -1,6 +1,6 @@
 use near_chain_primitives::Error;
-use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_epoch_manager::EpochManagerAdapter;
+use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_primitives::block::Tip;
 use near_store::flat::{FlatStorageManager, FlatStorageStatus};
 

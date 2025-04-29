@@ -231,7 +231,7 @@ impl ShowKeysCmd {
                 vec![crate::key_util::default_extra_key(secret.as_ref())]
             }
         };
-        for key in keys.iter() {
+        for key in &keys {
             if let Some(k) = &key.original_key {
                 println!("original pub key: {}", k);
             }
@@ -250,7 +250,8 @@ impl ShowKeysCmd {
             println!(
                 "{} account probably has an extra full access key added:\nmapped secret key: {}\npublic key: {}",
                 if keys.is_empty() { "If it exists, this" } else { "This" },
-                &extra_key, extra_key.public_key(),
+                &extra_key,
+                extra_key.public_key(),
             );
         }
         Ok(())

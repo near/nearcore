@@ -4,13 +4,11 @@
 //! pre-generated chain history in storage.
 
 use anyhow::Context;
-use mock_node::setup::setup_mock_node;
 use mock_node::MockNetworkConfig;
-use near_actix_test_utils::{block_on_interruptible, setup_actix};
+use mock_node::setup::setup_mock_node;
 use near_o11y::testonly::init_integration_logger;
 use near_primitives::types::BlockHeight;
 use near_primitives::version::ProtocolVersion;
-
 use std::path::Path;
 use std::time::Duration;
 
@@ -41,6 +39,9 @@ struct Cli {
     /// Protocol version to advertise in handshakes
     #[clap(long)]
     handshake_protocol_version: Option<ProtocolVersion>,
+    /// If set, advertise that the node is archival in the handshake
+    #[clap(long)]
+    archival: bool,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -60,14 +61,15 @@ fn main() -> anyhow::Result<()> {
         network_config.response_delay = Duration::from_millis(delay);
     }
 
-    let sys = setup_actix();
-    let res = block_on_interruptible(&sys, async move {
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+    let res = runtime.block_on(async move {
         let mock_peer = setup_mock_node(
             home_dir,
             network_config,
             args.network_height,
             args.target_height,
             args.handshake_protocol_version,
+            args.archival,
         )
         .context("failed setting up mock node")?;
 

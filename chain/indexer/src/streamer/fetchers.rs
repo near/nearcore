@@ -11,8 +11,8 @@ use near_o11y::WithSpanContextExt;
 use near_primitives::hash::CryptoHash;
 use near_primitives::{types, views};
 
-use super::errors::FailedToFetchData;
 use super::INDEXER;
+use super::errors::FailedToFetchData;
 use near_epoch_manager::shard_tracker::ShardTracker;
 
 pub(crate) async fn fetch_status(
@@ -160,7 +160,7 @@ async fn fetch_single_chunk(
 
 /// Fetches all chunks belonging to given block.
 /// Includes transactions and receipts in custom struct (to provide more info).
-pub(crate) async fn fetch_block_chunks(
+pub(crate) async fn fetch_block_new_chunks(
     client: &Addr<near_client::ViewClientActor>,
     block: &views::BlockView,
     shard_tracker: &ShardTracker,
@@ -170,8 +170,8 @@ pub(crate) async fn fetch_block_chunks(
         .chunks
         .iter()
         .filter(|chunk| {
-            shard_tracker.care_about_shard(None, &block.header.prev_hash, chunk.shard_id, false)
-                && chunk.height_included == block.header.height
+            shard_tracker.cares_about_shard(None, &block.header.prev_hash, chunk.shard_id, false)
+                && chunk.is_new_chunk(block.header.height)
         })
         .map(|chunk| fetch_single_chunk(&client, chunk.chunk_hash))
         .collect();

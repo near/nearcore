@@ -451,6 +451,12 @@ message EpochSyncResponse {
   bytes compressed_proof = 1;
 }
 
+message OptimisticBlock {
+  bytes inner = 1;
+  Signature signature = 2;
+  CryptoHash hash = 3;
+}
+
 // PeerMessage is a wrapper of all message types exchanged between NEAR nodes.
 // The wire format of a single message M consists of len(M)+4 bytes:
 // <len(M)> : 4 bytes : little endian uint32
@@ -508,5 +514,7 @@ message PeerMessage {
 
     EpochSyncRequest epoch_sync_request = 34;
     EpochSyncResponse epoch_sync_response = 35;
+
+    OptimisticBlock optimistic_block = 36;
   }
 }

@@ -2,7 +2,7 @@ use ::time::ext::InstantExt as _;
 use near_async::time;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
-use std::collections::{btree_map, BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap, btree_map};
 
 /// default value for `capacity`
 const DEFAULT_CAPACITY: usize = 100_000;
@@ -149,7 +149,7 @@ impl RouteBackCache {
             };
             let mut remove_empty = vec![];
 
-            for (key, value) in self.record_per_target.iter_mut() {
+            for (key, value) in &mut self.record_per_target {
                 let prev_size = value.len();
                 let keep = value.split_off(&(remove_until, CryptoHash::default()));
 
@@ -249,7 +249,7 @@ mod test {
         assert!(cache.main.len() <= cache.capacity);
         assert_eq!(cache.size_per_target.len(), cache.record_per_target.len());
 
-        for (neg_size, target) in cache.size_per_target.iter() {
+        for (neg_size, target) in &cache.size_per_target {
             let size = cache.capacity - neg_size;
             assert!(size > 0);
             assert_eq!(size, cache.record_per_target.get(target).map(|x| x.len()).unwrap());
@@ -257,10 +257,10 @@ mod test {
 
         let mut total = 0;
 
-        for (target, records) in cache.record_per_target.iter() {
+        for (target, records) in &cache.record_per_target {
             total += records.len();
 
-            for (time, record) in records.iter() {
+            for (time, record) in records {
                 assert_eq!(cache.main.get(record).unwrap(), &(*time, target.clone()));
             }
         }

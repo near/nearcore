@@ -476,8 +476,8 @@ impl ReceiptManager {
                 .and_then(|receipt| receipt.actions.get_mut(action_index))
             else {
                 panic!(
-                        "Invalid function call index (promise_index={receipt_index}, action_index={action_index})",
-                    );
+                    "Invalid function call index (promise_index={receipt_index}, action_index={action_index})",
+                );
             };
             let to_assign = (unused_gas as u128 * weight.0 as u128 / gas_weight_sum) as u64;
             action.gas = safe_add_gas(action.gas, to_assign)?;

@@ -3,12 +3,12 @@
 use anyhow::Context;
 use genesis_populate::GenesisBuilder;
 use near_chain_configs::GenesisValidationMode;
-use near_parameters::vm::VMKind;
 use near_parameters::RuntimeConfigView;
+use near_parameters::vm::VMKind;
 use replay::ReplayCmd;
 use runtime_params_estimator::config::{Config, GasMetric};
 use runtime_params_estimator::{
-    costs_to_runtime_config, Cost, CostTable, QemuCommandBuilder, RocksDBTestConfig,
+    Cost, CostTable, QemuCommandBuilder, RocksDBTestConfig, costs_to_runtime_config,
 };
 use std::env;
 use std::ffi::{OsStr, OsString};
@@ -354,8 +354,6 @@ fn main_container(
         // Also add nightly protocol features to docker build if they are enabled.
         #[cfg(feature = "nightly")]
         buf.push_str(",nightly");
-        #[cfg(feature = "nightly_protocol")]
-        buf.push_str(",nightly_protocol");
 
         buf.push_str(" --profile ");
         buf.push_str(profile);

@@ -53,13 +53,13 @@ class StateSyncValidatorShardSwap(unittest.TestCase):
              tracked_shards=None)
 
         # State snapshot is disabled for dumper. We only want to dump the headers.
-        node_config_dump["store.state_snapshot_enabled"] = False
         node_config_dump[
-            "store.state_snapshot_config.state_snapshot_type"] = "ForReshardingOnly"
+            "store.state_snapshot_config.state_snapshot_type"] = "Disabled"
 
         # State snapshot is enabled for validators. They will share parts of the state.
-        node_config_sync["store.state_snapshot_enabled"] = True
-        node_config_sync["tracked_shards"] = []
+        node_config_sync[
+            "store.state_snapshot_config.state_snapshot_type"] = "Enabled"
+        node_config_sync["tracked_shards_config"] = "NoShards"
 
         # Validators
         configs = {x: node_config_sync.copy() for x in range(NUM_VALIDATORS)}
@@ -71,11 +71,10 @@ class StateSyncValidatorShardSwap(unittest.TestCase):
             # RPC
             configs[NUM_VALIDATORS + 1] = node_config_sync.copy()
             # RPC tracks all shards.
-            configs[NUM_VALIDATORS + 1]["tracked_shards"] = [0]
+            configs[NUM_VALIDATORS + 1]["tracked_shards_config"] = "AllShards"
             # RPC node does not participate in state parts distribution.
-            configs[NUM_VALIDATORS + 1]["store.state_snapshot_enabled"] = False
             configs[NUM_VALIDATORS + 1][
-                "store.state_snapshot_config.state_snapshot_type"] = "ForReshardingOnly"
+                "store.state_snapshot_config.state_snapshot_type"] = "Disabled"
 
         nodes = start_cluster(
             num_nodes=NUM_VALIDATORS,

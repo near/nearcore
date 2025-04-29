@@ -1,8 +1,8 @@
 use crate::opentelemetry::add_opentelemetry_layer;
 use crate::reload::{
-    set_default_otlp_level, set_log_layer_handle, set_otlp_layer_handle, LogLayer, SimpleLogLayer,
+    LogLayer, SimpleLogLayer, set_default_otlp_level, set_log_layer_handle, set_otlp_layer_handle,
 };
-use crate::{log_counter, OpenTelemetryLevel};
+use crate::{OpenTelemetryLevel, log_counter};
 use near_crypto::PublicKey;
 use near_primitives_core::types::AccountId;
 use std::path::PathBuf;
@@ -10,7 +10,7 @@ use tracing::subscriber::DefaultGuard;
 use tracing_appender::non_blocking::NonBlocking;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::registry::LookupSpan;
-use tracing_subscriber::{fmt, reload, EnvFilter, Layer};
+use tracing_subscriber::{EnvFilter, Layer, fmt, reload};
 
 /// The resource representing a registered subscriber.
 ///

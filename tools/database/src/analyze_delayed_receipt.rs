@@ -1,7 +1,7 @@
 use clap::Parser;
 use near_store::adapter::StoreAdapter;
 use near_store::flat::FlatStorageManager;
-use near_store::{get_delayed_receipt_indices, ShardTries, StateSnapshotConfig, TrieConfig};
+use near_store::{ShardTries, StateSnapshotConfig, TrieConfig, get_delayed_receipt_indices};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::rc::Rc;
@@ -9,7 +9,7 @@ use std::rc::Rc;
 use near_chain::ChainStore;
 use near_chain::ChainStoreAccess;
 use near_chain_configs::GenesisValidationMode;
-use near_epoch_manager::EpochManager;
+use near_epoch_manager::{EpochManager, EpochManagerAdapter};
 use nearcore::config::load_config;
 
 use near_primitives::hash::CryptoHash;
@@ -17,7 +17,7 @@ use near_primitives::shard_layout::ShardUId;
 use near_primitives::types::BlockHeight;
 
 use crate::block_iterators::{
-    make_block_iterator_from_command_args, CommandArgs, LastNBlocksIterator,
+    CommandArgs, LastNBlocksIterator, make_block_iterator_from_command_args,
 };
 use nearcore::open_storage;
 
@@ -52,8 +52,7 @@ impl AnalyzeDelayedReceiptCommand {
             near_config.genesis.config.transaction_validity_period,
         ));
         let epoch_manager =
-            EpochManager::new_from_genesis_config(store.clone(), &near_config.genesis.config)
-                .unwrap();
+            EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config, None);
 
         let tip = chain_store.head().unwrap();
         let shard_layout = epoch_manager.get_shard_layout(&tip.epoch_id).unwrap();
@@ -63,7 +62,7 @@ impl AnalyzeDelayedReceiptCommand {
             TrieConfig::default(),
             &shard_uids,
             FlatStorageManager::new(store.flat_store()),
-            StateSnapshotConfig::default(),
+            StateSnapshotConfig::Disabled,
         );
         // Create an iterator over the blocks that should be analyzed
         let blocks_iter_opt = make_block_iterator_from_command_args(

@@ -1,12 +1,11 @@
 use super::test_vm_config;
+use crate::ContractCode;
+use crate::logic::VMContext;
 use crate::logic::errors::FunctionCallError;
 use crate::logic::mocks::mock_external::MockedExternal;
-use crate::logic::VMContext;
-use crate::runner::VMKindExt;
-use crate::runner::VMResult;
-use crate::ContractCode;
-use near_parameters::vm::{ContractPrepareVersion, VMKind};
+use crate::runner::{VMKindExt, VMResult};
 use near_parameters::RuntimeFeesConfig;
+use near_parameters::vm::VMKind;
 use near_test_contracts::ArbitraryModule;
 use std::sync::Arc;
 
@@ -67,11 +66,7 @@ fn run_fuzz(code: &ContractCode, vm_kind: VMKind) -> VMResult {
     let method_name = find_entry_point(code).unwrap_or_else(|| "main".to_string());
     let mut context = create_context(vec![]);
     context.prepaid_gas = 10u64.pow(14);
-
-    let mut config = test_vm_config();
-    config.limit_config.wasmer2_stack_limit = i32::MAX; // If we can crash wasmer2 even without the secondary stack limit it's still good to know
-    config.limit_config.contract_prepare_version = ContractPrepareVersion::V2;
-
+    let config = test_vm_config();
     let fees = Arc::new(RuntimeFeesConfig::test());
     let gas_counter = context.make_gas_counter(&config);
     let mut res = vm_kind

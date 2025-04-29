@@ -4,6 +4,7 @@
 //! This file declares `VMContext` and several related structs which contain
 //! fields that compiled wasm code accesses directly.
 
+use crate::VMExternRef;
 use crate::func_data_registry::VMFuncRef;
 use crate::global::Global;
 use crate::instance::Instance;
@@ -11,7 +12,6 @@ use crate::memory::LinearMemory;
 use crate::sig_registry::VMSharedSignatureIndex;
 use crate::table::Table;
 use crate::trap::{Trap, TrapCode};
-use crate::VMExternRef;
 use std::any::Any;
 use std::convert::TryFrom;
 use std::fmt;
@@ -409,11 +409,12 @@ impl VMMemoryDefinition {
         let dst = usize::try_from(dst).unwrap();
         let src = usize::try_from(src).unwrap();
 
-        // Bounds and casts are checked above, by this point we know that
-        // everything is safe.
-        let dst = self.base.add(dst);
-        let src = self.base.add(src);
-        ptr::copy(src, dst, len as usize);
+        // SAFE: Bounds and casts are checked above.
+        unsafe {
+            let dst = self.base.add(dst);
+            let src = self.base.add(src);
+            ptr::copy(src, dst, len as usize);
+        }
 
         Ok(())
     }
@@ -437,10 +438,11 @@ impl VMMemoryDefinition {
         let dst = isize::try_from(dst).unwrap();
         let val = val as u8;
 
-        // Bounds and casts are checked above, by this point we know that
-        // everything is safe.
-        let dst = self.base.offset(dst);
-        ptr::write_bytes(dst, val, len as usize);
+        // SAFE: Bounds and casts are checked above.
+        unsafe {
+            let dst = self.base.offset(dst);
+            ptr::write_bytes(dst, val, len as usize);
+        }
 
         Ok(())
     }
@@ -596,7 +598,7 @@ impl VMGlobalDefinition {
     /// Return the value as an i32.
     ///
     /// If this is not an I32 typed global it is unspecified what value is returned.
-    pub fn to_i32(&self) -> i32 {
+    pub unsafe fn to_i32(&self) -> i32 {
         unsafe { self.storage.as_i32 }
     }
 
@@ -609,13 +611,13 @@ impl VMGlobalDefinition {
     /// must be done exclusively through this borrow. That includes reads and
     /// writes of globals inside wasm functions.
     pub unsafe fn as_i32_mut(&mut self) -> &mut i32 {
-        &mut self.storage.as_i32
+        unsafe { &mut self.storage.as_i32 }
     }
 
     /// Return a reference to the value as an u32.
     ///
     /// If this is not an I32 typed global it is unspecified what value is returned.
-    pub fn to_u32(&self) -> u32 {
+    pub unsafe fn to_u32(&self) -> u32 {
         unsafe { self.storage.as_u32 }
     }
 
@@ -628,13 +630,13 @@ impl VMGlobalDefinition {
     /// must be done exclusively through this borrow. That includes reads and
     /// writes of globals inside wasm functions.
     pub unsafe fn as_u32_mut(&mut self) -> &mut u32 {
-        &mut self.storage.as_u32
+        unsafe { &mut self.storage.as_u32 }
     }
 
     /// Return a reference to the value as an i64.
     ///
     /// If this is not an I64 typed global it is unspecified what value is returned.
-    pub fn to_i64(&self) -> i64 {
+    pub unsafe fn to_i64(&self) -> i64 {
         unsafe { self.storage.as_i64 }
     }
 
@@ -642,18 +644,18 @@ impl VMGlobalDefinition {
     ///
     /// # Safety
     ///
-    /// It is the callers responsibility to make sure the global has I32 type.
+    /// It is the callers responsibility to make sure the global has I64 type.
     /// Until the returned borrow is dropped, reads and writes of this global
     /// must be done exclusively through this borrow. That includes reads and
     /// writes of globals inside wasm functions.
     pub unsafe fn as_i64_mut(&mut self) -> &mut i64 {
-        &mut self.storage.as_i64
+        unsafe { &mut self.storage.as_i64 }
     }
 
     /// Return a reference to the value as an u64.
     ///
     /// If this is not an I64 typed global it is unspecified what value is returned.
-    pub fn to_u64(&self) -> u64 {
+    pub unsafe fn to_u64(&self) -> u64 {
         unsafe { self.storage.as_u64 }
     }
 
@@ -666,13 +668,13 @@ impl VMGlobalDefinition {
     /// must be done exclusively through this borrow. That includes reads and
     /// writes of globals inside wasm functions.
     pub unsafe fn as_u64_mut(&mut self) -> &mut u64 {
-        &mut self.storage.as_u64
+        unsafe { &mut self.storage.as_u64 }
     }
 
     /// Return a reference to the value as an f32.
     ///
     /// If this is not an F32 typed global it is unspecified what value is returned.
-    pub fn to_f32(&self) -> f32 {
+    pub unsafe fn to_f32(&self) -> f32 {
         unsafe { self.storage.as_f32 }
     }
 
@@ -685,13 +687,13 @@ impl VMGlobalDefinition {
     /// must be done exclusively through this borrow. That includes reads and
     /// writes of globals inside wasm functions.
     pub unsafe fn as_f32_mut(&mut self) -> &mut f32 {
-        &mut self.storage.as_f32
+        unsafe { &mut self.storage.as_f32 }
     }
 
     /// Return a reference to the value as an f64.
     ///
     /// If this is not an F64 typed global it is unspecified what value is returned.
-    pub fn to_f64(&self) -> f64 {
+    pub unsafe fn to_f64(&self) -> f64 {
         unsafe { self.storage.as_f64 }
     }
 
@@ -704,13 +706,13 @@ impl VMGlobalDefinition {
     /// must be done exclusively through this borrow. That includes reads and
     /// writes of globals inside wasm functions.
     pub unsafe fn as_f64_mut(&mut self) -> &mut f64 {
-        &mut self.storage.as_f64
+        unsafe { &mut self.storage.as_f64 }
     }
 
     /// Return a reference to the value as a `VMFuncRef`.
     ///
     /// If this is not a `VMFuncRef` typed global it is unspecified what value is returned.
-    pub fn to_funcref(&self) -> VMFuncRef {
+    pub unsafe fn to_funcref(&self) -> VMFuncRef {
         unsafe { self.storage.as_funcref }
     }
 
@@ -723,7 +725,7 @@ impl VMGlobalDefinition {
     /// must be done exclusively through this borrow. That includes reads and
     /// writes of globals inside wasm functions.
     pub unsafe fn as_funcref_mut(&mut self) -> &mut VMFuncRef {
-        &mut self.storage.as_funcref
+        unsafe { &mut self.storage.as_funcref }
     }
 
     /// Return a mutable reference to the value as an `VMExternRef`.
@@ -735,20 +737,20 @@ impl VMGlobalDefinition {
     /// must be done exclusively through this borrow. That includes reads and
     /// writes of globals inside wasm functions.
     pub unsafe fn as_externref_mut(&mut self) -> &mut VMExternRef {
-        &mut self.storage.as_externref
+        unsafe { &mut self.storage.as_externref }
     }
 
     /// Return a reference to the value as an `VMExternRef`.
     ///
     /// If this is not an I64 typed global it is unspecified what value is returned.
-    pub fn to_externref(&self) -> VMExternRef {
+    pub unsafe fn to_externref(&self) -> VMExternRef {
         unsafe { self.storage.as_externref }
     }
 
     /// Return a reference to the value as an u128.
     ///
     /// If this is not an V128 typed global it is unspecified what value is returned.
-    pub fn to_u128(&self) -> u128 {
+    pub unsafe fn to_u128(&self) -> u128 {
         unsafe { self.storage.as_u128 }
     }
 
@@ -761,11 +763,11 @@ impl VMGlobalDefinition {
     /// must be done exclusively through this borrow. That includes reads and
     /// writes of globals inside wasm functions.
     pub unsafe fn as_u128_mut(&mut self) -> &mut u128 {
-        &mut self.storage.as_u128
+        unsafe { &mut self.storage.as_u128 }
     }
 
     /// Return a reference to the value as bytes.
-    pub fn to_bytes(&self) -> [u8; 16] {
+    pub unsafe fn to_bytes(&self) -> [u8; 16] {
         unsafe { self.storage.bytes }
     }
 
@@ -777,7 +779,7 @@ impl VMGlobalDefinition {
     /// must be done exclusively through this borrow. That includes reads and
     /// writes of globals inside wasm functions.
     pub unsafe fn as_bytes_mut(&mut self) -> &mut [u8; 16] {
-        &mut self.storage.bytes
+        unsafe { &mut self.storage.bytes }
     }
 }
 
@@ -1073,7 +1075,7 @@ impl VMContext {
     #[allow(clippy::cast_ptr_alignment)]
     #[inline]
     pub unsafe fn instance(&self) -> &Instance {
-        &*((self as *const Self as *mut u8).offset(-Instance::vmctx_offset()) as *const Instance)
+        unsafe { &*((self as *const Self as *mut u8).offset(-Instance::vmctx_offset()).cast()) }
     }
 
     /// Return a reference to the host state associated with this `Instance`.
@@ -1083,7 +1085,7 @@ impl VMContext {
     /// be a `VMContext` allocated as part of an `Instance`.
     #[inline]
     pub unsafe fn host_state(&self) -> &dyn Any {
-        self.instance().host_state()
+        unsafe { self.instance().host_state() }
     }
 }
 

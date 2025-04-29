@@ -17,7 +17,7 @@ use near_vm_types::NativeWasmType;
 use near_vm_vm::{
     ExportFunction, VMDynamicFunctionContext, VMFunctionBody, VMFunctionEnvironment, VMFunctionKind,
 };
-use std::panic::{catch_unwind, AssertUnwindSafe};
+use std::panic::{AssertUnwindSafe, catch_unwind};
 
 /// A WebAssembly function that can be called natively
 /// (using the Native ABI).

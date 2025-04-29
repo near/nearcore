@@ -36,7 +36,7 @@ impl LatenciesCsv {
                     return Err(io::Error::new(
                         io::ErrorKind::InvalidData,
                         "Does not appear to be a latencies CSV file. Contains non-UTF-8 data",
-                    ))
+                    ));
                 }
             }
         } else if end != start {
@@ -56,7 +56,7 @@ impl LatenciesCsv {
                     return Err(io::Error::new(
                         io::ErrorKind::InvalidData,
                         "Does not appear to be a latencies CSV file. Contains non-UTF-8 data",
-                    ))
+                    ));
                 }
             };
             if write_newline {

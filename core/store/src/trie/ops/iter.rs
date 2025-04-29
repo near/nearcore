@@ -4,10 +4,10 @@ use std::sync::Arc;
 use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
 
+use crate::NibbleSlice;
+use crate::trie::ValueHandle;
 use crate::trie::iterator::DiskTrieIteratorInner;
 use crate::trie::trie_storage_update::TrieStorageNodePtr;
-use crate::trie::ValueHandle;
-use crate::NibbleSlice;
 
 use super::interface::{GenericTrieInternalStorage, GenericTrieNode};
 
@@ -132,11 +132,7 @@ where
         // is no greater than `ext_key`.  If those conditions aren’t met, the
         // node with `ext_key` should not match our query.
         let check_ext_key = |key: &NibbleSlice, ext_key: &NibbleSlice| {
-            if is_prefix_seek {
-                ext_key.starts_with(key)
-            } else {
-                ext_key >= key
-            }
+            if is_prefix_seek { ext_key.starts_with(key) } else { ext_key >= key }
         };
 
         let mut ptr = self.trie_interface.get_root();

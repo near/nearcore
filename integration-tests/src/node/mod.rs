@@ -7,8 +7,10 @@ pub use crate::node::thread_node::ThreadNode;
 use crate::user::{AsyncUser, User};
 use near_chain_configs::Genesis;
 use near_chain_configs::MutableConfigValue;
+use near_chain_configs::TrackedShardsConfig;
 use near_crypto::Signer;
 use near_jsonrpc_primitives::errors::ServerError;
+use near_primitives::account::AccountContract;
 use near_primitives::num_rational::Ratio;
 use near_primitives::state_record::StateRecord;
 use near_primitives::transaction::SignedTransaction;
@@ -16,8 +18,8 @@ use near_primitives::types::{AccountId, Balance, NumSeats};
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::views::AccountView;
 use near_vm_runner::ContractCode;
-use nearcore::config::{create_localnet_configs, create_localnet_configs_from_seeds, Config};
 use nearcore::NearConfig;
+use nearcore::config::{Config, create_localnet_configs, create_localnet_configs_from_seeds};
 use testlib::runtime_utils::{alice_account, bob_account};
 
 mod process_node;
@@ -146,8 +148,15 @@ fn near_configs_to_node_configs(
 }
 
 pub fn create_nodes(num_nodes: usize, prefix: &str) -> Vec<NodeConfig> {
-    let (configs, validator_signers, network_signers, genesis, _) =
-        create_localnet_configs(1, num_nodes as NumSeats, 0, 0, 0, prefix, vec![]);
+    let (configs, validator_signers, network_signers, genesis, _) = create_localnet_configs(
+        1,
+        num_nodes as NumSeats,
+        0,
+        0,
+        0,
+        prefix,
+        TrackedShardsConfig::NoShards,
+    );
     near_configs_to_node_configs(configs, validator_signers, network_signers, genesis)
 }
 
@@ -161,7 +170,7 @@ pub fn create_nodes_from_seeds(seeds: Vec<String>) -> Vec<NodeConfig> {
             0,
             0,
             0,
-            vec![],
+            TrackedShardsConfig::NoShards,
         );
     genesis.config.gas_price_adjustment_rate = Ratio::from_integer(0);
     for seed in seeds {
@@ -171,7 +180,9 @@ pub fn create_nodes_from_seeds(seeds: Vec<String>) -> Vec<NodeConfig> {
             if let StateRecord::Account { account_id, account } = record {
                 if account_id == &seed {
                     found_account_record = true;
-                    account.set_code_hash(*ContractCode::new(code.to_vec(), None).hash());
+                    account.set_contract(AccountContract::Local(
+                        *ContractCode::new(code.to_vec(), None).hash(),
+                    ));
                 }
             }
         }

@@ -4,9 +4,9 @@ use near_async::time::Duration;
 use near_chain::{Block, ChainStore, ChainStoreAccess};
 use near_epoch_manager::EpochManagerAdapter;
 use near_o11y::metrics::{
-    exponential_buckets, try_create_histogram_vec, try_create_int_counter_vec,
-    try_create_int_gauge, try_create_int_gauge_vec, HistogramVec, IntCounterVec, IntGauge,
-    IntGaugeVec,
+    HistogramVec, IntCounterVec, IntGauge, IntGaugeVec, exponential_buckets,
+    try_create_histogram_vec, try_create_int_counter_vec, try_create_int_gauge,
+    try_create_int_gauge_vec,
 };
 use near_primitives::types::ShardId;
 use near_primitives::{shard_layout::ShardLayout, state_record::StateRecord, trie_key};
@@ -226,9 +226,9 @@ pub fn spawn_trie_metrics_loop(
 mod tests {
     use super::*;
     use near_primitives::trie_key::col;
+    use near_store::test_utils::TestTriesBuilder;
     use near_store::test_utils::simplify_changes;
     use near_store::test_utils::test_populate_trie;
-    use near_store::test_utils::TestTriesBuilder;
 
     fn create_item(key: &[u8]) -> (Vec<u8>, Option<Vec<u8>>) {
         (key.to_vec(), Some(vec![]))

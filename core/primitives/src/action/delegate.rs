@@ -7,7 +7,7 @@ use super::Action;
 use crate::signable_message::{SignableMessage, SignableMessageType};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::{PublicKey, Signature};
-use near_primitives_core::hash::{hash, CryptoHash};
+use near_primitives_core::hash::{CryptoHash, hash};
 use near_primitives_core::types::BlockHeight;
 use near_primitives_core::types::{AccountId, Nonce};
 use near_schema_checker_lib::ProtocolSchema;

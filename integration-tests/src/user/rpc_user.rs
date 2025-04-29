@@ -1,13 +1,10 @@
 use std::sync::Arc;
-use std::thread;
-use std::time::Duration;
 
 use futures::{Future, TryFutureExt};
-
 use near_client::StatusResponse;
 use near_crypto::{PublicKey, Signer};
-use near_jsonrpc::client::{new_client, JsonRpcClient};
-use near_jsonrpc_client::ChunkId;
+use near_jsonrpc::client::{JsonRpcClient, new_client};
+use near_jsonrpc_client_internal::ChunkId;
 use near_jsonrpc_primitives::errors::ServerError;
 use near_jsonrpc_primitives::types::query::{QueryResponseKind, RpcQueryRequest, RpcQueryResponse};
 use near_jsonrpc_primitives::types::transactions::{RpcTransactionStatusRequest, TransactionInfo};
@@ -127,7 +124,7 @@ impl User for RpcUser {
         let _ = self.actix(move |client| client.broadcast_tx_async(to_base64(&bytes))).map_err(
             |err| {
                 serde_json::from_value::<ServerError>(
-                    err.data.expect("server error must carry data"),
+                    *err.data.expect("server error must carry data"),
                 )
                 .expect("deserialize server error must be ok")
             },
@@ -139,17 +136,12 @@ impl User for RpcUser {
         &self,
         transaction: SignedTransaction,
     ) -> Result<FinalExecutionOutcomeView, CommitError> {
-        let bytes = borsh::to_vec(&transaction).unwrap();
-        let result = self.actix(move |client| client.broadcast_tx_commit(to_base64(&bytes)));
-        // Wait for one more block, to make sure all nodes actually apply the state transition.
-        let height = self.get_best_height().unwrap();
-        while height == self.get_best_height().unwrap() {
-            thread::sleep(Duration::from_millis(50));
-        }
+        let result =
+            self.actix(move |client| client.send_tx(transaction, TxExecutionStatus::Final));
         match result {
             Ok(outcome) => Ok(outcome.final_execution_outcome.unwrap().into_outcome()),
             Err(err) => Err(CommitError::Server(
-                serde_json::from_value::<ServerError>(err.data.unwrap()).unwrap(),
+                serde_json::from_value::<ServerError>(*err.data.unwrap()).unwrap(),
             )),
         }
     }

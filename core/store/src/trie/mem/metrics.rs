@@ -1,6 +1,6 @@
 use near_o11y::metrics::{
-    try_create_int_counter, try_create_int_counter_vec, try_create_int_gauge_vec, IntCounter,
-    IntCounterVec, IntGaugeVec,
+    IntCounter, IntCounterVec, IntGaugeVec, try_create_int_counter, try_create_int_counter_vec,
+    try_create_int_gauge_vec,
 };
 use std::sync::LazyLock;
 
