@@ -24,6 +24,7 @@ pub struct RotatingValidatorsRunner {
 
     assert_validation_rotation: bool,
     max_epoch_duration: Option<Duration>,
+    skip_next_restaking: bool,
 }
 
 impl RotatingValidatorsRunner {
@@ -45,6 +46,7 @@ impl RotatingValidatorsRunner {
             max_stake,
             assert_validation_rotation: true,
             max_epoch_duration: None,
+            skip_next_restaking: false,
         }
     }
 
@@ -126,28 +128,33 @@ impl RotatingValidatorsRunner {
     ) {
         let client_actor_handle = &Self::client_actor_handle(&env);
         let client = Self::client(&env.test_loop.data, client_actor_handle);
-        let epoch_id = client.chain.head().unwrap().epoch_id;
-        let next_epoch_id = client.chain.head().unwrap().next_epoch_id;
+        let head = client.chain.final_head().unwrap();
+        let epoch_id = head.epoch_id;
+        let next_epoch_id = head.next_epoch_id;
 
         self.assert_current_validators_are_known(client, epoch_id, next_epoch_id);
 
-        let tx_processor_senders: Vec<_> =
-            env.node_datas.iter().map(|data| data.rpc_handler_sender.clone()).collect();
-
-        let txs = self.restake_validators_txs(&env, self.validators_index);
-        for tx in &txs {
-            // In case some nodes are misbehaving we are sending transaction to each one.
-            for tx_processor_sender in &tx_processor_senders {
-                let process_tx_request = ProcessTxRequest {
-                    transaction: tx.clone(),
-                    is_forwarded: false,
-                    check_only: false,
-                };
-                tx_processor_sender.send(process_tx_request);
+        if self.skip_next_restaking {
+            self.skip_next_restaking = false;
+        } else {
+            let tx_processor_senders: Vec<_> =
+                env.node_datas.iter().map(|data| data.rpc_handler_sender.clone()).collect();
+            let txs = self.restake_validators_txs(&env, self.validators_index);
+            for tx in &txs {
+                // In case some nodes are misbehaving we are sending transaction to each one.
+                for tx_processor_sender in &tx_processor_senders {
+                    let process_tx_request = ProcessTxRequest {
+                        transaction: tx.clone(),
+                        is_forwarded: false,
+                        check_only: false,
+                    };
+                    tx_processor_sender.send(process_tx_request);
+                }
             }
         }
 
         let epoch_length = client.epoch_manager.get_epoch_config(&epoch_id).unwrap().epoch_length;
+        let max_block_production_delay = client.config.max_block_production_delay;
         env.test_loop.run_until(
             |test_loop_data| {
                 if condition(test_loop_data) {
@@ -159,16 +166,21 @@ impl RotatingValidatorsRunner {
                 let epoch_changed = epoch_id == next_epoch_id;
                 epoch_changed
             },
-            self.max_epoch_duration(epoch_length),
+            self.max_epoch_duration(max_block_production_delay, epoch_length),
         );
+
+        let client = Self::client(&env.test_loop.data, client_actor_handle);
+        let head = client.chain.final_head().unwrap();
+        let epoch_changed = head.epoch_id == next_epoch_id;
+
         // If run_until finished early we cannot assert validator change.
-        if condition(&mut env.test_loop.data) {
+        if !epoch_changed {
+            // We don't want to restake on next invocation if we didn't finish the epoch.
+            self.skip_next_restaking = true;
             return;
         }
 
-        let client = Self::client(&env.test_loop.data, client_actor_handle);
-        let next_epoch_id = client.chain.head().unwrap().next_epoch_id;
-
+        let next_epoch_id = head.next_epoch_id;
         self.check_validators_at_epoch_eq(
             client,
             &next_epoch_id,
@@ -183,9 +195,14 @@ impl RotatingValidatorsRunner {
         self.max_epoch_duration = Some(duration);
     }
 
-    fn max_epoch_duration(&self, epoch_length: u64) -> Duration {
+    fn max_epoch_duration(
+        &self,
+        max_block_production_delay: Duration,
+        epoch_length: u64,
+    ) -> Duration {
+        let epoch_length = i32::try_from(epoch_length).unwrap();
         self.max_epoch_duration
-            .unwrap_or_else(|| Duration::seconds(i64::try_from(10 + epoch_length).unwrap()))
+            .unwrap_or_else(|| max_block_production_delay * epoch_length + Duration::seconds(10))
     }
 
     fn assert_current_validators_are_known(
