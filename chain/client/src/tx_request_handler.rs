@@ -180,6 +180,7 @@ impl TxRequestHandler {
             self.shard_tracker.will_care_about_shard(me, &head.last_block_hash, shard_id, true);
 
         if cares_about_shard || will_care_about_shard {
+            // TODO(spice)
             // let state_root =
             //     match self.chain_store.get_chunk_extra(&head.last_block_hash, &shard_uid) {
             //         Ok(chunk_extra) => *chunk_extra.state_root(),

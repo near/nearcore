@@ -1304,6 +1304,7 @@ impl Chain {
         let optimistic_block_hash = *block.hash();
         let block_height = block.height();
         let prev_block_hash = *block.prev_block_hash();
+        // TODO(spice)
         // let prev_block = self.get_block(&prev_block_hash)?;
         // let prev_prev_hash = prev_block.header().prev_hash();
         // let prev_chunk_headers =
@@ -1737,6 +1738,7 @@ impl Chain {
         self.apply_chunks_spawner.spawn("apply_chunks", move || {
             let apply_all_chunks_start_time = clock.now();
             // do_apply_chunks runs `work` in parallel, but still waits for all of them to finish
+            // TODO(spice)
             let res = Vec::new();
             // let res = do_apply_chunks(block.clone(), block_height, work);
             // If we encounter error here, that means the receiver is deallocated and the client
@@ -2289,10 +2291,12 @@ impl Chain {
 
         self.validate_chunk_headers(&block, &prev_block)?;
 
+        // TODO(spice)
         // validate_chunk_endorsements_in_block(self.epoch_manager.as_ref(), &block)?;
 
         self.ping_missing_chunks(me, prev_hash, block)?;
 
+        // TODO(spice)
         // let receipts_shuffle_salt = get_receipts_shuffle_salt(self.epoch_manager.as_ref(), &block)?;
         // let incoming_receipts = self.collect_incoming_receipts_from_chunks(
         //     me,
@@ -2931,6 +2935,7 @@ impl Chain {
         state_patch: SandboxStatePatch,
         invalid_chunks: &mut Vec<ShardChunkHeader>,
     ) -> Result<Vec<UpdateShardJob>, Error> {
+        // TODO(spice)
         return Ok(vec![]);
         let _span = tracing::debug_span!(target: "chain", "apply_chunks_preprocessing").entered();
         let prev_chunk_headers =

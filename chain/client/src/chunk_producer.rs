@@ -244,6 +244,7 @@ impl ChunkProducer {
         debug!(target: "client", me = ?validator_signer.validator_id(), next_height, ?shard_id, "Producing chunk");
 
         let shard_uid = shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, epoch_id)?;
+        // TODO(spice)
         // let chunk_extra = self
         //     .chain
         //     .get_chunk_extra(&prev_block_hash, &shard_uid)
@@ -285,6 +286,7 @@ impl ChunkProducer {
             shard_id,
             last_header.height_included(),
         )?;
+        // TODO(spice)
         // Since we don't apply chunks with SPICE we should never have any outgoing_receipts.
         assert_eq!(outgoing_receipts, vec![]);
 
@@ -294,6 +296,7 @@ impl ChunkProducer {
         #[cfg(feature = "test_features")]
         let gas_used = if self.produce_invalid_chunks { gas_used + 1 } else { gas_used };
 
+        // TODO(spice)
         let congestion_info = Default::default(); // chunk_extra.congestion_info();
         let (encoded_chunk, merkle_paths, outgoing_receipts) =
             ShardsManagerActor::create_encoded_shard_chunk(
@@ -357,6 +360,7 @@ impl ChunkProducer {
     }
 
     /// Prepares an ordered list of valid transactions from the pool up the limits.
+    // TODO(spice)
     fn prepare_transactions(
         &mut self,
         shard_uid: ShardUId,

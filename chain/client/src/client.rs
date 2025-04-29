@@ -1723,6 +1723,7 @@ impl Client {
                             validator_id.clone(),
                         )
                         .expect("Failed to process produced chunk");
+                    // TODO(spice)
                     // if let Err(err) = self.send_chunk_state_witness_to_chunk_validators(
                     //     &epoch_id,
                     //     block.header(),
