@@ -46,6 +46,13 @@ impl Handler<ProcessTxRequest> for RpcHandler {
 impl Handler<ChunkEndorsementMessage> for RpcHandler {
     #[perf]
     fn handle(&mut self, msg: ChunkEndorsementMessage) {
+        let chunk_hash = msg.0.chunk_hash();
+        let chunk = self.chain_store.get_chunk(&chunk_hash);
+        if let Ok(chunk) = chunk {
+            let height_created = chunk.height_created();
+            let height_included = chunk.height_included();
+            tracing::debug!(target: "client", ?chunk_hash, ?height_created, ?height_included, "Already received chunk endorsement.");
+        }
         let mut tracker = self.chunk_endorsement_tracker.lock().unwrap();
         if let Err(err) = tracker.process_chunk_endorsement(msg.0) {
             tracing::error!(target: "client", ?err, "Error processing chunk endorsement");
