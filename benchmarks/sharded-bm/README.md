@@ -118,11 +118,10 @@ gcloud compute instances list --project=nearone-mocknet --filter <UNIQUE ID>
 ### Forknet - Run benchmark
 
 1. Set the correct values in the test case `params.json`. Keep in mind that:
-   - Benchmarks require one RPC node exactly. RPC node will be selected automatically and it will be the 'last' GCP instance.
+   - Benchmarks run with one RPC node exactly. RPC node will be selected automatically and it will be the 'last' GCP instance.
    - The number of nodes deployed in terraform must match the number of nodes expected in the benchmark scenario.
    - Nodes will run the `neard` binary specified in `forknet.binary_url`
-2. Make sure you have a `near-synth-bm` binary that can be run on a mainnet node.
-3. Follow these instructions (they work on macOS as well):
+2. Follow these instructions (they work on macOS as well):
 
 <!-- cspell:words BENCHNET -->
 ```sh
