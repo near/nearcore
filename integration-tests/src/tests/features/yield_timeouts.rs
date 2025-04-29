@@ -127,11 +127,7 @@ fn prepare_env_with_yield(
 }
 
 /// Add a transaction which invokes yield resume using given data id.
-fn invoke_yield_resume(
-    env: &mut TestEnv,
-    data_id: CryptoHash,
-    yield_payload: Vec<u8>,
-) -> CryptoHash {
+fn invoke_yield_resume(env: &TestEnv, data_id: CryptoHash, yield_payload: Vec<u8>) -> CryptoHash {
     let signer = InMemorySigner::test_signer(&"test0".parse().unwrap());
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
 
@@ -161,7 +157,7 @@ fn invoke_yield_resume(
 ///
 /// Note that these transactions start to be processed in the *second* block produced after they are
 /// inserted to client 0's mempool.
-fn create_congestion(env: &mut TestEnv) {
+fn create_congestion(env: &TestEnv) {
     let signer = InMemorySigner::test_signer(&"test0".parse().unwrap());
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
 

@@ -189,7 +189,7 @@ impl RotatingValidatorsRunner {
     }
 
     fn assert_current_validators_are_known(
-        &mut self,
+        &self,
         client: &near_client::Client,
         epoch_id: EpochId,
         next_epoch_id: EpochId,

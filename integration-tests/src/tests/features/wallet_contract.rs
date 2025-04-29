@@ -332,7 +332,7 @@ pub fn create_rlp_execute_tx(
     nonce: u64,
     eth_implicit_account: &AccountIdRef,
     secret_key: &SecretKey,
-    near_signer: &mut NearSigner<'_>,
+    near_signer: &NearSigner<'_>,
     env: &TestEnv,
 ) -> SignedTransaction {
     const CHAIN_ID: u64 = 399;

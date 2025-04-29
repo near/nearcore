@@ -663,7 +663,7 @@ fn get_code_len_or_default(
 
 /// Clears the contract storage usage based on type for an account.
 pub(crate) fn clear_account_contract_storage_usage(
-    state_update: &mut TrieUpdate,
+    state_update: &TrieUpdate,
     account_id: &AccountId,
     account: &mut Account,
     current_protocol_version: ProtocolVersion,
@@ -1101,10 +1101,7 @@ fn check_transfer_to_nonexisting_account(
 
 /// See #11703 for more details
 #[cfg(feature = "test_features")]
-fn apply_recorded_storage_garbage(
-    function_call: &FunctionCallAction,
-    state_update: &mut TrieUpdate,
-) {
+fn apply_recorded_storage_garbage(function_call: &FunctionCallAction, state_update: &TrieUpdate) {
     if let Some(garbage_size_mbs) = function_call
         .method_name
         .strip_prefix("internal_record_storage_garbage_")

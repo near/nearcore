@@ -33,7 +33,7 @@ use crate::util::{check_apply_block_result, resulting_chunk_extra};
 // `get_incoming_receipts_for_shard` implementation for the case when we don't
 // know of a block containing the target chunk
 fn get_incoming_receipts(
-    chain_store: &mut ChainStore,
+    chain_store: &ChainStore,
     epoch_manager: &EpochManagerHandle,
     chunk_hash: &ChunkHash,
     shard_id: ShardId,
@@ -243,7 +243,7 @@ fn find_tx_or_receipt(
 fn apply_tx_in_block(
     epoch_manager: &EpochManagerHandle,
     runtime: &dyn RuntimeAdapter,
-    chain_store: &mut ChainStore,
+    chain_store: &ChainStore,
     tx_hash: &CryptoHash,
     block_hash: CryptoHash,
     storage: StorageSource,
@@ -385,7 +385,7 @@ pub fn apply_tx(
 fn apply_receipt_in_block(
     epoch_manager: &EpochManagerHandle,
     runtime: &dyn RuntimeAdapter,
-    chain_store: &mut ChainStore,
+    chain_store: &ChainStore,
     id: &CryptoHash,
     block_hash: CryptoHash,
     storage: StorageSource,

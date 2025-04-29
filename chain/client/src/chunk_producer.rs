@@ -348,7 +348,7 @@ impl ChunkProducer {
 
     /// Prepares an ordered list of valid transactions from the pool up the limits.
     fn prepare_transactions(
-        &mut self,
+        &self,
         shard_uid: ShardUId,
         prev_block: &Block,
         chunk_extra: &ChunkExtra,

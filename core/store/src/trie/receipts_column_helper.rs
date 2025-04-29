@@ -659,7 +659,7 @@ mod tests {
 
     // Load the queue from the trie, discarding the current data stored in the variable.
     // Ensures that all changes are written to the trie after every operation.
-    fn maybe_reload_queue(trie: &mut TrieUpdate, queue: &mut TestTrieQueue, rng: &mut impl Rng) {
+    fn maybe_reload_queue(trie: &TrieUpdate, queue: &mut TestTrieQueue, rng: &mut impl Rng) {
         if rng.r#gen::<bool>() {
             *queue = TestTrieQueue::load(trie).unwrap();
         }
