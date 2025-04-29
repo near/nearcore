@@ -58,7 +58,7 @@ jobs:
           mkdir -p coverage/profraw/{unit,binaries}
           just codecov-ci "nextest-slow ${{ matrix.type }}"
       - if: github.event_name != 'pull_request'
-        run: just "nextest-slow ${{ matrix.type }}"
+        run: just nextest-slow ${{ matrix.type }}
 
       # Upload the coverage if we're testing a pull request
       - if: github.event_name == 'pull_request' && matrix.run_on_pr
