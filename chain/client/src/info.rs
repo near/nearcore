@@ -102,14 +102,14 @@ impl InfoHelper {
         }
     }
 
-    pub fn chunk_processed(&mut self, shard_id: ShardId, gas_used: Gas, balance_burnt: Balance) {
+    pub fn chunk_processed(&self, shard_id: ShardId, gas_used: Gas, balance_burnt: Balance) {
         metrics::TGAS_USAGE_HIST
             .with_label_values(&[&shard_id.to_string()])
             .observe(gas_used as f64 / TERAGAS);
         metrics::BALANCE_BURNT.inc_by(balance_burnt as f64);
     }
 
-    pub fn chunk_skipped(&mut self, shard_id: ShardId) {
+    pub fn chunk_skipped(&self, shard_id: ShardId) {
         metrics::CHUNK_SKIPPED_TOTAL.with_label_values(&[&shard_id.to_string()]).inc();
     }
 
@@ -623,7 +623,7 @@ impl InfoHelper {
         json
     }
 
-    fn log_chain_processing_info(&mut self, client: &crate::Client, epoch_id: &EpochId) {
+    fn log_chain_processing_info(&self, client: &crate::Client, epoch_id: &EpochId) {
         let chain = &client.chain;
         let use_color = matches!(self.log_summary_style, LogSummaryStyle::Colored);
         let info = chain.get_chain_processing_info();

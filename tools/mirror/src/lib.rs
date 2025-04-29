@@ -1589,7 +1589,7 @@ impl<T: ChainAccess> TxMirror<T> {
     // Returns the number of blocks worth of txs queued at the end.
     // `have_stop_height` refers to whether we're going to stop sending transactions and exit after a particular height
     async fn queue_txs(
-        &mut self,
+        &self,
         tracker: &Mutex<crate::chain_tracker::TxTracker>,
         tx_block_queue: &Mutex<VecDeque<MappedBlock>>,
         target_view_client: &Addr<ViewClientActor>,
@@ -1651,7 +1651,7 @@ impl<T: ChainAccess> TxMirror<T> {
     // TODO: here we're just sending it and forgetting about it, but would be good to
     // retry later if the tx got lost for some reason
     async fn unstake(
-        &mut self,
+        &self,
         tracker: &Mutex<crate::chain_tracker::TxTracker>,
         tx_block_queue: &Mutex<VecDeque<MappedBlock>>,
         target_client: &Addr<RpcHandlerActor>,
@@ -1817,7 +1817,7 @@ impl<T: ChainAccess> TxMirror<T> {
     }
 
     async fn queue_txs_loop(
-        &mut self,
+        &self,
         tracker: Arc<Mutex<crate::chain_tracker::TxTracker>>,
         tx_block_queue: Arc<Mutex<VecDeque<MappedBlock>>>,
         target_client: Addr<RpcHandlerActor>,
@@ -1943,7 +1943,7 @@ impl<T: ChainAccess> TxMirror<T> {
     }
 
     async fn run(
-        mut self,
+        self,
         stop_height: Option<BlockHeight>,
         target_home: PathBuf,
     ) -> anyhow::Result<()> {

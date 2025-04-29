@@ -162,6 +162,26 @@ Grafana mostly, [Blockchain utilization dashboard](https://grafana.nearone.org/g
     ./bench.sh mirror <ARGS>
     ```
 
+### Forknet - How to measure max TPS
+
+Follow these steps to determine the maximum TPS (transactions per second) the network can handle, to build a report similar to [this example](https://github.com/near/nearcore/issues/13130#issuecomment-2797211286):
+
+1. **Setup:** Initialize the nodes and network for benchmarking using the realistic scenario: `CASE=cases/forknet/realistic_20_cp_1_rpc_20_shard/`.
+2. **Start Low:** In `params.json`, set `tx_generator.tps` to about 90% of the previously measured max TPS, or to a conservative low value if unknown.
+3. **Iterative Testing:** Repeat the following steps:
+    - Run `./bench.sh native-transfers`.
+    - Let the network run for at least 15 minutes.
+    - In the [Blockchain utilization dashboard](https://grafana.nearone.org/goto/3bS1Lr2Ng?orgId=1), note the value for **Transactions included in chunks** (*current TPS*).
+    - Check **Blocks per second** in the same dashboard. Make sure it matches expectations for your `neard` config (e.g., with 1.3s block time, you should see ≥ 0.76 block/s).
+        - **If blocks per second is as expected:**  
+          - Update your *max TPS* to the observed *current TPS*.
+          - Increase `tx_generator.tps` by a small value (e.g., 100).
+          - Repeat the loop to test the new TPS.
+        - **If blocks per second drops below expected:**  
+          - Stop the experiment. The previous *max TPS* is the network’s maximum sustainable throughput.
+
+The idea is to gradually increase the load (TPS) in small steps, starting from a safe value, until the network can no longer keep up.
+
 ### Known issues
 
 - It is not possible to configure the number of RPC nodes

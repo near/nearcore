@@ -139,7 +139,7 @@ impl Stream {
         let listener_addr = ListenerAddr::reserve_for_test();
         let peer_info = PeerInfo { id: peer_id, addr: Some(*listener_addr), account_id: None };
         let socket_options = SocketOptions::default();
-        let mut listener = listener_addr.listener().unwrap();
+        let listener = listener_addr.listener().unwrap();
         let (outbound, inbound) =
             tokio::join!(Stream::connect(&peer_info, tier, &socket_options), listener.accept());
         (outbound.unwrap(), inbound.unwrap())
@@ -248,7 +248,7 @@ impl ListenerAddr {
 pub(crate) struct Listener(tokio::net::TcpListener);
 
 impl Listener {
-    pub async fn accept(&mut self) -> std::io::Result<Stream> {
+    pub async fn accept(&self) -> std::io::Result<Stream> {
         let (stream, _) = self.0.accept().await?;
         Stream::new(stream, StreamType::Inbound)
     }

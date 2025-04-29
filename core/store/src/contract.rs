@@ -150,7 +150,7 @@ impl ContractStorage {
     ///
     /// Note that there can be multiple calls to `commit_deploys`. Each commit moves the uncommitted deployments
     /// to the committed list and clears the uncommitted list.
-    pub(crate) fn commit_deploys(&mut self) {
+    pub(crate) fn commit_deploys(&self) {
         let mut guard = self.tracker.lock().expect("no panics");
         let tracker = guard.as_mut().expect("must not be called after finalizing");
         tracker.commit_deploys();
@@ -160,7 +160,7 @@ impl ContractStorage {
     ///
     /// Note that there can be multiple calls to `rollback_deploys`. Each rollback clears the uncommitted deployments
     /// but does not modify the list of committed deployments.
-    pub(crate) fn rollback_deploys(&mut self) {
+    pub(crate) fn rollback_deploys(&self) {
         let mut guard = self.tracker.lock().expect("no panics");
         let tracker = guard.as_mut().expect("must not be called after finalizing");
         tracker.rollback_deploys();
@@ -235,7 +235,7 @@ mod tests {
             mock_storage.insert(*contract.hash(), contract.code().to_vec().into());
         }
 
-        let mut contract_storage = ContractStorage::new(Arc::new(mock_storage));
+        let contract_storage = ContractStorage::new(Arc::new(mock_storage));
 
         contract_storage.record_deploy(old_contracts[0].clone_for_tests());
         contract_storage.record_deploy(new_contracts[0].clone_for_tests());
@@ -284,7 +284,7 @@ mod tests {
             mock_storage.insert(*contract.hash(), contract.code().to_vec().into());
         }
 
-        let mut contract_storage = ContractStorage::new(Arc::new(mock_storage));
+        let contract_storage = ContractStorage::new(Arc::new(mock_storage));
 
         // Only existing contracts should be returned by `get` before deploying the new ones.
         for contract in old_contracts {
@@ -328,7 +328,7 @@ mod tests {
             mock_storage.insert(*contract.hash(), contract.code().to_vec().into());
         }
 
-        let mut contract_storage = ContractStorage::new(Arc::new(mock_storage));
+        let contract_storage = ContractStorage::new(Arc::new(mock_storage));
 
         contract_storage.record_deploy(new_contracts[0].clone_for_tests());
         contract_storage.record_deploy(new_contracts[1].clone_for_tests());

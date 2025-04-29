@@ -548,7 +548,7 @@ mod tests {
             }
         }
 
-        fn make_all_changes(&mut self, changes: Vec<(Vec<u8>, Option<Vec<u8>>)>) -> TrieChanges {
+        fn make_all_changes(&self, changes: Vec<(Vec<u8>, Option<Vec<u8>>)>) -> TrieChanges {
             let mut update =
                 self.mem.update(self.state_root, TrackingMode::Refcounts).unwrap_or_else(|_| {
                     panic!("Trying to update root {:?} but it's not in memtries", self.state_root)
@@ -564,7 +564,7 @@ mod tests {
         }
 
         fn make_memtrie_changes_only(
-            &mut self,
+            &self,
             changes: Vec<(Vec<u8>, Option<Vec<u8>>)>,
         ) -> MemTrieChanges {
             let mut update =
@@ -581,10 +581,7 @@ mod tests {
             update.to_memtrie_changes_only()
         }
 
-        fn make_disk_changes_only(
-            &mut self,
-            changes: Vec<(Vec<u8>, Option<Vec<u8>>)>,
-        ) -> TrieChanges {
+        fn make_disk_changes_only(&self, changes: Vec<(Vec<u8>, Option<Vec<u8>>)>) -> TrieChanges {
             let trie = self.disk.get_trie_for_shard(ShardUId::single_shard(), self.state_root);
             trie.update(changes, AccessOptions::DEFAULT).unwrap()
         }

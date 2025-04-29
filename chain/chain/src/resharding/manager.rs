@@ -114,7 +114,7 @@ impl ReshardingManager {
     }
 
     fn split_shard(
-        &mut self,
+        &self,
         chain_store_update: ChainStoreUpdate,
         block: &Block,
         shard_uid: ShardUId,
@@ -152,7 +152,7 @@ impl ReshardingManager {
     /// so that subsequent accesses to the State will use the ancestor's ShardUId prefix
     /// as a prefix for the database key.
     fn set_state_shard_uid_mapping(
-        &mut self,
+        &self,
         split_shard_event: &ReshardingSplitShardParams,
     ) -> io::Result<()> {
         let mut store_update = self.store.trie_store().store_update();
@@ -184,7 +184,7 @@ impl ReshardingManager {
     /// Creates temporary memtries for new shards to be able to process them in the next epoch.
     /// Note this doesn't complete memtries resharding, proper memtries are to be created later.
     fn process_memtrie_resharding_storage_update(
-        &mut self,
+        &self,
         mut chain_store_update: ChainStoreUpdate,
         block: &Block,
         tries: ShardTries,
