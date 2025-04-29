@@ -387,13 +387,11 @@ impl Testbed<'_> {
                 .congestion_info
                 .insert(shard_uid.shard_id(), ExtendedCongestionInfo::new(congestion_info, 0));
         }
-        if let Some(bandwidth_requests) = apply_result.bandwidth_requests {
-            self.apply_state.bandwidth_requests = BlockBandwidthRequests {
-                shards_bandwidth_requests: [(shard_uid.shard_id(), bandwidth_requests)]
-                    .into_iter()
-                    .collect(),
-            };
-        }
+        self.apply_state.bandwidth_requests = BlockBandwidthRequests {
+            shards_bandwidth_requests: [(shard_uid.shard_id(), apply_result.bandwidth_requests)]
+                .into_iter()
+                .collect(),
+        };
 
         let mut total_burnt_gas = 0;
         if !allow_failures {
