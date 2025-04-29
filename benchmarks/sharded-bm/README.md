@@ -196,4 +196,3 @@ To use transaction injection you must enable it in `params.json`. To stop the in
 ```sh
 ./bench.sh stop-injection
 ```
-````
