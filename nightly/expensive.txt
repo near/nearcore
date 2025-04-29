@@ -8,7 +8,7 @@ expensive --timeout=1800 test-loop-tests test_loop_tests tests::catching_up::ult
 expensive --timeout=1800 test-loop-tests test_loop_tests tests::catching_up::ultra_slow_test_catchup_random_single_part_sync_non_zero_amounts
 expensive --timeout=1800 test-loop-tests test_loop_tests tests::catching_up::ultra_slow_test_catchup_random_single_part_sync_non_zero_amounts --features nightly
 expensive --timeout=1800 test-loop-tests test_loop_tests tests::catching_up::ultra_slow_test_catchup_random_single_part_sync_height_9
-expensive --timeout=1800 test-loop-tests test_loop_tests tests::catching_up::ultra_slow_test_catchup_random_single_part_sync_height_0 --features nightly
+expensive --timeout=1800 test-loop-tests test_loop_tests tests::catching_up::ultra_slow_test_catchup_random_single_part_sync_height_9 --features nightly
 expensive --timeout=1800 test-loop-tests test_loop_tests tests::catching_up::ultra_slow_test_catchup_sanity_blocks_produced
 expensive --timeout=1800 test-loop-tests test_loop_tests tests::catching_up::ultra_slow_test_catchup_sanity_blocks_produced --features nightly
 
