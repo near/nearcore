@@ -1141,8 +1141,8 @@ class NeardRunner:
 
         # Needed for backwards compatibility. Works because 'dump' is the
         # default option.
-        # TODO: After we stop testing neard binaries with version < 2.7.0, use
-        # the --state-source flag unconditionally.
+        # TODO(2.8): After we stop testing neard binaries with version < 2.7.0,
+        # use the --state-source flag unconditionally.
         if n['state_source'] != 'dump':
             cmd.append('--state-source')
             cmd.append(n['state_source'])
