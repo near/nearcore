@@ -34,7 +34,7 @@ fn trie_lookup(bench: &mut Bencher) {
 
     bench.iter(|| {
         for _ in 0..1 {
-            for key in changed_keys.iter() {
+            for key in &changed_keys {
                 trie.get(key, AccessOptions::DEFAULT).unwrap();
             }
         }

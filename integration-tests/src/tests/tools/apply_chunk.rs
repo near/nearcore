@@ -193,7 +193,7 @@ fn test_apply_tx_apply_receipt() {
             .collect::<Vec<_>>();
 
         if height >= 2 {
-            for &shard_id in shard_ids.iter() {
+            for &shard_id in &shard_ids {
                 let shard_index = shard_layout.get_shard_index(shard_id).unwrap();
                 let chunk = chain_store.get_chunk(&chunk_hashes[shard_index]).unwrap();
 

@@ -387,7 +387,7 @@ impl ForkNetworkCommand {
         store_update.set_ser(DBCol::Misc, EPOCH_ID_KEY, epoch_id)?;
         store_update.set_ser(DBCol::Misc, FLAT_HEAD_KEY, &desired_flat_head)?;
         store_update.set_ser(DBCol::Misc, SHARD_LAYOUT_KEY, &target_shard_layout)?;
-        for (shard_uid, state_root) in state_roots.iter() {
+        for (shard_uid, state_root) in &state_roots {
             store_update.set_ser(DBCol::Misc, &make_state_roots_key(*shard_uid), state_root)?;
         }
         store_update.commit()?;
@@ -601,7 +601,7 @@ impl ForkNetworkCommand {
         // 4. Create new genesis with updated state roots and validators.
         let mut original_genesis_config = near_config.genesis.config.clone();
         let genesis_file = near_config.config.genesis_file.clone();
-        original_genesis_config.chain_id = chain_id.clone();
+        original_genesis_config.chain_id.clone_from(chain_id);
         original_genesis_config.genesis_time = genesis_time;
         original_genesis_config.protocol_version = protocol_version;
         original_genesis_config.genesis_height = flat_head.height + 1;
@@ -686,7 +686,7 @@ impl ForkNetworkCommand {
         }
         let genesis_protocol_version = genesis.config.protocol_version;
         genesis.config.epoch_length = epoch_length;
-        genesis.config.chain_id = chain_id.clone();
+        genesis.config.chain_id.clone_from(chain_id);
         initialize_sharded_genesis_state(store.clone(), &genesis, &epoch_config, Some(home_dir));
         genesis.to_file(home_dir.join(&near_config.config.genesis_file));
         near_config.genesis = genesis.clone();
@@ -1235,7 +1235,7 @@ impl ForkNetworkCommand {
         let liquid_balance = 100_000_000 * NEAR_BASE;
         let storage_bytes = runtime_config.fees.storage_usage_config.num_bytes_account;
         let new_validators = Self::read_validators(validators, home_dir)?;
-        for validator_account in new_validators.into_iter() {
+        for validator_account in new_validators {
             let shard_id = shard_layout.account_id_to_shard_id(&validator_account.account_id);
             let shard_idx = shard_layout.get_shard_index(shard_id).unwrap();
             new_validator_accounts.push(validator_account.clone());

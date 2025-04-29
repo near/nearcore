@@ -91,7 +91,7 @@ impl TriePrefetcher {
         &mut self,
         receipts: &[Receipt],
     ) -> Result<(), PrefetchError> {
-        for receipt in receipts.iter() {
+        for receipt in receipts {
             let is_refund = receipt.predecessor_id().is_system();
             let action_receipt = match receipt.receipt() {
                 ReceiptEnum::Action(action_receipt) | ReceiptEnum::PromiseYield(action_receipt) => {
@@ -271,7 +271,7 @@ impl TriePrefetcher {
             return Ok(());
         };
 
-        for tuple in list.iter() {
+        for tuple in list {
             let Some(tuple) = tuple.as_array() else {
                 continue;
             };
@@ -308,7 +308,7 @@ impl TriePrefetcher {
         let Some(list) = list.as_array() else {
             return Ok(());
         };
-        for tuple in list.iter() {
+        for tuple in list {
             let Some(tuple) = tuple.as_array() else { continue };
             let Some(user_account) = tuple.first().and_then(|a| a.as_str()) else { continue };
             let mut account_data_key = Vec::with_capacity(4 + 8 + user_account.len());
@@ -346,7 +346,7 @@ impl TriePrefetcher {
             return Ok(());
         };
 
-        for tuple in list.iter() {
+        for tuple in list {
             let Some(tuple) = tuple.as_array() else {
                 continue;
             };

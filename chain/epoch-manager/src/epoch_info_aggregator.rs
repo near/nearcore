@@ -248,13 +248,13 @@ impl EpochInfoAggregator {
         // merge version tracker
         self.version_tracker.reserve(other.version_tracker.len());
         // TODO(mina86): Use try_insert once map_try_insert is stabilized.
-        for (k, v) in other.version_tracker.iter() {
+        for (k, v) in &other.version_tracker {
             self.version_tracker.entry(*k).or_insert_with(|| *v);
         }
 
         // merge proposals
         // TODO(mina86): Use try_insert once map_try_insert is stabilized.
-        for (k, v) in other.all_proposals.iter() {
+        for (k, v) in &other.all_proposals {
             self.all_proposals.entry(k.clone()).or_insert_with(|| v.clone());
         }
     }
@@ -267,7 +267,7 @@ impl EpochInfoAggregator {
         assert_eq!(self.epoch_id, other.epoch_id);
 
         // merge block tracker
-        for (block_producer_id, stats) in other.block_tracker.iter() {
+        for (block_producer_id, stats) in &other.block_tracker {
             self.block_tracker
                 .entry(*block_producer_id)
                 .and_modify(|e| {
@@ -277,11 +277,11 @@ impl EpochInfoAggregator {
                 .or_insert_with(|| stats.clone());
         }
         // merge shard tracker
-        for (shard_id, stats) in other.shard_tracker.iter() {
+        for (shard_id, stats) in &other.shard_tracker {
             self.shard_tracker
                 .entry(*shard_id)
                 .and_modify(|e| {
-                    for (chunk_producer_id, stat) in stats.iter() {
+                    for (chunk_producer_id, stat) in stats {
                         e.entry(*chunk_producer_id)
                             .and_modify(|entry| {
                                 *entry.expected_mut() += stat.expected();

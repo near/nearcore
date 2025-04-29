@@ -48,7 +48,7 @@ pub(crate) fn assert_all_chunk_endorsements_received(
             epoch_manager.get_shard_layout(&epoch_id).unwrap().shard_ids().collect_vec();
         let chunk_mask = header.chunk_mask();
         let endorsements = header.chunk_endorsements().unwrap();
-        for shard_id in shard_ids.into_iter() {
+        for shard_id in shard_ids {
             let shard_index = shard_layout.get_shard_index(shard_id).unwrap();
             let num_validator_assignments = epoch_manager
                 .get_chunk_validator_assignments(&epoch_id, shard_id, height)

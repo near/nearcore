@@ -128,7 +128,7 @@ impl HighLoadStatsCommand {
         stats.sort_by(|a, b| a.height.cmp(&b.height));
 
         BlockStats::print_header();
-        for stat in stats.into_iter() {
+        for stat in stats {
             stat.print();
         }
 

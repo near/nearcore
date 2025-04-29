@@ -70,7 +70,7 @@ impl TrieSanityCheck {
         }
 
         let mut check = HashMap::new();
-        for account_id in self.accounts.iter() {
+        for account_id in &self.accounts {
             let check_shard_uids = self.get_epoch_check_for_account(
                 client,
                 tip,
@@ -174,8 +174,8 @@ impl TrieSanityCheck {
             let check = self.checks.get(&epoch_id).unwrap_or_else(|| {
                 panic!("No trie comparison checks made for epoch {}", &epoch_id.0)
             });
-            for (account_id, checked_shards) in check.iter() {
-                for (shard_uid, checked) in checked_shards.iter() {
+            for (account_id, checked_shards) in check {
+                for (shard_uid, checked) in checked_shards {
                     assert!(
                         checked,
                         "No trie comparison checks made for account {} epoch {} shard {}",

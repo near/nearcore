@@ -552,7 +552,7 @@ fn network_message_to_partial_witness_handler(
         }
 
         NetworkRequests::PartialEncodedStateWitness(validator_witness_tuple) => {
-            for (target, partial_witness) in validator_witness_tuple.into_iter() {
+            for (target, partial_witness) in validator_witness_tuple {
                 shared_state
                     .senders_for_account(&my_account_id, &target)
                     .partial_witness_sender

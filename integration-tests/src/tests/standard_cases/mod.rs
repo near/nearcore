@@ -1362,7 +1362,7 @@ fn get_trie_nodes_count(
     runtime_config: &RuntimeConfig,
 ) -> TrieNodesCount {
     let mut count = TrieNodesCount { db_reads: 0, mem_reads: 0 };
-    for cost in metadata.gas_profile.clone().unwrap_or_default().iter() {
+    for cost in &metadata.gas_profile.clone().unwrap_or_default() {
         match cost.cost.as_str() {
             "TOUCHING_TRIE_NODE" => {
                 count.db_reads += cost.gas_used

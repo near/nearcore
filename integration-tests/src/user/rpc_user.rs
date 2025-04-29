@@ -124,7 +124,7 @@ impl User for RpcUser {
         let _ = self.actix(move |client| client.broadcast_tx_async(to_base64(&bytes))).map_err(
             |err| {
                 serde_json::from_value::<ServerError>(
-                    err.data.expect("server error must carry data"),
+                    *err.data.expect("server error must carry data"),
                 )
                 .expect("deserialize server error must be ok")
             },
@@ -141,7 +141,7 @@ impl User for RpcUser {
         match result {
             Ok(outcome) => Ok(outcome.final_execution_outcome.unwrap().into_outcome()),
             Err(err) => Err(CommitError::Server(
-                serde_json::from_value::<ServerError>(err.data.unwrap()).unwrap(),
+                serde_json::from_value::<ServerError>(*err.data.unwrap()).unwrap(),
             )),
         }
     }

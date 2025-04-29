@@ -65,8 +65,7 @@ pub(crate) fn setup_mock_peer(
             network_start_height,
             network_config,
             handshake_protocol_version,
-        )
-        .await?;
+        )?;
         mock.run(target_height).await
     });
     mock_peer

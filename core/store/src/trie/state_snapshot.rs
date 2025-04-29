@@ -195,26 +195,6 @@ pub const STATE_SNAPSHOT_COLUMNS: &[DBCol] = &[
 type ShardIndexesAndUIds = Vec<(ShardIndex, ShardUId)>;
 
 impl ShardTries {
-    /// Returns the status of the given shard of flat storage in the state snapshot.
-    /// `sync_prev_prev_hash` needs to match the block hash that identifies that snapshot.
-    pub fn get_snapshot_flat_storage_status(
-        &self,
-        sync_prev_prev_hash: CryptoHash,
-        shard_uid: ShardUId,
-    ) -> Result<FlatStorageStatus, StorageError> {
-        let guard = self.state_snapshot().try_read().map_err(SnapshotError::from)?;
-        let data = guard.as_ref().ok_or(SnapshotError::SnapshotNotFound(sync_prev_prev_hash))?;
-        if &data.prev_block_hash != &sync_prev_prev_hash {
-            Err(SnapshotError::IncorrectSnapshotRequested(
-                sync_prev_prev_hash,
-                data.prev_block_hash,
-            )
-            .into())
-        } else {
-            Ok(data.flat_storage_manager.get_flat_storage_status(shard_uid))
-        }
-    }
-
     pub fn get_trie_nodes_for_part_from_snapshot(
         &self,
         shard_uid: ShardUId,

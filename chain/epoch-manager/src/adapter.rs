@@ -623,7 +623,7 @@ pub trait EpochManagerAdapter: Send + Sync {
         let chunk_producers = chunk_producers_settlement
             .get(shard_index)
             .ok_or_else(|| EpochError::ShardingError(format!("invalid shard id {shard_id}")))?;
-        for validator_id in chunk_producers.iter() {
+        for validator_id in chunk_producers {
             if epoch_info.validator_account_id(*validator_id) == account_id {
                 return Ok(true);
             }
