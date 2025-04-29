@@ -175,7 +175,7 @@ Follow these steps to determine the maximum TPS (transactions per second) the ne
     - Check **Blocks per second** in the same dashboard. Make sure it matches expectations for your `neard` config (e.g., with 1.3s block time, you should see ≥ 0.76 block/s).
         - **If blocks per second is as expected:**  
           - Update your *max TPS* to the observed *current TPS*.
-          - Increase `tx_generator.tps` by a small increment (e.g., 100).
+          - Increase `tx_generator.tps` by a small value (e.g., 100).
           - Repeat the loop to test the new TPS.
         - **If blocks per second drops below expected:**  
           - Stop the experiment. The previous *max TPS* is the network’s maximum sustainable throughput.
