@@ -635,14 +635,14 @@ HEAD all the way to the top of the chain.</p>
 <p>As headers are quite small, we try to request multiple of them in a single call
 (currently we ask for 512 headers at once).</p>
 <p><img src="https://user-images.githubusercontent.com/1711539/195892312-2fbd8241-87ce-4241-a44d-ff3056b12bab.png" alt="image" /></p>
-<h3 id="step-1a-epoch-sync-normal-node--not-implemented-yet"><a class="header" href="#step-1a-epoch-sync-normal-node--not-implemented-yet">Step 1a: Epoch Sync [normal node*] // not implemented yet</a></h3>
+<h3 id="step-1a-epoch-sync-normal-node"><a class="header" href="#step-1a-epoch-sync-normal-node">Step 1a: Epoch Sync [normal node*]</a></h3>
 <p>While currently normal nodes are using Header sync, we could actually allow them
 to do something faster - “light client sync” a.k.a “epoch sync”.</p>
 <p>The idea of the epoch sync, is to read “just” a single block header from each
 epoch - that has to contain additional information about validators.</p>
 <p>This way it would drastically reduce both the time needed for the sync and the
 db resources.</p>
-<p>Implementation target date is TBD.</p>
+<p>Implementation is complete with <a href="https://github.com/near/nearcore/releases/tag/2.4.0">2.4 release</a>.</p>
 <p><img src="https://user-images.githubusercontent.com/1711539/195892336-cc117c08-d3ad-43f7-9304-3233b25e8bb1.png" alt="image" /></p>
 <p>Notice that in the image above - it is enough to only get the ‘last’ header from
 each epoch. For the ‘current’ epoch, we still need to get all the headers.</p>
