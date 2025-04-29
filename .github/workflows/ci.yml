@@ -28,39 +28,53 @@ jobs:
             os: warp-ubuntu-2204-x64-16x
             type: stable
             upload_profraws: true
+            run_on_pr: true
           - name: Linux Nightly
             id: linux-nightly
             os: warp-ubuntu-2204-x64-16x
             type: nightly
             upload_profraws: true
+            run_on_pr: true
+          - name: MacOS
+            id: macos
+            os: warp-macos-14-arm64-6x
+            type: stable
+            upload_profraws: false
+            run_on_pr: false
     timeout-minutes: 90
     steps:
-      - uses: actions/checkout@v4
+      - if: github.event_name != 'pull_request' || matrix.run_on_pr
+        uses: actions/checkout@v4
 
       # Install all the required tools
-      - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
+      - if: github.event_name != 'pull_request' || matrix.run_on_pr
+        uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
         with:
           tool: just,cargo-nextest,cargo-llvm-cov
 
-      # Run the tests:
-      - run: mkdir -p coverage/profraw/{unit,binaries}
-      # - Run the unit tests, retrieving the coverage information
-      - run: just codecov-ci "nextest-slow ${{ matrix.type }}"
-      - run: mv coverage/codecov/{new,unit-${{matrix.id}}}.json
-      - run: mv coverage/profraw/{new,unit/${{matrix.id}}}.tar.zst
+      # Run the tests
+      - if: github.event_name == 'pull_request' && matrix.run_on_pr
+        run: |
+          mkdir -p coverage/profraw/{unit,binaries}
+          just codecov-ci "nextest-slow ${{ matrix.type }}"
+      - if: github.event_name != 'pull_request'
+        run: just nextest-slow ${{ matrix.type }}
 
-      # Cleanup the target directory, leaving only stuff interesting to llvm-cov, and tarball it
-      - run: just tar-bins-for-coverage-ci
-      - run: mv coverage/profraw/binaries/{new,${{matrix.id}}}.tar.zst
-
-      # Upload the coverage
-      - uses: actions/upload-artifact@v4
-        if: matrix.upload_profraws
+      # Upload the coverage if we're testing a pull request
+      - if: github.event_name == 'pull_request' && matrix.run_on_pr
+        run: |
+          mv coverage/codecov/{new,unit-${{matrix.id}}}.json
+          mv coverage/profraw/{new,unit/${{matrix.id}}}.tar.zst
+          just tar-bins-for-coverage-ci
+          mv coverage/profraw/binaries/{new,${{matrix.id}}}.tar.zst
+      - if: matrix.upload_profraws && github.event_name == 'pull_request' && matrix.run_on_pr
+        uses: actions/upload-artifact@v4
         with:
           name: coverage-profraw-${{ github.sha }}-${{ matrix.name }}
           path: coverage/profraw
           retention-days: 2
-      - uses: actions/upload-artifact@v4
+      - if: github.event_name == 'pull_request' && matrix.run_on_pr
+        uses: actions/upload-artifact@v4
         with:
           name: coverage-codecov-${{ github.sha }}-cargo_nextest-${{ matrix.name }}
           path: coverage/codecov
