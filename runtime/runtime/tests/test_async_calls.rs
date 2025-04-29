@@ -603,7 +603,7 @@ fn test_simple_transfer() {
     if ProtocolFeature::ReducedGasRefunds.enabled(PROTOCOL_VERSION) {
         assert!(ref1.is_none());
     } else {
-        let ref1 = ref1;
+        let ref1 = ref1.unwrap();
         assert_refund!(group, ref1 @ "near_0");
     }
 }
