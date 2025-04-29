@@ -468,7 +468,7 @@ macro_rules! option_tuplet_resolve {
     { $v:expr ; $j:expr ; ($opt:ident $(,)?)} => {
         let $opt = $v.get($j);
     };
-    // recursion, left popping one element from the vec at the time
+    // recursion, processing one element from the vec at the time
     { $v:expr ; $j:expr ; ($opt:ident $(,$more_opt:ident)+) } => {
         let $opt = $v.get($j);
         option_tuplet_resolve!( $v ; $j+1 ; ($($more_opt),*) );
@@ -476,7 +476,7 @@ macro_rules! option_tuplet_resolve {
 }
 
 /// Binds a tuple to a vector of Options.
-/// 
+///
 /// This is a wrapper around `tuplet` that allows adding optional parameters
 /// with a `?` prefix and a type declaration.
 /// # Examples:
