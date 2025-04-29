@@ -31,7 +31,11 @@ use crate::utils::transactions::get_anchor_hash;
 /// been incorrect due to wrong receipts applied during the third epoch.
 #[test]
 fn ultra_slow_test_catchup_random_single_part_sync() {
-    test_catchup_random_single_part_sync_common(false, false, 22)
+    test_catchup_random_single_part_sync_common(RandomSinglePartTest {
+        skip_24: false,
+        change_balances: false,
+        send_tx_height: 22,
+    })
 }
 
 // Same test as `test_catchup_random_single_part_sync`, but skips the chunks on height 23 and 24
@@ -39,27 +43,52 @@ fn ultra_slow_test_catchup_random_single_part_sync() {
 // It tests that the incoming receipts are property synced through epochs
 #[test]
 fn ultra_slow_test_catchup_random_single_part_sync_skip_24() {
-    test_catchup_random_single_part_sync_common(true, false, 22)
+    test_catchup_random_single_part_sync_common(RandomSinglePartTest {
+        skip_24: true,
+        change_balances: false,
+        send_tx_height: 22,
+    })
 }
 
 #[test]
 fn ultra_slow_test_catchup_random_single_part_sync_send_24() {
-    test_catchup_random_single_part_sync_common(false, false, 24)
+    test_catchup_random_single_part_sync_common(RandomSinglePartTest {
+        skip_24: false,
+        change_balances: false,
+        send_tx_height: 24,
+    })
 }
 
 // Make sure that transactions are at least applied.
 #[test]
 fn ultra_slow_test_catchup_random_single_part_sync_non_zero_amounts() {
-    test_catchup_random_single_part_sync_common(false, true, 22)
+    test_catchup_random_single_part_sync_common(RandomSinglePartTest {
+        skip_24: false,
+        change_balances: true,
+        send_tx_height: 22,
+    })
 }
 
 // Use another height to send txs.
 #[test]
 fn ultra_slow_test_catchup_random_single_part_sync_height_9() {
-    test_catchup_random_single_part_sync_common(false, false, 9)
+    test_catchup_random_single_part_sync_common(RandomSinglePartTest {
+        skip_24: false,
+        change_balances: false,
+        send_tx_height: 9,
+    })
 }
 
-fn test_catchup_random_single_part_sync_common(skip_24: bool, non_zero: bool, send_tx_height: u64) {
+struct RandomSinglePartTest {
+    skip_24: bool,
+    change_balances: bool,
+    send_tx_height: u64,
+}
+
+/// Allows testing tx application when validators are being changes over epochs. In particular useful for testing on epoch boundaries.
+fn test_catchup_random_single_part_sync_common(
+    RandomSinglePartTest { skip_24, change_balances, send_tx_height }: RandomSinglePartTest,
+) {
     init_test_logger();
 
     let validators: Vec<Vec<AccountId>> = [
@@ -96,16 +125,10 @@ fn test_catchup_random_single_part_sync_common(skip_24: bool, non_zero: bool, se
         .minimum_validators_per_shard(2)
         .build_store_for_genesis_protocol_version();
 
-    let block_prod_time = Duration::milliseconds(6000);
     let mut env = TestLoopBuilder::new()
         .genesis(genesis)
         .clients(runner.all_validators_accounts())
         .epoch_config_store(epoch_config_store)
-        .config_modifier(move |config, _| {
-            config.min_block_production_delay = block_prod_time;
-            config.max_block_production_delay = 3 * block_prod_time;
-            config.max_block_wait_delay = 3 * block_prod_time;
-        })
         .build()
         .warmup();
 
@@ -136,7 +159,7 @@ fn test_catchup_random_single_part_sync_common(skip_24: bool, non_zero: bool, se
             let head = client.chain.head().unwrap();
             head.height >= send_tx_height
         },
-        block_prod_time * send_tx_height as i32,
+        Duration::seconds(send_tx_height as i64),
     );
 
     let clients = env
@@ -150,7 +173,7 @@ fn test_catchup_random_single_part_sync_common(skip_24: bool, non_zero: bool, se
     for (i, sender) in test_accounts.iter().enumerate() {
         for (j, receiver) in test_accounts.iter().enumerate() {
             let mut amount = (((i + j + 17) * 701) % 42 + 1) as u128;
-            if non_zero {
+            if change_balances {
                 if i > j {
                     amount = 2;
                 } else {
@@ -195,6 +218,8 @@ fn test_catchup_random_single_part_sync_common(skip_24: bool, non_zero: bool, se
     runner.run_until(
         &mut env,
         |test_loop_data| {
+            // We want to make sure that amounts stay the same as epochs and validator sets are
+            // changing over several epochs.
             for handler in &view_client_handlers {
                 let view_client = test_loop_data.get_mut(handler);
                 for test_account in &test_accounts {
@@ -204,25 +229,26 @@ fn test_catchup_random_single_part_sync_common(skip_24: bool, non_zero: bool, se
                     )) else {
                         continue;
                     };
-                    if let QueryResponseKind::ViewAccount(view_account_result) = response.kind {
-                        let amount = view_account_result.amount;
-                        match amounts.entry(test_account.clone()) {
-                            Entry::Occupied(entry) => {
-                                assert_eq!(
-                                    *entry.get(),
-                                    amount,
-                                    "OCCUPIED {entry:?}; value != {amount}"
-                                );
+                    let QueryResponseKind::ViewAccount(view_account_result) = response.kind else {
+                        continue;
+                    };
+                    let amount = view_account_result.amount;
+                    match amounts.entry(test_account.clone()) {
+                        Entry::Occupied(entry) => {
+                            assert_eq!(
+                                *entry.get(),
+                                amount,
+                                "OCCUPIED {entry:?}; value != {amount}"
+                            );
+                        }
+                        Entry::Vacant(entry) => {
+                            println!("VACANT {:?}", entry);
+                            if change_balances {
+                                assert_ne!(amount % 100, 0);
+                            } else {
+                                assert_eq!(amount % 100, 0);
                             }
-                            Entry::Vacant(entry) => {
-                                println!("VACANT {:?}", entry);
-                                if non_zero {
-                                    assert_ne!(amount % 100, 0);
-                                } else {
-                                    assert_eq!(amount % 100, 0);
-                                }
-                                entry.insert(amount);
-                            }
+                            entry.insert(amount);
                         }
                     }
                 }
@@ -231,7 +257,7 @@ fn test_catchup_random_single_part_sync_common(skip_24: bool, non_zero: bool, se
             let head = client.chain.head().unwrap();
             head.height >= target_height
         },
-        block_prod_time * (target_height - start_height) as i32,
+        Duration::seconds((target_height - start_height) as i64),
     );
 
     for test_account in &test_accounts {
@@ -240,7 +266,7 @@ fn test_catchup_random_single_part_sync_common(skip_24: bool, non_zero: bool, se
                 continue;
             }
             Entry::Vacant(entry) => {
-                println!("VALIDATOR = {:?}, ENTRY = {:?}", test_account, entry);
+                println!("TEST ACCOUNT = {:?}, ENTRY = {:?}", test_account, entry);
                 assert!(false);
             }
         }
