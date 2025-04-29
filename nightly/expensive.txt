@@ -25,22 +25,14 @@ expensive integration-tests integration_tests tests::other_tests::test_catchup::
 expensive integration-tests integration_tests tests::other_tests::test_catchup::ultra_slow_test_catchup --features nightly
 
 # cross-shard transactions tests
-# TODO(#4618): Those tests are currently broken.  Comment out while we’re
-# working on a fix / deciding whether to remove them.
-# expensive --timeout=3000 integration-tests integration_tests tests::client::cross_shard_tx::ultra_slow_test_cross_shard_tx
-# expensive --timeout=3000 integration-tests integration_tests tests::client::cross_shard_tx::ultra_slow_test_cross_shard_tx --features nightly
-expensive --timeout=3000 integration-tests integration_tests tests::client::cross_shard_tx::ultra_slow_test_cross_shard_tx_doomslug
-expensive --timeout=3000 integration-tests integration_tests tests::client::cross_shard_tx::ultra_slow_test_cross_shard_tx_doomslug --features nightly
-expensive --timeout=3000 integration-tests integration_tests tests::client::cross_shard_tx::ultra_slow_test_cross_shard_tx_drop_chunks
-expensive --timeout=3000 integration-tests integration_tests tests::client::cross_shard_tx::ultra_slow_test_cross_shard_tx_drop_chunks --features nightly
-# TODO(#4618): Those tests are currently broken.  Comment out while we’re
-# working on a fix / deciding whether to remove them.
-# expensive --timeout=5400 integration-tests integration_tests tests::client::cross_shard_tx::ultra_slow_test_cross_shard_tx_with_validator_rotation_1
-# expensive --timeout=5400 integration-tests integration_tests tests::client::cross_shard_tx::ultra_slow_test_cross_shard_tx_with_validator_rotation_1 --features nightly
-# expensive --timeout=5400 integration-tests integration_tests tests::client::cross_shard_tx::ultra_slow_test_cross_shard_tx_with_validator_rotation_2
-# expensive --timeout=5400 integration-tests integration_tests tests::client::cross_shard_tx::ultra_slow_test_cross_shard_tx_with_validator_rotation_2 --features nightly
-# expensive --timeout=4800 integration-tests integration_tests tests::client::cross_shard_tx::ultra_slow_test_cross_shard_tx_8_iterations
-# expensive --timeout=4800 integration-tests integration_tests tests::client::cross_shard_tx::ultra_slow_test_cross_shard_tx_8_iterations_drop_chunks
+expensive --timeout=3000 test-loop-tests test_loop_tests tests::cross_shard_tx::ultra_slow_test_cross_shard_tx
+expensive --timeout=3000 test-loop-tests test_loop_tests tests::cross_shard_tx::ultra_slow_test_cross_shard_tx --features nightly
+expensive --timeout=3000 test-loop-tests test_loop_tests tests::cross_shard_tx::ultra_slow_test_cross_shard_tx_drop_chunks
+expensive --timeout=3000 test-loop-tests test_loop_tests tests::cross_shard_tx::ultra_slow_test_cross_shard_tx_drop_chunks --features nightly
+expensive --timeout=3000 test-loop-tests test_loop_tests tests::cross_shard_tx::ultra_slow_test_cross_shard_tx_with_validator_rotation
+expensive --timeout=3000 test-loop-tests test_loop_tests tests::cross_shard_tx::ultra_slow_test_cross_shard_tx_with_validator_rotation --features nightly
+expensive --timeout=3000 test-loop-tests test_loop_tests tests::cross_shard_tx::ultra_slow_test_cross_shard_tx_with_validator_rotation_drop_chunks
+expensive --timeout=3000 test-loop-tests test_loop_tests tests::cross_shard_tx::ultra_slow_test_cross_shard_tx_with_validator_rotation_drop_chunks --features nightly
 
 # consensus tests
 expensive --timeout=3000 near-chain near_chain tests::doomslug::ultra_slow_test_fuzzy_doomslug_liveness_and_safety

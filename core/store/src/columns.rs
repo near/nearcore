@@ -28,7 +28,7 @@ pub enum DBCol {
     /// - *Content type*: cell specific.
     BlockMisc,
     /// Column that stores Block content.
-    /// - *Rows*: block hash (CryptHash)
+    /// - *Rows*: block hash (CryptoHash)
     /// - *Content type*: [near_primitives::block::Block]
     Block,
     /// Column that stores Block headers.
