@@ -259,7 +259,7 @@ impl PeerManagerActor {
                 // Start server if address provided.
                 if let Some(server_addr) = &state.config.node_addr {
                     tracing::debug!(target: "network", at = ?server_addr, "starting public server");
-                    let mut listener = match server_addr.listener() {
+                    let listener = match server_addr.listener() {
                         Ok(it) => it,
                         Err(e) => {
                             panic!("failed to start listening on server_addr={server_addr:?} e={e:?}")
@@ -357,7 +357,7 @@ impl PeerManagerActor {
 
     /// Periodically prints bandwidth stats for each peer.
     fn report_bandwidth_stats_trigger(
-        &mut self,
+        &self,
         ctx: &mut actix::Context<Self>,
         every: time::Duration,
     ) {

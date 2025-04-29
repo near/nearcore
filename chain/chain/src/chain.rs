@@ -3213,7 +3213,7 @@ impl Chain {
 
     /// Function to create or delete a snapshot if necessary.
     /// TODO: this function calls head() inside of start_process_block_impl(), consider moving this to be called right after HEAD gets updated
-    fn process_snapshot(&mut self) -> Result<(), Error> {
+    fn process_snapshot(&self) -> Result<(), Error> {
         let snapshot_action = self.should_make_snapshot()?;
         let Some(snapshot_callbacks) = &self.snapshot_callbacks else { return Ok(()) };
         match snapshot_action {
@@ -3237,7 +3237,7 @@ impl Chain {
 
     /// Function to check whether we need to create a new snapshot while processing the current block
     /// Note that this functions is called as a part of block preprocessing, so the head is not updated to current block
-    fn should_make_snapshot(&mut self) -> Result<SnapshotAction, Error> {
+    fn should_make_snapshot(&self) -> Result<SnapshotAction, Error> {
         if let StateSnapshotConfig::Disabled =
             self.runtime_adapter.get_tries().state_snapshot_config()
         {

@@ -9,7 +9,6 @@ use near_primitives::congestion_info::CongestionControl;
 use near_primitives::errors::RuntimeError;
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::types::{EpochInfoProvider, ShardId, ShardIndex, StateChangeCause};
-use near_primitives::version::ProtocolFeature;
 use near_store::{TrieUpdate, get_bandwidth_scheduler_state, set_bandwidth_scheduler_state};
 use scheduler::{BandwidthScheduler, GrantedBandwidth, ShardStatus};
 
@@ -30,6 +29,18 @@ pub struct BandwidthSchedulerOutput {
     pub scheduler_state_hash: CryptoHash,
 }
 
+impl BandwidthSchedulerOutput {
+    /// Create a new BandwidthSchedulerOutput with no granted bandwidth.
+    #[cfg(feature = "estimator")]
+    pub(crate) fn no_granted_bandwidth(params: BandwidthSchedulerParams) -> Self {
+        BandwidthSchedulerOutput {
+            granted_bandwidth: GrantedBandwidth::default(),
+            params,
+            scheduler_state_hash: CryptoHash::default(),
+        }
+    }
+}
+
 /// Run the bandwidth scheduler algorithm to figure out how many bytes
 /// of outgoing receipts can be sent between shards at the current height.
 pub fn run_bandwidth_scheduler(
@@ -37,11 +48,7 @@ pub fn run_bandwidth_scheduler(
     state_update: &mut TrieUpdate,
     epoch_info_provider: &dyn EpochInfoProvider,
     stats: &mut BandwidthSchedulerStats,
-) -> Result<Option<BandwidthSchedulerOutput>, RuntimeError> {
-    if !ProtocolFeature::BandwidthScheduler.enabled(apply_state.current_protocol_version) {
-        return Ok(None);
-    }
-
+) -> Result<BandwidthSchedulerOutput, RuntimeError> {
     let start_time = std::time::Instant::now();
     let _span = tracing::debug_span!(
         target: "runtime",
@@ -132,5 +139,5 @@ pub fn run_bandwidth_scheduler(
     let scheduler_state_hash: CryptoHash = hash(&borsh::to_vec(&scheduler_state).unwrap());
 
     stats.time_to_run_ms = start_time.elapsed().as_millis();
-    Ok(Some(BandwidthSchedulerOutput { granted_bandwidth, params, scheduler_state_hash }))
+    Ok(BandwidthSchedulerOutput { granted_bandwidth, params, scheduler_state_hash })
 }

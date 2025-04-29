@@ -513,7 +513,7 @@ impl WorkloadGenerator {
     }
 
     /// Deploy the test contract on all workload accounts
-    fn deploy_contracts(&mut self, test_loop: &mut TestLoopV2, node_datas: &[NodeExecutionData]) {
+    fn deploy_contracts(&self, test_loop: &mut TestLoopV2, node_datas: &[NodeExecutionData]) {
         tracing::info!(target: "scheduler_test", "Deploying contracts...");
         let (last_block_hash, nonce) = get_last_block_and_nonce(test_loop, node_datas);
         let deploy_contracts_txs: Vec<SignedTransaction> = self
@@ -537,7 +537,7 @@ impl WorkloadGenerator {
     /// One access key allows to run only one transaction at a time. We need to have many access keys to achieve
     /// high concurrency.
     fn generate_access_keys(
-        &mut self,
+        &self,
         test_loop: &mut TestLoopV2,
         node_datas: &[NodeExecutionData],
         concurrency: usize,

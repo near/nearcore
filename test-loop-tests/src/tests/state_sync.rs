@@ -198,7 +198,7 @@ fn get_wrapped_mut<T>(s: &mut [T], idx: usize) -> &mut T {
 
 /// tries to generate transactions between lots of different pairs of shards (accounts for shard i are in accounts[i])
 fn send_txs_between_shards(
-    test_loop: &mut TestLoopV2,
+    test_loop: &TestLoopV2,
     node_datas: &[NodeExecutionData],
     accounts: &mut [Vec<(AccountId, Nonce)>],
 ) {
