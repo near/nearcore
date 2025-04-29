@@ -35,6 +35,13 @@ pub static BLOCK_PROCESSING_TIME: LazyLock<Histogram> = LazyLock::new(|| {
         exponential_buckets(0.001, 1.6, 20).unwrap()
     ).unwrap()
 });
+pub static OPTIMISTIC_BLOCK_PROCESSING_TIME: LazyLock<Histogram> = LazyLock::new(|| {
+    try_create_histogram_with_buckets(
+        "near_optimistic_block_processing_time",
+        "Time taken to process optimistic blocks successfully, from when a block is ready to be processed till when the processing is finished. Measures only the time taken by the successful attempts of block processing",
+        exponential_buckets(0.001, 1.6, 20).unwrap()
+    ).unwrap()
+});
 pub static BLOCK_PREPROCESSING_TIME: LazyLock<Histogram> = LazyLock::new(|| {
     try_create_histogram("near_block_preprocessing_time", "Time taken to preprocess blocks, only include the time when the preprocessing is successful")
         .unwrap()

@@ -288,15 +288,15 @@ fn block_chunk_headers_iter() {
     assert_eq!(raw_headers.count(), old_headers.len() + new_headers.len());
 }
 
+/// Check that if block is processed while optimistic block is in processing,
+/// it is marked as pending and can be processed later.
 #[cfg(feature = "test_features")]
 #[test]
-fn test_optimistic_block_in_processing() {
+fn test_pending_block() {
     init_test_logger();
     let clock = Clock::real();
     let (mut chain, _, _, signer) = setup(clock.clone());
     let me = Some(signer.validator_id().clone());
-
-    // Create a genesis block
     let genesis = chain.get_block(&chain.genesis().hash().clone()).unwrap();
 
     // Create block 1
@@ -335,14 +335,14 @@ fn test_optimistic_block_in_processing() {
         panic!("Block processing should not succeed");
     };
 
-    // If it returns an error, it should be OptimisticBlockInProcessing
+    // Block must be rejected due to optimistic block in processing
     assert_matches!(err, Error::OptimisticBlockInProcessing);
 
     // Verify the block is in the pending pool
     assert!(chain.blocks_pending_execution.contains_key(&block2.header().height()));
 
+    // Process optimistic block
     let mut block_processing_artifact = BlockProcessingArtifact::default();
-    // This should process optimistic block
     while wait_for_all_blocks_in_processing(&mut chain) {
         chain.postprocess_ready_blocks(&me, &mut block_processing_artifact, None);
     }
@@ -359,85 +359,58 @@ fn test_optimistic_block_in_processing() {
     assert_eq!(chain.head().unwrap().height, 2);
 }
 
+/// Check that if chain receives two blocks which matches the same optimistic block,
+/// the first one gets pending but the second one gets processed, as this is likely
+/// malicious behaviour and processing blocks is a higher priority than apply chunk
+/// optimisations.
+/// We use two copies of the same block here.
 #[cfg(feature = "test_features")]
 #[test]
-fn test_multiple_pending_blocks() {
+fn test_pending_block_twice() {
     init_test_logger();
     let clock = Clock::real();
     let (mut chain, _, _, signer) = setup(clock.clone());
     let me = Some(signer.validator_id().clone());
-    // Create a genesis block
     let genesis = chain.get_block(&chain.genesis().hash().clone()).unwrap();
 
     // Create block 1
     let block1 = TestBlockBuilder::new(clock.clone(), &genesis, signer.clone()).build();
     chain.process_block_test(&me, block1.clone()).unwrap();
 
+    // Create block 2 and its copy
+    let block2 = TestBlockBuilder::new(clock, &block1, signer.clone()).build();
+    let block2a = block2.clone();
+
     // Create an optimistic block at height 2
-    let now = clock.now_utc().unix_timestamp_nanos() as u64;
     let optimistic_block = OptimisticBlock::adv_produce(
         &block1.header(),
         2,
         &*signer,
-        now,
+        block2.header().raw_timestamp(),
         None,
         near_primitives::optimistic_block::OptimisticBlockAdvType::Normal,
     );
 
     // Process the optimistic block
-    let chunk_headers = block1.chunks().iter_raw().cloned().collect();
+    let chunk_headers = block2.chunks().iter_raw().cloned().collect();
     chain.process_optimistic_block(&me, optimistic_block, chunk_headers, None).unwrap();
 
-    // Create multiple regular blocks at height 2 with different timestamps
-    let block2a = TestBlockBuilder::new(clock.clone(), &block1, signer.clone()).build();
-    let result_a = chain.process_block_test(&me, block2a.clone());
+    // Check that processing the first copy is failed due to optimistic block
+    // in processing.
+    let result_a = chain.start_process_block_async(
+        &me,
+        block2.into(),
+        crate::Provenance::PRODUCED,
+        &mut BlockProcessingArtifact::default(),
+        None,
+    );
+    let Err(err) = &result_a else {
+        panic!("Block processing should not succeed");
+    };
+    assert_matches!(err, Error::OptimisticBlockInProcessing);
 
-    // The block might be marked as pending or it might be accepted if the optimistic block
-    // was processed quickly
-    match result_a {
-        Err(Error::OptimisticBlockInProcessing) => {
-            // Verify the block is in the pending pool
-            assert!(chain.blocks_pending_execution.contains_key(&block2a.header().height()));
-
-            // Create another block
-            let block2b = TestBlockBuilder::new(clock, &block1, signer).build();
-            let result_b = chain.process_block_test(&me, block2b);
-
-            // This might also be marked as pending or it might be rejected because there's already
-            // a pending block at this height
-            match result_b {
-                Err(Error::OptimisticBlockInProcessing) => {
-                    // Only one block should be in the pending pool at a given height
-                    // The second block should have been rejected with a warning
-                    assert!(
-                        chain.blocks_pending_execution.contains_key(&block2a.header().height())
-                    );
-                }
-                _ => {
-                    // If the optimistic block was processed quickly, this is fine too
-                }
-            }
-
-            // Process optimistic block
-            let mut block_processing_artifact = BlockProcessingArtifact::default();
-            while wait_for_all_blocks_in_processing(&mut chain) {
-                chain.postprocess_ready_blocks(&me, &mut block_processing_artifact, None);
-            }
-
-            // Verify the pending block was processed
-            while wait_for_all_blocks_in_processing(&mut chain) {
-                chain.postprocess_ready_blocks(&me, &mut block_processing_artifact, None);
-            }
-        }
-        Ok(()) => {
-            // The optimistic block was processed quickly, and the regular block was accepted
-            // This is fine too
-        }
-        Err(e) => {
-            panic!("Unexpected error: {:?}", e);
-        }
-    }
-
-    // Verify the block is now in the chain
+    // Check that processing the second copy is successful.
+    let result_b = chain.process_block_test(&me, block2a);
+    assert_matches!(result_b, Ok(_));
     assert_eq!(chain.head().unwrap().height, 2);
 }

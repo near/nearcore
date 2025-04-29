@@ -34,16 +34,16 @@ pub(crate) struct BlockPreprocessInfo {
     pub(crate) provenance: Provenance,
     /// Used to get notified when the applying chunks of a block finishes.
     pub(crate) apply_chunks_done_waiter: ApplyChunksDoneWaiter,
-    /// This is used to calculate block processing time metric
+    /// Used to calculate block processing time metric.
     pub(crate) block_start_processing_time: Instant,
 }
 
 pub(crate) struct OptimisticBlockInfo {
     /// Used to get notified when the applying chunks of a block finishes.
     pub(crate) apply_chunks_done_waiter: ApplyChunksDoneWaiter,
-    /// This is used to calculate block processing time metric
-    #[allow(unused)]
+    /// Used to calculate processing time metric.
     pub(crate) block_start_processing_time: Instant,
+    /// Shard update keys for the processed chunks.
     pub(crate) shard_update_keys: Vec<CachedShardUpdateKey>,
 }
 
@@ -160,7 +160,9 @@ impl BlocksInProcessing {
         }
     }
 
-    pub fn has_matching_optimistic_block(
+    /// Check if there is an optimistic block in processing for the given
+    /// height and shard update keys.
+    pub fn has_optimistic_block_with(
         &self,
         block_height: BlockHeight,
         shard_update_keys: &[&CachedShardUpdateKey],

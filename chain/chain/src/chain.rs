@@ -1966,7 +1966,7 @@ impl Chain {
         block_processing_artifacts: &mut BlockProcessingArtifact,
         apply_chunks_done_sender: Option<near_async::messaging::Sender<ApplyChunksDoneMessage>>,
     ) {
-        let (optimistic_block, _) = self.blocks_in_processing.remove_optimistic(&block_height).unwrap_or_else(|| {
+        let (optimistic_block, optimistic_block_info) = self.blocks_in_processing.remove_optimistic(&block_height).unwrap_or_else(|| {
             panic!(
                 "optimistic block {:?} finished applying chunks but not in blocks_in_processing pool",
                 block_height
@@ -1996,6 +1996,13 @@ impl Chain {
                 }
             }
         }
+
+        let processing_time = self
+            .clock
+            .now()
+            .signed_duration_since(optimistic_block_info.block_start_processing_time);
+        metrics::OPTIMISTIC_BLOCK_PROCESSING_TIME
+            .observe(processing_time.as_seconds_f64().max(0.0));
 
         let Some(orphan) = self.blocks_pending_execution.take_block(&block_height) else {
             return;
@@ -2956,21 +2963,22 @@ impl Chain {
             || self.epoch_manager.is_chunk_producer_for_epoch(&next_epoch_id, account_id)?)
     }
 
-    fn is_optimistic_block_in_processing(
+    /// Check if there is an optimistic block in processing for the given
+    fn has_optimistic_block_in_processing(
         &self,
         block: &Block,
         cached_shard_update_keys: &[&CachedShardUpdateKey],
     ) -> bool {
         if !self
             .blocks_in_processing
-            .has_matching_optimistic_block(block.header().height(), cached_shard_update_keys)
+            .has_optimistic_block_with(block.header().height(), cached_shard_update_keys)
         {
             return false;
         }
         // If there is already a pending block with given height which matches
         // optimistic execution, this is very unlikely case relevant to epoch
-        // switch or malicious behaviour. To avoid getting stuck, let's allow
-        // only one of these blocks to be pending.
+        // switch or malicious behaviour. To avoid getting stuck, allow only
+        // one of these blocks to be pending.
         !self.blocks_pending_execution.contains_key(&block.header().height())
     }
 
@@ -3017,11 +3025,12 @@ impl Chain {
             .iter()
             .map(|(_, cached_shard_update_key)| cached_shard_update_key)
             .collect_vec();
-        // This is fine because chain is single threaded.
-        // Otherwise there could be fun data races where optimistic block gets
+
+        // The check below is safe because chain is single threaded.
+        // Otherwise there could be data races where optimistic block gets
         // postprocessed in the meantime, and then block is put to pending pool
         // and never leaves it.
-        if self.is_optimistic_block_in_processing(&block, &cached_shard_update_keys) {
+        if self.has_optimistic_block_in_processing(&block, &cached_shard_update_keys) {
             return Err(Error::OptimisticBlockInProcessing);
         }
 
