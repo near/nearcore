@@ -1036,10 +1036,10 @@ fn test_transfer_64len_hex() {
                         => [?ref1] );
 
     if ProtocolFeature::ReducedGasRefunds.enabled(PROTOCOL_VERSION) {
+        assert!(ref1.is_none());
+    } else {
         let ref1 = ref1.unwrap();
         assert_refund!(group, ref1 @ "near_0");
-    } else {
-        assert!(ref1.is_none());
     }
     assert_refund!(group, ref0 @ "near_0");
 }
