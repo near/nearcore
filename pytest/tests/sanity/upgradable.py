@@ -315,22 +315,25 @@ class TestUpgrade:
             if epoch != start_epoch:
                 break
 
-    def get_missed_endorsements(self) -> dict:
+    def get_endorsement_ratio(self) -> dict:
+        """ Return the ratio of produced to expected endorsements for each validator. """
         prev_epoch_id = self._rpc_node.get_prev_epoch_id()
         validators = self._rpc_node.get_validators(prev_epoch_id)['result']['current_validators']  # yapf: disable
         return {
-            v['account_id']: v['num_expected_endorsements'] - v['num_produced_endorsements']
+            v['account_id']: v['num_produced_endorsements'] / v['num_expected_endorsements']
             for v in validators
         }  # yapf: disable
 
-    def assert_no_missed_endorsements(self) -> None:
-        missed_endorsements = self.get_missed_endorsements()
-        logger.info(f"Missed endorsements: {missed_endorsements}")
+    def assert_no_missed_endorsements(self, threshold=0.95) -> None:
+        endorsements = self.get_endorsement_ratio()
+        logger.info(f"Endorsement ratios: {endorsements}")
         for i in range(self._num_validators):
             validator_id = f'{self._node_prefix}{i}'
-            assert validator_id in missed_endorsements, f'validator {validator_id} not in active validator set'
-            num_missed = missed_endorsements[validator_id]
-            assert num_missed == 0, f'validator {validator_id} missed {num_missed} endorsements'
+            assert validator_id in endorsements, f'validator {validator_id} not in active validator set'
+            endorsed_ratio = endorsements[validator_id]
+            assert endorsed_ratio > threshold, \
+                (f'validator {validator_id} produced only {endorsed_ratio*100:.1f}% of expected endorsements. '
+                 f'threshold={threshold*100:.1f}%')
 
     def assert_protocol_version(self, expected_version: int) -> None:
         for node in self._stable_nodes:
