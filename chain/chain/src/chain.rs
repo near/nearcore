@@ -19,9 +19,9 @@ use crate::signature_verification::{
 };
 use crate::state_snapshot_actor::SnapshotCallbacks;
 use crate::state_sync::ChainStateSyncAdapter;
-use crate::stateless_validation::chunk_endorsement::{
-    validate_chunk_endorsements_in_block, validate_chunk_endorsements_in_header,
-};
+// use crate::stateless_validation::chunk_endorsement::{
+//     validate_chunk_endorsements_in_block, validate_chunk_endorsements_in_header,
+// };
 use crate::store::utils::{get_chunk_clone_from_header, get_incoming_receipts_for_shard};
 use crate::store::{
     ChainStore, ChainStoreAccess, ChainStoreUpdate, MerkleProofAccess, ReceiptFilter,
@@ -928,7 +928,7 @@ impl Chain {
                 return Err(Error::InvalidBlockMerkleRoot);
             }
 
-            validate_chunk_endorsements_in_header(self.epoch_manager.as_ref(), header)?;
+            // validate_chunk_endorsements_in_header(self.epoch_manager.as_ref(), header)?;
         }
 
         Ok(())
@@ -1285,6 +1285,7 @@ impl Chain {
         }
     }
 
+    #[allow(unused_variables)]
     pub fn process_optimistic_block(
         &mut self,
         me: &Option<AccountId>,
@@ -1303,74 +1304,75 @@ impl Chain {
         let optimistic_block_hash = *block.hash();
         let block_height = block.height();
         let prev_block_hash = *block.prev_block_hash();
-        let prev_block = self.get_block(&prev_block_hash)?;
-        let prev_prev_hash = prev_block.header().prev_hash();
-        let prev_chunk_headers =
-            Chain::get_prev_chunk_headers(self.epoch_manager.as_ref(), &prev_block)?;
-        let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&prev_block_hash)?;
+        // TODO(spice)
+        // let prev_block = self.get_block(&prev_block_hash)?;
+        // let prev_prev_hash = prev_block.header().prev_hash();
+        // let prev_chunk_headers =
+        //     Chain::get_prev_chunk_headers(self.epoch_manager.as_ref(), &prev_block)?;
+        // let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&prev_block_hash)?;
 
-        let (is_caught_up, _) =
-            self.get_catchup_and_state_sync_infos(None, &prev_block_hash, prev_prev_hash, me)?;
+        // let (is_caught_up, _) =
+        //     self.get_catchup_and_state_sync_infos(None, &prev_block_hash, prev_prev_hash, me)?;
 
-        let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
-        let chunks = Chunks::from_chunk_headers(&chunk_headers, block_height);
-        let incoming_receipts = self.collect_incoming_receipts_from_chunks(
-            me,
-            &chunks,
-            &prev_block_hash,
-            &prev_block_hash,
-        )?;
+        // let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
+        // let chunks = Chunks::from_chunk_headers(&chunk_headers, block_height);
+        // let incoming_receipts = self.collect_incoming_receipts_from_chunks(
+        //     me,
+        //     &chunks,
+        //     &prev_block_hash,
+        //     &prev_block_hash,
+        // )?;
 
-        let mut maybe_jobs = vec![];
-        for (shard_index, prev_chunk_header) in prev_chunk_headers.iter().enumerate() {
-            let shard_id = shard_layout.get_shard_id(shard_index)?;
-            let block_context = ApplyChunkBlockContext {
-                height: block_height,
-                // TODO: consider removing this field completely to avoid
-                // confusion with real block hash.
-                block_hash: CryptoHash::default(),
-                prev_block_hash: *block.prev_block_hash(),
-                block_timestamp: block.block_timestamp(),
-                gas_price: prev_block.header().next_gas_price(),
-                random_seed: *block.random_value(),
-                congestion_info: chunks.block_congestion_info(),
-                bandwidth_requests: chunks.block_bandwidth_requests(),
-            };
-            let incoming_receipts = incoming_receipts.get(&shard_id);
-            let storage_context = StorageContext {
-                storage_data_source: StorageDataSource::Db,
-                state_patch: SandboxStatePatch::default(),
-            };
+        // let mut maybe_jobs = vec![];
+        // for (shard_index, prev_chunk_header) in prev_chunk_headers.iter().enumerate() {
+        //     let shard_id = shard_layout.get_shard_id(shard_index)?;
+        //     let block_context = ApplyChunkBlockContext {
+        //         height: block_height,
+        //         // TODO: consider removing this field completely to avoid
+        //         // confusion with real block hash.
+        //         block_hash: CryptoHash::default(),
+        //         prev_block_hash: *block.prev_block_hash(),
+        //         block_timestamp: block.block_timestamp(),
+        //         gas_price: prev_block.header().next_gas_price(),
+        //         random_seed: *block.random_value(),
+        //         congestion_info: chunks.block_congestion_info(),
+        //         bandwidth_requests: chunks.block_bandwidth_requests(),
+        //     };
+        //     let incoming_receipts = incoming_receipts.get(&shard_id);
+        //     let storage_context = StorageContext {
+        //         storage_data_source: StorageDataSource::Db,
+        //         state_patch: SandboxStatePatch::default(),
+        //     };
 
-            let cached_shard_update_key =
-                Self::get_cached_shard_update_key(&block_context, &chunks, shard_id)?;
-            let job = self.get_update_shard_job(
-                me,
-                cached_shard_update_key,
-                block_context,
-                &chunks,
-                shard_index,
-                &prev_block,
-                prev_chunk_header,
-                if is_caught_up {
-                    ApplyChunksMode::IsCaughtUp
-                } else {
-                    ApplyChunksMode::NotCaughtUp
-                },
-                incoming_receipts,
-                storage_context,
-            );
-            maybe_jobs.push(job);
-        }
+        //     let cached_shard_update_key =
+        //         Self::get_cached_shard_update_key(&block_context, &chunks, shard_id)?;
+        //     let job = self.get_update_shard_job(
+        //         me,
+        //         cached_shard_update_key,
+        //         block_context,
+        //         &chunks,
+        //         shard_index,
+        //         &prev_block,
+        //         prev_chunk_header,
+        //         if is_caught_up {
+        //             ApplyChunksMode::IsCaughtUp
+        //         } else {
+        //             ApplyChunksMode::NotCaughtUp
+        //         },
+        //         incoming_receipts,
+        //         storage_context,
+        //     );
+        //     maybe_jobs.push(job);
+        // }
 
-        let mut jobs = vec![];
-        for job in maybe_jobs {
-            match job {
-                Ok(Some(processor)) => jobs.push(processor),
-                Ok(None) => {}
-                Err(err) => return Err(err),
-            }
-        }
+        let jobs = vec![];
+        // for job in maybe_jobs {
+        //     match job {
+        //         Ok(Some(processor)) => jobs.push(processor),
+        //         Ok(None) => {}
+        //         Err(err) => return Err(err),
+        //     }
+        // }
 
         let (apply_chunks_done_waiter, apply_chunks_still_applying) = ApplyChunksDoneWaiter::new();
         self.blocks_in_processing.add_optimistic(
@@ -1726,8 +1728,8 @@ impl Chain {
     fn schedule_apply_chunks(
         &self,
         block: BlockToApply,
-        block_height: BlockHeight,
-        work: Vec<UpdateShardJob>,
+        _block_height: BlockHeight,
+        _work: Vec<UpdateShardJob>,
         apply_chunks_still_applying: ApplyChunksStillApplying,
         apply_chunks_done_sender: Option<near_async::messaging::Sender<ApplyChunksDoneMessage>>,
     ) {
@@ -1736,7 +1738,9 @@ impl Chain {
         self.apply_chunks_spawner.spawn("apply_chunks", move || {
             let apply_all_chunks_start_time = clock.now();
             // do_apply_chunks runs `work` in parallel, but still waits for all of them to finish
-            let res = do_apply_chunks(block.clone(), block_height, work);
+            // TODO(spice)
+            let res = Vec::new();
+            // let res = do_apply_chunks(block.clone(), block_height, work);
             // If we encounter error here, that means the receiver is deallocated and the client
             // thread is already shut down. The node is already crashed, so we can unwrap here
             metrics::APPLY_ALL_CHUNKS_TIME.with_label_values(&[block.as_ref()]).observe(
@@ -2287,17 +2291,20 @@ impl Chain {
 
         self.validate_chunk_headers(&block, &prev_block)?;
 
-        validate_chunk_endorsements_in_block(self.epoch_manager.as_ref(), &block)?;
+        // TODO(spice)
+        // validate_chunk_endorsements_in_block(self.epoch_manager.as_ref(), &block)?;
 
         self.ping_missing_chunks(me, prev_hash, block)?;
 
-        let receipts_shuffle_salt = get_receipts_shuffle_salt(self.epoch_manager.as_ref(), &block)?;
-        let incoming_receipts = self.collect_incoming_receipts_from_chunks(
-            me,
-            &block.chunks(),
-            &prev_hash,
-            receipts_shuffle_salt,
-        )?;
+        // TODO(spice)
+        // let receipts_shuffle_salt = get_receipts_shuffle_salt(self.epoch_manager.as_ref(), &block)?;
+        // let incoming_receipts = self.collect_incoming_receipts_from_chunks(
+        //     me,
+        //     &block.chunks(),
+        //     &prev_hash,
+        //     receipts_shuffle_salt,
+        // )?;
+        let incoming_receipts = HashMap::new();
 
         // Check if block can be finalized and drop it otherwise.
         self.check_if_finalizable(header)?;
@@ -2917,6 +2924,7 @@ impl Chain {
 
     /// Creates jobs which will update shards for the given block and incoming
     /// receipts aggregated for it.
+    #[allow(unused_variables, unreachable_code)]
     fn apply_chunks_preprocessing(
         &self,
         me: &Option<AccountId>,
@@ -2924,9 +2932,11 @@ impl Chain {
         prev_block: &Block,
         incoming_receipts: &HashMap<ShardId, Vec<ReceiptProof>>,
         mode: ApplyChunksMode,
-        mut state_patch: SandboxStatePatch,
+        state_patch: SandboxStatePatch,
         invalid_chunks: &mut Vec<ShardChunkHeader>,
     ) -> Result<Vec<UpdateShardJob>, Error> {
+        // TODO(spice)
+        return Ok(vec![]);
         let _span = tracing::debug_span!(target: "chain", "apply_chunks_preprocessing").entered();
         let prev_chunk_headers =
             Chain::get_prev_chunk_headers(self.epoch_manager.as_ref(), prev_block)?;

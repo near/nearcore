@@ -1715,7 +1715,7 @@ impl Client {
             );
             match result {
                 Ok(Some(result)) => {
-                    let shard_chunk = self
+                    let _shard_chunk = self
                         .persist_and_distribute_encoded_chunk(
                             result.encoded_chunk,
                             result.encoded_chunk_parts_paths,
@@ -1723,15 +1723,16 @@ impl Client {
                             validator_id.clone(),
                         )
                         .expect("Failed to process produced chunk");
-                    if let Err(err) = self.send_chunk_state_witness_to_chunk_validators(
-                        &epoch_id,
-                        block.header(),
-                        &last_header,
-                        &shard_chunk,
-                        &Some(signer.clone()),
-                    ) {
-                        tracing::error!(target: "client", ?err, "Failed to send chunk state witness to chunk validators");
-                    }
+                    // TODO(spice)
+                    // if let Err(err) = self.send_chunk_state_witness_to_chunk_validators(
+                    //     &epoch_id,
+                    //     block.header(),
+                    //     &last_header,
+                    //     &shard_chunk,
+                    //     &Some(signer.clone()),
+                    // ) {
+                    //     tracing::error!(target: "client", ?err, "Failed to send chunk state witness to chunk validators");
+                    // }
                 }
                 Ok(None) => {}
                 Err(err) => {
