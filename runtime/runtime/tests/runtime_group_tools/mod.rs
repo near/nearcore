@@ -451,17 +451,72 @@ macro_rules! tuplet {
 }
 
 #[macro_export]
+macro_rules! replace_expr {
+    ($_t:tt $sub:expr) => {
+        $sub
+    };
+}
+
+#[macro_export]
+macro_rules! count_idents {
+    ($($idents:ident)*) => {<[()]>::len(&[$(replace_expr!($idents ())),*])};
+}
+
+#[macro_export]
+macro_rules! option_tuplet_resolve {
+    // base case
+    { $v:expr ; $j:expr ; ($opt:ident $(,)?)} => {
+        let $opt = $v.get($j);
+    };
+    // recursion, left popping one element from the vec at the time
+    { $v:expr ; $j:expr ; ($opt:ident $(,$more_opt:ident)+) } => {
+        let $opt = $v.get($j);
+        option_tuplet_resolve!( $v ; $j+1 ; ($($more_opt),*) );
+    };
+}
+
+/// Binds a tuple to a vector of Options.
+/// 
+/// This is a wrapper around `tuplet` that allows adding optional parameters
+/// with a `?` prefix and a type declaration.
+/// # Examples:
+///
+/// ```
+/// let v = vec![1, 2, 3, 4];
+/// option_tuplet!((a, b, c, ?d, ?e) = v, "err msg");
+/// assert_eq!(a, &1);
+/// assert_eq!(b, &2);
+/// assert_eq!(c, &3);
+/// assert_eq!(d, Some(&4));
+/// assert_eq!(e, None);
+/// ```
+#[macro_export]
+macro_rules! option_tuplet {
+    // case with optional ? variables
+    { ($($x:ident,)* $(,)? ?$opt:ident $(,?$more_opt:ident)*) = $v:expr, $message:expr }
+        => {
+        let index = count_idents!($($x)*);
+        option_tuplet_resolve!( $v[index..] ; 0 ; ($opt, $($more_opt),*));
+        tuplet!( ($($x),*) = $v[..index], $message );
+    };
+    // all other cases, forward to tuplet
+    { ($($x:ident),* $(,)?) = $v:expr, $message:expr } => {
+        tuplet!( ($($x),*) = $v, $message );
+    }
+}
+
+#[macro_export]
 macro_rules! assert_receipts {
-    ($group:ident, $transaction:ident => [ $($receipt:ident),* ] ) => {
+    ($group:ident, $transaction:ident => [ $($receipt:ident),* $(,?$opt_receipt:ident)* ] ) => {
         let transaction_log = $group.get_transaction_log(&$transaction.get_hash());
-        tuplet!(( $($receipt),* ) = transaction_log.outcome.receipt_ids, "Incorrect number of produced receipts for transaction");
+        option_tuplet!(( $($receipt),* $(,?$opt_receipt)* ) = transaction_log.outcome.receipt_ids, "Incorrect number of produced receipts for transaction");
     };
     ($group:ident, $from:expr => $receipt:ident @ $to:expr,
     $receipt_pat:pat,
     $receipt_assert:block,
     $actions_name:ident,
     $($action_name:ident, $action_pat:pat, $action_assert:block ),+
-     => [ $($produced_receipt:ident),*] ) => {
+     => [ $($produced_receipt:ident),* $(,)? $(?$opt_produced_receipt:ident),*] ) => {
         let r = $group.get_receipt($to, $receipt);
         assert_eq!(r.predecessor_id().clone(), $from);
         assert_eq!(r.receiver_id().clone(), $to);
@@ -481,7 +536,7 @@ macro_rules! assert_receipts {
             _ => panic!("Receipt {:#?} does not satisfy the pattern {}", r, stringify!($receipt_pat)),
         }
        let receipt_log = $group.get_transaction_log(&r.get_hash());
-       tuplet!(( $($produced_receipt),* ) = receipt_log.outcome.receipt_ids, "Incorrect number of produced receipts for a receipt");
+       option_tuplet!(( $($produced_receipt),* $(,?$opt_produced_receipt)*) = receipt_log.outcome.receipt_ids, "Incorrect number of produced receipts for a receipt");
     };
 }
 
