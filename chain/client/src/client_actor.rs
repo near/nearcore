@@ -1398,7 +1398,7 @@ impl ClientActorInner {
         Ok(())
     }
 
-    fn send_chunks_metrics(&mut self, block: &Block) {
+    fn send_chunks_metrics(&self, block: &Block) {
         let chunks = block.chunks();
         for (chunk, &included) in chunks.iter_deprecated().zip(block.header().chunk_mask().iter()) {
             if included {

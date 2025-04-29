@@ -30,7 +30,7 @@ impl BlockStats {
         }
     }
 
-    fn calculate_distance(&mut self, mut lhs: CryptoHash, mut rhs: CryptoHash) -> u64 {
+    fn calculate_distance(&self, mut lhs: CryptoHash, mut rhs: CryptoHash) -> u64 {
         // cspell:words dlhs drhs
         let mut dlhs = *self.hash2depth.get(&lhs).unwrap();
         let mut drhs = *self.hash2depth.get(&rhs).unwrap();

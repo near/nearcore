@@ -221,7 +221,7 @@ fn check_block_does_not_have_missing_chunks(block: &Block) {
 /// root mismatch issue, the two nodes would not be able to apply each others'
 /// blocks because the block hashes would be different.
 fn run_chain_for_some_blocks_while_sending_money_around(
-    clock: &mut FakeClock,
+    clock: &FakeClock,
     env: &mut TestEnv,
     nonces: &mut HashMap<AccountId, u64>,
     balances: &mut HashMap<AccountId, u128>,

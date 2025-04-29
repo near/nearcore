@@ -319,7 +319,7 @@ impl<'a> ChainUpdate<'a> {
     }
 
     #[allow(dead_code)]
-    fn verify_orphan_header_approvals(&mut self, header: &BlockHeader) -> Result<(), Error> {
+    fn verify_orphan_header_approvals(&self, header: &BlockHeader) -> Result<(), Error> {
         let prev_hash = header.prev_hash();
         let prev_height = match header.prev_height() {
             None => {

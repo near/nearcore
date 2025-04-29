@@ -230,7 +230,7 @@ pub fn do_call_contract(
 }
 
 pub fn create_account(
-    env: &mut TestLoopEnv,
+    env: &TestLoopEnv,
     rpc_id: &AccountId,
     originator: &AccountId,
     new_account_id: &AccountId,
@@ -289,7 +289,7 @@ pub fn delete_account(
 ///
 /// This function does not wait until the transactions is executed.
 pub fn deploy_contract(
-    test_loop: &mut TestLoopV2,
+    test_loop: &TestLoopV2,
     node_datas: &[NodeExecutionData],
     rpc_id: &AccountId,
     contract_id: &AccountId,
@@ -312,7 +312,7 @@ pub fn deploy_contract(
 ///
 /// This function does not wait until the transactions is executed.
 pub fn deploy_global_contract(
-    test_loop: &mut TestLoopV2,
+    test_loop: &TestLoopV2,
     node_datas: &[NodeExecutionData],
     rpc_id: &AccountId,
     deployer_id: AccountId,
@@ -344,7 +344,7 @@ pub fn deploy_global_contract(
 ///
 /// This function does not wait until the transactions is executed.
 pub fn use_global_contract(
-    test_loop: &mut TestLoopV2,
+    test_loop: &TestLoopV2,
     node_datas: &[NodeExecutionData],
     rpc_id: &AccountId,
     user_id: AccountId,
@@ -373,7 +373,7 @@ pub fn use_global_contract(
 ///
 /// This function does not wait until the transactions is executed.
 pub fn call_contract(
-    test_loop: &mut TestLoopV2,
+    test_loop: &TestLoopV2,
     node_datas: &[NodeExecutionData],
     rpc_id: &AccountId,
     sender_id: &AccountId,
@@ -687,7 +687,7 @@ impl TransactionRunner {
     }
 
     /// Get result of initial processing, if the result is already available.
-    fn get_tx_processing_res(&mut self) -> Option<TxProcessingResult> {
+    fn get_tx_processing_res(&self) -> Option<TxProcessingResult> {
         let processing_response_res = self.process_tx_result.lock().unwrap().take()?;
         let process_tx_response = match processing_response_res {
             Ok(process_tx_response) => process_tx_response,

@@ -219,7 +219,7 @@ impl GenesisBuilder {
         Ok(())
     }
 
-    fn write_genesis_block(&mut self) -> Result<()> {
+    fn write_genesis_block(&self) -> Result<()> {
         let shard_ids: Vec<_> = self.genesis.config.shard_layout.shard_ids().collect();
 
         let state_roots = self.roots.values().cloned().collect();

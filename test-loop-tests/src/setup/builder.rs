@@ -180,7 +180,7 @@ impl TestLoopBuilder {
         self
     }
 
-    fn build_impl(mut self) -> TestLoopEnv {
+    fn build_impl(self) -> TestLoopEnv {
         let warmup_pending = self.warmup_pending.clone();
         self.test_loop.send_adhoc_event("warmup_pending".into(), move |_| {
             assert!(
@@ -226,7 +226,7 @@ impl TestLoopBuilder {
         (self.test_loop, shared_state)
     }
 
-    fn setup_node_state(&mut self, idx: usize) -> NodeSetupState {
+    fn setup_node_state(&self, idx: usize) -> NodeSetupState {
         let account_id = self.clients[idx].clone();
         let genesis = self.genesis.as_ref().unwrap();
         let is_archival = self.archival_clients.contains(&account_id);

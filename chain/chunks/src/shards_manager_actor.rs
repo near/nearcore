@@ -440,7 +440,7 @@ impl ShardsManagerActor {
     }
 
     fn request_partial_encoded_chunk(
-        &mut self,
+        &self,
         height: BlockHeight,
         ancestor_hash: &CryptoHash,
         shard_id: ShardId,
@@ -1141,7 +1141,7 @@ impl ShardsManagerActor {
         }
     }
 
-    fn check_chunk_complete(&mut self, chunk: &mut EncodedShardChunk) -> ChunkStatus {
+    fn check_chunk_complete(&self, chunk: &mut EncodedShardChunk) -> ChunkStatus {
         let _span = debug_span!(
             target: "chunks",
             "check_chunk_complete",
@@ -1178,7 +1178,7 @@ impl ShardsManagerActor {
 
     /// Add a part to current encoded chunk stored in memory. It's present only if One Part was present and signed correctly.
     fn validate_part(
-        &mut self,
+        &self,
         merkle_root: MerkleHash,
         part: &PartialEncodedChunkPart,
         num_total_parts: usize,
@@ -1226,7 +1226,7 @@ impl ShardsManagerActor {
     }
 
     fn validate_partial_encoded_chunk_forward(
-        &mut self,
+        &self,
         forward: &PartialEncodedChunkForwardMsg,
     ) -> Result<(), Error> {
         let valid_hash = forward.is_valid_hash(); // check hash
@@ -1880,7 +1880,7 @@ impl ShardsManagerActor {
     /// Send the parts of the partial_encoded_chunk that are owned by `self.me()` to the
     /// other validators that are tracking the shard.
     fn send_partial_encoded_chunk_to_chunk_trackers(
-        &mut self,
+        &self,
         chunk_header: &ShardChunkHeader,
         parts: impl Iterator<Item = PartialEncodedChunkPart>,
         part_ords: HashSet<u64>,
