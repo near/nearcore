@@ -127,9 +127,7 @@ gcloud compute instances list --project=nearone-mocknet --filter <UNIQUE ID>
 <!-- cspell:words BENCHNET -->
 ```sh
 export CASE=cases/forknet/10_cp_1_rpc_10_shard/
-export VIRTUAL_ENV=<absolute path to virtual env bin directory>
 export SYNTH_BM_BIN=<absolute path or URL to near-synth-bm binary>
-export GEN_NODES_DIR=<absolute path to directory of your choice to store nodes configs>
 export FORKNET_NAME=<unique name of forknet> 
 export FORKNET_START_HEIGHT=<forknet start height>
 
