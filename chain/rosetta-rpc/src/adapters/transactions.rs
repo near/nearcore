@@ -70,7 +70,6 @@ impl ExecutionToReceipts {
             .collect();
 
         let execution_outcomes: Vec<ExecutionOutcomeWithIdView> = map
-            .clone()
             .map_err(crate::errors::ErrorKind::InternalInvariantError)?
             .into_iter()
             .flat_map(|(_k, v)| v)
@@ -80,8 +79,7 @@ impl ExecutionToReceipts {
             &execution_outcomes,
             &block.header,
             currencies,
-        )
-        .await?;
+        )?;
         Ok(Self { map: map_hash_to_receipts, transactions, receipts, events })
     }
 

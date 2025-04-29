@@ -263,7 +263,7 @@ impl ChainSimulator {
         let mut outgoing_receipts: BTreeMap<ShardId, Vec<SimReceipt>> = BTreeMap::new();
 
         // Forward buffered receipts
-        for (receiver, buffered_receipts) in shard_state.buffered_outgoing_receipts.iter_mut() {
+        for (receiver, buffered_receipts) in &mut shard_state.buffered_outgoing_receipts {
             let outgoing_limit = outgoing_limits.get_mut(receiver).unwrap();
             'inner: while let Some(first_receipt) = buffered_receipts.front() {
                 if *outgoing_limit >= first_receipt.size {

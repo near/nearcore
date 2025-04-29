@@ -236,7 +236,7 @@ impl Visitor for FoldDbOps {
             // a mutable reference to self and cannot naively call
             // self.push_state above.
             // Better to lookup twice and keep code simple.
-            for key in self.fold_anchors.get(label).expect("just checked contains key").iter() {
+            for key in self.fold_anchors.get(label).expect("just checked contains key") {
                 if let Some(value) = dict.get(key.as_str()) {
                     write!(out, " {key}={value}")?;
                 }
@@ -265,11 +265,11 @@ impl Visitor for FoldDbOps {
 impl State {
     fn print(self, out: &mut dyn Write) -> anyhow::Result<()> {
         let indent = self.indent + 2;
-        for (op, map) in self.ops_cols.into_iter() {
+        for (op, map) in self.ops_cols {
             if !map.is_empty() {
                 write!(out, "{:indent$}{op}   ", "")?;
             }
-            for (col, num) in map.into_iter() {
+            for (col, num) in map {
                 write!(out, "{num:8>} {col}  ")?;
             }
             writeln!(out)?;

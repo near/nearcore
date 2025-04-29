@@ -182,7 +182,7 @@ impl Inner {
             self.hosts_for_shard.clear();
             self.peer_selector.clear();
 
-            for (peer_id, info) in self.hosts.iter() {
+            for (peer_id, info) in &self.hosts {
                 if info.sync_hash == *sync_hash {
                     for shard_id in &info.shards {
                         self.hosts_for_shard

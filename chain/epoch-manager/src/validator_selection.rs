@@ -129,9 +129,9 @@ fn get_chunk_producers_assignment(
     let num_chunk_producers = chunk_producers.len();
     let minimum_validators_per_shard = epoch_config.minimum_validators_per_shard as usize;
     let mut prev_chunk_producers_assignment = vec![];
-    for validator_ids in prev_epoch_info.chunk_producers_settlement().iter() {
+    for validator_ids in prev_epoch_info.chunk_producers_settlement() {
         let mut validator_stakes = vec![];
-        for validator_id in validator_ids.iter() {
+        for validator_id in validator_ids {
             validator_stakes.push(prev_epoch_info.get_validator(*validator_id));
         }
         prev_chunk_producers_assignment.push(validator_stakes);
@@ -180,7 +180,11 @@ pub fn proposals_to_epoch_info(
         "Proposals should not have duplicates"
     );
 
-    let shard_ids: Vec<_> = epoch_config.shard_layout.shard_ids().collect();
+    let num_shards = epoch_config
+        .shard_layout
+        .num_shards()
+        .try_into()
+        .expect("number of shards above usize range");
     let mut stake_change = BTreeMap::new();
     let proposals = apply_epoch_update_to_proposals(
         proposals,
@@ -198,7 +202,7 @@ pub fn proposals_to_epoch_info(
     // Add kickouts for validators which fell out of validator set.
     // Used for querying epoch info by RPC.
     let threshold = validator_roles.threshold;
-    for OrderedValidatorStake(p) in validator_roles.unselected_proposals.iter() {
+    for OrderedValidatorStake(p) in &validator_roles.unselected_proposals {
         let stake = p.stake();
         let account_id = p.account_id();
         *stake_change.get_mut(account_id).unwrap() = 0;
@@ -248,7 +252,6 @@ pub fn proposals_to_epoch_info(
         // With this number of mandates per shard and 6 shards, the theory calculations predict the
         // protocol is secure for 40 years (at 90% confidence).
         let target_mandates_per_shard = epoch_config.target_validator_mandates_per_shard as usize;
-        let num_shards = shard_ids.len();
         let validator_mandates_config =
             ValidatorMandatesConfig::new(target_mandates_per_shard, num_shards);
         // We can use `all_validators` to construct mandates Since a validator's position in
@@ -870,9 +873,8 @@ mod tests {
         )
         .unwrap();
 
-        let fishermen: Vec<AccountId> =
-            epoch_info.fishermen_iter().map(|v| v.take_account_id()).collect();
-        assert!(fishermen.is_empty());
+        let fishermen = epoch_info.fishermen_iter().map(|v| v.take_account_id());
+        assert_eq!(fishermen.count(), 0);
 
         // too low stakes are kicked out
         let kickout = epoch_info.validator_kickout();

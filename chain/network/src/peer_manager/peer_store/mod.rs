@@ -228,7 +228,7 @@ impl Inner {
     /// Removes peers that are not responding for expiration period.
     fn remove_expired(&mut self, now: time::Utc) {
         let mut to_remove = vec![];
-        for (peer_id, peer_status) in self.peer_states.iter() {
+        for (peer_id, peer_status) in &self.peer_states {
             if peer_status.status != KnownPeerStatus::Connected
                 && now > peer_status.last_seen + self.config.peer_expiration_duration
             {
@@ -260,7 +260,7 @@ impl Inner {
     /// Update the 'last_seen' time for all the peers that we're currently connected to.
     fn update_last_seen(&mut self, now: time::Utc) {
         let mut connected_peer_ids = vec![];
-        for (peer_id, peer_state) in self.peer_states.iter_mut() {
+        for (peer_id, peer_state) in &mut self.peer_states {
             if peer_state.status == KnownPeerStatus::Connected {
                 connected_peer_ids.push(peer_id.clone());
                 peer_state.last_seen = now;
