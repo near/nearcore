@@ -19,7 +19,7 @@ use rand::SeedableRng;
 use rand::rngs::StdRng;
 use std::path::Path;
 
-fn send_txs(env: &mut TestEnv, signers: &[Signer], height: u64, hash: CryptoHash) {
+fn send_txs(env: &TestEnv, signers: &[Signer], height: u64, hash: CryptoHash) {
     for (i, signer) in signers.iter().enumerate() {
         let from = format!("test{}", i);
         let to = format!("test{}", (i + 1) % signers.len());

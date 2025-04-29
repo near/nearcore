@@ -321,7 +321,7 @@ impl GlobalContractsTestEnv {
         self.run_tx(tx);
     }
 
-    fn view_call_global_contract(&mut self, account: &AccountId) -> CallResult {
+    fn view_call_global_contract(&self, account: &AccountId) -> CallResult {
         let response = self.clients().runtime_query(
             account,
             QueryRequest::CallFunction {

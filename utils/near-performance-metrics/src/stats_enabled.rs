@@ -232,7 +232,7 @@ impl Stats {
         self.stats.entry(tid).or_insert_with(|| Arc::clone(local_stats));
     }
 
-    fn print_stats(&mut self, sleep_time: Duration) {
+    fn print_stats(&self, sleep_time: Duration) {
         info!(
             "Performance stats {} threads (min ratio = {})",
             self.stats.len(),

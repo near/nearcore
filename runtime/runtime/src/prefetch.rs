@@ -87,10 +87,7 @@ impl TriePrefetcher {
     /// Returns an error if prefetching for any receipt fails.
     /// The function is not idempotent; in case of failure, prefetching
     /// for some receipts may have been initiated.
-    pub(crate) fn prefetch_receipts_data(
-        &mut self,
-        receipts: &[Receipt],
-    ) -> Result<(), PrefetchError> {
+    pub(crate) fn prefetch_receipts_data(&self, receipts: &[Receipt]) -> Result<(), PrefetchError> {
         for receipt in receipts {
             let is_refund = receipt.predecessor_id().is_system();
             let action_receipt = match receipt.receipt() {
@@ -196,7 +193,7 @@ impl TriePrefetcher {
     /// The function is not idempotent; in case of failure, prefetching
     /// for some transactions may have been initiated.
     pub(crate) fn prefetch_transactions_data(
-        &mut self,
+        &self,
         signed_txs: &SignedValidPeriodTransactions,
     ) -> Result<(), PrefetchError> {
         if self.prefetch_api.enable_receipt_prefetching {

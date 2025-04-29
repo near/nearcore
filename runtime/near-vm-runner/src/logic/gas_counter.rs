@@ -264,7 +264,7 @@ impl GasCounter {
     }
 
     #[inline]
-    fn inc_ext_costs_counter(&mut self, cost: ExtCosts, value: u64) {
+    fn inc_ext_costs_counter(&self, cost: ExtCosts, value: u64) {
         with_ext_cost_counter(|cc| *cc.entry(cost).or_default() += value)
     }
 

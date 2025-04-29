@@ -71,7 +71,7 @@ pub(crate) fn apply_block(
     shard_id: ShardId,
     epoch_manager: &dyn EpochManagerAdapter,
     runtime: &dyn RuntimeAdapter,
-    chain_store: &mut ChainStore,
+    chain_store: &ChainStore,
     storage: StorageSource,
 ) -> (Block, ApplyChunkResult) {
     let block = chain_store.get_block(&block_hash).unwrap();
@@ -233,20 +233,7 @@ pub(crate) fn apply_chunk(
         None,
         storage,
     )?;
-    let protocol_version = if let Some(height) = target_height {
-        // Retrieve the protocol version at the given height.
-        let block_hash = chain_store.get_block_hash_by_height(height)?;
-        chain_store.get_block(&block_hash)?.header().latest_protocol_version()
-    } else {
-        // No block height specified, fallback to current protocol version.
-        PROTOCOL_VERSION
-    };
-    // Most probably `PROTOCOL_VERSION` won't work if the target_height points to a time
-    // before congestion control has been introduced.
-    println!(
-        "resulting chunk extra:\n{:?}",
-        resulting_chunk_extra(&apply_result, gas_limit, protocol_version)
-    );
+    println!("resulting chunk extra:\n{:?}", resulting_chunk_extra(&apply_result, gas_limit));
     Ok(())
 }
 
