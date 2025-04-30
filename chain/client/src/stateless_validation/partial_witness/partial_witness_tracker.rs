@@ -490,10 +490,10 @@ impl PartialEncodedStateWitnessTracker {
 
         let (witness, raw_witness_size) =
             if ProtocolFeature::VersionedStateWitness.enabled(protocol_version) {
+                encoded_witness.decode()?
+            } else {
                 let (witness, raw_witness_size) = encoded_witness.decode()?;
                 (ChunkStateWitness::V1(witness), raw_witness_size)
-            } else {
-                encoded_witness.decode()?
             };
         let decode_elapsed_seconds = decode_start.elapsed().as_secs_f64();
         let witness_shard = witness.chunk_header().shard_id();

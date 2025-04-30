@@ -201,7 +201,6 @@ impl ChunkStateWitness {
         implicit_transitions: Vec<ChunkStateTransition>,
         protocol_version: ProtocolVersion,
     ) -> Self {
-        // Note: After deprecation of VersionedStateWitness protocol feature, we can remove custom borsh serialization
         if ProtocolFeature::VersionedStateWitness.enabled(protocol_version) {
             return Self::V2(ChunkStateWitnessV2 {
                 chunk_producer,
