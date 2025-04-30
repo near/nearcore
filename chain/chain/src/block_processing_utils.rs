@@ -184,7 +184,7 @@ impl BlocksInProcessing {
     /// This function waits until apply_chunks_done is marked as true for all blocks in the pool
     /// Returns true if new blocks are done applying chunks
     pub(crate) fn wait_for_all_blocks(&self) -> bool {
-        for (_, (_, block_preprocess_info)) in self.preprocessed_blocks.iter() {
+        for (_, (_, block_preprocess_info)) in &self.preprocessed_blocks {
             let _ = block_preprocess_info.apply_chunks_done_waiter.wait();
         }
         for (_, (_, block_preprocess_info)) in self.optimistic_blocks.iter() {

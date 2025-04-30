@@ -19,7 +19,6 @@ use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::MerkleHash;
 use near_primitives::types::{AccountId, EpochId};
-use near_primitives::version::PROTOCOL_VERSION;
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::chunk_store::ChunkStoreAdapter;
 use near_store::set_genesis_height;
@@ -167,10 +166,9 @@ impl ChunkTestFixture {
             receipts_root,
             MerkleHash::default(),
             Default::default(),
-            BandwidthRequests::default_for_protocol_version(PROTOCOL_VERSION),
+            BandwidthRequests::empty(),
             &signer,
             &rs,
-            PROTOCOL_VERSION,
         );
 
         let all_part_ords: Vec<u64> =
@@ -220,7 +218,7 @@ impl ChunkTestFixture {
         let parts = part_ords
             .iter()
             .copied()
-            .flat_map(|ord| self.mock_chunk_parts.iter().find(|part| part.part_ord == ord))
+            .filter_map(|ord| self.mock_chunk_parts.iter().find(|part| part.part_ord == ord))
             .cloned()
             .collect();
         PartialEncodedChunk::V2(PartialEncodedChunkV2 {

@@ -85,7 +85,7 @@ fn outcome_view_to_hashes(outcome: &ExecutionOutcomeView) -> Vec<CryptoHash> {
         outcome.executor_id.clone(),
         status,
     ))];
-    for log in outcome.logs.iter() {
+    for log in &outcome.logs {
         result.push(hash(log.as_bytes()));
     }
     result

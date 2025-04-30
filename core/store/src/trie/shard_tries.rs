@@ -269,7 +269,7 @@ impl ShardTries {
         store_update: &mut TrieStoreUpdateAdapter,
     ) {
         let mut ops = Vec::with_capacity(deletions.len());
-        for TrieRefcountSubtraction { trie_node_or_value_hash, rc, .. } in deletions.iter() {
+        for TrieRefcountSubtraction { trie_node_or_value_hash, rc, .. } in deletions {
             store_update.decrement_refcount_by(shard_uid, trie_node_or_value_hash, *rc);
             ops.push((trie_node_or_value_hash, None));
         }
@@ -284,9 +284,7 @@ impl ShardTries {
         store_update: &mut TrieStoreUpdateAdapter,
     ) {
         let mut ops = Vec::with_capacity(insertions.len());
-        for TrieRefcountAddition { trie_node_or_value_hash, trie_node_or_value, rc } in
-            insertions.iter()
-        {
+        for TrieRefcountAddition { trie_node_or_value_hash, trie_node_or_value, rc } in insertions {
             store_update.increment_refcount_by(
                 shard_uid,
                 trie_node_or_value_hash,

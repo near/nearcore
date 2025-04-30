@@ -43,7 +43,6 @@ pub fn genesis_chunks(
 
         let encoded_chunk = genesis_chunk(
             &rs,
-            genesis_protocol_version,
             genesis_height,
             initial_gas_limit,
             shard_id,
@@ -62,7 +61,6 @@ pub fn genesis_chunks(
 // fields set to defaults. The remaining fields are set to the provided values.
 fn genesis_chunk(
     rs: &ShardChunkReedSolomon,
-    genesis_protocol_version: u32,
     genesis_height: u64,
     initial_gas_limit: u64,
     shard_id: ShardId,
@@ -85,9 +83,8 @@ fn genesis_chunk(
         vec![],
         CryptoHash::default(),
         congestion_info,
-        BandwidthRequests::default_for_protocol_version(genesis_protocol_version),
+        BandwidthRequests::empty(),
         &EmptyValidatorSigner::default().into(),
-        genesis_protocol_version,
     );
     encoded_chunk
 }

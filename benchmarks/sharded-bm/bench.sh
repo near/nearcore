@@ -47,8 +47,11 @@ BENCHNET_DIR="${BENCHNET_DIR:-/home/ubuntu/bench}"
 
 RPC_ADDR="127.0.0.1:4040"
 SYNTH_BM_PATH="../synth-bm/Cargo.toml"
-SYNTH_BM_BIN="${SYNTH_BM_BIN:-/home/ubuntu/nearcore/benchmarks/synth-bm/target/release/near-synth-bm}"
-SYNTH_BM_BASENAME="${SYNTH_BM_BASENAME:-$(basename ${SYNTH_BM_BIN})}"
+if [ -n "${SYNTH_BM_BIN}" ]; then
+    SYNTH_BM_BASENAME="${SYNTH_BM_BASENAME:-$(basename ${SYNTH_BM_BIN})}"
+else
+    echo "SYNTH_BM_BIN is not set, accounts will be created in other ways, e.g. on forknet init"
+fi
 RUN_ON_FORKNET=$(jq 'has("forknet")' ${BM_PARAMS})
 PYTEST_PATH="../../pytest/"
 TX_GENERATOR=$(jq -r '.tx_generator.enabled // false' ${BM_PARAMS})
@@ -70,19 +73,21 @@ else
 fi
 
 if [ "${RUN_ON_FORKNET}" = true ]; then
-    GEN_NODES_DIR="${GEN_NODES_DIR:-/home/ubuntu/bench}"
     if [ -z "${FORKNET_NAME}" ] || [ -z "${FORKNET_START_HEIGHT}" ]; then
         echo "Error: Required environment variables not set"
         echo "Please set: FORKNET_NAME, FORKNET_START_HEIGHT"
         exit 1
     fi
-    FORKNET_ENV="FORKNET_NAME=${FORKNET_NAME} FORKNET_START_HEIGHT=${FORKNET_START_HEIGHT} SYNTH_BM_BASENAME=${SYNTH_BM_BASENAME}"
+    FORKNET_ENV="FORKNET_NAME=${FORKNET_NAME} FORKNET_START_HEIGHT=${FORKNET_START_HEIGHT}"
+    if [ -n "${SYNTH_BM_BASENAME}" ]; then
+        FORKNET_ENV="${FORKNET_ENV} SYNTH_BM_BASENAME=${SYNTH_BM_BASENAME}"
+    fi
     FORKNET_NEARD_LOG="/home/ubuntu/neard-logs/logs.txt"
     FORKNET_NEARD_PATH="${NEAR_HOME}/neard-runner/binaries/neard0"
     NUM_SHARDS=$(jq '.shard_layout.V2.shard_ids | length' ${GENESIS} 2>/dev/null) || true
     NODE_BINARY_URL=$(jq -r '.forknet.binary_url' ${BM_PARAMS})
     VALIDATOR_KEY=${NEAR_HOME}/validator_key.json
-    MIRROR="${VIRTUAL_ENV}/python3 tests/mocknet/mirror.py --chain-id mainnet --start-height ${FORKNET_START_HEIGHT} \
+    MIRROR="python3 tests/mocknet/mirror.py --chain-id mainnet --start-height ${FORKNET_START_HEIGHT} \
         --unique-id ${FORKNET_NAME}"
     echo "Forknet name: ${FORKNET_NAME}"
 else
@@ -216,9 +221,6 @@ fetch_forknet_details() {
         echo "FORKNET_RPC_INTERNAL_IP is empty! something went wrong while listing GCP instances"
         exit 1
     fi
-    # Extract the public key from the node_key.json file
-    NODE_PUBLIC_KEY=$(jq -r '.public_key' ${GEN_NODES_DIR}/node${NUM_CHUNK_PRODUCERS}/node_key.json)
-    FORKNET_BOOT_NODES="${NODE_PUBLIC_KEY}@${FORKNET_RPC_INTERNAL_IP}:24567"
     # Verify we have the correct number of chunk producers
     if [ "$num_cp_instances" -ne "$NUM_CHUNK_PRODUCERS" ]; then
         echo "Error: Expected ${NUM_CHUNK_PRODUCERS} chunk producers but found ${num_cp_instances}"
@@ -260,16 +262,16 @@ gen_forknet() {
     $MIRROR --host-type nodes upload-file --src ${cwd}/cases --dst ${BENCHNET_DIR}
 
     echo "Running new-test to initialize nodes and collect validator keys"
-    $MIRROR new-test --state-source empty --patches-path "${BENCHNET_DIR}/${CASE}" \
+    $MIRROR --host-type nodes new-test --state-source empty --patches-path "${BENCHNET_DIR}/${CASE}" \
         --epoch-length ${EPOCH_LENGTH} --num-validators ${NUM_CHUNK_PRODUCERS} \
         --new-chain-id ${FORKNET_NAME} --stateless-setup --yes
     
     echo "Waiting for node initialization to complete..."
-    $MIRROR status
-    while ! $MIRROR status | grep -q "all.*nodes ready"; do
+    $MIRROR --host-type nodes status
+    while ! $MIRROR --host-type nodes status | grep -q "all.*nodes ready"; do
         echo "Waiting for nodes to be ready..."
         sleep 10
-        $MIRROR status
+        $MIRROR --host-type nodes status
     done
     
     cd -
@@ -291,15 +293,18 @@ init_forknet() {
     # Create benchmark dir on nodes
     $MIRROR --host-type nodes run-cmd --cmd "mkdir -p ${BENCHNET_DIR}"
     
-    # Check if SYNTH_BM_BIN is a URL or a filepath and handle accordingly
-    if [[ "${SYNTH_BM_BIN}" =~ ^https?:// ]]; then
-        # It's a URL, download it on remote machines
-        $MIRROR --host-type nodes run-cmd --cmd "cd ${BENCHNET_DIR} && curl -L -o ${SYNTH_BM_BASENAME} ${SYNTH_BM_BIN} && chmod +x ${SYNTH_BM_BASENAME}"
-    else
-        # It's a filepath, upload it from local machine
-        $MIRROR --host-type nodes upload-file --src ${SYNTH_BM_BIN} --dst ${BENCHNET_DIR}
-        $MIRROR --host-type nodes run-cmd --cmd "chmod +x ${BENCHNET_DIR}/${SYNTH_BM_BASENAME}"
+    if [ -n "${SYNTH_BM_BIN}" ]; then
+        # Check if SYNTH_BM_BIN is a URL or a filepath and handle accordingly
+        if [[ "${SYNTH_BM_BIN}" =~ ^https?:// ]]; then
+            # It's a URL, download it on remote machines
+            $MIRROR --host-type nodes run-cmd --cmd "cd ${BENCHNET_DIR} && curl -L -o ${SYNTH_BM_BASENAME} ${SYNTH_BM_BIN} && chmod +x ${SYNTH_BM_BASENAME}"
+        else
+            # It's a filepath, upload it from local machine
+            $MIRROR --host-type nodes upload-file --src ${SYNTH_BM_BIN} --dst ${BENCHNET_DIR}
+            $MIRROR --host-type nodes run-cmd --cmd "chmod +x ${BENCHNET_DIR}/${SYNTH_BM_BASENAME}"
+        fi
     fi
+    
     cd -
     
     # Initialize the network using new-test command
@@ -383,7 +388,7 @@ tweak_config_forknet() {
     fi
 
     # Apply custom configs
-    local cmd="cd ${BENCHNET_DIR}; ${FORKNET_ENV} ./bench.sh tweak-config-forknet-node ${CASE} ${FORKNET_BOOT_NODES}"
+    local cmd="cd ${BENCHNET_DIR}; ${FORKNET_ENV} ./bench.sh tweak-config-forknet-node ${CASE}"
     $MIRROR --host-type nodes run-cmd --cmd "${cmd}"
 
     # TODO: Apply custom configs to RPC node to set up all shards tracking
@@ -752,7 +757,7 @@ mirror)
 
 # Forknet specific methods, not part of user API.
 tweak-config-forknet-node)
-    tweak_config_forknet_node ${2} ${3}
+    tweak_config_forknet_node
     ;;
 
 start-neard0)

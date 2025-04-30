@@ -1037,7 +1037,7 @@ impl<'a> FuncGen<'a> {
 
         // Save used GPRs.
         let used_gprs = self.machine.get_used_gprs();
-        for r in used_gprs.iter() {
+        for r in &used_gprs {
             self.assembler.emit_push(Size::S64, Location::GPR(*r));
         }
 
@@ -2846,7 +2846,7 @@ impl<'a> FuncGen<'a> {
                 if self.assembler.arch_supports_canonicalize_nan()
                     && self.config.enable_nan_canonicalization
                 {
-                    for (fp, loc, tmp) in [(fp_src1, loc_a, tmp1), (fp_src2, loc_b, tmp2)].iter() {
+                    for (fp, loc, tmp) in &[(fp_src1, loc_a, tmp1), (fp_src2, loc_b, tmp2)] {
                         match fp.canonicalization {
                             Some(_) => {
                                 self.canonicalize_nan(Size::S32, *loc, Location::GPR(*tmp));
@@ -3281,7 +3281,7 @@ impl<'a> FuncGen<'a> {
                 if self.assembler.arch_supports_canonicalize_nan()
                     && self.config.enable_nan_canonicalization
                 {
-                    for (fp, loc, tmp) in [(fp_src1, loc_a, tmp1), (fp_src2, loc_b, tmp2)].iter() {
+                    for (fp, loc, tmp) in &[(fp_src1, loc_a, tmp1), (fp_src2, loc_b, tmp2)] {
                         match fp.canonicalization {
                             Some(_) => {
                                 self.canonicalize_nan(Size::S64, *loc, Location::GPR(*tmp));
@@ -5806,7 +5806,7 @@ impl<'a> FuncGen<'a> {
                 );
                 self.assembler.emit_jmp_location(Location::GPR(GPR::RDX));
 
-                for target in targets.iter() {
+                for target in &targets {
                     let label = self.assembler.get_label();
                     self.assembler.emit_label(label);
                     table.push(label);

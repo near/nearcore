@@ -330,7 +330,7 @@ async fn load_state_parts(
     part_id: Option<u64>,
     maybe_state_root: Option<StateRoot>,
     maybe_sync_hash: Option<CryptoHash>,
-    chain: &mut Chain,
+    chain: &Chain,
     chain_id: &str,
     store: Store,
     external: &ExternalConnection,
