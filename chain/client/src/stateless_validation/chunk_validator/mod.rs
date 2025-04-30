@@ -264,17 +264,17 @@ impl Client {
             "Received a chunk state witness but this is not a validator node. Witness={:?}",
             witness
         );
-        let signer = signer.unwrap();
 
         // Send the acknowledgement for the state witness back to the chunk producer.
         // This is currently used for network roundtrip time measurement, so we do not need to
         // wait for validation to finish.
-        self.send_state_witness_ack(&witness, &signer);
+        self.send_state_witness_ack(&witness)?;
 
         if self.config.save_latest_witnesses {
             self.chain.chain_store.save_latest_chunk_state_witness(&witness)?;
         }
 
+        let signer = signer.unwrap();
         match self.chain.get_block(witness.chunk_header().prev_block_hash()) {
             Ok(block) => self.process_chunk_state_witness_with_prev_block(
                 witness,
@@ -291,25 +291,19 @@ impl Client {
         }
     }
 
-    fn send_state_witness_ack(&self, witness: &ChunkStateWitness, signer: &Arc<ValidatorSigner>) {
-        // In production PartialWitnessActor does not forward a state witness to the chunk producer that
-        // produced the witness. However some tests bypass PartialWitnessActor, thus when a chunk producer
-        // receives its own state witness, we log a warning instead of panicking.
-        // TODO: Make sure all tests run with "test_features" and panic for non-test builds.
-        if signer.validator_id() == witness.chunk_producer() {
-            tracing::warn!(
-                "Validator {:?} received state witness from itself. Witness={:?}",
-                signer.validator_id(),
-                witness
-            );
-            return;
-        }
+    fn send_state_witness_ack(&self, witness: &ChunkStateWitness) -> Result<(), Error> {
+        let chunk_producer = self
+            .epoch_manager
+            .get_chunk_producer_info(&witness.chunk_production_key())?
+            .account_id()
+            .clone();
         self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
             NetworkRequests::ChunkStateWitnessAck(
-                witness.chunk_producer().clone(),
+                chunk_producer,
                 ChunkStateWitnessAck::new(witness),
             ),
         ));
+        Ok(())
     }
 
     pub fn process_chunk_state_witness_with_prev_block(

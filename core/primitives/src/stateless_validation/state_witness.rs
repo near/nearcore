@@ -120,13 +120,12 @@ pub struct ChunkStateWitnessV1 {
 }
 
 /// From V1 -> V2 we have the following changes:
+/// - The `chunk_producer` field is removed.
 /// - The `new_transactions` field is removed.
 /// - The `new_transactions_validation_state` field is removed.
 /// - The `signature_differentiator` field is removed.
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub struct ChunkStateWitnessV2 {
-    // TODO(stateless_validation): Deprecate this field in the next version of the state witness.
-    pub chunk_producer: AccountId,
     /// EpochId corresponds to the next block after chunk's previous block.
     /// This is effectively the output of EpochManager::get_epoch_id_from_prev_block
     /// with chunk_header.prev_block_hash().
@@ -203,7 +202,6 @@ impl ChunkStateWitness {
     ) -> Self {
         if ProtocolFeature::VersionedStateWitness.enabled(protocol_version) {
             return Self::V2(ChunkStateWitnessV2 {
-                chunk_producer,
                 epoch_id,
                 chunk_header,
                 main_state_transition,
@@ -249,13 +247,6 @@ impl ChunkStateWitness {
         match self {
             ChunkStateWitness::V1(witness) => witness.chunk_production_key(),
             ChunkStateWitness::V2(witness) => witness.chunk_production_key(),
-        }
-    }
-
-    pub fn chunk_producer(&self) -> &AccountId {
-        match self {
-            ChunkStateWitness::V1(witness) => &witness.chunk_producer,
-            ChunkStateWitness::V2(witness) => &witness.chunk_producer,
         }
     }
 
