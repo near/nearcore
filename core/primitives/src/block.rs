@@ -131,7 +131,7 @@ impl Block {
         let mut chunk_mask = vec![];
         let mut balance_burnt = 0;
         let mut gas_limit = 0;
-        for chunk in chunks.iter() {
+        for chunk in &chunks {
             if chunk.height_included() == height {
                 prev_validator_proposals.extend(chunk.prev_validator_proposals());
                 gas_used += chunk.prev_gas_used();

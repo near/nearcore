@@ -33,7 +33,7 @@ use crate::util::{check_apply_block_result, resulting_chunk_extra};
 // `get_incoming_receipts_for_shard` implementation for the case when we don't
 // know of a block containing the target chunk
 fn get_incoming_receipts(
-    chain_store: &mut ChainStore,
+    chain_store: &ChainStore,
     epoch_manager: &EpochManagerHandle,
     chunk_hash: &ChunkHash,
     shard_id: ShardId,
@@ -58,7 +58,7 @@ fn get_incoming_receipts(
 
     for chunk in chunks {
         if let Ok(partial_encoded_chunk) = chain_store.get_partial_chunk(&chunk.chunk_hash()) {
-            for receipt in partial_encoded_chunk.prev_outgoing_receipts().iter() {
+            for receipt in partial_encoded_chunk.prev_outgoing_receipts() {
                 let ReceiptProof(_, shard_proof) = receipt;
                 if shard_proof.to_shard_id == shard_id {
                     receipt_proofs.push(receipt.clone());
@@ -243,7 +243,7 @@ fn find_tx_or_receipt(
 fn apply_tx_in_block(
     epoch_manager: &EpochManagerHandle,
     runtime: &dyn RuntimeAdapter,
-    chain_store: &mut ChainStore,
+    chain_store: &ChainStore,
     tx_hash: &CryptoHash,
     block_hash: CryptoHash,
     storage: StorageSource,
@@ -306,7 +306,6 @@ fn apply_tx_in_chunk(
     );
 
     let head = chain_store.head()?.height;
-    let protocol_version = chain_store.head_header()?.latest_protocol_version();
     let mut chunk_hashes = vec![];
 
     for item in store.iter(DBCol::ChunkHashesByHeight) {
@@ -347,10 +346,7 @@ fn apply_tx_in_chunk(
         );
         let (apply_result, gas_limit) =
             apply_chunk(epoch_manager, runtime, chain_store, chunk_hash, None, None, storage)?;
-        println!(
-            "resulting chunk extra:\n{:?}",
-            resulting_chunk_extra(&apply_result, gas_limit, protocol_version)
-        );
+        println!("resulting chunk extra:\n{:?}", resulting_chunk_extra(&apply_result, gas_limit));
         results.push(apply_result);
     }
     Ok(results)
@@ -385,7 +381,7 @@ pub fn apply_tx(
 fn apply_receipt_in_block(
     epoch_manager: &EpochManagerHandle,
     runtime: &dyn RuntimeAdapter,
-    chain_store: &mut ChainStore,
+    chain_store: &ChainStore,
     id: &CryptoHash,
     block_hash: CryptoHash,
     storage: StorageSource,
@@ -445,7 +441,6 @@ fn apply_receipt_in_chunk(
     println!("Receipt is not indexed; searching in chunks that haven't been applied...");
 
     let head = chain_store.head()?.height;
-    let protocol_version = chain_store.head_header()?.latest_protocol_version();
     let mut to_apply = HashSet::new();
     let mut non_applied_chunks = HashMap::new();
 
@@ -464,7 +459,7 @@ fn apply_receipt_in_chunk(
                 };
                 non_applied_chunks.insert((height, chunk.shard_id()), chunk_hash.clone());
 
-                for receipt in chunk.prev_outgoing_receipts().iter() {
+                for receipt in chunk.prev_outgoing_receipts() {
                     if receipt.get_hash() == *id {
                         let shard_layout =
                             epoch_manager.get_shard_layout_from_prev_block(chunk.prev_block())?;
@@ -513,7 +508,7 @@ fn apply_receipt_in_chunk(
             None,
             storage,
         )?;
-        let chunk_extra = resulting_chunk_extra(&apply_result, gas_limit, protocol_version);
+        let chunk_extra = resulting_chunk_extra(&apply_result, gas_limit);
         println!("resulting chunk extra:\n{:?}", chunk_extra);
         results.push(apply_result);
     }

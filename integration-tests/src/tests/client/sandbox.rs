@@ -62,7 +62,7 @@ fn do_blocks(env: &mut TestEnv, start: BlockHeight, end: BlockHeight) {
 }
 
 fn send_tx(
-    env: &mut TestEnv,
+    env: &TestEnv,
     nonce: Nonce,
     signer_id: AccountId,
     receiver_id: AccountId,

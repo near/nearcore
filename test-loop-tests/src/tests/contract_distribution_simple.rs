@@ -179,7 +179,7 @@ fn test_contract_distribution_deploy_and_call_multiple_contracts() {
 
     let start_height = get_node_head_height(&env, &accounts[0]);
 
-    for contract in contracts.iter() {
+    for contract in &contracts {
         do_deploy_contract(&mut env, &rpc_id, &contract_id, contract.code().to_vec());
 
         run_until_caches_contain_contract(&mut env, contract.hash());

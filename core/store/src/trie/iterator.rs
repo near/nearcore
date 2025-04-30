@@ -145,7 +145,7 @@ mod tests {
             }
             test_seek_prefix(&trie, &map, &[], use_memtries);
 
-            for (seek_key, _) in trie_changes.iter() {
+            for (seek_key, _) in &trie_changes {
                 test_seek_prefix(&trie, &map, seek_key, use_memtries);
             }
             for _ in 0..20 {
@@ -306,7 +306,7 @@ mod tests {
         let trie_changes = simplify_changes(&trie_changes);
 
         let mut map = BTreeMap::new();
-        for (key, value) in trie_changes.iter() {
+        for (key, value) in &trie_changes {
             if let Some(value) = value {
                 map.insert(key.clone(), value.clone());
             }

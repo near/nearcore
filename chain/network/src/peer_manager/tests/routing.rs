@@ -646,7 +646,7 @@ fn make_configs(
             account_id: None,
         })
         .collect();
-    for config in configs.iter_mut() {
+    for config in &mut configs {
         config.outbound_disabled = !enable_outbound;
         config.peer_store.boot_nodes.clone_from(&boot_nodes);
     }
@@ -791,7 +791,7 @@ async fn max_num_peers_limit() {
 
     tracing::info!(target:"test", "start three nodes with max_num_peers=2");
     let mut configs = make_configs(&chain, rng, 4, 4, false);
-    for config in configs.iter_mut() {
+    for config in &mut configs {
         config.max_num_peers = 2;
         config.ideal_connections_lo = 2;
         config.ideal_connections_hi = 2;
@@ -1183,7 +1183,7 @@ async fn archival_node() {
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
 
     let mut configs = make_configs(&chain, rng, 5, 5, false);
-    for config in configs.iter_mut() {
+    for config in &mut configs {
         config.max_num_peers = 3;
         config.ideal_connections_lo = 2;
         config.ideal_connections_hi = 2;

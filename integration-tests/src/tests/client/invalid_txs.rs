@@ -127,7 +127,7 @@ fn test_invalid_transactions_no_panic() {
             }
             env.propagate_chunk_state_witnesses_and_endorsements(true);
             let block = env.client(&block_producer).produce_block(height).unwrap().unwrap();
-            for client in env.clients.iter_mut() {
+            for client in &mut env.clients {
                 client
                     .process_block_test_no_produce_chunk_allow_errors(
                         block.clone().into(),
@@ -249,7 +249,7 @@ fn test_invalid_transactions_dont_invalidate_chunk() {
     }
     env.propagate_chunk_state_witnesses_and_endorsements(true);
     let block = env.client(&block_producer).produce_block(1).unwrap().unwrap();
-    for client in env.clients.iter_mut() {
+    for client in &mut env.clients {
         let signer = client.validator_signer.get();
         client.start_process_block(block.clone().into(), Provenance::NONE, None, &signer).unwrap();
         near_chain::test_utils::wait_for_all_blocks_in_processing(&mut client.chain);
@@ -263,7 +263,7 @@ fn test_invalid_transactions_dont_invalidate_chunk() {
     }
     env.propagate_chunk_state_witnesses_and_endorsements(true);
     let block = env.client(&block_producer).produce_block(2).unwrap().unwrap();
-    for client in env.clients.iter_mut() {
+    for client in &mut env.clients {
         let signer = client.validator_signer.get();
         client.start_process_block(block.clone().into(), Provenance::NONE, None, &signer).unwrap();
         near_chain::test_utils::wait_for_all_blocks_in_processing(&mut client.chain);
@@ -273,7 +273,7 @@ fn test_invalid_transactions_dont_invalidate_chunk() {
     env.propagate_chunk_state_witnesses_and_endorsements(true);
 
     let mut receipts = std::collections::BTreeSet::<near_primitives::hash::CryptoHash>::new();
-    for client in env.clients.iter_mut() {
+    for client in &mut env.clients {
         let head = client.chain.get_head_block().unwrap();
         let chunk_hash = head.chunks().iter_raw().next().unwrap().chunk_hash();
         let Ok(chunk) = client.chain.mut_chain_store().get_chunk(&chunk_hash) else {

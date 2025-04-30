@@ -30,7 +30,7 @@ pub(crate) fn run_until_caches_contain_contract(env: &mut TestLoopEnv, code_hash
 /// Asserts that no chunk validation error happened between `start_height` and `end_height` (inclusive), by querying node 0.
 /// In other words, asserts that all chunks are included and endorsements are received from all the chunk validators assigned.
 pub(crate) fn assert_all_chunk_endorsements_received(
-    env: &mut TestLoopEnv,
+    env: &TestLoopEnv,
     start_height: u64,
     end_height: u64,
 ) {
@@ -48,7 +48,7 @@ pub(crate) fn assert_all_chunk_endorsements_received(
             epoch_manager.get_shard_layout(&epoch_id).unwrap().shard_ids().collect_vec();
         let chunk_mask = header.chunk_mask();
         let endorsements = header.chunk_endorsements().unwrap();
-        for shard_id in shard_ids.into_iter() {
+        for shard_id in shard_ids {
             let shard_index = shard_layout.get_shard_index(shard_id).unwrap();
             let num_validator_assignments = epoch_manager
                 .get_chunk_validator_assignments(&epoch_id, shard_id, height)
@@ -69,7 +69,7 @@ pub(crate) fn assert_all_chunk_endorsements_received(
 }
 
 /// Clears the compiled contract caches for all the clients.
-pub(crate) fn clear_compiled_contract_caches(env: &mut TestLoopEnv) {
+pub(crate) fn clear_compiled_contract_caches(env: &TestLoopEnv) {
     #[cfg(feature = "test_features")]
     for i in 0..env.node_datas.len() {
         let client_handle = env.node_datas[i].client_sender.actor_handle();

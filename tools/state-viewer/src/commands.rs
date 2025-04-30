@@ -25,7 +25,9 @@ use near_chain::{
     get_incoming_receipts_for_shard,
 };
 use near_chain_configs::GenesisChangeConfig;
-use near_epoch_manager::shard_assignment::{shard_id_to_index, shard_id_to_uid};
+use near_epoch_manager::shard_assignment::{
+    build_assignment_restrictions_v77_to_v78, shard_id_to_index, shard_id_to_uid,
+};
 use near_epoch_manager::{EpochManager, EpochManagerAdapter, proposals_to_epoch_info};
 use near_primitives::account::id::AccountId;
 use near_primitives::apply::ApplyChunkReason;
@@ -42,7 +44,7 @@ use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::trie_key::col::COLUMNS_WITH_ACCOUNT_ID_IN_KEY;
 use near_primitives::types::{BlockHeight, EpochId, ShardId};
-use near_primitives::version::PROTOCOL_VERSION;
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives_core::types::{Balance, EpochHeight};
 use near_store::TrieStorage;
 use near_store::adapter::StoreAdapter;
@@ -69,7 +71,7 @@ pub(crate) fn apply_block(
     shard_id: ShardId,
     epoch_manager: &dyn EpochManagerAdapter,
     runtime: &dyn RuntimeAdapter,
-    chain_store: &mut ChainStore,
+    chain_store: &ChainStore,
     storage: StorageSource,
 ) -> (Block, ApplyChunkResult) {
     let block = chain_store.get_block(&block_hash).unwrap();
@@ -231,20 +233,7 @@ pub(crate) fn apply_chunk(
         None,
         storage,
     )?;
-    let protocol_version = if let Some(height) = target_height {
-        // Retrieve the protocol version at the given height.
-        let block_hash = chain_store.get_block_hash_by_height(height)?;
-        chain_store.get_block(&block_hash)?.header().latest_protocol_version()
-    } else {
-        // No block height specified, fallback to current protocol version.
-        PROTOCOL_VERSION
-    };
-    // Most probably `PROTOCOL_VERSION` won't work if the target_height points to a time
-    // before congestion control has been introduced.
-    println!(
-        "resulting chunk extra:\n{:?}",
-        resulting_chunk_extra(&apply_result, gas_limit, protocol_version)
-    );
+    println!("resulting chunk extra:\n{:?}", resulting_chunk_extra(&apply_result, gas_limit));
     Ok(())
 }
 
@@ -1067,6 +1056,19 @@ pub(crate) fn print_epoch_analysis(
             epoch_heights_to_infos.get(&next_next_epoch_height).unwrap();
         let rng_seed = stored_next_next_epoch_info.rng_seed();
 
+        let next_epoch_v6 =
+            ProtocolFeature::SimpleNightshadeV6.enabled(next_epoch_info.protocol_version());
+        let next_next_epoch_v6 =
+            ProtocolFeature::SimpleNightshadeV6.enabled(next_next_protocol_version);
+        let chunk_producer_assignment_restrictions =
+            (!next_epoch_v6 && next_next_epoch_v6).then(|| {
+                build_assignment_restrictions_v77_to_v78(
+                    &next_epoch_info,
+                    &next_epoch_config.shard_layout,
+                    next_next_epoch_config.shard_layout.clone(),
+                )
+            });
+
         let next_next_epoch_info = proposals_to_epoch_info(
             &next_next_epoch_config,
             rng_seed,
@@ -1077,6 +1079,7 @@ pub(crate) fn print_epoch_analysis(
             stored_next_next_epoch_info.minted_amount(),
             next_next_protocol_version,
             has_same_shard_layout,
+            chunk_producer_assignment_restrictions,
         )
         .unwrap();
 
