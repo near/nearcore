@@ -260,7 +260,7 @@ fn whole_spec(all_schemas: SchemasMap, all_paths: PathsMap) -> OpenApi {
     OpenApi {
         openapi: "3.0.0".to_string(),
         info: okapi::openapi3::Info {
-            title: "My API".to_string(),
+            title: "NEAR Protocol JSON RPC API".to_string(),
             version: "1.0.0".to_string(),
             ..Default::default()
         },
