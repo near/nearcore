@@ -419,56 +419,24 @@ impl RuntimeGroup {
     }
 }
 
-/// Binds a tuple to a vector.
-/// # Examples:
-///
-/// ```
-/// let v = vec![1,2,3];
-/// tuplet!((a,b,c) = v);
-/// assert_eq!(a, &1);
-/// assert_eq!(b, &2);
-/// assert_eq!(c, &3);
-/// ```
-#[macro_export]
-macro_rules! tuplet {
-    {() = $v:expr, $message:expr } => {
-        assert!($v.is_empty(), "{}", $message);
-    };
-    {($y:ident) = $v:expr, $message:expr } => {
-        assert_eq!($v.len(), 1, "{}", $message);
-        let $y = &$v[0];
-    };
-    { ($y:ident $(, $x:ident)*) = $v:expr, $message:expr } => {
-        let ($y, $($x),*) = tuplet!($v ; 1 ; ($($x),*) ; (&$v[0]), $message );
-    };
-    { $v:expr ; $j:expr ; ($y:ident $(, $x:ident)*) ; ($($a:expr),*), $message:expr } => {
-        tuplet!( $v ; $j+1 ; ($($x),*) ; ($($a),*,&$v[$j]), $message )
-    };
-    { $v:expr ; $j:expr ; () ; $accu:expr, $message:expr } => { {
-            assert_eq!($v.len(), $j, "{}", $message);
-            $accu
-    } }
-}
-
 #[macro_export]
 macro_rules! assert_receipts {
-    ($group:ident, $transaction:ident => [ $($receipt:ident),* ] ) => {
+    ($group:ident, $transaction:ident ) => {{
         let transaction_log = $group.get_transaction_log(&$transaction.get_hash());
-        tuplet!(( $($receipt),* ) = transaction_log.outcome.receipt_ids, "Incorrect number of produced receipts for transaction");
-    };
+        transaction_log.outcome.receipt_ids
+    }};
     ($group:ident, $from:expr => $receipt:ident @ $to:expr,
     $receipt_pat:pat,
     $receipt_assert:block,
     $actions_name:ident,
-    $($action_name:ident, $action_pat:pat, $action_assert:block ),+
-     => [ $($produced_receipt:ident),*] ) => {
+    $($action_name:ident, $action_pat:pat, $action_assert:block ),+ ) => {{
         let r = $group.get_receipt($to, $receipt);
         assert_eq!(r.predecessor_id().clone(), $from);
         assert_eq!(r.receiver_id().clone(), $to);
         match r.receipt() {
             $receipt_pat => {
                 $receipt_assert
-                tuplet!(( $($action_name),* ) = $actions_name, "Incorrect number of actions");
+                let [$($action_name),* ] = &$actions_name[..] else { panic!("Incorrect number of actions") };
                 $(
                     match $action_name {
                         $action_pat => {
@@ -480,9 +448,9 @@ macro_rules! assert_receipts {
             }
             _ => panic!("Receipt {:#?} does not satisfy the pattern {}", r, stringify!($receipt_pat)),
         }
-       let receipt_log = $group.get_transaction_log(&r.get_hash());
-       tuplet!(( $($produced_receipt),* ) = receipt_log.outcome.receipt_ids, "Incorrect number of produced receipts for a receipt");
-    };
+        let receipt_log = $group.get_transaction_log(&r.get_hash());
+        receipt_log.outcome.receipt_ids
+    }};
 }
 
 /// A short form for refunds.
@@ -495,7 +463,7 @@ macro_rules! assert_receipts {
 ///                  ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
 ///                  actions,
 ///                  a0, Action::Transfer(TransferAction{..}), {}
-///                  => []);
+///                  );
 /// ```
 #[macro_export]
 macro_rules! assert_refund {
@@ -504,6 +472,6 @@ macro_rules! assert_refund {
                          ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
                          actions,
                          a0, Action::Transfer(TransferAction{..}), {}
-                         => []);
+                        );
  }
 }
