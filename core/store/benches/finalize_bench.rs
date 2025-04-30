@@ -17,7 +17,6 @@ extern crate bencher;
 use bencher::{Bencher, black_box};
 use borsh::BorshSerialize;
 use near_chain::Chain;
-use near_chunks::shards_manager_actor::ShardsManagerActor;
 use near_crypto::{InMemorySigner, KeyType};
 use near_primitives::bandwidth_scheduler::BandwidthRequests;
 use near_primitives::hash::CryptoHash;
@@ -25,9 +24,9 @@ use near_primitives::merkle::{MerklePathItem, merklize};
 use near_primitives::receipt::{ActionReceipt, DataReceipt, Receipt, ReceiptEnum, ReceiptV0};
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::{
-    ChunkHash, EncodedShardChunk, PartialEncodedChunk, PartialEncodedChunkPart,
-    PartialEncodedChunkV2, ReceiptProof, ShardChunk, ShardChunkHeader, ShardChunkHeaderV3,
-    ShardChunkV2, ShardProof,
+    ChunkHash, EncodedAndShardChunk, EncodedShardChunk, PartialEncodedChunk,
+    PartialEncodedChunkPart, PartialEncodedChunkV2, ReceiptProof, ShardChunk, ShardChunkHeader,
+    ShardChunkHeaderV3, ShardChunkV2, ShardProof,
 };
 use near_primitives::transaction::{
     Action, FunctionCallAction, SignedTransaction, ValidatedTransaction,
@@ -67,8 +66,8 @@ fn benchmark_write_partial_encoded_chunk(bench: &mut Bencher) {
     let receipts = create_benchmark_receipts();
     let chunk_hash: ChunkHash = CryptoHash::default().into();
 
-    let (encoded_chunk, _, merkle_paths) =
-        create_encoded_shard_chunk(transactions, receipts.clone());
+    let (chunk, merkle_paths) = create_encoded_shard_chunk(transactions, receipts.clone());
+    let encoded_chunk = chunk.into_parts().1;
     let partial_chunk =
         encoded_chunk_to_partial_encoded_chunk(encoded_chunk, receipts, merkle_paths);
     let chunks = spread_in_memory(partial_chunk);
@@ -184,10 +183,10 @@ fn create_shard_chunk(
 fn create_encoded_shard_chunk(
     validated_txs: Vec<ValidatedTransaction>,
     receipts: Vec<Receipt>,
-) -> (EncodedShardChunk, ShardChunk, Vec<Vec<MerklePathItem>>) {
+) -> (EncodedAndShardChunk, Vec<Vec<MerklePathItem>>) {
     let rs = ReedSolomon::new(33, 67).unwrap();
 
-    ShardsManagerActor::create_encoded_shard_chunk(
+    EncodedAndShardChunk::new(
         Default::default(),
         Default::default(),
         Default::default(),

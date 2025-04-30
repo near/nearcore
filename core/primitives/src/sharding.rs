@@ -1168,62 +1168,6 @@ impl EncodedShardChunk {
         TransactionReceipt::try_from_slice(&encoded_data)
     }
 
-    #[cfg(feature = "solomon")]
-    pub fn new(
-        prev_block_hash: CryptoHash,
-        prev_state_root: StateRoot,
-        prev_outcome_root: CryptoHash,
-        height: BlockHeight,
-        shard_id: ShardId,
-        rs: &reed_solomon_erasure::galois_8::ReedSolomon,
-        prev_gas_used: Gas,
-        gas_limit: Gas,
-        prev_balance_burnt: Balance,
-        tx_root: CryptoHash,
-        prev_validator_proposals: Vec<ValidatorStake>,
-        validated_txs: Vec<ValidatedTransaction>,
-        prev_outgoing_receipts: Vec<Receipt>,
-        prev_outgoing_receipts_root: CryptoHash,
-        congestion_info: CongestionInfo,
-        bandwidth_requests: BandwidthRequests,
-        signer: &ValidatorSigner,
-    ) -> (Self, ShardChunk, Vec<MerklePath>) {
-        let signed_txs =
-            validated_txs.into_iter().map(|validated_tx| validated_tx.into_signed_tx()).collect();
-        let transaction_receipt = TransactionReceipt(signed_txs, prev_outgoing_receipts);
-        let (parts, encoded_length) =
-            crate::reed_solomon::reed_solomon_encode(rs, &transaction_receipt);
-        let TransactionReceipt(signed_txs, prev_outgoing_receipts) = transaction_receipt;
-        let content = EncodedShardChunkBody { parts };
-        let (encoded_merkle_root, merkle_paths) = content.get_merkle_hash_and_paths();
-
-        let header = ShardChunkHeader::V3(ShardChunkHeaderV3::new(
-            prev_block_hash,
-            prev_state_root,
-            prev_outcome_root,
-            encoded_merkle_root,
-            encoded_length as u64,
-            height,
-            shard_id,
-            prev_gas_used,
-            gas_limit,
-            prev_balance_burnt,
-            prev_outgoing_receipts_root,
-            tx_root,
-            prev_validator_proposals,
-            congestion_info,
-            bandwidth_requests,
-            signer,
-        ));
-        let encoded_shard_chunk = Self::V2(EncodedShardChunkV2 { header, content });
-        let shard_chunk = ShardChunk::new(
-            encoded_shard_chunk.cloned_header(),
-            signed_txs,
-            prev_outgoing_receipts,
-        );
-        (encoded_shard_chunk, shard_chunk, merkle_paths)
-    }
-
     pub fn chunk_hash(&self) -> ChunkHash {
         match self {
             Self::V1(chunk) => chunk.header.chunk_hash(),
@@ -1317,5 +1261,86 @@ impl EncodedShardChunk {
                 prev_outgoing_receipts: transaction_receipts.1,
             })),
         }
+    }
+}
+
+#[derive(Clone)]
+pub struct EncodedAndShardChunk {
+    shard_chunk: ShardChunk,
+    bytes: EncodedShardChunk,
+}
+
+impl EncodedAndShardChunk {
+    #[cfg(feature = "solomon")]
+    pub fn new(
+        prev_block_hash: CryptoHash,
+        prev_state_root: StateRoot,
+        prev_outcome_root: CryptoHash,
+        height: u64,
+        shard_id: ShardId,
+        prev_gas_used: Gas,
+        gas_limit: Gas,
+        prev_balance_burnt: Balance,
+        prev_validator_proposals: Vec<ValidatorStake>,
+        validated_txs: Vec<ValidatedTransaction>,
+        prev_outgoing_receipts: Vec<Receipt>,
+        prev_outgoing_receipts_root: CryptoHash,
+        tx_root: CryptoHash,
+        congestion_info: CongestionInfo,
+        bandwidth_requests: BandwidthRequests,
+        signer: &ValidatorSigner,
+        rs: &reed_solomon_erasure::galois_8::ReedSolomon,
+    ) -> (EncodedAndShardChunk, Vec<MerklePath>) {
+        let signed_txs =
+            validated_txs.into_iter().map(|validated_tx| validated_tx.into_signed_tx()).collect();
+        let transaction_receipt = TransactionReceipt(signed_txs, prev_outgoing_receipts);
+        let (parts, encoded_length) =
+            crate::reed_solomon::reed_solomon_encode(rs, &transaction_receipt);
+        let TransactionReceipt(signed_txs, prev_outgoing_receipts) = transaction_receipt;
+        let content = EncodedShardChunkBody { parts };
+        let (encoded_merkle_root, merkle_paths) = content.get_merkle_hash_and_paths();
+
+        let header = ShardChunkHeader::V3(ShardChunkHeaderV3::new(
+            prev_block_hash,
+            prev_state_root,
+            prev_outcome_root,
+            encoded_merkle_root,
+            encoded_length as u64,
+            height,
+            shard_id,
+            prev_gas_used,
+            gas_limit,
+            prev_balance_burnt,
+            prev_outgoing_receipts_root,
+            tx_root,
+            prev_validator_proposals,
+            congestion_info,
+            bandwidth_requests,
+            signer,
+        ));
+        let encoded_shard_chunk = EncodedShardChunk::V2(EncodedShardChunkV2 { header, content });
+        let shard_chunk = ShardChunk::new(
+            encoded_shard_chunk.cloned_header(),
+            signed_txs,
+            prev_outgoing_receipts,
+        );
+        (Self { shard_chunk, bytes: encoded_shard_chunk }, merkle_paths)
+    }
+
+    pub fn from_encoded_shard_chunk(bytes: EncodedShardChunk) -> Result<Self, std::io::Error> {
+        let shard_chunk = bytes.decode_chunk()?;
+        Ok(Self { shard_chunk, bytes })
+    }
+
+    pub fn to_shard_chunk(&self) -> &ShardChunk {
+        &self.shard_chunk
+    }
+
+    pub fn to_encoded_shard_chunk(&self) -> &EncodedShardChunk {
+        &self.bytes
+    }
+
+    pub fn into_parts(self) -> (ShardChunk, EncodedShardChunk) {
+        (self.shard_chunk, self.bytes)
     }
 }
