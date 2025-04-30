@@ -1908,6 +1908,8 @@ impl ShardsManagerActor {
         let forward =
             PartialEncodedChunkForwardMsg::from_header_and_parts(chunk_header, owned_parts);
 
+        // Here we concatenate the lists of block producers for the current epoch
+        // and for the next. The loop below performs deduplication.
         let next_epoch_id = self.epoch_manager.get_next_epoch_id(latest_block_hash)?;
         let this_epoch_block_producers =
             self.epoch_manager.get_epoch_block_producers_ordered(&epoch_id)?;
