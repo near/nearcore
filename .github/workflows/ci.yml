@@ -338,22 +338,22 @@ jobs:
         with:
           files: unit-linux.json
           fail_ci_if_error: true
-          flags: unittests,linux
+          flags: unittests
       - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
         with:
           files: unit-linux-nightly.json
           fail_ci_if_error: true
-          flags: unittests,linux-nightly
+          flags: unittests-nightly
       - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
         with:
           files: py.json
           fail_ci_if_error: true
-          flags: pytests,backward-compatibility,linux
+          flags: pytests
       - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
         with:
           files: py-nightly.json
           fail_ci_if_error: true
-          flags: pytests,db-migration,linux
+          flags: pytests-nightly
 
   publishable_packages_check:
     name: "Cargo check publishable packages separately"
