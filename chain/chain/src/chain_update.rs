@@ -11,6 +11,7 @@ use crate::types::{
 use crate::update_shard::{NewChunkResult, OldChunkResult, ShardUpdateResult};
 use crate::{Chain, Doomslug};
 use crate::{DoomslugThresholdMode, metrics};
+use itertools::Itertools;
 use near_chain_primitives::error::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
@@ -20,7 +21,7 @@ use near_primitives::block_header::BlockHeader;
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
-use near_primitives::sharding::ShardChunk;
+use near_primitives::sharding::{ChunkHash, ShardChunk};
 use near_primitives::state_sync::{ReceiptProofResponse, ShardStateSyncResponseHeader};
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockExtra, BlockHeight, ShardId};
@@ -274,6 +275,71 @@ impl<'a> ChainUpdate<'a> {
         } else {
             self.chain_store_update.get_block_header(last_final_block)?.height()
         };
+
+        //// Debugging log
+        let epoch_info = self.epoch_manager.get_epoch_info(block.header().epoch_id())?;
+        for (shard_index, mask) in block.header().chunk_mask().iter().enumerate() {
+            let chunk_validator_assignment =
+                epoch_info.sample_chunk_validators(block.header().height());
+
+            let chunk_validators = chunk_validator_assignment
+                .get(shard_index)
+                .map_or::<&[(u64, u128)], _>(&[], Vec::as_slice)
+                .iter()
+                .map(|(id, _)| *id)
+                .collect_vec();
+
+            let chunk_endorsements = block.header().chunk_endorsements().cloned();
+            let chunk_endorsements: Box<dyn Iterator<Item = bool>> = if let Some(
+                chunk_endorsements,
+            ) = chunk_endorsements
+            {
+                if *mask {
+                    debug_assert!(
+                        chunk_endorsements.len(shard_index).unwrap()
+                            == chunk_validators.len().div_ceil(8) * 8,
+                        "Chunk endorsement bitmap length is inconsistent with number of chunk validators. Bitmap length={}, num validators={}, shard_index={}",
+                        chunk_endorsements.len(shard_index).unwrap(),
+                        chunk_validators.len(),
+                        shard_index
+                    );
+                    chunk_endorsements.iter(shard_index)
+                } else {
+                    debug_assert_eq!(
+                        chunk_endorsements.len(shard_index).unwrap(),
+                        0,
+                        "Chunk endorsement bitmap must be empty for missing chunk. Bitmap length={}, shard_index={}",
+                        chunk_endorsements.len(shard_index).unwrap(),
+                        shard_index
+                    );
+                    Box::new(std::iter::repeat(false).take(chunk_validators.len()))
+                }
+            } else {
+                Box::new(std::iter::repeat(*mask).take(chunk_validators.len()))
+            };
+            let chunk_hash = block
+                .chunks()
+                .get(shard_index)
+                .map_or_else(ChunkHash::default, |chunk| chunk.chunk_hash());
+
+            for (chunk_validator_id, endorsement_produced) in
+                chunk_validators.iter().zip(chunk_endorsements)
+            {
+                if endorsement_produced {
+                    continue;
+                };
+
+                // Endorsement is missing
+                tracing::debug!(
+                    target: "chain",
+                    "Missing chunk endorsement: chunk {:?}, block {:?}, height {:?}, chunk validator {:?}",
+                    chunk_hash,
+                    block.hash(),
+                    block.header().height(),
+                    epoch_info.get_validator(*chunk_validator_id).take_account_id(),
+                );
+            }
+        }
 
         let epoch_manager_update = self.epoch_manager.add_validator_proposals(
             BlockInfo::from_header(block.header(), last_finalized_height),
