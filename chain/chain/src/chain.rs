@@ -291,7 +291,7 @@ pub struct Chain {
     pub(crate) orphans: OrphanBlockPool,
     pub blocks_with_missing_chunks: MissingChunksPool<Orphan>,
     pub optimistic_block_chunks: OptimisticBlockChunksPool,
-    pub blocks_pending_execution: PendingBlocksPool,
+    pub blocks_pending_execution: PendingBlocksPool<Orphan>,
     pub(crate) genesis: Block,
     pub epoch_length: BlockHeightDelta,
     /// Block economics, relevant to changes when new block must be produced.
@@ -3028,8 +3028,8 @@ impl Chain {
 
         // The check below is safe because chain is single threaded.
         // Otherwise there could be data races where optimistic block gets
-        // postprocessed in the meantime, and then block is put to pending pool
-        // and never leaves it.
+        // postprocessed in the meantime, in case of which block would never
+        // leave the pending pool.
         if self.has_optimistic_block_in_processing(&block, &cached_shard_update_keys) {
             return Err(Error::OptimisticBlockInProcessing);
         }
