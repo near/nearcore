@@ -60,19 +60,19 @@ impl From<Instant> for Deadline {
 }
 
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-pub struct DurationSchemeProvider {
+pub struct DurationSchemaProvider {
     pub secs: i64,
     pub nanos: i32,
 }
 
-impl From<Duration> for DurationSchemeProvider {
+impl From<Duration> for DurationSchemaProvider {
     fn from(duration: Duration) -> Self {
         Self { secs: duration.whole_seconds(), nanos: duration.subsec_nanoseconds() }
     }
 }
 
-impl From<DurationSchemeProvider> for Duration {
-    fn from(serializable: DurationSchemeProvider) -> Self {
+impl From<DurationSchemaProvider> for Duration {
+    fn from(serializable: DurationSchemaProvider) -> Self {
         Duration::new(serializable.secs, serializable.nanos)
     }
 }

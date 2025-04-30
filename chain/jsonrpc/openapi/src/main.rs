@@ -48,10 +48,11 @@ use near_jsonrpc_primitives::errors::RpcRequestValidationErrorKind;
 use serde_with::{base64::Base64, serde_as};
 
 #[derive(JsonSchema)]
-#[serde(untagged)]
-pub enum ResponseEither<T, E> {
-    Success { result: T },
-    RpcError { error: E },
+pub struct ResponseEither<T, E> {
+    #[serde(rename = "result")]
+    Result: T,
+    #[serde(rename = "error")]
+    Error: E,
 }
 
 #[derive(JsonSchema)]

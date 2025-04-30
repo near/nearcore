@@ -1,6 +1,4 @@
 use near_primitives::types::ShardId;
-#[cfg(feature = "schemars")]
-use schemars;
 use serde_json::Value;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, arbitrary::Arbitrary)]

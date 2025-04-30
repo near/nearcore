@@ -1,6 +1,4 @@
 use near_primitives::views::SplitStorageInfoView;
-#[cfg(feature = "schemars")]
-use schemars;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 

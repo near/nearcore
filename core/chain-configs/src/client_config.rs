@@ -8,7 +8,7 @@ use near_primitives::types::{
 use near_primitives::version::Version;
 use near_time::Duration;
 #[cfg(feature = "schemars")]
-use near_time::DurationSchemeProvider;
+use near_time::DurationSchemaProvider;
 use num_rational::Rational32;
 use std::cmp::{max, min};
 use std::num::NonZero;
@@ -123,7 +123,7 @@ pub struct GCConfig {
 
     /// How often gc should be run
     #[serde(with = "near_time::serde_duration_as_std")]
-    #[cfg_attr(feature = "schemars", schemars(with = "DurationSchemeProvider"))]
+    #[cfg_attr(feature = "schemars", schemars(with = "DurationSchemaProvider"))]
     pub gc_step_period: Duration,
 }
 
@@ -207,7 +207,7 @@ pub struct DumpConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(default)]
     #[serde(with = "near_time::serde_opt_duration_as_std")]
-    #[cfg_attr(feature = "schemars", schemars(with = "DurationSchemeProvider"))]
+    #[cfg_attr(feature = "schemars", schemars(with = "DurationSchemaProvider"))]
     pub iteration_delay: Option<Duration>,
     /// Location of a json file with credentials allowing write access to the bucket.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -287,7 +287,7 @@ pub struct EpochSyncConfig {
     /// Timeout for epoch sync requests. The node will continue retrying indefinitely even
     /// if this timeout is exceeded.
     #[serde(with = "near_time::serde_duration_as_std")]
-    #[cfg_attr(feature = "schemars", schemars(with = "DurationSchemeProvider"))]
+    #[cfg_attr(feature = "schemars", schemars(with = "DurationSchemaProvider"))]
     pub timeout_for_epoch_sync: Duration,
 }
 
@@ -345,21 +345,21 @@ pub struct ReshardingConfig {
     /// increased if resharding is consuming too many resources and interfering
     /// with regular node operation.
     #[serde(with = "near_time::serde_duration_as_std")]
-    #[cfg_attr(feature = "schemars", schemars(with = "DurationSchemeProvider"))]
+    #[cfg_attr(feature = "schemars", schemars(with = "DurationSchemaProvider"))]
     pub batch_delay: Duration,
 
     /// The delay between attempts to start resharding while waiting for the
     /// state snapshot to become available.
     /// UNUSED in ReshardingV3.
     #[serde(with = "near_time::serde_duration_as_std")]
-    #[cfg_attr(feature = "schemars", schemars(with = "DurationSchemeProvider"))]
+    #[cfg_attr(feature = "schemars", schemars(with = "DurationSchemaProvider"))]
     pub retry_delay: Duration,
 
     /// The delay between the resharding request is received and when the actor
     /// actually starts working on it. This delay should only be used in tests.
     /// UNUSED in ReshardingV3.
     #[serde(with = "near_time::serde_duration_as_std")]
-    #[cfg_attr(feature = "schemars", schemars(with = "DurationSchemeProvider"))]
+    #[cfg_attr(feature = "schemars", schemars(with = "DurationSchemaProvider"))]
     pub initial_delay: Duration,
 
     /// The maximum time that the actor will wait for the snapshot to be ready,
@@ -367,13 +367,13 @@ pub struct ReshardingConfig {
     /// report error early enough for the node maintainer to have time to recover.
     /// UNUSED in ReshardingV3.
     #[serde(with = "near_time::serde_duration_as_std")]
-    #[cfg_attr(feature = "schemars", schemars(with = "DurationSchemeProvider"))]
+    #[cfg_attr(feature = "schemars", schemars(with = "DurationSchemaProvider"))]
     pub max_poll_time: Duration,
 
     /// The number of blocks applied in a single batch during shard catch up.
     /// This value can be decreased if resharding is consuming too many
     /// resources and interfering with regular node operation.
-    #[cfg_attr(feature = "schemars", schemars(with = "DurationSchemeProvider"))]
+    #[cfg_attr(feature = "schemars", schemars(with = "DurationSchemaProvider"))]
     pub catch_up_blocks: BlockHeightDelta,
 }
 
@@ -667,7 +667,7 @@ pub struct ClientConfig {
     /// A node produces a chunk by adding transactions from the transaction pool until
     /// some limit is reached. This time limit ensures that adding transactions won't take
     /// longer than the specified duration, which helps to produce the chunk quickly.
-    #[cfg_attr(feature = "schemars", schemars(with = "String"))]
+    #[cfg_attr(feature = "schemars", schemars(with = "Option<String>"))]
     pub produce_chunk_add_transactions_time_limit: MutableConfigValue<Option<Duration>>,
     /// Optional config for the Chunk Distribution Network feature.
     /// If set to `None` then this node does not participate in the Chunk Distribution Network.

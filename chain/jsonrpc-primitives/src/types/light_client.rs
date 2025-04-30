@@ -1,5 +1,3 @@
-#[cfg(feature = "schemars")]
-use schemars;
 use serde_json::Value;
 use std::sync::Arc;
 

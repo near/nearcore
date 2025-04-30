@@ -528,7 +528,7 @@ pub struct FunctionCallPermission {
     /// NOTE: To change or increase the allowance, the old access key needs to be deleted and a new
     /// access key should be created.
     #[serde(with = "dec_format")]
-    #[cfg_attr(feature = "schemars", schemars(with = "String"))]
+    #[cfg_attr(feature = "schemars", schemars(with = "Option<String>"))]
     pub allowance: Option<Balance>,
 
     // This isn't an AccountId because already existing records in testnet genesis have invalid

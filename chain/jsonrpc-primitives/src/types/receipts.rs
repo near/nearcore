@@ -1,6 +1,3 @@
-#[cfg(feature = "schemars")]
-use schemars;
-
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct ReceiptReference {

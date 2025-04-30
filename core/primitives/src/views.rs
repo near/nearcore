@@ -151,7 +151,7 @@ impl From<AccountView> for Account {
 pub enum AccessKeyPermissionView {
     FunctionCall {
         #[serde(with = "dec_format")]
-        #[cfg_attr(feature = "schemars", schemars(with = "String"))]
+        #[cfg_attr(feature = "schemars", schemars(with = "Option<String>"))]
         allowance: Option<Balance>,
         receiver_id: String,
         method_names: Vec<String>,
@@ -372,7 +372,7 @@ pub struct StatusSyncInfo {
     pub earliest_block_hash: Option<CryptoHash>,
     pub earliest_block_height: Option<BlockHeight>,
     #[serde(with = "near_time::serde_opt_utc_as_iso")]
-    #[cfg_attr(feature = "schemars", schemars(with = "String"))]
+    #[cfg_attr(feature = "schemars", schemars(with = "Option<String>"))]
     pub earliest_block_time: Option<Utc>,
     pub epoch_id: Option<EpochId>,
     pub epoch_start_height: Option<BlockHeight>,
@@ -715,11 +715,11 @@ pub struct ChunkProcessingInfo {
     pub status: ChunkProcessingStatus,
     /// Timestamp of first time when we request for this chunk.
     #[serde(with = "near_time::serde_opt_utc_as_iso")]
-    #[cfg_attr(feature = "schemars", schemars(with = "String"))]
+    #[cfg_attr(feature = "schemars", schemars(with = "Option<String>"))]
     pub requested_timestamp: Option<Utc>,
     /// Timestamp of when the chunk is complete
     #[serde(with = "near_time::serde_opt_utc_as_iso")]
-    #[cfg_attr(feature = "schemars", schemars(with = "String"))]
+    #[cfg_attr(feature = "schemars", schemars(with = "Option<String>"))]
     pub completed_timestamp: Option<Utc>,
     /// Time (in millis) that it takes between when the chunk is requested and when it is completed.
     pub request_duration: Option<u64>,
@@ -732,15 +732,15 @@ pub struct PartCollectionInfo {
     pub part_owner: AccountId,
     // Time when the part is received through any message
     #[serde(with = "near_time::serde_opt_utc_as_iso")]
-    #[cfg_attr(feature = "schemars", schemars(with = "String"))]
+    #[cfg_attr(feature = "schemars", schemars(with = "Option<String>"))]
     pub received_time: Option<Utc>,
     // Time when we receive a PartialEncodedChunkForward containing this part
     #[serde(with = "near_time::serde_opt_utc_as_iso")]
-    #[cfg_attr(feature = "schemars", schemars(with = "String"))]
+    #[cfg_attr(feature = "schemars", schemars(with = "Option<String>"))]
     pub forwarded_received_time: Option<Utc>,
     // Time when we receive the PartialEncodedChunk message containing this part
     #[serde(with = "near_time::serde_opt_utc_as_iso")]
-    #[cfg_attr(feature = "schemars", schemars(with = "String"))]
+    #[cfg_attr(feature = "schemars", schemars(with = "Option<String>"))]
     pub chunk_received_time: Option<Utc>,
 }
 

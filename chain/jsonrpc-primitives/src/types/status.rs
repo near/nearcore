@@ -9,7 +9,7 @@ use near_primitives::views::{
     SplitStorageInfoView, SyncStatusView,
 };
 #[cfg(feature = "schemars")]
-use near_time::DurationSchemeProvider;
+use near_time::DurationSchemaProvider;
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
@@ -59,7 +59,7 @@ pub enum RpcStatusError {
     NodeIsSyncing,
     #[error("No blocks for {elapsed:?}")]
     NoNewBlocks {
-        #[cfg_attr(feature = "schemars", schemars(with = "DurationSchemeProvider"))]
+        #[cfg_attr(feature = "schemars", schemars(with = "DurationSchemaProvider"))]
         elapsed: time::Duration,
     },
     #[error("Epoch Out Of Bounds {epoch_id:?}")]
