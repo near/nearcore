@@ -175,39 +175,40 @@ fn test_single_promise_with_callback() {
     let [r0] = &*assert_receipts!(group, signed_transaction) else {
         panic!("Incorrect number of produced receipts")
     };
-    let [r1, r2, ref0] = &*assert_receipts!(group, "near_0" => r0 @ "near_1",
-    ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
-    actions,
-    a0, Action::FunctionCall(function_call_action), {
-       assert_eq!(function_call_action.gas, GAS_1);
-       assert_eq!(function_call_action.deposit, 0);
-    }) else {
+    let [r1, r2, ref0] = &*assert_receipts!(
+    group, "near_0" => r0 @ "near_1",
+     ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
+     actions,
+     a0, Action::FunctionCall(function_call_action), {
+        assert_eq!(function_call_action.gas, GAS_1);
+        assert_eq!(function_call_action.deposit, 0);
+     })
+    else {
         panic!("Incorrect number of produced receipts")
     };
     let data_id;
     let [ref1] = &*assert_receipts!(group, "near_1" => r1 @ "near_2",
     ReceiptEnum::Action(ActionReceipt{actions, output_data_receivers, ..}), {
-       assert_eq!(output_data_receivers.len(), 1);
-       data_id = output_data_receivers[0].data_id;
+        assert_eq!(output_data_receivers.len(), 1);
+        data_id = output_data_receivers[0].data_id;
     },
     actions,
     a0, Action::FunctionCall(function_call_action), {
-       assert_eq!(function_call_action.gas, GAS_2);
-       assert_eq!(function_call_action.deposit, 0);
-    }
-    ) else {
+        assert_eq!(function_call_action.gas, GAS_2);
+        assert_eq!(function_call_action.deposit, 0);
+    }) else {
         panic!("Incorrect number of produced receipts")
     };
     let [ref2] = &*assert_receipts!(group, "near_1" => r2 @ "near_3",
-    ReceiptEnum::Action(ActionReceipt{actions, input_data_ids, ..}), {
-       assert_eq!(input_data_ids.len(), 1);
-       assert_eq!(data_id, input_data_ids[0].clone());
-    },
-    actions,
-    a0, Action::FunctionCall(function_call_action), {
-       assert_eq!(function_call_action.gas, GAS_2);
-       assert_eq!(function_call_action.deposit, 0);
-    }
+        ReceiptEnum::Action(ActionReceipt{actions, input_data_ids, ..}), {
+            assert_eq!(input_data_ids.len(), 1);
+            assert_eq!(data_id, input_data_ids[0].clone());
+        },
+        actions,
+        a0, Action::FunctionCall(function_call_action), {
+            assert_eq!(function_call_action.gas, GAS_2);
+            assert_eq!(function_call_action.deposit, 0);
+        }
     ) else {
         panic!("Incorrect number of produced receipts")
     };
@@ -271,11 +272,9 @@ fn test_two_promises_no_callbacks() {
     ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
     actions,
     a0, Action::FunctionCall(function_call_action), {
-       assert_eq!(function_call_action.gas, GAS_1);
-       assert_eq!(function_call_action.deposit, 0);
-    }
-     )
-    else {
+        assert_eq!(function_call_action.gas, GAS_1);
+        assert_eq!(function_call_action.deposit, 0);
+    }) else {
         panic!("Incorrect number of produced receipts")
     };
     let [r2, ref1] = &*assert_receipts!(group, "near_1" => r1 @ "near_2",
