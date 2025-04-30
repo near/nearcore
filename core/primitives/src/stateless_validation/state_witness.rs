@@ -1,5 +1,4 @@
 use std::fmt::Debug;
-use std::io::Read;
 use {crate::state::PartialState, std::collections::HashMap};
 
 use super::ChunkProductionKey;
@@ -46,17 +45,32 @@ impl
 {
 }
 
+impl
+    CompressedData<
+        ChunkStateWitnessV1,
+        MAX_UNCOMPRESSED_STATE_WITNESS_SIZE,
+        STATE_WITNESS_COMPRESSION_LEVEL,
+    > for EncodedChunkStateWitness
+{
+}
+
 #[cfg(feature = "solomon")]
 impl ReedSolomonEncoderSerialize for EncodedChunkStateWitness {
     fn serialize_single_part(&self) -> std::io::Result<Vec<u8>> {
-        Ok(self.as_slice().to_vec())
+        Ok(self.0.to_vec())
     }
 }
 
 #[cfg(feature = "solomon")]
 impl ReedSolomonEncoderDeserialize for EncodedChunkStateWitness {
     fn deserialize_single_part(data: &[u8]) -> std::io::Result<Self> {
-        Ok(EncodedChunkStateWitness::from_boxed_slice(data.to_vec().into_boxed_slice()))
+        Ok(EncodedChunkStateWitness(data.to_vec().into_boxed_slice()))
+    }
+}
+
+impl EncodedChunkStateWitness {
+    pub fn size_bytes(&self) -> usize {
+        self.0.len()
     }
 }
 
@@ -84,7 +98,7 @@ impl ChunkStateWitnessAck {
 
 /// The state witness for a chunk; proves the state transition that the
 /// chunk attests to.
-#[derive(Debug, Clone, PartialEq, Eq, ProtocolSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub enum ChunkStateWitness {
     V1(ChunkStateWitnessV1),
     V2(ChunkStateWitnessV2),
@@ -173,47 +187,6 @@ pub struct ChunkStateWitnessV2 {
     /// After these are applied as well, we should arrive at the pre-state-root
     /// of the chunk that this witness is for.
     pub implicit_transitions: Vec<ChunkStateTransition>,
-}
-
-// Note: After deprecation of VersionedStateWitness protocol feature, we can remove this
-impl BorshSerialize for ChunkStateWitness {
-    fn serialize<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
-        match self {
-            ChunkStateWitness::V1(witness) => BorshSerialize::serialize(&witness, writer),
-            ChunkStateWitness::V2(witness) => {
-                BorshSerialize::serialize(&1_u8, writer)?;
-                BorshSerialize::serialize(&witness, writer)
-            }
-        }
-    }
-}
-
-// Note: After deprecation of VersionedStateWitness protocol feature, we can remove this
-impl BorshDeserialize for ChunkStateWitness {
-    /// Deserialize based on the first and second bytes of the stream. For V0, we do backward compatible deserialization by deserializing
-    /// the entire stream into V0. For V1, we consume the first byte and then deserialize the rest.
-    fn deserialize_reader<R: std::io::Read>(reader: &mut R) -> std::io::Result<Self> {
-        // This is a ridiculous hackery: because the first field in `ChunkStateWitnessV1` is an `AccountId`
-        // and an account id is at most 64 bytes, for all valid `ChunkStateWitnessV1` the second byte must be 0
-        // because of the little endian encoding of the length of the account id.
-        // On the other hand, for `ReceiptV1`, since the first byte is 1 and an account id must have nonzero
-        // length, so the second byte must not be zero. Therefore, we can distinguish between the two versions
-        // by looking at the second byte.
-
-        let u1 = u8::deserialize_reader(reader)?;
-        let u2 = u8::deserialize_reader(reader)?;
-        let is_v0 = u2 == 0;
-
-        let prefix = if is_v0 { vec![u1, u2] } else { vec![u2] };
-        let mut reader = prefix.chain(reader);
-
-        let receipt = if is_v0 {
-            ChunkStateWitness::V1(ChunkStateWitnessV1::deserialize_reader(&mut reader)?)
-        } else {
-            ChunkStateWitness::V2(ChunkStateWitnessV2::deserialize_reader(&mut reader)?)
-        };
-        Ok(receipt)
-    }
 }
 
 impl ChunkStateWitness {

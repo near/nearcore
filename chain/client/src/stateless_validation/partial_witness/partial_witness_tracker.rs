@@ -21,6 +21,8 @@ use near_primitives::stateless_validation::state_witness::{
     ChunkStateWitness, ChunkStateWitnessSize, EncodedChunkStateWitness,
 };
 use near_primitives::types::ShardId;
+use near_primitives::version::ProtocolFeature;
+use near_vm_runner::logic::ProtocolVersion;
 use time::ext::InstantExt as _;
 
 use crate::client_actor::ClientSenderForPartialWitness;
@@ -420,7 +422,9 @@ impl PartialEncodedStateWitnessTracker {
                 }
             };
 
-            let (mut witness, raw_witness_size) = self.decode_state_witness(&encoded_witness)?;
+            let protocol_version = self.epoch_manager.get_epoch_protocol_version(&key.epoch_id)?;
+            let (mut witness, raw_witness_size) =
+                self.decode_state_witness(&encoded_witness, protocol_version)?;
             if witness.chunk_production_key() != key {
                 return Err(Error::InvalidPartialChunkStateWitness(format!(
                     "Decoded witness key {:?} doesn't match partial witness {:?}",
@@ -480,9 +484,17 @@ impl PartialEncodedStateWitnessTracker {
     fn decode_state_witness(
         &self,
         encoded_witness: &EncodedChunkStateWitness,
+        protocol_version: ProtocolVersion,
     ) -> Result<(ChunkStateWitness, ChunkStateWitnessSize), Error> {
         let decode_start = std::time::Instant::now();
-        let (witness, raw_witness_size) = encoded_witness.decode()?;
+
+        let (witness, raw_witness_size) =
+            if ProtocolFeature::VersionedStateWitness.enabled(protocol_version) {
+                let (witness, raw_witness_size) = encoded_witness.decode()?;
+                (ChunkStateWitness::V1(witness), raw_witness_size)
+            } else {
+                encoded_witness.decode()?
+            };
         let decode_elapsed_seconds = decode_start.elapsed().as_secs_f64();
         let witness_shard = witness.chunk_header().shard_id();
 

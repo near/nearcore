@@ -25,11 +25,12 @@ use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::sharding::{ChunkHash, ReceiptProof, ShardChunkHeader};
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::state_witness::{
-    ChunkStateWitness, EncodedChunkStateWitness,
+    ChunkStateWitness, ChunkStateWitnessV1, EncodedChunkStateWitness,
 };
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{AccountId, ShardId, ShardIndex};
 use near_primitives::utils::compression::CompressedData;
+use near_primitives::version::ProtocolFeature;
 use near_store::flat::BlockInfo;
 use near_store::trie::ops::resharding::RetainMode;
 use near_store::{PartialStorage, Trie};
@@ -741,7 +742,15 @@ impl Chain {
                 crate::stateless_validation::metrics::CHUNK_STATE_WITNESS_DECODE_TIME
                     .with_label_values(&[shard_id_label.as_str()])
                     .start_timer();
-            encoded_witness.decode()?;
+
+            let protocol_version = self
+                .epoch_manager
+                .get_epoch_protocol_version(&witness.chunk_production_key().epoch_id)?;
+            if ProtocolFeature::VersionedStateWitness.enabled(protocol_version) {
+                let _witness: ChunkStateWitness = encoded_witness.decode()?.0;
+            } else {
+                let _witness: ChunkStateWitnessV1 = encoded_witness.decode()?.0;
+            };
             decode_timer.observe_duration();
             (encoded_witness, raw_witness_size)
         };
