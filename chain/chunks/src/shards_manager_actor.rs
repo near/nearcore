@@ -2082,6 +2082,19 @@ impl ShardsManagerActor {
             entry.push(part_ord);
         }
 
+        // send receipts to block producers of the next epoch;
+        // they start tracking the shard in the current epoch to prepare
+        {
+            let next_epoch_id = self.epoch_manager.get_next_epoch_id(prev_block_hash)?;
+            let next_epoch_block_producers =
+                self.epoch_manager.get_epoch_block_producers_ordered(&next_epoch_id)?;
+            for bp in next_epoch_block_producers {
+                if !block_producer_mapping.contains_key(bp.account_id()) {
+                    block_producer_mapping.insert(bp.account_id().clone(), vec![]);
+                }
+            }
+        }
+
         let receipt_proofs = make_outgoing_receipts_proofs(
             &chunk_header,
             &outgoing_receipts,
