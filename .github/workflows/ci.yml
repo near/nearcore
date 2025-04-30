@@ -53,27 +53,26 @@ jobs:
           tool: just,cargo-nextest,cargo-llvm-cov
 
       # Run the tests
-      - if: github.event_name == 'pull_request' && matrix.run_on_pr
+      - name: just nextest-slow ${{ matrix.type }} (with coverage)
+        if: github.event_name != 'pull_request' || matrix.run_on_pr
         run: |
           mkdir -p coverage/profraw/{unit,binaries}
           just codecov-ci "nextest-slow ${{ matrix.type }}"
-      - if: github.event_name != 'pull_request'
-        run: just nextest-slow ${{ matrix.type }}
 
-      # Upload the coverage if we're testing a pull request
-      - if: github.event_name == 'pull_request' && matrix.run_on_pr
+      # Upload the coverage files
+      - if: github.event_name != 'pull_request' || matrix.run_on_pr
         run: |
           mv coverage/codecov/{new,unit-${{matrix.id}}}.json
           mv coverage/profraw/{new,unit/${{matrix.id}}}.tar.zst
           just tar-bins-for-coverage-ci
           mv coverage/profraw/binaries/{new,${{matrix.id}}}.tar.zst
-      - if: matrix.upload_profraws && github.event_name == 'pull_request' && matrix.run_on_pr
+      - if: matrix.upload_profraws && (github.event_name != 'pull_request' || matrix.run_on_pr)
         uses: actions/upload-artifact@v4
         with:
           name: coverage-profraw-${{ github.sha }}-${{ matrix.name }}
           path: coverage/profraw
           retention-days: 2
-      - if: github.event_name == 'pull_request' && matrix.run_on_pr
+      - if: github.event_name != 'pull_request' || matrix.run_on_pr
         uses: actions/upload-artifact@v4
         with:
           name: coverage-codecov-${{ github.sha }}-cargo_nextest-${{ matrix.name }}
