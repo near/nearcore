@@ -14,10 +14,19 @@ use near_primitives::stateless_validation::partial_witness::{
 use near_primitives::types::{AccountId, BlockHeightDelta};
 use near_primitives::validator_signer::ValidatorSigner;
 use near_store::{DBCol, FINAL_HEAD_KEY, HEAD_KEY, Store};
+use strum::IntoStaticStr;
 
 /// This is taken to be the same value as near_chunks::chunk_cache::MAX_HEIGHTS_AHEAD, and we
 /// reject partial witnesses with height more than this value above the height of our current HEAD
 const MAX_HEIGHTS_AHEAD: BlockHeightDelta = 5;
+
+#[derive(IntoStaticStr)]
+#[strum(serialize_all = "snake_case")]
+pub enum ChunkNotRelevant {
+    TooLate,
+    TooEarly,
+    UnknownEpochId,
+}
 
 /// Function to validate the partial encoded state witness. In addition of ChunkProductionKey, we check the following:
 /// - part_ord is valid and within range of the number of expected parts for this chunk
@@ -29,7 +38,7 @@ pub fn validate_partial_encoded_state_witness(
     partial_witness: &PartialEncodedStateWitness,
     validator_account_id: &AccountId,
     store: &Store,
-) -> Result<bool, Error> {
+) -> Result<Result<(), ChunkNotRelevant>, Error> {
     let ChunkProductionKey { shard_id, epoch_id, height_created } =
         partial_witness.chunk_production_key();
     let num_parts =
@@ -52,13 +61,13 @@ pub fn validate_partial_encoded_state_witness(
         )));
     }
 
-    if !validate_chunk_relevant_as_validator(
+    if let Err(e) = validate_chunk_relevant_as_validator(
         epoch_manager,
         &partial_witness.chunk_production_key(),
         validator_account_id,
         store,
     )? {
-        return Ok(false);
+        return Ok(Err(e));
     }
 
     let chunk_producer =
@@ -67,23 +76,23 @@ pub fn validate_partial_encoded_state_witness(
         return Err(Error::InvalidPartialChunkStateWitness("Invalid signature".to_string()));
     }
 
-    Ok(true)
+    Ok(Ok(()))
 }
 
 pub fn validate_partial_encoded_contract_deploys(
     epoch_manager: &dyn EpochManagerAdapter,
     partial_deploys: &PartialEncodedContractDeploys,
     store: &Store,
-) -> Result<bool, Error> {
+) -> Result<Result<(), ChunkNotRelevant>, Error> {
     let key = partial_deploys.chunk_production_key();
-    if !validate_chunk_relevant(epoch_manager, key, store)? {
-        return Ok(false);
+    if let Err(e) = validate_chunk_relevant(epoch_manager, key, store)? {
+        return Ok(Err(e));
     }
     let chunk_producer = epoch_manager.get_chunk_producer_info(key)?;
     if !partial_deploys.verify_signature(chunk_producer.public_key()) {
         return Err(Error::Other("Invalid contract deploys signature".to_owned()));
     }
-    Ok(true)
+    Ok(Ok(()))
 }
 
 /// Function to validate the chunk endorsement. In addition of ChunkProductionKey, we check the following:
@@ -92,18 +101,18 @@ pub fn validate_chunk_endorsement(
     epoch_manager: &dyn EpochManagerAdapter,
     endorsement: &ChunkEndorsement,
     store: &Store,
-) -> Result<bool, Error> {
-    if !validate_chunk_relevant_as_validator(
+) -> Result<Result<(), ChunkNotRelevant>, Error> {
+    if let Err(e) = validate_chunk_relevant_as_validator(
         epoch_manager,
         &endorsement.chunk_production_key(),
         endorsement.account_id(),
         store,
     )? {
-        return Ok(false);
+        return Ok(Err(e));
     }
     validate_chunk_endorsement_signature(epoch_manager, endorsement)?;
 
-    Ok(true)
+    Ok(Ok(()))
 }
 
 pub fn validate_chunk_contract_accesses(
@@ -111,28 +120,32 @@ pub fn validate_chunk_contract_accesses(
     accesses: &ChunkContractAccesses,
     signer: &ValidatorSigner,
     store: &Store,
-) -> Result<bool, Error> {
+) -> Result<Result<(), ChunkNotRelevant>, Error> {
     let key = accesses.chunk_production_key();
-    if !validate_chunk_relevant_as_validator(epoch_manager, key, signer.validator_id(), store)? {
-        return Ok(false);
+    if let Err(e) =
+        validate_chunk_relevant_as_validator(epoch_manager, key, signer.validator_id(), store)?
+    {
+        return Ok(Err(e));
     }
     validate_witness_contract_accesses_signature(epoch_manager, accesses)?;
 
-    Ok(true)
+    Ok(Ok(()))
 }
 
 pub fn validate_contract_code_request(
     epoch_manager: &dyn EpochManagerAdapter,
     request: &ContractCodeRequest,
     store: &Store,
-) -> Result<bool, Error> {
+) -> Result<Result<(), ChunkNotRelevant>, Error> {
     let key = request.chunk_production_key();
-    if !validate_chunk_relevant_as_validator(epoch_manager, key, request.requester(), store)? {
-        return Ok(false);
+    if let Err(e) =
+        validate_chunk_relevant_as_validator(epoch_manager, key, request.requester(), store)?
+    {
+        return Ok(Err(e));
     }
     validate_witness_contract_code_request_signature(epoch_manager, request)?;
 
-    Ok(true)
+    Ok(Ok(()))
 }
 
 fn validate_chunk_relevant_as_validator(
@@ -140,12 +153,12 @@ fn validate_chunk_relevant_as_validator(
     chunk: &ChunkProductionKey,
     validator_account_id: &AccountId,
     store: &Store,
-) -> Result<bool, Error> {
-    if !validate_chunk_relevant(epoch_manager, chunk, store)? {
-        return Ok(false);
+) -> Result<Result<(), ChunkNotRelevant>, Error> {
+    if let Err(e) = validate_chunk_relevant(epoch_manager, chunk, store)? {
+        return Ok(Err(e));
     }
     ensure_chunk_validator(epoch_manager, chunk, validator_account_id)?;
-    Ok(true)
+    Ok(Ok(()))
 }
 
 fn ensure_chunk_validator(
@@ -177,7 +190,7 @@ fn validate_chunk_relevant(
     epoch_manager: &dyn EpochManagerAdapter,
     chunk_production_key: &ChunkProductionKey,
     store: &Store,
-) -> Result<bool, Error> {
+) -> Result<Result<(), ChunkNotRelevant>, Error> {
     let shard_id = chunk_production_key.shard_id;
     let epoch_id = chunk_production_key.epoch_id;
     let height_created = chunk_production_key.height_created;
@@ -209,7 +222,7 @@ fn validate_chunk_relevant(
                 final_head_height = final_head.height,
                 "Skipping because height created is not greater than final head height",
             );
-            return Ok(false);
+            return Ok(Err(ChunkNotRelevant::TooLate));
         }
     }
     if let Some(head) = head {
@@ -221,7 +234,7 @@ fn validate_chunk_relevant(
                 "Skipping because height created is more than {} blocks ahead of head height",
                 MAX_HEIGHTS_AHEAD
             );
-            return Ok(false);
+            return Ok(Err(ChunkNotRelevant::TooLate));
         }
 
         // Try to find the EpochId to which this witness will belong based on its height.
@@ -238,11 +251,11 @@ fn validate_chunk_relevant(
                 ?possible_epochs,
                 "Skipping because EpochId is not in the possible list of epochs",
             );
-            return Ok(false);
+            return Ok(Err(ChunkNotRelevant::UnknownEpochId));
         }
     }
 
-    Ok(true)
+    Ok(Ok(()))
 }
 
 fn validate_chunk_endorsement_signature(
