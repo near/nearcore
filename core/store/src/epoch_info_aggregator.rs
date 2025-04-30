@@ -165,6 +165,14 @@ impl EpochInfoAggregator {
             for (chunk_validator_id, endorsement_produced) in
                 chunk_validators.iter().zip(chunk_endorsements)
             {
+                if !endorsement_produced {
+                    tracing::debug!(
+                        target: "epoch_tracker",
+                        chunk_validator = ?epoch_info.validator_account_id(*chunk_validator_id),
+                        ?shard_id,
+                        block_height = prev_block_height + 1,
+                        "Missed endorsement");
+                }
                 tracker
                     .entry(*chunk_validator_id)
                     .and_modify(|stats| {
