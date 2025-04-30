@@ -947,9 +947,11 @@ fn test_apply_deficit_gas_for_function_call_partial() {
     })];
     let total_receipt_cost = Balance::from(gas + expected_gas_burnt) * gas_price;
     let expected_deficit = if apply_state.config.fees.refund_gas_price_changes {
+        // Used full prepaid gas, but it still not enough to cover deficit.
         let expected_gas_burnt_amount = Balance::from(expected_gas_burnt) * GAS_PRICE;
         expected_gas_burnt_amount - total_receipt_cost
     } else {
+        // The "deficit" is simply the value change due to gas price changes
         Balance::from(expected_gas_burnt) * (GAS_PRICE - gas_price)
     };
 
@@ -964,26 +966,19 @@ fn test_apply_deficit_gas_for_function_call_partial() {
             Default::default(),
         )
         .unwrap();
-    // Used full prepaid gas, but it still not enough to cover deficit.
     assert_eq!(result.stats.balance.gas_deficit_amount, expected_deficit);
     if apply_state.config.fees.refund_gas_price_changes {
         // Burnt all the fees + all prepaid gas.
         assert_eq!(result.stats.balance.tx_burnt_amount, total_receipt_cost);
         assert_eq!(result.outgoing_receipts.len(), 0);
     } else {
-        // TODO
-
         // The deficit does not affect refunds in this config, hence we expect a
         // normal refund of the unspent gas. However, this is small enough to
-        // cancel out.
-        // let unspent_gas = gas - result.outcomes[0].outcome.gas_burnt;
-        // println!("unspent gas: {unspent_gas}");
-        // let penalty = apply_state.config.fees.gas_penalty_for_gas_refund(unspent_gas);
-        // let penalty_amount = Balance::from(penalty) * gas_price;
-        let refund_amount = 500000000;
-
+        // cancel out, so we add the refund cost to tx_burnt and expect no
+        // refund. Like in the other case, this ends up burning all gas and not
+        // refunding anything.
         assert_eq!(result.outgoing_receipts.len(), 0);
-        assert_eq!(result.stats.balance.tx_burnt_amount, total_receipt_cost - refund_amount);
+        assert_eq!(result.stats.balance.tx_burnt_amount, total_receipt_cost);
     }
 }
 

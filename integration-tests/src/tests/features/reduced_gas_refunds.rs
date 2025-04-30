@@ -94,7 +94,7 @@ fn generated_refunds_after_fn_call(
         .expect("function call TX should succeed");
 
     // should either succeed or fail due to running out of gas
-    match outcome.status {
+    match &outcome.status {
         FinalExecutionStatus::SuccessValue(_) => (),
         FinalExecutionStatus::Failure(errors::TxExecutionError::ActionError(action_error)) => {
             assert_eq!(
@@ -107,12 +107,15 @@ fn generated_refunds_after_fn_call(
         other => panic!("unexpected outcome: {other:?}"),
     }
 
+    let balance_after = node_user.view_balance(&alice_account()).unwrap();
+    let total_cost = balance_before - balance_after;
+
+    // Make sure the total balances check out
+    assert_eq!(outcome.tokens_burnt(), total_cost);
+
     // First outcome is the fn call,
     // everything after should be refunds
     let refunds = outcome.receipts_outcome[1..].to_vec();
-
-    let balance_after = node_user.view_balance(&alice_account()).unwrap();
-    let total_cost = balance_before - balance_after;
 
     let actual_fn_call_gas_burnt: Gas = outcome.receipts_outcome[0]
         .outcome
