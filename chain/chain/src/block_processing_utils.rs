@@ -187,8 +187,8 @@ impl BlocksInProcessing {
         for (_, (_, block_preprocess_info)) in &self.preprocessed_blocks {
             let _ = block_preprocess_info.apply_chunks_done_waiter.wait();
         }
-        for (_, (_, block_preprocess_info)) in self.optimistic_blocks.iter() {
-            let _ = block_preprocess_info.apply_chunks_done_waiter.wait();
+        for (_, (_, optimistic_block_info)) in &self.optimistic_blocks {
+            let _ = optimistic_block_info.apply_chunks_done_waiter.wait();
         }
         !self.preprocessed_blocks.is_empty() || !self.optimistic_blocks.is_empty()
     }
