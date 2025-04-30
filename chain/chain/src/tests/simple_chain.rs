@@ -362,7 +362,7 @@ fn test_pending_block() {
 /// Check that if chain receives two blocks which matches the same optimistic block,
 /// the first one gets pending but the second one gets processed, as this is likely
 /// malicious behaviour and processing blocks is a higher priority than apply chunk
-/// optimisations.
+/// optimizations.
 /// We use two copies of the same block here.
 #[cfg(feature = "test_features")]
 #[test]
