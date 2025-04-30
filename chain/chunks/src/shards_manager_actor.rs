@@ -1869,7 +1869,13 @@ impl ShardsManagerActor {
         );
 
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(epoch_id)?;
-        let block_producers = self.epoch_manager.get_epoch_block_producers_ordered(&epoch_id)?;
+        let next_epoch_id = self.epoch_manager.get_next_epoch_id(latest_block_hash)?;
+        let this_epoch_block_producers =
+            self.epoch_manager.get_epoch_block_producers_ordered(&epoch_id)?;
+        let next_epoch_block_producers =
+            self.epoch_manager.get_epoch_block_producers_ordered(&next_epoch_id)?;
+        let block_producers: Vec<ValidatorStake> =
+            this_epoch_block_producers.into_iter().chain(next_epoch_block_producers).collect();
         let current_chunk_height = partial_encoded_chunk.header.height_created();
 
         // SingleShardTracking: If enabled, we only forward the parts to the block producers
