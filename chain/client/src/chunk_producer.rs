@@ -291,7 +291,7 @@ impl ChunkProducer {
             bandwidth_requests.is_some(),
             "Expected bandwidth_request to be Some after BandwidthScheduler feature enabled"
         );
-        let (encoded_chunk, shard_chunk, outgoing_receipts) =
+        let (encoded_chunk, shard_chunk, merkle_paths) =
             ShardsManagerActor::create_encoded_shard_chunk(
                 prev_block_hash,
                 *chunk_extra.state_root(),
