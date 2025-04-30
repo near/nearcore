@@ -56,6 +56,7 @@ static CONFIG_DIFFS: &[(ProtocolVersion, &str)] = &[
     (74, include_config!("74.yaml")),
     (77, include_config!("77.yaml")),
     (129, include_config!("129.yaml")),
+    (149, include_config!("149.yaml")),
 ];
 
 /// Testnet parameters for versions <= 29, which (incorrectly) differed from mainnet parameters
@@ -407,7 +408,7 @@ mod tests {
     #[cfg(feature = "calimero_zero_storage")]
     fn test_calimero_storage_costs_zero() {
         let store = RuntimeConfigStore::new(None);
-        for (_, config) in store.store.iter() {
+        for (_, config) in &store.store {
             assert_eq!(config.storage_amount_per_byte(), 0u128);
         }
     }

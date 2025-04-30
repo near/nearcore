@@ -266,6 +266,14 @@ impl ShardStateSyncResponse {
             Self::V3(response) => &response.cached_parts,
         }
     }
+
+    pub fn has_header(&self) -> bool {
+        match self {
+            Self::V1(response) => response.header.is_some(),
+            Self::V2(response) => response.header.is_some(),
+            Self::V3(response) => response.header.is_some(),
+        }
+    }
 }
 
 impl ShardStateSyncResponseV1 {

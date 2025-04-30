@@ -38,7 +38,6 @@ pub use raw_node::{Children, RawTrieNode, RawTrieNodeWithSize};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt::Write;
 use std::hash::Hash;
-use std::ops::DerefMut;
 use std::str;
 use std::sync::{Arc, RwLock, RwLockReadGuard};
 pub use trie_recording::{SubtreeSize, TrieRecorder, TrieRecorderStats};
@@ -410,7 +409,7 @@ impl TrieRefcountDeltaMap {
         let num_insertions = self.map.iter().filter(|(_h, (_v, rc))| *rc > 0).count();
         let mut insertions = Vec::with_capacity(num_insertions);
         let mut deletions = Vec::with_capacity(self.map.len().saturating_sub(num_insertions));
-        for (hash, (value, rc)) in self.map.into_iter() {
+        for (hash, (value, rc)) in self.map {
             if rc > 0 {
                 insertions.push(TrieRefcountAddition {
                     trie_node_or_value_hash: hash,
@@ -651,6 +650,7 @@ impl Trie {
         trie
     }
 
+    // TODO(resharding): remove this method after proper fix for refcount issue
     pub fn take_recorder(self) -> Option<RwLock<TrieRecorder>> {
         self.recorder
     }
@@ -680,10 +680,9 @@ impl Trie {
     }
 
     pub fn check_proof_size_limit_exceed(&self) -> bool {
-        self.recorder
-            .as_ref()
-            .map(|recorder| recorder.read().expect("no poison").check_proof_size_limit_exceed())
-            .unwrap_or_default()
+        self.recorder.as_ref().is_some_and(|recorder| {
+            recorder.read().expect("no poison").check_proof_size_limit_exceed()
+        })
     }
 
     /// Constructs a Trie from the partial storage (i.e. state proof) that
@@ -1588,7 +1587,7 @@ impl Trie {
             None
         };
         let tracking_mode = match &mut recorder {
-            Some(recorder) => TrackingMode::RefcountsAndAccesses(recorder.deref_mut()),
+            Some(recorder) => TrackingMode::RefcountsAndAccesses(&mut *recorder),
             None => TrackingMode::Refcounts,
         };
         let mut trie_update = guard.update(self.root, tracking_mode)?;
@@ -1711,17 +1710,59 @@ impl Trie {
         &self,
         boundary_account: &AccountId,
         retain_mode: RetainMode,
-        opts: AccessOptions,
-    ) -> Result<StateRoot, StorageError> {
+    ) -> Result<TrieChanges, StorageError> {
+        if self.memtries.is_some() {
+            self.retain_split_shard_with_memtrie(boundary_account, retain_mode)
+        } else {
+            self.retain_split_shard_with_trie_storage(boundary_account, retain_mode)
+        }
+    }
+
+    fn retain_split_shard_with_memtrie(
+        &self,
+        boundary_account: &AccountId,
+        retain_mode: RetainMode,
+    ) -> Result<TrieChanges, StorageError> {
+        // Get trie_update for memtrie
+        let guard = self.memtries.as_ref().unwrap().read().unwrap();
+        let mut recorder =
+            self.recorder.as_ref().map(|recorder| recorder.write().expect("no poison"));
+        let tracking_mode = match &mut recorder {
+            Some(recorder) => TrackingMode::RefcountsAndAccesses(&mut *recorder),
+            None => TrackingMode::Refcounts,
+        };
+        let mut trie_update = guard.update(self.root, tracking_mode)?;
+        trie_update.retain_split_shard(boundary_account, retain_mode, AccessOptions::DEFAULT);
+        let mut trie_changes = trie_update.to_trie_changes();
+
+        // Get child trie_changes for all child memtries
+        for (shard_uid, memtrie) in &self.children_memtries {
+            let inner_guard = memtrie.read().unwrap();
+            let mut trie_update = inner_guard.update(self.root, TrackingMode::None).unwrap();
+            trie_update.retain_split_shard(boundary_account, retain_mode, AccessOptions::DEFAULT);
+            trie_changes
+                .children_memtrie_changes
+                .insert(*shard_uid, trie_update.to_memtrie_changes_only());
+        }
+
+        Ok(trie_changes)
+    }
+
+    fn retain_split_shard_with_trie_storage(
+        &self,
+        boundary_account: &AccountId,
+        retain_mode: RetainMode,
+    ) -> Result<TrieChanges, StorageError> {
         let mut trie_update = TrieStorageUpdate::new(&self);
-        let root_node = self.move_node_to_mutable(&mut trie_update, &self.root, opts)?;
-        trie_update.retain_split_shard(boundary_account, retain_mode, opts);
+        let root_node =
+            self.move_node_to_mutable(&mut trie_update, &self.root, AccessOptions::DEFAULT)?;
+        trie_update.retain_split_shard(boundary_account, retain_mode, AccessOptions::DEFAULT);
         #[cfg(test)]
         {
             self.memory_usage_verify(&trie_update, GenericNodeOrIndex::Updated(root_node.0));
         }
-        let result = trie_update.flatten_nodes(&self.root, root_node.0)?;
-        Ok(result.new_root)
+        let trie_changes = trie_update.flatten_nodes(&self.root, root_node.0)?;
+        Ok(trie_changes)
     }
 }
 
@@ -2122,9 +2163,8 @@ mod tests {
             let trie = tries.get_trie_for_shard(ShardUId::single_shard(), state_root);
 
             // Those known keys.
-            for (key, value) in
-                trie_changes.into_iter().collect::<std::collections::HashMap<_, _>>()
-            {
+            #[allow(clippy::needless_collect)] // It is necessary to build a map to deduplicate keys
+            for (key, value) in trie_changes.into_iter().collect::<HashMap<_, _>>() {
                 if let Some(value) = value {
                     let want = Some(Ok((key.clone(), value)));
                     let mut iterator = trie.disk_iter().unwrap();

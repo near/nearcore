@@ -62,7 +62,7 @@ fn do_blocks(env: &mut TestEnv, start: BlockHeight, end: BlockHeight) {
 }
 
 fn send_tx(
-    env: &mut TestEnv,
+    env: &TestEnv,
     nonce: Nonce,
     signer_id: AccountId,
     receiver_id: AccountId,
@@ -72,7 +72,7 @@ fn send_tx(
     let hash = env.clients[0].chain.head().unwrap().last_block_hash;
     let tx =
         SignedTransaction::from_actions(nonce, signer_id, receiver_id, signer, actions, hash, 0);
-    env.tx_request_handlers[0].process_tx(tx, false, false)
+    env.rpc_handlers[0].process_tx(tx, false, false)
 }
 
 #[test]

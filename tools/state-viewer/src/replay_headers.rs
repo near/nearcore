@@ -181,7 +181,7 @@ fn get_validator_summary(
     validator_info: &EpochValidatorInfo,
 ) -> HashMap<AccountId, ValidatorSummary> {
     let mut validator_to_summary = HashMap::new();
-    for validator in validator_info.current_validators.iter() {
+    for validator in &validator_info.current_validators {
         let summary = ValidatorSummary {
             stake: validator.stake.try_into().unwrap(),
             block_production_percent: (100.0 * (validator.num_produced_blocks as f64)
@@ -204,7 +204,7 @@ fn get_validator_kickouts(
     validator_info: &EpochValidatorInfo,
 ) -> HashMap<AccountId, ValidatorKickoutReason> {
     let mut kickouts = HashMap::new();
-    for kickout in validator_info.prev_epoch_kickout.iter() {
+    for kickout in &validator_info.prev_epoch_kickout {
         kickouts.insert(kickout.account_id.clone(), kickout.reason.clone());
     }
     kickouts

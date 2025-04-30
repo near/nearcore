@@ -103,6 +103,7 @@ impl TrieRecorder {
         PartialStorage { nodes: PartialState::TrieValues(nodes) }
     }
 
+    // TODO(resharding): remove this method after proper fix for refcount issue
     pub fn recorded_iter<'a>(&'a self) -> impl Iterator<Item = (&'a CryptoHash, &'a Arc<[u8]>)> {
         self.recorded.iter()
     }
@@ -308,7 +309,6 @@ mod trie_recording_tests {
     use near_primitives::state::ValueRef;
     use near_primitives::types::StateRoot;
     use near_primitives::types::chunk_extra::ChunkExtra;
-    use near_primitives::version::PROTOCOL_VERSION;
     use rand::prelude::SliceRandom;
     use rand::{Rng, random, thread_rng};
     use std::cell::{Cell, RefCell};
@@ -367,7 +367,6 @@ mod trie_recording_tests {
 
         // ChunkExtra is needed for in-memory trie loading code to query state roots.
         let chunk_extra = ChunkExtra::new(
-            PROTOCOL_VERSION,
             &state_root,
             CryptoHash::default(),
             Vec::new(),
@@ -375,7 +374,7 @@ mod trie_recording_tests {
             0,
             0,
             Some(CongestionInfo::default()),
-            BandwidthRequests::default_for_protocol_version(PROTOCOL_VERSION),
+            BandwidthRequests::empty(),
         );
         let mut update_for_chunk_extra = tries_for_building.store_update();
         update_for_chunk_extra

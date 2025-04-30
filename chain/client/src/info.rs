@@ -82,7 +82,7 @@ impl InfoHelper {
         client_config: &ClientConfig,
     ) -> Self {
         set_open_files_limit(0);
-        metrics::export_version(&client_config.version);
+        metrics::export_version(&client_config.chain_id, &client_config.version);
         InfoHelper {
             clock: clock.clone(),
             nearcore_version: client_config.version.clone(),
@@ -102,14 +102,14 @@ impl InfoHelper {
         }
     }
 
-    pub fn chunk_processed(&mut self, shard_id: ShardId, gas_used: Gas, balance_burnt: Balance) {
+    pub fn chunk_processed(&self, shard_id: ShardId, gas_used: Gas, balance_burnt: Balance) {
         metrics::TGAS_USAGE_HIST
             .with_label_values(&[&shard_id.to_string()])
             .observe(gas_used as f64 / TERAGAS);
         metrics::BALANCE_BURNT.inc_by(balance_burnt as f64);
     }
 
-    pub fn chunk_skipped(&mut self, shard_id: ShardId) {
+    pub fn chunk_skipped(&self, shard_id: ShardId) {
         metrics::CHUNK_SKIPPED_TOTAL.with_label_values(&[&shard_id.to_string()]).inc();
     }
 
@@ -464,7 +464,7 @@ impl InfoHelper {
             config_updater.report_status();
         }
         let (cpu_usage, memory_usage) = proc_info.unwrap_or_default();
-        let is_validator = validator_info.map(|v| v.is_validator).unwrap_or_default();
+        let is_validator = validator_info.is_some_and(|v| v.is_validator);
         (metrics::IS_VALIDATOR.set(is_validator as i64));
         (metrics::RECEIVED_BYTES_PER_SECOND.set(network_info.received_bytes_per_sec as i64));
         (metrics::SENT_BYTES_PER_SECOND.set(network_info.sent_bytes_per_sec as i64));
@@ -623,7 +623,7 @@ impl InfoHelper {
         json
     }
 
-    fn log_chain_processing_info(&mut self, client: &crate::Client, epoch_id: &EpochId) {
+    fn log_chain_processing_info(&self, client: &crate::Client, epoch_id: &EpochId) {
         let chain = &client.chain;
         let use_color = matches!(self.log_summary_style, LogSummaryStyle::Colored);
         let info = chain.get_chain_processing_info();
@@ -809,7 +809,7 @@ impl std::fmt::Display for BlocksInfo {
             }
         };
 
-        for block_info in self.blocks_info.iter() {
+        for block_info in &self.blocks_info {
             let mut all_chunks_received = true;
             let chunk_status = block_info
                 .chunks_info

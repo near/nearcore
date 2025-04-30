@@ -132,7 +132,6 @@ use near_primitives::types::{
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::MaybeValidated;
 use near_primitives::validator_signer::ValidatorSigner;
-use near_primitives::version::ProtocolVersion;
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::chunk_store::ChunkStoreAdapter;
 use near_store::{DBCol, HEAD_KEY, HEADER_HEAD_KEY, Store};
@@ -242,7 +241,7 @@ impl RequestPool {
     pub fn fetch(&mut self, current_time: time::Instant) -> Vec<(ChunkHash, ChunkRequestInfo)> {
         let mut removed_requests = HashSet::<ChunkHash>::default();
         let mut requests = Vec::new();
-        for (chunk_hash, chunk_request) in self.requests.iter_mut() {
+        for (chunk_hash, chunk_request) in &mut self.requests {
             if current_time - chunk_request.added >= self.max_duration {
                 debug!(target: "chunks", "Evicted chunk requested that was never fetched {} (shard_id: {})", chunk_hash.0, chunk_request.shard_id);
                 removed_requests.insert(chunk_hash.clone());
@@ -440,7 +439,7 @@ impl ShardsManagerActor {
     }
 
     fn request_partial_encoded_chunk(
-        &mut self,
+        &self,
         height: BlockHeight,
         ancestor_hash: &CryptoHash,
         shard_id: ShardId,
@@ -1141,7 +1140,7 @@ impl ShardsManagerActor {
         }
     }
 
-    fn check_chunk_complete(&mut self, chunk: &mut EncodedShardChunk) -> ChunkStatus {
+    fn check_chunk_complete(&self, chunk: &mut EncodedShardChunk) -> ChunkStatus {
         let _span = debug_span!(
             target: "chunks",
             "check_chunk_complete",
@@ -1178,7 +1177,7 @@ impl ShardsManagerActor {
 
     /// Add a part to current encoded chunk stored in memory. It's present only if One Part was present and signed correctly.
     fn validate_part(
-        &mut self,
+        &self,
         merkle_root: MerkleHash,
         part: &PartialEncodedChunkPart,
         num_total_parts: usize,
@@ -1228,7 +1227,7 @@ impl ShardsManagerActor {
     }
 
     fn validate_partial_encoded_chunk_forward(
-        &mut self,
+        &self,
         forward: &PartialEncodedChunkForwardMsg,
     ) -> Result<(), Error> {
         let valid_hash = forward.is_valid_hash(); // check hash
@@ -1239,7 +1238,7 @@ impl ShardsManagerActor {
 
         // check part merkle proofs
         let num_total_parts = self.epoch_manager.num_total_parts();
-        for part_info in forward.parts.iter() {
+        for part_info in &forward.parts {
             self.validate_part(forward.merkle_root, part_info, num_total_parts)?;
         }
 
@@ -1591,14 +1590,14 @@ impl ShardsManagerActor {
 
         // 1.d Checking part_ords' validity
         let num_total_parts = self.epoch_manager.num_total_parts();
-        for part_info in parts.iter() {
+        for part_info in &parts {
             // TODO: only validate parts we care about
             // https://github.com/near/nearcore/issues/5885
             self.validate_part(header.encoded_merkle_root(), part_info, num_total_parts)?;
         }
 
         // 1.e Checking receipts validity
-        for proof in prev_outgoing_receipts.iter() {
+        for proof in &prev_outgoing_receipts {
             // TODO: only validate receipts we care about
             // https://github.com/near/nearcore/issues/5885
             // we can't simply use prev_block_hash to check if the node tracks this shard or not
@@ -1813,7 +1812,7 @@ impl ShardsManagerActor {
                 self.epoch_manager.num_total_parts(),
             );
 
-            for (part_ord, part_entry) in entry.parts.iter() {
+            for (part_ord, part_entry) in &entry.parts {
                 encoded_chunk.content_mut().parts[*part_ord as usize] =
                     Some(part_entry.part.clone());
             }
@@ -1882,7 +1881,7 @@ impl ShardsManagerActor {
     /// Send the parts of the partial_encoded_chunk that are owned by `self.me()` to the
     /// other validators that are tracking the shard.
     fn send_partial_encoded_chunk_to_chunk_trackers(
-        &mut self,
+        &self,
         chunk_header: &ShardChunkHeader,
         parts: impl Iterator<Item = PartialEncodedChunkPart>,
         part_ords: HashSet<u64>,
@@ -2013,10 +2012,9 @@ impl ShardsManagerActor {
         prev_outgoing_receipts_root: CryptoHash,
         tx_root: CryptoHash,
         congestion_info: CongestionInfo,
-        bandwidth_requests: Option<BandwidthRequests>,
+        bandwidth_requests: BandwidthRequests,
         signer: &ValidatorSigner,
         rs: &ReedSolomon,
-        protocol_version: ProtocolVersion,
     ) -> (EncodedShardChunk, ShardChunk, Vec<MerklePath>) {
         EncodedShardChunk::new(
             prev_block_hash,
@@ -2036,7 +2034,6 @@ impl ShardsManagerActor {
             congestion_info,
             bandwidth_requests,
             signer,
-            protocol_version,
         )
     }
 

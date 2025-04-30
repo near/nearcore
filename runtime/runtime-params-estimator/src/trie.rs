@@ -103,7 +103,7 @@ pub(crate) fn read_node_from_accounting_cache(testbed: &mut Testbed) -> GasCost 
         let p_results = percentiles(results, percentiles_of_interest).collect::<Vec<_>>();
         if debug {
             eprint!("{:<32}", debug_name);
-            for cost in p_results.iter() {
+            for cost in &p_results {
                 eprint!("{:>8} ", cost.to_gas() / 1_000_000);
             }
             eprintln!();

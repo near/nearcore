@@ -25,7 +25,7 @@ use near_async::test_loop::sender::TestLoopSender;
 use near_async::time::Duration;
 use near_chain::{ChainStoreAccess, ReceiptFilter, get_incoming_receipts_for_shard};
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
-use near_client::{Client, TxRequestHandler};
+use near_client::{Client, RpcHandler};
 use near_crypto::Signer;
 use near_primitives::account::{AccessKey, AccessKeyPermission};
 use near_primitives::action::{Action, FunctionCallAction};
@@ -180,7 +180,7 @@ fn run_bandwidth_scheduler_test(scenario: TestScenario, tx_concurrency: usize) -
     );
 
     let client_handle = node_datas[0].client_sender.actor_handle();
-    let tx_processor_sender = node_datas[0].tx_processor_sender.clone();
+    let tx_processor_sender = node_datas[0].rpc_handler_sender.clone();
     let future_spawner = test_loop.future_spawner("WorkloadGenerator");
 
     // Run the workload for a number of blocks and verify that the bandwidth requests are generated correctly.
@@ -513,7 +513,7 @@ impl WorkloadGenerator {
     }
 
     /// Deploy the test contract on all workload accounts
-    fn deploy_contracts(&mut self, test_loop: &mut TestLoopV2, node_datas: &[NodeExecutionData]) {
+    fn deploy_contracts(&self, test_loop: &mut TestLoopV2, node_datas: &[NodeExecutionData]) {
         tracing::info!(target: "scheduler_test", "Deploying contracts...");
         let (last_block_hash, nonce) = get_last_block_and_nonce(test_loop, node_datas);
         let deploy_contracts_txs: Vec<SignedTransaction> = self
@@ -537,7 +537,7 @@ impl WorkloadGenerator {
     /// One access key allows to run only one transaction at a time. We need to have many access keys to achieve
     /// high concurrency.
     fn generate_access_keys(
-        &mut self,
+        &self,
         test_loop: &mut TestLoopV2,
         node_datas: &[NodeExecutionData],
         concurrency: usize,
@@ -577,7 +577,7 @@ impl WorkloadGenerator {
             let (last_block_hash, nonce) = get_last_block_and_nonce(test_loop, node_datas);
             tracing::info!(target: "scheduler_test", "Adding access keys with nonce {}", nonce);
 
-            for (account, usable_signers) in available_signers.iter() {
+            for (account, usable_signers) in &available_signers {
                 let Some(to_add) = signers_to_add.get_mut(account) else {
                     continue;
                 };
@@ -613,7 +613,7 @@ impl WorkloadGenerator {
 
     pub fn run(
         &mut self,
-        client_sender: &TestLoopSender<TxRequestHandler>,
+        client_sender: &TestLoopSender<RpcHandler>,
         client: &Client,
         future_spawner: &TestLoopFutureSpawner,
     ) {
@@ -664,7 +664,7 @@ impl WorkloadSender {
 
     pub fn run(
         &mut self,
-        client_sender: &TestLoopSender<TxRequestHandler>,
+        client_sender: &TestLoopSender<RpcHandler>,
         client: &Client,
         future_spawner: &TestLoopFutureSpawner,
         rng: &mut ChaCha20Rng,
@@ -685,7 +685,7 @@ impl WorkloadSender {
 
     pub fn start_new_transaction(
         &mut self,
-        client_sender: &TestLoopSender<TxRequestHandler>,
+        client_sender: &TestLoopSender<RpcHandler>,
         client: &Client,
         future_spawner: &TestLoopFutureSpawner,
         rng: &mut ChaCha20Rng,

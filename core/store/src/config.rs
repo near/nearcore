@@ -216,10 +216,10 @@ impl StoreConfig {
         }
 
         let mut per_shard_max_bytes: HashMap<ShardUId, bytesize::ByteSize> = HashMap::new();
-        for (account_id, bytes) in PER_ACCOUNT_CACHE_SIZE.iter() {
+        for (account_id, bytes) in PER_ACCOUNT_CACHE_SIZE {
             let account_id = AccountId::from_str(account_id)
                 .expect("the hardcoded account id should guarantee to be valid");
-            for shard_layout in shard_layouts.iter() {
+            for shard_layout in &shard_layouts {
                 let shard_uid = shard_layout.account_id_to_shard_uid(&account_id);
                 per_shard_max_bytes.insert(shard_uid, *bytes);
             }

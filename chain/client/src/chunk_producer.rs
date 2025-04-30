@@ -13,6 +13,7 @@ use near_client_primitives::debug::ChunkProduction;
 use near_client_primitives::types::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
+use near_primitives::bandwidth_scheduler::BandwidthRequests;
 use near_primitives::epoch_info::RngSeed;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{MerklePath, merklize};
@@ -280,13 +281,17 @@ impl ChunkProducer {
         )?;
 
         let outgoing_receipts_root = self.calculate_receipts_root(epoch_id, &outgoing_receipts)?;
-        let protocol_version = self.epoch_manager.get_epoch_protocol_version(epoch_id)?;
         let gas_used = chunk_extra.gas_used();
         #[cfg(feature = "test_features")]
         let gas_used = if self.produce_invalid_chunks { gas_used + 1 } else { gas_used };
 
         let congestion_info = chunk_extra.congestion_info();
-        let (encoded_chunk, shard_chunk, merkle_paths) =
+        let bandwidth_requests = chunk_extra.bandwidth_requests();
+        debug_assert!(
+            bandwidth_requests.is_some(),
+            "Expected bandwidth_request to be Some after BandwidthScheduler feature enabled"
+        );
+        let (encoded_chunk, shard_chunk, outgoing_receipts) =
             ShardsManagerActor::create_encoded_shard_chunk(
                 prev_block_hash,
                 *chunk_extra.state_root(),
@@ -302,10 +307,9 @@ impl ChunkProducer {
                 outgoing_receipts_root,
                 tx_root,
                 congestion_info,
-                chunk_extra.bandwidth_requests().cloned(),
+                bandwidth_requests.cloned().unwrap_or_else(BandwidthRequests::empty),
                 &*validator_signer,
                 &mut self.reed_solomon_encoder,
-                protocol_version,
             );
 
         span.record("chunk_hash", tracing::field::debug(encoded_chunk.chunk_hash()));
@@ -350,7 +354,7 @@ impl ChunkProducer {
 
     /// Prepares an ordered list of valid transactions from the pool up the limits.
     fn prepare_transactions(
-        &mut self,
+        &self,
         shard_uid: ShardUId,
         prev_block: &Block,
         chunk_extra: &ChunkExtra,

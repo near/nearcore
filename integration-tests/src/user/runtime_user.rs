@@ -3,7 +3,6 @@ use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, RwLock};
 
 use itertools::Itertools;
-use near_chain_configs::MIN_GAS_PRICE;
 use near_crypto::{PublicKey, Signer};
 use near_jsonrpc_primitives::errors::ServerError;
 use near_parameters::RuntimeConfig;
@@ -15,7 +14,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
 use near_primitives::test_utils::MockEpochInfoProvider;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, BlockHeightDelta, MerkleHash, ShardId};
+use near_primitives::types::{AccountId, Balance, BlockHeightDelta, MerkleHash, ShardId};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{
     AccessKeyView, AccountView, BlockView, CallResult, ChunkView, ContractCodeView,
@@ -58,6 +57,7 @@ pub struct RuntimeUser {
     pub transactions: RefCell<HashSet<SignedTransaction>>,
     pub epoch_info_provider: MockEpochInfoProvider,
     pub runtime_config: Arc<RuntimeConfig>,
+    pub gas_price: Balance,
 }
 
 impl RuntimeUser {
@@ -65,6 +65,7 @@ impl RuntimeUser {
         account_id: AccountId,
         signer: Arc<Signer>,
         client: Arc<RwLock<MockClient>>,
+        gas_price: Balance,
     ) -> Self {
         let runtime_config = Arc::new(client.read().unwrap().runtime_config.clone());
         RuntimeUser {
@@ -77,6 +78,7 @@ impl RuntimeUser {
             transactions: RefCell::new(Default::default()),
             epoch_info_provider: MockEpochInfoProvider::default(),
             runtime_config,
+            gas_price,
         }
     }
 
@@ -88,7 +90,7 @@ impl RuntimeUser {
         use_flat_storage: bool,
     ) -> Result<(), ServerError> {
         let mut receipts = prev_receipts;
-        for transaction in transactions.iter() {
+        for transaction in &transactions {
             self.transactions.borrow_mut().insert(transaction.clone());
         }
         let mut txs = transactions;
@@ -147,19 +149,20 @@ impl RuntimeUser {
             }
             update.commit().unwrap();
             client.state_root = apply_result.state_root;
-            for receipt in apply_result.outgoing_receipts.iter() {
+            for receipt in &apply_result.outgoing_receipts {
                 self.receipts.borrow_mut().insert(*receipt.receipt_id(), receipt.clone());
             }
             receipts = apply_result.outgoing_receipts;
             txs = vec![];
 
-            if let Some(bandwidth_requests) = apply_result.bandwidth_requests {
-                apply_state.bandwidth_requests = BlockBandwidthRequests {
-                    shards_bandwidth_requests: [(apply_state.shard_id, bandwidth_requests)]
-                        .into_iter()
-                        .collect(),
-                };
-            }
+            apply_state.bandwidth_requests = BlockBandwidthRequests {
+                shards_bandwidth_requests: [(
+                    apply_state.shard_id,
+                    apply_result.bandwidth_requests,
+                )]
+                .into_iter()
+                .collect(),
+            };
             let mut have_queued_receipts = false;
             if let Some(congestion_info) = apply_result.congestion_info {
                 if congestion_info.receipt_bytes() > 0 {
@@ -193,7 +196,7 @@ impl RuntimeUser {
             block_timestamp: 0,
             shard_id,
             epoch_height: 0,
-            gas_price: MIN_GAS_PRICE,
+            gas_price: self.gas_price,
             gas_limit: None,
             random_seed: Default::default(),
             epoch_id: Default::default(),

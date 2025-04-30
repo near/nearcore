@@ -137,6 +137,7 @@ pub enum StateViewerSubCommand {
 }
 
 impl StateViewerSubCommand {
+    #[allow(clippy::large_stack_frames)]
     pub fn run(
         self,
         home_dir: &Path,

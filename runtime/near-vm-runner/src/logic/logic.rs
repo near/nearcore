@@ -445,7 +445,7 @@ impl<'a> VMLogic<'a> {
     /// * The cost is 0
     /// * It's up to the caller to set correct len
     #[cfg(feature = "sandbox")]
-    fn sandbox_get_utf8_string(&mut self, len: u64, ptr: u64) -> Result<String> {
+    fn sandbox_get_utf8_string(&self, len: u64, ptr: u64) -> Result<String> {
         let buf = self.memory.view_for_free(MemSlice { ptr, len })?.into_owned();
         String::from_utf8(buf).map_err(|_| HostError::BadUTF8.into())
     }

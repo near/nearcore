@@ -264,7 +264,8 @@ pub enum ProtocolFeature {
     #[deprecated]
     _DeprecatedExcludeContractCodeFromStateWitness,
     /// A scheduler which limits bandwidth for sending receipts between shards.
-    BandwidthScheduler,
+    #[deprecated]
+    _DeprecatedBandwidthScheduler,
     /// Indicates that the "sync_hash" used to identify the point in the chain to sync state to
     /// should no longer be the first block of the epoch, but a couple blocks after that in order
     /// to sync the current epoch's state. This is not strictly a protocol feature, but is included
@@ -296,6 +297,13 @@ pub enum ProtocolFeature {
     /// Enable optimistic block production.
     ProduceOptimisticBlock,
     GlobalContracts,
+    /// NEP: https://github.com/near/NEPs/pull/536
+    ///
+    /// Reduce the number of gas refund receipts by charging the current gas
+    /// price rather than a pessimistic gas price. Also, introduce a new fee of
+    /// 5% for gas refunds and charge the signer this fee for gas refund
+    /// receipts.
+    ReducedGasRefunds,
 }
 
 impl ProtocolFeature {
@@ -380,7 +388,7 @@ impl ProtocolFeature {
             | ProtocolFeature::_DeprecatedFixChunkProducerStakingThreshold
             | ProtocolFeature::_DeprecatedRelaxedChunkValidation
             | ProtocolFeature::_DeprecatedRemoveCheckBalance
-            | ProtocolFeature::BandwidthScheduler
+            | ProtocolFeature::_DeprecatedBandwidthScheduler
             | ProtocolFeature::_DeprecatedCurrentEpochStateSync => 74,
             ProtocolFeature::SimpleNightshadeV4 => 75,
             ProtocolFeature::SimpleNightshadeV5 => 76,
@@ -395,6 +403,7 @@ impl ProtocolFeature {
             // that always enables this for mocknet (see config_mocknet function).
             ProtocolFeature::ShuffleShardAssignments => 143,
             ProtocolFeature::ExcludeExistingCodeFromWitnessForCodeLen => 148,
+            ProtocolFeature::ReducedGasRefunds => 149,
             // Place features that are not yet in Nightly below this line.
         }
     }

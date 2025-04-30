@@ -44,10 +44,7 @@ fn benchmark_large_chunk_production_time() {
             last_block_hash,
             0,
         );
-        assert_eq!(
-            env.tx_request_handlers[0].process_tx(tx, false, false),
-            ProcessTxResponse::ValidTx
-        );
+        assert_eq!(env.rpc_handlers[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
     }
 
     let t = std::time::Instant::now();
