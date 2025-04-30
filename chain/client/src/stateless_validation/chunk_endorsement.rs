@@ -1,4 +1,4 @@
-use super::validate::validate_chunk_endorsement;
+use super::validate::{ChunkRelevance, validate_chunk_endorsement};
 use crate::metrics;
 use lru::LruCache;
 use near_chain_primitives::Error;
@@ -53,7 +53,7 @@ impl ChunkEndorsementTracker {
 
         // Validate the chunk endorsement and store it in the cache.
         match validate_chunk_endorsement(self.epoch_manager.as_ref(), &endorsement, &self.store)? {
-            Ok(()) => {
+            ChunkRelevance::Relevant => {
                 self.chunk_endorsements.get_or_insert_mut(key, || HashMap::new()).insert(
                     account_id.clone(),
                     (endorsement.chunk_hash(), endorsement.signature()),
@@ -62,9 +62,9 @@ impl ChunkEndorsementTracker {
                     .with_label_values(&[&endorsement.shard_id().to_string()])
                     .inc();
             }
-            Err(e) => {
+            irrelevant => {
                 metrics::CHUNK_ENDORSEMENTS_REJECTED
-                    .with_label_values(&[&endorsement.shard_id().to_string(), e.into()])
+                    .with_label_values(&[&endorsement.shard_id().to_string(), irrelevant.into()])
                     .inc();
             }
         };
