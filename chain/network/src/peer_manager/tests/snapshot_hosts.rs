@@ -72,6 +72,7 @@ async fn wait_for_host_info(
 }
 
 /// Test that PeerManager broadcasts SnapshotHostInfo messages to all connected peers
+#[allow(clippy::large_stack_frames)]
 #[tokio::test]
 async fn broadcast() {
     init_test_logger();

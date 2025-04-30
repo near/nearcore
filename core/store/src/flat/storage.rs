@@ -301,7 +301,7 @@ impl FlatStorage {
     ) -> Result<Option<FlatStateValue>, crate::StorageError> {
         let guard = self.0.read().expect(super::POISONED_LOCK_ERR);
         let blocks_to_head = guard.get_blocks_to_head(block_hash)?;
-        for block_hash in blocks_to_head.iter() {
+        for block_hash in &blocks_to_head {
             // If we found a key in changes, we can return a value because it is the most recent key update.
             let changes = guard.get_block_changes(block_hash)?;
             match changes.get(key) {
@@ -325,7 +325,7 @@ impl FlatStorage {
         let guard = self.0.read().expect(super::POISONED_LOCK_ERR);
         let blocks_to_head =
             guard.get_blocks_to_head(block_hash).map_err(|e| StorageError::from(e))?;
-        for block_hash in blocks_to_head.iter() {
+        for block_hash in &blocks_to_head {
             // If we found a key in changes, we can return a value because it is the most recent key update.
             let changes = guard.get_block_changes(block_hash)?;
             match changes.get(key) {

@@ -1,4 +1,4 @@
-use crate::shard_assignment::assign_chunk_producers_to_shards;
+use crate::shard_assignment::{AssignmentRestrictions, assign_chunk_producers_to_shards};
 use near_primitives::epoch_info::{EpochInfo, RngSeed};
 use near_primitives::epoch_manager::EpochConfig;
 use near_primitives::errors::EpochError;
@@ -99,6 +99,7 @@ fn get_chunk_producers_assignment(
     prev_epoch_info: &EpochInfo,
     validator_roles: &ValidatorRoles,
     use_stable_shard_assignment: bool,
+    chunk_producer_assignment_restrictions: Option<AssignmentRestrictions>,
 ) -> Result<ChunkProducersAssignment, EpochError> {
     let ValidatorRoles { chunk_producers, block_producers, chunk_validators, .. } = validator_roles;
 
@@ -127,19 +128,14 @@ fn get_chunk_producers_assignment(
     // Assign chunk producers to shards.
     let num_chunk_producers = chunk_producers.len();
     let minimum_validators_per_shard = epoch_config.minimum_validators_per_shard as usize;
-    let prev_chunk_producers_assignment = if use_stable_shard_assignment {
-        let mut assignment = vec![];
-        for validator_ids in prev_epoch_info.chunk_producers_settlement().iter() {
-            let mut validator_stakes = vec![];
-            for validator_id in validator_ids.iter() {
-                validator_stakes.push(prev_epoch_info.get_validator(*validator_id));
-            }
-            assignment.push(validator_stakes);
+    let mut prev_chunk_producers_assignment = vec![];
+    for validator_ids in prev_epoch_info.chunk_producers_settlement() {
+        let mut validator_stakes = vec![];
+        for validator_id in validator_ids {
+            validator_stakes.push(prev_epoch_info.get_validator(*validator_id));
         }
-        Some(assignment)
-    } else {
-        None
-    };
+        prev_chunk_producers_assignment.push(validator_stakes);
+    }
 
     let shard_ids: Vec<_> = epoch_config.shard_layout.shard_ids().collect();
     let shard_assignment = assign_chunk_producers_to_shards(
@@ -149,6 +145,8 @@ fn get_chunk_producers_assignment(
         epoch_config.chunk_producer_assignment_changes_limit as usize,
         rng_seed,
         prev_chunk_producers_assignment,
+        use_stable_shard_assignment,
+        chunk_producer_assignment_restrictions,
     )
     .map_err(|_| EpochError::NotEnoughValidators {
         num_validators: num_chunk_producers as u64,
@@ -174,6 +172,7 @@ pub fn proposals_to_epoch_info(
     minted_amount: Balance,
     protocol_version: ProtocolVersion,
     use_stable_shard_assignment: bool,
+    chunk_producer_assignment_restrictions: Option<AssignmentRestrictions>,
 ) -> Result<EpochInfo, EpochError> {
     debug_assert!(
         proposals.iter().map(|stake| stake.account_id()).collect::<HashSet<_>>().len()
@@ -181,7 +180,11 @@ pub fn proposals_to_epoch_info(
         "Proposals should not have duplicates"
     );
 
-    let shard_ids: Vec<_> = epoch_config.shard_layout.shard_ids().collect();
+    let num_shards = epoch_config
+        .shard_layout
+        .num_shards()
+        .try_into()
+        .expect("number of shards above usize range");
     let mut stake_change = BTreeMap::new();
     let proposals = apply_epoch_update_to_proposals(
         proposals,
@@ -199,7 +202,7 @@ pub fn proposals_to_epoch_info(
     // Add kickouts for validators which fell out of validator set.
     // Used for querying epoch info by RPC.
     let threshold = validator_roles.threshold;
-    for OrderedValidatorStake(p) in validator_roles.unselected_proposals.iter() {
+    for OrderedValidatorStake(p) in &validator_roles.unselected_proposals {
         let stake = p.stake();
         let account_id = p.account_id();
         *stake_change.get_mut(account_id).unwrap() = 0;
@@ -228,6 +231,7 @@ pub fn proposals_to_epoch_info(
         prev_epoch_info,
         &validator_roles,
         use_stable_shard_assignment,
+        chunk_producer_assignment_restrictions,
     )?;
 
     if epoch_config.shuffle_shard_assignment_for_chunk_producers {
@@ -248,7 +252,6 @@ pub fn proposals_to_epoch_info(
         // With this number of mandates per shard and 6 shards, the theory calculations predict the
         // protocol is secure for 40 years (at 90% confidence).
         let target_mandates_per_shard = epoch_config.target_validator_mandates_per_shard as usize;
-        let num_shards = shard_ids.len();
         let validator_mandates_config =
             ValidatorMandatesConfig::new(target_mandates_per_shard, num_shards);
         // We can use `all_validators` to construct mandates Since a validator's position in
@@ -433,6 +436,7 @@ mod tests {
             0,
             PROTOCOL_VERSION,
             false,
+            None,
         )
         .unwrap();
 
@@ -501,6 +505,7 @@ mod tests {
             0,
             PROTOCOL_VERSION,
             false,
+            None,
         )
         .unwrap();
 
@@ -580,6 +585,7 @@ mod tests {
             0,
             PROTOCOL_VERSION,
             false,
+            None,
         )
         .unwrap();
         let epoch_info_no_shuffling_different_seed = proposals_to_epoch_info(
@@ -592,6 +598,7 @@ mod tests {
             0,
             PROTOCOL_VERSION,
             false,
+            None,
         )
         .unwrap();
 
@@ -606,6 +613,7 @@ mod tests {
             0,
             PROTOCOL_VERSION,
             false,
+            None,
         )
         .unwrap();
         let epoch_info_with_shuffling_different_seed = proposals_to_epoch_info(
@@ -618,6 +626,7 @@ mod tests {
             0,
             PROTOCOL_VERSION,
             false,
+            None,
         )
         .unwrap();
 
@@ -670,6 +679,7 @@ mod tests {
             0,
             PROTOCOL_VERSION,
             false,
+            None,
         )
         .unwrap();
 
@@ -709,6 +719,7 @@ mod tests {
             0,
             PROTOCOL_VERSION,
             false,
+            None,
         )
         .unwrap();
 
@@ -740,6 +751,7 @@ mod tests {
             0,
             PROTOCOL_VERSION,
             false,
+            None,
         )
         .unwrap();
 
@@ -794,6 +806,7 @@ mod tests {
             0,
             PROTOCOL_VERSION,
             false,
+            None,
         )
         .unwrap();
 
@@ -856,12 +869,12 @@ mod tests {
             0,
             PROTOCOL_VERSION,
             false,
+            None,
         )
         .unwrap();
 
-        let fishermen: Vec<AccountId> =
-            epoch_info.fishermen_iter().map(|v| v.take_account_id()).collect();
-        assert!(fishermen.is_empty());
+        let fishermen = epoch_info.fishermen_iter().map(|v| v.take_account_id());
+        assert_eq!(fishermen.count(), 0);
 
         // too low stakes are kicked out
         let kickout = epoch_info.validator_kickout();
@@ -897,6 +910,7 @@ mod tests {
             0,
             PROTOCOL_VERSION,
             false,
+            None,
         )
         .unwrap();
         assert_eq!(num_validators + 1, epoch_info.validators_iter().len());
@@ -920,6 +934,7 @@ mod tests {
             0,
             PROTOCOL_VERSION,
             false,
+            None,
         )
         .unwrap();
         assert_eq!(num_validators, epoch_info.validators_iter().len());
@@ -948,6 +963,7 @@ mod tests {
             0,
             PROTOCOL_VERSION,
             false,
+            None,
         )
         .unwrap();
 
@@ -978,6 +994,7 @@ mod tests {
             0,
             PROTOCOL_VERSION,
             false,
+            None,
         )
         .unwrap();
 

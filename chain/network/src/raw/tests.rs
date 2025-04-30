@@ -184,7 +184,6 @@ async fn test_listener() {
         Some(time::Duration::SECOND),
         None,
     )
-    .await
     .unwrap();
 
     let mut conn = l.accept().await.unwrap();

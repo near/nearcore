@@ -408,7 +408,7 @@ impl ChainStore {
             .flatten()
             .cloned()
             .collect::<Vec<_>>();
-        for block_hash in blocks_current_height.iter() {
+        for block_hash in &blocks_current_height {
             let mut current_hash = *block_hash;
             loop {
                 if *gc_blocks_remaining == 0 {
@@ -632,7 +632,7 @@ impl<'a> ChainStoreUpdate<'a> {
     }
 
     fn get_shard_uids_to_gc(
-        &mut self,
+        &self,
         epoch_manager: &dyn EpochManagerAdapter,
         block_hash: &CryptoHash,
     ) -> Vec<ShardUId> {

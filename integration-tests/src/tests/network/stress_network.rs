@@ -121,7 +121,7 @@ fn stress_test() {
                 } else if s == 1 {
                     state.store(2, Ordering::Relaxed);
 
-                    for flag in flags.iter() {
+                    for flag in &flags {
                         flag.store(false, Ordering::Relaxed);
                     }
 

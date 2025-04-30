@@ -91,7 +91,8 @@ impl Client {
                 my_signer.as_ref(),
                 &self.network_adapter.clone().into_sender(),
             ) {
-                self.chunk_endorsement_tracker.process_chunk_endorsement(endorsement)?;
+                let mut tracker = self.chunk_endorsement_tracker.lock().unwrap();
+                tracker.process_chunk_endorsement(endorsement)?;
             }
         }
 
@@ -104,7 +105,7 @@ impl Client {
     }
 
     pub(crate) fn create_state_witness(
-        &mut self,
+        &self,
         chunk_producer: AccountId,
         prev_block_header: &BlockHeader,
         prev_chunk_header: &ShardChunkHeader,
@@ -148,7 +149,7 @@ impl Client {
     /// Returns main state transition and implicit transitions, in the order
     /// they should be applied, and the hash of receipts to apply.
     fn collect_state_transition_data(
-        &mut self,
+        &self,
         chunk_header: &ShardChunkHeader,
         prev_chunk_header: &ShardChunkHeader,
     ) -> Result<StateTransitionData, Error> {

@@ -591,7 +591,7 @@ impl CheckStateRootCmd {
             .ok_or_else(|| anyhow::anyhow!("Cold storage is not configured"))?;
 
         let hashes = self.state_root_selector.get_hashes(storage, &cold_store)?;
-        for hash in hashes.iter() {
+        for hash in &hashes {
             Self::check_trie(
                 &cold_store,
                 &hash,

@@ -958,6 +958,7 @@ fn slow_test_resharding_v3_track_all_shards() {
         TestReshardingParametersBuilder::default()
             .track_all_shards(true)
             .all_chunks_expected(true)
+            .epoch_length(INCREASED_EPOCH_LENGTH)
             .build(),
     );
 }

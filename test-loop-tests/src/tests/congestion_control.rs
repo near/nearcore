@@ -145,7 +145,7 @@ fn do_call_contract(
 /// The condition that can be used for the test loop to wait until the chain
 /// height is greater than the target height.
 fn height_condition(
-    test_loop_data: &mut TestLoopData,
+    test_loop_data: &TestLoopData,
     client_handle: &TestLoopDataHandle<ClientActorInner>,
     target_height: BlockHeight,
 ) -> bool {

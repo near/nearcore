@@ -13,7 +13,7 @@ use crate::utils::test_helpers::heavy_test;
 use near_actix_test_utils::run_actix;
 use near_chain_configs::{Genesis, NEAR_BASE, TrackedShardsConfig};
 use near_client::{
-    ClientActor, GetBlock, ProcessTxRequest, Query, Status, TxRequestHandlerActor, ViewClientActor,
+    ClientActor, GetBlock, ProcessTxRequest, Query, RpcHandlerActor, Status, ViewClientActor,
 };
 use near_crypto::{InMemorySigner, Signer};
 use near_network::tcp;
@@ -35,7 +35,7 @@ struct TestNode {
     config: NearConfig,
     client: Addr<ClientActor>,
     view_client: Addr<ViewClientActor>,
-    tx_processor: Addr<TxRequestHandlerActor>,
+    tx_processor: Addr<RpcHandlerActor>,
     genesis_hash: CryptoHash,
 }
 
@@ -86,7 +86,7 @@ fn init_test_staking(
         .enumerate()
         .map(|(i, config)| {
             let genesis_hash = genesis_hash(&config.genesis);
-            let nearcore::NearNode { client, view_client, tx_processor, .. } =
+            let nearcore::NearNode { client, view_client, rpc_handler: tx_processor, .. } =
                 start_with_config(paths[i], config.clone()).expect("start_with_config");
             let account_id = format!("near.{}", i).parse::<AccountId>().unwrap();
             let signer = Arc::new(InMemorySigner::test_signer(&account_id));

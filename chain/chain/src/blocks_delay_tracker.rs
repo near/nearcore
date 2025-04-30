@@ -523,7 +523,7 @@ impl Chain {
             .flat_map(|(height, hashes)| {
                 hashes
                     .iter()
-                    .flat_map(|hash| {
+                    .filter_map(|hash| {
                         self.blocks_delay_tracker.get_block_processing_info(
                             *height,
                             hash,
@@ -538,7 +538,7 @@ impl Chain {
             .blocks_delay_tracker
             .floating_chunks
             .iter()
-            .flat_map(|(chunk_hash, _)| {
+            .filter_map(|(chunk_hash, _)| {
                 self.blocks_delay_tracker.chunks.get(chunk_hash).map(|chunk_stats| {
                     chunk_stats
                         .to_chunk_processing_info(chunk_hash.clone(), self.epoch_manager.as_ref())

@@ -106,7 +106,7 @@ pub(crate) fn write_delayed_receipts(
     target_shard_layout: &ShardLayout,
     default_key: &PublicKey,
 ) -> anyhow::Result<()> {
-    for t in trackers.iter() {
+    for t in &trackers {
         assert_eq!(update_state.len(), t.indices.len());
     }
 
@@ -173,7 +173,7 @@ pub(crate) fn write_delayed_receipts(
         let value = borsh::to_vec(&indices).unwrap();
         updates.push((TrieKey::DelayedReceiptIndices, Some(value)));
         crate::storage_mutator::commit_shard(shard_uid, &shard_tries, update_state, updates)
-            .context("failed committing trie changes")?
+            .context("failed committing trie changes")?;
     }
 
     Ok(())
