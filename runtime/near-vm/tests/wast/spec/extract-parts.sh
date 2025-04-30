@@ -3,6 +3,8 @@ set -e
 set -u
 set -o pipefail
 
+# cspell:ignore wabt, wabtbin
+
 # This script extracts the modules from the testsuite test files into
 # individual files in the following directories:
 #  - valid - valid wasm modules

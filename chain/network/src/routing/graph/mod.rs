@@ -167,11 +167,7 @@ impl Inner {
         // Stop at first invalid edge.
         let (mut edges, ok) = concurrency::rayon::run_blocking(move || {
             concurrency::rayon::try_map(edges.into_iter().par_bridge(), |e| {
-                if e.verify() {
-                    Some(e)
-                } else {
-                    None
-                }
+                if e.verify() { Some(e) } else { None }
             })
         });
 

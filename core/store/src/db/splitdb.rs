@@ -5,8 +5,8 @@ use std::sync::Arc;
 
 use near_o11y::log_assert_fail;
 
-use crate::db::{DBIterator, DBIteratorItem, DBSlice, DBTransaction, Database, StoreStatistics};
 use crate::DBCol;
+use crate::db::{DBIterator, DBIteratorItem, DBSlice, DBTransaction, Database, StoreStatistics};
 
 /// A database that provides access to the hot and cold databases.
 ///
@@ -214,7 +214,7 @@ mod test {
 
     use super::*;
 
-    use crate::db::{testdb::TestDB, ColdDB, DBOp, DBTransaction};
+    use crate::db::{ColdDB, DBOp, DBTransaction, testdb::TestDB};
 
     const FOO: &[u8] = b"FOO";
     const BAR: &[u8] = b"BAR";

@@ -1,7 +1,7 @@
 [package]
 name = "near-vm-test-generator"
 version.workspace = true
-edition = "2021"
+edition.workspace = true
 authors = ["Wasmer Engineering Team <engineering@wasmer.io>", "Near Inc <hello@nearprotocol.com>"]
 publish = false
 license = "Apache-2.0 WITH LLVM-exception"

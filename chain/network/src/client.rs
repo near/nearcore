@@ -3,7 +3,6 @@ use crate::types::{NetworkInfo, ReasonForBan};
 use near_async::messaging::{AsyncSender, Sender};
 use near_async::{MultiSend, MultiSendMessage, MultiSenderFrom};
 use near_primitives::block::{Approval, Block, BlockHeader};
-use near_primitives::challenge::Challenge;
 use near_primitives::epoch_sync::CompressedEpochSyncProof;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
@@ -89,10 +88,6 @@ pub struct StateResponseReceived {
 pub struct SetNetworkInfo(pub NetworkInfo);
 
 #[derive(actix::Message, Debug, Clone, PartialEq, Eq)]
-#[rtype(result = "()")]
-pub struct RecvChallenge(pub Challenge);
-
-#[derive(actix::Message, Debug, Clone, PartialEq, Eq)]
 #[rtype(result = "ProcessTxResponse")]
 pub struct ProcessTxRequest {
     pub transaction: SignedTransaction,
@@ -152,16 +147,15 @@ pub struct OptimisticBlockMessage {
 pub struct ClientSenderForNetwork {
     pub tx_status_request: AsyncSender<TxStatusRequest, Option<Box<FinalExecutionOutcomeView>>>,
     pub tx_status_response: AsyncSender<TxStatusResponse, ()>,
+    pub transaction: AsyncSender<ProcessTxRequest, ProcessTxResponse>,
     pub state_request_header: AsyncSender<StateRequestHeader, Option<StateResponse>>,
     pub state_request_part: AsyncSender<StateRequestPart, Option<StateResponse>>,
     pub state_response: AsyncSender<StateResponseReceived, ()>,
     pub block_approval: AsyncSender<BlockApproval, ()>,
-    pub transaction: AsyncSender<ProcessTxRequest, ProcessTxResponse>,
     pub block_request: AsyncSender<BlockRequest, Option<Box<Block>>>,
     pub block_headers_request: AsyncSender<BlockHeadersRequest, Option<Vec<BlockHeader>>>,
     pub block: AsyncSender<BlockResponse, ()>,
     pub block_headers: AsyncSender<BlockHeadersResponse, Result<(), ReasonForBan>>,
-    pub challenge: AsyncSender<RecvChallenge, ()>,
     pub network_info: AsyncSender<SetNetworkInfo, ()>,
     pub announce_account:
         AsyncSender<AnnounceAccountRequest, Result<Vec<AnnounceAccount>, ReasonForBan>>,

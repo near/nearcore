@@ -72,7 +72,7 @@ Details of bringing up and configuring a network are out of scope for this docum
 
 ### Build `neard`
 
-Choose the git commit and cargo features corresponding to what you want to benchmark. Most likely you will want a `--release` build to measure TPS.
+Choose the git commit and cargo features corresponding to what you want to benchmark. Most likely you will want a `--release` build to measure TPS. Place the corresponding `neard` binary in the justfile's directory or set the `NEARD_PATH` environment variable to point to it.
 
 ### Create sub accounts
 

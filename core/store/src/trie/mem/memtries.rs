@@ -6,19 +6,19 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::types::{BlockHeight, StateRoot};
 
+use crate::Trie;
+use crate::trie::MemTrieChanges;
 use crate::trie::mem::arena::ArenaMut;
 use crate::trie::mem::metrics::MEMTRIE_NUM_ROOTS;
-use crate::trie::MemTrieChanges;
-use crate::Trie;
 
-use super::arena::hybrid::{HybridArena, HybridArenaMemory};
-use super::arena::single_thread::STArena;
 use super::arena::Arena;
 use super::arena::FrozenArena;
+use super::arena::hybrid::{HybridArena, HybridArenaMemory};
+use super::arena::single_thread::STArena;
 use super::flexible_data::value::ValueView;
 use super::iter::{MemTrieIteratorInner, STMemTrieIterator};
 use super::lookup::memtrie_lookup;
-use super::memtrie_update::{construct_root_from_changes, MemTrieUpdate, TrackingMode};
+use super::memtrie_update::{MemTrieUpdate, TrackingMode, construct_root_from_changes};
 use super::node::{MemTrieNodeId, MemTrieNodePtr};
 
 /// `MemTries` (logically) owns the memory of multiple tries.
@@ -225,15 +225,15 @@ impl MemTries {
 #[cfg(test)]
 mod tests {
     use super::MemTries;
+    use crate::NibbleSlice;
     use crate::trie::mem::arena::Arena;
     use crate::trie::mem::node::{InputMemTrieNode, MemTrieNodeId};
-    use crate::NibbleSlice;
     use near_primitives::hash::CryptoHash;
     use near_primitives::shard_layout::ShardUId;
     use near_primitives::state::FlatStateValue;
     use near_primitives::types::BlockHeight;
-    use rand::seq::SliceRandom;
     use rand::Rng;
+    use rand::seq::SliceRandom;
 
     #[test]
     fn test_refcount() {

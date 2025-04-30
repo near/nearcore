@@ -1,6 +1,6 @@
 use actix::Actor;
-pub use futures::future::BoxFuture; // pub for macros
 use futures::FutureExt;
+pub use futures::future::BoxFuture; // pub for macros
 use near_time::Duration;
 use std::ops::DerefMut;
 use std::sync::Arc;
@@ -159,7 +159,7 @@ where
         near_performance_metrics::actix::run_later(
             self,
             dur.max(Duration::ZERO).unsigned_abs(),
-            move |obj, ctx| f(obj.deref_mut(), ctx),
+            move |obj, ctx| f(&mut *obj, ctx),
         );
     }
 }

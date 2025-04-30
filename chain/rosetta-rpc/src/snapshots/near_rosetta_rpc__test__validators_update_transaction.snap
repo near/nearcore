@@ -1,0 +1,75 @@
+---
+source: chain/rosetta-rpc/src/test.rs
+assertion_line: 123
+expression: validators_update_transaction
+snapshot_kind: text
+---
+Transaction {
+    transaction_identifier: TransactionIdentifier {
+        hash: "block-validators-update:11111111111111111111111111111111",
+    },
+    operations: [
+        Operation {
+            operation_identifier: OperationIdentifier {
+                index: 0,
+                network_index: None,
+            },
+            related_operations: None,
+            type_: Transfer,
+            status: Some(
+                Success,
+            ),
+            account: AccountIdentifier {
+                address: AccountId(
+                    "nfvalidator1.near",
+                ),
+                sub_account: None,
+                metadata: None,
+            },
+            amount: Some(
+                Amount {
+                    value: SignedDiff(1000000000000000000),
+                    currency: Currency {
+                        symbol: "NEAR",
+                        decimals: 24,
+                        metadata: None,
+                    },
+                },
+            ),
+            metadata: None,
+        },
+        Operation {
+            operation_identifier: OperationIdentifier {
+                index: 1,
+                network_index: None,
+            },
+            related_operations: None,
+            type_: Transfer,
+            status: Some(
+                Success,
+            ),
+            account: AccountIdentifier {
+                address: AccountId(
+                    "nfvalidator2.near",
+                ),
+                sub_account: None,
+                metadata: None,
+            },
+            amount: Some(
+                Amount {
+                    value: SignedDiff(1000000000000000000),
+                    currency: Currency {
+                        symbol: "NEAR",
+                        decimals: 24,
+                        metadata: None,
+                    },
+                },
+            ),
+            metadata: None,
+        },
+    ],
+    related_transactions: [],
+    metadata: TransactionMetadata {
+        type_: Transaction,
+    },
+}

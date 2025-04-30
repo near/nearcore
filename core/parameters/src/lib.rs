@@ -11,8 +11,8 @@ pub mod vm;
 pub use config::{AccountCreationConfig, RuntimeConfig};
 pub use config_store::RuntimeConfigStore;
 pub use cost::{
-    transfer_exec_fee, transfer_send_fee, ActionCosts, ExtCosts, ExtCostsConfig, Fee,
-    ParameterCost, RuntimeFeesConfig, StorageUsageConfig,
+    ActionCosts, ExtCosts, ExtCostsConfig, Fee, ParameterCost, RuntimeFeesConfig,
+    StorageUsageConfig, transfer_exec_fee, transfer_send_fee,
 };
 pub use parameter::Parameter;
 pub use view::{RuntimeConfigView, RuntimeFeesConfigView};

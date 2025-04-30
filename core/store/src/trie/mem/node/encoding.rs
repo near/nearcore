@@ -1,10 +1,10 @@
 use super::{InputMemTrieNode, MemTrieNodeId, MemTrieNodePtr, MemTrieNodeView};
 use crate::trie::mem::arena::{ArenaMemory, ArenaMemoryMut, ArenaMut, ArenaPos, ArenaWithDealloc};
+use crate::trie::mem::flexible_data::FlexibleDataHeader;
 use crate::trie::mem::flexible_data::children::EncodedChildrenHeader;
 use crate::trie::mem::flexible_data::encoding::{BorshFixedSize, RawDecoder, RawEncoder};
 use crate::trie::mem::flexible_data::extension::EncodedExtensionHeader;
 use crate::trie::mem::flexible_data::value::EncodedValueHeader;
-use crate::trie::mem::flexible_data::FlexibleDataHeader;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives::hash::CryptoHash;
 use std::mem::size_of;
@@ -263,7 +263,7 @@ impl MemTrieNodeId {
             }
             let alloc_size = node_ptr.size_of_allocation();
             arena.dealloc(self.pos, alloc_size);
-            for child in children_to_unref.iter() {
+            for child in &children_to_unref {
                 MemTrieNodeId { pos: *child }.remove_ref(arena);
             }
         }

@@ -5,9 +5,10 @@ use borsh::BorshDeserialize;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{Receipt, ReceiptEnum};
 use near_primitives::transaction::{Action, ExecutionOutcomeWithProof};
-use near_primitives::trie_key::trie_key_parsers::parse_account_id_from_contract_code_key;
 use near_primitives::trie_key::TrieKey;
+use near_primitives::trie_key::trie_key_parsers::parse_account_id_from_contract_code_key;
 use near_primitives::types::AccountId;
+use near_store::trie::AccessOptions;
 use near_store::trie::ops::iter::TrieTraversalItem;
 use near_store::{DBCol, NibbleSlice, StorageError, Store, Trie};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
@@ -177,7 +178,7 @@ impl ContractAccount {
     ) -> Result<Self> {
         let code = if filter.code_size {
             Some(
-                trie.retrieve_value(&value_hash)
+                trie.retrieve_value(&value_hash, AccessOptions::DEFAULT)
                     .map_err(|err| ContractAccountError::NoCode(err, account_id.clone()))?,
             )
         } else {
@@ -502,8 +503,8 @@ mod tests {
     use near_primitives::trie_key::TrieKey;
     use near_primitives::types::AccountId;
     use near_store::test_utils::{
-        create_test_store, test_populate_store, test_populate_store_rc, test_populate_trie,
-        TestTriesBuilder,
+        TestTriesBuilder, create_test_store, test_populate_store, test_populate_store_rc,
+        test_populate_trie,
     };
     use near_store::{DBCol, ShardUId, Store, Trie};
     use std::fmt::Write;

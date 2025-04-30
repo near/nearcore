@@ -14,12 +14,13 @@ use near_network::types::{
     HighestHeightPeerInfo, NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest,
 };
 use near_performance_metrics_macros::perf;
-use near_primitives::block::{Approval, ApprovalInner};
+use near_primitives::block::{Approval, ApprovalInner, compute_bp_hash_from_validator_stakes};
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::epoch_info::EpochInfo;
 use near_primitives::epoch_sync::{
     CompressedEpochSyncProof, EpochSyncProof, EpochSyncProofCurrentEpochData,
     EpochSyncProofEpochData, EpochSyncProofLastEpochData, EpochSyncProofV1,
+    should_use_versioned_bp_hash_format,
 };
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
@@ -27,10 +28,9 @@ use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
     AccountId, ApprovalStake, Balance, BlockHeight, BlockHeightDelta, EpochId,
 };
-use near_primitives::utils::{compression::CompressedData, index_to_bytes};
-use near_primitives::version::ProtocolFeature;
-use near_store::adapter::StoreAdapter;
-use near_store::{DBCol, Store};
+use near_primitives::utils::compression::CompressedData;
+use near_store::Store;
+use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use rand::seq::SliceRandom;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use std::collections::{HashMap, HashSet};
@@ -118,7 +118,10 @@ impl EpochSync {
         let (proof, _) = match CompressedEpochSyncProof::encode(&proof?) {
             Ok(proof) => proof,
             Err(err) => {
-                return Err(Error::Other(format!("Failed to compress epoch sync proof: {:?}", err)))
+                return Err(Error::Other(format!(
+                    "Failed to compress epoch sync proof: {:?}",
+                    err
+                )));
             }
         };
         metrics::EPOCH_SYNC_LAST_GENERATED_COMPRESSED_PROOF_SIZE.set(proof.size_bytes() as i64);
@@ -386,11 +389,12 @@ impl EpochSync {
                         &this_epoch_block_producers,
                         &next_epoch_block_producers,
                     );
+                let use_versioned_bp_hash_format =
+                    should_use_versioned_bp_hash_format(prev_epoch_info.protocol_version());
 
                 Ok(EpochSyncProofEpochData {
                     block_producers: Self::get_epoch_info_block_producers(epoch_info),
-                    use_versioned_bp_hash_format: ProtocolFeature::BlockHeaderV3
-                        .enabled(prev_epoch_info.protocol_version()),
+                    use_versioned_bp_hash_format,
                     last_final_block_header,
                     this_epoch_endorsements_for_last_final_block:
                         approvals_for_this_epoch_block_producers,
@@ -572,34 +576,37 @@ impl EpochSync {
 
         self.verify_proof(&proof, epoch_manager)?;
 
-        let mut store_update = chain.chain_store.store().store_update();
+        let store = chain.chain_store.store();
+        let mut store_update = store.store_update();
 
         // Store the EpochSyncProof, so that this node can derive a more recent EpochSyncProof
         // to facilitate epoch sync of other nodes.
         let proof = EpochSyncProof::V1(proof); // convert to avoid cloning
-        store_update.set_ser(DBCol::EpochSyncProof, &[], &proof)?;
+        store_update.epoch_store_update().set_epoch_sync_proof(&proof);
         let proof = proof.into_v1();
 
         let last_header = proof.current_epoch.first_block_header_in_epoch;
-        let mut update = chain.mut_chain_store().store_update();
-        update.save_block_header_no_update_tree(last_header.clone())?;
-        update.save_block_header_no_update_tree(
-            proof.current_epoch.last_block_header_in_prev_epoch,
-        )?;
-        update.save_block_header_no_update_tree(
-            proof.current_epoch.second_last_block_header_in_prev_epoch.clone(),
-        )?;
-        update.save_block_header_no_update_tree(
-            proof
-                .all_epochs
-                .get(proof.all_epochs.len() - 2)
-                .unwrap()
-                .last_final_block_header
-                .clone(),
-        )?;
-        update.force_save_header_head(&Tip::from_header(&last_header))?;
-        update.save_final_head(&Tip::from_header(&self.genesis))?;
 
+        // Save blocks and headers to the store.
+        // Set the header head and final head.
+        let mut chain_store_update = store.chain_store().store_update();
+
+        for block_header in [
+            &last_header,
+            &proof.current_epoch.last_block_header_in_prev_epoch,
+            &proof.current_epoch.second_last_block_header_in_prev_epoch,
+            &proof.all_epochs.get(proof.all_epochs.len() - 2).unwrap().last_final_block_header,
+        ] {
+            chain_store_update.set_block_header_only(block_header);
+            chain_store_update.update_block_header_hashes_by_height(block_header);
+        }
+
+        chain_store_update.set_header_head(&Tip::from_header(&last_header));
+        chain_store_update.set_final_head(&Tip::from_header(&self.genesis));
+
+        chain_store_update.commit()?;
+
+        // Initialize the epoch manager with the last epoch.
         epoch_manager.init_after_epoch_sync(
             &mut store_update,
             proof.last_epoch.first_block_in_epoch,
@@ -613,44 +620,32 @@ impl EpochSync {
             proof.last_epoch.next_next_epoch_info,
         )?;
 
-        // At this point `update` contains headers of 3 last blocks of last past epoch
+        // At this point store contains headers of 3 last blocks of last past epoch
         // and header of the first block of current epoch.
         // At least the third last block of last past epoch is final.
-        // It means that `update` contains header of last final block of the first block of current epoch.
+        // It means that store contains header of last final block of the first block of current epoch.
         let last_header_last_finalized_height =
-            update.get_block_header(last_header.last_final_block())?.height();
+            store.chain_store().get_block_header(last_header.last_final_block())?.height();
         let mut first_block_info_in_epoch =
             BlockInfo::from_header(&last_header, last_header_last_finalized_height);
         // We need to populate fields below manually, as they are set to defaults by `BlockInfo::from_header`.
         *first_block_info_in_epoch.epoch_first_block_mut() = *last_header.hash();
         *first_block_info_in_epoch.epoch_id_mut() = *last_header.epoch_id();
 
-        store_update.insert_ser(
-            DBCol::BlockInfo,
-            &borsh::to_vec(first_block_info_in_epoch.hash()).unwrap(),
-            &first_block_info_in_epoch,
-        )?;
-
-        store_update.set_ser(
-            DBCol::BlockOrdinal,
-            &index_to_bytes(proof.current_epoch.partial_merkle_tree_for_first_block.size()),
+        store_update.epoch_store_update().set_block_info(&first_block_info_in_epoch);
+        store_update.chain_store_update().set_block_ordinal(
+            proof.current_epoch.partial_merkle_tree_for_first_block.size(),
             last_header.hash(),
-        )?;
-
-        store_update.set_ser(
-            DBCol::BlockHeight,
-            &borsh::to_vec(&last_header.height()).unwrap(),
+        );
+        store_update
+            .chain_store_update()
+            .set_block_height(last_header.hash(), last_header.height());
+        store_update.chain_store_update().set_block_merkle_tree(
             last_header.hash(),
-        )?;
-
-        store_update.set_ser(
-            DBCol::BlockMerkleTree,
-            last_header.hash().as_bytes(),
             &proof.current_epoch.partial_merkle_tree_for_first_block,
-        )?;
+        );
 
-        update.merge(store_update);
-        update.commit()?;
+        store_update.commit()?;
 
         *status = SyncStatus::EpochSyncDone;
         tracing::info!(epoch_id=?last_header.epoch_id(), "Bootstrapped from epoch sync");
@@ -800,6 +795,7 @@ impl EpochSync {
 
         Ok(())
     }
+
     /// Verifies that EpochSyncProofPastEpochData's block_producers is valid,
     /// returning true if it is.
     fn verify_block_producer_handoff(
@@ -807,10 +803,8 @@ impl EpochSync {
         use_versioned_bp_hash_format: bool,
         prev_epoch_next_bp_hash: &CryptoHash,
     ) -> Result<bool, Error> {
-        let bp_hash = Chain::compute_bp_hash_from_validator_stakes(
-            block_producers,
-            use_versioned_bp_hash_format,
-        )?;
+        let bp_hash =
+            compute_bp_hash_from_validator_stakes(block_producers, use_versioned_bp_hash_format);
         Ok(bp_hash == *prev_epoch_next_bp_hash)
     }
 

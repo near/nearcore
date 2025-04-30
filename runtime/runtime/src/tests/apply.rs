@@ -1,12 +1,12 @@
-use super::{to_yocto, GAS_PRICE};
+use super::{GAS_PRICE, to_yocto};
 use crate::config::safe_add_gas;
 use crate::congestion_control::{compute_receipt_congestion_gas, compute_receipt_size};
 use crate::tests::{
-    create_receipt_for_create_account, create_receipt_with_actions, set_sha256_cost,
-    MAX_ATTACHED_GAS,
+    MAX_ATTACHED_GAS, create_receipt_for_create_account, create_receipt_with_actions,
+    set_sha256_cost,
 };
-use crate::{total_prepaid_exec_fees, SignedValidPeriodTransactions};
 use crate::{ApplyResult, ApplyState, Runtime, ValidatorAccountsUpdate};
+use crate::{SignedValidPeriodTransactions, total_prepaid_exec_fees};
 use assert_matches::assert_matches;
 use near_crypto::{InMemorySigner, KeyType, PublicKey, Signer};
 use near_o11y::testonly::init_test_logger;
@@ -20,31 +20,31 @@ use near_primitives::congestion_info::{
     BlockCongestionInfo, CongestionControl, CongestionInfo, ExtendedCongestionInfo,
 };
 use near_primitives::errors::{ActionErrorKind, FunctionCallError, TxExecutionError};
-use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum, ReceiptPriority, ReceiptV0};
-use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::state::PartialState;
 use near_primitives::stateless_validation::contract_distribution::CodeHash;
-use near_primitives::test_utils::{account_new, MockEpochInfoProvider};
+use near_primitives::test_utils::{MockEpochInfoProvider, account_new};
 use near_primitives::transaction::{
     AddKeyAction, DeleteKeyAction, DeployContractAction, ExecutionOutcomeWithId, ExecutionStatus,
-    FunctionCallAction, SignedTransaction, TransferAction,
+    FunctionCallAction, SignedTransaction, TransferAction, ValidatedTransaction,
 };
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{
     AccountId, Balance, EpochId, EpochInfoProvider, Gas, MerkleHash, ShardId, StateChangeCause,
 };
 use near_primitives::utils::create_receipt_id_from_transaction;
-use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_store::test_utils::TestTriesBuilder;
+use near_store::trie::AccessOptions;
 use near_store::trie::receipts_column_helper::ShardsOutgoingReceiptBuffer;
 use near_store::{
-    get_account, set_access_key, set_account, MissingTrieValueContext, ShardTries, StorageError,
-    Trie,
+    MissingTrieValueContext, ShardTries, StorageError, Trie, get_account, set_access_key,
+    set_account,
 };
 use near_vm_runner::{ContractCode, FilesystemContractRuntimeCache};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::sync::Arc;
 use testlib::runtime_utils::{alice_account, bob_account};
 
@@ -61,8 +61,41 @@ fn setup_runtime(
     let epoch_info_provider = MockEpochInfoProvider::default();
     let shard_layout = epoch_info_provider.shard_layout(&EpochId::default()).unwrap();
     let shard_uid = shard_layout.shard_uids().next().unwrap();
+
+    let accounts_with_keys = initial_accounts
+        .into_iter()
+        .map(|account_id| {
+            let signer = Arc::new(InMemorySigner::test_signer(&account_id));
+            (account_id, vec![signer])
+        })
+        .collect::<Vec<_>>();
+
     let (runtime, tries, state_root, apply_state, signers) = setup_runtime_for_shard(
-        initial_accounts,
+        accounts_with_keys,
+        initial_balance,
+        initial_locked,
+        gas_limit,
+        shard_uid,
+        &shard_layout,
+    );
+
+    (runtime, tries, state_root, apply_state, signers, epoch_info_provider)
+}
+
+/// Same general idea as `setup_runtime`, but you can pass multiple keys
+/// for each account.
+fn setup_runtime_with_keys(
+    accounts_with_keys: Vec<(AccountId, Vec<Arc<Signer>>)>,
+    initial_balance: Balance,
+    initial_locked: Balance,
+    gas_limit: Gas,
+) -> (Runtime, ShardTries, CryptoHash, ApplyState, Vec<Arc<Signer>>, impl EpochInfoProvider) {
+    let epoch_info_provider = MockEpochInfoProvider::default();
+    let shard_layout = epoch_info_provider.shard_layout(&EpochId::default()).unwrap();
+    let shard_uid = shard_layout.shard_uids().next().unwrap();
+
+    let (runtime, tries, state_root, apply_state, signers) = setup_runtime_for_shard(
+        accounts_with_keys,
         initial_balance,
         initial_locked,
         gas_limit,
@@ -74,7 +107,7 @@ fn setup_runtime(
 }
 
 fn setup_runtime_for_shard(
-    initial_accounts: Vec<AccountId>,
+    accounts_with_keys: Vec<(AccountId, Vec<Arc<Signer>>)>,
     initial_balance: Balance,
     initial_locked: Balance,
     gas_limit: Gas,
@@ -84,35 +117,42 @@ fn setup_runtime_for_shard(
     let tries = TestTriesBuilder::new().build();
     let root = MerkleHash::default();
     let runtime = Runtime::new();
-    let mut signers = vec![];
     let mut initial_state = tries.new_trie_update(shard_uid, root);
-    for account_id in initial_accounts.into_iter() {
-        let signer: Arc<Signer> = Arc::new(InMemorySigner::test_signer(&account_id));
-        let mut initial_account = account_new(initial_balance, CryptoHash::default());
-        // For the account and a full access key
-        initial_account.set_storage_usage(182);
-        initial_account.set_locked(initial_locked);
-        set_account(&mut initial_state, account_id.clone(), &initial_account);
-        set_access_key(
-            &mut initial_state,
-            account_id,
-            signer.public_key(),
-            &AccessKey::full_access(),
-        );
-        signers.push(signer);
-    }
+
+    let signers = accounts_with_keys
+        .into_iter()
+        .flat_map(|(account_id, signers_for_account)| {
+            let mut initial_account = account_new(initial_balance, CryptoHash::default());
+
+            initial_account.set_storage_usage(182);
+            initial_account.set_locked(initial_locked);
+
+            set_account(&mut initial_state, account_id.clone(), &initial_account);
+
+            signers_for_account
+                .into_iter()
+                .map(|signer| {
+                    set_access_key(
+                        &mut initial_state,
+                        account_id.clone(),
+                        signer.public_key(),
+                        &AccessKey::full_access(),
+                    );
+                    signer
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect::<Vec<_>>();
+
     initial_state.commit(StateChangeCause::InitialState);
     let trie_changes = initial_state.finalize().unwrap().trie_changes;
     let mut store_update = tries.store_update();
     let root = tries.apply_all(&trie_changes, shard_uid, &mut store_update);
     store_update.commit().unwrap();
     let contract_cache = FilesystemContractRuntimeCache::test().unwrap();
-    let shards_congestion_info = if ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
-        let shard_ids = shard_layout.shard_ids();
-        shard_ids.map(|shard_id| (shard_id, ExtendedCongestionInfo::default())).collect()
-    } else {
-        [].into()
-    };
+    let shard_ids = shard_layout.shard_ids();
+    let shards_congestion_info =
+        shard_ids.map(|shard_id| (shard_id, ExtendedCongestionInfo::default())).collect();
     let congestion_info = BlockCongestionInfo::new(shards_congestion_info);
     let apply_state = ApplyState {
         apply_reason: ApplyChunkReason::UpdateTrackedShard,
@@ -130,10 +170,9 @@ fn setup_runtime_for_shard(
         config: Arc::new(RuntimeConfig::test()),
         cache: Some(Box::new(contract_cache)),
         is_new_chunk: true,
-        migration_data: Arc::new(MigrationData::default()),
-        migration_flags: MigrationFlags::default(),
         congestion_info,
         bandwidth_requests: BlockBandwidthRequests::empty(),
+        trie_access_tracker_state: Default::default(),
     };
 
     (runtime, tries, root, apply_state, signers)
@@ -169,7 +208,6 @@ fn test_apply_check_balance_validation_rewards() {
         validator_rewards: vec![(alice_account(), reward)].into_iter().collect(),
         last_proposals: Default::default(),
         protocol_treasury_account_id: None,
-        slashing_info: HashMap::default(),
     };
 
     runtime
@@ -370,13 +408,13 @@ fn test_apply_delayed_receipts_adjustable_gas_limit() {
         );
         let expected_queue_length = num_receipts_given - num_receipts_processed;
         println!(
-                "{} processed out of {} given. With limit {} receipts per block. The expected delayed_receipts_count is {}. The delayed_receipts_count is {}.",
-                num_receipts_processed,
-                num_receipts_given,
-                num_receipts_per_block,
-                expected_queue_length,
-                apply_result.delayed_receipts_count,
-            );
+            "{} processed out of {} given. With limit {} receipts per block. The expected delayed_receipts_count is {}. The delayed_receipts_count is {}.",
+            num_receipts_processed,
+            num_receipts_given,
+            num_receipts_per_block,
+            expected_queue_length,
+            apply_result.delayed_receipts_count,
+        );
         assert_eq!(apply_result.delayed_receipts_count, expected_queue_length);
     }
 }
@@ -514,7 +552,7 @@ fn test_apply_delayed_receipts_local_tx() {
             &None,
             &apply_state,
             &receipts[0..2],
-            SignedValidPeriodTransactions::new(&local_transactions[0..4], &[true; 4]),
+            SignedValidPeriodTransactions::new(local_transactions[0..4].to_vec(), vec![true; 4]),
             &epoch_info_provider,
             Default::default(),
         )
@@ -530,22 +568,19 @@ fn test_apply_delayed_receipts_local_tx() {
             local_transactions[3].get_hash(), // tx 3 - the TX is processed, but the receipt is delayed
             create_receipt_id_from_transaction(
                 PROTOCOL_VERSION,
-                &local_transactions[0],
-                &apply_state.prev_block_hash,
+                ValidatedTransaction::new_for_test(local_transactions[0].clone()).to_hash(),
                 &apply_state.block_hash,
                 apply_state.block_height,
             ), // receipt for tx 0
             create_receipt_id_from_transaction(
                 PROTOCOL_VERSION,
-                &local_transactions[1],
-                &apply_state.prev_block_hash,
+                ValidatedTransaction::new_for_test(local_transactions[1].clone()).to_hash(),
                 &apply_state.block_hash,
                 apply_state.block_height,
             ), // receipt for tx 1
             create_receipt_id_from_transaction(
                 PROTOCOL_VERSION,
-                &local_transactions[2],
-                &apply_state.prev_block_hash,
+                ValidatedTransaction::new_for_test(local_transactions[2].clone()).to_hash(),
                 &apply_state.block_hash,
                 apply_state.block_height,
             ), // receipt for tx 2
@@ -563,7 +598,7 @@ fn test_apply_delayed_receipts_local_tx() {
             &None,
             &apply_state,
             &receipts[2..3],
-            SignedValidPeriodTransactions::new(&local_transactions[4..5], &[true]),
+            SignedValidPeriodTransactions::new(local_transactions[4..5].to_vec(), vec![true]),
             &epoch_info_provider,
             Default::default(),
         )
@@ -578,15 +613,13 @@ fn test_apply_delayed_receipts_local_tx() {
             local_transactions[4].get_hash(), // tx 4
             create_receipt_id_from_transaction(
                 PROTOCOL_VERSION,
-                &local_transactions[4],
-                &apply_state.prev_block_hash,
+                ValidatedTransaction::new_for_test(local_transactions[4].clone()).to_hash(),
                 &apply_state.block_hash,
                 apply_state.block_height,
             ), // receipt for tx 4
             create_receipt_id_from_transaction(
                 PROTOCOL_VERSION,
-                &local_transactions[3],
-                &apply_state.prev_block_hash,
+                ValidatedTransaction::new_for_test(local_transactions[3].clone()).to_hash(),
                 &apply_state.block_hash,
                 apply_state.block_height,
             ), // receipt for tx 3
@@ -605,7 +638,7 @@ fn test_apply_delayed_receipts_local_tx() {
             &None,
             &apply_state,
             &receipts[3..4],
-            SignedValidPeriodTransactions::new(&local_transactions[5..9], &[true; 4]),
+            SignedValidPeriodTransactions::new(local_transactions[5..9].to_vec(), vec![true; 4]),
             &epoch_info_provider,
             Default::default(),
         )
@@ -623,22 +656,19 @@ fn test_apply_delayed_receipts_local_tx() {
             local_transactions[8].get_hash(), // tx 8
             create_receipt_id_from_transaction(
                 PROTOCOL_VERSION,
-                &local_transactions[5],
-                &apply_state.prev_block_hash,
+                ValidatedTransaction::new_for_test(local_transactions[5].clone()).to_hash(),
                 &apply_state.block_hash,
                 apply_state.block_height,
             ), // receipt for tx 5
             create_receipt_id_from_transaction(
                 PROTOCOL_VERSION,
-                &local_transactions[6],
-                &apply_state.prev_block_hash,
+                ValidatedTransaction::new_for_test(local_transactions[6].clone()).to_hash(),
                 &apply_state.block_hash,
                 apply_state.block_height,
             ), // receipt for tx 6
             create_receipt_id_from_transaction(
                 PROTOCOL_VERSION,
-                &local_transactions[7],
-                &apply_state.prev_block_hash,
+                ValidatedTransaction::new_for_test(local_transactions[7].clone()).to_hash(),
                 &apply_state.block_hash,
                 apply_state.block_height,
             ), // receipt for tx 7
@@ -672,8 +702,7 @@ fn test_apply_delayed_receipts_local_tx() {
             *receipts[2].receipt_id(), // receipt #2
             create_receipt_id_from_transaction(
                 PROTOCOL_VERSION,
-                &local_transactions[8],
-                &apply_state.prev_block_hash,
+                ValidatedTransaction::new_for_test(local_transactions[8].clone()).to_hash(),
                 &apply_state.block_hash,
                 apply_state.block_height,
             ), // receipt for tx 8
@@ -740,6 +769,61 @@ fn test_apply_deficit_gas_for_transfer() {
     assert_eq!(result.stats.balance.gas_deficit_amount, result.stats.balance.tx_burnt_amount * 9)
 }
 
+/// Apply a transfer receipt that was purchased at a higher gas price than
+/// current, then check that we burn the correct amount.
+#[test]
+fn test_apply_surplus_gas_for_transfer() {
+    let initial_balance = to_yocto(1_000_000);
+    let initial_locked = to_yocto(500_000);
+    let small_transfer = to_yocto(10_000);
+    let gas_limit = 10u64.pow(15);
+    let (runtime, tries, root, apply_state, _, epoch_info_provider) = setup_runtime(
+        vec![alice_account(), bob_account()],
+        initial_balance,
+        initial_locked,
+        gas_limit,
+    );
+    let gas_price = GAS_PRICE * 10;
+
+    let n = 1;
+    let mut receipts = generate_receipts(small_transfer, n);
+    if let ReceiptEnum::Action(action_receipt) = receipts.get_mut(0).unwrap().receipt_mut() {
+        action_receipt.gas_price = gas_price;
+    }
+
+    let result = runtime
+        .apply(
+            tries.get_trie_for_shard(ShardUId::single_shard(), root),
+            &None,
+            &apply_state,
+            &receipts,
+            SignedValidPeriodTransactions::empty(),
+            &epoch_info_provider,
+            Default::default(),
+        )
+        .unwrap();
+    let fees = &apply_state.config.fees;
+    let exec_gas = fees.fee(ActionCosts::new_action_receipt).exec_fee()
+        + fees.fee(ActionCosts::transfer).exec_fee();
+
+    let expected_burnt_amount = if fees.refund_gas_price_changes {
+        Balance::from(exec_gas) * GAS_PRICE
+    } else {
+        Balance::from(exec_gas) * gas_price
+    };
+    let expected_receipts = if fees.refund_gas_price_changes {
+        // refund the surplus
+        1
+    } else {
+        // don't refund the surplus
+        0
+    };
+
+    assert_eq!(result.stats.balance.gas_deficit_amount, 0);
+    assert_eq!(result.stats.balance.tx_burnt_amount, expected_burnt_amount);
+    assert_eq!(result.outgoing_receipts.len(), expected_receipts);
+}
+
 #[test]
 fn test_apply_deficit_gas_for_function_call_covered() {
     let initial_balance = to_yocto(1_000_000);
@@ -780,7 +864,11 @@ fn test_apply_deficit_gas_for_function_call_covered() {
         }),
     })];
     let total_receipt_cost = Balance::from(gas + expected_gas_burnt) * gas_price;
-    let expected_gas_burnt_amount = Balance::from(expected_gas_burnt) * GAS_PRICE;
+    let expected_gas_burnt_amount = if apply_state.config.fees.refund_gas_price_changes {
+        Balance::from(expected_gas_burnt) * GAS_PRICE
+    } else {
+        Balance::from(expected_gas_burnt) * gas_price
+    };
     let expected_refund = total_receipt_cost - expected_gas_burnt_amount;
 
     let result = runtime
@@ -794,8 +882,15 @@ fn test_apply_deficit_gas_for_function_call_covered() {
             Default::default(),
         )
         .unwrap();
-    // We used part of the prepaid gas to paying extra fees.
-    assert_eq!(result.stats.balance.gas_deficit_amount, 0);
+    if apply_state.config.fees.refund_gas_price_changes {
+        // We used part of the prepaid gas to paying extra fees.
+        assert_eq!(result.stats.balance.gas_deficit_amount, 0);
+    } else {
+        assert_eq!(
+            result.stats.balance.gas_deficit_amount,
+            Balance::from(expected_gas_burnt) * (GAS_PRICE - gas_price)
+        );
+    }
     // The refund is less than the received amount.
     match result.outgoing_receipts[0].receipt() {
         ReceiptEnum::Action(ActionReceipt { actions, .. }) => {
@@ -847,8 +942,12 @@ fn test_apply_deficit_gas_for_function_call_partial() {
         }),
     })];
     let total_receipt_cost = Balance::from(gas + expected_gas_burnt) * gas_price;
-    let expected_gas_burnt_amount = Balance::from(expected_gas_burnt) * GAS_PRICE;
-    let expected_deficit = expected_gas_burnt_amount - total_receipt_cost;
+    let expected_deficit = if apply_state.config.fees.refund_gas_price_changes {
+        let expected_gas_burnt_amount = Balance::from(expected_gas_burnt) * GAS_PRICE;
+        expected_gas_burnt_amount - total_receipt_cost
+    } else {
+        Balance::from(expected_gas_burnt) * (GAS_PRICE - gas_price)
+    };
 
     let result = runtime
         .apply(
@@ -863,8 +962,92 @@ fn test_apply_deficit_gas_for_function_call_partial() {
         .unwrap();
     // Used full prepaid gas, but it still not enough to cover deficit.
     assert_eq!(result.stats.balance.gas_deficit_amount, expected_deficit);
-    // Burnt all the fees + all prepaid gas.
-    assert_eq!(result.stats.balance.tx_burnt_amount, total_receipt_cost);
+    if apply_state.config.fees.refund_gas_price_changes {
+        // Burnt all the fees + all prepaid gas.
+        assert_eq!(result.stats.balance.tx_burnt_amount, total_receipt_cost);
+        assert_eq!(result.outgoing_receipts.len(), 0);
+    } else {
+        // The deficit does not affect refunds in this config, hence we expect
+        assert_eq!(result.outcomes.len(), 1, "should only have fn call outcome");
+        assert_eq!(result.outgoing_receipts.len(), 1, "should only have refund receipt");
+        let expected_refund =
+            total_receipt_cost - Balance::from(result.outcomes[0].outcome.gas_burnt) * gas_price;
+        let ReceiptEnum::Action(receipt) = result.outgoing_receipts[0].receipt() else {
+            panic!("expected refund action receipt")
+        };
+        assert_eq!(receipt.actions[0].get_deposit_balance(), expected_refund);
+        assert_eq!(result.stats.balance.tx_burnt_amount, total_receipt_cost - expected_refund);
+    }
+}
+
+#[test]
+fn test_apply_surplus_gas_for_function_call() {
+    let initial_balance = to_yocto(1_000_000);
+    let initial_locked = to_yocto(500_000);
+    let gas_limit = 10u64.pow(15);
+    let (runtime, tries, root, apply_state, _, epoch_info_provider) = setup_runtime(
+        vec![alice_account(), bob_account()],
+        initial_balance,
+        initial_locked,
+        gas_limit,
+    );
+
+    let gas = 2 * 10u64.pow(14);
+    let gas_price = GAS_PRICE * 10;
+    let actions = vec![Action::FunctionCall(Box::new(FunctionCallAction {
+        method_name: "hello".to_string(),
+        args: b"world".to_vec(),
+        gas,
+        deposit: 0,
+    }))];
+
+    let expected_gas_burnt = safe_add_gas(
+        apply_state.config.fees.fee(ActionCosts::new_action_receipt).exec_fee(),
+        total_prepaid_exec_fees(&apply_state.config, &actions, &alice_account()).unwrap(),
+    )
+    .unwrap();
+    let receipts = vec![Receipt::V0(ReceiptV0 {
+        predecessor_id: bob_account(),
+        receiver_id: alice_account(),
+        receipt_id: CryptoHash::default(),
+        receipt: ReceiptEnum::Action(ActionReceipt {
+            signer_id: bob_account(),
+            signer_public_key: PublicKey::empty(KeyType::ED25519),
+            gas_price,
+            output_data_receivers: vec![],
+            input_data_ids: vec![],
+            actions,
+        }),
+    })];
+    let total_receipt_cost = Balance::from(gas + expected_gas_burnt) * gas_price;
+    let expected_gas_burnt_amount = if apply_state.config.fees.refund_gas_price_changes {
+        Balance::from(expected_gas_burnt) * GAS_PRICE
+    } else {
+        Balance::from(expected_gas_burnt) * gas_price
+    };
+    let expected_refund = total_receipt_cost - expected_gas_burnt_amount;
+
+    let result = runtime
+        .apply(
+            tries.get_trie_for_shard(ShardUId::single_shard(), root),
+            &None,
+            &apply_state,
+            &receipts,
+            SignedValidPeriodTransactions::empty(),
+            &epoch_info_provider,
+            Default::default(),
+        )
+        .unwrap();
+    assert_eq!(result.stats.balance.gas_deficit_amount, 0, "expected surplus");
+    // The refund is less than the received amount.
+    match result.outgoing_receipts[0].receipt() {
+        ReceiptEnum::Action(ActionReceipt { actions, .. }) => {
+            assert!(
+                matches!(actions[0], Action::Transfer(TransferAction { deposit }) if deposit == expected_refund)
+            );
+        }
+        _ => unreachable!(),
+    };
 }
 
 #[test]
@@ -951,7 +1134,6 @@ fn test_delete_key_underflow() {
     assert_eq!(final_account_state.storage_usage(), 0);
 }
 
-// This test only works on platforms that support wasmer2.
 #[test]
 #[cfg(target_arch = "x86_64")]
 fn test_contract_precompilation() {
@@ -1227,12 +1409,12 @@ fn test_main_storage_proof_size_soft_limit() {
     let storage = Trie::from_recorded_storage(partial_storage, root, false);
     let code_key = TrieKey::ContractCode { account_id: alice_account() };
     assert_matches!(
-        storage.get(&code_key.to_vec()),
+        storage.get(&code_key.to_vec(), AccessOptions::DEFAULT),
         Err(StorageError::MissingTrieValue(MissingTrieValueContext::TrieMemoryPartialStorage, _))
     );
     let code_key = TrieKey::ContractCode { account_id: bob_account() };
     assert_matches!(
-        storage.get(&code_key.to_vec()),
+        storage.get(&code_key.to_vec(), AccessOptions::DEFAULT),
         Err(StorageError::MissingTrieValue(MissingTrieValueContext::TrieMemoryPartialStorage, _))
     );
 }
@@ -1345,12 +1527,12 @@ fn test_exclude_contract_code_from_witness() {
     let storage = Trie::from_recorded_storage(partial_storage, root, false);
     let code_key = TrieKey::ContractCode { account_id: alice_account() };
     assert_matches!(
-        storage.get(&code_key.to_vec()),
+        storage.get(&code_key.to_vec(), AccessOptions::DEFAULT),
         Err(StorageError::MissingTrieValue(MissingTrieValueContext::TrieMemoryPartialStorage, _))
     );
     let code_key = TrieKey::ContractCode { account_id: bob_account() };
     assert_matches!(
-        storage.get(&code_key.to_vec()),
+        storage.get(&code_key.to_vec(), AccessOptions::DEFAULT),
         Err(StorageError::MissingTrieValue(MissingTrieValueContext::TrieMemoryPartialStorage, _))
     );
 }
@@ -1450,12 +1632,12 @@ fn test_exclude_contract_code_from_witness_with_failed_call() {
     let storage = Trie::from_recorded_storage(partial_storage, root, false);
     let code_key = TrieKey::ContractCode { account_id: alice_account() };
     assert_matches!(
-        storage.get(&code_key.to_vec()),
+        storage.get(&code_key.to_vec(), AccessOptions::DEFAULT),
         Err(StorageError::MissingTrieValue(MissingTrieValueContext::TrieMemoryPartialStorage, _))
     );
     let code_key = TrieKey::ContractCode { account_id: bob_account() };
     assert_matches!(
-        storage.get(&code_key.to_vec()),
+        storage.get(&code_key.to_vec(), AccessOptions::DEFAULT),
         Err(StorageError::MissingTrieValue(MissingTrieValueContext::TrieMemoryPartialStorage, _))
     );
 }
@@ -2397,15 +2579,13 @@ fn test_congestion_delayed_receipts_accounting() {
         .unwrap();
 
     assert_eq!(n - 1, apply_result.delayed_receipts_count);
-    if ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
-        let congestion = apply_result.congestion_info.unwrap();
-        let expected_delayed_gas =
-            (n - 1) * compute_receipt_congestion_gas(&receipts[0], &apply_state.config).unwrap();
-        let expected_receipts_bytes = (n - 1) * compute_receipt_size(&receipts[0]).unwrap() as u64;
+    let congestion = apply_result.congestion_info.unwrap();
+    let expected_delayed_gas =
+        (n - 1) * compute_receipt_congestion_gas(&receipts[0], &apply_state.config).unwrap();
+    let expected_receipts_bytes = (n - 1) * compute_receipt_size(&receipts[0]).unwrap() as u64;
 
-        assert_eq!(expected_delayed_gas as u128, congestion.delayed_receipts_gas());
-        assert_eq!(expected_receipts_bytes, congestion.receipt_bytes());
-    }
+    assert_eq!(expected_delayed_gas as u128, congestion.delayed_receipts_gas());
+    assert_eq!(expected_receipts_bytes, congestion.receipt_bytes());
 }
 
 /// Test that the outgoing receipts buffer works as intended.
@@ -2419,10 +2599,6 @@ fn test_congestion_delayed_receipts_accounting() {
 /// necessary changes to the balance checker.
 #[test]
 fn test_congestion_buffering() {
-    if !ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
-        return;
-    }
-
     init_test_logger();
 
     // In the test setup with MockEpochInfoProvider, bob_account is on shard 0 while alice_account
@@ -2442,8 +2618,17 @@ fn test_congestion_buffering() {
     let deposit = to_yocto(10_000);
     // execute a single receipt per chunk
     let gas_limit = 1;
+
+    let accounts_with_keys = accounts
+        .into_iter()
+        .map(|account| {
+            let signer = Arc::new(InMemorySigner::test_signer(&account));
+            (account, vec![signer])
+        })
+        .collect::<Vec<_>>();
+
     let (runtime, tries, mut root, mut apply_state, _) = setup_runtime_for_shard(
-        accounts,
+        accounts_with_keys,
         initial_balance,
         initial_locked,
         gas_limit,
@@ -2650,9 +2835,6 @@ fn check_congestion_info_bootstrapping(is_new_chunk: bool, want: Option<Congesti
 /// be triggered on missed chunks.)
 #[test]
 fn test_congestion_info_bootstrapping() {
-    if !ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     let is_new_chunk = true;
     check_congestion_info_bootstrapping(is_new_chunk, Some(CongestionInfo::default()));
 
@@ -2700,7 +2882,7 @@ fn test_deploy_and_call_local_receipt() {
             &None,
             &apply_state,
             &[],
-            SignedValidPeriodTransactions::new(&[tx], &[true]),
+            SignedValidPeriodTransactions::new(vec![tx], vec![true]),
             &epoch_info_provider,
             Default::default(),
         )
@@ -2771,7 +2953,7 @@ fn test_deploy_and_call_local_receipts() {
             &None,
             &apply_state,
             &[],
-            SignedValidPeriodTransactions::new(&[tx1, tx2], &[true; 2]),
+            SignedValidPeriodTransactions::new(vec![tx1, tx2], vec![true; 2]),
             &epoch_info_provider,
             Default::default(),
         )
@@ -2791,5 +2973,223 @@ fn test_deploy_and_call_local_receipts() {
     assert_matches!(
         action_error.kind,
         ActionErrorKind::FunctionCallError(FunctionCallError::MethodResolveError(_))
+    );
+}
+
+/// Verifies that valid transactions from multiple accounts are processed in the correct order,
+/// while transactions with an invalid signer are dropped.
+#[test]
+fn test_transaction_ordering_with_apply() {
+    let alice_signer = InMemorySigner::test_signer(&alice_account());
+    let bob_signer = InMemorySigner::test_signer(&bob_account());
+    let alice_invalid_signer = InMemorySigner::from_seed(alice_account(), KeyType::ED25519, "seed");
+
+    // This transaction should be dropped due to invalid signer.
+    let alice_invalid_tx = SignedTransaction::send_money(
+        1,
+        alice_account(),
+        alice_account(),
+        &alice_invalid_signer,
+        100,
+        CryptoHash::default(),
+    );
+    let alice_tx1 = SignedTransaction::send_money(
+        1,
+        alice_account(),
+        alice_account(),
+        &alice_signer,
+        200,
+        CryptoHash::default(),
+    );
+    let alice_tx2 = SignedTransaction::send_money(
+        2,
+        alice_account(),
+        bob_account(),
+        &alice_signer,
+        300,
+        CryptoHash::default(),
+    );
+    let bob_tx1 = SignedTransaction::send_money(
+        1,
+        bob_account(),
+        bob_account(),
+        &bob_signer,
+        400,
+        CryptoHash::default(),
+    );
+    let bob_tx2 = SignedTransaction::send_money(
+        2,
+        bob_account(),
+        alice_account(),
+        &bob_signer,
+        500,
+        CryptoHash::default(),
+    );
+    let bob_tx3 = SignedTransaction::send_money(
+        3,
+        bob_account(),
+        bob_account(),
+        &bob_signer,
+        600,
+        CryptoHash::default(),
+    );
+
+    let txs = vec![
+        bob_tx1.clone(),
+        alice_invalid_tx,
+        alice_tx1.clone(),
+        bob_tx2.clone(),
+        alice_tx2.clone(),
+        bob_tx3.clone(),
+    ];
+
+    let (runtime, tries, root, apply_state, _signers, epoch_info_provider) = setup_runtime(
+        vec![alice_account(), bob_account()],
+        to_yocto(1_000_000),
+        to_yocto(500_000),
+        10u64.pow(15),
+    );
+
+    let validity_flags = vec![true; txs.len()];
+    let signed_valid_period_txs = SignedValidPeriodTransactions::new(txs, validity_flags);
+    let apply_result = runtime
+        .apply(
+            tries.get_trie_for_shard(ShardUId::single_shard(), root),
+            &None,
+            &apply_state,
+            &[],
+            signed_valid_period_txs,
+            &epoch_info_provider,
+            Default::default(),
+        )
+        .expect("apply should succeed");
+
+    let expected_order = vec![
+        bob_tx1.get_hash(),
+        alice_tx1.get_hash(),
+        bob_tx2.get_hash(),
+        alice_tx2.get_hash(),
+        bob_tx3.get_hash(),
+    ];
+
+    // Note: The 3 local receipts are generated for valid transactions
+    // where signer_id == receiver_id - tx2, tx4, tx6 (not for tx1 as it is dropped).
+    assert_eq!(
+        apply_result.outcomes.len(),
+        8,
+        "should have processed 5 transactions and 3 local receipts"
+    );
+    let tx_outcomes = apply_result.outcomes.iter().take(5).map(|o| o.id).collect::<Vec<_>>();
+    assert_eq!(tx_outcomes, expected_order, "outcomes are not in expected sorted order");
+}
+
+/// Verifies proper ordering and balance update for transactions signed with multiple keys from one account.
+/// Alice is set up with 3 full-access keys.
+/// Six transactions from Alice to Bob are submitted using various nonces and keys.
+/// The test checks that outcomes are correctly ordered and Alice's final balance is within the expected range.
+#[test]
+fn test_transaction_multiple_access_keys_with_apply() {
+    let alice_signer1 = InMemorySigner::from_seed(alice_account(), KeyType::ED25519, "seed1");
+    let alice_signer2 = InMemorySigner::from_seed(alice_account(), KeyType::ED25519, "seed2");
+    let alice_signer3 = InMemorySigner::from_seed(alice_account(), KeyType::ED25519, "seed3");
+
+    let send_money_tx = |nonce, key| {
+        SignedTransaction::send_money(
+            nonce,
+            alice_account(),
+            bob_account(),
+            key,
+            to_yocto(1000),
+            CryptoHash::default(),
+        )
+    };
+
+    let txs = vec![
+        send_money_tx(1, &alice_signer1),
+        send_money_tx(1, &alice_signer2),
+        send_money_tx(1, &alice_signer3),
+        send_money_tx(2, &alice_signer3),
+        send_money_tx(2, &alice_signer1),
+        send_money_tx(3, &alice_signer1),
+    ];
+
+    let accounts_with_keys = vec![
+        (
+            alice_account(),
+            vec![Arc::new(alice_signer1), Arc::new(alice_signer2), Arc::new(alice_signer3)],
+        ),
+        (bob_account(), vec![]),
+    ];
+
+    let (runtime, tries, root, mut apply_state, _signers, epoch_info_provider) =
+        setup_runtime_with_keys(
+            accounts_with_keys,
+            to_yocto(1_000_000),
+            to_yocto(500_000),
+            10u64.pow(15),
+        );
+
+    let validity_flags = vec![true; txs.len()];
+    let signed_valid_period_txs = SignedValidPeriodTransactions::new(txs.clone(), validity_flags);
+    let apply_result = runtime
+        .apply(
+            tries.get_trie_for_shard(ShardUId::single_shard(), root),
+            &None,
+            &apply_state,
+            &[],
+            signed_valid_period_txs,
+            &epoch_info_provider,
+            Default::default(),
+        )
+        .expect("apply should succeed");
+
+    let expected_order = txs.iter().map(|tx| tx.get_hash()).collect::<Vec<_>>();
+
+    assert_eq!(apply_result.outcomes.len(), txs.len(), "should have processed 6 transactions");
+    let tx_outcomes = apply_result.outcomes.iter().map(|o| o.id).collect::<Vec<_>>();
+    assert_eq!(tx_outcomes, expected_order, "outcomes are not in expected sorted order");
+
+    let shard_uid = ShardUId::single_shard();
+    let root = commit_apply_result(&apply_result, &mut apply_state, &tries, shard_uid);
+    let state = tries.new_trie_update(shard_uid, root);
+    let account = get_account(&state, &alice_account()).unwrap().unwrap();
+
+    assert!(account.amount() < to_yocto(994_000));
+    assert!(account.amount() > to_yocto(993_000));
+}
+
+#[test]
+fn test_expired_transaction() {
+    let alice_signer = InMemorySigner::test_signer(&alice_account());
+    let expired_tx = vec![SignedTransaction::send_money(
+        1,
+        alice_account(),
+        alice_account(),
+        &alice_signer,
+        1,
+        CryptoHash::default(),
+    )];
+    let (runtime, tries, root, apply_state, _signers, epoch_info_provider) = setup_runtime(
+        vec![alice_account(), bob_account()],
+        to_yocto(1_000_000),
+        to_yocto(500_000),
+        10u64.pow(15),
+    );
+    let signed_valid_period_txs = SignedValidPeriodTransactions::new(expired_tx, vec![false]);
+    let apply_result = runtime
+        .apply(
+            tries.get_trie_for_shard(ShardUId::single_shard(), root),
+            &None,
+            &apply_state,
+            &[],
+            signed_valid_period_txs,
+            &epoch_info_provider,
+            Default::default(),
+        )
+        .expect("apply should succeed");
+    assert_eq!(
+        apply_result.outcomes.len(),
+        0,
+        "should have not produced any outcomes for the expired tx"
     );
 }

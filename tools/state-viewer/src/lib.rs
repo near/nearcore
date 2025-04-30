@@ -19,4 +19,9 @@ mod trie_iteration_benchmark;
 mod tx_dump;
 pub mod util;
 
+pub use apply_chain_range::apply_chain_range;
+pub use apply_chunk::apply_chunk as apply_chunk_fn;
+pub use apply_chunk::apply_receipt;
+pub use apply_chunk::apply_tx;
 pub use cli::StateViewerSubCommand;
+pub use state_dump::state_dump;

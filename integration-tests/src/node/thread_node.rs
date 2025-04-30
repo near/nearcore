@@ -5,11 +5,11 @@ use near_actix_test_utils::ShutdownableThread;
 use near_chain_configs::Genesis;
 use near_crypto::{InMemorySigner, Signer};
 use near_primitives::types::AccountId;
-use nearcore::{start_with_config, NearConfig};
+use nearcore::{NearConfig, start_with_config};
 
 use crate::node::Node;
-use crate::user::rpc_user::RpcUser;
 use crate::user::User;
+use crate::user::rpc_user::RpcUser;
 
 pub enum ThreadNodeState {
     Stopped,

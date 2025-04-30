@@ -147,11 +147,7 @@ impl GlobalFrameInfo {
     /// Gets a module given a pc
     fn module_info(&self, pc: usize) -> Option<&ModuleInfoFrameInfo> {
         let (end, module_info) = self.ranges.range(pc..).next()?;
-        if module_info.start <= pc && pc <= *end {
-            Some(module_info)
-        } else {
-            None
-        }
+        if module_info.start <= pc && pc <= *end { Some(module_info) } else { None }
     }
 }
 
@@ -189,7 +185,7 @@ impl FrameInfo {
         self.func_index
     }
 
-    /// Returns the identifer of the module that this frame is for.
+    /// Returns the identifier of the module that this frame is for.
     ///
     /// ModuleInfo identifiers are present in the `name` section of a WebAssembly
     /// binary, but this may not return the exact item in the `name` section.

@@ -1,5 +1,4 @@
-use std::collections::{BTreeMap, HashMap, HashSet};
-use std::sync::Arc;
+use std::collections::{HashMap, HashSet};
 
 use near_crypto::PublicKey;
 use near_primitives::account::{AccessKey, Account, AccountContract};
@@ -13,11 +12,11 @@ use near_primitives::types::{
 };
 use near_primitives::utils::from_timestamp;
 use near_primitives::version::PROTOCOL_VERSION;
-use near_time::{Clock, FakeClock};
+use near_time::Clock;
 use num_rational::Rational32;
 
 use crate::{
-    Genesis, GenesisConfig, GenesisContents, GenesisRecords, FISHERMEN_THRESHOLD,
+    FISHERMEN_THRESHOLD, Genesis, GenesisConfig, GenesisContents, GenesisRecords,
     PROTOCOL_UPGRADE_STAKE_THRESHOLD,
 };
 
@@ -46,9 +45,7 @@ pub struct TestEpochConfigBuilder {
 
     // not used any more
     num_block_producer_seats_per_shard: Vec<NumSeats>,
-    // TODO (#11267): deprecate after StatelessValidationV0 is in place.
-    // Use 300 for older protocol versions.
-    num_chunk_only_producer_seats: NumSeats,
+    genesis_protocol_version: Option<ProtocolVersion>,
 }
 
 /// A builder for constructing a valid genesis for testing.
@@ -87,7 +84,6 @@ pub struct TestGenesisBuilder {
     num_blocks_per_year: NumBlocks,
     protocol_reward_rate: Rational32,
     max_kickout_stake_perc: u8,
-    num_chunk_only_producer_seats: NumSeats,
     minimum_stake_divisor: u64,
     protocol_upgrade_stake_threshold: Rational32,
     chunk_producer_assignment_changes_limit: NumSeats,
@@ -143,7 +139,7 @@ impl Default for TestEpochConfigBuilder {
             shuffle_shard_assignment_for_chunk_producers: false,
             // consider them ineffective
             num_block_producer_seats_per_shard: vec![1],
-            num_chunk_only_producer_seats: 300,
+            genesis_protocol_version: None,
         }
     }
 }
@@ -151,6 +147,21 @@ impl Default for TestEpochConfigBuilder {
 impl TestEpochConfigBuilder {
     pub fn new() -> Self {
         Default::default()
+    }
+
+    pub fn from_genesis(genesis: &Genesis) -> Self {
+        let mut builder = Self::new();
+        builder.epoch_length = genesis.config.epoch_length;
+        builder.shard_layout = genesis.config.shard_layout.clone();
+        builder.num_block_producer_seats = genesis.config.num_block_producer_seats;
+        builder.num_chunk_producer_seats = genesis.config.num_chunk_producer_seats;
+        builder.num_chunk_validator_seats = genesis.config.num_chunk_validator_seats;
+        builder.genesis_protocol_version = Some(genesis.config.protocol_version);
+        builder
+    }
+
+    pub fn build_store_from_genesis(genesis: &Genesis) -> EpochConfigStore {
+        Self::from_genesis(genesis).build_store_for_genesis_protocol_version()
     }
 
     pub fn epoch_length(mut self, epoch_length: BlockHeightDelta) -> Self {
@@ -222,6 +233,7 @@ impl TestEpochConfigBuilder {
             num_block_producer_seats: self.num_block_producer_seats,
             num_chunk_producer_seats: self.num_chunk_producer_seats,
             num_chunk_validator_seats: self.num_chunk_validator_seats,
+            num_chunk_only_producer_seats: 300,
             target_validator_mandates_per_shard: self.target_validator_mandates_per_shard,
             avg_hidden_validator_seats_per_shard: self.avg_hidden_validator_seats_per_shard,
             minimum_validators_per_shard: self.minimum_validators_per_shard,
@@ -239,10 +251,18 @@ impl TestEpochConfigBuilder {
             shuffle_shard_assignment_for_chunk_producers: self
                 .shuffle_shard_assignment_for_chunk_producers,
             num_block_producer_seats_per_shard: self.num_block_producer_seats_per_shard,
-            num_chunk_only_producer_seats: self.num_chunk_only_producer_seats,
         };
         tracing::debug!("Epoch config: {:#?}", epoch_config);
         epoch_config
+    }
+
+    /// Creates `EpochConfigStore` instance with single protocol version from genesis.
+    /// This should be used only when the builder is created with `from_genesis` constructor.
+    pub fn build_store_for_genesis_protocol_version(self) -> EpochConfigStore {
+        let protocol_version =
+            self.genesis_protocol_version.expect("genesis protocol version is not specified");
+        let epoch_config = self.build();
+        EpochConfigStore::test_single_version(protocol_version, epoch_config)
     }
 }
 
@@ -277,7 +297,6 @@ impl Default for TestGenesisBuilder {
             num_blocks_per_year: 86400,
             protocol_reward_rate: Rational32::new(0, 1),
             max_kickout_stake_perc: 100,
-            num_chunk_only_producer_seats: 0,
             minimum_stake_divisor: 10,
             protocol_upgrade_stake_threshold: Rational32::new(8, 10),
             chunk_producer_assignment_changes_limit: 5,
@@ -356,6 +375,11 @@ impl TestGenesisBuilder {
         self
     }
 
+    pub fn protocol_reward_rate(mut self, protocol_reward_rate: Rational32) -> Self {
+        self.protocol_reward_rate = protocol_reward_rate;
+        self
+    }
+
     /// Specifies the protocol treasury account. If not specified, this will
     /// pick an arbitrary account name and ensure that it is included in the
     /// genesis records.
@@ -379,7 +403,7 @@ impl TestGenesisBuilder {
 
     pub fn add_user_accounts_simple(
         mut self,
-        accounts: &Vec<AccountId>,
+        accounts: &[AccountId],
         initial_balance: Balance,
     ) -> Self {
         for account_id in accounts {
@@ -496,7 +520,6 @@ impl TestGenesisBuilder {
                 .shard_ids()
                 .map(|_| num_block_producer_seats)
                 .collect(),
-            num_chunk_only_producer_seats: self.num_chunk_only_producer_seats,
             minimum_stake_divisor: self.minimum_stake_divisor,
             max_inflation_rate: self.max_inflation_rate,
             protocol_upgrade_stake_threshold: self.protocol_upgrade_stake_threshold,
@@ -525,9 +548,9 @@ impl ValidatorsSpec {
         ValidatorsSpec::DesiredRoles {
             block_and_chunk_producers: block_and_chunk_producers
                 .iter()
-                .map(|s| s.to_string())
+                .map(|s| (*s).to_string())
                 .collect(),
-            chunk_validators_only: chunk_validators_only.iter().map(|s| s.to_string()).collect(),
+            chunk_validators_only: chunk_validators_only.iter().map(|s| (*s).to_string()).collect(),
         }
     }
 
@@ -606,86 +629,4 @@ fn derive_validator_setup(specs: ValidatorsSpec) -> DerivedValidatorSetup {
             num_chunk_validator_seats,
         },
     }
-}
-
-pub struct GenesisAndEpochConfigParams<'a> {
-    pub epoch_length: BlockHeightDelta,
-    pub protocol_version: ProtocolVersion,
-    pub shard_layout: ShardLayout,
-    pub validators_spec: ValidatorsSpec,
-    pub accounts: &'a Vec<AccountId>,
-}
-
-/// Handy factory for building test genesis and epoch config store. Use it if it is enough to have
-/// one epoch config for your test. Otherwise, just use builders directly.
-///
-/// ```
-/// use near_chain_configs::test_genesis::build_genesis_and_epoch_config_store;
-/// use near_chain_configs::test_genesis::GenesisAndEpochConfigParams;
-/// use near_chain_configs::test_genesis::ValidatorsSpec;
-/// use near_primitives::shard_layout::ShardLayout;
-/// use near_primitives::test_utils::create_test_signer;
-/// use near_primitives::types::AccountId;
-/// use near_primitives::types::AccountInfo;
-///
-/// const ONE_NEAR: u128 = 1_000_000_000_000_000_000_000_000;
-///
-/// let protocol_version = 73;
-/// let epoch_length = 10;
-/// let accounts = (0..6).map(|i| format!("test{}", i).parse().unwrap()).collect::<Vec<AccountId>>();
-/// let shard_layout = ShardLayout::multi_shard(6, 1);
-/// let validators = vec![
-///     AccountInfo {
-///         account_id: accounts[0].clone(),
-///         public_key: create_test_signer(accounts[0].as_str()).public_key(),
-///         amount: 62500 * ONE_NEAR,
-///     },
-/// ];
-/// let validators_spec = ValidatorsSpec::raw(validators, 3, 3, 3);
-/// let (genesis, epoch_config_store) = build_genesis_and_epoch_config_store(
-///     GenesisAndEpochConfigParams {
-///         protocol_version,
-///         epoch_length,
-///         accounts: &accounts,
-///         shard_layout,
-///         validators_spec,
-///     },
-///     |genesis_builder| genesis_builder.genesis_height(10000).transaction_validity_period(1000),
-///     |epoch_config_builder| epoch_config_builder.shuffle_shard_assignment_for_chunk_producers(true),
-/// );
-/// ```
-pub fn build_genesis_and_epoch_config_store<'a>(
-    params: GenesisAndEpochConfigParams<'a>,
-    customize_genesis_builder: impl FnOnce(TestGenesisBuilder) -> TestGenesisBuilder,
-    customize_epoch_config_builder: impl FnOnce(TestEpochConfigBuilder) -> TestEpochConfigBuilder,
-) -> (Genesis, EpochConfigStore) {
-    let GenesisAndEpochConfigParams {
-        epoch_length,
-        protocol_version,
-        shard_layout,
-        validators_spec,
-        accounts,
-    } = params;
-
-    let genesis_builder = TestGenesisBuilder::new()
-        .genesis_time_from_clock(&FakeClock::default().clock())
-        .protocol_version(protocol_version)
-        .epoch_length(epoch_length)
-        .shard_layout(shard_layout.clone())
-        .validators_spec(validators_spec.clone())
-        .add_user_accounts_simple(accounts, 1_000_000 * ONE_NEAR)
-        .gas_limit_one_petagas();
-    let epoch_config_builder = TestEpochConfigBuilder::new()
-        .epoch_length(epoch_length)
-        .shard_layout(shard_layout)
-        .validators_spec(validators_spec);
-    let genesis_builder = customize_genesis_builder(genesis_builder);
-    let epoch_config_builder = customize_epoch_config_builder(epoch_config_builder);
-
-    let genesis = genesis_builder.build();
-    let epoch_config = epoch_config_builder.build();
-    let epoch_config_store =
-        EpochConfigStore::test(BTreeMap::from([(protocol_version, Arc::new(epoch_config))]));
-
-    (genesis, epoch_config_store)
 }

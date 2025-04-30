@@ -12,11 +12,11 @@ pub use crate::network_protocol::{
 use crate::routing::routing_table_view::RoutingTableInfo;
 pub use crate::state_sync::StateSyncResponse;
 use near_async::messaging::{AsyncSender, Sender};
-use near_async::{time, MultiSend, MultiSendMessage, MultiSenderFrom};
+use near_async::{MultiSend, MultiSendMessage, MultiSenderFrom, time};
 use near_crypto::PublicKey;
-use near_primitives::block::{ApprovalMessage, Block, GenesisId};
-use near_primitives::challenge::Challenge;
+use near_primitives::block::{ApprovalMessage, Block};
 use near_primitives::epoch_sync::CompressedEpochSyncProof;
+use near_primitives::genesis::GenesisId;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::optimistic_block::OptimisticBlock;
@@ -284,8 +284,6 @@ pub enum NetworkRequests {
     ForwardTx(AccountId, SignedTransaction),
     /// Query transaction status
     TxStatus(AccountId, AccountId, CryptoHash),
-    /// A challenge to invalidate a block.
-    Challenge(Challenge),
     /// Acknowledgement to a chunk's state witness, sent back to the originating chunk producer.
     ChunkStateWitnessAck(AccountId, ChunkStateWitnessAck),
     /// Message for a chunk endorsement, sent by a chunk validator to the block producer.
@@ -400,7 +398,7 @@ pub struct ConnectedPeerInfo {
     pub nonce: u64,
 }
 
-#[derive(Debug, Clone, actix::MessageResponse, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, actix::MessageResponse, PartialEq, Eq)]
 pub struct NetworkInfo {
     /// TIER2 connections.
     pub connected_peers: Vec<ConnectedPeerInfo>,

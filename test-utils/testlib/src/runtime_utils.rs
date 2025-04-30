@@ -36,7 +36,7 @@ pub fn add_contract(genesis: &mut Genesis, account_id: &AccountId, code: Vec<u8>
     let hash = hash(&code);
     let records = genesis.force_read_records().as_mut();
     for record in records.iter_mut() {
-        if let StateRecord::Account { account_id: record_account_id, ref mut account } = record {
+        if let StateRecord::Account { account_id: record_account_id, account } = record {
             if record_account_id == account_id {
                 is_account_record_found = true;
                 account.set_contract(AccountContract::Local(hash));

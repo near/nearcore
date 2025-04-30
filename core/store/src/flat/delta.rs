@@ -1,6 +1,6 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 
-use near_primitives::hash::hash;
+use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::state::{FlatStateValue, ValueRef};
 use near_primitives::types::{BlockHeight, RawStateChangesWithTrieKey};
@@ -11,7 +11,6 @@ use std::sync::Arc;
 
 use super::BlockInfo;
 use crate::adapter::flat_store::FlatStoreUpdateAdapter;
-use crate::CryptoHash;
 
 #[derive(Debug)]
 pub struct FlatStateDelta {
@@ -108,7 +107,7 @@ impl FlatStateChanges {
     /// Creates delta using raw state changes for some block.
     pub fn from_state_changes(changes: &[RawStateChangesWithTrieKey]) -> Self {
         let mut delta = HashMap::new();
-        for change in changes.iter() {
+        for change in changes {
             let key = change.trie_key.to_vec();
             // `RawStateChangesWithTrieKey` stores all sequential changes for a key within a chunk, so it is sufficient
             // to take only the last change.
@@ -138,7 +137,7 @@ impl FlatStateChanges {
         store_update: &mut FlatStoreUpdateAdapter,
         shard_uid: ShardUId,
     ) {
-        for (key, value) in self.0.into_iter() {
+        for (key, value) in self.0 {
             store_update.set(shard_uid, key, value);
         }
     }

@@ -15,8 +15,8 @@ use super::state::ModuleTranslationState;
 use crate::wasm_unsupported;
 use crate::{WasmError, WasmResult};
 use core::convert::TryFrom;
-use near_vm_types::entity::packed_option::ReservedValue;
 use near_vm_types::entity::EntityRef;
+use near_vm_types::entity::packed_option::ReservedValue;
 use near_vm_types::{
     DataIndex, ElemIndex, FunctionIndex, FunctionType, GlobalIndex, GlobalInit, GlobalType,
     MemoryIndex, MemoryType, Mutability, Pages, SignatureIndex, TableIndex, TableType, Type, V128,
@@ -285,7 +285,7 @@ fn read_elems(items: &ElementItems) -> WasmResult<Box<[FunctionIndex]>> {
             .collect(),
         ElementItems::Expressions(items) => {
             let mut elems = Vec::with_capacity(usize::try_from(items.count()).unwrap());
-            for item in items.into_iter() {
+            for item in items {
                 let mut reader = item?.get_operators_reader();
                 let op = reader.read()?;
                 let end = reader.read()?;
@@ -370,7 +370,7 @@ pub fn parse_data_section<'data>(
                         return Err(wasm_unsupported!(
                             "unsupported init expr in data section: {:?}",
                             s
-                        ))
+                        ));
                     }
                 };
                 environ.declare_data_initialization(
@@ -427,7 +427,7 @@ fn parse_function_name_subsection(
     naming_reader: NameMap<'_>,
 ) -> Option<HashMap<FunctionIndex, &str>> {
     let mut function_names = HashMap::new();
-    for name in naming_reader.into_iter() {
+    for name in naming_reader {
         let Naming { index, name } = name.ok()?;
         if index == std::u32::MAX {
             // We reserve `u32::MAX` for our own use.

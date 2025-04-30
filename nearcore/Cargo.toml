@@ -20,7 +20,6 @@ awc.workspace = true
 borsh.workspace = true
 bytesize.workspace = true
 chrono.workspace = true
-cloud-storage.workspace = true
 dirs.workspace = true
 easy-ext.workspace = true
 futures.workspace = true
@@ -30,6 +29,7 @@ hyper.workspace = true
 indicatif.workspace = true
 itertools.workspace = true
 num-rational.workspace = true
+object_store.workspace = true
 rand.workspace = true
 rayon.workspace = true
 regex.workspace = true
@@ -69,6 +69,7 @@ near-primitives.workspace = true
 near-rosetta-rpc = { workspace = true, optional = true }
 near-store.workspace = true
 near-telemetry.workspace = true
+near-transactions-generator = { workspace = true, optional = true }
 near-vm-runner.workspace = true
 node-runtime.workspace = true
 near-config-utils.workspace = true
@@ -107,9 +108,6 @@ expensive_tests = [
 ]
 rosetta_rpc = ["near-rosetta-rpc"]
 json_rpc = ["near-jsonrpc", "near-jsonrpc-primitives"]
-protocol_feature_fix_contract_loading_cost = [
-  "near-vm-runner/protocol_feature_fix_contract_loading_cost",
-]
 
 nightly = [
   "near-actix-test-utils/nightly",
@@ -132,36 +130,10 @@ nightly = [
   "near-rosetta-rpc/nightly",
   "near-store/nightly",
   "near-telemetry/nightly",
+  "near-transactions-generator/nightly",
   "near-vm-runner/nightly",
-  "nightly_protocol",
   "node-runtime/nightly",
-  "protocol_feature_fix_contract_loading_cost",
   "testlib/nightly",
-]
-nightly_protocol = [
-  "near-actix-test-utils/nightly_protocol",
-  "near-async/nightly_protocol",
-  "near-chain-configs/nightly_protocol",
-  "near-chain/nightly_protocol",
-  "near-chunks/nightly_protocol",
-  "near-client-primitives/nightly_protocol",
-  "near-client/nightly_protocol",
-  "near-dyn-configs/nightly_protocol",
-  "near-epoch-manager/nightly_protocol",
-  "near-jsonrpc-primitives/nightly_protocol",
-  "near-jsonrpc/nightly_protocol",
-  "near-mainnet-res/nightly_protocol",
-  "near-network/nightly_protocol",
-  "near-o11y/nightly_protocol",
-  "near-parameters/nightly_protocol",
-  "near-pool/nightly_protocol",
-  "near-primitives/nightly_protocol",
-  "near-rosetta-rpc/nightly_protocol",
-  "near-store/nightly_protocol",
-  "near-telemetry/nightly_protocol",
-  "near-vm-runner/nightly_protocol",
-  "node-runtime/nightly_protocol",
-  "testlib/nightly_protocol",
 ]
 sandbox = [
   "near-client/sandbox",
@@ -169,6 +141,7 @@ sandbox = [
   "near-o11y/sandbox",
   "node-runtime/sandbox",
 ]
-io_trace = ["near-vm-runner/io_trace"]
+io_trace = ["node-runtime/io_trace"]
 
 calimero_zero_storage = ["near-primitives/calimero_zero_storage"]
+tx_generator = ["near-transactions-generator"]

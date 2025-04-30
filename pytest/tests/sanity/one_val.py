@@ -30,14 +30,15 @@ genesis_change = [
 ]
 
 # give more stake to the boot node so that it can produce the blocks alone
-nodes = start_cluster(2, 1, 8, None, genesis_change, {
-    0: {
-        "tracked_shards": [0]
-    },
-    1: {
-        "tracked_shards": [0]
-    }
-})
+nodes = start_cluster(
+    2, 1, 8, None, genesis_change, {
+        0: {
+            "tracked_shards_config": "AllShards"
+        },
+        1: {
+            "tracked_shards_config": "AllShards"
+        }
+    })
 utils.wait_for_blocks(nodes[0], target=3)
 nodes[1].kill()
 

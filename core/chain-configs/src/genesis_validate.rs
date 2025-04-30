@@ -95,7 +95,11 @@ impl<'a> GenesisValidator<'a> {
             .collect::<HashMap<_, _>>();
 
         if validators.len() != self.genesis_config.validators.len() {
-            let error_message = format!("Duplicate account in validators. The number of account_ids: {} does not match the number of validators: {}.", self.account_ids.len(), validators.len());
+            let error_message = format!(
+                "Duplicate account in validators. The number of account_ids: {} does not match the number of validators: {}.",
+                self.account_ids.len(),
+                validators.len()
+            );
             self.validation_errors.push_genesis_semantics_error(error_message)
         }
 
@@ -105,7 +109,10 @@ impl<'a> GenesisValidator<'a> {
         }
 
         if self.total_supply != self.genesis_config.total_supply {
-            let error_message = format!("wrong total supply. account.locked() + account.amount() = {} is not equal to the total supply = {} specified in genesis config.", self.total_supply, self.genesis_config.total_supply);
+            let error_message = format!(
+                "wrong total supply. account.locked() + account.amount() = {} is not equal to the total supply = {} specified in genesis config.",
+                self.total_supply, self.genesis_config.total_supply
+            );
             self.validation_errors.push_genesis_semantics_error(error_message)
         }
 

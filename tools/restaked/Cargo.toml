@@ -18,7 +18,7 @@ tokio.workspace = true
 near-crypto.workspace = true
 near-chain-configs.workspace = true
 near-primitives.workspace = true
-near-jsonrpc-client.workspace = true
+near-jsonrpc-client-internal.workspace = true
 nearcore.workspace = true
 near-o11y.workspace = true
 

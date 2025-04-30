@@ -32,7 +32,7 @@ export const EpochShardsView = ({ addr }: EpochShardsViewProps) => {
         data: epochData,
         error: epochError,
         isLoading: epochIsLoading,
-    } = useQuery(['epochInfo', addr], () => fetchEpochInfo(addr));
+    } = useQuery(['epochInfo', addr], () => fetchEpochInfo(addr, null));
 
     if (epochIsLoading) {
         return <div>Loading...</div>;

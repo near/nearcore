@@ -5,10 +5,10 @@ use crate::types::PeerType;
 use near_async::time;
 use near_o11y::metrics::prometheus;
 use near_o11y::metrics::{
-    exponential_buckets, try_create_histogram, try_create_histogram_vec,
+    Histogram, HistogramVec, IntCounter, IntCounterVec, IntGauge, IntGaugeVec, MetricVec,
+    MetricVecBuilder, exponential_buckets, try_create_histogram, try_create_histogram_vec,
     try_create_histogram_with_buckets, try_create_int_counter, try_create_int_counter_vec,
-    try_create_int_gauge, try_create_int_gauge_vec, Histogram, HistogramVec, IntCounter,
-    IntCounterVec, IntGauge, IntGaugeVec, MetricVec, MetricVecBuilder,
+    try_create_int_gauge, try_create_int_gauge_vec,
 };
 use std::sync::LazyLock;
 

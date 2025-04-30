@@ -6,7 +6,7 @@ use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::epoch_info::EpochInfo;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
-use near_primitives::shard_layout::{get_block_shard_uid, ShardUId};
+use near_primitives::shard_layout::{ShardUId, get_block_shard_uid};
 use near_primitives::sharding::{ChunkHash, PartialEncodedChunk, ShardChunk, StateSyncInfo};
 use near_primitives::state_sync::{ShardStateSyncResponseHeader, StateHeaderKey, StatePartKey};
 use near_primitives::transaction::{ExecutionOutcomeWithProof, SignedTransaction};
@@ -14,7 +14,7 @@ use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, EpochId};
 use near_primitives::utils::{get_block_shard_id, get_outcome_id_block_hash, index_to_bytes};
 use near_store::{
-    DBCol, TrieChanges, CHUNK_TAIL_KEY, FORK_TAIL_KEY, HEADER_HEAD_KEY, HEAD_KEY, TAIL_KEY,
+    CHUNK_TAIL_KEY, DBCol, FORK_TAIL_KEY, HEAD_KEY, HEADER_HEAD_KEY, TAIL_KEY, TrieChanges,
 };
 use std::collections::{HashMap, HashSet};
 
@@ -356,11 +356,11 @@ pub(crate) fn chunk_tx_exists(
     _chunk_hash: &ChunkHash,
     shard_chunk: &ShardChunk,
 ) -> Result<(), StoreValidatorError> {
-    for tx in shard_chunk.transactions().iter() {
+    for tx in shard_chunk.to_transactions() {
         let tx_hash = tx.get_hash();
         sv.inner.tx_refcount.entry(tx_hash).and_modify(|x| *x += 1).or_insert(1);
     }
-    for tx in shard_chunk.transactions().iter() {
+    for tx in shard_chunk.to_transactions() {
         let tx_hash = tx.get_hash();
         unwrap_or_err_db!(
             sv.store.get_ser::<SignedTransaction>(DBCol::Transactions, tx_hash.as_ref()),
@@ -388,7 +388,7 @@ pub(crate) fn block_chunks_exist(
     for chunk_header in block.chunks().iter_deprecated() {
         if chunk_header.height_included() == block.header().height() {
             if let Some(me) = &sv.me {
-                let cares_about_shard = sv.shard_tracker.care_about_shard(
+                let cares_about_shard = sv.shard_tracker.cares_about_shard(
                     Some(me),
                     block.header().prev_hash(),
                     chunk_header.shard_id(),
@@ -554,7 +554,12 @@ pub(crate) fn canonical_prev_block_validity(
                 cur_height
             );
             if cur_hash.is_some() {
-                err!("Unexpected Block on the Canonical Chain is found between Heights {:?} and {:?}, {:?}", prev_height, height, cur_hash);
+                err!(
+                    "Unexpected Block on the Canonical Chain is found between Heights {:?} and {:?}, {:?}",
+                    prev_height,
+                    height,
+                    cur_hash
+                );
             }
         }
     }

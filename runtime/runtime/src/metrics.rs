@@ -1,16 +1,16 @@
-use crate::congestion_control::ReceiptSink;
 use crate::ApplyState;
+use crate::congestion_control::ReceiptSink;
 use near_o11y::metrics::{
+    Counter, CounterVec, GaugeVec, HistogramVec, IntCounter, IntCounterVec, IntGaugeVec,
     exponential_buckets, linear_buckets, try_create_counter, try_create_counter_vec,
     try_create_gauge_vec, try_create_histogram_vec, try_create_int_counter,
-    try_create_int_counter_vec, try_create_int_gauge_vec, Counter, CounterVec, GaugeVec,
-    HistogramVec, IntCounter, IntCounterVec, IntGaugeVec,
+    try_create_int_counter_vec, try_create_int_gauge_vec,
 };
 use near_parameters::config::CongestionControlConfig;
 use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::types::ShardId;
-use near_store::trie::SubtreeSize;
 use near_store::Trie;
+use near_store::trie::SubtreeSize;
 use std::sync::LazyLock;
 use std::time::Duration;
 
@@ -751,9 +751,6 @@ pub fn report_congestion_metrics(
     config: &CongestionControlConfig,
 ) {
     match receipt_sink {
-        ReceiptSink::V1(_) => {
-            // no metrics to report
-        }
         ReceiptSink::V2(inner) => {
             let sender_shard_label = sender_shard_id.to_string();
             report_congestion_indicators(&inner.own_congestion_info, &sender_shard_label, &config);
@@ -789,7 +786,7 @@ fn report_outgoing_buffers(
     inner: &crate::congestion_control::ReceiptSinkV2,
     sender_shard_label: String,
 ) {
-    for (receiver_shard_id, unused_capacity) in inner.outgoing_limit.iter() {
+    for (receiver_shard_id, unused_capacity) in &inner.outgoing_limit {
         let receiver_shard_label = receiver_shard_id.to_string();
 
         CONGESTION_RECEIPT_FORWARDING_UNUSED_CAPACITY_GAS
@@ -819,7 +816,7 @@ pub fn report_recorded_column_sizes(trie: &Trie, apply_state: &ApplyState) {
     let mut total_size = SubtreeSize::default();
 
     let shard_id_str = apply_state.shard_id.to_string();
-    for column in trie_recorder_stats.trie_column_sizes.iter() {
+    for column in &trie_recorder_stats.trie_column_sizes {
         let column_size = column.size.nodes_size.saturating_add(column.size.values_size);
         CHUNK_RECORDED_TRIE_COLUMN_SIZE
             .with_label_values(&[shard_id_str.as_str(), column.column_name])

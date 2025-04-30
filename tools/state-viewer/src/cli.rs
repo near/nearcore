@@ -13,6 +13,7 @@ use near_jsonrpc::start_http_for_readonly_debug_querying;
 use near_network::tcp::ListenerAddr;
 use near_primitives::account::id::AccountId;
 use near_primitives::hash::CryptoHash;
+use near_primitives::shard_layout::ShardUId;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::trie_key::col;
 use near_primitives::types::{BlockHeight, ShardId, StateRoot};
@@ -20,7 +21,7 @@ use near_primitives_core::types::EpochHeight;
 use near_store::adapter::StoreAdapter;
 use near_store::{Mode, NodeStorage, Store, Temperature};
 use nearcore::entity_debug::EntityDebugHandlerImpl;
-use nearcore::{load_config, NearConfig, NightshadeRuntime, NightshadeRuntimeExt};
+use nearcore::{NearConfig, NightshadeRuntime, NightshadeRuntimeExt, load_config};
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
@@ -136,6 +137,7 @@ pub enum StateViewerSubCommand {
 }
 
 impl StateViewerSubCommand {
+    #[allow(clippy::large_stack_frames)]
     pub fn run(
         self,
         home_dir: &Path,
@@ -831,11 +833,16 @@ impl StatePartsCmd {
 }
 
 #[derive(clap::Parser)]
-pub struct StateStatsCmd {}
+pub struct StateStatsCmd {
+    #[clap(long, default_value = "2", help = "How many parts split each printed shard into")]
+    split_parts: usize,
+    #[clap(long, help = "Print stats only for the given shard ID")]
+    shard_uid: Option<ShardUId>,
+}
 
 impl StateStatsCmd {
     pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
-        print_state_stats(home_dir, store, near_config);
+        print_state_stats(home_dir, store, near_config, self.split_parts, self.shard_uid);
     }
 }
 

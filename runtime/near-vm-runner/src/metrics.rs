@@ -1,5 +1,5 @@
 use near_o11y::metrics::{
-    try_create_histogram_vec, try_create_int_counter_vec, HistogramVec, IntCounterVec,
+    HistogramVec, IntCounterVec, try_create_histogram_vec, try_create_int_counter_vec,
 };
 use std::sync::LazyLock;
 use std::{cell::RefCell, time::Duration};
@@ -55,9 +55,9 @@ struct Metrics {
 pub(crate) fn compilation_duration(kind: near_parameters::vm::VMKind, duration: Duration) {
     use near_parameters::vm::VMKind;
     METRICS.with_borrow_mut(|m| match kind {
-        VMKind::Wasmer0 => {}
+        VMKind::Wasmer0 => unreachable!(),
         VMKind::Wasmtime => m.wasmtime_compilation_time += duration,
-        VMKind::Wasmer2 => {}
+        VMKind::Wasmer2 => unreachable!(),
         VMKind::NearVm => m.near_vm_compilation_time += duration,
     });
 }

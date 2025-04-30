@@ -1,0 +1,58 @@
+script_dir := `pwd`
+neard := script_dir / "./neard"
+near_localnet_home := script_dir / ".near"
+near_accounts_path := script_dir / "user-data"
+near_config_file := near_localnet_home / "config.json"
+near_genesis_file := near_localnet_home / "genesis.json"
+rpc_url := "http://127.0.0.1:4040"
+
+
+init-localnet:
+    rm -rf {{near_localnet_home}} && rm -rf {{near_accounts_path}}
+    {{neard}} --home {{near_localnet_home}} init --chain-id localnet
+    jq '.chain_id="benchmarknet"' {{near_genesis_file}} > tmp_genesis.json && mv tmp_genesis.json {{near_genesis_file}}
+    jq '.rpc.addr="0.0.0.0:4040"' {{near_config_file}} > tmp_config.json && mv tmp_config.json {{near_config_file}}
+
+
+run-localnet loglevel="info":
+    RUST_LOG={{loglevel}} \
+    {{neard}} --home {{near_localnet_home}} run
+
+create-accounts num_accounts="50000":
+    #!/bin/bash
+    {{neard}} --home {{near_localnet_home}} run &
+    NEARD_PID=$!
+    sleep 5
+    RUST_LOG=info \
+    ../synth-bm/target/release/near-synth-bm create-sub-accounts \
+        --rpc-url {{rpc_url}} \
+        --signer-key-path {{near_localnet_home}}/validator_key.json \
+        --nonce 1 \
+        --sub-account-prefix 'a' \
+        --num-sub-accounts {{num_accounts}} \
+        --deposit 953060601875000000010000 \
+        --channel-buffer-size 1200 \
+        --requests-per-second 500  \
+        --user-data-dir user-data
+    kill ${NEARD_PID}
+    
+enable-tx tps:
+    jq '.tx_generator={"tps": {{tps}}, "volume": 0, "accounts_path": "{{near_accounts_path}}", "thread_count": 2}' {{near_config_file}} > tmp_config.json
+    mv tmp_config.json {{near_config_file}}
+
+unlimit:
+    jq '.gas_limit=20000000000000000' {{near_genesis_file}} > tmp_genesis.json && mv tmp_genesis.json {{near_genesis_file}}
+    jq '.view_client_threads=8 \
+     | .store.load_mem_tries_for_tracked_shards=true \
+     | .produce_chunk_add_transactions_time_limit={"secs": 0, "nanos": 500000000} \
+     | .transaction_request_handler_threads = 4' {{near_config_file}} > tmp_config.json \
+    && mv tmp_config.json {{near_config_file}}
+
+do-it tps="20000" timeout="2m":
+    #!/usr/bin/env bash
+    just init-localnet
+    just unlimit
+    just create-accounts
+    just enable-tx {{tps}}
+    timeout {{timeout}} just run-localnet
+    [ $? -eq 124 ] && exit 0 || exit $?

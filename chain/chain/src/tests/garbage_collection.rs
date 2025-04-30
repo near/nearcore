@@ -1,4 +1,5 @@
 use near_async::time::Clock;
+use near_store::trie::AccessOptions;
 use rand::Rng;
 use std::sync::Arc;
 
@@ -11,13 +12,13 @@ use crate::test_utils::{
 use crate::types::Tip;
 use crate::{ChainStoreAccess, StoreValidator};
 
-use near_chain_configs::{GCConfig, GenesisConfig, DEFAULT_GC_NUM_EPOCHS_TO_KEEP};
+use near_chain_configs::{DEFAULT_GC_NUM_EPOCHS_TO_KEEP, GCConfig, GenesisConfig};
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::block::Block;
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::merkle::PartialMerkleTree;
 use near_primitives::shard_layout::ShardUId;
-use near_primitives::test_utils::{create_test_signer, TestBlockBuilder};
+use near_primitives::test_utils::{TestBlockBuilder, create_test_signer};
 use near_primitives::types::{BlockHeight, NumBlocks, StateRoot};
 use near_primitives::validator_signer::ValidatorSigner;
 use near_store::test_utils::gen_changes;
@@ -64,8 +65,7 @@ fn do_fork(
                 );
             }
             let next_bp_hash =
-                Chain::compute_bp_hash(chain.epoch_manager.as_ref(), next_epoch_id, epoch_id)
-                    .unwrap();
+                Chain::compute_bp_hash(chain.epoch_manager.as_ref(), next_epoch_id).unwrap();
             TestBlockBuilder::new(Clock::real(), &prev_block, signer.clone())
                 .epoch_id(epoch_id)
                 .next_epoch_id(next_epoch_id)
@@ -112,7 +112,8 @@ fn do_fork(
             let trie_changes_data = gen_changes(&mut rng, max_changes);
             let state_root = prev_state_roots[shard_id as usize];
             let trie = tries.get_trie_for_shard(shard_uid, state_root);
-            let trie_changes = trie.update(trie_changes_data.iter().cloned()).unwrap();
+            let trie_changes =
+                trie.update(trie_changes_data.iter().cloned(), AccessOptions::DEFAULT).unwrap();
             if verbose {
                 println!("state new {:?} {:?}", block.header().height(), trie_changes_data);
             }
@@ -167,7 +168,7 @@ fn gc_fork_common(simple_chains: Vec<SimpleChain>, max_changes: usize) {
     ));
 
     let mut final_height = None;
-    for simple_chain in simple_chains.iter() {
+    for simple_chain in &simple_chains {
         let (source_block1, state_root1, _) = states1[simple_chain.from as usize].clone();
         do_fork(
             source_block1.clone(),
@@ -205,7 +206,7 @@ fn gc_fork_common(simple_chains: Vec<SimpleChain>, max_changes: usize) {
     let mut state_roots2 = vec![];
     state_roots2.push(Trie::EMPTY_ROOT);
 
-    for simple_chain in simple_chains.iter() {
+    for simple_chain in &simple_chains {
         if simple_chain.is_removed {
             for _ in 0..simple_chain.length {
                 // This chain is deleted in Chain1
@@ -225,7 +226,10 @@ fn gc_fork_common(simple_chains: Vec<SimpleChain>, max_changes: usize) {
             // Apply to Trie 2 the same changes (changes1) as applied to Trie 1
             let trie_changes2 = tries2
                 .get_trie_for_shard(shard_uid, state_root2)
-                .update(changes1[shard_to_check_trie as usize].iter().cloned())
+                .update(
+                    changes1[shard_to_check_trie as usize].iter().cloned(),
+                    AccessOptions::DEFAULT,
+                )
                 .unwrap();
             // i == gc_height is the only height should be processed here
             let mut update2 = tries2.store_update();
@@ -244,7 +248,7 @@ fn gc_fork_common(simple_chains: Vec<SimpleChain>, max_changes: usize) {
     }
 
     let mut start_index = 1; // zero is for genesis
-    for simple_chain in simple_chains.iter() {
+    for simple_chain in &simple_chains {
         if simple_chain.is_removed {
             for i in start_index..start_index + simple_chain.length {
                 let (block1, _, _) = states1[i as usize].clone();
@@ -735,7 +739,7 @@ fn add_block(
         TestBlockBuilder::new(Clock::real(), &prev_block, signer).height(height).build()
     } else {
         let epoch_id = *prev_block.header().next_epoch_id();
-        let next_bp_hash = Chain::compute_bp_hash(epoch_manager, next_epoch_id, epoch_id).unwrap();
+        let next_bp_hash = Chain::compute_bp_hash(epoch_manager, next_epoch_id).unwrap();
         TestBlockBuilder::new(Clock::real(), &prev_block, signer)
             .height(height)
             .epoch_id(epoch_id)
@@ -801,9 +805,11 @@ fn test_clear_old_data_fixed_height() {
 
     let trie = chain.runtime_adapter.get_tries();
     let mut store_update = chain.mut_chain_store().store_update();
-    assert!(store_update
-        .clear_block_data(epoch_manager.as_ref(), *blocks[5].hash(), GCMode::Canonical(trie))
-        .is_ok());
+    assert!(
+        store_update
+            .clear_block_data(epoch_manager.as_ref(), *blocks[5].hash(), GCMode::Canonical(trie))
+            .is_ok()
+    );
     store_update.commit().unwrap();
 
     assert!(chain.get_block(blocks[4].hash()).is_err());
@@ -880,26 +886,30 @@ fn test_clear_old_data_too_many_heights_common(gc_blocks_limit: NumBlocks) {
 
     for iter in 0..10 {
         println!("ITERATION #{:?}", iter);
-        assert!(chain
-            .clear_data(&GCConfig { gc_blocks_limit, ..GCConfig::default() }, None)
-            .is_ok());
+        assert!(
+            chain.clear_data(&GCConfig { gc_blocks_limit, ..GCConfig::default() }, None).is_ok()
+        );
 
         // epoch didn't change so no data is garbage collected.
         for i in 0..1000 {
             if i < (iter + 1) * gc_blocks_limit as usize {
                 assert!(chain.get_block(&blocks[i].hash()).is_err());
-                assert!(chain
-                    .mut_chain_store()
-                    .get_all_block_hashes_by_height(i as BlockHeight)
-                    .unwrap()
-                    .is_empty());
+                assert!(
+                    chain
+                        .mut_chain_store()
+                        .get_all_block_hashes_by_height(i as BlockHeight)
+                        .unwrap()
+                        .is_empty()
+                );
             } else {
                 assert!(chain.get_block(&blocks[i].hash()).is_ok());
-                assert!(!chain
-                    .mut_chain_store()
-                    .get_all_block_hashes_by_height(i as BlockHeight)
-                    .unwrap()
-                    .is_empty());
+                assert!(
+                    !chain
+                        .mut_chain_store()
+                        .get_all_block_hashes_by_height(i as BlockHeight)
+                        .unwrap()
+                        .is_empty()
+                );
             }
         }
         let mut genesis = GenesisConfig::default();

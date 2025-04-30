@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use crate::model::ChunkExecutionContext;
 use crate::strategy::QueueFactory;
-use crate::{GGas, QueueId, Receipt, ShardId, GAS_LIMIT};
+use crate::{GAS_LIMIT, GGas, QueueId, Receipt, ShardId};
 
 /// Fancy Global Transaction Stop implements the following ideas:
 /// * At any shard we have a dedicated outgoing queue for every other shard.
@@ -257,7 +257,7 @@ impl FancyGlobalTransactionStop {
         result
     }
 
-    fn update_block_info(&mut self, ctx: &mut ChunkExecutionContext<'_>) {
+    fn update_block_info(&self, ctx: &mut ChunkExecutionContext<'_>) {
         let info = CongestedShardsInfo {
             incoming_receipts_attached_gas: ctx.incoming_receipts().attached_gas(),
             max_outgoing_receipts_attached_gas: self.get_max_outgoing_receipts_attached_gas(ctx),

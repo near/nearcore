@@ -14,15 +14,14 @@
 #[macro_use]
 extern crate bencher;
 
-use bencher::{black_box, Bencher};
+use bencher::{Bencher, black_box};
 use borsh::BorshSerialize;
 use near_chain::Chain;
 use near_chunks::shards_manager_actor::ShardsManagerActor;
 use near_crypto::{InMemorySigner, KeyType};
 use near_primitives::bandwidth_scheduler::BandwidthRequests;
-use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::hash::CryptoHash;
-use near_primitives::merkle::{merklize, MerklePathItem};
+use near_primitives::merkle::{MerklePathItem, merklize};
 use near_primitives::receipt::{ActionReceipt, DataReceipt, Receipt, ReceiptEnum, ReceiptV0};
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::{
@@ -30,10 +29,11 @@ use near_primitives::sharding::{
     PartialEncodedChunkV2, ReceiptProof, ShardChunk, ShardChunkHeader, ShardChunkHeaderV3,
     ShardChunkV2, ShardProof,
 };
-use near_primitives::transaction::{Action, FunctionCallAction, SignedTransaction};
+use near_primitives::transaction::{
+    Action, FunctionCallAction, SignedTransaction, ValidatedTransaction,
+};
 use near_primitives::types::{AccountId, ShardId};
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
-use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
 use near_store::DBCol;
 use rand::prelude::SliceRandom;
 use reed_solomon_erasure::galois_8::ReedSolomon;
@@ -67,7 +67,8 @@ fn benchmark_write_partial_encoded_chunk(bench: &mut Bencher) {
     let receipts = create_benchmark_receipts();
     let chunk_hash: ChunkHash = CryptoHash::default().into();
 
-    let (encoded_chunk, merkle_paths) = create_encoded_shard_chunk(transactions, &receipts);
+    let (encoded_chunk, merkle_paths, _) =
+        create_encoded_shard_chunk(transactions, receipts.clone());
     let partial_chunk =
         encoded_chunk_to_partial_encoded_chunk(encoded_chunk, receipts, merkle_paths);
     let chunks = spread_in_memory(partial_chunk);
@@ -117,12 +118,7 @@ fn create_benchmark_receipts() -> Vec<Receipt> {
 }
 
 fn create_chunk_header(height: u64, shard_id: ShardId) -> ShardChunkHeader {
-    let congestion_info = ProtocolFeature::CongestionControl
-        .enabled(PROTOCOL_VERSION)
-        .then_some(CongestionInfo::default());
-
     ShardChunkHeader::V3(ShardChunkHeaderV3::new(
-        PROTOCOL_VERSION,
         CryptoHash::default(),
         CryptoHash::default(),
         CryptoHash::default(),
@@ -136,8 +132,8 @@ fn create_chunk_header(height: u64, shard_id: ShardId) -> ShardChunkHeader {
         CryptoHash::default(),
         CryptoHash::default(),
         vec![],
-        congestion_info,
-        BandwidthRequests::default_for_protocol_version(PROTOCOL_VERSION),
+        Default::default(),
+        BandwidthRequests::empty(),
         &validator_signer(),
     ))
 }
@@ -186,14 +182,10 @@ fn create_shard_chunk(
 }
 
 fn create_encoded_shard_chunk(
-    transactions: Vec<SignedTransaction>,
-    receipts: &[Receipt],
-) -> (EncodedShardChunk, Vec<Vec<MerklePathItem>>) {
+    validated_txs: Vec<ValidatedTransaction>,
+    receipts: Vec<Receipt>,
+) -> (EncodedShardChunk, Vec<Vec<MerklePathItem>>, Vec<Receipt>) {
     let rs = ReedSolomon::new(33, 67).unwrap();
-
-    let congestion_info = ProtocolFeature::CongestionControl
-        .enabled(PROTOCOL_VERSION)
-        .then_some(CongestionInfo::default());
 
     ShardsManagerActor::create_encoded_shard_chunk(
         Default::default(),
@@ -205,17 +197,15 @@ fn create_encoded_shard_chunk(
         Default::default(),
         Default::default(),
         Default::default(),
-        transactions,
+        validated_txs,
         receipts,
         Default::default(),
         Default::default(),
-        congestion_info,
-        BandwidthRequests::default_for_protocol_version(PROTOCOL_VERSION),
+        Default::default(),
+        BandwidthRequests::empty(),
         &validator_signer(),
         &rs,
-        100,
     )
-    .unwrap()
 }
 
 fn encoded_chunk_to_partial_encoded_chunk(
@@ -227,10 +217,10 @@ fn encoded_chunk_to_partial_encoded_chunk(
     let shard_id = header.shard_id();
     let shard_layout = ShardLayout::get_simple_nightshade_layout_v2();
 
-    let hashes = Chain::build_receipts_hashes(&receipts, &shard_layout);
+    let hashes = Chain::build_receipts_hashes(&receipts, &shard_layout).unwrap();
     let (_root, proofs) = merklize(&hashes);
 
-    let mut receipts_by_shard = Chain::group_receipts_by_shard(receipts, &shard_layout);
+    let mut receipts_by_shard = Chain::group_receipts_by_shard(receipts, &shard_layout).unwrap();
     let receipt_proofs = proofs
         .into_iter()
         .enumerate()

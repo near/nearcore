@@ -1,14 +1,11 @@
 //! This module facilitates the initialization and the storage
 //! of rate limits per message.
 
-use std::collections::HashMap;
-
-use enum_map::{enum_map, EnumMap};
-use near_async::time::Instant;
-
-use crate::network_protocol::{PeerMessage, RoutedMessageBody};
-
 use super::token_bucket::{TokenBucket, TokenBucketError};
+use crate::network_protocol::{PeerMessage, RoutedMessageBody};
+use enum_map::{EnumMap, enum_map};
+use near_async::time::Instant;
+use std::collections::HashMap;
 
 /// Object responsible to manage the rate limits of all network messages
 /// for a single connection/peer.
@@ -101,11 +98,7 @@ impl Config {
                 errors.push((*key, err));
             }
         }
-        if errors.is_empty() {
-            Ok(())
-        } else {
-            Err(errors)
-        }
+        if errors.is_empty() { Ok(()) } else { Err(errors) }
     }
 
     /// Returns a good preset of rate limit configuration valid for any type of node.
@@ -275,12 +268,10 @@ fn get_key_and_token_cost(message: &PeerMessage) -> Option<(RateLimitedPeerMessa
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+    use crate::network_protocol::{Disconnect, PeerMessage};
     use near_async::time::{Duration, FakeClock};
     use near_primitives::hash::CryptoHash;
-
-    use crate::network_protocol::{Disconnect, PeerMessage};
-
-    use super::*;
 
     #[test]
     fn is_allowed() {
@@ -358,16 +349,20 @@ mod tests {
         config.rate_limits.insert(BlockHeaders, SingleMessageConfig::new(0, -2.0, None));
         let result = config.validate();
         let error = result.expect_err("a configuration error is expected");
-        assert!(error
-            .iter()
-            .find(|(key, err)| *key == BlockApproval
-                && *err == TokenBucketError::InvalidRefillRate(-1.0))
-            .is_some());
-        assert!(error
-            .iter()
-            .find(|(key, err)| *key == BlockHeaders
-                && *err == TokenBucketError::InvalidRefillRate(-2.0))
-            .is_some());
+        assert!(
+            error
+                .iter()
+                .find(|(key, err)| *key == BlockApproval
+                    && *err == TokenBucketError::InvalidRefillRate(-1.0))
+                .is_some()
+        );
+        assert!(
+            error
+                .iter()
+                .find(|(key, err)| *key == BlockHeaders
+                    && *err == TokenBucketError::InvalidRefillRate(-2.0))
+                .is_some()
+        );
     }
 
     #[test]

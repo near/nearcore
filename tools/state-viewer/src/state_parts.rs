@@ -2,12 +2,11 @@ use crate::epoch_info::iterate_and_filter;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_chain::{Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode};
 use near_client::sync::external::{
-    create_bucket_read_write, create_bucket_readonly, external_storage_location,
-    external_storage_location_directory, get_num_parts_from_filename, ExternalConnection,
-    StateFileType,
+    ExternalConnection, StateFileType, create_bucket_read_write, create_bucket_readonly,
+    external_storage_location, external_storage_location_directory, get_num_parts_from_filename,
 };
-use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
 use near_epoch_manager::EpochManager;
+use near_epoch_manager::shard_tracker::ShardTracker;
 use near_primitives::epoch_info::EpochInfo;
 use near_primitives::state::PartialState;
 use near_primitives::state_part::PartId;
@@ -106,7 +105,7 @@ impl StatePartsSubCommand {
             Some(home_dir),
         );
         let shard_tracker = ShardTracker::new(
-            TrackedConfig::from_config(&near_config.client_config),
+            near_config.client_config.tracked_shards_config.clone(),
             epoch_manager.clone(),
         );
         let runtime = NightshadeRuntime::from_config(
@@ -227,10 +226,15 @@ fn create_external_connection(
         ExternalConnection::S3 { bucket: Arc::new(bucket) }
     } else if let Some(bucket) = gcs_bucket {
         if let Some(credentials_file) = credentials_file {
-            std::env::set_var("SERVICE_ACCOUNT", &credentials_file);
+            unsafe { std::env::set_var("SERVICE_ACCOUNT", &credentials_file) };
         }
         ExternalConnection::GCS {
-            gcs_client: Arc::new(cloud_storage::Client::default()),
+            gcs_client: Arc::new(
+                object_store::gcp::GoogleCloudStorageBuilder::new()
+                    .with_bucket_name(&bucket)
+                    .build()
+                    .unwrap(),
+            ),
             reqwest_client: Arc::new(reqwest::Client::default()),
             bucket,
         }
@@ -326,7 +330,7 @@ async fn load_state_parts(
     part_id: Option<u64>,
     maybe_state_root: Option<StateRoot>,
     maybe_sync_hash: Option<CryptoHash>,
-    chain: &mut Chain,
+    chain: &Chain,
     chain_id: &str,
     store: Store,
     external: &ExternalConnection,

@@ -1,6 +1,6 @@
 /// This file is run as a part of `cargo build` process and it builds the `Wallet Contract`.
 /// The generated WASM file is put to the `./res` directory.
-use anyhow::{anyhow, Context};
+use anyhow::{Context, anyhow};
 
 use std::path::Path;
 use std::process::Command;

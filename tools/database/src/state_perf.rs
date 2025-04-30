@@ -1,7 +1,7 @@
 use clap::Parser;
 use indicatif::{ProgressBar, ProgressIterator};
-use near_store::adapter::flat_store::FlatStoreAdapter;
 use near_store::adapter::StoreAdapter;
+use near_store::adapter::flat_store::FlatStoreAdapter;
 use std::collections::BTreeMap;
 use std::fmt::{Display, Write};
 use std::path::Path;
@@ -10,9 +10,9 @@ use std::time::{Duration, Instant};
 
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::state::ValueRef;
+use rand::SeedableRng;
 use rand::rngs::StdRng;
 use rand::seq::SliceRandom;
-use rand::SeedableRng;
 
 use near_store::TrieStorage;
 

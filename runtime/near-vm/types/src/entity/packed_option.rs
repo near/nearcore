@@ -38,11 +38,7 @@ impl<T: ReservedValue> PackedOption<T> {
 
     /// Expand the packed option into a normal `Option`.
     pub fn expand(self) -> Option<T> {
-        if self.is_none() {
-            None
-        } else {
-            Some(self.0)
-        }
+        if self.is_none() { None } else { Some(self.0) }
     }
 
     /// Maps a `PackedOption<T>` to `Option<U>` by applying a function to a contained value.
@@ -105,11 +101,7 @@ where
     T: ReservedValue + fmt::Debug,
 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        if self.is_none() {
-            write!(f, "None")
-        } else {
-            write!(f, "Some({:?})", self.0)
-        }
+        if self.is_none() { write!(f, "None") } else { write!(f, "Some({:?})", self.0) }
     }
 }
 

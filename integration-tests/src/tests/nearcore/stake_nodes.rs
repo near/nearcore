@@ -1,27 +1,29 @@
 use std::path::Path;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use actix::{Actor, Addr, System};
-use futures::{future, FutureExt};
+use futures::{FutureExt, future};
 use near_chain_configs::test_utils::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use near_primitives::num_rational::Ratio;
 use rand::Rng;
 
-use crate::tests::genesis_helpers::genesis_hash;
-use crate::tests::test_helpers::heavy_test;
+use crate::utils::genesis_helpers::genesis_hash;
+use crate::utils::test_helpers::heavy_test;
 use near_actix_test_utils::run_actix;
-use near_chain_configs::{Genesis, NEAR_BASE};
-use near_client::{ClientActor, GetBlock, ProcessTxRequest, Query, Status, ViewClientActor};
+use near_chain_configs::{Genesis, NEAR_BASE, TrackedShardsConfig};
+use near_client::{
+    ClientActor, GetBlock, ProcessTxRequest, Query, RpcHandlerActor, Status, ViewClientActor,
+};
 use near_crypto::{InMemorySigner, Signer};
 use near_network::tcp;
-use near_network::test_utils::{convert_boot_nodes, WaitOrTimeoutActor};
+use near_network::test_utils::{WaitOrTimeoutActor, convert_boot_nodes};
 use near_o11y::testonly::init_integration_logger;
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, BlockHeightDelta, BlockReference, NumSeats, ShardId};
+use near_primitives::types::{AccountId, BlockHeightDelta, BlockReference, NumSeats};
 use near_primitives::views::{QueryRequest, QueryResponseKind, ValidatorInfo};
-use nearcore::{load_test_config, start_with_config, NearConfig};
+use nearcore::{NearConfig, load_test_config, start_with_config};
 
 use near_o11y::WithSpanContextExt;
 use {near_primitives::types::BlockId, primitive_types::U256};
@@ -33,6 +35,7 @@ struct TestNode {
     config: NearConfig,
     client: Addr<ClientActor>,
     view_client: Addr<ViewClientActor>,
+    tx_processor: Addr<RpcHandlerActor>,
     genesis_hash: CryptoHash,
 }
 
@@ -43,7 +46,6 @@ fn init_test_staking(
     epoch_length: BlockHeightDelta,
     enable_rewards: bool,
     minimum_stake_divisor: u64,
-    state_snapshot_enabled: bool,
     track_all_shards: bool,
 ) -> Vec<TestNode> {
     init_integration_logger();
@@ -69,12 +71,9 @@ fn init_test_staking(
             if i == 0 { first_node } else { tcp::ListenerAddr::reserve_for_test() },
             genesis.clone(),
         );
-        // Disable state snapshots, because they don't work with epochs that are too short.
-        // And they are not needed in these tests.
-        config.config.store.state_snapshot_enabled = state_snapshot_enabled;
         if track_all_shards {
-            config.config.tracked_shards = vec![ShardId::new(0)];
-            config.client_config.tracked_shards = vec![ShardId::new(0)];
+            config.config.tracked_shards_config = Some(TrackedShardsConfig::AllShards);
+            config.client_config.tracked_shards_config = TrackedShardsConfig::AllShards;
         }
         if i != 0 {
             config.network_config.peer_store.boot_nodes =
@@ -87,11 +86,11 @@ fn init_test_staking(
         .enumerate()
         .map(|(i, config)| {
             let genesis_hash = genesis_hash(&config.genesis);
-            let nearcore::NearNode { client, view_client, .. } =
+            let nearcore::NearNode { client, view_client, rpc_handler: tx_processor, .. } =
                 start_with_config(paths[i], config.clone()).expect("start_with_config");
             let account_id = format!("near.{}", i).parse::<AccountId>().unwrap();
             let signer = Arc::new(InMemorySigner::test_signer(&account_id));
-            TestNode { account_id, signer, config, client, view_client, genesis_hash }
+            TestNode { account_id, signer, config, client, view_client, tx_processor, genesis_hash }
         })
         .collect()
 }
@@ -116,7 +115,6 @@ fn ultra_slow_test_stake_nodes() {
                 false,
                 10,
                 false,
-                false,
             );
 
             let tx = SignedTransaction::stake(
@@ -130,7 +128,7 @@ fn ultra_slow_test_stake_nodes() {
             );
             actix::spawn(
                 test_nodes[0]
-                    .client
+                    .tx_processor
                     .send(
                         ProcessTxRequest {
                             transaction: tx,
@@ -156,14 +154,8 @@ fn ultra_slow_test_stake_nodes() {
                         validators.sort_unstable_by(|a, b| a.account_id.cmp(&b.account_id));
                         if validators
                             == vec![
-                                ValidatorInfo {
-                                    account_id: "near.0".parse().unwrap(),
-                                    is_slashed: false,
-                                },
-                                ValidatorInfo {
-                                    account_id: "near.1".parse().unwrap(),
-                                    is_slashed: false,
-                                },
+                                ValidatorInfo { account_id: "near.0".parse().unwrap() },
+                                ValidatorInfo { account_id: "near.1".parse().unwrap() },
                             ]
                         {
                             System::current().stop();
@@ -201,7 +193,6 @@ fn ultra_slow_test_validator_kickout() {
                 false,
                 (TESTING_INIT_STAKE / NEAR_BASE) as u64 + 1,
                 false,
-                false,
             );
             let mut rng = rand::thread_rng();
             let stakes = (0..num_nodes / 2).map(|_| NEAR_BASE + rng.gen_range(1..100));
@@ -222,7 +213,7 @@ fn ultra_slow_test_validator_kickout() {
                 let test_node = &test_nodes[i];
                 actix::spawn(
                     test_node
-                        .client
+                        .tx_processor
                         .send(
                             ProcessTxRequest {
                                 transaction: stake_transaction,
@@ -251,7 +242,6 @@ fn ultra_slow_test_validator_kickout() {
                         let expected: Vec<_> = (num_nodes / 2..num_nodes)
                             .map(|i| ValidatorInfo {
                                 account_id: AccountId::try_from(format!("near.{}", i)).unwrap(),
-                                is_slashed: false,
                             })
                             .collect();
                         let res = res.unwrap();
@@ -351,7 +341,6 @@ fn ultra_slow_test_validator_join() {
                 false,
                 10,
                 false,
-                true,
             );
             let signer = Arc::new(InMemorySigner::test_signer(&test_nodes[1].account_id));
             let unstake_transaction = SignedTransaction::stake(
@@ -375,7 +364,7 @@ fn ultra_slow_test_validator_join() {
 
             actix::spawn(
                 test_nodes[1]
-                    .client
+                    .tx_processor
                     .send(
                         ProcessTxRequest {
                             transaction: unstake_transaction,
@@ -388,7 +377,7 @@ fn ultra_slow_test_validator_join() {
             );
             actix::spawn(
                 test_nodes[0]
-                    .client
+                    .tx_processor
                     .send(
                         ProcessTxRequest {
                             transaction: stake_transaction,
@@ -413,14 +402,8 @@ fn ultra_slow_test_validator_join() {
                     );
                     let actor = actor.then(move |res| {
                         let expected = vec![
-                            ValidatorInfo {
-                                account_id: "near.0".parse().unwrap(),
-                                is_slashed: false,
-                            },
-                            ValidatorInfo {
-                                account_id: "near.2".parse().unwrap(),
-                                is_slashed: false,
-                            },
+                            ValidatorInfo { account_id: "near.0".parse().unwrap() },
+                            ValidatorInfo { account_id: "near.2".parse().unwrap() },
                         ];
                         let res = res.unwrap();
                         if res.is_err() {
@@ -503,7 +486,6 @@ fn ultra_slow_test_inflation() {
                 epoch_length,
                 true,
                 10,
-                false,
                 false,
             );
             let initial_total_supply = test_nodes[0].config.genesis.config.total_supply;

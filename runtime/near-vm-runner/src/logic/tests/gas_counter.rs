@@ -1,7 +1,7 @@
+use crate::logic::MemSlice;
 use crate::logic::tests::helpers::*;
 use crate::logic::tests::vm_logic_builder::{TestVMLogic, VMLogicBuilder};
 use crate::logic::types::Gas;
-use crate::logic::MemSlice;
 use crate::logic::{HostError, VMLogicError};
 use crate::tests::test_vm_config;
 use expect_test::expect;

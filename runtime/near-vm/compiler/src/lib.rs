@@ -60,8 +60,8 @@ pub use crate::target::{
     PointerWidth, Target, Triple,
 };
 pub use crate::translator::{
-    translate_module, wptype_to_type, FunctionBodyData, FunctionReader, ModuleEnvironment,
-    ModuleTranslationState,
+    FunctionBodyData, FunctionReader, ModuleEnvironment, ModuleTranslationState, translate_module,
+    wptype_to_type,
 };
 pub use crate::trap::TrapInformation;
 pub use near_vm_types::Features;

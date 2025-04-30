@@ -7,6 +7,7 @@ pessimistic_gas_price_inflation: {
   numerator: 103,
   denominator: 100,
 }
+refund_gas_price_changes: true
 
 # Stateless validation config
 main_storage_proof_size_soft_limit: 4_294_967_295
@@ -205,7 +206,6 @@ wasm_yield_resume_byte: 300_000_000_000_000
 max_gas_burnt: 200_000_000_000_000
 max_gas_burnt_view: 200_000_000_000_000
 max_stack_height: 16_384
-contract_prepare_version: 0
 initial_memory_pages: 1_024
 max_memory_pages: 2_048
 registers_memory_limit: 1_073_741_824
@@ -229,17 +229,11 @@ max_number_input_data_dependencies: 128
 yield_timeout_length_in_blocks: 200
 max_yield_payload_size: 1_024 # kiB
 
-disable_9393_fix: false
 flat_storage_reads: false
 implicit_account_creation: false
 fix_contract_loading_cost: false
-math_extension: false
-ed25519_verify: false
-alt_bn128: false
-function_call_weight: false
 vm_kind: Wasmer0
 eth_implicit_accounts: false
-yield_resume: false
 discard_custom_sections: false
 
 # TODO What should be the config for testnet?
@@ -280,3 +274,14 @@ action_deploy_global_contract_per_byte: {
   execution: 999_999_999_999_999,
 }
 global_contract_storage_amount_per_byte: 999_999_999_999_999_999_999_999_999
+
+action_use_global_contract: {
+  send_sir: 999_999_999_999_999,
+  send_not_sir: 999_999_999_999_999,
+  execution: 999_999_999_999_999,
+}
+action_use_global_contract_per_identifier_byte: {
+  send_sir: 999_999_999_999_999,
+  send_not_sir: 999_999_999_999_999,
+  execution: 999_999_999_999_999,
+}

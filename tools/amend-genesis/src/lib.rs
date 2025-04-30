@@ -12,7 +12,7 @@ use near_primitives_core::account::{AccessKey, Account};
 use near_primitives_core::types::{Balance, BlockHeightDelta, NumBlocks, NumSeats, NumShards};
 use num_rational::Rational32;
 use serde::ser::{SerializeSeq, Serializer};
-use std::collections::{hash_map, HashMap};
+use std::collections::{HashMap, hash_map};
 use std::fs::File;
 use std::io::{BufReader, BufWriter};
 use std::path::Path;
@@ -122,12 +122,15 @@ impl AccountRecords {
                 }
                 *total_supply += account.amount() + account.locked();
                 seq.serialize_element(&StateRecord::Account { account_id, account })?;
-                for record in self.extra_records.iter() {
+                for record in &self.extra_records {
                     seq.serialize_element(record)?;
                 }
             }
             None => {
-                tracing::warn!("access keys for {} were included in --extra-records, but no Account record was found. Not adding them to the output", &account_id);
+                tracing::warn!(
+                    "access keys for {} were included in --extra-records, but no Account record was found. Not adding them to the output",
+                    &account_id
+                );
             }
         }
         Ok(())
@@ -139,7 +142,7 @@ fn validator_records(
     num_bytes_account: u64,
 ) -> anyhow::Result<HashMap<AccountId, AccountRecords>> {
     let mut records = HashMap::new();
-    for AccountInfo { account_id, public_key, amount } in validators.iter() {
+    for AccountInfo { account_id, public_key, amount } in validators {
         let mut r = AccountRecords::new_validator(*amount, num_bytes_account);
         r.keys.insert(public_key.clone(), AccessKey::full_access());
         if records.insert(account_id.clone(), r).is_some() {
@@ -405,7 +408,7 @@ pub fn amend_genesis(
 #[cfg(test)]
 mod test {
     use anyhow::Context;
-    use near_chain_configs::{get_initial_supply, Genesis, GenesisConfig, NEAR_BASE};
+    use near_chain_configs::{Genesis, GenesisConfig, NEAR_BASE, get_initial_supply};
     use near_primitives::account::AccountContract;
     use near_primitives::shard_layout::ShardLayout;
     use near_primitives::state_record::StateRecord;
@@ -1041,7 +1044,7 @@ mod test {
 
     #[test]
     fn test_amend_genesis() {
-        for t in TEST_CASES.iter() {
+        for t in TEST_CASES {
             t.run().unwrap();
         }
     }

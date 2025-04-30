@@ -3,8 +3,8 @@ use std::num::NonZeroUsize;
 use lru::LruCache;
 use near_chain_configs::default_orphan_state_witness_pool_size;
 use near_primitives::hash::CryptoHash;
-use near_primitives::stateless_validation::state_witness::ChunkStateWitness;
 use near_primitives::stateless_validation::ChunkProductionKey;
+use near_primitives::stateless_validation::state_witness::ChunkStateWitness;
 use near_primitives::types::BlockHeight;
 
 use metrics_tracker::OrphanWitnessMetricsTracker;
@@ -71,7 +71,7 @@ impl OrphanStateWitnessPool {
         prev_block: &CryptoHash,
     ) -> Vec<ChunkStateWitness> {
         let mut to_remove: Vec<ChunkProductionKey> = Vec::new();
-        for (cache_key, cache_entry) in self.witness_cache.iter() {
+        for (cache_key, cache_entry) in &self.witness_cache {
             if cache_entry.witness.chunk_header.prev_block_hash() == prev_block {
                 to_remove.push(cache_key.clone());
             }
@@ -92,7 +92,7 @@ impl OrphanStateWitnessPool {
     /// so they can be removed from the pool to free up memory.
     pub fn remove_witnesses_below_final_height(&mut self, final_height: BlockHeight) {
         let mut to_remove: Vec<ChunkProductionKey> = Vec::new();
-        for (cache_key, cache_entry) in self.witness_cache.iter() {
+        for (cache_key, cache_entry) in &self.witness_cache {
             let witness_height = cache_key.height_created;
             if witness_height <= final_height {
                 to_remove.push(cache_key.clone());
@@ -177,7 +177,7 @@ mod metrics_tracker {
 
 #[cfg(test)]
 mod tests {
-    use near_primitives::hash::{hash, CryptoHash};
+    use near_primitives::hash::{CryptoHash, hash};
     use near_primitives::sharding::{ShardChunkHeader, ShardChunkHeaderInner};
     use near_primitives::stateless_validation::state_witness::ChunkStateWitness;
     use near_primitives::types::{BlockHeight, ShardId};

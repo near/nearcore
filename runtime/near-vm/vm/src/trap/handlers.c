@@ -1,6 +1,8 @@
 // This file contains partial code from other sources.
 // Attributions: https://github.com/wasmerio/wasmer/blob/2.3.0/ATTRIBUTIONS.md
 
+// cspell:ignore setjump
+
 #include <setjmp.h>
 #include <stdio.h>
 #if defined(CFG_TARGET_OS_MACOS)
@@ -15,7 +17,7 @@
 // In case of macOS, stackoverflow
 #if defined(CFG_TARGET_OS_WINDOWS)
 // On Windows, default setjmp/longjmp sequence will try to unwind the stack
-// it's fine most of the time, but not for JIT'd code that may not respect stack ordring
+// it's fine most of the time, but not for JIT'd code that may not respect stack ordering
 // Using a special setjmp here, with NULL as second parameter to disable that behaviour
 // and have a regular simple setjmp/longjmp sequence
 #ifdef __MINGW32__
@@ -40,9 +42,10 @@
 
 int near_vm_register_setjmp(
     void **buf_storage,
-    void (*body)(void*),
-    void *payload) {
-  #if 0 && defined(CFG_TARGET_OS_MACOS)
+    void (*body)(void *),
+    void *payload)
+{
+#if 0 && defined(CFG_TARGET_OS_MACOS)
   // Enable this block to ba able to debug Segfault with lldb
   // This will mask the EXC_BAD_ACCESS from lldb...
   static int allow_bad_access = 0;
@@ -50,9 +53,10 @@ int near_vm_register_setjmp(
     allow_bad_access = 1;
     task_set_exception_ports(mach_task_self(), EXC_MASK_BAD_ACCESS, MACH_PORT_NULL, EXCEPTION_DEFAULT, 0);
   }
-  #endif
+#endif
   platform_jmp_buf buf;
-  if (platform_setjmp(buf) != 0) {
+  if (platform_setjmp(buf) != 0)
+  {
     return 0;
   }
   *buf_storage = &buf;
@@ -60,7 +64,8 @@ int near_vm_register_setjmp(
   return 1;
 }
 
-void near_vm_unwind(void *JmpBuf) {
-  platform_jmp_buf *buf = (platform_jmp_buf*) JmpBuf;
+void near_vm_unwind(void *JmpBuf)
+{
+  platform_jmp_buf *buf = (platform_jmp_buf *)JmpBuf;
   platform_longjmp(*buf, 1);
 }

@@ -1,23 +1,22 @@
-use near_chain_configs::{get_initial_supply, Genesis, GenesisConfig, GenesisRecords};
+use near_chain_configs::{Genesis, GenesisConfig, GenesisRecords, get_initial_supply};
 use near_crypto::{InMemorySigner, Signer};
 use near_parameters::ActionCosts;
 use near_primitives::account::{AccessKey, Account, AccountContract};
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
 use near_primitives::congestion_info::{BlockCongestionInfo, ExtendedCongestionInfo};
-use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::receipt::Receipt;
-use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
 use near_primitives::shard_layout::ShardUId;
-use near_primitives::state_record::{state_record_to_account_id, StateRecord};
+use near_primitives::state_record::{StateRecord, state_record_to_account_id};
 use near_primitives::test_utils::MockEpochInfoProvider;
 use near_primitives::transaction::{ExecutionOutcomeWithId, SignedTransaction};
 use near_primitives::types::{AccountId, AccountInfo, Balance};
-use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
+use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives_core::account::id::AccountIdRef;
+use near_store::ShardTries;
 use near_store::genesis::GenesisStateApplier;
 use near_store::test_utils::TestTriesBuilder;
-use near_store::ShardTries;
 use node_runtime::{ApplyState, Runtime, SignedValidPeriodTransactions};
 use random_config::random_config;
 use std::collections::{HashMap, HashSet};
@@ -93,16 +92,12 @@ impl StandaloneRuntime {
             &genesis,
             account_ids,
         );
-        let congestion_info = if ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
-            genesis
-                .config
-                .shard_layout
-                .shard_ids()
-                .map(|shard_id| (shard_id, ExtendedCongestionInfo::default()))
-                .collect()
-        } else {
-            Default::default()
-        };
+        let congestion_info = genesis
+            .config
+            .shard_layout
+            .shard_ids()
+            .map(|shard_id| (shard_id, ExtendedCongestionInfo::default()))
+            .collect();
         let congestion_info = BlockCongestionInfo::new(congestion_info);
 
         let apply_state = ApplyState {
@@ -121,10 +116,9 @@ impl StandaloneRuntime {
             config: Arc::new(runtime_config),
             cache: None,
             is_new_chunk: true,
-            migration_data: Arc::new(MigrationData::default()),
-            migration_flags: MigrationFlags::default(),
             congestion_info,
             bandwidth_requests: BlockBandwidthRequests::empty(),
+            trie_access_tracker_state: Default::default(),
         };
 
         Self {
@@ -140,7 +134,7 @@ impl StandaloneRuntime {
     pub fn process_block(
         &mut self,
         receipts: &[Receipt],
-        transactions: &[SignedTransaction],
+        transactions: Vec<SignedTransaction>,
     ) -> ProcessBlockOutcome {
         // TODO - the shard id is correct but the shard version is hardcoded. It
         // would be better to store the shard layout in self and read the uid
@@ -149,7 +143,7 @@ impl StandaloneRuntime {
         let shard_uid = ShardUId::new(0, shard_id);
         let trie = self.tries.get_trie_for_shard(shard_uid, self.root);
         let validity = vec![true; transactions.len()];
-        let transactions = SignedValidPeriodTransactions::new(transactions, &validity);
+        let transactions = SignedValidPeriodTransactions::new(transactions, validity);
         let apply_result = self
             .runtime
             .apply(
@@ -168,11 +162,11 @@ impl StandaloneRuntime {
         store_update.commit().unwrap();
         self.apply_state.block_height += 1;
 
-        if let Some(bandwidth_requests) = apply_result.bandwidth_requests {
-            self.apply_state.bandwidth_requests = BlockBandwidthRequests {
-                shards_bandwidth_requests: [(shard_id, bandwidth_requests)].into_iter().collect(),
-            }
-        }
+        self.apply_state.bandwidth_requests = BlockBandwidthRequests {
+            shards_bandwidth_requests: [(shard_id, apply_result.bandwidth_requests)]
+                .into_iter()
+                .collect(),
+        };
 
         let mut has_queued_receipts = false;
         if let Some(congestion_info) = apply_result.congestion_info {
@@ -366,10 +360,12 @@ impl RuntimeGroup {
                     mut outgoing_receipts,
                     mut execution_outcomes,
                     mut has_queued_receipts,
-                } = runtime
-                    .process_block(&mailbox.incoming_receipts, &mailbox.incoming_transactions);
+                } = runtime.process_block(
+                    &mailbox.incoming_receipts,
+                    mailbox.incoming_transactions.clone(),
+                );
                 while has_queued_receipts {
-                    let process_outcome = runtime.process_block(&[], &[]);
+                    let process_outcome = runtime.process_block(&[], vec![]);
                     outgoing_receipts.extend(process_outcome.outgoing_receipts);
                     execution_outcomes.extend(process_outcome.execution_outcomes);
                     has_queued_receipts = process_outcome.has_queued_receipts;
@@ -423,56 +419,24 @@ impl RuntimeGroup {
     }
 }
 
-/// Binds a tuple to a vector.
-/// # Examples:
-///
-/// ```
-/// let v = vec![1,2,3];
-/// tuplet!((a,b,c) = v);
-/// assert_eq!(a, &1);
-/// assert_eq!(b, &2);
-/// assert_eq!(c, &3);
-/// ```
-#[macro_export]
-macro_rules! tuplet {
-    {() = $v:expr, $message:expr } => {
-        assert!($v.is_empty(), "{}", $message);
-    };
-    {($y:ident) = $v:expr, $message:expr } => {
-        assert_eq!($v.len(), 1, "{}", $message);
-        let $y = &$v[0];
-    };
-    { ($y:ident $(, $x:ident)*) = $v:expr, $message:expr } => {
-        let ($y, $($x),*) = tuplet!($v ; 1 ; ($($x),*) ; (&$v[0]), $message );
-    };
-    { $v:expr ; $j:expr ; ($y:ident $(, $x:ident)*) ; ($($a:expr),*), $message:expr } => {
-        tuplet!( $v ; $j+1 ; ($($x),*) ; ($($a),*,&$v[$j]), $message )
-    };
-    { $v:expr ; $j:expr ; () ; $accu:expr, $message:expr } => { {
-            assert_eq!($v.len(), $j, "{}", $message);
-            $accu
-    } }
-}
-
 #[macro_export]
 macro_rules! assert_receipts {
-    ($group:ident, $transaction:ident => [ $($receipt:ident),* ] ) => {
+    ($group:ident, $transaction:ident ) => {{
         let transaction_log = $group.get_transaction_log(&$transaction.get_hash());
-        tuplet!(( $($receipt),* ) = transaction_log.outcome.receipt_ids, "Incorrect number of produced receipts for transaction");
-    };
+        transaction_log.outcome.receipt_ids
+    }};
     ($group:ident, $from:expr => $receipt:ident @ $to:expr,
     $receipt_pat:pat,
     $receipt_assert:block,
     $actions_name:ident,
-    $($action_name:ident, $action_pat:pat, $action_assert:block ),+
-     => [ $($produced_receipt:ident),*] ) => {
+    $($action_name:ident, $action_pat:pat, $action_assert:block ),+ ) => {{
         let r = $group.get_receipt($to, $receipt);
         assert_eq!(r.predecessor_id().clone(), $from);
         assert_eq!(r.receiver_id().clone(), $to);
         match r.receipt() {
             $receipt_pat => {
                 $receipt_assert
-                tuplet!(( $($action_name),* ) = $actions_name, "Incorrect number of actions");
+                let [$($action_name),* ] = &$actions_name[..] else { panic!("Incorrect number of actions") };
                 $(
                     match $action_name {
                         $action_pat => {
@@ -484,9 +448,9 @@ macro_rules! assert_receipts {
             }
             _ => panic!("Receipt {:#?} does not satisfy the pattern {}", r, stringify!($receipt_pat)),
         }
-       let receipt_log = $group.get_transaction_log(&r.get_hash());
-       tuplet!(( $($produced_receipt),* ) = receipt_log.outcome.receipt_ids, "Incorrect number of produced receipts for a receipt");
-    };
+        let receipt_log = $group.get_transaction_log(&r.get_hash());
+        receipt_log.outcome.receipt_ids
+    }};
 }
 
 /// A short form for refunds.
@@ -499,7 +463,7 @@ macro_rules! assert_receipts {
 ///                  ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
 ///                  actions,
 ///                  a0, Action::Transfer(TransferAction{..}), {}
-///                  => []);
+///                  );
 /// ```
 #[macro_export]
 macro_rules! assert_refund {
@@ -508,6 +472,6 @@ macro_rules! assert_refund {
                          ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
                          actions,
                          a0, Action::Transfer(TransferAction{..}), {}
-                         => []);
+                        );
  }
 }

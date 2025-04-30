@@ -17,7 +17,9 @@ pub struct RpcGasPriceResponse {
 pub enum RpcGasPriceError {
     #[error("Internal error: {error_message}")]
     InternalError { error_message: String },
-    #[error("Block either has never been observed on the node or has been garbage collected: {error_message}")]
+    #[error(
+        "Block either has never been observed on the node or has been garbage collected: {error_message}"
+    )]
     UnknownBlock {
         #[serde(skip_serializing)]
         error_message: String,
@@ -40,7 +42,7 @@ impl From<RpcGasPriceError> for crate::errors::RpcError {
                 return Self::new_internal_error(
                     None,
                     format!("Failed to serialize RpcGasPriceError: {:?}", err),
-                )
+                );
             }
         };
 

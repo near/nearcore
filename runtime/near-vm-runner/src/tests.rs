@@ -1,5 +1,6 @@
 mod cache;
 mod compile_errors;
+#[cfg(feature = "prepare")]
 mod fuzzers;
 mod regression_tests;
 mod rs_contract;
@@ -9,8 +10,8 @@ mod ts_contract;
 mod wasm_validation;
 
 use crate::logic::VMContext;
-use near_parameters::vm::VMKind;
 use near_parameters::RuntimeConfigStore;
+use near_parameters::vm::VMKind;
 use near_primitives_core::version::PROTOCOL_VERSION;
 
 const CURRENT_ACCOUNT_ID: &str = "alice";
@@ -31,25 +32,17 @@ pub(crate) fn with_vm_variants(
     #[allow(unused)] cfg: &near_parameters::vm::Config,
     runner: impl Fn(VMKind) -> (),
 ) {
+    #[allow(unused)]
     let run = move |kind| {
         println!("running test with {kind:?}");
         runner(kind)
     };
 
-    #[cfg(all(feature = "wasmer0_vm", target_arch = "x86_64"))]
-    run(VMKind::Wasmer0);
-
     #[cfg(feature = "wasmtime_vm")]
     run(VMKind::Wasmtime);
 
-    #[cfg(all(feature = "wasmer2_vm", target_arch = "x86_64"))]
-    run(VMKind::Wasmer2);
-
     #[cfg(all(feature = "near_vm", target_arch = "x86_64"))]
-    if cfg.limit_config.contract_prepare_version == near_parameters::vm::ContractPrepareVersion::V2
-    {
-        run(VMKind::NearVm);
-    }
+    run(VMKind::NearVm);
 }
 
 fn create_context(input: Vec<u8>) -> VMContext {

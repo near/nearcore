@@ -1,7 +1,8 @@
 use crate::parameter::Parameter;
-use enum_map::{enum_map, EnumMap};
+use enum_map::{EnumMap, enum_map};
 use near_account_id::AccountType;
 use near_primitives_core::types::{Balance, Compute, Gas};
+use near_primitives_core::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_schema_checker_lib::ProtocolSchema;
 use num_rational::Rational32;
 
@@ -23,11 +24,7 @@ pub struct Fee {
 impl Fee {
     #[inline]
     pub fn send_fee(&self, sir: bool) -> Gas {
-        if sir {
-            self.send_sir
-        } else {
-            self.send_not_sir
-        }
+        if sir { self.send_sir } else { self.send_not_sir }
     }
 
     pub fn exec_fee(&self) -> Gas {
@@ -309,6 +306,8 @@ pub enum ActionCosts {
     delegate = 15,
     deploy_global_contract_base = 16,
     deploy_global_contract_byte = 17,
+    use_global_contract_base = 18,
+    use_global_contract_byte = 19,
 }
 
 impl ExtCosts {
@@ -428,6 +427,11 @@ pub struct RuntimeFeesConfig {
 
     /// Pessimistic gas price inflation ratio.
     pub pessimistic_gas_price_inflation_ratio: Rational32,
+
+    /// Whether we calculate in the gas price changes when refunding gas.
+    ///
+    /// Changed to false with [NEP-536](https://github.com/near/NEPs/pull/536)
+    pub refund_gas_price_changes: bool,
 }
 
 /// Describes cost of storage per block
@@ -455,6 +459,7 @@ impl RuntimeFeesConfig {
             storage_usage_config: StorageUsageConfig::test(),
             burnt_gas_reward: Rational32::new(3, 10),
             pessimistic_gas_price_inflation_ratio: Rational32::new(103, 100),
+            refund_gas_price_changes: !ProtocolFeature::ReducedGasRefunds.enabled(PROTOCOL_VERSION),
             action_fees: enum_map::enum_map! {
                 ActionCosts::create_account => Fee {
                     send_sir: 3_850_000_000_000,
@@ -546,6 +551,16 @@ impl RuntimeFeesConfig {
                     send_not_sir: 6_812_999,
                     execution: 70_000_000,
                 },
+                ActionCosts::use_global_contract_base => Fee {
+                    send_sir: 184_765_750_000,
+                    send_not_sir: 184_765_750_000,
+                    execution: 184_765_750_000,
+                },
+                ActionCosts::use_global_contract_byte => Fee {
+                    send_sir: 6_812_999,
+                    send_not_sir: 47_683_715,
+                    execution: 64_572_944,
+                },
             },
         }
     }
@@ -558,6 +573,7 @@ impl RuntimeFeesConfig {
             storage_usage_config: StorageUsageConfig::free(),
             burnt_gas_reward: Rational32::from_integer(0),
             pessimistic_gas_price_inflation_ratio: Rational32::from_integer(0),
+            refund_gas_price_changes: !ProtocolFeature::ReducedGasRefunds.enabled(PROTOCOL_VERSION),
         }
     }
 

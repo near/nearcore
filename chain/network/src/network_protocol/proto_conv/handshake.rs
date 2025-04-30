@@ -4,7 +4,7 @@ use super::*;
 use crate::network_protocol::proto;
 use crate::network_protocol::{Handshake, HandshakeFailureReason};
 use crate::network_protocol::{PeerChainInfoV2, PeerInfo};
-use near_primitives::block::GenesisId;
+use near_primitives::genesis::GenesisId;
 use protobuf::MessageField as MF;
 
 impl From<&GenesisId> for proto::GenesisId {
@@ -108,11 +108,7 @@ impl TryFrom<&proto::Handshake> for Handshake {
             sender_listen_port: {
                 let port =
                     u16::try_from(p.sender_listen_port).map_err(Self::Error::SenderListenPort)?;
-                if port == 0 {
-                    None
-                } else {
-                    Some(port)
-                }
+                if port == 0 { None } else { Some(port) }
             },
             sender_chain_info: try_from_required(&p.sender_chain_info)
                 .map_err(Self::Error::SenderChainInfo)?,

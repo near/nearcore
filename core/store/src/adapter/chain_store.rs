@@ -1,30 +1,27 @@
-use std::collections::{HashMap, HashSet};
-use std::io;
-use std::sync::Arc;
-
+use super::{StoreAdapter, StoreUpdateAdapter, StoreUpdateHolder};
+use crate::{
+    CHUNK_TAIL_KEY, DBCol, FINAL_HEAD_KEY, FORK_TAIL_KEY, HEAD_KEY, HEADER_HEAD_KEY,
+    LARGEST_TARGET_HEIGHT_KEY, Store, StoreUpdate, TAIL_KEY, get_genesis_height,
+};
 use near_chain_primitives::Error;
 use near_primitives::block::{Block, BlockHeader, Tip};
 use near_primitives::chunk_apply_stats::ChunkApplyStats;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::PartialMerkleTree;
 use near_primitives::receipt::Receipt;
-use near_primitives::shard_layout::{get_block_shard_uid, ShardUId};
+use near_primitives::shard_layout::{ShardUId, get_block_shard_uid};
 use near_primitives::sharding::{
     ChunkHash, EncodedShardChunk, PartialEncodedChunk, ReceiptProof, ShardChunk,
 };
 use near_primitives::state_sync::{ShardStateSyncResponseHeader, StateHeaderKey};
 use near_primitives::transaction::{ExecutionOutcomeWithProof, SignedTransaction};
 use near_primitives::types::chunk_extra::ChunkExtra;
-use near_primitives::types::{BlockExtra, BlockHeight, EpochId, NumBlocks, ShardId};
+use near_primitives::types::{BlockHeight, EpochId, NumBlocks, ShardId};
 use near_primitives::utils::{get_block_shard_id, get_outcome_id_block_hash, index_to_bytes};
 use near_primitives::views::LightClientBlockView;
-
-use crate::{
-    get_genesis_height, DBCol, Store, CHUNK_TAIL_KEY, FINAL_HEAD_KEY, FORK_TAIL_KEY,
-    HEADER_HEAD_KEY, HEAD_KEY, LARGEST_TARGET_HEIGHT_KEY, TAIL_KEY,
-};
-
-use super::StoreAdapter;
+use std::collections::{HashMap, HashSet};
+use std::io;
+use std::sync::Arc;
 
 #[derive(Clone)]
 pub struct ChainStoreAdapter {
@@ -45,6 +42,16 @@ impl ChainStoreAdapter {
             .expect("Store failed on fetching genesis height")
             .expect("Genesis height not found in storage");
         Self { store, genesis_height }
+    }
+
+    pub fn store_update(&self) -> ChainStoreUpdateAdapter<'static> {
+        ChainStoreUpdateAdapter {
+            store_update: StoreUpdateHolder::Owned(self.store.store_update()),
+        }
+    }
+
+    pub fn genesis_height(&self) -> BlockHeight {
+        self.genesis_height
     }
 
     /// The chain head.
@@ -198,14 +205,6 @@ impl ChainStoreAdapter {
         )
     }
 
-    /// Information from applying block.
-    pub fn get_block_extra(&self, block_hash: &CryptoHash) -> Result<Arc<BlockExtra>, Error> {
-        option_to_not_found(
-            self.store.get_ser(DBCol::BlockExtra, block_hash.as_ref()),
-            format_args!("BLOCK EXTRA: {}", block_hash),
-        )
-    }
-
     /// Get full chunk.
     pub fn get_chunk(&self, chunk_hash: &ChunkHash) -> Result<Arc<ShardChunk>, Error> {
         match self.store.get_ser(DBCol::Chunks, chunk_hash.as_ref()) {
@@ -281,11 +280,6 @@ impl ChainStoreAdapter {
             self.store.get_ser(DBCol::IncomingReceipts, &get_block_shard_id(block_hash, shard_id)),
             format_args!("INCOMING RECEIPT: {} {}", block_hash, shard_id),
         )
-    }
-
-    /// Returns whether the block with the given hash was challenged
-    pub fn is_block_challenged(&self, hash: &CryptoHash) -> Result<bool, Error> {
-        Ok(self.store.get_ser(DBCol::ChallengedBlocks, hash.as_ref())?.unwrap_or_default())
     }
 
     pub fn get_blocks_to_catchup(&self, prev_hash: &CryptoHash) -> Result<Vec<CryptoHash>, Error> {
@@ -398,6 +392,97 @@ impl ChainStoreAdapter {
     /// Get height of genesis
     pub fn get_genesis_height(&self) -> BlockHeight {
         self.genesis_height
+    }
+}
+
+pub struct ChainStoreUpdateAdapter<'a> {
+    store_update: StoreUpdateHolder<'a>,
+}
+
+impl Into<StoreUpdate> for ChainStoreUpdateAdapter<'static> {
+    fn into(self) -> StoreUpdate {
+        self.store_update.into()
+    }
+}
+
+impl ChainStoreUpdateAdapter<'static> {
+    pub fn commit(self) -> io::Result<()> {
+        let store_update: StoreUpdate = self.into();
+        store_update.commit()
+    }
+}
+
+impl<'a> StoreUpdateAdapter for ChainStoreUpdateAdapter<'a> {
+    fn store_update(&mut self) -> &mut StoreUpdate {
+        &mut self.store_update
+    }
+}
+
+impl<'a> ChainStoreUpdateAdapter<'a> {
+    pub fn new(store_update: &'a mut StoreUpdate) -> Self {
+        Self { store_update: StoreUpdateHolder::Reference(store_update) }
+    }
+
+    /// Note: Typically while saving the block header we would also like to update
+    /// block_header_hashes_by_height and update block_merkle_tree
+    /// This is a primitive function and changing only the BlockHeader column can lead to inconsistencies
+    pub fn set_block_header_only(&mut self, header: &BlockHeader) {
+        self.store_update.insert_ser(DBCol::BlockHeader, header.hash().as_ref(), header).unwrap();
+    }
+
+    /// Note: Typically block_header_hashes_by_height is saved while saving the block header
+    /// This is a primitive function and changing only the HeaderHashesByHeight column can lead to inconsistencies
+    /// Use with update_block_header_hashes_by_height
+    pub fn set_block_header_hashes_by_height(
+        &mut self,
+        height: BlockHeight,
+        hash_set: &HashSet<CryptoHash>,
+    ) {
+        self.store_update
+            .set_ser(DBCol::HeaderHashesByHeight, &index_to_bytes(height), hash_set)
+            .unwrap();
+    }
+
+    /// Note: Typically block_merkle_tree is saved while saving the block header
+    /// This is a primitive function and changing only the BlockMerkleTree column can lead to inconsistencies
+    pub fn set_block_merkle_tree(
+        &mut self,
+        block_hash: &CryptoHash,
+        block_merkle_tree: &PartialMerkleTree,
+    ) {
+        self.store_update
+            .set_ser(DBCol::BlockMerkleTree, block_hash.as_ref(), block_merkle_tree)
+            .unwrap();
+    }
+
+    pub fn set_block_ordinal(&mut self, block_ordinal: NumBlocks, block_hash: &CryptoHash) {
+        self.store_update
+            .set_ser(DBCol::BlockOrdinal, &index_to_bytes(block_ordinal), block_hash)
+            .unwrap();
+    }
+
+    pub fn set_block_height(&mut self, hash: &CryptoHash, height: BlockHeight) {
+        self.store_update
+            .set_ser(DBCol::BlockHeight, &borsh::to_vec(&height).unwrap(), hash)
+            .unwrap();
+    }
+
+    pub fn set_header_head(&mut self, header_head: &Tip) {
+        self.store_update.set_ser(DBCol::BlockMisc, HEADER_HEAD_KEY, header_head).unwrap();
+    }
+
+    pub fn set_final_head(&mut self, final_head: &Tip) {
+        self.store_update.set_ser(DBCol::BlockMisc, FINAL_HEAD_KEY, final_head).unwrap();
+    }
+
+    /// This function is normally clubbed with set_block_header_only
+    /// This is a primitive function and changing only the HeaderHashesByHeight column can lead to inconsistencies
+    pub fn update_block_header_hashes_by_height(&mut self, header: &BlockHeader) {
+        let height = header.height();
+        let mut hash_set =
+            self.store_update.store.chain_store().get_all_header_hashes_by_height(height).unwrap();
+        hash_set.insert(*header.hash());
+        self.set_block_header_hashes_by_height(height, &hash_set);
     }
 }
 

@@ -1,7 +1,7 @@
 use {
     super::ValidatorMandatesConfig,
     near_primitives_core::types::Balance,
-    std::cmp::{min, Ordering},
+    std::cmp::{Ordering, min},
 };
 
 /// Given the stakes for the validators and the target number of mandates to have,
@@ -219,7 +219,7 @@ mod tests {
         let stakes = {
             let mut stakes = vec![0_u128; 1000];
             let mut rng = rand::rngs::StdRng::seed_from_u64(0xdeadbeef);
-            for s in stakes.iter_mut() {
+            for s in &mut stakes {
                 *s = rng.gen_range(1_u128..10_000u128);
             }
             stakes

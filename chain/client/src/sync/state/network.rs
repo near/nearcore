@@ -1,9 +1,9 @@
-use super::task_tracker::TaskHandle;
 use super::StateSyncDownloadSource;
+use super::task_tracker::TaskHandle;
 use crate::metrics;
 use crate::sync::state::util::increment_download_count;
-use futures::future::BoxFuture;
 use futures::FutureExt;
+use futures::future::BoxFuture;
 use near_async::messaging::AsyncSender;
 use near_async::time::{Clock, Duration};
 use near_chain::BlockHeader;

@@ -1,3 +1,4 @@
+use crate::action::GlobalContractIdentifier;
 use crate::hash::CryptoHash;
 use crate::serialize::dec_format;
 use crate::shard_layout::ShardLayoutError;
@@ -61,8 +62,6 @@ pub enum RuntimeError {
     /// Unexpected error which is typically related to the node storage corruption.
     /// It's possible the input state is invalid or malicious.
     StorageError(StorageError),
-    /// An error happens if `check_balance` fails, which is likely an indication of an invalid state.
-    BalanceMismatchError(Box<BalanceMismatchError>),
     /// The incoming receipt didn't pass the validation, it's likely a malicious behavior.
     ReceiptValidationError(ReceiptValidationError),
     /// Error when accessing validator information. Happens inside epoch manager.
@@ -390,17 +389,18 @@ impl Display for ReceiptValidationError {
                 "The length of the returned data {} exceeded the limit {} in a DataReceipt",
                 length, limit
             ),
-            ReceiptValidationError::NumberInputDataDependenciesExceeded { number_of_input_data_dependencies, limit } => write!(
+            ReceiptValidationError::NumberInputDataDependenciesExceeded {
+                number_of_input_data_dependencies,
+                limit,
+            } => write!(
                 f,
                 "The number of input data dependencies {} exceeded the limit {} in an ActionReceipt",
                 number_of_input_data_dependencies, limit
             ),
             ReceiptValidationError::ActionsValidation(e) => write!(f, "{}", e),
-            ReceiptValidationError::ReceiptSizeExceeded { size, limit } => write!(
-                f,
-                "The size of the receipt exceeded the limit: {} > {}",
-                size, limit
-            ),
+            ReceiptValidationError::ReceiptSizeExceeded { size, limit } => {
+                write!(f, "The size of the receipt exceeded the limit: {} > {}", size, limit)
+            }
         }
     }
 }
@@ -416,14 +416,20 @@ impl Display for ActionsValidationError {
             ActionsValidationError::TotalPrepaidGasExceeded { total_prepaid_gas, limit } => {
                 write!(f, "The total prepaid gas {} exceeds the limit {}", total_prepaid_gas, limit)
             }
-            ActionsValidationError::TotalNumberOfActionsExceeded {total_number_of_actions, limit } => {
+            ActionsValidationError::TotalNumberOfActionsExceeded {
+                total_number_of_actions,
+                limit,
+            } => {
                 write!(
                     f,
                     "The total number of actions {} exceeds the limit {}",
                     total_number_of_actions, limit
                 )
             }
-            ActionsValidationError::AddKeyMethodNamesNumberOfBytesExceeded { total_number_of_bytes, limit } => write!(
+            ActionsValidationError::AddKeyMethodNamesNumberOfBytesExceeded {
+                total_number_of_bytes,
+                limit,
+            } => write!(
                 f,
                 "The total number of bytes in allowed method names {} exceeds the maximum allowed number {} in a AddKey action",
                 total_number_of_bytes, limit
@@ -433,30 +439,31 @@ impl Display for ActionsValidationError {
                 "The length of some method name {} exceeds the maximum allowed length {} in a AddKey action",
                 length, limit
             ),
-            ActionsValidationError::IntegerOverflow => write!(
-                f,
-                "Integer overflow during a compute",
-            ),
-            ActionsValidationError::InvalidAccountId { account_id } => write!(
-                f,
-                "Invalid account ID `{}`",
-                account_id
-            ),
+            ActionsValidationError::IntegerOverflow => {
+                write!(f, "Integer overflow during a compute",)
+            }
+            ActionsValidationError::InvalidAccountId { account_id } => {
+                write!(f, "Invalid account ID `{}`", account_id)
+            }
             ActionsValidationError::ContractSizeExceeded { size, limit } => write!(
                 f,
                 "The length of the contract size {} exceeds the maximum allowed size {} in a DeployContract action",
                 size, limit
             ),
-            ActionsValidationError::FunctionCallMethodNameLengthExceeded { length, limit } => write!(
-                f,
-                "The length of the method name {} exceeds the maximum allowed length {} in a FunctionCall action",
-                length, limit
-            ),
-            ActionsValidationError::FunctionCallArgumentsLengthExceeded { length, limit } => write!(
-                f,
-                "The length of the arguments {} exceeds the maximum allowed length {} in a FunctionCall action",
-                length, limit
-            ),
+            ActionsValidationError::FunctionCallMethodNameLengthExceeded { length, limit } => {
+                write!(
+                    f,
+                    "The length of the method name {} exceeds the maximum allowed length {} in a FunctionCall action",
+                    length, limit
+                )
+            }
+            ActionsValidationError::FunctionCallArgumentsLengthExceeded { length, limit } => {
+                write!(
+                    f,
+                    "The length of the arguments {} exceeds the maximum allowed length {} in a FunctionCall action",
+                    length, limit
+                )
+            }
             ActionsValidationError::UnsuitableStakingKey { public_key } => write!(
                 f,
                 "The staking key must be ristretto compatible ED25519 key. {} is provided instead.",
@@ -466,16 +473,16 @@ impl Display for ActionsValidationError {
                 f,
                 "The attached amount of gas in a FunctionCall action has to be a positive number",
             ),
-            ActionsValidationError::DelegateActionMustBeOnlyOne => write!(
-                f,
-                "The actions can contain the ony one DelegateAction"
-            ),
-            ActionsValidationError::UnsupportedProtocolFeature { protocol_feature, version } => write!(
+            ActionsValidationError::DelegateActionMustBeOnlyOne => {
+                write!(f, "The actions can contain the ony one DelegateAction")
+            }
+            ActionsValidationError::UnsupportedProtocolFeature { protocol_feature, version } => {
+                write!(
                     f,
                     "Transaction requires protocol feature {} / version {} which is not supported by the current protocol version",
-                    protocol_feature,
-                    version,
-            ),
+                    protocol_feature, version,
+                )
+            }
         }
     }
 }
@@ -517,9 +524,13 @@ impl std::error::Error for ActionError {}
 )]
 pub enum ActionErrorKind {
     /// Happens when CreateAccount action tries to create an account with account_id which is already exists in the storage
-    AccountAlreadyExists { account_id: AccountId },
+    AccountAlreadyExists {
+        account_id: AccountId,
+    },
     /// Happens when TX receiver_id doesn't exist (but action is not Action::CreateAccount)
-    AccountDoesNotExist { account_id: AccountId },
+    AccountDoesNotExist {
+        account_id: AccountId,
+    },
     /// A top-level account ID can only be created by registrar.
     CreateAccountOnlyByRegistrar {
         account_id: AccountId,
@@ -528,16 +539,30 @@ pub enum ActionErrorKind {
     },
 
     /// A newly created account must be under a namespace of the creator account
-    CreateAccountNotAllowed { account_id: AccountId, predecessor_id: AccountId },
+    CreateAccountNotAllowed {
+        account_id: AccountId,
+        predecessor_id: AccountId,
+    },
     /// Administrative actions like `DeployContract`, `Stake`, `AddKey`, `DeleteKey`. can be proceed only if sender=receiver
     /// or the first TX action is a `CreateAccount` action
-    ActorNoPermission { account_id: AccountId, actor_id: AccountId },
+    ActorNoPermission {
+        account_id: AccountId,
+        actor_id: AccountId,
+    },
     /// Account tries to remove an access key that doesn't exist
-    DeleteKeyDoesNotExist { account_id: AccountId, public_key: Box<PublicKey> },
+    DeleteKeyDoesNotExist {
+        account_id: AccountId,
+        public_key: Box<PublicKey>,
+    },
     /// The public key is already used for an existing access key
-    AddKeyAlreadyExists { account_id: AccountId, public_key: Box<PublicKey> },
+    AddKeyAlreadyExists {
+        account_id: AccountId,
+        public_key: Box<PublicKey>,
+    },
     /// Account is staking and can not be deleted
-    DeleteAccountStaking { account_id: AccountId },
+    DeleteAccountStaking {
+        account_id: AccountId,
+    },
     /// ActionReceipt can't be completed, because the remaining balance will not be enough to cover storage.
     LackBalanceForState {
         /// An account which needs balance
@@ -547,7 +572,9 @@ pub enum ActionErrorKind {
         amount: Balance,
     },
     /// Account is not yet staked, but tries to unstake
-    TriesToUnstake { account_id: AccountId },
+    TriesToUnstake {
+        account_id: AccountId,
+    },
     /// The account doesn't have enough balance to increase the stake.
     TriesToStake {
         account_id: AccountId,
@@ -576,21 +603,37 @@ pub enum ActionErrorKind {
     ///
     /// TODO(#8598): This error is named very poorly. A better name would be
     /// `OnlyNamedAccountCreationAllowed`.
-    OnlyImplicitAccountCreationAllowed { account_id: AccountId },
+    OnlyImplicitAccountCreationAllowed {
+        account_id: AccountId,
+    },
     /// Delete account whose state is large is temporarily banned.
-    DeleteAccountWithLargeState { account_id: AccountId },
+    DeleteAccountWithLargeState {
+        account_id: AccountId,
+    },
     /// Signature does not match the provided actions and given signer public key.
     DelegateActionInvalidSignature,
     /// Receiver of the transaction doesn't match Sender of the delegate action
-    DelegateActionSenderDoesNotMatchTxReceiver { sender_id: AccountId, receiver_id: AccountId },
+    DelegateActionSenderDoesNotMatchTxReceiver {
+        sender_id: AccountId,
+        receiver_id: AccountId,
+    },
     /// Delegate action has expired. `max_block_height` is less than actual block height.
     DelegateActionExpired,
     /// The given public key doesn't exist for Sender account
     DelegateActionAccessKeyError(InvalidAccessKeyError),
     /// DelegateAction nonce must be greater sender[public_key].nonce
-    DelegateActionInvalidNonce { delegate_nonce: Nonce, ak_nonce: Nonce },
+    DelegateActionInvalidNonce {
+        delegate_nonce: Nonce,
+        ak_nonce: Nonce,
+    },
     /// DelegateAction nonce is larger than the upper bound given by the block height
-    DelegateActionNonceTooLarge { delegate_nonce: Nonce, upper_bound: Nonce },
+    DelegateActionNonceTooLarge {
+        delegate_nonce: Nonce,
+        upper_bound: Nonce,
+    },
+    GlobalContractDoesNotExist {
+        identifier: GlobalContractIdentifier,
+    },
 }
 
 impl From<ActionErrorKind> for ActionError {
@@ -628,7 +671,11 @@ impl Display for InvalidTxError {
                 signer_id, balance, cost
             ),
             InvalidTxError::LackBalanceForState { signer_id, amount } => {
-                write!(f, "Failed to execute, because the account {:?} wouldn't have enough balance to cover storage, required to have {} yoctoNEAR more", signer_id, amount)
+                write!(
+                    f,
+                    "Failed to execute, because the account {:?} wouldn't have enough balance to cover storage, required to have {} yoctoNEAR more",
+                    signer_id, amount
+                )
             }
             InvalidTxError::CostOverflow => {
                 write!(f, "Transaction gas or balance cost is too high")
@@ -659,7 +706,10 @@ impl Display for InvalidTxError {
                 write!(f, "Storage error: {}", error)
             }
             InvalidTxError::ShardCongested { shard_id, congestion_level } => {
-                write!(f, "Shard {shard_id} is currently at congestion level {congestion_level:.3} and rejects new transactions.")
+                write!(
+                    f,
+                    "Shard {shard_id} is currently at congestion level {congestion_level:.3} and rejects new transactions."
+                )
             }
             InvalidTxError::ShardStuck { shard_id, missed_chunks } => {
                 write!(
@@ -696,7 +746,10 @@ impl Display for InvalidAccessKeyError {
                 method_name
             ),
             InvalidAccessKeyError::RequiresFullAccess => {
-                write!(f, "Invalid access key type. Full-access keys are required for transactions that have multiple or non-function-call actions")
+                write!(
+                    f,
+                    "Invalid access key type. Full-access keys are required for transactions that have multiple or non-function-call actions"
+                )
             }
             InvalidAccessKeyError::NotEnoughAllowance {
                 account_id,
@@ -709,109 +762,16 @@ impl Display for InvalidAccessKeyError {
                 account_id, public_key, allowance, cost
             ),
             InvalidAccessKeyError::DepositWithFunctionCall => {
-                write!(f, "Having a deposit with a function call action is not allowed with a function call access key.")
+                write!(
+                    f,
+                    "Having a deposit with a function call action is not allowed with a function call access key."
+                )
             }
         }
     }
 }
 
 impl std::error::Error for InvalidAccessKeyError {}
-
-/// Happens when the input balance doesn't match the output balance in Runtime apply.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize, serde::Serialize, ProtocolSchema)]
-pub struct BalanceMismatchError {
-    // Input balances
-    #[serde(with = "dec_format")]
-    pub incoming_validator_rewards: Balance,
-    #[serde(with = "dec_format")]
-    pub initial_accounts_balance: Balance,
-    #[serde(with = "dec_format")]
-    pub incoming_receipts_balance: Balance,
-    #[serde(with = "dec_format")]
-    pub processed_delayed_receipts_balance: Balance,
-    #[serde(with = "dec_format")]
-    pub initial_postponed_receipts_balance: Balance,
-    #[serde(with = "dec_format")]
-    pub forwarded_buffered_receipts_balance: Balance,
-    // Output balances
-    #[serde(with = "dec_format")]
-    pub final_accounts_balance: Balance,
-    #[serde(with = "dec_format")]
-    pub outgoing_receipts_balance: Balance,
-    #[serde(with = "dec_format")]
-    pub new_delayed_receipts_balance: Balance,
-    #[serde(with = "dec_format")]
-    pub final_postponed_receipts_balance: Balance,
-    #[serde(with = "dec_format")]
-    pub tx_burnt_amount: Balance,
-    #[serde(with = "dec_format")]
-    pub slashed_burnt_amount: Balance,
-    #[serde(with = "dec_format")]
-    pub new_buffered_receipts_balance: Balance,
-    #[serde(with = "dec_format")]
-    pub other_burnt_amount: Balance,
-}
-
-impl Display for BalanceMismatchError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
-        // Using saturating add to avoid overflow in display
-        let initial_balance = self
-            .incoming_validator_rewards
-            .saturating_add(self.initial_accounts_balance)
-            .saturating_add(self.incoming_receipts_balance)
-            .saturating_add(self.processed_delayed_receipts_balance)
-            .saturating_add(self.initial_postponed_receipts_balance)
-            .saturating_add(self.forwarded_buffered_receipts_balance);
-        let final_balance = self
-            .final_accounts_balance
-            .saturating_add(self.outgoing_receipts_balance)
-            .saturating_add(self.new_delayed_receipts_balance)
-            .saturating_add(self.final_postponed_receipts_balance)
-            .saturating_add(self.tx_burnt_amount)
-            .saturating_add(self.slashed_burnt_amount)
-            .saturating_add(self.other_burnt_amount)
-            .saturating_add(self.new_buffered_receipts_balance);
-
-        write!(
-            f,
-            "Balance Mismatch Error. The input balance {} doesn't match output balance {}\n\
-             Inputs:\n\
-             \tIncoming validator rewards sum: {}\n\
-             \tInitial accounts balance sum: {}\n\
-             \tIncoming receipts balance sum: {}\n\
-             \tProcessed delayed receipts balance sum: {}\n\
-             \tInitial postponed receipts balance sum: {}\n\
-             \tForwarded buffered receipts sum: {}\n\
-             Outputs:\n\
-             \tFinal accounts balance sum: {}\n\
-             \tOutgoing receipts balance sum: {}\n\
-             \tNew delayed receipts balance sum: {}\n\
-             \tFinal postponed receipts balance sum: {}\n\
-             \tTx fees burnt amount: {}\n\
-             \tSlashed amount: {}\n\
-             \tNew buffered receipts balance sum: {}\n\
-             \tOther burnt amount: {}",
-            initial_balance,
-            final_balance,
-            self.incoming_validator_rewards,
-            self.initial_accounts_balance,
-            self.incoming_receipts_balance,
-            self.processed_delayed_receipts_balance,
-            self.initial_postponed_receipts_balance,
-            self.forwarded_buffered_receipts_balance,
-            self.final_accounts_balance,
-            self.outgoing_receipts_balance,
-            self.new_delayed_receipts_balance,
-            self.final_postponed_receipts_balance,
-            self.tx_burnt_amount,
-            self.slashed_burnt_amount,
-            self.new_buffered_receipts_balance,
-            self.other_burnt_amount,
-        )
-    }
-}
-
-impl std::error::Error for BalanceMismatchError {}
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, ProtocolSchema)]
 pub struct IntegerOverflowError;
@@ -839,12 +799,6 @@ impl From<IntegerOverflowError> for RuntimeError {
 impl From<StorageError> for RuntimeError {
     fn from(e: StorageError) -> Self {
         RuntimeError::StorageError(e)
-    }
-}
-
-impl From<BalanceMismatchError> for RuntimeError {
-    fn from(e: BalanceMismatchError) -> Self {
-        RuntimeError::BalanceMismatchError(Box::new(e))
     }
 }
 
@@ -895,7 +849,11 @@ impl Display for ActionErrorKind {
                 "Account {:?} tries to stake {}, but has staked {} and only has {}",
                 account_id, stake, locked, balance
             ),
-            ActionErrorKind::CreateAccountOnlyByRegistrar { account_id, registrar_account_id, predecessor_id } => write!(
+            ActionErrorKind::CreateAccountOnlyByRegistrar {
+                account_id,
+                registrar_account_id,
+                predecessor_id,
+            } => write!(
                 f,
                 "A top-level account ID {:?} can't be created by {:?}, short top-level account IDs can only be created by {:?}",
                 account_id, predecessor_id, registrar_account_id,
@@ -922,15 +880,49 @@ impl Display for ActionErrorKind {
             ActionErrorKind::NewReceiptValidationError(e) => {
                 write!(f, "An new action receipt created during a FunctionCall is not valid: {}", e)
             }
-            ActionErrorKind::InsufficientStake { account_id, stake, minimum_stake } => write!(f, "Account {} tries to stake {} but minimum required stake is {}", account_id, stake, minimum_stake),
-            ActionErrorKind::OnlyImplicitAccountCreationAllowed { account_id } => write!(f, "CreateAccount action is called on hex-characters account of length 64 {}", account_id),
-            ActionErrorKind::DeleteAccountWithLargeState { account_id } => write!(f, "The state of account {} is too large and therefore cannot be deleted", account_id),
-            ActionErrorKind::DelegateActionInvalidSignature => write!(f, "DelegateAction is not signed with the given public key"),
-            ActionErrorKind::DelegateActionSenderDoesNotMatchTxReceiver { sender_id, receiver_id } => write!(f, "Transaction receiver {} doesn't match DelegateAction sender {}", receiver_id, sender_id),
+            ActionErrorKind::InsufficientStake { account_id, stake, minimum_stake } => write!(
+                f,
+                "Account {} tries to stake {} but minimum required stake is {}",
+                account_id, stake, minimum_stake
+            ),
+            ActionErrorKind::OnlyImplicitAccountCreationAllowed { account_id } => write!(
+                f,
+                "CreateAccount action is called on hex-characters account of length 64 {}",
+                account_id
+            ),
+            ActionErrorKind::DeleteAccountWithLargeState { account_id } => write!(
+                f,
+                "The state of account {} is too large and therefore cannot be deleted",
+                account_id
+            ),
+            ActionErrorKind::DelegateActionInvalidSignature => {
+                write!(f, "DelegateAction is not signed with the given public key")
+            }
+            ActionErrorKind::DelegateActionSenderDoesNotMatchTxReceiver {
+                sender_id,
+                receiver_id,
+            } => write!(
+                f,
+                "Transaction receiver {} doesn't match DelegateAction sender {}",
+                receiver_id, sender_id
+            ),
             ActionErrorKind::DelegateActionExpired => write!(f, "DelegateAction has expired"),
-            ActionErrorKind::DelegateActionAccessKeyError(access_key_error) => Display::fmt(&access_key_error, f),
-            ActionErrorKind::DelegateActionInvalidNonce { delegate_nonce, ak_nonce } => write!(f, "DelegateAction nonce {} must be larger than nonce of the used access key {}", delegate_nonce, ak_nonce),
-            ActionErrorKind::DelegateActionNonceTooLarge { delegate_nonce, upper_bound } => write!(f, "DelegateAction nonce {} must be smaller than the access key nonce upper bound {}", delegate_nonce, upper_bound),
+            ActionErrorKind::DelegateActionAccessKeyError(access_key_error) => {
+                Display::fmt(&access_key_error, f)
+            }
+            ActionErrorKind::DelegateActionInvalidNonce { delegate_nonce, ak_nonce } => write!(
+                f,
+                "DelegateAction nonce {} must be larger than nonce of the used access key {}",
+                delegate_nonce, ak_nonce
+            ),
+            ActionErrorKind::DelegateActionNonceTooLarge { delegate_nonce, upper_bound } => write!(
+                f,
+                "DelegateAction nonce {} must be smaller than the access key nonce upper bound {}",
+                delegate_nonce, upper_bound
+            ),
+            ActionErrorKind::GlobalContractDoesNotExist { identifier } => {
+                write!(f, "Global contract identifier {:?} not found", identifier)
+            }
         }
     }
 }
@@ -983,7 +975,11 @@ impl Display for EpochError {
             }
             EpochError::ShardingError(err) => write!(f, "Sharding Error: {}", err),
             EpochError::NotEnoughValidators { num_shards, num_validators } => {
-                write!(f, "There were not enough validator proposals to fill all shards. num_proposals: {}, num_shards: {}", num_validators, num_shards)
+                write!(
+                    f,
+                    "There were not enough validator proposals to fill all shards. num_proposals: {}, num_shards: {}",
+                    num_validators, num_shards
+                )
             }
             EpochError::ChunkValidatorSelectionError(err) => {
                 write!(f, "Error selecting validators for a chunk: {}", err)

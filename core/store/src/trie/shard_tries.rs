@@ -1,15 +1,15 @@
+use super::TrieRefcountSubtraction;
 use super::mem::memtries::MemTries;
 use super::state_snapshot::{StateSnapshot, StateSnapshotConfig};
-use super::TrieRefcountSubtraction;
-use crate::adapter::trie_store::{TrieStoreAdapter, TrieStoreUpdateAdapter};
 use crate::adapter::StoreAdapter;
-use crate::flat::{FlatStorageManager, FlatStorageStatus};
+use crate::adapter::trie_store::{TrieStoreAdapter, TrieStoreUpdateAdapter};
+use crate::flat::FlatStorageManager;
 use crate::trie::config::TrieConfig;
 use crate::trie::mem::loading::load_trie_from_flat_state_and_delta;
 use crate::trie::prefetching_trie_storage::PrefetchingThreadsHandle;
 use crate::trie::trie_storage::{TrieCache, TrieCachingStorage};
-use crate::trie::{TrieRefcountAddition, POISONED_LOCK_ERR};
-use crate::{metrics, DBCol, PrefetchApi, Store, TrieDBStorage, TrieStorage};
+use crate::trie::{POISONED_LOCK_ERR, TrieRefcountAddition};
+use crate::{DBCol, PrefetchApi, Store, TrieDBStorage, TrieStorage, metrics};
 use crate::{Trie, TrieChanges, TrieUpdate};
 use itertools::Itertools;
 use near_primitives::errors::StorageError;
@@ -21,6 +21,7 @@ use near_primitives::types::{
 };
 use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
 use std::collections::{HashMap, HashSet};
+use std::path::Path;
 use std::sync::{Arc, Mutex, RwLock};
 
 struct ShardTriesInner {
@@ -109,7 +110,11 @@ impl ShardTries {
         skip_all,
         fields(is_view)
     )]
-    fn get_trie_cache_for(&self, shard_uid: ShardUId, is_view: bool) -> Option<TrieCache> {
+    pub(crate) fn get_trie_cache_for(
+        &self,
+        shard_uid: ShardUId,
+        is_view: bool,
+    ) -> Option<TrieCache> {
         self.trie_cache_enabled(shard_uid, is_view).then(|| {
             let caches_to_use = if is_view { &self.0.view_caches } else { &self.0.caches };
             let mut caches = caches_to_use.lock().expect(POISONED_LOCK_ERR);
@@ -174,22 +179,6 @@ impl ShardTries {
         self.get_trie_for_shard_internal(shard_uid, state_root, false, None)
     }
 
-    pub fn get_trie_with_block_hash_for_shard_from_snapshot(
-        &self,
-        shard_uid: ShardUId,
-        state_root: StateRoot,
-        block_hash: &CryptoHash,
-    ) -> Result<Trie, StorageError> {
-        let (store, flat_storage_manager) = self.get_state_snapshot(block_hash)?;
-        let cache = self
-            .get_trie_cache_for(shard_uid, true)
-            .expect("trie cache should be enabled for view calls");
-        let storage = Arc::new(TrieCachingStorage::new(store, cache, shard_uid, true, None));
-        let flat_storage_chunk_view = flat_storage_manager.chunk_view(shard_uid, *block_hash);
-
-        Ok(Trie::new(storage, state_root, flat_storage_chunk_view))
-    }
-
     pub fn get_trie_with_block_hash_for_shard(
         &self,
         shard_uid: ShardUId,
@@ -218,6 +207,10 @@ impl ShardTries {
 
     pub fn state_snapshot_config(&self) -> &StateSnapshotConfig {
         &self.0.state_snapshot_config
+    }
+
+    pub fn state_snapshots_dir(&self) -> Option<&Path> {
+        self.state_snapshot_config().state_snapshots_dir()
     }
 
     pub(crate) fn state_snapshot(&self) -> &Arc<RwLock<Option<StateSnapshot>>> {
@@ -276,7 +269,7 @@ impl ShardTries {
         store_update: &mut TrieStoreUpdateAdapter,
     ) {
         let mut ops = Vec::with_capacity(deletions.len());
-        for TrieRefcountSubtraction { trie_node_or_value_hash, rc, .. } in deletions.iter() {
+        for TrieRefcountSubtraction { trie_node_or_value_hash, rc, .. } in deletions {
             store_update.decrement_refcount_by(shard_uid, trie_node_or_value_hash, *rc);
             ops.push((trie_node_or_value_hash, None));
         }
@@ -291,9 +284,7 @@ impl ShardTries {
         store_update: &mut TrieStoreUpdateAdapter,
     ) {
         let mut ops = Vec::with_capacity(insertions.len());
-        for TrieRefcountAddition { trie_node_or_value_hash, trie_node_or_value, rc } in
-            insertions.iter()
-        {
+        for TrieRefcountAddition { trie_node_or_value_hash, trie_node_or_value, rc } in insertions {
             store_update.increment_refcount_by(
                 shard_uid,
                 trie_node_or_value_hash,
@@ -430,17 +421,6 @@ impl ShardTries {
             );
             None
         }
-    }
-
-    /// Returns the status of the given shard of flat storage in the state snapshot.
-    /// `sync_prev_prev_hash` needs to match the block hash that identifies that snapshot.
-    pub fn get_snapshot_flat_storage_status(
-        &self,
-        sync_prev_prev_hash: CryptoHash,
-        shard_uid: ShardUId,
-    ) -> Result<FlatStorageStatus, StorageError> {
-        let (_store, manager) = self.get_state_snapshot(&sync_prev_prev_hash)?;
-        Ok(manager.get_flat_storage_status(shard_uid))
     }
 
     /// Retains in-memory tries for given shards, i.e. unload tries from memory for shards that are NOT
@@ -673,7 +653,7 @@ impl WrappedTrieChanges {
         block_hash: &CryptoHash,
         store_update: &mut TrieStoreUpdateAdapter,
     ) {
-        for mut change_with_trie_key in self.state_changes.drain(..) {
+        for change_with_trie_key in self.state_changes.drain(..) {
             assert!(
                 !change_with_trie_key.changes.iter().any(|RawStateChange { cause, .. }| matches!(
                     cause,
@@ -682,11 +662,6 @@ impl WrappedTrieChanges {
                 "NotWritableToDisk changes must never be finalized."
             );
 
-            // Resharding changes must not be finalized, however they may be introduced here when we are
-            // evaluating changes for resharding in process_resharding_results function
-            change_with_trie_key
-                .changes
-                .retain(|change| change.cause != StateChangeCause::ReshardingV2);
             if change_with_trie_key.changes.is_empty() {
                 continue;
             }
@@ -723,7 +698,9 @@ impl WrappedTrieChanges {
 
 #[derive(thiserror::Error, Debug)]
 pub enum KeyForStateChangesError {
-    #[error("Row key of StateChange of kind DelayedReceipt or DelayedReceiptIndices doesn't contain ShardUId: row_key: {0:?} ; trie_key: {1:?}")]
+    #[error(
+        "Row key of StateChange of kind DelayedReceipt or DelayedReceiptIndices doesn't contain ShardUId: row_key: {0:?} ; trie_key: {1:?}"
+    )]
     DelayedReceiptRowKeyError(Vec<u8>, TrieKey),
 }
 
@@ -838,8 +815,8 @@ impl KeyForStateChanges {
 mod test {
     use crate::adapter::StoreAdapter;
     use crate::{
-        config::TrieCacheConfig, test_utils::create_test_store,
-        trie::DEFAULT_SHARD_CACHE_TOTAL_SIZE_LIMIT, TrieConfig,
+        TrieConfig, config::TrieCacheConfig, test_utils::create_test_store,
+        trie::DEFAULT_SHARD_CACHE_TOTAL_SIZE_LIMIT,
     };
 
     use super::*;
@@ -863,7 +840,7 @@ mod test {
             trie_config,
             &shard_uids,
             FlatStorageManager::new(store.flat_store()),
-            StateSnapshotConfig::default(),
+            StateSnapshotConfig::Disabled,
         )
     }
 
@@ -895,12 +872,14 @@ mod test {
 
         // Forget to add a ShardUId to the key, fail to extra a ShardUId from the key.
         let row_key_without_shard_uid = KeyForStateChanges::from_trie_key(&block_hash, &trie_key1);
-        assert!(KeyForStateChanges::delayed_receipt_key_decode_shard_uid(
-            row_key_without_shard_uid.as_ref(),
-            &block_hash,
-            &trie_key1
-        )
-        .is_err());
+        assert!(
+            KeyForStateChanges::delayed_receipt_key_decode_shard_uid(
+                row_key_without_shard_uid.as_ref(),
+                &block_hash,
+                &trie_key1
+            )
+            .is_err()
+        );
 
         // Add an extra byte to the key, fail to extra a ShardUId from the key.
         let mut row_key_extra_bytes = KeyForStateChanges::delayed_receipt_key_from_trie_key(
@@ -909,12 +888,14 @@ mod test {
             &shard_uid,
         );
         row_key_extra_bytes.0.extend([8u8]);
-        assert!(KeyForStateChanges::delayed_receipt_key_decode_shard_uid(
-            row_key_extra_bytes.as_ref(),
-            &block_hash,
-            &trie_key1
-        )
-        .is_err());
+        assert!(
+            KeyForStateChanges::delayed_receipt_key_decode_shard_uid(
+                row_key_extra_bytes.as_ref(),
+                &block_hash,
+                &trie_key1
+            )
+            .is_err()
+        );
 
         // This is the internal detail of how delayed_receipt_key_from_trie_key() works.
         let mut row_key_with_single_shard_uid =
@@ -981,7 +962,7 @@ mod test {
             trie_config,
             &shard_uids,
             FlatStorageManager::new(store.flat_store()),
-            StateSnapshotConfig::default(),
+            StateSnapshotConfig::Disabled,
         );
 
         let trie_caches = &trie.0.caches;

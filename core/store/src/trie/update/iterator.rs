@@ -1,8 +1,8 @@
 use std::iter::Peekable;
 use std::ops::Bound;
 
-use crate::trie::{update::*, TrieWithReadLock};
 use crate::StorageError;
+use crate::trie::{TrieWithReadLock, update::*};
 
 use crate::trie::TrieIterator;
 

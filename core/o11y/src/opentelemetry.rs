@@ -2,14 +2,14 @@ use crate::reload::TracingLayer;
 use near_crypto::PublicKey;
 use near_primitives_core::types::AccountId;
 use opentelemetry::KeyValue;
-use opentelemetry_sdk::trace::{self, RandomIdGenerator, Sampler};
 use opentelemetry_sdk::Resource;
+use opentelemetry_sdk::trace::{self, RandomIdGenerator, Sampler};
 use opentelemetry_semantic_conventions::resource::SERVICE_NAME;
 use tracing::level_filters::LevelFilter;
 use tracing_subscriber::filter::targets::Targets;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::registry::LookupSpan;
-use tracing_subscriber::{reload, Layer};
+use tracing_subscriber::{Layer, reload};
 
 // Doesn't define WARN and ERROR, because the highest verbosity of spans is INFO.
 #[derive(Copy, Clone, Debug, Default, clap::ValueEnum)]

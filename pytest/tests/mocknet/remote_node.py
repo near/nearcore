@@ -55,6 +55,9 @@ class RemoteNeardRunner:
         r = cmd_utils.run_cmd(self.node, cmd, raise_on_fail, return_on_fail)
         return r
 
+    def upload_file(self, src, dst):
+        self.node.machine.upload(src, dst, switch_user='ubuntu')
+
     def init_python(self):
         cmd = f'cd {self.neard_runner_home} && python3 -m virtualenv venv -p $(which python3)' \
         ' && ./venv/bin/pip install -r requirements.txt'
@@ -104,6 +107,24 @@ class RemoteNeardRunner:
         return self.node.get_validators()
 
 
+def get_traffic_generator_handle(traffic_generator):
+    if traffic_generator is None:
+        return None
+
+    # Here we want the neard-runner home dir to be on the same disk as the target data dir since
+    # we'll be making backups on that disk.
+    traffic_target_home = cmd_utils.run_cmd(
+        traffic_generator,
+        'cat /proc/mounts | grep "/home/ubuntu/.near" | grep -v "source" | head -n 1 | awk \'{print $2};\''
+    ).stdout.strip()
+    # On Locust traffic generators, we don't need the data disk as we will not mirror the traffic.
+    if not traffic_target_home:
+        traffic_target_home = "/home/ubuntu/.near"
+    traffic_runner_home = os.path.join(traffic_target_home, 'neard-runner')
+    return NodeHandle(RemoteNeardRunner(traffic_generator, traffic_runner_home),
+                      can_validate=False)
+
+
 def get_nodes(mocknet_id: str):
     all_nodes = mocknet.get_nodes(pattern=mocknet_id)
     if len(all_nodes) < 1:
@@ -117,26 +138,12 @@ def get_nodes(mocknet_id: str):
                 sys.exit(
                     f'more than one traffic generator instance found. {traffic_generator.instance_name} and {n.instance_name}'
                 )
+
             traffic_generator = n
         else:
             nodes.append(n)
 
-    if traffic_generator is None:
-        sys.exit(f'no traffic generator instance found')
-    # Here we want the neard-runner home dir to be on the same disk as the target data dir since
-    # we'll be making backups on that disk.
-    traffic_target_home = cmd_utils.run_cmd(
-        traffic_generator,
-        'cat /proc/mounts | grep "/home/ubuntu/.near" | grep -v "source" | head -n 1 | awk \'{print $2};\''
-    ).stdout.strip()
-    # On Locust traffic generators, we don't need the data disk as we will not mirror the traffic.
-    if not traffic_target_home:
-        traffic_target_home = "/home/ubuntu/.near"
-    traffic_runner_home = os.path.join(traffic_target_home, 'neard-runner')
-    return NodeHandle(RemoteNeardRunner(traffic_generator, traffic_runner_home),
-                      can_validate=False), [
-                          NodeHandle(
-                              RemoteNeardRunner(
-                                  node, '/home/ubuntu/.near/neard-runner'))
-                          for node in nodes
-                      ]
+    return get_traffic_generator_handle(traffic_generator), [
+        NodeHandle(RemoteNeardRunner(node, '/home/ubuntu/.near/neard-runner'))
+        for node in nodes
+    ]

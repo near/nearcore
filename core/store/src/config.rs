@@ -1,12 +1,12 @@
+use crate::DBCol;
 use crate::trie::{
     DEFAULT_SHARD_CACHE_DELETIONS_QUEUE_CAPACITY, DEFAULT_SHARD_CACHE_TOTAL_SIZE_LIMIT,
 };
-use crate::DBCol;
 use near_primitives::chains::MAINNET;
 use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::types::AccountId;
-use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_time::Duration;
 use std::{collections::HashMap, str::FromStr};
 
@@ -113,11 +113,17 @@ pub struct StoreConfig {
     #[serde(skip_serializing_if = "MigrationSnapshot::is_default")]
     pub migration_snapshot: MigrationSnapshot,
 
-    /// State Snapshot configuration
     pub state_snapshot_config: StateSnapshotConfig,
+}
 
-    // TODO (#9989): To be phased out in favor of state_snapshot_config
-    pub state_snapshot_enabled: bool,
+impl StoreConfig {
+    pub fn enable_state_snapshot(&mut self) {
+        self.state_snapshot_config.state_snapshot_type = StateSnapshotType::Enabled;
+    }
+
+    pub fn disable_state_snapshot(&mut self) {
+        self.state_snapshot_config.state_snapshot_type = StateSnapshotType::Disabled;
+    }
 }
 
 /// Config used to control state snapshot creation. This is used for state sync and resharding.
@@ -129,13 +135,12 @@ pub struct StateSnapshotConfig {
 
 #[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
 pub enum StateSnapshotType {
-    /// Consider this as the default "disabled" option. We need to have snapshotting enabled for resharding
-    /// State snapshots involve filesystem operations and costly IO operations.
-    ForReshardingOnly,
     /// This is the "enabled" option where we create a snapshot at the beginning of every epoch.
-    /// Needed if a node wants to be able to respond to state part requests.
     #[default]
-    EveryEpoch,
+    #[serde(alias = "EveryEpoch")] // TODO: Remove after 2.8 release
+    Enabled,
+    #[serde(alias = "ForReshardingOnly")] // TODO: Remove after 2.8 release
+    Disabled,
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -211,10 +216,10 @@ impl StoreConfig {
         }
 
         let mut per_shard_max_bytes: HashMap<ShardUId, bytesize::ByteSize> = HashMap::new();
-        for (account_id, bytes) in PER_ACCOUNT_CACHE_SIZE.iter() {
+        for (account_id, bytes) in PER_ACCOUNT_CACHE_SIZE {
             let account_id = AccountId::from_str(account_id)
                 .expect("the hardcoded account id should guarantee to be valid");
-            for shard_layout in shard_layouts.iter() {
+            for shard_layout in &shard_layouts {
                 let shard_uid = shard_layout.account_id_to_shard_uid(&account_id);
                 per_shard_max_bytes.insert(shard_uid, *bytes);
             }
@@ -298,9 +303,6 @@ impl Default for StoreConfig {
             migration_snapshot: Default::default(),
 
             state_snapshot_config: Default::default(),
-
-            // TODO: To be phased out in favor of state_snapshot_config
-            state_snapshot_enabled: false,
         }
     }
 }
@@ -504,10 +506,15 @@ impl<'a> ArchivalConfig<'a> {
         if archive {
             // Since only ColdDB storage is supported for now, assert that cold storage is configured.
             // TODO: Change this condition after supporting other archival storage options such as GCS.
-            assert!(cold_store_config.is_some()
+            assert!(
+                cold_store_config.is_some()
                     && (archival_store_config.is_none()
-                        || matches!(archival_store_config.unwrap().storage, ArchivalStorageLocation::ColdDB)),
-                    "Archival storage must be ColdDB and it must be configured with a valid StoreConfig");
+                        || matches!(
+                            archival_store_config.unwrap().storage,
+                            ArchivalStorageLocation::ColdDB
+                        )),
+                "Archival storage must be ColdDB and it must be configured with a valid StoreConfig"
+            );
         } else {
             assert!(
                 cold_store_config.is_none()

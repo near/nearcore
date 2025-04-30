@@ -32,7 +32,9 @@ pub enum CompileError {
 
     /// The compiler cannot compile for the given target.
     /// This can refer to the OS, the chipset or any other aspect of the target system.
-    #[error("The target {0} is not yet supported (see https://docs.wasmer.io/ecosystem/wasmer/wasmer-features)")]
+    #[error(
+        "The target {0} is not yet supported (see https://docs.wasmer.io/ecosystem/wasmer/wasmer-features)"
+    )]
     UnsupportedTarget(String),
 
     /// Insufficient resources available for execution.

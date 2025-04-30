@@ -61,24 +61,12 @@ test_utils = []
 solomon = ["reed-solomon-erasure"]
 rand = ["dep:rand", "rand_chacha", "near-crypto/rand"]
 clock = ["near-time/clock", "near-time/serde"]
-protocol_feature_fix_contract_loading_cost = [
-  "near-primitives-core/protocol_feature_fix_contract_loading_cost",
-]
 
 nightly = [
   "near-fmt/nightly",
   "near-parameters/nightly",
   "near-primitives-core/nightly",
   "near-primitives/nightly",
-  "nightly_protocol",
-  "protocol_feature_fix_contract_loading_cost",
-]
-
-nightly_protocol = [
-  "near-fmt/nightly_protocol",
-  "near-parameters/nightly_protocol",
-  "near-primitives-core/nightly_protocol",
-  "near-primitives/nightly_protocol",
 ]
 
 calimero_zero_storage = []
@@ -100,7 +88,6 @@ insta.workspace = true
 expect-test.workspace = true
 regex.workspace = true
 tempfile.workspace = true
-
 
 [[bench]]
 name = "serialization"

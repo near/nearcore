@@ -4,6 +4,7 @@
 /// It writes a few logs with the `debug` prefix. Those are ignored by cargo (as
 /// any other messages with prefix other than `cargo:`) but can be seen in the
 /// build logs.
+// cspell:ignore Ctarget, Dwarnings, Zbuild
 use std::env;
 use std::path::{Path, PathBuf};
 use std::process::Command;

@@ -1,6 +1,5 @@
 use near_chain::Provenance;
 use near_chain_configs::Genesis;
-use near_client::test_utils::TestEnv;
 use near_client::ProcessTxResponse;
 use near_crypto::{InMemorySigner, Signer};
 use near_primitives::account::Account;
@@ -10,7 +9,9 @@ use near_primitives::transaction::{
     Action, DeployContractAction, FunctionCallAction, SignedTransaction,
 };
 use near_primitives::types::{AccountId, BlockHeight, Nonce};
-use nearcore::test_utils::TestEnvNightshadeSetupExt;
+
+use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
+use crate::env::test_env::TestEnv;
 
 fn test_setup() -> (TestEnv, Signer) {
     let epoch_length = 5;
@@ -61,7 +62,7 @@ fn do_blocks(env: &mut TestEnv, start: BlockHeight, end: BlockHeight) {
 }
 
 fn send_tx(
-    env: &mut TestEnv,
+    env: &TestEnv,
     nonce: Nonce,
     signer_id: AccountId,
     receiver_id: AccountId,
@@ -71,7 +72,7 @@ fn send_tx(
     let hash = env.clients[0].chain.head().unwrap().last_block_hash;
     let tx =
         SignedTransaction::from_actions(nonce, signer_id, receiver_id, signer, actions, hash, 0);
-    env.clients[0].process_tx(tx, false, false)
+    env.rpc_handlers[0].process_tx(tx, false, false)
 }
 
 #[test]

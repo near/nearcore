@@ -1,11 +1,16 @@
+#[cfg(feature = "clock")]
 use crate::block::BlockHeader;
-use crate::hash::{hash, CryptoHash};
+use crate::hash::{CryptoHash, hash};
 use crate::types::{BlockHeight, SignatureDifferentiator};
 use borsh::{BorshDeserialize, BorshSerialize};
-use near_crypto::{InMemorySigner, Signature};
+#[cfg(feature = "rand")]
+use near_crypto::InMemorySigner;
+use near_crypto::Signature;
+#[cfg(feature = "rand")]
 use near_primitives_core::types::AccountId;
 use near_schema_checker_lib::ProtocolSchema;
 use std::fmt::Debug;
+#[cfg(feature = "rand")]
 use std::str::FromStr;
 
 #[derive(BorshSerialize, BorshDeserialize, Clone, Debug, Eq, PartialEq, ProtocolSchema)]
@@ -18,6 +23,17 @@ pub struct OptimisticBlockInner {
     pub vrf_value: near_crypto::vrf::Value,
     pub vrf_proof: near_crypto::vrf::Proof,
     signature_differentiator: SignatureDifferentiator,
+}
+
+#[cfg(feature = "test_features")]
+pub enum OptimisticBlockAdvType {
+    Normal,
+    InvalidVrfValue,
+    InvalidVrfProof,
+    InvalidRandomValue,
+    InvalidTimestamp(u64),
+    InvalidPrevBlockHash,
+    InvalidSignature,
 }
 
 /// An optimistic block is independent of specific chunks and can be generated
@@ -64,6 +80,56 @@ impl OptimisticBlock {
         Self { inner, signature, hash }
     }
 
+    #[cfg(all(feature = "clock", feature = "test_features"))]
+    pub fn adv_produce(
+        prev_block_header: &BlockHeader,
+        height: BlockHeight,
+        signer: &crate::validator_signer::ValidatorSigner,
+        clock: near_time::Clock,
+        sandbox_delta_time: Option<near_time::Duration>,
+        adv_type: OptimisticBlockAdvType,
+    ) -> Self {
+        let original = Self::produce(prev_block_header, height, signer, clock, sandbox_delta_time);
+        Self::alter(&original, signer, adv_type)
+    }
+
+    #[cfg(all(feature = "clock", feature = "test_features"))]
+    pub fn alter(
+        original: &OptimisticBlock,
+        signer: &crate::validator_signer::ValidatorSigner,
+        adv_type: OptimisticBlockAdvType,
+    ) -> Self {
+        let mut inner = original.inner.clone();
+        match adv_type {
+            OptimisticBlockAdvType::Normal => {}
+            OptimisticBlockAdvType::InvalidVrfValue => {
+                inner.vrf_value.0[0] = !inner.vrf_value.0[0];
+            }
+            OptimisticBlockAdvType::InvalidVrfProof => {
+                inner.vrf_proof.0[0] = !inner.vrf_proof.0[0];
+            }
+            OptimisticBlockAdvType::InvalidRandomValue => {
+                inner.random_value.0[0] = !inner.random_value.0[0];
+            }
+            OptimisticBlockAdvType::InvalidTimestamp(ts) => {
+                inner.block_timestamp = ts;
+            }
+            OptimisticBlockAdvType::InvalidPrevBlockHash => {
+                inner.prev_block_hash.0[0] = !inner.prev_block_hash.0[0];
+            }
+            _ => {}
+        }
+
+        let hash = hash(&borsh::to_vec(&inner).expect("Failed to serialize"));
+        let signature = if let OptimisticBlockAdvType::InvalidSignature = adv_type {
+            signer.sign_bytes(CryptoHash::default().as_ref())
+        } else {
+            signer.sign_bytes(hash.as_ref())
+        };
+
+        Self { inner, signature, hash }
+    }
+
     /// Recompute the hash after deserialization.
     pub fn init(&mut self) {
         self.hash = hash(&borsh::to_vec(&self.inner).expect("Failed to serialize"));
@@ -89,6 +155,7 @@ impl OptimisticBlock {
         &self.inner.random_value
     }
 
+    #[cfg(feature = "rand")]
     pub fn new_dummy(height: BlockHeight, prev_hash: CryptoHash) -> Self {
         let signer = InMemorySigner::test_signer(&AccountId::from_str("test".into()).unwrap());
         let (vrf_value, vrf_proof) = signer.compute_vrf_with_proof(Default::default());
@@ -122,7 +189,7 @@ pub struct OptimisticBlockKeySource {
     pub random_seed: CryptoHash,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, strum::AsRefStr)]
 pub enum BlockToApply {
     Normal(CryptoHash),
     Optimistic(CryptoHash),

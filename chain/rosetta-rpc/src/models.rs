@@ -1,5 +1,5 @@
 // cspell:words Apiv frunk
-use paperclip::actix::{api_v2_errors, Apiv2Schema};
+use paperclip::actix::{Apiv2Schema, api_v2_errors};
 
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{BlockHeight, Nonce};
@@ -543,9 +543,6 @@ impl Error {
             }
             crate::errors::ErrorKind::NotFound(message) => {
                 Self { code: 404, message: format!("Not Found: {}", message), retryable: false }
-            }
-            crate::errors::ErrorKind::MissingBlock(message) => {
-                Self { code: 422, message: format!("Missing Block: {}", message), retryable: false }
             }
             crate::errors::ErrorKind::WrongNetwork(message) => {
                 Self { code: 403, message: format!("Wrong Network: {}", message), retryable: false }

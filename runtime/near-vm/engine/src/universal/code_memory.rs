@@ -3,7 +3,9 @@
 
 //! Memory management for executable code.
 use near_vm_compiler::CompileError;
+#[cfg(not(windows))]
 use rustix::mm::{self, MapFlags, MprotectFlags, ProtFlags};
+#[cfg(not(windows))]
 use std::sync::Arc;
 
 /// The optimal alignment for functions.
@@ -11,10 +13,11 @@ use std::sync::Arc;
 /// On x86-64, this is 16 since it's what the optimizations assume.
 /// When we add support for other architectures, we should also figure out their
 /// optimal alignment values.
+#[cfg(not(windows))]
 pub(crate) const ARCH_FUNCTION_ALIGNMENT: u16 = 16;
 
 /// The optimal alignment for data.
-///
+#[cfg(not(windows))]
 pub(crate) const DATA_SECTION_ALIGNMENT: u16 = 64;
 
 fn round_up(size: usize, multiple: usize) -> usize {
@@ -31,11 +34,12 @@ impl<'a> CodeMemoryWriter<'a> {
     /// Write the contents from the provided buffer into the location of `self.memory` aligned to
     /// provided `alignment`.
     ///
-    /// The `alignment` actually used may be greater than the spepcified value. This is relevant,
+    /// The `alignment` actually used may be greater than the specified value. This is relevant,
     /// for example, when calling this function after a sequence of [`Self::write_executable`]
     /// calls.
     ///
     /// Returns the position within the mapping at which the buffer was written.
+    #[cfg(not(windows))]
     pub fn write_data(&mut self, mut alignment: u16, input: &[u8]) -> Result<usize, CompileError> {
         if self.offset == self.memory.executable_end {
             alignment = u16::try_from(rustix::param::page_size()).expect("page size > u16::MAX");
@@ -91,6 +95,7 @@ impl<'a> CodeMemoryWriter<'a> {
 /// Mappings to regions of memory storing the executable JIT code.
 pub struct CodeMemory {
     /// Where to return this memory to when dropped.
+    #[cfg(not(windows))]
     source_pool: Option<Arc<std::sync::Mutex<Vec<Self>>>>,
 
     /// The mapping
@@ -107,6 +112,7 @@ pub struct CodeMemory {
 }
 
 impl CodeMemory {
+    #[cfg(not(windows))]
     fn create(size: usize) -> rustix::io::Result<Self> {
         // Make sure callers don’t pass in a 0-sized map request. That is most likely a bug.
         assert!(size != 0);
@@ -134,6 +140,7 @@ impl CodeMemory {
     ///
     /// This will invalidate any data previously written into the mapping if the mapping needs to
     /// be resized.
+    #[cfg(not(windows))]
     pub fn resize(mut self, size: usize) -> rustix::io::Result<Self> {
         if self.size < size {
             // Ideally we would use mremap, but see
@@ -165,12 +172,15 @@ impl CodeMemory {
     /// # Safety
     ///
     /// Calling this requires that no mutable references to the code memory remain.
+    #[cfg(not(windows))]
     pub unsafe fn publish(&mut self) -> Result<(), CompileError> {
-        mm::mprotect(
-            self.map.cast(),
-            self.executable_end,
-            MprotectFlags::EXEC | MprotectFlags::READ,
-        )
+        unsafe {
+            mm::mprotect(
+                self.map.cast(),
+                self.executable_end,
+                MprotectFlags::EXEC | MprotectFlags::READ,
+            )
+        }
         .map_err(|e| {
             CompileError::Resource(format!("could not make code memory executable: {}", e))
         })
@@ -182,7 +192,7 @@ impl CodeMemory {
     pub unsafe fn executable_address(&self, offset: usize) -> *const u8 {
         // TODO: encapsulate offsets so that this `offset` is guaranteed to be sound.
         debug_assert!(offset <= isize::MAX as usize);
-        self.map.offset(offset as isize)
+        unsafe { self.map.offset(offset as isize) }
     }
 
     /// Remap the offset into an absolute address within a read-write mapping.
@@ -191,10 +201,11 @@ impl CodeMemory {
     pub unsafe fn writable_address(&self, offset: usize) -> *mut u8 {
         // TODO: encapsulate offsets so that this `offset` is guaranteed to be sound.
         debug_assert!(offset <= isize::MAX as usize);
-        self.map.offset(offset as isize)
+        unsafe { self.map.offset(offset as isize) }
     }
 }
 
+#[cfg(not(windows))]
 impl Drop for CodeMemory {
     fn drop(&mut self) {
         if let Some(source_pool) = self.source_pool.take() {
@@ -240,9 +251,11 @@ unsafe impl Send for CodeMemory {}
 /// The memories and the size of the pool may grow towards a high watermark.
 #[derive(Clone)]
 pub struct MemoryPool {
+    #[cfg(not(windows))]
     pool: Arc<std::sync::Mutex<Vec<CodeMemory>>>,
 }
 
+#[cfg(not(windows))]
 impl MemoryPool {
     /// Create a new pool with `preallocate_count` mappings initialized to `initial_map_size` each.
     pub fn new(preallocate_count: usize, initial_map_size: usize) -> rustix::io::Result<Self> {
@@ -263,11 +276,7 @@ impl MemoryPool {
             None => CodeMemory::create(std::cmp::max(size, 1))?,
         };
         memory.source_pool = Some(Arc::clone(&self.pool));
-        if memory.size < size {
-            Ok(memory.resize(size)?)
-        } else {
-            Ok(memory)
-        }
+        if memory.size < size { Ok(memory.resize(size)?) } else { Ok(memory) }
     }
 }
 

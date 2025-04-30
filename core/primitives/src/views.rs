@@ -12,14 +12,15 @@ use crate::action::{
 use crate::bandwidth_scheduler::BandwidthRequests;
 use crate::block::{Block, BlockHeader, Tip};
 use crate::block_header::BlockHeaderInnerLite;
-use crate::challenge::{Challenge, ChallengesResult};
+use crate::challenge::SlashedValidator;
 use crate::congestion_info::{CongestionInfo, CongestionInfoV1};
 use crate::errors::TxExecutionError;
-use crate::hash::{hash, CryptoHash};
-use crate::merkle::{combine_hash, MerklePath};
+use crate::hash::{CryptoHash, hash};
+use crate::merkle::{MerklePath, combine_hash};
 use crate::network::PeerId;
 use crate::receipt::{
-    ActionReceipt, DataReceipt, DataReceiver, GlobalContractData, Receipt, ReceiptEnum, ReceiptV1,
+    ActionReceipt, DataReceipt, DataReceiver, GlobalContractDistributionReceipt, Receipt,
+    ReceiptEnum, ReceiptV1,
 };
 use crate::serialize::dec_format;
 use crate::sharding::shard_chunk_header_inner::ShardChunkHeaderInnerV4;
@@ -355,7 +356,6 @@ pub struct StatusSyncInfo {
 #[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct ValidatorInfo {
     pub account_id: AccountId,
-    pub is_slashed: bool,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq)]
@@ -734,17 +734,6 @@ pub struct StatusResponse {
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
-pub struct ChallengeView {
-    // TODO: decide how to represent challenges in json.
-}
-
-impl From<Challenge> for ChallengeView {
-    fn from(_challenge: Challenge) -> Self {
-        Self {}
-    }
-}
-
-#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
 pub struct BlockHeaderView {
     pub height: BlockHeight,
     pub prev_height: Option<BlockHeight>,
@@ -778,7 +767,8 @@ pub struct BlockHeaderView {
     pub validator_reward: Balance,
     #[serde(with = "dec_format")]
     pub total_supply: Balance,
-    pub challenges_result: ChallengesResult,
+    // Deprecated
+    pub challenges_result: Vec<SlashedValidator>,
     pub last_final_block: CryptoHash,
     pub last_ds_final_block: CryptoHash,
     pub next_bp_hash: CryptoHash,
@@ -805,7 +795,7 @@ impl From<BlockHeader> for BlockHeaderView {
             chunk_headers_root: *header.chunk_headers_root(),
             chunk_tx_root: *header.chunk_tx_root(),
             chunks_included: header.chunks_included(),
-            challenges_root: *header.challenges_root(),
+            challenges_root: CryptoHash::default(),
             outcome_root: *header.outcome_root(),
             timestamp: header.raw_timestamp(),
             timestamp_nanosec: header.raw_timestamp(),
@@ -821,7 +811,7 @@ impl From<BlockHeader> for BlockHeaderView {
             rent_paid: 0,
             validator_reward: 0,
             total_supply: header.total_supply(),
-            challenges_result: header.challenges_result().clone(),
+            challenges_result: vec![],
             last_final_block: *header.last_final_block(),
             last_ds_final_block: *header.last_ds_final_block(),
             next_bp_hash: *header.next_bp_hash(),
@@ -849,7 +839,6 @@ impl From<BlockHeaderView> for BlockHeader {
             view.chunk_tx_root,
             view.outcome_root,
             view.timestamp,
-            view.challenges_root,
             view.random_value,
             view.validator_proposals.into_iter().map(|v| v.into_validator_stake()).collect(),
             view.chunk_mask,
@@ -858,7 +847,6 @@ impl From<BlockHeaderView> for BlockHeader {
             EpochId(view.next_epoch_id),
             view.gas_price,
             view.total_supply,
-            view.challenges_result,
             view.signature,
             view.last_final_block,
             view.last_ds_final_block,
@@ -957,6 +945,12 @@ pub struct ChunkHeaderView {
     pub signature: Signature,
 }
 
+impl ChunkHeaderView {
+    pub fn is_new_chunk(&self, block_height: BlockHeight) -> bool {
+        self.height_included == block_height
+    }
+}
+
 impl From<ShardChunkHeader> for ChunkHeaderView {
     fn from(chunk: ShardChunkHeader) -> Self {
         let hash = chunk.chunk_hash();
@@ -981,7 +975,7 @@ impl From<ShardChunkHeader> for ChunkHeaderView {
             outgoing_receipts_root: *inner.prev_outgoing_receipts_root(),
             tx_root: *inner.tx_root(),
             validator_proposals: inner.prev_validator_proposals().map(Into::into).collect(),
-            congestion_info: inner.congestion_info().map(Into::into),
+            congestion_info: Some(inner.congestion_info().into()),
             bandwidth_requests: inner.bandwidth_requests().cloned(),
             signature,
         }
@@ -1518,7 +1512,7 @@ impl From<ExecutionMetadata> for ExecutionMetadataView {
                 // Add actions, wasm op, and ext costs in groups.
                 // actions costs are 1-to-1
                 let mut costs: Vec<CostGasUsed> = ActionCosts::iter()
-                    .flat_map(|cost| {
+                    .filter_map(|cost| {
                         let gas_used = profile.get_action_cost(cost);
                         (gas_used > 0).then(|| {
                             CostGasUsed::action(
@@ -1953,7 +1947,11 @@ pub enum ReceiptEnumView {
         is_promise_resume: bool,
     },
     GlobalContractDistribution {
-        data: GlobalContractData,
+        id: GlobalContractIdentifier,
+        target_shard: ShardId,
+        already_delivered_shards: Vec<ShardId>,
+        #[serde_as(as = "Base64")]
+        code: Vec<u8>,
     },
 }
 
@@ -2004,8 +2002,13 @@ impl From<Receipt> for ReceiptView {
                         is_promise_resume,
                     }
                 }
-                ReceiptEnum::GlobalContractDistribution(data) => {
-                    ReceiptEnumView::GlobalContractDistribution { data }
+                ReceiptEnum::GlobalContractDistribution(receipt) => {
+                    ReceiptEnumView::GlobalContractDistribution {
+                        id: receipt.id().clone(),
+                        target_shard: receipt.target_shard(),
+                        already_delivered_shards: receipt.already_delivered_shards().to_vec(),
+                        code: hash(receipt.code()).as_bytes().to_vec(),
+                    }
                 }
             },
             priority,
@@ -2064,8 +2067,18 @@ impl TryFrom<ReceiptView> for Receipt {
                         ReceiptEnum::Data(data_receipt)
                     }
                 }
-                ReceiptEnumView::GlobalContractDistribution { data } => {
-                    ReceiptEnum::GlobalContractDistribution(data)
+                ReceiptEnumView::GlobalContractDistribution {
+                    id,
+                    target_shard,
+                    already_delivered_shards,
+                    code,
+                } => {
+                    ReceiptEnum::GlobalContractDistribution(GlobalContractDistributionReceipt::new(
+                        id,
+                        target_shard,
+                        already_delivered_shards,
+                        code.into(),
+                    ))
                 }
             },
             priority: receipt_view.priority,
@@ -2312,7 +2325,6 @@ pub enum StateChangeCauseView {
     UpdatedDelayedReceipts,
     ValidatorAccountsUpdate,
     Migration,
-    ReshardingV2,
     BandwidthSchedulerStateUpdate,
 }
 
@@ -2339,7 +2351,6 @@ impl From<StateChangeCause> for StateChangeCauseView {
             StateChangeCause::UpdatedDelayedReceipts => Self::UpdatedDelayedReceipts,
             StateChangeCause::ValidatorAccountsUpdate => Self::ValidatorAccountsUpdate,
             StateChangeCause::Migration => Self::Migration,
-            StateChangeCause::ReshardingV2 => Self::ReshardingV2,
             StateChangeCause::BandwidthSchedulerStateUpdate => Self::BandwidthSchedulerStateUpdate,
         }
     }

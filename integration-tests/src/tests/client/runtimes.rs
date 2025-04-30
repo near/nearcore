@@ -2,7 +2,6 @@
 //! This client works completely synchronously and must be operated by some async actor outside.
 
 use near_chain_configs::Genesis;
-use near_client::test_utils::TestEnv;
 use near_crypto::KeyType;
 use near_network::test_utils::MockPeerManagerAdapter;
 use near_primitives::block::{Approval, ApprovalInner};
@@ -11,9 +10,12 @@ use near_primitives::hash::hash;
 use near_primitives::network::PeerId;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::validator_signer::InMemoryValidatorSigner;
-use nearcore::test_utils::TestEnvNightshadeSetupExt;
+use near_primitives::version::PROTOCOL_VERSION;
 use std::collections::HashMap;
 use std::sync::Arc;
+
+use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
+use crate::env::test_env::TestEnv;
 
 #[test]
 fn test_pending_approvals() {
@@ -73,12 +75,11 @@ fn test_invalid_approvals() {
 #[test]
 fn test_cap_max_gas_price() {
     use near_chain::Provenance;
-    use near_primitives::version::ProtocolFeature;
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     let epoch_length = 5;
     genesis.config.min_gas_price = 1_000;
     genesis.config.max_gas_price = 1_000_000;
-    genesis.config.protocol_version = ProtocolFeature::CapMaxGasPrice.protocol_version();
+    genesis.config.protocol_version = PROTOCOL_VERSION;
     genesis.config.epoch_length = epoch_length;
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
 
@@ -87,12 +88,7 @@ fn test_cap_max_gas_price() {
         env.process_block(0, block, Provenance::PRODUCED);
     }
 
-    let last_block = env.clients[0].chain.get_block_by_height(epoch_length - 1).unwrap();
-    let protocol_version = env.clients[0]
-        .epoch_manager
-        .get_epoch_protocol_version(last_block.header().epoch_id())
-        .unwrap();
-    let min_gas_price = env.clients[0].chain.block_economics_config.min_gas_price(protocol_version);
-    let max_gas_price = env.clients[0].chain.block_economics_config.max_gas_price(protocol_version);
+    let min_gas_price = env.clients[0].chain.block_economics_config.min_gas_price();
+    let max_gas_price = env.clients[0].chain.block_economics_config.max_gas_price();
     assert!(max_gas_price <= 20 * min_gas_price);
 }

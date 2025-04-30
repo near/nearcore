@@ -5,7 +5,7 @@ use std::rc::Rc;
 use clap::Parser;
 use near_chain::{Block, ChainStore};
 use near_chain_configs::GenesisValidationMode;
-use near_epoch_manager::EpochManager;
+use near_epoch_manager::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
 use nearcore::config::load_config;
 
 use near_primitives::hash::CryptoHash;
@@ -15,7 +15,7 @@ use near_primitives::types::{AccountId, BlockHeight};
 use nearcore::open_storage;
 
 use crate::block_iterators::{
-    make_block_iterator_from_command_args, CommandArgs, LastNBlocksIterator,
+    CommandArgs, LastNBlocksIterator, make_block_iterator_from_command_args,
 };
 
 /// `Gas` is an u64, but it still might overflow when analyzing a large amount of blocks.
@@ -61,8 +61,7 @@ impl AnalyzeGasUsageCommand {
             false,
             near_config.genesis.config.transaction_validity_period,
         ));
-        let epoch_manager =
-            EpochManager::new_from_genesis_config(store, &near_config.genesis.config).unwrap();
+        let epoch_manager = EpochManager::new_arc_handle(store, &near_config.genesis.config, None);
 
         // Create an iterator over the blocks that should be analyzed
         let blocks_iter_opt = make_block_iterator_from_command_args(
@@ -216,7 +215,7 @@ impl GasUsageStats {
 fn get_gas_usage_in_block(
     block: &Block,
     chain_store: &ChainStore,
-    epoch_manager: &EpochManager,
+    epoch_manager: &EpochManagerHandle,
 ) -> GasUsageStats {
     let block_info = epoch_manager.get_block_info(block.hash()).unwrap();
     let epoch_id = block_info.epoch_id();
@@ -283,11 +282,7 @@ impl BiggestAccountsFinder {
 // Calculates how much percent of `big` is `small` and returns it as a string.
 // Example: as_percentage_of(10, 100) == "10.0%"
 fn as_percentage_of(small: BigGas, big: BigGas) -> String {
-    if big > 0 {
-        format!("{:.1}%", small as f64 / big as f64 * 100.0)
-    } else {
-        format!("-")
-    }
+    if big > 0 { format!("{:.1}%", small as f64 / big as f64 * 100.0) } else { format!("-") }
 }
 
 fn display_shard_split_stats<'a>(
@@ -327,7 +322,7 @@ fn display_shard_split_stats<'a>(
 fn analyze_gas_usage(
     blocks_iter: impl Iterator<Item = Block>,
     chain_store: &ChainStore,
-    epoch_manager: &EpochManager,
+    epoch_manager: &EpochManagerHandle,
 ) {
     // Gather statistics about gas usage in all of the blocks
     let mut blocks_count: usize = 0;

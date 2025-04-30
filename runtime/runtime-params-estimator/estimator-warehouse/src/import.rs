@@ -64,9 +64,9 @@ impl Db {
 
 #[cfg(test)]
 mod test {
+    use crate::Metric;
     use crate::db::{Db, EstimationRow};
     use crate::import::ImportConfig;
-    use crate::Metric;
 
     #[test]
     fn test_import_time() {

@@ -1,0 +1,37 @@
+{
+    "rpc": {
+        "enable_debug_rpc": true,
+        "polling_config": {
+            "polling_timeout": {
+                "secs": 30,
+                "nanos": 0
+            }
+        }
+    },
+    "store": {
+       "load_mem_tries_for_tracked_shards": true
+    },
+    "view_client_threads": 4,
+    "produce_chunk_add_transactions_time_limit": {
+        "secs": 0,
+        "nanos": 800000000
+    },
+    "consensus": {
+        "min_block_production_delay": {
+            "secs": 2,
+            "nanos": 500000000
+        },
+        "max_block_production_delay": {
+            "secs": 30,
+            "nanos": 0
+        },
+        "max_block_wait_delay": {
+            "secs": 30,
+            "nanos": 0
+        },
+        "block_production_tracking_delay": {
+            "secs": 0,
+            "nanos": 10000000
+        }
+    }
+}

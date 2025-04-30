@@ -1,11 +1,11 @@
 use crate::account::{AccessKey, Account};
-use crate::challenge::ChallengesResult;
 use crate::errors::EpochError;
 use crate::hash::CryptoHash;
 use crate::serialize::dec_format;
 use crate::shard_layout::ShardLayout;
 use crate::trie_key::TrieKey;
 use borsh::{BorshDeserialize, BorshSerialize};
+pub use chunk_validator_stats::ChunkStats;
 use near_crypto::PublicKey;
 /// Reexport primitive types
 pub use near_primitives_core::types::*;
@@ -16,8 +16,6 @@ use std::sync::Arc;
 use std::sync::LazyLock;
 
 mod chunk_validator_stats;
-
-pub use chunk_validator_stats::ChunkStats;
 
 /// Hash used by to store state root.
 pub type StateRoot = CryptoHash;
@@ -198,8 +196,6 @@ pub enum StateChangeCause {
     /// State change that is happens due to migration that happens in first block of an epoch
     /// after protocol upgrade
     Migration,
-    /// State changes for building states for re-sharding
-    ReshardingV2,
     /// Update persistent state kept by Bandwidth Scheduler after running the scheduling algorithm.
     BandwidthSchedulerStateUpdate,
 }
@@ -732,21 +728,14 @@ pub struct ValidatorStakeV1 {
     pub stake: Balance,
 }
 
-/// Information after block was processed.
-#[derive(Debug, PartialEq, BorshSerialize, BorshDeserialize, Clone, Eq, ProtocolSchema)]
-pub struct BlockExtra {
-    pub challenges_result: ChallengesResult,
-}
-
 pub mod chunk_extra {
     use crate::bandwidth_scheduler::BandwidthRequests;
     use crate::congestion_info::CongestionInfo;
-    use crate::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
     use crate::types::StateRoot;
+    use crate::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
     use borsh::{BorshDeserialize, BorshSerialize};
     use near_primitives_core::hash::CryptoHash;
-    use near_primitives_core::types::{Balance, Gas, ProtocolVersion};
-    use near_primitives_core::version::{ProtocolFeature, PROTOCOL_VERSION};
+    use near_primitives_core::types::{Balance, Gas};
 
     pub use super::ChunkExtraV1;
 
@@ -821,14 +810,8 @@ pub mod chunk_extra {
         /// used as part of regular processing.
         pub fn new_with_only_state_root(state_root: &StateRoot) -> Self {
             // TODO(congestion_control) - integration with resharding
-            let congestion_control = if ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION)
-            {
-                Some(CongestionInfo::default())
-            } else {
-                None
-            };
+            let congestion_control = Some(CongestionInfo::default());
             Self::new(
-                PROTOCOL_VERSION,
                 state_root,
                 CryptoHash::default(),
                 vec![],
@@ -836,12 +819,11 @@ pub mod chunk_extra {
                 0,
                 0,
                 congestion_control,
-                BandwidthRequests::default_for_protocol_version(PROTOCOL_VERSION),
+                BandwidthRequests::empty(),
             )
         }
 
         pub fn new(
-            protocol_version: ProtocolVersion,
             state_root: &StateRoot,
             outcome_root: CryptoHash,
             validator_proposals: Vec<ValidatorStake>,
@@ -849,42 +831,18 @@ pub mod chunk_extra {
             gas_limit: Gas,
             balance_burnt: Balance,
             congestion_info: Option<CongestionInfo>,
-            bandwidth_requests: Option<BandwidthRequests>,
+            bandwidth_requests: BandwidthRequests,
         ) -> Self {
-            if ProtocolFeature::BandwidthScheduler.enabled(protocol_version) {
-                assert!(bandwidth_requests.is_some());
-                Self::V4(ChunkExtraV4 {
-                    state_root: *state_root,
-                    outcome_root,
-                    validator_proposals,
-                    gas_used,
-                    gas_limit,
-                    balance_burnt,
-                    congestion_info: congestion_info.unwrap(),
-                    bandwidth_requests: bandwidth_requests.unwrap(),
-                })
-            } else if ProtocolFeature::CongestionControl.enabled(protocol_version) {
-                assert!(congestion_info.is_some());
-                Self::V3(ChunkExtraV3 {
-                    state_root: *state_root,
-                    outcome_root,
-                    validator_proposals,
-                    gas_used,
-                    gas_limit,
-                    balance_burnt,
-                    congestion_info: congestion_info.unwrap(),
-                })
-            } else {
-                assert!(congestion_info.is_none());
-                Self::V2(ChunkExtraV2 {
-                    state_root: *state_root,
-                    outcome_root,
-                    validator_proposals,
-                    gas_used,
-                    gas_limit,
-                    balance_burnt,
-                })
-            }
+            Self::V4(ChunkExtraV4 {
+                state_root: *state_root,
+                outcome_root,
+                validator_proposals,
+                gas_used,
+                gas_limit,
+                balance_burnt,
+                congestion_info: congestion_info.unwrap(),
+                bandwidth_requests,
+            })
         }
 
         #[inline]
@@ -958,22 +916,23 @@ pub mod chunk_extra {
         }
 
         #[inline]
-        pub fn congestion_info(&self) -> Option<CongestionInfo> {
+        pub fn congestion_info(&self) -> CongestionInfo {
             match self {
-                Self::V1(_) => None,
-                Self::V2(_) => None,
-                Self::V3(v3) => v3.congestion_info.into(),
-                Self::V4(v4) => v4.congestion_info.into(),
+                Self::V1(_) | Self::V2(_) => {
+                    debug_assert!(false, "Calling congestion_info on V1 or V2 header version");
+                    Default::default()
+                }
+                Self::V3(v3) => v3.congestion_info,
+                Self::V4(v4) => v4.congestion_info,
             }
         }
 
         #[inline]
-        pub fn congestion_info_mut(&mut self) -> Option<&mut CongestionInfo> {
+        pub fn congestion_info_mut(&mut self) -> &mut CongestionInfo {
             match self {
-                Self::V1(_) => None,
-                Self::V2(_) => None,
-                Self::V3(v3) => Some(&mut v3.congestion_info),
-                Self::V4(v4) => Some(&mut v4.congestion_info),
+                Self::V1(_) | Self::V2(_) => panic!("Calling congestion_info_mut on V1 or V2"),
+                Self::V3(v3) => &mut v3.congestion_info,
+                Self::V4(v4) => &mut v4.congestion_info,
             }
         }
 
@@ -1136,8 +1095,8 @@ pub enum ValidatorInfoIdentifier {
     ProtocolSchema,
 )]
 pub enum ValidatorKickoutReason {
-    /// Slashed validators are kicked out.
-    Slashed,
+    /// Deprecated
+    _UnusedSlashed,
     /// Validator didn't produce enough blocks.
     NotEnoughBlocks { produced: NumBlocks, expected: NumBlocks },
     /// Validator didn't produce enough chunks.
@@ -1172,16 +1131,11 @@ pub trait EpochInfoProvider: Send + Sync {
     fn validator_stake(
         &self,
         epoch_id: &EpochId,
-        last_block_hash: &CryptoHash,
         account_id: &AccountId,
     ) -> Result<Option<Balance>, EpochError>;
 
     /// Get the total stake of the given epoch.
-    fn validator_total_stake(
-        &self,
-        epoch_id: &EpochId,
-        last_block_hash: &CryptoHash,
-    ) -> Result<Balance, EpochError>;
+    fn validator_total_stake(&self, epoch_id: &EpochId) -> Result<Balance, EpochError>;
 
     fn minimum_stake(&self, prev_block_hash: &CryptoHash) -> Result<Balance, EpochError>;
 
@@ -1189,19 +1143,6 @@ pub trait EpochInfoProvider: Send + Sync {
     fn chain_id(&self) -> String;
 
     fn shard_layout(&self, epoch_id: &EpochId) -> Result<ShardLayout, EpochError>;
-}
-
-/// Mode of the trie cache.
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub enum TrieCacheMode {
-    /// In this mode we put each visited node to LRU cache to optimize performance.
-    /// Presence of any exact node is not guaranteed.
-    CachingShard,
-    /// In this mode we put each visited node to the chunk cache which is a hash map.
-    /// This is needed to guarantee that all nodes for which we charged a touching trie node cost are retrieved from DB
-    /// only once during a single chunk processing. Such nodes remain in cache until the chunk processing is finished,
-    /// and thus users (potentially different) are not required to pay twice for retrieval of the same node.
-    CachingChunk,
 }
 
 /// State changes for a range of blocks.

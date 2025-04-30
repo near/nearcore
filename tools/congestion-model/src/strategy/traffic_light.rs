@@ -1,7 +1,7 @@
 use super::QueueFactory;
 use crate::model::ChunkExecutionContext;
 use crate::{
-    CongestionStrategy, GGas, QueueId, Receipt, Round, ShardId, GAS_LIMIT, TGAS, TX_GAS_LIMIT,
+    CongestionStrategy, GAS_LIMIT, GGas, QueueId, Receipt, Round, ShardId, TGAS, TX_GAS_LIMIT,
 };
 use std::collections::HashMap;
 

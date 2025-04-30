@@ -1,14 +1,14 @@
 use std::any::type_name;
 use std::fmt::Debug;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::futures::DelayedActionRunner;
 use crate::messaging::{Actor, CanSend, HandlerWithContext, MessageWithCallback};
 use crate::time::Duration;
 
-use super::data::{TestLoopData, TestLoopDataHandle};
 use super::PendingEventsSender;
+use super::data::{TestLoopData, TestLoopDataHandle};
 use futures::FutureExt;
 
 /// TestLoopSender implements the CanSend methods for an actor that can Handle them. This is

@@ -1,9 +1,9 @@
-use crate::metadata::DbKind;
+use crate::db::metadata::{DbKind, KIND_KEY};
 use crate::{DBCol, Store, StoreUpdate};
-use anyhow::{anyhow, Context};
+use anyhow::{Context, anyhow};
 use borsh::{BorshDeserialize, BorshSerialize};
-use near_primitives::epoch_manager::EpochSummary;
 use near_primitives::epoch_manager::AGGREGATOR_KEY;
+use near_primitives::epoch_manager::EpochSummary;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::{ChunkHash, StateSyncInfo, StateSyncInfoV0};
 use near_primitives::state::FlatStateValue;
@@ -14,8 +14,8 @@ use near_primitives::stateless_validation::stored_chunk_state_transition_data::{
 };
 use near_primitives::transaction::{ExecutionOutcomeWithIdAndProof, ExecutionOutcomeWithProof};
 use near_primitives::types::{
-    validator_stake::ValidatorStake, AccountId, EpochId, ShardId, ValidatorId,
-    ValidatorKickoutReason, ValidatorStats,
+    AccountId, EpochId, ShardId, ValidatorId, ValidatorKickoutReason, ValidatorStats,
+    validator_stake::ValidatorStake,
 };
 use near_primitives::types::{BlockChunkValidatorStats, ChunkStats};
 use near_primitives::utils::{get_block_shard_id_rev, get_outcome_id_block_hash};
@@ -178,7 +178,7 @@ pub fn migrate_33_to_34(store: &Store, mut is_node_archival: bool) -> anyhow::Re
         update.delete(DBCol::BlockMisc, IS_ARCHIVE_KEY);
     }
     let kind = if is_node_archival { DbKind::Archive } else { DbKind::RPC };
-    update.set(DBCol::DbVersion, crate::metadata::KIND_KEY, <&str>::from(kind).as_bytes());
+    update.set(DBCol::DbVersion, KIND_KEY, <&str>::from(kind).as_bytes());
     update.delete_all(DBCol::_GCCount);
     update.commit()?;
     Ok(())
@@ -513,6 +513,18 @@ pub fn migrate_42_to_43(store: &Store) -> anyhow::Result<()> {
             }))?;
         update.set(DBCol::StateTransitionData, &key, &new_value);
     }
+    update.commit()?;
+    Ok(())
+}
+
+/// Migrates the database from version 44 to 45.
+///
+/// Removes STATE_TRANSITION_START_HEIGHTS key from DBCol::Misc that is no longer needed.
+pub fn migrate_44_to_45(store: &Store) -> anyhow::Result<()> {
+    pub const STATE_TRANSITION_START_HEIGHTS: &[u8] = b"STATE_TRANSITION_START_HEIGHTS";
+
+    let mut update = store.store_update();
+    update.delete(DBCol::Misc, STATE_TRANSITION_START_HEIGHTS);
     update.commit()?;
     Ok(())
 }

@@ -19,6 +19,8 @@ pub enum Parameter {
     // Gas economics config
     BurntGasReward,
     PessimisticGasPriceInflation,
+    /// Whether we calculate in the gas price changes when refunding gas.
+    RefundGasPriceChanges,
 
     /// Stateless validation config
     /// Size limit for storage proof generated while executing receipts in a chunk.
@@ -165,7 +167,6 @@ pub enum Parameter {
     MaxGasBurnt,
     MaxGasBurntView,
     MaxStackHeight,
-    ContractPrepareVersion,
     InitialMemoryPages,
     MaxMemoryPages,
     RegistersMemoryLimit,
@@ -187,25 +188,17 @@ pub enum Parameter {
     MaxPromisesPerFunctionCallAction,
     MaxNumberInputDataDependencies,
     MaxFunctionsNumberPerContract,
-    Wasmer2StackLimit,
     MaxLocalsPerContract,
     AccountIdValidityRulesVersion,
     YieldTimeoutLengthInBlocks,
     MaxYieldPayloadSize,
 
     // Contract runtime features
-    #[strum(serialize = "disable_9393_fix")]
-    Disable9393Fix,
     FlatStorageReads,
     ImplicitAccountCreation,
     FixContractLoadingCost,
-    MathExtension,
-    Ed25519Verify,
-    AltBn128,
-    FunctionCallWeight,
     VmKind,
     EthImplicitAccounts,
-    YieldResume,
     DiscardCustomSections,
 
     // Congestion Control
@@ -234,6 +227,9 @@ pub enum Parameter {
     ActionDeployGlobalContract,
     ActionDeployGlobalContractPerByte,
     GlobalContractStorageAmountPerByte,
+
+    ActionUseGlobalContract,
+    ActionUseGlobalContractPerIdentifierByte,
 }
 
 #[derive(
@@ -268,6 +264,8 @@ pub enum FeeParameter {
     ActionDelegate,
     ActionDeployGlobalContract,
     ActionDeployGlobalContractPerByte,
+    ActionUseGlobalContract,
+    ActionUseGlobalContractPerIdentifierByte,
 }
 
 impl Parameter {
@@ -277,7 +275,6 @@ impl Parameter {
         [
             Parameter::MaxGasBurnt,
             Parameter::MaxStackHeight,
-            Parameter::ContractPrepareVersion,
             Parameter::InitialMemoryPages,
             Parameter::MaxMemoryPages,
             Parameter::RegistersMemoryLimit,
@@ -299,7 +296,6 @@ impl Parameter {
             Parameter::MaxPromisesPerFunctionCallAction,
             Parameter::MaxNumberInputDataDependencies,
             Parameter::MaxFunctionsNumberPerContract,
-            Parameter::Wasmer2StackLimit,
             Parameter::MaxLocalsPerContract,
             Parameter::AccountIdValidityRulesVersion,
             Parameter::YieldTimeoutLengthInBlocks,
@@ -333,6 +329,8 @@ impl From<ActionCosts> for FeeParameter {
             ActionCosts::new_data_receipt_byte => Self::DataReceiptCreationPerByte,
             ActionCosts::deploy_global_contract_base => Self::ActionDeployGlobalContract,
             ActionCosts::deploy_global_contract_byte => Self::ActionDeployGlobalContractPerByte,
+            ActionCosts::use_global_contract_base => Self::ActionUseGlobalContract,
+            ActionCosts::use_global_contract_byte => Self::ActionUseGlobalContractPerIdentifierByte,
         }
     }
 }

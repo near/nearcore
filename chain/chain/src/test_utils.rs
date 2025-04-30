@@ -4,13 +4,13 @@ mod validator_schedule;
 use std::cmp::Ordering;
 use std::sync::Arc;
 
+use crate::DoomslugThresholdMode;
 use crate::block_processing_utils::BlockNotInPoolError;
 use crate::chain::Chain;
 use crate::rayon_spawner::RayonAsyncComputationSpawner;
 use crate::runtime::NightshadeRuntime;
 use crate::store::ChainStoreAccess;
 use crate::types::{AcceptedBlock, ChainConfig, ChainGenesis};
-use crate::DoomslugThresholdMode;
 use crate::{BlockProcessingArtifact, Provenance};
 use near_async::time::Clock;
 use near_chain_configs::{Genesis, MutableConfigValue};
@@ -26,15 +26,15 @@ use near_primitives::types::{AccountId, NumBlocks, NumShards};
 use near_primitives::utils::MaybeValidated;
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
+use near_store::DBCol;
 use near_store::genesis::initialize_genesis_state;
 use near_store::test_utils::create_test_store;
-use near_store::DBCol;
 use num_rational::Ratio;
 use tracing::debug;
 
-pub use self::kv_runtime::{account_id_to_shard_id, KeyValueRuntime, MockEpochManager};
+pub use self::kv_runtime::{KeyValueRuntime, MockEpochManager, account_id_to_shard_id};
 pub use self::validator_schedule::ValidatorSchedule;
-use near_async::messaging::{noop, IntoMultiSender};
+use near_async::messaging::{IntoMultiSender, noop};
 
 pub fn get_chain(clock: Clock) -> Chain {
     get_chain_with_epoch_length_and_num_shards(clock, 10, 1)
@@ -92,6 +92,10 @@ pub fn wait_for_all_blocks_in_processing(chain: &Chain) -> bool {
 
 pub fn is_block_in_processing(chain: &Chain, block_hash: &CryptoHash) -> bool {
     chain.blocks_in_processing.contains(&BlockToApply::Normal(*block_hash))
+}
+
+pub fn is_optimistic_block_in_processing(chain: &Chain, block_hash: &CryptoHash) -> bool {
+    chain.blocks_in_processing.contains(&BlockToApply::Optimistic(*block_hash))
 }
 
 pub fn wait_for_block_in_processing(
@@ -201,11 +205,7 @@ pub fn display_chain(me: &Option<AccountId>, chain: &mut Chain, tail: bool) {
         }
     }
     headers.sort_by(|h_left, h_right| {
-        if h_left.height() > h_right.height() {
-            Ordering::Greater
-        } else {
-            Ordering::Less
-        }
+        if h_left.height() > h_right.height() { Ordering::Greater } else { Ordering::Less }
     });
     for header in headers {
         if header.is_genesis() {
@@ -247,7 +247,7 @@ pub fn display_chain(me: &Option<AccountId>, chain: &mut Chain, tail: bool) {
                             format_hash(chunk_header.chunk_hash().0),
                             chunk_header.shard_id(),
                             chunk_producer,
-                            chunk.transactions().len(),
+                            chunk.to_transactions().len(),
                             chunk.prev_outgoing_receipts().len()
                         );
                     } else if let Ok(partial_chunk) =
@@ -297,10 +297,7 @@ mod test {
         for shard_id in shard_layout.shard_ids() {
             let shard_receipts: Vec<Receipt> = receipts
                 .iter()
-                .filter(|&receipt| {
-                    receipt.send_to_all_shards()
-                        || shard_layout.account_id_to_shard_id(receipt.receiver_id()) == shard_id
-                })
+                .filter(|&receipt| receipt.receiver_shard_id(shard_layout).unwrap() == shard_id)
                 .cloned()
                 .collect();
             receipts_hashes.push(CryptoHash::hash_borsh(ReceiptList(shard_id, &shard_receipts)));
@@ -325,7 +322,7 @@ mod test {
         let naive_result = naive_build_receipt_hashes(&receipts, &shard_layout);
         let naive_duration = start.elapsed();
         let start = Clock::real().now();
-        let prod_result = Chain::build_receipts_hashes(&receipts, &shard_layout);
+        let prod_result = Chain::build_receipts_hashes(&receipts, &shard_layout).unwrap();
         let prod_duration = start.elapsed();
         assert_eq!(naive_result, prod_result);
         // production implementation is at least 50% faster

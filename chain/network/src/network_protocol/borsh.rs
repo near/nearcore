@@ -3,12 +3,13 @@
 //! WARNING WARNING WARNING
 //! WARNING WARNING WARNING
 //! We need to maintain backwards compatibility, all changes to this file needs to be reviews.
-use crate::network_protocol::edge::{Edge, PartialEdgeInfo};
 use crate::network_protocol::SyncSnapshotHosts;
+use crate::network_protocol::edge::{Edge, PartialEdgeInfo};
 use crate::network_protocol::{PeerChainInfoV2, PeerInfo, RoutedMessage, StateResponseInfo};
 use borsh::{BorshDeserialize, BorshSerialize};
-use near_primitives::block::{Block, BlockHeader, GenesisId};
+use near_primitives::block::{Block, BlockHeader};
 use near_primitives::challenge::Challenge;
+use near_primitives::genesis::GenesisId;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::optimistic_block::OptimisticBlock;

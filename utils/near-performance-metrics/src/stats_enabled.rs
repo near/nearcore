@@ -4,8 +4,8 @@ use futures::task::Context;
 use std::cmp::{max, min};
 use std::collections::{HashMap, HashSet};
 use std::pin::Pin;
-use std::sync::atomic::AtomicUsize;
 use std::sync::LazyLock;
+use std::sync::atomic::AtomicUsize;
 use std::sync::{Arc, Mutex};
 use std::task::Poll;
 use std::time::{Duration, Instant};
@@ -180,11 +180,7 @@ impl ThreadStats {
         self.c_mem = ByteSize::b(0);
         self.clear();
 
-        if show_stats {
-            (ratio, 0.0)
-        } else {
-            (ratio, ratio)
-        }
+        if show_stats { (ratio, 0.0) } else { (ratio, ratio) }
     }
 
     fn clear(&mut self) {
@@ -236,7 +232,7 @@ impl Stats {
         self.stats.entry(tid).or_insert_with(|| Arc::clone(local_stats));
     }
 
-    fn print_stats(&mut self, sleep_time: Duration) {
+    fn print_stats(&self, sleep_time: Duration) {
         info!(
             "Performance stats {} threads (min ratio = {})",
             self.stats.len(),

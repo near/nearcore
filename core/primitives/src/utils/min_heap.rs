@@ -70,13 +70,13 @@ impl<'a, T: std::cmp::Ord> std::ops::Deref for PeekMut<'a, T> {
     type Target = T;
 
     fn deref(&self) -> &T {
-        &self.0 .0
+        &self.0.0
     }
 }
 
 impl<'a, T: std::cmp::Ord> std::ops::DerefMut for PeekMut<'a, T> {
     fn deref_mut(&mut self) -> &mut T {
-        &mut self.0 .0
+        &mut self.0.0
     }
 }
 

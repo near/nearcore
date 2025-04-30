@@ -113,7 +113,7 @@ impl FlatStorageManager {
                 return Err(StorageError::StorageInconsistentState(format!(
                     "Unexpected flat storage status: {:?}",
                     &status
-                )))
+                )));
             }
         };
         let mut store_update = self.0.store.store_update();

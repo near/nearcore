@@ -3,8 +3,8 @@ use near_primitives::block::Block;
 use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::version::ProtocolFeature;
-use rand::seq::SliceRandom;
 use rand::SeedableRng;
+use rand::seq::SliceRandom;
 use rand_chacha::ChaCha20Rng;
 
 /// Gets salt for shuffling receipts grouped by **source shards** before

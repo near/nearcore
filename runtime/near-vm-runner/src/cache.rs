@@ -1,19 +1,26 @@
-use near_schema_checker_lib::ProtocolSchema;
+// cspell:ignore NOENT, RDONLY, RGRP, RUSR, TRUNC, WGRP, WRONLY, WUSR
+// cspell:ignore mikan, fstat, openat, renameat
 
-use crate::errors::ContractPrecompilatonResult;
-use crate::logic::errors::{CacheError, CompilationError};
-use crate::logic::Config;
-use crate::runner::VMKindExt;
 use crate::ContractCode;
+use crate::errors::ContractPrecompilatonResult;
+use crate::logic::Config;
+use crate::logic::errors::{CacheError, CompilationError};
+use crate::runner::VMKindExt;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_parameters::vm::VMKind;
 use near_primitives_core::hash::CryptoHash;
+use near_schema_checker_lib::ProtocolSchema;
+
 use std::any::Any;
 use std::collections::HashMap;
 use std::fmt;
-use std::io::{Read, Write};
 use std::num::NonZeroUsize;
 use std::sync::{Arc, Mutex};
+
+#[cfg(not(windows))]
+use rand::Rng as _;
+#[cfg(not(windows))]
+use std::io::{Read, Write};
 
 #[derive(Debug, Clone, BorshSerialize, ProtocolSchema)]
 enum ContractCacheKey {
@@ -31,14 +38,6 @@ enum ContractCacheKey {
 
 fn vm_hash(vm_kind: VMKind) -> u64 {
     match vm_kind {
-        #[cfg(all(feature = "wasmer0_vm", target_arch = "x86_64"))]
-        VMKind::Wasmer0 => crate::wasmer_runner::wasmer0_vm_hash(),
-        #[cfg(not(all(feature = "wasmer0_vm", target_arch = "x86_64")))]
-        VMKind::Wasmer0 => panic!("Wasmer0 is not enabled"),
-        #[cfg(all(feature = "wasmer2_vm", target_arch = "x86_64"))]
-        VMKind::Wasmer2 => crate::wasmer2_runner::wasmer2_vm_hash(),
-        #[cfg(not(all(feature = "wasmer2_vm", target_arch = "x86_64")))]
-        VMKind::Wasmer2 => panic!("Wasmer2 is not enabled"),
         #[cfg(feature = "wasmtime_vm")]
         VMKind::Wasmtime => crate::wasmtime_runner::wasmtime_vm_hash(),
         #[cfg(not(feature = "wasmtime_vm"))]
@@ -47,6 +46,8 @@ fn vm_hash(vm_kind: VMKind) -> u64 {
         VMKind::NearVm => crate::near_vm_runner::near_vm_vm_hash(),
         #[cfg(not(all(feature = "near_vm", target_arch = "x86_64")))]
         VMKind::NearVm => panic!("NearVM is not enabled"),
+
+        VMKind::Wasmer0 | VMKind::Wasmer2 => unreachable!(),
     }
 }
 
@@ -216,17 +217,20 @@ impl fmt::Debug for MockContractRuntimeCache {
 /// This cache however does not implement any clean-up policies. While it is possible to truncate
 /// a file that has been written to the cache before (`put` an empty buffer), the file will remain
 /// in place until an operator (or somebody else) removes files at their own discretion.
+#[cfg(not(windows))]
 #[derive(Clone)]
 pub struct FilesystemContractRuntimeCache {
     state: Arc<FilesystemContractRuntimeCacheState>,
 }
 
+#[cfg(not(windows))]
 struct FilesystemContractRuntimeCacheState {
     dir: rustix::fd::OwnedFd,
     any_cache: AnyCache,
     test_temp_dir: Option<tempfile::TempDir>,
 }
 
+#[cfg(not(windows))]
 impl FilesystemContractRuntimeCache {
     pub fn new<SP: AsRef<std::path::Path> + ?Sized>(
         home_dir: &std::path::Path,
@@ -279,14 +283,17 @@ impl FilesystemContractRuntimeCache {
 /// Byte added after a serialized payload representing a compilation failure.
 ///
 /// This is ASCII LF.
+#[cfg(not(windows))]
 const ERROR_TAG: u8 = 0b00001010;
 /// Byte added after a serialized payload representing the contract code.
 ///
 /// Value is fairly arbitrarily chosen such that a couple of bit flips do not make this an
 /// [`ERROR_TAG`].
+#[cfg(not(windows))]
 const CODE_TAG: u8 = 0b10010101;
 
 /// Cache for compiled contracts code in plain filesystem.
+#[cfg(not(windows))]
 impl ContractRuntimeCache for FilesystemContractRuntimeCache {
     fn handle(&self) -> Box<dyn ContractRuntimeCache> {
         Box::new(self.clone())
@@ -304,34 +311,55 @@ impl ContractRuntimeCache for FilesystemContractRuntimeCache {
         fields(key = key.to_string(), value.len = value.compiled.debug_len()),
     )]
     fn put(&self, key: &CryptoHash, value: CompiledContractInfo) -> std::io::Result<()> {
+        const MAX_ATTEMPTS: u32 = 5;
         use rustix::fs::{Mode, OFlags};
         let final_filename = key.to_string();
-        let mut temp_file = tempfile::Builder::new().make_in("", |filename| {
-            let mode = Mode::RUSR | Mode::WUSR | Mode::RGRP | Mode::WGRP;
-            let flags = OFlags::CREATE | OFlags::TRUNC | OFlags::WRONLY;
-            Ok(std::fs::File::from(rustix::fs::openat(&self.state.dir, filename, flags, mode)?))
-        })?;
+        let mode = Mode::RUSR | Mode::WUSR | Mode::RGRP | Mode::WGRP;
+        let flags = OFlags::CREATE | OFlags::TRUNC | OFlags::WRONLY;
+        let mut attempt = 0;
+        let (temp_filename, mut file) = loop {
+            attempt += 1;
+            let mut temporary_filename = final_filename.clone();
+            temporary_filename.push('.');
+            for b in rand::thread_rng().sample_iter(rand::distributions::Alphanumeric).take(8) {
+                temporary_filename.push(b as char);
+            }
+            temporary_filename.push_str(".temp");
+            match rustix::fs::openat(&self.state.dir, &temporary_filename, flags, mode) {
+                Ok(f) => break (temporary_filename, std::fs::File::from(f)),
+                Err(e) if attempt > MAX_ATTEMPTS => return Err(e.into()),
+                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                Err(e) => return Err(e.into()),
+            }
+        };
+
         // This section manually "serializes" the data. The cache is quite sensitive to
         // unnecessary overheads and in order to enable things like mmap-based file access, we want
         // to have full control of what has been written.
         match value.compiled {
             CompiledContract::CompileModuleError(e) => {
-                borsh::to_writer(&mut temp_file, &e)?;
-                temp_file.write_all(&[ERROR_TAG])?;
+                borsh::to_writer(&mut file, &e)?;
+                file.write_all(&[ERROR_TAG])?;
             }
             CompiledContract::Code(bytes) => {
-                temp_file.write_all(&bytes)?;
+                file.write_all(&bytes)?;
                 // Writing the tag at the end gives us well aligned buffer of the data above which
                 // is necessary for 0-copy deserialization later on.
-                temp_file.write_all(&[CODE_TAG])?;
+                file.write_all(&[CODE_TAG])?;
             }
         }
-        temp_file.write_all(&value.wasm_bytes.to_le_bytes())?;
-        let temp_filename = temp_file.into_temp_path();
+        file.write_all(&value.wasm_bytes.to_le_bytes())?;
+        file.sync_data()?;
+        drop(file);
         // This is atomic, so there wouldn't be instances where getters see an intermediate state.
-        rustix::fs::renameat(&self.state.dir, &*temp_filename, &self.state.dir, final_filename)?;
-        // Don't attempt deleting the temporary file now that it has been moved.
-        std::mem::forget(temp_filename);
+        rustix::fs::renameat(&self.state.dir, temp_filename, &self.state.dir, final_filename)?;
+
+        // NOTE: we do not remove the temporary file in case of failure in many of the
+        // intermediate steps above. This is not considered to be a significant risk: any failure
+        // here will result in the node terminating anyway, so the operator will have to fix the
+        // issue(s) before too many temporary files gather up in the cache.
+        //
+        // (Operators are also somewhat encouraged to occasionally clear up their cache.)
         Ok(())
     }
 
@@ -354,7 +382,7 @@ impl ContractRuntimeCache for FilesystemContractRuntimeCache {
             Ok(file) => file,
         };
         let stat = rustix::fs::fstat(&file)?;
-        // TODO: explore mmaping the file and lending the map to the caller via a closure callback.
+        // TODO: explore mmap-ing the file and lending the map to the caller via a closure callback.
         // This would require some additional refactor work, but would likely help us to reduce the
         // system call overhead in this area.
         let mut buffer = Vec::with_capacity(stat.st_size.try_into().unwrap());
@@ -405,7 +433,11 @@ impl ContractRuntimeCache for FilesystemContractRuntimeCache {
             if let Ok(entry) = entry {
                 let path = entry.path();
                 if path.is_dir() {
-                    debug_assert!(false, "Contract code cache directory should only contain files but found directory: {}", path.display());
+                    debug_assert!(
+                        false,
+                        "Contract code cache directory should only contain files but found directory: {}",
+                        path.display()
+                    );
                 } else {
                     if let Err(err) = std::fs::remove_file(&path) {
                         tracing::error!(
@@ -668,7 +700,7 @@ mod tests {
             assert_eq!(cache.has(contract2.hash()).unwrap(), false);
         };
 
-        // Insert the keys, and then ckear the cache, and assert that keys no longer exist after clear.
+        // Insert the keys, and then clear the cache, and assert that keys no longer exist after clear.
         insert_and_assert_keys_exist();
         cache.test_only_clear().unwrap();
         assert_keys_absent();

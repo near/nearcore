@@ -103,7 +103,7 @@ fuzz_target!(|requests: Vec<JsonRpcRequest>| {
     NODE_INIT.call_once(|| {
         std::thread::spawn(|| {
             System::new().block_on(async {
-                let (_view_client_addr, addr) =
+                let (_view_client_addr, addr, _runtime_temp_dir) =
                     test_utils::start_all(Clock::real(), test_utils::NodeType::NonValidator);
                 unsafe { NODE_ADDR = Some(addr.to_string()) }
             });

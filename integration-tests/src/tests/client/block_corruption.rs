@@ -2,7 +2,6 @@ use anyhow::Context;
 use borsh::BorshDeserialize;
 use near_chain::{Block, Error, Provenance};
 use near_chain_configs::Genesis;
-use near_client::test_utils::TestEnv;
 use near_client::ProcessTxResponse;
 use near_crypto::{InMemorySigner, KeyType};
 use near_o11y::testonly::init_test_logger;
@@ -11,7 +10,9 @@ use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::ShardId;
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_primitives_core::types::BlockHeight;
-use nearcore::test_utils::TestEnvNightshadeSetupExt;
+
+use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
+use crate::env::test_env::TestEnv;
 
 const NOT_BREAKING_CHANGE_MSG: &str = "Not a breaking change";
 const BLOCK_NOT_PARSED_MSG: &str = "Corrupt block didn't parse";
@@ -45,7 +46,7 @@ fn change_shard_id_to_invalid() {
 
     let txs = create_tx_load(1, &last_block);
     for tx in txs {
-        assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
+        assert_eq!(env.rpc_handlers[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
     }
 
     let block = env.clients[0].produce_block(1).unwrap().unwrap();
@@ -56,7 +57,7 @@ fn change_shard_id_to_invalid() {
 
     let txs = create_tx_load(2, &last_block);
     for tx in txs {
-        assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
+        assert_eq!(env.rpc_handlers[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
     }
 
     let mut block = env.clients[0].produce_block(2).unwrap().unwrap();
@@ -190,7 +191,10 @@ fn check_process_flipped_block_fails_on_bit(
     for h in last_block_height + 1..=mid_height {
         let txs = create_tx_load(h, &last_block);
         for tx in txs {
-            assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
+            assert_eq!(
+                env.rpc_handlers[0].process_tx(tx, false, false),
+                ProcessTxResponse::ValidTx
+            );
         }
 
         let block = env.clients[0].produce_block(h).unwrap().unwrap();
@@ -202,7 +206,7 @@ fn check_process_flipped_block_fails_on_bit(
 
     let txs = create_tx_load(h, &last_block);
     for tx in txs {
-        assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
+        assert_eq!(env.rpc_handlers[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
     }
 
     let correct_block = env.clients[0]

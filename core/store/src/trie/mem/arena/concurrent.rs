@@ -1,7 +1,7 @@
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
-use super::alloc::{allocation_class, allocation_size, CHUNK_SIZE};
+use super::alloc::{CHUNK_SIZE, allocation_class, allocation_size};
 use super::single_thread::STArena;
 use super::{Arena, ArenaMemory, ArenaMemoryMut, ArenaMut, ArenaPos, ArenaSliceMut};
 
@@ -55,7 +55,7 @@ impl ConcurrentArena {
         let mut active_allocs_count = 0;
         for thread in threads {
             let memory = thread.memory;
-            for (pos, chunk) in memory.chunks.into_iter() {
+            for (pos, chunk) in memory.chunks {
                 assert!(
                     chunks[pos].is_empty(),
                     "Arena threads from the same ConcurrentArena passed in"

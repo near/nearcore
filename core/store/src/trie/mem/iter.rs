@@ -1,16 +1,14 @@
-use near_primitives::errors::StorageError;
-use near_primitives::hash::CryptoHash;
-use near_primitives::state::FlatStateValue;
-
-use crate::trie::ops::interface::GenericTrieInternalStorage;
-use crate::trie::ops::iter::TrieIteratorImpl;
-use crate::trie::OptimizedValueRef;
-use crate::Trie;
-
 use super::arena::Arena;
 use super::memtrie_update::MemTrieNode;
 use super::memtries::MemTries;
 use super::node::MemTrieNodeId;
+use crate::Trie;
+use crate::trie::ops::interface::GenericTrieInternalStorage;
+use crate::trie::ops::iter::TrieIteratorImpl;
+use crate::trie::{AccessOptions, OptimizedValueRef};
+use near_primitives::errors::StorageError;
+use near_primitives::hash::CryptoHash;
+use near_primitives::state::FlatStateValue;
 
 /// Tiny wrapper around `MemTries` and `Trie` to provide `GenericTrieInternalStorage` implementation.
 pub struct MemTrieIteratorInner<'a> {
@@ -39,7 +37,10 @@ impl<'a> GenericTrieInternalStorage<MemTrieNodeId, FlatStateValue> for MemTrieIt
         let view = node.as_ptr(self.memtrie.arena.memory()).view();
         if let Some(recorder) = &self.trie.recorder {
             let raw_node_serialized = borsh::to_vec(&view.to_raw_trie_node_with_size()).unwrap();
-            recorder.borrow_mut().record(&view.node_hash(), raw_node_serialized.into());
+            recorder
+                .write()
+                .expect("no poison")
+                .record(&view.node_hash(), raw_node_serialized.into());
         }
         let node = MemTrieNode::from_existing_node_view(view);
         Ok(node)
@@ -47,10 +48,10 @@ impl<'a> GenericTrieInternalStorage<MemTrieNodeId, FlatStateValue> for MemTrieIt
 
     fn get_and_record_value(&self, value_ref: FlatStateValue) -> Result<Vec<u8>, StorageError> {
         let optimized_value_ref = OptimizedValueRef::from_flat_value(value_ref);
-        let value = self.trie.deref_optimized(&optimized_value_ref)?;
+        let value = self.trie.deref_optimized(AccessOptions::DEFAULT, &optimized_value_ref)?;
         if let Some(recorder) = &self.trie.recorder {
             let value_hash = optimized_value_ref.into_value_ref().hash;
-            recorder.borrow_mut().record(&value_hash, value.clone().into());
+            recorder.write().expect("no poison").record(&value_hash, value.clone().into());
         };
         Ok(value)
     }

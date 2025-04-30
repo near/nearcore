@@ -120,7 +120,7 @@ impl Tunables for BaseTunables {
         style: &MemoryStyle,
         vm_definition_location: NonNull<VMMemoryDefinition>,
     ) -> Result<Arc<LinearMemory>, MemoryError> {
-        Ok(Arc::new(LinearMemory::from_definition(&ty, &style, vm_definition_location)?))
+        unsafe { Ok(Arc::new(LinearMemory::from_definition(&ty, &style, vm_definition_location)?)) }
     }
 
     /// Create a table owned by the host given a [`TableType`] and a [`TableStyle`].
@@ -143,7 +143,7 @@ impl Tunables for BaseTunables {
         style: &TableStyle,
         vm_definition_location: NonNull<VMTableDefinition>,
     ) -> Result<Arc<dyn Table>, String> {
-        Ok(Arc::new(LinearTable::from_definition(&ty, &style, vm_definition_location)?))
+        unsafe { Ok(Arc::new(LinearTable::from_definition(&ty, &style, vm_definition_location)?)) }
     }
 
     fn stack_init_gas_cost(&self, stack_size: u64) -> u64 {

@@ -97,14 +97,15 @@ impl Instantiatable for UniversalArtifact {
         let mut memories: PrimaryMap<near_vm_types::LocalMemoryIndex, _> =
             PrimaryMap::with_capacity(self.local_memories.len());
         for (idx, (ty, style)) in (self.import_counts.memories..).zip(self.local_memories.iter()) {
-            let memory = tunables
-                .create_vm_memory(&ty, &style, memory_definition_locations[idx as usize])
-                .map_err(|e| {
-                    InstantiationError::Link(crate::LinkError::Resource(format!(
-                        "Failed to create memory: {}",
-                        e
-                    )))
-                })?;
+            let memory = unsafe {
+                tunables.create_vm_memory(&ty, &style, memory_definition_locations[idx as usize])
+            }
+            .map_err(|e| {
+                InstantiationError::Link(crate::LinkError::Resource(format!(
+                    "Failed to create memory: {}",
+                    e
+                )))
+            })?;
             memories.push(memory);
         }
 
@@ -112,32 +113,35 @@ impl Instantiatable for UniversalArtifact {
         let mut tables: PrimaryMap<near_vm_types::LocalTableIndex, _> =
             PrimaryMap::with_capacity(self.local_tables.len());
         for (idx, (ty, style)) in (self.import_counts.tables..).zip(self.local_tables.iter()) {
-            let table = tunables
-                .create_vm_table(ty, style, table_definition_locations[idx as usize])
-                .map_err(|e| InstantiationError::Link(crate::LinkError::Resource(e)))?;
+            let table = unsafe {
+                tunables.create_vm_table(ty, style, table_definition_locations[idx as usize])
+            }
+            .map_err(|e| InstantiationError::Link(crate::LinkError::Resource(e)))?;
             tables.push(table);
         }
 
         // Globals
         let mut globals =
             PrimaryMap::<LocalGlobalIndex, _>::with_capacity(self.local_globals.len());
-        for (ty, _) in self.local_globals.iter() {
+        for (ty, _) in &self.local_globals {
             globals.push(Arc::new(near_vm_vm::Global::new(*ty)));
         }
 
         let passive_data = self.passive_data.clone();
-        Ok(InstanceHandle::new(
-            self,
-            allocator,
-            memories.into_boxed_slice(),
-            tables.into_boxed_slice(),
-            globals.into_boxed_slice(),
-            imports,
-            passive_data,
-            host_state,
-            import_function_envs,
-            config,
-        ))
+        unsafe {
+            Ok(InstanceHandle::new(
+                self,
+                allocator,
+                memories.into_boxed_slice(),
+                tables.into_boxed_slice(),
+                globals.into_boxed_slice(),
+                imports,
+                passive_data,
+                host_state,
+                import_function_envs,
+                config,
+            ))
+        }
     }
 }
 
@@ -189,11 +193,7 @@ impl Artifact for UniversalArtifact {
                 .imports
                 .iter()
                 .filter_map(|im| {
-                    if let VMImportType::Function { sig, .. } = im.ty {
-                        Some(sig)
-                    } else {
-                        None
-                    }
+                    if let VMImportType::Function { sig, .. } = im.ty { Some(sig) } else { None }
                 })
                 .nth(import.index()),
         }

@@ -2,11 +2,13 @@
 //!
 //! See [FlatStorageResharder] for more details about how the resharding takes place.
 
+use std::num::NonZero;
 use std::sync::{Arc, Mutex};
 
 use near_chain_configs::{MutableConfigValue, ReshardingConfig, ReshardingHandle};
 use near_chain_primitives::Error;
 
+use near_store::adapter::trie_store::TrieStoreAdapter;
 use tracing::{debug, error, info, warn};
 
 use crate::resharding::event_type::{ReshardingEventType, ReshardingSplitShardParams};
@@ -18,7 +20,7 @@ use crate::types::RuntimeAdapter;
 use crate::{ChainStore, ChainStoreAccess};
 use itertools::Itertools;
 use near_primitives::block::Tip;
-use near_primitives::hash::CryptoHash;
+use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::state::FlatStateValue;
 use near_primitives::trie_key::col::{self};
@@ -31,7 +33,7 @@ use near_primitives::trie_key::trie_key_parsers::{
 use near_primitives::types::BlockHeightDelta;
 use near_primitives::types::{AccountId, BlockHeight};
 use near_store::adapter::flat_store::{FlatStoreAdapter, FlatStoreUpdateAdapter};
-use near_store::adapter::StoreAdapter;
+use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::flat::{
     BlockInfo, FlatStateChanges, FlatStorageError, FlatStorageReadyStatus,
     FlatStorageReshardingShardCatchUpMetrics, FlatStorageReshardingShardSplitMetrics,
@@ -463,6 +465,7 @@ impl FlatStorageResharder {
                 "split_shard_task_impl/batch",
                 batch_id = ?num_batches_done)
             .entered();
+            let store = flat_store.trie_store();
             let mut store_update = flat_store.store_update();
             let mut processed_size = 0;
 
@@ -476,6 +479,7 @@ impl FlatStorageResharder {
                         if let Err(err) = shard_split_handle_key_value(
                             key,
                             value,
+                            &store,
                             &mut store_update,
                             &split_params,
                         ) {
@@ -1042,6 +1046,7 @@ fn retrieve_shard_flat_head(shard: ShardUId, store: &FlatStoreAdapter) -> Result
 fn shard_split_handle_key_value(
     key: Vec<u8>,
     value: Option<FlatStateValue>,
+    store: &TrieStoreAdapter,
     store_update: &mut FlatStoreUpdateAdapter,
     split_params: &ParentSplitParameters,
 ) -> Result<(), Error> {
@@ -1103,7 +1108,30 @@ fn shard_split_handle_key_value(
         | col::PROMISE_YIELD_TIMEOUT
         | col::BANDWIDTH_SCHEDULER_STATE
         | col::GLOBAL_CONTRACT_CODE => {
-            copy_kv_to_all_children(&split_params, key, value, store_update)
+            copy_kv_to_all_children(&split_params, key, value.clone(), store_update);
+            let Some(flat_state_value) = value else {
+                return Ok(());
+            };
+            // Doesn't matter which child ShardUId we use, as they both map to the parent.
+            let shard_uid = split_params.left_child_shard;
+            let (node_hash, node_value) = match flat_state_value {
+                FlatStateValue::Inlined(node_value) => {
+                    let node_hash = hash(&node_value);
+                    (node_hash, node_value)
+                }
+                FlatStateValue::Ref(value_ref) => {
+                    let node_hash = value_ref.hash;
+                    let node_value = store.get(shard_uid, &node_hash)?.to_vec();
+                    (node_hash, node_value)
+                }
+            };
+            let refcount_increment = NonZero::new(1).unwrap();
+            store_update.trie_store_update().increment_refcount_by(
+                shard_uid,
+                &node_hash,
+                &node_value,
+                refcount_increment,
+            );
         }
         col::BUFFERED_RECEIPT_INDICES
         | col::BUFFERED_RECEIPT
@@ -1285,17 +1313,14 @@ mod tests {
     use std::collections::BTreeMap;
 
     use near_async::time::Clock;
-    use near_chain_configs::{Genesis, MutableConfigValue};
-    use near_epoch_manager::{
-        shard_tracker::{ShardTracker, TrackedConfig},
-        EpochManager,
-    };
+    use near_chain_configs::{Genesis, MutableConfigValue, TrackedShardsConfig};
+    use near_epoch_manager::{EpochManager, shard_tracker::ShardTracker};
     use near_o11y::testonly::init_test_logger;
     use near_primitives::{
         hash::CryptoHash,
         shard_layout::ShardLayout,
         state::FlatStateValue,
-        test_utils::{create_test_signer, TestBlockBuilder},
+        test_utils::{TestBlockBuilder, create_test_signer},
         trie_key::TrieKey,
         types::{
             AccountId, BlockHeight, RawStateChange, RawStateChangesWithTrieKey, ShardId,
@@ -1309,8 +1334,8 @@ mod tests {
     };
 
     use crate::{
-        rayon_spawner::RayonAsyncComputationSpawner, runtime::NightshadeRuntime,
-        types::ChainConfig, Chain, ChainGenesis, DoomslugThresholdMode,
+        Chain, ChainGenesis, DoomslugThresholdMode, rayon_spawner::RayonAsyncComputationSpawner,
+        runtime::NightshadeRuntime, types::ChainConfig,
     };
 
     use super::*;
@@ -1490,19 +1515,18 @@ mod tests {
     fn create_chain_resharder_sender<T: TestSender>(
         shard_layout: ShardLayout,
     ) -> (Chain, FlatStorageResharder, Arc<T>) {
-        let num_shards = shard_layout.shard_ids().count();
-        let genesis = Genesis::test_with_seeds(
+        let genesis = Genesis::from_accounts(
             Clock::real(),
             vec![account!("aa"), account!("mm"), account!("vv")],
             1,
-            vec![1; num_shards],
             shard_layout.clone(),
         );
         let tempdir = tempfile::tempdir().unwrap();
         let store = create_test_store();
         initialize_genesis_state(store.clone(), &genesis, Some(tempdir.path()));
         let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
-        let shard_tracker = ShardTracker::new(TrackedConfig::AllShards, epoch_manager.clone());
+        let shard_tracker =
+            ShardTracker::new(TrackedShardsConfig::AllShards, epoch_manager.clone());
         let runtime = NightshadeRuntime::test(
             tempdir.path(),
             store.clone(),
@@ -1611,9 +1635,9 @@ mod tests {
         let controller = FlatStorageResharderController::new();
         let resharding_event_type = event_type_from_chain_and_layout(&chain, &new_shard_layout);
 
-        assert!(resharder
-            .start_resharding(resharding_event_type.clone(), &new_shard_layout)
-            .is_ok());
+        assert!(
+            resharder.start_resharding(resharding_event_type.clone(), &new_shard_layout).is_ok()
+        );
 
         // Immediately cancel the resharding and call the resharding task.
         controller.handle.stop();
@@ -1775,11 +1799,13 @@ mod tests {
         let parent = ShardUId { version: 3, shard_id: 1 };
         assert_eq!(flat_store.get_flat_storage_status(parent), Ok(FlatStorageStatus::Empty));
         assert_eq!(flat_store.iter(parent).count(), 0);
-        assert!(resharder
-            .runtime
-            .get_flat_storage_manager()
-            .get_flat_storage_for_shard(parent)
-            .is_none());
+        assert!(
+            resharder
+                .runtime
+                .get_flat_storage_manager()
+                .get_flat_storage_for_shard(parent)
+                .is_none()
+        );
 
         // Check intermediate status of children flat storages.
         for child in [left_child, right_child] {
@@ -1797,12 +1823,12 @@ mod tests {
         // Check flat storages of children contain the correct accounts and access keys.
         let account_mm_key = TrieKey::Account { account_id: account!("mm") };
         let account_vv_key = TrieKey::Account { account_id: account!("vv") };
-        assert!(flat_store
-            .get(left_child, &account_mm_key.to_vec())
-            .is_ok_and(|val| val.is_some()));
-        assert!(flat_store
-            .get(right_child, &account_vv_key.to_vec())
-            .is_ok_and(|val| val.is_some()));
+        assert!(
+            flat_store.get(left_child, &account_mm_key.to_vec()).is_ok_and(|val| val.is_some())
+        );
+        assert!(
+            flat_store.get(right_child, &account_vv_key.to_vec()).is_ok_and(|val| val.is_some())
+        );
         let account_mm_access_key = TrieKey::AccessKey {
             account_id: account!("mm"),
             public_key: PublicKey::from_seed(KeyType::ED25519, account!("mm").as_str()),
@@ -1811,12 +1837,16 @@ mod tests {
             account_id: account!("vv"),
             public_key: PublicKey::from_seed(KeyType::ED25519, account!("vv").as_str()),
         };
-        assert!(flat_store
-            .get(left_child, &account_mm_access_key.to_vec())
-            .is_ok_and(|val| val.is_some()));
-        assert!(flat_store
-            .get(right_child, &account_vv_access_key.to_vec())
-            .is_ok_and(|val| val.is_some()));
+        assert!(
+            flat_store
+                .get(left_child, &account_mm_access_key.to_vec())
+                .is_ok_and(|val| val.is_some())
+        );
+        assert!(
+            flat_store
+                .get(right_child, &account_vv_access_key.to_vec())
+                .is_ok_and(|val| val.is_some())
+        );
 
         // Check final status of children flat storages.
         for child in [left_child, right_child] {
@@ -2507,18 +2537,22 @@ mod tests {
                 resharder.controller,
                 resharder.resharding_config,
             );
-            assert!(resharder
-                .resume(
-                    left_child_shard,
-                    &FlatStorageReshardingStatus::CatchingUp(resharding_block)
-                )
-                .is_ok());
-            assert!(resharder
-                .resume(
-                    right_child_shard,
-                    &FlatStorageReshardingStatus::CatchingUp(resharding_block)
-                )
-                .is_ok());
+            assert!(
+                resharder
+                    .resume(
+                        left_child_shard,
+                        &FlatStorageReshardingStatus::CatchingUp(resharding_block)
+                    )
+                    .is_ok()
+            );
+            assert!(
+                resharder
+                    .resume(
+                        right_child_shard,
+                        &FlatStorageReshardingStatus::CatchingUp(resharding_block)
+                    )
+                    .is_ok()
+            );
         }
 
         // Trigger the catchup tasks.
@@ -2545,11 +2579,13 @@ mod tests {
                     }
                 }))
             );
-            assert!(resharder
-                .runtime
-                .get_flat_storage_manager()
-                .get_flat_storage_for_shard(child_shard)
-                .is_some());
+            assert!(
+                resharder
+                    .runtime
+                    .get_flat_storage_manager()
+                    .get_flat_storage_for_shard(child_shard)
+                    .is_some()
+            );
         }
         // Children flat storages should contain the new accounts created through the deltas
         // application.
@@ -2829,11 +2865,13 @@ mod tests {
         let parent = ShardUId { version: 3, shard_id: 1 };
         assert_eq!(flat_store.get_flat_storage_status(parent), Ok(FlatStorageStatus::Empty));
         assert_eq!(flat_store.iter(parent).count(), 0);
-        assert!(resharder
-            .runtime
-            .get_flat_storage_manager()
-            .get_flat_storage_for_shard(parent)
-            .is_none());
+        assert!(
+            resharder
+                .runtime
+                .get_flat_storage_manager()
+                .get_flat_storage_for_shard(parent)
+                .is_none()
+        );
 
         // Check intermediate status of children flat storages.
         // If children reached the catching up state, it means that the split task succeeded.
@@ -2846,12 +2884,16 @@ mod tests {
             );
         }
         // The unrelated accounts should end up in the 'closer' child.
-        assert!(flat_store
-            .get(left_child_shard, &key_before_left_child.to_vec())
-            .is_ok_and(|val| val.is_some()));
-        assert!(flat_store
-            .get(right_child_shard, &key_after_right_child.to_vec())
-            .is_ok_and(|val| val.is_some()));
+        assert!(
+            flat_store
+                .get(left_child_shard, &key_before_left_child.to_vec())
+                .is_ok_and(|val| val.is_some())
+        );
+        assert!(
+            flat_store
+                .get(right_child_shard, &key_after_right_child.to_vec())
+                .is_ok_and(|val| val.is_some())
+        );
     }
 
     /// Test to validate that split shard resharding works if the chain undergoes a fork across the

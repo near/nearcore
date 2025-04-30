@@ -1,7 +1,7 @@
 use crate::accounts_data::*;
-use crate::network_protocol::testonly as data;
 use crate::network_protocol::SignedAccountData;
-use crate::testonly::{assert_is_superset, make_rng, AsSet as _, Rng};
+use crate::network_protocol::testonly as data;
+use crate::testonly::{AsSet as _, Rng, assert_is_superset, make_rng};
 use near_async::time;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::validator_signer::ValidatorSigner;

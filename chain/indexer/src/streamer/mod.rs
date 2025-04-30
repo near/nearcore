@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
@@ -19,12 +19,12 @@ use near_primitives::views;
 
 use self::errors::FailedToFetchData;
 use self::fetchers::{
-    fetch_block, fetch_block_by_height, fetch_block_chunks, fetch_latest_block, fetch_outcomes,
+    fetch_block, fetch_block_by_height, fetch_block_new_chunks, fetch_latest_block, fetch_outcomes,
     fetch_state_changes, fetch_status,
 };
 use self::utils::convert_transactions_sir_into_local_receipts;
-use crate::streamer::fetchers::fetch_protocol_config;
 use crate::INDEXER;
+use crate::streamer::fetchers::fetch_protocol_config;
 use crate::{AwaitForNodeSyncedEnum, IndexerConfig};
 use near_epoch_manager::shard_tracker::ShardTracker;
 
@@ -78,7 +78,7 @@ pub async fn build_streamer_message(
     shard_tracker: &ShardTracker,
 ) -> Result<StreamerMessage, FailedToFetchData> {
     let _timer = metrics::BUILD_STREAMER_MESSAGE_TIME.start_timer();
-    let chunks = fetch_block_chunks(&client, &block, shard_tracker).await?;
+    let chunks = fetch_block_new_chunks(&client, &block, shard_tracker).await?;
 
     let protocol_config_view = fetch_protocol_config(&client, block.header.hash).await?;
     let shard_ids = protocol_config_view.shard_layout.shard_ids();
@@ -102,28 +102,29 @@ pub async fn build_streamer_message(
         })
         .collect::<Vec<_>>();
 
-    for chunk in chunks.into_iter() {
+    for chunk in chunks {
         let views::ChunkView { transactions, author, header, receipts: chunk_non_local_receipts } =
             chunk;
 
-        let mut outcomes = shards_outcomes
+        let outcomes = shards_outcomes
             .remove(&header.shard_id)
             .expect("Execution outcomes for given shard should be present");
-
-        // Take execution outcomes for receipts from the vec and keep only the ones for transactions
-        let mut receipt_outcomes = outcomes.split_off(transactions.len());
-
+        let outcome_count = outcomes.len();
+        let mut outcomes = outcomes
+            .into_iter()
+            .map(|outcome| (outcome.execution_outcome.id, outcome))
+            .collect::<BTreeMap<_, _>>();
+        debug_assert_eq!(outcomes.len(), outcome_count);
         let indexer_transactions = transactions
             .into_iter()
-            .zip(outcomes.into_iter())
-            .map(|(transaction, outcome)| {
-                assert_eq!(
-                    outcome.execution_outcome.id, transaction.hash,
-                    "This ExecutionOutcome must have the same id as Transaction hash"
-                );
-                IndexerTransactionWithOutcome { outcome, transaction }
+            .filter_map(|transaction| {
+                let outcome = outcomes.remove(&transaction.hash)?;
+                debug_assert!(!outcome.execution_outcome.outcome.receipt_ids.is_empty());
+                Some(IndexerTransactionWithOutcome { outcome, transaction })
             })
             .collect::<Vec<IndexerTransactionWithOutcome>>();
+        // All transaction outcomes have been removed.
+        let mut receipt_outcomes = outcomes;
 
         let chunk_local_receipts = convert_transactions_sir_into_local_receipts(
             &client,
@@ -139,10 +140,7 @@ pub async fn build_streamer_message(
 
         // Add local receipts to corresponding outcomes
         for receipt in &chunk_local_receipts {
-            if let Some(outcome) = receipt_outcomes
-                .iter_mut()
-                .find(|outcome| outcome.execution_outcome.id == receipt.receipt_id)
-            {
+            if let Some(outcome) = receipt_outcomes.get_mut(&receipt.receipt_id) {
                 debug_assert!(outcome.receipt.is_none());
                 outcome.receipt = Some(receipt.clone());
             } else {
@@ -161,7 +159,7 @@ pub async fn build_streamer_message(
         let mut chunk_receipts = chunk_local_receipts;
 
         let mut receipt_execution_outcomes: Vec<IndexerExecutionOutcomeWithReceipt> = vec![];
-        for outcome in receipt_outcomes {
+        for (_, outcome) in receipt_outcomes {
             let IndexerExecutionOutcomeWithOptionalReceipt { execution_outcome, receipt } = outcome;
             let receipt = if let Some(receipt) = receipt {
                 receipt
@@ -235,11 +233,13 @@ pub async fn build_streamer_message(
         }
 
         chunk_receipts.extend(chunk_non_local_receipts);
+
         // Find the shard index for the chunk by shard_id
         let shard_index = protocol_config_view
             .shard_layout
             .get_shard_index(header.shard_id)
             .map_err(|e| FailedToFetchData::String(e.to_string()))?;
+
         // Add receipt_execution_outcomes into corresponding indexer shard
         indexer_shards[shard_index].receipt_execution_outcomes = receipt_execution_outcomes;
         // Put the chunk into corresponding indexer shard
@@ -255,10 +255,14 @@ pub async fn build_streamer_message(
     // chunks and we end up with non-empty `shards_outcomes` we want to be sure we put them into IndexerShard
     // That might happen before the fix https://github.com/near/nearcore/pull/4228
     for (shard_id, outcomes) in shards_outcomes {
-        let shard_index = protocol_config_view
-            .shard_layout
-            .get_shard_index(shard_id)
-            .map_err(|e| FailedToFetchData::String(e.to_string()))?;
+        // The chunk may be missing and if that happens in the first block after
+        // resharding the shard id would no longer be valid in the new shard
+        // layout. In this case we can skip the chunk.
+        let shard_index = protocol_config_view.shard_layout.get_shard_index(shard_id);
+        let Ok(shard_index) = shard_index else {
+            continue;
+        };
+
         indexer_shards[shard_index].receipt_execution_outcomes.extend(outcomes.into_iter().map(
             |outcome| IndexerExecutionOutcomeWithReceipt {
                 execution_outcome: outcome.execution_outcome,
@@ -335,7 +339,7 @@ async fn find_local_receipt_by_id_in_block(
     receipt_id: near_primitives::hash::CryptoHash,
     shard_tracker: &ShardTracker,
 ) -> Result<Option<views::ReceiptView>, FailedToFetchData> {
-    let chunks = fetch_block_chunks(&client, &block, shard_tracker).await?;
+    let chunks = fetch_block_new_chunks(&client, &block, shard_tracker).await?;
 
     let protocol_config_view = fetch_protocol_config(&client, block.header.hash).await?;
     let mut shards_outcomes = fetch_outcomes(&client, block.header.hash).await?;
@@ -449,7 +453,8 @@ pub(crate) async fn start(
         for block_height in start_syncing_block_height..=latest_block_height {
             metrics::CURRENT_BLOCK_HEIGHT.set(block_height as i64);
             if let Ok(block) = fetch_block_by_height(&view_client, block_height).await {
-                let response = build_streamer_message(&view_client, block, &shard_tracker).await;
+                let response =
+                    Box::pin(build_streamer_message(&view_client, block, &shard_tracker)).await;
 
                 match response {
                     Ok(streamer_message) => {

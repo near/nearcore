@@ -1,45 +1,45 @@
-use crate::single_shard_storage_mutator::SingleShardStorageMutator;
-use crate::storage_mutator::StorageMutator;
+use crate::delayed_receipts::DelayedReceiptTracker;
+use crate::storage_mutator::{ShardUpdateState, StorageMutator};
 use anyhow::Context;
 use chrono::{DateTime, Utc};
 use near_chain::types::{RuntimeAdapter, Tip};
-use near_chain::{ChainStore, ChainStoreAccess};
+use near_chain::{Chain, ChainGenesis, ChainStore, ChainStoreAccess};
 use near_chain_configs::{Genesis, GenesisConfig, GenesisValidationMode, NEAR_BASE};
-use near_crypto::PublicKey;
-use near_epoch_manager::shard_assignment::shard_id_to_uid;
-use near_epoch_manager::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
+use near_crypto::{InMemorySigner, PublicKey, SecretKey};
+use near_epoch_manager::{EpochManager, EpochManagerAdapter};
 use near_mirror::key_mapping::{map_account, map_key};
 use near_o11y::default_subscriber_with_opentelemetry;
 use near_o11y::env_filter::make_env_filter;
-use near_parameters::{RuntimeConfig, RuntimeConfigStore};
+use near_parameters::RuntimeConfig;
 use near_primitives::account::id::AccountType;
 use near_primitives::account::{AccessKey, AccessKeyPermission, Account, AccountContract};
 use near_primitives::borsh;
 use near_primitives::epoch_manager::{EpochConfig, EpochConfigStore};
 use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::dec_format;
-use near_primitives::shard_layout::ShardUId;
+use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::state::FlatStateValue;
 use near_primitives::state_record::StateRecord;
 use near_primitives::trie_key::col;
 use near_primitives::trie_key::trie_key_parsers::parse_account_id_from_account_key;
 use near_primitives::types::{
-    AccountId, AccountInfo, Balance, BlockHeight, EpochId, NumBlocks, NumSeats, ShardId, StateRoot,
+    AccountId, AccountInfo, Balance, EpochId, NumBlocks, NumSeats, ShardId, StateRoot,
 };
-use near_primitives::version::{ProtocolVersion, PROTOCOL_VERSION};
-use near_store::adapter::StoreAdapter;
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolVersion};
+use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::db::RocksDB;
 use near_store::flat::{BlockInfo, FlatStorageManager, FlatStorageStatus};
+use near_store::genesis::initialize_sharded_genesis_state;
 use near_store::{
-    checkpoint_hot_storage_and_cleanup_columns, DBCol, Store, TrieDBStorage, TrieStorage,
-    FINAL_HEAD_KEY,
+    DBCol, FINAL_HEAD_KEY, Store, TrieDBStorage, TrieStorage,
+    checkpoint_hot_storage_and_cleanup_columns, get_genesis_state_roots,
 };
-use nearcore::{load_config, open_storage, NearConfig, NightshadeRuntime, NightshadeRuntimeExt};
+use nearcore::{NearConfig, NightshadeRuntime, NightshadeRuntimeExt, load_config, open_storage};
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use serde::Deserialize;
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs::File;
-use std::io::BufReader;
+use std::io::{BufReader, BufWriter};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::Arc;
@@ -84,7 +84,11 @@ enum SubCommand {
 }
 
 #[derive(clap::Parser)]
-struct InitCmd;
+struct InitCmd {
+    /// If given, the shard layout in this file will be used to generate the forked genesis state
+    #[arg(long)]
+    pub shard_layout_file: Option<PathBuf>,
+}
 
 #[derive(clap::Parser)]
 struct FinalizeCmd;
@@ -95,8 +99,25 @@ struct AmendAccessKeysCmd {
     batch_size: u64,
 }
 
+/// Source of state to be used for the new chain.
+#[derive(clap::Parser, Clone, strum::EnumString, strum::Display)]
+enum StateSource {
+    /// Use a dump of the mainnet state.
+    #[strum(serialize = "dump")]
+    Dump,
+    /// Use an empty state.
+    #[strum(serialize = "empty")]
+    Empty,
+}
+
 #[derive(clap::Parser)]
 struct SetValidatorsCmd {
+    /// Source of state to be used for the new chain.
+    #[arg(short, long, default_value = "dump")]
+    pub state_source: StateSource,
+    /// Path to patches directory, required when state source is Empty.
+    #[arg(long)]
+    pub patches_path: Option<PathBuf>,
     /// Path to the JSON list of [`Validator`] structs containing account id and public keys.
     /// The path can be relative to `home_dir` or an absolute path.
     /// Example of a valid file that sets one validator with 50k tokens:
@@ -109,12 +130,9 @@ struct SetValidatorsCmd {
     pub validators: PathBuf,
     #[arg(short, long, default_value = "1000")]
     pub epoch_length: NumBlocks,
-    #[arg(long, default_value = "-fork", allow_hyphen_values = true)]
-    pub chain_id_suffix: String,
-    /// Sets the chain id to this value. By default, if this value is not set, the initial chain_id
-    /// will be reused by appending the suffix.
-    #[arg(long)]
-    pub chain_id: Option<String>,
+    /// Sets the chain id.
+    #[arg(long, default_value = "mocknet")]
+    pub chain_id: String,
     /// Timestamp that should be set in the genesis block. This is required if you want
     /// to create a consistent forked network across many machines
     #[arg(long)]
@@ -128,19 +146,42 @@ struct SetValidatorsCmd {
     pub num_seats: Option<NumSeats>,
 }
 
-const FORKED_ROOTS_KEY_PREFIX: &str = "FORK_TOOL_SHARD_ID:";
+const LEGACY_FORKED_ROOTS_KEY_PREFIX: &str = "FORK_TOOL_SHARD_ID:";
 
-fn parse_state_roots_key(key: &[u8]) -> anyhow::Result<ShardId> {
+fn parse_legacy_state_roots_key(key: &[u8]) -> anyhow::Result<ShardId> {
     let key = std::str::from_utf8(key)?;
     // Sanity check assertion since we should be iterating based on this prefix
-    assert!(key.starts_with(FORKED_ROOTS_KEY_PREFIX));
-    let int_part = &key[FORKED_ROOTS_KEY_PREFIX.len()..];
+    assert!(key.starts_with(LEGACY_FORKED_ROOTS_KEY_PREFIX));
+    let int_part = &key[LEGACY_FORKED_ROOTS_KEY_PREFIX.len()..];
     ShardId::from_str(int_part).with_context(|| format!("Failed parsing ShardId from {}", int_part))
 }
 
-fn make_state_roots_key(shard_id: ShardId) -> Vec<u8> {
-    format!("{FORKED_ROOTS_KEY_PREFIX}{shard_id}").into_bytes()
+const EPOCH_ID_KEY: &[u8; 18] = b"FORK_TOOL_EPOCH_ID";
+const FLAT_HEAD_KEY: &[u8; 19] = b"FORK_TOOL_FLAT_HEAD";
+const SHARD_LAYOUT_KEY: &[u8; 22] = b"FORK_TOOL_SHARD_LAYOUT";
+
+const FORKED_ROOTS_KEY_PREFIX: &[u8; 20] = b"FORK_TOOL_SHARD_UID:";
+
+fn parse_state_roots_key(key: &[u8]) -> anyhow::Result<ShardUId> {
+    // Sanity check assertion since we should be iterating based on this prefix
+    assert!(key.starts_with(FORKED_ROOTS_KEY_PREFIX));
+    let shard_uid_part = &key[FORKED_ROOTS_KEY_PREFIX.len()..];
+    borsh::from_slice(shard_uid_part)
+        .with_context(|| format!("Failed parsing ShardUId from fork tool key {:?}", key))
 }
+
+pub(crate) fn make_state_roots_key(shard_uid: ShardUId) -> Vec<u8> {
+    let mut key = FORKED_ROOTS_KEY_PREFIX.to_vec();
+    key.append(&mut borsh::to_vec(&shard_uid).unwrap());
+    key
+}
+
+/// The minimum set of columns that will be needed to start a node after the `finalize` command runs
+const COLUMNS_TO_KEEP: &[DBCol] = &[DBCol::DbVersion, DBCol::Misc, DBCol::State, DBCol::FlatState];
+
+/// Extra columns needed in the setup before the `finalize` command
+const SETUP_COLUMNS_TO_KEEP: &[DBCol] =
+    &[DBCol::EpochInfo, DBCol::FlatStorageStatus, DBCol::ChunkExtra];
 
 #[derive(clap::Parser)]
 struct ResetCmd;
@@ -154,7 +195,7 @@ struct Validator {
 }
 
 type MakeSingleShardStorageMutatorFn =
-    Arc<dyn Fn(StateRoot) -> anyhow::Result<SingleShardStorageMutator> + Send + Sync>;
+    Arc<dyn Fn(Vec<ShardUpdateState>) -> anyhow::Result<StorageMutator> + Send + Sync>;
 
 impl ForkNetworkCommand {
     pub fn run(
@@ -199,31 +240,33 @@ impl ForkNetworkCommand {
         .await
         .global();
 
-        near_config.config.store.state_snapshot_enabled = false;
+        near_config.config.store.disable_state_snapshot();
 
         match &self.command {
-            SubCommand::Init(InitCmd) => {
-                self.init(near_config, home_dir)?;
+            SubCommand::Init(InitCmd { shard_layout_file }) => {
+                self.init(near_config, home_dir, shard_layout_file.as_deref())?;
             }
             SubCommand::AmendAccessKeys(AmendAccessKeysCmd { batch_size }) => {
                 self.amend_access_keys(*batch_size, near_config, home_dir)?;
             }
             SubCommand::SetValidators(SetValidatorsCmd {
-                genesis_time,
-                protocol_version,
+                state_source,
+                patches_path,
                 validators,
                 epoch_length,
-                chain_id_suffix,
                 chain_id,
+                genesis_time,
+                protocol_version,
                 num_seats,
             }) => {
-                self.set_validators(
+                self.set_validators_from_source(
+                    state_source.clone(),
+                    patches_path.clone(),
                     genesis_time.unwrap_or_else(chrono::Utc::now),
                     *protocol_version,
                     validators,
                     *epoch_length,
                     num_seats,
-                    chain_id_suffix,
                     chain_id,
                     near_config,
                     home_dir,
@@ -265,7 +308,12 @@ impl ForkNetworkCommand {
     // Snapshots the DB.
     // Determines parameters that will be used to initialize the new chain.
     // After this completes, almost every DB column can be removed, however this command doesn't delete anything itself.
-    fn init(&self, near_config: &mut NearConfig, home_dir: &Path) -> anyhow::Result<()> {
+    fn write_fork_info(
+        &self,
+        near_config: &mut NearConfig,
+        home_dir: &Path,
+        shard_layout_file: Option<&Path>,
+    ) -> anyhow::Result<()> {
         // Open storage with migration
         let storage = open_storage(&home_dir, near_config).unwrap();
         let store = storage.get_hot_store();
@@ -279,6 +327,19 @@ impl ForkNetworkCommand {
         let head = store.get_ser::<Tip>(DBCol::BlockMisc, FINAL_HEAD_KEY)?.unwrap();
         let shard_layout = epoch_manager.get_shard_layout(&head.epoch_id)?;
         let all_shard_uids: Vec<_> = shard_layout.shard_uids().collect();
+
+        let target_shard_layout = match shard_layout_file {
+            Some(shard_layout_file) => {
+                let layout = std::fs::read_to_string(shard_layout_file).with_context(|| {
+                    format!("failed reading shard layout file at {}", shard_layout_file.display())
+                })?;
+                serde_json::from_str(&layout).with_context(|| {
+                    format!("failed parsing shard layout file at {}", shard_layout_file.display())
+                })?
+            }
+            None => shard_layout,
+        };
+
         // Flat state can be at different heights for different shards.
         // That is fine, we'll simply lookup state root for each .
         let fork_heads = get_fork_heads(&all_shard_uids, store.clone())?;
@@ -291,49 +352,69 @@ impl ForkNetworkCommand {
         );
 
         // Move flat storage to the max height for consistency across shards.
-        let (block_height, desired_block_hash) =
-            fork_heads.iter().map(|head| (head.height, head.hash)).max().unwrap();
+        let desired_flat_head = fork_heads.iter().max_by_key(|b| b.height).unwrap();
 
-        let desired_block_header = chain.get_block_header(&desired_block_hash)?;
+        let desired_block_header = chain.get_block_header(&desired_flat_head.hash)?;
         let epoch_id = desired_block_header.epoch_id();
         let flat_storage_manager = FlatStorageManager::new(store.flat_store());
 
         // Advance flat heads to the same (max) block height to ensure
         // consistency of state across the shards.
-        let state_roots: Vec<(ShardId, StateRoot)> = shard_layout
-            .shard_ids()
-            .map(|shard_id| {
-                let shard_uid =
-                    shard_id_to_uid(epoch_manager.as_ref(), shard_id, epoch_id).unwrap();
+        let state_roots: Vec<(ShardUId, StateRoot)> = all_shard_uids
+            .into_iter()
+            .map(|shard_uid| {
                 flat_storage_manager.create_flat_storage_for_shard(shard_uid).unwrap();
                 let flat_storage =
                     flat_storage_manager.get_flat_storage_for_shard(shard_uid).unwrap();
-                flat_storage.update_flat_head(&desired_block_hash).unwrap();
-                let chunk_extra = chain.get_chunk_extra(&desired_block_hash, &shard_uid).unwrap();
+                flat_storage.update_flat_head(&desired_flat_head.hash).unwrap();
+                let chunk_extra =
+                    chain.get_chunk_extra(&desired_flat_head.hash, &shard_uid).unwrap();
                 let state_root = chunk_extra.state_root();
-                tracing::info!(?shard_id, ?epoch_id, ?state_root);
-                (shard_id, *state_root)
+                tracing::info!(?shard_uid, ?epoch_id, ?state_root);
+                (shard_uid, *state_root)
             })
             .collect();
 
         // Increment height to represent that some changes were made to the original state.
         tracing::info!(
-            block_height,
-            ?desired_block_hash,
+            ?desired_flat_head,
             ?state_roots,
             ?epoch_id,
             "Moved flat heads to a common block"
         );
-        let block_height = block_height + 1;
 
         let mut store_update = store.store_update();
-        store_update.set_ser(DBCol::Misc, b"FORK_TOOL_EPOCH_ID", epoch_id)?;
-        store_update.set_ser(DBCol::Misc, b"FORK_TOOL_BLOCK_HASH", &desired_block_hash)?;
-        store_update.set(DBCol::Misc, b"FORK_TOOL_BLOCK_HEIGHT", &block_height.to_le_bytes());
-        for (shard_id, state_root) in state_roots.iter() {
-            store_update.set_ser(DBCol::Misc, &make_state_roots_key(*shard_id), state_root)?;
+        store_update.set_ser(DBCol::Misc, EPOCH_ID_KEY, epoch_id)?;
+        store_update.set_ser(DBCol::Misc, FLAT_HEAD_KEY, &desired_flat_head)?;
+        store_update.set_ser(DBCol::Misc, SHARD_LAYOUT_KEY, &target_shard_layout)?;
+        for (shard_uid, state_root) in &state_roots {
+            store_update.set_ser(DBCol::Misc, &make_state_roots_key(*shard_uid), state_root)?;
         }
         store_update.commit()?;
+        Ok(())
+    }
+
+    fn init(
+        &self,
+        near_config: &mut NearConfig,
+        home_dir: &Path,
+        shard_layout_file: Option<&Path>,
+    ) -> anyhow::Result<()> {
+        self.write_fork_info(near_config, home_dir, shard_layout_file)?;
+        let mut unwanted_cols = Vec::new();
+        for col in DBCol::iter() {
+            if !COLUMNS_TO_KEEP.contains(&col) && !SETUP_COLUMNS_TO_KEEP.contains(&col) {
+                unwanted_cols.push(col);
+            }
+        }
+        near_store::clear_columns(
+            home_dir,
+            &near_config.config.store,
+            near_config.config.archival_config(),
+            &unwanted_cols,
+            true,
+        )
+        .context("failed deleting unwanted columns")?;
         Ok(())
     }
 
@@ -355,65 +436,108 @@ impl ForkNetworkCommand {
             &near_config.genesis.config,
             Some(home_dir),
         );
-        let (prev_state_roots, prev_hash, epoch_id, block_height) =
-            self.get_state_roots_and_hash(epoch_manager.as_ref(), store.clone())?;
-        tracing::info!(?prev_state_roots, ?epoch_id, ?prev_hash);
+        let (prev_state_roots, flat_head, epoch_id, target_shard_layout) =
+            self.get_state_roots_and_hash(store.clone(), epoch_manager.as_ref())?;
+        tracing::info!(?prev_state_roots, ?epoch_id, ?flat_head);
 
-        let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
-        let all_shard_uids = shard_layout.shard_uids().collect::<Vec<_>>();
+        let source_shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
+        let all_shard_uids = source_shard_layout.shard_uids().collect::<Vec<_>>();
         assert_eq!(all_shard_uids.len(), prev_state_roots.len());
 
         let runtime =
             NightshadeRuntime::from_config(home_dir, store.clone(), &near_config, epoch_manager)
                 .context("could not create the transaction runtime")?;
+        // TODO: add an option to not load them all at once. As is, this takes an insane amount of memory for mainnet state.
         runtime
             .get_tries()
             .load_memtries_for_enabled_shards(&all_shard_uids, &[].into(), true)
             .unwrap();
 
-        let make_storage_mutator: MakeSingleShardStorageMutatorFn =
-            Arc::new(move |prev_state_root| {
-                SingleShardStorageMutator::new(&runtime.clone(), prev_state_root)
-            });
+        let shard_tries = runtime.get_tries();
+        let target_shard_layout2 = target_shard_layout.clone();
+        let make_storage_mutator: MakeSingleShardStorageMutatorFn = Arc::new(move |update_state| {
+            StorageMutator::new(shard_tries.clone(), update_state, target_shard_layout2.clone())
+        });
 
-        let prev_state_roots = prev_state_roots
-            .into_iter()
-            .enumerate()
-            .map(|(index, root)| {
-                let shard_id = shard_layout.get_shard_id(index).unwrap();
-                let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
-                (shard_uid, root)
-            })
-            .collect::<Vec<_>>();
         let new_state_roots = self.prepare_state(
             batch_size,
             store,
-            &prev_state_roots,
-            block_height,
+            source_shard_layout,
+            target_shard_layout,
+            flat_head,
+            prev_state_roots,
             make_storage_mutator.clone(),
+            runtime,
         )?;
         Ok(new_state_roots)
+    }
+
+    fn set_validators_from_source(
+        &self,
+        source_type: StateSource,
+        patches_path: Option<PathBuf>,
+        genesis_time: DateTime<Utc>,
+        protocol_version: Option<ProtocolVersion>,
+        validators: &Path,
+        epoch_length: u64,
+        num_seats: &Option<NumSeats>,
+        chain_id: &String,
+        near_config: &mut NearConfig,
+        home_dir: &Path,
+    ) -> anyhow::Result<()> {
+        match source_type {
+            StateSource::Dump => self.set_validators_from_dump(
+                genesis_time,
+                protocol_version,
+                validators,
+                epoch_length,
+                num_seats,
+                chain_id,
+                near_config,
+                home_dir,
+            ),
+            StateSource::Empty => {
+                let patches_path = patches_path.ok_or_else(|| {
+                    anyhow::anyhow!("patches_path is required when source_type is 'empty'")
+                })?;
+                self.set_validators(
+                    patches_path.as_ref(),
+                    genesis_time,
+                    protocol_version,
+                    validators,
+                    epoch_length,
+                    num_seats,
+                    chain_id,
+                    near_config,
+                    home_dir,
+                )?;
+                Ok(())
+            }
+        }?;
+        tracing::info!("Validators set");
+        Ok(())
     }
 
     /// Creates a DB snapshot, then
     /// Reads a list of validator accounts from a file
     /// Adds validator accounts to the state
     /// Creates a genesis file with the new validators.
-    fn set_validators(
+    fn set_validators_from_dump(
         &self,
         genesis_time: DateTime<Utc>,
         protocol_version: Option<ProtocolVersion>,
         validators: &Path,
         epoch_length: u64,
         num_seats: &Option<NumSeats>,
-        chain_id_suffix: &str,
-        chain_id: &Option<String>,
+        chain_id: &String,
         near_config: &mut NearConfig,
         home_dir: &Path,
-    ) -> anyhow::Result<(Vec<StateRoot>, Vec<AccountInfo>)> {
-        // Open storage with migration
+    ) -> anyhow::Result<()> {
+        // 1. Open the state storage (maybe with DB migrations)
         let storage = open_storage(&home_dir, near_config).unwrap();
         let store = storage.get_hot_store();
+        let protocol_version =
+            protocol_version.unwrap_or(near_config.genesis.config.protocol_version);
 
         let epoch_manager = EpochManager::new_arc_handle(
             store.clone(),
@@ -421,87 +545,296 @@ impl ForkNetworkCommand {
             Some(home_dir),
         );
 
-        let (prev_state_roots, _prev_hash, epoch_id, block_height) =
-            self.get_state_roots_and_hash(epoch_manager.as_ref(), store.clone())?;
+        let (prev_state_roots, flat_head, _epoch_id, target_shard_layout) =
+            self.get_state_roots_and_hash(store.clone(), epoch_manager.as_ref())?;
 
         let runtime =
-            NightshadeRuntime::from_config(home_dir, store, &near_config, epoch_manager.clone())
+            NightshadeRuntime::from_config(home_dir, store.clone(), &near_config, epoch_manager)
                 .context("could not create the transaction runtime")?;
+        let runtime_config = runtime.get_runtime_config(protocol_version);
 
-        let runtime_config_store = RuntimeConfigStore::new(None);
-        let runtime_config = runtime_config_store.get_config(PROTOCOL_VERSION);
+        let shard_uids = target_shard_layout.shard_uids().collect::<Vec<_>>();
+        assert_eq!(
+            shard_uids.iter().collect::<HashSet<_>>(),
+            prev_state_roots.iter().map(|(k, _v)| k).collect::<HashSet<_>>()
+        );
 
-        let storage_mutator =
-            StorageMutator::new(epoch_manager, &runtime, epoch_id, prev_state_roots)?;
-        let (new_state_roots, new_validator_accounts) =
-            self.add_validator_accounts(validators, runtime_config, home_dir, storage_mutator)?;
-
-        tracing::info!("Creating a new genesis");
-        backup_genesis_file(home_dir, &near_config)?;
-        self.make_and_write_genesis(
-            genesis_time,
+        // 2. Update the epoch configs.
+        // We only fork mainnet for now, so we use mainnet epoch configs as base ones.
+        let base_epoch_config_store =
+            EpochConfigStore::for_chain_id(near_primitives::chains::MAINNET, None)
+                .expect("Could not load the EpochConfigStore for mainnet.");
+        let epoch_config = self.override_epoch_configs(
+            base_epoch_config_store,
             protocol_version,
-            epoch_length,
             num_seats,
-            block_height,
-            chain_id_suffix,
-            chain_id,
-            new_state_roots.clone(),
-            new_validator_accounts.clone(),
             home_dir,
-            near_config,
         )?;
 
-        tracing::info!("All Done! Run the node normally to start the forked network.");
-        Ok((new_state_roots, new_validator_accounts))
+        // 3. Write new validators to state.
+        let flat_store = store.flat_store();
+        // Here we use the same shard layout for source and target, because we assume that amend-access-keys has already
+        // written the new shard layout to the FORK_TOOL_SHARD_LAYOUT key, and in any case we're not mapping things from
+        // source shards to target shards in this function
+        let update_state = ShardUpdateState::new_update_state(
+            &flat_store,
+            &target_shard_layout,
+            &target_shard_layout,
+            &prev_state_roots,
+        )?;
+        let storage_mutator = StorageMutator::new(
+            runtime.get_tries(),
+            update_state.clone(),
+            target_shard_layout.clone(),
+        )?;
+        let new_validator_accounts = self.add_validator_accounts(
+            validators,
+            runtime_config,
+            home_dir,
+            &target_shard_layout,
+            storage_mutator,
+        )?;
+        let new_state_roots = update_state.into_iter().map(|u| u.state_root()).collect::<Vec<_>>();
+        tracing::info!("Creating a new genesis");
+        backup_genesis_file(home_dir, &near_config)?;
+
+        // 4. Create new genesis with updated state roots and validators.
+        let mut original_genesis_config = near_config.genesis.config.clone();
+        let genesis_file = near_config.config.genesis_file.clone();
+        original_genesis_config.chain_id.clone_from(chain_id);
+        original_genesis_config.genesis_time = genesis_time;
+        original_genesis_config.protocol_version = protocol_version;
+        original_genesis_config.genesis_height = flat_head.height + 1;
+        original_genesis_config.epoch_length = epoch_length;
+        self.make_and_write_genesis(
+            home_dir,
+            original_genesis_config,
+            genesis_file,
+            epoch_config,
+            new_state_roots,
+            new_validator_accounts,
+        )
     }
 
-    /// Deletes DB columns that are not needed in the new chain.
-    fn finalize(&self, near_config: &mut NearConfig, home_dir: &Path) -> anyhow::Result<()> {
-        // Open storage with migration
+    /// Reads configuration patches for sharded benchmark.
+    /// For now reads only epoch config and number of accounts per shard to
+    /// benchmark.
+    fn read_patches(patches_path: &Path) -> anyhow::Result<(EpochConfig, u64)> {
+        let epoch_config_path = patches_path.join("epoch_configs/template.json");
+        let epoch_config: EpochConfig =
+            serde_json::from_str(&std::fs::read_to_string(epoch_config_path)?)?;
+        let params_path = patches_path.join("params.json");
+        let params: HashMap<String, serde_json::Value> =
+            serde_json::from_str(&std::fs::read_to_string(params_path)?)?;
+        let num_accounts = params["num_accounts"].as_u64().unwrap();
+        Ok((epoch_config, num_accounts))
+    }
+
+    /// Sets genesis block to be able to write accounts to the state.
+    fn set_genesis_block(
+        epoch_manager: &dyn EpochManagerAdapter,
+        runtime: &dyn RuntimeAdapter,
+        chain_genesis: &ChainGenesis,
+        state_roots: Vec<StateRoot>,
+    ) -> anyhow::Result<()> {
+        let (genesis_block, _) =
+            Chain::make_genesis_block(epoch_manager, runtime, &chain_genesis, state_roots)?;
+        let flat_storage_manager = runtime.get_flat_storage_manager();
+        let mut store_update = runtime.store().store_update();
+        let shard_uids =
+            epoch_manager.get_shard_layout(&EpochId::default())?.shard_uids().collect::<Vec<_>>();
+        for shard_uid in shard_uids {
+            flat_storage_manager.set_flat_storage_for_genesis(
+                &mut store_update.flat_store_update(),
+                shard_uid,
+                genesis_block.hash(),
+                genesis_block.header().height(),
+            );
+        }
+        store_update.commit()?;
+        Ok(())
+    }
+
+    fn set_validators(
+        &self,
+        patches_path: &Path,
+        genesis_time: DateTime<Utc>,
+        protocol_version: Option<ProtocolVersion>,
+        validators: &Path,
+        epoch_length: u64,
+        num_seats: &Option<NumSeats>,
+        chain_id: &String,
+        near_config: &mut NearConfig,
+        home_dir: &Path,
+    ) -> anyhow::Result<()> {
         let storage = open_storage(&home_dir, near_config).unwrap();
         let store = storage.get_hot_store();
 
+        // 1. Create default genesis and override its fields with given parameters.
+        let (epoch_config, num_accounts_per_shard) = Self::read_patches(patches_path)?;
+        let target_shard_layout = &epoch_config.shard_layout;
+        let validators = Self::read_validators(validators, home_dir)?;
+        let num_seats = num_seats.unwrap_or(validators.len() as NumSeats);
+        let mut genesis = Genesis::from_account_infos(
+            genesis_time,
+            validators.clone(),
+            num_seats,
+            target_shard_layout.clone(),
+        );
+        if let Some(protocol_version) = protocol_version {
+            genesis.config.protocol_version = protocol_version;
+        }
+        let genesis_protocol_version = genesis.config.protocol_version;
+        genesis.config.epoch_length = epoch_length;
+        genesis.config.chain_id.clone_from(chain_id);
+        initialize_sharded_genesis_state(store.clone(), &genesis, &epoch_config, Some(home_dir));
+        genesis.to_file(home_dir.join(&near_config.config.genesis_file));
+        near_config.genesis = genesis.clone();
+
+        // 2. Initialize chain and state storage so we can add benchmark
+        // accounts there.
+        let prev_state_roots = get_genesis_state_roots(&store).unwrap().unwrap();
+        let shard_uids = epoch_config.shard_layout.shard_uids().collect::<Vec<_>>();
+
+        let base_epoch_config_store = EpochConfigStore::test(BTreeMap::from([(
+            genesis_protocol_version,
+            Arc::new(epoch_config.clone()),
+        )]));
+        let epoch_config = self.override_epoch_configs(
+            base_epoch_config_store,
+            genesis_protocol_version,
+            &Some(num_seats),
+            home_dir,
+        )?;
+        let epoch_manager =
+            EpochManager::new_arc_handle(store.clone(), &genesis.config, Some(home_dir));
+        let runtime =
+            NightshadeRuntime::from_config(home_dir, store, &near_config, epoch_manager.clone())
+                .context("could not create the transaction runtime")?;
+        let chain_genesis = ChainGenesis::new(&genesis.config);
+        Self::set_genesis_block(
+            epoch_manager.as_ref(),
+            runtime.as_ref(),
+            &chain_genesis,
+            prev_state_roots.clone(),
+        )?;
+
+        // 3. Add benchmark accounts to the state and override new state
+        // roots in state and genesis.
+        let state_roots = self.add_user_accounts(
+            runtime.as_ref(),
+            genesis_protocol_version,
+            &shard_uids,
+            prev_state_roots,
+            home_dir,
+            target_shard_layout,
+            num_accounts_per_shard,
+        )?;
+        tracing::info!("Creating a new genesis");
+        backup_genesis_file(home_dir, &near_config)?;
+        self.make_and_write_genesis(
+            home_dir,
+            genesis.config,
+            near_config.config.genesis_file.clone(),
+            epoch_config,
+            state_roots.clone(),
+            validators,
+        )?;
+        Self::set_genesis_block(
+            epoch_manager.as_ref(),
+            runtime.as_ref(),
+            &chain_genesis,
+            state_roots,
+        )?;
+        Ok(())
+    }
+
+    /// Deletes DB columns that are not needed in the new chain.
+    fn finalize(&self, near_config: &NearConfig, home_dir: &Path) -> anyhow::Result<()> {
         tracing::info!("Delete unneeded columns in the original DB");
-        let mut update = store.store_update();
+        let mut unwanted_cols = Vec::new();
         for col in DBCol::iter() {
-            match col {
-                DBCol::DbVersion | DBCol::Misc | DBCol::State | DBCol::FlatState => {}
-                _ => update.delete_all(col),
+            if !COLUMNS_TO_KEEP.contains(&col) {
+                unwanted_cols.push(col);
             }
         }
-        update.commit()?;
+        near_store::clear_columns(
+            home_dir,
+            &near_config.config.store,
+            near_config.config.archival_config(),
+            &unwanted_cols,
+            true,
+        )
+        .context("failed deleting unwanted columns")?;
         Ok(())
+    }
+
+    // Read the values that used to be written before the changes that have us write to FORK_TOOL_FLAT_HEAD
+    // and FORK_TOOL_SHARD_LAYOUT
+    fn legacy_get_state_roots_and_hash(
+        &self,
+        store: Store,
+        epoch_manager: &dyn EpochManagerAdapter,
+    ) -> anyhow::Result<(HashMap<ShardUId, StateRoot>, BlockInfo, EpochId, ShardLayout)> {
+        let epoch_id = EpochId(store.get_ser(DBCol::Misc, EPOCH_ID_KEY)?.unwrap());
+        let block_hash = store.get_ser(DBCol::Misc, b"FORK_TOOL_BLOCK_HASH")?.unwrap();
+        let block_height = store.get(DBCol::Misc, b"FORK_TOOL_BLOCK_HEIGHT")?.unwrap();
+        let block_height = u64::from_le_bytes(block_height.as_slice().try_into().unwrap());
+
+        let flat_head = BlockInfo {
+            hash: block_hash,
+            // The previous code stored fork_head.height + 1 in FORK_TOOL_BLOCK_HEIGHT
+            height: block_height - 1,
+            // If dealing with a legacy setup, the prev hash won't be set, but it should be fine since we should only use
+            // legacy_get_state_roots_and_hash() for the set-validators and finalize commands, and not the amend-access-keys
+            // command, which is the only one that needs this set properly
+            prev_hash: CryptoHash::default(),
+        };
+        let shard_layout = epoch_manager
+            .get_shard_layout(&epoch_id)
+            .with_context(|| format!("Failed getting shard layout for epoch {}", &epoch_id.0))?;
+
+        let mut state_roots = HashMap::new();
+        for item in store.iter_prefix(DBCol::Misc, LEGACY_FORKED_ROOTS_KEY_PREFIX.as_bytes()) {
+            let (key, value) = item?;
+            let shard_id = parse_legacy_state_roots_key(&key)?;
+            let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
+            let state_root: StateRoot = borsh::from_slice(&value)?;
+
+            state_roots.insert(shard_uid, state_root);
+        }
+
+        tracing::info!(
+            ?state_roots,
+            ?block_hash,
+            ?epoch_id,
+            block_height,
+            "legacy state roots and hash",
+        );
+        Ok((state_roots, flat_head, epoch_id, shard_layout))
     }
 
     // The Vec<StateRoot> returned is in ShardIndex order
     fn get_state_roots_and_hash(
         &self,
-        epoch_manager: &EpochManagerHandle,
         store: Store,
-    ) -> anyhow::Result<(Vec<StateRoot>, CryptoHash, EpochId, BlockHeight)> {
-        let epoch_id = EpochId(store.get_ser(DBCol::Misc, b"FORK_TOOL_EPOCH_ID")?.unwrap());
-        let block_hash = store.get_ser(DBCol::Misc, b"FORK_TOOL_BLOCK_HASH")?.unwrap();
-        let block_height = store.get(DBCol::Misc, b"FORK_TOOL_BLOCK_HEIGHT")?.unwrap();
-        let block_height = u64::from_le_bytes(block_height.as_slice().try_into().unwrap());
-        let shard_layout = epoch_manager
-            .get_shard_layout(&epoch_id)
-            .with_context(|| format!("Failed getting shard layout for epoch {}", &epoch_id.0))?;
-        let mut state_roots = vec![None; shard_layout.shard_ids().count()];
-        for item in store.iter_prefix(DBCol::Misc, FORKED_ROOTS_KEY_PREFIX.as_bytes()) {
+        epoch_manager: &dyn EpochManagerAdapter,
+    ) -> anyhow::Result<(HashMap<ShardUId, StateRoot>, BlockInfo, EpochId, ShardLayout)> {
+        let Some(flat_head) = store.get_ser(DBCol::Misc, FLAT_HEAD_KEY)? else {
+            return self.legacy_get_state_roots_and_hash(store, epoch_manager);
+        };
+        let epoch_id = EpochId(store.get_ser(DBCol::Misc, EPOCH_ID_KEY)?.unwrap());
+        let shard_layout = store.get_ser(DBCol::Misc, SHARD_LAYOUT_KEY)?.unwrap();
+        let mut state_roots = HashMap::new();
+        for item in store.iter_prefix(DBCol::Misc, FORKED_ROOTS_KEY_PREFIX) {
             let (key, value) = item?;
-            let shard_id = parse_state_roots_key(&key)?;
-            let shard_index = shard_layout
-                .get_shard_index(shard_id)
-                .with_context(|| format!("Failed finding shard index for {}", shard_id))?;
+            let shard_uid = parse_state_roots_key(&key)?;
             let state_root: StateRoot = borsh::from_slice(&value)?;
 
-            assert!(state_roots[shard_index].is_none());
-            state_roots[shard_index] = Some(state_root);
+            state_roots.insert(shard_uid, state_root);
         }
-        let state_roots = state_roots.into_iter().map(|s| s.unwrap()).collect();
-        tracing::info!(?state_roots, ?block_hash, ?epoch_id, block_height);
-        Ok((state_roots, block_hash, epoch_id, block_height))
+        tracing::info!(?state_roots, ?flat_head, ?epoch_id);
+        Ok((state_roots, flat_head, epoch_id, shard_layout))
     }
 
     /// Checks that `~/.near/data/fork-snapshot/data` exists.
@@ -541,6 +874,7 @@ impl ForkNetworkCommand {
     /// in `home_dir`.
     fn override_epoch_configs(
         &self,
+        base_epoch_config_store: EpochConfigStore,
         first_version: ProtocolVersion,
         num_seats: &Option<NumSeats>,
         home_dir: &Path,
@@ -553,9 +887,6 @@ impl ForkNetworkCommand {
             anyhow::anyhow!("Failed to create directory {:?}", epoch_config_dir)
         })?;
 
-        let base_epoch_config_store =
-            EpochConfigStore::for_chain_id(near_primitives::chains::MAINNET, None)
-                .expect("Could not load the EpochConfigStore for mainnet.");
         let mut new_epoch_configs = BTreeMap::new();
         for version in first_version..=PROTOCOL_VERSION {
             let mut config = base_epoch_config_store.get_config(version).as_ref().clone();
@@ -570,26 +901,27 @@ impl ForkNetworkCommand {
         let epoch_config_store = EpochConfigStore::test(new_epoch_configs);
 
         epoch_config_store.dump_epoch_configs_between(
-            &first_version,
-            &PROTOCOL_VERSION,
-            epoch_config_dir.to_str().unwrap(),
+            Some(&first_version),
+            None,
+            &epoch_config_dir,
         );
         tracing::info!(target: "near", "Generated epoch configs files in {}", epoch_config_dir.display());
         Ok(first_config)
     }
 
+    /// Returns info on delayed receipts mapped from this shard, and this shard's state root after
+    /// all updates are applied.
     fn prepare_shard_state(
         &self,
         batch_size: u64,
+        source_shard_layout: ShardLayout,
+        target_shard_layout: ShardLayout,
         shard_uid: ShardUId,
         store: Store,
-        prev_state_root: StateRoot,
-        block_height: BlockHeight,
         make_storage_mutator: MakeSingleShardStorageMutatorFn,
-    ) -> anyhow::Result<StateRoot> {
-        // Doesn't support secrets.
-        tracing::info!(?shard_uid);
-        let mut storage_mutator: SingleShardStorageMutator = make_storage_mutator(prev_state_root)?;
+        update_state: Vec<ShardUpdateState>,
+    ) -> anyhow::Result<DelayedReceiptTracker> {
+        let mut storage_mutator: StorageMutator = make_storage_mutator(update_state.clone())?;
 
         // TODO: allow mutating the state with a secret, so this can be used to prepare a public test network
         let default_key = near_mirror::key_mapping::default_extra_key(None).public_key();
@@ -598,18 +930,14 @@ impl ForkNetworkCommand {
         // Lets us lookup large values in the `State` columns.
         let trie_storage = TrieDBStorage::new(store.trie_store(), shard_uid);
 
+        let mut receipts_tracker =
+            DelayedReceiptTracker::new(shard_uid, target_shard_layout.shard_ids().count());
+
         // Iterate over the whole flat storage and do the necessary changes to have access to all accounts.
-        let mut index_delayed_receipt = 0;
         let mut ref_keys_retrieved = 0;
         let mut records_not_parsed = 0;
         let mut records_parsed = 0;
-        let mut access_keys_updated = 0;
-        let mut accounts_implicit_updated = 0;
-        let mut contract_data_updated = 0;
-        let mut contract_code_updated = 0;
-        let mut postponed_receipts_updated = 0;
-        let mut received_data_updated = 0;
-        let mut fake_block_height = block_height + 1;
+
         for item in store.flat_store().iter(shard_uid) {
             let (key, value) = match item {
                 Ok((key, FlatStateValue::Ref(ref_value))) => {
@@ -630,65 +958,57 @@ impl ForkNetworkCommand {
                         }
                         let new_account_id = map_account(&account_id, None);
                         let replacement = map_key(&public_key, None);
-                        storage_mutator.remove(key)?;
+                        let new_shard_id =
+                            target_shard_layout.account_id_to_shard_id(&new_account_id);
+                        let new_shard_idx =
+                            target_shard_layout.get_shard_index(new_shard_id).unwrap();
+
+                        storage_mutator.remove_access_key(shard_uid, account_id, public_key)?;
                         storage_mutator.set_access_key(
+                            new_shard_idx,
                             new_account_id,
                             replacement.public_key(),
                             access_key.clone(),
                         )?;
-                        access_keys_updated += 1;
                     }
-
                     StateRecord::Account { account_id, account } => {
-                        // TODO(eth-implicit) Change back to is_implicit() when ETH-implicit accounts are supported.
-                        if account_id.get_account_type() == AccountType::NearImplicitAccount {
-                            let new_account_id = map_account(&account_id, None);
-                            storage_mutator.remove(key)?;
-                            storage_mutator.set_account(new_account_id, account)?;
-                            accounts_implicit_updated += 1;
-                        }
+                        storage_mutator.map_account(shard_uid, account_id, account)?;
                     }
                     StateRecord::Data { account_id, data_key, value } => {
-                        // TODO(eth-implicit) Change back to is_implicit() when ETH-implicit accounts are supported.
-                        if account_id.get_account_type() == AccountType::NearImplicitAccount {
-                            let new_account_id = map_account(&account_id, None);
-                            storage_mutator.remove(key)?;
-                            storage_mutator.set_data(new_account_id, &data_key, value)?;
-                            contract_data_updated += 1;
-                        }
+                        storage_mutator.map_data(shard_uid, account_id, &data_key, value)?;
                     }
                     StateRecord::Contract { account_id, code } => {
-                        // TODO(eth-implicit) Change back to is_implicit() when ETH-implicit accounts are supported.
-                        if account_id.get_account_type() == AccountType::NearImplicitAccount {
-                            let new_account_id = map_account(&account_id, None);
-                            storage_mutator.remove(key)?;
-                            storage_mutator.set_code(new_account_id, code)?;
-                            contract_code_updated += 1;
-                        }
+                        storage_mutator.map_code(shard_uid, account_id, code)?;
                     }
                     StateRecord::PostponedReceipt(mut receipt) => {
-                        storage_mutator.remove(key)?;
+                        storage_mutator.remove_postponed_receipt(
+                            shard_uid,
+                            receipt.receiver_id().clone(),
+                            *receipt.receipt_id(),
+                        )?;
                         near_mirror::genesis::map_receipt(&mut receipt, None, &default_key);
-                        storage_mutator.set_postponed_receipt(&receipt)?;
-                        postponed_receipts_updated += 1;
+
+                        let new_shard_id =
+                            target_shard_layout.account_id_to_shard_id(receipt.receiver_id());
+                        let new_shard_idx =
+                            target_shard_layout.get_shard_index(new_shard_id).unwrap();
+
+                        storage_mutator.set_postponed_receipt(new_shard_idx, &receipt)?;
                     }
                     StateRecord::ReceivedData { account_id, data_id, data } => {
-                        // TODO(eth-implicit) Change back to is_implicit() when ETH-implicit accounts are supported.
-                        if account_id.get_account_type() == AccountType::NearImplicitAccount {
-                            let new_account_id = map_account(&account_id, None);
-                            storage_mutator.remove(key)?;
-                            storage_mutator.set_received_data(new_account_id, data_id, &data)?;
-                            received_data_updated += 1;
-                        }
+                        storage_mutator.map_received_data(shard_uid, account_id, data_id, &data)?;
                     }
-                    StateRecord::DelayedReceipt(mut receipt) => {
-                        storage_mutator.remove(key)?;
-                        near_mirror::genesis::map_receipt(&mut receipt.receipt, None, &default_key);
+                    StateRecord::DelayedReceipt(receipt) => {
+                        let new_account_id = map_account(receipt.receipt.receiver_id(), None);
+                        let new_shard_id =
+                            target_shard_layout.account_id_to_shard_id(&new_account_id);
+                        let new_shard_idx =
+                            target_shard_layout.get_shard_index(new_shard_id).unwrap();
+
                         // The index is guaranteed to be set when iterating over the trie rather than reading
                         // serialized StateRecords
                         let index = receipt.index.unwrap();
-                        storage_mutator.set_delayed_receipt(index, &receipt.receipt)?;
-                        index_delayed_receipt += 1;
+                        receipts_tracker.push(new_shard_idx, index);
                     }
                 }
                 records_parsed += 1;
@@ -696,41 +1016,17 @@ impl ForkNetworkCommand {
                 records_not_parsed += 1;
             }
             if storage_mutator.should_commit(batch_size) {
-                tracing::info!(
-                    ?shard_uid,
-                    ref_keys_retrieved,
-                    records_parsed,
-                    updated = access_keys_updated
-                        + accounts_implicit_updated
-                        + contract_data_updated
-                        + contract_code_updated
-                        + postponed_receipts_updated
-                        + index_delayed_receipt
-                        + received_data_updated,
-                );
-                let state_root = storage_mutator.commit(&shard_uid, fake_block_height)?;
-                fake_block_height += 1;
-                storage_mutator = make_storage_mutator(state_root)?;
+                tracing::info!(?shard_uid, ref_keys_retrieved, records_parsed,);
+                storage_mutator.commit()?;
+                storage_mutator = make_storage_mutator(update_state.clone())?;
             }
         }
 
         // Commit the remaining updates.
         if storage_mutator.should_commit(1) {
-            tracing::info!(
-                ?shard_uid,
-                ref_keys_retrieved,
-                records_parsed,
-                updated = access_keys_updated
-                    + accounts_implicit_updated
-                    + contract_data_updated
-                    + contract_code_updated
-                    + postponed_receipts_updated
-                    + index_delayed_receipt
-                    + received_data_updated,
-            );
-            let state_root = storage_mutator.commit(&shard_uid, fake_block_height)?;
-            fake_block_height += 1;
-            storage_mutator = make_storage_mutator(state_root)?;
+            tracing::info!(?shard_uid, ref_keys_retrieved, records_parsed,);
+            storage_mutator.commit()?;
+            storage_mutator = make_storage_mutator(update_state.clone())?;
         }
 
         tracing::info!(
@@ -738,13 +1034,6 @@ impl ForkNetworkCommand {
             ref_keys_retrieved,
             records_parsed,
             records_not_parsed,
-            accounts_implicit_updated,
-            access_keys_updated,
-            contract_code_updated,
-            contract_data_updated,
-            postponed_receipts_updated,
-            delayed_receipts_updated = index_delayed_receipt,
-            received_data_updated,
             num_has_full_key = has_full_key.len(),
             "Pass 1 done"
         );
@@ -752,6 +1041,7 @@ impl ForkNetworkCommand {
         // Now do another pass to ensure all accounts have full access keys.
         // Remember that we kept track of accounts with full access keys in `has_full_key`.
         // Iterating over the whole flat state is very fast compared to writing all the updates.
+        // TODO: Just remember what accounts we saw in the above iteration
         let mut num_added = 0;
         let mut num_accounts = 0;
         for item in store.flat_store().iter(shard_uid) {
@@ -769,73 +1059,147 @@ impl ForkNetworkCommand {
                             continue;
                         }
                     };
-                    if has_full_key.contains(&account_id) {
+                    if account_id.get_account_type() == AccountType::NearImplicitAccount
+                        || has_full_key.contains(&account_id)
+                    {
                         continue;
                     }
+                    let shard_id = source_shard_layout.account_id_to_shard_id(&account_id);
+                    if shard_id != shard_uid.shard_id() {
+                        tracing::warn!(
+                            "Account {} belongs to shard {} but was found in flat storage for shard {}",
+                            &account_id,
+                            shard_id,
+                            shard_uid.shard_id(),
+                        );
+                    }
+                    let shard_idx = source_shard_layout.get_shard_index(shard_id).unwrap();
                     storage_mutator.set_access_key(
+                        shard_idx,
                         account_id,
                         default_key.clone(),
                         AccessKey::full_access(),
                     )?;
                     num_added += 1;
                     if storage_mutator.should_commit(batch_size) {
-                        let state_root = storage_mutator.commit(&shard_uid, fake_block_height)?;
-                        fake_block_height += 1;
-                        storage_mutator = make_storage_mutator(state_root)?;
+                        storage_mutator.commit()?;
+                        storage_mutator = make_storage_mutator(update_state.clone())?;
                     }
                 }
             }
         }
         tracing::info!(?shard_uid, num_accounts, num_added, "Pass 2 done");
+        storage_mutator.commit()?;
+        Ok(receipts_tracker)
+    }
 
-        storage_mutator.set_delayed_receipt_indices()?;
-        let state_root = storage_mutator.commit(&shard_uid, fake_block_height)?;
-
-        tracing::info!(?shard_uid, "Commit done");
-        Ok(state_root)
+    // TODO: instead of calling this every time, this could be integrated into StorageMutator or something
+    fn update_source_state_roots(
+        source_state_roots: &mut HashMap<ShardUId, StateRoot>,
+        target_shard_layout: &ShardLayout,
+        update_state: &[ShardUpdateState],
+    ) {
+        for (shard_uid, state_root) in source_state_roots.iter_mut() {
+            if target_shard_layout.shard_uids().any(|s| s == *shard_uid) {
+                let shard_idx = target_shard_layout.get_shard_index(shard_uid.shard_id()).unwrap();
+                *state_root = update_state[shard_idx].state_root();
+            }
+        }
     }
 
     fn prepare_state(
         &self,
         batch_size: u64,
         store: Store,
-        prev_state_roots: &[(ShardUId, StateRoot)],
-        block_height: BlockHeight,
+        source_shard_layout: ShardLayout,
+        target_shard_layout: ShardLayout,
+        flat_head: BlockInfo,
+        mut source_state_roots: HashMap<ShardUId, StateRoot>,
         make_storage_mutator: MakeSingleShardStorageMutatorFn,
+        runtime: Arc<NightshadeRuntime>,
     ) -> anyhow::Result<Vec<StateRoot>> {
-        let state_roots = prev_state_roots
+        let shard_uids = source_shard_layout.shard_uids().collect::<Vec<_>>();
+        assert_eq!(
+            shard_uids.iter().collect::<HashSet<_>>(),
+            source_state_roots.iter().map(|(k, _v)| k).collect::<HashSet<_>>()
+        );
+
+        let flat_store = store.flat_store();
+        let update_state = ShardUpdateState::new_update_state(
+            &flat_store,
+            &source_shard_layout,
+            &target_shard_layout,
+            &source_state_roots,
+        )?;
+
+        // the try_fold().try_reduce() will give a Vec<> of the return values and return early if one fails
+        let receipt_trackers = shard_uids
             .into_par_iter()
-            .map(|(shard_uid, state_root)| {
-                let state_root = self
-                    .prepare_shard_state(
+            .try_fold(
+                || Vec::new(),
+                |mut trackers, shard_uid| {
+                    let t = self.prepare_shard_state(
                         batch_size,
-                        *shard_uid,
+                        source_shard_layout.clone(),
+                        target_shard_layout.clone(),
+                        shard_uid,
                         store.clone(),
-                        *state_root,
-                        block_height,
                         make_storage_mutator.clone(),
-                    )
-                    .unwrap();
-                state_root
-            })
-            .collect();
+                        update_state.clone(),
+                    )?;
+                    trackers.push(t);
+                    anyhow::Ok(trackers)
+                },
+            )
+            .try_reduce(
+                || Vec::new(),
+                |mut l, mut r| {
+                    l.append(&mut r);
+                    Ok(l)
+                },
+            )?;
+
+        Self::update_source_state_roots(
+            &mut source_state_roots,
+            &target_shard_layout,
+            &update_state,
+        );
+        let shard_tries = runtime.get_tries();
+        crate::storage_mutator::write_bandwidth_scheduler_state(
+            &shard_tries,
+            &source_shard_layout,
+            &target_shard_layout,
+            &source_state_roots,
+            &update_state,
+        )?;
+
+        let default_key = near_mirror::key_mapping::default_extra_key(None).public_key();
+        Self::update_source_state_roots(
+            &mut source_state_roots,
+            &target_shard_layout,
+            &update_state,
+        );
+        crate::delayed_receipts::write_delayed_receipts(
+            &shard_tries,
+            &update_state,
+            receipt_trackers,
+            &source_state_roots,
+            &target_shard_layout,
+            &default_key,
+        )?;
+        crate::storage_mutator::finalize_state(
+            &shard_tries,
+            &source_shard_layout,
+            &target_shard_layout,
+            flat_head,
+        )?;
+
+        let state_roots = update_state.into_iter().map(|u| u.state_root()).collect();
         tracing::info!(?state_roots, "All done");
         Ok(state_roots)
     }
 
-    /// Reads the validators file (which is a path relative to the home dir),
-    /// and adds new accounts and new keys for the specified accounts.
-    fn add_validator_accounts(
-        &self,
-        validators: &Path,
-        runtime_config: &Arc<RuntimeConfig>,
-        home_dir: &Path,
-        mut storage_mutator: StorageMutator,
-    ) -> anyhow::Result<(Vec<StateRoot>, Vec<AccountInfo>)> {
-        let mut new_validator_accounts = vec![];
-
-        let liquid_balance = 100_000_000 * NEAR_BASE;
-        let storage_bytes = runtime_config.fees.storage_usage_config.num_bytes_account;
+    fn read_validators(validators: &Path, home_dir: &Path) -> anyhow::Result<Vec<AccountInfo>> {
         let validators_path = if validators.is_absolute() {
             PathBuf::from(validators)
         } else {
@@ -845,15 +1209,39 @@ impl ForkNetworkCommand {
             .expect("Failed to open the validators JSON {validators_path:?}");
         let new_validators: Vec<Validator> = serde_json::from_reader(BufReader::new(file))
             .expect("Failed to read validators JSON {validators_path:?}");
-        for validator in new_validators.into_iter() {
-            let validator_account = AccountInfo {
-                account_id: validator.account_id,
-                amount: validator.amount.unwrap_or(50_000 * NEAR_BASE),
-                public_key: validator.public_key,
-            };
+        let account_infos = new_validators
+            .into_iter()
+            .map(|v| AccountInfo {
+                account_id: v.account_id,
+                public_key: v.public_key,
+                amount: v.amount.unwrap_or(50_000 * NEAR_BASE),
+            })
+            .collect();
+        Ok(account_infos)
+    }
+
+    /// Reads the validators file (which is a path relative to the home dir),
+    /// and adds new accounts and new keys for the specified accounts.
+    fn add_validator_accounts(
+        &self,
+        validators: &Path,
+        runtime_config: &RuntimeConfig,
+        home_dir: &Path,
+        shard_layout: &ShardLayout,
+        mut storage_mutator: StorageMutator,
+    ) -> anyhow::Result<Vec<AccountInfo>> {
+        let mut new_validator_accounts = vec![];
+
+        let liquid_balance = 100_000_000 * NEAR_BASE;
+        let storage_bytes = runtime_config.fees.storage_usage_config.num_bytes_account;
+        let new_validators = Self::read_validators(validators, home_dir)?;
+        for validator_account in new_validators {
+            let shard_id = shard_layout.account_id_to_shard_id(&validator_account.account_id);
+            let shard_idx = shard_layout.get_shard_index(shard_id).unwrap();
             new_validator_accounts.push(validator_account.clone());
             storage_mutator.set_account(
-                &validator_account.account_id,
+                shard_idx,
+                validator_account.account_id.clone(),
                 Account::new(
                     liquid_balance,
                     validator_account.amount,
@@ -862,59 +1250,157 @@ impl ForkNetworkCommand {
                 ),
             )?;
             storage_mutator.set_access_key(
-                &validator_account.account_id,
+                shard_idx,
+                validator_account.account_id,
                 validator_account.public_key,
                 AccessKey::full_access(),
             )?;
         }
-        let new_state_roots = storage_mutator.commit()?;
-        Ok((new_state_roots, new_validator_accounts))
+        storage_mutator.commit()?;
+        Ok(new_validator_accounts)
     }
 
-    /// Makes a new genesis and writes it to `~/.near/genesis.json`.
+    /// Adds `num_accounts_per_shard` accounts to each shard.
+    /// Writes them to state and to the disk.
+    /// Returns the new state roots.
+    fn add_user_accounts(
+        &self,
+        runtime: &dyn RuntimeAdapter,
+        protocol_version: ProtocolVersion,
+        shard_uids: &[ShardUId],
+        mut state_roots: Vec<StateRoot>,
+        home_dir: &Path,
+        shard_layout: &ShardLayout,
+        num_accounts_per_shard: u64,
+    ) -> anyhow::Result<Vec<StateRoot>> {
+        #[derive(serde::Serialize)]
+        struct AccountData {
+            account_id: AccountId,
+            public_key: String,
+            secret_key: String,
+            nonce: u64,
+        }
+
+        let runtime_config = runtime.get_runtime_config(protocol_version);
+        let flat_store = runtime.store().flat_store();
+        let accounts_path = home_dir.join("user-data");
+        let _ = std::fs::remove_dir_all(&accounts_path);
+        std::fs::create_dir_all(&accounts_path)?;
+
+        let liquid_balance = 100_000_000 * NEAR_BASE;
+        let storage_bytes = runtime_config.fees.storage_usage_config.num_bytes_account;
+        let boundary_account_ids = shard_layout.boundary_accounts().clone();
+        let first_boundary_account_id = boundary_account_ids[0].clone();
+        let first_account_id =
+            "0".repeat(first_boundary_account_id.len()).parse::<AccountId>().unwrap();
+        let account_prefixes = vec![first_account_id]
+            .into_iter()
+            .chain(boundary_account_ids.into_iter())
+            .collect::<Vec<_>>();
+        for (account_prefix_idx, account_prefix) in account_prefixes.into_iter().enumerate() {
+            tracing::info!(
+                "Creating accounts for shard: {} {}",
+                account_prefix_idx,
+                account_prefix
+            );
+            let state_roots_map: HashMap<ShardUId, StateRoot> = shard_uids
+                .iter()
+                .enumerate()
+                .map(|(idx, shard_uid)| (*shard_uid, state_roots[idx]))
+                .collect();
+            let update_state = ShardUpdateState::new_update_state(
+                &flat_store,
+                &shard_layout,
+                &shard_layout,
+                &state_roots_map,
+            )?;
+            let mut storage_mutator = StorageMutator::new(
+                runtime.get_tries(),
+                update_state.clone(),
+                shard_layout.clone(),
+            )?;
+
+            let shard_id = shard_layout.get_shard_id(account_prefix_idx).unwrap();
+            let shard_accounts_path = accounts_path.join(format!("shard_{}.json", shard_id));
+            let mut account_infos = vec![];
+
+            for i in 0..num_accounts_per_shard {
+                let account_id = format!("{account_prefix}_user_{i}").parse::<AccountId>().unwrap();
+                let secret_key =
+                    SecretKey::from_seed(near_crypto::KeyType::ED25519, account_id.as_str());
+                let signer =
+                    InMemorySigner::from_secret_key(account_id.clone(), secret_key.clone());
+                let shard_id = shard_layout.account_id_to_shard_id(&account_id);
+                let shard_idx = shard_layout.get_shard_index(shard_id).unwrap();
+                assert!(
+                    shard_idx == account_prefix_idx,
+                    "Order of account prefixes should match order of shards"
+                );
+                storage_mutator.set_account(
+                    shard_idx,
+                    account_id.clone(),
+                    Account::new(liquid_balance, 0, AccountContract::None, storage_bytes),
+                )?;
+                storage_mutator.set_access_key(
+                    shard_idx,
+                    account_id.clone(),
+                    signer.public_key(),
+                    AccessKey::full_access(),
+                )?;
+                let account_data = AccountData {
+                    account_id: account_id.clone(),
+                    public_key: signer.public_key().to_string(),
+                    secret_key: secret_key.to_string(),
+                    nonce: 0,
+                };
+                account_infos.push(account_data);
+            }
+
+            let account_file = File::create(shard_accounts_path)?;
+            let account_writer = BufWriter::new(account_file);
+            serde_json::to_writer(account_writer, &account_infos)?;
+
+            state_roots = storage_mutator.commit()?;
+        }
+
+        Ok(state_roots)
+    }
+
+    /// Insert new validator and state root data into the genesis config.
+    /// TODO: remove epoch config data as it should be removed from the
+    /// genesis config.
     fn make_and_write_genesis(
         &self,
-        genesis_time: DateTime<Utc>,
-        protocol_version: Option<ProtocolVersion>,
-        epoch_length: u64,
-        num_seats: &Option<NumSeats>,
-        height: BlockHeight,
-        chain_id_suffix: &str,
-        chain_id: &Option<String>,
+        home_dir: &Path,
+        original_config: GenesisConfig,
+        genesis_file: String,
+        epoch_config: EpochConfig,
         new_state_roots: Vec<StateRoot>,
         new_validator_accounts: Vec<AccountInfo>,
-        home_dir: &Path,
-        near_config: &mut NearConfig,
     ) -> anyhow::Result<()> {
-        // At this point, the genesis will contain the chain id of the original chain.
-        // We need to load the epoch config for the new chain id and new genesis protocol version.
-        let new_chain_id = chain_id
-            .clone()
-            .unwrap_or_else(|| near_config.genesis.config.chain_id.clone() + chain_id_suffix);
-        near_config.genesis.config.chain_id = new_chain_id.clone();
-
-        let genesis_protocol_version = match protocol_version {
-            Some(v) => v,
-            None => near_config.genesis.config.protocol_version,
-        };
-        near_config.genesis.config.protocol_version = genesis_protocol_version;
-
-        // This is based on the assumption that epoch length is part of genesis config and not epoch config.
-        near_config.genesis.config.epoch_length = epoch_length;
-
-        let epoch_config =
-            self.override_epoch_configs(genesis_protocol_version, num_seats, home_dir)?;
-
-        let original_config = near_config.genesis.config.clone();
-
+        // TODO: deprecate these fields as unused.
+        let num_block_producer_seats_per_shard =
+            vec![
+                original_config.num_block_producer_seats_per_shard[0];
+                epoch_config.shard_layout.num_shards() as usize
+            ];
+        let avg_hidden_validator_seats_per_shard =
+            if original_config.avg_hidden_validator_seats_per_shard.is_empty() {
+                Vec::new()
+            } else {
+                vec![
+                    original_config.avg_hidden_validator_seats_per_shard[0];
+                    epoch_config.shard_layout.num_shards() as usize
+                ]
+            };
         let new_config = GenesisConfig {
-            chain_id: new_chain_id,
-            genesis_height: height,
-            genesis_time,
-            epoch_length,
+            chain_id: original_config.chain_id,
+            genesis_height: original_config.genesis_height,
+            genesis_time: original_config.genesis_time,
+            epoch_length: original_config.epoch_length,
             num_block_producer_seats: epoch_config.num_block_producer_seats,
-            num_block_producer_seats_per_shard: epoch_config.num_block_producer_seats_per_shard,
-            avg_hidden_validator_seats_per_shard: epoch_config.avg_hidden_validator_seats_per_shard,
+            num_block_producer_seats_per_shard,
+            avg_hidden_validator_seats_per_shard,
             block_producer_kickout_threshold: 0,
             chunk_producer_kickout_threshold: 0,
             chunk_validator_only_kickout_threshold: 0,
@@ -925,14 +1411,14 @@ impl ForkNetworkCommand {
             fishermen_threshold: epoch_config.fishermen_threshold,
             minimum_stake_divisor: epoch_config.minimum_stake_divisor,
             protocol_upgrade_stake_threshold: epoch_config.protocol_upgrade_stake_threshold,
-            shard_layout: epoch_config.shard_layout.clone(),
+            shard_layout: epoch_config.shard_layout,
             num_chunk_only_producer_seats: epoch_config.num_chunk_only_producer_seats,
             minimum_validators_per_shard: epoch_config.minimum_validators_per_shard,
             minimum_stake_ratio: epoch_config.minimum_stake_ratio,
             shuffle_shard_assignment_for_chunk_producers: epoch_config
                 .shuffle_shard_assignment_for_chunk_producers,
             dynamic_resharding: false,
-            protocol_version: genesis_protocol_version,
+            protocol_version: original_config.protocol_version,
             validators: new_validator_accounts,
             gas_price_adjustment_rate: original_config.gas_price_adjustment_rate,
             gas_limit: original_config.gas_limit,
@@ -952,7 +1438,6 @@ impl ForkNetworkCommand {
         };
 
         let genesis = Genesis::new_from_state_roots(new_config, new_state_roots);
-        let genesis_file = &near_config.config.genesis_file;
         let original_genesis_file = home_dir.join(&genesis_file);
 
         tracing::info!(?original_genesis_file, "Writing new genesis");
