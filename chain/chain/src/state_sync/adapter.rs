@@ -356,7 +356,7 @@ impl ChainStateSyncAdapter {
     }
 
     pub fn set_state_header(
-        &mut self,
+        &self,
         shard_id: ShardId,
         sync_hash: CryptoHash,
         shard_state_header: ShardStateSyncResponseHeader,
@@ -519,7 +519,7 @@ impl ChainStateSyncAdapter {
     }
 
     pub fn set_state_part(
-        &mut self,
+        &self,
         shard_id: ShardId,
         sync_hash: CryptoHash,
         part_id: PartId,

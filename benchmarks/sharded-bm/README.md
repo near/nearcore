@@ -118,21 +118,18 @@ gcloud compute instances list --project=nearone-mocknet --filter <UNIQUE ID>
 ### Forknet - Run benchmark
 
 1. Set the correct values in the test case `params.json`. Keep in mind that:
-   - Benchmarks require one RPC node exactly. RPC node will be selected automatically and it will be the 'last' GCP instance.
+   - Benchmarks run with one RPC node exactly. RPC node will be selected automatically and it will be the 'last' GCP instance.
    - The number of nodes deployed in terraform must match the number of nodes expected in the benchmark scenario.
    - Nodes will run the `neard` binary specified in `forknet.binary_url`
-2. Make sure you have a `near-synth-bm` binary that can be run on a mainnet node.
-3. Follow these instructions (they work on macOS as well):
+2. Follow these instructions (they work on macOS as well):
 
 <!-- cspell:words BENCHNET -->
 ```sh
 export CASE=cases/forknet/10_cp_1_rpc_10_shard/
-export VIRTUAL_ENV=<absolute path to virtual env bin directory>
-export SYNTH_BM_BIN=<absolute path or URL to near-synth-bm binary>
-export GEN_NODES_DIR=<absolute path to directory of your choice to store nodes configs>
 export FORKNET_NAME=<unique name of forknet> 
 export FORKNET_START_HEIGHT=<forknet start height>
 
+# Export SYNTH_BM_BIN=<absolute path or URL to near-synth-bm binary> if you need it for account creation
 # Export UPDATE_BINARIES=true if you want to force neard binary update during init
 ./bench.sh init
 ./bench.sh start-nodes
@@ -161,6 +158,26 @@ Grafana mostly, [Blockchain utilization dashboard](https://grafana.nearone.org/g
     ```sh
     ./bench.sh mirror <ARGS>
     ```
+
+### Forknet - How to measure max TPS
+
+Follow these steps to determine the maximum TPS (transactions per second) the network can handle, to build a report similar to [this example](https://github.com/near/nearcore/issues/13130#issuecomment-2797211286):
+
+1. **Setup:** Initialize the nodes and network for benchmarking using the realistic scenario: `CASE=cases/forknet/realistic_20_cp_1_rpc_20_shard/`.
+2. **Start Low:** In `params.json`, set `tx_generator.tps` to about 90% of the previously measured max TPS, or to a conservative low value if unknown.
+3. **Iterative Testing:** Repeat the following steps:
+    - Run `./bench.sh native-transfers`.
+    - Let the network run for at least 15 minutes.
+    - In the [Blockchain utilization dashboard](https://grafana.nearone.org/goto/3bS1Lr2Ng?orgId=1), note the value for **Transactions included in chunks** (*current TPS*).
+    - Check **Blocks per second** in the same dashboard. Make sure it matches expectations for your `neard` config (e.g., with 1.3s block time, you should see ≥ 0.76 block/s).
+        - **If blocks per second is as expected:**  
+          - Update your *max TPS* to the observed *current TPS*.
+          - Increase `tx_generator.tps` by a small value (e.g., 100).
+          - Repeat the loop to test the new TPS.
+        - **If blocks per second drops below expected:**  
+          - Stop the experiment. The previous *max TPS* is the network’s maximum sustainable throughput.
+
+The idea is to gradually increase the load (TPS) in small steps, starting from a safe value, until the network can no longer keep up.
 
 ### Known issues
 

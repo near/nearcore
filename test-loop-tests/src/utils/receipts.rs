@@ -81,7 +81,7 @@ pub fn check_receipts_presence_after_resharding_block(
 
 /// Asserts the presence of any receipt of type `kind` at the provided chain `tip`.
 pub fn check_receipts_at_block(
-    client_actor: &mut ClientActorInner,
+    client_actor: &ClientActorInner,
     account: &AccountId,
     kind: &ReceiptKind,
     tip: Tip,

@@ -123,7 +123,7 @@ impl FoldDbOps {
         state
     }
 
-    fn skip_eval(&mut self, trace_indent: usize) -> bool {
+    fn skip_eval(&self, trace_indent: usize) -> bool {
         trace_indent < self.min_indent
     }
 

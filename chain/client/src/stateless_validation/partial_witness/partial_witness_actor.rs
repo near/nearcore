@@ -371,7 +371,7 @@ impl PartialWitnessActor {
 
     /// Function to handle receiving partial_encoded_state_witness message from chunk producer.
     fn handle_partial_encoded_state_witness(
-        &mut self,
+        &self,
         partial_witness: PartialEncodedStateWitness,
     ) -> Result<(), Error> {
         tracing::debug!(target: "client", ?partial_witness, "Receive PartialEncodedStateWitnessMessage");
@@ -439,7 +439,7 @@ impl PartialWitnessActor {
 
     /// Function to handle receiving partial_encoded_state_witness_forward message from chunk producer.
     fn handle_partial_encoded_state_witness_forward(
-        &mut self,
+        &self,
         partial_witness: PartialEncodedStateWitness,
     ) -> Result<(), Error> {
         tracing::debug!(target: "client", ?partial_witness, "Receive PartialEncodedStateWitnessForwardMessage");
@@ -594,10 +594,7 @@ impl PartialWitnessActor {
     /// Handles contract code accesses message from chunk producer.
     /// This is sent in parallel to a chunk state witness and contains the hashes
     /// of the contract code accessed when applying the previous chunk of the witness.
-    fn handle_chunk_contract_accesses(
-        &mut self,
-        accesses: ChunkContractAccesses,
-    ) -> Result<(), Error> {
+    fn handle_chunk_contract_accesses(&self, accesses: ChunkContractAccesses) -> Result<(), Error> {
         let signer = self.my_validator_signer()?;
         if !validate_chunk_contract_accesses(
             self.epoch_manager.as_ref(),
@@ -788,10 +785,7 @@ impl PartialWitnessActor {
     }
 
     /// Handles contract code responses message from chunk producer.
-    fn handle_contract_code_response(
-        &mut self,
-        response: ContractCodeResponse,
-    ) -> Result<(), Error> {
+    fn handle_contract_code_response(&self, response: ContractCodeResponse) -> Result<(), Error> {
         let key = response.chunk_production_key().clone();
         let contracts = response.decompress_contracts()?;
         self.partial_witness_tracker.store_accessed_contract_codes(key, contracts)
@@ -806,7 +800,7 @@ impl PartialWitnessActor {
     }
 
     fn ordered_contract_deploys_validators(
-        &mut self,
+        &self,
         key: &ChunkProductionKey,
     ) -> Result<Vec<AccountId>, Error> {
         let chunk_producers = HashSet::<AccountId>::from_iter(

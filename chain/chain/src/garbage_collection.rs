@@ -632,7 +632,7 @@ impl<'a> ChainStoreUpdate<'a> {
     }
 
     fn get_shard_uids_to_gc(
-        &mut self,
+        &self,
         epoch_manager: &dyn EpochManagerAdapter,
         block_hash: &CryptoHash,
     ) -> Vec<ShardUId> {
