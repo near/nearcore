@@ -69,13 +69,18 @@ impl StateSyncDownloader {
             let i = AtomicUsize::new(0); // for easier Rust async capture
             let attempt = || {
                 async {
+                    // We cannot assume that either source is infallible. We interleave attempts
+                    // to the available sources until one of them gives us the state successfully.
                     let source = if fallback_source.is_some()
                         && i.load(Ordering::Relaxed) >= num_attempts_before_fallback
                     {
+                        i.store(0, Ordering::Relaxed);
                         fallback_source.as_ref().unwrap().as_ref()
                     } else {
+                        i.fetch_add(1, Ordering::Relaxed);
                         preferred_source.as_ref()
                     };
+
                     let header = source
                         .download_shard_header(shard_id, sync_hash, handle.clone(), cancel.clone())
                         .await?;
@@ -115,7 +120,6 @@ impl StateSyncDownloader {
                         }
                     }
                 }
-                i.fetch_add(1, Ordering::Relaxed);
             }
         }
         .instrument(tracing::debug_span!("StateSyncDownloader::download_shard_header"))
