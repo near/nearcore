@@ -51,12 +51,34 @@ impl ShardTracker {
     pub fn new_empty(epoch_manager: Arc<dyn EpochManagerAdapter>) -> Self {
         Self::new(TrackedShardsConfig::NoShards, epoch_manager)
     }
+    fn check_shard_exists_in_epoch(
+        &self,
+        shard_id: ShardId,
+        epoch_id: &EpochId,
+    ) -> Result<(), EpochError> {
+        let shard_layout = self.epoch_manager.get_shard_layout(epoch_id)?;
+        match shard_layout.get_shard_index(shard_id) {
+            Ok(_) => Ok(()),
+            Err(err) => {
+                let available_shards: Vec<_> = shard_layout.shard_ids().collect();
+
+                debug_assert!(
+                    false,
+                    "Shard {} does not exist in epoch {:?}. Available shards: {:?}. Error: {:?}",
+                    shard_id, epoch_id, available_shards, err
+                );
+                Ok(())
+            }
+        }
+    }
 
     fn tracks_shard_at_epoch(
         &self,
         shard_id: ShardId,
         epoch_id: &EpochId,
     ) -> Result<bool, EpochError> {
+        self.check_shard_exists_in_epoch(shard_id, epoch_id)?;
+
         match &self.tracked_shards_config {
             TrackedShardsConfig::NoShards => Ok(false),
             TrackedShardsConfig::AllShards => Ok(true),
