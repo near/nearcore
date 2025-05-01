@@ -335,7 +335,7 @@ impl ClientActorInner {
 
     /// Gets the information about the epoch that contains a given block.
     fn get_epoch_info_view(
-        &mut self,
+        &self,
         epoch_identifier: &ValidatorInfoIdentifier,
     ) -> Result<EpochInfoView, Error> {
         let epoch_start_height =
@@ -507,7 +507,7 @@ impl ClientActorInner {
     }
 
     fn get_recent_epoch_info(
-        &mut self,
+        &self,
         epoch_id: Option<EpochId>,
     ) -> Result<Vec<EpochInfoView>, near_chain_primitives::Error> {
         let mut epochs_info: Vec<EpochInfoView> = Vec::new();
@@ -547,7 +547,7 @@ impl ClientActorInner {
     }
 
     fn get_last_blocks_info(
-        &mut self,
+        &self,
         query: DebugBlockStatusQuery,
     ) -> Result<DebugBlockStatusData, near_chain_primitives::Error> {
         let DebugBlockStatusQuery { starting_height, mode, mut num_blocks } = query;

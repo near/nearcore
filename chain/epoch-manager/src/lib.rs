@@ -476,7 +476,7 @@ impl EpochManager {
     }
 
     fn collect_blocks_info(
-        &mut self,
+        &self,
         last_block_info: &BlockInfo,
         last_block_hash: &CryptoHash,
     ) -> Result<EpochSummary, EpochError> {
@@ -577,7 +577,7 @@ impl EpochManager {
 
     /// Finalizes epoch (T), where given last block hash is given, and returns next next epoch id (T + 2).
     fn finalize_epoch(
-        &mut self,
+        &self,
         store_update: &mut StoreUpdate,
         block_info: &BlockInfo,
         last_block_hash: &CryptoHash,
@@ -1352,7 +1352,7 @@ impl EpochManager {
     }
 
     fn save_epoch_info(
-        &mut self,
+        &self,
         store_update: &mut StoreUpdate,
         epoch_id: &EpochId,
         epoch_info: Arc<EpochInfo>,
@@ -1397,7 +1397,7 @@ impl EpochManager {
     }
 
     fn save_block_info(
-        &mut self,
+        &self,
         store_update: &mut StoreUpdate,
         block_info: Arc<BlockInfo>,
     ) -> Result<(), EpochError> {
@@ -1408,7 +1408,7 @@ impl EpochManager {
     }
 
     fn save_epoch_start(
-        &mut self,
+        &self,
         store_update: &mut StoreUpdate,
         epoch_id: &EpochId,
         epoch_start: BlockHeight,

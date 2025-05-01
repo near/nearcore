@@ -1116,11 +1116,11 @@ class NeardRunner:
 
         new_chain_id = n.get('new_chain_id')
 
-        if self.legacy_records and n.get('state_source') == 'dump':
+        if self.legacy_records and n['state_source'] == 'dump':
             self.deprecated_set_validators(n, new_chain_id)
             return
 
-        if n.get('state_source') == 'empty':
+        if n['state_source'] == 'empty':
             self.remove_data_dir()
 
         cmd = [
@@ -1129,8 +1129,6 @@ class NeardRunner:
             self.target_near_home_path(),
             'fork-network',
             'set-validators',
-            '--state-source',
-            n['state_source'],
             '--validators',
             self.home_path('validators.json'),
             '--epoch-length',
@@ -1140,6 +1138,15 @@ class NeardRunner:
             '--num-seats',
             str(n['num_seats']),
         ]
+
+        # Needed for backwards compatibility. Works because 'dump' is the
+        # default option.
+        # TODO(2.8): After we stop testing neard binaries with version < 2.7.0,
+        # use the --state-source flag unconditionally.
+        if n['state_source'] != 'dump':
+            cmd.append('--state-source')
+            cmd.append(n['state_source'])
+
         if n['patches_path'] is not None:
             cmd.append('--patches-path')
             cmd.append(n['patches_path'])

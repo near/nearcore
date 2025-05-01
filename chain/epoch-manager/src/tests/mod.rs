@@ -1826,18 +1826,14 @@ fn test_all_kickout_edge_case() {
 }
 
 fn check_validators(epoch_info: &EpochInfo, expected_validators: &[(&str, u128)]) {
-    for (v, (account_id, stake)) in
-        epoch_info.validators_iter().zip(expected_validators.into_iter())
-    {
+    for (v, (account_id, stake)) in epoch_info.validators_iter().zip_eq(expected_validators) {
         assert_eq!(v.account_id(), *account_id);
         assert_eq!(v.stake(), *stake);
     }
 }
 
 fn check_fishermen(epoch_info: &EpochInfo, expected_fishermen: &[(&str, u128)]) {
-    assert_eq!(epoch_info.fishermen_iter().len(), expected_fishermen.len());
-    for (v, (account_id, stake)) in epoch_info.fishermen_iter().zip(expected_fishermen.into_iter())
-    {
+    for (v, (account_id, stake)) in epoch_info.fishermen_iter().zip_eq(expected_fishermen) {
         assert_eq!(v.account_id(), *account_id);
         assert_eq!(v.stake(), *stake);
     }
@@ -2832,7 +2828,6 @@ fn test_block_and_chunk_producer_not_kicked_out_for_low_endorsements() {
 
 fn test_chunk_header(h: &[CryptoHash], signer: &ValidatorSigner) -> ShardChunkHeader {
     ShardChunkHeader::V3(ShardChunkHeaderV3::new(
-        PROTOCOL_VERSION,
         h[0],
         h[2],
         h[2],
@@ -2847,7 +2842,7 @@ fn test_chunk_header(h: &[CryptoHash], signer: &ValidatorSigner) -> ShardChunkHe
         h[2],
         vec![],
         Default::default(),
-        BandwidthRequests::default_for_protocol_version(PROTOCOL_VERSION),
+        BandwidthRequests::empty(),
         signer,
     ))
 }
