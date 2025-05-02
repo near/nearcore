@@ -168,6 +168,9 @@ pub struct Config {
     /// Whether to discard custom sections.
     pub discard_custom_sections: bool,
 
+    /// Whether to enable saturating float-to-integer wasm operators.
+    pub saturating_float_to_int: bool,
+
     /// Describes limits for VM and Runtime.
     pub limit_config: LimitConfig,
 }

@@ -253,7 +253,7 @@ fn normalize_config(mut config: wasm_smith::Config) -> wasm_smith::Config {
     config.multi_value_enabled = false;
     config.reference_types_enabled = false;
     config.relaxed_simd_enabled = false;
-    config.saturating_float_to_int_enabled = false;
+    config.saturating_float_to_int_enabled = true;
     config.sign_extension_ops_enabled = false;
     config.simd_enabled = false;
     config.tail_call_enabled = false;
