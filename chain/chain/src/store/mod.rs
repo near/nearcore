@@ -1928,26 +1928,26 @@ impl<'a> ChainStoreUpdate<'a> {
             }
         }
 
-        {
-            let _span = tracing::debug_span!(target: "store", "write_outcomes").entered();
+        // {
+        //     let _span = tracing::debug_span!(target: "store", "write_outcomes").entered();
 
-            for ((outcome_id, block_hash), outcome_with_proof) in
-                self.chain_store_cache_update.outcomes.iter()
-            {
-                store_update.insert_ser(
-                    DBCol::TransactionResultForBlock,
-                    &get_outcome_id_block_hash(outcome_id, block_hash),
-                    &outcome_with_proof,
-                )?;
-            }
-            for ((block_hash, shard_id), ids) in self.chain_store_cache_update.outcome_ids.iter() {
-                store_update.set_ser(
-                    DBCol::OutcomeIds,
-                    &get_block_shard_id(block_hash, *shard_id),
-                    &ids,
-                )?;
-            }
-        }
+        //     for ((outcome_id, block_hash), outcome_with_proof) in
+        //         self.chain_store_cache_update.outcomes.iter()
+        //     {
+        //         store_update.insert_ser(
+        //             DBCol::TransactionResultForBlock,
+        //             &get_outcome_id_block_hash(outcome_id, block_hash),
+        //             &outcome_with_proof,
+        //         )?;
+        //     }
+        //     for ((block_hash, shard_id), ids) in self.chain_store_cache_update.outcome_ids.iter() {
+        //         store_update.set_ser(
+        //             DBCol::OutcomeIds,
+        //             &get_block_shard_id(block_hash, *shard_id),
+        //             &ids,
+        //         )?;
+        //     }
+        // }
 
         for (block_hash, refcount) in self.chain_store_cache_update.block_refcounts.iter() {
             store_update.set_ser(DBCol::BlockRefCount, block_hash.as_ref(), refcount)?;
@@ -1975,15 +1975,15 @@ impl<'a> ChainStoreUpdate<'a> {
             let mut deletions_store_update = self.store().trie_store().store_update();
             for (block_hash, mut wrapped_trie_changes) in self.trie_changes.drain(..) {
                 wrapped_trie_changes.apply_mem_changes();
-                wrapped_trie_changes.insertions_into(&mut store_update.trie_store_update());
-                wrapped_trie_changes.deletions_into(&mut deletions_store_update);
-                wrapped_trie_changes
-                    .state_changes_into(&block_hash, &mut store_update.trie_store_update());
+                // wrapped_trie_changes.insertions_into(&mut store_update.trie_store_update());
+                // wrapped_trie_changes.deletions_into(&mut deletions_store_update);
+                // wrapped_trie_changes
+                //     .state_changes_into(&block_hash, &mut store_update.trie_store_update());
 
-                if self.chain_store.save_trie_changes {
-                    wrapped_trie_changes
-                        .trie_changes_into(&block_hash, &mut store_update.trie_store_update());
-                }
+                // if self.chain_store.save_trie_changes {
+                //     wrapped_trie_changes
+                //         .trie_changes_into(&block_hash, &mut store_update.trie_store_update());
+                // }
             }
 
             for ((block_hash, shard_id), state_transition_data) in
@@ -2079,13 +2079,13 @@ impl<'a> ChainStoreUpdate<'a> {
                 &(),
             )?;
         }
-        for ((block_hash, shard_id), stats) in self.chunk_apply_stats.iter() {
-            store_update.set_ser(
-                DBCol::ChunkApplyStats,
-                &get_block_shard_id(block_hash, *shard_id),
-                stats,
-            )?;
-        }
+        // for ((block_hash, shard_id), stats) in self.chunk_apply_stats.iter() {
+        //     store_update.set_ser(
+        //         DBCol::ChunkApplyStats,
+        //         &get_block_shard_id(block_hash, *shard_id),
+        //         stats,
+        //     )?;
+        // }
         for other in self.store_updates.drain(..) {
             store_update.merge(other);
         }
