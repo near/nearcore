@@ -7,7 +7,7 @@ use crate::congestion_info::CongestionInfo;
 use crate::reed_solomon::reed_solomon_encode;
 use crate::sharding::{
     EncodedShardChunk, EncodedShardChunkBody, ShardChunk, ShardChunkHeaderV1, ShardChunkV1,
-    TransactionReceipt,
+    ShardChunkWithEncoding, TransactionReceipt,
 };
 use crate::types::StateRoot;
 use crate::validator_signer::EmptyValidatorSigner;
@@ -67,26 +67,26 @@ fn genesis_chunk(
     state_root: CryptoHash,
     congestion_info: CongestionInfo,
 ) -> EncodedShardChunk {
-    let (encoded_chunk, _, _) = EncodedShardChunk::new(
+    let (chunk, _) = ShardChunkWithEncoding::new(
         CryptoHash::default(),
         state_root,
         CryptoHash::default(),
         genesis_height,
         shard_id,
-        rs,
         0,
         initial_gas_limit,
         0,
+        vec![],
+        vec![],
+        vec![],
         CryptoHash::default(),
-        vec![],
-        vec![],
-        vec![],
         CryptoHash::default(),
         congestion_info,
         BandwidthRequests::empty(),
         &EmptyValidatorSigner::default().into(),
+        rs,
     );
-    encoded_chunk
+    chunk.into_parts().1
 }
 
 pub fn prod_genesis_chunks(

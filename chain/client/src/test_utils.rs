@@ -18,7 +18,7 @@ use near_primitives::block::Block;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{PartialMerkleTree, merklize};
 use near_primitives::optimistic_block::BlockToApply;
-use near_primitives::sharding::{EncodedShardChunk, ShardChunk};
+use near_primitives::sharding::{EncodedShardChunk, ShardChunk, ShardChunkWithEncoding};
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::transaction::ValidatedTransaction;
 use near_primitives::types::{BlockHeight, EpochId, ShardId};
@@ -103,17 +103,17 @@ impl Client {
 
     /// Manually produce a single chunk on the given shard and send out the corresponding network messages
     pub fn produce_one_chunk(&mut self, height: BlockHeight, shard_id: ShardId) -> ShardChunk {
-        let ProduceChunkResult { encoded_chunk, encoded_chunk_parts_paths: merkle_paths, receipts } =
+        let ProduceChunkResult { chunk, encoded_chunk_parts_paths: merkle_paths, receipts } =
             create_chunk_on_height_for_shard(self, height, shard_id);
+        let shard_chunk = chunk.to_shard_chunk().clone();
         let signer = self.validator_signer.get();
-        let shard_chunk = self
-            .persist_and_distribute_encoded_chunk(
-                encoded_chunk,
-                merkle_paths,
-                receipts,
-                signer.as_ref().unwrap().validator_id().clone(),
-            )
-            .unwrap();
+        self.persist_and_distribute_encoded_chunk(
+            chunk,
+            merkle_paths,
+            receipts,
+            signer.as_ref().unwrap().validator_id().clone(),
+        )
+        .unwrap();
         let prev_block = self.chain.get_block(shard_chunk.prev_block()).unwrap();
         let prev_chunk_header = Chain::get_prev_chunk_header(
             self.epoch_manager.as_ref(),
@@ -169,23 +169,21 @@ pub fn create_chunk(
     let last_block = client.chain.get_block_by_height(client.chain.head().unwrap().height).unwrap();
     let next_height = last_block.header().height() + 1;
     let signer = client.validator_signer.get().unwrap();
-    let ProduceChunkResult {
-        mut encoded_chunk,
-        encoded_chunk_parts_paths: mut merkle_paths,
-        receipts,
-    } = client
-        .chunk_producer
-        .produce_chunk(
-            &last_block,
-            last_block.header().epoch_id(),
-            last_block.chunks()[0].clone(),
-            next_height,
-            ShardId::new(0),
-            &signer,
-            &client.chain.transaction_validity_check(last_block.header().clone()),
-        )
-        .unwrap()
-        .unwrap();
+    let ProduceChunkResult { chunk, encoded_chunk_parts_paths: mut merkle_paths, receipts } =
+        client
+            .chunk_producer
+            .produce_chunk(
+                &last_block,
+                last_block.header().epoch_id(),
+                last_block.chunks()[0].clone(),
+                next_height,
+                ShardId::new(0),
+                &signer,
+                &client.chain.transaction_validity_check(last_block.header().clone()),
+            )
+            .unwrap()
+            .unwrap();
+    let mut encoded_chunk = chunk.into_parts().1;
     let signed_txs = validated_txs
         .iter()
         .cloned()
@@ -203,25 +201,26 @@ pub fn create_chunk(
         let rs = ReedSolomon::new(data_parts, parity_parts).unwrap();
 
         let header = encoded_chunk.cloned_header();
-        let (mut new_encoded_chunk, mut new_merkle_paths, _) = EncodedShardChunk::new(
+        let (new_chunk, mut new_merkle_paths) = ShardChunkWithEncoding::new(
             *header.prev_block_hash(),
             header.prev_state_root(),
             header.prev_outcome_root(),
             header.height_created(),
             header.shard_id(),
-            &rs,
             header.prev_gas_used(),
             header.gas_limit(),
             header.prev_balance_burnt(),
-            tx_root,
             header.prev_validator_proposals().collect(),
             validated_txs,
             decoded_chunk.prev_outgoing_receipts().to_vec(),
             header.prev_outgoing_receipts_root(),
+            tx_root,
             header.congestion_info(),
             header.bandwidth_requests().cloned().unwrap_or_else(BandwidthRequests::empty),
             &*signer,
+            &rs,
         );
+        let mut new_encoded_chunk = new_chunk.into_parts().1;
         swap(&mut encoded_chunk, &mut new_encoded_chunk);
         swap(&mut merkle_paths, &mut new_merkle_paths);
     }
@@ -263,7 +262,8 @@ pub fn create_chunk(
         None,
         None,
     );
-    (ProduceChunkResult { encoded_chunk, encoded_chunk_parts_paths: merkle_paths, receipts }, block)
+    let chunk = ShardChunkWithEncoding::from_encoded_shard_chunk(encoded_chunk).unwrap();
+    (ProduceChunkResult { chunk, encoded_chunk_parts_paths: merkle_paths, receipts }, block)
 }
 
 /// Keep running catchup until there is no more catchup work that can be done
