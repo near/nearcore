@@ -1,4 +1,5 @@
 mod bandwidth_scheduler;
+mod bug_repro;
 mod chunk_validator_kickout;
 mod chunks_management;
 mod congestion_control;
