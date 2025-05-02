@@ -227,7 +227,7 @@ impl ChunkStateWitness {
         })
     }
 
-    /// Mainly used for testing.
+    /// Used for testing.
     pub fn new_dummy(height: BlockHeight, shard_id: ShardId, prev_block_hash: CryptoHash) -> Self {
         let header = ShardChunkHeader::new_dummy(height, shard_id, prev_block_hash);
         Self::new(
