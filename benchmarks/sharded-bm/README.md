@@ -111,7 +111,6 @@ CP + 1 RPC = 21) -- see below or [`cases`](https://github.com/near/nearcore/tree
 support starting all types of instances (you can check in the console)
 1. in `resources.tf` modify the bucket prefix to be unique (will store the terraform state)
 
-
 Next, you can deploy it with:
 ```sh
 terraform init
