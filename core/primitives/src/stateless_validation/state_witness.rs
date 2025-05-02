@@ -120,10 +120,8 @@ pub struct ChunkStateWitnessV1 {
 }
 
 /// From V1 -> V2 we have the following changes:
-/// - The `chunk_producer` field is removed.
-/// - The `new_transactions` field is removed.
-/// - The `new_transactions_validation_state` field is removed.
-/// - The `signature_differentiator` field is removed.
+/// - The `chunk_producer`, `new_transactions`, `new_transactions_validation_state`,
+///   and `signature_differentiator` fields are removed.
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub struct ChunkStateWitnessV2 {
     /// EpochId corresponds to the next block after chunk's previous block.
