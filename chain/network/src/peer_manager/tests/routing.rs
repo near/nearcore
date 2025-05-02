@@ -2,7 +2,7 @@ use crate::blacklist;
 use crate::broadcast;
 use crate::config::{NetworkConfig, SocketOptions};
 use crate::network_protocol::testonly as data;
-use crate::network_protocol::{Encoding, Ping, Pong, RoutedMessageBody, RoutingTableUpdate};
+use crate::network_protocol::{Ping, Pong, RoutedMessageBody, RoutingTableUpdate};
 use crate::peer;
 use crate::peer::peer_actor::{
     ClosingReason, ConnectionClosedEvent, DROP_DUPLICATED_MESSAGES_PERIOD,
@@ -898,11 +898,7 @@ async fn ttl_and_num_hops() {
         chain.clone(),
     )
     .await;
-    let cfg = peer::testonly::PeerConfig {
-        network: chain.make_config(rng),
-        chain,
-        force_encoding: Some(Encoding::Proto),
-    };
+    let cfg = peer::testonly::PeerConfig { network: chain.make_config(rng), chain };
     let stream = tcp::Stream::connect(&pm.peer_info(), tcp::Tier::T2, &SocketOptions::default())
         .await
         .unwrap();
@@ -956,11 +952,7 @@ async fn repeated_data_in_sync_routing_table() {
         chain.clone(),
     )
     .await;
-    let cfg = peer::testonly::PeerConfig {
-        network: chain.make_config(rng),
-        chain,
-        force_encoding: Some(Encoding::Proto),
-    };
+    let cfg = peer::testonly::PeerConfig { network: chain.make_config(rng), chain };
     let stream = tcp::Stream::connect(&pm.peer_info(), tcp::Tier::T2, &SocketOptions::default())
         .await
         .unwrap();
