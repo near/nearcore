@@ -34,7 +34,7 @@ fn do_call_contract(env: &mut TestLoopEnv, rpc_id: &AccountId, contract_id: &Acc
 
 /// Tracks latest block heights and checks that all chunks are produced.
 fn check_chunks(
-    actor: &mut ClientActorInner,
+    actor: &ClientActorInner,
     runner: &mut dyn DelayedActionRunner<ClientActorInner>,
     latest_block_height: std::cell::Cell<u64>,
 ) {

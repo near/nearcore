@@ -132,7 +132,6 @@ use near_primitives::types::{
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::MaybeValidated;
 use near_primitives::validator_signer::ValidatorSigner;
-use near_primitives::version::ProtocolVersion;
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::chunk_store::ChunkStoreAdapter;
 use near_store::{DBCol, HEAD_KEY, HEADER_HEAD_KEY, Store};
@@ -242,7 +241,7 @@ impl RequestPool {
     pub fn fetch(&mut self, current_time: time::Instant) -> Vec<(ChunkHash, ChunkRequestInfo)> {
         let mut removed_requests = HashSet::<ChunkHash>::default();
         let mut requests = Vec::new();
-        for (chunk_hash, chunk_request) in self.requests.iter_mut() {
+        for (chunk_hash, chunk_request) in &mut self.requests {
             if current_time - chunk_request.added >= self.max_duration {
                 debug!(target: "chunks", "Evicted chunk requested that was never fetched {} (shard_id: {})", chunk_hash.0, chunk_request.shard_id);
                 removed_requests.insert(chunk_hash.clone());
@@ -440,7 +439,7 @@ impl ShardsManagerActor {
     }
 
     fn request_partial_encoded_chunk(
-        &mut self,
+        &self,
         height: BlockHeight,
         ancestor_hash: &CryptoHash,
         shard_id: ShardId,
@@ -1141,7 +1140,7 @@ impl ShardsManagerActor {
         }
     }
 
-    fn check_chunk_complete(&mut self, chunk: &mut EncodedShardChunk) -> ChunkStatus {
+    fn check_chunk_complete(&self, chunk: &mut EncodedShardChunk) -> ChunkStatus {
         let _span = debug_span!(
             target: "chunks",
             "check_chunk_complete",
@@ -1178,7 +1177,7 @@ impl ShardsManagerActor {
 
     /// Add a part to current encoded chunk stored in memory. It's present only if One Part was present and signed correctly.
     fn validate_part(
-        &mut self,
+        &self,
         merkle_root: MerkleHash,
         part: &PartialEncodedChunkPart,
         num_total_parts: usize,
@@ -1226,7 +1225,7 @@ impl ShardsManagerActor {
     }
 
     fn validate_partial_encoded_chunk_forward(
-        &mut self,
+        &self,
         forward: &PartialEncodedChunkForwardMsg,
     ) -> Result<(), Error> {
         let valid_hash = forward.is_valid_hash(); // check hash
@@ -1237,7 +1236,7 @@ impl ShardsManagerActor {
 
         // check part merkle proofs
         let num_total_parts = self.epoch_manager.num_total_parts();
-        for part_info in forward.parts.iter() {
+        for part_info in &forward.parts {
             self.validate_part(forward.merkle_root, part_info, num_total_parts)?;
         }
 
@@ -1589,14 +1588,14 @@ impl ShardsManagerActor {
 
         // 1.d Checking part_ords' validity
         let num_total_parts = self.epoch_manager.num_total_parts();
-        for part_info in parts.iter() {
+        for part_info in &parts {
             // TODO: only validate parts we care about
             // https://github.com/near/nearcore/issues/5885
             self.validate_part(header.encoded_merkle_root(), part_info, num_total_parts)?;
         }
 
         // 1.e Checking receipts validity
-        for proof in prev_outgoing_receipts.iter() {
+        for proof in &prev_outgoing_receipts {
             // TODO: only validate receipts we care about
             // https://github.com/near/nearcore/issues/5885
             // we can't simply use prev_block_hash to check if the node tracks this shard or not
@@ -1811,7 +1810,7 @@ impl ShardsManagerActor {
                 self.epoch_manager.num_total_parts(),
             );
 
-            for (part_ord, part_entry) in entry.parts.iter() {
+            for (part_ord, part_entry) in &entry.parts {
                 encoded_chunk.content_mut().parts[*part_ord as usize] =
                     Some(part_entry.part.clone());
             }
@@ -1880,7 +1879,7 @@ impl ShardsManagerActor {
     /// Send the parts of the partial_encoded_chunk that are owned by `self.me()` to the
     /// other validators that are tracking the shard.
     fn send_partial_encoded_chunk_to_chunk_trackers(
-        &mut self,
+        &self,
         chunk_header: &ShardChunkHeader,
         parts: impl Iterator<Item = PartialEncodedChunkPart>,
         part_ords: HashSet<u64>,
@@ -1909,10 +1908,20 @@ impl ShardsManagerActor {
         let forward =
             PartialEncodedChunkForwardMsg::from_header_and_parts(chunk_header, owned_parts);
 
-        let block_producers = self.epoch_manager.get_epoch_block_producers_ordered(&epoch_id)?;
+        // Here we concatenate the lists of block producers for the current epoch
+        // and for the next. The loop below performs deduplication.
+        let next_epoch_id = self.epoch_manager.get_next_epoch_id(latest_block_hash)?;
+        let this_epoch_block_producers =
+            self.epoch_manager.get_epoch_block_producers_ordered(&epoch_id)?;
+        let next_epoch_block_producers =
+            self.epoch_manager.get_epoch_block_producers_ordered(&next_epoch_id)?;
+        let block_producers: Vec<_> =
+            this_epoch_block_producers.into_iter().chain(next_epoch_block_producers).collect();
+
         let current_chunk_height = chunk_header.height_created();
 
-        // We only forward the parts to the block producers
+        // Parts are forwarded to all block producers (of this epoch or next)
+        // which care about the shard.
         let shard_id = chunk_header.shard_id();
         let mut accounts_forwarded_to = HashSet::new();
         accounts_forwarded_to.insert(me.clone());
@@ -2011,10 +2020,9 @@ impl ShardsManagerActor {
         prev_outgoing_receipts_root: CryptoHash,
         tx_root: CryptoHash,
         congestion_info: CongestionInfo,
-        bandwidth_requests: Option<BandwidthRequests>,
+        bandwidth_requests: BandwidthRequests,
         signer: &ValidatorSigner,
         rs: &ReedSolomon,
-        protocol_version: ProtocolVersion,
     ) -> (EncodedShardChunk, Vec<MerklePath>, Vec<Receipt>) {
         EncodedShardChunk::new(
             prev_block_hash,
@@ -2034,7 +2042,6 @@ impl ShardsManagerActor {
             congestion_info,
             bandwidth_requests,
             signer,
-            protocol_version,
         )
     }
 
@@ -2069,6 +2076,17 @@ impl ShardsManagerActor {
 
             let entry = block_producer_mapping.entry(to_whom).or_insert_with(Vec::new);
             entry.push(part_ord);
+        }
+
+        // Receipt proofs need to be distributed to the block producers of the next epoch
+        // because they already start tracking the shard in the current epoch.
+        let next_epoch_id = self.epoch_manager.get_next_epoch_id(prev_block_hash)?;
+        let next_epoch_block_producers =
+            self.epoch_manager.get_epoch_block_producers_ordered(&next_epoch_id)?;
+        for bp in next_epoch_block_producers {
+            if !block_producer_mapping.contains_key(bp.account_id()) {
+                block_producer_mapping.insert(bp.account_id().clone(), vec![]);
+            }
         }
 
         let receipt_proofs = make_outgoing_receipts_proofs(

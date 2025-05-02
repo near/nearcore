@@ -13,6 +13,7 @@ use near_chain::test_utils::{wait_for_all_blocks_in_processing, wait_for_block_i
 use near_chain::{Chain, ChainStoreAccess, Provenance};
 use near_client_primitives::types::Error;
 use near_network::types::HighestHeightPeerInfo;
+use near_primitives::bandwidth_scheduler::BandwidthRequests;
 use near_primitives::block::Block;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{PartialMerkleTree, merklize};
@@ -218,9 +219,8 @@ pub fn create_chunk(
             decoded_chunk.prev_outgoing_receipts().to_vec(),
             header.prev_outgoing_receipts_root(),
             header.congestion_info(),
-            header.bandwidth_requests().cloned(),
+            header.bandwidth_requests().cloned().unwrap_or_else(BandwidthRequests::empty),
             &*signer,
-            PROTOCOL_VERSION,
         );
         swap(&mut encoded_chunk, &mut new_encoded_chunk);
         swap(&mut merkle_paths, &mut new_merkle_paths);

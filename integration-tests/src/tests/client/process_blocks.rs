@@ -1098,7 +1098,7 @@ fn test_bad_chunk_mask() {
                 .mut_header()
                 .resign(&*env.client(&block_producer).validator_signer.get().unwrap().clone());
 
-            for client in env.clients.iter_mut() {
+            for client in &mut env.clients {
                 let res = client
                     .process_block_test_no_produce_chunk(block.clone().into(), Provenance::NONE);
                 if !mess_with_chunk_mask {
@@ -3075,7 +3075,7 @@ fn test_fork_receipt_ids() {
     let mut block2 = env.clients[0].produce_block(last_height + 2).unwrap().unwrap();
 
     // Process two blocks on two different forks that contain the same chunk.
-    for block in vec![&mut block2, &mut block1].into_iter() {
+    for block in [&mut block2, &mut block1] {
         let mut chunk_header = encoded_chunk.cloned_header();
         *chunk_header.height_included_mut() = block.header().height();
         let chunk_headers = vec![chunk_header];
@@ -3132,7 +3132,7 @@ fn test_fork_execution_outcome() {
     let mut block2 = env.clients[0].produce_block(last_height + 2).unwrap().unwrap();
 
     // Process two blocks on two different forks that contain the same chunk.
-    for block in vec![&mut block2, &mut block1].into_iter() {
+    for block in [&mut block2, &mut block1] {
         let mut chunk_header = encoded_chunk.cloned_header();
         *chunk_header.height_included_mut() = block.header().height();
         let chunk_headers = vec![chunk_header];

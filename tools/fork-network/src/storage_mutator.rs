@@ -92,7 +92,7 @@ impl ShardUpdateState {
         assert_eq!(&source_shards, &state_roots.iter().map(|(k, _v)| *k).collect::<HashSet<_>>());
         let target_shards = target_shard_layout.shard_uids().collect::<HashSet<_>>();
         let mut update_state = vec![None; target_shards.len()];
-        for (shard_uid, state_root) in state_roots.iter() {
+        for (shard_uid, state_root) in state_roots {
             if !target_shards.contains(shard_uid) {
                 continue;
             }

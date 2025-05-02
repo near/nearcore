@@ -1512,7 +1512,7 @@ impl From<ExecutionMetadata> for ExecutionMetadataView {
                 // Add actions, wasm op, and ext costs in groups.
                 // actions costs are 1-to-1
                 let mut costs: Vec<CostGasUsed> = ActionCosts::iter()
-                    .flat_map(|cost| {
+                    .filter_map(|cost| {
                         let gas_used = profile.get_action_cost(cost);
                         (gas_used > 0).then(|| {
                             CostGasUsed::action(

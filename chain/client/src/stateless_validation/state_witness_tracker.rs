@@ -139,7 +139,7 @@ static SIZE_IN_BYTES_TO_BUCKET: &'static [(ByteSize, &str)] = &[
 
 /// Returns the string representation of the size buckets for a given witness size in bytes.
 fn witness_size_bucket(size_in_bytes: usize) -> &'static str {
-    for (upper_size, label) in SIZE_IN_BYTES_TO_BUCKET.iter() {
+    for (upper_size, label) in SIZE_IN_BYTES_TO_BUCKET {
         if size_in_bytes < upper_size.as_u64() as usize {
             return *label;
         }

@@ -132,7 +132,7 @@ impl TrieConstructionSegment {
             assert!(!self.children.is_empty());
             assert!(self.child.is_none());
             let mut children = [None; 16];
-            for (i, child) in self.children.iter() {
+            for (i, child) in &self.children {
                 children[*i as usize] = Some(*child);
             }
             if let Some(value) = &self.value {

@@ -121,10 +121,10 @@ impl FakeClockInner {
         Self { utc, instant: *FAKE_CLOCK_MONO_START, waiters: BinaryHeap::new() }
     }
 
-    pub fn now(&mut self) -> Instant {
+    pub fn now(&self) -> Instant {
         self.instant
     }
-    pub fn now_utc(&mut self) -> Utc {
+    pub fn now_utc(&self) -> Utc {
         self.utc
     }
     pub fn advance(&mut self, d: Duration) {

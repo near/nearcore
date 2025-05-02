@@ -2,7 +2,7 @@ use crate::models::{AccountIdentifier, Currency, FungibleTokenEvent};
 use near_o11y::WithSpanContextExt;
 use near_primitives::{types::BlockId, views::ExecutionOutcomeWithIdView};
 use std::{collections::HashMap, str::FromStr};
-pub(crate) async fn collect_nep141_events(
+pub(crate) fn collect_nep141_events(
     receipt_execution_outcomes: &Vec<ExecutionOutcomeWithIdView>,
     block_header: &near_primitives::views::BlockHeaderView,
     currencies: &Option<Vec<Currency>>,
@@ -11,15 +11,13 @@ pub(crate) async fn collect_nep141_events(
     for outcome in receipt_execution_outcomes {
         let events = extract_events(outcome);
         for event in events {
-            res.extend(
-                compose_rosetta_nep141_events(&event, outcome, block_header, currencies).await?,
-            );
+            res.extend(compose_rosetta_nep141_events(&event, outcome, block_header, currencies)?);
         }
     }
     Ok(res)
 }
 
-async fn compose_rosetta_nep141_events(
+fn compose_rosetta_nep141_events(
     events: &crate::models::Nep141Event,
     outcome: &ExecutionOutcomeWithIdView,
     block_header: &near_primitives::views::BlockHeaderView,
@@ -53,7 +51,7 @@ async fn compose_rosetta_nep141_events(
                             symbol: currency.symbol.clone(),
                             decimals: currency.decimals,
                         };
-                        ft_events.push(build_event(base, custom).await?);
+                        ft_events.push(build_event(base, custom)?);
 
                         let base = get_base(Event::Nep141, outcome, block_header)?;
                         let custom = crate::models::FtEvent {
@@ -72,7 +70,7 @@ async fn compose_rosetta_nep141_events(
                             symbol: currency.symbol.clone(),
                             decimals: currency.decimals,
                         };
-                        ft_events.push(build_event(base, custom).await?);
+                        ft_events.push(build_event(base, custom)?);
                     }
                 }
             }
@@ -179,7 +177,7 @@ fn get_standard(event_type: &Event) -> String {
 }
 pub const FT: &str = "FT_NEP141";
 
-async fn build_event(
+fn build_event(
     base: crate::models::EventBase,
     custom: crate::models::FtEvent,
 ) -> crate::errors::Result<FungibleTokenEvent> {

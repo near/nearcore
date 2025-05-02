@@ -285,7 +285,7 @@ fn read_elems(items: &ElementItems) -> WasmResult<Box<[FunctionIndex]>> {
             .collect(),
         ElementItems::Expressions(items) => {
             let mut elems = Vec::with_capacity(usize::try_from(items.count()).unwrap());
-            for item in items.into_iter() {
+            for item in items {
                 let mut reader = item?.get_operators_reader();
                 let op = reader.read()?;
                 let end = reader.read()?;
@@ -427,7 +427,7 @@ fn parse_function_name_subsection(
     naming_reader: NameMap<'_>,
 ) -> Option<HashMap<FunctionIndex, &str>> {
     let mut function_names = HashMap::new();
-    for name in naming_reader.into_iter() {
+    for name in naming_reader {
         let Naming { index, name } = name.ok()?;
         if index == std::u32::MAX {
             // We reserve `u32::MAX` for our own use.

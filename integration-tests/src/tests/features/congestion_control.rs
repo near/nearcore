@@ -229,7 +229,7 @@ fn new_cheap_fn_call(
 
 /// Submit N transaction containing a function call action with 100 Tgas
 /// attached that will all be burned when called.
-fn submit_n_100tgas_fns(env: &mut TestEnv, n: u32, nonce: &mut u64, signer: &Signer) -> u32 {
+fn submit_n_100tgas_fns(env: &TestEnv, n: u32, nonce: &mut u64, signer: &Signer) -> u32 {
     let mut included = 0;
     let block = env.clients[0].chain.get_head_block().unwrap();
     for _ in 0..n {
@@ -249,7 +249,7 @@ fn submit_n_100tgas_fns(env: &mut TestEnv, n: u32, nonce: &mut u64, signer: &Sig
 
 /// Submit N transaction containing a cheap function call action.
 fn submit_n_cheap_fns(
-    env: &mut TestEnv,
+    env: &TestEnv,
     n: u32,
     nonce: &mut u64,
     signer: &Signer,

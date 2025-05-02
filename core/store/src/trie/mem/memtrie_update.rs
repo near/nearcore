@@ -346,7 +346,7 @@ impl<'a, M: ArenaMemory> MemTrieUpdate<'a, M> {
                 }
             };
 
-        for node_id in ordered_nodes.iter() {
+        for node_id in ordered_nodes {
             let node = updated_nodes[*node_id].as_ref().unwrap();
             let raw_node = match &node.node {
                 UpdatedMemTrieNode::Empty => unreachable!(),
@@ -475,7 +475,7 @@ pub(super) fn construct_root_from_changes<A: ArenaMut>(
     let mut updated_to_new_map = HashMap::<UpdatedNodeId, MemTrieNodeId>::new();
     let updated_nodes = &changes.updated_nodes;
     let node_ids_with_hashes = &changes.node_ids_with_hashes;
-    for (node_id, node_hash) in node_ids_with_hashes.iter() {
+    for (node_id, node_hash) in node_ids_with_hashes {
         let node = updated_nodes.get(*node_id).unwrap().clone().unwrap();
         let node = match &node.node {
             UpdatedMemTrieNode::Empty => unreachable!(),
@@ -548,7 +548,7 @@ mod tests {
             }
         }
 
-        fn make_all_changes(&mut self, changes: Vec<(Vec<u8>, Option<Vec<u8>>)>) -> TrieChanges {
+        fn make_all_changes(&self, changes: Vec<(Vec<u8>, Option<Vec<u8>>)>) -> TrieChanges {
             let mut update =
                 self.mem.update(self.state_root, TrackingMode::Refcounts).unwrap_or_else(|_| {
                     panic!("Trying to update root {:?} but it's not in memtries", self.state_root)
@@ -564,7 +564,7 @@ mod tests {
         }
 
         fn make_memtrie_changes_only(
-            &mut self,
+            &self,
             changes: Vec<(Vec<u8>, Option<Vec<u8>>)>,
         ) -> MemTrieChanges {
             let mut update =
@@ -581,10 +581,7 @@ mod tests {
             update.to_memtrie_changes_only()
         }
 
-        fn make_disk_changes_only(
-            &mut self,
-            changes: Vec<(Vec<u8>, Option<Vec<u8>>)>,
-        ) -> TrieChanges {
+        fn make_disk_changes_only(&self, changes: Vec<(Vec<u8>, Option<Vec<u8>>)>) -> TrieChanges {
             let trie = self.disk.get_trie_for_shard(ShardUId::single_shard(), self.state_root);
             trie.update(changes, AccessOptions::DEFAULT).unwrap()
         }

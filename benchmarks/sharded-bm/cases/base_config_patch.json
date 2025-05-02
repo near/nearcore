@@ -28,6 +28,10 @@
         "max_block_wait_delay": {
             "secs": 30,
             "nanos": 0
+        },
+        "block_production_tracking_delay": {
+            "secs": 0,
+            "nanos": 10000000
         }
     }
 }

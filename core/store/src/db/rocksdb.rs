@@ -7,7 +7,6 @@ use ::rocksdb::{
 use anyhow::Context;
 use itertools::Itertools;
 use std::io;
-use std::ops::Deref;
 use std::path::Path;
 use std::sync::LazyLock;
 use strum::IntoEnumIterator;
@@ -666,7 +665,7 @@ impl RocksDB {
 
     /// Gets every int property in CF_PROPERTY_NAMES for every column in DBCol.
     fn get_cf_statistics(&self, result: &mut StoreStatistics) {
-        for prop_name in CF_PROPERTY_NAMES.deref() {
+        for prop_name in &*CF_PROPERTY_NAMES {
             let values = self
                 .cf_handles()
                 .filter_map(|(col, handle)| {

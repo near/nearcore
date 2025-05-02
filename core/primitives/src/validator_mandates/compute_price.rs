@@ -219,7 +219,7 @@ mod tests {
         let stakes = {
             let mut stakes = vec![0_u128; 1000];
             let mut rng = rand::rngs::StdRng::seed_from_u64(0xdeadbeef);
-            for s in stakes.iter_mut() {
+            for s in &mut stakes {
                 *s = rng.gen_range(1_u128..10_000u128);
             }
             stakes

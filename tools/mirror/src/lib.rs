@@ -934,7 +934,7 @@ impl<T: ChainAccess> TxMirror<T> {
 
         let mut account_created = false;
         let mut full_key_added = false;
-        for action in tx.transaction.actions().iter() {
+        for action in tx.transaction.actions() {
             match &action {
                 Action::AddKey(add_key) => {
                     if add_key.access_key.permission == AccessKeyPermission::FullAccess {
@@ -1118,7 +1118,7 @@ impl<T: ChainAccess> TxMirror<T> {
             Ok(keys) => {
                 let mut key = None;
                 let mut first_key = None;
-                for k in keys.iter() {
+                for k in &keys {
                     let target_secret_key = crate::key_mapping::map_key(k, self.secret.as_ref());
                     if fetch_access_key_nonce(
                         target_view_client,
@@ -1261,7 +1261,7 @@ impl<T: ChainAccess> TxMirror<T> {
             return Ok(());
         }
 
-        for id in outcome.outcome.receipt_ids.iter() {
+        for id in &outcome.outcome.receipt_ids {
             let receipt = match self.source_chain_access.get_receipt(id).await {
                 Ok(r) => r,
                 Err(ChainError::Unknown) => {
@@ -1286,7 +1286,7 @@ impl<T: ChainAccess> TxMirror<T> {
                 // implicit accounts, etc...
                 let mut key_added = false;
                 let mut account_created = false;
-                for a in r.actions.iter() {
+                for a in &r.actions {
                     match a {
                         Action::AddKey(_) => key_added = true,
                         Action::CreateAccount(_) => account_created = true,
@@ -1589,7 +1589,7 @@ impl<T: ChainAccess> TxMirror<T> {
     // Returns the number of blocks worth of txs queued at the end.
     // `have_stop_height` refers to whether we're going to stop sending transactions and exit after a particular height
     async fn queue_txs(
-        &mut self,
+        &self,
         tracker: &Mutex<crate::chain_tracker::TxTracker>,
         tx_block_queue: &Mutex<VecDeque<MappedBlock>>,
         target_view_client: &Addr<ViewClientActor>,
@@ -1651,7 +1651,7 @@ impl<T: ChainAccess> TxMirror<T> {
     // TODO: here we're just sending it and forgetting about it, but would be good to
     // retry later if the tx got lost for some reason
     async fn unstake(
-        &mut self,
+        &self,
         tracker: &Mutex<crate::chain_tracker::TxTracker>,
         tx_block_queue: &Mutex<VecDeque<MappedBlock>>,
         target_client: &Addr<RpcHandlerActor>,
@@ -1817,7 +1817,7 @@ impl<T: ChainAccess> TxMirror<T> {
     }
 
     async fn queue_txs_loop(
-        &mut self,
+        &self,
         tracker: Arc<Mutex<crate::chain_tracker::TxTracker>>,
         tx_block_queue: Arc<Mutex<VecDeque<MappedBlock>>>,
         target_client: Addr<RpcHandlerActor>,
@@ -1943,7 +1943,7 @@ impl<T: ChainAccess> TxMirror<T> {
     }
 
     async fn run(
-        mut self,
+        self,
         stop_height: Option<BlockHeight>,
         target_home: PathBuf,
     ) -> anyhow::Result<()> {

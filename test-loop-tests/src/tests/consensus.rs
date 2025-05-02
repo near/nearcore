@@ -117,7 +117,7 @@ fn ultra_slow_test_consensus_with_epoch_switches() {
                             {
                                 if let Some(prev_height) = handler.block_to_height.get(prev_hash) {
                                     let cur_height = block.header().height();
-                                    for f in handler.final_block_heights.iter() {
+                                    for f in &handler.final_block_heights {
                                         if f < &cur_height && f > prev_height {
                                             assert!(
                                                 false,
@@ -143,12 +143,12 @@ fn ultra_slow_test_consensus_with_epoch_switches() {
                         std::cmp::max(block.header().height(), handler.largest_block_height);
 
                     let mut new_delayed_blocks = vec![];
-                    for delayed_block in handler.delayed_blocks.iter() {
+                    for delayed_block in &handler.delayed_blocks {
                         if delayed_block.hash() == block.hash() {
                             return Some(request);
                         }
                         if delayed_block.header().height() <= block.header().height() + 2 {
-                            for (_, sender) in handler.client_senders.iter() {
+                            for (_, sender) in &handler.client_senders {
                                 sender.send(BlockResponse {
                                     block: delayed_block.clone(),
                                     peer_id: peer_id.clone(),

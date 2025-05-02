@@ -429,7 +429,7 @@ impl Runner {
     where
         F: FnMut(&mut TestConfig) -> (),
     {
-        for test_config in self.test_config.iter_mut() {
+        for test_config in &mut self.test_config {
             apply(test_config);
         }
     }

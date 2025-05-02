@@ -415,7 +415,7 @@ pub fn no_superfluous_deps(workspace: &Workspace) -> anyhow::Result<()> {
             workspace_deps.insert(name.clone());
         }
     };
-    for pkg in workspace.members.iter() {
+    for pkg in &workspace.members {
         read_deps(&pkg.manifest.raw, "dependencies");
         read_deps(&pkg.manifest.raw, "dev-dependencies");
         read_deps(&pkg.manifest.raw, "build-dependencies");
