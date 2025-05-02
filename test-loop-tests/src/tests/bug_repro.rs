@@ -103,8 +103,8 @@ fn slow_test_repro_1183() {
                 }
 
                 let mut nonce_delta = 0;
-                for from in ["test1", "test2", "test3", "test4"].iter() {
-                    for to in ["test1", "test2", "test3", "test4"].iter() {
+                for from in &["test1", "test2", "test3", "test4"] {
+                    for to in &["test1", "test2", "test3", "test4"] {
                         let (from, to): (AccountId, AccountId) =
                             (from.parse().unwrap(), to.parse().unwrap());
                         for node in &node_datas {
