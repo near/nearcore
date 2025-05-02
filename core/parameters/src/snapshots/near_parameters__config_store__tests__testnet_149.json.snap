@@ -198,6 +198,7 @@ expression: config_view
     "regular_op_cost": 822756,
     "vm_kind": "<REDACTED>",
     "discard_custom_sections": true,
+    "saturating_float_to_int": true,
     "storage_get_mode": "FlatStorage",
     "fix_contract_loading_cost": true,
     "implicit_account_creation": true,

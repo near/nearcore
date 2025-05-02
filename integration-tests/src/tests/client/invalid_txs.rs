@@ -90,12 +90,12 @@ fn test_invalid_transactions_no_panic() {
                 assert!(matches!(res, ProcessTxResponse::ValidTx))
             }
 
-            let (ProduceChunkResult { encoded_chunk, encoded_chunk_parts_paths, receipts }, _) =
+            let (ProduceChunkResult { chunk, encoded_chunk_parts_paths, receipts }, _) =
                 create_chunk(client, transactions);
-
-            let shard_chunk = client
+            let shard_chunk = chunk.to_shard_chunk().clone();
+            client
                 .persist_and_distribute_encoded_chunk(
-                    encoded_chunk,
+                    chunk,
                     encoded_chunk_parts_paths,
                     receipts,
                     client.validator_signer.get().unwrap().validator_id().clone(),
@@ -214,12 +214,13 @@ fn test_invalid_transactions_dont_invalidate_chunk() {
     let chunk_producer = env.get_chunk_producer_at_offset(&tip, 1, ShardId::new(0));
     let block_producer = env.get_block_producer_at_offset(&tip, 1);
     let client = env.client(&chunk_producer);
-    let (ProduceChunkResult { encoded_chunk, encoded_chunk_parts_paths, receipts }, _) =
+    let (ProduceChunkResult { chunk, encoded_chunk_parts_paths, receipts }, _) =
         create_chunk(client, chunk_transactions);
+    let shard_chunk = chunk.to_shard_chunk().clone();
 
-    let shard_chunk = client
+    client
         .persist_and_distribute_encoded_chunk(
-            encoded_chunk,
+            chunk,
             encoded_chunk_parts_paths,
             receipts,
             client.validator_signer.get().unwrap().validator_id().clone(),
