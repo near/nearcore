@@ -109,7 +109,7 @@ of nodes to start & their regions. Number of instances specified in terraform
 (when totalled across regions) _MUST_ match the `CASE` you intend to run (eg, 20
 CP + 1 RPC = 21) -- see below or [`cases`](https://github.com/near/nearcore/tree/master/benchmarks/sharded-bm/cases) Note all regions may not
 support starting all types of instances (you can check in the console)
-1. in `resources.tf` modify the bucket prefix to be unique (will store the terraform state)
+2. in `resources.tf` modify the bucket prefix to be unique (will store the terraform state)
 
 Next, you can deploy it with:
 ```sh
@@ -127,7 +127,6 @@ gcloud compute instances list --project=nearone-mocknet --filter <UNIQUE ID>
 
 1. Set the correct values in the test case `params.json`. Keep in mind that:
    - Benchmarks run with one RPC node exactly. RPC node will be selected automatically and it will be the 'last' GCP instance.
-   - The number of nodes deployed in terraform must match the number of nodes expected in the benchmark scenario.
    - Nodes will run the `neard` binary specified in `forknet.binary_url`
 2. Follow these instructions (they work on macOS as well):
 
