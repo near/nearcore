@@ -48,7 +48,8 @@ fn benchmark_large_chunk_production_time() {
     }
 
     let t = std::time::Instant::now();
-    let ProduceChunkResult { encoded_chunk, .. } = create_chunk_on_height(&mut env.clients[0], 0);
+    let ProduceChunkResult { chunk, .. } = create_chunk_on_height(&mut env.clients[0], 0);
+    let encoded_chunk = chunk.into_parts().1;
     let time = t.elapsed();
 
     let decoded_chunk = encoded_chunk.decode_chunk().unwrap();

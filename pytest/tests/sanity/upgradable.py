@@ -21,6 +21,8 @@ import utils
 
 _EXECUTABLES = None
 
+TIMEOUT = 10
+
 
 def get_executables() -> branches.ABExecutables:
     global _EXECUTABLES
@@ -196,7 +198,7 @@ class TestUpgrade:
 
         try:
             self.wait_epoch()
-            self.assert_no_missed_endorsements()
+            self.wait_for_no_missed_endorsements()
 
             traffic_generator.pause()
             self.upgrade_nodes()
@@ -210,12 +212,12 @@ class TestUpgrade:
                     self._protocols.current + 1,
             ):
                 self.wait_epoch()
-                self.assert_no_missed_endorsements()
-                self.assert_protocol_version(expected_version)
+                self.wait_for_no_missed_endorsements()
+                self.wait_for_protocol_version(expected_version)
 
             # Run one more epoch with the latest protocol version
             self.wait_epoch()
-            self.assert_no_missed_endorsements()
+            self.wait_for_no_missed_endorsements()
 
         finally:
             traffic_generator.stop()
@@ -323,7 +325,14 @@ class TestUpgrade:
             for v in validators
         }  # yapf: disable
 
-    def assert_no_missed_endorsements(self) -> None:
+    def wait_for_no_missed_endorsements(self) -> None:
+        started = time.time()
+        while time.time() - started < TIMEOUT:
+            missed_endorsements = self.get_missed_endorsements()
+            if all(missed == 0 for missed in missed_endorsements):
+                break
+            time.sleep(1)
+
         missed_endorsements = self.get_missed_endorsements()
         logger.info(f"Missed endorsements: {missed_endorsements}")
         for i in range(self._num_validators):
@@ -332,7 +341,17 @@ class TestUpgrade:
             num_missed = missed_endorsements[validator_id]
             assert num_missed == 0, f'validator {validator_id} missed {num_missed} endorsements'
 
-    def assert_protocol_version(self, expected_version: int) -> None:
+    def wait_for_protocol_version(self, expected_version: int) -> None:
+        started = time.time()
+        while time.time() - started < TIMEOUT:
+            all_done = True
+            for node in self._stable_nodes:
+                if node.get_status()['protocol_version'] != expected_version:
+                    all_done = False
+            if all_done:
+                break
+            time.sleep(1)
+
         for node in self._stable_nodes:
             protocol_version = node.get_status()['protocol_version']
             assert protocol_version == expected_version, \

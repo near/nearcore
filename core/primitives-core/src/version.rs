@@ -306,6 +306,7 @@ pub enum ProtocolFeature {
     ReducedGasRefunds,
     /// Move from ChunkStateWitness being a single struct to a versioned enum.
     VersionedStateWitness,
+    SaturatingFloatToInt,
 }
 
 impl ProtocolFeature {
@@ -397,8 +398,9 @@ impl ProtocolFeature {
             ProtocolFeature::GlobalContracts
             | ProtocolFeature::BlockHeightForReceiptId
             | ProtocolFeature::ProduceOptimisticBlock => 77,
-            ProtocolFeature::SimpleNightshadeV6 | ProtocolFeature::VersionedStateWitness => 78,
-
+            ProtocolFeature::SimpleNightshadeV6
+            | ProtocolFeature::VersionedStateWitness
+            | ProtocolFeature::SaturatingFloatToInt => 78,
             // Nightly features:
             ProtocolFeature::FixContractLoadingCost => 129,
             // TODO(#11201): When stabilizing this feature in mainnet, also remove the temporary code

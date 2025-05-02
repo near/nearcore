@@ -1114,6 +1114,9 @@ pub enum ValidatorKickoutReason {
     DidNotGetASeat,
     /// Validator didn't produce enough chunk endorsements.
     NotEnoughChunkEndorsements { produced: NumBlocks, expected: NumBlocks },
+    /// Validator's last block proposal was for a protocol version older than
+    /// the network's voted protocol version.
+    ProtocolVersionTooOld { version: ProtocolVersion, network_version: ProtocolVersion },
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]

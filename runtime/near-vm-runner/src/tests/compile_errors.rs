@@ -319,30 +319,6 @@ fn test_sandbox_only_function() {
 }
 
 #[test]
-fn extension_saturating_float_to_int() {
-    #[allow(deprecated)]
-    test_builder()
-        .wat(
-            r#"
-            (module
-                (func $test_trunc (param $x f64) (result i32) (i32.trunc_sat_f64_s (local.get $x)))
-            )
-            "#,
-        )
-        .protocol_version(FIX_CONTRACT_LOADING_COST)
-        .expects(&[
-            expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 0 used gas 0
-                Err: PrepareError: Error happened while deserializing the module.
-            "#]],
-            expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 100803663 used gas 100803663
-                Err: PrepareError: Error happened while deserializing the module.
-            "#]],
-        ]);
-}
-
-#[test]
 fn extension_signext() {
     let tb = test_builder().wat(
         r#"
