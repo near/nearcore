@@ -233,3 +233,4 @@ action_use_global_contract_per_identifier_byte
 - send_sir:                6_812_999
 - send_not_sir:           47_683_715
 - execution:              64_572_944
+saturating_float_to_int                 true

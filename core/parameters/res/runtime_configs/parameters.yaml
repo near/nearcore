@@ -240,6 +240,7 @@ fix_contract_loading_cost: false
 vm_kind: Wasmer0
 eth_implicit_accounts: false
 discard_custom_sections: false
+saturating_float_to_int: false
 
 
 # Congestion Control configuration
