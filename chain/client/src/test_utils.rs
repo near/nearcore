@@ -18,7 +18,7 @@ use near_primitives::block::Block;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{PartialMerkleTree, merklize};
 use near_primitives::optimistic_block::BlockToApply;
-use near_primitives::sharding::{EncodedAndShardChunk, EncodedShardChunk, ShardChunk};
+use near_primitives::sharding::{EncodedShardChunk, ShardChunk, ShardChunkWithEncoding};
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::transaction::ValidatedTransaction;
 use near_primitives::types::{BlockHeight, EpochId, ShardId};
@@ -201,7 +201,7 @@ pub fn create_chunk(
         let rs = ReedSolomon::new(data_parts, parity_parts).unwrap();
 
         let header = encoded_chunk.cloned_header();
-        let (new_chunk, mut new_merkle_paths) = EncodedAndShardChunk::new(
+        let (new_chunk, mut new_merkle_paths) = ShardChunkWithEncoding::new(
             *header.prev_block_hash(),
             header.prev_state_root(),
             header.prev_outcome_root(),
@@ -262,7 +262,7 @@ pub fn create_chunk(
         None,
         None,
     );
-    let chunk = EncodedAndShardChunk::from_encoded_shard_chunk(encoded_chunk).unwrap();
+    let chunk = ShardChunkWithEncoding::from_encoded_shard_chunk(encoded_chunk).unwrap();
     (ProduceChunkResult { chunk, encoded_chunk_parts_paths: merkle_paths, receipts }, block)
 }
 

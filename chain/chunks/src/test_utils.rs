@@ -12,8 +12,8 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{self, MerklePath};
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{
-    EncodedAndShardChunk, EncodedShardChunk, PartialEncodedChunk, PartialEncodedChunkPart,
-    PartialEncodedChunkV2, ShardChunkHeader,
+    EncodedShardChunk, PartialEncodedChunk, PartialEncodedChunkPart, PartialEncodedChunkV2,
+    ShardChunkHeader, ShardChunkWithEncoding,
 };
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::test_utils::create_test_signer;
@@ -151,7 +151,7 @@ impl ChunkTestFixture {
         let shard_layout = epoch_manager.get_shard_layout(&EpochId::default()).unwrap();
         let receipts_hashes = Chain::build_receipts_hashes(&[], &shard_layout).unwrap();
         let (receipts_root, _) = merkle::merklize(&receipts_hashes);
-        let (mock_chunk, mock_merkle_paths) = EncodedAndShardChunk::new(
+        let (mock_chunk, mock_merkle_paths) = ShardChunkWithEncoding::new(
             mock_parent_hash,
             Default::default(),
             Default::default(),

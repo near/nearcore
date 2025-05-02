@@ -2,7 +2,7 @@ use near_chain::ChainStoreAccess;
 use near_chain::{BlockHeader, Chain, ChainStore, types::EpochManagerAdapter};
 use near_chunks_primitives::Error;
 use near_epoch_manager::shard_tracker::ShardTracker;
-use near_primitives::sharding::EncodedAndShardChunk;
+use near_primitives::sharding::ShardChunkWithEncoding;
 use near_primitives::{
     errors::EpochError,
     hash::CryptoHash,
@@ -148,7 +148,7 @@ pub fn make_partial_encoded_chunk_from_owned_parts_and_needed_receipts(
 }
 
 pub fn create_partial_chunk(
-    chunk: &EncodedAndShardChunk,
+    chunk: &ShardChunkWithEncoding,
     merkle_paths: Vec<MerklePath>,
     me: Option<&AccountId>,
     epoch_manager: &dyn EpochManagerAdapter,

@@ -17,7 +17,7 @@ use near_primitives::epoch_info::RngSeed;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{MerklePath, merklize};
 use near_primitives::receipt::Receipt;
-use near_primitives::sharding::{EncodedAndShardChunk, ShardChunkHeader};
+use near_primitives::sharding::{ShardChunkHeader, ShardChunkWithEncoding};
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::chunk_extra::ChunkExtra;
@@ -45,7 +45,7 @@ pub enum AdvProduceChunksMode {
 }
 
 pub struct ProduceChunkResult {
-    pub chunk: EncodedAndShardChunk,
+    pub chunk: ShardChunkWithEncoding,
     pub encoded_chunk_parts_paths: Vec<MerklePath>,
     pub receipts: Vec<Receipt>,
 }
@@ -289,7 +289,7 @@ impl ChunkProducer {
             bandwidth_requests.is_some(),
             "Expected bandwidth_request to be Some after BandwidthScheduler feature enabled"
         );
-        let (chunk, merkle_paths) = EncodedAndShardChunk::new(
+        let (chunk, merkle_paths) = ShardChunkWithEncoding::new(
             prev_block_hash,
             *chunk_extra.state_root(),
             *chunk_extra.outcome_root(),

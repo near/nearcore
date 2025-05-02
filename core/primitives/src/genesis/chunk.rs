@@ -6,8 +6,8 @@ use crate::bandwidth_scheduler::BandwidthRequests;
 use crate::congestion_info::CongestionInfo;
 use crate::reed_solomon::reed_solomon_encode;
 use crate::sharding::{
-    EncodedAndShardChunk, EncodedShardChunk, EncodedShardChunkBody, ShardChunk, ShardChunkHeaderV1,
-    ShardChunkV1, TransactionReceipt,
+    EncodedShardChunk, EncodedShardChunkBody, ShardChunk, ShardChunkHeaderV1, ShardChunkV1,
+    ShardChunkWithEncoding, TransactionReceipt,
 };
 use crate::types::StateRoot;
 use crate::validator_signer::EmptyValidatorSigner;
@@ -67,7 +67,7 @@ fn genesis_chunk(
     state_root: CryptoHash,
     congestion_info: CongestionInfo,
 ) -> EncodedShardChunk {
-    let (chunk, _) = EncodedAndShardChunk::new(
+    let (chunk, _) = ShardChunkWithEncoding::new(
         CryptoHash::default(),
         state_root,
         CryptoHash::default(),

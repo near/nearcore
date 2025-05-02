@@ -1264,13 +1264,15 @@ impl EncodedShardChunk {
     }
 }
 
+/// Combine shard chunk with its encoding to skip expensive encoding / decoding
+/// and provide guarantees that the chunk and its encoding match.
 #[derive(Clone)]
-pub struct EncodedAndShardChunk {
+pub struct ShardChunkWithEncoding {
     shard_chunk: ShardChunk,
     bytes: EncodedShardChunk,
 }
 
-impl EncodedAndShardChunk {
+impl ShardChunkWithEncoding {
     #[cfg(feature = "solomon")]
     pub fn new(
         prev_block_hash: CryptoHash,
@@ -1290,7 +1292,7 @@ impl EncodedAndShardChunk {
         bandwidth_requests: BandwidthRequests,
         signer: &ValidatorSigner,
         rs: &reed_solomon_erasure::galois_8::ReedSolomon,
-    ) -> (EncodedAndShardChunk, Vec<MerklePath>) {
+    ) -> (ShardChunkWithEncoding, Vec<MerklePath>) {
         let signed_txs =
             validated_txs.into_iter().map(|validated_tx| validated_tx.into_signed_tx()).collect();
         let transaction_receipt = TransactionReceipt(signed_txs, prev_outgoing_receipts);

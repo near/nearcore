@@ -56,7 +56,7 @@ use near_primitives::network::PeerId;
 use near_primitives::optimistic_block::OptimisticBlock;
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{
-    EncodedAndShardChunk, EncodedShardChunk, PartialEncodedChunk, ShardChunk, ShardChunkHeader,
+    EncodedShardChunk, PartialEncodedChunk, ShardChunk, ShardChunkHeader, ShardChunkWithEncoding,
     StateSyncInfo, StateSyncInfoV1,
 };
 use near_primitives::stateless_validation::ChunkProductionKey;
@@ -1744,7 +1744,7 @@ impl Client {
 
     pub fn persist_and_distribute_encoded_chunk(
         &mut self,
-        chunk: EncodedAndShardChunk,
+        chunk: ShardChunkWithEncoding,
         merkle_paths: Vec<MerklePath>,
         receipts: Vec<Receipt>,
         validator_id: AccountId,

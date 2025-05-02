@@ -44,7 +44,7 @@ use near_primitives::merkle::{PartialMerkleTree, verify_hash};
 use near_primitives::receipt::DelayedReceiptIndices;
 use near_primitives::shard_layout::{ShardUId, get_block_shard_uid};
 use near_primitives::sharding::{
-    EncodedAndShardChunk, ShardChunkHeader, ShardChunkHeaderInner, ShardChunkHeaderV3,
+    ShardChunkHeader, ShardChunkHeaderInner, ShardChunkHeaderV3, ShardChunkWithEncoding,
 };
 use near_primitives::state_part::PartId;
 use near_primitives::state_sync::StatePartKey;
@@ -2227,7 +2227,7 @@ fn test_validate_chunk_extra() {
     let chunk_header = encoded_chunk.cloned_header();
     let signer = env.clients[0].validator_signer.get();
     let validator_id = signer.as_ref().unwrap().validator_id().clone();
-    let chunk = EncodedAndShardChunk::from_encoded_shard_chunk(encoded_chunk).unwrap();
+    let chunk = ShardChunkWithEncoding::from_encoded_shard_chunk(encoded_chunk).unwrap();
     env.clients[0]
         .persist_and_distribute_encoded_chunk(chunk, merkle_paths, receipts, validator_id)
         .unwrap();

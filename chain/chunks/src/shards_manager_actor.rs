@@ -118,9 +118,9 @@ use near_primitives::merkle::{MerklePath, verify_path};
 use near_primitives::receipt::Receipt;
 use near_primitives::reed_solomon::{reed_solomon_decode, reed_solomon_encode};
 use near_primitives::sharding::{
-    ChunkHash, EncodedAndShardChunk, EncodedShardChunk, EncodedShardChunkBody, PartialEncodedChunk,
+    ChunkHash, EncodedShardChunk, EncodedShardChunkBody, PartialEncodedChunk,
     PartialEncodedChunkPart, PartialEncodedChunkV2, ShardChunk, ShardChunkHeader,
-    TransactionReceipt,
+    ShardChunkWithEncoding, TransactionReceipt,
 };
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::types::{
@@ -1197,7 +1197,7 @@ impl ShardsManagerActor {
         match self.check_chunk_complete(&mut encoded_chunk) {
             ChunkStatus::Complete(merkle_paths) => {
                 self.requested_partial_encoded_chunks.remove(&encoded_chunk.chunk_hash());
-                let chunk = EncodedAndShardChunk::from_encoded_shard_chunk(encoded_chunk)?;
+                let chunk = ShardChunkWithEncoding::from_encoded_shard_chunk(encoded_chunk)?;
                 if !validate_chunk_proofs(chunk.to_shard_chunk(), self.epoch_manager.as_ref())? {
                     return Err(Error::InvalidChunk);
                 }

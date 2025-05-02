@@ -24,9 +24,9 @@ use near_primitives::merkle::{MerklePathItem, merklize};
 use near_primitives::receipt::{ActionReceipt, DataReceipt, Receipt, ReceiptEnum, ReceiptV0};
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::{
-    ChunkHash, EncodedAndShardChunk, EncodedShardChunk, PartialEncodedChunk,
-    PartialEncodedChunkPart, PartialEncodedChunkV2, ReceiptProof, ShardChunk, ShardChunkHeader,
-    ShardChunkHeaderV3, ShardChunkV2, ShardProof,
+    ChunkHash, EncodedShardChunk, PartialEncodedChunk, PartialEncodedChunkPart,
+    PartialEncodedChunkV2, ReceiptProof, ShardChunk, ShardChunkHeader, ShardChunkHeaderV3,
+    ShardChunkV2, ShardChunkWithEncoding, ShardProof,
 };
 use near_primitives::transaction::{
     Action, FunctionCallAction, SignedTransaction, ValidatedTransaction,
@@ -183,10 +183,10 @@ fn create_shard_chunk(
 fn create_encoded_shard_chunk(
     validated_txs: Vec<ValidatedTransaction>,
     receipts: Vec<Receipt>,
-) -> (EncodedAndShardChunk, Vec<Vec<MerklePathItem>>) {
+) -> (ShardChunkWithEncoding, Vec<Vec<MerklePathItem>>) {
     let rs = ReedSolomon::new(33, 67).unwrap();
 
-    EncodedAndShardChunk::new(
+    ShardChunkWithEncoding::new(
         Default::default(),
         Default::default(),
         Default::default(),
