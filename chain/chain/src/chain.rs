@@ -2963,7 +2963,8 @@ impl Chain {
             || self.epoch_manager.is_chunk_producer_for_epoch(&next_epoch_id, account_id)?)
     }
 
-    /// Check if there is an optimistic block in processing for the given
+    /// Check if there is an optimistic block in processing corresponding to
+    /// the given block.
     fn has_optimistic_block_in_processing(
         &self,
         block: &Block,
