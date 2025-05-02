@@ -1714,30 +1714,31 @@ impl Client {
                     self.chain.transaction_validity_check(block.header().clone())(tx)
                 },
             );
-            match result {
-                Ok(Some(ProduceChunkResult { chunk, encoded_chunk_parts_paths, receipts })) => {
-                    if let Err(err) = self.send_chunk_state_witness_to_chunk_validators(
-                        &epoch_id,
-                        block.header(),
-                        &last_header,
-                        chunk.to_shard_chunk(),
-                        &Some(signer.clone()),
-                    ) {
-                        tracing::error!(target: "client", ?err, "Failed to send chunk state witness to chunk validators");
-                    }
-                    self.persist_and_distribute_encoded_chunk(
-                        chunk,
-                        encoded_chunk_parts_paths,
-                        receipts,
-                        validator_id.clone(),
-                    )
-                    .expect("Failed to process produced chunk");
-                }
-                Ok(None) => {}
+
+            let ProduceChunkResult { chunk, encoded_chunk_parts_paths, receipts } = match result {
+                Ok(Some(res)) => res,
+                Ok(None) => return,
                 Err(err) => {
                     error!(target: "client", ?err, "Error producing chunk");
+                    return;
                 }
+            };
+            if let Err(err) = self.send_chunk_state_witness_to_chunk_validators(
+                &epoch_id,
+                block.header(),
+                &last_header,
+                chunk.to_shard_chunk(),
+                &Some(signer.clone()),
+            ) {
+                tracing::error!(target: "client", ?err, "Failed to send chunk state witness to chunk validators");
             }
+            self.persist_and_distribute_encoded_chunk(
+                chunk,
+                encoded_chunk_parts_paths,
+                receipts,
+                validator_id.clone(),
+            )
+            .expect("Failed to process produced chunk");
         }
     }
 
