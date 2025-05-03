@@ -880,7 +880,7 @@ fn read_genesis_from_store(
     let mut genesis_chunks = vec![];
     for chunk_header in genesis_block.chunks().iter_deprecated() {
         if chunk_header.height_included() == genesis_height {
-            genesis_chunks.push(chain_store.get_chunk(&chunk_header.chunk_hash())?);
+            genesis_chunks.push(Arc::new(chain_store.get_chunk(&chunk_header.chunk_hash())?));
         }
     }
     Ok((genesis_block, genesis_chunks))

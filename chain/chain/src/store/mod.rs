@@ -91,8 +91,6 @@ pub trait ChainStoreAccess {
     fn largest_target_height(&self) -> Result<BlockHeight, Error>;
     /// Get full block.
     fn get_block(&self, h: &CryptoHash) -> Result<Block, Error>;
-    /// Get full chunk.
-    fn get_chunk(&self, chunk_hash: &ChunkHash) -> Result<Arc<ShardChunk>, Error>;
     /// Get partial chunk.
     fn get_partial_chunk(&self, chunk_hash: &ChunkHash) -> Result<Arc<PartialEncodedChunk>, Error>;
     /// Does this full block exist?
@@ -506,6 +504,14 @@ impl ChainStore {
             })
             .collect()
     }
+
+    fn has_chunk(&self, chunk_hash: &ChunkHash) -> bool {
+        ChainStoreAdapter::has_chunk(self, chunk_hash)
+    }
+
+    pub(crate) fn get_chunk(&self, chunk_hash: &ChunkHash) -> Result<ShardChunk, Error> {
+        ChainStoreAdapter::get_chunk(self, chunk_hash)
+    }
 }
 
 impl ChainStore {
@@ -868,11 +874,6 @@ impl ChainStoreAccess for ChainStore {
         ChainStoreAdapter::get_block(self, h)
     }
 
-    /// Get full chunk.
-    fn get_chunk(&self, chunk_hash: &ChunkHash) -> Result<Arc<ShardChunk>, Error> {
-        ChainStoreAdapter::get_chunk(self, chunk_hash)
-    }
-
     /// Get partial chunk.
     fn get_partial_chunk(&self, chunk_hash: &ChunkHash) -> Result<Arc<PartialEncodedChunk>, Error> {
         ChainStoreAdapter::get_partial_chunk(self, chunk_hash)
@@ -1004,7 +1005,7 @@ pub(crate) struct ChainStoreCacheUpdate {
     block: Option<Block>,
     headers: HashMap<CryptoHash, BlockHeader>,
     chunk_extras: HashMap<(CryptoHash, ShardUId), Arc<ChunkExtra>>,
-    chunks: HashMap<ChunkHash, Arc<ShardChunk>>,
+    pub(crate) chunks: HashMap<ChunkHash, Arc<ShardChunk>>,
     partial_chunks: HashMap<ChunkHash, Arc<PartialEncodedChunk>>,
     block_hash_per_height: HashMap<BlockHeight, HashMap<EpochId, HashSet<CryptoHash>>>,
     pub(crate) height_to_hashes: HashMap<BlockHeight, Option<CryptoHash>>,
@@ -1070,6 +1071,19 @@ impl<'a> ChainStoreUpdate<'a> {
             add_state_sync_infos: vec![],
             remove_state_sync_infos: vec![],
             chunk_apply_stats: HashMap::default(),
+        }
+    }
+
+    pub fn has_chunk(&self, chunk_hash: &ChunkHash) -> bool {
+        self.chain_store_cache_update.chunks.contains_key(chunk_hash)
+            || self.chain_store.has_chunk(chunk_hash)
+    }
+
+    pub(crate) fn get_chunk(&self, chunk_hash: &ChunkHash) -> Result<Arc<ShardChunk>, Error> {
+        if let Some(chunk) = self.chain_store_cache_update.chunks.get(chunk_hash) {
+            Ok(Arc::clone(chunk))
+        } else {
+            self.chain_store.get_chunk(chunk_hash).map(|c| Arc::new(c))
         }
     }
 }
@@ -1279,14 +1293,6 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
             Ok(Arc::clone(receipt_proofs))
         } else {
             self.chain_store.get_incoming_receipts(hash, shard_id)
-        }
-    }
-
-    fn get_chunk(&self, chunk_hash: &ChunkHash) -> Result<Arc<ShardChunk>, Error> {
-        if let Some(chunk) = self.chain_store_cache_update.chunks.get(chunk_hash) {
-            Ok(Arc::clone(chunk))
-        } else {
-            self.chain_store.get_chunk(chunk_hash)
         }
     }
 

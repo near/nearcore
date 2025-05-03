@@ -175,7 +175,12 @@ fn head_chunk_header(env: &TestEnv, shard_id: ShardId) -> ShardChunkHeader {
 
 fn head_chunk(env: &TestEnv, shard_id: ShardId) -> Arc<ShardChunk> {
     let chunk_header = head_chunk_header(&env, shard_id);
-    env.clients[0].chain.get_chunk(&chunk_header.chunk_hash()).expect("chunk must be available")
+    Arc::new(
+        env.clients[0]
+            .chain
+            .get_chunk(&chunk_header.chunk_hash())
+            .expect("chunk must be available"),
+    )
 }
 
 /// Create a function call that has 100 Tgas attached and will burn it all.
