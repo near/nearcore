@@ -57,19 +57,18 @@ impl ShardTracker {
         epoch_id: &EpochId,
     ) -> Result<(), EpochError> {
         let shard_layout = self.epoch_manager.get_shard_layout(epoch_id)?;
-        match shard_layout.get_shard_index(shard_id) {
-            Ok(_) => Ok(()),
-            Err(err) => {
-                let available_shards: Vec<_> = shard_layout.shard_ids().collect();
+        let Err(err) = shard_layout.get_shard_index(shard_id) else {
+            return Ok(());
+        };
 
-                debug_assert!(
-                    false,
-                    "Shard {} does not exist in epoch {:?}. Available shards: {:?}. Error: {:?}",
-                    shard_id, epoch_id, available_shards, err
-                );
-                Ok(())
-            }
-        }
+        let available_shards: Vec<_> = shard_layout.shard_ids().collect();
+
+        debug_assert!(
+            false,
+            "Shard {} does not exist in epoch {:?}. Available shards: {:?}. Error: {:?}",
+            shard_id, epoch_id, available_shards, err
+        );
+        Ok(())
     }
 
     fn tracks_shard_at_epoch(
