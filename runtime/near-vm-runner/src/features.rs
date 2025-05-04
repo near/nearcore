@@ -1,3 +1,7 @@
+use near_parameters::vm;
+#[allow(unused_imports)]
+use opts::*;
+
 #[allow(dead_code)]
 mod opts {
     pub(super) const REFERENCE_TYPES: bool = false;
@@ -18,27 +22,28 @@ mod opts {
     pub(super) const MEMORY_CONTROL: bool = false;
     pub(super) const SIGN_EXTENSION: bool = true;
 }
-#[allow(unused_imports)]
-use opts::*;
 
 #[derive(Clone, Copy)]
 #[allow(unused)]
-pub struct WasmFeatures(());
+pub struct WasmFeatures {
+    saturating_float_to_int: bool,
+}
 
 impl WasmFeatures {
     #[allow(unused)]
-    pub fn new() -> Self {
-        Self(())
+    pub fn new(config: &vm::Config) -> Self {
+        Self { saturating_float_to_int: config.saturating_float_to_int }
     }
 }
 
 #[cfg(feature = "finite-wasm")]
 impl From<WasmFeatures> for finite_wasm::wasmparser::WasmFeatures {
-    fn from(_: WasmFeatures) -> Self {
+    fn from(f: WasmFeatures) -> Self {
         finite_wasm::wasmparser::WasmFeatures {
             floats: true,
             mutable_global: true,
             sign_extension: SIGN_EXTENSION,
+            saturating_float_to_int: f.saturating_float_to_int,
 
             reference_types: REFERENCE_TYPES,
             // wasmer singlepass compiler requires multi_value return values to be disabled.
@@ -50,7 +55,6 @@ impl From<WasmFeatures> for finite_wasm::wasmparser::WasmFeatures {
             multi_memory: MULTI_MEMORY,
             exceptions: EXCEPTIONS,
             memory64: MEMORY64,
-            saturating_float_to_int: SATURATING_FLOAT_TO_INT,
             relaxed_simd: RELAXED_SIMD,
             extended_const: EXTENDED_COST,
             component_model: COMPONENT_MODEL,
@@ -63,9 +67,10 @@ impl From<WasmFeatures> for finite_wasm::wasmparser::WasmFeatures {
 
 #[cfg(all(feature = "near_vm", target_arch = "x86_64"))]
 impl From<WasmFeatures> for near_vm_types::Features {
-    fn from(_: crate::features::WasmFeatures) -> Self {
+    fn from(f: crate::features::WasmFeatures) -> Self {
         Self {
             mutable_global: true,
+            saturating_float_to_int: f.saturating_float_to_int,
 
             sign_extension: SIGN_EXTENSION,
             threads: THREADS,
@@ -77,7 +82,6 @@ impl From<WasmFeatures> for near_vm_types::Features {
             multi_memory: MULTI_MEMORY,
             memory64: MEMORY64,
             exceptions: EXCEPTIONS,
-            saturating_float_to_int: SATURATING_FLOAT_TO_INT,
         }
     }
 }

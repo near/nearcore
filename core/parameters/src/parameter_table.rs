@@ -317,6 +317,7 @@ impl TryFrom<&ParameterTable> for RuntimeConfig {
                 grow_mem_cost: params.get(Parameter::WasmGrowMemCost)?,
                 regular_op_cost: params.get(Parameter::WasmRegularOpCost)?,
                 discard_custom_sections: params.get(Parameter::DiscardCustomSections)?,
+                saturating_float_to_int: params.get(Parameter::SaturatingFloatToInt)?,
                 limit_config: serde_yaml::from_value(params.yaml_map(Parameter::vm_limits()))
                     .map_err(InvalidConfigError::InvalidYaml)?,
                 fix_contract_loading_cost: params.get(Parameter::FixContractLoadingCost)?,

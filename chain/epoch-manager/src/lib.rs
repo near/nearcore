@@ -492,7 +492,6 @@ impl EpochManager {
             ..
         } = self.get_epoch_info_aggregator_upto_last(last_block_hash)?;
         let mut proposals = vec![];
-        let mut validator_kickout = HashMap::new();
 
         let total_block_producer_stake: u128 = epoch_info
             .block_producers_settlement()
@@ -506,7 +505,8 @@ impl EpochManager {
         // Next protocol version calculation.
         // Implements https://github.com/near/NEPs/blob/master/specs/ChainSpec/Upgradability.md
         let mut versions = HashMap::new();
-        for (validator_id, version) in version_tracker {
+        for (validator_id, version) in &version_tracker {
+            let (validator_id, version) = (*validator_id, *version);
             let stake = epoch_info.validator_stake(validator_id);
             *versions.entry(version).or_insert(0) += stake;
         }
@@ -537,6 +537,24 @@ impl EpochManager {
         PROTOCOL_VERSION_NEXT.set(next_next_epoch_version as i64);
         tracing::info!(target: "epoch_manager", ?next_next_epoch_version, "Protocol version voting.");
 
+        let mut validator_kickout = HashMap::new();
+
+        // Kickout validators voting for an old version.
+        for (validator_id, version) in version_tracker {
+            if version >= next_next_epoch_version {
+                continue;
+            }
+            let validator = epoch_info.get_validator(validator_id);
+            validator_kickout.insert(
+                validator.take_account_id(),
+                ValidatorKickoutReason::ProtocolVersionTooOld {
+                    version,
+                    network_version: next_next_epoch_version,
+                },
+            );
+        }
+
+        // Kickout unstaked validators.
         for (account_id, proposal) in all_proposals {
             if proposal.stake() == 0
                 && *next_epoch_info.stake_change().get(&account_id).unwrap_or(&0) != 0
