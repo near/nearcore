@@ -18,6 +18,7 @@ chrono.workspace = true
 derive_more.workspace = true
 futures.workspace = true
 lru.workspace = true
+parking_lot.workspace = true
 rand.workspace = true
 reed-solomon-erasure.workspace = true
 strum.workspace = true
@@ -45,15 +46,15 @@ assert_matches.workspace = true
 
 [features]
 nightly = [
-  "near-async/nightly",
-  "near-chain-configs/nightly",
-  "near-chain/nightly",
-  "near-epoch-manager/nightly",
-  "near-network/nightly",
-  "near-o11y/nightly",
-  "near-pool/nightly",
-  "near-primitives/nightly",
-  "near-store/nightly",
+    "near-async/nightly",
+    "near-chain-configs/nightly",
+    "near-chain/nightly",
+    "near-epoch-manager/nightly",
+    "near-network/nightly",
+    "near-o11y/nightly",
+    "near-pool/nightly",
+    "near-primitives/nightly",
+    "near-store/nightly",
 ]
 byzantine_asserts = ["near-chain/byzantine_asserts"]
 expensive_tests = []

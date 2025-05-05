@@ -22,6 +22,7 @@ itoa.workspace = true
 lru.workspace = true
 more-asserts.workspace = true
 num-rational.workspace = true
+parking_lot.workspace = true
 rand_chacha.workspace = true
 rand.workspace = true
 rayon.workspace = true
@@ -36,8 +37,8 @@ tracing.workspace = true
 near-async.workspace = true
 near-cache.workspace = true
 near-chain-configs = { workspace = true, features = [
-  "test_genesis",
-  "test_utils",
+    "test_genesis",
+    "test_utils",
 ] }
 near-chain-primitives.workspace = true
 near-client-primitives.workspace = true
@@ -69,34 +70,34 @@ assert_matches.workspace = true
 byzantine_asserts = []
 expensive_tests = []
 test_features = [
-  "near-vm-runner/test_features",
-  "near-primitives/test_features",
-  "near-store/test_features",
-  "node-runtime/test_features",
+    "near-vm-runner/test_features",
+    "near-primitives/test_features",
+    "near-store/test_features",
+    "node-runtime/test_features",
 ]
 shadow_chunk_validation = []
 
 nightly = [
-  "near-async/nightly",
-  "near-chain-configs/nightly",
-  "near-client-primitives/nightly",
-  "near-epoch-manager/nightly",
-  "near-mainnet-res/nightly",
-  "near-network/nightly",
-  "near-o11y/nightly",
-  "near-parameters/nightly",
-  "near-pool/nightly",
-  "near-primitives/nightly",
-  "near-store/nightly",
-  "near-vm-runner/nightly",
-  "node-runtime/nightly",
+    "near-async/nightly",
+    "near-chain-configs/nightly",
+    "near-client-primitives/nightly",
+    "near-epoch-manager/nightly",
+    "near-mainnet-res/nightly",
+    "near-network/nightly",
+    "near-o11y/nightly",
+    "near-parameters/nightly",
+    "near-pool/nightly",
+    "near-primitives/nightly",
+    "near-store/nightly",
+    "near-vm-runner/nightly",
+    "node-runtime/nightly",
 ]
 sandbox = ["near-o11y/sandbox", "near-primitives/sandbox"]
 protocol_schema = [
-  "near-schema-checker-lib/protocol_schema",
-  "near-crypto/protocol_schema",
-  "near-parameters/protocol_schema",
-  "near-primitives/protocol_schema",
-  "near-store/protocol_schema",
-  "near-epoch-manager/protocol_schema",
+    "near-schema-checker-lib/protocol_schema",
+    "near-crypto/protocol_schema",
+    "near-parameters/protocol_schema",
+    "near-primitives/protocol_schema",
+    "near-store/protocol_schema",
+    "near-epoch-manager/protocol_schema",
 ]

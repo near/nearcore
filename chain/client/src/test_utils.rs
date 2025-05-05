@@ -26,9 +26,10 @@ use near_primitives::utils::MaybeValidated;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::ShardUId;
 use num_rational::Ratio;
+use parking_lot::RwLock;
 use reed_solomon_erasure::galois_8::ReedSolomon;
 use std::mem::swap;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
 impl Client {
     /// Unlike Client::start_process_block, which returns before the block finishes processing
@@ -277,14 +278,14 @@ pub fn run_catchup(
     let block_messages = Arc::new(RwLock::new(vec![]));
     let block_inside_messages = block_messages.clone();
     let block_catch_up = Sender::from_fn(move |msg: BlockCatchUpRequest| {
-        block_inside_messages.write().unwrap().push(msg);
+        block_inside_messages.write().push(msg);
     });
     let _ = System::new();
     loop {
         let signer = client.validator_signer.get();
         client.run_catchup(highest_height_peers, &block_catch_up, None, &signer)?;
         let mut catchup_done = true;
-        for msg in block_messages.write().unwrap().drain(..) {
+        for msg in block_messages.write().drain(..) {
             let results =
                 do_apply_chunks(BlockToApply::Normal(msg.block_hash), msg.block_height, msg.work)
                     .into_iter()

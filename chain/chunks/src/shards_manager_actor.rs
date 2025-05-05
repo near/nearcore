@@ -2359,11 +2359,11 @@ mod test {
         // For the chunks that would otherwise be requested from self we expect a request to be
         // sent to any peer tracking shard
 
-        let msg = network_adapter.requests.read().unwrap()[0].as_network_requests_ref().clone();
+        let msg = network_adapter.requests.read()[0].as_network_requests_ref().clone();
         if let NetworkRequests::PartialEncodedChunkRequest { target, .. } = msg {
             assert!(target.account_id == None);
         } else {
-            println!("{:?}", network_adapter.requests.read().unwrap());
+            println!("{:?}", network_adapter.requests.read());
             assert!(false);
         };
     }
@@ -2504,7 +2504,6 @@ mod test {
                 .mock_network
                 .requests
                 .read()
-                .unwrap()
                 .iter()
                 .filter(|request| match request.as_network_requests_ref() {
                     NetworkRequests::PartialEncodedChunkForward { .. } => true,
@@ -2722,7 +2721,6 @@ mod test {
                 .mock_network
                 .requests
                 .read()
-                .unwrap()
                 .iter()
                 .find(|r| {
                     match r.as_network_requests_ref() {
@@ -2799,7 +2797,6 @@ mod test {
                 .mock_network
                 .requests
                 .read()
-                .unwrap()
                 .iter()
                 .find(|r| {
                     match r.as_network_requests_ref() {

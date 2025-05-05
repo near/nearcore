@@ -41,7 +41,7 @@ async fn random_handshake_connect(input: &[u8]) {
         })
         .await;
     pm.check_consistency().await;
-    crate::tcp::RESERVED_LISTENER_ADDRS.lock().unwrap().clear();
+    crate::tcp::RESERVED_LISTENER_ADDRS.lock().clear();
 }
 
 #[test]

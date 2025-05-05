@@ -27,6 +27,7 @@ itoa.workspace = true
 itertools.workspace = true
 lru.workspace = true
 num_cpus.workspace = true
+parking_lot.workspace = true
 rand.workspace = true
 rayon.workspace = true
 reed-solomon-erasure.workspace = true
@@ -85,19 +86,19 @@ test_features = ["near-vm-runner/test_features"]
 
 # TODO(#11639): extract metrics into separate feature
 nightly = [
-  "near-chain-configs/nightly",
-  "near-chain/nightly",
-  "near-chunks/nightly",
-  "near-fmt/nightly",
-  "near-o11y/nightly",
-  "near-parameters/nightly",
-  "near-primitives/nightly",
-  "near-vm-runner/nightly",
-  "testlib/nightly",
+    "near-chain-configs/nightly",
+    "near-chain/nightly",
+    "near-chunks/nightly",
+    "near-fmt/nightly",
+    "near-o11y/nightly",
+    "near-parameters/nightly",
+    "near-primitives/nightly",
+    "near-vm-runner/nightly",
+    "testlib/nightly",
 ]
 protocol_schema = [
-  "near-crypto/protocol_schema",
-  "near-primitives/protocol_schema",
-  "near-parameters/protocol_schema",
-  "near-schema-checker-lib/protocol_schema",
+    "near-crypto/protocol_schema",
+    "near-primitives/protocol_schema",
+    "near-parameters/protocol_schema",
+    "near-schema-checker-lib/protocol_schema",
 ]

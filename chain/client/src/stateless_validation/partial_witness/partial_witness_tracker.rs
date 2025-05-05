@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 use std::num::NonZeroUsize;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use lru::LruCache;
 use near_async::messaging::CanSend;
@@ -21,6 +21,7 @@ use near_primitives::stateless_validation::state_witness::{
     ChunkStateWitness, ChunkStateWitnessSize, EncodedChunkStateWitness,
 };
 use near_primitives::types::ShardId;
+use parking_lot::Mutex;
 use time::ext::InstantExt as _;
 
 use crate::client_actor::ClientSenderForPartialWitness;
@@ -380,7 +381,7 @@ impl PartialEncodedStateWitnessTracker {
             return Ok(());
         }
 
-        let mut parts_cache = self.parts_cache.lock().unwrap();
+        let mut parts_cache = self.parts_cache.lock();
         if create_if_not_exists {
             Self::maybe_insert_new_entry_in_parts_cache(&mut parts_cache, &key);
         }
@@ -451,7 +452,7 @@ impl PartialEncodedStateWitnessTracker {
             .epoch_manager
             .get_chunk_validator_assignments(&key.epoch_id, key.shard_id, key.height_created)?
             .len();
-        let mut encoders = self.encoders.lock().unwrap();
+        let mut encoders = self.encoders.lock();
         Ok(encoders.entry(num_parts))
     }
 

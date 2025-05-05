@@ -91,7 +91,7 @@ impl Client {
                 my_signer.as_ref(),
                 &self.network_adapter.clone().into_sender(),
             ) {
-                let mut tracker = self.chunk_endorsement_tracker.lock().unwrap();
+                let mut tracker = self.chunk_endorsement_tracker.lock();
                 tracker.process_chunk_endorsement(endorsement)?;
             }
         }

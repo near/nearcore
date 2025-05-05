@@ -20,6 +20,7 @@ chrono.workspace = true
 clap.workspace = true
 itertools.workspace = true
 object_store.workspace = true
+parking_lot.workspace = true
 rand.workspace = true
 rayon.workspace = true
 redis.workspace = true
@@ -59,24 +60,24 @@ testlib.workspace = true
 
 [features]
 sandbox = [
-  "near-chain/sandbox",
-  "near-client/sandbox",
-  "near-o11y/sandbox",
-  "node-runtime/sandbox",
+    "near-chain/sandbox",
+    "near-client/sandbox",
+    "near-o11y/sandbox",
+    "node-runtime/sandbox",
 ]
 
 nightly = [
-  "near-chain-configs/nightly",
-  "near-chain/nightly",
-  "near-client/nightly",
-  "near-epoch-manager/nightly",
-  "near-jsonrpc/nightly",
-  "near-network/nightly",
-  "near-o11y/nightly",
-  "near-primitives-core/nightly",
-  "near-primitives/nightly",
-  "near-store/nightly",
-  "nearcore/nightly",
-  "node-runtime/nightly",
-  "testlib/nightly",
+    "near-chain-configs/nightly",
+    "near-chain/nightly",
+    "near-client/nightly",
+    "near-epoch-manager/nightly",
+    "near-jsonrpc/nightly",
+    "near-network/nightly",
+    "near-o11y/nightly",
+    "near-primitives-core/nightly",
+    "near-primitives/nightly",
+    "near-store/nightly",
+    "nearcore/nightly",
+    "node-runtime/nightly",
+    "testlib/nightly",
 ]

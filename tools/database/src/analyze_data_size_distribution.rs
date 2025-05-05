@@ -1,10 +1,11 @@
 use clap::Parser;
 use near_store::DBCol;
 use near_store::db::{Database, RocksDB};
+use parking_lot::Mutex;
 use rayon::prelude::*;
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::{panic, println};
 use strum::IntoEnumIterator;
 
@@ -130,7 +131,7 @@ fn read_all_pairs(db: &RocksDB, col_families: &Vec<DBCol>) -> DataSizeDistributi
     // Iterate over key-value pairs
     let update_map = |global_map: &Arc<Mutex<HashMap<usize, usize>>>,
                       local_map: &HashMap<usize, usize>| {
-        let mut global_sizes_guard = global_map.lock().unwrap();
+        let mut global_sizes_guard = global_map.lock();
         for (key, value) in local_map {
             *global_sizes_guard.entry(*key).or_insert(0) += *value;
         }
@@ -158,7 +159,7 @@ fn read_all_pairs(db: &RocksDB, col_families: &Vec<DBCol>) -> DataSizeDistributi
         }
 
         {
-            let mut guard = column_families_data.lock().unwrap();
+            let mut guard = column_families_data.lock();
             let column_number_of_pairs = local_key_sizes.values().sum::<usize>();
             let column_size =
                 local_key_sizes.iter().map(|(&size, &count)| size * count).sum::<usize>();
@@ -173,11 +174,10 @@ fn read_all_pairs(db: &RocksDB, col_families: &Vec<DBCol>) -> DataSizeDistributi
         update_map(&value_sizes, &local_value_sizes);
     });
 
-    let key_sizes: Vec<(usize, usize)> = key_sizes.lock().unwrap().clone().into_iter().collect();
-    let value_sizes: Vec<(usize, usize)> =
-        value_sizes.lock().unwrap().clone().into_iter().collect();
+    let key_sizes: Vec<(usize, usize)> = key_sizes.lock().clone().into_iter().collect();
+    let value_sizes: Vec<(usize, usize)> = value_sizes.lock().clone().into_iter().collect();
     let column_families: Vec<(String, ColumnFamilyCountAndSize)> =
-        column_families_data.lock().unwrap().clone().into_iter().collect();
+        column_families_data.lock().clone().into_iter().collect();
 
     DataSizeDistribution::new(key_sizes, value_sizes, column_families)
 }

@@ -17,6 +17,7 @@ bytesize.workspace = true
 chrono.workspace = true
 derive_more = { workspace = true, features = ["as_ref", "from"] }
 num-rational.workspace = true
+parking_lot = { workspace = true, features = ["serde"] }
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
@@ -33,9 +34,9 @@ near-config-utils.workspace = true
 
 [features]
 nightly = [
-  "near-o11y/nightly",
-  "near-parameters/nightly",
-  "near-primitives/nightly",
+    "near-o11y/nightly",
+    "near-parameters/nightly",
+    "near-primitives/nightly",
 ]
 test_genesis = ["near-primitives/rand", "near-primitives/test_utils"]
 test_utils = ["near-primitives/rand"]

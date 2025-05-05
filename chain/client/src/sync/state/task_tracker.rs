@@ -1,5 +1,6 @@
+use parking_lot::Mutex;
 use std::collections::BTreeMap;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
 /// Performs two functions:
@@ -36,7 +37,7 @@ impl TaskTracker {
         let id = self.id_counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         {
             // Initialize the status for this handle.
-            let mut statuses = self.statuses.lock().unwrap();
+            let mut statuses = self.statuses.lock();
             statuses.insert(id, description.clone());
         }
         TaskHandle {
@@ -50,7 +51,7 @@ impl TaskTracker {
 
     /// Returns the statuses of all active tasks.
     pub fn statuses(&self) -> Vec<String> {
-        self.statuses.lock().unwrap().values().cloned().collect()
+        self.statuses.lock().values().cloned().collect()
     }
 }
 
@@ -67,7 +68,7 @@ impl TaskHandle {
     /// Sets the status string for this handle.
     pub fn set_status(&self, status: &str) {
         tracing::debug!(%status, "State sync task status changed");
-        let mut statuses = self.statuses.lock().unwrap();
+        let mut statuses = self.statuses.lock();
         statuses.insert(self.id, format!("{}: {}", self.task_description, status));
     }
 }
@@ -75,7 +76,7 @@ impl TaskHandle {
 impl Drop for TaskHandle {
     /// Automatically called when the handle is dropped, freeing the slot and removing the status.
     fn drop(&mut self) {
-        let mut statuses = self.statuses.lock().unwrap();
+        let mut statuses = self.statuses.lock();
         statuses.remove(&self.id);
     }
 }

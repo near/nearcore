@@ -13,13 +13,13 @@ use near_primitives::transaction::Transaction;
 use near_primitives::types::{AccountId, BlockHeight};
 use near_primitives::views::{ActionView, ExecutionStatusView, ReceiptEnumView};
 use near_primitives_core::types::{Gas, Nonce};
+use parking_lot::Mutex;
 use rocksdb::DB;
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::collections::hash_map;
 use std::collections::{BTreeSet, HashSet, VecDeque};
 use std::fmt::Write;
-use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 // Information related to a single transaction that we sent in the past.
@@ -206,7 +206,7 @@ impl TxTracker {
         source_chain: &T,
     ) -> anyhow::Result<(Option<BlockHeight>, Option<BlockHeight>)> {
         let (mut next_heights, height_queued) = {
-            let t = me.lock().unwrap();
+            let t = me.lock();
             (t.next_heights.clone(), t.height_queued)
         };
         while next_heights.len() <= crate::CREATE_ACCOUNT_DELTA {
@@ -223,7 +223,7 @@ impl TxTracker {
                 }
             };
         }
-        let mut t = me.lock().unwrap();
+        let mut t = me.lock();
         t.next_heights = next_heights;
         let next_height = t.next_heights.get(0).cloned();
         let create_account_height = t.next_heights.get(crate::CREATE_ACCOUNT_DELTA).cloned();
@@ -311,7 +311,7 @@ impl TxTracker {
         let source_height = Some(source_height);
         let access_key = (signer_id.clone(), public_key.clone());
         Self::store_target_nonce(target_view_client, db, &access_key).await?;
-        let mut me = lock.lock().unwrap();
+        let mut me = lock.lock();
         let info = me.get_target_nonce(db, &access_key, source_height).unwrap();
         if source_height > info.last_height {
             info.last_height = source_height;
@@ -338,7 +338,7 @@ impl TxTracker {
     ) -> anyhow::Result<TargetNonce> {
         let access_key = (signer_id.clone(), public_key.clone());
         Self::store_target_nonce(target_view_client, db, &access_key).await?;
-        let mut me = lock.lock().unwrap();
+        let mut me = lock.lock();
         if !me.nonces.contains_key(&access_key) {
             me.initialize_target_nonce(db, &access_key, None)?;
             let info = me.nonces.get_mut(&access_key).unwrap();
@@ -350,7 +350,7 @@ impl TxTracker {
         let mut first_nonce = None;
         let txs = me.nonces.get(&access_key).unwrap().queued_txs.clone();
         if !txs.is_empty() {
-            let mut tx_block_queue = tx_block_queue.lock().unwrap();
+            let mut tx_block_queue = tx_block_queue.lock();
             for tx_ref in txs {
                 let tx = Self::get_tx(&mut tx_block_queue, &tx_ref);
                 if first_nonce.is_none() {
@@ -492,9 +492,9 @@ impl TxTracker {
         db: &DB,
     ) -> anyhow::Result<()> {
         Self::store_access_key_updates(&block, target_view_client, db).await?;
-        let mut me = lock.lock().unwrap();
+        let mut me = lock.lock();
         me.queue_txs(&block, db)?;
-        tx_block_queue.lock().unwrap().push_back(block);
+        tx_block_queue.lock().push_back(block);
         Ok(())
     }
 
@@ -644,7 +644,7 @@ impl TxTracker {
                 let txs_awaiting_nonce = info.txs_awaiting_nonce.clone();
 
                 if !txs_awaiting_nonce.is_empty() {
-                    let mut tx_block_queue = tx_block_queue.lock().unwrap();
+                    let mut tx_block_queue = tx_block_queue.lock();
                     for r in &txs_awaiting_nonce {
                         let tx = Self::get_tx(&mut tx_block_queue, r);
 
@@ -693,7 +693,7 @@ impl TxTracker {
             let mut to_remove = Vec::new();
 
             if !txs_awaiting_nonce.is_empty() {
-                let mut tx_block_queue = tx_block_queue.lock().unwrap();
+                let mut tx_block_queue = tx_block_queue.lock();
                 for r in &txs_awaiting_nonce {
                     let tx = Self::get_tx(&mut tx_block_queue, r);
 
@@ -931,7 +931,7 @@ impl TxTracker {
                     }
 
                     if !txs_awaiting_nonce.is_empty() {
-                        let mut tx_block_queue = tx_block_queue.lock().unwrap();
+                        let mut tx_block_queue = tx_block_queue.lock();
                         for r in &txs_awaiting_nonce {
                             let t = Self::get_tx(&mut tx_block_queue, r);
 
@@ -1052,7 +1052,7 @@ impl TxTracker {
                     let txs_awaiting_nonce = info.txs_awaiting_nonce.clone();
                     let mut to_remove = Vec::new();
                     if !txs_awaiting_nonce.is_empty() {
-                        let mut tx_block_queue = tx_block_queue.lock().unwrap();
+                        let mut tx_block_queue = tx_block_queue.lock();
                         for r in &txs_awaiting_nonce {
                             let target_tx = Self::get_tx(&mut tx_block_queue, r);
                             match target_tx {

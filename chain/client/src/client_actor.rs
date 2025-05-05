@@ -76,10 +76,11 @@ use near_primitives::views::{DetailedDebugStatus, ValidatorInfo};
 #[cfg(feature = "test_features")]
 use near_store::DBCol;
 use near_telemetry::TelemetryEvent;
+use parking_lot::Mutex;
 use rand::seq::SliceRandom;
 use rand::{Rng, thread_rng};
 use std::fmt;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use tokio::sync::broadcast;
 use tracing::{debug, debug_span, error, info, trace, warn};
 
@@ -1104,7 +1105,7 @@ impl ClientActorInner {
             }
 
             {
-                let mut tracker = self.client.chunk_endorsement_tracker.lock().unwrap();
+                let mut tracker = self.client.chunk_endorsement_tracker.lock();
                 self.client
                     .chunk_inclusion_tracker
                     .prepare_chunk_headers_ready_for_inclusion(prev_block_hash, &mut tracker)?;

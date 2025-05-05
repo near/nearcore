@@ -1,7 +1,8 @@
+use parking_lot::RwLock;
 use std::collections::BTreeMap;
 use std::io;
 use std::ops::Bound;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
 use crate::db::{DBIterator, DBOp, DBSlice, DBTransaction, Database, refcount};
 use crate::{DBCol, StoreStatistics};
@@ -28,13 +29,13 @@ impl TestDB {
 
 impl TestDB {
     pub fn set_store_statistics(&self, stats: StoreStatistics) {
-        *self.stats.write().unwrap() = Some(stats);
+        *self.stats.write() = Some(stats);
     }
 }
 
 impl Database for TestDB {
     fn get_raw_bytes(&self, col: DBCol, key: &[u8]) -> io::Result<Option<DBSlice<'_>>> {
-        Ok(self.db.read().unwrap()[col].get(key).cloned().map(DBSlice::from_vec))
+        Ok(self.db.read()[col].get(key).cloned().map(DBSlice::from_vec))
     }
 
     fn iter<'a>(&'a self, col: DBCol) -> DBIterator<'a> {
@@ -43,7 +44,7 @@ impl Database for TestDB {
     }
 
     fn iter_raw_bytes<'a>(&'a self, col: DBCol) -> DBIterator<'a> {
-        let iterator = self.db.read().unwrap()[col]
+        let iterator = self.db.read()[col]
             .clone()
             .into_iter()
             .map(|(k, v)| Ok((k.into_boxed_slice(), v.into_boxed_slice())));
@@ -51,7 +52,7 @@ impl Database for TestDB {
     }
 
     fn iter_prefix<'a>(&'a self, col: DBCol, key_prefix: &'a [u8]) -> DBIterator<'a> {
-        let iterator = self.db.read().unwrap()[col]
+        let iterator = self.db.read()[col]
             .range(key_prefix.to_vec()..)
             .take_while(move |(k, _)| k.starts_with(&key_prefix))
             .map(|(k, v)| Ok((k.clone().into_boxed_slice(), v.clone().into_boxed_slice())))
@@ -68,7 +69,7 @@ impl Database for TestDB {
         let lower = lower_bound.map_or(Bound::Unbounded, |f| Bound::Included(f.to_vec()));
         let upper = upper_bound.map_or(Bound::Unbounded, |f| Bound::Excluded(f.to_vec()));
 
-        let iterator = self.db.read().unwrap()[col]
+        let iterator = self.db.read()[col]
             .range((lower, upper))
             .map(|(k, v)| Ok((k.clone().into_boxed_slice(), v.clone().into_boxed_slice())))
             .collect::<Vec<io::Result<_>>>();
@@ -76,7 +77,7 @@ impl Database for TestDB {
     }
 
     fn write(&self, transaction: DBTransaction) -> io::Result<()> {
-        let mut db = self.db.write().unwrap();
+        let mut db = self.db.write();
         for op in transaction.ops {
             match op {
                 DBOp::Set { col, key, value } => {
@@ -125,7 +126,7 @@ impl Database for TestDB {
     }
 
     fn get_store_statistics(&self) -> Option<StoreStatistics> {
-        self.stats.read().unwrap().clone()
+        self.stats.read().clone()
     }
 
     fn create_checkpoint(
@@ -139,8 +140,8 @@ impl Database for TestDB {
     fn copy_if_test(&self, columns_to_keep: Option<&[DBCol]>) -> Option<Arc<dyn Database>> {
         let copy = Self::default();
         {
-            let mut db = copy.db.write().unwrap();
-            for (col, map) in self.db.read().unwrap().iter() {
+            let mut db = copy.db.write();
+            for (col, map) in self.db.read().iter() {
                 if let Some(keep) = columns_to_keep {
                     if !keep.contains(&col) {
                         continue;
@@ -151,7 +152,7 @@ impl Database for TestDB {
                     new_col.insert(key.clone(), value.clone());
                 }
             }
-            copy.stats.write().unwrap().clone_from(&self.stats.read().unwrap());
+            copy.stats.write().clone_from(&self.stats.read());
         }
         Some(Arc::new(copy))
     }

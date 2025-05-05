@@ -69,12 +69,13 @@ use near_store::archive::cold_storage::{update_cold_db, update_cold_head};
 use near_store::db::metadata::{DB_VERSION, DbKind};
 use near_store::test_utils::create_test_node_storage_with_cold;
 use near_store::{DBCol, TrieChanges, get};
+use parking_lot::RwLock;
 use rand::prelude::StdRng;
 use rand::{Rng, SeedableRng};
 use std::collections::{HashSet, VecDeque};
 use std::str::FromStr;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, RwLock};
 
 /// Runs block producing client and stops after network mock received two blocks.
 #[test]
@@ -119,7 +120,7 @@ fn receive_network_block() {
             false,
             Box::new(move |msg, _ctx, _, _| {
                 if let NetworkRequests::Approval { .. } = msg.as_network_requests_ref() {
-                    let mut first_header_announce = first_header_announce.write().unwrap();
+                    let mut first_header_announce = first_header_announce.write();
                     if *first_header_announce {
                         *first_header_announce = false;
                     } else {
@@ -337,7 +338,7 @@ fn slow_test_produce_block_with_approvals_arrived_early() {
                                         )
                                     }
                                 }
-                                *block_holder.write().unwrap() = Some(block.clone());
+                                *block_holder.write() = Some(block.clone());
                                 return (NetworkResponses::NoResponse.into(), false);
                             } else if block.header().height() == 4 {
                                 System::current().stop();
@@ -351,7 +352,7 @@ fn slow_test_produce_block_with_approvals_arrived_early() {
                                 approval_counter += 1;
                             }
                             if approval_counter == 3 {
-                                let block = block_holder.read().unwrap().clone().unwrap();
+                                let block = block_holder.read().clone().unwrap();
                                 conns[0].client_actor.do_send(
                                     BlockResponse {
                                         block,
@@ -1616,7 +1617,7 @@ fn test_tx_forwarding() {
         ProcessTxResponse::RequestRouted
     );
     assert_eq!(
-        env.network_adapters[client_index].requests.read().unwrap().len(),
+        env.network_adapters[client_index].requests.read().len(),
         env.clients[client_index].config.tx_routing_height_horizon as usize
     );
 }
@@ -1636,7 +1637,7 @@ fn test_tx_forwarding_no_double_forwarding() {
         env.rpc_handlers[0].process_tx(tx, is_forwarded, false),
         ProcessTxResponse::NoResponse
     );
-    assert!(env.network_adapters[0].requests.read().unwrap().is_empty());
+    assert!(env.network_adapters[0].requests.read().is_empty());
 }
 
 #[test]
@@ -1682,7 +1683,7 @@ fn test_tx_forward_around_epoch_boundary() {
     );
     assert_eq!(env.rpc_handlers[2].process_tx(tx, false, false), ProcessTxResponse::RequestRouted);
     let mut accounts_to_forward = HashSet::new();
-    for request in env.network_adapters[2].requests.read().unwrap().iter() {
+    for request in env.network_adapters[2].requests.read().iter() {
         if let PeerManagerMessageRequest::NetworkRequests(NetworkRequests::ForwardTx(
             account_id,
             _,
@@ -2247,7 +2248,7 @@ fn test_validate_chunk_extra() {
         .chunk_inclusion_tracker
         .prepare_chunk_headers_ready_for_inclusion(
             block1.hash(),
-            &mut *client.chunk_endorsement_tracker.lock().unwrap(),
+            &mut *client.chunk_endorsement_tracker.lock(),
         )
         .unwrap();
     let block = client.produce_block_on(next_height + 2, *block1.hash()).unwrap().unwrap();
@@ -3221,7 +3222,7 @@ fn test_not_broadcast_block_on_accept() {
     for i in 0..2 {
         env.process_block(i, b1.clone(), Provenance::NONE);
     }
-    assert!(network_adapter.requests.read().unwrap().is_empty());
+    assert!(network_adapter.requests.read().is_empty());
 }
 
 #[test]

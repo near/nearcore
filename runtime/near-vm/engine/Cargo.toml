@@ -22,6 +22,7 @@ more-asserts.workspace = true
 near-vm-compiler.workspace = true
 near-vm-types.workspace = true
 near-vm-vm.workspace = true
+parking_lot.workspace = true
 rkyv.workspace = true
 rustc-demangle.workspace = true
 region.workspace = true

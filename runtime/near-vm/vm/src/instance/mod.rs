@@ -1152,11 +1152,11 @@ impl InstanceHandle {
 /// - `instance_ptr` must point to a valid `near_vm_test_api::Instance`.
 #[tracing::instrument(target = "near_vm", level = "trace", skip_all)]
 pub unsafe fn initialize_host_envs<Err: Sized>(
-    handle: &std::sync::Mutex<InstanceHandle>,
+    handle: &parking_lot::Mutex<InstanceHandle>,
     instance_ptr: *const ffi::c_void,
 ) -> Result<(), Err> {
     let initializers = {
-        let mut instance_lock = handle.lock().unwrap();
+        let mut instance_lock = handle.lock();
         let instance_ref = unsafe { instance_lock.instance.as_mut_unchecked() };
         let mut initializers = vec![];
         for import_function_env in instance_ref.imported_function_envs.values_mut() {
