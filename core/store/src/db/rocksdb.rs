@@ -322,7 +322,9 @@ impl RocksDB {
                     batch.put_cf(self.cf_handle(col)?, key, value);
                 }
                 DBOp::UpdateRefcount { col, key, value } => {
-                    batch.merge_cf(self.cf_handle(col)?, key, value);
+                    if value.len() > 4000 {
+                        batch.merge_cf(self.cf_handle(col)?, key, value);
+                    }
                 }
                 DBOp::Delete { col, key } => {
                     batch.delete_cf(self.cf_handle(col)?, key);
