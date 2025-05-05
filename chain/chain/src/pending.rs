@@ -26,7 +26,7 @@ impl<Block: BlockLike> PendingBlocksPool<Block> {
             return;
         }
         self.blocks.insert(height, block);
-        metrics::NUM_PENDING_BLOCKS.set(self.blocks.len() as i64);
+        metrics::NUM_PENDING_BLOCKS.set(self.len() as i64);
     }
 
     pub fn contains_key(&self, height: &BlockHeight) -> bool {
@@ -35,13 +35,13 @@ impl<Block: BlockLike> PendingBlocksPool<Block> {
 
     pub fn take_block(&mut self, height: &BlockHeight) -> Option<Block> {
         let block = self.blocks.remove(height);
-        metrics::NUM_PENDING_BLOCKS.set(self.blocks.len() as i64);
+        metrics::NUM_PENDING_BLOCKS.set(self.len() as i64);
         block
     }
 
     pub fn prune_blocks_below_height(&mut self, height: BlockHeight) {
         self.blocks = self.blocks.split_off(&height);
-        metrics::NUM_PENDING_BLOCKS.set(self.blocks.len() as i64);
+        metrics::NUM_PENDING_BLOCKS.set(self.len() as i64);
     }
 
     pub fn len(&self) -> usize {
