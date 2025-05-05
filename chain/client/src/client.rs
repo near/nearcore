@@ -651,7 +651,7 @@ impl Client {
             &prev_header,
             height,
             &*validator_signer,
-            self.clock.clone(),
+            self.clock.now_utc().unix_timestamp_nanos() as u64,
             sandbox_delta_time,
         );
 
@@ -1483,6 +1483,7 @@ impl Client {
                 self.chain.get_block_header(last_final_block).map_or(0, |header| header.height())
             };
             self.chain.blocks_with_missing_chunks.prune_blocks_below_height(last_finalized_height);
+            self.chain.blocks_pending_execution.prune_blocks_below_height(last_finalized_height);
 
             // send_network_chain_info should be called whenever the chain head changes.
             // See send_network_chain_info() for more details.
