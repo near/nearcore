@@ -299,6 +299,12 @@ fn apply_epoch_update_to_proposals(
         if validator_kickout.contains_key(account_id) {
             let account_id = p.take_account_id();
             stake_change.insert(account_id, 0);
+        } else if let Some(ValidatorKickoutReason::ProtocolVersionTooOld { .. }) =
+            prev_epoch_info.validator_kickout().get(account_id)
+        {
+            // If the validator was kicked out because of an old protocol version in T-1,
+            // it is not allowed back in T.
+            continue;
         } else {
             stake_change.insert(account_id.clone(), p.stake());
             proposals_by_account.insert(account_id.clone(), p);

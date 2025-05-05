@@ -733,10 +733,10 @@ fn process_peer_manager_message_default(
                 }
             }
         }
-        NetworkRequests::StateRequestHeader { shard_id, sync_hash, peer_id } => {
-            for (i, _) in validators.iter().enumerate() {
+        NetworkRequests::StateRequestHeader { shard_id, sync_hash, .. } => {
+            for (i, peer_info) in key_pairs.iter().enumerate() {
+                let peer_id = peer_info.id.clone();
                 let me = connectors[my_ord].client_actor.clone();
-                let peer_id = peer_id.clone();
                 actix::spawn(
                     connectors[i]
                         .view_client_actor
