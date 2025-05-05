@@ -14,6 +14,7 @@ use near_schema_checker_lib::ProtocolSchema;
     serde::Deserialize,
     ProtocolSchema,
 )]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct MerklePathItem {
     pub hash: MerkleHash,
     pub direction: Direction,
@@ -32,6 +33,7 @@ pub type MerklePath = Vec<MerklePathItem>;
     serde::Deserialize,
     ProtocolSchema,
 )]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub enum Direction {
     Left,
     Right,

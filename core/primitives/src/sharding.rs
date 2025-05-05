@@ -34,6 +34,7 @@ use tracing::debug_span;
     serde::Deserialize,
     ProtocolSchema,
 )]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct ChunkHash(pub CryptoHash);
 
 impl ChunkHash {

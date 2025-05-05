@@ -25,6 +25,7 @@ use std::hash::{Hash, Hasher};
     serde::Deserialize,
     ProtocolSchema,
 )]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "clap", derive(clap::ValueEnum))]
 pub enum VMKind {
     /// Wasmer 0.17.x VM. Gone now.
@@ -45,6 +46,7 @@ impl VMKind {
 
 /// This enum represents if a storage_get call will be performed through flat storage or trie
 #[derive(PartialEq, Eq, Hash, Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub enum StorageGetMode {
     FlatStorage,
     Trie,
@@ -53,6 +55,7 @@ pub enum StorageGetMode {
 /// Describes limits for VM and Runtime.
 /// TODO #4139: consider switching to strongly-typed wrappers instead of raw quantities
 #[derive(Debug, serde::Serialize, serde::Deserialize, Clone, Hash, PartialEq, Eq)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct LimitConfig {
     /// Max amount of gas that can be used, excluding gas attached to promises.
     pub max_gas_burnt: Gas,
@@ -122,6 +125,7 @@ pub struct LimitConfig {
     /// Whether to enforce account_id well-formed-ness where it wasn't enforced
     /// historically.
     #[serde(default = "AccountIdValidityRulesVersion::v0")]
+    #[cfg_attr(feature = "schemars", schemars(with = "u8"))]
     pub account_id_validity_rules_version: AccountIdValidityRulesVersion,
     /// Number of blocks after which a yielded promise times out.
     pub yield_timeout_length_in_blocks: u64,

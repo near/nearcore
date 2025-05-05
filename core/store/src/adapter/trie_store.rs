@@ -3,7 +3,7 @@ use std::num::NonZero;
 use std::sync::Arc;
 
 use borsh::BorshDeserialize;
-use near_primitives::errors::{MissingTrieValueContext, StorageError};
+use near_primitives::errors::{MissingTrieValue, MissingTrieValueContext, StorageError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::{ShardUId, get_block_shard_uid};
 use near_primitives::types::RawStateChangesWithTrieKey;
@@ -42,7 +42,10 @@ impl TrieStoreAdapter {
             .store
             .get(DBCol::State, key.as_ref())
             .map_err(|_| StorageError::StorageInternalError)?
-            .ok_or(StorageError::MissingTrieValue(MissingTrieValueContext::TrieStorage, *hash))?;
+            .ok_or(StorageError::MissingTrieValue(MissingTrieValue {
+                context: MissingTrieValueContext::TrieStorage,
+                hash: *hash,
+            }))?;
         Ok(val.into())
     }
 
@@ -219,7 +222,7 @@ fn get_key_from_shard_uid_and_hash(
 #[cfg(test)]
 mod tests {
     use assert_matches::assert_matches;
-    use near_primitives::errors::StorageError;
+    use near_primitives::errors::{MissingTrieValue, StorageError};
     use near_primitives::hash::CryptoHash;
     use near_primitives::shard_layout::ShardUId;
 
@@ -241,7 +244,7 @@ mod tests {
 
         assert_matches!(
             store.get(shard_uids[0], &dummy_hash),
-            Err(StorageError::MissingTrieValue(_, _))
+            Err(StorageError::MissingTrieValue(MissingTrieValue { context: _, hash: _ }))
         );
         {
             let mut store_update = store.store_update();
@@ -258,7 +261,7 @@ mod tests {
         }
         assert_matches!(
             store.get(shard_uids[0], &dummy_hash),
-            Err(StorageError::MissingTrieValue(_, _))
+            Err(StorageError::MissingTrieValue(_))
         );
     }
 
@@ -278,7 +281,7 @@ mod tests {
         // The data is not yet visible to child shard, because the mapping has not been set yet.
         assert_matches!(
             store.get(child_shard, &dummy_hash),
-            Err(StorageError::MissingTrieValue(_, _))
+            Err(StorageError::MissingTrieValue(_))
         );
         // Set the shard_uid mapping from `child_shard` to `parent_shard`.
         {
@@ -298,11 +301,11 @@ mod tests {
         // The data is now not visible to any shard.
         assert_matches!(
             store.get(child_shard, &dummy_hash),
-            Err(StorageError::MissingTrieValue(_, _))
+            Err(StorageError::MissingTrieValue(_))
         );
         assert_matches!(
             store.get(parent_shard, &dummy_hash),
-            Err(StorageError::MissingTrieValue(_, _))
+            Err(StorageError::MissingTrieValue(_))
         );
         // Restore the data now using the `child_shard` UId.
         {
@@ -322,7 +325,7 @@ mod tests {
         // The data is not visible to any shard again.
         assert_matches!(
             store.get(child_shard, &dummy_hash),
-            Err(StorageError::MissingTrieValue(_, _))
+            Err(StorageError::MissingTrieValue(_))
         );
     }
 }

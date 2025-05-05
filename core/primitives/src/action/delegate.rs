@@ -28,6 +28,7 @@ const ACTION_DELEGATE_NUMBER: u8 = 8;
     Debug,
     ProtocolSchema,
 )]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct DelegateAction {
     /// Signer of the delegated actions
     pub sender_id: AccountId,
@@ -59,6 +60,7 @@ pub struct DelegateAction {
     Debug,
     ProtocolSchema,
 )]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct SignedDelegateAction {
     pub delegate_action: DelegateAction,
     pub signature: Signature,
@@ -107,6 +109,7 @@ impl DelegateAction {
 /// invariant is broken, we may end up with a `Transaction` or `Receipt` that we
 /// can serialize but deserializing it back causes a parsing error.
 #[derive(Serialize, BorshSerialize, Deserialize, PartialEq, Eq, Clone, Debug, ProtocolSchema)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct NonDelegateAction(Action);
 
 /// A small private module to protect the private fields inside `NonDelegateAction`.

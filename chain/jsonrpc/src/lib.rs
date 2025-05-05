@@ -1183,7 +1183,7 @@ impl JsonRpcHandler {
             account_id,
         } = request;
         let windows = self.view_client_send(GetMaintenanceWindows { account_id }).await?;
-        Ok(windows.iter().map(|r| (r.start, r.end)).collect())
+        Ok(windows)
     }
 
     async fn client_config(

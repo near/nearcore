@@ -3,14 +3,17 @@ use near_primitives::types::AccountId;
 use serde_json::Value;
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct RpcSendTransactionRequest {
     #[serde(rename = "signed_tx_base64")]
+    #[cfg_attr(feature = "schemars", schemars(with = "String"))]
     pub signed_transaction: near_primitives::transaction::SignedTransaction,
     #[serde(default)]
     pub wait_until: near_primitives::views::TxExecutionStatus,
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct RpcTransactionStatusRequest {
     #[serde(flatten)]
     pub transaction_info: TransactionInfo,
@@ -19,6 +22,7 @@ pub struct RpcTransactionStatusRequest {
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(untagged)]
 #[allow(clippy::large_enum_variant)]
 pub enum TransactionInfo {
@@ -27,12 +31,15 @@ pub enum TransactionInfo {
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub enum SignedTransaction {
     #[serde(rename = "signed_tx_base64")]
+    #[cfg_attr(feature = "schemars", schemars(with = "String"))]
     SignedTransaction(near_primitives::transaction::SignedTransaction),
 }
 
 #[derive(thiserror::Error, Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(tag = "name", content = "info", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum RpcTransactionError {
     #[error("An error happened during transaction execution: {context:?}")]
@@ -53,6 +60,7 @@ pub enum RpcTransactionError {
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct RpcTransactionResponse {
     #[serde(flatten)]
     pub final_execution_outcome: Option<near_primitives::views::FinalExecutionOutcomeViewEnum>,
@@ -60,6 +68,7 @@ pub struct RpcTransactionResponse {
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct RpcBroadcastTxSyncResponse {
     pub transaction_hash: near_primitives::hash::CryptoHash,
 }
