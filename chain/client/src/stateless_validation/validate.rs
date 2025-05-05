@@ -31,8 +31,18 @@ pub fn validate_partial_encoded_state_witness(
     validator_account_id: &AccountId,
     store: &Store,
 ) -> Result<bool, Error> {
+    let _span = tracing::debug_span!(
+        target: "client",
+        "validate_partial_encoded_state_witness",
+        height_created = partial_witness.chunk_production_key().height_created,
+        shard_id = ?partial_witness.chunk_production_key().shard_id,
+        part_ord = partial_witness.part_ord(),
+        part_size = partial_witness.part_size(),
+    )
+    .entered();
     let ChunkProductionKey { shard_id, epoch_id, height_created } =
         partial_witness.chunk_production_key();
+
     let num_parts =
         epoch_manager.get_chunk_validator_assignments(&epoch_id, shard_id, height_created)?.len();
     if partial_witness.part_ord() >= num_parts {
