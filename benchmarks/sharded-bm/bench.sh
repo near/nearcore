@@ -670,31 +670,6 @@ monitor() {
     done
 }
 
-# Fetch data from tracing server with compression and decompress it
-fetch_trace_data() {
-    local endpoint="$1"
-    local base_file="$2"  # Base filename without .gz extension
-    local start_time="$3"
-    local end_time="$4"
-    
-    # Add .gz extension for compressed file
-    local compressed_file="${base_file}.gz"
-    
-    # Fetch compressed data
-    curl -X POST http://${TRACING_SERVER_EXTERNAL_IP}:8080/${endpoint} \
-        -H 'Content-Type: application/json' \
-        -d "{\"start_timestamp_unix_ms\": $start_time, \"end_timestamp_unix_ms\": $end_time, \"filter\": {\"nodes\": [],\"threads\": []}, \"archive\": true}" \
-        -o "${compressed_file}"
-        
-    # Decompress the file if it exists and has content
-    if [ -f "${compressed_file}" ] && [ -s "${compressed_file}" ]; then
-        gunzip -c "${compressed_file}" > "${base_file}"
-        echo "=> Data from ${endpoint} saved to ${compressed_file} and decompressed to ${base_file}"
-    else
-        echo "=> Warning: Failed to fetch data from ${endpoint} or empty response"
-    fi
-}
-
 get_traces() {
     fetch_forknet_details
     echo "=> Fetching latest traces"
@@ -722,8 +697,17 @@ get_traces() {
     local trace_file="${output_dir}/trace_${start_time}.json"
     local profile_file="${output_dir}/profile_${start_time}.json"
     
-    fetch_trace_data "raw_trace" "${trace_file}" "${start_time}" "${end_time}"
-    fetch_trace_data "profile" "${profile_file}" "${start_time}" "${end_time}"
+    curl -X POST http://${TRACING_SERVER_EXTERNAL_IP}:8080/raw_trace --compressed \
+        -H 'Content-Type: application/json' \
+        -d "{\"start_timestamp_unix_ms\": $start_time, \"end_timestamp_unix_ms\": $end_time, \"filter\": {\"nodes\": [],\"threads\": []}}" \
+        -o "${trace_file}"
+    
+    curl -X POST http://${TRACING_SERVER_EXTERNAL_IP}:8080/profile --compressed \
+        -H 'Content-Type: application/json' \
+        -d "{\"start_timestamp_unix_ms\": $start_time, \"end_timestamp_unix_ms\": $end_time, \"filter\": {\"nodes\": [],\"threads\": []}}" \
+        -o "${profile_file}"
+        
+    echo "=> Traces saved to ${trace_file} and ${profile_file}"
 }
 
 case "${1}" in
