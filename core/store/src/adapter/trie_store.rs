@@ -128,6 +128,11 @@ impl<'a> TrieStoreUpdateAdapter<'a> {
         self.store_update.increment_refcount_by(DBCol::State, key.as_ref(), data, increment);
     }
 
+    pub fn increment_refcount(&mut self, shard_uid: ShardUId, hash: &CryptoHash, data: &[u8]) {
+        let key = self.get_key_from_shard_uid_and_hash(shard_uid, hash);
+        self.store_update.increment_refcount(DBCol::State, key.as_ref(), data);
+    }
+
     pub fn set_state_snapshot_hash(&mut self, hash: Option<CryptoHash>) {
         let key = STATE_SNAPSHOT_KEY;
         match hash {
