@@ -869,7 +869,11 @@ fn test_apply_deficit_gas_for_function_call_covered() {
     } else {
         Balance::from(expected_gas_burnt) * gas_price
     };
-    let expected_refund = total_receipt_cost - expected_gas_burnt_amount;
+    // With gas refund penalties enabled, we should see a reduced refund value
+    let unspent_gas = (total_receipt_cost - expected_gas_burnt_amount) / gas_price;
+    let refund_penalty = apply_state.config.fees.gas_penalty_for_gas_refund(unspent_gas as u64);
+    let expected_refund =
+        total_receipt_cost - expected_gas_burnt_amount - Balance::from(refund_penalty) * gas_price;
 
     let result = runtime
         .apply(
@@ -943,9 +947,11 @@ fn test_apply_deficit_gas_for_function_call_partial() {
     })];
     let total_receipt_cost = Balance::from(gas + expected_gas_burnt) * gas_price;
     let expected_deficit = if apply_state.config.fees.refund_gas_price_changes {
+        // Used full prepaid gas, but it still not enough to cover deficit.
         let expected_gas_burnt_amount = Balance::from(expected_gas_burnt) * GAS_PRICE;
         expected_gas_burnt_amount - total_receipt_cost
     } else {
+        // The "deficit" is simply the value change due to gas price changes
         Balance::from(expected_gas_burnt) * (GAS_PRICE - gas_price)
     };
 
@@ -960,23 +966,19 @@ fn test_apply_deficit_gas_for_function_call_partial() {
             Default::default(),
         )
         .unwrap();
-    // Used full prepaid gas, but it still not enough to cover deficit.
     assert_eq!(result.stats.balance.gas_deficit_amount, expected_deficit);
     if apply_state.config.fees.refund_gas_price_changes {
         // Burnt all the fees + all prepaid gas.
         assert_eq!(result.stats.balance.tx_burnt_amount, total_receipt_cost);
         assert_eq!(result.outgoing_receipts.len(), 0);
     } else {
-        // The deficit does not affect refunds in this config, hence we expect
-        assert_eq!(result.outcomes.len(), 1, "should only have fn call outcome");
-        assert_eq!(result.outgoing_receipts.len(), 1, "should only have refund receipt");
-        let expected_refund =
-            total_receipt_cost - Balance::from(result.outcomes[0].outcome.gas_burnt) * gas_price;
-        let ReceiptEnum::Action(receipt) = result.outgoing_receipts[0].receipt() else {
-            panic!("expected refund action receipt")
-        };
-        assert_eq!(receipt.actions[0].get_deposit_balance(), expected_refund);
-        assert_eq!(result.stats.balance.tx_burnt_amount, total_receipt_cost - expected_refund);
+        // The deficit does not affect refunds in this config, hence we expect a
+        // normal refund of the unspent gas. However, this is small enough to
+        // cancel out, so we add the refund cost to tx_burnt and expect no
+        // refund. Like in the other case, this ends up burning all gas and not
+        // refunding anything.
+        assert_eq!(result.outgoing_receipts.len(), 0);
+        assert_eq!(result.stats.balance.tx_burnt_amount, total_receipt_cost);
     }
 }
 
@@ -1025,7 +1027,12 @@ fn test_apply_surplus_gas_for_function_call() {
     } else {
         Balance::from(expected_gas_burnt) * gas_price
     };
-    let expected_refund = total_receipt_cost - expected_gas_burnt_amount;
+
+    // With gas refund penalties enabled, we should see a reduced refund value
+    let unspent_gas = (total_receipt_cost - expected_gas_burnt_amount) / gas_price;
+    let refund_penalty = apply_state.config.fees.gas_penalty_for_gas_refund(unspent_gas as u64);
+    let expected_refund =
+        total_receipt_cost - expected_gas_burnt_amount - Balance::from(refund_penalty) * gas_price;
 
     let result = runtime
         .apply(

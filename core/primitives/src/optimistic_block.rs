@@ -56,13 +56,13 @@ impl OptimisticBlock {
         prev_block_header: &BlockHeader,
         height: BlockHeight,
         signer: &crate::validator_signer::ValidatorSigner,
-        clock: near_time::Clock,
+        now: u64,
         sandbox_delta_time: Option<near_time::Duration>,
     ) -> Self {
         use crate::utils::get_block_metadata;
         let prev_block_hash = *prev_block_header.hash();
         let (time, vrf_value, vrf_proof, random_value) =
-            get_block_metadata(prev_block_header, signer, clock, sandbox_delta_time);
+            get_block_metadata(prev_block_header, signer, now, sandbox_delta_time);
 
         let inner = OptimisticBlockInner {
             prev_block_hash,
@@ -85,11 +85,11 @@ impl OptimisticBlock {
         prev_block_header: &BlockHeader,
         height: BlockHeight,
         signer: &crate::validator_signer::ValidatorSigner,
-        clock: near_time::Clock,
+        now: u64,
         sandbox_delta_time: Option<near_time::Duration>,
         adv_type: OptimisticBlockAdvType,
     ) -> Self {
-        let original = Self::produce(prev_block_header, height, signer, clock, sandbox_delta_time);
+        let original = Self::produce(prev_block_header, height, signer, now, sandbox_delta_time);
         Self::alter(&original, signer, adv_type)
     }
 
@@ -192,7 +192,7 @@ pub struct OptimisticBlockKeySource {
 #[derive(Debug, Clone, strum::AsRefStr)]
 pub enum BlockToApply {
     Normal(CryptoHash),
-    Optimistic(CryptoHash),
+    Optimistic(BlockHeight),
 }
 
 #[derive(Hash, PartialEq, Eq, Clone, Copy, Debug)]
