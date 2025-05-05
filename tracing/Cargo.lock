@@ -1375,11 +1375,13 @@ dependencies = [
  "anyhow",
  "bson",
  "clap",
+ "flate2",
  "hex",
  "mongodb",
  "opentelemetry-proto",
  "prost",
  "serde",
+ "serde_json",
  "tokio",
  "tonic",
 ]

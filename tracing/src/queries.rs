@@ -4,6 +4,8 @@ use actix_cors::Cors;
 use actix_web::middleware::Compress;
 use actix_web::{App, Error, HttpResponse, HttpServer, post, web};
 use bson::doc;
+use flate2::Compression;
+use flate2::write::GzEncoder;
 use mongodb::options::FindOptions;
 use opentelemetry_proto::tonic::collector::trace::v1::ExportTraceServiceRequest;
 use opentelemetry_proto::tonic::common::v1::AnyValue;
@@ -12,7 +14,9 @@ use opentelemetry_proto::tonic::resource::v1::Resource;
 use opentelemetry_proto::tonic::trace::v1::Span;
 use prost::Message;
 use serde::Deserialize;
+use serde_json;
 use std::collections::{BTreeMap, HashSet};
+use std::io::Write;
 use tonic::codegen::tokio_stream::StreamExt;
 
 /// Runs a server that allows trace data to be queried and returned as a
@@ -40,6 +44,8 @@ pub struct Query {
     start_timestamp_unix_ms: i64,
     end_timestamp_unix_ms: i64,
     filter: QueryFilter,
+    #[serde(default)]
+    archive: bool,
 }
 
 #[derive(Deserialize)]
@@ -88,6 +94,32 @@ impl QueryFilter {
     }
 }
 
+/// Helper function to compress response data and return an HttpResponse with proper headers
+fn maybe_compress_response<T: serde::Serialize>(
+    data: T,
+    compress: bool,
+) -> Result<HttpResponse, Error> {
+    if !compress {
+        return Ok(HttpResponse::Ok().json(data));
+    }
+
+    let json = serde_json::to_vec(&data)
+        .map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, err.to_string()))?;
+
+    let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+    encoder
+        .write_all(&json)
+        .map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, err.to_string()))?;
+    let compressed_data = encoder
+        .finish()
+        .map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, err.to_string()))?;
+
+    Ok(HttpResponse::Ok()
+        .content_type("application/json")
+        .insert_header(("Content-Encoding", "gzip"))
+        .body(compressed_data))
+}
+
 #[post("/raw_trace")]
 async fn raw_trace(
     data: web::Data<QueryState>,
@@ -116,7 +148,8 @@ async fn raw_trace(
             .map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, err.to_string()))?;
         result.push(request);
     }
-    Ok(HttpResponse::Ok().json(result))
+
+    maybe_compress_response(result, req.archive)
 }
 
 #[post("/profile")]
@@ -238,7 +271,7 @@ async fn profile(
     thread.string_array = strings.build();
     profile.threads.push(thread);
 
-    Ok(HttpResponse::Ok().json(profile))
+    maybe_compress_response(profile, req.archive)
 }
 
 fn stringify_value(value: Option<&AnyValue>) -> String {
