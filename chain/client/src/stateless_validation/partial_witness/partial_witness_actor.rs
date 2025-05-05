@@ -375,6 +375,15 @@ impl PartialWitnessActor {
         partial_witness: PartialEncodedStateWitness,
     ) -> Result<(), Error> {
         tracing::debug!(target: "client", ?partial_witness, "Receive PartialEncodedStateWitnessMessage");
+        let _span = tracing::debug_span!(
+            target: "client",
+            "handle_partial_encoded_state_witness",
+            height_created = partial_witness.chunk_production_key().height_created,
+            shard_id = ?partial_witness.chunk_production_key().shard_id,
+            part_ord = partial_witness.part_ord(),
+            part_size = partial_witness.part_size(),
+        )
+        .entered();
         let signer = self.my_validator_signer()?;
         let validator_account_id = signer.validator_id().clone();
         let epoch_manager = self.epoch_manager.clone();
