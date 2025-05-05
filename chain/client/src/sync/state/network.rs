@@ -15,7 +15,6 @@ use near_primitives::network::PeerId;
 use near_primitives::state_sync::{ShardStateSyncResponse, ShardStateSyncResponseHeader};
 use near_primitives::types::ShardId;
 use near_store::{DBCol, Store};
-use rand::seq::SliceRandom;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use tokio::select;
@@ -115,65 +114,39 @@ impl StateSyncDownloadSourcePeer {
         // Sender/receiver pair used to await for the peer's response.
         let (sender, receiver) = oneshot::channel();
 
-        let network_request = {
-            let mut state_lock = state.lock().unwrap();
-            let (network_request, state_value) = match &key.kind {
-                PartIdOrHeader::Part { part_id } => {
-                    let prev_hash = *store
-                        .get_ser::<BlockHeader>(DBCol::BlockHeader, key.sync_hash.as_bytes())?
-                        .ok_or_else(|| {
-                            near_chain::Error::DBNotFoundErr(format!(
-                                "No block header {}",
-                                key.sync_hash
-                            ))
-                        })?
-                        .prev_hash();
-                    let prev_prev_hash = *store
-                        .get_ser::<BlockHeader>(DBCol::BlockHeader, prev_hash.as_bytes())?
-                        .ok_or_else(|| {
-                            near_chain::Error::DBNotFoundErr(format!(
-                                "No block header {}",
-                                prev_hash
-                            ))
-                        })?
-                        .prev_hash();
-                    let network_request = PeerManagerMessageRequest::NetworkRequests(
-                        NetworkRequests::StateRequestPart {
-                            shard_id: key.shard_id,
-                            sync_hash: key.sync_hash,
-                            sync_prev_prev_hash: prev_prev_hash,
-                            part_id: *part_id,
-                        },
-                    );
-                    let state_value = PendingPeerRequestValue { peer_id: None, sender };
-                    (network_request, state_value)
-                }
-                PartIdOrHeader::Header => {
-                    let peer_id = state_lock
-                        .highest_height_peers
-                        .choose(&mut rand::thread_rng())
-                        .cloned()
-                        .ok_or_else(|| {
-                            near_chain::Error::Other("No peer to choose from".to_owned())
-                        })?;
-                    (
-                        PeerManagerMessageRequest::NetworkRequests(
-                            NetworkRequests::StateRequestHeader {
-                                shard_id: key.shard_id,
-                                sync_hash: key.sync_hash,
-                                peer_id: peer_id.clone(),
-                            },
-                        ),
-                        PendingPeerRequestValue { peer_id: Some(peer_id), sender },
-                    )
-                }
-            };
-            state_lock.pending_requests.insert(key.clone(), state_value);
-            network_request
-        };
+        // Peers advertise their snapshots by the prev prev hash of the sync hash.
+        // We compute it here to pass as part of the network request.
+        // TODO(saketh): it would be nice to migrate the network layer to the same hash.
+        let prev_hash = *store
+            .get_ser::<BlockHeader>(DBCol::BlockHeader, key.sync_hash.as_bytes())?
+            .ok_or_else(|| {
+                near_chain::Error::DBNotFoundErr(format!("No block header {}", key.sync_hash))
+            })?
+            .prev_hash();
+        let prev_prev_hash = *store
+            .get_ser::<BlockHeader>(DBCol::BlockHeader, prev_hash.as_bytes())?
+            .ok_or_else(|| {
+                near_chain::Error::DBNotFoundErr(format!("No block header {}", prev_hash))
+            })?
+            .prev_hash();
 
-        // Whether the request succeeds, we shall remove the key from the map of pending requests afterwards.
-        let _remove_key_upon_drop = RemoveKeyUponDrop { key: key.clone(), state: state.clone() };
+        let network_request = match &key.kind {
+            PartIdOrHeader::Part { part_id } => {
+                PeerManagerMessageRequest::NetworkRequests(NetworkRequests::StateRequestPart {
+                    shard_id: key.shard_id,
+                    sync_hash: key.sync_hash,
+                    sync_prev_prev_hash: prev_prev_hash,
+                    part_id: *part_id,
+                })
+            }
+            PartIdOrHeader::Header => {
+                PeerManagerMessageRequest::NetworkRequests(NetworkRequests::StateRequestHeader {
+                    shard_id: key.shard_id,
+                    sync_hash: key.sync_hash,
+                    sync_prev_prev_hash: prev_prev_hash,
+                })
+            }
+        };
 
         let deadline = clock.now() + request_timeout;
         let typ = match &key.kind {
@@ -186,17 +159,42 @@ impl StateSyncDownloadSourcePeer {
             .start_timer();
 
         handle.set_status("Sending network request");
-        match request_sender.send_async(network_request).await {
-            Ok(response) => {
-                if let NetworkResponses::RouteNotFound = response.as_network_response() {
-                    increment_download_count(key.shard_id, typ, "network", "route_not_found");
-                    return Err(near_chain::Error::Other("Route not found".to_owned()));
-                }
-            }
+        let network_response = match request_sender.send_async(network_request).await {
+            Ok(response) => response.as_network_response(),
             Err(e) => {
                 increment_download_count(key.shard_id, typ, "network", "failed_to_send");
                 return Err(near_chain::Error::Other(format!("Failed to send request: {}", e)));
             }
+        };
+
+        let request_sent_to_peer = match network_response {
+            NetworkResponses::SelectedDestination(peer_id) => peer_id,
+            NetworkResponses::NoDestinationsAvailable => {
+                increment_download_count(key.shard_id, typ, "network", "no_hosts_available");
+                return Err(near_chain::Error::Other("No hosts available".to_owned()));
+            }
+            NetworkResponses::RouteNotFound => {
+                increment_download_count(key.shard_id, typ, "network", "route_not_found");
+                return Err(near_chain::Error::Other("Route not found".to_owned()));
+            }
+            NetworkResponses::MyPublicAddrNotKnown => {
+                increment_download_count(key.shard_id, typ, "network", "my_public_addr_not_known");
+                return Err(near_chain::Error::Other("Awaiting IP self-discovery".to_owned()));
+            }
+            NetworkResponses::NoResponse => {
+                increment_download_count(key.shard_id, typ, "network", "no_response");
+                return Err(near_chain::Error::Other("No response".to_owned()));
+            }
+        };
+
+        let state_value = PendingPeerRequestValue { peer_id: Some(request_sent_to_peer), sender };
+
+        // Ensures that the key is removed from the map of pending requests when this scope exits,
+        // whether on success or timeout.
+        let _remove_key_upon_drop = RemoveKeyUponDrop { key: key.clone(), state: state.clone() };
+        {
+            let mut state_lock = state.lock().unwrap();
+            state_lock.pending_requests.insert(key.clone(), state_value);
         }
 
         handle.set_status("Waiting for peer response");

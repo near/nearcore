@@ -32,8 +32,8 @@ use crate::stats::metrics;
 use crate::store;
 use crate::tcp;
 use crate::types::{
-    ChainInfo, PeerManagerSenderForNetwork, PeerType, ReasonForBan, StatePartRequestBody,
-    Tier3Request, Tier3RequestBody,
+    ChainInfo, PeerManagerSenderForNetwork, PeerType, ReasonForBan, StateHeaderRequestBody,
+    StatePartRequestBody, Tier3Request, Tier3RequestBody,
 };
 use anyhow::Context;
 use arc_swap::ArcSwap;
@@ -783,6 +783,20 @@ impl NetworkState {
             }
             RoutedMessageBody::VersionedChunkEndorsement(endorsement) => {
                 self.client.send_async(ChunkEndorsementMessage(endorsement)).await.ok();
+                None
+            }
+            RoutedMessageBody::StateHeaderRequest(request) => {
+                self.peer_manager_adapter.send(Tier3Request {
+                    peer_info: PeerInfo {
+                        id: msg_author,
+                        addr: Some(request.addr),
+                        account_id: None,
+                    },
+                    body: Tier3RequestBody::StateHeader(StateHeaderRequestBody {
+                        shard_id: request.shard_id,
+                        sync_hash: request.sync_hash,
+                    }),
+                });
                 None
             }
             RoutedMessageBody::StatePartRequest(request) => {

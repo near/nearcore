@@ -11,6 +11,33 @@ def approximate_epoch_height(block_height, epoch_length):
     return int((block_height - 1) / epoch_length)
 
 
+"""
+Generates a config with p2p state sync configured. The node does state sync from peers.
+The node also generates snapshots and serves headers and parts to peers as requested.
+"""
+
+
+def get_state_sync_config_p2p(tracked_shards_config):
+    config = {
+        "consensus.state_sync_p2p_timeout": {
+            "secs": 0,
+            "nanos": 500000000
+        },
+        "store.state_snapshot_config.state_snapshot_type": "Enabled",
+    }
+    if tracked_shards_config is not None:
+        config['tracked_shards_config'] = tracked_shards_config
+
+    return config
+
+
+"""
+Generates a pair of configs with a local directory configured for dumping state sync data.
+    - config_dump: a node which generates snapshots and dumps headers and parts to the local directory
+    - config_sync: a node configured to use the local directory as a data source for state sync
+"""
+
+
 def get_state_sync_configs_pair(tracked_shards_config='AllShards'):
     state_parts_dir = str(pathlib.Path(tempfile.gettempdir()) / "state_parts")
 
@@ -55,12 +82,19 @@ def get_state_sync_configs_pair(tracked_shards_config='AllShards'):
                 }
             }
         },
-        "state_sync_enabled": True,
     }
     if tracked_shards_config is not None:
         config_sync['tracked_shards_config'] = tracked_shards_config
 
     return (config_dump, config_sync)
+
+
+"""
+Generates a config which:
+    - Tracks all shards
+    - Dumps headers and parts to local storage
+    - Has state sync enabled with local storage source configured
+"""
 
 
 def get_state_sync_config_combined():
@@ -100,7 +134,6 @@ def get_state_sync_config_combined():
                 }
             }
         },
-        "state_sync_enabled": True,
         "store.state_snapshot_config.state_snapshot_type": "Enabled",
         "tracked_shards_config": 'AllShards'
     }

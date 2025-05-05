@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 # Spins up 4 validating nodes. Let validators track a single shard.
-# Add a dumper node for the state sync headers.
 # Add an RPC node to issue tx and change the state.
 # Send random transactions between accounts in different shards.
 # Shuffle the shard assignment of validators and check if they can sync up.
@@ -14,14 +13,14 @@ sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 from configured_logger import logger
 from cluster import start_cluster
 import state_sync_lib
-from utils import wait_for_blocks
+from utils import wait_for_blocks, MetricsTracker
 import simple_test
 
 EPOCH_LENGTH = 10
 
 NUM_VALIDATORS = 4
 
-# Shard layout with 5 roughly equal size shards for convenience.
+# Shard layout with 4 roughly equal size shards for convenience.
 SHARD_LAYOUT = {
     "V1": {
         "boundary_accounts": [
@@ -30,8 +29,8 @@ SHARD_LAYOUT = {
             "rrr",
         ],
         "version": 2,
-        "shards_split_map": [],
-        "to_parent_shard_map": [],
+        "shards_split_map": None,
+        "to_parent_shard_map": None,
     }
 }
 
@@ -47,46 +46,32 @@ ALL_ACCOUNTS_PREFIXES = [
 
 class StateSyncValidatorShardSwap(unittest.TestCase):
 
-    def _prepare_cluster(self, with_rpc=False, shuffle_shard_assignment=False):
-        (node_config_dump,
-         node_config_sync) = state_sync_lib.get_state_sync_configs_pair(
-             tracked_shards=None)
-
-        # State snapshot is disabled for dumper. We only want to dump the headers.
-        node_config_dump[
-            "store.state_snapshot_config.state_snapshot_type"] = "Disabled"
-
-        # State snapshot is enabled for validators. They will share parts of the state.
-        node_config_sync[
-            "store.state_snapshot_config.state_snapshot_type"] = "Enabled"
-        node_config_sync["tracked_shards_config"] = "NoShards"
+    def _prepare_cluster(self):
+        node_config = state_sync_lib.get_state_sync_config_p2p(
+            tracked_shards_config="NoShards")
 
         # Validators
-        configs = {x: node_config_sync.copy() for x in range(NUM_VALIDATORS)}
+        configs = {x: node_config.copy() for x in range(NUM_VALIDATORS)}
 
-        # Dumper
-        configs[NUM_VALIDATORS] = node_config_dump
-
-        if with_rpc:
-            # RPC
-            configs[NUM_VALIDATORS + 1] = node_config_sync.copy()
-            # RPC tracks all shards.
-            configs[NUM_VALIDATORS + 1]["tracked_shards_config"] = "AllShards"
-            # RPC node does not participate in state parts distribution.
-            configs[NUM_VALIDATORS + 1][
-                "store.state_snapshot_config.state_snapshot_type"] = "Disabled"
+        # RPC
+        configs[NUM_VALIDATORS] = node_config.copy()
+        # RPC tracks all shards.
+        configs[NUM_VALIDATORS]["tracked_shards_config"] = "AllShards"
+        # RPC node does not serve state sync snapshots.
+        configs[NUM_VALIDATORS][
+            "store.state_snapshot_config.state_snapshot_type"] = "Disabled"
 
         nodes = start_cluster(
             num_nodes=NUM_VALIDATORS,
-            num_observers=1 + (1 if with_rpc else 0),
+            num_observers=1,
             num_shards=NUM_SHARDS,
             config=None,
             genesis_config_changes=[
-                ["epoch_length", EPOCH_LENGTH], ["shard_layout", SHARD_LAYOUT],
-                [
-                    "shuffle_shard_assignment_for_chunk_producers",
-                    shuffle_shard_assignment
-                ], ["block_producer_kickout_threshold", 0],
+                # Rotate tracked shards to trigger state sync
+                ["shuffle_shard_assignment_for_chunk_producers", True],
+                ["epoch_length", EPOCH_LENGTH],
+                ["shard_layout", SHARD_LAYOUT],
+                ["block_producer_kickout_threshold", 0],
                 ["chunk_producer_kickout_threshold", 0]
             ],
             client_config_changes=configs)
@@ -94,11 +79,9 @@ class StateSyncValidatorShardSwap(unittest.TestCase):
         for node in nodes:
             node.stop_checking_store()
 
-        self.dumper_node = nodes[NUM_VALIDATORS]
-        self.rpc_node = nodes[NUM_VALIDATORS +
-                              1] if with_rpc else self.dumper_node
         self.nodes = nodes
         self.validators = nodes[:NUM_VALIDATORS]
+        self.rpc_node = nodes[NUM_VALIDATORS]
 
     def _prepare_simple_transfers(self):
         self.testcase = simple_test.SimpleTransferBetweenAccounts(
@@ -119,9 +102,7 @@ class StateSyncValidatorShardSwap(unittest.TestCase):
             node.cleanup()
 
     def test_state_sync_with_shard_swap(self):
-        # Dumper node will not track any shard. So we need a dedicated RPC node.
-        # TODO: enable shuffle_shard_assignment after decentralized state sync is implemented.
-        self._prepare_cluster(with_rpc=True, shuffle_shard_assignment=False)
+        self._prepare_cluster()
         self._prepare_simple_transfers()
 
         target_height = 6 * EPOCH_LENGTH
@@ -131,6 +112,37 @@ class StateSyncValidatorShardSwap(unittest.TestCase):
         for n in self.validators:
             wait_for_blocks(n, target=target_height)
         logger.info("Test ended")
+
+        for i in range(len(self.nodes) - 1):
+            metrics = MetricsTracker(self.nodes[i])
+            down = metrics.get_metric_all_values(
+                "near_state_sync_download_result")
+
+            num_headers = 0
+            num_parts = 0
+            num_retries = 0
+
+            for key, value in down:
+                if key['source'] != 'network':
+                    assert False, f"Expected state sync data source 'network', got {key['source']}"
+
+                if key['result'] != 'success':
+                    num_retries += 1
+                elif key['type'] == 'header':
+                    num_headers += 1
+                elif key['type'] == 'part':
+                    num_parts += 1
+                else:
+                    assert False, f"Unexpected near_state_sync_download_result value ({key}, {value})"
+
+            print(
+                f"Node {i} downloaded {num_headers} state headers and {num_parts} parts from peers"
+            )
+            if num_retries > 0:
+                print(
+                    f"WARN: Node {i} made {num_retries} unsuccessful requests for state data"
+                )
+            assert num_headers > 0 and num_parts > 0, f"Node {i} did not state sync, but is expected to in this test"
 
     def tearDown(self):
         self._clear_cluster()
