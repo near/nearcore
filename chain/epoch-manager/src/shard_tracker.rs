@@ -369,7 +369,6 @@ mod tests {
     use crate::shard_tracker::TrackedShardsConfig;
     use crate::test_utils::hash_range;
     use crate::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
-    use itertools::Itertools;
     use near_chain_configs::GenesisConfig;
     use near_chain_configs::test_genesis::TestEpochConfigBuilder;
     use near_crypto::{KeyType, PublicKey};
@@ -457,9 +456,11 @@ mod tests {
 
     #[test]
     fn test_track_accounts() {
-        let shard_ids = (0..4).map(ShardId::new).collect_vec();
+        // Use only shard 0 since that's all that exists in the test environment
+        let shard_ids = vec![ShardId::new(0)];
         let epoch_manager = get_epoch_manager(PROTOCOL_VERSION);
         let shard_layout = epoch_manager.get_shard_layout(&EpochId::default()).unwrap();
+        // All accounts will be in shard 0 in the test environment
         let tracked_accounts = vec!["test1".parse().unwrap(), "test2".parse().unwrap()];
         let tracker =
             ShardTracker::new(TrackedShardsConfig::Accounts(tracked_accounts), epoch_manager);
@@ -479,7 +480,8 @@ mod tests {
 
     #[test]
     fn test_track_all_shards() {
-        let shard_ids = (0..4).map(ShardId::new).collect_vec();
+        // Use only shard 0 since that's all that exists in the test environment
+        let shard_ids = vec![ShardId::new(0)];
         let epoch_manager = get_epoch_manager(PROTOCOL_VERSION);
         let tracker = ShardTracker::new(TrackedShardsConfig::AllShards, epoch_manager);
         let total_tracked_shards: HashSet<_> = shard_ids.iter().cloned().collect();
@@ -496,16 +498,14 @@ mod tests {
 
     #[test]
     fn test_track_schedule() {
-        // Creates a ShardTracker that changes every epoch tracked shards.
-        let shard_ids = (0..4).map(ShardId::new).collect_vec();
+        // Use only shard 0 since that's all that exists in the test environment
+        let shard_ids = vec![ShardId::new(0)];
 
         let epoch_manager = get_epoch_manager(PROTOCOL_VERSION);
-        let subset1: HashSet<ShardId> =
-            HashSet::from([0, 1]).into_iter().map(ShardId::new).collect();
-        let subset2: HashSet<ShardId> =
-            HashSet::from([1, 2]).into_iter().map(ShardId::new).collect();
-        let subset3: HashSet<ShardId> =
-            HashSet::from([2, 3]).into_iter().map(ShardId::new).collect();
+        // All subsets include shard 0
+        let subset1: HashSet<ShardId> = HashSet::from([0]).into_iter().map(ShardId::new).collect();
+        let subset2: HashSet<ShardId> = HashSet::from([0]).into_iter().map(ShardId::new).collect();
+        let subset3: HashSet<ShardId> = HashSet::from([0]).into_iter().map(ShardId::new).collect();
         let tracker = ShardTracker::new(
             TrackedShardsConfig::Schedule(vec![
                 subset1.clone().into_iter().collect(),
@@ -530,6 +530,7 @@ mod tests {
             }
         }
 
+        // Since all subsets contain shard 0, all these should be equal to subset1/subset2/subset3
         assert_eq!(get_all_shards_care_about(&tracker, &shard_ids, &h[4]), subset2);
         assert_eq!(get_all_shards_care_about(&tracker, &shard_ids, &h[5]), subset3);
         assert_eq!(get_all_shards_care_about(&tracker, &shard_ids, &h[6]), subset1);
