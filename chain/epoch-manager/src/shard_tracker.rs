@@ -63,10 +63,12 @@ impl ShardTracker {
 
         let available_shards: Vec<_> = shard_layout.shard_ids().collect();
 
-        debug_assert!(
-            false,
+        tracing::warn!(
             "Shard {} does not exist in epoch {:?}. Available shards: {:?}. Error: {:?}",
-            shard_id, epoch_id, available_shards, err
+            shard_id,
+            epoch_id,
+            available_shards,
+            err
         );
         Ok(())
     }

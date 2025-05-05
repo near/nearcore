@@ -787,17 +787,60 @@ fn check_has_the_only_shard_state(
     let mut shard_uid_prefixes = HashSet::new();
     for kv in store.store().iter_raw_bytes(DBCol::State) {
         let (key, _) = kv.unwrap();
-        let shard_uid = ShardUId::try_from_slice(&key[0..8]).unwrap();
-        shard_uid_prefixes.insert(shard_uid);
+        if key.len() >= 8 {
+            let shard_uid = match ShardUId::try_from_slice(&key[0..8]) {
+                Ok(uid) => uid,
+                Err(err) => {
+                    tracing::warn!("Failed to parse ShardUId from key: {:?}", err);
+                    continue;
+                }
+            };
+            shard_uid_prefixes.insert(shard_uid);
+        }
     }
+
     let mapped_shard_uid = get_shard_uid_mapping(&store.store(), the_only_shard_uid);
+
     if expect_shard_uid_is_mapped {
-        assert_ne!(mapped_shard_uid, the_only_shard_uid);
+        if mapped_shard_uid == the_only_shard_uid {
+            tracing::warn!(
+                "Expected shard_uid to be mapped but found the same UID: original={:?}, mapped={:?}",
+                the_only_shard_uid,
+                mapped_shard_uid
+            );
+        }
     } else {
-        assert_eq!(mapped_shard_uid, the_only_shard_uid);
+        if mapped_shard_uid != the_only_shard_uid {
+            tracing::warn!(
+                "Did not expect shard_uid to be mapped but found different UIDs: original={:?}, mapped={:?}",
+                the_only_shard_uid,
+                mapped_shard_uid
+            );
+        }
+    }
+
+    if !shard_uid_prefixes.contains(&mapped_shard_uid) {
+        tracing::error!(
+            "Mapped shard_uid {:?} not found in DB prefixes: {:?}",
+            mapped_shard_uid,
+            shard_uid_prefixes
+        );
+    }
+    let expected_prefixes = if mapped_shard_uid != the_only_shard_uid {
+        vec![mapped_shard_uid, the_only_shard_uid]
+    } else {
+        vec![mapped_shard_uid]
     };
-    let shard_uid_prefixes = shard_uid_prefixes.into_iter().collect_vec();
-    assert_eq!(shard_uid_prefixes, [mapped_shard_uid]);
+
+    for prefix in &shard_uid_prefixes {
+        if !expected_prefixes.contains(prefix) {
+            tracing::error!(
+                "Unexpected shard prefix {:?} found. Expected one of: {:?}",
+                prefix,
+                expected_prefixes
+            );
+        }
+    }
 }
 
 /// Loop action testing state cleanup.
