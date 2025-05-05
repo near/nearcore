@@ -1260,11 +1260,10 @@ impl Runtime {
 
         // NEP-536 also adds a penalty to gas refund.
         let refund_penalty: Gas = config.fees.gas_penalty_for_gas_refund(gross_gas_refund);
-        debug_assert!(
-            refund_penalty <= gross_gas_refund,
-            "gas_penalty_for_gas_refund returned larger penalty than input"
-        );
-        let net_gas_refund = gross_gas_refund - refund_penalty;
+        let Some(net_gas_refund) = gross_gas_refund.checked_sub(refund_penalty) else {
+            // violation of gas_penalty_for_gas_refund post condition
+            panic!("returned larger penalty than input, {refund_penalty} > {gross_gas_refund}",);
+        };
 
         // Refund for the unused portion of the gas at the price at which this gas was purchased.
         let gas_balance_refund = safe_gas_to_balance(action_receipt.gas_price, net_gas_refund)?;

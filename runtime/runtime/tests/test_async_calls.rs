@@ -109,8 +109,8 @@ fn test_single_promise_no_callback() {
             assert_eq!(function_call_action.deposit, 0);
         }
     );
-    let [r1] = &receipts[..1] else { panic!("Incorrect number of produced receipts") };
-    assert_single_refund_prior_to_nep536(&group, &receipts[1..]);
+    let [r1, refunds @ ..] = &receipts else { panic!("Incorrect number of produced receipts") };
+    assert_single_refund_prior_to_nep536(&group, &refunds);
 
     let receipts = &*assert_receipts!(group, "near_1" => r1 @ "near_2",
     ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
@@ -179,8 +179,8 @@ fn test_single_promise_with_callback() {
         assert_eq!(function_call_action.gas, GAS_1);
         assert_eq!(function_call_action.deposit, 0);
     });
-    let [r1, r2] = &receipts[..2] else { panic!("Incorrect number of produced receipts") };
-    assert_single_refund_prior_to_nep536(&group, &receipts[2..]);
+    let [r1, r2, refunds @ ..] = &receipts else { panic!("Incorrect number of produced receipts") };
+    assert_single_refund_prior_to_nep536(&group, &refunds);
 
     let data_id;
 
@@ -267,8 +267,8 @@ fn test_two_promises_no_callbacks() {
         assert_eq!(function_call_action.gas, GAS_1);
         assert_eq!(function_call_action.deposit, 0);
     });
-    let [r1] = &receipts[..1] else { panic!("must have outgoing receipt") };
-    assert_single_refund_prior_to_nep536(&group, &receipts[1..]);
+    let [r1, refunds @ ..] = &receipts else { panic!("must have outgoing receipt") };
+    assert_single_refund_prior_to_nep536(&group, &refunds);
 
     let receipts = &*assert_receipts!(group, "near_1" => r1 @ "near_2",
     ReceiptEnum::Action(ActionReceipt{actions, ..}), { },
@@ -277,8 +277,8 @@ fn test_two_promises_no_callbacks() {
         assert_eq!(function_call_action.gas, GAS_2);
         assert_eq!(function_call_action.deposit, 0);
     });
-    let [r2] = &receipts[..1] else { panic!("Incorrect number of produced receipts") };
-    assert_single_refund_prior_to_nep536(&group, &receipts[1..]);
+    let [r2, refunds @ ..] = &receipts else { panic!("Incorrect number of produced receipts") };
+    assert_single_refund_prior_to_nep536(&group, &refunds);
 
     let receipts = &*assert_receipts!(group, "near_2" => r2 @ "near_3",
         ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
@@ -367,13 +367,10 @@ fn test_two_promises_with_two_callbacks() {
             assert_eq!(function_call_action.deposit, 0);
         }
     );
-    let [r1, cb1] = &receipts[..2] else { panic!("Incorrect number of produced receipts") };
-    if ProtocolFeature::ReducedGasRefunds.enabled(PROTOCOL_VERSION) {
-        assert_eq!(receipts[2..], [], "refund should have been avoided");
-    } else {
-        let [refund] = &receipts[2..] else { panic!("Incorrect number of refunds") };
-        assert_refund!(group, refund @ "near_0");
-    }
+    let [r1, cb1, refunds @ ..] = &receipts else {
+        panic!("Incorrect number of produced receipts")
+    };
+    assert_single_refund_prior_to_nep536(&group, refunds);
 
     let receipts = &*assert_receipts!(group, "near_1" => r1 @ "near_2",
         ReceiptEnum::Action(ActionReceipt{actions, ..}), { },
@@ -383,13 +380,10 @@ fn test_two_promises_with_two_callbacks() {
             assert_eq!(function_call_action.deposit, 0);
         }
     );
-    let [r2, cb2] = &receipts[..2] else { panic!("Incorrect number of produced receipts") };
-    if ProtocolFeature::ReducedGasRefunds.enabled(PROTOCOL_VERSION) {
-        assert_eq!(receipts[2..], [], "refund should have been avoided");
-    } else {
-        let [refund] = &receipts[2..] else { panic!("Incorrect number of refunds") };
-        assert_refund!(group, refund @ "near_0");
-    }
+    let [r2, cb2, refunds @ ..] = &receipts else {
+        panic!("Incorrect number of produced receipts")
+    };
+    assert_single_refund_prior_to_nep536(&group, refunds);
 
     let receipts = &*assert_receipts!(group, "near_2" => r2 @ "near_3",
         ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
@@ -476,8 +470,8 @@ fn test_single_promise_no_callback_batch() {
             assert_eq!(function_call_action.deposit, 0);
         }
     );
-    let [r1] = &receipts[..1] else { panic!("Incorrect number of produced receipts") };
-    assert_single_refund_prior_to_nep536(&group, &receipts[1..]);
+    let [r1, refunds @ ..] = &receipts else { panic!("Incorrect number of produced receipts") };
+    assert_single_refund_prior_to_nep536(&group, &refunds);
 
     let receipts = &*assert_receipts!(group, "near_1" => r1 @ "near_2",
      ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
@@ -554,8 +548,8 @@ fn test_single_promise_with_callback_batch() {
             assert_eq!(function_call_action.deposit, 0);
         }
     );
-    let [r1, r2] = &receipts[..2] else { panic!("Incorrect number of produced receipts") };
-    assert_single_refund_prior_to_nep536(&group, &receipts[2..]);
+    let [r1, r2, refunds @ ..] = &receipts else { panic!("Incorrect number of produced receipts") };
+    assert_single_refund_prior_to_nep536(&group, &refunds);
 
     let data_id;
     let receipts = &*assert_receipts!(group, "near_1" => r1 @ "near_2",
@@ -639,9 +633,9 @@ fn test_simple_transfer() {
             assert_eq!(function_call_action.deposit, 0);
         }
     );
-    let [r1] = &receipts[..1] else { panic!("Incorrect number of produced receipts") };
+    let [r1, refunds @ ..] = &receipts else { panic!("Incorrect number of produced receipts") };
 
-    assert_single_refund_prior_to_nep536(&group, &receipts[1..]);
+    assert_single_refund_prior_to_nep536(&group, &refunds);
 
     let refunds = assert_receipts!(group, "near_1" => r1 @ "near_2",
         ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
@@ -715,14 +709,8 @@ fn test_create_account_with_transfer_and_full_key() {
         assert_eq!(function_call_action.gas, GAS_1);
         assert_eq!(function_call_action.deposit, 0);
     });
-    let [r1] = &receipts[..1] else { panic!("Incorrect number of produced receipts") };
-    // For gas price difference
-    if ProtocolFeature::ReducedGasRefunds.enabled(PROTOCOL_VERSION) {
-        assert_eq!(receipts[1..], [], "refund should have been avoided");
-    } else {
-        let [ref0] = &receipts[1..] else { panic!("Incorrect number of refunds") };
-        assert_refund!(group, ref0 @ "near_0");
-    }
+    let [r1, refunds @ ..] = &receipts else { panic!("Incorrect number of produced receipts") };
+    assert_single_refund_prior_to_nep536(&group, refunds);
 
     let refunds = assert_receipts!(group, "near_1" => r1 @ "near_2",
      ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
@@ -843,12 +831,12 @@ fn test_account_factory() {
             assert_eq!(function_call_action.deposit, 0);
         }
     );
-    let [r1, r2] = &receipts[..2] else { panic!("Incorrect number of produced receipts") };
+    let [r1, r2, refunds @ ..] = &receipts else { panic!("Incorrect number of produced receipts") };
     // For gas price difference
     if ProtocolFeature::ReducedGasRefunds.enabled(PROTOCOL_VERSION) {
-        assert_eq!(receipts[2..], [], "refund should have been avoided");
+        assert_eq!(refunds, [], "refund should have been avoided");
     } else {
-        let [refund] = &receipts[2..] else { panic!("Incorrect number of refunds") };
+        let [refund] = &refunds else { panic!("Incorrect number of refunds") };
         assert_refund!(group, refund @ "near_0");
     }
 
@@ -881,9 +869,9 @@ fn test_account_factory() {
             assert_eq!(function_call_action.deposit, 0);
         }
     );
-    let [r3] = &receipts[..1] else { panic!("Incorrect number of produced receipts") };
+    let [r3, refunds @ ..] = &receipts else { panic!("Incorrect number of produced receipts") };
     // For gas price difference
-    assert_single_refund_prior_to_nep536(&group, &receipts[1..]);
+    assert_single_refund_prior_to_nep536(&group, &refunds);
 
     let receipts = &*assert_receipts!(group, "near_1" => r2 @ "near_2",
     ReceiptEnum::Action(ActionReceipt{actions, input_data_ids, ..}), {
@@ -895,9 +883,9 @@ fn test_account_factory() {
          assert_eq!(function_call_action.deposit, 0);
         }
     );
-    let [r4] = &receipts[..1] else { panic!("Incorrect number of produced receipts") };
+    let [r4, refunds @ ..] = &receipts else { panic!("Incorrect number of produced receipts") };
     // For gas price difference
-    assert_single_refund_prior_to_nep536(&group, &receipts[1..]);
+    assert_single_refund_prior_to_nep536(&group, &refunds);
 
     let receipts = &*assert_receipts!(group, "near_2" => r3 @ "near_0",
         ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
@@ -1005,10 +993,10 @@ fn test_create_account_add_key_call_delete_key_delete_account() {
             assert_eq!(function_call_action.deposit, 0);
         }
     );
-    let r1 = receipts.get(0).expect("must have outgoing receipt");
+    let [r1, refunds @ ..] = &receipts else { panic!("must have outgoing receipt") };
 
     // For gas price difference
-    assert_single_refund_prior_to_nep536(&group, &receipts[1..]);
+    assert_single_refund_prior_to_nep536(&group, &refunds);
 
     let receipts = &*assert_receipts!(group, "near_1" => r1 @ "near_3",
         ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
@@ -1037,12 +1025,12 @@ fn test_create_account_add_key_call_delete_key_delete_account() {
         }
     );
 
-    let [r2, r3] = &receipts[..2] else { panic!("must have 2 outgoing receipts") };
+    let [r2, r3, refunds @ ..] = &receipts else { panic!("must have 2 outgoing receipts") };
     // For gas price difference
     if ProtocolFeature::ReducedGasRefunds.enabled(PROTOCOL_VERSION) {
-        assert_eq!(receipts[2..], [], "refund should have been avoided");
+        assert_eq!(refunds, [], "refund should have been avoided");
     } else {
-        let [refund] = &receipts[2..] else { panic!("Incorrect number of refunds") };
+        let [refund] = &refunds else { panic!("Incorrect number of refunds") };
         assert_refund!(group, refund @ "near_0");
     }
 
@@ -1122,8 +1110,8 @@ fn test_transfer_64len_hex() {
         assert_eq!(function_call_action.deposit, 0);
      }
     );
-    let [r1] = &receipts[..1] else { panic!("Incorrect number of produced receipts") };
-    assert_single_refund_prior_to_nep536(&group, &receipts[1..]);
+    let [r1, refunds @ ..] = &receipts else { panic!("Incorrect number of produced receipts") };
+    assert_single_refund_prior_to_nep536(&group, &refunds);
 
     let refunds = assert_receipts!(group, "near_1" => r1 @ account_id.as_str(),
     ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
@@ -1200,8 +1188,8 @@ fn test_create_transfer_64len_hex_fail() {
         assert_eq!(function_call_action.deposit, 0);
      }
     );
-    let [r1] = &receipts[..1] else { panic!("Incorrect number of produced receipts") };
-    assert_single_refund_prior_to_nep536(&group, &receipts[1..]);
+    let [r1, refunds @ ..] = &receipts else { panic!("Incorrect number of produced receipts") };
+    assert_single_refund_prior_to_nep536(&group, &refunds);
 
     let receipts = &*assert_receipts!(group, "near_1" => r1 @ account_id.as_str(),
         ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
@@ -1212,11 +1200,13 @@ fn test_create_transfer_64len_hex_fail() {
         }
     );
 
-    let [deposit_refund] = &receipts[..1] else { panic!("Incorrect number of produced receipts") };
+    let [deposit_refund, refunds @ ..] = &receipts else {
+        panic!("Incorrect number of produced receipts")
+    };
     assert_refund!(group, deposit_refund @ "near_1");
 
     // For gas price difference
-    assert_single_refund_prior_to_nep536(&group, &receipts[1..]);
+    assert_single_refund_prior_to_nep536(&group, &refunds);
 }
 
 #[track_caller]
