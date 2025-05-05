@@ -50,15 +50,13 @@ fn test_simple_func_call() {
     let [r0] = &*assert_receipts!(group, signed_transaction) else {
         panic!("Incorrect number of produced receipts")
     };
-    let [ref1] = &*assert_receipts!(group,
+    let receipts = &*assert_receipts!(group,
         "near_0" => r0 @ "near_1",
         ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
         actions,
         a0, Action::FunctionCall(_function_call_action), {}
-    ) else {
-        panic!("Incorrect number of produced receipts")
-    };
-    assert_refund!(group, ref1 @ "near_0");
+    );
+    assert_single_refund_prior_to_nep536(&group, &receipts);
 }
 
 // single promise, no callback (A->B)
@@ -102,7 +100,7 @@ fn test_single_promise_no_callback() {
     let [r0] = &*assert_receipts!(group, signed_transaction) else {
         panic!("Incorrect number of produced receipts")
     };
-    let [r1, ref0] = &*assert_receipts!(group, "near_0" => r0 @ "near_1",
+    let receipts = &*assert_receipts!(group, "near_0" => r0 @ "near_1",
         ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
         actions,
         a0, Action::FunctionCall(function_call_action),
@@ -110,20 +108,18 @@ fn test_single_promise_no_callback() {
             assert_eq!(function_call_action.gas, GAS_1);
             assert_eq!(function_call_action.deposit, 0);
         }
-    ) else {
-        panic!("Incorrect number of produced receipts")
-    };
-    let [ref1] = &*assert_receipts!(group, "near_1" => r1 @ "near_2",
+    );
+    let [r1, refunds @ ..] = &receipts else { panic!("Incorrect number of produced receipts") };
+    assert_single_refund_prior_to_nep536(&group, &refunds);
+
+    let receipts = &*assert_receipts!(group, "near_1" => r1 @ "near_2",
     ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
     actions,
     a0, Action::FunctionCall(function_call_action), {
     assert_eq!(function_call_action.gas, GAS_2);
     assert_eq!(function_call_action.deposit, 0);
-    }) else {
-        panic!("Incorrect number of produced receipts")
-    };
-    assert_refund!(group, ref0 @ "near_0");
-    assert_refund!(group, ref1 @ "near_0");
+    });
+    assert_single_refund_prior_to_nep536(&group, &receipts);
 }
 
 // single promise with callback (A->B=>C)
@@ -175,19 +171,20 @@ fn test_single_promise_with_callback() {
     let [r0] = &*assert_receipts!(group, signed_transaction) else {
         panic!("Incorrect number of produced receipts")
     };
-    let [r1, r2, ref0] = &*assert_receipts!(
+    let receipts = &*assert_receipts!(
     group, "near_0" => r0 @ "near_1",
-     ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
-     actions,
-     a0, Action::FunctionCall(function_call_action), {
+    ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
+    actions,
+    a0, Action::FunctionCall(function_call_action), {
         assert_eq!(function_call_action.gas, GAS_1);
         assert_eq!(function_call_action.deposit, 0);
-     })
-    else {
-        panic!("Incorrect number of produced receipts")
-    };
+    });
+    let [r1, r2, refunds @ ..] = &receipts else { panic!("Incorrect number of produced receipts") };
+    assert_single_refund_prior_to_nep536(&group, &refunds);
+
     let data_id;
-    let [ref1] = &*assert_receipts!(group, "near_1" => r1 @ "near_2",
+
+    let receipts = &*assert_receipts!(group, "near_1" => r1 @ "near_2",
     ReceiptEnum::Action(ActionReceipt{actions, output_data_receivers, ..}), {
         assert_eq!(output_data_receivers.len(), 1);
         data_id = output_data_receivers[0].data_id;
@@ -196,10 +193,10 @@ fn test_single_promise_with_callback() {
     a0, Action::FunctionCall(function_call_action), {
         assert_eq!(function_call_action.gas, GAS_2);
         assert_eq!(function_call_action.deposit, 0);
-    }) else {
-        panic!("Incorrect number of produced receipts")
-    };
-    let [ref2] = &*assert_receipts!(group, "near_1" => r2 @ "near_3",
+    });
+    assert_single_refund_prior_to_nep536(&group, &receipts);
+
+    let receipts = &*assert_receipts!(group, "near_1" => r2 @ "near_3",
         ReceiptEnum::Action(ActionReceipt{actions, input_data_ids, ..}), {
             assert_eq!(input_data_ids.len(), 1);
             assert_eq!(data_id, input_data_ids[0].clone());
@@ -209,13 +206,8 @@ fn test_single_promise_with_callback() {
             assert_eq!(function_call_action.gas, GAS_2);
             assert_eq!(function_call_action.deposit, 0);
         }
-    ) else {
-        panic!("Incorrect number of produced receipts")
-    };
-
-    assert_refund!(group, ref0 @ "near_0");
-    assert_refund!(group, ref1 @ "near_0");
-    assert_refund!(group, ref2 @ "near_0");
+    );
+    assert_single_refund_prior_to_nep536(&group, &receipts);
 }
 
 // two promises, no callbacks (A->B->C)
@@ -268,40 +260,35 @@ fn test_two_promises_no_callbacks() {
     let [r0] = &*assert_receipts!(group, signed_transaction) else {
         panic!("Incorrect number of produced receipts")
     };
-    let [r1, ref0] = &*assert_receipts!(group, "near_0" => r0 @ "near_1",
+    let receipts = &*assert_receipts!(group, "near_0" => r0 @ "near_1",
     ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
     actions,
     a0, Action::FunctionCall(function_call_action), {
         assert_eq!(function_call_action.gas, GAS_1);
         assert_eq!(function_call_action.deposit, 0);
-    }) else {
-        panic!("Incorrect number of produced receipts")
-    };
-    let [r2, ref1] = &*assert_receipts!(group, "near_1" => r1 @ "near_2",
+    });
+    let [r1, refunds @ ..] = &receipts else { panic!("must have outgoing receipt") };
+    assert_single_refund_prior_to_nep536(&group, &refunds);
+
+    let receipts = &*assert_receipts!(group, "near_1" => r1 @ "near_2",
     ReceiptEnum::Action(ActionReceipt{actions, ..}), { },
     actions,
     a0, Action::FunctionCall(function_call_action), {
-       assert_eq!(function_call_action.gas, GAS_2);
-       assert_eq!(function_call_action.deposit, 0);
-    }
-    ) else {
-        panic!("Incorrect number of produced receipts")
-    };
-    let [ref2] = &*assert_receipts!(group, "near_2" => r2 @ "near_3",
-    ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
-    actions,
-    a0, Action::FunctionCall(function_call_action), {
-       assert_eq!(function_call_action.gas, GAS_3);
-       assert_eq!(function_call_action.deposit, 0);
-    }
-     )
-    else {
-        panic!("Incorrect number of produced receipts")
-    };
+        assert_eq!(function_call_action.gas, GAS_2);
+        assert_eq!(function_call_action.deposit, 0);
+    });
+    let [r2, refunds @ ..] = &receipts else { panic!("Incorrect number of produced receipts") };
+    assert_single_refund_prior_to_nep536(&group, &refunds);
 
-    assert_refund!(group, ref0 @ "near_0");
-    assert_refund!(group, ref1 @ "near_0");
-    assert_refund!(group, ref2 @ "near_0");
+    let receipts = &*assert_receipts!(group, "near_2" => r2 @ "near_3",
+        ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
+        actions,
+        a0, Action::FunctionCall(function_call_action), {
+            assert_eq!(function_call_action.gas, GAS_3);
+            assert_eq!(function_call_action.deposit, 0);
+        }
+    );
+    assert_single_refund_prior_to_nep536(&group, receipts);
 }
 
 // two promises, with two callbacks (A->B->C=>D=>E) where call to E is initialized by completion of D.
@@ -371,63 +358,62 @@ fn test_two_promises_with_two_callbacks() {
     let [r0] = &*assert_receipts!(group, signed_transaction) else {
         panic!("Incorrect number of produced receipts")
     };
-    let [r1, cb1, ref0] = &*assert_receipts!(group, "near_0" => r0 @ "near_1",
-    ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
-    actions,
-    a0, Action::FunctionCall(function_call_action), {
-       assert_eq!(function_call_action.gas, GAS_1);
-       assert_eq!(function_call_action.deposit, 0);
-    }
-     )
-    else {
-        panic!("Incorrect number of produced receipts")
-    };
-    let [r2, cb2, ref1] = &*assert_receipts!(group, "near_1" => r1 @ "near_2",
-     ReceiptEnum::Action(ActionReceipt{actions, ..}), { },
-     actions,
-     a0, Action::FunctionCall(function_call_action), {
-        assert_eq!(function_call_action.gas, GAS_2);
-        assert_eq!(function_call_action.deposit, 0);
-     }
-    ) else {
-        panic!("Incorrect number of produced receipts")
-    };
-    let [ref2] = &*assert_receipts!(group, "near_2" => r2 @ "near_3",
-     ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
-     actions,
-     a0, Action::FunctionCall(function_call_action), {
-        assert_eq!(function_call_action.gas, GAS_3);
-        assert_eq!(function_call_action.deposit, 0);
-     }
-    ) else {
-        panic!("Incorrect number of produced receipts")
-    };
-    let [ref3] = &*assert_receipts!(group, "near_2" => cb2 @ "near_4",
-     ReceiptEnum::Action(ActionReceipt{actions, ..}), { },
-     actions,
-     a0, Action::FunctionCall(function_call_action), {
-        assert_eq!(function_call_action.gas, GAS_3);
-        assert_eq!(function_call_action.deposit, 0);
-     }
-    ) else {
-        panic!("Incorrect number of produced receipts")
-    };
-    let [ref4] = &*assert_receipts!(group, "near_1" => cb1 @ "near_5",
-     ReceiptEnum::Action(ActionReceipt{actions, ..}), { },
-     actions,
-     a0, Action::FunctionCall(function_call_action), {
-        assert_eq!(function_call_action.gas, GAS_2);
-        assert_eq!(function_call_action.deposit, 0);
-     }
-    ) else {
-        panic!("Incorrect number of produced receipts")
-    };
 
-    assert_refund!(group, ref0 @ "near_0");
-    assert_refund!(group, ref1 @ "near_0");
-    assert_refund!(group, ref2 @ "near_0");
-    assert_refund!(group, ref3 @ "near_0");
-    assert_refund!(group, ref4 @ "near_0");
+    let receipts = &*assert_receipts!(group, "near_0" => r0 @ "near_1",
+        ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
+        actions,
+        a0, Action::FunctionCall(function_call_action), {
+            assert_eq!(function_call_action.gas, GAS_1);
+            assert_eq!(function_call_action.deposit, 0);
+        }
+    );
+    let [r1, cb1, refunds @ ..] = &receipts else {
+        panic!("Incorrect number of produced receipts")
+    };
+    assert_single_refund_prior_to_nep536(&group, refunds);
+
+    let receipts = &*assert_receipts!(group, "near_1" => r1 @ "near_2",
+        ReceiptEnum::Action(ActionReceipt{actions, ..}), { },
+        actions,
+        a0, Action::FunctionCall(function_call_action), {
+            assert_eq!(function_call_action.gas, GAS_2);
+            assert_eq!(function_call_action.deposit, 0);
+        }
+    );
+    let [r2, cb2, refunds @ ..] = &receipts else {
+        panic!("Incorrect number of produced receipts")
+    };
+    assert_single_refund_prior_to_nep536(&group, refunds);
+
+    let receipts = &*assert_receipts!(group, "near_2" => r2 @ "near_3",
+        ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
+        actions,
+        a0, Action::FunctionCall(function_call_action), {
+            assert_eq!(function_call_action.gas, GAS_3);
+            assert_eq!(function_call_action.deposit, 0);
+        }
+    );
+    assert_single_refund_prior_to_nep536(&group, receipts);
+
+    let receipts = &*assert_receipts!(group, "near_2" => cb2 @ "near_4",
+        ReceiptEnum::Action(ActionReceipt{actions, ..}), { },
+        actions,
+        a0, Action::FunctionCall(function_call_action), {
+            assert_eq!(function_call_action.gas, GAS_3);
+            assert_eq!(function_call_action.deposit, 0);
+        }
+    );
+    assert_single_refund_prior_to_nep536(&group, receipts);
+
+    let receipts = &*assert_receipts!(group, "near_1" => cb1 @ "near_5",
+        ReceiptEnum::Action(ActionReceipt{actions, ..}), { },
+        actions,
+        a0, Action::FunctionCall(function_call_action), {
+            assert_eq!(function_call_action.gas, GAS_2);
+            assert_eq!(function_call_action.deposit, 0);
+        }
+    );
+    assert_single_refund_prior_to_nep536(&group, receipts);
 }
 
 // Batch actions tests
@@ -476,28 +462,26 @@ fn test_single_promise_no_callback_batch() {
     let [r0] = &*assert_receipts!(group, signed_transaction) else {
         panic!("Incorrect number of produced receipts")
     };
-    let [r1, ref0] = &*assert_receipts!(group, "near_0" => r0 @ "near_1",
-    ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
-    actions,
-    a0, Action::FunctionCall(function_call_action), {
-       assert_eq!(function_call_action.gas, GAS_1);
-       assert_eq!(function_call_action.deposit, 0);
-    }
-    ) else {
-        panic!("Incorrect number of produced receipts")
-    };
-    let [ref1] = &*assert_receipts!(group, "near_1" => r1 @ "near_2",
+    let receipts = &*assert_receipts!(group, "near_0" => r0 @ "near_1",
+        ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
+        actions,
+        a0, Action::FunctionCall(function_call_action), {
+            assert_eq!(function_call_action.gas, GAS_1);
+            assert_eq!(function_call_action.deposit, 0);
+        }
+    );
+    let [r1, refunds @ ..] = &receipts else { panic!("Incorrect number of produced receipts") };
+    assert_single_refund_prior_to_nep536(&group, &refunds);
+
+    let receipts = &*assert_receipts!(group, "near_1" => r1 @ "near_2",
      ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
      actions,
      a0, Action::FunctionCall(function_call_action), {
         assert_eq!(function_call_action.gas, GAS_2);
         assert_eq!(function_call_action.deposit, 0);
      }
-    ) else {
-        panic!("Incorrect number of produced receipts")
-    };
-    assert_refund!(group, ref0 @ "near_0");
-    assert_refund!(group, ref1 @ "near_0");
+    );
+    assert_single_refund_prior_to_nep536(&group, &receipts);
 }
 
 // single promise with callback (A->B=>C) with batch actions
@@ -555,47 +539,49 @@ fn test_single_promise_with_callback_batch() {
     let [r0] = &*assert_receipts!(group, signed_transaction) else {
         panic!("Incorrect number of produced receipts")
     };
-    let [r1, r2, ref0] = &*assert_receipts!(group, "near_0" => r0 @ "near_1",
-     ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
-     actions,
-     a0, Action::FunctionCall(function_call_action), {
-        assert_eq!(function_call_action.gas, GAS_1);
-        assert_eq!(function_call_action.deposit, 0);
-     }
-    ) else {
-        panic!("Incorrect number of produced receipts")
-    };
-    let data_id;
-    let [ref1] = &*assert_receipts!(group, "near_1" => r1 @ "near_2",
-    ReceiptEnum::Action(ActionReceipt{actions, output_data_receivers, ..}), {
-       assert_eq!(output_data_receivers.len(), 1);
-       data_id = output_data_receivers[0].data_id;
-    },
-    actions,
-    a0, Action::FunctionCall(function_call_action), {
-       assert_eq!(function_call_action.gas, GAS_2);
-       assert_eq!(function_call_action.deposit, 0);
-    }
-    ) else {
-        panic!("Incorrect number of produced receipts")
-    };
-    let [ref2] = &*assert_receipts!(group, "near_1" => r2 @ "near_3",
-     ReceiptEnum::Action(ActionReceipt{actions, input_data_ids, ..}), {
-        assert_eq!(input_data_ids.len(), 1);
-        assert_eq!(data_id, input_data_ids[0].clone());
-     },
-     actions,
-     a0, Action::FunctionCall(function_call_action), {
-        assert_eq!(function_call_action.gas, GAS_2);
-        assert_eq!(function_call_action.deposit, 0);
-     }
-    ) else {
-        panic!("Incorrect number of produced receipts")
-    };
 
-    assert_refund!(group, ref0 @ "near_0");
-    assert_refund!(group, ref1 @ "near_0");
-    assert_refund!(group, ref2 @ "near_0");
+    let receipts = &*assert_receipts!(group, "near_0" => r0 @ "near_1",
+        ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
+        actions,
+        a0, Action::FunctionCall(function_call_action), {
+            assert_eq!(function_call_action.gas, GAS_1);
+            assert_eq!(function_call_action.deposit, 0);
+        }
+    );
+    let [r1, r2, refunds @ ..] = &receipts else { panic!("Incorrect number of produced receipts") };
+    assert_single_refund_prior_to_nep536(&group, &refunds);
+
+    let data_id;
+    let receipts = &*assert_receipts!(group, "near_1" => r1 @ "near_2",
+        ReceiptEnum::Action(ActionReceipt{actions, output_data_receivers, ..}), {
+            assert_eq!(output_data_receivers.len(), 1);
+            data_id = output_data_receivers[0].data_id;
+        },
+        actions,
+        a0, Action::FunctionCall(function_call_action), {
+            assert_eq!(function_call_action.gas, GAS_2);
+            assert_eq!(function_call_action.deposit, 0);
+        }
+    );
+    assert_single_refund_prior_to_nep536(&group, &receipts);
+
+    let receipts = &*assert_receipts!(group, "near_1" => r2 @ "near_3",
+        ReceiptEnum::Action(ActionReceipt{actions, input_data_ids, ..}), {
+            assert_eq!(input_data_ids.len(), 1);
+            assert_eq!(data_id, input_data_ids[0].clone());
+        },
+        actions,
+        a0, Action::FunctionCall(function_call_action), {
+            assert_eq!(function_call_action.gas, GAS_2);
+            assert_eq!(function_call_action.deposit, 0);
+        }
+    );
+    if ProtocolFeature::ReducedGasRefunds.enabled(PROTOCOL_VERSION) {
+        assert_eq!(receipts, [], "refund should have been avoided");
+    } else {
+        let [ref1] = &*receipts else { panic!("Incorrect number of refunds") };
+        assert_refund!(group, ref1 @ "near_0");
+    }
 }
 
 #[test]
@@ -638,25 +624,26 @@ fn test_simple_transfer() {
     let [r0] = &*assert_receipts!(group, signed_transaction) else {
         panic!("Incorrect number of produced receipts")
     };
-    let [r1, ref0] = &*assert_receipts!(group, "near_0" => r0 @ "near_1",
-     ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
-     actions,
-     a0, Action::FunctionCall(function_call_action), {
-        assert_eq!(function_call_action.gas, GAS_1);
-        assert_eq!(function_call_action.deposit, 0);
-     }
-    ) else {
-        panic!("Incorrect number of produced receipts")
-    };
-    let refunds = assert_receipts!(group, "near_1" => r1 @ "near_2",
-     ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
-     actions,
-     a0, Action::Transfer(TransferAction{deposit}), {
-        assert_eq!(*deposit, 1000000000);
-     }
-    );
 
-    assert_refund!(group, ref0 @ "near_0");
+    let receipts = &*assert_receipts!(group, "near_0" => r0 @ "near_1",
+        ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
+        actions,
+        a0, Action::FunctionCall(function_call_action), {
+            assert_eq!(function_call_action.gas, GAS_1);
+            assert_eq!(function_call_action.deposit, 0);
+        }
+    );
+    let [r1, refunds @ ..] = &receipts else { panic!("Incorrect number of produced receipts") };
+
+    assert_single_refund_prior_to_nep536(&group, &refunds);
+
+    let refunds = assert_receipts!(group, "near_1" => r1 @ "near_2",
+        ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
+        actions,
+        a0, Action::Transfer(TransferAction{deposit}), {
+            assert_eq!(*deposit, 1000000000);
+        }
+    );
     // For gas price difference
     if ProtocolFeature::ReducedGasRefunds.enabled(PROTOCOL_VERSION) {
         assert_eq!(refunds, [], "refund should have been avoided");
@@ -715,16 +702,15 @@ fn test_create_account_with_transfer_and_full_key() {
     let [r0] = &*assert_receipts!(group, signed_transaction) else {
         panic!("Incorrect number of produced receipts")
     };
-    let [r1, ref0] = &*assert_receipts!(group, "near_0" => r0 @ "near_1",
-     ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
-     actions,
-     a0, Action::FunctionCall(function_call_action), {
+    let receipts = &*assert_receipts!(group, "near_0" => r0 @ "near_1",
+    ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
+    actions,
+    a0, Action::FunctionCall(function_call_action), {
         assert_eq!(function_call_action.gas, GAS_1);
         assert_eq!(function_call_action.deposit, 0);
-     }
-    ) else {
-        panic!("Incorrect number of produced receipts")
-    };
+    });
+    let [r1, refunds @ ..] = &receipts else { panic!("Incorrect number of produced receipts") };
+    assert_single_refund_prior_to_nep536(&group, refunds);
 
     let refunds = assert_receipts!(group, "near_1" => r1 @ "near_2",
      ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
@@ -740,9 +726,7 @@ fn test_create_account_with_transfer_and_full_key() {
      }
     );
 
-    assert_refund!(group, ref0 @ "near_0");
     // For gas price difference
-
     if ProtocolFeature::ReducedGasRefunds.enabled(PROTOCOL_VERSION) {
         assert_eq!(refunds, [], "refund should have been avoided");
     } else {
@@ -836,89 +820,92 @@ fn test_account_factory() {
     }
 
     use near_primitives::transaction::*;
-    let [r0] = &*assert_receipts!(group, signed_transaction) else {
-        panic!("Incorrect number of produced receipts")
-    };
-    let [r1, r2, ref0] = &*assert_receipts!(group, "near_0" => r0 @ "near_1",
-     ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
-     actions,
-     a0, Action::FunctionCall(function_call_action), {
-        assert_eq!(function_call_action.gas, GAS_1);
-        assert_eq!(function_call_action.deposit, 0);
-     }
-    ) else {
-        panic!("Incorrect number of produced receipts")
-    };
+    let receipts = &*assert_receipts!(group, signed_transaction);
+    let [r0] = receipts else { panic!("Incorrect number of produced receipts") };
+
+    let receipts = &*assert_receipts!(group, "near_0" => r0 @ "near_1",
+        ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
+        actions,
+        a0, Action::FunctionCall(function_call_action), {
+            assert_eq!(function_call_action.gas, GAS_1);
+            assert_eq!(function_call_action.deposit, 0);
+        }
+    );
+    let [r1, r2, refunds @ ..] = &receipts else { panic!("Incorrect number of produced receipts") };
+    // For gas price difference
+    if ProtocolFeature::ReducedGasRefunds.enabled(PROTOCOL_VERSION) {
+        assert_eq!(refunds, [], "refund should have been avoided");
+    } else {
+        let [refund] = &refunds else { panic!("Incorrect number of refunds") };
+        assert_refund!(group, refund @ "near_0");
+    }
 
     let data_id;
-    let [r3, ref1] = &*assert_receipts!(group, "near_1" => r1 @ "near_2",
-     ReceiptEnum::Action(ActionReceipt{actions, output_data_receivers, ..}), {
-        assert_eq!(output_data_receivers.len(), 1);
-        data_id = output_data_receivers[0].data_id;
-        assert_eq!(output_data_receivers[0].receiver_id, "near_2");
-     },
-     actions,
-     a0, Action::CreateAccount(CreateAccountAction{}), {},
-     a1, Action::Transfer(TransferAction{deposit}), {
-        assert_eq!(*deposit, TESTING_INIT_BALANCE / 2);
-     },
-     a2, Action::AddKey(add_key_action), {
-        assert_eq!(add_key_action.public_key, signer_new_account.public_key());
-        assert_eq!(add_key_action.access_key.nonce, 0);
-        assert_eq!(add_key_action.access_key.permission, AccessKeyPermission::FunctionCall(FunctionCallPermission {
-            allowance: Some(TESTING_INIT_BALANCE / 2),
-            receiver_id: "near_1".parse().unwrap(),
-            method_names: vec!["call_promise".to_string(), "hello".to_string()],
-        }));
-     },
-     a3, Action::DeployContract(DeployContractAction{code}), {
-        assert_eq!(code, near_test_contracts::rs_contract());
-     },
-     a4, Action::FunctionCall(function_call_action), {
-        assert_eq!(function_call_action.gas, GAS_2);
-        assert_eq!(function_call_action.deposit, 0);
-     }
-    ) else {
-        panic!("Incorrect number of produced receipts")
-    };
-    let [r4, ref2] = &*assert_receipts!(group, "near_1" => r2 @ "near_2",
-     ReceiptEnum::Action(ActionReceipt{actions, input_data_ids, ..}), {
+    let receipts = &*assert_receipts!(group, "near_1" => r1 @ "near_2",
+        ReceiptEnum::Action(ActionReceipt{actions, output_data_receivers, ..}), {
+            assert_eq!(output_data_receivers.len(), 1);
+            data_id = output_data_receivers[0].data_id;
+            assert_eq!(output_data_receivers[0].receiver_id, "near_2");
+        },
+        actions,
+        a0, Action::CreateAccount(CreateAccountAction{}), {},
+        a1, Action::Transfer(TransferAction{deposit}), {
+            assert_eq!(*deposit, TESTING_INIT_BALANCE / 2);
+        },
+        a2, Action::AddKey(add_key_action), {
+            assert_eq!(add_key_action.public_key, signer_new_account.public_key());
+            assert_eq!(add_key_action.access_key.nonce, 0);
+            assert_eq!(add_key_action.access_key.permission, AccessKeyPermission::FunctionCall(FunctionCallPermission {
+                allowance: Some(TESTING_INIT_BALANCE / 2),
+                receiver_id: "near_1".parse().unwrap(),
+                method_names: vec!["call_promise".to_string(), "hello".to_string()],
+            }));
+        },
+        a3, Action::DeployContract(DeployContractAction{code}), {
+            assert_eq!(code, near_test_contracts::rs_contract());
+        },
+        a4, Action::FunctionCall(function_call_action), {
+            assert_eq!(function_call_action.gas, GAS_2);
+            assert_eq!(function_call_action.deposit, 0);
+        }
+    );
+    let [r3, refunds @ ..] = &receipts else { panic!("Incorrect number of produced receipts") };
+    // For gas price difference
+    assert_single_refund_prior_to_nep536(&group, &refunds);
+
+    let receipts = &*assert_receipts!(group, "near_1" => r2 @ "near_2",
+    ReceiptEnum::Action(ActionReceipt{actions, input_data_ids, ..}), {
         assert_eq!(input_data_ids, &[data_id]);
      },
      actions,
      a0, Action::FunctionCall(function_call_action), {
-        assert_eq!(function_call_action.gas, GAS_2);
-        assert_eq!(function_call_action.deposit, 0);
-     }
-    ) else {
-        panic!("Incorrect number of produced receipts")
-    };
-    let [ref3] = &*assert_receipts!(group, "near_2" => r3 @ "near_0",
-     ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
-     actions,
-     a0, Action::FunctionCall(function_call_action), {
-        assert_eq!(function_call_action.gas, GAS_3);
-        assert_eq!(function_call_action.deposit, 0);
-     }
-    ) else {
-        panic!("Incorrect number of produced receipts")
-    };
-    let [ref4] = &*assert_receipts!(group, "near_2" => r4 @ "near_1",
-     ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
-     actions,
-     a0, Action::FunctionCall(function_call_action), {
-        assert_eq!(function_call_action.gas, GAS_3);
-        assert_eq!(function_call_action.deposit, 0);
-     }
-    ) else {
-        panic!("Incorrect number of produced receipts")
-    };
+         assert_eq!(function_call_action.gas, GAS_2);
+         assert_eq!(function_call_action.deposit, 0);
+        }
+    );
+    let [r4, refunds @ ..] = &receipts else { panic!("Incorrect number of produced receipts") };
+    // For gas price difference
+    assert_single_refund_prior_to_nep536(&group, &refunds);
 
-    assert_refund!(group, ref0 @ "near_0");
-    assert_refund!(group, ref1 @ "near_0");
-    assert_refund!(group, ref2 @ "near_0");
-    assert_refund!(group, ref3 @ "near_0");
-    assert_refund!(group, ref4 @ "near_0");
+    let receipts = &*assert_receipts!(group, "near_2" => r3 @ "near_0",
+        ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
+        actions,
+        a0, Action::FunctionCall(function_call_action), {
+            assert_eq!(function_call_action.gas, GAS_3);
+            assert_eq!(function_call_action.deposit, 0);
+        }
+    );
+    assert_single_refund_prior_to_nep536(&group, receipts);
+
+    let receipts = &*assert_receipts!(group, "near_2" => r4 @ "near_1",
+     ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
+     actions,
+     a0, Action::FunctionCall(function_call_action), {
+         assert_eq!(function_call_action.gas, GAS_3);
+         assert_eq!(function_call_action.deposit, 0);
+        }
+    );
+    assert_single_refund_prior_to_nep536(&group, receipts);
 }
 
 #[test]
@@ -998,60 +985,73 @@ fn test_create_account_add_key_call_delete_key_delete_account() {
     let [r0] = &*assert_receipts!(group, signed_transaction) else {
         panic!("Incorrect number of produced receipts")
     };
-    let [r1, ref0] = &*assert_receipts!(group, "near_0" => r0 @ "near_1",
-     ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
-     actions,
-     a0, Action::FunctionCall(function_call_action), {
-        assert_eq!(function_call_action.gas, GAS_1);
-        assert_eq!(function_call_action.deposit, 0);
-     }
-    ) else {
-        panic!("Incorrect number of produced receipts")
-    };
-    let [r2, r3, ref1] = &*assert_receipts!(group, "near_1" => r1 @ "near_3",
-     ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
-     actions,
-     a0, Action::CreateAccount(CreateAccountAction{}), {},
-     a1, Action::Transfer(TransferAction{deposit}), {
-        assert_eq!(*deposit, TESTING_INIT_BALANCE / 2);
-     },
-     a2, Action::AddKey(add_key_action), {
-        assert_eq!(add_key_action.public_key, signer_new_account.public_key());
-        assert_eq!(add_key_action.access_key.nonce, 1);
-        assert_eq!(add_key_action.access_key.permission, AccessKeyPermission::FullAccess);
-     },
-     a3, Action::DeployContract(DeployContractAction{code}), {
-        assert_eq!(code, near_test_contracts::rs_contract());
-     },
-     a4, Action::FunctionCall(function_call_action), {
-        assert_eq!(function_call_action.gas, GAS_2);
-        assert_eq!(function_call_action.deposit, 0);
-     },
-     a5, Action::DeleteKey(delete_key_action), {
-        assert_eq!(delete_key_action.public_key, signer_new_account.public_key());
-     },
-     a6, Action::DeleteAccount(DeleteAccountAction{beneficiary_id}), {
-        assert_eq!(beneficiary_id, "near_2");
-     }
-    ) else {
-        panic!("Incorrect number of produced receipts")
-    };
+    let receipts = &*assert_receipts!(group, "near_0" => r0 @ "near_1",
+        ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
+        actions,
+        a0, Action::FunctionCall(function_call_action), {
+            assert_eq!(function_call_action.gas, GAS_1);
+            assert_eq!(function_call_action.deposit, 0);
+        }
+    );
+    let [r1, refunds @ ..] = &receipts else { panic!("must have outgoing receipt") };
 
-    let [ref2] = &*assert_receipts!(group, "near_3" => r2 @ "near_0",
-     ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
-     actions,
-     a0, Action::FunctionCall(function_call_action), {
-        assert_eq!(function_call_action.gas, GAS_3);
-        assert_eq!(function_call_action.deposit, 0);
-     }
-    ) else {
-        panic!("Incorrect number of produced receipts")
-    };
+    // For gas price difference
+    assert_single_refund_prior_to_nep536(&group, &refunds);
+
+    let receipts = &*assert_receipts!(group, "near_1" => r1 @ "near_3",
+        ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
+        actions,
+        a0, Action::CreateAccount(CreateAccountAction{}), {},
+        a1, Action::Transfer(TransferAction{deposit}), {
+            assert_eq!(*deposit, TESTING_INIT_BALANCE / 2);
+        },
+        a2, Action::AddKey(add_key_action), {
+            assert_eq!(add_key_action.public_key, signer_new_account.public_key());
+            assert_eq!(add_key_action.access_key.nonce, 1);
+            assert_eq!(add_key_action.access_key.permission, AccessKeyPermission::FullAccess);
+        },
+        a3, Action::DeployContract(DeployContractAction{code}), {
+            assert_eq!(code, near_test_contracts::rs_contract());
+        },
+        a4, Action::FunctionCall(function_call_action), {
+            assert_eq!(function_call_action.gas, GAS_2);
+            assert_eq!(function_call_action.deposit, 0);
+        },
+        a5, Action::DeleteKey(delete_key_action), {
+            assert_eq!(delete_key_action.public_key, signer_new_account.public_key());
+        },
+        a6, Action::DeleteAccount(DeleteAccountAction{beneficiary_id}), {
+            assert_eq!(beneficiary_id, "near_2");
+        }
+    );
+
+    let [r2, r3, refunds @ ..] = &receipts else { panic!("must have 2 outgoing receipts") };
+    // For gas price difference
+    if ProtocolFeature::ReducedGasRefunds.enabled(PROTOCOL_VERSION) {
+        assert_eq!(refunds, [], "refund should have been avoided");
+    } else {
+        let [refund] = &refunds else { panic!("Incorrect number of refunds") };
+        assert_refund!(group, refund @ "near_0");
+    }
+
+    let receipts = &*assert_receipts!(group, "near_3" => r2 @ "near_0",
+        ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
+        actions,
+        a0, Action::FunctionCall(function_call_action), {
+            assert_eq!(function_call_action.gas, GAS_3);
+            assert_eq!(function_call_action.deposit, 0);
+        }
+    );
+    // For gas price difference
+    if ProtocolFeature::ReducedGasRefunds.enabled(PROTOCOL_VERSION) {
+        assert_eq!(receipts[..], [], "refund should have been avoided");
+    } else {
+        let [refund] = &receipts[..] else { panic!("Incorrect number of refunds") };
+        assert_refund!(group, refund @ "near_0");
+    }
+
+    // last receipt is refund for deleted account balance, going to near_2
     assert_refund!(group, r3 @ "near_2");
-
-    assert_refund!(group, ref0 @ "near_0");
-    assert_refund!(group, ref1 @ "near_0");
-    assert_refund!(group, ref2 @ "near_0");
 }
 
 #[test]
@@ -1102,16 +1102,16 @@ fn test_transfer_64len_hex() {
     let [r0] = &*assert_receipts!(group, signed_transaction) else {
         panic!("Incorrect number of produced receipts")
     };
-    let [r1, ref0] = &*assert_receipts!(group, "near_0" => r0 @ "near_1",
+    let receipts = &*assert_receipts!(group, "near_0" => r0 @ "near_1",
      ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
      actions,
      a0, Action::FunctionCall(function_call_action), {
         assert_eq!(function_call_action.gas, GAS_1);
         assert_eq!(function_call_action.deposit, 0);
      }
-    ) else {
-        panic!("Incorrect number of produced receipts")
-    };
+    );
+    let [r1, refunds @ ..] = &receipts else { panic!("Incorrect number of produced receipts") };
+    assert_single_refund_prior_to_nep536(&group, &refunds);
 
     let refunds = assert_receipts!(group, "near_1" => r1 @ account_id.as_str(),
     ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
@@ -1127,7 +1127,6 @@ fn test_transfer_64len_hex() {
         let [ref1] = &*refunds else { panic!("Incorrect number of refunds") };
         assert_refund!(group, ref1 @ "near_0");
     }
-    assert_refund!(group, ref0 @ "near_0");
 }
 
 #[test]
@@ -1181,27 +1180,43 @@ fn test_create_transfer_64len_hex_fail() {
     let [r0] = &*assert_receipts!(group, signed_transaction) else {
         panic!("Incorrect number of produced receipts")
     };
-    let [r1, ref0] = &*assert_receipts!(group, "near_0" => r0 @ "near_1",
+    let receipts = &*assert_receipts!(group, "near_0" => r0 @ "near_1",
      ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
      actions,
      a0, Action::FunctionCall(function_call_action), {
         assert_eq!(function_call_action.gas, GAS_1);
         assert_eq!(function_call_action.deposit, 0);
      }
-    ) else {
+    );
+    let [r1, refunds @ ..] = &receipts else { panic!("Incorrect number of produced receipts") };
+    assert_single_refund_prior_to_nep536(&group, &refunds);
+
+    let receipts = &*assert_receipts!(group, "near_1" => r1 @ account_id.as_str(),
+        ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
+        actions,
+        a0, Action::CreateAccount(CreateAccountAction{}), {},
+        a1, Action::Transfer(TransferAction{deposit}), {
+            assert_eq!(*deposit, TESTING_INIT_BALANCE / 2);
+        }
+    );
+
+    let [deposit_refund, refunds @ ..] = &receipts else {
         panic!("Incorrect number of produced receipts")
     };
-    let [ref1, ref2] = &*assert_receipts!(group, "near_1" => r1 @ account_id.as_str(),
-     ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
-     actions,
-     a0, Action::CreateAccount(CreateAccountAction{}), {},
-     a1, Action::Transfer(TransferAction{deposit}), {
-        assert_eq!(*deposit, TESTING_INIT_BALANCE / 2);
-     }
-    ) else {
-        panic!("Incorrect number of produced receipts")
-    };
-    assert_refund!(group, ref0 @ "near_0");
-    assert_refund!(group, ref1 @ "near_1");
-    assert_refund!(group, ref2 @ "near_0");
+    assert_refund!(group, deposit_refund @ "near_1");
+
+    // For gas price difference
+    assert_single_refund_prior_to_nep536(&group, &refunds);
+}
+
+#[track_caller]
+fn assert_single_refund_prior_to_nep536(group: &RuntimeGroup, receipts: &[CryptoHash]) {
+    use near_primitives::transaction::*;
+
+    if ProtocolFeature::ReducedGasRefunds.enabled(PROTOCOL_VERSION) {
+        assert_eq!(receipts, [], "refund should have been avoided");
+    } else {
+        let [refund] = &receipts[..] else { panic!("Incorrect number of refunds") };
+        assert_refund!(group, refund @ "near_0");
+    }
 }

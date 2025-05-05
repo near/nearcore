@@ -376,6 +376,8 @@ pub struct GasRefundResult {
     pub price_deficit: Balance,
     /// The surplus due to decreased gas prices since receipt creation.
     pub price_surplus: Balance,
+    /// The penalty paid for left over gas
+    pub refund_penalty: Balance,
 }
 
 pub struct Runtime {}
@@ -952,6 +954,7 @@ impl Runtime {
         let mut tx_burnt_amount = safe_gas_to_balance(apply_state.gas_price, gas_burnt)?
             - gas_refund_result.price_deficit;
         tx_burnt_amount = safe_add_balance(tx_burnt_amount, gas_refund_result.price_surplus)?;
+        tx_burnt_amount = safe_add_balance(tx_burnt_amount, gas_refund_result.refund_penalty)?;
         // The amount of tokens burnt for the execution of this receipt. It's used in the execution
         // outcome.
         let tokens_burnt = tx_burnt_amount;
@@ -1118,7 +1121,7 @@ impl Runtime {
                 result,
                 config,
             )?;
-            Ok(GasRefundResult { price_deficit, price_surplus: 0 })
+            Ok(GasRefundResult { price_deficit, price_surplus: 0, refund_penalty: 0 })
         } else {
             self.refund_unspent_gas_and_deposits(
                 current_gas_price,
@@ -1172,6 +1175,7 @@ impl Runtime {
         } else {
             safe_add_gas(prepaid_gas, prepaid_exec_gas)? - result.gas_used
         };
+
         // Refund for the unused portion of the gas at the price at which this gas was purchased.
         let mut gas_balance_refund = safe_gas_to_balance(action_receipt.gas_price, gas_refund)?;
         let mut gas_deficit_amount = 0;
@@ -1248,15 +1252,27 @@ impl Runtime {
             config.fees.fee(ActionCosts::new_action_receipt).exec_fee(),
         )?;
         let deposit_refund = if result.result.is_err() { total_deposit } else { 0 };
-        let gas_refund = if result.result.is_err() {
+        let gross_gas_refund = if result.result.is_err() {
             safe_add_gas(prepaid_gas, prepaid_exec_gas)? - result.gas_burnt
         } else {
             safe_add_gas(prepaid_gas, prepaid_exec_gas)? - result.gas_used
         };
-        // Refund for the unused portion of the gas at the price at which this gas was purchased.
-        let gas_balance_refund = safe_gas_to_balance(action_receipt.gas_price, gas_refund)?;
 
-        let mut gas_refund_result = GasRefundResult { price_deficit: 0, price_surplus: 0 };
+        // NEP-536 also adds a penalty to gas refund.
+        let refund_penalty: Gas = config.fees.gas_penalty_for_gas_refund(gross_gas_refund);
+        let Some(net_gas_refund) = gross_gas_refund.checked_sub(refund_penalty) else {
+            // violation of gas_penalty_for_gas_refund post condition
+            panic!("returned larger penalty than input, {refund_penalty} > {gross_gas_refund}",);
+        };
+
+        // Refund for the unused portion of the gas at the price at which this gas was purchased.
+        let gas_balance_refund = safe_gas_to_balance(action_receipt.gas_price, net_gas_refund)?;
+
+        let mut gas_refund_result = GasRefundResult {
+            price_deficit: 0,
+            price_surplus: 0,
+            refund_penalty: safe_gas_to_balance(action_receipt.gas_price, refund_penalty)?,
+        };
 
         if current_gas_price > action_receipt.gas_price {
             // price increased, burning resulted in a deficit
