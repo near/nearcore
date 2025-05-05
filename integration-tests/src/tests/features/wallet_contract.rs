@@ -23,6 +23,7 @@ use near_store::ShardUId;
 use near_vm_runner::ContractCode;
 use near_wallet_contract::{wallet_contract, wallet_contract_magic_bytes};
 use node_runtime::ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT;
+use node_runtime::config::total_prepaid_gas;
 use testlib::runtime_utils::{alice_account, bob_account};
 
 use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
@@ -295,6 +296,7 @@ fn test_wallet_contract_interaction() {
         &mut relayer_signer,
         &env,
     );
+    let prepaid_gas = total_prepaid_gas(signed_transaction.transaction.actions()).unwrap();
     height = check_tx_processing(&mut env, signed_transaction, height, blocks_number);
 
     // Now the relayer can sign transactions for the implicit account directly
@@ -320,10 +322,17 @@ fn test_wallet_contract_interaction() {
     let final_wallet_balance = view_balance(&env, &eth_implicit_account);
     let final_receiver_balance = view_balance(&env, &receiver);
 
+    // Calculate gas refund penalty
+    let tip = env.clients[0].chain.head().unwrap();
+    let runtime_config = env.get_runtime_config(0, tip.epoch_id);
+    let gas_price = env.clients[0].chain.block_economics_config.min_gas_price();
+    let refund_penalty =
+        runtime_config.fees.gas_penalty_for_gas_refund(prepaid_gas) as u128 * gas_price;
+
     assert_eq!(final_receiver_balance - init_receiver_balance, transfer_amount);
     let wallet_balance_diff = init_wallet_balance - final_wallet_balance;
     // Wallet balance is a little lower due to gas fees.
-    assert!(wallet_balance_diff - transfer_amount < NEAR_BASE / 500);
+    assert!(wallet_balance_diff - transfer_amount < NEAR_BASE / 500 + refund_penalty);
 }
 
 pub fn create_rlp_execute_tx(

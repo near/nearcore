@@ -8,6 +8,11 @@ pessimistic_gas_price_inflation: {
   denominator: 100,
 }
 refund_gas_price_changes: true
+gas_refund_penalty: {
+  numerator: 0,
+  denominator: 100,
+}
+min_gas_refund_penalty: 0
 
 # Stateless validation config
 main_storage_proof_size_soft_limit: 4_294_967_295
