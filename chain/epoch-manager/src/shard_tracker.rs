@@ -375,6 +375,7 @@ mod tests {
     use near_primitives::epoch_block_info::BlockInfo;
     use near_primitives::epoch_manager::EpochConfigStore;
     use near_primitives::hash::CryptoHash;
+    use near_primitives::shard_layout::ShardLayout;
     use near_primitives::types::validator_stake::ValidatorStake;
     use near_primitives::types::{AccountInfo, BlockHeight, EpochId, ProtocolVersion, ShardId};
     use near_primitives::version::PROTOCOL_VERSION;
@@ -384,7 +385,10 @@ mod tests {
 
     const DEFAULT_TOTAL_SUPPLY: u128 = 1_000_000_000_000;
 
-    fn get_epoch_manager(genesis_protocol_version: ProtocolVersion) -> Arc<EpochManagerHandle> {
+    fn get_epoch_manager(
+        genesis_protocol_version: ProtocolVersion,
+        num_shards: u64,
+    ) -> Arc<EpochManagerHandle> {
         let store = create_test_store();
         let mut genesis_config = GenesisConfig::default();
         genesis_config.protocol_version = genesis_protocol_version;
@@ -394,7 +398,11 @@ mod tests {
             amount: 100,
         }];
 
-        let epoch_config = TestEpochConfigBuilder::new().build();
+        // Create a multi-shard epoch config
+        let mut epoch_config = TestEpochConfigBuilder::new().build();
+        // Set the ShardLayout to have multiple shards
+        epoch_config.shard_layout = ShardLayout::multi_shard(num_shards, 0);
+
         let config_store =
             EpochConfigStore::test_single_version(genesis_protocol_version, epoch_config);
         EpochManager::new_arc_handle_from_epoch_config_store(store, &genesis_config, config_store)
@@ -456,17 +464,24 @@ mod tests {
 
     #[test]
     fn test_track_accounts() {
-        // Use only shard 0 since that's all that exists in the test environment
-        let shard_ids = vec![ShardId::new(0)];
-        let epoch_manager = get_epoch_manager(PROTOCOL_VERSION);
+        // Use 4 shards for testing
+        let num_shards = 4;
+        let shard_ids: Vec<ShardId> = (0..num_shards).map(ShardId::new).collect();
+        let epoch_manager = get_epoch_manager(PROTOCOL_VERSION, num_shards);
         let shard_layout = epoch_manager.get_shard_layout(&EpochId::default()).unwrap();
-        // All accounts will be in shard 0 in the test environment
-        let tracked_accounts = vec!["test1".parse().unwrap(), "test2".parse().unwrap()];
-        let tracker =
-            ShardTracker::new(TrackedShardsConfig::Accounts(tracked_accounts), epoch_manager);
+
+        // Create tracked accounts that will distribute across different shards
+        let tracked_accounts = vec!["test1.near".parse().unwrap(), "test2.near".parse().unwrap()];
+        let tracker = ShardTracker::new(
+            TrackedShardsConfig::Accounts(tracked_accounts.clone()),
+            epoch_manager,
+        );
+
+        // Calculate which shards the accounts should be in
         let mut total_tracked_shards = HashSet::new();
-        total_tracked_shards.insert(shard_layout.account_id_to_shard_id(&"test1".parse().unwrap()));
-        total_tracked_shards.insert(shard_layout.account_id_to_shard_id(&"test2".parse().unwrap()));
+        for account_id in &tracked_accounts {
+            total_tracked_shards.insert(shard_layout.account_id_to_shard_id(account_id));
+        }
 
         assert_eq!(
             get_all_shards_care_about(&tracker, &shard_ids, &CryptoHash::default()),
@@ -480,9 +495,10 @@ mod tests {
 
     #[test]
     fn test_track_all_shards() {
-        // Use only shard 0 since that's all that exists in the test environment
-        let shard_ids = vec![ShardId::new(0)];
-        let epoch_manager = get_epoch_manager(PROTOCOL_VERSION);
+        // Use 4 shards for testing
+        let num_shards = 4;
+        let shard_ids: Vec<ShardId> = (0..num_shards).map(ShardId::new).collect();
+        let epoch_manager = get_epoch_manager(PROTOCOL_VERSION, num_shards);
         let tracker = ShardTracker::new(TrackedShardsConfig::AllShards, epoch_manager);
         let total_tracked_shards: HashSet<_> = shard_ids.iter().cloned().collect();
 
@@ -498,19 +514,25 @@ mod tests {
 
     #[test]
     fn test_track_schedule() {
-        // Use only shard 0 since that's all that exists in the test environment
-        let shard_ids = vec![ShardId::new(0)];
+        // Use 4 shards for testing
+        let num_shards = 4;
+        let shard_ids: Vec<ShardId> = (0..num_shards).map(ShardId::new).collect();
 
-        let epoch_manager = get_epoch_manager(PROTOCOL_VERSION);
-        // All subsets include shard 0
-        let subset1: HashSet<ShardId> = HashSet::from([0]).into_iter().map(ShardId::new).collect();
-        let subset2: HashSet<ShardId> = HashSet::from([0]).into_iter().map(ShardId::new).collect();
-        let subset3: HashSet<ShardId> = HashSet::from([0]).into_iter().map(ShardId::new).collect();
+        let epoch_manager = get_epoch_manager(PROTOCOL_VERSION, num_shards);
+
+        // Create subsets with different distributions of shards
+        let subset1: HashSet<ShardId> =
+            HashSet::from([0, 1]).into_iter().map(ShardId::new).collect();
+        let subset2: HashSet<ShardId> =
+            HashSet::from([1, 2]).into_iter().map(ShardId::new).collect();
+        let subset3: HashSet<ShardId> =
+            HashSet::from([2, 3]).into_iter().map(ShardId::new).collect();
+
         let tracker = ShardTracker::new(
             TrackedShardsConfig::Schedule(vec![
                 subset1.clone().into_iter().collect(),
-                subset2.clone().into_iter().map(Into::into).collect(),
-                subset3.clone().into_iter().map(Into::into).collect(),
+                subset2.clone().into_iter().collect(),
+                subset3.clone().into_iter().collect(),
             ]),
             epoch_manager.clone(),
         );
@@ -530,7 +552,7 @@ mod tests {
             }
         }
 
-        // Since all subsets contain shard 0, all these should be equal to subset1/subset2/subset3
+        // Test the shards scheduled for each epoch
         assert_eq!(get_all_shards_care_about(&tracker, &shard_ids, &h[4]), subset2);
         assert_eq!(get_all_shards_care_about(&tracker, &shard_ids, &h[5]), subset3);
         assert_eq!(get_all_shards_care_about(&tracker, &shard_ids, &h[6]), subset1);

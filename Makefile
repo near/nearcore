@@ -1,4 +1,4 @@
-just nextest stable #cspell:words BUILDKIT
+#cspell:words BUILDKIT
 
 export DOCKER_BUILDKIT = 1
 export CARGO_BUILD_RUSTFLAGS = -D warnings
