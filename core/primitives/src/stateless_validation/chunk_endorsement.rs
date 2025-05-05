@@ -94,6 +94,13 @@ impl ChunkEndorsement {
             ChunkEndorsement::V2(v2) => &v2.metadata.account_id,
         }
     }
+
+    pub fn shard_id(&self) -> ShardId {
+        match self {
+            ChunkEndorsement::V1 => unreachable!("V1 chunk endorsement is deprecated"),
+            ChunkEndorsement::V2(v2) => v2.metadata.shard_id,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
