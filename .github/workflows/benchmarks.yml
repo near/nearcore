@@ -16,11 +16,11 @@ jobs:
       - name: Install jq json processor
         run: sudo apt-get update && sudo apt-get install jq
 
-      - run:
+      - run: |
           whoami
           echo $PATH
           env
-          
+
       - uses: actions/checkout@v4
 
       # Install all the required tools
