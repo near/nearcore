@@ -30,7 +30,6 @@ rand.workspace = true
 rayon.workspace = true
 ripemd.workspace = true
 rustix = { workspace = true, features = ["fs"] }
-serde_repr.workspace = true
 serde.workspace = true
 sha2.workspace = true
 sha3.workspace = true
@@ -116,3 +115,6 @@ protocol_schema = [
 
 # Use this feature to enable counting of fees and costs applied.
 costs_counting = []
+
+[package.metadata.cargo-machete]
+ignored = ["prometheus"]

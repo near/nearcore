@@ -17,8 +17,6 @@ anyhow.workspace = true
 futures.workspace = true
 parking_lot.workspace = true
 rocksdb.workspace = true
-serde.workspace = true
-serde_json.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 
@@ -26,7 +24,6 @@ nearcore.workspace = true
 near-client.workspace = true
 near-chain-configs.workspace = true
 near-config-utils.workspace = true
-near-crypto.workspace = true
 near-dyn-configs.workspace = true
 near-epoch-manager.workspace = true
 near-indexer-primitives.workspace = true
@@ -51,3 +48,6 @@ nightly = [
     "nearcore/nightly",
     "node-runtime/nightly",
 ]
+
+[package.metadata.cargo-machete]
+ignored = ["near-dyn-configs"]

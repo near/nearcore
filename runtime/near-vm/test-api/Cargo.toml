@@ -21,7 +21,6 @@ workspace = true
 cfg-if.workspace = true
 finite-wasm.workspace = true
 indexmap.workspace = true
-more-asserts.workspace = true
 parking_lot.workspace = true
 prefix-sum-vec.workspace = true
 thiserror.workspace = true

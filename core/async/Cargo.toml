@@ -13,7 +13,6 @@ workspace = true
 
 [dependencies]
 actix.workspace = true
-derive_more.workspace = true
 futures.workspace = true
 parking_lot.workspace = true
 serde.workspace = true

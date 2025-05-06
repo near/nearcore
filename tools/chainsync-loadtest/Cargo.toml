@@ -18,10 +18,8 @@ name = "chainsync-loadtest"
 [dependencies]
 actix.workspace = true
 anyhow.workspace = true
-async-trait.workspace = true
 clap.workspace = true
 dirs.workspace = true
-futures.workspace = true
 log.workspace = true
 openssl-probe.workspace = true
 parking_lot.workspace = true

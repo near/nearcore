@@ -13,14 +13,11 @@ workspace = true
 
 [dependencies]
 anyhow.workspace = true
-borsh.workspace = true
 clap.workspace = true
 itertools.workspace = true
-indicatif.workspace = true
 parking_lot.workspace = true
 
 near-chain.workspace = true
-near-chain-primitives.workspace = true
 near-chunks.workspace = true
 near-primitives.workspace = true
 near-primitives-core.workspace = true
@@ -40,3 +37,6 @@ nightly = [
     "near-store/nightly",
     "nearcore/nightly",
 ]
+
+[package.metadata.cargo-machete]
+ignored = ["near-o11y", "near-primitives-core"]

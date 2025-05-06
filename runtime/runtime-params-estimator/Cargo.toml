@@ -17,15 +17,11 @@ required-features = ["costs_counting"]
 
 [dependencies]
 anyhow.workspace = true
-borsh.workspace = true
 bs58.workspace = true
 bytesize.workspace = true
-cfg-if.workspace = true
 chrono.workspace = true
 clap.workspace = true
 enum-map.workspace = true
-hex.workspace = true
-indicatif.workspace = true
 rustix.workspace = true
 num-rational.workspace = true
 num-traits.workspace = true

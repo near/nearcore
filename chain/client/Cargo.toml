@@ -15,12 +15,9 @@ workspace = true
 actix-rt.workspace = true
 actix.workspace = true
 anyhow.workspace = true
-async-trait.workspace = true
 borsh.workspace = true
 bytesize.workspace = true
-chrono.workspace = true
 object_store.workspace = true
-derive_more = { workspace = true, features = ["from"] }
 futures.workspace = true
 itertools.workspace = true
 lru.workspace = true
@@ -38,7 +35,6 @@ serde.workspace = true
 strum.workspace = true
 sysinfo.workspace = true
 tempfile.workspace = true
-thiserror.workspace = true
 time.workspace = true
 tokio.workspace = true
 tokio-stream.workspace = true
@@ -107,3 +103,6 @@ sandbox = [
     "near-chain/sandbox",
     "near-o11y/sandbox",
 ]
+
+[package.metadata.cargo-machete]
+ignored = ["rust-s3"]
