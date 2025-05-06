@@ -314,7 +314,6 @@ pub fn index_to_bytes(index: u64) -> [u8; 8] {
 
 /// A wrapper around Option<T> that provides native Display trait.
 /// Simplifies propagating automatic Display trait on parent structs.
-#[derive(Clone)]
 pub struct DisplayOption<T>(pub Option<T>);
 
 impl<T: fmt::Display> fmt::Display for DisplayOption<T> {
