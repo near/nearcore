@@ -43,7 +43,7 @@ use rand::thread_rng;
 use std::cmp::min;
 use std::collections::HashSet;
 use std::sync::Arc;
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use tracing::Instrument as _;
 
 /// Ratio between consecutive attempts to establish connection with another peer.
@@ -237,7 +237,16 @@ impl PeerManagerActor {
             v
         };
         let my_peer_id = config.node_id();
-        let arbiter = actix::Arbiter::new().handle();
+
+        const PEER_ARBITERS: usize = 16;
+        let peer_arbiter_pool: Arc<Vec<actix::ArbiterHandle>> =
+            Arc::new((0..PEER_ARBITERS).map(|_| actix::Arbiter::new().handle()).collect());
+
+        // We'll spawn the management tasks on the first arbiter in the pool;
+        // the PeerActors will be spawned in round-robin fashion using the counter.
+        let arbiter = peer_arbiter_pool[0].clone();
+        let peer_arbiter_pool_counter = Arc::new(AtomicUsize::new(0));
+
         let clock = clock;
         let state = Arc::new(NetworkState::new(
             &clock,
@@ -270,6 +279,8 @@ impl PeerManagerActor {
                     arbiter.spawn({
                         let clock = clock.clone();
                         let state = state.clone();
+                        let peer_arbiter_pool = peer_arbiter_pool.clone();
+                        let peer_arbiter_pool_counter = peer_arbiter_pool_counter.clone();
                         async move {
                             loop {
                                 if let Ok(stream) = listener.accept().await {
@@ -279,11 +290,19 @@ impl PeerManagerActor {
                                     // we would like to exchange set of connected peers even without establishing
                                     // a proper connection.
                                     tracing::debug!(target: "network", from = ?stream.peer_addr, "got new connection");
-                                    if let Err(err) =
-                                        PeerActor::spawn(clock.clone(), stream, None, state.clone())
-                                    {
-                                        tracing::info!(target:"network", ?err, "PeerActor::spawn()");
-                                    }
+
+                                    let pool_index = peer_arbiter_pool_counter.fetch_add(1, Ordering::Relaxed) % PEER_ARBITERS;
+                                    peer_arbiter_pool[pool_index].spawn({
+                                        let clock = clock.clone();
+                                        let state = state.clone();
+                                        async move {
+                                            if let Err(err) =
+                                                PeerActor::spawn(clock.clone(), stream, None, state.clone())
+                                            {
+                                                tracing::info!(target:"network", ?err, "PeerActor::spawn()");
+                                            }
+                                        }
+                                    });
                                 }
                             }
                         }
@@ -307,12 +326,14 @@ impl PeerManagerActor {
                     arbiter.spawn({
                         let clock = clock.clone();
                         let state = state.clone();
+                        let peer_arbiter_pool = peer_arbiter_pool.clone();
+                        let peer_arbiter_pool_counter = peer_arbiter_pool_counter.clone();
                         let mut interval = tokio::time::interval(cfg.connect_interval.try_into().unwrap());
                         interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
                         async move {
                             loop {
                                 interval.tick().await;
-                                state.tier1_connect(&clock).await;
+                                state.tier1_connect(&clock, peer_arbiter_pool.clone(), peer_arbiter_pool_counter.clone()).await;
                             }
                         }
                     });
@@ -321,7 +342,8 @@ impl PeerManagerActor {
                 arbiter.spawn({
                     let clock = clock.clone();
                     let state = state.clone();
-                    let arbiter = arbiter.clone();
+                    let peer_arbiter_pool = peer_arbiter_pool.clone();
+                    let peer_arbiter_pool_counter = peer_arbiter_pool_counter.clone();
                     let mut interval = time::Interval::new(clock.now(), POLL_CONNECTION_STORE_INTERVAL);
                     async move {
                         loop {
@@ -330,7 +352,8 @@ impl PeerManagerActor {
                             let pending_reconnect = state.poll_pending_reconnect();
                             // Spawn a separate reconnect loop for each pending reconnect attempt
                             for peer_info in pending_reconnect {
-                                arbiter.spawn({
+                                let pool_index = peer_arbiter_pool_counter.fetch_add(1, Ordering::Relaxed) % PEER_ARBITERS;
+                                peer_arbiter_pool[pool_index].spawn({
                                     let state = state.clone();
                                     let clock = clock.clone();
                                     let peer_info = peer_info.clone();

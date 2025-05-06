@@ -16,6 +16,7 @@ use rand::seq::IteratorRandom as _;
 use rand::seq::SliceRandom as _;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 impl super::NetworkState {
     // Returns a snapshot of ValidatorConfig of this node iff it belongs to TIER1 according to `accounts_data`.
@@ -214,7 +215,12 @@ impl super::NetworkState {
 
     /// Closes TIER1 connections from nodes which are not TIER1 any more.
     /// If this node is TIER1, it additionally connects to proxies of other TIER1 nodes.
-    pub async fn tier1_connect(self: &Arc<Self>, clock: &time::Clock) {
+    pub async fn tier1_connect(
+        self: &Arc<Self>,
+        clock: &time::Clock,
+        peer_arbiter_pool: Arc<Vec<actix::ArbiterHandle>>,
+        peer_arbiter_pool_counter: Arc<AtomicUsize>,
+    ) {
         let tier1_cfg = match &self.config.tier1 {
             Some(it) => it,
             None => return,
@@ -329,28 +335,43 @@ impl super::NetworkState {
                 let proxy = proxies.iter().choose(&mut rand::thread_rng());
                 if let Some(proxy) = proxy {
                     let proxy = (*proxy).clone();
-                    handles.push(async move {
-                        let stream = tcp::Stream::connect(
-                            &PeerInfo {
-                                id: proxy.peer_id,
-                                addr: Some(proxy.addr),
-                                account_id: None,
-                            },
-                            tcp::Tier::T1,
-                            &self.config.socket_options,
-                        )
-                        .await?;
-                        PeerActor::spawn_and_handshake(clock.clone(), stream, None, self.clone())
-                            .await
+                    handles.push({
+                        let clock = clock.clone();
+                        let peer_arbiter_pool = peer_arbiter_pool.clone();
+                        let peer_arbiter_pool_counter = peer_arbiter_pool_counter.clone();
+                        let this = self.clone();
+                        async move {
+                            let pool_index = peer_arbiter_pool_counter.fetch_add(1, Ordering::Relaxed) % peer_arbiter_pool.len();
+                            peer_arbiter_pool[pool_index].spawn({
+                                async move {
+                                    let res = async {
+                                        let stream = tcp::Stream::connect(
+                                            &PeerInfo {
+                                                id: proxy.peer_id,
+                                                addr: Some(proxy.addr),
+                                                account_id: None,
+                                            },
+                                            tcp::Tier::T1,
+                                            &this.config.socket_options,
+                                        )
+                                            .await?;
+                                        PeerActor::spawn_and_handshake(clock.clone(), stream, None, this.clone())
+                                            .await
+                                    }
+                                    .await;
+
+                                    if let Err(err) = res {
+                                        tracing::info!(target:"network", ?err, "{}: failed to establish a TIER1 connection",this.config.node_id());
+                                    }
+                                }
+                            });
+                            Ok::<(), anyhow::Error>(())
+                        }
                     });
                 }
             }
             tracing::debug!(target:"network","{}: establishing {} new connections",self.config.node_id(),handles.len());
-            for res in futures_util::future::join_all(handles).await {
-                if let Err(err) = res {
-                    tracing::info!(target:"network", ?err, "{}: failed to establish a TIER1 connection",self.config.node_id());
-                }
-            }
+            futures_util::future::join_all(handles).await;
             tracing::debug!(target:"network","{}: establishing new connections DONE",self.config.node_id());
         }
     }
