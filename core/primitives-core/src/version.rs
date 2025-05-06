@@ -396,7 +396,9 @@ impl ProtocolFeature {
             ProtocolFeature::GlobalContracts
             | ProtocolFeature::BlockHeightForReceiptId
             | ProtocolFeature::ProduceOptimisticBlock => 77,
-            ProtocolFeature::SimpleNightshadeV6 | ProtocolFeature::SaturatingFloatToInt => 78,
+            ProtocolFeature::SimpleNightshadeV6
+            | ProtocolFeature::SaturatingFloatToInt
+            | ProtocolFeature::ReducedGasRefunds => 78,
 
             // Nightly features:
             ProtocolFeature::FixContractLoadingCost => 129,
@@ -404,7 +406,6 @@ impl ProtocolFeature {
             // that always enables this for mocknet (see config_mocknet function).
             ProtocolFeature::ShuffleShardAssignments => 143,
             ProtocolFeature::ExcludeExistingCodeFromWitnessForCodeLen => 148,
-            ProtocolFeature::ReducedGasRefunds => 149,
             // Place features that are not yet in Nightly below this line.
         }
     }
