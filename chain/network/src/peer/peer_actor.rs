@@ -1689,7 +1689,7 @@ impl actix::Handler<VerifiedRouted> for PeerActor {
         let _span = tracing::debug_span!(
             target: "network",
             "handle",
-            handler = "bytes",
+            handler = "VerifiedRouted",
             actor = "PeerActor",
             peer = %self.peer_info)
         .entered();
