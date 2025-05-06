@@ -477,41 +477,6 @@ impl PeerActor {
                 .with_label_values(&[msg_type])
                 .inc_by(bytes_len as u64);
         });
-        // // Skip sending block and headers if we received it or header from this peer.
-        // // Record block requests in tracker.
-        // match msg {
-        //     // Temporarily disable this check because now the node needs to send block to its
-        //     // peers to update its height at the peer. In the future we will introduce a new
-        //     // peer message type for that and then we can enable this check again.
-        //     //PeerMessage::Block(b) if self.tracker.lock().has_received(b.hash()) => return,
-        //     PeerMessage::BlockRequest(h) => self.tracker.lock().push_request(*h),
-        //     PeerMessage::SyncAccountsData(d) => metrics::SYNC_ACCOUNTS_DATA
-        //         .with_label_values(&[
-        //             "sent",
-        //             metrics::bool_to_str(d.incremental),
-        //             metrics::bool_to_str(d.requesting_full_sync),
-        //         ])
-        //         .inc(),
-        //     PeerMessage::SyncSnapshotHosts(_) => {
-        //         metrics::SYNC_SNAPSHOT_HOSTS.with_label_values(&["sent"]).inc()
-        //     }
-        //     PeerMessage::Routed(routed) => {
-        //         tracing::debug!(target: "network", source=?routed.msg.author, target=?routed.msg.target, message=?routed.msg.body, "send_routed_message");
-        //     }
-        //     _ => (),
-        // };
-
-        // let bytes = msg.serialize(enc);
-        // self.tracker.lock().increment_sent(&self.clock, bytes.len() as u64);
-        // let bytes_len = bytes.len();
-        // tracing::trace!(target: "network", msg_len = bytes_len);
-        // self.framed.send(stream::Frame(bytes));
-        // metrics::PEER_DATA_SENT_BYTES.inc_by(bytes_len as u64);
-        // let msg_type = msg.msg_variant();
-        // metrics::PEER_MESSAGE_SENT_BY_TYPE_TOTAL.with_label_values(&[msg_type]).inc();
-        // metrics::PEER_MESSAGE_SENT_BY_TYPE_BYTES
-        //     .with_label_values(&[msg_type])
-        //     .inc_by(bytes_len as u64);
     }
 
     fn send_handshake(&self, spec: HandshakeSpec) {
