@@ -8,8 +8,6 @@ use rustix::mm::{self, MapFlags, MprotectFlags, ProtFlags};
 #[cfg(not(windows))]
 use std::sync::Arc;
 
-use parking_lot::Mutex;
-
 /// The optimal alignment for functions.
 ///
 /// On x86-64, this is 16 since it's what the optimizations assume.
@@ -98,7 +96,7 @@ impl<'a> CodeMemoryWriter<'a> {
 pub struct CodeMemory {
     /// Where to return this memory to when dropped.
     #[cfg(not(windows))]
-    source_pool: Option<Arc<Mutex<Vec<Self>>>>,
+    source_pool: Option<Arc<parking_lot::Mutex<Vec<Self>>>>,
 
     /// The mapping
     map: *mut u8,
@@ -254,7 +252,7 @@ unsafe impl Send for CodeMemory {}
 #[derive(Clone)]
 pub struct MemoryPool {
     #[cfg(not(windows))]
-    pool: Arc<Mutex<Vec<CodeMemory>>>,
+    pool: Arc<parking_lot::Mutex<Vec<CodeMemory>>>,
 }
 
 #[cfg(not(windows))]
@@ -265,7 +263,7 @@ impl MemoryPool {
         for _ in 0..preallocate_count {
             pool.push(CodeMemory::create(initial_map_size)?);
         }
-        let pool = Arc::new(Mutex::new(pool));
+        let pool = Arc::new(parking_lot::Mutex::new(pool));
         Ok(Self { pool })
     }
 
