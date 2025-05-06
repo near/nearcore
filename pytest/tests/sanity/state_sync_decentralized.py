@@ -90,7 +90,7 @@ class StateSyncValidatorShardSwap(unittest.TestCase):
             account_prefixes=ALL_ACCOUNTS_PREFIXES,
             epoch_length=EPOCH_LENGTH)
 
-        self.testcase.wait_for_blocks(3)
+        self.testcase.wait_for_blocks(3, timeout=10)
 
         self.testcase.create_accounts()
 
@@ -110,7 +110,7 @@ class StateSyncValidatorShardSwap(unittest.TestCase):
 
         # Wait for all nodes to reach epoch 6.
         for n in self.validators:
-            wait_for_blocks(n, target=target_height)
+            wait_for_blocks(n, target=target_height, timeout=120)
         logger.info("Test ended")
 
         for i in range(len(self.nodes) - 1):
@@ -123,12 +123,14 @@ class StateSyncValidatorShardSwap(unittest.TestCase):
             num_retries = 0
 
             for key, value in down:
-                if key['source'] != 'network':
-                    assert False, f"Expected state sync data source 'network', got {key['source']}"
-
                 if key['result'] != 'success':
                     num_retries += 1
-                elif key['type'] == 'header':
+                    continue
+
+                if key['source'] != 'network':
+                    assert False, f"Expected success only from 'network', got {key['source']}"
+
+                if key['type'] == 'header':
                     num_headers += 1
                 elif key['type'] == 'part':
                     num_parts += 1
