@@ -402,17 +402,6 @@ impl PeerActor {
         }
     }
 
-    fn parse_message(&mut self, msg: &[u8]) -> Result<PeerMessage, ParsePeerMessageError> {
-        if let Some(e) = self.encoding() {
-            return PeerMessage::deserialize(e, msg);
-        }
-        if let Ok(msg) = PeerMessage::deserialize(Encoding::Proto, msg) {
-            self.protocol_buffers_supported = true;
-            return Ok(msg);
-        }
-        return PeerMessage::deserialize(Encoding::Borsh, msg);
-    }
-
     fn send_message_or_log(&self, msg: Arc<PeerMessage>) {
         self.send_message(msg);
     }
@@ -1677,6 +1666,77 @@ impl actix::Handler<stream::Error> for PeerActor {
 
 #[derive(actix::Message, Debug)]
 #[rtype(result = "()")]
+enum ParsedMessage {
+    Valid(PeerMessage, usize, Encoding),
+}
+impl actix::Handler<ParsedMessage> for PeerActor {
+    type Result = ();
+
+    fn handle(&mut self, msg: ParsedMessage, ctx: &mut Self::Context) {
+        let (mut peer_msg, len, encoding) = match msg {
+            ParsedMessage::Valid(msg, len, encoding) => (msg, len, encoding),
+        };
+
+        if encoding == Encoding::Proto {
+            self.protocol_buffers_supported = true;
+        }
+
+        tracing::trace!(target: "network", "Received message: {}", peer_msg);
+
+        let now = self.clock.now();
+        {
+            let labels = [peer_msg.msg_variant()];
+            metrics::PEER_MESSAGE_RECEIVED_BY_TYPE_TOTAL.with_label_values(&labels).inc();
+            metrics::PEER_MESSAGE_RECEIVED_BY_TYPE_BYTES
+                .with_label_values(&labels)
+                .inc_by(len as u64);
+            if !self.received_messages_rate_limits.is_allowed(&peer_msg, now) {
+                metrics::PEER_MESSAGE_RATE_LIMITED_BY_TYPE_TOTAL.with_label_values(&labels).inc();
+                tracing::debug!(target: "network", "Peer {} is being rate limited for message {}", self.peer_info, peer_msg.msg_variant());
+                return;
+            }
+        }
+        match &self.peer_status {
+            PeerStatus::Connecting { .. } => self.handle_msg_connecting(ctx, peer_msg),
+            PeerStatus::Ready(conn) => {
+                if self.closing_reason.is_some() {
+                    tracing::warn!(target: "network", "Received {} from closing connection {:?}. Ignoring", peer_msg, self.peer_type);
+                    return;
+                }
+                conn.last_time_received_message.store(now);
+                // Check if the message type is allowed given the TIER of the connection:
+                // TIER1 connections are reserved exclusively for BFT consensus messages.
+                if !conn.tier.is_allowed(&peer_msg) {
+                    tracing::warn!(target: "network", "Received {} on {:?} connection, disconnecting",peer_msg.msg_variant(),conn.tier);
+                    // TODO(gprusak): this is abusive behavior. Consider banning for it.
+                    self.stop(ctx, ClosingReason::DisallowedMessage);
+                    return;
+                }
+
+                // Optionally, ignore any received tombstones after startup. This is to
+                // prevent overload from too much accumulated deleted edges.
+                //
+                // We have similar code to skip sending tombstones, here we handle the
+                // case when our peer doesn't use that logic yet.
+                if let Some(skip_tombstones) = self.network_state.config.skip_tombstones {
+                    if let PeerMessage::SyncRoutingTable(routing_table) = &mut peer_msg {
+                        if conn.established_time + skip_tombstones > now {
+                            routing_table
+                                .edges
+                                .retain(|edge| edge.edge_type() == EdgeState::Active);
+                            metrics::EDGE_TOMBSTONE_RECEIVING_SKIPPED.inc();
+                        }
+                    }
+                }
+                // Handle the message.
+                self.handle_msg_ready(ctx, conn.clone(), peer_msg);
+            }
+        }
+    }
+}
+
+#[derive(actix::Message, Debug)]
+#[rtype(result = "()")]
 enum VerifiedRouted {
     Valid(Box<RoutedMessageV2>, Arc<Connection>),
     Invalid,
@@ -1747,6 +1807,19 @@ impl actix::Handler<VerifiedRouted> for PeerActor {
     }
 }
 
+fn parse_message(
+    msg: &[u8],
+    encoding: Option<Encoding>,
+) -> Result<(PeerMessage, Encoding), ParsePeerMessageError> {
+    if let Some(e) = encoding {
+        return Ok((PeerMessage::deserialize(e, msg)?, e));
+    }
+    if let Ok(msg) = PeerMessage::deserialize(Encoding::Proto, msg) {
+        return Ok((msg, Encoding::Proto));
+    }
+    return Ok((PeerMessage::deserialize(Encoding::Borsh, msg)?, Encoding::Borsh));
+}
+
 impl actix::Handler<stream::Frame> for PeerActor {
     type Result = ();
     #[perf]
@@ -1772,65 +1845,23 @@ impl actix::Handler<stream::Frame> for PeerActor {
             self.tracker.lock().increment_received(&self.clock, msg.len() as u64);
         }
 
-        let mut peer_msg = match self.parse_message(&msg) {
-            Ok(msg) => msg,
-            Err(err) => {
-                tracing::debug!(target: "network", "Received invalid data {} from {}: {}", near_fmt::AbbrBytes(&msg), self.peer_info, err);
-                return;
-            }
-        };
+        let addr = ctx.address();
+        let encoding = self.encoding();
+        let peer_info = self.peer_info.clone();
 
-        tracing::trace!(target: "network", "Received message: {}", peer_msg);
-
-        let now = self.clock.now();
-        {
-            let labels = [peer_msg.msg_variant()];
-            metrics::PEER_MESSAGE_RECEIVED_BY_TYPE_TOTAL.with_label_values(&labels).inc();
-            metrics::PEER_MESSAGE_RECEIVED_BY_TYPE_BYTES
-                .with_label_values(&labels)
-                .inc_by(msg.len() as u64);
-            if !self.received_messages_rate_limits.is_allowed(&peer_msg, now) {
-                metrics::PEER_MESSAGE_RATE_LIMITED_BY_TYPE_TOTAL.with_label_values(&labels).inc();
-                tracing::debug!(target: "network", "Peer {} is being rate limited for message {}", self.peer_info, peer_msg.msg_variant());
-                return;
-            }
-        }
-        match &self.peer_status {
-            PeerStatus::Connecting { .. } => self.handle_msg_connecting(ctx, peer_msg),
-            PeerStatus::Ready(conn) => {
-                if self.closing_reason.is_some() {
-                    tracing::warn!(target: "network", "Received {} from closing connection {:?}. Ignoring", peer_msg, self.peer_type);
+        self.peer_actor_spawner.spawn("detached parse_message", move || {
+            let (peer_msg, encoding) = match parse_message(&msg, encoding) {
+                Ok(msg) => msg,
+                Err(err) => {
+                    tracing::debug!(target: "network", "Received invalid data {} from {}: {}", near_fmt::AbbrBytes(&msg), peer_info, err);
                     return;
                 }
-                conn.last_time_received_message.store(now);
-                // Check if the message type is allowed given the TIER of the connection:
-                // TIER1 connections are reserved exclusively for BFT consensus messages.
-                if !conn.tier.is_allowed(&peer_msg) {
-                    tracing::warn!(target: "network", "Received {} on {:?} connection, disconnecting",peer_msg.msg_variant(),conn.tier);
-                    // TODO(gprusak): this is abusive behavior. Consider banning for it.
-                    self.stop(ctx, ClosingReason::DisallowedMessage);
-                    return;
-                }
+            };
 
-                // Optionally, ignore any received tombstones after startup. This is to
-                // prevent overload from too much accumulated deleted edges.
-                //
-                // We have similar code to skip sending tombstones, here we handle the
-                // case when our peer doesn't use that logic yet.
-                if let Some(skip_tombstones) = self.network_state.config.skip_tombstones {
-                    if let PeerMessage::SyncRoutingTable(routing_table) = &mut peer_msg {
-                        if conn.established_time + skip_tombstones > now {
-                            routing_table
-                                .edges
-                                .retain(|edge| edge.edge_type() == EdgeState::Active);
-                            metrics::EDGE_TOMBSTONE_RECEIVING_SKIPPED.inc();
-                        }
-                    }
-                }
-                // Handle the message.
-                self.handle_msg_ready(ctx, conn.clone(), peer_msg);
+            if let Err(e) = addr.try_send(ParsedMessage::Valid(peer_msg, msg.len(), encoding)) {
+                tracing::error!(target: "network", "Failed to send ParsedMessage to PeerActor: {}", e);
             }
-        }
+        });
     }
 }
 
