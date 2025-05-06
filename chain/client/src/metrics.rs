@@ -726,3 +726,21 @@ pub(crate) static DECODE_PARTIAL_WITNESS_ACCESSED_CONTRACTS_STATE_COUNT: LazyLoc
         )
         .unwrap()
     });
+
+pub(crate) static CHUNK_ENDORSEMENTS_ACCEPTED: LazyLock<IntCounterVec> = LazyLock::new(|| {
+    try_create_int_counter_vec(
+        "near_chunk_endorsements_accepted",
+        "Number of chunk endorsements which passed all validation checks and were included",
+        &["shard_id"],
+    )
+    .unwrap()
+});
+
+pub(crate) static CHUNK_ENDORSEMENTS_REJECTED: LazyLock<IntCounterVec> = LazyLock::new(|| {
+    try_create_int_counter_vec(
+        "near_chunk_endorsements_rejected",
+        "Number of chunk endorsements which failed some validation check and were rejected",
+        &["shard_id", "reason"],
+    )
+    .unwrap()
+});

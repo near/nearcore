@@ -165,7 +165,10 @@ impl Block {
                     ob.inner.random_value,
                 )
             })
-            .unwrap_or_else(|| get_block_metadata(prev, signer, clock, sandbox_delta_time));
+            .unwrap_or_else(|| {
+                let now = clock.now_utc().unix_timestamp_nanos() as u64;
+                get_block_metadata(prev, signer, now, sandbox_delta_time)
+            });
 
         let last_ds_final_block =
             if height == prev.height() + 1 { prev.hash() } else { prev.last_ds_final_block() };
