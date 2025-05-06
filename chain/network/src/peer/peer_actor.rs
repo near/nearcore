@@ -1497,13 +1497,15 @@ impl PeerActor {
                 let addr = ctx.address();
                 let conn_cl = conn.clone();
                 self.peer_actor_spawner.spawn("detached msg verification", move || {
-                    let thing = if !msg.verify() {
+                    let verified = if !msg.verify() {
                         // Received invalid routed message from peer.
                         VerifiedRouted::Invalid
                     } else {
                         VerifiedRouted::Valid(msg, conn_cl)
                     };
-                    addr.try_send(thing).expect("failed to send message to peer actor");
+                    if let Err(e) = addr.try_send(verified) {
+                        tracing::warn!(target: "network", "Failed to send message to actor: {:?}", e);
+                    };
                 });
             }
             msg => self.receive_message(ctx, &conn, msg),
