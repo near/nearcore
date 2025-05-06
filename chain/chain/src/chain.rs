@@ -2976,17 +2976,8 @@ impl Chain {
         block: &Block,
         cached_shard_update_keys: &[&CachedShardUpdateKey],
     ) -> bool {
-        if !self
-            .blocks_in_processing
+        self.blocks_in_processing
             .has_optimistic_block_with(block.header().height(), cached_shard_update_keys)
-        {
-            return false;
-        }
-        // If there is already a pending block with given height which matches
-        // optimistic execution, this is very unlikely case relevant to epoch
-        // switch or malicious behaviour. To avoid getting stuck, allow only
-        // one of these blocks to be pending.
-        !self.blocks_pending_execution.contains_key(&block.header().height())
     }
 
     /// Creates jobs which will update shards for the given block and incoming
