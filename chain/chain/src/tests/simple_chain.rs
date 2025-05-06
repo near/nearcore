@@ -4,9 +4,11 @@ use crate::{Block, BlockProcessingArtifact, ChainStoreAccess, Error};
 use assert_matches::assert_matches;
 use near_async::time::{Clock, Duration, FakeClock, Utc};
 use near_o11y::testonly::init_test_logger;
+#[cfg(feature = "test_features")]
+use near_primitives::optimistic_block::OptimisticBlock;
 use near_primitives::{
-    block::MaybeNew, hash::CryptoHash, optimistic_block::OptimisticBlock,
-    sharding::ShardChunkHeader, test_utils::TestBlockBuilder, version::PROTOCOL_VERSION,
+    block::MaybeNew, hash::CryptoHash, sharding::ShardChunkHeader, test_utils::TestBlockBuilder,
+    version::PROTOCOL_VERSION,
 };
 use num_rational::Ratio;
 
