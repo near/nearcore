@@ -36,6 +36,7 @@ use crate::types::{
 use actix::fut::future::wrap_future;
 use actix::{Actor as _, ActorContext as _, ActorFutureExt as _, AsyncContext as _};
 use lru::LruCache;
+use near_async::futures::AsyncComputationSpawner;
 use near_async::messaging::{CanSend, SendAsync};
 use near_async::time;
 use near_crypto::Signature;
@@ -191,6 +192,8 @@ pub(crate) struct PeerActor {
 
     /// Per-message rate limits for incoming messages.
     received_messages_rate_limits: messages_limits::RateLimits,
+
+    peer_actor_spawner: Arc<dyn AsyncComputationSpawner>,
 }
 
 impl Debug for PeerActor {
@@ -220,8 +223,10 @@ impl PeerActor {
         stream: tcp::Stream,
         force_encoding: Option<Encoding>,
         network_state: Arc<NetworkState>,
+        peer_actor_spawner: Arc<dyn AsyncComputationSpawner>,
     ) -> anyhow::Result<actix::Addr<Self>> {
-        let (addr, handshake_signal) = Self::spawn(clock, stream, force_encoding, network_state)?;
+        let (addr, handshake_signal) =
+            Self::spawn(clock, stream, force_encoding, network_state, peer_actor_spawner)?;
         // Await for the handshake to complete, by awaiting the handshake_signal channel.
         // This is a receiver of Infallible, so it only completes when the channel is closed.
         handshake_signal.await.err().unwrap();
@@ -237,12 +242,13 @@ impl PeerActor {
         stream: tcp::Stream,
         force_encoding: Option<Encoding>,
         network_state: Arc<NetworkState>,
+        peer_actor_spawner: Arc<dyn AsyncComputationSpawner>,
     ) -> anyhow::Result<(actix::Addr<Self>, HandshakeSignal)> {
         #[cfg(test)]
         let stream_id = stream.id();
         #[cfg(test)]
         let network_state_clone = network_state.clone();
-        match Self::spawn_inner(clock, stream, force_encoding, network_state) {
+        match Self::spawn_inner(clock, stream, force_encoding, network_state, peer_actor_spawner) {
             Ok(it) => Ok(it),
             Err(reason) => {
                 #[cfg(test)]
@@ -259,6 +265,7 @@ impl PeerActor {
         stream: tcp::Stream,
         force_encoding: Option<Encoding>,
         network_state: Arc<NetworkState>,
+        peer_actor_spawner: Arc<dyn AsyncComputationSpawner>,
     ) -> Result<(actix::Addr<Self>, HandshakeSignal), ClosingReason> {
         let connecting_status = match &stream.type_ {
             tcp::StreamType::Inbound => ConnectingStatus::Inbound(
@@ -371,6 +378,7 @@ impl PeerActor {
                     .into(),
                     network_state,
                     received_messages_rate_limits,
+                    peer_actor_spawner,
                 }
             }),
             recv,

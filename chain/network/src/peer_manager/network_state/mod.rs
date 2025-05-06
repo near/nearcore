@@ -37,6 +37,7 @@ use crate::types::{
 };
 use anyhow::Context;
 use arc_swap::ArcSwap;
+use near_async::futures::AsyncComputationSpawner;
 use near_async::messaging::{CanSend, SendAsync, Sender};
 use near_async::time;
 use near_primitives::genesis::GenesisId;
@@ -464,6 +465,7 @@ impl NetworkState {
         clock: time::Clock,
         peer_info: PeerInfo,
         max_attempts: usize,
+        peer_actor_spawner: Arc<dyn AsyncComputationSpawner>,
     ) {
         let mut interval = time::Interval::new(clock.now(), RECONNECT_ATTEMPT_INTERVAL);
         for _attempt in 0..max_attempts {
@@ -474,9 +476,15 @@ impl NetworkState {
                     tcp::Stream::connect(&peer_info, tcp::Tier::T2, &self.config.socket_options)
                         .await
                         .context("tcp::Stream::connect()")?;
-                PeerActor::spawn_and_handshake(clock.clone(), stream, None, self.clone())
-                    .await
-                    .context("PeerActor::spawn()")?;
+                PeerActor::spawn_and_handshake(
+                    clock.clone(),
+                    stream,
+                    None,
+                    self.clone(),
+                    peer_actor_spawner.clone(),
+                )
+                .await
+                .context("PeerActor::spawn()")?;
                 anyhow::Ok(())
             }
             .await;
