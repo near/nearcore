@@ -490,8 +490,12 @@ impl PartialEncodedStateWitnessTracker {
 
         let (witness, raw_witness_size) =
             if ProtocolFeature::VersionedStateWitness.enabled(protocol_version) {
+                // If VersionedStateWitness is enabled, we expect the type of encoded_witness to be ChunkStateWitness
                 encoded_witness.decode()?
             } else {
+                // If VersionedStateWitness is not enabled,
+                // we expect the type of encoded_witness to be ChunkStateWitnessV1 to maintain backward compatibility
+                // We then decode and wrap it in ChunkStateWitness::V1
                 let (witness, raw_witness_size) = encoded_witness.decode()?;
                 (ChunkStateWitness::V1(witness), raw_witness_size)
             };
