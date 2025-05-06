@@ -432,6 +432,21 @@ pub struct RuntimeFeesConfig {
     ///
     /// Changed to false with [NEP-536](https://github.com/near/NEPs/pull/536)
     pub refund_gas_price_changes: bool,
+
+    /// Relative cost for gas refunds as a ratio of the refunded amount.
+    ///
+    /// The actual penalty is
+    /// `max(gross_refund * gas_refund_penalty, min_gas_refund_penalty)`
+    ///
+    /// Added with [NEP-536](https://github.com/near/NEPs/pull/536)
+    pub gas_refund_penalty: Rational32,
+    /// Minimum cost for gas refunds.
+    ///
+    /// The actual penalty is
+    /// `max(gross_refund * gas_refund_penalty, min_gas_refund_penalty)`
+    ///
+    /// Added with [NEP-536](https://github.com/near/NEPs/pull/536)
+    pub min_gas_refund_penalty: Gas,
 }
 
 /// Describes cost of storage per block
@@ -460,6 +475,17 @@ impl RuntimeFeesConfig {
             burnt_gas_reward: Rational32::new(3, 10),
             pessimistic_gas_price_inflation_ratio: Rational32::new(103, 100),
             refund_gas_price_changes: !ProtocolFeature::ReducedGasRefunds.enabled(PROTOCOL_VERSION),
+            gas_refund_penalty: if ProtocolFeature::ReducedGasRefunds.enabled(PROTOCOL_VERSION) {
+                Rational32::new(5, 100)
+            } else {
+                Rational32::new(0, 100)
+            },
+            min_gas_refund_penalty: if ProtocolFeature::ReducedGasRefunds.enabled(PROTOCOL_VERSION)
+            {
+                1_000_000_000_000
+            } else {
+                0
+            },
             action_fees: enum_map::enum_map! {
                 ActionCosts::create_account => Fee {
                     send_sir: 3_850_000_000_000,
@@ -574,6 +600,8 @@ impl RuntimeFeesConfig {
             burnt_gas_reward: Rational32::from_integer(0),
             pessimistic_gas_price_inflation_ratio: Rational32::from_integer(0),
             refund_gas_price_changes: !ProtocolFeature::ReducedGasRefunds.enabled(PROTOCOL_VERSION),
+            gas_refund_penalty: Rational32::from_integer(0),
+            min_gas_refund_penalty: 0,
         }
     }
 
@@ -584,6 +612,18 @@ impl RuntimeFeesConfig {
     pub fn min_receipt_with_function_call_gas(&self) -> Gas {
         self.fee(ActionCosts::new_action_receipt).min_send_and_exec_fee()
             + self.fee(ActionCosts::function_call_base).min_send_and_exec_fee()
+    }
+
+    /// Given a left over gas amount to be refunded, returns how much should be
+    /// subtracted as a penalty introduced with NEP-536.
+    ///
+    /// Must return a value smaller or equal to the `gas_refund` parameter.
+    pub fn gas_penalty_for_gas_refund(&self, gas_refund: Gas) -> Gas {
+        let relative_cost = (gas_refund as u128 * *self.gas_refund_penalty.numer() as u128
+            / *self.gas_refund_penalty.denom() as u128) as Gas;
+
+        let penalty = std::cmp::max(relative_cost, self.min_gas_refund_penalty);
+        std::cmp::min(penalty, gas_refund)
     }
 }
 

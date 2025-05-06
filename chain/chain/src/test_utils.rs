@@ -94,8 +94,8 @@ pub fn is_block_in_processing(chain: &Chain, block_hash: &CryptoHash) -> bool {
     chain.blocks_in_processing.contains(&BlockToApply::Normal(*block_hash))
 }
 
-pub fn is_optimistic_block_in_processing(chain: &Chain, block_hash: &CryptoHash) -> bool {
-    chain.blocks_in_processing.contains(&BlockToApply::Optimistic(*block_hash))
+pub fn is_optimistic_block_in_processing(chain: &Chain, block_height: u64) -> bool {
+    chain.blocks_in_processing.contains(&BlockToApply::Optimistic(block_height))
 }
 
 pub fn wait_for_block_in_processing(
@@ -171,7 +171,7 @@ pub fn setup_with_tx_validity_period(
         noop().into_multi_sender(),
     )
     .unwrap();
-
+    chain.init_flat_storage().unwrap();
     let signer = Arc::new(create_test_signer("test"));
     (chain, epoch_manager, runtime, signer)
 }
