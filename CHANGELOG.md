@@ -3,7 +3,10 @@
 ## [unreleased]
 
 ### Protocol Changes
-**No Changes**
+
+* Implement [NEP-536](https://github.com/near/NEPs/pull/536): Reduce the number
+  of refund receipts by adding a gas refund penalty and removing pessimistic gas
+  pricing. (#13397)
 
 ### Non-protocol Changes
 **No Changes**

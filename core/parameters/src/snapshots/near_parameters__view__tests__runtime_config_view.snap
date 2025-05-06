@@ -100,8 +100,8 @@ expression: "&view"
       10
     ],
     "pessimistic_gas_price_inflation_ratio": [
-      103,
-      100
+      1,
+      1
     ]
   },
   "wasm_config": {
