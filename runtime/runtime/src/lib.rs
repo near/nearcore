@@ -80,7 +80,7 @@ use rayon::prelude::*;
 use std::cmp::max;
 use std::collections::btree_map::Entry;
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use tracing::{debug, instrument};
 use verifier::ValidateReceiptMode;
 
@@ -103,6 +103,8 @@ mod types;
 mod verifier;
 
 const EXPECT_ACCOUNT_EXISTS: &str = "account exists, checked above";
+
+static ISOLATED_RAYON_POOL: OnceLock<rayon::ThreadPool> = OnceLock::new();
 
 #[derive(Debug)]
 pub struct ApplyState {
@@ -1653,101 +1655,107 @@ impl Runtime {
         epoch_info_provider: &dyn EpochInfoProvider,
         state_patch: SandboxStatePatch,
     ) -> Result<ApplyResult, RuntimeError> {
-        metrics::TRANSACTION_APPLIED_TOTAL.inc_by(signed_txs.len() as u64);
+        let pool = ISOLATED_RAYON_POOL.get_or_init(|| {
+            rayon::ThreadPoolBuilder::new().build().expect("build async computation spawner pool")
+        });
+        pool.install(|| {
+            metrics::TRANSACTION_APPLIED_TOTAL.inc_by(signed_txs.len() as u64);
 
-        // state_patch must be empty unless this is sandbox build.  Thanks to
-        // conditional compilation this always resolves to true so technically
-        // the check is not necessary.  It’s defense in depth to make sure any
-        // future refactoring won’t break the condition.
-        assert!(cfg!(feature = "sandbox") || state_patch.is_empty());
+            // state_patch must be empty unless this is sandbox build.  Thanks to
+            // conditional compilation this always resolves to true so technically
+            // the check is not necessary.  It’s defense in depth to make sure any
+            // future refactoring won’t break the condition.
+            assert!(cfg!(feature = "sandbox") || state_patch.is_empty());
 
-        // What this function does can be broken down conceptually into the following steps:
-        // 1. Update validator accounts.
-        // 2. Process transactions.
-        // 3. Process receipts.
-        // 4. Validate and apply the state update.
-        let mut processing_state =
-            ApplyProcessingState::new(&apply_state, trie, epoch_info_provider);
-        processing_state.stats.transactions_num = signed_txs.len().try_into().unwrap();
-        processing_state.stats.incoming_receipts_num = incoming_receipts.len().try_into().unwrap();
-        processing_state.stats.is_new_chunk = !apply_state.is_new_chunk;
+            // What this function does can be broken down conceptually into the following steps:
+            // 1. Update validator accounts.
+            // 2. Process transactions.
+            // 3. Process receipts.
+            // 4. Validate and apply the state update.
+            let mut processing_state =
+                ApplyProcessingState::new(&apply_state, trie, epoch_info_provider);
+            processing_state.stats.transactions_num = signed_txs.len().try_into().unwrap();
+            processing_state.stats.incoming_receipts_num =
+                incoming_receipts.len().try_into().unwrap();
+            processing_state.stats.is_new_chunk = !apply_state.is_new_chunk;
 
-        if let Some(prefetcher) = &mut processing_state.prefetcher {
-            // Prefetcher is allowed to fail
-            _ = prefetcher.prefetch_transactions_data(&signed_txs);
-        }
+            if let Some(prefetcher) = &mut processing_state.prefetcher {
+                // Prefetcher is allowed to fail
+                _ = prefetcher.prefetch_transactions_data(&signed_txs);
+            }
 
-        // Step 1: update validator accounts.
-        if let Some(validator_accounts_update) = validator_accounts_update {
-            self.update_validator_accounts(
-                &mut processing_state.state_update,
-                validator_accounts_update,
-            )?;
-        }
+            // Step 1: update validator accounts.
+            if let Some(validator_accounts_update) = validator_accounts_update {
+                self.update_validator_accounts(
+                    &mut processing_state.state_update,
+                    validator_accounts_update,
+                )?;
+            }
 
-        let delayed_receipts = DelayedReceiptQueueWrapper::new(
-            DelayedReceiptQueue::load(&processing_state.state_update)?,
-            epoch_info_provider,
-            apply_state.shard_id,
-            apply_state.epoch_id,
-        );
-
-        // Bandwidth scheduler should be run for every chunk, including the missing ones.
-        let bandwidth_scheduler_output = run_bandwidth_scheduler(
-            apply_state,
-            &mut processing_state.state_update,
-            epoch_info_provider,
-            &mut processing_state.stats.bandwidth_scheduler,
-        )?;
-
-        // If the chunk is missing, exit early and don't process any receipts.
-        if !apply_state.is_new_chunk {
-            return missing_chunk_apply_result(
-                &delayed_receipts,
-                processing_state,
-                &bandwidth_scheduler_output,
+            let delayed_receipts = DelayedReceiptQueueWrapper::new(
+                DelayedReceiptQueue::load(&processing_state.state_update)?,
+                epoch_info_provider,
+                apply_state.shard_id,
+                apply_state.epoch_id,
             );
-        }
 
-        let mut processing_state =
-            processing_state.into_processing_receipt_state(incoming_receipts, delayed_receipts);
-        let own_congestion_info =
-            apply_state.own_congestion_info(&processing_state.state_update)?;
-        let mut receipt_sink = ReceiptSink::new(
-            &processing_state.state_update.trie,
-            apply_state,
-            own_congestion_info,
-            bandwidth_scheduler_output,
-        )?;
-        // Forward buffered receipts from previous chunks.
-        receipt_sink.forward_from_buffer(
-            &mut processing_state.state_update,
-            apply_state,
-            processing_state.epoch_info_provider,
-        )?;
+            // Bandwidth scheduler should be run for every chunk, including the missing ones.
+            let bandwidth_scheduler_output = run_bandwidth_scheduler(
+                apply_state,
+                &mut processing_state.state_update,
+                epoch_info_provider,
+                &mut processing_state.stats.bandwidth_scheduler,
+            )?;
 
-        // Step 2: process transactions.
-        self.process_transactions(&mut processing_state, signed_txs, &mut receipt_sink)?;
+            // If the chunk is missing, exit early and don't process any receipts.
+            if !apply_state.is_new_chunk {
+                return missing_chunk_apply_result(
+                    &delayed_receipts,
+                    processing_state,
+                    &bandwidth_scheduler_output,
+                );
+            }
 
-        // Step 3: process receipts.
-        let process_receipts_result =
-            self.process_receipts(&mut processing_state, &mut receipt_sink)?;
+            let mut processing_state =
+                processing_state.into_processing_receipt_state(incoming_receipts, delayed_receipts);
+            let own_congestion_info =
+                apply_state.own_congestion_info(&processing_state.state_update)?;
+            let mut receipt_sink = ReceiptSink::new(
+                &processing_state.state_update.trie,
+                apply_state,
+                own_congestion_info,
+                bandwidth_scheduler_output,
+            )?;
+            // Forward buffered receipts from previous chunks.
+            receipt_sink.forward_from_buffer(
+                &mut processing_state.state_update,
+                apply_state,
+                processing_state.epoch_info_provider,
+            )?;
 
-        // After receipt processing is done, report metrics on outgoing buffers
-        // and on congestion indicators.
-        metrics::report_congestion_metrics(
-            &receipt_sink,
-            apply_state.shard_id,
-            &apply_state.config.congestion_control_config,
-        );
+            // Step 2: process transactions.
+            self.process_transactions(&mut processing_state, signed_txs, &mut receipt_sink)?;
 
-        // Step 4: validate and apply the state update.
-        self.validate_apply_state_update(
-            processing_state,
-            process_receipts_result,
-            receipt_sink,
-            state_patch,
-        )
+            // Step 3: process receipts.
+            let process_receipts_result =
+                self.process_receipts(&mut processing_state, &mut receipt_sink)?;
+
+            // After receipt processing is done, report metrics on outgoing buffers
+            // and on congestion indicators.
+            metrics::report_congestion_metrics(
+                &receipt_sink,
+                apply_state.shard_id,
+                &apply_state.config.congestion_control_config,
+            );
+
+            // Step 4: validate and apply the state update.
+            self.validate_apply_state_update(
+                processing_state,
+                process_receipts_result,
+                receipt_sink,
+                state_patch,
+            )
+        })
     }
 
     fn apply_state_patch(&self, state_update: &mut TrieUpdate, state_patch: SandboxStatePatch) {
