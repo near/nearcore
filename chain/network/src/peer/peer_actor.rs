@@ -993,8 +993,7 @@ impl PeerActor {
         msg: PeerMessage,
     ) {
         let span =
-            tracing::debug_span!(target: "client", "receive_message", variant = msg.msg_variant())
-                .entered();
+            tracing::debug_span!(target: "client", "receive_message", variant = msg.msg_variant());
         match &msg {
             PeerMessage::Routed(rtd) => {
                 span.record("num_hops", rtd.num_hops);
@@ -1035,6 +1034,7 @@ impl PeerActor {
             }
             _ => {}
         }
+        let _entered_span = span.entered();
         #[cfg(test)]
         let message_processed_event = {
             let sink = self.network_state.config.event_sink.clone();
