@@ -13,9 +13,7 @@ use near_primitives::sharding::ShardChunkHeaderV3;
 use near_primitives::sharding::{
     ChunkHash, ReceiptProof, ShardChunkHeader, ShardChunkHeaderInner, ShardProof,
 };
-use near_primitives::stateless_validation::state_witness::{
-    ChunkStateWitness, ChunkStateWitnessSize,
-};
+use near_primitives::stateless_validation::state_witness::ChunkStateWitness;
 use near_primitives::types::{AccountId, ShardId};
 
 use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
@@ -137,7 +135,7 @@ fn setup_orphan_witness_test() -> OrphanWitnessTestEnv {
         env.partial_witness_adapters[env.get_client_index(&block2_chunk_producer)].clone();
     while let Some(request) = partial_witness_adapter.pop_distribution_request() {
         let DistributeStateWitnessRequest { state_witness, .. } = request;
-        let raw_witness_size = borsh_size(&state_witness);
+        let raw_witness_size = borsh::object_length(&state_witness).unwrap();
         let key = state_witness.chunk_production_key();
         let chunk_validators = env
             .client(&block2_chunk_producer)
@@ -217,7 +215,7 @@ fn test_orphan_witness_valid() {
 
     // `excluded_validator` receives witness for chunk belonging to `block2`, but it doesn't have `block1`.
     // The witness should become an orphaned witness and it should be saved to the orphan pool.
-    let witness_size = borsh_size(&witness);
+    let witness_size = borsh::object_length(&witness).unwrap();
     let client = env.client(&excluded_validator);
     client
         .process_chunk_state_witness(witness, witness_size, None, client.validator_signer.get())
@@ -306,7 +304,7 @@ fn test_orphan_witness_not_fully_validated() {
     // The witness should be accepted and saved into the pool, even though it's invalid.
     // There is no way to fully validate an orphan witness, so this is the correct behavior.
     // The witness will later be fully validated when the required block arrives.
-    let witness_size = borsh_size(&witness);
+    let witness_size = borsh::object_length(&witness).unwrap();
     let client = env.client(&excluded_validator);
     client
         .process_chunk_state_witness(witness, witness_size, None, client.validator_signer.get())
@@ -323,8 +321,4 @@ fn modify_witness_header_inner(
         }
         _ => unreachable!(),
     };
-}
-
-fn borsh_size(witness: &ChunkStateWitness) -> ChunkStateWitnessSize {
-    borsh::to_vec(&witness).unwrap().len()
 }
