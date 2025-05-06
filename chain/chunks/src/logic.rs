@@ -1,22 +1,21 @@
 use near_chain::ChainStoreAccess;
-use near_chain::{
-    BlockHeader, Chain, ChainStore, types::EpochManagerAdapter, validate::validate_chunk_proofs,
-};
+use near_chain::{BlockHeader, Chain, ChainStore, types::EpochManagerAdapter};
 use near_chunks_primitives::Error;
 use near_epoch_manager::shard_tracker::ShardTracker;
+use near_primitives::sharding::ShardChunkWithEncoding;
 use near_primitives::{
     errors::EpochError,
     hash::CryptoHash,
     merkle::{MerklePath, merklize},
     receipt::Receipt,
     sharding::{
-        EncodedShardChunk, PartialEncodedChunk, PartialEncodedChunkPart, PartialEncodedChunkV1,
-        PartialEncodedChunkV2, ReceiptProof, ShardChunk, ShardChunkHeader, ShardProof,
+        PartialEncodedChunk, PartialEncodedChunkPart, PartialEncodedChunkV1, PartialEncodedChunkV2,
+        ReceiptProof, ShardChunk, ShardChunkHeader, ShardProof,
     },
     types::{AccountId, ShardId},
 };
 use std::sync::Arc;
-use tracing::{debug_span, error};
+use tracing::debug_span;
 
 pub fn need_receipt(
     prev_block_hash: &CryptoHash,
@@ -148,59 +147,35 @@ pub fn make_partial_encoded_chunk_from_owned_parts_and_needed_receipts(
     }
 }
 
-pub fn decode_encoded_chunk(
-    encoded_chunk: &EncodedShardChunk,
+pub fn create_partial_chunk(
+    chunk: &ShardChunkWithEncoding,
     merkle_paths: Vec<MerklePath>,
     me: Option<&AccountId>,
     epoch_manager: &dyn EpochManagerAdapter,
     shard_tracker: &ShardTracker,
-) -> Result<(ShardChunk, PartialEncodedChunk), Error> {
-    let chunk_hash = encoded_chunk.chunk_hash();
+) -> Result<PartialEncodedChunk, Error> {
+    let encoded_chunk = chunk.to_encoded_shard_chunk();
+    let header = encoded_chunk.cloned_header();
+
     let span = debug_span!(
         target: "chunks",
-        "decode_encoded_chunk",
-        height_included = encoded_chunk.cloned_header().height_included(),
-        shard_id = ?encoded_chunk.cloned_header().shard_id(),
+        "create_partial_chunk",
+        height_included = header.height_included(),
+        shard_id = ?header.shard_id(),
         encoded_length = tracing::field::Empty,
         num_tx = tracing::field::Empty,
         me = me.map(tracing::field::debug),
-        ?chunk_hash)
+        hash = ?encoded_chunk.chunk_hash())
     .entered();
 
-    let shard_chunk = encoded_chunk.decode_chunk().map_err(|err| {
-        error!(target: "chunks", ?chunk_hash, ?me, "reconstructed, but failed to decode chunk");
-        err
-    })?;
-    if !validate_chunk_proofs(&shard_chunk, epoch_manager)? {
-        return Err(Error::InvalidChunk);
-    }
+    let shard_chunk = chunk.to_shard_chunk();
+    let outgoing_receipts = shard_chunk.prev_outgoing_receipts().to_vec();
+    let prev_outgoing_receipts =
+        make_outgoing_receipts_proofs(&header, outgoing_receipts, epoch_manager)?;
 
     span.record("encoded_length", encoded_chunk.encoded_length());
     span.record("num_tx", shard_chunk.to_transactions().len());
 
-    let partial_chunk = create_partial_chunk(
-        encoded_chunk,
-        merkle_paths,
-        shard_chunk.prev_outgoing_receipts().to_vec(),
-        me,
-        epoch_manager,
-        shard_tracker,
-    )?;
-
-    Ok((shard_chunk, partial_chunk))
-}
-
-fn create_partial_chunk(
-    encoded_chunk: &EncodedShardChunk,
-    merkle_paths: Vec<MerklePath>,
-    outgoing_receipts: Vec<Receipt>,
-    me: Option<&AccountId>,
-    epoch_manager: &dyn EpochManagerAdapter,
-    shard_tracker: &ShardTracker,
-) -> Result<PartialEncodedChunk, EpochError> {
-    let header = encoded_chunk.cloned_header();
-    let prev_outgoing_receipts =
-        make_outgoing_receipts_proofs(&header, outgoing_receipts, epoch_manager)?;
     let partial_chunk = PartialEncodedChunkV2 {
         header,
         parts: encoded_chunk

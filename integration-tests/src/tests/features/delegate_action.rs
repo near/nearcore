@@ -25,6 +25,7 @@ use near_primitives::views::{
     AccessKeyPermissionView, ExecutionStatusView, FinalExecutionOutcomeView, FinalExecutionStatus,
 };
 use near_test_contracts::{ft_contract, smallest_rs_contract};
+use node_runtime::config::total_prepaid_gas;
 use testlib::runtime_utils::{
     add_account_with_access_key, add_contract, add_test_contract, alice_account, bob_account,
     carol_account, eve_dot_alice_account,
@@ -183,6 +184,7 @@ fn check_meta_tx_fn_call(
     let fee_helper = fee_helper(node);
     let num_fn_calls = actions.len();
     let meta_tx_overhead_cost = fee_helper.meta_tx_overhead_cost(&actions, &receiver);
+    let prepaid_gas = total_prepaid_gas(&actions).unwrap();
 
     let (tx_result, sender_diff, relayer_diff, receiver_diff) =
         check_meta_tx_execution(node, actions, sender, relayer, receiver);
@@ -211,9 +213,14 @@ fn check_meta_tx_fn_call(
     let dyn_cost = fee_helper.gas_to_balance(gas_burnt_for_function_call);
     let contract_reward = fee_helper.gas_burnt_to_reward(gas_burnt_for_function_call);
 
+    // Calculate cost of gas refund
+    let gross_gas_refund = prepaid_gas - gas_burnt_for_function_call;
+    let refund_penalty = fee_helper.gas_refund_cost(gross_gas_refund);
+
     // the relayer pays all gas and tokens
-    let gas_cost =
-        meta_tx_overhead_cost + fee_helper.gas_to_balance(static_exec_gas + static_send_gas);
+    let gas_cost = meta_tx_overhead_cost
+        + refund_penalty
+        + fee_helper.gas_to_balance(static_exec_gas + static_send_gas);
     let expected_relayer_cost = (gas_cost + tokens_transferred + dyn_cost) as i128;
     assert_eq!(relayer_diff, -expected_relayer_cost, "unexpected relayer balance");
 

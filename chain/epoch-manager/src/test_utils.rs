@@ -30,12 +30,14 @@ pub const DEFAULT_GAS_PRICE: u128 = 100;
 pub const DEFAULT_TOTAL_SUPPLY: u128 = 1_000_000_000_000;
 pub const TEST_SEED: RngSeed = [3; 32];
 
+/// Returns the hash of height (as le_bytes) for use as a fake block hash in tests.
+pub fn fake_hash(height: usize) -> CryptoHash {
+    hash(height.to_le_bytes().as_ref())
+}
+
+/// Returns a vector of hashes for the range from 0 to `num`.
 pub fn hash_range(num: usize) -> Vec<CryptoHash> {
-    let mut result = vec![];
-    for i in 0..num {
-        result.push(hash(i.to_le_bytes().as_ref()));
-    }
-    result
+    (0..num).map(|i| fake_hash(i)).collect()
 }
 
 pub fn change_stake(stake_changes: Vec<(AccountId, Balance)>) -> BTreeMap<AccountId, Balance> {
@@ -324,6 +326,17 @@ pub fn record_block(
     height: BlockHeight,
     proposals: Vec<ValidatorStake>,
 ) {
+    record_block_with_version(epoch_manager, prev_h, cur_h, height, proposals, PROTOCOL_VERSION);
+}
+
+pub fn record_block_with_version(
+    epoch_manager: &mut EpochManager,
+    prev_h: CryptoHash,
+    cur_h: CryptoHash,
+    height: BlockHeight,
+    proposals: Vec<ValidatorStake>,
+    protocol_version: ProtocolVersion,
+) {
     epoch_manager
         .record_block_info(
             BlockInfo::new(
@@ -335,7 +348,7 @@ pub fn record_block(
                 proposals,
                 vec![],
                 DEFAULT_TOTAL_SUPPLY,
-                PROTOCOL_VERSION,
+                protocol_version,
                 height * NUM_NS_IN_SECOND,
                 None,
             ),
@@ -344,6 +357,30 @@ pub fn record_block(
         .unwrap()
         .commit()
         .unwrap();
+}
+
+pub fn record_blocks<F>(
+    epoch_manager: &mut EpochManager,
+    last_hash: CryptoHash,
+    height: u64,
+    count: u64,
+    mut block_gen: F,
+) -> (CryptoHash, u64)
+where
+    F: FnMut(u64, &AccountId) -> (Vec<ValidatorStake>, ProtocolVersion),
+{
+    let mut last_hash = last_hash;
+    let epoch_id = epoch_manager.get_next_epoch_id(&last_hash).unwrap();
+    let epoch_info = epoch_manager.get_epoch_info(&epoch_id).unwrap();
+    for height in height..height + count {
+        let hash = fake_hash(height as usize);
+        let producer = epoch_info.sample_block_producer(height);
+        let (validators, version) =
+            block_gen(height, epoch_info.get_validator(producer).account_id());
+        record_block_with_version(epoch_manager, last_hash, hash, height, validators, version);
+        last_hash = hash;
+    }
+    (last_hash, height + count)
 }
 
 // TODO(#11900): Start using BlockInfoV3 in the tests.

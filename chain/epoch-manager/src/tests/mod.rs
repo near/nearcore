@@ -5,8 +5,8 @@ use crate::reward_calculator::NUM_NS_IN_SECOND;
 use crate::test_utils::{
     DEFAULT_TOTAL_SUPPLY, block_info, change_stake, default_reward_calculator, epoch_config,
     epoch_info, epoch_info_with_num_seats, hash_range, record_block,
-    record_block_with_final_block_hash, record_with_block_info, reward,
-    setup_default_epoch_manager, setup_epoch_manager, stake,
+    record_block_with_final_block_hash, record_block_with_version, record_blocks,
+    record_with_block_info, reward, setup_default_epoch_manager, setup_epoch_manager, stake,
 };
 use itertools::Itertools;
 use near_chain_configs::test_genesis::TestEpochConfigBuilder;
@@ -25,7 +25,7 @@ use near_primitives::stateless_validation::chunk_endorsements_bitmap::ChunkEndor
 use near_primitives::stateless_validation::partial_witness::PartialEncodedStateWitness;
 use near_primitives::types::AccountInfo;
 use near_primitives::types::ValidatorKickoutReason::{
-    NotEnoughBlocks, NotEnoughChunkEndorsements, NotEnoughChunks,
+    NotEnoughBlocks, NotEnoughChunkEndorsements, NotEnoughChunks, ProtocolVersionTooOld,
 };
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
@@ -33,6 +33,7 @@ use near_store::ShardUId;
 use near_store::test_utils::create_test_store;
 use num_rational::Ratio;
 use std::cmp::Ordering;
+use std::vec;
 
 #[test]
 fn test_stake_validator() {
@@ -1855,14 +1856,6 @@ fn check_kickout(epoch_info: &EpochInfo, reasons: &[(&str, ValidatorKickoutReaso
     assert_eq!(epoch_info.validator_kickout(), &kickout);
 }
 
-fn set_block_info_protocol_version(info: &mut BlockInfo, protocol_version: ProtocolVersion) {
-    match info {
-        BlockInfo::V1(v1) => v1.latest_protocol_version = protocol_version,
-        BlockInfo::V2(v2) => v2.latest_protocol_version = protocol_version,
-        BlockInfo::V3(v2) => v2.latest_protocol_version = protocol_version,
-    }
-}
-
 #[test]
 fn test_protocol_version_switch() {
     let store = create_test_store();
@@ -1885,11 +1878,9 @@ fn test_protocol_version_switch() {
         EpochManager::new(store, config, reward_calculator, validators).unwrap();
     let h = hash_range(8);
     record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
-    let mut block_info1 = block_info(h[1], 1, 1, h[0], h[0], h[0], vec![], DEFAULT_TOTAL_SUPPLY);
-    set_block_info_protocol_version(&mut block_info1, 0);
-    epoch_manager.record_block_info(block_info1, [0; 32]).unwrap();
-    for i in 2..6 {
-        record_block(&mut epoch_manager, h[i - 1], h[i], i as u64, vec![]);
+    for i in 1..6 {
+        let version = if i == 1 { 0 } else { PROTOCOL_VERSION };
+        record_block_with_version(&mut epoch_manager, h[i - 1], h[i], i as u64, vec![], version);
     }
     assert_eq!(epoch_manager.get_epoch_info(&EpochId(h[2])).unwrap().protocol_version(), 0);
     assert_eq!(
@@ -1924,22 +1915,8 @@ fn test_protocol_version_switch_with_shard_layout_change() {
     let h = hash_range(8);
     record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
     for i in 1..8 {
-        let mut block_info = block_info(
-            h[i],
-            i as u64,
-            i as u64 - 1,
-            h[i - 1],
-            h[i - 1],
-            h[0],
-            vec![],
-            DEFAULT_TOTAL_SUPPLY,
-        );
-        if i == 1 {
-            set_block_info_protocol_version(&mut block_info, PROTOCOL_VERSION - 1);
-        } else {
-            set_block_info_protocol_version(&mut block_info, PROTOCOL_VERSION);
-        }
-        epoch_manager.record_block_info(block_info, [0; 32]).unwrap();
+        let version = if i == 1 { PROTOCOL_VERSION - 1 } else { PROTOCOL_VERSION };
+        record_block_with_version(&mut epoch_manager, h[i - 1], h[i], i as u64, vec![], version);
     }
     let epochs = [EpochId::default(), EpochId(h[2]), EpochId(h[4])];
     assert_eq!(
@@ -1982,11 +1959,9 @@ fn test_protocol_version_switch_with_many_seats() {
         EpochManager::new(store, config, default_reward_calculator(), validators).unwrap();
     let h = hash_range(50);
     record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
-    let mut block_info1 = block_info(h[1], 1, 1, h[0], h[0], h[0], vec![], DEFAULT_TOTAL_SUPPLY);
-    set_block_info_protocol_version(&mut block_info1, 0);
-    epoch_manager.record_block_info(block_info1, [0; 32]).unwrap();
-    for i in 2..32 {
-        record_block(&mut epoch_manager, h[i - 1], h[i], i as u64, vec![]);
+    for i in 1..32 {
+        let version = if i == 1 { 0 } else { PROTOCOL_VERSION };
+        record_block_with_version(&mut epoch_manager, h[i - 1], h[i], i as u64, vec![], version);
     }
     assert_eq!(
         epoch_manager.get_epoch_info(&EpochId(h[10])).unwrap().protocol_version(),
@@ -1996,6 +1971,61 @@ fn test_protocol_version_switch_with_many_seats() {
         epoch_manager.get_epoch_info(&EpochId(h[20])).unwrap().protocol_version(),
         PROTOCOL_VERSION
     );
+}
+
+#[test]
+fn test_version_switch_kickout_old_version() {
+    let store = create_test_store();
+    let (version, new_version) = (PROTOCOL_VERSION, PROTOCOL_VERSION + 1);
+
+    let epoch_length = 2;
+    let epoch_config =
+        epoch_config(epoch_length, 1, 2, 100, 90, 60, 0).for_protocol_version(version);
+    let config_store = EpochConfigStore::test(BTreeMap::from_iter(vec![
+        (version, Arc::new(epoch_config.clone())),
+        (new_version, Arc::new(epoch_config)),
+    ]));
+    let config = AllEpochConfig::from_epoch_config_store("test-chain", 2, config_store);
+
+    let (large_stake, small_stake) = (1_000, 100);
+    let validators = vec![
+        stake("test1".parse().unwrap(), large_stake),
+        stake("test2".parse().unwrap(), small_stake),
+    ];
+    let mut reward_calculator = default_reward_calculator();
+    reward_calculator.genesis_protocol_version = version;
+    let mut epoch_manager =
+        EpochManager::new(store, config, reward_calculator, validators).unwrap();
+
+    // Genesis block
+    let genesis_hash = test_utils::fake_hash(0);
+    record_block(&mut epoch_manager, CryptoHash::default(), genesis_hash, 0, vec![]);
+
+    // First epoch, test1 (with `large_stake`) proposes a new protocol version.
+    // As a result, test2 (with `small_stake`) will be kicked out in the next epoch.
+    let (mut last_hash, mut height) = (genesis_hash, 1);
+    (last_hash, height) =
+        record_blocks(&mut epoch_manager, last_hash, height, epoch_length, |_h, validator| {
+            (vec![], if validator == "test1" { new_version } else { version })
+        });
+
+    // test2 will be kicked out in epoch T+2
+    let epoch_info = epoch_manager.get_epoch_info(&EpochId(last_hash)).unwrap();
+    check_kickout(
+        &epoch_info,
+        &[("test2", ProtocolVersionTooOld { version, network_version: new_version })],
+    );
+    let just_test1 = &[("test1", large_stake)];
+    check_validators(&epoch_info, just_test1);
+
+    // Try to add test2 as a proposal in T+1, this should not work.
+    (last_hash, _) =
+        record_blocks(&mut epoch_manager, last_hash, height, epoch_length, |_h, _validator| {
+            (vec![stake("test2".parse().unwrap(), small_stake)], version)
+        });
+
+    let epoch_info = epoch_manager.get_epoch_info(&EpochId(last_hash)).unwrap();
+    check_validators(&epoch_info, just_test1);
 }
 
 /// Epoch aggregator should not need to be recomputed under the following scenario

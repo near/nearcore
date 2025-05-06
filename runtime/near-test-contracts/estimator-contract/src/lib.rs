@@ -6,7 +6,6 @@
 #![allow(clippy::all)]
 
 #[panic_handler]
-#[unsafe(no_mangle)]
 pub fn panic(_info: &::core::panic::PanicInfo) -> ! {
     core::arch::wasm32::unreachable()
 }

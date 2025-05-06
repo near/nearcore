@@ -567,6 +567,7 @@ pub enum RoutedMessageBody {
     ContractCodeRequest(ContractCodeRequest),
     ContractCodeResponse(ContractCodeResponse),
     PartialEncodedContractDeploys(PartialEncodedContractDeploys),
+    StateHeaderRequest(StateHeaderRequest),
 }
 
 impl RoutedMessageBody {
@@ -659,7 +660,11 @@ impl fmt::Debug for RoutedMessageBody {
             RoutedMessageBody::_UnusedEpochSyncResponse(_) => {
                 write!(f, "EpochSyncResponse")
             }
-            RoutedMessageBody::StatePartRequest(_) => write!(f, "StatePartRequest"),
+            RoutedMessageBody::StatePartRequest(request) => write!(
+                f,
+                "StatePartRequest(sync_hash={:?}, shard_id={:?}, part_id={:?})",
+                request.sync_hash, request.shard_id, request.part_id,
+            ),
             RoutedMessageBody::ChunkContractAccesses(accesses) => {
                 write!(f, "ChunkContractAccesses(code_hashes={:?})", accesses.contracts())
             }
@@ -668,8 +673,13 @@ impl fmt::Debug for RoutedMessageBody {
             }
             RoutedMessageBody::ContractCodeResponse(_) => write!(f, "ContractCodeResponse",),
             RoutedMessageBody::PartialEncodedContractDeploys(deploys) => {
-                write!(f, "PartialEncodedContractDeploys(part={:?}", deploys.part())
+                write!(f, "PartialEncodedContractDeploys(part={:?})", deploys.part())
             }
+            RoutedMessageBody::StateHeaderRequest(request) => write!(
+                f,
+                "StateHeaderRequest(sync_hash={:?}, shard_id={:?})",
+                request.sync_hash, request.shard_id,
+            ),
         }
     }
 }

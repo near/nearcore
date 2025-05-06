@@ -38,7 +38,7 @@ enum NearVmCompiler {
 //  major version << 6
 //  minor version
 const VM_CONFIG: NearVmConfig = NearVmConfig {
-    seed: (2 << 29) | (2 << 6) | 5,
+    seed: (2 << 29) | (2 << 6) | 6,
     engine: NearVmEngine::Universal,
     compiler: NearVmCompiler::Singlepass,
 };

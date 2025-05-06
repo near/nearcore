@@ -43,7 +43,9 @@ use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::merkle::{PartialMerkleTree, verify_hash};
 use near_primitives::receipt::DelayedReceiptIndices;
 use near_primitives::shard_layout::{ShardUId, get_block_shard_uid};
-use near_primitives::sharding::{ShardChunkHeader, ShardChunkHeaderInner, ShardChunkHeaderV3};
+use near_primitives::sharding::{
+    ShardChunkHeader, ShardChunkHeaderInner, ShardChunkHeaderV3, ShardChunkWithEncoding,
+};
 use near_primitives::state_part::PartId;
 use near_primitives::state_sync::StatePartKey;
 use near_primitives::stateless_validation::ChunkProductionKey;
@@ -2174,9 +2176,9 @@ fn test_validate_chunk_extra() {
     // Construct two blocks that contain the same chunk and make the chunk unavailable.
     let validator_signer = create_test_signer("test0");
     let next_height = last_block.header().height() + 1;
-    let ProduceChunkResult {
-        encoded_chunk, encoded_chunk_parts_paths: merkle_paths, receipts, ..
-    } = create_chunk_on_height(&mut env.clients[0], next_height);
+    let ProduceChunkResult { chunk, encoded_chunk_parts_paths: merkle_paths, receipts, .. } =
+        create_chunk_on_height(&mut env.clients[0], next_height);
+    let encoded_chunk = chunk.into_parts().1;
     let mut block1 = env.clients[0].produce_block(next_height).unwrap().unwrap();
     let mut block2 = env.clients[0].produce_block(next_height + 1).unwrap().unwrap();
 
@@ -2225,8 +2227,9 @@ fn test_validate_chunk_extra() {
     let chunk_header = encoded_chunk.cloned_header();
     let signer = env.clients[0].validator_signer.get();
     let validator_id = signer.as_ref().unwrap().validator_id().clone();
+    let chunk = ShardChunkWithEncoding::from_encoded_shard_chunk(encoded_chunk).unwrap();
     env.clients[0]
-        .persist_and_distribute_encoded_chunk(encoded_chunk, merkle_paths, receipts, validator_id)
+        .persist_and_distribute_encoded_chunk(chunk, merkle_paths, receipts, validator_id)
         .unwrap();
     env.clients[0].chain.blocks_with_missing_chunks.accept_chunk(&chunk_header.chunk_hash());
     env.clients[0].process_blocks_with_missing_chunks(None, &signer);
@@ -2896,14 +2899,14 @@ fn produce_chunks(env: &mut TestEnv, epoch_id: &EpochId, height: u64) {
             .unwrap()
             .take_account_id();
 
-        let ProduceChunkResult { encoded_chunk, encoded_chunk_parts_paths, receipts, .. } =
-            create_chunk_on_height(env.client(&chunk_producer), height);
-
+        let produce_chunk_result = create_chunk_on_height(env.client(&chunk_producer), height);
+        let ProduceChunkResult { chunk, encoded_chunk_parts_paths, receipts } =
+            produce_chunk_result;
         for client in &mut env.clients {
             let validator_id = client.validator_signer.get().unwrap().validator_id().clone();
             client
                 .persist_and_distribute_encoded_chunk(
-                    encoded_chunk.clone(),
+                    chunk.clone(),
                     encoded_chunk_parts_paths.clone(),
                     receipts.clone(),
                     validator_id,
@@ -3069,8 +3072,9 @@ fn test_fork_receipt_ids() {
     // Construct two blocks that contain the same chunk and make the chunk unavailable.
     let validator_signer = create_test_signer("test0");
     let last_height = produced_block.header().height();
-    let ProduceChunkResult { encoded_chunk, .. } =
+    let ProduceChunkResult { chunk, .. } =
         create_chunk_on_height(&mut env.clients[0], last_height + 1);
+    let encoded_chunk = chunk.into_parts().1;
     let mut block1 = env.clients[0].produce_block(last_height + 1).unwrap().unwrap();
     let mut block2 = env.clients[0].produce_block(last_height + 2).unwrap().unwrap();
 
@@ -3126,8 +3130,8 @@ fn test_fork_execution_outcome() {
     // Construct two blocks that contain the same chunk and make the chunk unavailable.
     let validator_signer = create_test_signer("test0");
     let next_height = last_height + 1;
-    let ProduceChunkResult { encoded_chunk, .. } =
-        create_chunk_on_height(&mut env.clients[0], next_height);
+    let ProduceChunkResult { chunk, .. } = create_chunk_on_height(&mut env.clients[0], next_height);
+    let encoded_chunk = chunk.into_parts().1;
     let mut block1 = env.clients[0].produce_block(last_height + 1).unwrap().unwrap();
     let mut block2 = env.clients[0].produce_block(last_height + 2).unwrap().unwrap();
 

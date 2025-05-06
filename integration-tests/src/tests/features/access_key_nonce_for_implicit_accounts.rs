@@ -229,15 +229,11 @@ fn test_chunk_transaction_validity() {
     for i in 1..200 {
         env.produce_block(0, i);
     }
-    let (
-        ProduceChunkResult {
-            encoded_chunk, encoded_chunk_parts_paths: merkle_paths, receipts, ..
-        },
-        block,
-    ) = create_chunk(&mut env.clients[0], vec![validated_tx]);
+    let (ProduceChunkResult { chunk, encoded_chunk_parts_paths: merkle_paths, receipts }, block) =
+        create_chunk(&mut env.clients[0], vec![validated_tx]);
     let validator_id = env.clients[0].validator_signer.get().unwrap().validator_id().clone();
     env.clients[0]
-        .persist_and_distribute_encoded_chunk(encoded_chunk, merkle_paths, receipts, validator_id)
+        .persist_and_distribute_encoded_chunk(chunk, merkle_paths, receipts, validator_id)
         .unwrap();
     let res = env.clients[0].process_block_test(block.into(), Provenance::NONE);
     match res.as_deref() {
