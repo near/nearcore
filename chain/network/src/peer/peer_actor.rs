@@ -992,7 +992,43 @@ impl PeerActor {
         conn: &connection::Connection,
         msg: PeerMessage,
     ) {
-        let _span = tracing::trace_span!(target: "network", "receive_message").entered();
+        let span =
+            tracing::debug_span!(target: "client", "receive_message", variant = msg.msg_variant())
+                .entered();
+        match &msg {
+            PeerMessage::Routed(rtd) => match &rtd.msg.body {
+                RoutedMessageBody::VersionedChunkEndorsement(ce) => {
+                    let height = ce.chunk_production_key().height_created;
+                    let shard_id = ce.chunk_production_key().shard_id;
+                    let validator = ce.account_id();
+                    span.record("height", height);
+                    span.record("shard_id", format!("{}", shard_id));
+                    span.record("validator", format!("{}", validator));
+                }
+                RoutedMessageBody::PartialEncodedStateWitness(witness) => {
+                    let height_created = witness.chunk_production_key().height_created;
+                    let shard_id = witness.chunk_production_key().shard_id;
+                    let part_ord = witness.part_ord();
+                    let part_size = witness.part_size();
+                    span.record("height_created", height_created);
+                    span.record("shard_id", format!("{}", shard_id));
+                    span.record("part_ord", part_ord);
+                    span.record("part_size", part_size);
+                }
+                RoutedMessageBody::PartialEncodedStateWitnessForward(witness) => {
+                    let height_created = witness.chunk_production_key().height_created;
+                    let shard_id = witness.chunk_production_key().shard_id;
+                    let part_ord = witness.part_ord();
+                    let part_size = witness.part_size();
+                    span.record("height_created", height_created);
+                    span.record("shard_id", format!("{}", shard_id));
+                    span.record("part_ord", part_ord);
+                    span.record("part_size", part_size);
+                }
+                _ => {}
+            },
+            _ => {}
+        }
         #[cfg(test)]
         let message_processed_event = {
             let sink = self.network_state.config.event_sink.clone();
