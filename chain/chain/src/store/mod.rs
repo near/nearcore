@@ -1845,8 +1845,11 @@ impl<'a> ChainStoreUpdate<'a> {
                     );
                 }
 
-                let chunk = chunk.as_ref().clone();
-                let arced_chunk = chunk.into_acred_shard_chunk();
+                let chunk_clone = chunk.as_ref().clone();
+                let arced_chunk = chunk_clone.into_arced_shard_chunk();
+                let ac_buf = borsh::to_vec(&arced_chunk).unwrap();
+                let c_buf = borsh::to_vec(chunk).unwrap();
+                assert_eq!(ac_buf, c_buf);
 
                 store_update.insert_ser(DBCol::Chunks, chunk_hash.as_ref(), &arced_chunk)?;
             }

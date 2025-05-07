@@ -873,6 +873,15 @@ pub struct ShardChunkV2 {
     pub prev_outgoing_receipts: Vec<Receipt>,
 }
 
+impl ShardChunkV2 {
+    pub fn into_arced_shard_chunk(self) -> ArcedShardChunkV2 {
+        let Self { chunk_hash, header, transactions, prev_outgoing_receipts } = self;
+        let transactions = transactions.into_iter().map(Arc::new).collect();
+        let prev_outgoing_receipts = prev_outgoing_receipts.into_iter().map(Arc::new).collect();
+        ArcedShardChunkV2 { chunk_hash, header, prev_outgoing_receipts, transactions }
+    }
+}
+
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq, ProtocolSchema)]
 pub enum ShardChunk {
     V1(ShardChunkV1),
@@ -1046,27 +1055,11 @@ impl ShardChunk {
         }
     }
 
-    pub fn into_acred_shard_chunk(self) -> ArcedShardChunk {
-        let chunk_hash = self.chunk_hash();
-        let (transactions, prev_outgoing_receipts, header) = match self {
-            Self::V1(chunk) => (
-                chunk.transactions,
-                chunk.prev_outgoing_receipts,
-                ShardChunkHeader::V1(chunk.header),
-            ),
-            Self::V2(chunk) => {
-                let header = match chunk.header {
-                    ShardChunkHeader::V1(header) => ShardChunkHeader::V1(header),
-                    ShardChunkHeader::V2(header) => ShardChunkHeader::V2(header),
-                    ShardChunkHeader::V3(header) => ShardChunkHeader::V3(header),
-                };
-                (chunk.transactions, chunk.prev_outgoing_receipts, header)
-            }
-        };
-        let transactions = transactions.into_iter().map(Arc::new).collect();
-        let prev_outgoing_receipts = prev_outgoing_receipts.into_iter().map(Arc::new).collect();
-
-        ArcedShardChunk { chunk_hash, header, prev_outgoing_receipts, transactions }
+    pub fn into_arced_shard_chunk(self) -> ArcedShardChunk {
+        match self {
+            Self::V1(chunk) => ArcedShardChunk::V1(chunk),
+            Self::V2(chunk) => ArcedShardChunk::V2(chunk.into_arced_shard_chunk()),
+        }
     }
 }
 
@@ -1371,9 +1364,35 @@ impl ShardChunkWithEncoding {
 }
 
 #[derive(BorshDeserialize, BorshSerialize)]
-pub struct ArcedShardChunk {
+pub struct ArcedShardChunkV2 {
     pub chunk_hash: ChunkHash,
     pub header: ShardChunkHeader,
     pub transactions: Vec<Arc<SignedTransaction>>,
     pub prev_outgoing_receipts: Vec<Arc<Receipt>>,
+}
+
+#[derive(BorshDeserialize, BorshSerialize)]
+pub enum ArcedShardChunk {
+    V1(ShardChunkV1),
+    V2(ArcedShardChunkV2),
+}
+
+#[cfg(test)]
+mod tests {
+    use near_primitives_core::hash::CryptoHash;
+    use near_primitives_core::types::ShardId;
+
+    use crate::sharding::{ShardChunk, ShardChunkHeader};
+
+    #[test]
+    fn arced_shard_chunk_is_valid() {
+        let shard_id = ShardId::new(3);
+        let hash = CryptoHash([1; 32]);
+        let header = ShardChunkHeader::new_dummy(1, shard_id, hash);
+        let shard_chunk = ShardChunk::new(header, vec![], vec![]);
+        let sc_buf = borsh::to_vec(&shard_chunk).unwrap();
+        let arced = shard_chunk.into_arced_shard_chunk();
+        let a_buf = borsh::to_vec(&arced).unwrap();
+        assert_eq!(sc_buf, a_buf);
+    }
 }

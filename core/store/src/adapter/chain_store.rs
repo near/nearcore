@@ -209,7 +209,12 @@ impl ChainStoreAdapter {
     pub fn get_chunk(&self, chunk_hash: &ChunkHash) -> Result<ShardChunk, Error> {
         match self.store.get_ser(DBCol::Chunks, chunk_hash.as_ref()) {
             Ok(Some(shard_chunk)) => Ok(shard_chunk),
-            _ => Err(Error::ChunkMissing(chunk_hash.clone())),
+            rest => {
+                let backtrace = std::backtrace::Backtrace::capture();
+                println!("get_chunk failed with {:?}", rest);
+                println!("{}", backtrace);
+                Err(Error::ChunkMissing(chunk_hash.clone()))
+            }
         }
     }
 
@@ -220,7 +225,12 @@ impl ChainStoreAdapter {
     ) -> Result<Arc<PartialEncodedChunk>, Error> {
         match self.store.get_ser(DBCol::PartialChunks, chunk_hash.as_ref()) {
             Ok(Some(shard_chunk)) => Ok(shard_chunk),
-            _ => Err(Error::ChunkMissing(chunk_hash.clone())),
+            rest => {
+                let backtrace = std::backtrace::Backtrace::capture();
+                println!("get_partial_chunk failed with {:?}", rest);
+                println!("{}", backtrace);
+                Err(Error::ChunkMissing(chunk_hash.clone()))
+            }
         }
     }
 
