@@ -288,7 +288,7 @@ impl ReplayController {
 
         self.validate_chunk(
             is_new_chunk,
-            chunk.as_ref(),
+            &chunk,
             chunk_header,
             prev_block_hash,
             prev_chunk_header,
