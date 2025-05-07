@@ -180,7 +180,7 @@ pub enum InvalidTxError {
     SignerDoesNotExist {
         signer_id: AccountId,
     },
-    /// Transaction nonce must be `account[access_key].nonce + 1`.
+    /// Transaction nonce must be strictly greater than `account[access_key].nonce`.
     InvalidNonce {
         tx_nonce: Nonce,
         ak_nonce: Nonce,
