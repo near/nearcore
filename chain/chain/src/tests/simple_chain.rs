@@ -4,9 +4,11 @@ use crate::{Block, BlockProcessingArtifact, ChainStoreAccess, Error};
 use assert_matches::assert_matches;
 use near_async::time::{Clock, Duration, FakeClock, Utc};
 use near_o11y::testonly::init_test_logger;
+#[cfg(feature = "test_features")]
+use near_primitives::optimistic_block::OptimisticBlock;
 use near_primitives::{
-    block::MaybeNew, hash::CryptoHash, optimistic_block::OptimisticBlock,
-    sharding::ShardChunkHeader, test_utils::TestBlockBuilder, version::PROTOCOL_VERSION,
+    block::MaybeNew, hash::CryptoHash, sharding::ShardChunkHeader, test_utils::TestBlockBuilder,
+    version::PROTOCOL_VERSION,
 };
 use num_rational::Ratio;
 
@@ -33,8 +35,10 @@ fn build_chain() {
     //     cargo insta test --accept -p near-chain --features nightly -- tests::simple_chain::build_chain
     let hash = chain.head().unwrap().last_block_hash;
     if cfg!(feature = "nightly") {
+        // cspell:disable-next-line
         insta::assert_snapshot!(hash, @"24ZC3eGVvtFdTEok4wPGBzx3x61tWqQpves7nFvow2zf");
     } else {
+        // cspell:disable-next-line
         insta::assert_snapshot!(hash, @"t1RB3jTh9mMtkQ1YFWxGMYefGcppSLYcJjvH7BXoSTz");
     }
 
@@ -51,8 +55,10 @@ fn build_chain() {
 
     let hash = chain.head().unwrap().last_block_hash;
     if cfg!(feature = "nightly") {
+        // cspell:disable-next-line
         insta::assert_snapshot!(hash, @"9enFQNcVUW65x3oW2iVdYSBxK9qFNETAixEQZLzXWeaQ");
     } else {
+        // cspell:disable-next-line
         insta::assert_snapshot!(hash, @"2HKQZ9swQZnWwv23TF6uYBfQ9up7faG3zvDDvjgvSgkf");
     }
 }

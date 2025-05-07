@@ -374,8 +374,8 @@ impl TestEnv {
     fn found_differing_post_state_root_due_to_state_transitions(
         witness: &ChunkStateWitness,
     ) -> bool {
-        let mut post_state_roots = HashSet::from([witness.main_state_transition.post_state_root]);
-        post_state_roots.extend(witness.implicit_transitions.iter().map(|t| t.post_state_root));
+        let mut post_state_roots = HashSet::from([witness.main_state_transition().post_state_root]);
+        post_state_roots.extend(witness.implicit_transitions().iter().map(|t| t.post_state_root));
         post_state_roots.len() >= 2
     }
 
@@ -401,7 +401,7 @@ impl TestEnv {
         for (client_idx, partial_witness_adapter) in partial_witness_adapters.iter().enumerate() {
             while let Some(request) = partial_witness_adapter.pop_distribution_request() {
                 let DistributeStateWitnessRequest { state_witness, .. } = request;
-                let raw_witness_size = borsh::to_vec(&state_witness).unwrap().len();
+                let raw_witness_size = borsh::object_length(&state_witness).unwrap();
                 let key = state_witness.chunk_production_key();
                 let chunk_validators = self.clients[client_idx]
                     .epoch_manager
