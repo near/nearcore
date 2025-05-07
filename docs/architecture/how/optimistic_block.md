@@ -38,5 +38,5 @@ Optimistic Block accelerates chunk execution by speculatively applying chunks be
   * The timestamp is not a critical field; it only needs to be reasonable (tethered to real world time) and monotonically increasing.
   * In the current implementation, the current timestamp is used when producing the optimistic block.
   * This is not a protocol change as the block producer has freedom in picking this value.
-  * If optimistic block was produced, the block and optimitstic block timestamp must be the same. Otherwise, the optimistic chunk application will be invalidated. 
+  * If optimistic block was produced, the block and optimistic block timestamp must be the same. Otherwise, the optimistic chunk application will be invalidated. 
 * **Backward compatibility:** Optimistic block itself is also not a protocol change. It is also very safe as long as the optimistic chunk application’s implementation is consistent with the actual.
