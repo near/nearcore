@@ -16,10 +16,8 @@ actix-rt.workspace = true
 actix-web.workspace = true
 actix.workspace = true
 anyhow.workspace = true
-awc.workspace = true
 borsh.workspace = true
 bytesize.workspace = true
-chrono.workspace = true
 dirs.workspace = true
 easy-ext.workspace = true
 futures.workspace = true
@@ -32,16 +30,10 @@ num-rational.workspace = true
 object_store.workspace = true
 parking_lot.workspace = true
 rand.workspace = true
-rayon.workspace = true
-regex.workspace = true
 reqwest.workspace = true
-rlimit.workspace = true
-rust-s3.workspace = true
 serde.workspace = true
 serde_ignored.workspace = true
 serde_json.workspace = true
-smart-default.workspace = true
-strum.workspace = true
 tempfile.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
@@ -146,3 +138,12 @@ io_trace = ["node-runtime/io_trace"]
 
 calimero_zero_storage = ["near-primitives/calimero_zero_storage"]
 tx_generator = ["near-transactions-generator"]
+
+[package.metadata.cargo-machete]
+ignored = [
+    "near-client-primitives",
+    "near-parameters",
+    "near-performance-metrics",
+    "near-pool",
+    "node-runtime",
+]

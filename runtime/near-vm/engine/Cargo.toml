@@ -16,7 +16,6 @@ workspace = true
 
 [dependencies]
 backtrace.workspace = true
-enumset.workspace = true
 finite-wasm.workspace = true
 more-asserts.workspace = true
 near-vm-compiler.workspace = true
@@ -25,10 +24,7 @@ near-vm-vm.workspace = true
 parking_lot.workspace = true
 rkyv.workspace = true
 rustc-demangle.workspace = true
-region.workspace = true
-target-lexicon.workspace = true
 thiserror.workspace = true
-cfg-if.workspace = true
 tracing.workspace = true
 rustix = { workspace = true, features = ["param", "mm"] }
 

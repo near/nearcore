@@ -145,7 +145,6 @@ unexpected_cfgs = { level = "allow", check-cfg = ['cfg(enable_const_type_id)'] }
 [workspace.dependencies]
 actix = "0.13.0"
 actix-cors = "0.6.1"
-actix-http = "3.6"
 actix-rt = "2"
 actix-web = "4.1"
 anyhow = "1.0.62"
@@ -164,7 +163,6 @@ awc = { version = "3", features = ["openssl"] }
 backtrace = "0.3"
 base64 = "0.21"
 bencher = "0.1.5"
-bitflags = "1.2"
 bitvec = "1.0.1"
 blake2 = { version = "0.10.6", features = ["reset"] }
 blst = { version = "0.3.11", features = ["portable"] }
@@ -213,7 +211,6 @@ finite-wasm = "0.5.0"
 futures = "0.3.5"
 futures-util = "0.3"
 genesis-populate = { path = "genesis-tools/genesis-populate" }
-hashbrown = "0.14.2"
 hex = { version = "0.4.2", features = ["serde"] }
 hex-literal = "0.2"
 hkdf = "0.12.3"
@@ -315,7 +312,6 @@ num_cpus = "1.11"
 num-rational = { version = "0.3.1", features = ["serde"] }
 num-traits = "0.2.15"
 object_store = { version = "0.12", features = ["gcp"] }
-openssl = { version = "0.10.70", features = ["vendored"] }
 openssl-probe = "0.1.4"
 opentelemetry = { version = "0.22.0", features = ["trace"] }
 opentelemetry_sdk = { version = "0.22.0", features = ["rt-tokio"] }
@@ -385,7 +381,6 @@ tempfile = "3.3"
 testlib = { path = "test-utils/testlib" }
 test-log = { version = "0.2", default-features = false, features = ["trace"] }
 thiserror = "2.0"
-thread_local = "1.1"
 tikv-jemallocator = "0.5.0"
 time = { version = "0.3.9", default-features = false }
 tokio = { version = "1.28", default-features = false }

@@ -237,6 +237,16 @@ jobs:
           tool: just
       - run: just check-themis
 
+  check_machete:
+    name: "Cargo machete (unused dependencies)"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
+        with:
+          tool: just,cargo-machete
+      - run: just check-cargo-machete
+
   check_non_default:
     name: "Non-default Configuration Builds"
     runs-on: ubuntu-latest

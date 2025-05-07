@@ -16,7 +16,6 @@ anyhow.workspace = true
 borsh.workspace = true
 clap.workspace = true
 parking_lot.workspace = true
-rayon.workspace = true
 tqdm.workspace = true
 tracing.workspace = true
 

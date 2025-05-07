@@ -24,7 +24,6 @@ strum.workspace = true
 tempfile.workspace = true
 bytesize.workspace = true
 zstd.workspace = true
-tracing.workspace = true
 
 nearcore.workspace = true
 near-o11y.workspace = true
@@ -46,3 +45,6 @@ nightly = [
     "near-store/nightly",
     "nearcore/nightly",
 ]
+
+[package.metadata.cargo-machete]
+ignored = ["near-async"]

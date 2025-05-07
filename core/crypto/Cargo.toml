@@ -48,3 +48,6 @@ rand-std = ["secp256k1/rand-std"]
 protocol_schema = [
     "near-schema-checker-lib/protocol_schema",
 ]
+
+[package.metadata.cargo-machete]
+ignored = ["rand"]

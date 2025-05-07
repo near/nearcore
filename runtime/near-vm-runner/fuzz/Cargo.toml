@@ -15,10 +15,7 @@ cargo-fuzz = true
 workspace = true
 
 [dependencies]
-arbitrary.workspace = true
 libfuzzer-sys.workspace = true
-wasm-smith.workspace = true
-wasmprinter.workspace = true
 
 near-parameters.workspace = true
 near-primitives.workspace = true

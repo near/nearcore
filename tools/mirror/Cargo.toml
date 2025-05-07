@@ -13,14 +13,12 @@ workspace = true
 
 [dependencies]
 actix.workspace = true
-actix-rt.workspace = true
 anyhow.workspace = true
 async-trait.workspace = true
 borsh.workspace = true
 bs58.workspace = true
 clap.workspace = true
 ed25519-dalek.workspace = true
-hex.workspace = true
 hkdf.workspace = true
 openssl-probe.workspace = true
 parking_lot.workspace = true
@@ -73,3 +71,6 @@ nightly = [
     "near-store/nightly",
     "nearcore/nightly",
 ]
+
+[package.metadata.cargo-machete]
+ignored = ["near-async", "near-network"]

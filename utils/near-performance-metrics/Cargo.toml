@@ -13,14 +13,10 @@ workspace = true
 
 [dependencies]
 actix.workspace = true
-bitflags.workspace = true
-bytes.workspace = true
 bytesize = { workspace = true, optional = true }
 futures.workspace = true
 libc.workspace = true
 parking_lot.workspace = true
-tokio.workspace = true
-tokio-util.workspace = true
 tracing.workspace = true
 
 [features]

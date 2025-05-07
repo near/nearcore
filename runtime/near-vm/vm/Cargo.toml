@@ -18,7 +18,6 @@ workspace = true
 backtrace.workspace = true
 cfg-if.workspace = true
 finite-wasm.workspace = true
-indexmap.workspace = true
 libc.workspace = true
 memoffset.workspace = true
 more-asserts.workspace = true
