@@ -1,5 +1,5 @@
 use std::collections::{HashMap, HashSet, hash_map};
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::Arc;
 
 use itertools::Itertools;
 use near_async::actix::ActixResult;
@@ -33,6 +33,7 @@ use near_primitives::genesis::GenesisId;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
 use near_primitives::types::AccountId;
+use parking_lot::{Mutex, MutexGuard};
 
 /// Subset of ClientSenderForNetwork required for the TestLoop network.
 /// We skip over the message handlers from view client.
@@ -265,7 +266,7 @@ impl TestLoopNetworkSharedState {
         let account_id = AccountId::from(data);
         let peer_id = PeerId::from(data);
 
-        let mut guard = self.0.lock().unwrap();
+        let mut guard = self.0.lock();
         guard.account_to_peer_id.insert(account_id, peer_id.clone());
         guard.senders.insert(
             peer_id,
@@ -282,18 +283,18 @@ impl TestLoopNetworkSharedState {
 
     /// Stops processing of requests from `from` peer to `to` peer.
     pub fn disallow_requests(&self, from: PeerId, to: PeerId) {
-        let mut guard = self.0.lock().unwrap();
+        let mut guard = self.0.lock();
         guard.disallowed_peer_links.entry(from).or_default().insert(to);
     }
 
     /// Allows processing of requests between all peers.
     pub fn allow_all_requests(&self) {
-        let mut guard = self.0.lock().unwrap();
+        let mut guard = self.0.lock();
         guard.disallowed_peer_links = HashMap::new();
     }
 
     fn account_to_peer_id(&self, account_id: &AccountId) -> PeerId {
-        let guard = self.0.lock().unwrap();
+        let guard = self.0.lock();
         guard.account_to_peer_id.get(account_id).unwrap().clone()
     }
 
@@ -309,7 +310,7 @@ impl TestLoopNetworkSharedState {
         origin: &AccountId,
         account_id: &AccountId,
     ) -> Arc<OneClientSenders> {
-        let guard = self.0.lock().unwrap();
+        let guard = self.0.lock();
         let origin_peer_id = &guard.account_to_peer_id[origin];
         let peer_id = &guard.account_to_peer_id[account_id];
         if Self::is_peer_link_disallowed(&guard, origin_peer_id, peer_id) {
@@ -319,7 +320,7 @@ impl TestLoopNetworkSharedState {
     }
 
     fn senders_for_peer(&self, origin: &PeerId, peer_id: &PeerId) -> Arc<OneClientSenders> {
-        let guard = self.0.lock().unwrap();
+        let guard = self.0.lock();
         if Self::is_peer_link_disallowed(&guard, origin, peer_id) {
             return guard.drop_events_senders.clone();
         }
@@ -327,7 +328,7 @@ impl TestLoopNetworkSharedState {
     }
 
     fn generate_route_back(&self, peer_id: &PeerId) -> CryptoHash {
-        let mut guard = self.0.lock().unwrap();
+        let mut guard = self.0.lock();
         let route_id = CryptoHash::hash_borsh(guard.route_back.len());
         guard.route_back.insert(route_id, peer_id.clone());
         route_id
@@ -338,7 +339,7 @@ impl TestLoopNetworkSharedState {
         origin: &AccountId,
         route_back: &CryptoHash,
     ) -> Arc<OneClientSenders> {
-        let guard = self.0.lock().unwrap();
+        let guard = self.0.lock();
         let origin_peer_id = &guard.account_to_peer_id[origin];
         let peer_id = guard.route_back.get(route_back).unwrap();
         if Self::is_peer_link_disallowed(&guard, origin_peer_id, peer_id) {
@@ -348,7 +349,7 @@ impl TestLoopNetworkSharedState {
     }
 
     fn accounts(&self) -> Vec<AccountId> {
-        let guard = self.0.lock().unwrap();
+        let guard = self.0.lock();
         let account_ids = guard.account_to_peer_id.keys().cloned().collect_vec();
         account_ids
     }

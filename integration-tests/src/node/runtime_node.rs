@@ -1,9 +1,10 @@
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
 use near_chain_configs::Genesis;
 use near_crypto::{InMemorySigner, Signer};
 use near_parameters::{RuntimeConfig, RuntimeConfigStore};
 use near_primitives::types::{AccountId, Balance};
+use parking_lot::RwLock;
 use testlib::runtime_utils::{add_test_contract, alice_account, bob_account, carol_account};
 
 use crate::node::Node;
@@ -127,7 +128,7 @@ mod tests {
         let node_user = node.user();
         let (alice1, bob1) = (node.view_balance(&alice).unwrap(), node.view_balance(&bob).unwrap());
         node_user.send_money(alice.clone(), bob.clone(), 1).unwrap();
-        let runtime_config = node.client.as_ref().read().unwrap().runtime_config.clone();
+        let runtime_config = node.client.as_ref().read().runtime_config.clone();
         let fee_helper = FeeHelper::new(runtime_config, node.genesis().config.min_gas_price);
         let transfer_cost = fee_helper.transfer_cost();
         let (alice2, bob2) = (node.view_balance(&alice).unwrap(), node.view_balance(&bob).unwrap());

@@ -1,5 +1,5 @@
+use parking_lot::Mutex;
 use std::sync::LazyLock;
-use std::sync::Mutex;
 use std::thread;
 use std::time::Duration;
 

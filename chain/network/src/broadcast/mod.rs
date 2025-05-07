@@ -1,21 +1,19 @@
 //! TEST-ONLY: unbounded version of tokio::sync::broadcast channel.
 //! It never forgets values, so should be only used in tests.
 use crate::sink::Sink;
+use parking_lot::RwLock;
 use std::sync::Arc;
 
 #[cfg(test)]
 mod tests;
 
 pub fn unbounded_channel<T>() -> (Sender<T>, Receiver<T>) {
-    let ch = Arc::new(Channel {
-        stream: std::sync::RwLock::new(vec![]),
-        notify: tokio::sync::Notify::new(),
-    });
+    let ch = Arc::new(Channel { stream: RwLock::new(vec![]), notify: tokio::sync::Notify::new() });
     (Sender(ch.clone()), Receiver { next: 0, channel: ch })
 }
 
 struct Channel<T> {
-    stream: std::sync::RwLock<Vec<T>>,
+    stream: RwLock<Vec<T>>,
     notify: tokio::sync::Notify,
 }
 
@@ -35,7 +33,7 @@ impl<T> Clone for Sender<T> {
 
 impl<T: Send + Sync + 'static> Sender<T> {
     pub fn send(&self, v: T) {
-        let mut l = self.0.stream.write().unwrap();
+        let mut l = self.0.stream.write();
         l.push(v);
         self.0.notify.notify_waiters();
     }
@@ -53,7 +51,7 @@ impl<T: Clone + Send> Receiver<T> {
     // Without actix, awaiting the expected state
     // should get way easier.
     pub fn from_now(&self) -> Self {
-        Self { channel: self.channel.clone(), next: self.channel.stream.read().unwrap().len() }
+        Self { channel: self.channel.clone(), next: self.channel.stream.read().len() }
     }
 
     /// recv() extracts a value from the channel.
@@ -63,7 +61,7 @@ impl<T: Clone + Send> Receiver<T> {
         let new_value_pushed = {
             // The lock has to be inside a block without await,
             // because otherwise recv() is not Send.
-            let l = self.channel.stream.read().unwrap();
+            let l = self.channel.stream.read();
             let new_value_pushed = self.channel.notify.notified();
             // Synchronically check if the channel is non-empty.
             // If so, pop a value and return immediately.
@@ -74,7 +72,7 @@ impl<T: Clone + Send> Receiver<T> {
         };
         // Channel was empty, so we wait for the new value.
         new_value_pushed.await;
-        let v = self.channel.stream.read().unwrap()[self.next - 1].clone();
+        let v = self.channel.stream.read()[self.next - 1].clone();
         v
     }
 
@@ -92,7 +90,7 @@ impl<T: Clone + Send> Receiver<T> {
     /// Non-blocking version of recv(): pops a value from the channel,
     /// or returns None if channel is empty.
     pub fn try_recv(&mut self) -> Option<T> {
-        let l = self.channel.stream.read().unwrap();
+        let l = self.channel.stream.read();
         if l.len() <= self.next {
             return None;
         }

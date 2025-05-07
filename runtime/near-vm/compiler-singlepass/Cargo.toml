@@ -22,9 +22,7 @@ near-vm-types.workspace = true
 dynasm.workspace = true
 dynasmrt.workspace = true
 enumset.workspace = true
-hashbrown = { workspace = true, optional = true }
 memoffset.workspace = true
-more-asserts.workspace = true
 rayon.workspace = true
 smallvec.workspace = true
 strum.workspace = true

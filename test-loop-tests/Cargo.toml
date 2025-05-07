@@ -18,6 +18,7 @@ borsh.workspace = true
 bytesize.workspace = true
 derive_builder.workspace = true
 itertools.workspace = true
+parking_lot.workspace = true
 rand.workspace = true
 rand_chacha.workspace = true
 serde_json.workspace = true
@@ -45,26 +46,26 @@ testlib.workspace = true
 
 [features]
 test_features = [
-  "nearcore/test_features",
-  "near-store/test_features",
-  "near-vm-runner/test_features",
-  "near-test-contracts/test_features",
+    "nearcore/test_features",
+    "near-store/test_features",
+    "near-vm-runner/test_features",
+    "near-test-contracts/test_features",
 ]
 nightly = [
-  "near-async/nightly",
-  "near-chain-configs/nightly",
-  "near-chain/nightly",
-  "near-chunks/nightly",
-  "near-client/nightly",
-  "near-epoch-manager/nightly",
-  "near-jsonrpc/nightly",
-  "near-network/nightly",
-  "near-o11y/nightly",
-  "near-parameters/nightly",
-  "near-primitives-core/nightly",
-  "near-primitives/nightly",
-  "near-store/nightly",
-  "near-vm-runner/nightly",
-  "nearcore/nightly",
-  "testlib/nightly",
+    "near-async/nightly",
+    "near-chain-configs/nightly",
+    "near-chain/nightly",
+    "near-chunks/nightly",
+    "near-client/nightly",
+    "near-epoch-manager/nightly",
+    "near-jsonrpc/nightly",
+    "near-network/nightly",
+    "near-o11y/nightly",
+    "near-parameters/nightly",
+    "near-primitives-core/nightly",
+    "near-primitives/nightly",
+    "near-store/nightly",
+    "near-vm-runner/nightly",
+    "nearcore/nightly",
+    "testlib/nightly",
 ]

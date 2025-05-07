@@ -25,8 +25,6 @@ pub use crate::user::runtime_user::RuntimeUser;
 pub mod rpc_user;
 pub mod runtime_user;
 
-const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
-
 #[derive(Debug, PartialEq, Eq)]
 pub enum CommitError {
     Server(ServerError),

@@ -28,7 +28,7 @@ impl Client {
         witness: ChunkStateWitness,
         witness_size: usize,
     ) -> Result<HandleOrphanWitnessOutcome, Error> {
-        let chunk_header = &witness.chunk_header;
+        let chunk_header = &witness.chunk_header();
         let witness_height = chunk_header.height_created();
         let witness_shard = chunk_header.shard_id();
 
@@ -83,7 +83,7 @@ impl Client {
             .orphan_witness_pool
             .take_state_witnesses_waiting_for_block(new_block.hash());
         for witness in ready_witnesses {
-            let header = &witness.chunk_header;
+            let header = &witness.chunk_header();
             tracing::debug!(
                 target: "client",
                 witness_height = header.height_created(),

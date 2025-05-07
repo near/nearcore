@@ -248,7 +248,7 @@ fn test_sanity_used_gas() {
         .map(|bytes| u64::from_le_bytes(*bytes))
         .collect::<Vec<_>>();
 
-    let runtime_config = node.client.read().unwrap().runtime_config.clone();
+    let runtime_config = node.client.read().runtime_config.clone();
     let base_cost = runtime_config.wasm_config.ext_costs.gas_cost(ExtCosts::base);
     let op_cost = u64::from(runtime_config.wasm_config.regular_op_cost);
 

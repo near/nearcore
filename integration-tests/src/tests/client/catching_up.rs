@@ -1,6 +1,6 @@
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
 use actix::{Addr, System};
 use borsh::{BorshDeserialize, BorshSerialize};
@@ -23,6 +23,7 @@ use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockHeight, BlockHeightDelta, BlockReference, ShardId};
 use near_primitives::views::QueryRequest;
 use near_primitives::views::QueryResponseKind::ViewAccount;
+use parking_lot::RwLock;
 
 use crate::env::setup::{ActorHandlesForTesting, setup_mock_all_validators};
 
@@ -169,9 +170,9 @@ fn test_catchup_receipts_sync_common(wait_till: u64, send: u64, sync_hold: bool)
                 let source_shard_id = account_id_to_shard_id(&account_from, 4);
                 let destination_shard_id = account_id_to_shard_id(&account_to, 4);
 
-                let mut phase = phase.write().unwrap();
-                let mut seen_heights_with_receipts = seen_heights_with_receipts.write().unwrap();
-                let mut seen_hashes_with_state = seen_hashes_with_state.write().unwrap();
+                let mut phase = phase.write();
+                let mut seen_heights_with_receipts = seen_heights_with_receipts.write();
+                let mut seen_hashes_with_state = seen_hashes_with_state.write();
                 match *phase {
                     ReceiptsSyncPhases::WaitingForFirstBlock => {
                         if let NetworkRequests::Block { block } = msg {
@@ -192,7 +193,7 @@ fn test_catchup_receipts_sync_common(wait_till: u64, send: u64, sync_hold: bool)
                                 );
                                 for i in 0..16 {
                                     send_tx(
-                                        &connectors1.write().unwrap()[i].rpc_handler_actor,
+                                        &connectors1.write()[i].rpc_handler_actor,
                                         account_from.clone(),
                                         account_to.clone(),
                                         111,
@@ -326,16 +327,15 @@ fn test_catchup_receipts_sync_common(wait_till: u64, send: u64, sync_hold: bool)
                             }
                             if block.header().height() == wait_till + 10 {
                                 for i in 0..16 {
-                                    let actor =
-                                        connectors1.write().unwrap()[i].view_client_actor.send(
-                                            Query::new(
-                                                BlockReference::latest(),
-                                                QueryRequest::ViewAccount {
-                                                    account_id: account_to.clone(),
-                                                },
-                                            )
-                                            .with_span_context(),
-                                        );
+                                    let actor = connectors1.write()[i].view_client_actor.send(
+                                        Query::new(
+                                            BlockReference::latest(),
+                                            QueryRequest::ViewAccount {
+                                                account_id: account_to.clone(),
+                                            },
+                                        )
+                                        .with_span_context(),
+                                    );
                                     let actor = actor.then(move |res| {
                                         let res_inner = res.unwrap();
                                         if let Ok(query_response) = res_inner {
@@ -356,7 +356,7 @@ fn test_catchup_receipts_sync_common(wait_till: u64, send: u64, sync_hold: bool)
                 (NetworkResponses::NoResponse.into(), true)
             }),
         );
-        *connectors.write().unwrap() = conn;
+        *connectors.write() = conn;
         let mut max_wait_ms = 240000;
         if sync_hold {
             max_wait_ms *= TEST_STATE_SYNC_TIMEOUT as u64;
@@ -422,7 +422,7 @@ fn test_catchup_random_single_part_sync_common(skip_15: bool, non_zero: bool, he
 
         let check_amount =
             move |amounts: Arc<RwLock<HashMap<_, _, _>>>, account_id: AccountId, amount: u128| {
-                match amounts.write().unwrap().entry(account_id) {
+                match amounts.write().entry(account_id) {
                     Entry::Occupied(entry) => {
                         println!("OCCUPIED {:?}", entry);
                         assert_eq!(*entry.get(), amount);
@@ -455,8 +455,8 @@ fn test_catchup_random_single_part_sync_common(skip_15: bool, non_zero: bool, he
             None,
             Box::new(move |_, _account_id: _, msg: &PeerManagerMessageRequest| {
                 let msg = msg.as_network_requests_ref();
-                let mut seen_heights_same_block = seen_heights_same_block.write().unwrap();
-                let mut phase = phase.write().unwrap();
+                let mut seen_heights_same_block = seen_heights_same_block.write();
+                let mut phase = phase.write();
                 match *phase {
                     RandomSinglePartPhases::WaitingForFirstBlock => {
                         if let NetworkRequests::Block { block } = msg {
@@ -491,8 +491,7 @@ fn test_catchup_random_single_part_sync_common(skip_15: bool, non_zero: bool, he
                                         );
                                         for conn in 0..validators.len() {
                                             send_tx(
-                                                &connectors1.write().unwrap()[conn]
-                                                    .rpc_handler_actor,
+                                                &connectors1.write()[conn].rpc_handler_actor,
                                                 validator1.clone(),
                                                 validator2.clone(),
                                                 amount,
@@ -519,16 +518,15 @@ fn test_catchup_random_single_part_sync_common(skip_15: bool, non_zero: bool, he
                                     for j in 0..16 {
                                         let amounts1 = amounts.clone();
                                         let validator = validators[j].clone();
-                                        let actor =
-                                            connectors1.write().unwrap()[i].view_client_actor.send(
-                                                Query::new(
-                                                    BlockReference::latest(),
-                                                    QueryRequest::ViewAccount {
-                                                        account_id: validators[j].clone(),
-                                                    },
-                                                )
-                                                .with_span_context(),
-                                            );
+                                        let actor = connectors1.write()[i].view_client_actor.send(
+                                            Query::new(
+                                                BlockReference::latest(),
+                                                QueryRequest::ViewAccount {
+                                                    account_id: validators[j].clone(),
+                                                },
+                                            )
+                                            .with_span_context(),
+                                        );
                                         let actor = actor.then(move |res| {
                                             let res_inner = res.unwrap();
                                             if let Ok(query_response) = res_inner {
@@ -556,7 +554,7 @@ fn test_catchup_random_single_part_sync_common(skip_15: bool, non_zero: bool, he
                                 assert_eq!(seen_heights_same_block.len(), 1);
                                 let amounts1 = amounts.clone();
                                 for flat_validator in &validators {
-                                    match amounts1.write().unwrap().entry(flat_validator.clone()) {
+                                    match amounts1.write().entry(flat_validator.clone()) {
                                         Entry::Occupied(_) => {
                                             continue;
                                         }
@@ -594,7 +592,7 @@ fn test_catchup_random_single_part_sync_common(skip_15: bool, non_zero: bool, he
                 (NetworkResponses::NoResponse.into(), true)
             }),
         );
-        *connectors.write().unwrap() = conn;
+        *connectors.write() = conn;
 
         near_network::test_utils::wait_or_panic(480000);
     });
@@ -614,15 +612,14 @@ fn ultra_slow_test_catchup_sanity_blocks_produced() {
         let heights = Arc::new(RwLock::new(HashMap::new()));
         let heights1 = heights;
 
-        let check_height =
-            move |hash: CryptoHash, height| match heights1.write().unwrap().entry(hash) {
-                Entry::Occupied(entry) => {
-                    assert_eq!(*entry.get(), height);
-                }
-                Entry::Vacant(entry) => {
-                    entry.insert(height);
-                }
-            };
+        let check_height = move |hash: CryptoHash, height| match heights1.write().entry(hash) {
+            Entry::Occupied(entry) => {
+                assert_eq!(*entry.get(), height);
+            }
+            Entry::Vacant(entry) => {
+                entry.insert(height);
+            }
+        };
 
         let (vs, key_pairs) = get_validators_and_key_pairs();
         let vs = vs.validator_groups(2);
@@ -665,7 +662,7 @@ fn ultra_slow_test_catchup_sanity_blocks_produced() {
                 (NetworkResponses::NoResponse.into(), propagate)
             }),
         );
-        *connectors.write().unwrap() = conn;
+        *connectors.write() = conn;
 
         near_network::test_utils::wait_or_panic(60000);
     });
@@ -720,9 +717,9 @@ fn test_all_chunks_accepted_common(
             None,
             Box::new(move |_, sender_account_id: AccountId, msg: &PeerManagerMessageRequest| {
                 let msg = msg.as_network_requests_ref();
-                let mut seen_chunk_same_sender = seen_chunk_same_sender.write().unwrap();
-                let mut requested = requested.write().unwrap();
-                let mut responded = responded.write().unwrap();
+                let mut seen_chunk_same_sender = seen_chunk_same_sender.write();
+                let mut requested = requested.write();
+                let mut responded = responded.write();
                 if let NetworkRequests::PartialEncodedChunkMessage {
                     account_id,
                     partial_encoded_chunk,
@@ -796,7 +793,7 @@ fn test_all_chunks_accepted_common(
                 (NetworkResponses::NoResponse.into(), true)
             }),
         );
-        *connectors.write().unwrap() = conn;
+        *connectors.write() = conn;
         let max_wait_ms = block_prod_time * last_height / 10 * 18 + 20000;
 
         near_network::test_utils::wait_or_panic(max_wait_ms);

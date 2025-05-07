@@ -4,11 +4,11 @@ use super::state_snapshot::{StateSnapshot, StateSnapshotConfig};
 use crate::adapter::StoreAdapter;
 use crate::adapter::trie_store::{TrieStoreAdapter, TrieStoreUpdateAdapter};
 use crate::flat::FlatStorageManager;
+use crate::trie::TrieRefcountAddition;
 use crate::trie::config::TrieConfig;
 use crate::trie::mem::loading::load_trie_from_flat_state_and_delta;
 use crate::trie::prefetching_trie_storage::PrefetchingThreadsHandle;
 use crate::trie::trie_storage::{TrieCache, TrieCachingStorage};
-use crate::trie::{POISONED_LOCK_ERR, TrieRefcountAddition};
 use crate::{DBCol, PrefetchApi, Store, TrieDBStorage, TrieStorage, metrics};
 use crate::{Trie, TrieChanges, TrieUpdate};
 use itertools::Itertools;
@@ -19,10 +19,11 @@ use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{
     BlockHeight, RawStateChange, RawStateChangesWithTrieKey, StateChangeCause, StateRoot,
 };
+use parking_lot::{Mutex, RwLock};
 use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::Arc;
 
 struct ShardTriesInner {
     store: TrieStoreAdapter,
@@ -117,7 +118,7 @@ impl ShardTries {
     ) -> Option<TrieCache> {
         self.trie_cache_enabled(shard_uid, is_view).then(|| {
             let caches_to_use = if is_view { &self.0.view_caches } else { &self.0.caches };
-            let mut caches = caches_to_use.lock().expect(POISONED_LOCK_ERR);
+            let mut caches = caches_to_use.lock();
             caches
                 .entry(shard_uid)
                 .or_insert_with(|| TrieCache::new(&self.0.trie_config, shard_uid, is_view))
@@ -156,7 +157,7 @@ impl ShardTries {
             )
         } else {
             let memtries = self.get_memtries(shard_uid);
-            let split_shard_map_guard = self.0.temp_split_shard_map.read().unwrap();
+            let split_shard_map_guard = self.0.temp_split_shard_map.read();
             let children_shard_uid =
                 split_shard_map_guard.get(&shard_uid).cloned().unwrap_or_default();
             let mut children_memtries = HashMap::new();
@@ -246,7 +247,6 @@ impl ShardTries {
             self.0
                 .prefetchers
                 .write()
-                .expect(POISONED_LOCK_ERR)
                 .entry(shard_uid)
                 .or_insert_with(|| {
                     PrefetchApi::new(
@@ -395,7 +395,7 @@ impl ShardTries {
     ) -> Option<StateRoot> {
         // Apply children memtrie changes in case of forks on parent. Most of the time children_memtrie_changes
         // will be empty. Lookup children_memtrie_changes for more context.
-        let split_shard_map_guard = self.0.temp_split_shard_map.read().unwrap();
+        let split_shard_map_guard = self.0.temp_split_shard_map.read();
         let children_shard_uid = split_shard_map_guard.get(&shard_uid).cloned().unwrap_or_default();
         for (shard_uid, memtrie_changes) in &trie_changes.children_memtrie_changes {
             // Note that we should only be writing the changes to the child memtrie iff the child and parent
@@ -404,7 +404,7 @@ impl ShardTries {
             // shares the base with parent, in which case we skip writing the changes.
             if children_shard_uid.contains(&shard_uid) {
                 let memtrie = self.get_memtries(*shard_uid).expect("Memtrie must exist");
-                memtrie.write().unwrap().apply_memtrie_changes(block_height, memtrie_changes);
+                memtrie.write().apply_memtrie_changes(block_height, memtrie_changes);
             }
         }
 
@@ -413,7 +413,7 @@ impl ShardTries {
                 .memtrie_changes
                 .as_ref()
                 .expect("Memtrie changes must be present if memtrie is loaded");
-            Some(memtries.write().unwrap().apply_memtrie_changes(block_height, changes))
+            Some(memtries.write().apply_memtrie_changes(block_height, changes))
         } else {
             assert!(
                 trie_changes.memtrie_changes.is_none(),
@@ -427,15 +427,15 @@ impl ShardTries {
     /// in the given list. Should be called to unload obsolete tries from memory.
     pub fn retain_memtries(&self, shard_uids: &[ShardUId]) {
         tracing::info!(target: "memtrie", "Current memtries: {:?}. Keeping memtries for shards {:?}...",
-            self.0.memtries.read().unwrap().keys(), shard_uids);
-        self.0.memtries.write().unwrap().retain(|shard_uid, _| shard_uids.contains(shard_uid));
+            self.0.memtries.read().keys(), shard_uids);
+        self.0.memtries.write().retain(|shard_uid, _| shard_uids.contains(shard_uid));
         tracing::info!(target: "memtrie", "Memtries retaining complete for shards {:?}", shard_uids);
     }
 
     /// Remove trie from memory for given shard.
     pub fn unload_memtrie(&self, shard_uid: &ShardUId) {
         tracing::info!(target: "memtrie", "Unloading trie from memory for shard {:?}...", shard_uid);
-        self.0.memtries.write().unwrap().remove(shard_uid);
+        self.0.memtries.write().remove(shard_uid);
         tracing::info!(target: "memtrie", "Memtrie unloading complete for shard {:?}", shard_uid);
     }
 
@@ -453,7 +453,7 @@ impl ShardTries {
             state_root,
             parallelize,
         )?;
-        self.0.memtries.write().unwrap().insert(*shard_uid, Arc::new(RwLock::new(memtries)));
+        self.0.memtries.write().insert(*shard_uid, Arc::new(RwLock::new(memtries)));
         tracing::info!(target: "memtrie", "Memtrie loading complete for shard {:?}", shard_uid);
         Ok(())
     }
@@ -474,7 +474,7 @@ impl ShardTries {
         }
         // It should not happen that memtrie is already loaded for a shard
         // for which we just did state sync.
-        debug_assert!(!self.0.memtries.read().unwrap().contains_key(shard_uid));
+        debug_assert!(!self.0.memtries.read().contains_key(shard_uid));
         self.load_memtrie(shard_uid, Some(*state_root), false)
     }
 
@@ -522,7 +522,7 @@ impl ShardTries {
 
     /// Retrieves the in-memory tries for the shard.
     pub fn get_memtries(&self, shard_uid: ShardUId) -> Option<Arc<RwLock<MemTries>>> {
-        let guard = self.0.memtries.read().unwrap();
+        let guard = self.0.memtries.read();
         guard.get(&shard_uid).cloned()
     }
 
@@ -530,7 +530,7 @@ impl ShardTries {
     /// height.
     pub fn delete_memtrie_roots_up_to_height(&self, shard_uid: ShardUId, height: BlockHeight) {
         if let Some(memtries) = self.get_memtries(shard_uid) {
-            memtries.write().unwrap().delete_until_height(height);
+            memtries.write().delete_until_height(height);
         }
     }
 
@@ -544,7 +544,7 @@ impl ShardTries {
         parent_shard_uid: ShardUId,
         children_shard_uids: Vec<ShardUId>,
     ) -> Result<(), StorageError> {
-        let mut split_shard_map_guard = self.0.temp_split_shard_map.write().unwrap();
+        let mut split_shard_map_guard = self.0.temp_split_shard_map.write();
         if split_shard_map_guard.contains_key(&parent_shard_uid) {
             // If the parent has already been split, then we don't do anything here.
             return Ok(());
@@ -556,14 +556,14 @@ impl ShardTries {
             ?children_shard_uids,
             "Freezing parent memtrie, creating children memtries...",
         );
-        let mut outer_guard = self.0.memtries.write().unwrap();
+        let mut outer_guard = self.0.memtries.write();
         let Some(memtries) = outer_guard.remove(&parent_shard_uid) else {
             return Err(StorageError::MemTrieLoadingError(format!(
                 "On freezing parent memtrie, memtrie not loaded for shard {:?}",
                 parent_shard_uid
             )));
         };
-        let mut guard = memtries.write().unwrap();
+        let mut guard = memtries.write();
         let memtries = std::mem::replace(&mut *guard, MemTries::new(parent_shard_uid));
         let frozen_memtries = memtries.freeze();
 
@@ -919,26 +919,23 @@ mod test {
         let tries = create_trie();
         let trie_caches = &tries.0.caches;
         // Assert only one cache for one shard exists
-        assert_eq!(trie_caches.lock().unwrap().len(), 1);
+        assert_eq!(trie_caches.lock().len(), 1);
         // Assert the shard uid is correct
-        assert!(trie_caches.lock().unwrap().get(&shard_uid).is_some());
+        assert!(trie_caches.lock().get(&shard_uid).is_some());
 
         // Read from cache
         let key = CryptoHash::hash_borsh("alice");
         let val: Vec<u8> = Vec::from([0, 1, 2, 3, 4]);
 
-        assert!(trie_caches.lock().unwrap().get(&shard_uid).unwrap().get(&key).is_none());
+        assert!(trie_caches.lock().get(&shard_uid).unwrap().get(&key).is_none());
 
         let insert_ops = Vec::from([(&key, Some(val.as_slice()))]);
         tries.update_cache(insert_ops, shard_uid);
-        assert_eq!(
-            trie_caches.lock().unwrap().get(&shard_uid).unwrap().get(&key).unwrap().to_vec(),
-            val
-        );
+        assert_eq!(trie_caches.lock().get(&shard_uid).unwrap().get(&key).unwrap().to_vec(), val);
 
         let deletions_ops = Vec::from([(&key, None)]);
         tries.update_cache(deletions_ops, shard_uid);
-        assert!(trie_caches.lock().unwrap().get(&shard_uid).unwrap().get(&key).is_none());
+        assert!(trie_caches.lock().get(&shard_uid).unwrap().get(&key).is_none());
     }
 
     #[test]
@@ -972,16 +969,13 @@ mod test {
         let val: Vec<u8> = vec![0; TrieConfig::max_cached_value_size() - 1];
         let insert_ops = Vec::from([(&key, Some(val.as_slice()))]);
         trie.update_cache(insert_ops, shard_uid);
-        assert_eq!(
-            trie_caches.lock().unwrap().get(&shard_uid).unwrap().get(&key).unwrap().to_vec(),
-            val
-        );
+        assert_eq!(trie_caches.lock().get(&shard_uid).unwrap().get(&key).unwrap().to_vec(), val);
 
         // Try to insert into cache value bigger then the maximum allowed size
         let key = CryptoHash::from_str("32222222222233333333334444444444445555555777").unwrap();
         let val: Vec<u8> = vec![0; TrieConfig::max_cached_value_size()];
         let insert_ops = Vec::from([(&key, Some(val.as_slice()))]);
         trie.update_cache(insert_ops, shard_uid);
-        assert!(trie_caches.lock().unwrap().get(&shard_uid).unwrap().get(&key).is_none());
+        assert!(trie_caches.lock().get(&shard_uid).unwrap().get(&key).is_none());
     }
 }

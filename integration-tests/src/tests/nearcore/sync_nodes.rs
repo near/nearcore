@@ -14,8 +14,9 @@ use near_o11y::WithSpanContextExt;
 use near_o11y::testonly::init_integration_logger;
 use near_primitives::transaction::SignedTransaction;
 use nearcore::{load_test_config, start_with_config};
+use parking_lot::RwLock;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, RwLock};
 
 /// Starts one validation node, it reduces it's stake to 1/2 of the stake.
 /// Second node starts after 1s, needs to catchup & state sync and then make sure it's
@@ -91,7 +92,7 @@ fn ultra_slow_test_sync_state_stake_change() {
                             let nearcore::NearNode { view_client: view_client2, arbiters, .. } =
                                 start_with_config(&dir2_path_copy, near2_copy)
                                     .expect("start_with_config");
-                            *arbiters_holder2.write().unwrap() = arbiters;
+                            *arbiters_holder2.write() = arbiters;
 
                             WaitOrTimeoutActor::new(
                                 Box::new(move |_ctx| {

@@ -18,12 +18,38 @@ The node also generates snapshots and serves headers and parts to peers as reque
 
 
 def get_state_sync_config_p2p(tracked_shards_config):
+    # Even though we are testing p2p sync, we intentionally configure the external storage
+    # and set a low fallback threshold (1). The storage will be empty because no dumpers
+    # are run in the p2p tests; all requests to it will fail. We want to see that the
+    # state sync logic is fault-tolerant and will succeed via p2p in spite of this.
+    state_parts_dir = str(pathlib.Path(tempfile.gettempdir()) / "state_parts")
+
     config = {
+        "consensus.state_sync_external_timeout": {
+            "secs": 0,
+            "nanos": 500000000
+        },
         "consensus.state_sync_p2p_timeout": {
             "secs": 0,
             "nanos": 500000000
         },
+        "consensus.state_sync_external_backoff": {
+            "secs": 0,
+            "nanos": 500000000
+        },
         "store.state_snapshot_config.state_snapshot_type": "Enabled",
+        "state_sync": {
+            "sync": {
+                "ExternalStorage": {
+                    "location": {
+                        "Filesystem": {
+                            "root_dir": state_parts_dir
+                        }
+                    },
+                    "external_storage_fallback_threshold": 1,
+                }
+            }
+        },
     }
     if tracked_shards_config is not None:
         config['tracked_shards_config'] = tracked_shards_config

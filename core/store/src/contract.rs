@@ -3,8 +3,9 @@ use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::stateless_validation::contract_distribution::{CodeHash, ContractUpdates};
 use near_vm_runner::ContractCode;
+use parking_lot::Mutex;
 use std::collections::{BTreeMap, HashSet};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 /// Tracks the uncommitted and committed deployments and calls to contracts, while applying the receipts in a chunk.
 ///
@@ -102,7 +103,7 @@ impl ContractStorage {
     /// is actually included in the chunk application.
     pub fn get(&self, code_hash: CryptoHash) -> Option<ContractCode> {
         {
-            let guard = self.tracker.lock().expect("no panics");
+            let guard = self.tracker.lock();
             // The tracker may be finalized before the receipt preparation pipeline calls this function.
             // In this case we should skip checking the tracker and directly read from the storage.
             // Note that this does not cause any correctness issue, because the pipeline stops processing when
@@ -131,7 +132,7 @@ impl ContractStorage {
     ///
     /// This is used to capture the contracts that are called when applying a chunk.
     pub fn record_call(&self, code_hash: CryptoHash) {
-        let mut guard = self.tracker.lock().expect("no panics");
+        let mut guard = self.tracker.lock();
         let tracker = guard.as_mut().expect("must not be called after finalizing");
         tracker.call(code_hash.into());
     }
@@ -141,7 +142,7 @@ impl ContractStorage {
     /// Subsequent calls to `get` will return the code that was stored here. Calling `rollback_deploys` clears
     /// this uncommitted deploy and calling `commit_deploys` moves it to the committed list.
     pub fn record_deploy(&self, code: ContractCode) {
-        let mut guard = self.tracker.lock().expect("no panics");
+        let mut guard = self.tracker.lock();
         let tracker = guard.as_mut().expect("must not be called after finalizing");
         tracker.deploy(code);
     }
@@ -151,7 +152,7 @@ impl ContractStorage {
     /// Note that there can be multiple calls to `commit_deploys`. Each commit moves the uncommitted deployments
     /// to the committed list and clears the uncommitted list.
     pub(crate) fn commit_deploys(&self) {
-        let mut guard = self.tracker.lock().expect("no panics");
+        let mut guard = self.tracker.lock();
         let tracker = guard.as_mut().expect("must not be called after finalizing");
         tracker.commit_deploys();
     }
@@ -161,7 +162,7 @@ impl ContractStorage {
     /// Note that there can be multiple calls to `rollback_deploys`. Each rollback clears the uncommitted deployments
     /// but does not modify the list of committed deployments.
     pub(crate) fn rollback_deploys(&self) {
-        let mut guard = self.tracker.lock().expect("no panics");
+        let mut guard = self.tracker.lock();
         let tracker = guard.as_mut().expect("must not be called after finalizing");
         tracker.rollback_deploys();
     }
@@ -175,7 +176,7 @@ impl ContractStorage {
     /// deployed to an account is now deployed to a different account, we still include the contract in the list of `contracts_deployed`.
     /// This can be optimized later by checking if the deployed contract already exists in the storage and excluding from the returned list.
     pub(crate) fn finalize(self) -> ContractUpdates {
-        let mut guard = self.tracker.lock().expect("no panics");
+        let mut guard = self.tracker.lock();
         let tracker = guard.take().expect("finalize must be called only once");
         tracker.finalize()
     }

@@ -724,7 +724,7 @@ mod test {
             thread::sleep(std::time::Duration::from_millis(500));
         }
         // 6 blocks / second is fast enough, we should not have banned the peer
-        assert!(network_adapter.requests.read().unwrap().is_empty());
+        assert!(network_adapter.requests.read().is_empty());
 
         // Now the same, but only 20 heights / sec
         for _iter in 0..12 {
@@ -746,7 +746,7 @@ mod test {
             thread::sleep(std::time::Duration::from_millis(500));
         }
         // This time the peer should be banned, because 4 blocks/s is not fast enough
-        let ban_peer = network_adapter.requests.write().unwrap().pop_back().unwrap();
+        let ban_peer = network_adapter.requests.write().pop_back().unwrap();
 
         if let NetworkRequests::BanPeer { .. } = ban_peer.as_network_requests() {
             /* expected */

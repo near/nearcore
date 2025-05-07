@@ -1,5 +1,5 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
 use near_async::messaging::CanSend as _;
 use near_async::test_loop::sender::TestLoopSender;
@@ -16,6 +16,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::types::{AccountId, BlockHeight, EpochId, NumSeats};
+use parking_lot::RwLock;
 use rand::{Rng as _, thread_rng};
 
 use crate::setup::builder::TestLoopBuilder;
@@ -86,8 +87,8 @@ fn ultra_slow_test_consensus_with_epoch_switches() {
         let peer_actor_handle = node_datas.peer_manager_sender.actor_handle();
         let peer_actor = env.test_loop.data.get_mut(&peer_actor_handle);
         peer_actor.register_override_handler(Box::new(move |request| -> Option<NetworkRequests> {
-            let mut handler = handler.write().unwrap();
-            let mut rng = rng.write().unwrap();
+            let mut handler = handler.write();
+            let mut rng = rng.write();
 
             match request {
                 NetworkRequests::Block { ref block } => {
@@ -285,7 +286,7 @@ fn ultra_slow_test_consensus_with_epoch_switches() {
     runner.run_until(
         &mut env,
         |test_loop_data| {
-            let mut handler = handler.write().unwrap();
+            let mut handler = handler.write();
 
             let client = &test_loop_data.get(client_actor_handle).client;
             let head = client.chain.head().unwrap();
@@ -296,7 +297,7 @@ fn ultra_slow_test_consensus_with_epoch_switches() {
         Duration::seconds(2 * (HEIGHT_GOAL as i64)),
     );
 
-    let delayed_blocks_count = handler.read().unwrap().delayed_blocks_count;
+    let delayed_blocks_count = handler.read().delayed_blocks_count;
     assert!(delayed_blocks_count > 0, "no blocks were delayed");
     println!("Delayed {} blocks", delayed_blocks_count);
 

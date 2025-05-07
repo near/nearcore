@@ -1,5 +1,5 @@
+use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
-use std::sync::{Arc, Mutex};
 
 use near_async::messaging::{IntoMultiSender, IntoSender, Sender};
 use near_async::test_loop::data::TestLoopDataHandle;
@@ -19,6 +19,7 @@ use near_primitives::types::AccountId;
 use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
 use near_store::Store;
 use nearcore::state_sync::StateSyncDumper;
+use parking_lot::Mutex;
 use tempfile::TempDir;
 
 use crate::utils::peer_manager_actor::{

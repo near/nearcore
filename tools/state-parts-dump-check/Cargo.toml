@@ -31,11 +31,14 @@ tokio.workspace = true
 tracing.workspace = true
 [features]
 nightly = [
-  "near-client/nightly",
-  "near-jsonrpc/nightly",
-  "near-o11y/nightly",
-  "near-primitives-core/nightly",
-  "near-primitives/nightly",
-  "near-store/nightly",
-  "nearcore/nightly",
+    "near-client/nightly",
+    "near-jsonrpc/nightly",
+    "near-o11y/nightly",
+    "near-primitives-core/nightly",
+    "near-primitives/nightly",
+    "near-store/nightly",
+    "nearcore/nightly",
 ]
+
+[package.metadata.cargo-machete]
+ignored = ["near-primitives-core"]

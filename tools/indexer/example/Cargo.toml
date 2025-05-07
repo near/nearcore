@@ -16,7 +16,6 @@ actix.workspace = true
 anyhow.workspace = true
 clap.workspace = true
 openssl-probe.workspace = true
-serde_json.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 

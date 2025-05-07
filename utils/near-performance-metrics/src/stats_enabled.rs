@@ -1,12 +1,13 @@
 use bytesize::ByteSize;
 use futures;
 use futures::task::Context;
+use parking_lot::Mutex;
 use std::cmp::{max, min};
 use std::collections::{HashMap, HashSet};
 use std::pin::Pin;
+use std::sync::Arc;
 use std::sync::LazyLock;
 use std::sync::atomic::AtomicUsize;
-use std::sync::{Arc, Mutex};
 use std::task::Poll;
 use std::time::{Duration, Instant};
 use tracing::{info, warn};
@@ -26,7 +27,7 @@ pub fn get_thread_stats_logger() -> Arc<Mutex<ThreadStats>> {
     thread_local! {
         static LOCAL_STATS: Arc<Mutex<ThreadStats>> = {
             let res = Arc::new(Mutex::new(ThreadStats::new()));
-            STATS.lock().unwrap().add_entry(&res);
+            STATS.lock().add_entry(&res);
             res
         }
     }
@@ -245,7 +246,7 @@ impl Stats {
         let now = Instant::now();
         for entry in s {
             let (tmp_ratio, tmp_other_ratio) =
-                entry.1.lock().unwrap().print_stats_and_clear(*entry.0, sleep_time, now);
+                entry.1.lock().print_stats_and_clear(*entry.0, sleep_time, now);
             ratio += tmp_ratio;
             other_ratio += tmp_other_ratio;
         }
@@ -294,7 +295,7 @@ where
     let stat = get_thread_stats_logger();
 
     let start = Instant::now();
-    stat.lock().unwrap().pre_log(start);
+    stat.lock().pre_log(start);
     let result = f(msg);
 
     let ended = Instant::now();
@@ -311,7 +312,7 @@ where
             text_field,
         );
     }
-    stat.lock().unwrap().log(
+    stat.lock().log(
         class_name,
         std::any::type_name::<Message>(),
         0,
@@ -343,12 +344,12 @@ where
 
         let stat = get_thread_stats_logger();
         let start = Instant::now();
-        stat.lock().unwrap().pre_log(start);
+        stat.lock().pre_log(start);
 
         let res = unsafe { Pin::new_unchecked(&mut this.f) }.poll(cx);
         let ended = Instant::now();
         let took = ended.saturating_duration_since(start);
-        stat.lock().unwrap().log(this.class_name, this.file, this.line, took, ended, "");
+        stat.lock().log(this.class_name, this.file, this.line, took, ended, "");
 
         if took > SLOW_CALL_THRESHOLD {
             warn!(
@@ -362,8 +363,7 @@ where
         }
         match res {
             Poll::Ready(x) => {
-                *REF_COUNTER.lock().unwrap().entry((this.file, this.line)).or_insert_with(|| 0) -=
-                    1;
+                *REF_COUNTER.lock().entry((this.file, this.line)).or_insert_with(|| 0) -= 1;
                 Poll::Ready(x)
             }
             Poll::Pending => Poll::Pending,
@@ -372,9 +372,9 @@ where
 }
 
 pub fn print_performance_stats(sleep_time: Duration) {
-    STATS.lock().unwrap().print_stats(sleep_time);
+    STATS.lock().print_stats(sleep_time);
     info!("Futures waiting for completion");
-    for entry in REF_COUNTER.lock().unwrap().iter() {
+    for entry in REF_COUNTER.lock().iter() {
         if *entry.1 > 0 {
             info!("    future {}:{} {}", (entry.0).0, (entry.0).1, entry.1);
         }

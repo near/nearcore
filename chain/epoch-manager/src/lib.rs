@@ -32,11 +32,12 @@ use near_primitives::views::{
 use near_store::adapter::StoreAdapter;
 use near_store::{DBCol, HEADER_HEAD_KEY, Store, StoreUpdate};
 use num_rational::BigRational;
+use parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 use reward_calculator::ValidatorOnlineThresholds;
 use shard_assignment::build_assignment_restrictions_v77_to_v78;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::Path;
-use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
+use std::sync::Arc;
 use tracing::{debug, warn};
 pub use validator_selection::proposals_to_epoch_info;
 use validator_stats::get_sortable_validator_online_ratio;
@@ -72,11 +73,11 @@ pub struct EpochManagerHandle {
 
 impl EpochManagerHandle {
     pub fn write(&self) -> RwLockWriteGuard<EpochManager> {
-        self.inner.write().unwrap()
+        self.inner.write()
     }
 
     pub fn read(&self) -> RwLockReadGuard<EpochManager> {
-        self.inner.read().unwrap()
+        self.inner.read()
     }
 }
 

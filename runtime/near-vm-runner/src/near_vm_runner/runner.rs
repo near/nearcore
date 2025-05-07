@@ -29,9 +29,10 @@ use near_vm_vm::{
     Artifact, ExportFunction, ExportFunctionMetadata, Instantiatable, LinearMemory, LinearTable,
     MemoryStyle, Resolver, TrapCode, VMFunction, VMFunctionKind, VMMemory,
 };
+use parking_lot::Mutex;
 use std::any::Any;
 use std::mem::size_of;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, OnceLock};
 
 type VMArtifact = Arc<UniversalArtifact>;
 
@@ -450,7 +451,7 @@ fn lazy_drop(what: Box<dyn Any + Send>) {
     const CHUNK_SIZE: usize = 8;
     static WAITLIST: OnceLock<Mutex<Vec<Box<dyn Any + Send>>>> = OnceLock::new();
     let waitlist = WAITLIST.get_or_init(|| Mutex::new(Vec::with_capacity(CHUNK_SIZE)));
-    let mut waitlist = waitlist.lock().unwrap_or_else(|e| e.into_inner());
+    let mut waitlist = waitlist.lock();
     if waitlist.capacity() > waitlist.len() {
         waitlist.push(Box::new(what));
     }
