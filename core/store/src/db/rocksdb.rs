@@ -9,10 +9,20 @@ use itertools::Itertools;
 use std::io;
 use std::path::Path;
 use std::sync::LazyLock;
+use std::sync::atomic::{AtomicBool, Ordering};
 use strum::IntoEnumIterator;
 use tracing::warn;
 
 use super::metadata;
+
+// Dirty hack: Global flag to indicate if the node has produced any blocks
+pub static NODE_HAS_PRODUCED_BLOCKS: LazyLock<AtomicBool> =
+    LazyLock::new(|| AtomicBool::new(false));
+
+/// Public function to set the flag when a block is produced
+pub fn mark_block_produced() {
+    NODE_HAS_PRODUCED_BLOCKS.store(true, Ordering::SeqCst);
+}
 
 mod instance_tracker;
 pub(crate) mod snapshot;
@@ -309,19 +319,6 @@ impl RocksDB {
     fn build_write_batch(&self, transaction: DBTransaction) -> io::Result<WriteBatch> {
         let mut batch = WriteBatch::default();
 
-        // First scan to check if there's any modification to BlockMisc column
-        let has_block_misc_modification = transaction.ops.iter().any(|op| {
-            matches!(
-                op,
-                DBOp::Set { col: DBCol::BlockMisc, .. }
-                    | DBOp::Insert { col: DBCol::BlockMisc, .. }
-                    | DBOp::UpdateRefcount { col: DBCol::BlockMisc, .. }
-                    | DBOp::Delete { col: DBCol::BlockMisc, .. }
-                    | DBOp::DeleteAll { col: DBCol::BlockMisc }
-                    | DBOp::DeleteRange { col: DBCol::BlockMisc, .. }
-            )
-        });
-
         for op in transaction.ops {
             match op {
                 DBOp::Set { col, key, value } => {
@@ -336,8 +333,10 @@ impl RocksDB {
                     batch.put_cf(self.cf_handle(col)?, key, value);
                 }
                 DBOp::UpdateRefcount { col, key, value } => {
-                    if !has_block_misc_modification || value.len() > 4000 {
-                        // lol
+                    // Apply the merge operation if either:
+                    // 1. The value is large (> 4000 bytes), or
+                    // 2. The node has never produced a block (is not in validator mode)
+                    if !NODE_HAS_PRODUCED_BLOCKS.load(Ordering::SeqCst) || value.len() > 4000 {
                         batch.merge_cf(self.cf_handle(col)?, key, value);
                     }
                 }

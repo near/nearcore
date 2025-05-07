@@ -1202,6 +1202,12 @@ impl Chain {
         apply_chunks_done_sender: Option<near_async::messaging::Sender<ApplyChunksDoneMessage>>,
     ) -> Result<(), Error> {
         let block_height = block.header().height();
+
+        // Mark that this node has produced a block, for our dirty hack
+        if block_height >= 200 {
+            near_store::db::mark_block_produced();
+        }
+
         let _span =
             debug_span!(target: "chain", "start_process_block_async", ?provenance, height=block_height).entered();
         let block_received_time = self.clock.now();
