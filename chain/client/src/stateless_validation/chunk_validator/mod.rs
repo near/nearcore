@@ -199,6 +199,13 @@ pub(crate) fn send_chunk_endorsement_to_block_producers(
     signer: &ValidatorSigner,
     network_sender: &Sender<PeerManagerMessageRequest>,
 ) {
+    let _span = tracing::debug_span!(
+        target: "client",
+        "send_chunk_endorsement",
+        shard_id=?chunk_header.shard_id(),
+        height=?chunk_header.height_created(),
+        chunk_hash=?chunk_header.chunk_hash())
+    .entered();
     let epoch_id =
         epoch_manager.get_epoch_id_from_prev_block(chunk_header.prev_block_hash()).unwrap();
 

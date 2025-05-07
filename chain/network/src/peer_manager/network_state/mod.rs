@@ -782,15 +782,39 @@ impl NetworkState {
                 None
             }
             RoutedMessageBody::PartialEncodedStateWitness(witness) => {
+                let _span = tracing::debug_span!(
+                    target: "client",
+                    "receive_partial_witness",
+                    height_created = witness.chunk_production_key().height_created,
+                    shard_id = ?witness.chunk_production_key().shard_id,
+                    part_ord = witness.part_ord(),
+                    part_size = witness.part_size(),
+                )
+                .entered();
                 self.partial_witness_adapter.send(PartialEncodedStateWitnessMessage(witness));
                 None
             }
             RoutedMessageBody::PartialEncodedStateWitnessForward(witness) => {
+                let _span = tracing::debug_span!(
+                    target: "client",
+                    "receive_partial_witness_fwd",
+                    height_created = witness.chunk_production_key().height_created,
+                    shard_id = ?witness.chunk_production_key().shard_id,
+                    part_ord = witness.part_ord(),
+                    part_size = witness.part_size(),
+                )
+                .entered();
                 self.partial_witness_adapter
                     .send(PartialEncodedStateWitnessForwardMessage(witness));
                 None
             }
             RoutedMessageBody::VersionedChunkEndorsement(endorsement) => {
+                let _span = tracing::debug_span!(target: "stateless_validation",
+                    "receive_chunk_endorsement",
+                    height = endorsement.chunk_production_key().height_created,
+                    shard_id = ?endorsement.chunk_production_key().shard_id,
+                    validator = ?endorsement.account_id())
+                .entered();
                 self.client.send_async(ChunkEndorsementMessage(endorsement)).await.ok();
                 None
             }

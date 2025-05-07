@@ -1544,6 +1544,9 @@ impl Chain {
         me: &Option<AccountId>,
         apply_chunks_done_sender: Option<near_async::messaging::Sender<ApplyChunksDoneMessage>>,
     ) {
+        let _span = tracing::info_span!(target: "chain", "preprocess_optimistic_block", height = block.height())
+            .entered();
+
         // Validate the optimistic block.
         // Discard the block if it is old or not created by the right producer.
         if let Err(e) = self.check_optimistic_block(&block) {
@@ -1596,11 +1599,11 @@ impl Chain {
         chunk_headers: Vec<ShardChunkHeader>,
         apply_chunks_done_sender: Option<near_async::messaging::Sender<ApplyChunksDoneMessage>>,
     ) -> Result<(), Error> {
-        let _span = debug_span!(
+        let _span = tracing::info_span!(
             target: "chain",
             "process_optimistic_block",
-            hash = ?block.hash(),
-            height = ?block.height()
+            block_hash = ?block.hash(),
+            block_height = ?block.height()
         )
         .entered();
 
@@ -1709,7 +1712,6 @@ impl Chain {
         block_processing_artifacts: &mut BlockProcessingArtifact,
         apply_chunks_done_sender: Option<near_async::messaging::Sender<ApplyChunksDoneMessage>>,
     ) -> (Vec<AcceptedBlock>, HashMap<CryptoHash, Error>) {
-        let _span = debug_span!(target: "chain", "postprocess_ready_blocks_chain").entered();
         let mut accepted_blocks = vec![];
         let mut errors = HashMap::new();
         while let Ok((block, apply_result)) = self.apply_chunks_receiver.try_recv() {
@@ -2127,7 +2129,7 @@ impl Chain {
             });
         // We want to include block height here, so we didn't put this line at the beginning of the
         // function.
-        let _span = tracing::debug_span!(
+        let _span = tracing::info_span!(
             target: "chain",
             "postprocess_ready_block",
             height = block.header().height())
@@ -2284,6 +2286,12 @@ impl Chain {
             )
         });
         self.blocks_delay_tracker.record_optimistic_block_processed(optimistic_block.height());
+
+        let _span = tracing::info_span!(
+            target: "chain",
+            "postprocess_optimistic_block",
+            block_height = optimistic_block.height())
+        .entered();
 
         let prev_block_hash = optimistic_block.prev_block_hash();
         let block_height = optimistic_block.height();
@@ -2502,6 +2510,10 @@ impl Chain {
         state_patch: SandboxStatePatch,
     ) -> Result<PreprocessBlockResult, Error> {
         let header = block.header();
+
+        let _span = tracing::info_span!(target: "chain", "preprocess_block",
+            height = header.height(), block_hash = ?header.hash(), epoch_id = ?header.epoch_id())
+        .entered();
 
         // see if the block is already in processing or if there are too many blocks being processed
         self.blocks_in_processing.add_dry_run(&BlockToApply::Normal(*block.hash()))?;
