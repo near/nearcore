@@ -1479,12 +1479,6 @@ impl PeerActor {
                 }
                 self.routed_message_cache.put(key, now);
 
-                if !msg.verify() {
-                    // Received invalid routed message from peer.
-                    self.stop(ctx, ClosingReason::Ban(ReasonForBan::InvalidSignature));
-                    return;
-                }
-
                 let addr = ctx.address();
                 let conn_cl = conn.clone();
                 self.peer_actor_spawner.spawn("detached msg verification", move || {
