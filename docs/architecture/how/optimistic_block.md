@@ -12,7 +12,7 @@ This short document will tell you about what optimistic block is and why it was 
 
 In this diagram: yellow = data; rectangle = process. Arrow = dependency on a process; dashed arrow = production and dependency on data.
 
-This is the critical path today between two consecutive blocks. The two red blocks are the slow parts. It's better to have only one of them on the critical path.
+This was the critical path between two consecutive blocks. The two red blocks are the slow parts. It's better to have only one of them on the critical path.
 * Chunk production could be skipped and as validation of the state witness can be done as soon as the chunk producer finishes applying the chunk. But that doesn’t help with 2x latency.
 * Chunk validation necessarily depend on chunk application to produce the state witness, so there’s no way to parallelize chunk application with the chunk validation of the next chunk
   * The best you can do is stream that data, but that’s complicated.
