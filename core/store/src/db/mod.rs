@@ -286,3 +286,43 @@ pub enum StatsValue {
 pub struct StoreStatistics {
     pub data: Vec<(String, Vec<StatsValue>)>,
 }
+
+/// Statistics for tracking database operations by column
+pub(crate) struct ColumnStats {
+    pub inserts: u64,
+    pub sets: u64,
+    pub rc_ops: u64,
+    pub deletes: u64,
+    pub delete_all_ops: u64,
+    pub delete_range_ops: u64,
+    pub bytes: u64,
+}
+
+impl ColumnStats {
+    pub fn new() -> Self {
+        Self {
+            inserts: 0,
+            sets: 0,
+            rc_ops: 0,
+            deletes: 0,
+            delete_all_ops: 0,
+            delete_range_ops: 0,
+            bytes: 0,
+        }
+    }
+
+    pub fn total_ops(&self) -> u64 {
+        self.inserts
+            + self.sets
+            + self.rc_ops
+            + self.deletes
+            + self.delete_all_ops
+            + self.delete_range_ops
+    }
+
+    pub fn avg_size(&self) -> u64 {
+        let op_count =
+            self.inserts + self.sets + self.rc_ops + self.deletes + self.delete_range_ops;
+        if op_count > 0 { self.bytes / op_count } else { 0 }
+    }
+}

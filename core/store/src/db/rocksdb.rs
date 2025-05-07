@@ -1,3 +1,5 @@
+use super::ColumnStats;
+use super::metadata;
 use crate::config::Mode;
 use crate::db::{DBIterator, DBOp, DBSlice, DBTransaction, Database, StatsValue, refcount};
 use crate::{DBCol, StoreConfig, StoreStatistics, Temperature, metrics};
@@ -6,13 +8,12 @@ use ::rocksdb::{
 };
 use anyhow::Context;
 use itertools::Itertools;
+use std::collections::BTreeMap;
 use std::io;
 use std::path::Path;
 use std::sync::LazyLock;
 use strum::IntoEnumIterator;
 use tracing::warn;
-
-use super::metadata;
 
 mod instance_tracker;
 pub(crate) mod snapshot;
@@ -308,12 +309,27 @@ impl RocksDB {
     )]
     fn build_write_batch(&self, transaction: DBTransaction) -> io::Result<WriteBatch> {
         let mut batch = WriteBatch::default();
+
+        let mut col_stats: BTreeMap<DBCol, ColumnStats> = BTreeMap::new();
+
+        // Track timing for each column
+        let mut col_timings: BTreeMap<DBCol, std::time::Duration> = BTreeMap::new();
+
         for op in transaction.ops {
+            let op_bytes = op.bytes();
+            let col = op.col();
+            let stats = col_stats.entry(col).or_insert_with(ColumnStats::new);
+            stats.bytes += op_bytes as u64; // Add bytes for this column
+
+            let op_start = std::time::Instant::now();
+
             match op {
                 DBOp::Set { col, key, value } => {
+                    stats.sets += 1;
                     batch.put_cf(self.cf_handle(col)?, key, value);
                 }
                 DBOp::Insert { col, key, value } => {
+                    stats.inserts += 1;
                     if cfg!(debug_assertions) {
                         if let Ok(Some(old_value)) = self.get_raw_bytes(col, &key) {
                             super::assert_no_overwrite(col, &key, &value, &*old_value)
@@ -322,12 +338,15 @@ impl RocksDB {
                     batch.put_cf(self.cf_handle(col)?, key, value);
                 }
                 DBOp::UpdateRefcount { col, key, value } => {
+                    stats.rc_ops += 1;
                     batch.merge_cf(self.cf_handle(col)?, key, value);
                 }
                 DBOp::Delete { col, key } => {
+                    stats.deletes += 1;
                     batch.delete_cf(self.cf_handle(col)?, key);
                 }
                 DBOp::DeleteAll { col } => {
+                    stats.delete_all_ops += 1;
                     let cf_handle = self.cf_handle(col)?;
                     let range = self.get_cf_key_range(cf_handle).map_err(io::Error::other)?;
                     if let Some(range) = range {
@@ -337,10 +356,44 @@ impl RocksDB {
                     }
                 }
                 DBOp::DeleteRange { col, from, to } => {
+                    stats.delete_range_ops += 1;
                     batch.delete_range_cf(self.cf_handle(col)?, from, to);
                 }
             }
+
+            // Track time spent on each column
+            let elapsed = op_start.elapsed();
+            *col_timings.entry(col).or_insert(std::time::Duration::ZERO) += elapsed;
         }
+
+        // Log the per-column statistics
+        for (col, stats) in col_stats {
+            let timing = col_timings.get(&col).unwrap_or(&std::time::Duration::ZERO);
+
+            // Calculate operations per second
+            let ops_per_second = if timing.as_secs_f64() > 0.0 {
+                (stats.total_ops() as f64 / timing.as_secs_f64()) as u64
+            } else {
+                0
+            };
+
+            tracing::debug!(
+                target: "store::db::rocksdb::batch_stats",
+                col = %col,
+                inserts = stats.inserts,
+                sets = stats.sets,
+                rc_ops = stats.rc_ops,
+                deletes = stats.deletes,
+                delete_all_ops = stats.delete_all_ops,
+                delete_range_ops = stats.delete_range_ops,
+                bytes = stats.bytes,
+                avg_size = stats.avg_size(),
+                elapsed_micros = timing.as_micros(),
+                ops_per_second = ops_per_second,
+                "WriteBatch column statistics"
+            );
+        }
+
         Ok(batch)
     }
 }
