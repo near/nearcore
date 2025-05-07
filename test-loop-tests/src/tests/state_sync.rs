@@ -2,6 +2,7 @@ use near_async::messaging::{Handler, SendAsync};
 use near_async::test_loop::TestLoopV2;
 use near_async::time::Duration;
 use near_chain::ChainStoreAccess;
+use near_chain_configs::TrackedShardsConfig;
 use near_chain_configs::test_genesis::{
     TestEpochConfigBuilder, TestGenesisBuilder, ValidatorsSpec,
 };
@@ -54,7 +55,7 @@ fn generate_accounts(boundary_accounts: &[String]) -> Vec<Vec<(AccountId, Nonce)
     let accounts_per_shard = 5;
     let mut accounts = Vec::new();
     let mut account_base = "0";
-    for a in boundary_accounts.iter() {
+    for a in boundary_accounts {
         accounts.push(
             (0..accounts_per_shard)
                 .map(|i| (format!("{}{}", account_base, i).parse().unwrap(), 1))
@@ -120,9 +121,7 @@ fn setup_initial_blockchain(
             if client_index != idx {
                 return;
             }
-
-            config.tracked_shards = vec![];
-            config.tracked_shard_schedule = schedule.clone();
+            config.tracked_shards_config = TrackedShardsConfig::Schedule(schedule.clone());
         });
     }
 
@@ -148,8 +147,8 @@ fn setup_initial_blockchain(
         .transaction_validity_period(1000)
         .validators_spec(validators_spec.clone());
     if let Some(accounts) = accounts.as_ref() {
-        for accounts in accounts.iter() {
-            for (account, _nonce) in accounts.iter() {
+        for accounts in accounts {
+            for (account, _nonce) in accounts {
                 genesis_builder =
                     genesis_builder.add_user_account_simple(account.clone(), 10000 * ONE_NEAR);
             }
@@ -199,7 +198,7 @@ fn get_wrapped_mut<T>(s: &mut [T], idx: usize) -> &mut T {
 
 /// tries to generate transactions between lots of different pairs of shards (accounts for shard i are in accounts[i])
 fn send_txs_between_shards(
-    test_loop: &mut TestLoopV2,
+    test_loop: &TestLoopV2,
     node_datas: &[NodeExecutionData],
     accounts: &mut [Vec<(AccountId, Nonce)>],
 ) {
@@ -236,7 +235,7 @@ fn send_txs_between_shards(
         *nonce += 1;
 
         let future = get_wrapped(node_datas, client_idx)
-            .tx_processor_sender
+            .rpc_handler_sender
             .clone()
             //.with_delay(Duration::milliseconds(300 * txs_sent as i64))
             .send_async(ProcessTxRequest {
@@ -396,6 +395,62 @@ fn run_test_with_added_node(state: TestState) {
     // sync hash block before starting the new node.
     let sync_hash = await_sync_hash(&mut env);
 
+    // In TestLoop the network infrastructure doesn't exist. State sync happens by
+    // writing to and reading from a local directory.
+    //
+    // Here we query the clients directly to confirm that those nodes which are expected
+    // to generate state responses in peer-to-peer sync are capable of doing so.
+    env.test_loop.run_until(
+        |data| {
+            for test_data in &env.node_datas {
+                let client = data.get_mut(&test_data.view_client_sender.actor_handle());
+
+                let account_id = test_data.account_id.clone();
+                let epoch_id = client.chain.head().unwrap().epoch_id;
+                let shard_ids = client.chain.epoch_manager.shard_ids(&epoch_id).unwrap();
+
+                for shard_id in shard_ids {
+                    // Get the header and part regardless of whether the node was tracking the
+                    // shard. It shouldn't crash on unexpected requests.
+                    let header = client
+                        .chain
+                        .state_sync_adapter
+                        .get_state_response_header(shard_id, sync_hash);
+                    let part = client
+                        .chain
+                        .state_sync_adapter
+                        .get_state_response_part(shard_id, 0, sync_hash);
+
+                    let was_tracking = client
+                        .chain
+                        .epoch_manager
+                        .cared_about_shard_prev_epoch_from_prev_block(
+                            &sync_hash,
+                            &account_id,
+                            shard_id,
+                        )
+                        .unwrap();
+                    if !was_tracking {
+                        continue;
+                    }
+
+                    // The node is expected to serve the state if it was tracking the shard
+                    // in the previous epoch. We make the run_until wait until we get back
+                    // Ok responses for both the header and part.
+                    if header.is_err() {
+                        return false;
+                    }
+                    if part.is_err() {
+                        return false;
+                    }
+                }
+            }
+
+            true
+        },
+        Duration::seconds(1),
+    );
+
     // Add new node which will sync from scratch.
     let genesis = env.shared_state.genesis.clone();
     let tempdir_path = env.shared_state.tempdir.path().to_path_buf();
@@ -405,8 +460,7 @@ fn run_test_with_added_node(state: TestState) {
         .config_modifier(move |config| {
             // Lower the threshold at which state sync is chosen over block sync
             config.block_fetch_horizon = 5;
-            // If tracked_shards is non-empty the node tracks all shards
-            config.tracked_shards = vec![ShardId::new(0)];
+            config.tracked_shards_config = TrackedShardsConfig::AllShards;
         })
         .build();
     env.add_node(account_id.as_str(), new_node_state);

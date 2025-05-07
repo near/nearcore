@@ -34,32 +34,13 @@ deny = [
 ]
 
 skip = [
-    # wasmer 0.17 and wasmtime 0.17 uses older versions of some crates
-    { name = "generic-array", version = "=0.12.4" },
-
-    # `sha2` uses it
-    { name = "cfg-if", version = "=1.0.0" },
-
-    # Need this specific version of pwasm-utils for backwards-compatible
-    # stack limiting.
-    { name = "parity-wasm", version = "=0.41.0" },
-    # old version used by wasmer et al
-    { name = "dynasm", version = "=1.2.3" },
-    { name = "dynasmrt", version = "=1.2.3" },
-    { name = "rkyv", version = "^0.7" },
-    { name = "rkyv_derive", version = "^0.7" },
-    { name = "ptr_meta", version = "^0.1" },
-    { name = "ptr_meta_derive", version = "^0.1" },
-
     # wasmer and wasmtime
-    { name = "target-lexicon", version = "=0.10.0" },
     { name = "memoffset", version = "=0.6.5" },
     { name = "memoffset", version = "=0.8.0" },
     { name = "rustix", version = "^0.38" },
     { name = "linux-raw-sys", version = "^0.4" },
 
     # wasm-tools
-    { name = "wasmparser", version = "=0.51.4" },
     { name = "wasmparser", version = "=0.78.2" },
     { name = "wasmparser", version = "=0.99.0" },
     { name = "wasmparser", version = "=0.105.0" },
@@ -68,11 +49,6 @@ skip = [
 
     # wasmer 0.17.x
     { name = "target-lexicon", version = "^0.12.0" },
-    { name = "parking_lot", version = "=0.10.2" },
-    { name = "parking_lot_core", version = "=0.7.2" },
-    { name = "lock_api", version = "=0.3.4" },
-    { name = "digest", version = "=0.8.1" },
-    { name = "nix", version = "=0.15.0" },
 
     # many crates haven't updated to syn 2.0 yet.
     { name = "syn", version = "=1.0.103" },
@@ -83,30 +59,25 @@ skip = [
     { name = "windows_x86_64_msvc", version = "<0.59" },
     { name = "windows-targets", version = "<0.52" },
 
-    # ed25519-dalek uses older versions of rand and rand_core
-    { name = "rand_core", version = "=0.5.1" },
+    # ed25519-dalek, bolero uses older versions of rand and rand_core
+    { name = "rand", version = "<0.9" },
+    { name = "rand_core", version = "<0.9" },
+    { name = "rand_chacha", version = "<0.9" },
     { name = "getrandom", version = "=0.1.16" },
     { name = "getrandom", version = "^0.2" },
 
-    # criterion and criterion-plot use conflicting versions
-    { name = "semver", version = "=0.9.0" },
-
-    # criterion, wasmer-runtime-core-near, rocksdb depend on this older version of the crate.
-    { name = "rustc_version", version = "=0.2.3" },
-    { name = "errno", version = "=0.2.8" },
+    # criterion, rocksdb depend on this older version of the crate.
     { name = "rustc-hash", version = "<2" },
 
     # Hashbrowns
     { name = "hashbrown", version = "0.12.0" },
     { name = "hashbrown", version = "0.13.2" },
     { name = "hashbrown", version = "0.14.5" },
+    { name = "zerocopy", version = "^0.7" },
 
     # Bolero requires a newer version and the rest of the ecosystem hasn't caught up yet.
     { name = "bitflags", version = "=1.3.2" },
     { name = "indexmap", version = "=1.9.2" },
-
-    # prometheus depends on an old version of protobuf
-    { name = "protobuf", version = "=2.27.1" },
 
     # Various packages haven’t upgraded to 0.base64 21 yet.
     { name = "base64", version = "=0.13.0" },
@@ -114,13 +85,10 @@ skip = [
 
     # ark-ec, criterion,
     { name = "itertools", version = "0.10" },
+    { name = "itertools", version = "0.12" },
 
     # actix-http hasn't upgraded iminz_oxide/flate2 yet.
     { name = "miniz_oxide", version = "=0.5.1" },
-
-    # cloud-storage
-    { name = "base64", version = "=0.12.3" },
-    { name = "num-bigint", version = "=0.2.6" },
 
     # Everything depends on this...
     { name = "lru", version = "=0.7.8" },
@@ -137,4 +105,18 @@ skip = [
 
     # indicatif brings in a newer version
     { name = "unicode-width", version = "<0.2" },
+
+    # http ecosystem split.
+    { name = "reqwest", version = "^0.11" },
+    { name = "winreg", version = "^0.50" },
+    { name = "socket2", version = "^0.4" },
+    { name = "rustls-pemfile", version = "^1" },
+    { name = "nix", version = "^0.24" },
+    { name = "mio", version = "^0.8" },
+    { name = "hyper-tls", version = "^0.5" },
+    { name = "hyper", version = "^0.14" },
+    { name = "http-body", version = "^0.4" },
+    { name = "http", version = "^0.2" },
+    { name = "h2", version = "^0.3" },
+    { name = "base64", version = "^0.21" },
 ]

@@ -17,7 +17,6 @@ use bytesize::ByteSize;
 use itertools::GroupBy;
 use itertools::Itertools;
 use near_chain::chain::collect_receipts_from_response;
-use near_chain::migrations::check_if_block_is_first_with_chunk_of_version;
 use near_chain::types::{
     ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext, RuntimeAdapter,
 };
@@ -26,8 +25,10 @@ use near_chain::{
     get_incoming_receipts_for_shard,
 };
 use near_chain_configs::GenesisChangeConfig;
-use near_epoch_manager::shard_assignment::{shard_id_to_index, shard_id_to_uid};
-use near_epoch_manager::{EpochManager, EpochManagerAdapter};
+use near_epoch_manager::shard_assignment::{
+    build_assignment_restrictions_v77_to_v78, shard_id_to_index, shard_id_to_uid,
+};
+use near_epoch_manager::{EpochManager, EpochManagerAdapter, proposals_to_epoch_info};
 use near_primitives::account::id::AccountId;
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::block::Block;
@@ -43,13 +44,14 @@ use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::trie_key::col::COLUMNS_WITH_ACCOUNT_ID_IN_KEY;
 use near_primitives::types::{BlockHeight, EpochId, ShardId};
-use near_primitives::version::PROTOCOL_VERSION;
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives_core::types::{Balance, EpochHeight};
 use near_store::TrieStorage;
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::trie_store::TrieStoreAdapter;
 use near_store::flat::FlatStorageChunkView;
 use near_store::flat::FlatStorageManager;
+use near_store::trie::AccessOptions;
 use near_store::{DBCol, Store, Trie, TrieCache, TrieCachingStorage, TrieConfig, TrieDBStorage};
 use nearcore::NightshadeRuntimeExt;
 use nearcore::{NearConfig, NightshadeRuntime};
@@ -69,7 +71,7 @@ pub(crate) fn apply_block(
     shard_id: ShardId,
     epoch_manager: &dyn EpochManagerAdapter,
     runtime: &dyn RuntimeAdapter,
-    chain_store: &mut ChainStore,
+    chain_store: &ChainStore,
     storage: StorageSource,
 ) -> (Block, ApplyChunkResult) {
     let block = chain_store.get_block(&block_hash).unwrap();
@@ -98,22 +100,9 @@ pub(crate) fn apply_block(
         let receipts = collect_receipts_from_response(&receipt_proof_response);
 
         let chunk_inner = chunk.cloned_header().take_inner();
-        let is_first_block_with_chunk_of_version = check_if_block_is_first_with_chunk_of_version(
-            chain_store,
-            epoch_manager,
-            block.header().prev_hash(),
-            shard_id,
-        )
-        .unwrap();
 
-        let transactions = chunk.transactions();
-        let valid_txs = chain_store
-            .compute_transaction_validity(
-                block.header().latest_protocol_version(),
-                prev_block.header(),
-                &chunk,
-            )
-            .unwrap();
+        let transactions = chunk.to_transactions().to_vec();
+        let valid_txs = chain_store.compute_transaction_validity(prev_block.header(), &chunk);
         runtime
             .apply_chunk(
                 storage.create_runtime_storage(*chunk_inner.prev_state_root()),
@@ -123,7 +112,6 @@ pub(crate) fn apply_block(
                     last_validator_proposals: chunk_inner.prev_validator_proposals(),
                     gas_limit: chunk_inner.gas_limit(),
                     is_new_chunk: true,
-                    is_first_block_with_chunk_of_version,
                 },
                 ApplyChunkBlockContext::from_header(
                     block.header(),
@@ -132,7 +120,7 @@ pub(crate) fn apply_block(
                     block.block_bandwidth_requests(),
                 ),
                 &receipts,
-                SignedValidPeriodTransactions::new(transactions, &valid_txs),
+                SignedValidPeriodTransactions::new(transactions, valid_txs),
             )
             .unwrap()
     } else {
@@ -149,7 +137,6 @@ pub(crate) fn apply_block(
                     last_validator_proposals: chunk_extra.validator_proposals(),
                     gas_limit: chunk_extra.gas_limit(),
                     is_new_chunk: false,
-                    is_first_block_with_chunk_of_version: false,
                 },
                 ApplyChunkBlockContext::from_header(
                     block.header(),
@@ -246,20 +233,7 @@ pub(crate) fn apply_chunk(
         None,
         storage,
     )?;
-    let protocol_version = if let Some(height) = target_height {
-        // Retrieve the protocol version at the given height.
-        let block_hash = chain_store.get_block_hash_by_height(height)?;
-        chain_store.get_block(&block_hash)?.header().latest_protocol_version()
-    } else {
-        // No block height specified, fallback to current protocol version.
-        PROTOCOL_VERSION
-    };
-    // Most probably `PROTOCOL_VERSION` won't work if the target_height points to a time
-    // before congestion control has been introduced.
-    println!(
-        "resulting chunk extra:\n{:?}",
-        resulting_chunk_extra(&apply_result, gas_limit, protocol_version)
-    );
+    println!("resulting chunk extra:\n{:?}", resulting_chunk_extra(&apply_result, gas_limit));
     Ok(())
 }
 
@@ -392,7 +366,7 @@ pub(crate) fn dump_account_storage(
             key: storage_key.as_bytes().to_vec(),
         };
         let key = key.to_vec();
-        let item = trie.get(&key);
+        let item = trie.get(&key, AccessOptions::DEFAULT);
         let value = item.unwrap();
         if let Some(value) = value {
             let record = StateRecord::from_raw_key_value(&key, value).unwrap();
@@ -955,9 +929,7 @@ pub(crate) fn print_epoch_info(
         near_config.genesis.config.transaction_validity_period,
     );
     let epoch_manager =
-        EpochManager::new_from_genesis_config(store.clone(), &near_config.genesis.config)
-            .expect("Failed to start Epoch Manager")
-            .into_handle();
+        EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config, None);
 
     epoch_info::print_epoch_info(
         epoch_selection,
@@ -976,8 +948,8 @@ pub(crate) fn print_epoch_analysis(
     store: Store,
 ) {
     let epoch_manager =
-        EpochManager::new_from_genesis_config(store.clone(), &near_config.genesis.config)
-            .expect("Failed to start Epoch Manager");
+        EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config, None);
+    let epoch_manager = epoch_manager.read();
 
     let epoch_ids = iterate_and_filter(store, |_| true);
     let epoch_infos: HashMap<EpochId, Arc<EpochInfo>> = HashMap::from_iter(
@@ -1018,7 +990,6 @@ pub(crate) fn print_epoch_analysis(
         epoch_heights_to_infos.get(&min_epoch_height.saturating_add(1)).unwrap().as_ref().clone();
     let mut next_next_epoch_config = epoch_manager.get_epoch_config(PROTOCOL_VERSION);
     let mut has_same_shard_layout;
-    let mut epoch_protocol_version;
     let mut next_next_protocol_version;
 
     // Print data header.
@@ -1047,7 +1018,7 @@ pub(crate) fn print_epoch_analysis(
     // Each iteration will generate and print *next next* epoch info based on
     // *next* epoch info for `epoch_height`. This follows epoch generation
     // logic in the protocol.
-    for (epoch_height, epoch_info) in
+    for (epoch_height, _epoch_info) in
         epoch_heights_to_infos.range(min_epoch_height..=max_epoch_height)
     {
         let next_epoch_height = epoch_height.saturating_add(1);
@@ -1071,12 +1042,10 @@ pub(crate) fn print_epoch_analysis(
                 );
                 has_same_shard_layout =
                     next_epoch_config.shard_layout == next_next_epoch_config.shard_layout;
-                epoch_protocol_version = epoch_info.protocol_version();
                 next_next_protocol_version = original_next_next_protocol_version;
             }
             EpochAnalysisMode::Backtest => {
                 has_same_shard_layout = true;
-                epoch_protocol_version = PROTOCOL_VERSION;
                 next_next_protocol_version = PROTOCOL_VERSION;
             }
         };
@@ -1087,7 +1056,20 @@ pub(crate) fn print_epoch_analysis(
             epoch_heights_to_infos.get(&next_next_epoch_height).unwrap();
         let rng_seed = stored_next_next_epoch_info.rng_seed();
 
-        let next_next_epoch_info = near_epoch_manager::proposals_to_epoch_info(
+        let next_epoch_v6 =
+            ProtocolFeature::SimpleNightshadeV6.enabled(next_epoch_info.protocol_version());
+        let next_next_epoch_v6 =
+            ProtocolFeature::SimpleNightshadeV6.enabled(next_next_protocol_version);
+        let chunk_producer_assignment_restrictions =
+            (!next_epoch_v6 && next_next_epoch_v6).then(|| {
+                build_assignment_restrictions_v77_to_v78(
+                    &next_epoch_info,
+                    &next_epoch_config.shard_layout,
+                    next_next_epoch_config.shard_layout.clone(),
+                )
+            });
+
+        let next_next_epoch_info = proposals_to_epoch_info(
             &next_next_epoch_config,
             rng_seed,
             &next_epoch_info,
@@ -1095,9 +1077,9 @@ pub(crate) fn print_epoch_analysis(
             epoch_summary.validator_kickout.clone(),
             stored_next_next_epoch_info.validator_reward().clone(),
             stored_next_next_epoch_info.minted_amount(),
-            epoch_protocol_version,
             next_next_protocol_version,
             has_same_shard_layout,
+            chunk_producer_assignment_restrictions,
         )
         .unwrap();
 
@@ -1288,7 +1270,13 @@ pub(crate) fn clear_cache(store: Store) {
 
 /// Prints the state statistics for all shards. Please note that it relies on
 /// the live flat storage and may break if the node is not stopped.
-pub(crate) fn print_state_stats(home_dir: &Path, store: Store, near_config: NearConfig) {
+pub(crate) fn print_state_stats(
+    home_dir: &Path,
+    store: Store,
+    near_config: NearConfig,
+    split_parts: usize,
+    shard_uid: Option<ShardUId>,
+) {
     let (epoch_manager, runtime, _, block_header) =
         load_trie(store.clone(), home_dir, &near_config);
 
@@ -1296,13 +1284,24 @@ pub(crate) fn print_state_stats(home_dir: &Path, store: Store, near_config: Near
     let shard_layout = epoch_manager.get_shard_layout_from_prev_block(&block_hash).unwrap();
 
     let flat_storage_manager = runtime.get_flat_storage_manager();
-    for shard_uid in shard_layout.shard_uids() {
+    if let Some(shard_uid) = shard_uid {
         print_state_stats_for_shard_uid(
             store.trie_store(),
             &flat_storage_manager,
             block_hash,
             shard_uid,
+            split_parts,
         );
+    } else {
+        for shard_uid in shard_layout.shard_uids() {
+            print_state_stats_for_shard_uid(
+                store.trie_store(),
+                &flat_storage_manager,
+                block_hash,
+                shard_uid,
+                split_parts,
+            );
+        }
     }
 }
 
@@ -1342,6 +1341,7 @@ fn print_state_stats_for_shard_uid(
     flat_storage_manager: &FlatStorageManager,
     block_hash: CryptoHash,
     shard_uid: ShardUId,
+    split_parts: usize,
 ) {
     flat_storage_manager.create_flat_storage_for_shard(shard_uid).unwrap();
     let trie_storage = TrieDBStorage::new(store, shard_uid);
@@ -1356,16 +1356,19 @@ fn print_state_stats_for_shard_uid(
         state_stats.push(state_stats_account);
     }
 
-    // iterate for the second time to find the middle account
+    // iterate for the second time to find the split accounts
     let group_by = get_state_stats_group_by(&chunk_view, &trie_storage);
-    let iter = get_state_stats_account_iter(&group_by);
+    let total_size = state_stats.total_size.as_u64();
     let mut current_size = ByteSize::default();
-    for state_stats_account in iter {
+    let mut current_threshold: usize = 1;
+    for state_stats_account in get_state_stats_account_iter(&group_by) {
         let new_size = current_size + state_stats_account.size;
-        if 2 * new_size.as_u64() > state_stats.total_size.as_u64() {
-            state_stats.middle_account = Some(state_stats_account);
-            state_stats.middle_account_leading_size = Some(current_size);
-            break;
+        if new_size.as_u64() * split_parts as u64 > total_size * current_threshold as u64 {
+            state_stats.split_accounts.push((state_stats_account, current_size));
+            current_threshold += 1;
+            if current_threshold == split_parts {
+                break;
+            }
         }
         current_size = new_size;
     }
@@ -1463,11 +1466,9 @@ pub struct StateStats {
     pub total_size: ByteSize,
     pub total_count: usize,
 
-    // The account that is in the middle of the state in respect to storage.
-    pub middle_account: Option<StateStatsAccount>,
-    // The total size of all accounts leading to the middle account.
-    // Can be used to determine how does the middle account split the state.
-    pub middle_account_leading_size: Option<ByteSize>,
+    // Accounts that split the state into N most possibly even parts (storage-wise).
+    // Every account is accompanied by the total size of all accounts before it.
+    pub split_accounts: Vec<(StateStatsAccount, ByteSize)>,
 
     pub top_accounts: BinaryHeap<StateStatsAccount>,
 }
@@ -1481,22 +1482,32 @@ impl core::fmt::Debug for StateStats {
             .map(ByteSize::b)
             .unwrap_or_default();
 
-        let left_size = self.middle_account_leading_size.unwrap_or_default();
-        let middle_size = self.middle_account.as_ref().map(|a| a.size).unwrap_or_default();
-        let right_size = self.total_size.as_u64() - left_size.as_u64() - middle_size.as_u64();
-        let right_size = ByteSize::b(right_size);
+        #[allow(dead_code)] // used only for Debug
+        #[derive(Debug)]
+        struct SplitAccount<'a> {
+            account_id: &'a AccountId,
+            split: String,
+        }
+        let total_size = self.total_size.as_u64();
+        let split_accounts = self.split_accounts.iter().map(|(acc, left_size)| {
+            let middle_size = acc.size;
+            let right_size = ByteSize::b(total_size - middle_size.as_u64() - left_size.as_u64());
 
-        let left_percent = 100 * left_size.as_u64() / self.total_size.as_u64();
-        let middle_percent = 100 * middle_size.as_u64() / self.total_size.as_u64();
-        let right_percent = 100 * right_size.as_u64() / self.total_size.as_u64();
+            let left_percent = 100 * left_size.as_u64() / total_size;
+            let middle_percent = 100 * middle_size.as_u64() / total_size;
+            let right_percent = 100 * right_size.as_u64() / total_size;
+
+            SplitAccount {
+                account_id: &acc.account_id,
+                split: format!("{left_size:?} ({left_percent}%) : {middle_size:?} ({middle_percent}%) : {right_size:?} ({right_percent}%)"),
+            }
+        }).collect_vec();
 
         f.debug_struct("StateStats")
             .field("total_size", &self.total_size)
             .field("total_count", &self.total_count)
             .field("average_size", &average_size)
-            .field("middle_account", &self.middle_account.as_ref().unwrap())
-            .field("split_size", &format!("{left_size:?} : {middle_size:?} : {right_size:?}"))
-            .field("split_percent", &format!("{left_percent}:{middle_percent}:{right_percent}"))
+            .field("split_accounts", &split_accounts)
             .field("top_accounts", &self.top_accounts)
             .finish()
     }

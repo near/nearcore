@@ -70,7 +70,6 @@ impl ExecutionToReceipts {
             .collect();
 
         let execution_outcomes: Vec<ExecutionOutcomeWithIdView> = map
-            .clone()
             .map_err(crate::errors::ErrorKind::InternalInvariantError)?
             .into_iter()
             .flat_map(|(_k, v)| v)
@@ -80,8 +79,7 @@ impl ExecutionToReceipts {
             &execution_outcomes,
             &block.header,
             currencies,
-        )
-        .await?;
+        )?;
         Ok(Self { map: map_hash_to_receipts, transactions, receipts, events })
     }
 
@@ -155,11 +153,6 @@ fn convert_cause_to_transaction_id(
         }
         StateChangeCauseView::Migration => {
             Ok((TransactionIdentifier::block_event("migration", block_hash), None))
-        }
-        StateChangeCauseView::ReshardingV2 => {
-            Err(crate::errors::ErrorKind::InternalInvariantError(
-                "State Change 'ReshardingV2' should never be observed".to_string(),
-            ))
         }
         StateChangeCauseView::BandwidthSchedulerStateUpdate => {
             Err(crate::errors::ErrorKind::InternalInvariantError(

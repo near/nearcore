@@ -2,19 +2,17 @@ use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 
 use near_async::messaging::{IntoMultiSender, IntoSender, Sender};
-use near_async::test_loop::data::{TestLoopData, TestLoopDataHandle};
+use near_async::test_loop::data::TestLoopDataHandle;
 use near_async::test_loop::sender::TestLoopSender;
 use near_async::time::Duration;
 use near_chain_configs::{ClientConfig, Genesis};
 use near_chunks::shards_manager_actor::ShardsManagerActor;
 use near_client::client_actor::ClientActorInner;
-use near_client::{PartialWitnessActor, TxRequestHandler, ViewClientActorInner};
+use near_client::{PartialWitnessActor, RpcHandler, ViewClientActorInner};
 use near_jsonrpc::ViewClientSenderForRpc;
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_network::state_witness::PartialWitnessSenderForNetwork;
-use near_network::types::{HighestHeightPeerInfo, PeerInfo};
 use near_parameters::RuntimeConfigStore;
-use near_primitives::block::GenesisId;
 use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::network::PeerId;
 use near_primitives::types::AccountId;
@@ -24,8 +22,9 @@ use nearcore::state_sync::StateSyncDumper;
 use tempfile::TempDir;
 
 use crate::utils::peer_manager_actor::{
-    ClientSenderForTestLoopNetwork, TestLoopNetworkSharedState, TestLoopPeerManagerActor,
-    TxRequestHandleSenderForTestLoopNetwork, ViewClientSenderForTestLoopNetwork,
+    ClientSenderForTestLoopNetwork, TestLoopNetworkBlockInfo, TestLoopNetworkSharedState,
+    TestLoopPeerManagerActor, TxRequestHandleSenderForTestLoopNetwork,
+    ViewClientSenderForTestLoopNetwork,
 };
 
 use super::drop_condition::{DropCondition, TestLoopChunksStorage};
@@ -72,35 +71,11 @@ pub struct NodeExecutionData {
     pub peer_id: PeerId,
     pub client_sender: TestLoopSender<ClientActorInner>,
     pub view_client_sender: TestLoopSender<ViewClientActorInner>,
-    pub tx_processor_sender: TestLoopSender<TxRequestHandler>,
+    pub rpc_handler_sender: TestLoopSender<RpcHandler>,
     pub shards_manager_sender: TestLoopSender<ShardsManagerActor>,
     pub partial_witness_sender: TestLoopSender<PartialWitnessActor>,
     pub peer_manager_sender: TestLoopSender<TestLoopPeerManagerActor>,
     pub state_sync_dumper_handle: TestLoopDataHandle<StateSyncDumper>,
-}
-
-impl NodeExecutionData {
-    pub fn get_highest_height_peer_info(
-        &self,
-        test_loop_data: &TestLoopData,
-    ) -> HighestHeightPeerInfo {
-        let client = &test_loop_data.get(&self.client_sender.actor_handle()).client;
-        HighestHeightPeerInfo {
-            archival: false,
-            genesis_id: GenesisId {
-                chain_id: client.config.chain_id.clone(),
-                hash: *client.chain.genesis().hash(),
-            },
-            highest_block_hash: client.chain.head().unwrap().last_block_hash,
-            highest_block_height: client.chain.head().unwrap().height,
-            tracked_shards: vec![],
-            peer_info: PeerInfo {
-                account_id: Some(self.account_id.clone()),
-                addr: None,
-                id: self.peer_id.clone(),
-            },
-        }
-    }
 }
 
 impl From<&NodeExecutionData> for AccountId {
@@ -147,6 +122,12 @@ impl From<&NodeExecutionData> for Sender<ShardsManagerRequestFromNetwork> {
 
 impl From<&NodeExecutionData> for TxRequestHandleSenderForTestLoopNetwork {
     fn from(data: &NodeExecutionData) -> TxRequestHandleSenderForTestLoopNetwork {
-        data.tx_processor_sender.clone().with_delay(NETWORK_DELAY).into_multi_sender()
+        data.rpc_handler_sender.clone().with_delay(NETWORK_DELAY).into_multi_sender()
+    }
+}
+
+impl From<&NodeExecutionData> for Sender<TestLoopNetworkBlockInfo> {
+    fn from(data: &NodeExecutionData) -> Sender<TestLoopNetworkBlockInfo> {
+        data.peer_manager_sender.clone().with_delay(NETWORK_DELAY).into_sender()
     }
 }

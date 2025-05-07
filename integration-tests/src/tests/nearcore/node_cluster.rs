@@ -2,12 +2,12 @@ use actix::Addr;
 use actix_rt::ArbiterHandle;
 use futures::future;
 use near_actix_test_utils::{run_actix, spawn_interruptible};
-use near_chain_configs::Genesis;
+use near_chain_configs::{Genesis, TrackedShardsConfig};
 use near_client::{ClientActor, ViewClientActor};
 use near_network::tcp;
 use near_network::test_utils::convert_boot_nodes;
 use near_o11y::testonly::init_integration_logger;
-use near_primitives::types::{BlockHeight, BlockHeightDelta, NumSeats, NumShards, ShardId};
+use near_primitives::types::{BlockHeight, BlockHeightDelta, NumSeats, NumShards};
 use nearcore::{load_test_config, start_with_config};
 
 use crate::utils::test_helpers::heavy_test;
@@ -51,7 +51,7 @@ fn start_nodes(
         }
         // if non validator, track all shards
         if i >= num_validator_seats && i < num_tracking_nodes {
-            near_config.client_config.tracked_shards = vec![ShardId::new(0)];
+            near_config.client_config.tracked_shards_config = TrackedShardsConfig::AllShards;
         }
         near_configs.push(near_config);
     }

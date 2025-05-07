@@ -25,9 +25,8 @@ use near_async::test_loop::sender::TestLoopSender;
 use near_async::time::Duration;
 use near_chain::{ChainStoreAccess, ReceiptFilter, get_incoming_receipts_for_shard};
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
-use near_client::{Client, TxRequestHandler};
+use near_client::{Client, RpcHandler};
 use near_crypto::Signer;
-use near_o11y::testonly::init_test_logger;
 use near_primitives::account::{AccessKey, AccessKeyPermission};
 use near_primitives::action::{Action, FunctionCallAction};
 use near_primitives::bandwidth_scheduler::{
@@ -79,7 +78,7 @@ fn ultra_slow_test_bandwidth_scheduler_three_shards_random_receipts() {
 
 /// 4 shards, random receipt sizes, 10% probability of missing chunks
 #[test]
-#[cfg_attr(not(feature = "nightly"), ignore = "Test flaky for dev #12836")]
+#[ignore] // TODO: #12836
 fn ultra_slow_test_bandwidth_scheduler_four_shards_random_receipts_missing_chunks() {
     let scenario = TestScenarioBuilder::new()
         .num_shards(5)
@@ -102,9 +101,8 @@ fn ultra_slow_test_bandwidth_scheduler_four_shards_random_receipts_missing_chunk
 }
 
 fn run_bandwidth_scheduler_test(scenario: TestScenario, tx_concurrency: usize) -> TestSummary {
-    init_test_logger();
     let active_links = scenario.get_active_links();
-    let mut rng = ChaCha20Rng::seed_from_u64(0);
+    let mut rng: ChaCha20Rng = ChaCha20Rng::seed_from_u64(0);
 
     // Number of blocks to run the workload for
     let workload_blocks = 50;
@@ -182,7 +180,7 @@ fn run_bandwidth_scheduler_test(scenario: TestScenario, tx_concurrency: usize) -
     );
 
     let client_handle = node_datas[0].client_sender.actor_handle();
-    let tx_processor_sender = node_datas[0].tx_processor_sender.clone();
+    let tx_processor_sender = node_datas[0].rpc_handler_sender.clone();
     let future_spawner = test_loop.future_spawner("WorkloadGenerator");
 
     // Run the workload for a number of blocks and verify that the bandwidth requests are generated correctly.
@@ -293,7 +291,7 @@ fn analyze_workload_blocks(
 
             let mut cur_chunk_stats = ChunkBandwidthStats::new();
 
-            let congestion_info = new_chunk.congestion_info().unwrap();
+            let congestion_info = new_chunk.congestion_info();
             let congestion_control = CongestionControl::new(
                 runtime_config.congestion_control_config,
                 congestion_info,
@@ -515,7 +513,7 @@ impl WorkloadGenerator {
     }
 
     /// Deploy the test contract on all workload accounts
-    fn deploy_contracts(&mut self, test_loop: &mut TestLoopV2, node_datas: &[NodeExecutionData]) {
+    fn deploy_contracts(&self, test_loop: &mut TestLoopV2, node_datas: &[NodeExecutionData]) {
         tracing::info!(target: "scheduler_test", "Deploying contracts...");
         let (last_block_hash, nonce) = get_last_block_and_nonce(test_loop, node_datas);
         let deploy_contracts_txs: Vec<SignedTransaction> = self
@@ -539,7 +537,7 @@ impl WorkloadGenerator {
     /// One access key allows to run only one transaction at a time. We need to have many access keys to achieve
     /// high concurrency.
     fn generate_access_keys(
-        &mut self,
+        &self,
         test_loop: &mut TestLoopV2,
         node_datas: &[NodeExecutionData],
         concurrency: usize,
@@ -579,7 +577,7 @@ impl WorkloadGenerator {
             let (last_block_hash, nonce) = get_last_block_and_nonce(test_loop, node_datas);
             tracing::info!(target: "scheduler_test", "Adding access keys with nonce {}", nonce);
 
-            for (account, usable_signers) in available_signers.iter() {
+            for (account, usable_signers) in &available_signers {
                 let Some(to_add) = signers_to_add.get_mut(account) else {
                     continue;
                 };
@@ -615,7 +613,7 @@ impl WorkloadGenerator {
 
     pub fn run(
         &mut self,
-        client_sender: &TestLoopSender<TxRequestHandler>,
+        client_sender: &TestLoopSender<RpcHandler>,
         client: &Client,
         future_spawner: &TestLoopFutureSpawner,
     ) {
@@ -666,7 +664,7 @@ impl WorkloadSender {
 
     pub fn run(
         &mut self,
-        client_sender: &TestLoopSender<TxRequestHandler>,
+        client_sender: &TestLoopSender<RpcHandler>,
         client: &Client,
         future_spawner: &TestLoopFutureSpawner,
         rng: &mut ChaCha20Rng,
@@ -687,7 +685,7 @@ impl WorkloadSender {
 
     pub fn start_new_transaction(
         &mut self,
-        client_sender: &TestLoopSender<TxRequestHandler>,
+        client_sender: &TestLoopSender<RpcHandler>,
         client: &Client,
         future_spawner: &TestLoopFutureSpawner,
         rng: &mut ChaCha20Rng,

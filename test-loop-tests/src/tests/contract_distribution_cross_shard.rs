@@ -13,7 +13,7 @@ use crate::utils::contract_distribution::{
     run_until_caches_contain_contract,
 };
 use crate::utils::transactions::{call_contract, check_txs, deploy_contract, make_accounts};
-use crate::utils::{ONE_NEAR, get_head_height};
+use crate::utils::{ONE_NEAR, get_node_head_height};
 
 const EPOCH_LENGTH: u64 = 10;
 const GENESIS_HEIGHT: u64 = 1000;
@@ -47,13 +47,13 @@ fn test_contract_distribution_cross_shard() {
     let contract_ids = [&accounts[0], &accounts[4]];
     let sender_ids = [&accounts[0], &accounts[1], &accounts[4], &accounts[5]];
 
-    let start_height = get_head_height(&mut env);
+    let start_height = get_node_head_height(&env, &accounts[0]);
 
     // First deploy and call the contracts as described above.
     // Next, clear the compiled contract cache and repeat the same contract calls.
     let contracts = deploy_contracts(&mut env, &rpc_id, &contract_ids, &mut nonce);
 
-    for contract in contracts.into_iter() {
+    for contract in contracts {
         run_until_caches_contain_contract(&mut env, contract.hash());
     }
 
@@ -63,7 +63,7 @@ fn test_contract_distribution_cross_shard() {
 
     call_contracts(&mut env, &rpc_id, &contract_ids, &sender_ids, &mut nonce);
 
-    let end_height = get_head_height(&mut env);
+    let end_height = get_node_head_height(&env, &accounts[0]);
     assert_all_chunk_endorsements_received(&mut env, start_height, end_height);
 
     env.shutdown_and_drain_remaining_events(Duration::seconds(20));
@@ -151,8 +151,8 @@ fn call_contracts(
 ) {
     let method_name = "main".to_owned();
     let mut txs = vec![];
-    for sender_id in sender_ids.into_iter() {
-        for contract_id in contract_ids.into_iter() {
+    for sender_id in sender_ids {
+        for contract_id in contract_ids {
             tracing::info!(target: "test", ?rpc_id, ?sender_id, ?contract_id, "Calling contract.");
             let tx = call_contract(
                 &mut env.test_loop,

@@ -5,6 +5,7 @@ use borsh::BorshDeserialize;
 use near_chain::types::{LatestKnown, RuntimeAdapter};
 use near_chain::{Block, BlockHeader};
 use near_epoch_manager::EpochManagerAdapter;
+use near_epoch_manager::epoch_info_aggregator::EpochInfoAggregator;
 use near_epoch_manager::shard_assignment::{account_id_to_shard_id, shard_id_to_uid};
 use near_jsonrpc_primitives::errors::RpcError;
 use near_jsonrpc_primitives::types::entity_debug::{
@@ -37,14 +38,14 @@ use near_primitives::views::{
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::flat_store::encode_flat_state_db_key;
 use near_store::db::GENESIS_CONGESTION_INFO_KEY;
-use near_store::epoch_info_aggregator::EpochInfoAggregator;
 use near_store::flat::delta::KeyForFlatStateDelta;
 use near_store::flat::{FlatStateChanges, FlatStateDeltaMetadata, FlatStorageStatus};
+use near_store::trie::AccessOptions;
 use near_store::{
-    CHUNK_TAIL_KEY, COLD_HEAD_KEY, DBCol, FINAL_HEAD_KEY, FORK_TAIL_KEY, GENESIS_JSON_HASH_KEY,
-    GENESIS_STATE_ROOTS_KEY, HEAD_KEY, HEADER_HEAD_KEY, LARGEST_TARGET_HEIGHT_KEY,
-    LATEST_KNOWN_KEY, NibbleSlice, RawTrieNode, RawTrieNodeWithSize, STATE_SNAPSHOT_KEY,
-    STATE_SYNC_DUMP_KEY, ShardUId, Store, TAIL_KEY,
+    CHUNK_TAIL_KEY, COLD_HEAD_KEY, DBCol, FINAL_HEAD_KEY, FORK_TAIL_KEY, GENESIS_STATE_ROOTS_KEY,
+    HEAD_KEY, HEADER_HEAD_KEY, LARGEST_TARGET_HEIGHT_KEY, LATEST_KNOWN_KEY, NibbleSlice,
+    RawTrieNode, RawTrieNodeWithSize, STATE_SNAPSHOT_KEY, STATE_SYNC_DUMP_KEY, ShardUId, Store,
+    TAIL_KEY,
 };
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
@@ -172,6 +173,10 @@ impl EntityDebugHandlerImpl {
                 let epoch_info = self.epoch_manager.get_epoch_info(&epoch_id)?;
                 Ok(serialize_entity(&*epoch_info))
             }
+            EntityQuery::EpochConfigByEpochId { epoch_id } => {
+                let epoch_config = self.epoch_manager.get_epoch_config(&epoch_id)?;
+                Ok(serialize_entity(&epoch_config))
+            }
             EntityQuery::FlatStateByTrieKey { trie_key, shard_uid } => {
                 let state = store
                     .get_ser::<FlatStateValue>(
@@ -190,7 +195,7 @@ impl EntityDebugHandlerImpl {
                     )?
                     .ok_or_else(|| anyhow!("Flat state changes not found"))?;
                 let mut changes_view = Vec::new();
-                for (key, value) in changes.0.into_iter() {
+                for (key, value) in changes.0 {
                     let key = hex::encode(&key);
                     let value = match value {
                         Some(v) => {
@@ -498,7 +503,7 @@ fn serialize_trie_node(
                 .copied()
                 .chain(extension_nibbles.0.iter())
                 .collect::<Vec<_>>();
-            let data = trie.retrieve_value(&value.hash)?;
+            let data = trie.retrieve_value(&value.hash, AccessOptions::DEFAULT)?;
             entity_data.add_string("leaf_path", &TriePath::nibbles_to_hex(&leaf_nibbles));
             entity_data.add_string("value", &hex::encode(&data))
         }
@@ -515,7 +520,7 @@ fn serialize_trie_node(
             }
         }
         near_store::RawTrieNode::BranchWithValue(value, children) => {
-            let data = trie.retrieve_value(&value.hash)?;
+            let data = trie.retrieve_value(&value.hash, AccessOptions::DEFAULT)?;
             entity_data.add_string("leaf_path", &TriePath::nibbles_to_hex(&trie_path.path));
             entity_data.add_string("value", &hex::encode(&data));
             for index in 0..16 {
@@ -622,7 +627,7 @@ impl TriePath {
 
     /// Format of nibbles is an array of 4-bit integers.
     pub fn nibbles_to_hex(nibbles: &[u8]) -> String {
-        nibbles.iter().map(|x| format!("{:x}", x)).collect::<Vec<_>>().join("")
+        nibbles.iter().map(|x| format!("{:x}", x)).collect()
     }
 
     /// Format of returned value is an array of 4-bit integers, or None if parsing failed.
@@ -810,7 +815,6 @@ struct BlockMiscData {
     final_head: Option<Tip>,
     latest_known: Option<LatestKnown>,
     largest_target_height: Option<BlockHeight>,
-    genesis_json_hash: Option<CryptoHash>,
     genesis_state_roots: Option<Vec<StateRoot>>,
     genesis_congestion_info: Option<Vec<CongestionInfo>>,
     cold_head: Option<Tip>,
@@ -829,7 +833,6 @@ impl BlockMiscData {
             final_head: store.get_ser(DBCol::BlockMisc, FINAL_HEAD_KEY)?,
             latest_known: store.get_ser(DBCol::BlockMisc, LATEST_KNOWN_KEY)?,
             largest_target_height: store.get_ser(DBCol::BlockMisc, LARGEST_TARGET_HEIGHT_KEY)?,
-            genesis_json_hash: store.get_ser(DBCol::BlockMisc, GENESIS_JSON_HASH_KEY)?,
             genesis_state_roots: store.get_ser(DBCol::BlockMisc, GENESIS_STATE_ROOTS_KEY)?,
             genesis_congestion_info: store
                 .get_ser(DBCol::BlockMisc, GENESIS_CONGESTION_INFO_KEY)?,

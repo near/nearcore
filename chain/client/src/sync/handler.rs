@@ -177,11 +177,7 @@ impl SyncHandler {
             apply_chunks_done_sender,
         );
         unwrap_and_report_state_sync_result!(reset_heads_result);
-        self.sync_status.update(SyncStatus::BlockSync {
-            start_height: 0,
-            current_height: 0,
-            highest_height: 0,
-        });
+        self.sync_status.update(SyncStatus::StateSyncDone);
 
         Some(SyncHandlerRequest::NeedProcessBlockArtifact(block_processing_artifacts))
     }
@@ -333,7 +329,7 @@ impl SyncHandler {
         needed_block_hashes.append(&mut extra_block_hashes);
         let mut blocks_to_request = vec![];
 
-        for hash in needed_block_hashes.clone().into_iter() {
+        for hash in needed_block_hashes.clone() {
             let (request_block, have_block) =
                 self.sync_block_status(chain, &sync_hash, &hash, now)?;
             tracing::trace!(target: "sync", ?hash, ?request_block, ?have_block, "request_sync_blocks");

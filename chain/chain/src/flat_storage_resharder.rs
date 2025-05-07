@@ -1313,11 +1313,8 @@ mod tests {
     use std::collections::BTreeMap;
 
     use near_async::time::Clock;
-    use near_chain_configs::{Genesis, MutableConfigValue};
-    use near_epoch_manager::{
-        EpochManager,
-        shard_tracker::{ShardTracker, TrackedConfig},
-    };
+    use near_chain_configs::{Genesis, MutableConfigValue, TrackedShardsConfig};
+    use near_epoch_manager::{EpochManager, shard_tracker::ShardTracker};
     use near_o11y::testonly::init_test_logger;
     use near_primitives::{
         hash::CryptoHash,
@@ -1518,19 +1515,18 @@ mod tests {
     fn create_chain_resharder_sender<T: TestSender>(
         shard_layout: ShardLayout,
     ) -> (Chain, FlatStorageResharder, Arc<T>) {
-        let num_shards = shard_layout.shard_ids().count();
-        let genesis = Genesis::test_with_seeds(
+        let genesis = Genesis::from_accounts(
             Clock::real(),
             vec![account!("aa"), account!("mm"), account!("vv")],
             1,
-            vec![1; num_shards],
             shard_layout.clone(),
         );
         let tempdir = tempfile::tempdir().unwrap();
         let store = create_test_store();
         initialize_genesis_state(store.clone(), &genesis, Some(tempdir.path()));
         let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
-        let shard_tracker = ShardTracker::new(TrackedConfig::AllShards, epoch_manager.clone());
+        let shard_tracker =
+            ShardTracker::new(TrackedShardsConfig::AllShards, epoch_manager.clone());
         let runtime = NightshadeRuntime::test(
             tempdir.path(),
             store.clone(),

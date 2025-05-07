@@ -14,9 +14,9 @@ pub use crate::state_sync::StateSyncResponse;
 use near_async::messaging::{AsyncSender, Sender};
 use near_async::{MultiSend, MultiSendMessage, MultiSenderFrom, time};
 use near_crypto::PublicKey;
-use near_primitives::block::{ApprovalMessage, Block, GenesisId};
-use near_primitives::challenge::Challenge;
+use near_primitives::block::{ApprovalMessage, Block};
 use near_primitives::epoch_sync::CompressedEpochSyncProof;
+use near_primitives::genesis::GenesisId;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::optimistic_block::OptimisticBlock;
@@ -249,9 +249,9 @@ pub enum NetworkRequests {
     BlockRequest { hash: CryptoHash, peer_id: PeerId },
     /// Request given block headers.
     BlockHeadersRequest { hashes: Vec<CryptoHash>, peer_id: PeerId },
-    /// Request state header for given shard at given state root.
-    StateRequestHeader { shard_id: ShardId, sync_hash: CryptoHash, peer_id: PeerId },
-    /// Request state part for given shard at given state root.
+    /// Request state header for given shard and given sync hash.
+    StateRequestHeader { shard_id: ShardId, sync_hash: CryptoHash, sync_prev_prev_hash: CryptoHash },
+    /// Request state part for given shard and given sync hash.
     StateRequestPart {
         shard_id: ShardId,
         sync_hash: CryptoHash,
@@ -284,8 +284,6 @@ pub enum NetworkRequests {
     ForwardTx(AccountId, SignedTransaction),
     /// Query transaction status
     TxStatus(AccountId, AccountId, CryptoHash),
-    /// A challenge to invalidate a block.
-    Challenge(Challenge),
     /// Acknowledgement to a chunk's state witness, sent back to the originating chunk producer.
     ChunkStateWitnessAck(AccountId, ChunkStateWitnessAck),
     /// Message for a chunk endorsement, sent by a chunk validator to the block producer.
@@ -422,6 +420,13 @@ pub struct NetworkInfo {
 pub enum NetworkResponses {
     NoResponse,
     RouteNotFound,
+    /// For some requests, it is necessary that the node has successfully
+    /// performed IP self-discovery
+    MyPublicAddrNotKnown,
+    NoDestinationsAvailable,
+    /// Occurs in response to NetworkRequests which do not specify a target peer;
+    /// the network layer selects and returns the destination for the message.
+    SelectedDestination(PeerId),
 }
 
 #[derive(Clone, MultiSend, MultiSenderFrom)]
@@ -549,6 +554,7 @@ pub struct Tier3Request {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, strum::IntoStaticStr)]
 pub enum Tier3RequestBody {
+    StateHeader(StateHeaderRequestBody),
     StatePart(StatePartRequestBody),
 }
 
@@ -557,4 +563,10 @@ pub struct StatePartRequestBody {
     pub shard_id: ShardId,
     pub sync_hash: CryptoHash,
     pub part_id: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct StateHeaderRequestBody {
+    pub shard_id: ShardId,
+    pub sync_hash: CryptoHash,
 }

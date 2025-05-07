@@ -1,11 +1,11 @@
 use crate::bandwidth_scheduler::BlockBandwidthRequests;
 use crate::block::BlockValidityError::{
-    InvalidChallengeRoot, InvalidChunkHeaderRoot, InvalidChunkMask, InvalidReceiptRoot,
-    InvalidStateRoot, InvalidTransactionRoot,
+    InvalidChunkHeaderRoot, InvalidChunkMask, InvalidReceiptRoot, InvalidStateRoot,
+    InvalidTransactionRoot,
 };
 use crate::block_body::{BlockBody, BlockBodyV1, ChunkEndorsementSignatures};
 pub use crate::block_header::*;
-use crate::challenge::Challenges;
+use crate::challenge::Challenge;
 use crate::congestion_info::{BlockCongestionInfo, ExtendedCongestionInfo};
 use crate::hash::CryptoHash;
 use crate::merkle::{MerklePath, merklize, verify_path};
@@ -14,24 +14,22 @@ use crate::num_rational::Rational32;
 use crate::optimistic_block::OptimisticBlock;
 use crate::sharding::{ChunkHashHeight, ShardChunkHeader, ShardChunkHeaderV1};
 use crate::types::{Balance, BlockHeight, EpochId, Gas};
-use crate::version::ProtocolVersion;
+#[cfg(feature = "clock")]
+use crate::{
+    stateless_validation::chunk_endorsements_bitmap::ChunkEndorsementsBitmap,
+    utils::get_block_metadata,
+};
 use borsh::{BorshDeserialize, BorshSerialize};
+#[cfg(feature = "clock")]
+use itertools::Itertools;
+#[cfg(feature = "clock")]
+use near_primitives_core::types::ProtocolVersion;
 use near_primitives_core::types::ShardIndex;
-use near_primitives_core::version::ProtocolFeature;
 use near_schema_checker_lib::ProtocolSchema;
-use near_time::Utc;
 use primitive_types::U256;
 use std::collections::BTreeMap;
 use std::ops::Index;
 use std::sync::Arc;
-
-#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, Eq, PartialEq, Default)]
-pub struct GenesisId {
-    /// Chain Id
-    pub chain_id: String,
-    /// Hash of genesis block
-    pub hash: CryptoHash,
-}
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum BlockValidityError {
@@ -40,14 +38,14 @@ pub enum BlockValidityError {
     InvalidChunkHeaderRoot,
     InvalidTransactionRoot,
     InvalidChunkMask,
-    InvalidChallengeRoot,
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq, ProtocolSchema)]
 pub struct BlockV1 {
     pub header: BlockHeader,
     pub chunks: Vec<ShardChunkHeaderV1>,
-    pub challenges: Challenges,
+    #[deprecated]
+    pub challenges: Vec<Challenge>,
 
     // Data to confirm the correctness of randomness beacon output
     pub vrf_value: near_crypto::vrf::Value,
@@ -58,7 +56,8 @@ pub struct BlockV1 {
 pub struct BlockV2 {
     pub header: BlockHeader,
     pub chunks: Vec<ShardChunkHeader>,
-    pub challenges: Challenges,
+    #[deprecated]
+    pub challenges: Vec<Challenge>,
 
     // Data to confirm the correctness of randomness beacon output
     pub vrf_value: near_crypto::vrf::Value,
@@ -89,203 +88,21 @@ pub enum Block {
     BlockV4(Arc<BlockV4>),
 }
 
-#[cfg(feature = "solomon")]
-type ShardChunkReedSolomon = reed_solomon_erasure::galois_8::ReedSolomon;
-
-/// The shard_ids, state_roots and congestion_infos must be in the same order.
-#[cfg(feature = "solomon")]
-pub fn genesis_chunks(
-    state_roots: Vec<crate::types::StateRoot>,
-    congestion_infos: Vec<Option<crate::congestion_info::CongestionInfo>>,
-    shard_ids: &[crate::types::ShardId],
-    initial_gas_limit: Gas,
-    genesis_height: BlockHeight,
-    genesis_protocol_version: ProtocolVersion,
-) -> Vec<crate::sharding::ShardChunk> {
-    let rs = ShardChunkReedSolomon::new(1, 2).unwrap();
-    let state_roots = if state_roots.len() == shard_ids.len() {
-        state_roots
-    } else {
-        assert_eq!(state_roots.len(), 1);
-        std::iter::repeat(state_roots[0]).take(shard_ids.len()).collect()
-    };
-
-    let mut chunks = vec![];
-
-    let num = shard_ids.len();
-    assert_eq!(state_roots.len(), num);
-
-    for (shard_index, &shard_id) in shard_ids.iter().enumerate() {
-        let state_root = state_roots[shard_index];
-        let congestion_info = congestion_infos[shard_index];
-
-        let encoded_chunk = genesis_chunk(
-            &rs,
-            genesis_protocol_version,
-            genesis_height,
-            initial_gas_limit,
-            shard_id,
-            state_root,
-            congestion_info,
-        );
-        let mut chunk = encoded_chunk.decode_chunk(1).expect("Failed to decode genesis chunk");
-        chunk.set_height_included(genesis_height);
-        chunks.push(chunk);
-    }
-
-    chunks
-}
-
-// Creates the genesis encoded shard chunk. The genesis chunks have most of the
-// fields set to defaults. The remaining fields are set to the provided values.
-#[cfg(feature = "solomon")]
-fn genesis_chunk(
-    rs: &ShardChunkReedSolomon,
-    genesis_protocol_version: u32,
-    genesis_height: u64,
-    initial_gas_limit: u64,
-    shard_id: crate::types::ShardId,
-    state_root: CryptoHash,
-    congestion_info: Option<crate::congestion_info::CongestionInfo>,
-) -> crate::sharding::EncodedShardChunk {
-    use crate::bandwidth_scheduler::BandwidthRequests;
-
-    let (encoded_chunk, _) = crate::sharding::EncodedShardChunk::new(
-        CryptoHash::default(),
-        state_root,
-        CryptoHash::default(),
-        genesis_height,
-        shard_id,
-        rs,
-        0,
-        initial_gas_limit,
-        0,
-        CryptoHash::default(),
-        vec![],
-        vec![],
-        &[],
-        CryptoHash::default(),
-        congestion_info,
-        BandwidthRequests::default_for_protocol_version(genesis_protocol_version),
-        &crate::validator_signer::EmptyValidatorSigner::default().into(),
-        genesis_protocol_version,
-    )
-    .expect("Failed to decode genesis chunk");
-    encoded_chunk
-}
-
 impl Block {
-    fn block_from_protocol_version(
-        this_epoch_protocol_version: ProtocolVersion,
-        next_epoch_protocol_version: ProtocolVersion,
-        header: BlockHeader,
-        body: BlockBody,
-    ) -> Block {
-        if !ProtocolFeature::ShardChunkHeaderUpgrade.enabled(next_epoch_protocol_version) {
-            let legacy_chunks = body
-                .chunks()
-                .iter()
-                .cloned()
-                .map(|chunk| match chunk {
-                    ShardChunkHeader::V1(header) => header,
-                    ShardChunkHeader::V2(_) => panic!(
-                        "Attempted to include VersionedShardChunkHeaderV2 in old protocol version"
-                    ),
-                    ShardChunkHeader::V3(_) => panic!(
-                        "Attempted to include VersionedShardChunkHeaderV3 in old protocol version"
-                    ),
-                })
-                .collect();
-
-            Block::BlockV1(Arc::new(BlockV1 {
-                header,
-                chunks: legacy_chunks,
-                challenges: body.challenges().to_vec(),
-                vrf_value: *body.vrf_value(),
-                vrf_proof: *body.vrf_proof(),
-            }))
-        } else if !ProtocolFeature::BlockHeaderV4.enabled(this_epoch_protocol_version) {
-            Block::BlockV2(Arc::new(BlockV2 {
-                header,
-                chunks: body.chunks().to_vec(),
-                challenges: body.challenges().to_vec(),
-                vrf_value: *body.vrf_value(),
-                vrf_proof: *body.vrf_proof(),
-            }))
-        } else if !ProtocolFeature::StatelessValidation.enabled(this_epoch_protocol_version) {
-            // BlockV3 should only have BlockBodyV1
-            match body {
-                BlockBody::V1(body) => Block::BlockV3(Arc::new(BlockV3 { header, body })),
-                _ => {
-                    panic!("Attempted to include newer BlockBody version in old protocol version")
-                }
+    pub(crate) fn new_block(header: BlockHeader, body: BlockBody) -> Block {
+        // BlockV4 and BlockBodyV2 were introduced in the same protocol version `ChunkValidation`
+        // We should not expect BlockV4 to have BlockBodyV1
+        match body {
+            BlockBody::V1(_) => {
+                panic!("Attempted to include BlockBodyV1 in new protocol version")
             }
-        } else {
-            // BlockV4 and BlockBodyV2 were introduced in the same protocol version `ChunkValidation`
-            // We should not expect BlockV4 to have BlockBodyV1
-            match body {
-                BlockBody::V1(_) => {
-                    panic!("Attempted to include BlockBodyV1 in new protocol version")
-                }
-                _ => Block::BlockV4(Arc::new(BlockV4 { header, body })),
-            }
+            _ => Block::BlockV4(Arc::new(BlockV4 { header, body })),
         }
-    }
-
-    /// Returns genesis block for given genesis date and state root.
-    pub fn genesis(
-        genesis_protocol_version: ProtocolVersion,
-        chunks: Vec<ShardChunkHeader>,
-        timestamp: Utc,
-        height: BlockHeight,
-        initial_gas_price: Balance,
-        initial_total_supply: Balance,
-        next_bp_hash: CryptoHash,
-    ) -> Self {
-        let challenges = vec![];
-        let chunk_endorsements = vec![];
-        for chunk in &chunks {
-            assert_eq!(chunk.height_included(), height);
-        }
-        let vrf_value = near_crypto::vrf::Value([0; 32]);
-        let vrf_proof = near_crypto::vrf::Proof([0; 64]);
-        let body = BlockBody::new(
-            genesis_protocol_version,
-            chunks,
-            challenges,
-            vrf_value,
-            vrf_proof,
-            chunk_endorsements,
-        );
-        let header = BlockHeader::genesis(
-            genesis_protocol_version,
-            height,
-            Block::compute_state_root(body.chunks()),
-            body.compute_hash(),
-            Block::compute_chunk_prev_outgoing_receipts_root(body.chunks()),
-            Block::compute_chunk_headers_root(body.chunks()).0,
-            Block::compute_chunk_tx_root(body.chunks()),
-            body.chunks().len() as u64,
-            Block::compute_challenges_root(body.challenges()),
-            timestamp,
-            initial_gas_price,
-            initial_total_supply,
-            next_bp_hash,
-        );
-
-        Self::block_from_protocol_version(
-            genesis_protocol_version,
-            genesis_protocol_version,
-            header,
-            body,
-        )
     }
 
     /// Produces new block from header of previous block, current state root and set of transactions.
     #[cfg(feature = "clock")]
     pub fn produce(
-        this_epoch_protocol_version: ProtocolVersion,
-        next_epoch_protocol_version: ProtocolVersion,
         latest_protocol_version: ProtocolVersion,
         prev: &BlockHeader,
         height: BlockHeight,
@@ -300,8 +117,6 @@ impl Block {
         min_gas_price: Balance,
         max_gas_price: Balance,
         minted_amount: Option<Balance>,
-        challenges_result: crate::challenge::ChallengesResult,
-        challenges: Challenges,
         signer: &crate::validator_signer::ValidatorSigner,
         next_bp_hash: CryptoHash,
         block_merkle_root: CryptoHash,
@@ -309,12 +124,6 @@ impl Block {
         sandbox_delta_time: Option<near_time::Duration>,
         optimistic_block: Option<OptimisticBlock>,
     ) -> Self {
-        use itertools::Itertools;
-
-        use crate::{
-            stateless_validation::chunk_endorsements_bitmap::ChunkEndorsementsBitmap,
-            utils::get_block_metadata,
-        };
         // Collect aggregate of validators and gas usage/limits from chunks.
         let mut prev_validator_proposals = vec![];
         let mut gas_used = 0;
@@ -322,7 +131,7 @@ impl Block {
         let mut chunk_mask = vec![];
         let mut balance_burnt = 0;
         let mut gas_limit = 0;
-        for chunk in chunks.iter() {
+        for chunk in &chunks {
             if chunk.height_included() == height {
                 prev_validator_proposals.extend(chunk.prev_validator_proposals());
                 gas_used += chunk.prev_gas_used();
@@ -379,39 +188,24 @@ impl Block {
             }
         };
 
-        let chunk_endorsements_bitmap = if ProtocolFeature::ChunkEndorsementsInBlockHeader
-            .enabled(this_epoch_protocol_version)
-        {
-            debug_assert_eq!(
-                chunk_endorsements.len(),
-                chunk_mask.len(),
-                "Chunk endorsements size is different from number of shards."
-            );
-            // Generate from the chunk endorsement signatures a bitmap with the same number of shards and validator assignments per shard,
-            // where `Option<Signature>` is mapped to `true` and `None` is mapped to `false`.
-            Some(ChunkEndorsementsBitmap::from_endorsements(
-                chunk_endorsements
-                    .iter()
-                    .map(|endorsements_for_shard| {
-                        endorsements_for_shard.iter().map(|e| e.is_some()).collect_vec()
-                    })
-                    .collect_vec(),
-            ))
-        } else {
-            None
-        };
-
-        let body = BlockBody::new(
-            this_epoch_protocol_version,
-            chunks,
-            challenges,
-            vrf_value,
-            vrf_proof,
-            chunk_endorsements,
+        debug_assert_eq!(
+            chunk_endorsements.len(),
+            chunk_mask.len(),
+            "Chunk endorsements size is different from number of shards."
         );
+        // Generate from the chunk endorsement signatures a bitmap with the same number of shards and validator assignments per shard,
+        // where `Option<Signature>` is mapped to `true` and `None` is mapped to `false`.
+        let chunk_endorsements_bitmap = Some(ChunkEndorsementsBitmap::from_endorsements(
+            chunk_endorsements
+                .iter()
+                .map(|endorsements_for_shard| {
+                    endorsements_for_shard.iter().map(|e| e.is_some()).collect_vec()
+                })
+                .collect_vec(),
+        ));
+
+        let body = BlockBody::new(chunks, vrf_value, vrf_proof, chunk_endorsements);
         let header = BlockHeader::new(
-            this_epoch_protocol_version,
-            next_epoch_protocol_version,
             latest_protocol_version,
             height,
             *prev.hash(),
@@ -422,7 +216,6 @@ impl Block {
             Block::compute_chunk_tx_root(body.chunks()),
             Block::compute_outcome_root(body.chunks()),
             time,
-            Block::compute_challenges_root(body.challenges()),
             random_value,
             prev_validator_proposals,
             chunk_mask,
@@ -431,7 +224,6 @@ impl Block {
             next_epoch_id,
             next_gas_price,
             new_total_supply,
-            challenges_result,
             signer,
             *last_final_block,
             *last_ds_final_block,
@@ -443,12 +235,7 @@ impl Block {
             chunk_endorsements_bitmap,
         );
 
-        Self::block_from_protocol_version(
-            this_epoch_protocol_version,
-            next_epoch_protocol_version,
-            header,
-            body,
-        )
+        Self::new_block(header, body)
     }
 
     pub fn verify_total_supply(
@@ -573,10 +360,6 @@ impl Block {
         .0
     }
 
-    pub fn compute_challenges_root(challenges: &Challenges) -> CryptoHash {
-        merklize(&challenges.iter().map(|challenge| challenge.hash).collect::<Vec<CryptoHash>>()).0
-    }
-
     pub fn compute_gas_used<'a, T: IntoIterator<Item = &'a ShardChunkHeader>>(
         chunks: T,
         height: BlockHeight,
@@ -619,16 +402,6 @@ impl Block {
 
     pub fn chunks(&self) -> Chunks {
         Chunks::new(&self)
-    }
-
-    #[inline]
-    pub fn challenges(&self) -> &Challenges {
-        match self {
-            Block::BlockV1(block) => &block.challenges,
-            Block::BlockV2(block) => &block.challenges,
-            Block::BlockV3(block) => &block.body.challenges,
-            Block::BlockV4(block) => block.body.challenges(),
-        }
     }
 
     #[inline]
@@ -721,12 +494,6 @@ impl Block {
             .collect();
         if self.header().chunk_mask() != &chunk_mask[..] {
             return Err(InvalidChunkMask);
-        }
-
-        // Check that challenges root stored in the header matches the challenges root of the challenges
-        let challenges_root = Block::compute_challenges_root(self.challenges());
-        if self.header().challenges_root() != &challenges_root {
-            return Err(InvalidChallengeRoot);
         }
 
         Ok(())
@@ -841,17 +608,16 @@ impl<'a> Chunks<'a> {
         for chunk in self.iter_deprecated() {
             let shard_id = chunk.shard_id();
 
-            if let Some(congestion_info) = chunk.congestion_info() {
-                let height_included = chunk.height_included();
-                let height_current = self.block_height;
-                let missed_chunks_count = height_current.checked_sub(height_included);
-                let missed_chunks_count = missed_chunks_count
-                    .expect("The chunk height included must be less or equal than block height!");
+            let congestion_info = chunk.congestion_info();
+            let height_included = chunk.height_included();
+            let height_current = self.block_height;
+            let missed_chunks_count = height_current.checked_sub(height_included);
+            let missed_chunks_count = missed_chunks_count
+                .expect("The chunk height included must be less or equal than block height!");
 
-                let extended_congestion_info =
-                    ExtendedCongestionInfo::new(congestion_info, missed_chunks_count);
-                result.insert(shard_id, extended_congestion_info);
-            }
+            let extended_congestion_info =
+                ExtendedCongestionInfo::new(congestion_info, missed_chunks_count);
+            result.insert(shard_id, extended_congestion_info);
         }
         BlockCongestionInfo::new(result)
     }

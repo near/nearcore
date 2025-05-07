@@ -320,10 +320,7 @@ impl ClientActorInner {
             .epoch_manager
             .get_epoch_block_producers_ordered(epoch_id)?
             .into_iter()
-            .map(|validator_stake| ValidatorInfo {
-                account_id: validator_stake.take_account_id(),
-                is_slashed: false,
-            })
+            .map(|validator_stake| ValidatorInfo { account_id: validator_stake.take_account_id() })
             .collect();
         let chunk_producers = self
             .client
@@ -338,7 +335,7 @@ impl ClientActorInner {
 
     /// Gets the information about the epoch that contains a given block.
     fn get_epoch_info_view(
-        &mut self,
+        &self,
         epoch_identifier: &ValidatorInfoIdentifier,
     ) -> Result<EpochInfoView, Error> {
         let epoch_start_height =
@@ -510,7 +507,7 @@ impl ClientActorInner {
     }
 
     fn get_recent_epoch_info(
-        &mut self,
+        &self,
         epoch_id: Option<EpochId>,
     ) -> Result<Vec<EpochInfoView>, near_chain_primitives::Error> {
         let mut epochs_info: Vec<EpochInfoView> = Vec::new();
@@ -550,7 +547,7 @@ impl ClientActorInner {
     }
 
     fn get_last_blocks_info(
-        &mut self,
+        &self,
         query: DebugBlockStatusQuery,
     ) -> Result<DebugBlockStatusData, near_chain_primitives::Error> {
         let DebugBlockStatusQuery { starting_height, mode, mut num_blocks } = query;
@@ -673,7 +670,7 @@ impl ClientActorInner {
                                 )
                                 .map(|s| s.whole_milliseconds() as u64),
                                 congestion_level,
-                                congestion_info: chunk.congestion_info(),
+                                congestion_info: Some(chunk.congestion_info()),
                                 endorsement_ratio,
                             }
                         })
@@ -934,8 +931,7 @@ fn new_peer_info_view(chain: &Chain, connected_peer_info: &ConnectedPeerInfo) ->
         is_highest_block_invalid: full_peer_info
             .chain_info
             .last_block
-            .map(|x| chain.is_block_invalid(&x.hash))
-            .unwrap_or_default(),
+            .is_some_and(|x| chain.is_block_invalid(&x.hash)),
         tracked_shards: full_peer_info.chain_info.tracked_shards.clone(),
         archival: full_peer_info.chain_info.archival,
         peer_id: full_peer_info.peer_info.id.public_key().clone(),

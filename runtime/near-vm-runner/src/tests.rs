@@ -38,20 +38,11 @@ pub(crate) fn with_vm_variants(
         runner(kind)
     };
 
-    #[cfg(all(feature = "wasmer0_vm", target_arch = "x86_64"))]
-    run(VMKind::Wasmer0);
-
     #[cfg(feature = "wasmtime_vm")]
     run(VMKind::Wasmtime);
 
-    #[cfg(all(feature = "wasmer2_vm", target_arch = "x86_64"))]
-    run(VMKind::Wasmer2);
-
     #[cfg(all(feature = "near_vm", target_arch = "x86_64"))]
-    if cfg.limit_config.contract_prepare_version == near_parameters::vm::ContractPrepareVersion::V2
-    {
-        run(VMKind::NearVm);
-    }
+    run(VMKind::NearVm);
 }
 
 fn create_context(input: Vec<u8>) -> VMContext {

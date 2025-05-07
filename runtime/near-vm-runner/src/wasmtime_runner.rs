@@ -127,9 +127,8 @@ pub fn get_engine(config: &wasmtime::Config) -> Engine {
     Engine::new(config).unwrap()
 }
 
-pub(crate) fn default_wasmtime_config(config: &Config) -> wasmtime::Config {
-    let features =
-        crate::features::WasmFeatures::from(config.limit_config.contract_prepare_version);
+pub(crate) fn default_wasmtime_config(c: &Config) -> wasmtime::Config {
+    let features = crate::features::WasmFeatures::new(c);
     let mut config = wasmtime::Config::from(features);
     config.max_wasm_stack(1024 * 1024 * 1024); // wasm stack metering is implemented by instrumentation, we don't want wasmtime to trap before that
     config
@@ -461,7 +460,7 @@ fn link<'a, 'b>(
                     tracing::trace_span!(target: "vm::host_function", stringify!($name)).entered()
                 });
                 // the below is bad. don't do this at home. it probably works thanks to the exact way the system is setup.
-                // Thanksfully, this doesn't run in production, and hopefully should be possible to remove before we even
+                // Thankfully, this doesn't run in production, and hopefully should be possible to remove before we even
                 // consider doing so.
                 let data = CALLER_CONTEXT.with(|caller_context| {
                     unsafe {

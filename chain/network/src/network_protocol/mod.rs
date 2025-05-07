@@ -7,6 +7,7 @@ mod peer;
 mod proto_conv;
 mod state_sync;
 pub use edge::*;
+use near_primitives::genesis::GenesisId;
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::stateless_validation::contract_distribution::ChunkContractAccesses;
 use near_primitives::stateless_validation::contract_distribution::ContractCodeRequest;
@@ -40,7 +41,7 @@ use near_async::time;
 use near_crypto::PublicKey;
 use near_crypto::Signature;
 use near_o11y::OpenTelemetrySpanExt;
-use near_primitives::block::{Approval, Block, BlockHeader, GenesisId};
+use near_primitives::block::{Approval, Block, BlockHeader};
 use near_primitives::challenge::Challenge;
 use near_primitives::epoch_sync::CompressedEpochSyncProof;
 use near_primitives::hash::CryptoHash;
@@ -566,6 +567,7 @@ pub enum RoutedMessageBody {
     ContractCodeRequest(ContractCodeRequest),
     ContractCodeResponse(ContractCodeResponse),
     PartialEncodedContractDeploys(PartialEncodedContractDeploys),
+    StateHeaderRequest(StateHeaderRequest),
 }
 
 impl RoutedMessageBody {
@@ -658,7 +660,11 @@ impl fmt::Debug for RoutedMessageBody {
             RoutedMessageBody::_UnusedEpochSyncResponse(_) => {
                 write!(f, "EpochSyncResponse")
             }
-            RoutedMessageBody::StatePartRequest(_) => write!(f, "StatePartRequest"),
+            RoutedMessageBody::StatePartRequest(request) => write!(
+                f,
+                "StatePartRequest(sync_hash={:?}, shard_id={:?}, part_id={:?})",
+                request.sync_hash, request.shard_id, request.part_id,
+            ),
             RoutedMessageBody::ChunkContractAccesses(accesses) => {
                 write!(f, "ChunkContractAccesses(code_hashes={:?})", accesses.contracts())
             }
@@ -667,8 +673,13 @@ impl fmt::Debug for RoutedMessageBody {
             }
             RoutedMessageBody::ContractCodeResponse(_) => write!(f, "ContractCodeResponse",),
             RoutedMessageBody::PartialEncodedContractDeploys(deploys) => {
-                write!(f, "PartialEncodedContractDeploys(part={:?}", deploys.part())
+                write!(f, "PartialEncodedContractDeploys(part={:?})", deploys.part())
             }
+            RoutedMessageBody::StateHeaderRequest(request) => write!(
+                f,
+                "StateHeaderRequest(sync_hash={:?}, shard_id={:?})",
+                request.sync_hash, request.shard_id,
+            ),
         }
     }
 }

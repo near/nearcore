@@ -221,7 +221,7 @@ fn check_block_does_not_have_missing_chunks(block: &Block) {
 /// root mismatch issue, the two nodes would not be able to apply each others'
 /// blocks because the block hashes would be different.
 fn run_chain_for_some_blocks_while_sending_money_around(
-    clock: &mut FakeClock,
+    clock: &FakeClock,
     env: &mut TestEnv,
     nonces: &mut HashMap<AccountId, u64>,
     balances: &mut HashMap<AccountId, u128>,
@@ -259,7 +259,7 @@ fn run_chain_for_some_blocks_while_sending_money_around(
                 );
                 // Process the txn in all shards, because they may not always
                 // get a chance to produce the txn if they don't track the shard.
-                for tx_processor in &env.tx_request_handlers {
+                for tx_processor in &env.rpc_handlers {
                     match tx_processor.process_tx(txn.clone(), false, false) {
                         ProcessTxResponse::NoResponse => panic!("No response"),
                         ProcessTxResponse::InvalidTx(err) => panic!("Invalid tx: {}", err),
@@ -338,7 +338,7 @@ fn run_chain_for_some_blocks_while_sending_money_around(
                 let client = &env.clients[i];
                 if let Ok(chunk) = client.chain.get_chunk(&chunk.chunk_hash()) {
                     if chunks_found == 0 {
-                        total_txs_included_in_chunks += chunk.transactions().len();
+                        total_txs_included_in_chunks += chunk.to_transactions().len();
                     }
                     chunks_found += 1;
                 }

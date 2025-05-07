@@ -1,14 +1,11 @@
 //! This module facilitates the initialization and the storage
 //! of rate limits per message.
 
-use std::collections::HashMap;
-
+use super::token_bucket::{TokenBucket, TokenBucketError};
+use crate::network_protocol::{PeerMessage, RoutedMessageBody};
 use enum_map::{EnumMap, enum_map};
 use near_async::time::Instant;
-
-use crate::network_protocol::{PeerMessage, RoutedMessageBody};
-
-use super::token_bucket::{TokenBucket, TokenBucketError};
+use std::collections::HashMap;
 
 /// Object responsible to manage the rate limits of all network messages
 /// for a single connection/peer.
@@ -239,6 +236,7 @@ fn get_key_and_token_cost(message: &PeerMessage) -> Option<(RateLimitedPeerMessa
             RoutedMessageBody::_UnusedEpochSyncRequest => None,
             RoutedMessageBody::_UnusedEpochSyncResponse(_) => None,
             RoutedMessageBody::StatePartRequest(_) => None, // TODO
+            RoutedMessageBody::StateHeaderRequest(_) => None, // TODO
             RoutedMessageBody::Ping(_)
             | RoutedMessageBody::Pong(_)
             | RoutedMessageBody::_UnusedChunkEndorsement
@@ -271,12 +269,10 @@ fn get_key_and_token_cost(message: &PeerMessage) -> Option<(RateLimitedPeerMessa
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+    use crate::network_protocol::{Disconnect, PeerMessage};
     use near_async::time::{Duration, FakeClock};
     use near_primitives::hash::CryptoHash;
-
-    use crate::network_protocol::{Disconnect, PeerMessage};
-
-    use super::*;
 
     #[test]
     fn is_allowed() {

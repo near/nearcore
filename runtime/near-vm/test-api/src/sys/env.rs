@@ -21,7 +21,7 @@ impl From<ExportError> for HostEnvInitError {
 /// Trait for initializing the environments passed to host functions after
 /// instantiation but before execution.
 ///
-/// This is useful for filling an environment with data that can only be accesed
+/// This is useful for filling an environment with data that can only be accessed
 /// after instantiation. For example, exported items such as memories and
 /// functions which don't exist prior to instantiation can be accessed here so
 /// that host functions can use them.
@@ -89,7 +89,7 @@ pub struct LazyInit<T: Sized> {
 }
 
 impl<T> LazyInit<T> {
-    /// Creates an unitialized value.
+    /// Creates an uninitialized value.
     pub fn new() -> Self {
         Self { data: std::mem::MaybeUninit::uninit(), initialized: false }
     }

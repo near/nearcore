@@ -17,6 +17,7 @@ use near_primitives::errors::{
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::types::{AccountId, Balance};
 use near_primitives::utils::{derive_eth_implicit_account_id, derive_near_implicit_account_id};
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::{
     AccessKeyView, AccountView, ExecutionMetadataView, FinalExecutionOutcomeView,
     FinalExecutionStatus,
@@ -357,7 +358,9 @@ pub fn transfer_tokens_to_implicit_account(node: impl Node, public_key: PublicKe
     let transaction_result =
         node_user.send_money(account_id.clone(), receiver_id.clone(), tokens_used).unwrap();
     assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(Vec::new()));
-    assert_eq!(transaction_result.receipts_outcome.len(), 2);
+    let num_expected_receipts =
+        if ProtocolFeature::ReducedGasRefunds.enabled(PROTOCOL_VERSION) { 1 } else { 2 };
+    assert_eq!(transaction_result.receipts_outcome.len(), num_expected_receipts);
     let new_root = node_user.get_state_root();
     assert_ne!(root, new_root);
     assert_eq!(node_user.get_access_key_nonce_for_signer(account_id).unwrap(), 1);
@@ -390,7 +393,9 @@ pub fn transfer_tokens_to_implicit_account(node: impl Node, public_key: PublicKe
         node_user.send_money(account_id.clone(), receiver_id.clone(), tokens_used).unwrap();
 
     assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(Vec::new()));
-    assert_eq!(transaction_result.receipts_outcome.len(), 2);
+    let num_expected_receipts =
+        if ProtocolFeature::ReducedGasRefunds.enabled(PROTOCOL_VERSION) { 1 } else { 2 };
+    assert_eq!(transaction_result.receipts_outcome.len(), num_expected_receipts);
     let new_root = node_user.get_state_root();
     assert_ne!(root, new_root);
     assert_eq!(node_user.get_access_key_nonce_for_signer(account_id).unwrap(), 2);
@@ -426,20 +431,26 @@ pub fn trying_to_create_implicit_account(node: impl Node, public_key: PublicKey)
 
     let create_account_fee = fee_helper.cfg().fee(ActionCosts::create_account).send_fee(false);
     let add_access_key_fee = fee_helper.cfg().fee(ActionCosts::add_full_access_key).send_fee(false);
+    let gas_refund = fee_helper.cfg().fee(ActionCosts::transfer).exec_fee()
+        + fee_helper.cfg().fee(ActionCosts::add_full_access_key).exec_fee()
+        + create_account_fee
+        + add_access_key_fee;
+    let refund_cost = fee_helper.gas_refund_cost(gas_refund);
 
-    let cost = match receiver_id.get_account_type() {
-        AccountType::NearImplicitAccount => {
-            fee_helper.create_account_transfer_full_key_cost_fail_on_create_account()
-                + fee_helper.gas_to_balance(create_account_fee + add_access_key_fee)
-        }
-        AccountType::EthImplicitAccount => {
-            // This test uses `node_user.create_account` method that is normally used for NamedAccounts and should fail here.
-            fee_helper.create_account_transfer_full_key_cost_fail_on_create_account()
+    let cost = refund_cost
+        + match receiver_id.get_account_type() {
+            AccountType::NearImplicitAccount => {
+                fee_helper.create_account_transfer_full_key_cost_fail_on_create_account()
+                    + fee_helper.gas_to_balance(create_account_fee + add_access_key_fee)
+            }
+            AccountType::EthImplicitAccount => {
+                // This test uses `node_user.create_account` method that is normally used for NamedAccounts and should fail here.
+                fee_helper.create_account_transfer_full_key_cost_fail_on_create_account()
                 // We add this fee analogously to the NEAR-implicit match arm above (without `add_access_key_fee`).
                 + fee_helper.gas_to_balance(create_account_fee)
-        }
-        AccountType::NamedAccount => std::panic!("must be implicit"),
-    };
+            }
+            AccountType::NamedAccount => std::panic!("must be implicit"),
+        };
 
     assert_eq!(
         transaction_result.status,
@@ -531,7 +542,9 @@ pub fn test_refund_on_send_money_to_non_existent_account(node: impl Node) {
             .into()
         )
     );
-    assert_eq!(transaction_result.receipts_outcome.len(), 3);
+    let num_expected_receipts =
+        if ProtocolFeature::ReducedGasRefunds.enabled(PROTOCOL_VERSION) { 2 } else { 3 };
+    assert_eq!(transaction_result.receipts_outcome.len(), num_expected_receipts);
     let new_root = node_user.get_state_root();
     assert_ne!(root, new_root);
     let result1 = node_user.view_account(account_id).unwrap();
@@ -629,7 +642,9 @@ pub fn test_create_account_again(node: impl Node) {
             .into()
         )
     );
-    assert_eq!(transaction_result.receipts_outcome.len(), 3);
+    let num_expected_receipts =
+        if ProtocolFeature::ReducedGasRefunds.enabled(PROTOCOL_VERSION) { 2 } else { 3 };
+    assert_eq!(transaction_result.receipts_outcome.len(), num_expected_receipts);
     let new_root = node_user.get_state_root();
     assert_ne!(root, new_root);
     assert_eq!(node_user.get_access_key_nonce_for_signer(account_id).unwrap(), 2);
@@ -637,11 +652,15 @@ pub fn test_create_account_again(node: impl Node) {
     // Additional cost for trying to create an account with repeated name. Will fail after
     // the first action.
     let additional_cost = fee_helper.create_account_transfer_full_key_cost_fail_on_create_account();
+    // Refund penalty also applies to refunds after failing.
+    let gas_refund = fee_helper.cfg().fee(ActionCosts::transfer).exec_fee()
+        + fee_helper.cfg().fee(ActionCosts::add_full_access_key).exec_fee();
+    let refund_cost = fee_helper.gas_refund_cost(gas_refund);
 
     let result1 = node_user.view_account(account_id).unwrap();
     assert_eq!(
         (result1.amount, result1.locked),
-        (new_expected_balance - additional_cost, TESTING_INIT_STAKE)
+        (new_expected_balance - additional_cost - refund_cost, TESTING_INIT_STAKE)
     );
 }
 
@@ -676,15 +695,25 @@ pub fn test_create_account_failure_already_exists(node: impl Node) {
             .into()
         )
     );
-    assert_eq!(transaction_result.receipts_outcome.len(), 3);
+    let num_expected_receipts =
+        if ProtocolFeature::ReducedGasRefunds.enabled(PROTOCOL_VERSION) { 2 } else { 3 };
+    assert_eq!(transaction_result.receipts_outcome.len(), num_expected_receipts);
     let new_root = node_user.get_state_root();
     assert_ne!(root, new_root);
     assert_eq!(node_user.get_access_key_nonce_for_signer(account_id).unwrap(), 1);
 
+    // Refund penalty also applies to refunds after failing.
+    let gas_refund = fee_helper.cfg().fee(ActionCosts::transfer).exec_fee()
+        + fee_helper.cfg().fee(ActionCosts::add_full_access_key).exec_fee();
+    let refund_cost = fee_helper.gas_refund_cost(gas_refund);
+
     let result1 = node_user.view_account(account_id).unwrap();
     assert_eq!(
         (result1.amount, result1.locked),
-        (TESTING_INIT_BALANCE - TESTING_INIT_STAKE - create_account_cost, TESTING_INIT_STAKE)
+        (
+            TESTING_INIT_BALANCE - TESTING_INIT_STAKE - create_account_cost - refund_cost,
+            TESTING_INIT_STAKE
+        )
     );
 
     let result2 = node_user.view_account(&bob_account()).unwrap();
@@ -1016,9 +1045,10 @@ pub fn test_access_key_smart_contract(node: impl Node) {
         transaction_result.status,
         FinalExecutionStatus::SuccessValue(10i32.to_le_bytes().to_vec())
     );
-    let gas_refund = fee_helper.gas_to_balance(
-        prepaid_gas + exec_gas - transaction_result.receipts_outcome[0].outcome.gas_burnt,
-    );
+    let gross_gas_refund =
+        prepaid_gas + exec_gas - transaction_result.receipts_outcome[0].outcome.gas_burnt;
+    let refund_penalty = fee_helper.cfg().gas_penalty_for_gas_refund(gross_gas_refund);
+    let gas_refund = fee_helper.gas_to_balance(gross_gas_refund - refund_penalty);
 
     // Refund receipt may not be ready yet
     assert!([1, 2].contains(&transaction_result.receipts_outcome.len()));
@@ -1161,7 +1191,9 @@ pub fn test_unstake_while_not_staked(node: impl Node) {
         )
         .unwrap();
     assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(Vec::new()));
-    assert_eq!(transaction_result.receipts_outcome.len(), 2);
+    let num_expected_receipts =
+        if ProtocolFeature::ReducedGasRefunds.enabled(PROTOCOL_VERSION) { 1 } else { 2 };
+    assert_eq!(transaction_result.receipts_outcome.len(), num_expected_receipts);
     let transaction_result =
         node_user.stake(eve_dot_alice_account(), node.block_signer().public_key(), 0).unwrap();
     assert_eq!(
@@ -1255,7 +1287,9 @@ pub fn test_delete_account_fail(node: impl Node) {
             .into()
         )
     );
-    assert_eq!(transaction_result.receipts_outcome.len(), 2);
+    let num_expected_receipts =
+        if ProtocolFeature::ReducedGasRefunds.enabled(PROTOCOL_VERSION) { 1 } else { 2 };
+    assert_eq!(transaction_result.receipts_outcome.len(), num_expected_receipts);
     assert!(node.user().view_account(&bob_account()).is_ok());
     assert_eq!(
         node.user().view_account(&node.account_id().unwrap()).unwrap().amount,
@@ -1277,7 +1311,9 @@ pub fn test_delete_account_no_account(node: impl Node) {
             .into()
         )
     );
-    assert_eq!(transaction_result.receipts_outcome.len(), 2);
+    let num_expected_receipts =
+        if ProtocolFeature::ReducedGasRefunds.enabled(PROTOCOL_VERSION) { 1 } else { 2 };
+    assert_eq!(transaction_result.receipts_outcome.len(), num_expected_receipts);
 }
 
 pub fn test_delete_account_while_staking(node: impl Node) {
@@ -1321,13 +1357,19 @@ pub fn test_smart_contract_free(node: impl Node) {
     let node_user = node.user();
     let root = node_user.get_state_root();
     let transaction_result = node_user
-        .function_call(alice_account(), bob_account(), "run_test", vec![], 10u64.pow(14), 0)
+        .function_call(alice_account(), bob_account(), "run_test", vec![], 10u64.pow(13), 0)
         .unwrap();
     assert_eq!(
         transaction_result.status,
         FinalExecutionStatus::SuccessValue(10i32.to_le_bytes().to_vec())
     );
-    assert_eq!(transaction_result.receipts_outcome.len(), 1);
+    let num_expected_receipts = 1;
+    assert_eq!(
+        transaction_result.receipts_outcome.len(),
+        num_expected_receipts,
+        "{:?}",
+        transaction_result.receipts_outcome
+    );
 
     let total_gas_burnt = transaction_result.transaction_outcome.outcome.gas_burnt
         + transaction_result.receipts_outcome.iter().map(|t| t.outcome.gas_burnt).sum::<u64>();
@@ -1343,7 +1385,7 @@ fn get_trie_nodes_count(
     runtime_config: &RuntimeConfig,
 ) -> TrieNodesCount {
     let mut count = TrieNodesCount { db_reads: 0, mem_reads: 0 };
-    for cost in metadata.gas_profile.clone().unwrap_or_default().iter() {
+    for cost in &metadata.gas_profile.clone().unwrap_or_default() {
         match cost.cost.as_str() {
             "TOUCHING_TRIE_NODE" => {
                 count.db_reads += cost.gas_used

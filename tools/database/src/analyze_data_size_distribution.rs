@@ -62,7 +62,7 @@ impl DataSizeDistribution {
     }
 
     fn print_column_family_data(&self) {
-        for (column_family_name, column_family_data) in self.column_families_data.iter() {
+        for (column_family_name, column_family_data) in &self.column_families_data {
             println!(
                 "Column family {} has {} number of pairs and {} bytes size",
                 column_family_name, column_family_data.number_of_pairs, column_family_data.size

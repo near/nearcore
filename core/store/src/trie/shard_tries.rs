@@ -21,6 +21,7 @@ use near_primitives::types::{
 };
 use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
 use std::collections::{HashMap, HashSet};
+use std::path::Path;
 use std::sync::{Arc, Mutex, RwLock};
 
 struct ShardTriesInner {
@@ -208,6 +209,10 @@ impl ShardTries {
         &self.0.state_snapshot_config
     }
 
+    pub fn state_snapshots_dir(&self) -> Option<&Path> {
+        self.state_snapshot_config().state_snapshots_dir()
+    }
+
     pub(crate) fn state_snapshot(&self) -> &Arc<RwLock<Option<StateSnapshot>>> {
         &self.0.state_snapshot
     }
@@ -264,7 +269,7 @@ impl ShardTries {
         store_update: &mut TrieStoreUpdateAdapter,
     ) {
         let mut ops = Vec::with_capacity(deletions.len());
-        for TrieRefcountSubtraction { trie_node_or_value_hash, rc, .. } in deletions.iter() {
+        for TrieRefcountSubtraction { trie_node_or_value_hash, rc, .. } in deletions {
             store_update.decrement_refcount_by(shard_uid, trie_node_or_value_hash, *rc);
             ops.push((trie_node_or_value_hash, None));
         }
@@ -279,9 +284,7 @@ impl ShardTries {
         store_update: &mut TrieStoreUpdateAdapter,
     ) {
         let mut ops = Vec::with_capacity(insertions.len());
-        for TrieRefcountAddition { trie_node_or_value_hash, trie_node_or_value, rc } in
-            insertions.iter()
-        {
+        for TrieRefcountAddition { trie_node_or_value_hash, trie_node_or_value, rc } in insertions {
             store_update.increment_refcount_by(
                 shard_uid,
                 trie_node_or_value_hash,
@@ -650,7 +653,7 @@ impl WrappedTrieChanges {
         block_hash: &CryptoHash,
         store_update: &mut TrieStoreUpdateAdapter,
     ) {
-        for mut change_with_trie_key in self.state_changes.drain(..) {
+        for change_with_trie_key in self.state_changes.drain(..) {
             assert!(
                 !change_with_trie_key.changes.iter().any(|RawStateChange { cause, .. }| matches!(
                     cause,
@@ -659,11 +662,6 @@ impl WrappedTrieChanges {
                 "NotWritableToDisk changes must never be finalized."
             );
 
-            // Resharding changes must not be finalized, however they may be introduced here when we are
-            // evaluating changes for resharding in process_resharding_results function
-            change_with_trie_key
-                .changes
-                .retain(|change| change.cause != StateChangeCause::ReshardingV2);
             if change_with_trie_key.changes.is_empty() {
                 continue;
             }
@@ -842,7 +840,7 @@ mod test {
             trie_config,
             &shard_uids,
             FlatStorageManager::new(store.flat_store()),
-            StateSnapshotConfig::default(),
+            StateSnapshotConfig::Disabled,
         )
     }
 
@@ -964,7 +962,7 @@ mod test {
             trie_config,
             &shard_uids,
             FlatStorageManager::new(store.flat_store()),
-            StateSnapshotConfig::default(),
+            StateSnapshotConfig::Disabled,
         );
 
         let trie_caches = &trie.0.caches;

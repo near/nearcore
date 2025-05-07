@@ -2,7 +2,6 @@ use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
 use crate::utils::ONE_NEAR;
 use crate::utils::validators::get_epoch_all_validators;
-use near_async::test_loop::data::TestLoopData;
 use near_async::time::Duration;
 use near_chain_configs::test_genesis::TestEpochConfigBuilder;
 use near_chain_configs::test_genesis::ValidatorsSpec;
@@ -11,13 +10,11 @@ use near_primitives::shard_layout::ShardLayout;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::AccountId;
 use near_primitives::types::AccountInfo;
-use near_primitives::version::ProtocolFeature;
 
 #[test]
 fn slow_test_fix_cp_stake_threshold() {
     init_test_logger();
 
-    let protocol_version = ProtocolFeature::FixChunkProducerStakingThreshold.protocol_version() - 1;
     let epoch_length = 10;
     let accounts =
         (0..6).map(|i| format!("test{}", i).parse().unwrap()).collect::<Vec<AccountId>>();
@@ -51,89 +48,22 @@ fn slow_test_fix_cp_stake_threshold() {
     ];
     let validators_spec = ValidatorsSpec::raw(validators, 5, 5, 5);
     let genesis = TestLoopBuilder::new_genesis_builder()
-        .protocol_version(protocol_version)
         .epoch_length(epoch_length)
         .shard_layout(shard_layout)
         .validators_spec(validators_spec)
         .add_user_accounts_simple(&accounts, 1_000_000 * ONE_NEAR)
         .build();
     let epoch_config_store = TestEpochConfigBuilder::build_store_from_genesis(&genesis);
-    let TestLoopEnv { mut test_loop, node_datas, shared_state } = TestLoopBuilder::new()
+    let TestLoopEnv { test_loop, node_datas, shared_state } = TestLoopBuilder::new()
         .genesis(genesis)
-        .epoch_config_store(epoch_config_store.clone())
+        .epoch_config_store(epoch_config_store)
         .clients(clients)
         .build()
         .warmup();
 
-    let sender = node_datas[0].client_sender.clone();
-    let handle = sender.actor_handle();
-    let client = &test_loop.data.get(&handle).client;
-
-    // premise checks
-    let epoch_id = client
-        .epoch_manager
-        .get_epoch_id_from_prev_block(&client.chain.head().unwrap().last_block_hash)
-        .unwrap();
-    let protocol_version = client.epoch_manager.get_epoch_protocol_version(&epoch_id).unwrap();
+    let client = &test_loop.data.get(&node_datas[0].client_sender.actor_handle()).client;
     let validators = get_epoch_all_validators(client);
-    assert!(
-        protocol_version < ProtocolFeature::FixChunkProducerStakingThreshold.protocol_version()
-    );
-    assert_eq!(
-        epoch_config_store.get_config(protocol_version).shard_layout.num_shards(),
-        num_shards
-    );
-    assert_eq!(
-        validators,
-        vec![String::from("test0"), String::from("test1"), String::from("test3")]
-    );
-
-    test_loop.run_until(
-        |test_loop_data: &mut TestLoopData| {
-            let client = &test_loop_data.get(&handle).client;
-            let head = client.chain.head().unwrap();
-            let epoch_height = client
-                .epoch_manager
-                .get_epoch_height_from_prev_block(&head.prev_block_hash)
-                .unwrap();
-            // ensure loop is exited because of condition is met
-            assert!(epoch_height < 3);
-
-            let epoch_id = client
-                .epoch_manager
-                .get_epoch_id_from_prev_block(&client.chain.head().unwrap().last_block_hash)
-                .unwrap();
-            let protocol_version =
-                client.epoch_manager.get_epoch_protocol_version(&epoch_id).unwrap();
-            // exits when protocol version catches up with the fix
-            protocol_version >= ProtocolFeature::FixChunkProducerStakingThreshold.protocol_version()
-        },
-        Duration::seconds(4 * epoch_length as i64),
-    );
-
-    test_loop.run_until(
-        |test_loop_data: &mut TestLoopData| {
-            let client = &test_loop_data.get(&handle).client;
-            let head = client.chain.head().unwrap();
-            let epoch_height = client
-                .epoch_manager
-                .get_epoch_height_from_prev_block(&head.prev_block_hash)
-                .unwrap();
-            // ensure loop is exited because of condition is met
-            assert!(epoch_height < 5);
-
-            // threshold is raised to approximately 6x of the previous in this case as threshold is
-            // no longer divided by num_shards (6), so test3's proposal won't be approved
-            let validators = get_epoch_all_validators(client);
-            if validators.len() == 2 {
-                assert_eq!(validators, vec![String::from("test0"), String::from("test1")]);
-                true
-            } else {
-                false
-            }
-        },
-        Duration::seconds(3 * epoch_length as i64),
-    );
+    assert_eq!(validators, vec![String::from("test0"), String::from("test1")]);
 
     TestLoopEnv { test_loop, node_datas, shared_state }
         .shutdown_and_drain_remaining_events(Duration::seconds(20));

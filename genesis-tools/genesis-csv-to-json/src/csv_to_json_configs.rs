@@ -4,6 +4,7 @@ use near_chain_configs::{
     GAS_PRICE_ADJUSTMENT_RATE, GENESIS_CONFIG_FILENAME, Genesis, GenesisConfig, INITIAL_GAS_LIMIT,
     MAX_INFLATION_RATE, MIN_GAS_PRICE, NEAR_BASE, NUM_BLOCK_PRODUCER_SEATS, NUM_BLOCKS_PER_YEAR,
     PROTOCOL_REWARD_RATE, PROTOCOL_UPGRADE_STAKE_THRESHOLD, TRANSACTION_VALIDITY_PERIOD,
+    TrackedShardsConfig,
 };
 use near_primitives::types::{Balance, NumShards, ShardId};
 use near_primitives::utils::get_num_seats_per_shard;
@@ -52,7 +53,14 @@ pub fn csv_to_json_configs(home: &Path, chain_id: String, tracked_shards: Vec<Sh
 
     // Construct `config.json`.
     let mut config = Config::default();
-    config.tracked_shards = tracked_shards;
+    // TODO(archival_v2): Revisit this file, `tracked_shards` likely does not make sense here.
+    // Perhaps it will make sense if used together with `TrackedShardsConfig::Shards` when it is added.
+    let tracked_shards_config = if tracked_shards.is_empty() {
+        TrackedShardsConfig::NoShards
+    } else {
+        TrackedShardsConfig::AllShards
+    };
+    config.tracked_shards_config = Some(tracked_shards_config);
 
     // Construct genesis config.
     let (records, validators, peer_info, treasury, genesis_time) =

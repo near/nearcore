@@ -167,7 +167,7 @@ impl UniversalEngine {
         let mut function_bodies = PrimaryMap::with_capacity(functions.len());
         let mut function_relocations = PrimaryMap::with_capacity(functions.len());
         let mut function_jt_offsets = PrimaryMap::with_capacity(functions.len());
-        for (_, func) in functions.into_iter() {
+        for (_, func) in functions {
             function_bodies.push(func.body);
             function_relocations.push(func.relocations);
             function_jt_offsets.push(func.jt_offsets);
@@ -513,7 +513,7 @@ pub struct UniversalEngineInner {
     /// The features to compile the Wasm module with
     features: Features,
     /// The signature registry is used mainly to operate with trampolines
-    /// performantly.
+    /// that is performant.
     pub(crate) signatures: SignatureRegistry,
     /// The backing storage of `VMFuncRef`s. This centralized store ensures that 2
     /// functions with the same `VMCallerCheckedAnyfunc` will have the same `VMFuncRef`.
@@ -566,7 +566,7 @@ impl UniversalEngineInner {
         let function_bodies =
             call_trampolines.chain(local_functions).chain(dynamic_trampolines).collect::<Vec<_>>();
 
-        // TOOD: this shouldn't be necessary....
+        // TODO: this shouldn't be necessary....
         let mut section_types = Vec::with_capacity(custom_sections.len());
         let mut executable_sections = Vec::new();
         let mut data_sections = Vec::new();

@@ -75,7 +75,7 @@ where
 pub trait Compiler: Send {
     /// Validates a module.
     ///
-    /// It returns a succesful Result in case is valid, `CompileError` in case is not.
+    /// It returns a successful Result in case is valid, `CompileError` in case is not.
     fn validate_module<'data>(
         &self,
         features: &Features,

@@ -15,15 +15,15 @@ use near_primitives::transaction::{
     TransferAction,
 };
 use near_primitives::utils::derive_eth_implicit_account_id;
-use near_primitives::version::ProtocolFeature;
 use near_primitives::views::{
     FinalExecutionStatus, QueryRequest, QueryResponse, QueryResponseKind,
 };
-use near_primitives_core::{account::AccessKey, types::BlockHeight, version::PROTOCOL_VERSION};
+use near_primitives_core::{account::AccessKey, types::BlockHeight};
 use near_store::ShardUId;
 use near_vm_runner::ContractCode;
 use near_wallet_contract::{wallet_contract, wallet_contract_magic_bytes};
 use node_runtime::ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT;
+use node_runtime::config::total_prepaid_gas;
 use testlib::runtime_utils::{alice_account, bob_account};
 
 use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
@@ -39,7 +39,7 @@ fn check_tx_processing(
     blocks_number: u64,
 ) -> BlockHeight {
     let tx_hash = tx.get_hash();
-    assert_eq!(env.tx_request_handlers[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
+    assert_eq!(env.rpc_handlers[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
     let next_height = produce_blocks_from_height(env, blocks_number, height);
     let final_outcome = env.clients[0].chain.get_final_transaction_result(&tx_hash).unwrap();
     println!("{final_outcome:?}");
@@ -84,9 +84,6 @@ fn view_nonce(env: &TestEnv, account: &AccountIdRef, pk: PublicKey) -> u64 {
 /// Tests that ETH-implicit account is created correctly, with Wallet Contract hash.
 #[test]
 fn test_eth_implicit_account_creation() {
-    if !ProtocolFeature::EthImplicitAccounts.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     let genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
@@ -105,14 +102,14 @@ fn test_eth_implicit_account_creation() {
         *genesis_block.hash(),
     );
     assert_eq!(
-        env.tx_request_handlers[0].process_tx(transfer_tx, false, false),
+        env.rpc_handlers[0].process_tx(transfer_tx, false, false),
         ProcessTxResponse::ValidTx
     );
     for i in 1..5 {
         env.produce_block(0, i);
     }
 
-    let magic_bytes = wallet_contract_magic_bytes(chain_id, PROTOCOL_VERSION);
+    let magic_bytes = wallet_contract_magic_bytes(chain_id);
 
     // Verify the ETH-implicit account has zero balance and appropriate code hash.
     // Check that the account storage fits within zero balance account limit.
@@ -141,9 +138,6 @@ fn test_eth_implicit_account_creation() {
 /// Test that transactions from ETH-implicit accounts are rejected.
 #[test]
 fn test_transaction_from_eth_implicit_account_fail() {
-    if !ProtocolFeature::EthImplicitAccounts.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     let genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
@@ -183,11 +177,8 @@ fn test_transaction_from_eth_implicit_account_fail() {
         100,
         *block.hash(),
     );
-    let response = env.tx_request_handlers[0].process_tx(
-        send_money_from_eth_implicit_account_tx,
-        false,
-        false,
-    );
+    let response =
+        env.rpc_handlers[0].process_tx(send_money_from_eth_implicit_account_tx, false, false);
     let expected_tx_error = ProcessTxResponse::InvalidTx(InvalidTxError::InvalidAccessKeyError(
         InvalidAccessKeyError::AccessKeyNotFound {
             account_id: eth_implicit_account_id.clone(),
@@ -205,8 +196,7 @@ fn test_transaction_from_eth_implicit_account_fail() {
         &eth_implicit_account_signer,
         *block.hash(),
     );
-    let response =
-        env.tx_request_handlers[0].process_tx(delete_eth_implicit_account_tx, false, false);
+    let response = env.rpc_handlers[0].process_tx(delete_eth_implicit_account_tx, false, false);
     assert_eq!(response, expected_tx_error);
 
     // Try to add an access key to the ETH-implicit account. Should fail because there is no access key.
@@ -222,15 +212,12 @@ fn test_transaction_from_eth_implicit_account_fail() {
         *block.hash(),
         0,
     );
-    let response = env.tx_request_handlers[0].process_tx(
-        add_access_key_to_eth_implicit_account_tx,
-        false,
-        false,
-    );
+    let response =
+        env.rpc_handlers[0].process_tx(add_access_key_to_eth_implicit_account_tx, false, false);
     assert_eq!(response, expected_tx_error);
 
     // Try to deploy the Wallet Contract again to the ETH-implicit account. Should fail because there is no access key.
-    let magic_bytes = wallet_contract_magic_bytes(&chain_id, PROTOCOL_VERSION);
+    let magic_bytes = wallet_contract_magic_bytes(&chain_id);
     let wallet_contract_code = wallet_contract(*magic_bytes.hash()).unwrap().code().to_vec();
     let add_access_key_to_eth_implicit_account_tx = SignedTransaction::from_actions(
         nonce,
@@ -241,20 +228,13 @@ fn test_transaction_from_eth_implicit_account_fail() {
         *block.hash(),
         0,
     );
-    let response = env.tx_request_handlers[0].process_tx(
-        add_access_key_to_eth_implicit_account_tx,
-        false,
-        false,
-    );
+    let response =
+        env.rpc_handlers[0].process_tx(add_access_key_to_eth_implicit_account_tx, false, false);
     assert_eq!(response, expected_tx_error);
 }
 
 #[test]
 fn test_wallet_contract_interaction() {
-    if !ProtocolFeature::EthImplicitAccounts.enabled(PROTOCOL_VERSION) {
-        return;
-    }
-
     let genesis = Genesis::test(vec!["test0".parse().unwrap(), alice_account(), bob_account()], 1);
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
 
@@ -316,6 +296,7 @@ fn test_wallet_contract_interaction() {
         &mut relayer_signer,
         &env,
     );
+    let prepaid_gas = total_prepaid_gas(signed_transaction.transaction.actions()).unwrap();
     height = check_tx_processing(&mut env, signed_transaction, height, blocks_number);
 
     // Now the relayer can sign transactions for the implicit account directly
@@ -341,10 +322,17 @@ fn test_wallet_contract_interaction() {
     let final_wallet_balance = view_balance(&env, &eth_implicit_account);
     let final_receiver_balance = view_balance(&env, &receiver);
 
+    // Calculate gas refund penalty
+    let tip = env.clients[0].chain.head().unwrap();
+    let runtime_config = env.get_runtime_config(0, tip.epoch_id);
+    let gas_price = env.clients[0].chain.block_economics_config.min_gas_price();
+    let refund_penalty =
+        runtime_config.fees.gas_penalty_for_gas_refund(prepaid_gas) as u128 * gas_price;
+
     assert_eq!(final_receiver_balance - init_receiver_balance, transfer_amount);
     let wallet_balance_diff = init_wallet_balance - final_wallet_balance;
     // Wallet balance is a little lower due to gas fees.
-    assert!(wallet_balance_diff - transfer_amount < NEAR_BASE / 500);
+    assert!(wallet_balance_diff - transfer_amount < NEAR_BASE / 500 + refund_penalty);
 }
 
 pub fn create_rlp_execute_tx(
@@ -353,7 +341,7 @@ pub fn create_rlp_execute_tx(
     nonce: u64,
     eth_implicit_account: &AccountIdRef,
     secret_key: &SecretKey,
-    near_signer: &mut NearSigner<'_>,
+    near_signer: &NearSigner<'_>,
     env: &TestEnv,
 ) -> SignedTransaction {
     const CHAIN_ID: u64 = 399;

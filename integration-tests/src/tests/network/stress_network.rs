@@ -4,6 +4,7 @@ use std::time::Duration;
 
 use actix::{Actor, AsyncContext, System};
 use futures::FutureExt;
+use near_async::futures::StdThreadAsyncComputationSpawnerForTest;
 use near_async::messaging::{IntoMultiSender, IntoSender, noop};
 use tracing::info;
 
@@ -11,7 +12,7 @@ use near_actix_test_utils::run_actix;
 use near_async::time;
 use near_network::tcp;
 use near_o11y::testonly::init_test_logger_allow_panic;
-use near_primitives::block::GenesisId;
+use near_primitives::genesis::GenesisId;
 
 use near_network::PeerManagerActor;
 use near_network::config;
@@ -34,6 +35,7 @@ fn make_peer_manager(
         noop().into_sender(),
         noop().into_multi_sender(),
         GenesisId::default(),
+        Arc::new(StdThreadAsyncComputationSpawnerForTest),
     )
     .unwrap()
 }
@@ -121,7 +123,7 @@ fn stress_test() {
                 } else if s == 1 {
                     state.store(2, Ordering::Relaxed);
 
-                    for flag in flags.iter() {
+                    for flag in &flags {
                         flag.store(false, Ordering::Relaxed);
                     }
 

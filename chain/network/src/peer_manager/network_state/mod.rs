@@ -32,14 +32,15 @@ use crate::stats::metrics;
 use crate::store;
 use crate::tcp;
 use crate::types::{
-    ChainInfo, PeerManagerSenderForNetwork, PeerType, ReasonForBan, StatePartRequestBody,
-    Tier3Request, Tier3RequestBody,
+    ChainInfo, PeerManagerSenderForNetwork, PeerType, ReasonForBan, StateHeaderRequestBody,
+    StatePartRequestBody, Tier3Request, Tier3RequestBody,
 };
 use anyhow::Context;
 use arc_swap::ArcSwap;
+use near_async::futures::AsyncComputationSpawner;
 use near_async::messaging::{CanSend, SendAsync, Sender};
 use near_async::time;
-use near_primitives::block::GenesisId;
+use near_primitives::genesis::GenesisId;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
 use near_primitives::types::AccountId;
@@ -464,6 +465,7 @@ impl NetworkState {
         clock: time::Clock,
         peer_info: PeerInfo,
         max_attempts: usize,
+        peer_actor_spawner: Arc<dyn AsyncComputationSpawner>,
     ) {
         let mut interval = time::Interval::new(clock.now(), RECONNECT_ATTEMPT_INTERVAL);
         for _attempt in 0..max_attempts {
@@ -474,9 +476,15 @@ impl NetworkState {
                     tcp::Stream::connect(&peer_info, tcp::Tier::T2, &self.config.socket_options)
                         .await
                         .context("tcp::Stream::connect()")?;
-                PeerActor::spawn_and_handshake(clock.clone(), stream, None, self.clone())
-                    .await
-                    .context("PeerActor::spawn()")?;
+                PeerActor::spawn_and_handshake(
+                    clock.clone(),
+                    stream,
+                    None,
+                    self.clone(),
+                    peer_actor_spawner.clone(),
+                )
+                .await
+                .context("PeerActor::spawn()")?;
                 anyhow::Ok(())
             }
             .await;
@@ -672,8 +680,7 @@ impl NetworkState {
             .get(account_id)
             .iter()
             .flat_map(|keys| keys.iter())
-            .flat_map(|key| accounts_data.data.get(key))
-            .next()
+            .find_map(|key| accounts_data.data.get(key))
             .map(|data| data.peer_id.clone());
         // Find the target peer_id:
         // - first look it up in self.accounts_data
@@ -784,6 +791,20 @@ impl NetworkState {
             }
             RoutedMessageBody::VersionedChunkEndorsement(endorsement) => {
                 self.client.send_async(ChunkEndorsementMessage(endorsement)).await.ok();
+                None
+            }
+            RoutedMessageBody::StateHeaderRequest(request) => {
+                self.peer_manager_adapter.send(Tier3Request {
+                    peer_info: PeerInfo {
+                        id: msg_author,
+                        addr: Some(request.addr),
+                        account_id: None,
+                    },
+                    body: Tier3RequestBody::StateHeader(StateHeaderRequestBody {
+                        shard_id: request.shard_id,
+                        sync_hash: request.sync_hash,
+                    }),
+                });
                 None
             }
             RoutedMessageBody::StatePartRequest(request) => {

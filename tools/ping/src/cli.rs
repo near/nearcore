@@ -148,7 +148,7 @@ impl PingCommand {
         tracing::warn!(target: "ping", "the ping command is not stable, and may be removed or changed arbitrarily at any time");
 
         let mut chain_info = None;
-        for info in CHAIN_INFO.iter() {
+        for info in CHAIN_INFO {
             if &info.chain_id == &self.chain_id {
                 chain_info = Some(info);
                 break;

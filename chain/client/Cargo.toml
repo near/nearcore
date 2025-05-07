@@ -19,13 +19,12 @@ async-trait.workspace = true
 borsh.workspace = true
 bytesize.workspace = true
 chrono.workspace = true
-cloud-storage.workspace = true
+object_store.workspace = true
 derive_more = { workspace = true, features = ["from"] }
 futures.workspace = true
 itertools.workspace = true
 lru.workspace = true
 num-rational.workspace = true
-once_cell.workspace = true
 percent-encoding.workspace = true
 rand.workspace = true
 rayon.workspace = true

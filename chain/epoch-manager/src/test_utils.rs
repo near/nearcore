@@ -1,20 +1,18 @@
-use std::collections::{BTreeMap, HashMap};
-
-use near_primitives::types::EpochId;
-use near_primitives::types::ProtocolVersion;
-use near_store::Store;
-use num_rational::Ratio;
-
+use crate::NUM_SECONDS_IN_A_YEAR;
 use crate::RewardCalculator;
 use crate::RngSeed;
-use crate::proposals::find_threshold;
+use crate::genesis::find_threshold;
+use crate::reward_calculator::NUM_NS_IN_SECOND;
 use crate::{BlockInfo, EpochManager};
 use near_crypto::{KeyType, SecretKey};
-use near_primitives::challenge::SlashedValidator;
 use near_primitives::epoch_block_info::BlockInfoV2;
 use near_primitives::epoch_info::EpochInfo;
+use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::epoch_manager::{AllEpochConfig, EpochConfig};
 use near_primitives::hash::{CryptoHash, hash};
+use near_primitives::shard_layout::ShardLayout;
+use near_primitives::types::EpochId;
+use near_primitives::types::ProtocolVersion;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, BlockHeightDelta, EpochHeight, NumSeats, NumShards,
@@ -23,21 +21,23 @@ use near_primitives::types::{
 use near_primitives::utils::get_num_seats_per_shard;
 use near_primitives::validator_mandates::{ValidatorMandates, ValidatorMandatesConfig};
 use near_primitives::version::PROTOCOL_VERSION;
+use near_store::Store;
 use near_store::test_utils::create_test_store;
-
-use near_primitives::shard_layout::ShardLayout;
-use {crate::NUM_SECONDS_IN_A_YEAR, crate::reward_calculator::NUM_NS_IN_SECOND};
+use num_rational::Ratio;
+use std::collections::{BTreeMap, HashMap};
 
 pub const DEFAULT_GAS_PRICE: u128 = 100;
 pub const DEFAULT_TOTAL_SUPPLY: u128 = 1_000_000_000_000;
 pub const TEST_SEED: RngSeed = [3; 32];
 
+/// Returns the hash of height (as le_bytes) for use as a fake block hash in tests.
+pub fn fake_hash(height: usize) -> CryptoHash {
+    hash(height.to_le_bytes().as_ref())
+}
+
+/// Returns a vector of hashes for the range from 0 to `num`.
 pub fn hash_range(num: usize) -> Vec<CryptoHash> {
-    let mut result = vec![];
-    for i in 0..num {
-        result.push(hash(i.to_le_bytes().as_ref()));
-    }
-    result
+    (0..num).map(|i| fake_hash(i)).collect()
 }
 
 pub fn change_stake(stake_changes: Vec<(AccountId, Balance)>) -> BTreeMap<AccountId, Balance> {
@@ -124,7 +124,7 @@ pub fn epoch_info_with_num_seats(
     )
 }
 
-pub fn epoch_config_with_production_config(
+pub fn epoch_config(
     epoch_length: BlockHeightDelta,
     num_shards: NumShards,
     num_block_producer_seats: NumSeats,
@@ -132,7 +132,6 @@ pub fn epoch_config_with_production_config(
     block_producer_kickout_threshold: u8,
     chunk_producer_kickout_threshold: u8,
     chunk_validator_only_kickout_threshold: u8,
-    use_production_config: bool,
 ) -> AllEpochConfig {
     let epoch_config = EpochConfig {
         epoch_length,
@@ -161,27 +160,8 @@ pub fn epoch_config_with_production_config(
         shard_layout: ShardLayout::multi_shard(num_shards, 0),
         validator_max_kickout_stake_perc: 100,
     };
-    AllEpochConfig::new(use_production_config, PROTOCOL_VERSION, epoch_config, "test-chain")
-}
-
-pub fn epoch_config(
-    epoch_length: BlockHeightDelta,
-    num_shards: NumShards,
-    num_block_producer_seats: NumSeats,
-    block_producer_kickout_threshold: u8,
-    chunk_producer_kickout_threshold: u8,
-    chunk_validator_only_kickout_threshold: u8,
-) -> AllEpochConfig {
-    epoch_config_with_production_config(
-        epoch_length,
-        num_shards,
-        num_block_producer_seats,
-        100,
-        block_producer_kickout_threshold,
-        chunk_producer_kickout_threshold,
-        chunk_validator_only_kickout_threshold,
-        false,
-    )
+    let config_store = EpochConfigStore::test_single_version(PROTOCOL_VERSION, epoch_config);
+    AllEpochConfig::from_epoch_config_store("test-chain", epoch_length, config_store)
 }
 
 pub fn stake(account_id: AccountId, amount: Balance) -> ValidatorStake {
@@ -198,6 +178,7 @@ pub fn default_reward_calculator() -> RewardCalculator {
         protocol_reward_rate: Ratio::from_integer(0),
         protocol_treasury_account: "near".parse().unwrap(),
         num_seconds_per_year: NUM_SECONDS_IN_A_YEAR,
+        genesis_protocol_version: PROTOCOL_VERSION,
     }
 }
 
@@ -220,6 +201,7 @@ pub fn setup_epoch_manager(
         epoch_length,
         num_shards,
         num_block_producer_seats,
+        100,
         block_producer_kickout_threshold,
         chunk_producer_kickout_threshold,
         chunk_validator_only_kickout_threshold,
@@ -227,7 +209,6 @@ pub fn setup_epoch_manager(
     EpochManager::new(
         store,
         config,
-        PROTOCOL_VERSION,
         reward_calculator,
         validators
             .iter()
@@ -286,11 +267,10 @@ pub fn setup_epoch_manager_with_block_and_chunk_producers(
         validators.push((chunk_only_producer.clone(), stake));
         total_stake += stake;
     }
-    let config = epoch_config(epoch_length, num_shards, num_block_producers, 0, 0, 0);
+    let config = epoch_config(epoch_length, num_shards, num_block_producers, 100, 0, 0, 0);
     let epoch_manager = EpochManager::new(
         store,
         config,
-        PROTOCOL_VERSION,
         default_reward_calculator(),
         validators
             .iter()
@@ -326,38 +306,6 @@ pub fn record_block_with_final_block_hash(
                 prev_h,
                 proposals,
                 vec![],
-                vec![],
-                DEFAULT_TOTAL_SUPPLY,
-                PROTOCOL_VERSION,
-                height * NUM_NS_IN_SECOND,
-                None,
-            ),
-            [0; 32],
-        )
-        .unwrap()
-        .commit()
-        .unwrap();
-}
-
-pub fn record_block_with_slashes(
-    epoch_manager: &mut EpochManager,
-    prev_h: CryptoHash,
-    cur_h: CryptoHash,
-    height: BlockHeight,
-    proposals: Vec<ValidatorStake>,
-    slashed: Vec<SlashedValidator>,
-) {
-    epoch_manager
-        .record_block_info(
-            BlockInfo::new(
-                cur_h,
-                height,
-                height.saturating_sub(2),
-                prev_h,
-                prev_h,
-                proposals,
-                vec![],
-                slashed,
                 DEFAULT_TOTAL_SUPPLY,
                 PROTOCOL_VERSION,
                 height * NUM_NS_IN_SECOND,
@@ -378,10 +326,65 @@ pub fn record_block(
     height: BlockHeight,
     proposals: Vec<ValidatorStake>,
 ) {
-    record_block_with_slashes(epoch_manager, prev_h, cur_h, height, proposals, vec![]);
+    record_block_with_version(epoch_manager, prev_h, cur_h, height, proposals, PROTOCOL_VERSION);
+}
+
+pub fn record_block_with_version(
+    epoch_manager: &mut EpochManager,
+    prev_h: CryptoHash,
+    cur_h: CryptoHash,
+    height: BlockHeight,
+    proposals: Vec<ValidatorStake>,
+    protocol_version: ProtocolVersion,
+) {
+    epoch_manager
+        .record_block_info(
+            BlockInfo::new(
+                cur_h,
+                height,
+                height.saturating_sub(2),
+                prev_h,
+                prev_h,
+                proposals,
+                vec![],
+                DEFAULT_TOTAL_SUPPLY,
+                protocol_version,
+                height * NUM_NS_IN_SECOND,
+                None,
+            ),
+            [0; 32],
+        )
+        .unwrap()
+        .commit()
+        .unwrap();
+}
+
+pub fn record_blocks<F>(
+    epoch_manager: &mut EpochManager,
+    last_hash: CryptoHash,
+    height: u64,
+    count: u64,
+    mut block_gen: F,
+) -> (CryptoHash, u64)
+where
+    F: FnMut(u64, &AccountId) -> (Vec<ValidatorStake>, ProtocolVersion),
+{
+    let mut last_hash = last_hash;
+    let epoch_id = epoch_manager.get_next_epoch_id(&last_hash).unwrap();
+    let epoch_info = epoch_manager.get_epoch_info(&epoch_id).unwrap();
+    for height in height..height + count {
+        let hash = fake_hash(height as usize);
+        let producer = epoch_info.sample_block_producer(height);
+        let (validators, version) =
+            block_gen(height, epoch_info.get_validator(producer).account_id());
+        record_block_with_version(epoch_manager, last_hash, hash, height, validators, version);
+        last_hash = hash;
+    }
+    (last_hash, height + count)
 }
 
 // TODO(#11900): Start using BlockInfoV3 in the tests.
+#[allow(deprecated)]
 pub fn block_info(
     hash: CryptoHash,
     height: BlockHeight,

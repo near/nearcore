@@ -1,17 +1,18 @@
 use crate::config::Mode;
 use crate::db::{DBIterator, DBOp, DBSlice, DBTransaction, Database, StatsValue, refcount};
-use crate::{DBCol, StoreConfig, StoreStatistics, Temperature, metadata, metrics};
+use crate::{DBCol, StoreConfig, StoreStatistics, Temperature, metrics};
 use ::rocksdb::{
     BlockBasedOptions, Cache, ColumnFamily, DB, Env, IteratorMode, Options, ReadOptions, WriteBatch,
 };
 use anyhow::Context;
 use itertools::Itertools;
 use std::io;
-use std::ops::Deref;
 use std::path::Path;
 use std::sync::LazyLock;
 use strum::IntoEnumIterator;
 use tracing::warn;
+
+use super::metadata;
 
 mod instance_tracker;
 pub(crate) mod snapshot;
@@ -664,7 +665,7 @@ impl RocksDB {
 
     /// Gets every int property in CF_PROPERTY_NAMES for every column in DBCol.
     fn get_cf_statistics(&self, result: &mut StoreStatistics) {
-        for prop_name in CF_PROPERTY_NAMES.deref() {
+        for prop_name in &*CF_PROPERTY_NAMES {
             let values = self
                 .cf_handles()
                 .filter_map(|(col, handle)| {

@@ -2,7 +2,7 @@ use bytesize::ByteSize;
 use clap::Parser;
 use near_chain::{ChainStore, ChainStoreAccess};
 use near_chain_configs::GenesisValidationMode;
-use near_epoch_manager::EpochManager;
+use near_epoch_manager::{EpochManager, EpochManagerAdapter};
 use near_primitives::trie_key::col;
 use near_primitives::types::AccountId;
 use near_store::adapter::StoreAdapter;
@@ -57,7 +57,7 @@ impl ContractSizeStats {
         println!("");
         println!("Analyzed {} accounts", self.total_accounts);
         println!("Accounts per shard:");
-        for (shard_uid, count) in self.shard_accounts.iter() {
+        for (shard_uid, count) in &self.shard_accounts {
             println!("{}: {}", shard_uid, count);
         }
         println!("");
@@ -89,8 +89,7 @@ impl AnalyzeContractSizesCommand {
 
         let head = chain_store.head().unwrap();
         let epoch_manager =
-            EpochManager::new_from_genesis_config(store.clone(), &near_config.genesis.config)
-                .unwrap();
+            EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config, None);
         let shard_layout = epoch_manager.get_shard_layout(&head.epoch_id).unwrap();
 
         let mut stats = ContractSizeStats::new(self.topn);

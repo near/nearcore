@@ -38,7 +38,7 @@
 //! costs and don't want to just run everything in order (as that would be to
 //! slow), we have a very simple manual caching infrastructure in place.
 //!
-//! To run estimations on a non-empty DB with standardised content, we first
+//! To run estimations on a non-empty DB with standardized content, we first
 //! dump all records to a `StateDump` written to a file. Then for each
 //! iteration of an estimation, we first load the records from this dump into
 //! a fresh database. Afterwards, it is crucial to run compaction on RocksDB

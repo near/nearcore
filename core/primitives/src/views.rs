@@ -12,7 +12,7 @@ use crate::action::{
 use crate::bandwidth_scheduler::BandwidthRequests;
 use crate::block::{Block, BlockHeader, Tip};
 use crate::block_header::BlockHeaderInnerLite;
-use crate::challenge::{Challenge, ChallengesResult};
+use crate::challenge::SlashedValidator;
 use crate::congestion_info::{CongestionInfo, CongestionInfoV1};
 use crate::errors::TxExecutionError;
 use crate::hash::{CryptoHash, hash};
@@ -356,7 +356,6 @@ pub struct StatusSyncInfo {
 #[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct ValidatorInfo {
     pub account_id: AccountId,
-    pub is_slashed: bool,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq)]
@@ -735,17 +734,6 @@ pub struct StatusResponse {
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
-pub struct ChallengeView {
-    // TODO: decide how to represent challenges in json.
-}
-
-impl From<Challenge> for ChallengeView {
-    fn from(_challenge: Challenge) -> Self {
-        Self {}
-    }
-}
-
-#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
 pub struct BlockHeaderView {
     pub height: BlockHeight,
     pub prev_height: Option<BlockHeight>,
@@ -779,7 +767,8 @@ pub struct BlockHeaderView {
     pub validator_reward: Balance,
     #[serde(with = "dec_format")]
     pub total_supply: Balance,
-    pub challenges_result: ChallengesResult,
+    // Deprecated
+    pub challenges_result: Vec<SlashedValidator>,
     pub last_final_block: CryptoHash,
     pub last_ds_final_block: CryptoHash,
     pub next_bp_hash: CryptoHash,
@@ -806,7 +795,7 @@ impl From<BlockHeader> for BlockHeaderView {
             chunk_headers_root: *header.chunk_headers_root(),
             chunk_tx_root: *header.chunk_tx_root(),
             chunks_included: header.chunks_included(),
-            challenges_root: *header.challenges_root(),
+            challenges_root: CryptoHash::default(),
             outcome_root: *header.outcome_root(),
             timestamp: header.raw_timestamp(),
             timestamp_nanosec: header.raw_timestamp(),
@@ -822,7 +811,7 @@ impl From<BlockHeader> for BlockHeaderView {
             rent_paid: 0,
             validator_reward: 0,
             total_supply: header.total_supply(),
-            challenges_result: header.challenges_result().clone(),
+            challenges_result: vec![],
             last_final_block: *header.last_final_block(),
             last_ds_final_block: *header.last_ds_final_block(),
             next_bp_hash: *header.next_bp_hash(),
@@ -850,7 +839,6 @@ impl From<BlockHeaderView> for BlockHeader {
             view.chunk_tx_root,
             view.outcome_root,
             view.timestamp,
-            view.challenges_root,
             view.random_value,
             view.validator_proposals.into_iter().map(|v| v.into_validator_stake()).collect(),
             view.chunk_mask,
@@ -859,7 +847,6 @@ impl From<BlockHeaderView> for BlockHeader {
             EpochId(view.next_epoch_id),
             view.gas_price,
             view.total_supply,
-            view.challenges_result,
             view.signature,
             view.last_final_block,
             view.last_ds_final_block,
@@ -988,7 +975,7 @@ impl From<ShardChunkHeader> for ChunkHeaderView {
             outgoing_receipts_root: *inner.prev_outgoing_receipts_root(),
             tx_root: *inner.tx_root(),
             validator_proposals: inner.prev_validator_proposals().map(Into::into).collect(),
-            congestion_info: inner.congestion_info().map(Into::into),
+            congestion_info: Some(inner.congestion_info().into()),
             bandwidth_requests: inner.bandwidth_requests().cloned(),
             signature,
         }
@@ -1525,7 +1512,7 @@ impl From<ExecutionMetadata> for ExecutionMetadataView {
                 // Add actions, wasm op, and ext costs in groups.
                 // actions costs are 1-to-1
                 let mut costs: Vec<CostGasUsed> = ActionCosts::iter()
-                    .flat_map(|cost| {
+                    .filter_map(|cost| {
                         let gas_used = profile.get_action_cost(cost);
                         (gas_used > 0).then(|| {
                             CostGasUsed::action(
@@ -1604,6 +1591,8 @@ pub struct ExecutionOutcomeView {
     /// The amount of tokens burnt corresponding to the burnt gas amount.
     /// This value doesn't always equal to the `gas_burnt` multiplied by the gas price, because
     /// the prepaid gas price might be lower than the actual gas price and it creates a deficit.
+    /// `tokens_burnt` also contains the penalty subtracted from refunds, while
+    /// `gas_burnt` only contains the gas that we actually burn for the execution.
     #[serde(with = "dec_format")]
     pub tokens_burnt: Balance,
     /// The id of the account on which the execution happens. For transaction this is signer_id,
@@ -2338,7 +2327,6 @@ pub enum StateChangeCauseView {
     UpdatedDelayedReceipts,
     ValidatorAccountsUpdate,
     Migration,
-    ReshardingV2,
     BandwidthSchedulerStateUpdate,
 }
 
@@ -2365,7 +2353,6 @@ impl From<StateChangeCause> for StateChangeCauseView {
             StateChangeCause::UpdatedDelayedReceipts => Self::UpdatedDelayedReceipts,
             StateChangeCause::ValidatorAccountsUpdate => Self::ValidatorAccountsUpdate,
             StateChangeCause::Migration => Self::Migration,
-            StateChangeCause::ReshardingV2 => Self::ReshardingV2,
             StateChangeCause::BandwidthSchedulerStateUpdate => Self::BandwidthSchedulerStateUpdate,
         }
     }

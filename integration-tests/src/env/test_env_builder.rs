@@ -5,10 +5,10 @@ use near_async::time::Clock;
 use near_chain::state_snapshot_actor::SnapshotCallbacks;
 use near_chain::types::RuntimeAdapter;
 use near_chain::{Block, ChainGenesis};
-use near_chain_configs::{Genesis, GenesisConfig};
+use near_chain_configs::{Genesis, GenesisConfig, TrackedShardsConfig};
 use near_chunks::test_utils::MockClientAdapterForShardsManager;
 use near_client::Client;
-use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
+use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::{EpochManager, EpochManagerHandle};
 use near_network::test_utils::MockPeerManagerAdapter;
 use near_parameters::RuntimeConfigStore;
@@ -16,7 +16,6 @@ use near_primitives::epoch_info::RngSeed;
 use near_primitives::epoch_manager::{AllEpochConfigTestOverrides, EpochConfig, EpochConfigStore};
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::{AccountId, ShardIndex};
-use near_store::config::StateSnapshotType;
 use near_store::genesis::initialize_genesis_state;
 use near_store::test_utils::create_test_store;
 use near_store::{NodeStorage, ShardUId, Store, StoreConfig, TrieConfig};
@@ -377,7 +376,9 @@ impl TestEnvBuilder {
             .as_ref()
             .unwrap()
             .iter()
-            .map(|epoch_manager| ShardTracker::new(TrackedConfig::AllShards, epoch_manager.clone()))
+            .map(|epoch_manager| {
+                ShardTracker::new(TrackedShardsConfig::AllShards, epoch_manager.clone())
+            })
             .collect();
         ret.shard_trackers(shard_trackers)
     }
@@ -399,7 +400,7 @@ impl TestEnvBuilder {
             .unwrap()
             .iter()
             .map(|epoch_manager| {
-                ShardTracker::new(TrackedConfig::new_empty(), epoch_manager.clone())
+                ShardTracker::new(TrackedShardsConfig::new_empty(), epoch_manager.clone())
             })
             .collect();
         ret.shard_trackers(shard_trackers)
@@ -593,7 +594,7 @@ impl TestEnvBuilder {
             partial_witness_adapters,
             shards_manager_adapters,
             clients,
-            tx_request_handlers,
+            rpc_handlers: tx_request_handlers,
             account_indices: AccountIndices(
                 self.clients
                     .into_iter()
@@ -618,11 +619,7 @@ impl TestEnvBuilder {
         self
     }
 
-    pub fn state_snapshot_type(&self) -> StateSnapshotType {
-        if self.state_snapshot_enabled {
-            StateSnapshotType::EveryEpoch
-        } else {
-            StateSnapshotType::ForReshardingOnly
-        }
+    pub fn state_snapshot_enabled(&self) -> bool {
+        self.state_snapshot_enabled
     }
 }

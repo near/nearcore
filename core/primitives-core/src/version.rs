@@ -9,52 +9,74 @@ use crate::types::ProtocolVersion;
 ///
 #[derive(Hash, PartialEq, Eq, Clone, Copy, Debug)]
 pub enum ProtocolFeature {
-    // stable features
-    ImplicitAccountCreation,
-    RectifyInflation,
+    #[deprecated]
+    _DeprecatedImplicitAccountCreation,
+    #[deprecated]
+    _DeprecatedRectifyInflation,
     /// Add `AccessKey` nonce range by setting nonce to `(block_height - 1) * 1e6`, see
     /// <https://github.com/near/nearcore/issues/3779>.
-    AccessKeyNonceRange,
+    #[deprecated]
+    _DeprecatedAccessKeyNonceRange,
     /// Don't process any receipts for shard when chunk is not present.
     /// Always use gas price computed in the previous block.
-    FixApplyChunks,
-    LowerStorageCost,
-    DeleteActionRestriction,
+    #[deprecated]
+    _DeprecatedFixApplyChunks,
+    #[deprecated]
+    _DeprecatedLowerStorageCost,
+    #[deprecated]
+    _DeprecatedDeleteActionRestriction,
     /// Add versions to `Account` data structure
-    AccountVersions,
-    TransactionSizeLimit,
+    #[deprecated]
+    _DeprecatedAccountVersions,
+    #[deprecated]
+    _DeprecatedTransactionSizeLimit,
     /// Fix a bug in `storage_usage` for account caused by #3824
-    FixStorageUsage,
+    #[deprecated]
+    _DeprecatedFixStorageUsage,
     /// Cap maximum gas price to 2,000,000,000 yoctoNEAR
-    CapMaxGasPrice,
-    CountRefundReceiptsInGasLimit,
+    #[deprecated]
+    _DeprecatedCapMaxGasPrice,
+    #[deprecated]
+    _DeprecatedCountRefundReceiptsInGasLimit,
     /// Add `ripemd60` and `ecrecover` host function
-    MathExtension,
+    #[deprecated]
+    _DeprecatedMathExtension,
     /// Restore receipts that were previously stuck because of
     /// <https://github.com/near/nearcore/pull/4228>.
-    RestoreReceiptsAfterFixApplyChunks,
+    #[deprecated]
+    _DeprecatedRestoreReceiptsAfterFixApplyChunks,
     /// Minimum protocol version for NEP-92
-    MinProtocolVersionNep92,
+    #[deprecated]
+    _DeprecatedMinProtocolVersionNep92,
     /// Minimum protocol version for NEP-92 fix
-    MinProtocolVersionNep92Fix,
+    #[deprecated]
+    _DeprecatedMinProtocolVersionNep92Fix,
     /// Creates a unique random seed to be provided to `VMContext` from a given `action_hash` and a given `random_seed`
-    CorrectRandomValue,
+    #[deprecated]
+    _DeprecatedCorrectRandomValue,
     /// The protocol version that enables reward on mainnet
-    EnableInflation,
+    #[deprecated]
+    _DeprecatedEnableInflation,
     /// Fix upgrade to use the latest voted protocol version instead of the current epoch protocol
     /// version when there is no new change in protocol version
-    UpgradabilityFix,
+    #[deprecated]
+    _DeprecatedUpgradabilityFix,
     /// Updates the way receipt ID, data ID and random seeds are constructed
-    CreateHash,
+    #[deprecated]
+    _DeprecatedCreateHash,
     /// Fix the storage usage of the delete key action
-    DeleteKeyStorageUsage,
+    #[deprecated]
+    _DeprecatedDeleteKeyStorageUsage,
     /// Upgrade for shard chunk header
-    ShardChunkHeaderUpgrade,
+    #[deprecated]
+    _DeprecatedShardChunkHeaderUpgrade,
     /// Updates the way receipt ID is constructed to use current block hash instead of last block hash
-    CreateReceiptIdSwitchToCurrentBlock,
+    #[deprecated]
+    _DeprecatedCreateReceiptIdSwitchToCurrentBlock,
     /// Pessimistic gas price estimation uses a fixed value of `minimum_new_receipt_gas` to stop being
     /// tied to the function call base cost
-    FixedMinimumNewReceiptGas,
+    #[deprecated]
+    _DeprecatedFixedMinimumNewReceiptGas,
     /// This feature switch our WASM engine implementation from wasmer 0.* to
     /// wasmer 2.*, bringing better performance and reliability.
     ///
@@ -64,76 +86,104 @@ pub enum ProtocolFeature {
     ///
     /// Although wasmer2 is faster, we don't change fees with this protocol
     /// version -- we can safely do that in a separate step.
-    Wasmer2,
+    #[deprecated]
+    _DeprecatedWasmer2,
     SimpleNightshade,
-    LowerDataReceiptAndEcrecoverBaseCost,
+    #[deprecated]
+    _DeprecatedLowerDataReceiptAndEcrecoverBaseCost,
     /// Lowers the cost of wasm instruction due to switch to wasmer2.
-    LowerRegularOpCost,
+    #[deprecated]
+    _DeprecatedLowerRegularOpCost,
     /// Lowers the cost of wasm instruction due to switch to faster,
     /// compiler-intrinsics based gas counter.
-    LowerRegularOpCost2,
+    #[deprecated]
+    _DeprecatedLowerRegularOpCost2,
     /// Limit number of wasm functions in one contract. See
     /// <https://github.com/near/nearcore/pull/4954> for more details.
-    LimitContractFunctionsNumber,
-    BlockHeaderV3,
+    #[deprecated]
+    _DeprecatedLimitContractFunctionsNumber,
+    #[deprecated]
+    _DeprecatedBlockHeaderV3,
     /// Changes how we select validators for epoch and how we select validators
     /// within epoch.  See <https://github.com/near/NEPs/pull/167> for general
     /// description, note that we would not introduce chunk-only validators with
     /// this feature
-    AliasValidatorSelectionAlgorithm,
+    #[deprecated]
+    _DeprecatedAliasValidatorSelectionAlgorithm,
     /// Make block producers produce chunks for the same block they would later produce to avoid
     /// network delays
-    SynchronizeBlockChunkProduction,
+    #[deprecated]
+    _DeprecatedSynchronizeBlockChunkProduction,
     /// Change the algorithm to count WASM stack usage to avoid under counting in
     /// some cases.
-    CorrectStackLimit,
+    #[deprecated]
+    _DeprecatedCorrectStackLimit,
     /// Add `AccessKey` nonce range for implicit accounts, as in `AccessKeyNonceRange` feature.
-    AccessKeyNonceForImplicitAccounts,
+    #[deprecated]
+    _DeprecatedAccessKeyNonceForImplicitAccounts,
     /// Increase cost per deployed code byte to cover for the compilation steps
     /// that a deployment triggers. Only affects the action execution cost.
-    IncreaseDeploymentCost,
-    FunctionCallWeight,
+    #[deprecated]
+    _DeprecatedIncreaseDeploymentCost,
+    #[deprecated]
+    _DeprecatedFunctionCallWeight,
     /// This feature enforces a global limit on the function local declarations in a WebAssembly
     /// contract. See <...> for more information.
-    LimitContractLocals,
+    #[deprecated]
+    _DeprecatedLimitContractLocals,
     /// Ensure caching all nodes in the chunk for which touching trie node cost was charged. Charge for each such node
     /// only once per chunk at the first access time.
-    ChunkNodesCache,
+    #[deprecated]
+    _DeprecatedChunkNodesCache,
     /// Lower `max_length_storage_key` limit, which itself limits trie node sizes.
-    LowerStorageKeyLimit,
+    #[deprecated]
+    _DeprecatedLowerStorageKeyLimit,
     // alt_bn128_g1_multiexp, alt_bn128_g1_sum, alt_bn128_pairing_check host functions
-    AltBn128,
-    ChunkOnlyProducers,
+    #[deprecated]
+    _DeprecatedAltBn128,
+    #[deprecated]
+    _DeprecatedChunkOnlyProducers,
     /// Ensure the total stake of validators that are kicked out does not exceed a percentage of total stakes
-    MaxKickoutStake,
+    #[deprecated]
+    _DeprecatedMaxKickoutStake,
     /// Validate account id for function call access keys.
-    AccountIdInFunctionCallPermission,
+    #[deprecated]
+    _DeprecatedAccountIdInFunctionCallPermission,
     /// Zero Balance Account NEP 448: <https://github.com/near/NEPs/pull/448>
-    ZeroBalanceAccount,
+    #[deprecated]
+    _DeprecatedZeroBalanceAccount,
     /// Execute a set of actions on behalf of another account.
     ///
     /// Meta Transaction NEP-366: <https://github.com/near/NEPs/blob/master/neps/nep-0366.md>
-    DelegateAction,
-    Ed25519Verify,
+    #[deprecated]
+    _DeprecatedDelegateAction,
+    #[deprecated]
+    _DeprecatedEd25519Verify,
     /// Decouple compute and gas costs of operations to safely limit the compute time it takes to
     /// process the chunk.
     ///
     /// Compute Costs NEP-455: <https://github.com/near/NEPs/blob/master/neps/nep-0455.md>
-    ComputeCosts,
+    #[deprecated]
+    _DeprecatedComputeCosts,
     /// Decrease the cost of function call action. Only affects the execution cost.
-    DecreaseFunctionCallBaseCost,
+    #[deprecated]
+    _DeprecatedDecreaseFunctionCallBaseCost,
     /// Enable flat storage for reads, reducing number of DB accesses from `2 * key.len()` in
     /// the worst case to 2.
     ///
     /// Flat Storage NEP-399: <https://github.com/near/NEPs/blob/master/neps/nep-0399.md>
-    FlatStorageReads,
+    #[deprecated]
+    _DeprecatedFlatStorageReads,
     /// Enables preparation V2. Note that this setting is not supported in production settings
     /// without NearVmRuntime enabled alongside it, as the VM runner would be too slow.
-    PreparationV2,
+    #[deprecated]
+    _DeprecatedPreparationV2,
     /// Enables Near-Vm. Note that this setting is not at all supported without PreparationV2,
     /// as it hardcodes preparation v2 code into the generated assembly.
-    NearVmRuntime,
-    BlockHeaderV4,
+    #[deprecated]
+    _DeprecatedNearVmRuntime,
+    #[deprecated]
+    _DeprecatedBlockHeaderV4,
     /// Resharding V2. A new implementation for resharding and a new shard
     /// layout for the production networks.
     SimpleNightshadeV2,
@@ -142,19 +192,25 @@ pub enum ProtocolFeature {
     /// In case not all validator seats are occupied our algorithm provide incorrect minimal seat
     /// price - it reports as alpha * sum_stake instead of alpha * sum_stake / (1 - alpha), where
     /// alpha is min stake ratio
-    FixStakingThreshold,
+    #[deprecated]
+    _DeprecatedFixStakingThreshold,
     /// In case not all validator seats are occupied, the minimum seat price of a chunk producer
     /// used to depend on the number of existing shards, which is no longer the case.
-    FixChunkProducerStakingThreshold,
+    #[deprecated]
+    _DeprecatedFixChunkProducerStakingThreshold,
     /// Charge for contract loading before it happens.
     FixContractLoadingCost,
     /// Enables rejection of blocks with outdated protocol versions.
-    RejectBlocksWithOutdatedProtocolVersions,
+    #[deprecated]
+    _DeprecatedRejectBlocksWithOutdatedProtocolVersions,
     // NEP: https://github.com/near/NEPs/pull/488
-    BLS12381,
-    RestrictTla,
+    #[deprecated]
+    _DeprecatedBLS12381,
+    #[deprecated]
+    _DeprecatedRestrictTla,
     /// Increases the number of chunk producers.
-    TestnetFewerBlockProducers,
+    #[deprecated]
+    _DeprecatedTestnetFewerBlockProducers,
     /// Enables stateless validation which is introduced in <https://github.com/near/NEPs/pull/509>
     /// LowerValidatorKickoutPercentForDebugging: lower block and chunk validator kickout percent from 90 to 50.
     /// SingleShardTracking: single shard tracking for stateless validation.
@@ -162,40 +218,54 @@ pub enum ProtocolFeature {
     /// PerReceiptHardStorageProofLimit: limit the size of storage proof generated by a single receipt.
     /// WitnessTransactionLimits: size limits for transactions included in a ChunkStateWitness.
     /// NoChunkOnlyProducers: no chunk-only producers in stateless validation.
-    StatelessValidation,
-    EthImplicitAccounts,
+    #[deprecated]
+    _DeprecatedStatelessValidation,
+    #[deprecated]
+    _DeprecatedEthImplicitAccounts,
     /// Enables yield execution which is introduced in <https://github.com/near/NEPs/pull/519>
-    YieldExecution,
+    #[deprecated]
+    _DeprecatedYieldExecution,
     /// Bring minimum required validator stake effectively to ~10K NEAR as of 2024-08-15.
     /// Fixes increase to 100K NEAR in the previous protocol version.
     /// See #11953 for more details.
-    FixMinStakeRatio,
+    #[deprecated]
+    _DeprecatedFixMinStakeRatio,
     /// Increases main_storage_proof_size_soft_limit parameter from 3mb to 4mb
-    IncreaseStorageProofSizeSoftLimit,
+    #[deprecated]
+    _DeprecatedIncreaseStorageProofSizeSoftLimit,
 
     // Shuffle shard assignments for chunk producers at every epoch.
     ShuffleShardAssignments,
     /// Cross-shard congestion control according to <https://github.com/near/NEPs/pull/539>.
-    CongestionControl,
+    #[deprecated]
+    _DeprecatedCongestionControl,
     /// Remove account with long storage key.
-    RemoveAccountWithLongStorageKey,
+    #[deprecated]
+    _DeprecatedRemoveAccountWithLongStorageKey,
     /// Change the structure of ChunkEndorsement to have (shard_id, epoch_id, height_created)
     /// instead of chunk_hash
-    ChunkEndorsementV2,
+    #[deprecated]
+    _DeprecatedChunkEndorsementV2,
     // Include a bitmap of endorsements from chunk validator in the block header
     // in order to calculate the rewards and kickouts for the chunk validators.
     // This feature introduces BlockHeaderV5.
-    ChunkEndorsementsInBlockHeader,
+    #[deprecated]
+    _DeprecatedChunkEndorsementsInBlockHeader,
     /// Store receipts in State in the StateStoredReceipt format.
-    StateStoredReceipt,
+    #[deprecated]
+    _DeprecatedStateStoredReceipt,
     /// Resharding V3 - Adding "game.hot.tg-0" boundary.
     SimpleNightshadeV4,
     /// Resharding V3 - Adding "earn.kaiching" boundary.
     SimpleNightshadeV5,
+    /// Resharding V3 - Adding "750" boundary.
+    SimpleNightshadeV6,
     /// Exclude contract code from the chunk state witness and distribute it to chunk validators separately.
-    ExcludeContractCodeFromStateWitness,
+    #[deprecated]
+    _DeprecatedExcludeContractCodeFromStateWitness,
     /// A scheduler which limits bandwidth for sending receipts between shards.
-    BandwidthScheduler,
+    #[deprecated]
+    _DeprecatedBandwidthScheduler,
     /// Indicates that the "sync_hash" used to identify the point in the chain to sync state to
     /// should no longer be the first block of the epoch, but a couple blocks after that in order
     /// to sync the current epoch's state. This is not strictly a protocol feature, but is included
@@ -205,9 +275,20 @@ pub enum ProtocolFeature {
     ///
     /// Chunks no longer become entirely invalid in case invalid transactions are included in the
     /// chunk. Instead the transactions are discarded during their conversion to receipts.
-    RelaxedChunkValidation,
-    /// This enables us to remove the expensive check_balance call from the runtime.
-    RemoveCheckBalance,
+    ///
+    /// support for code that does not do relaxed chunk validation has now been removed.
+    #[deprecated(
+        note = "Was used for protocol versions without relaxed chunk validation which is not supported anymore."
+    )]
+    _DeprecatedRelaxedChunkValidation,
+    /// This enables us to remove the expensive check_balance call from the
+    /// runtime.
+    ///
+    /// Support for code that does check balances has now been removed.
+    #[deprecated(
+        note = "Was used for protocol versions where we checked balances which is not supported anymore."
+    )]
+    _DeprecatedRemoveCheckBalance,
     /// Exclude existing contract code in deploy-contract and delete-account actions from the chunk state witness.
     /// Instead of sending code in the witness, the code checks the code-size using the internal trie nodes.
     ExcludeExistingCodeFromWitnessForCodeLen,
@@ -216,87 +297,106 @@ pub enum ProtocolFeature {
     /// Enable optimistic block production.
     ProduceOptimisticBlock,
     GlobalContracts,
+    /// NEP: https://github.com/near/NEPs/pull/536
+    ///
+    /// Reduce the number of gas refund receipts by charging the current gas
+    /// price rather than a pessimistic gas price. Also, introduce a new fee of
+    /// 5% for gas refunds and charge the signer this fee for gas refund
+    /// receipts.
+    ReducedGasRefunds,
+    SaturatingFloatToInt,
 }
 
 impl ProtocolFeature {
+    // The constructor must initialize all fields of the struct but some fields
+    // are deprecated.  So unfortunately, we need this attribute here.  A better
+    // fix is being discussed on
+    // https://github.com/rust-lang/rust/issues/102777.
+    #[allow(deprecated)]
     pub const fn protocol_version(self) -> ProtocolVersion {
         match self {
             // Stable features
-            ProtocolFeature::MinProtocolVersionNep92 => 31,
-            ProtocolFeature::MinProtocolVersionNep92Fix => 32,
-            ProtocolFeature::CorrectRandomValue => 33,
-            ProtocolFeature::ImplicitAccountCreation => 35,
-            ProtocolFeature::EnableInflation => 36,
-            ProtocolFeature::UpgradabilityFix => 37,
-            ProtocolFeature::CreateHash => 38,
-            ProtocolFeature::DeleteKeyStorageUsage => 40,
-            ProtocolFeature::ShardChunkHeaderUpgrade => 41,
-            ProtocolFeature::CreateReceiptIdSwitchToCurrentBlock => 42,
-            ProtocolFeature::LowerStorageCost => 42,
-            ProtocolFeature::DeleteActionRestriction => 43,
-            ProtocolFeature::FixApplyChunks => 44,
-            ProtocolFeature::RectifyInflation | ProtocolFeature::AccessKeyNonceRange => 45,
-            ProtocolFeature::AccountVersions
-            | ProtocolFeature::TransactionSizeLimit
-            | ProtocolFeature::FixStorageUsage
-            | ProtocolFeature::CapMaxGasPrice
-            | ProtocolFeature::CountRefundReceiptsInGasLimit
-            | ProtocolFeature::MathExtension => 46,
-            ProtocolFeature::RestoreReceiptsAfterFixApplyChunks => 47,
-            ProtocolFeature::Wasmer2
-            | ProtocolFeature::LowerDataReceiptAndEcrecoverBaseCost
-            | ProtocolFeature::LowerRegularOpCost
+            ProtocolFeature::_DeprecatedMinProtocolVersionNep92 => 31,
+            ProtocolFeature::_DeprecatedMinProtocolVersionNep92Fix => 32,
+            ProtocolFeature::_DeprecatedCorrectRandomValue => 33,
+            ProtocolFeature::_DeprecatedImplicitAccountCreation => 35,
+            ProtocolFeature::_DeprecatedEnableInflation => 36,
+            ProtocolFeature::_DeprecatedUpgradabilityFix => 37,
+            ProtocolFeature::_DeprecatedCreateHash => 38,
+            ProtocolFeature::_DeprecatedDeleteKeyStorageUsage => 40,
+            ProtocolFeature::_DeprecatedShardChunkHeaderUpgrade => 41,
+            ProtocolFeature::_DeprecatedCreateReceiptIdSwitchToCurrentBlock
+            | ProtocolFeature::_DeprecatedLowerStorageCost => 42,
+            ProtocolFeature::_DeprecatedDeleteActionRestriction => 43,
+            ProtocolFeature::_DeprecatedFixApplyChunks => 44,
+            ProtocolFeature::_DeprecatedRectifyInflation
+            | ProtocolFeature::_DeprecatedAccessKeyNonceRange => 45,
+            ProtocolFeature::_DeprecatedAccountVersions
+            | ProtocolFeature::_DeprecatedTransactionSizeLimit
+            | ProtocolFeature::_DeprecatedFixStorageUsage
+            | ProtocolFeature::_DeprecatedCapMaxGasPrice
+            | ProtocolFeature::_DeprecatedCountRefundReceiptsInGasLimit
+            | ProtocolFeature::_DeprecatedMathExtension => 46,
+            ProtocolFeature::_DeprecatedRestoreReceiptsAfterFixApplyChunks => 47,
+            ProtocolFeature::_DeprecatedWasmer2
+            | ProtocolFeature::_DeprecatedLowerDataReceiptAndEcrecoverBaseCost
+            | ProtocolFeature::_DeprecatedLowerRegularOpCost
             | ProtocolFeature::SimpleNightshade => 48,
-            ProtocolFeature::LowerRegularOpCost2
-            | ProtocolFeature::LimitContractFunctionsNumber
-            | ProtocolFeature::BlockHeaderV3
-            | ProtocolFeature::AliasValidatorSelectionAlgorithm => 49,
-            ProtocolFeature::SynchronizeBlockChunkProduction
-            | ProtocolFeature::CorrectStackLimit => 50,
-            ProtocolFeature::AccessKeyNonceForImplicitAccounts => 51,
-            ProtocolFeature::IncreaseDeploymentCost
-            | ProtocolFeature::FunctionCallWeight
-            | ProtocolFeature::LimitContractLocals
-            | ProtocolFeature::ChunkNodesCache
-            | ProtocolFeature::LowerStorageKeyLimit => 53,
-            ProtocolFeature::AltBn128 => 55,
-            ProtocolFeature::ChunkOnlyProducers | ProtocolFeature::MaxKickoutStake => 56,
-            ProtocolFeature::AccountIdInFunctionCallPermission => 57,
-            ProtocolFeature::Ed25519Verify
-            | ProtocolFeature::ZeroBalanceAccount
-            | ProtocolFeature::DelegateAction => 59,
-            ProtocolFeature::ComputeCosts | ProtocolFeature::FlatStorageReads => 61,
-            ProtocolFeature::PreparationV2 | ProtocolFeature::NearVmRuntime => 62,
-            ProtocolFeature::BlockHeaderV4 => 63,
-            ProtocolFeature::RestrictTla
-            | ProtocolFeature::TestnetFewerBlockProducers
+            ProtocolFeature::_DeprecatedLowerRegularOpCost2
+            | ProtocolFeature::_DeprecatedLimitContractFunctionsNumber
+            | ProtocolFeature::_DeprecatedBlockHeaderV3
+            | ProtocolFeature::_DeprecatedAliasValidatorSelectionAlgorithm => 49,
+            ProtocolFeature::_DeprecatedSynchronizeBlockChunkProduction
+            | ProtocolFeature::_DeprecatedCorrectStackLimit => 50,
+            ProtocolFeature::_DeprecatedAccessKeyNonceForImplicitAccounts => 51,
+            ProtocolFeature::_DeprecatedIncreaseDeploymentCost
+            | ProtocolFeature::_DeprecatedFunctionCallWeight
+            | ProtocolFeature::_DeprecatedLimitContractLocals
+            | ProtocolFeature::_DeprecatedChunkNodesCache
+            | ProtocolFeature::_DeprecatedLowerStorageKeyLimit => 53,
+            ProtocolFeature::_DeprecatedAltBn128 => 55,
+            ProtocolFeature::_DeprecatedChunkOnlyProducers
+            | ProtocolFeature::_DeprecatedMaxKickoutStake => 56,
+            ProtocolFeature::_DeprecatedAccountIdInFunctionCallPermission => 57,
+            ProtocolFeature::_DeprecatedEd25519Verify
+            | ProtocolFeature::_DeprecatedZeroBalanceAccount
+            | ProtocolFeature::_DeprecatedDelegateAction => 59,
+            ProtocolFeature::_DeprecatedComputeCosts
+            | ProtocolFeature::_DeprecatedFlatStorageReads => 61,
+            ProtocolFeature::_DeprecatedPreparationV2
+            | ProtocolFeature::_DeprecatedNearVmRuntime => 62,
+            ProtocolFeature::_DeprecatedBlockHeaderV4 => 63,
+            ProtocolFeature::_DeprecatedRestrictTla
+            | ProtocolFeature::_DeprecatedTestnetFewerBlockProducers
             | ProtocolFeature::SimpleNightshadeV2 => 64,
             ProtocolFeature::SimpleNightshadeV3 => 65,
-            ProtocolFeature::DecreaseFunctionCallBaseCost
-            | ProtocolFeature::FixedMinimumNewReceiptGas => 66,
-            ProtocolFeature::YieldExecution => 67,
-            ProtocolFeature::CongestionControl
-            | ProtocolFeature::RemoveAccountWithLongStorageKey => 68,
-            ProtocolFeature::StatelessValidation => 69,
-            ProtocolFeature::BLS12381 | ProtocolFeature::EthImplicitAccounts => 70,
-            ProtocolFeature::FixMinStakeRatio => 71,
-            ProtocolFeature::IncreaseStorageProofSizeSoftLimit
-            | ProtocolFeature::ChunkEndorsementV2
-            | ProtocolFeature::ChunkEndorsementsInBlockHeader
-            | ProtocolFeature::StateStoredReceipt => 72,
-            ProtocolFeature::ExcludeContractCodeFromStateWitness => 73,
-            ProtocolFeature::FixStakingThreshold
-            | ProtocolFeature::RejectBlocksWithOutdatedProtocolVersions
-            | ProtocolFeature::FixChunkProducerStakingThreshold
-            | ProtocolFeature::RelaxedChunkValidation
-            | ProtocolFeature::RemoveCheckBalance
-            | ProtocolFeature::BandwidthScheduler
+            ProtocolFeature::_DeprecatedDecreaseFunctionCallBaseCost
+            | ProtocolFeature::_DeprecatedFixedMinimumNewReceiptGas => 66,
+            ProtocolFeature::_DeprecatedYieldExecution => 67,
+            ProtocolFeature::_DeprecatedCongestionControl
+            | ProtocolFeature::_DeprecatedRemoveAccountWithLongStorageKey => 68,
+            ProtocolFeature::_DeprecatedStatelessValidation => 69,
+            ProtocolFeature::_DeprecatedBLS12381
+            | ProtocolFeature::_DeprecatedEthImplicitAccounts => 70,
+            ProtocolFeature::_DeprecatedFixMinStakeRatio => 71,
+            ProtocolFeature::_DeprecatedIncreaseStorageProofSizeSoftLimit
+            | ProtocolFeature::_DeprecatedChunkEndorsementV2
+            | ProtocolFeature::_DeprecatedChunkEndorsementsInBlockHeader
+            | ProtocolFeature::_DeprecatedStateStoredReceipt => 72,
+            ProtocolFeature::_DeprecatedExcludeContractCodeFromStateWitness => 73,
+            ProtocolFeature::_DeprecatedFixStakingThreshold
+            | ProtocolFeature::_DeprecatedRejectBlocksWithOutdatedProtocolVersions
+            | ProtocolFeature::_DeprecatedFixChunkProducerStakingThreshold
+            | ProtocolFeature::_DeprecatedRelaxedChunkValidation
+            | ProtocolFeature::_DeprecatedRemoveCheckBalance
+            | ProtocolFeature::_DeprecatedBandwidthScheduler
             | ProtocolFeature::_DeprecatedCurrentEpochStateSync => 74,
             ProtocolFeature::SimpleNightshadeV4 => 75,
             ProtocolFeature::SimpleNightshadeV5 => 76,
             ProtocolFeature::GlobalContracts
             | ProtocolFeature::BlockHeightForReceiptId
             | ProtocolFeature::ProduceOptimisticBlock => 77,
+            ProtocolFeature::SimpleNightshadeV6 | ProtocolFeature::SaturatingFloatToInt => 78,
 
             // Nightly features:
             ProtocolFeature::FixContractLoadingCost => 129,
@@ -304,6 +404,7 @@ impl ProtocolFeature {
             // that always enables this for mocknet (see config_mocknet function).
             ProtocolFeature::ShuffleShardAssignments => 143,
             ProtocolFeature::ExcludeExistingCodeFromWitnessForCodeLen => 148,
+            ProtocolFeature::ReducedGasRefunds => 149,
             // Place features that are not yet in Nightly below this line.
         }
     }
@@ -313,11 +414,14 @@ impl ProtocolFeature {
     }
 }
 
-/// Minimum supported protocol version
-pub const MIN_SUPPORTED_PROTOCOL_VERSION: ProtocolVersion = 29;
+/// The protocol version of the genesis block on mainnet and testnet.
+pub const PROD_GENESIS_PROTOCOL_VERSION: ProtocolVersion = 29;
+
+/// Minimum supported protocol version for the current binary
+pub const MIN_SUPPORTED_PROTOCOL_VERSION: ProtocolVersion = 75;
 
 /// Current protocol version used on the mainnet with all stable features.
-const STABLE_PROTOCOL_VERSION: ProtocolVersion = 77;
+const STABLE_PROTOCOL_VERSION: ProtocolVersion = 78;
 
 // On nightly, pick big enough version to support all features.
 const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 149;

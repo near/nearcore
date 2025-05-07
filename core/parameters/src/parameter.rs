@@ -19,6 +19,12 @@ pub enum Parameter {
     // Gas economics config
     BurntGasReward,
     PessimisticGasPriceInflation,
+    /// Whether we calculate in the gas price changes when refunding gas.
+    RefundGasPriceChanges,
+    /// Ratio of refunded gas that gets taxed.
+    GasRefundPenalty,
+    /// Minimum gas refund tax.
+    MinGasRefundPenalty,
 
     /// Stateless validation config
     /// Size limit for storage proof generated while executing receipts in a chunk.
@@ -165,7 +171,6 @@ pub enum Parameter {
     MaxGasBurnt,
     MaxGasBurntView,
     MaxStackHeight,
-    ContractPrepareVersion,
     InitialMemoryPages,
     MaxMemoryPages,
     RegistersMemoryLimit,
@@ -187,25 +192,17 @@ pub enum Parameter {
     MaxPromisesPerFunctionCallAction,
     MaxNumberInputDataDependencies,
     MaxFunctionsNumberPerContract,
-    Wasmer2StackLimit,
     MaxLocalsPerContract,
     AccountIdValidityRulesVersion,
     YieldTimeoutLengthInBlocks,
     MaxYieldPayloadSize,
 
     // Contract runtime features
-    #[strum(serialize = "disable_9393_fix")]
-    Disable9393Fix,
     FlatStorageReads,
     ImplicitAccountCreation,
     FixContractLoadingCost,
-    MathExtension,
-    Ed25519Verify,
-    AltBn128,
-    FunctionCallWeight,
     VmKind,
     EthImplicitAccounts,
-    YieldResume,
     DiscardCustomSections,
 
     // Congestion Control
@@ -237,6 +234,7 @@ pub enum Parameter {
 
     ActionUseGlobalContract,
     ActionUseGlobalContractPerIdentifierByte,
+    SaturatingFloatToInt,
 }
 
 #[derive(
@@ -282,7 +280,6 @@ impl Parameter {
         [
             Parameter::MaxGasBurnt,
             Parameter::MaxStackHeight,
-            Parameter::ContractPrepareVersion,
             Parameter::InitialMemoryPages,
             Parameter::MaxMemoryPages,
             Parameter::RegistersMemoryLimit,
@@ -304,7 +301,6 @@ impl Parameter {
             Parameter::MaxPromisesPerFunctionCallAction,
             Parameter::MaxNumberInputDataDependencies,
             Parameter::MaxFunctionsNumberPerContract,
-            Parameter::Wasmer2StackLimit,
             Parameter::MaxLocalsPerContract,
             Parameter::AccountIdValidityRulesVersion,
             Parameter::YieldTimeoutLengthInBlocks,

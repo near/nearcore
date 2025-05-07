@@ -56,13 +56,13 @@ class ShadowTrackingTest(unittest.TestCase):
     def test_shadow_tracking(self):
         node_config_dump, node_config_sync = state_sync_lib.get_state_sync_configs_pair(
         )
-        node_config_sync["tracked_shards"] = []
+        node_config_sync["tracked_shards_config"] = "NoShards"
         node_config_sync["store.load_mem_tries_for_tracked_shards"] = True
         configs = {x: node_config_sync for x in range(4)}
         configs[4] = node_config_dump
 
         # Set the failover node to shadow track "test0".
-        configs[3]["tracked_shadow_validator"] = "test0"
+        configs[3]["tracked_shards_config.ShadowValidator"] = "test0"
 
         nodes = start_cluster(
             3, 2, 3, None,

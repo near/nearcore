@@ -3,16 +3,14 @@ use std::collections::{BTreeMap, HashMap};
 use near_primitives::errors::StorageError;
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::state::FlatStateValue;
-use near_primitives::types::AccountId;
 
 use crate::trie::ops::insert_delete::GenericTrieUpdateInsertDelete;
 use crate::trie::ops::interface::{
     GenericNodeOrIndex, GenericTrieNode, GenericTrieNodeWithSize, GenericTrieUpdate,
     GenericTrieValue, GenericUpdatedTrieNode, GenericUpdatedTrieNodeWithSize, UpdatedNodeId,
 };
-use crate::trie::ops::resharding::{GenericTrieUpdateRetain, RetainMode};
 use crate::trie::trie_recording::TrieRecorder;
-use crate::trie::{Children, MemTrieChanges, TrieRefcountDeltaMap};
+use crate::trie::{AccessOptions, Children, MemTrieChanges, TrieRefcountDeltaMap};
 use crate::{RawTrieNode, RawTrieNodeWithSize, TrieChanges};
 
 use super::arena::{ArenaMemory, ArenaMut};
@@ -157,6 +155,7 @@ impl<'a, M: ArenaMemory> GenericTrieUpdate<'a, MemTrieNodeId, FlatStateValue>
     fn ensure_updated(
         &mut self,
         node: GenericNodeOrIndex<MemTrieNodeId>,
+        _opts: AccessOptions,
     ) -> Result<UpdatedNodeId, StorageError> {
         Ok(match node {
             GenericNodeOrIndex::Old(node_id) => self.convert_existing_to_updated(Some(node_id)),
@@ -263,7 +262,7 @@ impl<'a, M: ArenaMemory> MemTrieUpdate<'a, M> {
 
     /// Inserts the given key value pair into the trie.
     pub fn insert(&mut self, key: &[u8], value: Vec<u8>) -> Result<(), StorageError> {
-        self.generic_insert(0, key, GenericTrieValue::MemtrieAndDisk(value))
+        self.generic_insert(0, key, GenericTrieValue::MemtrieAndDisk(value), AccessOptions::DEFAULT)
     }
 
     /// Inserts the given key value pair into the trie, but the value may be a reference.
@@ -273,7 +272,7 @@ impl<'a, M: ArenaMemory> MemTrieUpdate<'a, M> {
         key: &[u8],
         value: FlatStateValue,
     ) -> Result<(), StorageError> {
-        self.generic_insert(0, key, GenericTrieValue::MemtrieOnly(value))
+        self.generic_insert(0, key, GenericTrieValue::MemtrieOnly(value), AccessOptions::DEFAULT)
     }
 }
 
@@ -347,7 +346,7 @@ impl<'a, M: ArenaMemory> MemTrieUpdate<'a, M> {
                 }
             };
 
-        for node_id in ordered_nodes.iter() {
+        for node_id in ordered_nodes {
             let node = updated_nodes[*node_id].as_ref().unwrap();
             let raw_node = match &node.node {
                 UpdatedMemTrieNode::Empty => unreachable!(),
@@ -455,21 +454,6 @@ impl<'a, M: ArenaMemory> MemTrieUpdate<'a, M> {
             children_memtrie_changes: Default::default(),
         }
     }
-
-    /// Splits the trie, separating entries by the boundary account.
-    /// Leaves the left or right part of the trie, depending on the retain mode.
-    ///
-    /// Returns the changes to be applied to in-memory trie and the proof of
-    /// the split operation. Doesn't modifies trie itself, it's a caller's
-    /// responsibility to apply the changes.
-    pub fn retain_split_shard(
-        mut self,
-        boundary_account: &AccountId,
-        retain_mode: RetainMode,
-    ) -> TrieChanges {
-        GenericTrieUpdateRetain::retain_split_shard(&mut self, boundary_account, retain_mode);
-        self.to_trie_changes()
-    }
 }
 
 /// Applies the given memtrie changes to the in-memory trie data structure.
@@ -491,7 +475,7 @@ pub(super) fn construct_root_from_changes<A: ArenaMut>(
     let mut updated_to_new_map = HashMap::<UpdatedNodeId, MemTrieNodeId>::new();
     let updated_nodes = &changes.updated_nodes;
     let node_ids_with_hashes = &changes.node_ids_with_hashes;
-    for (node_id, node_hash) in node_ids_with_hashes.iter() {
+    for (node_id, node_hash) in node_ids_with_hashes {
         let node = updated_nodes.get(*node_id).unwrap().clone().unwrap();
         let node = match &node.node {
             UpdatedMemTrieNode::Empty => unreachable!(),
@@ -528,11 +512,11 @@ pub(super) fn construct_root_from_changes<A: ArenaMut>(
 #[cfg(test)]
 mod tests {
     use crate::test_utils::TestTriesBuilder;
-    use crate::trie::MemTrieChanges;
     use crate::trie::mem::arena::hybrid::HybridArena;
     use crate::trie::mem::lookup::memtrie_lookup;
     use crate::trie::mem::memtrie_update::GenericTrieUpdateInsertDelete;
     use crate::trie::mem::memtries::MemTries;
+    use crate::trie::{AccessOptions, MemTrieChanges};
     use crate::{KeyLookupMode, ShardTries, TrieChanges};
     use near_primitives::hash::CryptoHash;
     use near_primitives::shard_layout::ShardUId;
@@ -564,7 +548,7 @@ mod tests {
             }
         }
 
-        fn make_all_changes(&mut self, changes: Vec<(Vec<u8>, Option<Vec<u8>>)>) -> TrieChanges {
+        fn make_all_changes(&self, changes: Vec<(Vec<u8>, Option<Vec<u8>>)>) -> TrieChanges {
             let mut update =
                 self.mem.update(self.state_root, TrackingMode::Refcounts).unwrap_or_else(|_| {
                     panic!("Trying to update root {:?} but it's not in memtries", self.state_root)
@@ -573,14 +557,14 @@ mod tests {
                 if let Some(value) = value {
                     update.insert(&key, value).unwrap();
                 } else {
-                    update.generic_delete(0, &key).unwrap();
+                    update.generic_delete(0, &key, AccessOptions::DEFAULT).unwrap();
                 }
             }
             update.to_trie_changes()
         }
 
         fn make_memtrie_changes_only(
-            &mut self,
+            &self,
             changes: Vec<(Vec<u8>, Option<Vec<u8>>)>,
         ) -> MemTrieChanges {
             let mut update =
@@ -591,18 +575,15 @@ mod tests {
                 if let Some(value) = value {
                     update.insert_memtrie_only(&key, FlatStateValue::on_disk(&value)).unwrap();
                 } else {
-                    update.generic_delete(0, &key).unwrap();
+                    update.generic_delete(0, &key, AccessOptions::DEFAULT).unwrap();
                 }
             }
             update.to_memtrie_changes_only()
         }
 
-        fn make_disk_changes_only(
-            &mut self,
-            changes: Vec<(Vec<u8>, Option<Vec<u8>>)>,
-        ) -> TrieChanges {
+        fn make_disk_changes_only(&self, changes: Vec<(Vec<u8>, Option<Vec<u8>>)>) -> TrieChanges {
             let trie = self.disk.get_trie_for_shard(ShardUId::single_shard(), self.state_root);
-            trie.update(changes).unwrap()
+            trie.update(changes, AccessOptions::DEFAULT).unwrap()
         }
 
         fn check_consistency_across_all_changes_and_apply(
@@ -651,8 +632,9 @@ mod tests {
                     self.disk.get_trie_for_shard(ShardUId::single_shard(), self.state_root);
                 let memtrie_result =
                     memtrie_root.and_then(|memtrie_root| memtrie_lookup(memtrie_root, key, None));
-                let disk_result =
-                    disk_trie.get_optimized_ref(key, KeyLookupMode::MemOrTrie).unwrap();
+                let disk_result = disk_trie
+                    .get_optimized_ref(key, KeyLookupMode::MemOrTrie, AccessOptions::DEFAULT)
+                    .unwrap();
                 if let Some(value_ref) = value_ref {
                     let memtrie_value_ref = memtrie_result
                         .unwrap_or_else(|| {
@@ -972,7 +954,7 @@ mod tests {
             if let Some(value) = value {
                 update.insert_memtrie_only(&key, FlatStateValue::on_disk(&value)).unwrap();
             } else {
-                update.generic_delete(0, &key).unwrap();
+                update.generic_delete(0, &key, AccessOptions::DEFAULT).unwrap();
             }
         }
 

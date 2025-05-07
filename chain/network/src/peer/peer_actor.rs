@@ -2,7 +2,7 @@ use crate::accounts_data::AccountDataError;
 use crate::client::{
     AnnounceAccountRequest, BlockHeadersRequest, BlockHeadersResponse, BlockRequest, BlockResponse,
     EpochSyncRequestMessage, EpochSyncResponseMessage, OptimisticBlockMessage, ProcessTxRequest,
-    RecvChallenge, StateRequestHeader, StateRequestPart, StateResponseReceived,
+    StateRequestHeader, StateRequestPart, StateResponseReceived,
 };
 use crate::concurrency::atomic_cell::AtomicCell;
 use crate::concurrency::demux;
@@ -12,12 +12,12 @@ use crate::network_protocol::DistanceVector;
 use crate::network_protocol::{
     Edge, EdgeState, Encoding, OwnedAccount, ParsePeerMessageError, PartialEdgeInfo,
     PeerChainInfoV2, PeerIdOrHash, PeerInfo, PeersRequest, PeersResponse, RawRoutedMessage,
-    RoutedMessageBody, RoutingTableUpdate, SnapshotHostInfoVerificationError, SyncAccountsData,
-    SyncSnapshotHosts,
+    RoutedMessageBody, RoutedMessageV2, RoutingTableUpdate, SnapshotHostInfoVerificationError,
+    SyncAccountsData, SyncSnapshotHosts,
 };
 use crate::peer::stream;
 use crate::peer::tracker::Tracker;
-use crate::peer_manager::connection;
+use crate::peer_manager::connection::{self, Connection};
 use crate::peer_manager::network_state::{NetworkState, PRUNE_EDGES_AFTER};
 #[cfg(test)]
 use crate::peer_manager::peer_manager_actor::Event;
@@ -36,6 +36,7 @@ use crate::types::{
 use actix::fut::future::wrap_future;
 use actix::{Actor as _, ActorContext as _, ActorFutureExt as _, AsyncContext as _};
 use lru::LruCache;
+use near_async::futures::{AsyncComputationSpawner, AsyncComputationSpawnerExt};
 use near_async::messaging::{CanSend, SendAsync};
 use near_async::time;
 use near_crypto::Signature;
@@ -191,6 +192,8 @@ pub(crate) struct PeerActor {
 
     /// Per-message rate limits for incoming messages.
     received_messages_rate_limits: messages_limits::RateLimits,
+
+    peer_actor_spawner: Arc<dyn AsyncComputationSpawner>,
 }
 
 impl Debug for PeerActor {
@@ -220,8 +223,10 @@ impl PeerActor {
         stream: tcp::Stream,
         force_encoding: Option<Encoding>,
         network_state: Arc<NetworkState>,
+        peer_actor_spawner: Arc<dyn AsyncComputationSpawner>,
     ) -> anyhow::Result<actix::Addr<Self>> {
-        let (addr, handshake_signal) = Self::spawn(clock, stream, force_encoding, network_state)?;
+        let (addr, handshake_signal) =
+            Self::spawn(clock, stream, force_encoding, network_state, peer_actor_spawner)?;
         // Await for the handshake to complete, by awaiting the handshake_signal channel.
         // This is a receiver of Infallible, so it only completes when the channel is closed.
         handshake_signal.await.err().unwrap();
@@ -237,12 +242,13 @@ impl PeerActor {
         stream: tcp::Stream,
         force_encoding: Option<Encoding>,
         network_state: Arc<NetworkState>,
+        peer_actor_spawner: Arc<dyn AsyncComputationSpawner>,
     ) -> anyhow::Result<(actix::Addr<Self>, HandshakeSignal)> {
         #[cfg(test)]
         let stream_id = stream.id();
         #[cfg(test)]
         let network_state_clone = network_state.clone();
-        match Self::spawn_inner(clock, stream, force_encoding, network_state) {
+        match Self::spawn_inner(clock, stream, force_encoding, network_state, peer_actor_spawner) {
             Ok(it) => Ok(it),
             Err(reason) => {
                 #[cfg(test)]
@@ -259,6 +265,7 @@ impl PeerActor {
         stream: tcp::Stream,
         force_encoding: Option<Encoding>,
         network_state: Arc<NetworkState>,
+        peer_actor_spawner: Arc<dyn AsyncComputationSpawner>,
     ) -> Result<(actix::Addr<Self>, HandshakeSignal), ClosingReason> {
         let connecting_status = match &stream.type_ {
             tcp::StreamType::Inbound => ConnectingStatus::Inbound(
@@ -371,6 +378,7 @@ impl PeerActor {
                     .into(),
                     network_state,
                     received_messages_rate_limits,
+                    peer_actor_spawner,
                 }
             }),
             recv,
@@ -1087,10 +1095,7 @@ impl PeerActor {
                     }
                     None
                 }
-                PeerMessage::Challenge(challenge) => {
-                    network_state.client.send_async(RecvChallenge(*challenge)).await.ok();
-                    None
-                }
+                PeerMessage::Challenge(_) => None,
                 PeerMessage::StateRequestHeader(shard_id, sync_hash) => network_state
                     .client
                     .send_async(StateRequestHeader { shard_id, sync_hash })
@@ -1383,7 +1388,7 @@ impl PeerActor {
                     message_processed_event();
                 }));
             }
-            PeerMessage::Routed(mut msg) => {
+            PeerMessage::Routed(/*mut*/ msg) => {
                 tracing::trace!(
                     target: "network",
                     "Received routed message from {} to {:?}.",
@@ -1435,46 +1440,19 @@ impl PeerActor {
                     return;
                 }
 
-                self.network_state.add_route_back(&self.clock, &conn, msg.as_ref());
-                if for_me {
-                    // Handle Ping and Pong message if they are for us without sending to client.
-                    // i.e. Return false in case of Ping and Pong
-                    match &msg.body {
-                        RoutedMessageBody::Ping(ping) => {
-                            self.network_state.send_pong(
-                                &self.clock,
-                                conn.tier,
-                                ping.nonce,
-                                msg.hash(),
-                            );
-                            // TODO(gprusak): deprecate Event::Ping/Pong in favor of
-                            // MessageProcessed.
-                            #[cfg(test)]
-                            self.network_state.config.event_sink.send(Event::Ping(ping.clone()));
-                            #[cfg(test)]
-                            message_processed_event();
-                        }
-                        RoutedMessageBody::Pong(_pong) => {
-                            #[cfg(test)]
-                            self.network_state.config.event_sink.send(Event::Pong(_pong.clone()));
-                            #[cfg(test)]
-                            message_processed_event();
-                        }
-                        _ => self.receive_message(ctx, &conn, PeerMessage::Routed(msg)),
-                    }
-                } else {
-                    if msg.decrease_ttl() {
-                        msg.num_hops += 1;
-                        self.network_state.send_message_to_peer(&self.clock, conn.tier, msg);
+                let addr = ctx.address();
+                let conn_cl = conn.clone();
+                self.peer_actor_spawner.spawn("detached msg verification", move || {
+                    let verified = if !msg.verify() {
+                        // Received invalid routed message from peer.
+                        VerifiedRouted::Invalid
                     } else {
-                        #[cfg(test)]
-                        self.network_state.config.event_sink.send(Event::RoutedMessageDropped);
-                        tracing::debug!(target: "network", ?msg, from = ?conn.peer_info.id, "Message dropped because TTL reached 0.");
-                        metrics::ROUTED_MESSAGE_DROPPED
-                            .with_label_values(&[msg.body_variant()])
-                            .inc();
-                    }
-                }
+                        VerifiedRouted::Valid(msg, conn_cl)
+                    };
+                    if let Err(e) = addr.try_send(verified) {
+                        tracing::warn!(target: "network", "Failed to send message to actor: {:?}", e);
+                    };
+                });
             }
             msg => self.receive_message(ctx, &conn, msg),
         }
@@ -1675,6 +1653,78 @@ impl actix::Handler<stream::Error> for PeerActor {
         log_assert!(expected, "unexpected closing reason: {err}");
         tracing::info!(target: "network", ?err, "Closing connection to {}", self.peer_info);
         self.stop(ctx, ClosingReason::StreamError);
+    }
+}
+
+#[derive(actix::Message, Debug)]
+#[rtype(result = "()")]
+enum VerifiedRouted {
+    Valid(Box<RoutedMessageV2>, Arc<Connection>),
+    Invalid,
+}
+
+impl actix::Handler<VerifiedRouted> for PeerActor {
+    type Result = ();
+
+    fn handle(&mut self, msg: VerifiedRouted, ctx: &mut Self::Context) {
+        let _span = tracing::debug_span!(
+            target: "network",
+            "handle",
+            handler = "bytes",
+            actor = "PeerActor",
+            peer = %self.peer_info)
+        .entered();
+
+        let (mut msg, conn) = match msg {
+            VerifiedRouted::Valid(msg, conn) => (msg, conn),
+            VerifiedRouted::Invalid => {
+                self.stop(ctx, ClosingReason::Ban(ReasonForBan::InvalidSignature));
+                return;
+            }
+        };
+
+        #[cfg(test)]
+        let message_processed_event = {
+            let sink = self.network_state.config.event_sink.clone();
+            let msg = msg.clone();
+            let tier = conn.tier;
+            move || {
+                sink.send(Event::MessageProcessed(tier, PeerMessage::Routed(msg)));
+            }
+        };
+
+        let for_me = self.network_state.message_for_me(&msg.target);
+        self.network_state.add_route_back(&self.clock, &conn, msg.as_ref());
+        if for_me {
+            // Handle Ping and Pong message if they are for us without sending to client.
+            // i.e. Return false in case of Ping and Pong
+            match &msg.body {
+                RoutedMessageBody::Ping(ping) => {
+                    self.network_state.send_pong(&self.clock, conn.tier, ping.nonce, msg.hash());
+                    #[cfg(test)]
+                    self.network_state.config.event_sink.send(Event::Ping(ping.clone()));
+                    #[cfg(test)]
+                    message_processed_event();
+                }
+                RoutedMessageBody::Pong(_pong) => {
+                    #[cfg(test)]
+                    self.network_state.config.event_sink.send(Event::Pong(_pong.clone()));
+                    #[cfg(test)]
+                    message_processed_event();
+                }
+                _ => self.receive_message(ctx, &conn, PeerMessage::Routed(msg)),
+            }
+        } else {
+            if msg.decrease_ttl() {
+                msg.num_hops += 1;
+                self.network_state.send_message_to_peer(&self.clock, conn.tier, msg);
+            } else {
+                #[cfg(test)]
+                self.network_state.config.event_sink.send(Event::RoutedMessageDropped);
+                tracing::debug!(target: "network", ?msg, from = ?conn.peer_info.id, "Message dropped because TTL reached 0.");
+                metrics::ROUTED_MESSAGE_DROPPED.with_label_values(&[msg.body_variant()]).inc();
+            }
+        }
     }
 }
 

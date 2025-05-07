@@ -623,7 +623,7 @@ pub trait EpochManagerAdapter: Send + Sync {
         let chunk_producers = chunk_producers_settlement
             .get(shard_index)
             .ok_or_else(|| EpochError::ShardingError(format!("invalid shard id {shard_id}")))?;
-        for validator_id in chunk_producers.iter() {
+        for validator_id in chunk_producers {
             if epoch_info.validator_account_id(*validator_id) == account_id {
                 return Ok(true);
             }
@@ -840,7 +840,12 @@ pub trait EpochManagerAdapter: Send + Sync {
 
 impl EpochManagerAdapter for EpochManagerHandle {
     fn num_total_parts(&self) -> usize {
-        let seats = self.read().genesis_num_block_producer_seats;
+        let epoch_manager = self.read();
+        let genesis_protocol_version = epoch_manager.reward_calculator.genesis_protocol_version;
+        let seats = epoch_manager
+            .config
+            .for_protocol_version(genesis_protocol_version)
+            .num_block_producer_seats;
         if seats > 1 { seats as usize } else { 2 }
     }
 

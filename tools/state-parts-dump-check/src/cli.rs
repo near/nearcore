@@ -230,7 +230,12 @@ fn create_external_connection(
         ExternalConnection::S3 { bucket: Arc::new(bucket) }
     } else if let Some(bucket) = gcs_bucket {
         ExternalConnection::GCS {
-            gcs_client: Arc::new(cloud_storage::Client::default()),
+            gcs_client: Arc::new(
+                object_store::gcp::GoogleCloudStorageBuilder::new()
+                    .with_bucket_name(&bucket)
+                    .build()
+                    .unwrap(),
+            ),
             reqwest_client: Arc::new(reqwest::Client::default()),
             bucket,
         }
@@ -887,7 +892,7 @@ async fn get_current_epoch_state_roots(
         // Since head_height was gotten with Finality::Final, we know any of these are on the canonical chain
         match rpc_client.block_by_id(BlockId::Height(height)).await {
             Ok(block) => {
-                for chunk in block.chunks.iter() {
+                for chunk in &block.chunks {
                     if chunk.height_included == height {
                         let Some(n) = num_new_chunks.get_mut(&chunk.shard_id) else {
                             anyhow::bail!(
@@ -904,9 +909,7 @@ async fn get_current_epoch_state_roots(
                 }
             }
             Err(e) => {
-                if let Some(RpcErrorKind::HandlerError(serde_json::Value::Object(err))) =
-                    &e.error_struct
-                {
+                if let Some(RpcErrorKind::HandlerError(err)) = &e.error_struct {
                     if let Some(serde_json::Value::String(name)) = err.get("name") {
                         if name.as_str() == "UNKNOWN_BLOCK" {
                             continue;

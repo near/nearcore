@@ -42,7 +42,6 @@ pub enum StorageStakingError {
 pub fn check_storage_stake(
     account: &Account,
     runtime_config: &RuntimeConfig,
-    current_protocol_version: ProtocolVersion,
 ) -> Result<(), StorageStakingError> {
     let billable_storage_bytes = account.storage_usage();
     let required_amount = Balance::from(billable_storage_bytes)
@@ -68,9 +67,7 @@ pub fn check_storage_stake(
     if available_amount >= required_amount {
         Ok(())
     } else {
-        if ProtocolFeature::ZeroBalanceAccount.enabled(current_protocol_version)
-            && is_zero_balance_account(account)
-        {
+        if is_zero_balance_account(account) {
             return Ok(());
         }
         Err(StorageStakingError::LackBalanceForStorageStaking(required_amount - available_amount))
@@ -101,7 +98,10 @@ pub fn validate_transaction(
     ValidatedTransaction::new(config, signed_tx)
 }
 
-pub fn commit_charging_for_tx(
+/// Set new `signer` and `access_key` in `state_update`.
+///
+/// Note that this does not commit state changes to the `TrieUpdate`.
+pub fn set_tx_state_changes(
     state_update: &mut TrieUpdate,
     validated_tx: &ValidatedTransaction,
     signer: &Account,
@@ -112,47 +112,49 @@ pub fn commit_charging_for_tx(
     set_account(state_update, tx.signer_id().clone(), &signer);
 }
 
-/// Verifies the signed transaction on top of the given state; looks up the
-/// signer account and access_key from the transaction; updates them to charge
-/// for the transaction processing; returns the updated signer and access_key to
-/// the caller.  The caller can use `commit_charging_for_tx()` to commit the
-/// actual charging.
-pub fn verify_and_charge_tx_ephemeral(
-    config: &RuntimeConfig,
+pub fn get_signer_and_access_key(
     state_update: &TrieUpdate,
     validated_tx: &ValidatedTransaction,
-    transaction_cost: &TransactionCost,
-    block_height: Option<BlockHeight>,
-    current_protocol_version: ProtocolVersion,
-) -> Result<VerificationResult, InvalidTxError> {
-    let _span = tracing::debug_span!(target: "runtime", "verify_and_charge_transaction").entered();
+) -> Result<(Account, AccessKey), InvalidTxError> {
+    let signer_id = validated_tx.signer_id();
 
-    let TransactionCost { gas_burnt, gas_remaining, receipt_gas_price, total_cost, burnt_amount } =
-        *transaction_cost;
-
-    let tx = validated_tx.to_tx();
-    let signer_id = tx.signer_id();
-
-    let mut signer = match get_account(state_update, signer_id)? {
+    let signer = match get_account(state_update, signer_id)? {
         Some(signer) => signer,
         None => {
             return Err(InvalidTxError::SignerDoesNotExist { signer_id: signer_id.clone() });
         }
     };
 
-    let mut access_key = match get_access_key(state_update, signer_id, tx.public_key())? {
+    let access_key = match get_access_key(state_update, signer_id, validated_tx.public_key())? {
         Some(access_key) => access_key,
         None => {
             return Err(InvalidTxError::InvalidAccessKeyError(
                 InvalidAccessKeyError::AccessKeyNotFound {
                     account_id: signer_id.clone(),
-                    public_key: tx.public_key().clone().into(),
+                    public_key: validated_tx.public_key().clone().into(),
                 },
             )
             .into());
         }
     };
+    Ok((signer, access_key))
+}
 
+pub fn verify_and_charge_tx_ephemeral(
+    config: &RuntimeConfig,
+    signer: &mut Account,
+    access_key: &mut AccessKey,
+    validated_tx: &ValidatedTransaction,
+    transaction_cost: &TransactionCost,
+    block_height: Option<BlockHeight>,
+) -> Result<VerificationResult, InvalidTxError> {
+    let _span = tracing::debug_span!(target: "runtime", "verify_and_charge_transaction").entered();
+
+    let TransactionCost { gas_burnt, gas_remaining, receipt_gas_price, total_cost, burnt_amount } =
+        *transaction_cost;
+
+    let signer_id = validated_tx.signer_id();
+    let tx = validated_tx.to_tx();
     if tx.nonce() <= access_key.nonce {
         return Err(InvalidTxError::InvalidNonce {
             tx_nonce: tx.nonce(),
@@ -160,27 +162,26 @@ pub fn verify_and_charge_tx_ephemeral(
         }
         .into());
     }
-    if ProtocolFeature::AccessKeyNonceRange.enabled(current_protocol_version) {
-        if let Some(height) = block_height {
-            let upper_bound =
-                height * near_primitives::account::AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER;
-            if tx.nonce() >= upper_bound {
-                return Err(
-                    InvalidTxError::NonceTooLarge { tx_nonce: tx.nonce(), upper_bound }.into()
-                );
-            }
+    if let Some(height) = block_height {
+        let upper_bound =
+            height * near_primitives::account::AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER;
+        if tx.nonce() >= upper_bound {
+            return Err(InvalidTxError::NonceTooLarge { tx_nonce: tx.nonce(), upper_bound }.into());
         }
-    };
-
+    }
     access_key.nonce = tx.nonce();
 
-    signer.set_amount(signer.amount().checked_sub(total_cost).ok_or_else(|| {
-        InvalidTxError::NotEnoughBalance {
-            signer_id: signer_id.clone(),
-            balance: signer.amount(),
-            cost: total_cost,
+    match signer.amount().checked_sub(total_cost) {
+        Some(new_amount) => signer.set_amount(new_amount),
+        None => {
+            return Err(InvalidTxError::NotEnoughBalance {
+                signer_id: signer_id.clone(),
+                balance: signer.amount(),
+                cost: total_cost,
+            }
+            .into());
         }
-    })?);
+    }
 
     if let AccessKeyPermission::FunctionCall(ref mut function_call_permission) =
         access_key.permission
@@ -197,7 +198,7 @@ pub fn verify_and_charge_tx_ephemeral(
         }
     }
 
-    match check_storage_stake(&signer, config, current_protocol_version) {
+    match check_storage_stake(&signer, config) {
         Ok(()) => {}
         Err(StorageStakingError::LackBalanceForStorageStaking(amount)) => {
             return Err(InvalidTxError::LackBalanceForState {
@@ -255,14 +256,7 @@ pub fn verify_and_charge_tx_ephemeral(
         }
     };
 
-    Ok(VerificationResult {
-        gas_burnt,
-        gas_remaining,
-        receipt_gas_price,
-        burnt_amount,
-        signer,
-        access_key,
-    })
+    Ok(VerificationResult { gas_burnt, gas_remaining, receipt_gas_price, burnt_amount })
 }
 
 /// Validates a given receipt. Checks validity of the Action or Data receipt.
@@ -380,12 +374,6 @@ pub(crate) fn validate_actions(
             }
         } else {
             if let Action::Delegate(_) = action {
-                if !ProtocolFeature::DelegateAction.enabled(current_protocol_version) {
-                    return Err(ActionsValidationError::UnsupportedProtocolFeature {
-                        protocol_feature: String::from("DelegateAction"),
-                        version: ProtocolFeature::DelegateAction.protocol_version(),
-                    });
-                }
                 if found_delegate_action {
                     return Err(ActionsValidationError::DelegateActionMustBeOnlyOne);
                 }
@@ -752,14 +740,23 @@ mod tests {
             }
         };
 
+        let (mut signer, mut access_key) =
+            match get_signer_and_access_key(state_update, &validated_tx) {
+                Ok((signer, access_key)) => (signer, access_key),
+                Err(err) => {
+                    assert_eq!(err, expected_err);
+                    return;
+                }
+            };
+
         // Validation passed, now verification should fail with expected_err
         let err = verify_and_charge_tx_ephemeral(
             config,
-            state_update,
+            &mut signer,
+            &mut access_key,
             &validated_tx,
             &cost,
             None,
-            PROTOCOL_VERSION,
         )
         .expect_err("expected an error");
         assert_eq!(err, expected_err);
@@ -777,17 +774,19 @@ mod tests {
             Ok(validated_tx) => validated_tx,
             Err((err, _tx)) => return Err(err),
         };
+        let (mut signer, mut access_key) = get_signer_and_access_key(state_update, &validated_tx)?;
+
         let transaction_cost =
             tx_cost(config, &validated_tx.to_tx(), gas_price, current_protocol_version)?;
         let vr = verify_and_charge_tx_ephemeral(
             config,
-            state_update,
+            &mut signer,
+            &mut access_key,
             &validated_tx,
             &transaction_cost,
             block_height,
-            current_protocol_version,
         )?;
-        commit_charging_for_tx(state_update, &validated_tx, &vr.signer, &vr.access_key);
+        set_tx_state_changes(state_update, &validated_tx, &signer, &access_key);
         Ok(vr)
     }
 

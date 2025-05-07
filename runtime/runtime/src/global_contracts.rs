@@ -12,6 +12,7 @@ use near_primitives::hash::hash;
 use near_primitives::receipt::{GlobalContractDistributionReceipt, Receipt, ReceiptEnum};
 use near_primitives::trie_key::{GlobalContractCodeIdentifier, TrieKey};
 use near_primitives::types::{AccountId, EpochInfoProvider, ShardId, StateChangeCause};
+use near_store::trie::AccessOptions;
 use near_store::{StorageError, TrieUpdate};
 use near_vm_runner::logic::ProtocolVersion;
 use near_vm_runner::{ContractCode, precompile_contract};
@@ -68,7 +69,7 @@ pub(crate) fn action_use_global_contract(
 ) -> Result<(), RuntimeError> {
     let _span = tracing::debug_span!(target: "runtime", "action_use_global_contract").entered();
     let key = TrieKey::GlobalContractCode { identifier: action.contract_identifier.clone().into() };
-    if !state_update.contains_key(&key)? {
+    if !state_update.contains_key(&key, AccessOptions::DEFAULT)? {
         result.result = Err(ActionErrorKind::GlobalContractDoesNotExist {
             identifier: action.contract_identifier.clone(),
         }

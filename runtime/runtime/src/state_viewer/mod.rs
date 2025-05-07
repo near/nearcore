@@ -11,7 +11,6 @@ use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
 use near_primitives::borsh::BorshDeserialize;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum, ReceiptV1};
-use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
 use near_primitives::transaction::FunctionCallAction;
 use near_primitives::trie_key::trie_key_parsers;
 use near_primitives::types::{
@@ -225,10 +224,9 @@ impl TrieViewer {
             config: Arc::clone(config),
             cache: view_state.cache,
             is_new_chunk: false,
-            migration_data: Arc::new(MigrationData::default()),
-            migration_flags: MigrationFlags::default(),
             congestion_info: Default::default(),
             bandwidth_requests: BlockBandwidthRequests::empty(),
+            trie_access_tracker_state: Default::default(),
         };
         let function_call = FunctionCallAction {
             method_name: method_name.to_string(),
@@ -254,7 +252,6 @@ impl TrieViewer {
         let pipeline = ReceiptPreparationPipeline::new(
             Arc::clone(config),
             apply_state.cache.as_ref().map(|v| v.handle()),
-            apply_state.current_protocol_version,
             state_update.contract_storage(),
         );
         let view_config = Some(ViewConfig { max_gas_burnt: self.max_gas_burnt_view });
@@ -268,12 +265,12 @@ impl TrieViewer {
             account,
             empty_hash,
             view_state.epoch_id,
-            view_state.prev_block_hash,
             view_state.block_hash,
             view_state.block_height,
             epoch_info_provider,
             view_state.current_protocol_version,
             config.wasm_config.storage_get_mode,
+            Arc::clone(&apply_state.trie_access_tracker_state),
         );
         let outcome = execute_function_call(
             contract,

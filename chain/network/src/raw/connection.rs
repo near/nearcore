@@ -12,7 +12,8 @@ use bytes::BytesMut;
 use bytes::buf::{Buf, BufMut};
 use near_async::time::{Clock, Duration, Instant, Utc};
 use near_crypto::{KeyType, SecretKey};
-use near_primitives::block::{Block, BlockHeader, GenesisId};
+use near_primitives::block::{Block, BlockHeader};
+use near_primitives::genesis::GenesisId;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::types::{BlockHeight, ShardId};
@@ -637,7 +638,7 @@ pub struct Listener {
 }
 
 impl Listener {
-    pub async fn bind(
+    pub fn bind(
         addr: tcp::ListenerAddr,
         secret_key: SecretKey,
         chain_id: &str,

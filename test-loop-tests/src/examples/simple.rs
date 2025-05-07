@@ -3,20 +3,20 @@ use near_async::test_loop::TestLoopV2;
 use near_async::time::Duration;
 use near_chain::ChainGenesis;
 use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
-use near_chain_configs::{ClientConfig, MutableConfigValue};
+use near_chain_configs::{ClientConfig, MutableConfigValue, TrackedShardsConfig};
 use near_chunks::shards_manager_actor::ShardsManagerActor;
 use near_client::Client;
 use near_client::client_actor::ClientActorInner;
 use near_client::sync_jobs_actor::SyncJobsActor;
 use near_epoch_manager::EpochManager;
-use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
+use near_epoch_manager::shard_tracker::ShardTracker;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::network::PeerId;
 
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::AccountId;
-use near_primitives::version::{PROTOCOL_UPGRADE_SCHEDULE, PROTOCOL_VERSION};
+use near_primitives::version::{PROTOCOL_VERSION, get_protocol_upgrade_schedule};
 use near_store::adapter::StoreAdapter;
 
 use crate::utils::ONE_NEAR;
@@ -65,7 +65,7 @@ fn test_client_with_simple_test_loop() {
 
     let chain_genesis = ChainGenesis::new(&genesis.config);
     let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
-    let shard_tracker = ShardTracker::new(TrackedConfig::AllShards, epoch_manager.clone());
+    let shard_tracker = ShardTracker::new(TrackedShardsConfig::AllShards, epoch_manager.clone());
     let runtime_adapter = NightshadeRuntime::test(
         Path::new("."),
         store.clone(),
@@ -83,6 +83,7 @@ fn test_client_with_simple_test_loop() {
 
     let sync_jobs_actor = SyncJobsActor::new(client_adapter.as_multi_sender());
 
+    let protocol_upgrade_schedule = get_protocol_upgrade_schedule(&chain_genesis.chain_id);
     let client = Client::new(
         test_loop.clock(),
         client_config,
@@ -102,7 +103,7 @@ fn test_client_with_simple_test_loop() {
         Arc::new(test_loop.future_spawner("node0")),
         noop().into_multi_sender(),
         client_adapter.as_multi_sender(),
-        PROTOCOL_UPGRADE_SCHEDULE.clone(),
+        protocol_upgrade_schedule,
     )
     .unwrap();
 

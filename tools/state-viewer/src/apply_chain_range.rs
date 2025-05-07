@@ -2,7 +2,6 @@ use crate::cli::{ApplyRangeMode, StorageSource};
 use crate::commands::{maybe_print_db_stats, maybe_save_trie_changes};
 use crate::progress_reporter::ProgressReporter;
 use near_chain::chain::collect_receipts_from_response;
-use near_chain::migrations::check_if_block_is_first_with_chunk_of_version;
 use near_chain::types::{
     ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext, RuntimeAdapter,
 };
@@ -101,8 +100,6 @@ fn apply_block_from_range(
         .get_block_producer(block.header().epoch_id(), block.header().height())
         .unwrap();
 
-    let protocol_version =
-        epoch_manager.get_epoch_protocol_version(block.header().epoch_id()).unwrap();
     let apply_result = if block.header().is_genesis() {
         if verbose_output {
             println!("Skipping the genesis block #{}.", height);
@@ -152,11 +149,10 @@ fn apply_block_from_range(
         };
 
         let chain_store_update = ChainStoreUpdate::new(&mut read_chain_store);
-        let transactions = chunk.transactions();
+        let transactions = chunk.to_transactions().to_vec();
         let valid_txs = chain_store_update
             .chain_store()
-            .compute_transaction_validity(protocol_version, prev_block.header(), &chunk)
-            .expect("valid transaction calculation");
+            .compute_transaction_validity(prev_block.header(), &chunk);
         let shard_layout =
             epoch_manager.get_shard_layout_from_prev_block(block.header().prev_hash()).unwrap();
         let receipt_proof_response = get_incoming_receipts_for_shard(
@@ -172,20 +168,13 @@ fn apply_block_from_range(
         let receipts = collect_receipts_from_response(&receipt_proof_response);
 
         let chunk_inner = chunk.cloned_header().take_inner();
-        let is_first_block_with_chunk_of_version = check_if_block_is_first_with_chunk_of_version(
-            &read_chain_store,
-            epoch_manager,
-            block.header().prev_hash(),
-            shard_id,
-        )
-        .unwrap();
 
         num_receipt = receipts.len();
-        num_tx = chunk.transactions().len();
+        num_tx = chunk.to_transactions().len();
 
         if only_contracts {
             let mut has_contracts = false;
-            for tx in chunk.transactions() {
+            for tx in chunk.to_transactions() {
                 for action in tx.transaction.actions() {
                     has_contracts = has_contracts
                         || matches!(action, Action::FunctionCall(_) | Action::DeployContract(_));
@@ -206,7 +195,6 @@ fn apply_block_from_range(
                     last_validator_proposals: chunk_inner.prev_validator_proposals(),
                     gas_limit: chunk_inner.gas_limit(),
                     is_new_chunk: true,
-                    is_first_block_with_chunk_of_version,
                 },
                 ApplyChunkBlockContext::from_header(
                     block.header(),
@@ -215,7 +203,7 @@ fn apply_block_from_range(
                     block.block_bandwidth_requests(),
                 ),
                 &receipts,
-                SignedValidPeriodTransactions::new(&transactions, &valid_txs),
+                SignedValidPeriodTransactions::new(transactions, valid_txs),
             )
             .unwrap()
     } else {
@@ -233,7 +221,6 @@ fn apply_block_from_range(
                     last_validator_proposals: chunk_extra.validator_proposals(),
                     gas_limit: chunk_extra.gas_limit(),
                     is_new_chunk: false,
-                    is_first_block_with_chunk_of_version: false,
                 },
                 ApplyChunkBlockContext::from_header(
                     block.header(),
@@ -249,7 +236,6 @@ fn apply_block_from_range(
 
     let (outcome_root, _) = ApplyChunkResult::compute_outcomes_proof(&apply_result.outcomes);
     let chunk_extra = ChunkExtra::new(
-        protocol_version,
         &apply_result.new_root,
         outcome_root,
         apply_result.validator_proposals.clone(),
