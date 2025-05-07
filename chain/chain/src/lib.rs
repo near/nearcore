@@ -33,7 +33,6 @@ mod lightclient;
 pub mod metrics;
 pub mod missing_chunks;
 pub mod orphan;
-pub mod pending;
 pub mod rayon_spawner;
 pub mod resharding;
 pub mod runtime;

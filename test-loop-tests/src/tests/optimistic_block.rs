@@ -98,7 +98,7 @@ fn make_invalid_ob(env: &TestLoopEnv, adv_type: OptimisticBlockAdvType) -> Optim
         &prev_header,
         height,
         &*validator_signer,
-        client.clock.now_utc().unix_timestamp_nanos() as u64,
+        client.clock.clone(),
         None,
         adv_type,
     )

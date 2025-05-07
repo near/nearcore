@@ -69,7 +69,6 @@ pub enum ShardUpdateReason {
 }
 
 /// Information about shard to update.
-#[derive(Debug, Clone)]
 pub struct ShardContext {
     pub shard_uid: ShardUId,
     /// Whether transactions should be applied.

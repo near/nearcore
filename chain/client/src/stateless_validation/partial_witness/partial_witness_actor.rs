@@ -45,7 +45,7 @@ use crate::client_actor::ClientSenderForPartialWitness;
 use crate::metrics;
 use crate::stateless_validation::state_witness_tracker::ChunkStateWitnessTracker;
 use crate::stateless_validation::validate::{
-    ChunkRelevance, validate_chunk_contract_accesses, validate_contract_code_request,
+    validate_chunk_contract_accesses, validate_contract_code_request,
     validate_partial_encoded_contract_deploys, validate_partial_encoded_state_witness,
 };
 
@@ -407,7 +407,7 @@ impl PartialWitnessActor {
                 &validator_account_id,
                 runtime_adapter.store(),
             ) {
-                Ok(ChunkRelevance::Relevant) => {
+                Ok(true) => {
                     network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
                         NetworkRequests::PartialEncodedStateWitnessForward(
                             target_chunk_validators,
@@ -415,7 +415,7 @@ impl PartialWitnessActor {
                         ),
                     ));
                 }
-                Ok(_) => {
+                Ok(false) => {
                     tracing::debug!(
                         target: "client",
                         chunk_production_key = ?partial_witness.chunk_production_key(),
@@ -459,12 +459,12 @@ impl PartialWitnessActor {
                     &validator_account_id,
                     runtime_adapter.store(),
                 ) {
-                    Ok(ChunkRelevance::Relevant) => {
+                    Ok(true) => {
                         if let Err(err) = partial_witness_tracker.store_partial_encoded_state_witness(partial_witness) {
                             tracing::error!(target: "client", "Failed to store partial encoded state witness: {}", err);
                         }
                     }
-                    Ok(_) => {
+                    Ok(false) => {
                         tracing::debug!(
                             target: "client",
                             chunk_production_key = ?partial_witness.chunk_production_key(),
@@ -502,9 +502,7 @@ impl PartialWitnessActor {
             self.epoch_manager.as_ref(),
             &partial_deploys,
             self.runtime.store(),
-        )?
-        .is_relevant()
-        {
+        )? {
             return Ok(());
         }
         if self.partial_deploys_tracker.already_processed(&partial_deploys) {
@@ -603,9 +601,7 @@ impl PartialWitnessActor {
             &accesses,
             &signer,
             self.runtime.store(),
-        )?
-        .is_relevant()
-        {
+        )? {
             return Ok(());
         }
         let key = accesses.chunk_production_key();
@@ -707,9 +703,7 @@ impl PartialWitnessActor {
             self.epoch_manager.as_ref(),
             &request,
             self.runtime.store(),
-        )?
-        .is_relevant()
-        {
+        )? {
             return Ok(());
         }
 
