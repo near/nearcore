@@ -30,6 +30,7 @@ use crate::types::{
     PeerManagerSenderForNetworkInput, PeerManagerSenderForNetworkMessage, ReasonForBan,
 };
 use futures::FutureExt;
+use near_async::futures::StdThreadAsyncComputationSpawnerForTest;
 use near_async::messaging::IntoMultiSender;
 use near_async::messaging::Sender;
 use near_async::time;
@@ -366,7 +367,11 @@ impl ActorHandler {
         clock: &time::Clock,
     ) -> Option<Arc<SignedAccountData>> {
         let clock = clock.clone();
-        self.with_state(move |s| async move { s.tier1_advertise_proxies(&clock).await }).await
+        self.with_state(move |s| async move {
+            s.tier1_advertise_proxies(&clock, Arc::new(StdThreadAsyncComputationSpawnerForTest))
+                .await
+        })
+        .await
     }
 
     pub async fn disconnect(&self, peer_id: &PeerId) {
@@ -552,7 +557,7 @@ impl ActorHandler {
     pub async fn tier1_connect(&self, clock: &time::Clock) {
         let clock = clock.clone();
         self.with_state(move |s| async move {
-            s.tier1_connect(&clock).await;
+            s.tier1_connect(&clock, Arc::new(StdThreadAsyncComputationSpawnerForTest)).await;
         })
         .await;
     }
@@ -657,6 +662,7 @@ pub(crate) async fn start(
                 shards_manager_sender,
                 state_witness_sender.break_apart().into_multi_sender(),
                 genesis_id,
+                Arc::new(StdThreadAsyncComputationSpawnerForTest),
             )
             .unwrap()
         }
