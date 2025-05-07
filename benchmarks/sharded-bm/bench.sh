@@ -680,7 +680,7 @@ get_traces() {
     
     local cur_time="${2:-$(date +%s)}"
     local lag_secs=10
-    local len_secs=10
+    local len_secs=20
     local output_dir=${1:-.}
     
     local start_time=$(bc <<< "$cur_time - $lag_secs - $len_secs")
