@@ -308,6 +308,20 @@ impl RocksDB {
     )]
     fn build_write_batch(&self, transaction: DBTransaction) -> io::Result<WriteBatch> {
         let mut batch = WriteBatch::default();
+
+        // First scan to check if there's any modification to BlockMisc column
+        let has_block_misc_modification = transaction.ops.iter().any(|op| {
+            matches!(
+                op,
+                DBOp::Set { col: DBCol::BlockMisc, .. }
+                    | DBOp::Insert { col: DBCol::BlockMisc, .. }
+                    | DBOp::UpdateRefcount { col: DBCol::BlockMisc, .. }
+                    | DBOp::Delete { col: DBCol::BlockMisc, .. }
+                    | DBOp::DeleteAll { col: DBCol::BlockMisc }
+                    | DBOp::DeleteRange { col: DBCol::BlockMisc, .. }
+            )
+        });
+
         for op in transaction.ops {
             match op {
                 DBOp::Set { col, key, value } => {
@@ -322,7 +336,8 @@ impl RocksDB {
                     batch.put_cf(self.cf_handle(col)?, key, value);
                 }
                 DBOp::UpdateRefcount { col, key, value } => {
-                    if value.len() > 4000 {
+                    if !has_block_misc_modification || value.len() > 4000 {
+                        // lol
                         batch.merge_cf(self.cf_handle(col)?, key, value);
                     }
                 }
