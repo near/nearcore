@@ -1045,6 +1045,29 @@ impl ShardChunk {
             Self::V2(chunk) => chunk.header.compute_hash(),
         }
     }
+
+    pub fn into_acred_shard_chunk(self) -> ArcedShardChunk {
+        let chunk_hash = self.chunk_hash();
+        let (transactions, prev_outgoing_receipts, header) = match self {
+            Self::V1(chunk) => (
+                chunk.transactions,
+                chunk.prev_outgoing_receipts,
+                ShardChunkHeader::V1(chunk.header),
+            ),
+            Self::V2(chunk) => {
+                let header = match chunk.header {
+                    ShardChunkHeader::V1(header) => ShardChunkHeader::V1(header),
+                    ShardChunkHeader::V2(header) => ShardChunkHeader::V2(header),
+                    ShardChunkHeader::V3(header) => ShardChunkHeader::V3(header),
+                };
+                (chunk.transactions, chunk.prev_outgoing_receipts, header)
+            }
+        };
+        let transactions = transactions.into_iter().map(Arc::new).collect();
+        let prev_outgoing_receipts = prev_outgoing_receipts.into_iter().map(Arc::new).collect();
+
+        ArcedShardChunk { chunk_hash, header, prev_outgoing_receipts, transactions }
+    }
 }
 
 #[derive(
@@ -1345,4 +1368,12 @@ impl ShardChunkWithEncoding {
     pub fn into_parts(self) -> (ShardChunk, EncodedShardChunk) {
         (self.shard_chunk, self.bytes)
     }
+}
+
+#[derive(BorshDeserialize, BorshSerialize)]
+pub struct ArcedShardChunk {
+    pub chunk_hash: ChunkHash,
+    pub header: ShardChunkHeader,
+    pub transactions: Vec<Arc<SignedTransaction>>,
+    pub prev_outgoing_receipts: Vec<Arc<Receipt>>,
 }

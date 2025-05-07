@@ -1845,7 +1845,10 @@ impl<'a> ChainStoreUpdate<'a> {
                     );
                 }
 
-                store_update.insert_ser(DBCol::Chunks, chunk_hash.as_ref(), chunk)?;
+                let chunk = chunk.as_ref().clone();
+                let arced_chunk = chunk.into_acred_shard_chunk();
+
+                store_update.insert_ser(DBCol::Chunks, chunk_hash.as_ref(), &arced_chunk)?;
             }
             for (height, hash_set) in chunk_hashes_by_height {
                 store_update.set_ser(
