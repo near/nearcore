@@ -7,7 +7,7 @@ This short document will tell you about what optimistic block is and why it was 
 
 ### Why 2× Latency Existed Before v77 — and How the Idea of Optimistic Block Emerged
 
-// TODO: add image
+![image](https://raw.githubusercontent.com/near/nearcore/7f0299041e3c3c9241a8a300900ec9a8d07fd7c1/docs/images/optimistic_block_before.png)
 
 
 In this diagram: yellow = data; rectangle = process. Arrow = dependency on a process; dashed arrow = production and dependency on data.
@@ -21,7 +21,7 @@ This is the critical path today between two consecutive blocks. The two red bloc
 
 ### Introduction to Optimistic Block
 
-// TODO: add image
+![image](https://raw.githubusercontent.com/near/nearcore/7f0299041e3c3c9241a8a300900ec9a8d07fd7c1/docs/images/optimistic_block_after.png)
 
 Optimistic Block accelerates chunk execution by speculatively applying chunks before the actual block is finalized. Here's how it works:
 
