@@ -123,7 +123,7 @@ class SimpleTransferBetweenAccounts:
 
     def deploy_contracts(self):
         """Deploys test contract for each test account.
-        
+
         Waits for the deploy-contract transactions to complete."""
         assert len(self.account_keys
                   ) > 0, "Accounts not initialized, call create_accounts first."
@@ -205,7 +205,7 @@ class SimpleTransferBetweenAccounts:
                      assert_all_accepted: bool,
                      tx_list: list[(AccountId, TxHash)] = None):
         """Waits for the transactions to be accepted.
-        
+
         If assert_all_accepted is True, it will assert that all transactions were accepted.
         Otherwise, it asserts that at least 1 of the transactions were accepted."""
         if tx_list is None:
@@ -242,6 +242,8 @@ class SimpleTransferBetweenAccounts:
 
         return True
 
-    def wait_for_blocks(self, num_blocks):
-        height, _ = utils.wait_for_blocks(self.rpc_node, count=num_blocks)
+    def wait_for_blocks(self, num_blocks, timeout=None):
+        height, _ = utils.wait_for_blocks(self.rpc_node,
+                                          count=num_blocks,
+                                          timeout=timeout)
         return height
