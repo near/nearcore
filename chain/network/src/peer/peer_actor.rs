@@ -992,48 +992,54 @@ impl PeerActor {
         conn: &connection::Connection,
         msg: PeerMessage,
     ) {
-        let span =
-            tracing::debug_span!(target: "client", "receive_message", variant = msg.msg_variant());
-        match &msg {
-            PeerMessage::Routed(rtd) => {
-                span.record("num_hops", rtd.num_hops);
-                span.record("author", format!("{}", rtd.msg.author));
-                span.record("created_at", format!("{:?}", rtd.created_at));
-                span.record("ttl", rtd.msg.ttl);
-                match &rtd.msg.body {
-                    RoutedMessageBody::VersionedChunkEndorsement(ce) => {
-                        let height = ce.chunk_production_key().height_created;
-                        let shard_id = ce.chunk_production_key().shard_id;
-                        let validator = ce.account_id();
-                        span.record("height", height);
-                        span.record("shard_id", format!("{}", shard_id));
-                        span.record("validator", format!("{}", validator));
-                    }
-                    RoutedMessageBody::PartialEncodedStateWitness(witness) => {
-                        let height_created = witness.chunk_production_key().height_created;
-                        let shard_id = witness.chunk_production_key().shard_id;
-                        let part_ord = witness.part_ord();
-                        let part_size = witness.part_size();
-                        span.record("height_created", height_created);
-                        span.record("shard_id", format!("{}", shard_id));
-                        span.record("part_ord", part_ord);
-                        span.record("part_size", part_size);
-                    }
-                    RoutedMessageBody::PartialEncodedStateWitnessForward(witness) => {
-                        let height_created = witness.chunk_production_key().height_created;
-                        let shard_id = witness.chunk_production_key().shard_id;
-                        let part_ord = witness.part_ord();
-                        let part_size = witness.part_size();
-                        span.record("height_created", height_created);
-                        span.record("shard_id", format!("{}", shard_id));
-                        span.record("part_ord", part_ord);
-                        span.record("part_size", part_size);
-                    }
-                    _ => {}
+        let span = match &msg {
+            PeerMessage::Routed(rtd) => match &rtd.msg.body {
+                RoutedMessageBody::VersionedChunkEndorsement(ce) => {
+                    tracing::debug_span!(target: "client", "receive_message",
+                        variant = msg.msg_variant(),
+                        num_hops = rtd.num_hops,
+                        author = ?rtd.msg.author,
+                        created_at = ?rtd.created_at,
+                        ttl = rtd.msg.ttl,
+                        height = ce.chunk_production_key().height_created,
+                        shard_id = ?ce.chunk_production_key().shard_id,
+                        validator = ?ce.account_id()
+                    )
                 }
+                RoutedMessageBody::PartialEncodedStateWitness(witness) => {
+                    tracing::debug_span!(target: "client", "receive_message",
+                        variant = msg.msg_variant(),
+                        num_hops = rtd.num_hops,
+                        author = ?rtd.msg.author,
+                        created_at = ?rtd.created_at,
+                        ttl = rtd.msg.ttl,
+                        height_created = witness.chunk_production_key().height_created,
+                        shard_id = ?witness.chunk_production_key().shard_id,
+                        part_ord = witness.part_ord(),
+                        part_size = witness.part_size(),
+                    )
+                }
+                RoutedMessageBody::PartialEncodedStateWitnessForward(witness) => {
+                    tracing::debug_span!(target: "client", "receive_message",
+                        variant = msg.msg_variant(),
+                        num_hops = rtd.num_hops,
+                        author = ?rtd.msg.author,
+                        created_at = ?rtd.created_at,
+                        ttl = rtd.msg.ttl,
+                        height_created = witness.chunk_production_key().height_created,
+                        shard_id = ?witness.chunk_production_key().shard_id,
+                        part_ord = witness.part_ord(),
+                        part_size = witness.part_size(),
+                    )
+                }
+                _ => {
+                    tracing::debug_span!(target: "client", "receive_message", variant = msg.msg_variant())
+                }
+            },
+            _ => {
+                tracing::debug_span!(target: "client", "receive_message", variant = msg.msg_variant())
             }
-            _ => {}
-        }
+        };
         let _entered_span = span.entered();
         #[cfg(test)]
         let message_processed_event = {
