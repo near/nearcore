@@ -1706,14 +1706,6 @@ impl actix::Handler<VerifiedRouted> for PeerActor {
     type Result = ();
 
     fn handle(&mut self, msg: VerifiedRouted, ctx: &mut Self::Context) {
-        let _span = tracing::debug_span!(
-            target: "network",
-            "handle",
-            handler = "bytes",
-            actor = "PeerActor",
-            peer = %self.peer_info)
-        .entered();
-
         let (mut msg, conn) = match msg {
             VerifiedRouted::Valid(msg, conn) => (msg, conn),
             VerifiedRouted::Invalid => {
