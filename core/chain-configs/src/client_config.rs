@@ -719,7 +719,7 @@ impl ClientConfig {
             orphan_state_witness_pool_size: default_orphan_state_witness_pool_size(),
             orphan_state_witness_max_size: default_orphan_state_witness_max_size(),
             save_latest_witnesses: false,
-            transaction_request_handler_threads: 4,
+            transaction_request_handler_threads: 8,
         }
     }
 }
