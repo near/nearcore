@@ -697,12 +697,12 @@ get_traces() {
     local trace_file="${output_dir}/trace_${start_time}.json"
     local profile_file="${output_dir}/profile_${start_time}.json"
     
-    curl -X POST http://${TRACING_SERVER_EXTERNAL_IP}:8080/raw_trace --compressed \
+    curl -X POST http://${TRACING_SERVER_EXTERNAL_IP}:8080/raw_trace \
         -H 'Content-Type: application/json' \
         -d "{\"start_timestamp_unix_ms\": $start_time, \"end_timestamp_unix_ms\": $end_time, \"filter\": {\"nodes\": [],\"threads\": []}}" \
         -o "${trace_file}"
     
-    curl -X POST http://${TRACING_SERVER_EXTERNAL_IP}:8080/profile --compressed \
+    curl -X POST http://${TRACING_SERVER_EXTERNAL_IP}:8080/profile \
         -H 'Content-Type: application/json' \
         -d "{\"start_timestamp_unix_ms\": $start_time, \"end_timestamp_unix_ms\": $end_time, \"filter\": {\"nodes\": [],\"threads\": []}}" \
         -o "${profile_file}"

@@ -334,10 +334,10 @@ fn test_process_optimistic_block() {
     let signer = env.clients[0].validator_signer.get();
     let me = signer.as_ref().map(|signer| signer.validator_id().clone());
     env.clients[0].start_process_block(block.into(), Provenance::NONE, None, &signer).unwrap();
-    let optimistic_block_height = optimistic_block.inner.block_height;
+    let optimistic_block_hash = *optimistic_block.hash();
     env.clients[0].chain.preprocess_optimistic_block(optimistic_block, &me, None);
     assert!(
-        !is_optimistic_block_in_processing(&env.clients[0].chain, optimistic_block_height),
+        !is_optimistic_block_in_processing(&env.clients[0].chain, &optimistic_block_hash),
         "Optimistic block should not be in processing because block processing already started"
     );
     // TODO(#10584): Process chunks with optimistic block
