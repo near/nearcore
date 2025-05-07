@@ -8,5 +8,6 @@
             "secs": 1,
             "nanos": 300000000
         }
-    }
+    },
+    "transaction_request_handler_threads": 8
 }

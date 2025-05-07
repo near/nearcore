@@ -420,7 +420,7 @@ impl Default for Config {
             orphan_state_witness_max_size: default_orphan_state_witness_max_size(),
             max_loaded_contracts: 256,
             save_latest_witnesses: false,
-            transaction_request_handler_threads: 4,
+            transaction_request_handler_threads: 16,
         }
     }
 }
