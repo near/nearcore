@@ -267,6 +267,12 @@ impl TrieUpdate {
             AccessOptions::DEFAULT,
         )?;
         let contract_updates = contract_storage.finalize();
+        tracing::warn!(
+            target: "store::trie",
+            "get_optimized_ref total latency: {}ms, retrieve_raw_node total latency: {}ms",
+            trie.get_optimized_ref_total_latency_ns() as f64 / 1_000_000.0,
+            trie.retrieve_raw_node_total_latency_ns() as f64 / 1_000_000.0
+        );
         Ok(TrieUpdateResult { trie, trie_changes, state_changes, contract_updates })
     }
 

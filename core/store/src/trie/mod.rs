@@ -39,7 +39,9 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt::Write;
 use std::hash::Hash;
 use std::str;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, RwLock, RwLockReadGuard};
+use std::time::Instant;
 pub use trie_recording::{SubtreeSize, TrieRecorder, TrieRecorderStats};
 use trie_storage_update::{
     TrieStorageNodeWithSize, TrieStorageUpdate, UpdatedTrieStorageNodeWithSize,
@@ -271,13 +273,17 @@ pub struct Trie {
     // FIXME(nagisa): lets get rid of this field somehow? it seems to be utilized mostly for/in
     // tests.
     use_access_tracker: bool,
+    /// Accumulated latency of calls to get_optimized_ref in nanoseconds
+    get_optimized_ref_latency_ns: AtomicU64,
+    /// Accumulated latency of calls to retrieve_raw_node in nanoseconds
+    retrieve_raw_node_latency_ns: AtomicU64,
 }
 
 /// Trait for reading data from a trie.
 pub trait TrieAccess {
     /// Retrieves value with given key from the trie.
     ///
-    /// This doesn’t allow to read data from different chunks (be it from
+    /// This doesn't allow to read data from different chunks (be it from
     /// different shards or different blocks).  That is, the shard and state
     /// root are already known by the object rather than being passed as
     /// argument.
@@ -609,6 +615,8 @@ impl Trie {
             use_access_tracker: use_trie_accounting_cache,
             flat_storage_chunk_view,
             recorder: None,
+            get_optimized_ref_latency_ns: AtomicU64::new(0),
+            retrieve_raw_node_latency_ns: AtomicU64::new(0),
         }
     }
 
@@ -1142,15 +1150,23 @@ impl Trie {
         use_accounting_cache: bool,
         operation_options: AccessOptions,
     ) -> Result<Option<(Arc<[u8]>, RawTrieNodeWithSize)>, StorageError> {
-        if hash == &Self::EMPTY_ROOT {
-            return Ok(None);
-        }
-        let bytes =
-            self.internal_retrieve_trie_node(hash, use_accounting_cache, operation_options)?;
-        let node = RawTrieNodeWithSize::try_from_slice(&bytes).map_err(|err| {
-            StorageError::StorageInconsistentState(format!("Failed to decode node {hash}: {err}"))
-        })?;
-        Ok(Some((bytes, node)))
+        let start_time = Instant::now();
+        let result = {
+            if hash == &Self::EMPTY_ROOT {
+                return Ok(None);
+            }
+            let bytes =
+                self.internal_retrieve_trie_node(hash, use_accounting_cache, operation_options)?;
+            let node = RawTrieNodeWithSize::try_from_slice(&bytes).map_err(|err| {
+                StorageError::StorageInconsistentState(format!(
+                    "Failed to decode node {hash}: {err}"
+                ))
+            })?;
+            Ok(Some((bytes, node)))
+        };
+        let elapsed_ns = start_time.elapsed().as_nanos() as u64;
+        self.retrieve_raw_node_latency_ns.fetch_add(elapsed_ns, Ordering::Relaxed);
+        result
     }
 
     // Similar to retrieve_raw_node but handles the case where there is a Value (and not a Node) in the database.
@@ -1492,18 +1508,31 @@ impl Trie {
         mode: KeyLookupMode,
         opts: AccessOptions,
     ) -> Result<Option<OptimizedValueRef>, StorageError> {
-        let use_trie_accounting_cache = mode == KeyLookupMode::MemOrTrie || self.use_access_tracker;
-        if self.memtries.is_some() {
-            self.lookup_from_memory(key, use_trie_accounting_cache, opts, |v| {
-                v.to_optimized_value_ref()
-            })
-        } else if mode == KeyLookupMode::MemOrFlatOrTrie && self.flat_storage_chunk_view.is_some() {
-            self.lookup_from_flat_storage(key, opts)
-        } else {
-            Ok(self
-                .lookup_from_state_column(NibbleSlice::new(key), use_trie_accounting_cache, opts)?
-                .map(OptimizedValueRef::Ref))
-        }
+        let start_time = Instant::now();
+        let result = {
+            let use_trie_accounting_cache =
+                mode == KeyLookupMode::MemOrTrie || self.use_access_tracker;
+            if self.memtries.is_some() {
+                self.lookup_from_memory(key, use_trie_accounting_cache, opts, |v| {
+                    v.to_optimized_value_ref()
+                })
+            } else if mode == KeyLookupMode::MemOrFlatOrTrie
+                && self.flat_storage_chunk_view.is_some()
+            {
+                self.lookup_from_flat_storage(key, opts)
+            } else {
+                Ok(self
+                    .lookup_from_state_column(
+                        NibbleSlice::new(key),
+                        use_trie_accounting_cache,
+                        opts,
+                    )?
+                    .map(OptimizedValueRef::Ref))
+            }
+        };
+        let elapsed_ns = start_time.elapsed().as_nanos() as u64;
+        self.get_optimized_ref_latency_ns.fetch_add(elapsed_ns, Ordering::Relaxed);
+        result
     }
 
     /// Dereferences an `OptimizedValueRef` into the full value, and properly
@@ -1763,6 +1792,16 @@ impl Trie {
         }
         let trie_changes = trie_update.flatten_nodes(&self.root, root_node.0)?;
         Ok(trie_changes)
+    }
+
+    /// Returns the total latency of all get_optimized_ref calls in nanoseconds
+    pub fn get_optimized_ref_total_latency_ns(&self) -> u64 {
+        self.get_optimized_ref_latency_ns.load(Ordering::Relaxed)
+    }
+
+    /// Returns the total latency of all retrieve_raw_node calls in nanoseconds
+    pub fn retrieve_raw_node_total_latency_ns(&self) -> u64 {
+        self.retrieve_raw_node_latency_ns.load(Ordering::Relaxed)
     }
 }
 
@@ -2179,7 +2218,7 @@ mod tests {
                 let mut iterator = trie.disk_iter().unwrap();
                 iterator.seek_prefix(&query).unwrap();
                 if let Some(Ok((key, _))) = iterator.next() {
-                    assert!(key.starts_with(&query), "‘{key:x?}’ does not start with ‘{query:x?}’");
+                    assert!(key.starts_with(&query), "'{key:x?}’ does not start with '{query:x?}’");
                 }
             }
         }
