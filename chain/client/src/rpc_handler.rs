@@ -46,8 +46,7 @@ impl Handler<ProcessTxRequest> for RpcHandler {
 impl Handler<ChunkEndorsementMessage> for RpcHandler {
     #[perf]
     fn handle(&mut self, msg: ChunkEndorsementMessage) {
-        let mut tracker = self.chunk_endorsement_tracker.lock();
-        if let Err(err) = tracker.process_chunk_endorsement(msg.0) {
+        if let Err(err) = self.chunk_endorsement_tracker.process_chunk_endorsement(msg.0) {
             tracing::error!(target: "client", ?err, "Error processing chunk endorsement");
         }
     }
@@ -58,7 +57,7 @@ impl messaging::Actor for RpcHandler {}
 pub fn spawn_rpc_handler_actor(
     config: RpcHandlerConfig,
     tx_pool: Arc<Mutex<ShardedTransactionPool>>,
-    chunk_endorsement_tracker: Arc<Mutex<ChunkEndorsementTracker>>,
+    chunk_endorsement_tracker: Arc<ChunkEndorsementTracker>,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
     shard_tracker: ShardTracker,
     validator_signer: MutableValidatorSigner,
@@ -95,7 +94,7 @@ pub struct RpcHandler {
     config: RpcHandlerConfig,
 
     tx_pool: Arc<Mutex<ShardedTransactionPool>>,
-    chunk_endorsement_tracker: Arc<Mutex<ChunkEndorsementTracker>>,
+    chunk_endorsement_tracker: Arc<ChunkEndorsementTracker>,
 
     chain_store: ChainStoreAdapter,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
@@ -109,7 +108,7 @@ impl RpcHandler {
     pub fn new(
         config: RpcHandlerConfig,
         tx_pool: Arc<Mutex<ShardedTransactionPool>>,
-        chunk_endorsement_tracker: Arc<Mutex<ChunkEndorsementTracker>>,
+        chunk_endorsement_tracker: Arc<ChunkEndorsementTracker>,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
         shard_tracker: ShardTracker,
         validator_signer: MutableValidatorSigner,
