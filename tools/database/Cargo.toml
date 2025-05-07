@@ -16,6 +16,7 @@ anyhow.workspace = true
 borsh.workspace = true
 clap.workspace = true
 indicatif.workspace = true
+parking_lot.workspace = true
 rand.workspace = true
 rayon.workspace = true
 rocksdb.workspace = true
@@ -36,12 +37,12 @@ near-async.workspace = true
 
 [features]
 nightly = [
-  "near-async/nightly",
-  "near-chain-configs/nightly",
-  "near-chain/nightly",
-  "near-epoch-manager/nightly",
-  "near-o11y/nightly",
-  "near-primitives/nightly",
-  "near-store/nightly",
-  "nearcore/nightly",
+    "near-async/nightly",
+    "near-chain-configs/nightly",
+    "near-chain/nightly",
+    "near-epoch-manager/nightly",
+    "near-o11y/nightly",
+    "near-primitives/nightly",
+    "near-store/nightly",
+    "nearcore/nightly",
 ]

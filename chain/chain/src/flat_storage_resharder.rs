@@ -3,7 +3,7 @@
 //! See [FlatStorageResharder] for more details about how the resharding takes place.
 
 use std::num::NonZero;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use near_chain_configs::{MutableConfigValue, ReshardingConfig, ReshardingHandle};
 use near_chain_primitives::Error;
@@ -40,6 +40,7 @@ use near_store::flat::{
     FlatStorageReshardingStatus, FlatStorageStatus, ParentSplitParameters,
 };
 use near_store::{ShardUId, StorageError};
+use parking_lot::Mutex;
 use std::fmt::{Debug, Formatter};
 use std::iter;
 
@@ -263,12 +264,12 @@ impl FlatStorageResharder {
     }
 
     fn set_resharding_event(&self, event: FlatStorageReshardingEventStatus) {
-        *self.resharding_event.lock().unwrap() = Some(event);
+        *self.resharding_event.lock() = Some(event);
     }
 
     /// Returns the current in-progress resharding event, if any.
     pub fn resharding_event(&self) -> Option<FlatStorageReshardingEventStatus> {
-        self.resharding_event.lock().unwrap().clone()
+        self.resharding_event.lock().clone()
     }
 
     /// Schedules a task to split a shard.
@@ -371,7 +372,7 @@ impl FlatStorageResharder {
         // splitting a shard. All these checks must happen while the resharding event is under
         // lock, to prevent multiple parallel resharding attempts (due to forks) to interfere
         // with each other .
-        let mut event_lock_guard = self.resharding_event.lock().unwrap();
+        let mut event_lock_guard = self.resharding_event.lock();
         let Some(event) = event_lock_guard.as_mut() else {
             info!(target: "resharding", "flat storage shard split task cancelled: no resharding event");
             return SplitShardSchedulingStatus::Cancelled;
@@ -982,7 +983,7 @@ impl FlatStorageResharder {
     }
 
     fn remove_resharding_event(&self) {
-        *self.resharding_event.lock().unwrap() = None;
+        *self.resharding_event.lock() = None;
     }
 
     #[cfg(feature = "test_features")]
@@ -1372,13 +1373,13 @@ mod tests {
 
     impl CanSend<FlatStorageSplitShardRequest> for SimpleSender {
         fn send(&self, msg: FlatStorageSplitShardRequest) {
-            msg.resharder.split_shard_task(&self.chain_store.lock().unwrap());
+            msg.resharder.split_shard_task(&self.chain_store.lock());
         }
     }
 
     impl CanSend<FlatStorageShardCatchupRequest> for SimpleSender {
         fn send(&self, msg: FlatStorageShardCatchupRequest) {
-            msg.resharder.shard_catchup_task(msg.shard_uid, &self.chain_store.lock().unwrap());
+            msg.resharder.shard_catchup_task(msg.shard_uid, &self.chain_store.lock());
         }
     }
 
@@ -1408,49 +1409,48 @@ mod tests {
 
     impl DelayedSender {
         fn call_split_shard_task(&self) -> FlatStorageReshardingTaskResult {
-            let request = self.split_shard_request.lock().unwrap();
-            request.as_ref().unwrap().resharder.split_shard_task(&self.chain_store.lock().unwrap())
+            let request = self.split_shard_request.lock();
+            request.as_ref().unwrap().resharder.split_shard_task(&self.chain_store.lock())
         }
 
         fn call_shard_catchup_tasks(&self) -> Vec<FlatStorageReshardingTaskResult> {
             self.shard_catchup_requests
                 .lock()
-                .unwrap()
                 .iter()
                 .map(|request| {
                     request
                         .resharder
-                        .shard_catchup_task(request.shard_uid, &self.chain_store.lock().unwrap())
+                        .shard_catchup_task(request.shard_uid, &self.chain_store.lock())
                 })
                 .collect()
         }
 
         fn clear(&self) {
-            *self.split_shard_request.lock().unwrap() = None;
-            self.shard_catchup_requests.lock().unwrap().clear();
-            self.memtrie_reload_requests.lock().unwrap().clear();
+            *self.split_shard_request.lock() = None;
+            self.shard_catchup_requests.lock().clear();
+            self.memtrie_reload_requests.lock().clear();
         }
 
         fn memtrie_reload_requests(&self) -> Vec<ShardUId> {
-            self.memtrie_reload_requests.lock().unwrap().clone()
+            self.memtrie_reload_requests.lock().clone()
         }
     }
 
     impl CanSend<FlatStorageSplitShardRequest> for DelayedSender {
         fn send(&self, msg: FlatStorageSplitShardRequest) {
-            *self.split_shard_request.lock().unwrap() = Some(msg);
+            *self.split_shard_request.lock() = Some(msg);
         }
     }
 
     impl CanSend<FlatStorageShardCatchupRequest> for DelayedSender {
         fn send(&self, msg: FlatStorageShardCatchupRequest) {
-            self.shard_catchup_requests.lock().unwrap().push(msg);
+            self.shard_catchup_requests.lock().push(msg);
         }
     }
 
     impl CanSend<MemtrieReloadRequest> for DelayedSender {
         fn send(&self, msg: MemtrieReloadRequest) {
-            self.memtrie_reload_requests.lock().unwrap().push(msg.shard_uid);
+            self.memtrie_reload_requests.lock().push(msg.shard_uid);
         }
     }
 
@@ -1458,7 +1458,7 @@ mod tests {
         /// Retrieves parent shard UIds and the split shard parameters, only if a resharding event
         /// is in progress and of type `Split`.
         fn get_parent_shard_and_split_params(&self) -> Option<(ShardUId, ParentSplitParameters)> {
-            let event = self.resharding_event.lock().unwrap();
+            let event = self.resharding_event.lock();
             match event.as_ref() {
                 Some(FlatStorageReshardingEventStatus::SplitShard(
                     parent_shard,
@@ -1656,7 +1656,6 @@ mod tests {
         resharder
             .resharding_event
             .lock()
-            .unwrap()
             .as_mut()
             .map(|event| event.set_execution_status(TaskExecutionStatus::Started));
 

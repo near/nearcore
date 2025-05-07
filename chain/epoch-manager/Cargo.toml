@@ -16,6 +16,7 @@ borsh.workspace = true
 chrono = { workspace = true, optional = true }
 num-bigint.workspace = true
 num-rational.workspace = true
+parking_lot.workspace = true
 primitive-types.workspace = true
 rand.workspace = true
 rand_hc.workspace = true
@@ -42,14 +43,14 @@ near-chain-configs = { workspace = true, features = ["test_genesis"] }
 default = ["near-primitives/rand"]
 expensive_tests = []
 nightly = [
-  "near-chain-configs/nightly",
-  "near-o11y/nightly",
-  "near-primitives/nightly",
-  "near-store/nightly",
+    "near-chain-configs/nightly",
+    "near-o11y/nightly",
+    "near-primitives/nightly",
+    "near-store/nightly",
 ]
 protocol_schema = [
-  "near-schema-checker-lib/protocol_schema",
-  "near-crypto/protocol_schema",
-  "near-primitives/protocol_schema",
-  "near-store/protocol_schema",
+    "near-schema-checker-lib/protocol_schema",
+    "near-crypto/protocol_schema",
+    "near-primitives/protocol_schema",
+    "near-store/protocol_schema",
 ]

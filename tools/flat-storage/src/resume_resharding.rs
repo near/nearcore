@@ -16,9 +16,10 @@ use near_store::adapter::StoreAdapter;
 use near_store::flat::FlatStorageReshardingStatus;
 use near_store::{ShardUId, StoreOpener};
 use nearcore::{NearConfig, NightshadeRuntime, NightshadeRuntimeExt};
+use parking_lot::Mutex;
 use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use tracing::info;
 
 pub(crate) fn resume_resharding(
@@ -124,10 +125,10 @@ impl SerialExecutor {
     ///
     /// Returns false if there are no tasks.
     fn run(&self) -> anyhow::Result<bool> {
-        let task = self.tasks.lock().unwrap().pop_front();
+        let task = self.tasks.lock().pop_front();
         match task {
             Some(task) => {
-                match task(&self.chain_store.lock().unwrap()) {
+                match task(&self.chain_store.lock()) {
                     FlatStorageReshardingTaskResult::Successful { num_batches_done } => {
                         info!(target: "resharding", num_batches_done, "task completed");
                     }
@@ -139,7 +140,7 @@ impl SerialExecutor {
                     }
                     FlatStorageReshardingTaskResult::Postponed => {
                         info!(target: "resharding", "task postponed - retrying");
-                        self.tasks.lock().unwrap().push_back(task);
+                        self.tasks.lock().push_back(task);
                     }
                 }
                 Ok(true)
@@ -153,7 +154,7 @@ impl CanSend<FlatStorageSplitShardRequest> for SerialExecutor {
     fn send(&self, msg: FlatStorageSplitShardRequest) {
         let task =
             Box::new(move |chain_store: &ChainStore| msg.resharder.split_shard_task(chain_store));
-        self.tasks.lock().unwrap().push_back(task);
+        self.tasks.lock().push_back(task);
     }
 }
 
@@ -162,7 +163,7 @@ impl CanSend<FlatStorageShardCatchupRequest> for SerialExecutor {
         let task = Box::new(move |chain_store: &ChainStore| {
             msg.resharder.shard_catchup_task(msg.shard_uid, chain_store)
         });
-        self.tasks.lock().unwrap().push_back(task);
+        self.tasks.lock().push_back(task);
     }
 }
 

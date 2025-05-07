@@ -25,9 +25,10 @@ use near_primitives::types::{BlockHeight, EpochId, ShardId};
 use near_primitives::validator_signer::ValidatorSigner;
 use near_store::ShardUId;
 use near_store::adapter::chain_store::ChainStoreAdapter;
+use parking_lot::Mutex;
 use reed_solomon_erasure::galois_8::ReedSolomon;
 use std::num::NonZeroUsize;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use time::ext::InstantExt as _;
 use tracing::{debug, instrument};
 
@@ -358,7 +359,7 @@ impl ChunkProducer {
         chain_validate: &dyn Fn(&SignedTransaction) -> bool,
     ) -> Result<PreparedTransactions, Error> {
         let shard_id = shard_uid.shard_id();
-        let mut pool_guard = self.sharded_tx_pool.lock().unwrap();
+        let mut pool_guard = self.sharded_tx_pool.lock();
         let prepared_transactions = if let Some(mut iter) = pool_guard.get_pool_iterator(shard_uid)
         {
             let storage_config = RuntimeStorageConfig {

@@ -54,7 +54,7 @@ impl RuntimeError {
     /// assert_eq!("unexpected error", trap.message());
     /// ```
     pub fn new<I: Into<String>>(message: I) -> Self {
-        let info = FRAME_INFO.read().unwrap();
+        let info = FRAME_INFO.read();
         let msg = message.into();
         Self::new_with_trace(
             &info,
@@ -66,7 +66,7 @@ impl RuntimeError {
 
     /// Create a new RuntimeError from a Trap.
     pub fn from_trap(trap: Trap) -> Self {
-        let info = FRAME_INFO.read().unwrap();
+        let info = FRAME_INFO.read();
         match trap {
             // A user error
             Trap::User(error) => {

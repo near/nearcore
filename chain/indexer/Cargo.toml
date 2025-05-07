@@ -15,6 +15,7 @@ workspace = true
 actix.workspace = true
 anyhow.workspace = true
 futures.workspace = true
+parking_lot.workspace = true
 rocksdb.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -38,15 +39,15 @@ node-runtime.workspace = true
 [features]
 calimero_zero_storage = ["near-primitives/calimero_zero_storage"]
 nightly = [
-  "near-chain-configs/nightly",
-  "near-client/nightly",
-  "near-dyn-configs/nightly",
-  "near-epoch-manager/nightly",
-  "near-indexer-primitives/nightly",
-  "near-o11y/nightly",
-  "near-parameters/nightly",
-  "near-primitives/nightly",
-  "near-store/nightly",
-  "nearcore/nightly",
-  "node-runtime/nightly",
+    "near-chain-configs/nightly",
+    "near-client/nightly",
+    "near-dyn-configs/nightly",
+    "near-epoch-manager/nightly",
+    "near-indexer-primitives/nightly",
+    "near-o11y/nightly",
+    "near-parameters/nightly",
+    "near-primitives/nightly",
+    "near-store/nightly",
+    "nearcore/nightly",
+    "node-runtime/nightly",
 ]

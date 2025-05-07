@@ -1,5 +1,5 @@
+use parking_lot::Mutex;
 use std::sync::LazyLock;
-use std::sync::Mutex;
 
 pub struct ShutdownableThread {
     pub join: Option<std::thread::JoinHandle<()>>,
@@ -73,7 +73,7 @@ pub fn block_on_interruptible<F: std::future::Future>(
 
 pub fn run_actix<F: std::future::Future>(f: F) {
     {
-        let mut value = ACTIX_INSTANCES_COUNTER.lock().unwrap();
+        let mut value = ACTIX_INSTANCES_COUNTER.lock();
         *value += 1;
     }
 
@@ -82,7 +82,7 @@ pub fn run_actix<F: std::future::Future>(f: F) {
     sys.run().unwrap();
 
     {
-        let mut value = ACTIX_INSTANCES_COUNTER.lock().unwrap();
+        let mut value = ACTIX_INSTANCES_COUNTER.lock();
         *value -= 1;
         if *value == 0 {
             // If we're the last instance - make sure to wait for all RocksDB handles to be dropped.

@@ -23,6 +23,7 @@ opentelemetry.workspace = true
 opentelemetry_sdk.workspace = true
 opentelemetry-otlp.workspace = true
 opentelemetry-semantic-conventions.workspace = true
+parking_lot.workspace = true
 prometheus.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -41,10 +42,10 @@ smartstring.workspace = true
 
 [features]
 nightly = [
-  "near-fmt/nightly",
-  "near-primitives-core/nightly",
+    "near-fmt/nightly",
+    "near-primitives-core/nightly",
 ]
-io_trace = [ "near-fmt", "strum" ]
+io_trace = ["near-fmt", "strum"]
 sandbox = []
 
 [[bench]]

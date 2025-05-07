@@ -30,6 +30,7 @@ indicatif.workspace = true
 itertools.workspace = true
 num-rational.workspace = true
 object_store.workspace = true
+parking_lot.workspace = true
 rand.workspace = true
 rayon.workspace = true
 regex.workspace = true
@@ -90,56 +91,56 @@ harness = false
 default = ["json_rpc", "rosetta_rpc"]
 
 performance_stats = [
-  "near-performance-metrics/performance_stats",
+    "near-performance-metrics/performance_stats",
 ]
 c_memory_stats = ["near-performance-metrics/c_memory_stats"]
 test_features = [
-  "near-client/test_features",
-  "near-network/test_features",
-  "near-store/test_features",
-  "near-jsonrpc/test_features",
-  "near-primitives/test_features",
-  "near-vm-runner/test_features",
+    "near-client/test_features",
+    "near-network/test_features",
+    "near-store/test_features",
+    "near-jsonrpc/test_features",
+    "near-primitives/test_features",
+    "near-vm-runner/test_features",
 ]
 expensive_tests = [
-  "near-client/expensive_tests",
-  "near-epoch-manager/expensive_tests",
-  "near-chain/expensive_tests",
+    "near-client/expensive_tests",
+    "near-epoch-manager/expensive_tests",
+    "near-chain/expensive_tests",
 ]
 rosetta_rpc = ["near-rosetta-rpc"]
 json_rpc = ["near-jsonrpc", "near-jsonrpc-primitives"]
 
 nightly = [
-  "near-actix-test-utils/nightly",
-  "near-async/nightly",
-  "near-chain-configs/nightly",
-  "near-chain/nightly",
-  "near-chunks/nightly",
-  "near-client-primitives/nightly",
-  "near-client/nightly",
-  "near-dyn-configs/nightly",
-  "near-epoch-manager/nightly",
-  "near-jsonrpc-primitives/nightly",
-  "near-jsonrpc/nightly",
-  "near-mainnet-res/nightly",
-  "near-network/nightly",
-  "near-o11y/nightly",
-  "near-parameters/nightly",
-  "near-pool/nightly",
-  "near-primitives/nightly",
-  "near-rosetta-rpc/nightly",
-  "near-store/nightly",
-  "near-telemetry/nightly",
-  "near-transactions-generator/nightly",
-  "near-vm-runner/nightly",
-  "node-runtime/nightly",
-  "testlib/nightly",
+    "near-actix-test-utils/nightly",
+    "near-async/nightly",
+    "near-chain-configs/nightly",
+    "near-chain/nightly",
+    "near-chunks/nightly",
+    "near-client-primitives/nightly",
+    "near-client/nightly",
+    "near-dyn-configs/nightly",
+    "near-epoch-manager/nightly",
+    "near-jsonrpc-primitives/nightly",
+    "near-jsonrpc/nightly",
+    "near-mainnet-res/nightly",
+    "near-network/nightly",
+    "near-o11y/nightly",
+    "near-parameters/nightly",
+    "near-pool/nightly",
+    "near-primitives/nightly",
+    "near-rosetta-rpc/nightly",
+    "near-store/nightly",
+    "near-telemetry/nightly",
+    "near-transactions-generator/nightly",
+    "near-vm-runner/nightly",
+    "node-runtime/nightly",
+    "testlib/nightly",
 ]
 sandbox = [
-  "near-client/sandbox",
-  "near-jsonrpc/sandbox",
-  "near-o11y/sandbox",
-  "node-runtime/sandbox",
+    "near-client/sandbox",
+    "near-jsonrpc/sandbox",
+    "near-o11y/sandbox",
+    "node-runtime/sandbox",
 ]
 io_trace = ["node-runtime/io_trace"]
 

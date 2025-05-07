@@ -432,7 +432,7 @@ impl Trie {
         trie.visit_nodes_for_state_part(part_id)?;
         let storage = trie.storage.as_partial_storage().unwrap();
 
-        if storage.visited_nodes.read().expect("read visited_nodes").len() != num_nodes {
+        if storage.visited_nodes.read().len() != num_nodes {
             // As all nodes belonging to state part were visited, there is some
             // unexpected data in downloaded state part.
             return Err(StorageError::UnexpectedTrieValue);

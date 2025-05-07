@@ -255,7 +255,7 @@ impl ReshardingManager {
 
             // TODO(resharding): remove duplicate_nodes_at_split_boundary method after proper fix for refcount issue
             let trie_recorder = parent_trie.take_recorder().unwrap();
-            let mut trie_recorder = trie_recorder.write().expect("no poison");
+            let mut trie_recorder = trie_recorder.write();
             Self::duplicate_nodes_at_split_boundary(
                 &mut store_update,
                 trie_recorder.recorded_iter(),

@@ -22,6 +22,7 @@ indexmap.workspace = true
 libc.workspace = true
 memoffset.workspace = true
 more-asserts.workspace = true
+parking_lot.workspace = true
 region.workspace = true
 rkyv.workspace = true
 thiserror.workspace = true

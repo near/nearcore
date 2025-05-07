@@ -1,11 +1,12 @@
 use std::collections::HashMap;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
 use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::state::FlatStateValue;
 use near_primitives::types::BlockHeight;
+use parking_lot::RwLock;
 use tracing::{debug, warn};
 
 use crate::adapter::flat_store::{FlatStoreAdapter, FlatStoreUpdateAdapter};
@@ -290,7 +291,7 @@ impl FlatStorage {
         &self,
         target_block_hash: &CryptoHash,
     ) -> Result<Vec<CryptoHash>, FlatStorageError> {
-        let guard = self.0.read().expect(super::POISONED_LOCK_ERR);
+        let guard = self.0.read();
         guard.get_blocks_to_head(target_block_hash)
     }
 
@@ -299,7 +300,7 @@ impl FlatStorage {
         block_hash: &CryptoHash,
         key: &[u8],
     ) -> Result<Option<FlatStateValue>, crate::StorageError> {
-        let guard = self.0.read().expect(super::POISONED_LOCK_ERR);
+        let guard = self.0.read();
         let blocks_to_head = guard.get_blocks_to_head(block_hash)?;
         for block_hash in &blocks_to_head {
             // If we found a key in changes, we can return a value because it is the most recent key update.
@@ -322,7 +323,7 @@ impl FlatStorage {
         block_hash: &CryptoHash,
         key: &[u8],
     ) -> Result<bool, crate::StorageError> {
-        let guard = self.0.read().expect(super::POISONED_LOCK_ERR);
+        let guard = self.0.read();
         let blocks_to_head =
             guard.get_blocks_to_head(block_hash).map_err(|e| StorageError::from(e))?;
         for block_hash in &blocks_to_head {
@@ -366,7 +367,7 @@ impl FlatStorage {
         block_hash: &CryptoHash,
         strict: bool,
     ) -> Result<(), FlatStorageError> {
-        let mut guard = self.0.write().expect(crate::flat::POISONED_LOCK_ERR);
+        let mut guard = self.0.write();
         if !guard.move_head_enabled {
             return Ok(());
         }
@@ -450,7 +451,7 @@ impl FlatStorage {
         &self,
         delta: FlatStateDelta,
     ) -> Result<FlatStoreUpdateAdapter<'static>, FlatStorageError> {
-        let mut guard = self.0.write().expect(super::POISONED_LOCK_ERR);
+        let mut guard = self.0.write();
         let shard_uid = guard.shard_uid;
         let block = &delta.metadata.block;
         let block_hash = block.hash;
@@ -476,7 +477,7 @@ impl FlatStorage {
         &self,
         store_update: &mut FlatStoreUpdateAdapter,
     ) -> Result<(), StorageError> {
-        let guard = self.0.write().expect(super::POISONED_LOCK_ERR);
+        let guard = self.0.write();
         let shard_uid = guard.shard_uid;
         store_update.remove_all_values(shard_uid);
         store_update.remove_all_deltas(shard_uid);
@@ -486,12 +487,12 @@ impl FlatStorage {
     }
 
     pub(crate) fn get_head_hash(&self) -> CryptoHash {
-        let guard = self.0.read().expect(super::POISONED_LOCK_ERR);
+        let guard = self.0.read();
         guard.flat_head.hash
     }
 
     pub(crate) fn shard_uid(&self) -> ShardUId {
-        let guard = self.0.read().expect(super::POISONED_LOCK_ERR);
+        let guard = self.0.read();
         guard.shard_uid
     }
 
@@ -500,7 +501,7 @@ impl FlatStorage {
     /// TODO: This could be improved by setting a maximum block height instead of a bool that disables all updates,
     /// by using the `want_snapshot` field of the flat storage manager we already have.
     pub fn set_flat_head_update_mode(&self, enabled: bool) {
-        let mut guard = self.0.write().expect(crate::flat::POISONED_LOCK_ERR);
+        let mut guard = self.0.write();
         guard.move_head_enabled = enabled;
     }
 }
@@ -1073,7 +1074,7 @@ mod tests {
             let flat_storage_manager = FlatStorageManager::new(store);
             flat_storage_manager.create_flat_storage_for_shard(shard_uid).unwrap();
             let flat_storage = flat_storage_manager.get_flat_storage_for_shard(shard_uid).unwrap();
-            let guard = flat_storage.0.write().expect(crate::flat::POISONED_LOCK_ERR);
+            let guard = flat_storage.0.write();
 
             for i in 0..num_blocks as BlockHeight {
                 let block_hash = chain.get_block_hash(i);
@@ -1138,7 +1139,7 @@ mod tests {
             let flat_storage_manager = FlatStorageManager::new(store);
             flat_storage_manager.create_flat_storage_for_shard(shard_uid).unwrap();
             let flat_storage = flat_storage_manager.get_flat_storage_for_shard(shard_uid).unwrap();
-            let guard = flat_storage.0.write().expect(crate::flat::POISONED_LOCK_ERR);
+            let guard = flat_storage.0.write();
 
             // A chain looks like this:
             // X-O-X-O-X-O-...
@@ -1223,7 +1224,7 @@ mod tests {
             let flat_storage_manager = FlatStorageManager::new(store);
             flat_storage_manager.create_flat_storage_for_shard(shard_uid).unwrap();
             let flat_storage = flat_storage_manager.get_flat_storage_for_shard(shard_uid).unwrap();
-            let guard = flat_storage.0.write().expect(crate::flat::POISONED_LOCK_ERR);
+            let guard = flat_storage.0.write();
 
             for i in 0..num_blocks as BlockHeight {
                 let new_head = guard.get_new_flat_head(chain.get_block_hash(i), false).unwrap();

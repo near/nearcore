@@ -1,8 +1,9 @@
 use std::collections::{BTreeMap, HashMap};
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 use std::time::Duration;
 
 use actix::Addr;
+use parking_lot::RwLock;
 use rocksdb::DB;
 use tokio::sync::mpsc;
 use tokio::time;
@@ -144,15 +145,7 @@ pub async fn build_streamer_message(
                 debug_assert!(outcome.receipt.is_none());
                 outcome.receipt = Some(receipt.clone());
             } else {
-                if let Ok(mut cache) = DELAYED_LOCAL_RECEIPTS_CACHE.write() {
-                    cache.insert(receipt.receipt_id, receipt.clone());
-                } else {
-                    tracing::warn!(
-                        target: INDEXER,
-                        "Unable to insert receipt {} into DELAYED_LOCAL_RECEIPTS_CACHE",
-                        receipt.receipt_id,
-                    );
-                }
+                DELAYED_LOCAL_RECEIPTS_CACHE.write().insert(receipt.receipt_id, receipt.clone());
             }
         }
 
@@ -165,23 +158,8 @@ pub async fn build_streamer_message(
                 receipt
             } else {
                 // Attempt to extract the receipt or decide to fetch it based on cache access success
-                let maybe_receipt = {
-                    match DELAYED_LOCAL_RECEIPTS_CACHE.write() {
-                        Ok(mut cache) => {
-                            // Lock acquired, attempt to remove the receipt
-                            cache.remove(&execution_outcome.id)
-                        }
-                        Err(_) => {
-                            // Failed to acquire lock, log this event and decide to fetch the receipt
-                            tracing::warn!(
-                                target: INDEXER,
-                                "Failed to acquire DELAYED_LOCAL_RECEIPTS_CACHE lock, starting to look for receipt {} in up to 1000 blocks back in time",
-                                execution_outcome.id,
-                            );
-                            None // Indicate that receipt needs to be fetched
-                        }
-                    }
-                };
+                let maybe_receipt =
+                    DELAYED_LOCAL_RECEIPTS_CACHE.write().remove(&execution_outcome.id);
 
                 // Depending on whether you got the receipt from the cache, proceed
                 if let Some(receipt) = maybe_receipt {

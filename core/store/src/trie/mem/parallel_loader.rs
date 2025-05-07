@@ -14,9 +14,9 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::state::FlatStateValue;
 use near_primitives::types::StateRoot;
+use parking_lot::Mutex;
 use rayon::iter::{IndexedParallelIterator, IntoParallelIterator, ParallelIterator};
 use std::fmt::Debug;
-use std::sync::Mutex;
 
 /// Top-level entry function to load a memtrie in parallel.
 pub fn load_memtrie_in_parallel(
@@ -72,10 +72,7 @@ impl ParallelMemTrieLoader {
             &subtrees_to_load,
             None,
         )?;
-        Ok(PartialTrieLoadingPlan {
-            root,
-            subtrees_to_load: subtrees_to_load.into_inner().unwrap(),
-        })
+        Ok(PartialTrieLoadingPlan { root, subtrees_to_load: subtrees_to_load.into_inner() })
     }
 
     /// Helper function to implement stage 1, visiting a single node identified by this hash,
@@ -98,7 +95,7 @@ impl ParallelMemTrieLoader {
 
         // If subtree is small enough, add it to the list of subtrees to load, and we're done.
         if node.memory_usage <= max_subtree_size {
-            let mut lock = subtrees_to_load.lock().unwrap();
+            let mut lock = subtrees_to_load.lock();
             let subtree_id = lock.len();
             lock.push(prefix);
             return Ok(TrieLoadingPlanNode::Load { subtree_id });

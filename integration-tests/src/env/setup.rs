@@ -70,11 +70,12 @@ use near_store::test_utils::create_test_store;
 use near_telemetry::TelemetryActor;
 use nearcore::NightshadeRuntime;
 use num_rational::Ratio;
+use parking_lot::RwLock;
 use rand::{Rng, thread_rng};
 use std::cmp::max;
 use std::collections::{HashMap, HashSet};
 use std::ops::DerefMut;
-use std::sync::{Arc, OnceLock, RwLock};
+use std::sync::{Arc, OnceLock};
 
 use crate::utils::block_stats::BlockStats;
 use crate::utils::peer_manager_mock::PeerManagerMock;
@@ -543,7 +544,7 @@ fn process_peer_manager_message_default(
     let my_address = addresses[my_ord];
 
     {
-        let last_height = last_height.read().unwrap();
+        let last_height = last_height.read();
         let peers: Vec<_> = key_pairs
             .iter()
             .take(connectors.len())
@@ -593,7 +594,7 @@ fn process_peer_manager_message_default(
     match msg.as_network_requests_ref() {
         NetworkRequests::Block { block } => {
             if check_block_stats {
-                let block_stats2 = &mut *block_stats.write().unwrap();
+                let block_stats2 = &mut *block_stats.write();
                 block_stats2.add_block(block);
                 block_stats2.check_stats(false);
             }
@@ -609,13 +610,13 @@ fn process_peer_manager_message_default(
                 );
             }
 
-            let mut last_height1 = last_height.write().unwrap();
+            let mut last_height1 = last_height.write();
 
             let my_height = &mut last_height1[my_ord];
 
             *my_height = max(*my_height, block.header().height());
 
-            hash_to_height.write().unwrap().insert(*block.header().hash(), block.header().height());
+            hash_to_height.write().insert(*block.header().hash(), block.header().height());
         }
         NetworkRequests::OptimisticBlock { optimistic_block } => {
             // TODO(#10584): maybe go through an adapter to facilitate testing.
@@ -797,7 +798,7 @@ fn process_peer_manager_message_default(
             }
         }
         NetworkRequests::AnnounceAccount(announce_account) => {
-            let mut aa = announced_accounts.write().unwrap();
+            let mut aa = announced_accounts.write();
             let key = (announce_account.account_id.clone(), announce_account.epoch_id);
             if aa.get(&key).is_none() {
                 aa.insert(key);
@@ -841,18 +842,16 @@ fn process_peer_manager_message_default(
             // Verify doomslug invariant
             match approval.inner {
                 ApprovalInner::Endorsement(parent_hash) => {
-                    assert!(
-                        approval.target_height > largest_skipped_height.read().unwrap()[my_ord]
-                    );
-                    largest_endorsed_height.write().unwrap()[my_ord] = approval.target_height;
+                    assert!(approval.target_height > largest_skipped_height.read()[my_ord]);
+                    largest_endorsed_height.write()[my_ord] = approval.target_height;
 
-                    if let Some(prev_height) = hash_to_height.read().unwrap().get(&parent_hash) {
+                    if let Some(prev_height) = hash_to_height.read().get(&parent_hash) {
                         assert_eq!(prev_height + 1, approval.target_height);
                     }
                 }
                 ApprovalInner::Skip(prev_height) => {
-                    largest_skipped_height.write().unwrap()[my_ord] = approval.target_height;
-                    let e = largest_endorsed_height.read().unwrap()[my_ord];
+                    largest_skipped_height.write()[my_ord] = approval.target_height;
+                    let e = largest_endorsed_height.read()[my_ord];
                     // `e` is the *target* height of the last endorsement. `prev_height`
                     // is allowed to be anything >= to the source height, which is e-1.
                     assert!(
@@ -1048,7 +1047,7 @@ pub fn setup_mock_all_validators(
         let pm = PeerManagerMock::new(move |msg, _ctx| {
             // Note: this `.wait` will block until all `ClientActors` are created.
             let connectors1 = connectors1.wait();
-            let mut guard = network_mock1.write().unwrap();
+            let mut guard = network_mock1.write();
             let (resp, perform_default) =
                 guard.deref_mut()(connectors1.as_slice(), account_id1.clone(), &msg);
             drop(guard);
@@ -1111,7 +1110,7 @@ pub fn setup_mock_all_validators(
             runtime_tempdir: None,
         });
     }
-    hash_to_height.write().unwrap().insert(CryptoHash::default(), 0);
+    hash_to_height.write().insert(CryptoHash::default(), 0);
     connectors.set(ret.clone()).ok().unwrap();
     (ret, block_stats)
 }

@@ -4,14 +4,14 @@ use near_o11y::metrics::{
     GaugeVec, IntGauge, IntGaugeVec, try_create_gauge_vec, try_create_int_gauge,
     try_create_int_gauge_vec,
 };
+use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::sync::LazyLock;
-use std::sync::Mutex;
 use tracing::warn;
 
 pub fn export_stats_as_metrics(stats: StoreStatistics, temperature: Temperature) {
-    match ROCKSDB_METRICS.lock().unwrap().export_stats_as_metrics(stats, temperature) {
+    match ROCKSDB_METRICS.lock().export_stats_as_metrics(stats, temperature) {
         Ok(_) => {}
         Err(err) => {
             warn!(target:"stats", "Failed to export {:?} store statistics: {:?}", temperature, err);
@@ -25,7 +25,7 @@ pub fn export_stats_as_metrics(stats: StoreStatistics, temperature: Temperature)
 /// Only for unit test usage.
 #[cfg(test)]
 pub fn get_int_gauges() -> HashMap<String, IntGauge> {
-    ROCKSDB_METRICS.lock().unwrap().int_gauges.clone()
+    ROCKSDB_METRICS.lock().int_gauges.clone()
 }
 
 /// Wrapper for re-exporting RocksDB stats into Prometheus metrics.

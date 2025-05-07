@@ -1,5 +1,4 @@
 use std::sync::Arc;
-use std::sync::RwLock;
 
 pub use crate::node::process_node::ProcessNode;
 pub use crate::node::runtime_node::RuntimeNode;
@@ -20,6 +19,7 @@ use near_primitives::views::AccountView;
 use near_vm_runner::ContractCode;
 use nearcore::NearConfig;
 use nearcore::config::{Config, create_localnet_configs, create_localnet_configs_from_seeds};
+use parking_lot::RwLock;
 use testlib::runtime_utils::{alice_account, bob_account};
 
 mod process_node;
@@ -207,7 +207,7 @@ pub fn sample_two_nodes(num_nodes: usize) -> (usize, usize) {
 pub fn sample_queryable_node(nodes: &[Arc<RwLock<dyn Node>>]) -> usize {
     let num_nodes = nodes.len();
     let mut k = rand::random::<usize>() % num_nodes;
-    while !nodes[k].read().unwrap().is_running() {
+    while !nodes[k].read().is_running() {
         k = rand::random::<usize>() % num_nodes;
     }
     k

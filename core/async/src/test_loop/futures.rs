@@ -30,7 +30,8 @@ use crate::futures::{AsyncComputationSpawner, FutureSpawner};
 use futures::future::BoxFuture;
 use futures::task::{ArcWake, waker_ref};
 use near_time::Duration;
-use std::sync::{Arc, Mutex};
+use parking_lot::Mutex;
+use std::sync::Arc;
 use std::task::Context;
 
 /// A DelaySender is a FutureSpawner that can be used to
@@ -71,7 +72,7 @@ fn drive_futures(task: &Arc<FutureTask>) {
     // The following is copied from the Rust async book.
     // Take the future, and if it has not yet completed (is still Some),
     // poll it in an attempt to complete it.
-    let mut future_slot = task.future.lock().unwrap();
+    let mut future_slot = task.future.lock();
     if let Some(mut future) = future_slot.take() {
         let waker = waker_ref(&task);
         let context = &mut Context::from_waker(&*waker);

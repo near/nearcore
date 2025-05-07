@@ -23,12 +23,13 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::state_part::PartId;
 use near_primitives::state_sync::StateSyncDumpProgress;
 use near_primitives::types::{EpochHeight, EpochId, ShardId, StateRoot};
+use parking_lot::{Condvar, Mutex, RwLock};
 use rand::seq::SliceRandom;
 use rand::thread_rng;
 use std::collections::{HashMap, HashSet};
 use std::i64;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
-use std::sync::{Arc, Condvar, Mutex, RwLock};
 use tokio::sync::Semaphore;
 use tokio::sync::oneshot;
 
@@ -176,15 +177,15 @@ impl StateSyncDumpHandle {
     // Tell the dumper to stop and wait until it's finished
     fn stop_and_await(&self) {
         self.stop();
-        let mut running = self.task_running.lock().unwrap();
+        let mut running = self.task_running.lock();
         while *running {
-            running = self.await_task.wait(running).unwrap();
+            self.await_task.wait(&mut running);
         }
     }
 
     // Called by the dumper when it's finished, and wakes up any threads waiting on it
     fn task_finished(&self) {
-        let mut running = self.task_running.lock().unwrap();
+        let mut running = self.task_running.lock();
         *running = false;
         self.await_task.notify_all();
     }
@@ -276,7 +277,7 @@ impl DumpState {
             .await
             {
                 Ok(missing) => {
-                    *s.parts_missing.write().unwrap() = missing;
+                    *s.parts_missing.write() = missing;
                 }
                 Err(error) => {
                     tracing::error!(target: "state_sync_dump", ?error, ?shard_id, "Failed to list stored state parts.");
@@ -403,7 +404,7 @@ impl PartUploader {
     /// Semaphore. For now, this always returns OK(()) (loops forever retrying in case of errors), but this should be changed
     /// to return Err() if the error is not going to be retryable.
     async fn upload_state_part(self: Arc<Self>, part_idx: u64) -> anyhow::Result<()> {
-        if !self.parts_missing.read().unwrap().contains(&part_idx) {
+        if !self.parts_missing.read().contains(&part_idx) {
             self.inc_parts_dumped();
             return Ok(());
         }

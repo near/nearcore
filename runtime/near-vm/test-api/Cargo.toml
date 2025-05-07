@@ -22,6 +22,7 @@ cfg-if.workspace = true
 finite-wasm.workspace = true
 indexmap.workspace = true
 more-asserts.workspace = true
+parking_lot.workspace = true
 prefix-sum-vec.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
@@ -38,7 +39,7 @@ near-vm-engine.workspace = true
 near-vm-types.workspace = true
 target-lexicon.workspace = true
 # - Optional dependencies for `sys`.
-near-vm-compiler-singlepass = { workspace = true, optional = true}
+near-vm-compiler-singlepass = { workspace = true, optional = true }
 
 # - Mandatory dependencies for `sys` on Windows.
 [target.'cfg(all(not(target_arch = "wasm32"), target_os = "windows"))'.dependencies]
@@ -70,25 +71,25 @@ sys-default = ["sys", "wat", "default-singlepass", "default-universal"]
 compiler = [
     "sys",
 ]
-    singlepass = [
-        "compiler",
-        "near-vm-compiler-singlepass",
-    ]
+singlepass = [
+    "compiler",
+    "near-vm-compiler-singlepass",
+]
 default-compiler = []
-    default-singlepass = [
-        "default-compiler",
-        "singlepass",
-    ]
+default-singlepass = [
+    "default-compiler",
+    "singlepass",
+]
 # - Engines.
 engine = ["sys"]
-    universal = [
-        "engine",
-    ]
+universal = [
+    "engine",
+]
 default-engine = []
-    default-universal = [
-        "default-engine",
-        "universal",
-    ]
+default-universal = [
+    "default-engine",
+    "universal",
+]
 
 [package.metadata.docs.rs]
 features = ["compiler", "core", "default-compiler", "default-engine", "engine", "jit", "native", "singlepass", "sys", "sys-default", "universal"]

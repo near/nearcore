@@ -416,11 +416,10 @@ impl crate::PreparedContract for VMResult<PreparedContract> {
 /// `anyhow` does not really give any opportunity to grab causes by value and the VM Logic
 /// errors end up a couple layers deep in a causal chain.
 #[derive(Debug)]
-pub(crate) struct ErrorContainer(std::sync::Mutex<Option<VMLogicError>>);
+pub(crate) struct ErrorContainer(parking_lot::Mutex<Option<VMLogicError>>);
 impl ErrorContainer {
     pub(crate) fn take(&self) -> Option<VMLogicError> {
-        let mut guard = self.0.lock().unwrap_or_else(|e| e.into_inner());
-        guard.take()
+        self.0.lock().take()
     }
 }
 impl std::error::Error for ErrorContainer {}
@@ -476,7 +475,7 @@ fn link<'a, 'b>(
                 match logic.$func( $( $arg_name as $arg_type, )* ) {
                     Ok(result) => Ok(result as ($( $returns ),* ) ),
                     Err(err) => {
-                        Err(ErrorContainer(std::sync::Mutex::new(Some(err))).into())
+                        Err(ErrorContainer(parking_lot::Mutex::new(Some(err))).into())
                     }
                 }
             }

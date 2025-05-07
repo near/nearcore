@@ -3,7 +3,8 @@ use std::time::Duration;
 
 use crate::node::{Node, create_nodes};
 use crate::utils::test_helpers::{heavy_test, wait};
-use std::sync::{Arc, RwLock};
+use parking_lot::RwLock;
+use std::sync::Arc;
 
 #[test]
 fn ultra_slow_test_catchup() {
@@ -25,13 +26,13 @@ fn ultra_slow_test_catchup() {
         let late_node = nodes.pop().unwrap();
         // Start all but one.
         for node in &mut nodes {
-            node.write().unwrap().start();
+            node.write().start();
         }
 
         // Wait for the blocks to be produced.
         wait(
             || {
-                if let Some(ind) = nodes[0].read().unwrap().user().get_best_height() {
+                if let Some(ind) = nodes[0].read().user().get_best_height() {
                     ind > (num_blocks_to_wait as u64)
                 } else {
                     false
@@ -42,13 +43,13 @@ fn ultra_slow_test_catchup() {
         );
 
         // Start the late node.
-        late_node.write().unwrap().start();
+        late_node.write().start();
 
         // Wait for it to have the same block height as other nodes.
         wait(
             || {
-                if let ind @ Some(_) = nodes[0].read().unwrap().user().get_best_height() {
-                    late_node.read().unwrap().user().get_best_height() == ind
+                if let ind @ Some(_) = nodes[0].read().user().get_best_height() {
+                    late_node.read().user().get_best_height() == ind
                 } else {
                     false
                 }

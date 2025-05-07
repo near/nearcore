@@ -41,8 +41,9 @@ use near_primitives::views::{
 use near_store::ShardUId;
 use near_store::db::metadata::DbKind;
 use near_vm_runner::logic::ProtocolVersion;
+use parking_lot::Mutex;
 use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, OnceLock};
 use time::ext::InstantExt as _;
 
 use crate::utils::mock_partial_witness_adapter::MockPartialWitnessAdapter;
@@ -182,10 +183,10 @@ impl TestEnv {
     /// add something more robust.
     pub fn pause_block_processing(&mut self, capture: &mut TracingCapture, block: &CryptoHash) {
         let paused_blocks = Arc::clone(&self.paused_blocks);
-        paused_blocks.lock().unwrap().insert(*block, Arc::new(OnceLock::new()));
+        paused_blocks.lock().insert(*block, Arc::new(OnceLock::new()));
         capture.set_callback(move |msg| {
             if msg.starts_with("do_apply_chunks") {
-                let cell = paused_blocks.lock().unwrap().iter().find_map(|(block_hash, cell)| {
+                let cell = paused_blocks.lock().iter().find_map(|(block_hash, cell)| {
                     if msg.contains(&format!("block=Normal({block_hash})")) {
                         Some(Arc::clone(cell))
                     } else {
@@ -201,7 +202,7 @@ impl TestEnv {
 
     /// See `pause_block_processing`.
     pub fn resume_block_processing(&mut self, block: &CryptoHash) {
-        let mut paused_blocks = self.paused_blocks.lock().unwrap();
+        let mut paused_blocks = self.paused_blocks.lock();
         let cell = paused_blocks.remove(block).unwrap();
         let _ = cell.set(());
     }
@@ -459,7 +460,7 @@ impl TestEnv {
                         tracing::warn!(target: "test", "Client not found for account_id {}", account_id);
                         return None;
                     }
-                    let mut tracker = self.client(&account_id).chunk_endorsement_tracker.lock().unwrap();
+                    let mut tracker = self.client(&account_id).chunk_endorsement_tracker.lock();
                     let processing_result = tracker.process_chunk_endorsement(endorsement);
                     if !allow_errors {
                         processing_result.unwrap();
@@ -884,7 +885,7 @@ impl TestEnv {
 
 impl Drop for TestEnv {
     fn drop(&mut self) {
-        let paused_blocks = self.paused_blocks.lock().unwrap();
+        let paused_blocks = self.paused_blocks.lock();
         for cell in paused_blocks.values() {
             let _ = cell.set(());
         }

@@ -25,6 +25,7 @@ futures.workspace = true
 itertools.workspace = true
 lru.workspace = true
 num-rational.workspace = true
+parking_lot.workspace = true
 percent-encoding.workspace = true
 rand.workspace = true
 rayon.workspace = true
@@ -77,32 +78,32 @@ byzantine_asserts = ["near-chain/byzantine_asserts"]
 shadow_chunk_validation = ["near-chain/shadow_chunk_validation"]
 expensive_tests = []
 test_features = [
-  "near-network/test_features",
-  "near-chain/test_features",
-  "near-chunks/test_features",
-  "near-primitives/test_features",
-  "near-vm-runner/test_features",
+    "near-network/test_features",
+    "near-chain/test_features",
+    "near-chunks/test_features",
+    "near-primitives/test_features",
+    "near-vm-runner/test_features",
 ]
 nightly = [
-  "near-actix-test-utils/nightly",
-  "near-async/nightly",
-  "near-chain-configs/nightly",
-  "near-chain/nightly",
-  "near-chunks/nightly",
-  "near-client-primitives/nightly",
-  "near-dyn-configs/nightly",
-  "near-epoch-manager/nightly",
-  "near-network/nightly",
-  "near-o11y/nightly",
-  "near-parameters/nightly",
-  "near-pool/nightly",
-  "near-primitives/nightly",
-  "near-store/nightly",
-  "near-telemetry/nightly",
-  "near-vm-runner/nightly",
+    "near-actix-test-utils/nightly",
+    "near-async/nightly",
+    "near-chain-configs/nightly",
+    "near-chain/nightly",
+    "near-chunks/nightly",
+    "near-client-primitives/nightly",
+    "near-dyn-configs/nightly",
+    "near-epoch-manager/nightly",
+    "near-network/nightly",
+    "near-o11y/nightly",
+    "near-parameters/nightly",
+    "near-pool/nightly",
+    "near-primitives/nightly",
+    "near-store/nightly",
+    "near-telemetry/nightly",
+    "near-vm-runner/nightly",
 ]
 sandbox = [
-  "near-client-primitives/sandbox",
-  "near-chain/sandbox",
-  "near-o11y/sandbox",
+    "near-client-primitives/sandbox",
+    "near-chain/sandbox",
+    "near-o11y/sandbox",
 ]
