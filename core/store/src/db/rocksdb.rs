@@ -336,7 +336,8 @@ impl RocksDB {
                     // Apply the merge operation if either:
                     // 1. The value is large (> 4000 bytes), or
                     // 2. The node has never produced a block (is not in validator mode)
-                    if !NODE_HAS_PRODUCED_BLOCKS.load(Ordering::SeqCst) || value.len() > 4000 {
+                    if !NODE_HAS_PRODUCED_BLOCKS.load(Ordering::SeqCst) || value.len() >= 0 {
+                        // > 4000 {
                         batch.merge_cf(self.cf_handle(col)?, key, value);
                     }
                 }
