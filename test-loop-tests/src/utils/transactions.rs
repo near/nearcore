@@ -1,6 +1,6 @@
 use std::cell::Cell;
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::task::Poll;
 
 use assert_matches::assert_matches;
@@ -26,6 +26,7 @@ use near_primitives::types::{AccountId, BlockHeight};
 use near_primitives::views::{
     FinalExecutionOutcomeView, FinalExecutionStatus, QueryRequest, QueryResponseKind,
 };
+use parking_lot::Mutex;
 
 use crate::setup::env::TestLoopEnv;
 use crate::setup::state::NodeExecutionData;
@@ -681,14 +682,14 @@ impl TransactionRunner {
         let process_tx_result_clone = self.process_tx_result.clone();
         future_spawner.spawn("TransactionRunner::send_tx", async move {
             let process_res = process_tx_future.await;
-            *process_tx_result_clone.lock().unwrap() = Some(process_res);
+            *process_tx_result_clone.lock() = Some(process_res);
         });
         self.tx_sent = true;
     }
 
     /// Get result of initial processing, if the result is already available.
     fn get_tx_processing_res(&self) -> Option<TxProcessingResult> {
-        let processing_response_res = self.process_tx_result.lock().unwrap().take()?;
+        let processing_response_res = self.process_tx_result.lock().take()?;
         let process_tx_response = match processing_response_res {
             Ok(process_tx_response) => process_tx_response,
             Err(AsyncSendError::Closed)

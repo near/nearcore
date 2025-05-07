@@ -1,3 +1,5 @@
+#![allow(clippy::disallowed_types)]
+
 use anyhow::Result;
 use near_vm_engine::RuntimeError;
 use near_vm_test_api::*;

@@ -1,8 +1,8 @@
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use actix::{Actor, System};
-
 use futures::{FutureExt, TryFutureExt, future};
+use parking_lot::Mutex;
 
 use near_actix_test_utils::run_actix;
 use near_crypto::InMemorySigner;
@@ -48,7 +48,7 @@ fn test_send_tx_async() {
             );
             let bytes = borsh::to_vec(&tx).unwrap();
             let tx_hash = tx.get_hash().to_string();
-            *tx_hash2_1.lock().unwrap() = Some(tx.get_hash());
+            *tx_hash2_1.lock() = Some(tx.get_hash());
             client
                 .broadcast_tx_async(to_base64(&bytes))
                 .map_ok(move |result| assert_eq!(tx_hash, result))
@@ -58,7 +58,7 @@ fn test_send_tx_async() {
         WaitOrTimeoutActor::new(
             Box::new(move |_| {
                 let signer_account_id = "test1".parse().unwrap();
-                if let Some(tx_hash) = *tx_hash2_2.lock().unwrap() {
+                if let Some(tx_hash) = *tx_hash2_2.lock() {
                     actix::spawn(
                         client1
                             .tx(RpcTransactionStatusRequest {
@@ -137,8 +137,8 @@ fn test_expired_tx() {
                 let client = new_client(&format!("http://{}", addr));
                 actix::spawn(client.block(BlockReference::latest()).then(move |res| {
                     let header = res.unwrap().header;
-                    let hash = *block_hash.lock().unwrap();
-                    let height = *block_height.lock().unwrap();
+                    let hash = *block_hash.lock();
+                    let height = *block_height.lock();
                     if let Some(block_hash) = hash {
                         if let Some(height) = height {
                             if header.height - height >= 2 {
@@ -169,8 +169,8 @@ fn test_expired_tx() {
                             }
                         }
                     } else {
-                        *block_hash.lock().unwrap() = Some(header.hash);
-                        *block_height.lock().unwrap() = Some(header.height);
+                        *block_hash.lock() = Some(header.hash);
+                        *block_height.lock() = Some(header.height);
                     };
                     future::ready(())
                 }));

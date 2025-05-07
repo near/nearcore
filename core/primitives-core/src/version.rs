@@ -304,6 +304,8 @@ pub enum ProtocolFeature {
     /// 5% for gas refunds and charge the signer this fee for gas refund
     /// receipts.
     ReducedGasRefunds,
+    /// Move from ChunkStateWitness being a single struct to a versioned enum.
+    VersionedStateWitness,
     SaturatingFloatToInt,
 }
 
@@ -396,15 +398,16 @@ impl ProtocolFeature {
             ProtocolFeature::GlobalContracts
             | ProtocolFeature::BlockHeightForReceiptId
             | ProtocolFeature::ProduceOptimisticBlock => 77,
-            ProtocolFeature::SimpleNightshadeV6 | ProtocolFeature::SaturatingFloatToInt => 78,
-
+            ProtocolFeature::SimpleNightshadeV6
+            | ProtocolFeature::VersionedStateWitness
+            | ProtocolFeature::SaturatingFloatToInt
+            | ProtocolFeature::ReducedGasRefunds => 78,
             // Nightly features:
             ProtocolFeature::FixContractLoadingCost => 129,
             // TODO(#11201): When stabilizing this feature in mainnet, also remove the temporary code
             // that always enables this for mocknet (see config_mocknet function).
             ProtocolFeature::ShuffleShardAssignments => 143,
             ProtocolFeature::ExcludeExistingCodeFromWitnessForCodeLen => 148,
-            ProtocolFeature::ReducedGasRefunds => 149,
             // Place features that are not yet in Nightly below this line.
         }
     }

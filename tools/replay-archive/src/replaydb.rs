@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 use std::io;
 use std::path::Path;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use anyhow::{Context, anyhow};
 use itertools::Itertools;
@@ -10,6 +10,7 @@ use near_store::db::{
 };
 use near_store::{DBCol, Mode, NodeStorage};
 use nearcore::NearConfig;
+use parking_lot::Mutex;
 
 /// Database layer for replaying the chain using the archival storage for reads and a temporary storage for writes.
 /// For archival data we use split db ad the read source and for temporary storage we use an in-memory DB.
@@ -54,34 +55,34 @@ impl ReplayDB {
 
     /// Returns the set of columns read from the store since its creation.
     pub fn get_columns_read(&self) -> HashSet<DBCol> {
-        self.columns_read.lock().unwrap().clone()
+        self.columns_read.lock().clone()
     }
 
     /// Returns the set of columns read from the store since its creation.
     pub fn get_columns_written(&self) -> HashSet<DBCol> {
-        self.columns_written.lock().unwrap().clone()
+        self.columns_written.lock().clone()
     }
 }
 
 impl Database for ReplayDB {
     fn get_raw_bytes(&self, col: DBCol, key: &[u8]) -> io::Result<Option<DBSlice<'_>>> {
-        self.columns_read.lock().unwrap().insert(col);
+        self.columns_read.lock().insert(col);
         self.read_db(col).get_raw_bytes(col, key)
     }
 
     fn get_with_rc_stripped(&self, col: DBCol, key: &[u8]) -> io::Result<Option<DBSlice<'_>>> {
         assert!(col.is_rc());
-        self.columns_read.lock().unwrap().insert(col);
+        self.columns_read.lock().insert(col);
         self.read_db(col).get_with_rc_stripped(col, key)
     }
 
     fn iter<'a>(&'a self, col: DBCol) -> DBIterator<'a> {
-        self.columns_read.lock().unwrap().insert(col);
+        self.columns_read.lock().insert(col);
         self.read_db(col).iter(col)
     }
 
     fn iter_prefix<'a>(&'a self, col: DBCol, key_prefix: &'a [u8]) -> DBIterator<'a> {
-        self.columns_read.lock().unwrap().insert(col);
+        self.columns_read.lock().insert(col);
         self.read_db(col).iter_prefix(col, key_prefix)
     }
 
@@ -91,12 +92,12 @@ impl Database for ReplayDB {
         lower_bound: Option<&[u8]>,
         upper_bound: Option<&[u8]>,
     ) -> DBIterator<'a> {
-        self.columns_read.lock().unwrap().insert(col);
+        self.columns_read.lock().insert(col);
         self.read_db(col).iter_range(col, lower_bound, upper_bound)
     }
 
     fn iter_raw_bytes<'a>(&'a self, col: DBCol) -> DBIterator<'a> {
-        self.columns_read.lock().unwrap().insert(col);
+        self.columns_read.lock().insert(col);
         self.read_db(col).iter_raw_bytes(col)
     }
 
@@ -107,7 +108,7 @@ impl Database for ReplayDB {
             "Attempted to write archival columns: {:?}",
             columns.intersection(&self.archival_columns).collect_vec()
         );
-        self.columns_written.lock().unwrap().extend(columns);
+        self.columns_written.lock().extend(columns);
         self.write_db.write(batch)
     }
 

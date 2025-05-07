@@ -1,6 +1,6 @@
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
 use itertools::Itertools;
 use near_crypto::{PublicKey, Signer};
@@ -26,8 +26,9 @@ use near_store::{ShardTries, TrieUpdate};
 use node_runtime::SignedValidPeriodTransactions;
 use node_runtime::state_viewer::TrieViewer;
 use node_runtime::{ApplyState, Runtime, state_viewer::ViewApplyState};
+use parking_lot::RwLock;
 
-use crate::user::{POISONED_LOCK_ERR, User};
+use crate::user::User;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
 
 /// Mock client without chain, used in RuntimeUser and RuntimeNode
@@ -67,7 +68,7 @@ impl RuntimeUser {
         client: Arc<RwLock<MockClient>>,
         gas_price: Balance,
     ) -> Self {
-        let runtime_config = Arc::new(client.read().unwrap().runtime_config.clone());
+        let runtime_config = Arc::new(client.read().runtime_config.clone());
         RuntimeUser {
             signer,
             trie_viewer: TrieViewer::default(),
@@ -95,7 +96,7 @@ impl RuntimeUser {
         }
         let mut txs = transactions;
         loop {
-            let mut client = self.client.write().expect(POISONED_LOCK_ERR);
+            let mut client = self.client.write();
             let trie = if use_flat_storage {
                 client.tries.get_trie_with_block_hash_for_shard(
                     ShardUId::single_shard(),
@@ -278,7 +279,7 @@ impl RuntimeUser {
 
 impl User for RuntimeUser {
     fn view_account(&self, account_id: &AccountId) -> Result<AccountView, String> {
-        let state_update = self.client.read().expect(POISONED_LOCK_ERR).get_state_update();
+        let state_update = self.client.read().get_state_update();
         self.trie_viewer
             .view_account(&state_update, account_id)
             .map(|account| account.into())
@@ -286,7 +287,7 @@ impl User for RuntimeUser {
     }
 
     fn view_contract_code(&self, account_id: &AccountId) -> Result<ContractCodeView, String> {
-        let state_update = self.client.read().expect(POISONED_LOCK_ERR).get_state_update();
+        let state_update = self.client.read().get_state_update();
         self.trie_viewer
             .view_contract_code(&state_update, account_id)
             .map(|contract_code| {
@@ -297,14 +298,14 @@ impl User for RuntimeUser {
     }
 
     fn view_state(&self, account_id: &AccountId, prefix: &[u8]) -> Result<ViewStateResult, String> {
-        let state_update = self.client.read().expect(POISONED_LOCK_ERR).get_state_update();
+        let state_update = self.client.read().get_state_update();
         self.trie_viewer
             .view_state(&state_update, account_id, prefix, false)
             .map_err(|err| err.to_string())
     }
 
     fn is_locked(&self, account_id: &AccountId) -> Result<bool, String> {
-        let state_update = self.client.read().expect(POISONED_LOCK_ERR).get_state_update();
+        let state_update = self.client.read().get_state_update();
         self.trie_viewer
             .view_access_keys(&state_update, account_id)
             .map(|access_keys| access_keys.is_empty())
@@ -321,7 +322,7 @@ impl User for RuntimeUser {
         let shard_id = ShardId::new(0);
 
         let apply_state = self.apply_state();
-        let client = self.client.read().expect(POISONED_LOCK_ERR);
+        let client = self.client.read();
         let state_update = client.get_state_update();
         let mut result = CallResult::default();
         let view_state = ViewApplyState {
@@ -404,7 +405,7 @@ impl User for RuntimeUser {
     }
 
     fn get_state_root(&self) -> CryptoHash {
-        self.client.read().expect(POISONED_LOCK_ERR).state_root
+        self.client.read().state_root
     }
 
     fn get_access_key(
@@ -412,7 +413,7 @@ impl User for RuntimeUser {
         account_id: &AccountId,
         public_key: &PublicKey,
     ) -> Result<AccessKeyView, String> {
-        let state_update = self.client.read().expect(POISONED_LOCK_ERR).get_state_update();
+        let state_update = self.client.read().get_state_update();
         self.trie_viewer
             .view_access_key(&state_update, account_id, public_key)
             .map(|access_key| access_key.into())

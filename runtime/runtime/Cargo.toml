@@ -17,6 +17,7 @@ borsh.workspace = true
 itertools.workspace = true
 num-bigint.workspace = true
 num-traits.workspace = true
+parking_lot.workspace = true
 rand.workspace = true
 rayon.workspace = true
 serde_json.workspace = true
@@ -32,7 +33,7 @@ near-parameters.workspace = true
 near-primitives.workspace = true
 near-primitives-core.workspace = true
 near-store.workspace = true
-near-vm-runner = { workspace = true, features = [ "near_vm", "wasmtime_vm" ] }
+near-vm-runner = { workspace = true, features = ["near_vm", "wasmtime_vm"] }
 near-wallet-contract.workspace = true
 
 [features]
@@ -40,22 +41,22 @@ default = []
 estimator = ["near-primitives/test_utils"]
 io_trace = ["base64"]
 nightly = [
-  "near-chain-configs/nightly",
-  "near-o11y/nightly",
-  "near-parameters/nightly",
-  "near-primitives-core/nightly",
-  "near-primitives/nightly",
-  "near-store/nightly",
-  "near-vm-runner/nightly",
-  "near-wallet-contract/nightly",
-  "testlib/nightly",
+    "near-chain-configs/nightly",
+    "near-o11y/nightly",
+    "near-parameters/nightly",
+    "near-primitives-core/nightly",
+    "near-primitives/nightly",
+    "near-store/nightly",
+    "near-vm-runner/nightly",
+    "near-wallet-contract/nightly",
+    "testlib/nightly",
 ]
 no_cpu_compatibility_checks = ["near-vm-runner/no_cpu_compatibility_checks"]
 sandbox = ["near-o11y/sandbox", "near-vm-runner/sandbox"]
 test_features = [
-  "near-primitives/test_features",
-  "near-vm-runner/test_features",
-  "near-store/test_features",
+    "near-primitives/test_features",
+    "near-vm-runner/test_features",
+    "near-store/test_features",
 ]
 
 [dev-dependencies]

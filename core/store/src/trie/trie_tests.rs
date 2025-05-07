@@ -7,11 +7,12 @@ use near_primitives::errors::{MissingTrieValueContext, StorageError};
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::state::PartialState;
+use parking_lot::RwLock;
 use rand::Rng;
 use rand::seq::SliceRandom;
 use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
 /// TrieMemoryPartialStorage, but contains only the first n requested nodes.
 pub struct IncompletePartialStorage {
@@ -40,7 +41,7 @@ impl TrieStorage for IncompletePartialStorage {
             .cloned()
             .expect("Recorded storage is missing the given hash");
 
-        let mut lock = self.visited_nodes.write().unwrap();
+        let mut lock = self.visited_nodes.write();
         lock.insert(*hash);
 
         if lock.len() > self.node_count_to_fail_after {

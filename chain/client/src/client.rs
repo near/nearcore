@@ -68,10 +68,11 @@ use near_primitives::utils::MaybeValidated;
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{CatchupStatusView, DroppedReason};
+use parking_lot::Mutex;
 use std::cmp::max;
 use std::collections::HashMap;
 use std::num::NonZeroUsize;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use tracing::{debug, debug_span, error, info, warn};
 
 #[cfg(feature = "test_features")]
@@ -405,7 +406,7 @@ impl Client {
                     // By now the chunk must be in store, otherwise the block would have been orphaned
                     let chunk = self.chain.get_chunk(&chunk_header.chunk_hash()).unwrap();
                     let transactions = chunk.to_transactions();
-                    let mut pool_guard = self.chunk_producer.sharded_tx_pool.lock().unwrap();
+                    let mut pool_guard = self.chunk_producer.sharded_tx_pool.lock();
                     pool_guard.remove_transactions(shard_uid, transactions);
                 }
             }
@@ -460,7 +461,7 @@ impl Client {
                         .collect::<Vec<_>>();
 
                     let reintroduced_count = {
-                        let mut pool_guard = self.chunk_producer.sharded_tx_pool.lock().unwrap();
+                        let mut pool_guard = self.chunk_producer.sharded_tx_pool.lock();
                         pool_guard.reintroduce_transactions(shard_uid, validated_txs)
                     };
 
@@ -683,7 +684,7 @@ impl Client {
         );
 
         if prepare_chunk_headers {
-            let mut tracker = self.chunk_endorsement_tracker.lock().unwrap();
+            let mut tracker = self.chunk_endorsement_tracker.lock();
             self.chunk_inclusion_tracker
                 .prepare_chunk_headers_ready_for_inclusion(&head.last_block_hash, &mut tracker)?;
         }
@@ -1503,8 +1504,7 @@ impl Client {
                 match (old_shard_layout, new_shard_layout) {
                     (Ok(old_shard_layout), Ok(new_shard_layout)) => {
                         if old_shard_layout != new_shard_layout {
-                            let mut guarded_pool =
-                                self.chunk_producer.sharded_tx_pool.lock().unwrap();
+                            let mut guarded_pool = self.chunk_producer.sharded_tx_pool.lock();
                             guarded_pool.reshard(&old_shard_layout, &new_shard_layout);
                         }
                     }

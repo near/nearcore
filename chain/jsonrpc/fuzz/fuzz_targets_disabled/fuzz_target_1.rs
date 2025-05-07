@@ -92,9 +92,9 @@ impl Serialize for Base64String {
     }
 }
 
-static RUNTIME: std::sync::LazyLock<std::sync::Mutex<tokio::runtime::Runtime>> =
+static RUNTIME: std::sync::LazyLock<parking_lot::Mutex<tokio::runtime::Runtime>> =
     std::sync::LazyLock::new(|| {
-        std::sync::Mutex::new(
+        parking_lot::Mutex::new(
             tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap(),
         )
     });
@@ -121,7 +121,7 @@ fuzz_target!(|requests: Vec<JsonRpcRequest>| {
         }
     }
 
-    RUNTIME.lock().unwrap().block_on(async move {
+    RUNTIME.lock().block_on(async move {
         for request in requests {
             let (method, params) = request.method_and_params();
             eprintln!("POST DATA: {{method = {}}} {{params = {}}}", method, params);

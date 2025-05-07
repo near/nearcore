@@ -23,7 +23,7 @@ use crate::env::test_env::TestEnv;
 fn collect_hashes_from_network_adapter(
     network_adapter: &MockPeerManagerAdapter,
 ) -> HashSet<CryptoHash> {
-    let mut network_request = network_adapter.requests.write().unwrap();
+    let mut network_request = network_adapter.requests.write();
     network_request
         .drain(..)
         .map(|request| match request {

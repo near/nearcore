@@ -73,6 +73,7 @@ impl<T: WasmerEnv> WasmerEnv for Box<T> {
     }
 }
 
+#[allow(clippy::disallowed_types)]
 impl<T: WasmerEnv> WasmerEnv for ::std::sync::Arc<::std::sync::Mutex<T>> {
     fn init_with_instance(&mut self, instance: &Instance) -> Result<(), HostEnvInitError> {
         let mut guard = self.lock().unwrap();

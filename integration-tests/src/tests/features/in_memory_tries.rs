@@ -387,15 +387,7 @@ fn run_chain_for_some_blocks_while_sending_money_around(
 /// Returns the number of memtrie roots for the given client and shard, or
 /// None if that shard does not load memtries.
 fn num_memtrie_roots(env: &TestEnv, client_id: usize, shard: ShardUId) -> Option<usize> {
-    Some(
-        env.clients[client_id]
-            .runtime_adapter
-            .get_tries()
-            .get_memtries(shard)?
-            .read()
-            .unwrap()
-            .num_roots(),
-    )
+    Some(env.clients[client_id].runtime_adapter.get_tries().get_memtries(shard)?.read().num_roots())
 }
 
 /// Base case for testing in-memory tries consistency with state sync.

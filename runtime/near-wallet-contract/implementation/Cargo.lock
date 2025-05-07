@@ -1566,7 +1566,6 @@ version = "0.1.0"
 dependencies = [
  "hex 0.4.3",
  "near-sdk",
- "serde",
 ]
 
 [[package]]

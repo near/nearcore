@@ -52,9 +52,10 @@ use near_store::{
 };
 use near_vm_runner::{ContractCode, ContractRuntimeCache, NoContractRuntimeCache};
 use node_runtime::SignedValidPeriodTransactions;
+use parking_lot::RwLock;
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
 /// Simple key value runtime for tests.
 ///
@@ -234,12 +235,11 @@ impl MockEpochManager {
         let prev_block_header =
             self.get_block_header(&prev_hash)?.ok_or(EpochError::MissingBlock(prev_hash))?;
 
-        let mut hash_to_epoch = self.hash_to_epoch.write().unwrap();
-        let mut hash_to_next_epoch_approvals_req =
-            self.hash_to_next_epoch_approvals_req.write().unwrap();
-        let mut hash_to_next_epoch = self.hash_to_next_epoch.write().unwrap();
-        let mut hash_to_valset = self.hash_to_valset.write().unwrap();
-        let mut epoch_start_map = self.epoch_start.write().unwrap();
+        let mut hash_to_epoch = self.hash_to_epoch.write();
+        let mut hash_to_next_epoch_approvals_req = self.hash_to_next_epoch_approvals_req.write();
+        let mut hash_to_next_epoch = self.hash_to_next_epoch.write();
+        let mut hash_to_valset = self.hash_to_valset.write();
+        let mut epoch_start_map = self.epoch_start.write();
 
         let prev_prev_hash = *prev_block_header.prev_hash();
         let prev_epoch = hash_to_epoch.get(&prev_prev_hash);
@@ -298,14 +298,13 @@ impl MockEpochManager {
         Ok(*self
             .hash_to_valset
             .read()
-            .unwrap()
             .get(epoch_id)
             .ok_or(EpochError::EpochOutOfBounds(*epoch_id))? as usize
             % self.validators_by_valset.len())
     }
 
     fn get_block_header(&self, hash: &CryptoHash) -> Result<Option<BlockHeader>, EpochError> {
-        let mut headers_cache = self.headers_cache.write().unwrap();
+        let mut headers_cache = self.headers_cache.write();
         if headers_cache.get(hash).is_some() {
             return Ok(Some(headers_cache.get(hash).unwrap().clone()));
         }
@@ -377,7 +376,7 @@ impl KeyValueRuntime {
     }
 
     fn get_block_header(&self, hash: &CryptoHash) -> Result<Option<BlockHeader>, EpochError> {
-        let mut headers_cache = self.headers_cache.write().unwrap();
+        let mut headers_cache = self.headers_cache.write();
         if headers_cache.get(hash).is_some() {
             return Ok(Some(headers_cache.get(hash).unwrap().clone()));
         }
@@ -418,7 +417,7 @@ fn create_receipt_nonce(
 
 impl EpochManagerAdapter for MockEpochManager {
     fn epoch_exists(&self, epoch_id: &EpochId) -> bool {
-        self.hash_to_valset.write().unwrap().contains_key(epoch_id)
+        self.hash_to_valset.write().contains_key(epoch_id)
     }
 
     fn shard_ids(&self, epoch_id: &EpochId) -> Result<Vec<ShardId>, EpochError> {
@@ -673,7 +672,7 @@ impl EpochManagerAdapter for MockEpochManager {
             .iter()
             .map(|x| x.get_approval_stake(false))
             .collect::<Vec<_>>();
-        if *self.hash_to_next_epoch_approvals_req.write().unwrap().get(parent_hash).unwrap() {
+        if *self.hash_to_next_epoch_approvals_req.write().get(parent_hash).unwrap() {
             let validators_copy = validators.clone();
             validators.extend(
                 self.get_block_producers(self.get_valset_for_epoch(&next_epoch)?)
@@ -940,8 +939,8 @@ impl EpochManagerAdapter for MockEpochManager {
     ) -> Result<Vec<EpochId>, EpochError> {
         // Just collect all known epochs because `MockEpochManager` is used for
         // tests which lifetime is short.
-        let epochs = self.hash_to_epoch.read().unwrap();
-        let next_epochs = self.hash_to_next_epoch.read().unwrap();
+        let epochs = self.hash_to_epoch.read();
+        let next_epochs = self.hash_to_next_epoch.read();
         let all_epochs = epochs
             .keys()
             .chain(next_epochs.keys())
@@ -1045,8 +1044,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         let mut tx_results = vec![];
         let shard_id = chunk.shard_id;
 
-        let mut state =
-            self.state.read().unwrap().get(&storage_config.state_root).cloned().unwrap();
+        let mut state = self.state.read().get(&storage_config.state_root).cloned().unwrap();
 
         let mut balance_transfers = vec![];
 
@@ -1177,8 +1175,8 @@ impl RuntimeAdapter for KeyValueRuntime {
         let data = borsh::to_vec(&state)?;
         let state_size = data.len() as u64;
         let state_root = hash(&data);
-        self.state.write().unwrap().insert(state_root, state);
-        self.state_size.write().unwrap().insert(state_root, state_size);
+        self.state.write().insert(state_root, state);
+        self.state_size.write().insert(state_root, state_size);
         let storage_proof = Some(Default::default());
         Ok(ApplyChunkResult {
             trie_changes: WrappedTrieChanges::new(
@@ -1221,7 +1219,7 @@ impl RuntimeAdapter for KeyValueRuntime {
             QueryRequest::ViewAccount { account_id, .. } => Ok(QueryResponse {
                 kind: QueryResponseKind::ViewAccount(
                     Account::new(
-                        self.state.read().unwrap().get(state_root).map_or_else(
+                        self.state.read().get(state_root).map_or_else(
                             || 0,
                             |state| *state.amounts.get(account_id).unwrap_or(&0),
                         ),
@@ -1286,7 +1284,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         if part_id.idx != 0 {
             return Ok(vec![]);
         }
-        let state = self.state.read().unwrap().get(state_root).unwrap().clone();
+        let state = self.state.read().get(state_root).unwrap().clone();
         let data = borsh::to_vec(&state).expect("should never fall");
         Ok(data)
     }
@@ -1308,10 +1306,10 @@ impl RuntimeAdapter for KeyValueRuntime {
             return Ok(());
         }
         let state = KVState::try_from_slice(data).unwrap();
-        self.state.write().unwrap().insert(*state_root, state.clone());
+        self.state.write().insert(*state_root, state.clone());
         let data = borsh::to_vec(&state)?;
         let state_size = data.len() as u64;
-        self.state_size.write().unwrap().insert(*state_root, state_size);
+        self.state_size.write().insert(*state_root, state_size);
         Ok(())
     }
 
@@ -1321,10 +1319,10 @@ impl RuntimeAdapter for KeyValueRuntime {
         _block_hash: &CryptoHash,
         state_root: &StateRoot,
     ) -> Result<StateRootNode, Error> {
-        let data = borsh::to_vec(&self.state.read().unwrap().get(state_root).unwrap().clone())
+        let data = borsh::to_vec(&self.state.read().get(state_root).unwrap().clone())
             .expect("should never fall")
             .into();
-        let memory_usage = *self.state_size.read().unwrap().get(state_root).unwrap();
+        let memory_usage = *self.state_size.read().get(state_root).unwrap();
         Ok(StateRootNode { data, memory_usage })
     }
 

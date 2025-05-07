@@ -22,11 +22,12 @@ use near_store::flat::{BlockInfo, FlatStateChanges, FlatStorageStatus};
 use near_store::{DBCol, Store};
 use nearcore::NightshadeRuntime;
 use node_runtime::SignedValidPeriodTransactions;
+use parking_lot::Mutex;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use std::fs::File;
 use std::io::Write;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
 
 fn old_outcomes(
     store: Store,
@@ -51,7 +52,7 @@ fn old_outcomes(
 }
 
 fn maybe_add_to_csv(csv_file_mutex: &Mutex<Option<&mut File>>, s: &str) {
-    let mut csv_file = csv_file_mutex.lock().unwrap();
+    let mut csv_file = csv_file_mutex.lock();
     if let Some(csv_file) = csv_file.as_mut() {
         writeln!(csv_file, "{}", s).unwrap();
     }

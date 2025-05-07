@@ -1,4 +1,4 @@
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
 use itertools::Itertools as _;
 use near_async::messaging::{CanSend as _, Handler as _};
@@ -13,6 +13,7 @@ use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockReference, NumSeats};
 use near_primitives::views::{QueryRequest, QueryResponseKind};
+use parking_lot::RwLock;
 use rand::{Rng as _, thread_rng};
 
 use crate::setup::builder::TestLoopBuilder;
@@ -125,7 +126,7 @@ fn test_cross_shard_tx_common(Params { num_transfers, rotate_validators, drop_ch
         let peer_actor_handle = node_datas.peer_manager_sender.actor_handle();
         let peer_actor = env.test_loop.data.get_mut(&peer_actor_handle);
         peer_actor.register_override_handler(Box::new(move |request| -> Option<NetworkRequests> {
-            let mut rng = rng.write().unwrap();
+            let mut rng = rng.write();
             match &request {
                 NetworkRequests::PartialEncodedChunkRequest { .. }
                 | NetworkRequests::PartialEncodedChunkResponse { .. }

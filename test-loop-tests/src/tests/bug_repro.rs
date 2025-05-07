@@ -1,6 +1,6 @@
 use std::cmp::max;
 use std::collections::HashMap;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
 use itertools::Itertools as _;
 use near_async::messaging::CanSend as _;
@@ -16,6 +16,7 @@ use near_o11y::testonly::init_test_logger;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::AccountId;
+use parking_lot::RwLock;
 use rand::{Rng as _, thread_rng};
 
 use crate::setup::builder::TestLoopBuilder;
@@ -69,8 +70,8 @@ fn slow_test_repro_1183() {
         let peer_actor = env.test_loop.data.get_mut(&peer_actor_handle);
         peer_actor.register_override_handler(Box::new(move |request| -> Option<NetworkRequests> {
             if let NetworkRequests::Block { block } = &request {
-                let mut last_block = last_block.write().unwrap();
-                let mut delayed_one_parts = delayed_one_parts.write().unwrap();
+                let mut last_block = last_block.write();
+                let mut delayed_one_parts = delayed_one_parts.write();
 
                 if let Some(last_block) = last_block.clone() {
                     for node in &node_datas {
@@ -129,11 +130,11 @@ fn slow_test_repro_1183() {
                 *delayed_one_parts = vec![];
                 None
             } else if let NetworkRequests::PartialEncodedChunkMessage { .. } = &request {
-                let mut rng = rng.write().unwrap();
+                let mut rng = rng.write();
                 if rng.gen_bool(0.5) {
                     Some(request)
                 } else {
-                    delayed_one_parts.write().unwrap().push(request.clone());
+                    delayed_one_parts.write().push(request.clone());
                     None
                 }
             } else {
@@ -208,13 +209,13 @@ fn slow_test_sync_from_archival_node() {
         let peer_actor_handle = node.peer_manager_sender.actor_handle();
         let peer_actor = env.test_loop.data.get_mut(&peer_actor_handle);
         peer_actor.register_override_handler(Box::new(move |request| -> Option<NetworkRequests> {
-            let mut block_counter = block_counter.write().unwrap();
+            let mut block_counter = block_counter.write();
 
             if let NetworkRequests::Block { block } = &request {
-                let mut largest_height = largest_height.write().unwrap();
+                let mut largest_height = largest_height.write();
                 *largest_height = max(block.header().height(), *largest_height);
             }
-            if *largest_height.read().unwrap() <= 30 {
+            if *largest_height.read() <= 30 {
                 match &request {
                     NetworkRequests::Block { block } => {
                         for (i, sender) in client_senders.iter().enumerate() {
@@ -227,7 +228,7 @@ fn slow_test_sync_from_archival_node() {
                             }
                         }
                         if block.header().height() <= 10 {
-                            blocks.write().unwrap().insert(*block.hash(), block.clone());
+                            blocks.write().insert(*block.hash(), block.clone());
                         }
                         None
                     }
@@ -248,7 +249,7 @@ fn slow_test_sync_from_archival_node() {
                 if *block_counter > 10 {
                     panic!("incorrect rebroadcasting of blocks");
                 }
-                for (_, block) in blocks.write().unwrap().drain() {
+                for (_, block) in blocks.write().drain() {
                     client_senders[3].send(BlockResponse {
                         block,
                         peer_id: peer_id.clone(),
@@ -268,7 +269,7 @@ fn slow_test_sync_from_archival_node() {
         }));
     }
 
-    env.test_loop.run_until(|_| *largest_height.read().unwrap() >= 50, Duration::seconds(20));
+    env.test_loop.run_until(|_| *largest_height.read() >= 50, Duration::seconds(20));
 
     env.shutdown_and_drain_remaining_events(Duration::seconds(10));
 }

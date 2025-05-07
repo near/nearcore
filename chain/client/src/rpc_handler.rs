@@ -27,9 +27,9 @@ use near_primitives::unwrap_or_return;
 use near_primitives::validator_signer::ValidatorSigner;
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::chain_store::ChainStoreAdapter;
+use parking_lot::Mutex;
 use std::collections::HashSet;
 use std::sync::Arc;
-use std::sync::Mutex;
 
 use crate::metrics;
 use crate::stateless_validation::chunk_endorsement::ChunkEndorsementTracker;
@@ -46,7 +46,7 @@ impl Handler<ProcessTxRequest> for RpcHandler {
 impl Handler<ChunkEndorsementMessage> for RpcHandler {
     #[perf]
     fn handle(&mut self, msg: ChunkEndorsementMessage) {
-        let mut tracker = self.chunk_endorsement_tracker.lock().unwrap();
+        let mut tracker = self.chunk_endorsement_tracker.lock();
         if let Err(err) = tracker.process_chunk_endorsement(msg.0) {
             tracing::error!(target: "client", ?err, "Error processing chunk endorsement");
         }
@@ -235,7 +235,7 @@ impl RpcHandler {
             }
             // Transactions only need to be recorded if the node is a validator.
             if me.is_some() {
-                let mut pool = self.tx_pool.lock().unwrap();
+                let mut pool = self.tx_pool.lock();
                 match pool.insert_transaction(shard_uid, validated_tx) {
                     InsertTransactionResult::Success => {
                         tracing::trace!(target: "client", ?shard_uid, tx_hash = ?signed_tx.get_hash(), "Recorded a transaction.");

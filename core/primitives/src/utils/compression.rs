@@ -98,7 +98,7 @@ mod tests {
         let (decompressed, decompressed_size) = compressed.decode().unwrap();
         assert_eq!(&decompressed, &data);
         assert_eq!(uncompressed_size, decompressed_size);
-        assert_eq!(borsh::to_vec(&data).unwrap().len(), uncompressed_size);
+        assert_eq!(borsh::object_length(&data).unwrap(), uncompressed_size);
     }
 
     #[test]
@@ -106,7 +106,7 @@ mod tests {
         // Encode exceeding limit is OK.
         let data = MyData(vec![42; 2000]);
         let (_, uncompressed_size) = CompressedMyData::encode(&data).unwrap();
-        assert_eq!(borsh::to_vec(&data).unwrap().len(), uncompressed_size);
+        assert_eq!(borsh::object_length(&data).unwrap(), uncompressed_size);
     }
 
     #[test]

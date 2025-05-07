@@ -12,10 +12,10 @@ fn run_multiple_nodes(num_nodes: usize, num_trials: usize, test_prefix: &str) {
     let nodes = create_nodes(num_nodes, test_prefix);
     let nodes: Vec<_> = nodes.into_iter().map(|cfg| <dyn Node>::new_sharable(cfg)).collect();
     let account_names: Vec<_> =
-        nodes.iter().map(|node| node.read().unwrap().account_id().unwrap()).collect();
+        nodes.iter().map(|node| node.read().account_id().unwrap()).collect();
 
     for i in 0..num_nodes {
-        nodes[i].write().unwrap().start();
+        nodes[i].write().start();
     }
 
     // waiting for nodes to be synced
@@ -25,7 +25,7 @@ fn run_multiple_nodes(num_nodes: usize, num_trials: usize, test_prefix: &str) {
             panic!("nodes are not synced in 10s");
         }
         let all_synced =
-            nodes.iter().all(|node| node.read().unwrap().view_account(&account_names[0]).is_ok());
+            nodes.iter().all(|node| node.read().view_account(&account_names[0]).is_ok());
         if all_synced {
             break;
         }
@@ -41,23 +41,22 @@ fn run_multiple_nodes(num_nodes: usize, num_trials: usize, test_prefix: &str) {
         println!("TRIAL #{}", trial);
         let (i, j) = sample_two_nodes(num_nodes);
         let (k, r) = sample_two_nodes(num_nodes);
-        let nonce_i =
-            nodes[i].read().unwrap().get_access_key_nonce_for_signer(&account_names[i]).unwrap();
-        let account_j = nodes[k].read().unwrap().view_account(&account_names[j]).unwrap();
+        let nonce_i = nodes[i].read().get_access_key_nonce_for_signer(&account_names[i]).unwrap();
+        let account_j = nodes[k].read().view_account(&account_names[j]).unwrap();
         let transaction = SignedTransaction::send_money(
             nonce_i + 1,
             account_names[i].clone(),
             account_names[j].clone(),
-            &*nodes[i].read().unwrap().signer(),
+            &*nodes[i].read().signer(),
             amount_to_send,
-            nodes[k].read().unwrap().user().get_best_block_hash().unwrap(),
+            nodes[k].read().user().get_best_block_hash().unwrap(),
         );
-        nodes[k].read().unwrap().add_transaction(transaction).unwrap();
+        nodes[k].read().add_transaction(transaction).unwrap();
 
         wait(
             || {
                 account_j.amount
-                    < nodes[r].read().unwrap().view_balance(&account_names[j]).unwrap()
+                    < nodes[r].read().view_balance(&account_names[j]).unwrap()
                         - amount_to_send * 9 / 10
             },
             100,

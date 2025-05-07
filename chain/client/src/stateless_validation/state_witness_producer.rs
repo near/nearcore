@@ -91,7 +91,7 @@ impl Client {
                 my_signer.as_ref(),
                 &self.network_adapter.clone().into_sender(),
             ) {
-                let mut tracker = self.chunk_endorsement_tracker.lock().unwrap();
+                let mut tracker = self.chunk_endorsement_tracker.lock();
                 tracker.process_chunk_endorsement(endorsement)?;
             }
         }
@@ -114,6 +114,7 @@ impl Client {
         let chunk_header = chunk.cloned_header();
         let epoch_id =
             self.epoch_manager.get_epoch_id_from_prev_block(chunk_header.prev_block_hash())?;
+        let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
         let prev_chunk = self.chain.get_chunk(&prev_chunk_header.chunk_hash())?;
         let StateTransitionData {
             main_transition,
@@ -138,6 +139,7 @@ impl Client {
             applied_receipts_hash,
             prev_chunk.to_transactions().to_vec(),
             implicit_transitions,
+            protocol_version,
         );
         Ok(CreateWitnessResult { state_witness, contract_updates, main_transition_shard_id })
     }
