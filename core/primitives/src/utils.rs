@@ -460,10 +460,9 @@ pub fn derive_eth_implicit_account_id(public_key: &Secp256K1PublicKey) -> Accoun
 pub fn get_block_metadata(
     prev_block_header: &BlockHeader,
     signer: &crate::validator_signer::ValidatorSigner,
-    clock: near_time::Clock,
+    now: u64,
     sandbox_delta_time: Option<near_time::Duration>,
 ) -> (u64, near_crypto::vrf::Value, near_crypto::vrf::Proof, CryptoHash) {
-    let now = clock.now_utc().unix_timestamp_nanos() as u64;
     #[cfg(feature = "sandbox")]
     let now = now + sandbox_delta_time.unwrap().whole_nanoseconds() as u64;
     #[cfg(not(feature = "sandbox"))]
