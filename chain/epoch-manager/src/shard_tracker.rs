@@ -51,91 +51,13 @@ impl ShardTracker {
     pub fn new_empty(epoch_manager: Arc<dyn EpochManagerAdapter>) -> Self {
         Self::new(TrackedShardsConfig::NoShards, epoch_manager)
     }
-    fn check_shard_exists_in_epoch(
-        &self,
-        shard_id: ShardId,
-        epoch_id: &EpochId,
-    ) -> Result<(), EpochError> {
-        let shard_layout = self.epoch_manager.get_shard_layout(epoch_id)?;
-        let Err(err) = shard_layout.get_shard_index(shard_id) else {
-            return Ok(());
-        };
 
-        let available_shards: Vec<_> = shard_layout.shard_ids().collect();
-
-        tracing::warn!(
-            "Shard {} does not exist in epoch {:?}. Available shards: {:?}. Error: {:?}",
-            shard_id,
-            epoch_id,
-            available_shards,
-            err
-        );
-        Ok(())
-    }
-
-    fn tracks_shard_at_epoch(
-        &self,
-        shard_id: ShardId,
-        epoch_id: &EpochId,
-    ) -> Result<bool, EpochError> {
-        self.check_shard_exists_in_epoch(shard_id, epoch_id)?;
-
-        match &self.tracked_shards_config {
-            TrackedShardsConfig::NoShards => Ok(false),
-            TrackedShardsConfig::AllShards => Ok(true),
-            TrackedShardsConfig::Accounts(tracked_accounts) => {
-                let shard_layout = self.epoch_manager.get_shard_layout(epoch_id)?;
-                let tracking_mask = self.tracking_shards_cache.get_or_try_put(
-                    *epoch_id,
-                    |_| -> Result<Vec<bool>, EpochError> {
-                        let mut tracking_mask =
-                            shard_layout.shard_ids().map(|_| false).collect_vec();
-                        for account_id in tracked_accounts {
-                            let shard_id = shard_layout.account_id_to_shard_id(account_id);
-                            let shard_index = shard_layout.get_shard_index(shard_id)?;
-                            tracking_mask[shard_index] = true;
-                        }
-                        Ok(tracking_mask)
-                    },
-                )?;
-                let shard_index = shard_layout.get_shard_index(shard_id)?;
-                Ok(tracking_mask.get(shard_index).copied().unwrap_or(false))
-            }
-            TrackedShardsConfig::Schedule(schedule) => {
-                assert_ne!(schedule.len(), 0);
-                let epoch_info = self.epoch_manager.get_epoch_info(epoch_id)?;
-                let epoch_height = epoch_info.epoch_height();
-                let index = epoch_height % schedule.len() as u64;
-                let subset = &schedule[index as usize];
-                Ok(subset.contains(&shard_id))
-            }
-            TrackedShardsConfig::ShadowValidator(account_id) => {
-                self.epoch_manager.cares_about_shard_in_epoch(epoch_id, account_id, shard_id)
-            }
+    fn check_shard_exists_in_epoch(&self, shard_id: ShardId, epoch_id: &EpochId) {
+        if let Err(err) = self.epoch_manager.get_shard_layout(epoch_id).and_then(|shard_layout| {
+            shard_layout.get_shard_index(shard_id).map_err(EpochError::from)
+        }) {
+            panic!("Shard {} does not exist in epoch {:?}. Error: {:?}", shard_id, epoch_id, err);
         }
-    }
-
-    fn tracks_shard(&self, shard_id: ShardId, prev_hash: &CryptoHash) -> Result<bool, EpochError> {
-        let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(prev_hash)?;
-        self.tracks_shard_at_epoch(shard_id, &epoch_id)
-    }
-
-    fn tracks_shard_next_epoch_from_prev_block(
-        &self,
-        shard_id: ShardId,
-        prev_hash: &CryptoHash,
-    ) -> Result<bool, EpochError> {
-        let epoch_id = self.epoch_manager.get_next_epoch_id_from_prev_block(prev_hash)?;
-        self.tracks_shard_at_epoch(shard_id, &epoch_id)
-    }
-
-    fn tracks_shard_prev_epoch_from_prev_block(
-        &self,
-        shard_id: ShardId,
-        prev_hash: &CryptoHash,
-    ) -> Result<bool, EpochError> {
-        let epoch_id = self.epoch_manager.get_prev_epoch_id_from_prev_block(prev_hash)?;
-        self.tracks_shard_at_epoch(shard_id, &epoch_id)
     }
 
     /// Whether the client cares about some shard in a specific epoch.
@@ -152,8 +74,24 @@ impl ShardTracker {
         is_me: bool,
         epoch_selection: EpochSelection,
     ) -> bool {
-        // TODO: fix these unwrap_or here and handle error correctly. The current behavior masks potential errors and bugs
-        // https://github.com/near/nearcore/issues/4936
+        // Compute epoch_id for all cases
+        let epoch_id = match epoch_selection {
+            EpochSelection::Previous => {
+                self.epoch_manager.get_prev_epoch_id_from_prev_block(parent_hash)
+            }
+            EpochSelection::Current => self.epoch_manager.get_epoch_id_from_prev_block(parent_hash),
+            EpochSelection::Next => {
+                self.epoch_manager.get_next_epoch_id_from_prev_block(parent_hash)
+            }
+        };
+        let epoch_id = match epoch_id {
+            Ok(eid) => eid,
+            Err(_) => return false,
+        };
+        // In debug mode, always check shard existence
+        if cfg!(debug_assertions) {
+            self.check_shard_exists_in_epoch(shard_id, &epoch_id);
+        }
         if let Some(account_id) = account_id {
             let account_cares_about_shard = match epoch_selection {
                 EpochSelection::Previous => self
@@ -169,40 +107,60 @@ impl ShardTracker {
                     .cares_about_shard_next_epoch_from_prev_block(parent_hash, account_id, shard_id)
                     .unwrap_or(false),
             };
-
             if account_cares_about_shard {
-                // An account has to track this shard because of its validation duties.
                 return true;
             }
             if !is_me {
-                // We don't know how another node is configured.
-                // It may track all shards, it may track no additional shards.
                 return false;
-            } else {
-                // We have access to the node config. Use the config to find a definite answer.
             }
         }
-
         match self.tracked_shards_config {
-            TrackedShardsConfig::NoShards => {
-                // Avoid looking up EpochId as a performance optimization.
-                false
+            TrackedShardsConfig::NoShards => false,
+            TrackedShardsConfig::AllShards => true,
+            TrackedShardsConfig::Accounts(ref tracked_accounts) => {
+                let shard_layout = match self.epoch_manager.get_shard_layout(&epoch_id) {
+                    Ok(layout) => layout,
+                    Err(_) => return false,
+                };
+                let tracking_mask = match self.tracking_shards_cache.get_or_try_put(
+                    epoch_id,
+                    |_| -> Result<Vec<bool>, EpochError> {
+                        let mut tracking_mask =
+                            shard_layout.shard_ids().map(|_| false).collect_vec();
+                        for account_id in tracked_accounts {
+                            let shard_id = shard_layout.account_id_to_shard_id(account_id);
+                            let shard_index = shard_layout.get_shard_index(shard_id)?;
+                            tracking_mask[shard_index] = true;
+                        }
+                        Ok(tracking_mask)
+                    },
+                ) {
+                    Ok(mask) => mask,
+                    Err(_) => return false,
+                };
+                let shard_index = match shard_layout.get_shard_index(shard_id) {
+                    Ok(idx) => idx,
+                    Err(_) => return false,
+                };
+                tracking_mask.get(shard_index).copied().unwrap_or(false)
             }
-            TrackedShardsConfig::AllShards => {
-                // Avoid looking up EpochId as a performance optimization.
-                true
-            }
-            _ => match epoch_selection {
-                EpochSelection::Previous => self
-                    .tracks_shard_prev_epoch_from_prev_block(shard_id, parent_hash)
-                    .unwrap_or(false),
-                EpochSelection::Current => {
-                    self.tracks_shard(shard_id, parent_hash).unwrap_or(false)
+            TrackedShardsConfig::Schedule(ref schedule) => {
+                if schedule.is_empty() {
+                    return false;
                 }
-                EpochSelection::Next => self
-                    .tracks_shard_next_epoch_from_prev_block(shard_id, parent_hash)
-                    .unwrap_or(false),
-            },
+                let epoch_info = match self.epoch_manager.get_epoch_info(&epoch_id) {
+                    Ok(info) => info,
+                    Err(_) => return false,
+                };
+                let epoch_height = epoch_info.epoch_height();
+                let index = epoch_height % schedule.len() as u64;
+                let subset = &schedule[index as usize];
+                subset.contains(&shard_id)
+            }
+            TrackedShardsConfig::ShadowValidator(ref account_id) => self
+                .epoch_manager
+                .cares_about_shard_in_epoch(&epoch_id, account_id, shard_id)
+                .unwrap_or(false),
         }
     }
 
@@ -484,6 +442,7 @@ mod tests {
         for account_id in &tracked_accounts {
             total_tracked_shards.insert(shard_layout.account_id_to_shard_id(account_id));
         }
+        assert_eq!(total_tracked_shards.len(), 2);
 
         assert_eq!(
             get_all_shards_care_about(&tracker, &shard_ids, &CryptoHash::default()),
