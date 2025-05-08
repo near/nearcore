@@ -12,12 +12,12 @@ use crate::network_protocol::DistanceVector;
 use crate::network_protocol::{
     Edge, EdgeState, Encoding, OwnedAccount, ParsePeerMessageError, PartialEdgeInfo,
     PeerChainInfoV2, PeerIdOrHash, PeerInfo, PeersRequest, PeersResponse, RawRoutedMessage,
-    RoutedMessageBody, RoutingTableUpdate, SnapshotHostInfoVerificationError, SyncAccountsData,
-    SyncSnapshotHosts,
+    RoutedMessageBody, RoutedMessageV2, RoutingTableUpdate, SnapshotHostInfoVerificationError,
+    SyncAccountsData, SyncSnapshotHosts,
 };
 use crate::peer::stream;
 use crate::peer::tracker::Tracker;
-use crate::peer_manager::connection;
+use crate::peer_manager::connection::{self, Connection};
 use crate::peer_manager::network_state::{NetworkState, PRUNE_EDGES_AFTER};
 #[cfg(test)]
 use crate::peer_manager::peer_manager_actor::Event;
@@ -36,6 +36,7 @@ use crate::types::{
 use actix::fut::future::wrap_future;
 use actix::{Actor as _, ActorContext as _, ActorFutureExt as _, AsyncContext as _};
 use lru::LruCache;
+use near_async::futures::{AsyncComputationSpawner, AsyncComputationSpawnerExt};
 use near_async::messaging::{CanSend, SendAsync};
 use near_async::time;
 use near_crypto::Signature;
@@ -166,7 +167,7 @@ pub(crate) struct PeerActor {
     peer_type: PeerType,
 
     /// Framed wrapper to send messages through the TCP connection.
-    framed: stream::FramedStream<PeerActor>,
+    framed: Arc<stream::FramedStream<PeerActor>>,
 
     /// Tracker for requests and responses.
     tracker: Arc<Mutex<Tracker>>,
@@ -191,6 +192,8 @@ pub(crate) struct PeerActor {
 
     /// Per-message rate limits for incoming messages.
     received_messages_rate_limits: messages_limits::RateLimits,
+
+    peer_actor_spawner: Arc<dyn AsyncComputationSpawner>,
 }
 
 impl Debug for PeerActor {
@@ -220,8 +223,10 @@ impl PeerActor {
         stream: tcp::Stream,
         force_encoding: Option<Encoding>,
         network_state: Arc<NetworkState>,
+        peer_actor_spawner: Arc<dyn AsyncComputationSpawner>,
     ) -> anyhow::Result<actix::Addr<Self>> {
-        let (addr, handshake_signal) = Self::spawn(clock, stream, force_encoding, network_state)?;
+        let (addr, handshake_signal) =
+            Self::spawn(clock, stream, force_encoding, network_state, peer_actor_spawner)?;
         // Await for the handshake to complete, by awaiting the handshake_signal channel.
         // This is a receiver of Infallible, so it only completes when the channel is closed.
         handshake_signal.await.err().unwrap();
@@ -237,12 +242,13 @@ impl PeerActor {
         stream: tcp::Stream,
         force_encoding: Option<Encoding>,
         network_state: Arc<NetworkState>,
+        peer_actor_spawner: Arc<dyn AsyncComputationSpawner>,
     ) -> anyhow::Result<(actix::Addr<Self>, HandshakeSignal)> {
         #[cfg(test)]
         let stream_id = stream.id();
         #[cfg(test)]
         let network_state_clone = network_state.clone();
-        match Self::spawn_inner(clock, stream, force_encoding, network_state) {
+        match Self::spawn_inner(clock, stream, force_encoding, network_state, peer_actor_spawner) {
             Ok(it) => Ok(it),
             Err(reason) => {
                 #[cfg(test)]
@@ -259,6 +265,7 @@ impl PeerActor {
         stream: tcp::Stream,
         force_encoding: Option<Encoding>,
         network_state: Arc<NetworkState>,
+        peer_actor_spawner: Arc<dyn AsyncComputationSpawner>,
     ) -> Result<(actix::Addr<Self>, HandshakeSignal), ClosingReason> {
         let connecting_status = match &stream.type_ {
             tcp::StreamType::Inbound => ConnectingStatus::Inbound(
@@ -340,7 +347,7 @@ impl PeerActor {
                 let peer_addr = stream.peer_addr;
                 let stream_type = stream.type_.clone();
                 let stats = Arc::new(connection::Stats::default());
-                let framed = stream::FramedStream::spawn(ctx, stream, stats.clone());
+                let framed = Arc::new(stream::FramedStream::spawn(ctx, stream, stats.clone()));
                 Self {
                     closing_reason: None,
                     clock,
@@ -371,6 +378,7 @@ impl PeerActor {
                     .into(),
                     network_state,
                     received_messages_rate_limits,
+                    peer_actor_spawner,
                 }
             }),
             recv,
@@ -394,29 +402,20 @@ impl PeerActor {
         }
     }
 
-    fn parse_message(&mut self, msg: &[u8]) -> Result<PeerMessage, ParsePeerMessageError> {
-        if let Some(e) = self.encoding() {
-            return PeerMessage::deserialize(e, msg);
-        }
-        if let Ok(msg) = PeerMessage::deserialize(Encoding::Proto, msg) {
-            self.protocol_buffers_supported = true;
-            return Ok(msg);
-        }
-        return PeerMessage::deserialize(Encoding::Borsh, msg);
-    }
-
-    fn send_message_or_log(&self, msg: &PeerMessage) {
+    fn send_message_or_log(&self, msg: Arc<PeerMessage>) {
         self.send_message(msg);
     }
 
-    fn send_message(&self, msg: &PeerMessage) {
-        if let (PeerStatus::Ready(conn), PeerMessage::PeersRequest(_)) = (&self.peer_status, msg) {
+    fn send_message(&self, msg: Arc<PeerMessage>) {
+        if let (PeerStatus::Ready(conn), PeerMessage::PeersRequest(_)) =
+            (&self.peer_status, msg.as_ref())
+        {
             conn.last_time_peer_requested.store(Some(self.clock.now()));
         }
         if let Some(enc) = self.encoding() {
             return self.send_message_with_encoding(msg, enc);
         }
-        self.send_message_with_encoding(msg, Encoding::Proto);
+        self.send_message_with_encoding(msg.clone(), Encoding::Proto);
         self.send_message_with_encoding(msg, Encoding::Borsh);
     }
 
@@ -427,10 +426,10 @@ impl PeerActor {
         skip_all,
         fields(msg_type = msg.msg_variant())
     )]
-    fn send_message_with_encoding(&self, msg: &PeerMessage, enc: Encoding) {
+    fn send_message_with_encoding(&self, msg: Arc<PeerMessage>, enc: Encoding) {
         // Skip sending block and headers if we received it or header from this peer.
         // Record block requests in tracker.
-        match msg {
+        match msg.as_ref() {
             // Temporarily disable this check because now the node needs to send block to its
             // peers to update its height at the peer. In the future we will introduce a new
             // peer message type for that and then we can enable this check again.
@@ -451,18 +450,22 @@ impl PeerActor {
             }
             _ => (),
         };
-
-        let bytes = msg.serialize(enc);
-        self.tracker.lock().increment_sent(&self.clock, bytes.len() as u64);
-        let bytes_len = bytes.len();
-        tracing::trace!(target: "network", msg_len = bytes_len);
-        self.framed.send(stream::Frame(bytes));
-        metrics::PEER_DATA_SENT_BYTES.inc_by(bytes_len as u64);
-        let msg_type = msg.msg_variant();
-        metrics::PEER_MESSAGE_SENT_BY_TYPE_TOTAL.with_label_values(&[msg_type]).inc();
-        metrics::PEER_MESSAGE_SENT_BY_TYPE_BYTES
-            .with_label_values(&[msg_type])
-            .inc_by(bytes_len as u64);
+        let tracker = self.tracker.clone();
+        let clock = self.clock.clone();
+        let framed = self.framed.clone();
+        self.peer_actor_spawner.spawn("send_message_with_encoding", move || {
+            let bytes = msg.serialize(enc);
+            tracker.lock().increment_sent(&clock, bytes.len() as u64);
+            let bytes_len = bytes.len();
+            tracing::trace!(target: "network", msg_len = bytes_len);
+            framed.send(stream::Frame(bytes));
+            metrics::PEER_DATA_SENT_BYTES.inc_by(bytes_len as u64);
+            let msg_type = msg.msg_variant();
+            metrics::PEER_MESSAGE_SENT_BY_TYPE_TOTAL.with_label_values(&[msg_type]).inc();
+            metrics::PEER_MESSAGE_SENT_BY_TYPE_BYTES
+                .with_label_values(&[msg_type])
+                .inc_by(bytes_len as u64);
+        });
     }
 
     fn send_handshake(&self, spec: HandshakeSpec) {
@@ -500,7 +503,7 @@ impl PeerActor {
             tcp::Tier::T2 => PeerMessage::Tier2Handshake(handshake),
             tcp::Tier::T3 => PeerMessage::Tier3Handshake(handshake),
         };
-        self.send_message_or_log(&msg);
+        self.send_message_or_log(msg.into());
     }
 
     fn stop(&mut self, ctx: &mut actix::Context<PeerActor>, reason: ClosingReason) {
@@ -571,30 +574,39 @@ impl PeerActor {
                         target: "network",
                         version = handshake.protocol_version,
                         "Received connection from node with unsupported PROTOCOL_VERSION.");
-                    self.send_message_or_log(&PeerMessage::HandshakeFailure(
-                        self.my_node_info.clone(),
-                        HandshakeFailureReason::ProtocolVersionMismatch {
-                            version: PROTOCOL_VERSION,
-                            oldest_supported_version: PEER_MIN_ALLOWED_PROTOCOL_VERSION,
-                        },
-                    ));
+                    self.send_message_or_log(
+                        PeerMessage::HandshakeFailure(
+                            self.my_node_info.clone(),
+                            HandshakeFailureReason::ProtocolVersionMismatch {
+                                version: PROTOCOL_VERSION,
+                                oldest_supported_version: PEER_MIN_ALLOWED_PROTOCOL_VERSION,
+                            },
+                        )
+                        .into(),
+                    );
                     return;
                 }
                 let genesis_id = self.network_state.genesis_id.clone();
                 if handshake.sender_chain_info.genesis_id != genesis_id {
                     tracing::debug!(target: "network", "Received connection from node with different genesis.");
-                    self.send_message_or_log(&PeerMessage::HandshakeFailure(
-                        self.my_node_info.clone(),
-                        HandshakeFailureReason::GenesisMismatch(genesis_id),
-                    ));
+                    self.send_message_or_log(
+                        PeerMessage::HandshakeFailure(
+                            self.my_node_info.clone(),
+                            HandshakeFailureReason::GenesisMismatch(genesis_id),
+                        )
+                        .into(),
+                    );
                     return;
                 }
                 if handshake.target_peer_id != self.my_node_info.id {
                     tracing::debug!(target: "network", "Received handshake from {:?} to {:?} but I am {:?}", handshake.sender_peer_id, handshake.target_peer_id, self.my_node_info.id);
-                    self.send_message_or_log(&PeerMessage::HandshakeFailure(
-                        self.my_node_info.clone(),
-                        HandshakeFailureReason::InvalidTarget,
-                    ));
+                    self.send_message_or_log(
+                        PeerMessage::HandshakeFailure(
+                            self.my_node_info.clone(),
+                            HandshakeFailureReason::InvalidTarget,
+                        )
+                        .into(),
+                    );
                     return;
                 }
 
@@ -611,7 +623,7 @@ impl PeerActor {
                 {
                     if last_edge.nonce() >= handshake.partial_edge_info.nonce {
                         tracing::debug!(target: "network", "{:?}: Received too low nonce from peer {:?} sending evidence.", self.my_node_id(), self.peer_addr);
-                        self.send_message_or_log(&PeerMessage::LastEdge(last_edge.clone()));
+                        self.send_message_or_log(PeerMessage::LastEdge(last_edge.clone()).into());
                         return;
                     }
                 }
@@ -864,16 +876,18 @@ impl PeerActor {
             metrics::EDGE_TOMBSTONE_SENDING_SKIPPED.inc();
         }
         let known_accounts = self.network_state.account_announcements.get_announcements();
-        self.send_message_or_log(&PeerMessage::SyncRoutingTable(RoutingTableUpdate::new(
-            known_edges,
-            known_accounts,
-        )));
+        self.send_message_or_log(
+            PeerMessage::SyncRoutingTable(RoutingTableUpdate::new(known_edges, known_accounts))
+                .into(),
+        );
     }
 
     // Send all known snapshot hosts.
     fn sync_snapshot_hosts(&self) {
         let hosts = self.network_state.snapshot_hosts.get_hosts();
-        self.send_message_or_log(&PeerMessage::SyncSnapshotHosts(SyncSnapshotHosts { hosts }));
+        self.send_message_or_log(
+            PeerMessage::SyncSnapshotHosts(SyncSnapshotHosts { hosts }).into(),
+        );
     }
 
     fn handle_msg_connecting(&mut self, ctx: &mut actix::Context<Self>, msg: PeerMessage) {
@@ -1140,7 +1154,7 @@ impl PeerActor {
             |res, act: &mut PeerActor, ctx| {
                 match res {
                     // TODO(gprusak): make sure that for routed messages we drop routeback info correctly.
-                    Ok(Some(resp)) => act.send_message_or_log(&resp),
+                    Ok(Some(resp)) => act.send_message_or_log(resp.into()),
                     Ok(None) => {}
                     Err(ban_reason) => act.stop(ctx, ClosingReason::Ban(ban_reason)),
                 }
@@ -1209,10 +1223,9 @@ impl PeerActor {
 
                 if !peers.is_empty() || !direct_peers.is_empty() {
                     tracing::debug!(target: "network", "Peers request from {}: sending {} peers and {} direct peers.", self.peer_info, peers.len(), direct_peers.len());
-                    self.send_message_or_log(&PeerMessage::PeersResponse(PeersResponse {
-                        peers,
-                        direct_peers,
-                    }));
+                    self.send_message_or_log(
+                        PeerMessage::PeersResponse(PeersResponse { peers, direct_peers }).into(),
+                    );
                 }
                 #[cfg(test)]
                 message_processed_event();
@@ -1321,17 +1334,20 @@ impl PeerActor {
                 // In case a full sync is requested, immediately send what we got.
                 // It is a micro optimization: we do not send back the data we just received.
                 if msg.requesting_full_sync {
-                    self.send_message_or_log(&PeerMessage::SyncAccountsData(SyncAccountsData {
-                        requesting_full_sync: false,
-                        incremental: false,
-                        accounts_data: network_state
-                            .accounts_data
-                            .load()
-                            .data
-                            .values()
-                            .cloned()
-                            .collect(),
-                    }));
+                    self.send_message_or_log(
+                        PeerMessage::SyncAccountsData(SyncAccountsData {
+                            requesting_full_sync: false,
+                            incremental: false,
+                            accounts_data: network_state
+                                .accounts_data
+                                .load()
+                                .data
+                                .values()
+                                .cloned()
+                                .collect(),
+                        })
+                        .into(),
+                    );
                 }
                 // Early exit, if there is no data in the message.
                 if msg.accounts_data.is_empty() {
@@ -1380,7 +1396,7 @@ impl PeerActor {
                     message_processed_event();
                 }));
             }
-            PeerMessage::Routed(mut msg) => {
+            PeerMessage::Routed(/*mut*/ msg) => {
                 tracing::trace!(
                     target: "network",
                     "Received routed message from {} to {:?}.",
@@ -1432,46 +1448,19 @@ impl PeerActor {
                     return;
                 }
 
-                self.network_state.add_route_back(&self.clock, &conn, msg.as_ref());
-                if for_me {
-                    // Handle Ping and Pong message if they are for us without sending to client.
-                    // i.e. Return false in case of Ping and Pong
-                    match &msg.body {
-                        RoutedMessageBody::Ping(ping) => {
-                            self.network_state.send_pong(
-                                &self.clock,
-                                conn.tier,
-                                ping.nonce,
-                                msg.hash(),
-                            );
-                            // TODO(gprusak): deprecate Event::Ping/Pong in favor of
-                            // MessageProcessed.
-                            #[cfg(test)]
-                            self.network_state.config.event_sink.send(Event::Ping(ping.clone()));
-                            #[cfg(test)]
-                            message_processed_event();
-                        }
-                        RoutedMessageBody::Pong(_pong) => {
-                            #[cfg(test)]
-                            self.network_state.config.event_sink.send(Event::Pong(_pong.clone()));
-                            #[cfg(test)]
-                            message_processed_event();
-                        }
-                        _ => self.receive_message(ctx, &conn, PeerMessage::Routed(msg)),
-                    }
-                } else {
-                    if msg.decrease_ttl() {
-                        msg.num_hops += 1;
-                        self.network_state.send_message_to_peer(&self.clock, conn.tier, msg);
+                let addr = ctx.address();
+                let conn_cl = conn.clone();
+                self.peer_actor_spawner.spawn("detached msg verification", move || {
+                    let verified = if !msg.verify() {
+                        // Received invalid routed message from peer.
+                        VerifiedRouted::Invalid
                     } else {
-                        #[cfg(test)]
-                        self.network_state.config.event_sink.send(Event::RoutedMessageDropped);
-                        tracing::debug!(target: "network", ?msg, from = ?conn.peer_info.id, "Message dropped because TTL reached 0.");
-                        metrics::ROUTED_MESSAGE_DROPPED
-                            .with_label_values(&[msg.body_variant()])
-                            .inc();
-                    }
-                }
+                        VerifiedRouted::Valid(msg, conn_cl)
+                    };
+                    if let Err(e) = addr.try_send(verified) {
+                        tracing::warn!(target: "network", "Failed to send message to actor: {:?}", e);
+                    };
+                });
             }
             msg => self.receive_message(ctx, &conn, msg),
         }
@@ -1601,9 +1590,9 @@ impl actix::Actor for PeerActor {
                 let remove_from_connection_store =
                     self.peer_type == PeerType::Inbound && reason.remove_from_connection_store();
 
-                self.send_message_or_log(&PeerMessage::Disconnect(Disconnect {
-                    remove_from_connection_store,
-                }));
+                self.send_message_or_log(
+                    PeerMessage::Disconnect(Disconnect { remove_from_connection_store }).into(),
+                );
             }
         }
 
@@ -1675,38 +1664,22 @@ impl actix::Handler<stream::Error> for PeerActor {
     }
 }
 
-impl actix::Handler<stream::Frame> for PeerActor {
+#[derive(actix::Message, Debug)]
+#[rtype(result = "()")]
+enum ParsedMessage {
+    Valid(PeerMessage, usize, Encoding),
+}
+impl actix::Handler<ParsedMessage> for PeerActor {
     type Result = ();
-    #[perf]
-    fn handle(&mut self, stream::Frame(msg): stream::Frame, ctx: &mut Self::Context) {
-        let _span = tracing::debug_span!(
-            target: "network",
-            "handle",
-            handler = "bytes",
-            actor = "PeerActor",
-            msg_len = msg.len(),
-            peer = %self.peer_info)
-        .entered();
 
-        if self.closing_reason.is_some() {
-            tracing::warn!(target: "network", "Received message from closing connection {:?}. Ignoring", self.peer_type);
-            return;
-        }
-
-        // Message type agnostic stats.
-        {
-            metrics::PEER_DATA_RECEIVED_BYTES.inc_by(msg.len() as u64);
-            tracing::trace!(target: "network", msg_len=msg.len());
-            self.tracker.lock().increment_received(&self.clock, msg.len() as u64);
-        }
-
-        let mut peer_msg = match self.parse_message(&msg) {
-            Ok(msg) => msg,
-            Err(err) => {
-                tracing::debug!(target: "network", "Received invalid data {} from {}: {}", near_fmt::AbbrBytes(&msg), self.peer_info, err);
-                return;
-            }
+    fn handle(&mut self, msg: ParsedMessage, ctx: &mut Self::Context) {
+        let (mut peer_msg, len, encoding) = match msg {
+            ParsedMessage::Valid(msg, len, encoding) => (msg, len, encoding),
         };
+
+        if encoding == Encoding::Proto {
+            self.protocol_buffers_supported = true;
+        }
 
         tracing::trace!(target: "network", "Received message: {}", peer_msg);
 
@@ -1716,7 +1689,7 @@ impl actix::Handler<stream::Frame> for PeerActor {
             metrics::PEER_MESSAGE_RECEIVED_BY_TYPE_TOTAL.with_label_values(&labels).inc();
             metrics::PEER_MESSAGE_RECEIVED_BY_TYPE_BYTES
                 .with_label_values(&labels)
-                .inc_by(msg.len() as u64);
+                .inc_by(len as u64);
             if !self.received_messages_rate_limits.is_allowed(&peer_msg, now) {
                 metrics::PEER_MESSAGE_RATE_LIMITED_BY_TYPE_TOTAL.with_label_values(&labels).inc();
                 tracing::debug!(target: "network", "Peer {} is being rate limited for message {}", self.peer_info, peer_msg.msg_variant());
@@ -1762,13 +1735,143 @@ impl actix::Handler<stream::Frame> for PeerActor {
     }
 }
 
+#[derive(actix::Message, Debug)]
+#[rtype(result = "()")]
+enum VerifiedRouted {
+    Valid(Box<RoutedMessageV2>, Arc<Connection>),
+    Invalid,
+}
+
+impl actix::Handler<VerifiedRouted> for PeerActor {
+    type Result = ();
+
+    fn handle(&mut self, msg: VerifiedRouted, ctx: &mut Self::Context) {
+        let _span = tracing::debug_span!(
+            target: "network",
+            "handle",
+            handler = "VerifiedRouted",
+            actor = "PeerActor",
+            peer = %self.peer_info)
+        .entered();
+
+        let (mut msg, conn) = match msg {
+            VerifiedRouted::Valid(msg, conn) => (msg, conn),
+            VerifiedRouted::Invalid => {
+                self.stop(ctx, ClosingReason::Ban(ReasonForBan::InvalidSignature));
+                return;
+            }
+        };
+
+        #[cfg(test)]
+        let message_processed_event = {
+            let sink = self.network_state.config.event_sink.clone();
+            let msg = msg.clone();
+            let tier = conn.tier;
+            move || {
+                sink.send(Event::MessageProcessed(tier, PeerMessage::Routed(msg)));
+            }
+        };
+
+        let for_me = self.network_state.message_for_me(&msg.target);
+        self.network_state.add_route_back(&self.clock, &conn, msg.as_ref());
+        if for_me {
+            // Handle Ping and Pong message if they are for us without sending to client.
+            // i.e. Return false in case of Ping and Pong
+            match &msg.body {
+                RoutedMessageBody::Ping(ping) => {
+                    self.network_state.send_pong(&self.clock, conn.tier, ping.nonce, msg.hash());
+                    #[cfg(test)]
+                    self.network_state.config.event_sink.send(Event::Ping(ping.clone()));
+                    #[cfg(test)]
+                    message_processed_event();
+                }
+                RoutedMessageBody::Pong(_pong) => {
+                    #[cfg(test)]
+                    self.network_state.config.event_sink.send(Event::Pong(_pong.clone()));
+                    #[cfg(test)]
+                    message_processed_event();
+                }
+                _ => self.receive_message(ctx, &conn, PeerMessage::Routed(msg)),
+            }
+        } else {
+            if msg.decrease_ttl() {
+                msg.num_hops += 1;
+                self.network_state.send_message_to_peer(&self.clock, conn.tier, msg);
+            } else {
+                #[cfg(test)]
+                self.network_state.config.event_sink.send(Event::RoutedMessageDropped);
+                tracing::debug!(target: "network", ?msg, from = ?conn.peer_info.id, "Message dropped because TTL reached 0.");
+                metrics::ROUTED_MESSAGE_DROPPED.with_label_values(&[msg.body_variant()]).inc();
+            }
+        }
+    }
+}
+
+fn parse_message(
+    msg: &[u8],
+    encoding: Option<Encoding>,
+) -> Result<(PeerMessage, Encoding), ParsePeerMessageError> {
+    if let Some(e) = encoding {
+        return Ok((PeerMessage::deserialize(e, msg)?, e));
+    }
+    if let Ok(msg) = PeerMessage::deserialize(Encoding::Proto, msg) {
+        return Ok((msg, Encoding::Proto));
+    }
+    return Ok((PeerMessage::deserialize(Encoding::Borsh, msg)?, Encoding::Borsh));
+}
+
+impl actix::Handler<stream::Frame> for PeerActor {
+    type Result = ();
+    #[perf]
+    fn handle(&mut self, stream::Frame(msg): stream::Frame, ctx: &mut Self::Context) {
+        let _span = tracing::debug_span!(
+            target: "network",
+            "handle",
+            handler = "bytes",
+            actor = "PeerActor",
+            msg_len = msg.len(),
+            peer = %self.peer_info)
+        .entered();
+
+        if self.closing_reason.is_some() {
+            tracing::warn!(target: "network", "Received message from closing connection {:?}. Ignoring", self.peer_type);
+            return;
+        }
+
+        // Message type agnostic stats.
+        {
+            metrics::PEER_DATA_RECEIVED_BYTES.inc_by(msg.len() as u64);
+            tracing::trace!(target: "network", msg_len=msg.len());
+            self.tracker.lock().increment_received(&self.clock, msg.len() as u64);
+        }
+
+        let addr = ctx.address();
+        let encoding = self.encoding();
+        let peer_info = self.peer_info.clone();
+
+        self.peer_actor_spawner.spawn("detached parse_message", move || {
+            let (peer_msg, encoding) = match parse_message(&msg, encoding) {
+                Ok(msg) => msg,
+                Err(err) => {
+                    tracing::debug!(target: "network", "Received invalid data {} from {}: {}", near_fmt::AbbrBytes(&msg), peer_info, err);
+                    return;
+                }
+            };
+
+            if let Err(e) = addr.try_send(ParsedMessage::Valid(peer_msg, msg.len(), encoding)) {
+                tracing::error!(target: "network", "Failed to send ParsedMessage to PeerActor: {}", e);
+            }
+        });
+    }
+}
+
 impl actix::Handler<WithSpanContext<SendMessage>> for PeerActor {
     type Result = ();
 
     #[perf]
     fn handle(&mut self, msg: WithSpanContext<SendMessage>, _: &mut Self::Context) {
         let (_span, msg) = handler_debug_span!(target: "network", msg);
-        self.send_message_or_log(&msg.message);
+        self.send_message_or_log(msg.message.into());
     }
 }
 
