@@ -3,7 +3,7 @@
 [build]
 # We compile with `panic=abort`, so we need `-Cforce-unwind-tables=y`
 # to get a useful backtrace on panic.
-rustflags = ["-Cforce-unwind-tables=y"]
+rustflags = ["-Cforce-unwind-tables=y", "--cfg", "tokio_unstable"]
 
 [target.'cfg(target_arch = "x86_64")']
-rustflags = ["-Ctarget-feature=+sse2,+ssse3,+sse4.1,+sse4.2,+popcnt,+fma,+bmi1,+bmi2,+lzcnt,+movbe,+pclmulqdq", "-Cforce-unwind-tables=y"]
+rustflags = ["-Ctarget-feature=+sse2,+ssse3,+sse4.1,+sse4.2,+popcnt,+fma,+bmi1,+bmi2,+lzcnt,+movbe,+pclmulqdq", "-Cforce-unwind-tables=y", "--cfg", "tokio_unstable"]
