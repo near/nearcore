@@ -258,25 +258,28 @@ impl Connection {
                     // SnapshotHostInfos into a single batch of data.
                     |ds: Vec<Vec<Arc<SnapshotHostInfo>>>| async move {
                         let res = ds.iter().map(|_| ()).collect();
-                        let mut sum = HashMap::<_, Arc<SnapshotHostInfo>>::new();
-                        for d in ds.into_iter().flatten() {
-                            match sum.entry(d.peer_id.clone()) {
-                                Entry::Occupied(mut x) => {
-                                    // If two entries are present for the same peer,
-                                    // keep one with the greatest epoch_height.
-                                    if x.get().epoch_height < d.epoch_height {
+                        let msg = tokio::task::spawn_blocking(move || {
+                            let mut sum = HashMap::<_, Arc<SnapshotHostInfo>>::new();
+                            for d in ds.into_iter().flatten() {
+                                match sum.entry(d.peer_id.clone()) {
+                                    Entry::Occupied(mut x) => {
+                                        if x.get().epoch_height < d.epoch_height {
+                                            x.insert(d);
+                                        }
+                                    }
+                                    Entry::Vacant(x) => {
                                         x.insert(d);
                                     }
                                 }
-                                Entry::Vacant(x) => {
-                                    x.insert(d);
-                                }
                             }
-                        }
+
+                            Arc::new(PeerMessage::SyncSnapshotHosts(SyncSnapshotHosts {
+                                hosts: sum.into_values().collect(),
+                            }))
+                        })
+                        .await
+                        .unwrap();
                         // Send a single SyncSnapshotHosts message with the condensed data.
-                        let msg = Arc::new(PeerMessage::SyncSnapshotHosts(SyncSnapshotHosts {
-                            hosts: sum.into_values().collect(),
-                        }));
                         this.send_message(msg);
                         res
                     }
