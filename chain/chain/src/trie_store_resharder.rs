@@ -82,7 +82,6 @@ mod tests {
 
     fn iterate_batch(
         trie: &Trie,
-        state_root: CryptoHash,
         previous_batch_last_key: Option<Vec<u8>>,
         batch_items: usize,
     ) -> Option<Vec<u8>> {
@@ -92,7 +91,9 @@ mod tests {
             iter.seek(previous_batch_last_key).expect("failed to seek prefix");
             // So far, we just reached the state where last iteration terminated.
             // We need to clear the recorder to avoid double counting.
-            _ = trie.recorded_as_trie_changes(state_root).expect("failed to get trie changes");
+            _ = trie
+                .recorded_as_trie_changes(Trie::EMPTY_ROOT)
+                .expect("failed to get trie changes");
             // Skip this key as it was handled in the previous iteration
             iter.next().map(|result| result.expect("failed to iterate"));
         }
@@ -147,7 +148,7 @@ mod tests {
         let batch_size = 20;
         let mut last_key: Option<Vec<u8>> = None;
         loop {
-            last_key = iterate_batch(&trie, root, last_key, batch_size);
+            last_key = iterate_batch(&trie, last_key, batch_size);
             let trie_changes =
                 trie.recorded_as_trie_changes(root).expect("failed to get trie changes");
             let mut update = store.trie_store().store_update();
