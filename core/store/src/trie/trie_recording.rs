@@ -32,7 +32,7 @@ pub struct ValueAndTimesSeen {
     /// The value of the trie node.
     pub value: Arc<[u8]>,
     /// The number of times this value has been seen.
-    pub seen: usize,
+    pub seen: u32,
 }
 
 impl ValueAndTimesSeen {
@@ -132,7 +132,7 @@ impl TrieRecorder {
         let recorded: HashMap<_, _> = self.recorded.drain().collect();
         let mut refcounts = TrieRefcountDeltaMap::new();
         for (key, ValueAndTimesSeen { value, seen }) in recorded {
-            refcounts.add(key, value.to_vec(), seen as u32);
+            refcounts.add(key, value.to_vec(), seen);
         }
         let (insertions, deletions) = refcounts.into_changes();
         TrieChanges {
