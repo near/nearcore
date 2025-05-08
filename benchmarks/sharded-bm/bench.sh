@@ -261,6 +261,8 @@ gen_forknet() {
     $MIRROR --host-type nodes upload-file --src ${cwd}/bench.sh --dst ${BENCHNET_DIR}
     $MIRROR --host-type nodes upload-file --src ${cwd}/cases --dst ${BENCHNET_DIR}
 
+    # exit 0
+    
     echo "Running new-test to initialize nodes and collect validator keys"
     $MIRROR --host-type nodes new-test --state-source empty --patches-path "${BENCHNET_DIR}/${CASE}" \
         --epoch-length ${EPOCH_LENGTH} --num-validators ${NUM_CHUNK_PRODUCERS} \
