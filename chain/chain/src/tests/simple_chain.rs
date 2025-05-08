@@ -371,7 +371,7 @@ fn test_pending_block() {
 /// execution excessive in the regular flow.
 /// * If we receive the a different block with the same height, it is a
 /// malicious behaviour. We must process all these blocks anyway, because we
-/// don't know which one gets finalised. To simplify optimistic logic, we
+/// don't know which one gets finalized. To simplify optimistic logic, we
 /// skip pending pool and process block right away.
 #[cfg(feature = "test_features")]
 #[test]
