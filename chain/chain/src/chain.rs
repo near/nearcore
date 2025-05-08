@@ -2862,7 +2862,7 @@ impl Chain {
         let transaction = self.chain_store.get_transaction(transaction_hash)?.ok_or_else(|| {
             Error::DBNotFoundErr(format!("Transaction {} is not found", transaction_hash))
         })?;
-        let transaction: SignedTransactionView = SignedTransaction::clone(&transaction).into();
+        let transaction = SignedTransactionView::from(Arc::unwrap_or_clone(transaction));
         let transaction_outcome = outcomes.pop().unwrap();
         Ok(FinalExecutionOutcomeView { status, transaction, transaction_outcome, receipts_outcome })
     }
@@ -2876,7 +2876,7 @@ impl Chain {
         let transaction = self.chain_store.get_transaction(transaction_hash)?.ok_or_else(|| {
             Error::DBNotFoundErr(format!("Transaction {} is not found", transaction_hash))
         })?;
-        let transaction: SignedTransactionView = SignedTransaction::clone(&transaction).into();
+        let transaction = SignedTransactionView::from(Arc::unwrap_or_clone(transaction));
 
         let mut outcomes = Vec::new();
         self.get_recursive_transaction_results(&mut outcomes, transaction_hash, false)?;
