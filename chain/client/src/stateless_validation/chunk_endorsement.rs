@@ -1,6 +1,6 @@
 use super::validate::{ChunkRelevance, validate_chunk_endorsement};
 use crate::metrics;
-use lru::LruCache;
+use near_cache::SyncLruCache;
 use near_chain_primitives::Error;
 use near_crypto::Signature;
 use near_epoch_manager::EpochManagerAdapter;
@@ -10,7 +10,6 @@ use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::stateless_validation::validator_assignment::ChunkEndorsementsState;
 use near_primitives::types::AccountId;
 use near_store::Store;
-use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
@@ -26,7 +25,7 @@ pub struct ChunkEndorsementTracker {
     store: Store,
     /// We store the validated chunk endorsements received from chunk validators.
     chunk_endorsements:
-        Mutex<LruCache<ChunkProductionKey, HashMap<AccountId, (ChunkHash, Signature)>>>,
+        SyncLruCache<ChunkProductionKey, HashMap<AccountId, (ChunkHash, Signature)>>,
 }
 
 impl ChunkEndorsementTracker {
@@ -34,9 +33,9 @@ impl ChunkEndorsementTracker {
         Self {
             epoch_manager,
             store,
-            chunk_endorsements: Mutex::new(LruCache::new(
-                NonZeroUsize::new(NUM_CHUNKS_IN_CHUNK_ENDORSEMENTS_CACHE).unwrap(),
-            )),
+            chunk_endorsements: SyncLruCache::new(
+                NonZeroUsize::new(NUM_CHUNKS_IN_CHUNK_ENDORSEMENTS_CACHE).unwrap().into(),
+            ),
         }
     }
 
@@ -107,6 +106,9 @@ impl ChunkEndorsementTracker {
             .map(|(account_id, (_, signature))| (account_id, signature.clone()))
             .collect();
 
+        // [perf] The lock here is held over the `compute_endorsement_state` call. If that constitutes an
+        // expensive call AND we get into lock contention here, one needs to investigate into
+        // cloning the account_id or using the RwLock.
         Ok(chunk_validator_assignments.compute_endorsement_state(validator_signatures))
     }
 }
