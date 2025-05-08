@@ -47,6 +47,7 @@ pub mod store_validator;
 pub mod test_utils;
 #[cfg(test)]
 mod tests;
+pub mod trie_store_resharder;
 pub mod types;
 pub mod update_shard;
 pub mod validate;
