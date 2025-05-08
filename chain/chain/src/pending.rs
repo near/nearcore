@@ -67,7 +67,7 @@ impl<Block: BlockLike> PendingBlocksPool<Block> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use near_primitives::hash::CryptoHash;
+    use near_primitives::hash::{CryptoHash, hash};
     use near_primitives::types::BlockHeight;
 
     // Simple Block-like object for testing
@@ -79,7 +79,7 @@ mod tests {
 
     impl MockBlock {
         fn new(height: BlockHeight) -> Self {
-            Self { height, hash: CryptoHash::default() }
+            Self { height, hash: hash(height.to_le_bytes().as_ref()) }
         }
     }
 
@@ -118,13 +118,17 @@ mod tests {
     }
 
     #[test]
-    fn test_contains_key() {
+    fn test_contains() {
         let mut pool = PendingBlocksPool::<MockBlock>::new();
         let block = MockBlock::new(1);
+        let block_hash = block.hash();
         pool.add_block(block);
 
         assert!(pool.contains_key(&1));
         assert!(!pool.contains_key(&2));
+
+        assert!(pool.contains_block_hash(&block_hash));
+        assert!(!pool.contains_block_hash(&CryptoHash::default()));
     }
 
     #[test]
@@ -148,11 +152,18 @@ mod tests {
         let mut pool = PendingBlocksPool::<MockBlock>::new();
 
         // Add blocks with heights 1, 2, 3, 4, 5
-        for i in 1..=5 {
-            let block = MockBlock::new(i);
+        let blocks: Vec<_> = (1..=5).map(|i| MockBlock::new(i)).collect();
+        let block_hashes: Vec<_> = blocks.iter().map(|b| b.hash()).collect();
+
+        for block in blocks {
             pool.add_block(block);
         }
         assert_eq!(pool.len(), 5);
+
+        // Verify all block hashes are present before pruning
+        for hash in &block_hashes {
+            assert!(pool.contains_block_hash(hash));
+        }
 
         // Prune blocks below height 3
         pool.prune_blocks_below_height(3);
@@ -164,6 +175,13 @@ mod tests {
         assert!(pool.contains_key(&3));
         assert!(pool.contains_key(&4));
         assert!(pool.contains_key(&5));
+
+        // Verify block hashes are properly removed for pruned blocks
+        assert!(!pool.contains_block_hash(&block_hashes[0]));
+        assert!(!pool.contains_block_hash(&block_hashes[1]));
+        assert!(pool.contains_block_hash(&block_hashes[2]));
+        assert!(pool.contains_block_hash(&block_hashes[3]));
+        assert!(pool.contains_block_hash(&block_hashes[4]));
     }
 
     #[test]
