@@ -61,6 +61,7 @@ near-performance-metrics-macros.workspace = true
 near-primitives = { workspace = true, features = ["rand", "solomon", "clock"] }
 near-store.workspace = true
 near-schema-checker-lib.workspace = true
+gettid = "0.1.3"
 
 [dev-dependencies]
 assert_matches.workspace = true

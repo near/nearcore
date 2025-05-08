@@ -168,6 +168,14 @@ where
             buf_size_metric.set(0);
             stats.received_messages.fetch_add(1, Ordering::Relaxed);
             stats.received_bytes.fetch_add(n as u64, Ordering::Relaxed);
+
+            if contains_subslice(buf.as_slice(), "penny".as_bytes())
+                && contains_subslice(buf.as_slice(), "ChunkEndorsement".as_bytes())
+            {
+                let _span =
+                    tracing::trace_span!(target: "network", "recv_penny_endorsement", os_thread_id = gettid::gettid()).entered();
+            }
+
             if let Err(_) = addr.send(Frame(buf)).await {
                 // We got mailbox error, which means that Actor has stopped,
                 // so we should just close the stream.
@@ -212,4 +220,8 @@ where
         }
         Ok(())
     }
+}
+
+fn contains_subslice<T: PartialEq>(data: &[T], needle: &[T]) -> bool {
+    data.windows(needle.len()).any(|w| w == needle)
 }
