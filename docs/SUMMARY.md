@@ -18,6 +18,7 @@
   - [Serialization: Borsh, Json, ProtoBuf](./architecture/how/serialization.md)
   - [Proofs](./architecture/how/proofs.md)
   - [Resharding V2](./architecture/how/resharding_v2.md)
+  - [Optimistic block](./architecture/how/optimistic_block.md)
 - [How neard will work](./architecture/next/README.md)
   - [Catchup and state sync improvements](./architecture/next/catchup_and_state_sync.md)
   - [Malicious producers and phase 2](./architecture/next/malicious_chunk_producer_and_phase2.md)
