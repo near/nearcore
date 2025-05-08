@@ -1508,13 +1508,34 @@ impl From<&ArcedShardChunk> for ShardChunk {
 
 #[cfg(test)]
 mod tests {
+    use crate::action::{Action, TransferAction};
+    use crate::receipt::{ActionReceipt, Receipt, ReceiptEnum, ReceiptV0};
     use crate::sharding::{
         ArcedShardChunk, ArcedShardChunkV1, ArcedShardChunkV2, ChunkHash, ShardChunk,
         ShardChunkHeader, ShardChunkHeaderV1, ShardChunkHeaderV2, ShardChunkHeaderV3, ShardChunkV1,
         ShardChunkV2,
     };
+    use crate::transaction::SignedTransaction;
+    use near_crypto::{KeyType, PublicKey};
     use near_primitives_core::hash::CryptoHash;
     use near_primitives_core::types::ShardId;
+
+    fn get_receipt() -> Receipt {
+        let receipt_v0 = Receipt::V0(ReceiptV0 {
+            predecessor_id: "predecessor_id".parse().unwrap(),
+            receiver_id: "receiver_id".parse().unwrap(),
+            receipt_id: CryptoHash::default(),
+            receipt: ReceiptEnum::Action(ActionReceipt {
+                signer_id: "signer_id".parse().unwrap(),
+                signer_public_key: PublicKey::empty(KeyType::ED25519),
+                gas_price: 0,
+                output_data_receivers: vec![],
+                input_data_ids: vec![],
+                actions: vec![Action::Transfer(TransferAction { deposit: 0 })],
+            }),
+        });
+        receipt_v0
+    }
 
     #[test]
     fn shard_chunk_v1_conversion_is_valid() {
@@ -1525,8 +1546,8 @@ mod tests {
         let chunk = ShardChunkV1 {
             chunk_hash,
             header,
-            transactions: vec![],
-            prev_outgoing_receipts: vec![],
+            transactions: vec![SignedTransaction::empty(hash)],
+            prev_outgoing_receipts: vec![get_receipt()],
         };
         let arced = ArcedShardChunkV1::from(chunk.clone());
         assert_eq!(borsh::to_vec(&chunk).unwrap(), borsh::to_vec(&arced).unwrap());
@@ -1537,15 +1558,15 @@ mod tests {
 
     #[test]
     fn shard_chunk_v2_conversion_is_valid() {
-        let hash = CryptoHash([1; 32]);
+        let hash = CryptoHash([2; 32]);
         let chunk_hash = ChunkHash(hash);
         let shard_id = ShardId::new(3);
         let header = ShardChunkHeader::V2(ShardChunkHeaderV2::new_dummy(1, shard_id, hash));
         let chunk = ShardChunkV2 {
             chunk_hash: chunk_hash.clone(),
             header,
-            transactions: vec![],
-            prev_outgoing_receipts: vec![],
+            transactions: vec![SignedTransaction::empty(hash)],
+            prev_outgoing_receipts: vec![get_receipt()],
         };
         let arced = ArcedShardChunkV2::from(chunk.clone());
         assert_eq!(borsh::to_vec(&chunk).unwrap(), borsh::to_vec(&arced).unwrap());
@@ -1557,8 +1578,8 @@ mod tests {
         let chunk = ShardChunkV2 {
             chunk_hash,
             header,
-            transactions: vec![],
-            prev_outgoing_receipts: vec![],
+            transactions: vec![SignedTransaction::empty(hash)],
+            prev_outgoing_receipts: vec![get_receipt()],
         };
         let arced = ArcedShardChunkV2::from(chunk.clone());
         assert_eq!(borsh::to_vec(&chunk).unwrap(), borsh::to_vec(&arced).unwrap());
@@ -1572,7 +1593,8 @@ mod tests {
         let shard_id = ShardId::new(3);
         let hash = CryptoHash([1; 32]);
         let header = ShardChunkHeader::new_dummy(1, shard_id, hash);
-        let chunk = ShardChunk::new(header, vec![], vec![]);
+        let chunk =
+            ShardChunk::new(header, vec![SignedTransaction::empty(hash)], vec![get_receipt()]);
         let arced = ArcedShardChunk::from(chunk.clone());
         assert_eq!(borsh::to_vec(&chunk).unwrap(), borsh::to_vec(&arced).unwrap());
 
