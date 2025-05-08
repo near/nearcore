@@ -9,7 +9,7 @@ use crate::missing_chunks::BlockLike;
 
 /// Blocks that are waiting for optimistic block to be applied.
 pub struct PendingBlocksPool<Block: BlockLike> {
-    /// Maps block height to block.
+    /// Maps block height to the pending block.
     /// For simplicity, store only one block per height. If there are more, it
     /// is the malicious case and we process such blocks without passing
     /// through this pool.
