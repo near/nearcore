@@ -1,9 +1,6 @@
-use crate::network_protocol::RoutedMessageBody;
 use crate::peer_manager::connection;
 use crate::stats::metrics;
 use crate::tcp;
-use crate::types::Encoding;
-use crate::types::PeerMessage;
 use actix::AsyncContext as _;
 use actix::fut::future::wrap_future;
 use bytesize::{GIB, MIB};
@@ -13,7 +10,6 @@ use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use tokio::io::AsyncReadExt as _;
 use tokio::io::AsyncWriteExt as _;
-use tracing::Span;
 
 /// Maximum size of network message in encoded format.
 /// We encode length as `u32`, and therefore maximum size can't be larger than `u32::MAX`.
@@ -165,8 +161,9 @@ where
             }
             msg_size_metric.observe(n as f64);
             buf_size_metric.set(n as i64);
+            let mut buf = vec![0; n];
             let t = metrics::PEER_MSG_READ_LATENCY.start_timer();
-            let buf = read_msg(&mut read, n).await.map_err(RecvError::IO)?;
+            read.read_exact(&mut buf[..]).await.map_err(RecvError::IO)?;
             t.observe_duration();
             buf_size_metric.set(0);
             stats.received_messages.fetch_add(1, Ordering::Relaxed);
@@ -194,7 +191,8 @@ where
                 if msg.len() > NETWORK_MESSAGE_MAX_SIZE_BYTES {
                     metrics::MessageDropped::InputTooLong.inc_unknown_msg();
                 } else {
-                    write_msg(&mut writer, &msg).await?;
+                    writer.write_u32_le(msg.len() as u32).await?;
+                    writer.write_all(&msg[..]).await?;
                 }
                 stats.messages_to_send.fetch_sub(1, Ordering::Release);
                 stats.bytes_to_send.fetch_sub(msg.len() as u64, Ordering::Release);
@@ -214,65 +212,4 @@ where
         }
         Ok(())
     }
-}
-
-#[tracing::instrument(level = "trace", target = "network", "read_msg")]
-async fn read_msg(
-    reader: &mut tokio::io::BufReader<ReadHalf>,
-    len: usize,
-) -> Result<Vec<u8>, std::io::Error> {
-    let mut buf = vec![0; len];
-    reader.read_exact(&mut buf[..]).await?;
-
-    if let Some(msg) = deserialize_msg(&buf) {
-        let msg_type = msg.msg_variant();
-        Span::current().record("msg_type", msg_type);
-        match msg {
-            PeerMessage::Routed(rtd) => match &rtd.msg.body {
-                RoutedMessageBody::VersionedChunkEndorsement(ce) => {
-                    tracing::trace!(target: "network",
-                        msg_type,
-                        num_hops = rtd.num_hops,
-                        author = ?rtd.msg.author,
-                        created_at = ?rtd.created_at,
-                        ttl = rtd.msg.ttl,
-                        height = ce.chunk_production_key().height_created,
-                        shard_id = ?ce.chunk_production_key().shard_id,
-                        validator = ?ce.account_id(),
-                        "Received VersionedChunkEndorsement"
-                    );
-                }
-                _ => {
-                    tracing::trace!(target: "network", msg_type, "read_msg");
-                }
-            },
-            _ => {
-                tracing::trace!(target: "network", msg_type, "read_msg");
-            }
-        };
-    } else {
-        tracing::trace!(target: "network", "Failed to deserialize message");
-    }
-    Ok(buf)
-}
-
-#[tracing::instrument(
-    level = "trace",
-    target = "network",
-    "write_msg", 
-    fields(msg_type = deserialize_msg(msg).map(<&'static str>::from).unwrap_or("unknown"))
-)]
-async fn write_msg(
-    writer: &mut tokio::io::BufWriter<WriteHalf>,
-    msg: &[u8],
-) -> Result<(), std::io::Error> {
-    writer.write_u32_le(msg.len() as u32).await?;
-    writer.write_all(&msg[..]).await
-}
-
-fn deserialize_msg(bytes: &[u8]) -> Option<PeerMessage> {
-    if let Ok(msg) = PeerMessage::deserialize(Encoding::Proto, bytes) {
-        return Some(msg);
-    }
-    return PeerMessage::deserialize(Encoding::Borsh, bytes).ok();
 }
