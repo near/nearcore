@@ -33,7 +33,7 @@ impl ChunkStoreAdapter {
             .ok_or_else(|| ChunkAccessError::ChunkMissing(chunk_hash.clone()))
     }
 
-    pub fn get_chunk(&self, chunk_hash: &ChunkHash) -> Result<Arc<ShardChunk>, ChunkAccessError> {
+    pub fn get_chunk(&self, chunk_hash: &ChunkHash) -> Result<ShardChunk, ChunkAccessError> {
         self.store
             .get_ser(DBCol::Chunks, chunk_hash.as_ref())
             .expect("Borsh should not have failed here")

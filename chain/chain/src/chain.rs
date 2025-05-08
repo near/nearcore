@@ -3448,9 +3448,7 @@ impl Chain {
         self.chain_store.get_block(&tip.last_block_hash)
     }
 
-    /// Gets a chunk from hash.
-    #[inline]
-    pub fn get_chunk(&self, chunk_hash: &ChunkHash) -> Result<Arc<ShardChunk>, Error> {
+    pub fn get_chunk(&self, chunk_hash: &ChunkHash) -> Result<ShardChunk, Error> {
         self.chain_store.get_chunk(chunk_hash)
     }
 
