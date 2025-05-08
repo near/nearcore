@@ -151,7 +151,9 @@ where
             &metrics::PEER_DATA_READ_BUFFER_SIZE,
             vec![peer_addr.to_string()],
         );
+        let mut send_duration = std::time::Duration::from_secs(0);
         loop {
+            let read_start = std::time::Instant::now();
             let n = read.read_u32_le().await.map_err(RecvError::IO)? as usize;
             if n > NETWORK_MESSAGE_MAX_SIZE_BYTES {
                 return Err(RecvError::MessageTooLarge {
@@ -172,17 +174,20 @@ where
             if contains_subslice(buf.as_slice(), "penny".as_bytes())
                 && contains_subslice(buf.as_slice(), "ChunkEndorsement".as_bytes())
             {
+                let read_duration = read_start.elapsed();
                 let _span =
-                    tracing::trace_span!(target: "network", "recv_penny_endorsement", os_thread_id = gettid::gettid()).entered();
+                    tracing::trace_span!(target: "network", "recv_penny_endorsement", os_thread_id = gettid::gettid(), prev_send_dur_secs = send_duration.as_secs_f64(), read_dur_secs = read_duration.as_secs_f64()).entered();
             }
-
+            let send_start = std::time::Instant::now();
             if let Err(_) = addr.send(Frame(buf)).await {
                 // We got mailbox error, which means that Actor has stopped,
                 // so we should just close the stream.
                 return Ok(());
             }
+            send_duration = send_start.elapsed();
         }
     }
+
     async fn run_send_loop(
         tcp_send: WriteHalf,
         mut queue_recv: tokio::sync::mpsc::UnboundedReceiver<Frame>,
