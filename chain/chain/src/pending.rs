@@ -1,5 +1,6 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 
+use near_primitives::hash::CryptoHash;
 use near_primitives::types::BlockHeight;
 use tracing::warn;
 
@@ -9,14 +10,17 @@ use crate::missing_chunks::BlockLike;
 /// Blocks that are waiting for optimistic block to be applied.
 pub struct PendingBlocksPool<Block: BlockLike> {
     /// Maps block height to block.
-    /// There may be only one optimistic block on each height, so we
-    /// store only one entry.
+    /// For simplicity, store only one block per height. If there are more, it
+    /// is the malicious case and we process such blocks without passing
+    /// through this pool.
     blocks: BTreeMap<BlockHeight, Block>,
+    /// Block hashes that are in the pending blocks pool.
+    block_hashes: HashSet<CryptoHash>,
 }
 
 impl<Block: BlockLike> PendingBlocksPool<Block> {
     pub fn new() -> Self {
-        Self { blocks: BTreeMap::new() }
+        Self { blocks: BTreeMap::new(), block_hashes: HashSet::new() }
     }
 
     pub fn add_block(&mut self, block: Block) {
@@ -25,12 +29,17 @@ impl<Block: BlockLike> PendingBlocksPool<Block> {
             warn!(target: "chain", "Block {:?} already exists in pending blocks pool", block.hash());
             return;
         }
+        self.block_hashes.insert(block.hash());
         self.blocks.insert(height, block);
         metrics::NUM_PENDING_BLOCKS.set(self.len() as i64);
     }
 
     pub fn contains_key(&self, height: &BlockHeight) -> bool {
         self.blocks.contains_key(height)
+    }
+
+    pub fn contains_block_hash(&self, hash: &CryptoHash) -> bool {
+        self.block_hashes.contains(hash)
     }
 
     pub fn take_block(&mut self, height: &BlockHeight) -> Option<Block> {
@@ -40,7 +49,13 @@ impl<Block: BlockLike> PendingBlocksPool<Block> {
     }
 
     pub fn prune_blocks_below_height(&mut self, height: BlockHeight) {
-        self.blocks = self.blocks.split_off(&height);
+        self.blocks.retain(|&h, block| {
+            if h < height {
+                self.block_hashes.remove(&block.hash());
+                return false;
+            }
+            true
+        });
         metrics::NUM_PENDING_BLOCKS.set(self.len() as i64);
     }
 
