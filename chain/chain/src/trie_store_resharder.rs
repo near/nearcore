@@ -68,6 +68,7 @@ pub enum ReshardingTaskResult {
 
 #[cfg(test)]
 mod tests {
+    use near_epoch_manager::test_utils;
     use near_primitives::shard_layout::ShardLayout;
     use near_store::{
         Trie,
@@ -78,6 +79,37 @@ mod tests {
     };
 
     use super::*;
+
+    fn iterate_batch(
+        trie: &Trie,
+        state_root: CryptoHash,
+        previous_batch_last_key: Option<Vec<u8>>,
+        batch_items: usize,
+    ) -> Option<Vec<u8>> {
+        let read_trie = trie.lock_for_iter();
+        let mut iter = read_trie.iter().expect("failed to get iterator");
+        if let Some(previous_batch_last_key) = &previous_batch_last_key {
+            iter.seek(previous_batch_last_key).expect("failed to seek prefix");
+            // So far, we just reached the state where last iteration terminated.
+            // We need to clear the recorder to avoid double counting.
+            _ = trie.recorded_as_trie_changes(state_root).expect("failed to get trie changes");
+            // Skip this key as it was handled in the previous iteration
+            iter.next().map(|result| result.expect("failed to iterate"));
+        }
+
+        for result in iter {
+            let Ok((key, _value)) = result else {
+                panic!("failed to iterate");
+            };
+            eprintln!("{key:?}, {_value:?}");
+            // TODO: should we expect here?
+            if trie.recorder_stats().map(|stats| stats.items_count).unwrap_or(0) >= batch_items {
+                return Some(key);
+            }
+        }
+
+        None // No more items to iterate
+    }
 
     #[test]
     fn test_basics() {
@@ -101,29 +133,32 @@ mod tests {
 
         let block_id = CryptoHash::default();
 
-        let initial = vec![
-            (vec![99, 44, 100, 58, 58, 49], Some(vec![1])),
-            (vec![99, 44, 100, 58, 58, 50], Some(vec![1])),
-            (vec![99, 44, 100, 58, 58, 50, 51], Some(vec![2])),
-        ];
+        // Create arbitrary data to populate the trie
+        let initial = (0..1000)
+            .map(|i| (Vec::from(test_utils::fake_hash(i)), Some(vec![i as u8])))
+            .collect::<Vec<_>>();
+
         test_populate_flat_storage(&tries, shard_uid, &block_id, &block_id, &initial);
         let root = test_populate_trie(&tries, &Trie::EMPTY_ROOT, shard_uid, initial.clone());
 
         // Iterate memtrie
-        let trie = tries.get_trie_for_shard(shard_uid, root).recording_reads_new_recorder();
-        let memtries = tries.get_memtries(shard_uid).expect("failed to get memtries");
-        let read_memtries = memtries.read().expect("failed to lock memtries");
-        let iter = read_memtries.get_iter(&trie).expect("failed to get iterator");
-        iter.into_iter().for_each(|_| {}); // consume iterator, should record iterated nodes to recorder
+        let trie: Trie = tries.get_trie_for_shard(shard_uid, root).recording_reads_new_recorder();
 
-        let recorded = trie.take_recorder().expect("missing recorder");
-        let read_recorded = recorded.read().expect("failed to lock recorded");
-        let mut update = store.trie_store().store_update();
-        for (hash, node_bytes) in read_recorded.recorded_iter() {
-            println!("{hash:?}: {node_bytes:x?}");
-            update.increment_refcount(child_shard_uid, hash, node_bytes);
+        let batch_size = 20;
+        let mut last_key: Option<Vec<u8>> = None;
+        loop {
+            last_key = iterate_batch(&trie, root, last_key, batch_size);
+            let trie_changes =
+                trie.recorded_as_trie_changes(root).expect("failed to get trie changes");
+            let mut update = store.trie_store().store_update();
+            tries.apply_all(&trie_changes, child_shard_uid, &mut update);
+            update.commit().expect("failed to commit update");
+            eprintln!("Recorded changes, last_key = {:?}", last_key);
+
+            if last_key.is_none() {
+                break;
+            }
         }
-        update.commit().expect("failed to commit update");
 
         // Now we should be able to read the data from the child shard
         // Note view_trie bypasses memtrie and reads directly from the store.

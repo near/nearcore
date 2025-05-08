@@ -111,8 +111,16 @@ where
     }
 
     /// Position the iterator on the first element with key >= `key`.
+    /// Returned results will have `key` as a prefix.
     pub fn seek_prefix<K: AsRef<[u8]>>(&mut self, key: K) -> Result<(), StorageError> {
         self.seek_nibble_slice(NibbleSlice::new(key.as_ref()), true)?;
+        Ok(())
+    }
+
+    /// Position the iterator on the first element with key >= `key`.
+    /// Returned results will may or may not have `key` as a prefix.
+    pub fn seek<K: AsRef<[u8]>>(&mut self, key: K) -> Result<(), StorageError> {
+        self.seek_nibble_slice(NibbleSlice::new(key.as_ref()), false)?;
         Ok(())
     }
 

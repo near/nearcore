@@ -91,6 +91,13 @@ impl<'a> TrieIterator<'a> {
             TrieIterator::Memtrie(iter) => iter.seek_prefix(key),
         }
     }
+
+    pub fn seek<K: AsRef<[u8]>>(&mut self, key: K) -> Result<(), StorageError> {
+        match self {
+            TrieIterator::Disk(iter) => iter.seek(key),
+            TrieIterator::Memtrie(iter) => iter.seek(key),
+        }
+    }
 }
 
 #[cfg(test)]

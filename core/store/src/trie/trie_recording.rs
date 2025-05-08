@@ -7,9 +7,11 @@ use near_primitives::types::AccountId;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 
+use super::{Trie, TrieChanges, TrieRefcountDeltaMap};
+
 /// A simple struct to capture a state proof as it's being accumulated.
 pub struct TrieRecorder {
-    recorded: HashMap<CryptoHash, Arc<[u8]>>,
+    recorded: HashMap<CryptoHash, ValueAndTimesSeen>,
     size: usize,
     /// Size of the recorded state proof plus some additional size added to cover removals and contract code.
     /// An upper-bound estimation of the true recorded size after finalization.
@@ -24,6 +26,19 @@ pub struct TrieRecorder {
     code_len_counter: usize,
     /// Account IDs for which the code should be recorded.
     pub codes_to_record: HashSet<AccountId>,
+}
+
+pub struct ValueAndTimesSeen {
+    /// The value of the trie node.
+    pub value: Arc<[u8]>,
+    /// The number of times this value has been seen.
+    pub seen: usize,
+}
+
+impl ValueAndTimesSeen {
+    fn seen_once(value: Arc<[u8]>) -> Self {
+        Self { value, seen: 1 }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -68,12 +83,22 @@ impl TrieRecorder {
     /// large witness for testing.
     #[cfg(feature = "test_features")]
     pub fn record_unaccounted(&mut self, hash: &CryptoHash, node: Arc<[u8]>) {
-        self.recorded.insert(*hash, node);
+        self.recorded
+            .entry(*hash)
+            .and_modify(|v| v.seen += 1)
+            .or_insert_with(|| ValueAndTimesSeen::seen_once(node));
     }
 
     pub fn record(&mut self, hash: &CryptoHash, node: Arc<[u8]>) {
         let size = node.len();
-        if self.recorded.insert(*hash, node).is_none() {
+        let entry = self
+            .recorded
+            .entry(*hash)
+            .and_modify(|v| v.seen += 1)
+            .or_insert_with(|| ValueAndTimesSeen::seen_once(node));
+
+        // Only do size accounting if this is the first time we see this value.
+        if entry.seen == 1 {
             self.size = self.size.checked_add(size).unwrap();
             self.upper_bound_size = self.upper_bound_size.checked_add(size).unwrap();
         }
@@ -98,14 +123,31 @@ impl TrieRecorder {
     }
 
     pub fn recorded_storage(&mut self) -> PartialStorage {
-        let mut nodes: Vec<_> = self.recorded.drain().map(|(_key, value)| value).collect();
+        let mut nodes: Vec<_> = self.recorded.drain().map(|(_key, value)| value.value).collect();
         nodes.sort();
         PartialStorage { nodes: PartialState::TrieValues(nodes) }
     }
 
+    pub fn recorded_as_trie_changes(&mut self, state_root: CryptoHash) -> TrieChanges {
+        let recorded: HashMap<_, _> = self.recorded.drain().collect();
+        let mut refcounts = TrieRefcountDeltaMap::new();
+        for (key, ValueAndTimesSeen { value, seen }) in recorded {
+            refcounts.add(key, value.to_vec(), seen as u32);
+        }
+        let (insertions, deletions) = refcounts.into_changes();
+        TrieChanges {
+            old_root: Trie::EMPTY_ROOT,
+            new_root: state_root,
+            insertions,
+            deletions,
+            memtrie_changes: None,
+            children_memtrie_changes: Default::default(),
+        }
+    }
+
     // TODO(resharding): remove this method after proper fix for refcount issue
     pub fn recorded_iter<'a>(&'a self) -> impl Iterator<Item = (&'a CryptoHash, &'a Arc<[u8]>)> {
-        self.recorded.iter()
+        self.recorded.iter().map(|(key, value)| (key, &value.value))
     }
 
     pub fn recorded_storage_size(&self) -> usize {
@@ -157,7 +199,9 @@ impl TrieRecorder {
         let mut cur_node_hash = *trie_root;
 
         while !subtree_key.is_empty() {
-            let Some(raw_node_bytes) = self.recorded.get(&cur_node_hash) else {
+            let Some(ValueAndTimesSeen { value: raw_node_bytes, .. }) =
+                self.recorded.get(&cur_node_hash)
+            else {
                 // This node wasn't recorded.
                 return None;
             };
@@ -222,7 +266,9 @@ impl TrieRecorder {
                 continue;
             }
 
-            let Some(raw_node_bytes) = self.recorded.get(&cur_node_hash) else {
+            let Some(ValueAndTimesSeen { value: raw_node_bytes, .. }) =
+                self.recorded.get(&cur_node_hash)
+            else {
                 // This node wasn't recorded.
                 continue;
             };
@@ -241,7 +287,9 @@ impl TrieRecorder {
 
             match raw_node {
                 RawTrieNode::Leaf(_key, value) => {
-                    if let Some(value_bytes) = self.recorded.get(&value.hash) {
+                    if let Some(ValueAndTimesSeen { value: value_bytes, .. }) =
+                        self.recorded.get(&value.hash)
+                    {
                         if !seen_items.contains(&value.hash) {
                             values_size = values_size.saturating_add(value_bytes.len());
                             seen_items.insert(value.hash);
@@ -262,7 +310,9 @@ impl TrieRecorder {
                         }
                     }
 
-                    if let Some(value_bytes) = self.recorded.get(&value.hash) {
+                    if let Some(ValueAndTimesSeen { value: value_bytes, .. }) =
+                        self.recorded.get(&value.hash)
+                    {
                         if !seen_items.contains(&value.hash) {
                             values_size = values_size.saturating_add(value_bytes.len());
                             seen_items.insert(value.hash);
