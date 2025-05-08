@@ -162,5 +162,5 @@ pub struct ClientSenderForNetwork {
     pub chunk_endorsement: AsyncSender<ChunkEndorsementMessage, ()>,
     pub epoch_sync_request: Sender<EpochSyncRequestMessage>,
     pub epoch_sync_response: Sender<EpochSyncResponseMessage>,
-    pub optimistic_block_receiver: Sender<OptimisticBlockMessage>,
+    pub optimistic_block_receiver: AsyncSender<OptimisticBlockMessage, ()>,
 }

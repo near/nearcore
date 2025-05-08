@@ -1127,7 +1127,12 @@ impl PeerActor {
                 PeerMessage::OptimisticBlock(ob) => {
                     network_state
                         .client
-                        .send(OptimisticBlockMessage { from_peer: peer_id, optimistic_block: ob });
+                        .send_async(OptimisticBlockMessage {
+                            from_peer: peer_id,
+                            optimistic_block: ob,
+                        })
+                        .await
+                        .ok();
                     None
                 }
                 msg => {
