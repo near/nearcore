@@ -1,6 +1,6 @@
 use super::validate::{ChunkRelevance, validate_chunk_endorsement};
 use crate::metrics;
-use lru::LruCache;
+use near_cache::SyncLruCache;
 use near_chain_primitives::Error;
 use near_crypto::Signature;
 use near_epoch_manager::EpochManagerAdapter;
@@ -24,7 +24,8 @@ pub struct ChunkEndorsementTracker {
     /// Used to find the chain HEAD when validating partial witnesses.
     store: Store,
     /// We store the validated chunk endorsements received from chunk validators.
-    chunk_endorsements: LruCache<ChunkProductionKey, HashMap<AccountId, (ChunkHash, Signature)>>,
+    chunk_endorsements:
+        SyncLruCache<ChunkProductionKey, HashMap<AccountId, (ChunkHash, Signature)>>,
 }
 
 impl ChunkEndorsementTracker {
@@ -32,29 +33,31 @@ impl ChunkEndorsementTracker {
         Self {
             epoch_manager,
             store,
-            chunk_endorsements: LruCache::new(
-                NonZeroUsize::new(NUM_CHUNKS_IN_CHUNK_ENDORSEMENTS_CACHE).unwrap(),
+            chunk_endorsements: SyncLruCache::new(
+                NonZeroUsize::new(NUM_CHUNKS_IN_CHUNK_ENDORSEMENTS_CACHE).unwrap().into(),
             ),
         }
     }
 
     // Validate the chunk endorsement and store it in the cache.
-    pub fn process_chunk_endorsement(
-        &mut self,
-        endorsement: ChunkEndorsement,
-    ) -> Result<(), Error> {
+    pub fn process_chunk_endorsement(&self, endorsement: ChunkEndorsement) -> Result<(), Error> {
         // Check if we have already received chunk endorsement from this validator.
         let key = endorsement.chunk_production_key();
         let account_id = endorsement.account_id();
-        if self.chunk_endorsements.peek(&key).is_some_and(|entry| entry.contains_key(account_id)) {
-            tracing::debug!(target: "client", ?endorsement, "Already received chunk endorsement.");
-            return Ok(());
+
+        {
+            let cache = self.chunk_endorsements.lock();
+            if cache.peek(&key).is_some_and(|entry| entry.contains_key(account_id)) {
+                tracing::debug!(target: "client", ?endorsement, "Already received chunk endorsement.");
+                return Ok(());
+            }
         }
 
         // Validate the chunk endorsement and store it in the cache.
         match validate_chunk_endorsement(self.epoch_manager.as_ref(), &endorsement, &self.store)? {
             ChunkRelevance::Relevant => {
-                self.chunk_endorsements.get_or_insert_mut(key, || HashMap::new()).insert(
+                let mut cache = self.chunk_endorsements.lock();
+                cache.get_or_insert_mut(key, || HashMap::new()).insert(
                     account_id.clone(),
                     (endorsement.chunk_hash(), endorsement.signature()),
                 );
@@ -73,7 +76,7 @@ impl ChunkEndorsementTracker {
 
     /// This function is called by block producer potentially multiple times if there's not enough stake.
     pub fn collect_chunk_endorsements(
-        &mut self,
+        &self,
         chunk_header: &ShardChunkHeader,
     ) -> Result<ChunkEndorsementsState, Error> {
         let shard_id = chunk_header.shard_id();
@@ -95,13 +98,17 @@ impl ChunkEndorsementTracker {
         //    1. The chunk endorsements are from valid chunk_validator for this chunk.
         //    2. The chunk endorsements signatures are valid.
         //    3. We still need to validate if the chunk_hash matches the chunk_header.chunk_hash()
-        let entry = self.chunk_endorsements.get_or_insert(key, || HashMap::new());
+        let mut cache = self.chunk_endorsements.lock();
+        let entry = cache.get_or_insert(key, || HashMap::new());
         let validator_signatures = entry
             .into_iter()
             .filter(|(_, (chunk_hash, _))| chunk_hash == &chunk_header.chunk_hash())
             .map(|(account_id, (_, signature))| (account_id, signature.clone()))
             .collect();
 
+        // [perf] The lock here is held over the `compute_endorsement_state` call. If that constitutes an
+        // expensive call AND we get into lock contention here, one needs to investigate into
+        // cloning the account_id or using the RwLock.
         Ok(chunk_validator_assignments.compute_endorsement_state(validator_signatures))
     }
 }

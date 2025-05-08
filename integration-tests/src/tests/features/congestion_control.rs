@@ -173,7 +173,7 @@ fn head_chunk_header(env: &TestEnv, shard_id: ShardId) -> ShardChunkHeader {
     chunks.get(shard_index).expect("chunk header must be available").clone()
 }
 
-fn head_chunk(env: &TestEnv, shard_id: ShardId) -> Arc<ShardChunk> {
+fn head_chunk(env: &TestEnv, shard_id: ShardId) -> ShardChunk {
     let chunk_header = head_chunk_header(&env, shard_id);
     env.clients[0].chain.get_chunk(&chunk_header.chunk_hash()).expect("chunk must be available")
 }
