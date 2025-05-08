@@ -19,6 +19,7 @@ use crate::store;
 use crate::tcp;
 use crate::testonly::actix::ActixSystem;
 use crate::types::{PeerManagerSenderForNetworkInput, PeerManagerSenderForNetworkMessage};
+use near_async::futures::StdThreadAsyncComputationSpawnerForTest;
 use near_async::messaging::{IntoMultiSender, Sender};
 use near_async::time;
 use near_o11y::WithSpanContextExt;
@@ -149,10 +150,21 @@ impl PeerHandle {
             state_witness_sender.break_apart().into_multi_sender(),
             vec![],
         ));
+        let peer_actor_spawner = Arc::new(StdThreadAsyncComputationSpawnerForTest);
         let actix = ActixSystem::spawn({
             let clock = clock.clone();
             let cfg = cfg.clone();
-            move || PeerActor::spawn(clock, stream, cfg.force_encoding, network_state).unwrap().0
+            move || {
+                PeerActor::spawn(
+                    clock,
+                    stream,
+                    cfg.force_encoding,
+                    network_state,
+                    peer_actor_spawner,
+                )
+                .unwrap()
+                .0
+            }
         })
         .await;
         Self { actix, cfg, events: recv, edge: None }
