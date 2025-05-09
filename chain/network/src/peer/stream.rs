@@ -176,7 +176,7 @@ where
 
             if let Some(cinfo) = get_chunk_endorsement_info(&buf) {
                 let read_duration = read_start.elapsed();
-                let _span = tracing::trace_span!(target: "network",
+                let _span = tracing::debug_span!(target: "stateless_validation",
                     "net_recv_endorsement",
                     height_created = cinfo.height_created,
                     shard_id = cinfo.shard_id,
@@ -241,8 +241,8 @@ where
 }
 
 #[tracing::instrument(
-    level = "trace",
-    target = "network",
+    level = "debug",
+    target = "stateless_validation",
     "net_send_endorsement",
     skip_all,
     fields(
