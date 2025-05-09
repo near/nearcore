@@ -443,7 +443,13 @@ impl PeerActor {
             // peers to update its height at the peer. In the future we will introduce a new
             // peer message type for that and then we can enable this check again.
             //PeerMessage::Block(b) if self.tracker.lock().has_received(b.hash()) => return,
-            PeerMessage::BlockRequest(h) => self.tracker.lock().push_request(*h),
+            PeerMessage::BlockRequest(h) => {
+                let tracker = self.tracker.clone();
+                let h = *h;
+                self.peer_actor_spawner.spawn("tracker", move || {
+                    tracker.lock().push_request(h);
+                });
+            }
             PeerMessage::SyncAccountsData(d) => metrics::SYNC_ACCOUNTS_DATA
                 .with_label_values(&[
                     "sent",
@@ -461,8 +467,12 @@ impl PeerActor {
         };
 
         let bytes = msg.serialize(enc);
-        self.tracker.lock().increment_sent(&self.clock, bytes.len() as u64);
+        let tracker = self.tracker.clone();
         let bytes_len = bytes.len();
+        let clock = self.clock.clone();
+        self.peer_actor_spawner.spawn("tracker", move || {
+            tracker.lock().increment_sent(&clock, bytes_len as u64);
+        });
         tracing::trace!(target: "network", msg_len = bytes_len);
         self.framed.send(stream::Frame(bytes));
         metrics::PEER_DATA_SENT_BYTES.inc_by(bytes_len as u64);
@@ -706,17 +716,29 @@ impl PeerActor {
 
         let mut interval =
             time::Interval::new(clock.now(), self.network_state.config.peer_stats_period);
+        let conn_cl = conn.clone();
+        let clock_cl = clock.clone();
+        let network_state_cl = self.network_state.clone();
         ctx.spawn({
-            let conn = conn.clone();
             wrap_future(async move {
                 loop {
+                    let conn = conn_cl.clone();
+                    let clock = clock_cl.clone();
                     interval.tick(&clock).await;
-                    let sent = tracker.lock().sent_bytes.minute_stats(&clock);
-                    let received = tracker.lock().received_bytes.minute_stats(&clock);
-                    conn.stats
-                        .received_bytes_per_sec
-                        .store(received.bytes_per_min / 60, Ordering::Relaxed);
-                    conn.stats.sent_bytes_per_sec.store(sent.bytes_per_min / 60, Ordering::Relaxed);
+                    let tracker = tracker.clone();
+                    let conn = conn.clone();
+                    tokio::task::spawn_blocking(move || {
+                        let sent = tracker.lock().sent_bytes.minute_stats(&clock);
+                        let received = tracker.lock().received_bytes.minute_stats(&clock);
+                        conn.stats
+                            .received_bytes_per_sec
+                            .store(received.bytes_per_min / 60, Ordering::Relaxed);
+                        conn.stats
+                            .sent_bytes_per_sec
+                            .store(sent.bytes_per_min / 60, Ordering::Relaxed);
+                    })
+                    .await
+                    .unwrap();
                 }
             })
         });
@@ -724,7 +746,7 @@ impl PeerActor {
         // This time is used to figure out when the first run of the callbacks it run.
         // It is important that it is set here (rather than calling clock.now() within the future) - as it makes testing a lot easier (and more deterministic).
 
-        let start_time = self.clock.now();
+        let start_time = clock.now();
 
         #[cfg(test)]
         let edge_clone = edge.clone();
@@ -732,9 +754,9 @@ impl PeerActor {
         // decides whether to accept the connection or not: ctx.wait makes
         // the actor event loop poll on the future until it completes before
         // processing any other events.
+        // let clock = clock.clone();
+        let network_state = network_state_cl;
         ctx.wait(wrap_future({
-            let network_state = self.network_state.clone();
-            let clock = self.clock.clone();
             let conn = conn.clone();
             async move { network_state.register(&clock,edge,conn).await }
         })
@@ -997,7 +1019,7 @@ impl PeerActor {
     fn receive_message(
         &self,
         ctx: &mut actix::Context<Self>,
-        conn: &connection::Connection,
+        conn: Arc<connection::Connection>,
         msg: PeerMessage,
     ) {
         let span =
@@ -1052,27 +1074,10 @@ impl PeerActor {
                 sink.send(Event::MessageProcessed(tier, msg));
             }
         };
-        let was_requested = match &msg {
-            PeerMessage::Block(block) => {
-                self.network_state.txns_since_last_block.store(0, Ordering::Release);
-                let hash = *block.hash();
-                let height = block.header().height();
-                conn.last_block.rcu(|last_block| {
-                    if last_block.is_none() || last_block.unwrap().height <= height {
-                        Arc::new(Some(BlockInfo { height, hash }))
-                    } else {
-                        last_block.clone()
-                    }
-                });
-                let mut tracker = self.tracker.lock();
-                tracker.push_received(hash);
-                tracker.has_request(&hash)
-            }
-            _ => false,
-        };
         let clock = self.clock.clone();
         let network_state = self.network_state.clone();
         let peer_id = conn.peer_info.id.clone();
+        let tracker = self.tracker.clone();
         let handling_future = async move {
             Ok(match msg {
                 PeerMessage::Routed(msg) => {
@@ -1108,6 +1113,26 @@ impl PeerActor {
                     .flatten()
                     .map(PeerMessage::BlockHeaders),
                 PeerMessage::Block(block) => {
+                    network_state.txns_since_last_block.store(0, Ordering::Release);
+                    let tracker = tracker.clone();
+                    let block_hash = *block.hash();
+                    let height = block.header().height();
+                    let conn = conn.clone();
+                    let was_requested = tokio::task::spawn_blocking(move || {
+                        let hash = block_hash;
+                        conn.last_block.rcu(|last_block| {
+                            if last_block.is_none() || last_block.unwrap().height <= height {
+                                Arc::new(Some(BlockInfo { height, hash }))
+                            } else {
+                                last_block.clone()
+                            }
+                        });
+                        let mut tracker = tracker.lock();
+                        tracker.push_received(hash);
+                        tracker.has_request(&hash)
+                    })
+                    .await
+                    .unwrap();
                     network_state
                         .client
                         .send_async(BlockResponse { block, peer_id, was_requested })
@@ -1340,7 +1365,6 @@ impl PeerActor {
             }
             PeerMessage::SyncRoutingTable(rtu) => {
                 let clock = self.clock.clone();
-                let conn = conn.clone();
                 let network_state = self.network_state.clone();
                 ctx.spawn(wrap_future(async move {
                     Self::handle_sync_routing_table(&clock, &network_state, conn.clone(), rtu)
@@ -1441,15 +1465,20 @@ impl PeerActor {
                     msg.target);
                 let for_me = self.network_state.message_for_me(&msg.target);
                 if for_me {
-                    // Check if we have already received this message.
-                    let fastest = self
-                        .network_state
-                        .recent_routed_messages
-                        .lock()
-                        .put(CryptoHash::hash_borsh(&msg.body), ())
-                        .is_none();
-                    // Register that the message has been received.
-                    metrics::record_routed_msg_metrics(&self.clock, &msg, conn.tier, fastest);
+                    let network_state = self.network_state.clone();
+                    let conn = conn.clone();
+                    let clock = self.clock.clone();
+                    let msg = msg.clone();
+                    self.peer_actor_spawner.spawn("detached msg verification", move || {
+                        // Check if we have already received this message.
+                        let fastest = network_state
+                            .recent_routed_messages
+                            .lock()
+                            .put(CryptoHash::hash_borsh(&msg.body), ())
+                            .is_none();
+                        // Register that the message has been received.
+                        metrics::record_routed_msg_metrics(&clock, &msg, conn.tier, fastest);
+                    });
                 }
 
                 // Drop duplicated messages routed within DROP_DUPLICATED_MESSAGES_PERIOD ms
@@ -1480,20 +1509,19 @@ impl PeerActor {
                 self.routed_message_cache.put(key, now);
 
                 let addr = ctx.address();
-                let conn_cl = conn.clone();
                 self.peer_actor_spawner.spawn("detached msg verification", move || {
                     let verified = if !msg.verify() {
                         // Received invalid routed message from peer.
                         VerifiedRouted::Invalid
                     } else {
-                        VerifiedRouted::Valid(msg, conn_cl)
+                        VerifiedRouted::Valid(msg, conn)
                     };
                     if let Err(e) = addr.try_send(verified) {
                         tracing::warn!(target: "network", "Failed to send message to actor: {:?}", e);
                     };
                 });
             }
-            msg => self.receive_message(ctx, &conn, msg),
+            msg => self.receive_message(ctx, conn, msg),
         }
     }
 
@@ -1743,7 +1771,7 @@ impl actix::Handler<VerifiedRouted> for PeerActor {
                     #[cfg(test)]
                     message_processed_event();
                 }
-                _ => self.receive_message(ctx, &conn, PeerMessage::Routed(msg)),
+                _ => self.receive_message(ctx, conn, PeerMessage::Routed(msg)),
             }
         } else {
             if msg.decrease_ttl() {
@@ -1781,7 +1809,12 @@ impl actix::Handler<stream::Frame> for PeerActor {
         {
             metrics::PEER_DATA_RECEIVED_BYTES.inc_by(msg.len() as u64);
             tracing::trace!(target: "network", msg_len=msg.len());
-            self.tracker.lock().increment_received(&self.clock, msg.len() as u64);
+            let tracker = self.tracker.clone();
+            let clock = self.clock.clone();
+            let msg_len = msg.len();
+            self.peer_actor_spawner.spawn("tracker", move || {
+                tracker.lock().increment_received(&clock, msg_len as u64);
+            });
         }
 
         let mut peer_msg = match self.parse_message(&msg) {
