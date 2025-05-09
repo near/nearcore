@@ -36,7 +36,7 @@ use crate::types::{
 use actix::fut::future::wrap_future;
 use actix::{Actor as _, ActorContext as _, ActorFutureExt as _, AsyncContext as _};
 use lru::LruCache;
-use near_async::futures::AsyncComputationSpawner;
+use near_async::futures::{AsyncComputationSpawner, AsyncComputationSpawnerExt};
 use near_async::messaging::{CanSend, SendAsync};
 use near_async::time;
 use near_crypto::Signature;
@@ -1400,14 +1400,11 @@ impl PeerActor {
                 let for_me = self.network_state.message_for_me(&msg.target);
                 if for_me {
                     // Check if we have already received this message.
-                    let fastest = self
-                        .network_state
-                        .recent_routed_messages
-                        .lock()
-                        .put(CryptoHash::hash_borsh(&msg.body), ())
-                        .is_none();
-                    // Register that the message has been received.
-                    metrics::record_routed_msg_metrics(&self.clock, &msg, conn.tier, fastest);
+                    let h = CryptoHash::hash_borsh(&msg.body);
+                    let network_state = self.network_state.clone();
+                    self.peer_actor_spawner.spawn("recent_routed_messages check", move || {
+                        network_state.recent_routed_messages.lock().put(h, ());
+                    });
                 }
 
                 // Drop duplicated messages routed within DROP_DUPLICATED_MESSAGES_PERIOD ms
