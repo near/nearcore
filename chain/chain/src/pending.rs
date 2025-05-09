@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{HashMap, HashSet};
 
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::BlockHeight;
@@ -13,14 +13,14 @@ pub struct PendingBlocksPool<Block: BlockLike> {
     /// For simplicity, store only one block per height. If there are more, it
     /// is the malicious case and we process such blocks without passing
     /// through this pool.
-    blocks: BTreeMap<BlockHeight, Block>,
+    blocks: HashMap<BlockHeight, Block>,
     /// Block hashes that are in the pending blocks pool.
     block_hashes: HashSet<CryptoHash>,
 }
 
 impl<Block: BlockLike> PendingBlocksPool<Block> {
     pub fn new() -> Self {
-        Self { blocks: BTreeMap::new(), block_hashes: HashSet::new() }
+        Self { blocks: HashMap::new(), block_hashes: HashSet::new() }
     }
 
     pub fn add_block(&mut self, block: Block) {
