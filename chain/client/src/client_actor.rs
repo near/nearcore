@@ -157,6 +157,7 @@ pub fn start_client(
     let chain_sender_for_state_sync = LateBoundSender::<ChainSenderForStateSync>::new();
     let client_sender_for_client = LateBoundSender::<ClientSenderForClient>::new();
     let protocol_upgrade_schedule = get_protocol_upgrade_schedule(client_config.chain_id.as_str());
+    const MAX_SHARDS: usize = 24; // XXX: This is just a hack, but seems it should be >= number of shards.
     let client = Client::new(
         clock.clone(),
         client_config,
@@ -171,7 +172,7 @@ pub fn start_client(
         seed.unwrap_or_else(random_seed_from_thread),
         snapshot_callbacks,
         Arc::new(RayonAsyncComputationSpawner),
-        Arc::new(RayonAsyncComputationSpawnerWithDedicatedThreadPool::new(num_cpus::get())),
+        Arc::new(RayonAsyncComputationSpawnerWithDedicatedThreadPool::new(MAX_SHARDS)),
         partial_witness_adapter,
         resharding_sender,
         state_sync_future_spawner,

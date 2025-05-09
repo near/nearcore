@@ -21,7 +21,6 @@ object_store.workspace = true
 futures.workspace = true
 itertools.workspace = true
 lru.workspace = true
-num_cpus.workspace = true
 num-rational.workspace = true
 parking_lot.workspace = true
 percent-encoding.workspace = true
