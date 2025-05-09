@@ -995,7 +995,7 @@ impl PeerActor {
         let span = match &msg {
             PeerMessage::Routed(rtd) => match &rtd.msg.body {
                 RoutedMessageBody::VersionedChunkEndorsement(ce) => {
-                    tracing::debug_span!(target: "client", "receive_message",
+                    tracing::debug_span!(target: "network", "receive_message",
                         variant = msg.msg_variant(),
                         num_hops = rtd.num_hops,
                         author = ?rtd.msg.author,
@@ -1007,7 +1007,7 @@ impl PeerActor {
                     )
                 }
                 RoutedMessageBody::PartialEncodedStateWitness(witness) => {
-                    tracing::debug_span!(target: "client", "receive_message",
+                    tracing::debug_span!(target: "network", "receive_message",
                         variant = msg.msg_variant(),
                         num_hops = rtd.num_hops,
                         author = ?rtd.msg.author,
@@ -1020,7 +1020,7 @@ impl PeerActor {
                     )
                 }
                 RoutedMessageBody::PartialEncodedStateWitnessForward(witness) => {
-                    tracing::debug_span!(target: "client", "receive_message",
+                    tracing::debug_span!(target: "network", "receive_message",
                         variant = msg.msg_variant(),
                         num_hops = rtd.num_hops,
                         author = ?rtd.msg.author,
@@ -1033,11 +1033,11 @@ impl PeerActor {
                     )
                 }
                 _ => {
-                    tracing::debug_span!(target: "client", "receive_message", variant = msg.msg_variant())
+                    tracing::debug_span!(target: "network", "receive_message", variant = msg.msg_variant())
                 }
             },
             _ => {
-                tracing::debug_span!(target: "client", "receive_message", variant = msg.msg_variant())
+                tracing::debug_span!(target: "network", "receive_message", variant = msg.msg_variant())
             }
         };
         let _entered_span = span.entered();
