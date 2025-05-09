@@ -275,9 +275,6 @@ pub async fn default_subscriber_with_opentelemetry(
     .await;
     set_otlp_layer_handle(handle);
 
-    // Tokio console subscriber
-    let subscriber = subscriber.with(console_subscriber::spawn());
-
     #[allow(unused_mut)]
     let mut io_trace_guard = None;
     #[cfg(feature = "io_trace")]
