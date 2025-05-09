@@ -21,7 +21,6 @@ use near_primitives_core::hash::hash;
 use near_primitives_core::types::Gas;
 use near_store::DBCol;
 use near_store::Store;
-use node_runtime::SignedValidPeriodTransactions;
 use rand::rngs::StdRng;
 use rand::seq::SliceRandom;
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -106,7 +105,6 @@ pub fn apply_chunk(
     let prev_block_hash = chunk_header.prev_block_hash();
     let prev_state_root = chunk.prev_state_root();
 
-    let transactions = chunk.to_transactions().to_vec();
     let prev_block =
         chain_store.get_block(prev_block_hash).context("Failed getting chunk's prev block")?;
     let prev_epoch_id = prev_block.header().epoch_id();
@@ -170,7 +168,9 @@ pub fn apply_chunk(
         runtime.get_flat_storage_manager().create_flat_storage_for_shard(shard_uid).unwrap();
     }
 
-    let valid_txs = chain_store.compute_transaction_validity(prev_block.header(), &chunk);
+    let signed_txs = chain_store
+        .filter_non_expired_txs(prev_block.header(), chunk.to_transactions().into_iter().cloned())
+        .collect();
 
     Ok((
         runtime.apply_chunk(
@@ -196,7 +196,7 @@ pub fn apply_chunk(
                 bandwidth_requests: block_bandwidth_requests,
             },
             &receipts,
-            SignedValidPeriodTransactions::new(transactions, valid_txs),
+            signed_txs,
         )?,
         chunk_header.gas_limit(),
     ))

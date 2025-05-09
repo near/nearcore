@@ -2621,16 +2621,6 @@ impl Chain {
         Ok(())
     }
 
-    /// Validates basic correctness of array of transactions included in chunk.
-    /// Doesn't require state.
-    fn validate_chunk_transactions(
-        &self,
-        prev_block_header: &BlockHeader,
-        chunk: &ShardChunk,
-    ) -> Vec<bool> {
-        self.chain_store().compute_transaction_validity(prev_block_header, chunk)
-    }
-
     pub fn transaction_validity_check<'a>(
         &'a self,
         prev_block_header: BlockHeader,
@@ -3242,7 +3232,10 @@ impl Chain {
                 err
             })?;
 
-            let tx_valid_list = self.validate_chunk_transactions(prev_block.header(), &chunk);
+            let signed_txs = self
+                .chain_store()
+                .filter_non_expired_txs(prev_block.header(), chunk.into_transactions().into_iter())
+                .collect();
 
             // we can't use hash from the current block here yet because the incoming receipts
             // for this block is not stored yet
@@ -3261,8 +3254,7 @@ impl Chain {
 
             ShardUpdateReason::NewChunk(NewChunkData {
                 chunk_header: chunk_header.clone(),
-                transactions: chunk.into_transactions(),
-                transaction_validity_check_results: tx_valid_list,
+                signed_txs,
                 receipts,
                 block,
                 storage_context,

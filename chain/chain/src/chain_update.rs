@@ -25,7 +25,6 @@ use near_primitives::state_sync::{ReceiptProofResponse, ShardStateSyncResponseHe
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, ShardId};
 use near_primitives::views::LightClientBlockView;
-use node_runtime::SignedValidPeriodTransactions;
 use std::sync::Arc;
 use tracing::{debug, warn};
 
@@ -455,15 +454,19 @@ impl<'a> ChainUpdate<'a> {
         let chunk_header = chunk.cloned_header();
         let gas_limit = chunk_header.gas_limit();
         let block = self.chain_store_update.get_block(block_header.hash())?;
-        let transactions = chunk.to_transactions().to_vec();
-        let transaction_validity = if let Some(prev_block_header) = prev_block_header {
+
+        let signed_txs = if let Some(prev_block_header) = prev_block_header {
             self.chain_store_update
                 .chain_store()
-                .compute_transaction_validity(&prev_block_header, &chunk)
+                .filter_non_expired_txs(
+                    &prev_block_header,
+                    chunk.to_transactions().into_iter().cloned(),
+                )
+                .collect()
         } else {
-            vec![true; transactions.len()]
+            chunk.to_transactions().to_vec()
         };
-        let transactions = SignedValidPeriodTransactions::new(transactions, transaction_validity);
+
         let apply_result = self.runtime_adapter.apply_chunk(
             RuntimeStorageConfig::new(chunk_header.prev_state_root(), true),
             ApplyChunkReason::UpdateTrackedShard,
@@ -484,7 +487,7 @@ impl<'a> ChainUpdate<'a> {
                 bandwidth_requests: block.block_bandwidth_requests(),
             },
             &receipts,
-            transactions,
+            signed_txs,
         )?;
 
         let (outcome_root, outcome_proofs) =
@@ -594,7 +597,7 @@ impl<'a> ChainUpdate<'a> {
                 block.block_bandwidth_requests(),
             ),
             &[],
-            SignedValidPeriodTransactions::empty(),
+            vec![],
         )?;
         let flat_storage_manager = self.runtime_adapter.get_flat_storage_manager();
         let store_update = flat_storage_manager.save_flat_state_changes(

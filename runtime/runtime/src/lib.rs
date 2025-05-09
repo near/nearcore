@@ -7,7 +7,6 @@ use crate::config::{
 };
 use crate::congestion_control::DelayedReceiptQueueWrapper;
 use crate::prefetch::TriePrefetcher;
-pub use crate::types::SignedValidPeriodTransactions;
 use crate::verifier::{StorageStakingError, check_storage_stake, validate_receipt};
 pub use crate::verifier::{
     ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT, get_signer_and_access_key, set_tx_state_changes,
@@ -1495,7 +1494,7 @@ impl Runtime {
         validator_accounts_update: &Option<ValidatorAccountsUpdate>,
         apply_state: &ApplyState,
         incoming_receipts: &[Receipt],
-        signed_txs: SignedValidPeriodTransactions,
+        signed_txs: Vec<SignedTransaction>,
         epoch_info_provider: &dyn EpochInfoProvider,
         state_patch: SandboxStatePatch,
     ) -> Result<ApplyResult, RuntimeError> {
@@ -1639,14 +1638,13 @@ impl Runtime {
     fn process_transactions(
         &self,
         processing_state: &mut ApplyProcessingReceiptState,
-        signed_txs: SignedValidPeriodTransactions,
+        signed_txs: Vec<SignedTransaction>,
         receipt_sink: &mut ReceiptSink,
     ) -> Result<(), RuntimeError> {
         let total = &mut processing_state.total;
         let apply_state = &mut processing_state.apply_state;
         let state_update = &mut processing_state.state_update;
 
-        let signed_txs = signed_txs.into_par_iter_nonexpired_transactions();
         for (tx_hash, result) in Self::parallel_validate_transactions(
             &apply_state.config,
             apply_state.gas_price,

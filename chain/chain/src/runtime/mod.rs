@@ -47,9 +47,8 @@ use node_runtime::adapter::ViewRuntimeAdapter;
 use node_runtime::config::tx_cost;
 use node_runtime::state_viewer::{TrieViewer, ViewApplyState};
 use node_runtime::{
-    ApplyState, Runtime, SignedValidPeriodTransactions, ValidatorAccountsUpdate,
-    get_signer_and_access_key, set_tx_state_changes, validate_transaction,
-    verify_and_charge_tx_ephemeral,
+    ApplyState, Runtime, ValidatorAccountsUpdate, get_signer_and_access_key, set_tx_state_changes,
+    validate_transaction, verify_and_charge_tx_ephemeral,
 };
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -158,7 +157,7 @@ impl NightshadeRuntime {
         chunk: ApplyChunkShardContext,
         block: ApplyChunkBlockContext,
         receipts: &[Receipt],
-        transactions: SignedValidPeriodTransactions,
+        signed_txs: Vec<SignedTransaction>,
         state_patch: SandboxStatePatch,
     ) -> Result<ApplyChunkResult, Error> {
         let ApplyChunkBlockContext {
@@ -263,7 +262,7 @@ impl NightshadeRuntime {
                 &validator_accounts_update,
                 &apply_state,
                 receipts,
-                transactions,
+                signed_txs,
                 self.epoch_manager.as_ref(),
                 state_patch,
             )
@@ -767,7 +766,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         chunk: ApplyChunkShardContext,
         block: ApplyChunkBlockContext,
         receipts: &[Receipt],
-        transactions: SignedValidPeriodTransactions,
+        signed_txs: Vec<SignedTransaction>,
     ) -> Result<ApplyChunkResult, Error> {
         let shard_id = chunk.shard_id;
         let _timer = metrics::APPLYING_CHUNKS_TIME
@@ -816,7 +815,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             chunk,
             block,
             receipts,
-            transactions,
+            signed_txs,
             storage_config.state_patch,
         ) {
             Ok(result) => Ok(result),

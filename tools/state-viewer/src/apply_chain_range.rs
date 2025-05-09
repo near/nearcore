@@ -21,7 +21,6 @@ use near_store::adapter::StoreAdapter;
 use near_store::flat::{BlockInfo, FlatStateChanges, FlatStorageStatus};
 use near_store::{DBCol, Store};
 use nearcore::NightshadeRuntime;
-use node_runtime::SignedValidPeriodTransactions;
 use parking_lot::Mutex;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use std::fs::File;
@@ -150,10 +149,13 @@ fn apply_block_from_range(
         };
 
         let chain_store_update = ChainStoreUpdate::new(&mut read_chain_store);
-        let transactions = chunk.to_transactions().to_vec();
-        let valid_txs = chain_store_update
+        let signed_txs = chain_store_update
             .chain_store()
-            .compute_transaction_validity(prev_block.header(), &chunk);
+            .filter_non_expired_txs(
+                prev_block.header(),
+                chunk.to_transactions().into_iter().cloned(),
+            )
+            .collect();
         let shard_layout =
             epoch_manager.get_shard_layout_from_prev_block(block.header().prev_hash()).unwrap();
         let receipt_proof_response = get_incoming_receipts_for_shard(
@@ -204,7 +206,7 @@ fn apply_block_from_range(
                     block.block_bandwidth_requests(),
                 ),
                 &receipts,
-                SignedValidPeriodTransactions::new(transactions, valid_txs),
+                signed_txs,
             )
             .unwrap()
     } else {
@@ -230,7 +232,7 @@ fn apply_block_from_range(
                     block.block_bandwidth_requests(),
                 ),
                 &[],
-                SignedValidPeriodTransactions::empty(),
+                vec![],
             )
             .unwrap()
     };

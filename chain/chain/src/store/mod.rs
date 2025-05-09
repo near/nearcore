@@ -487,22 +487,19 @@ impl ChainStore {
         )
     }
 
-    pub fn compute_transaction_validity(
+    pub fn filter_non_expired_txs(
         &self,
         prev_block_header: &BlockHeader,
-        chunk: &ShardChunk,
-    ) -> Vec<bool> {
-        chunk
-            .to_transactions()
-            .into_iter()
-            .map(|signed_tx| {
-                self.check_transaction_validity_period(
-                    prev_block_header,
-                    signed_tx.transaction.block_hash(),
-                )
-                .is_ok()
-            })
-            .collect()
+        signed_txs: impl Iterator<Item = SignedTransaction>,
+    ) -> impl Iterator<Item = SignedTransaction> {
+        signed_txs.filter_map(|signed_tx| {
+            self.check_transaction_validity_period(
+                prev_block_header,
+                signed_tx.transaction.block_hash(),
+            )
+            .map(|()| signed_tx)
+            .ok()
+        })
     }
 }
 

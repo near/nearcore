@@ -23,7 +23,6 @@ use near_primitives::views::{
 };
 use near_store::adapter::StoreUpdateAdapter;
 use near_store::{ShardTries, TrieUpdate};
-use node_runtime::SignedValidPeriodTransactions;
 use node_runtime::state_viewer::TrieViewer;
 use node_runtime::{ApplyState, Runtime, state_viewer::ViewApplyState};
 use parking_lot::RwLock;
@@ -110,7 +109,6 @@ impl RuntimeUser {
                 trie.set_use_trie_accounting_cache(true);
                 trie
             };
-            let validity_check_results = vec![true; txs.len()];
             let apply_result = client
                 .runtime
                 .apply(
@@ -118,7 +116,7 @@ impl RuntimeUser {
                     &None,
                     &apply_state,
                     &receipts,
-                    SignedValidPeriodTransactions::new(txs, validity_check_results),
+                    txs,
                     &self.epoch_info_provider,
                     Default::default(),
                 )
