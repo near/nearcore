@@ -659,6 +659,14 @@ impl Doomslug {
 
     /// Processes single approval
     pub fn on_approval_message(&mut self, approval: &Approval, stakes: &[ApprovalStake]) {
+        let _span = tracing::debug_span!(
+            target: "client",
+            "on_approval_message",
+            height = approval.target_height,
+            account_id = %approval.account_id,
+            inner = ?approval.inner,
+        )
+        .entered();
         if approval.target_height < self.tip.height
             || approval.target_height > self.tip.height + MAX_HEIGHTS_AHEAD_TO_STORE_APPROVALS
         {

@@ -2,7 +2,7 @@ use actix::{Actor, Addr};
 use anyhow::{Context, anyhow, bail};
 use near_async::actix::AddrWithAutoSpanContextExt;
 use near_async::actix_wrapper::{ActixWrapper, spawn_actix_actor};
-use near_async::futures::ActixFutureSpawner;
+use near_async::futures::{ActixFutureSpawner, StdThreadAsyncComputationSpawnerForTest};
 use near_async::messaging::{IntoMultiSender, IntoSender, LateBoundSender, noop};
 use near_async::time::{self, Clock};
 use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
@@ -177,6 +177,7 @@ fn setup_network_node(
         shards_manager_adapter.as_sender(),
         partial_witness_actor.with_auto_span_context().into_multi_sender(),
         genesis_id,
+        Arc::new(StdThreadAsyncComputationSpawnerForTest),
     )
     .unwrap();
     network_adapter.bind(peer_manager.clone().with_auto_span_context());
