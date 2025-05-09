@@ -36,8 +36,8 @@ use near_primitives::errors::{
 };
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{
-    ActionReceipt, DataReceipt, PromiseYieldIndices, PromiseYieldTimeout, Receipt, ReceiptEnum,
-    ReceiptOrStateStoredReceipt, ReceiptV0, ReceivedData,
+    ActionReceipt, DataReceipt, DelayedReceiptIndices, PromiseYieldIndices, PromiseYieldTimeout,
+    Receipt, ReceiptEnum, ReceiptOrStateStoredReceipt, ReceiptV0, ReceivedData,
 };
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::state_record::StateRecord;
@@ -84,6 +84,7 @@ use verifier::ValidateReceiptMode;
 
 mod actions;
 pub mod adapter;
+mod balance_checker;
 mod bandwidth_scheduler;
 pub mod config;
 mod congestion_control;
@@ -1513,7 +1514,7 @@ impl Runtime {
         // 3. Process receipts.
         // 4. Validate and apply the state update.
         let mut processing_state =
-            ApplyProcessingState::new(&apply_state, trie, epoch_info_provider);
+            ApplyProcessingState::new(&apply_state, trie, epoch_info_provider, signed_txs.clone());
         processing_state.stats.transactions_num = signed_txs.len().try_into().unwrap();
         processing_state.stats.incoming_receipts_num = incoming_receipts.len().try_into().unwrap();
         processing_state.stats.is_new_chunk = !apply_state.is_new_chunk;
@@ -1591,6 +1592,7 @@ impl Runtime {
         self.validate_apply_state_update(
             processing_state,
             process_receipts_result,
+            validator_accounts_update,
             receipt_sink,
             state_patch,
         )
@@ -2101,6 +2103,7 @@ impl Runtime {
         &self,
         processing_state: ApplyProcessingReceiptState,
         process_receipts_result: ProcessReceiptsResult,
+        validator_accounts_update: &Option<ValidatorAccountsUpdate>,
         receipt_sink: ReceiptSink,
         state_patch: SandboxStatePatch,
     ) -> Result<ApplyResult, RuntimeError> {
@@ -2157,6 +2160,18 @@ impl Runtime {
             &shard_layout,
             true,
             &mut stats,
+        )?;
+
+        balance_checker::check_balance(
+            &apply_state.config,
+            &state_update,
+            validator_accounts_update,
+            processing_state.incoming_receipts,
+            &processed_delayed_receipts,
+            &promise_yield_result.timeout_receipts,
+            processing_state.transactions,
+            &receipt_sink.outgoing_receipts(),
+            &stats.balance,
         )?;
 
         state_update.commit(StateChangeCause::UpdatedDelayedReceipts);
@@ -2353,6 +2368,7 @@ fn resolve_promise_yield_timeouts(
     let mut new_receipt_index: usize = 0;
 
     let mut processed_yield_timeouts = vec![];
+    let mut timeout_receipts = vec![];
     let yield_processing_start = std::time::Instant::now();
     while promise_yield_indices.first_index < promise_yield_indices.next_available_index {
         if total.compute >= compute_limit || state_update.trie.check_proof_size_limit_exceed() {
@@ -2407,11 +2423,12 @@ fn resolve_promise_yield_timeouts(
             // the current chunk. The ordering will be maintained because the receipts are
             // destined for the same shard; the timeout will be processed second and discarded.
             receipt_sink.forward_or_buffer_receipt(
-                resume_receipt,
+                resume_receipt.clone(),
                 apply_state,
                 &mut state_update,
                 processing_state.epoch_info_provider,
             )?;
+            timeout_receipts.push(resume_receipt);
         }
 
         processed_yield_timeouts.push(queue_entry);
@@ -2426,6 +2443,7 @@ fn resolve_promise_yield_timeouts(
         total.compute,
     );
     Ok(ResolvePromiseYieldTimeoutsResult {
+        timeout_receipts,
         initial_promise_yield_indices,
         promise_yield_indices,
         processed_yield_timeouts,
@@ -2460,6 +2478,7 @@ struct ProcessReceiptsResult {
 }
 
 struct ResolvePromiseYieldTimeoutsResult {
+    timeout_receipts: Vec<Receipt>,
     initial_promise_yield_indices: PromiseYieldIndices,
     promise_yield_indices: PromiseYieldIndices,
     processed_yield_timeouts: Vec<PromiseYieldTimeout>,
@@ -2472,6 +2491,7 @@ struct ApplyProcessingState<'a> {
     prefetcher: Option<TriePrefetcher>,
     state_update: TrieUpdate,
     epoch_info_provider: &'a dyn EpochInfoProvider,
+    transactions: SignedValidPeriodTransactions,
     total: TotalResourceGuard,
     stats: ChunkApplyStatsV0,
 }
@@ -2481,6 +2501,7 @@ impl<'a> ApplyProcessingState<'a> {
         apply_state: &'a ApplyState,
         trie: Trie,
         epoch_info_provider: &'a dyn EpochInfoProvider,
+        transactions: SignedValidPeriodTransactions,
     ) -> Self {
         let protocol_version = apply_state.current_protocol_version;
         let prefetcher = TriePrefetcher::new_if_enabled(&trie);
@@ -2500,6 +2521,7 @@ impl<'a> ApplyProcessingState<'a> {
             prefetcher,
             state_update,
             epoch_info_provider,
+            transactions,
             total,
             stats,
         }
@@ -2522,6 +2544,7 @@ impl<'a> ApplyProcessingState<'a> {
             prefetcher: self.prefetcher,
             state_update: self.state_update,
             epoch_info_provider: self.epoch_info_provider,
+            transactions: self.transactions,
             total: self.total,
             stats: self.stats,
             outcomes: Vec::new(),
@@ -2541,6 +2564,7 @@ struct ApplyProcessingReceiptState<'a> {
     prefetcher: Option<TriePrefetcher>,
     state_update: TrieUpdate,
     epoch_info_provider: &'a dyn EpochInfoProvider,
+    transactions: SignedValidPeriodTransactions,
     total: TotalResourceGuard,
     stats: ChunkApplyStatsV0,
     outcomes: Vec<ExecutionOutcomeWithId>,

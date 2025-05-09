@@ -1,6 +1,7 @@
 use near_primitives::transaction::SignedTransaction;
 use rayon::iter::{IndexedParallelIterator, IntoParallelIterator, ParallelIterator};
 
+#[derive(Clone)]
 pub struct SignedValidPeriodTransactions {
     /// Transactions.
     ///
