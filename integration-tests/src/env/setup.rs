@@ -1207,6 +1207,7 @@ pub fn setup_client_with_runtime(
         rng_seed,
         snapshot_callbacks,
         Arc::new(RayonAsyncComputationSpawner),
+        Arc::new(RayonAsyncComputationSpawner),
         partial_witness_adapter,
         resharding_sender,
         Arc::new(ActixFutureSpawner),

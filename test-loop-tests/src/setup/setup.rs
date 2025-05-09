@@ -135,6 +135,12 @@ pub fn setup_client(
         [0; 32],
         Some(snapshot_callbacks),
         Arc::new(test_loop.async_computation_spawner(identifier, |_| Duration::milliseconds(80))),
+        Arc::new(
+            test_loop
+                .async_computation_spawner(format!("{identifier}-validation").as_str(), |_| {
+                    Duration::milliseconds(80)
+                }),
+        ),
         partial_witness_adapter.as_multi_sender(),
         resharding_sender.as_multi_sender(),
         Arc::new(test_loop.future_spawner(identifier)),

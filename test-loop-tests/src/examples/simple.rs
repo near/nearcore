@@ -98,6 +98,9 @@ fn test_client_with_simple_test_loop() {
         [0; 32],
         None,
         Arc::new(test_loop.async_computation_spawner("node0", |_| Duration::milliseconds(80))),
+        Arc::new(
+            test_loop.async_computation_spawner("node0-validation", |_| Duration::milliseconds(80)),
+        ),
         noop().into_multi_sender(),
         noop().into_multi_sender(),
         Arc::new(test_loop.future_spawner("node0")),

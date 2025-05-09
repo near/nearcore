@@ -34,7 +34,9 @@ use near_chain::ChainStoreAccess;
 use near_chain::chain::{
     ApplyChunksDoneMessage, BlockCatchUpRequest, BlockCatchUpResponse, ChunkStateWitnessMessage,
 };
-use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
+use near_chain::rayon_spawner::{
+    RayonAsyncComputationSpawner, RayonAsyncComputationSpawnerWithDedicatedThreadPool,
+};
 use near_chain::resharding::types::ReshardingSender;
 use near_chain::state_snapshot_actor::SnapshotCallbacks;
 use near_chain::test_utils::format_hash;
@@ -169,6 +171,7 @@ pub fn start_client(
         seed.unwrap_or_else(random_seed_from_thread),
         snapshot_callbacks,
         Arc::new(RayonAsyncComputationSpawner),
+        Arc::new(RayonAsyncComputationSpawnerWithDedicatedThreadPool::new(num_cpus::get())),
         partial_witness_adapter,
         resharding_sender,
         state_sync_future_spawner,

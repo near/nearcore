@@ -4321,6 +4321,7 @@ dependencies = [
  "near-telemetry",
  "near-vm-runner",
  "num-rational 0.3.2",
+ "num_cpus",
  "object_store",
  "parking_lot 0.12.1",
  "percent-encoding",
