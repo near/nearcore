@@ -1,6 +1,9 @@
+use crate::network_protocol::RoutedMessageBody;
 use crate::peer_manager::connection;
 use crate::stats::metrics;
 use crate::tcp;
+use crate::types::Encoding;
+use crate::types::PeerMessage;
 use actix::AsyncContext as _;
 use actix::fut::future::wrap_future;
 use bytesize::{GIB, MIB};
@@ -171,13 +174,19 @@ where
             stats.received_messages.fetch_add(1, Ordering::Relaxed);
             stats.received_bytes.fetch_add(n as u64, Ordering::Relaxed);
 
-            if contains_subslice(buf.as_slice(), "penny".as_bytes())
-                && contains_subslice(buf.as_slice(), "ChunkEndorsement".as_bytes())
-            {
+            if let Some(cinfo) = get_chunk_endorsement_info(&buf) {
                 let read_duration = read_start.elapsed();
-                let _span =
-                    tracing::trace_span!(target: "network", "recv_penny_endorsement", os_thread_id = gettid::gettid(), prev_send_dur_secs = send_duration.as_secs_f64(), read_dur_secs = read_duration.as_secs_f64()).entered();
+                let _span = tracing::trace_span!(target: "network",
+                    "net_recv_endorsement",
+                    height_created = cinfo.height_created,
+                    shard_id = cinfo.shard_id,
+                    validator = cinfo.validator,
+                    os_thread_id = gettid::gettid(),
+                    prev_send_dur_secs = send_duration.as_secs_f64(),
+                    read_dur_secs = read_duration.as_secs_f64())
+                .entered();
             }
+
             let send_start = std::time::Instant::now();
             if let Err(_) = addr.send(Frame(buf)).await {
                 // We got mailbox error, which means that Actor has stopped,
@@ -204,8 +213,12 @@ where
                 if msg.len() > NETWORK_MESSAGE_MAX_SIZE_BYTES {
                     metrics::MessageDropped::InputTooLong.inc_unknown_msg();
                 } else {
-                    writer.write_u32_le(msg.len() as u32).await?;
-                    writer.write_all(&msg[..]).await?;
+                    if let Some(cinfo) = get_chunk_endorsement_info(&msg) {
+                        send_endorsement(&mut writer, &msg, &cinfo).await?;
+                    } else {
+                        writer.write_u32_le(msg.len() as u32).await?;
+                        writer.write_all(&msg[..]).await?;
+                    }
                 }
                 stats.messages_to_send.fetch_sub(1, Ordering::Release);
                 stats.bytes_to_send.fetch_sub(msg.len() as u64, Ordering::Release);
@@ -227,6 +240,58 @@ where
     }
 }
 
+#[tracing::instrument(
+    level = "trace",
+    target = "network",
+    "net_send_endorsement",
+    skip_all,
+    fields(
+        height_created = cinfo.height_created,
+        shard_id = cinfo.shard_id,
+        validator = cinfo.validator,
+        os_thread_id = gettid::gettid())
+)]
+async fn send_endorsement(
+    writer: &mut tokio::io::BufWriter<WriteHalf>,
+    msg: &[u8],
+    cinfo: &ChunkEndorsementInfo,
+) -> Result<(), std::io::Error> {
+    writer.write_u32_le(msg.len() as u32).await?;
+    writer.write_all(&msg[..]).await
+}
+
 fn contains_subslice<T: PartialEq>(data: &[T], needle: &[T]) -> bool {
     data.windows(needle.len()).any(|w| w == needle)
+}
+
+fn deserialize_msg(bytes: &[u8]) -> Option<PeerMessage> {
+    if let Ok(msg) = PeerMessage::deserialize(Encoding::Proto, bytes) {
+        return Some(msg);
+    }
+    return PeerMessage::deserialize(Encoding::Borsh, bytes).ok();
+}
+
+struct ChunkEndorsementInfo {
+    height_created: u64,
+    shard_id: String,
+    validator: String,
+}
+
+fn get_chunk_endorsement_info(msg_bytes: &[u8]) -> Option<ChunkEndorsementInfo> {
+    if !contains_subslice(msg_bytes, "ChunkEndorsement".as_bytes()) {
+        return None;
+    }
+
+    if let Some(msg) = deserialize_msg(msg_bytes) {
+        if let PeerMessage::Routed(rtd) = &msg {
+            if let RoutedMessageBody::VersionedChunkEndorsement(endorsement) = &rtd.body {
+                return Some(ChunkEndorsementInfo {
+                    height_created: endorsement.chunk_production_key().height_created,
+                    shard_id: endorsement.chunk_production_key().shard_id.to_string(),
+                    validator: endorsement.account_id().to_string(),
+                });
+            }
+        }
+    }
+    None
 }
