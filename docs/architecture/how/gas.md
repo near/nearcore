@@ -58,12 +58,12 @@ Generating a refund receipts for every executed function call has become a
 non-trivial overhead, limiting total throughput. Therefore, with the adoption of
 [NEP-536](https://github.com/near/NEPs/pull/536) the model was changed.
 
-Today, the protocol simply ignores gas price changes between time of purchase
-and time of use. A transaction buys gas at one price and burns it at the same
-price. While this avoids the need for refunds due to price changes, it also
-means that transactions with deep receipt calls can end up with a cheaper gas
-price competing for the same chunk space. The community took note of this
-trade-off and agreed to take it.
+With version 78 and onward, the protocol simply ignores gas price changes
+between time of purchase and time of use. A transaction buys gas at one price
+and burns it at the same price. While this avoids the need for refunds due to
+price changes, it also means that transactions with deep receipt calls can end
+up with a cheaper gas price competing for the same chunk space. The community
+took note of this trade-off and agreed to take it.
 
 ### Burning Gas
 
