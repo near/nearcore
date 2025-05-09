@@ -1685,7 +1685,7 @@ impl Chain {
                             "Process block: missing chunks"
                         );
                     }
-                    Error::OptimisticBlockInProcessing => {
+                    Error::BlockPendingOptimisticExecution => {
                         let block_hash = *block.hash();
                         self.blocks_delay_tracker.mark_block_pending_execution(&block_hash);
                         let orphan = Orphan { block, provenance, added: self.clock.now() };
@@ -2963,24 +2963,33 @@ impl Chain {
             || self.epoch_manager.is_chunk_producer_for_epoch(&next_epoch_id, account_id)?)
     }
 
-    /// Check if there is an optimistic block in processing corresponding to
-    /// the given block.
-    fn has_optimistic_block_in_processing(
+    /// Check if the block should be pending execution, which means waiting
+    /// for optimistic block to be applied.
+    fn should_be_pending_execution(
         &self,
         block: &Block,
         cached_shard_update_keys: &[&CachedShardUpdateKey],
     ) -> bool {
+        // If there is no matching optimistic block in processing, return false
+        // immediately.
         if !self
             .blocks_in_processing
             .has_optimistic_block_with(block.header().height(), cached_shard_update_keys)
         {
             return false;
         }
-        // If there is already a pending block with given height which matches
-        // optimistic execution, this is very unlikely case relevant to epoch
-        // switch or malicious behaviour. To avoid getting stuck, allow only
-        // one of these blocks to be pending.
-        !self.blocks_pending_execution.contains_key(&block.header().height())
+
+        // If we have optimistic block in processing and there are no pending
+        // blocks at this height, this block should be pending execution.
+        if !self.blocks_pending_execution.contains_key(&block.header().height()) {
+            return true;
+        }
+
+        // If there is already a pending block at this height, check if it is
+        // the same block. Otherwise we have multiple blocks at the same
+        // height. This is malicious case. To simplify behaviour, we process
+        // the block right away.
+        self.blocks_pending_execution.contains_block_hash(&block.hash())
     }
 
     /// Creates jobs which will update shards for the given block and incoming
@@ -3031,8 +3040,8 @@ impl Chain {
         // Otherwise there could be data races where optimistic block gets
         // postprocessed in the meantime, in case of which block would never
         // leave the pending pool.
-        if self.has_optimistic_block_in_processing(&block, &cached_shard_update_keys) {
-            return Err(Error::OptimisticBlockInProcessing);
+        if self.should_be_pending_execution(&block, &cached_shard_update_keys) {
+            return Err(Error::BlockPendingOptimisticExecution);
         }
 
         for (shard_index, (block_context, cached_shard_update_key)) in
