@@ -181,6 +181,10 @@ where
                     height_created = cinfo.height_created,
                     shard_id = cinfo.shard_id,
                     validator = cinfo.validator,
+                    num_hops = cinfo.num_hops,
+                    author = cinfo.author,
+                    created_at = cinfo.created_at,
+                    ttl = cinfo.ttl,
                     os_thread_id = gettid::gettid(),
                     prev_send_dur_secs = send_duration.as_secs_f64(),
                     read_dur_secs = read_duration.as_secs_f64())
@@ -249,6 +253,10 @@ where
         height_created = cinfo.height_created,
         shard_id = cinfo.shard_id,
         validator = cinfo.validator,
+        num_hops = cinfo.num_hops,
+        author = cinfo.author,
+        created_at = cinfo.created_at,
+        ttl = cinfo.ttl,
         os_thread_id = gettid::gettid())
 )]
 async fn send_endorsement(
@@ -275,6 +283,10 @@ struct ChunkEndorsementInfo {
     height_created: u64,
     shard_id: String,
     validator: String,
+    num_hops: u32,
+    author: String,
+    created_at: String,
+    ttl: u8,
 }
 
 fn get_chunk_endorsement_info(msg_bytes: &[u8]) -> Option<ChunkEndorsementInfo> {
@@ -289,6 +301,10 @@ fn get_chunk_endorsement_info(msg_bytes: &[u8]) -> Option<ChunkEndorsementInfo> 
                     height_created: endorsement.chunk_production_key().height_created,
                     shard_id: endorsement.chunk_production_key().shard_id.to_string(),
                     validator: endorsement.account_id().to_string(),
+                    num_hops: rtd.num_hops,
+                    author: rtd.msg.author.to_string(),
+                    created_at: format!("{:?}", rtd.created_at),
+                    ttl: rtd.msg.ttl,
                 });
             }
         }
