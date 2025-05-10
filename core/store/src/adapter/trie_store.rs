@@ -190,8 +190,12 @@ impl<'a> TrieStoreUpdateAdapter<'a> {
 pub fn get_shard_uid_mapping(store: &Store, child_shard_uid: ShardUId) -> ShardUId {
     store
         .get_ser::<ShardUId>(DBCol::StateShardUIdMapping, &child_shard_uid.to_bytes())
-        .unwrap_or_else(|_| {
-            panic!("get_shard_uid_mapping() failed for child_shard_uid = {}", child_shard_uid)
+        .unwrap_or_else(|err| {
+            tracing::warn!(
+                "get_shard_uid_mapping() failed for child_shard_uid = {}: {:?}. Using child_shard_uid as the mapping.",
+                child_shard_uid, err
+            );
+            None
         })
         .unwrap_or(child_shard_uid)
 }
