@@ -85,6 +85,9 @@ impl Socket {
 
 impl Stream {
     fn new(stream: tokio::net::TcpStream, type_: StreamType) -> std::io::Result<Self> {
+        if let Err(err) = stream.set_nodelay(true) {
+            tracing::warn!(target: "network", "Failed to set TCP_NODELAY: {}", err);
+        }
         Ok(Self { peer_addr: stream.peer_addr()?, local_addr: stream.local_addr()?, stream, type_ })
     }
 
