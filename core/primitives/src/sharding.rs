@@ -1387,7 +1387,7 @@ impl ShardChunkWithEncoding {
     }
 }
 
-#[derive(BorshDeserialize, BorshSerialize, Clone, ProtocolSchema)]
+#[derive(BorshDeserialize, BorshSerialize, Clone)]
 pub struct ArcedShardChunkV1 {
     pub chunk_hash: ChunkHash,
     pub header: ShardChunkHeaderV1,
@@ -1395,7 +1395,7 @@ pub struct ArcedShardChunkV1 {
     pub prev_outgoing_receipts: Vec<Arc<Receipt>>,
 }
 
-#[derive(BorshDeserialize, BorshSerialize, Clone, ProtocolSchema)]
+#[derive(BorshDeserialize, BorshSerialize, Clone)]
 pub struct ArcedShardChunkV2 {
     pub chunk_hash: ChunkHash,
     pub header: ShardChunkHeader,
@@ -1406,7 +1406,7 @@ pub struct ArcedShardChunkV2 {
 /// This struct has the same borsh representation as `ShardChunk` but it stores
 /// some fields inside `Arc` to avoid some cloning when the chunk is being
 /// persisted to disk.
-#[derive(BorshDeserialize, BorshSerialize, Clone, ProtocolSchema)]
+#[derive(BorshDeserialize, BorshSerialize, Clone)]
 pub enum ArcedShardChunk {
     V1(ArcedShardChunkV1),
     V2(ArcedShardChunkV2),
