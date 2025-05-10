@@ -46,7 +46,6 @@ use near_store::{NodeStorage, PartialStorage, get_genesis_state_roots};
 use near_vm_runner::{
     CompiledContract, CompiledContractInfo, FilesystemContractRuntimeCache, get_contract_cache_key,
 };
-use node_runtime::SignedValidPeriodTransactions;
 use num_rational::Ratio;
 use primitive_types::U256;
 use rand::{SeedableRng, rngs::StdRng, seq::SliceRandom};
@@ -228,8 +227,6 @@ impl TestEnv {
             .map(|shard_id| (shard_id, ExtendedCongestionInfo::default()))
             .collect();
         let congestion_info = BlockCongestionInfo::new(shards_congestion_info);
-        let transaction_validity = vec![true; transactions.len()];
-        let transactions = SignedValidPeriodTransactions::new(transactions, transaction_validity);
         self.runtime
             .apply_chunk(
                 RuntimeStorageConfig::new(state_root, true),

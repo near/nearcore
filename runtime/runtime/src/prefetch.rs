@@ -41,11 +41,12 @@
 //! in the prefetcher. Implementation details for most limits are in
 //! `core/store/src/trie/prefetching_trie_storage.rs`
 
+use crate::metrics;
 use borsh::BorshSerialize as _;
 use near_o11y::metrics::prometheus;
 use near_o11y::metrics::prometheus::core::GenericCounter;
 use near_primitives::receipt::{Receipt, ReceiptEnum};
-use near_primitives::transaction::Action;
+use near_primitives::transaction::{Action, SignedTransaction};
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::AccountId;
 use near_primitives::types::StateRoot;
@@ -54,7 +55,6 @@ use sha2::Digest;
 use std::str::FromStr;
 use tracing::{debug, warn};
 
-use crate::{SignedValidPeriodTransactions, metrics};
 /// Transaction runtime view of the prefetching subsystem.
 pub(crate) struct TriePrefetcher {
     prefetch_api: PrefetchApi,
@@ -194,17 +194,18 @@ impl TriePrefetcher {
     /// for some transactions may have been initiated.
     pub(crate) fn prefetch_transactions_data(
         &self,
-        signed_txs: &SignedValidPeriodTransactions,
+        signed_txs: &[SignedTransaction],
     ) -> Result<(), PrefetchError> {
         if self.prefetch_api.enable_receipt_prefetching {
-            for t in signed_txs.iter_nonexpired_transactions() {
-                let account_id = t.transaction.signer_id().clone();
+            for signed_tx in signed_txs {
+                let tx = &signed_tx.transaction;
+                let account_id = tx.signer_id().clone();
                 let trie_key = TrieKey::Account { account_id };
                 self.prefetch_trie_key(trie_key)?;
 
                 let trie_key = TrieKey::AccessKey {
-                    account_id: t.transaction.signer_id().clone(),
-                    public_key: t.transaction.public_key().clone(),
+                    account_id: tx.signer_id().clone(),
+                    public_key: tx.public_key().clone(),
                 };
                 self.prefetch_trie_key(trie_key)?;
             }

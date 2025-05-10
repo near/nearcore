@@ -345,15 +345,17 @@ pub fn pre_validate_chunk_state_witness(
         )));
     }
 
-    let transaction_validity_check_results = {
-        if last_chunk_block.header().is_genesis() {
-            vec![true; state_witness.transactions().len()]
-        } else {
-            let prev_block_header =
-                store.get_block_header(last_chunk_block.header().prev_hash())?;
-            let check = chain.transaction_validity_check(prev_block_header);
-            state_witness.transactions().iter().map(|t| check(t)).collect::<Vec<_>>()
-        }
+    let signed_txs = if last_chunk_block.header().is_genesis() {
+        state_witness.transactions().to_vec()
+    } else {
+        let prev_block_header = store.get_block_header(last_chunk_block.header().prev_hash())?;
+        let check = chain.transaction_validity_check(prev_block_header);
+        state_witness
+            .transactions()
+            .iter()
+            .cloned()
+            .filter_map(|t| check(&t).then_some(t))
+            .collect()
     };
 
     let main_transition_params = if last_chunk_block.header().is_genesis() {
@@ -373,8 +375,7 @@ pub fn pre_validate_chunk_state_witness(
     } else {
         MainTransition::NewChunk(NewChunkData {
             chunk_header: last_chunk_block.chunks().get(last_chunk_shard_index).unwrap().clone(),
-            transactions: state_witness.transactions().clone(),
-            transaction_validity_check_results,
+            signed_txs,
             receipts: receipts_to_apply,
             block: Chain::get_apply_chunk_block_context(
                 last_chunk_block,

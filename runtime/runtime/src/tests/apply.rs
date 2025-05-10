@@ -5,8 +5,8 @@ use crate::tests::{
     MAX_ATTACHED_GAS, create_receipt_for_create_account, create_receipt_with_actions,
     set_sha256_cost,
 };
+use crate::total_prepaid_exec_fees;
 use crate::{ApplyResult, ApplyState, Runtime, ValidatorAccountsUpdate};
-use crate::{SignedValidPeriodTransactions, total_prepaid_exec_fees};
 use assert_matches::assert_matches;
 use near_crypto::{InMemorySigner, KeyType, PublicKey, Signer};
 use near_o11y::testonly::init_test_logger;
@@ -188,7 +188,7 @@ fn test_apply_no_op() {
             &None,
             &apply_state,
             &[],
-            SignedValidPeriodTransactions::empty(),
+            vec![],
             &epoch_info_provider,
             Default::default(),
         )
@@ -220,7 +220,7 @@ fn test_apply_check_balance_validation_rewards() {
                 small_refund,
                 ReceiptPriority::NoPriority,
             )],
-            SignedValidPeriodTransactions::empty(),
+            vec![],
             &epoch_info_provider,
             Default::default(),
         )
@@ -249,7 +249,7 @@ fn test_apply_refund_receipts() {
                 &None,
                 &apply_state,
                 prev_receipts,
-                SignedValidPeriodTransactions::empty(),
+                vec![],
                 &epoch_info_provider,
                 Default::default(),
             )
@@ -293,7 +293,7 @@ fn test_apply_delayed_receipts_feed_all_at_once() {
                 &None,
                 &apply_state,
                 prev_receipts,
-                SignedValidPeriodTransactions::empty(),
+                vec![],
                 &epoch_info_provider,
                 Default::default(),
             )
@@ -338,7 +338,7 @@ fn test_apply_delayed_receipts_add_more_using_chunks() {
                 &None,
                 &apply_state,
                 prev_receipts,
-                SignedValidPeriodTransactions::empty(),
+                vec![],
                 &epoch_info_provider,
                 Default::default(),
             )
@@ -391,7 +391,7 @@ fn test_apply_delayed_receipts_adjustable_gas_limit() {
                 &None,
                 &apply_state,
                 prev_receipts,
-                SignedValidPeriodTransactions::empty(),
+                vec![],
                 &epoch_info_provider,
                 Default::default(),
             )
@@ -552,7 +552,7 @@ fn test_apply_delayed_receipts_local_tx() {
             &None,
             &apply_state,
             &receipts[0..2],
-            SignedValidPeriodTransactions::new(local_transactions[0..4].to_vec(), vec![true; 4]),
+            local_transactions[0..4].to_vec(),
             &epoch_info_provider,
             Default::default(),
         )
@@ -598,7 +598,7 @@ fn test_apply_delayed_receipts_local_tx() {
             &None,
             &apply_state,
             &receipts[2..3],
-            SignedValidPeriodTransactions::new(local_transactions[4..5].to_vec(), vec![true]),
+            local_transactions[4..5].to_vec(),
             &epoch_info_provider,
             Default::default(),
         )
@@ -638,7 +638,7 @@ fn test_apply_delayed_receipts_local_tx() {
             &None,
             &apply_state,
             &receipts[3..4],
-            SignedValidPeriodTransactions::new(local_transactions[5..9].to_vec(), vec![true; 4]),
+            local_transactions[5..9].to_vec(),
             &epoch_info_provider,
             Default::default(),
         )
@@ -686,7 +686,7 @@ fn test_apply_delayed_receipts_local_tx() {
             &None,
             &apply_state,
             &receipts[4..5],
-            SignedValidPeriodTransactions::empty(),
+            vec![],
             &epoch_info_provider,
             Default::default(),
         )
@@ -719,7 +719,7 @@ fn test_apply_delayed_receipts_local_tx() {
             &None,
             &apply_state,
             &receipts[5..6],
-            SignedValidPeriodTransactions::empty(),
+            vec![],
             &epoch_info_provider,
             Default::default(),
         )
@@ -761,7 +761,7 @@ fn test_apply_deficit_gas_for_transfer() {
             &None,
             &apply_state,
             &receipts,
-            SignedValidPeriodTransactions::empty(),
+            vec![],
             &epoch_info_provider,
             Default::default(),
         )
@@ -797,7 +797,7 @@ fn test_apply_surplus_gas_for_transfer() {
             &None,
             &apply_state,
             &receipts,
-            SignedValidPeriodTransactions::empty(),
+            vec![],
             &epoch_info_provider,
             Default::default(),
         )
@@ -881,7 +881,7 @@ fn test_apply_deficit_gas_for_function_call_covered() {
             &None,
             &apply_state,
             &receipts,
-            SignedValidPeriodTransactions::empty(),
+            vec![],
             &epoch_info_provider,
             Default::default(),
         )
@@ -961,7 +961,7 @@ fn test_apply_deficit_gas_for_function_call_partial() {
             &None,
             &apply_state,
             &receipts,
-            SignedValidPeriodTransactions::empty(),
+            vec![],
             &epoch_info_provider,
             Default::default(),
         )
@@ -1040,7 +1040,7 @@ fn test_apply_surplus_gas_for_function_call() {
             &None,
             &apply_state,
             &receipts,
-            SignedValidPeriodTransactions::empty(),
+            vec![],
             &epoch_info_provider,
             Default::default(),
         )
@@ -1082,7 +1082,7 @@ fn test_delete_key_add_key() {
             &None,
             &apply_state,
             &receipts,
-            SignedValidPeriodTransactions::empty(),
+            vec![],
             &epoch_info_provider,
             Default::default(),
         )
@@ -1125,7 +1125,7 @@ fn test_delete_key_underflow() {
             &None,
             &apply_state,
             &receipts,
-            SignedValidPeriodTransactions::empty(),
+            vec![],
             &epoch_info_provider,
             Default::default(),
         )
@@ -1163,7 +1163,7 @@ fn test_contract_precompilation() {
             &None,
             &apply_state,
             &receipts,
-            SignedValidPeriodTransactions::empty(),
+            vec![],
             &epoch_info_provider,
             Default::default(),
         )
@@ -1236,7 +1236,7 @@ fn test_compute_usage_limit() {
                 first_call_receipt.clone(),
                 second_call_receipt.clone(),
             ],
-            SignedValidPeriodTransactions::empty(),
+            vec![],
             &epoch_info_provider,
             Default::default(),
         )
@@ -1260,7 +1260,7 @@ fn test_compute_usage_limit() {
             &None,
             &apply_state,
             &[],
-            SignedValidPeriodTransactions::empty(),
+            vec![],
             &epoch_info_provider,
             Default::default(),
         )
@@ -1303,7 +1303,7 @@ fn test_compute_usage_limit_with_failed_receipt() {
             &None,
             &apply_state,
             &[deploy_contract_receipt.clone(), first_call_receipt.clone()],
-            SignedValidPeriodTransactions::empty(),
+            vec![],
             &epoch_info_provider,
             Default::default(),
         )
@@ -1354,7 +1354,7 @@ fn test_main_storage_proof_size_soft_limit() {
                 create_acc_fn(alice_account(), signers[0].clone()),
                 create_acc_fn(bob_account(), signers[1].clone()),
             ],
-            SignedValidPeriodTransactions::empty(),
+            vec![],
             &epoch_info_provider,
             Default::default(),
         )
@@ -1402,7 +1402,7 @@ fn test_main_storage_proof_size_soft_limit() {
                 function_call_fn(alice_account(), signers[0].clone()),
                 function_call_fn(bob_account(), signers[1].clone()),
             ],
-            SignedValidPeriodTransactions::empty(),
+            vec![],
             &epoch_info_provider,
             Default::default(),
         )
@@ -1465,7 +1465,7 @@ fn test_exclude_contract_code_from_witness() {
                 create_acc_fn(alice_account(), signers[0].clone()),
                 create_acc_fn(bob_account(), signers[1].clone()),
             ],
-            SignedValidPeriodTransactions::empty(),
+            vec![],
             &epoch_info_provider,
             Default::default(),
         )
@@ -1507,7 +1507,7 @@ fn test_exclude_contract_code_from_witness() {
                 function_call_fn(alice_account(), signers[0].clone()),
                 function_call_fn(bob_account(), signers[1].clone()),
             ],
-            SignedValidPeriodTransactions::empty(),
+            vec![],
             &epoch_info_provider,
             Default::default(),
         )
@@ -1579,7 +1579,7 @@ fn test_exclude_contract_code_from_witness_with_failed_call() {
                 create_acc_fn(alice_account(), signers[0].clone()),
                 create_acc_fn(bob_account(), signers[1].clone()),
             ],
-            SignedValidPeriodTransactions::empty(),
+            vec![],
             &epoch_info_provider,
             Default::default(),
         )
@@ -1620,7 +1620,7 @@ fn test_exclude_contract_code_from_witness_with_failed_call() {
                 function_call_fn(alice_account(), signers[0].clone()),
                 function_call_fn(bob_account(), signers[1].clone()),
             ],
-            SignedValidPeriodTransactions::empty(),
+            vec![],
             &epoch_info_provider,
             Default::default(),
         )
@@ -1710,7 +1710,7 @@ fn test_deploy_and_call_different_contracts() {
             &None,
             &apply_state,
             &[first_deploy_receipt, second_deploy_receipt],
-            SignedValidPeriodTransactions::empty(),
+            vec![],
             &epoch_info_provider,
             Default::default(),
         )
@@ -1737,7 +1737,7 @@ fn test_deploy_and_call_different_contracts() {
             &None,
             &apply_state,
             &[first_call_receipt, second_call_receipt],
-            SignedValidPeriodTransactions::empty(),
+            vec![],
             &epoch_info_provider,
             Default::default(),
         )
@@ -1816,7 +1816,7 @@ fn test_deploy_and_call_different_contracts_with_failed_call() {
             &None,
             &apply_state,
             &[first_deploy_receipt, second_deploy_receipt],
-            SignedValidPeriodTransactions::empty(),
+            vec![],
             &epoch_info_provider,
             Default::default(),
         )
@@ -1843,7 +1843,7 @@ fn test_deploy_and_call_different_contracts_with_failed_call() {
             &None,
             &apply_state,
             &[first_call_receipt, second_call_receipt],
-            SignedValidPeriodTransactions::empty(),
+            vec![],
             &epoch_info_provider,
             Default::default(),
         )
@@ -1920,7 +1920,7 @@ fn test_deploy_and_call_in_apply() {
             &None,
             &apply_state,
             &[first_deploy_receipt, second_deploy_receipt, first_call_receipt, second_call_receipt],
-            SignedValidPeriodTransactions::empty(),
+            vec![],
             &epoch_info_provider,
             Default::default(),
         )
@@ -1999,7 +1999,7 @@ fn test_deploy_and_call_in_apply_with_failed_call() {
             &None,
             &apply_state,
             &[first_deploy_receipt, second_deploy_receipt, first_call_receipt, second_call_receipt],
-            SignedValidPeriodTransactions::empty(),
+            vec![],
             &epoch_info_provider,
             Default::default(),
         )
@@ -2054,7 +2054,7 @@ fn test_deploy_existing_contract_to_different_account() {
             &None,
             &apply_state,
             &[first_deploy_receipt, first_call_receipt],
-            SignedValidPeriodTransactions::empty(),
+            vec![],
             &epoch_info_provider,
             Default::default(),
         )
@@ -2096,7 +2096,7 @@ fn test_deploy_existing_contract_to_different_account() {
             &None,
             &apply_state,
             &[second_deploy_receipt, second_call_receipt],
-            SignedValidPeriodTransactions::empty(),
+            vec![],
             &epoch_info_provider,
             Default::default(),
         )
@@ -2145,7 +2145,7 @@ fn test_deploy_and_call_in_same_receipt() {
             &None,
             &apply_state,
             &[receipt],
-            SignedValidPeriodTransactions::empty(),
+            vec![],
             &epoch_info_provider,
             Default::default(),
         )
@@ -2194,7 +2194,7 @@ fn test_deploy_and_call_in_same_receipt_with_failed_call() {
             &None,
             &apply_state,
             &[receipt],
-            SignedValidPeriodTransactions::empty(),
+            vec![],
             &epoch_info_provider,
             Default::default(),
         )
@@ -2230,7 +2230,7 @@ fn test_call_account_without_contract() {
             &None,
             &apply_state,
             &[receipt],
-            SignedValidPeriodTransactions::empty(),
+            vec![],
             &epoch_info_provider,
             Default::default(),
         )
@@ -2274,7 +2274,7 @@ fn test_contract_accesses_when_validating_chunk() {
             &None,
             &apply_state,
             &[deploy_receipt],
-            SignedValidPeriodTransactions::empty(),
+            vec![],
             &epoch_info_provider,
             Default::default(),
         )
@@ -2300,7 +2300,7 @@ fn test_contract_accesses_when_validating_chunk() {
             &None,
             &apply_state,
             &[call_receipt.clone()],
-            SignedValidPeriodTransactions::empty(),
+            vec![],
             &epoch_info_provider,
             Default::default(),
         )
@@ -2321,7 +2321,7 @@ fn test_contract_accesses_when_validating_chunk() {
             &None,
             &apply_state,
             &[call_receipt],
-            SignedValidPeriodTransactions::empty(),
+            vec![],
             &epoch_info_provider,
             Default::default(),
         )
@@ -2368,7 +2368,7 @@ fn test_exclude_existing_contract_code_for_deploy_action() {
             &None,
             &apply_state,
             &[deploy_receipt1],
-            SignedValidPeriodTransactions::empty(),
+            vec![],
             &epoch_info_provider,
             Default::default(),
         )
@@ -2392,7 +2392,7 @@ fn test_exclude_existing_contract_code_for_deploy_action() {
             &None,
             &apply_state,
             &[deploy_receipt2],
-            SignedValidPeriodTransactions::empty(),
+            vec![],
             &epoch_info_provider,
             Default::default(),
         )
@@ -2469,7 +2469,7 @@ fn test_exclude_existing_contract_code_for_delete_account_action() {
             &None,
             &apply_state,
             &[create_account_receipt, deploy_receipt],
-            SignedValidPeriodTransactions::empty(),
+            vec![],
             &epoch_info_provider,
             Default::default(),
         )
@@ -2493,7 +2493,7 @@ fn test_exclude_existing_contract_code_for_delete_account_action() {
             &None,
             &apply_state,
             &[delete_account_receipt],
-            SignedValidPeriodTransactions::empty(),
+            vec![],
             &epoch_info_provider,
             Default::default(),
         )
@@ -2544,7 +2544,7 @@ fn test_empty_apply() {
             &None,
             &apply_state,
             &receipts,
-            SignedValidPeriodTransactions::empty(),
+            vec![],
             &epoch_info_provider,
             Default::default(),
         )
@@ -2579,7 +2579,7 @@ fn test_congestion_delayed_receipts_accounting() {
             &None,
             &apply_state,
             &receipts,
-            SignedValidPeriodTransactions::empty(),
+            vec![],
             &epoch_info_provider,
             Default::default(),
         )
@@ -2685,7 +2685,7 @@ fn test_congestion_buffering() {
                 &None,
                 &apply_state,
                 prev_receipts,
-                SignedValidPeriodTransactions::empty(),
+                vec![],
                 &epoch_info_provider,
                 Default::default(),
             )
@@ -2746,7 +2746,7 @@ fn test_congestion_buffering() {
                 &None,
                 &apply_state,
                 prev_receipts,
-                SignedValidPeriodTransactions::empty(),
+                vec![],
                 &epoch_info_provider,
                 Default::default(),
             )
@@ -2828,7 +2828,7 @@ fn check_congestion_info_bootstrapping(is_new_chunk: bool, want: Option<Congesti
             &None,
             &apply_state,
             &[],
-            SignedValidPeriodTransactions::empty(),
+            vec![],
             &epoch_info_provider,
             Default::default(),
         )
@@ -2889,7 +2889,7 @@ fn test_deploy_and_call_local_receipt() {
             &None,
             &apply_state,
             &[],
-            SignedValidPeriodTransactions::new(vec![tx], vec![true]),
+            vec![tx],
             &epoch_info_provider,
             Default::default(),
         )
@@ -2960,7 +2960,7 @@ fn test_deploy_and_call_local_receipts() {
             &None,
             &apply_state,
             &[],
-            SignedValidPeriodTransactions::new(vec![tx1, tx2], vec![true; 2]),
+            vec![tx1, tx2],
             &epoch_info_provider,
             Default::default(),
         )
@@ -3057,15 +3057,13 @@ fn test_transaction_ordering_with_apply() {
         10u64.pow(15),
     );
 
-    let validity_flags = vec![true; txs.len()];
-    let signed_valid_period_txs = SignedValidPeriodTransactions::new(txs, validity_flags);
     let apply_result = runtime
         .apply(
             tries.get_trie_for_shard(ShardUId::single_shard(), root),
             &None,
             &apply_state,
             &[],
-            signed_valid_period_txs,
+            txs,
             &epoch_info_provider,
             Default::default(),
         )
@@ -3136,15 +3134,13 @@ fn test_transaction_multiple_access_keys_with_apply() {
             10u64.pow(15),
         );
 
-    let validity_flags = vec![true; txs.len()];
-    let signed_valid_period_txs = SignedValidPeriodTransactions::new(txs.clone(), validity_flags);
     let apply_result = runtime
         .apply(
             tries.get_trie_for_shard(ShardUId::single_shard(), root),
             &None,
             &apply_state,
             &[],
-            signed_valid_period_txs,
+            txs.clone(),
             &epoch_info_provider,
             Default::default(),
         )
@@ -3163,40 +3159,4 @@ fn test_transaction_multiple_access_keys_with_apply() {
 
     assert!(account.amount() < to_yocto(994_000));
     assert!(account.amount() > to_yocto(993_000));
-}
-
-#[test]
-fn test_expired_transaction() {
-    let alice_signer = InMemorySigner::test_signer(&alice_account());
-    let expired_tx = vec![SignedTransaction::send_money(
-        1,
-        alice_account(),
-        alice_account(),
-        &alice_signer,
-        1,
-        CryptoHash::default(),
-    )];
-    let (runtime, tries, root, apply_state, _signers, epoch_info_provider) = setup_runtime(
-        vec![alice_account(), bob_account()],
-        to_yocto(1_000_000),
-        to_yocto(500_000),
-        10u64.pow(15),
-    );
-    let signed_valid_period_txs = SignedValidPeriodTransactions::new(expired_tx, vec![false]);
-    let apply_result = runtime
-        .apply(
-            tries.get_trie_for_shard(ShardUId::single_shard(), root),
-            &None,
-            &apply_state,
-            &[],
-            signed_valid_period_txs,
-            &epoch_info_provider,
-            Default::default(),
-        )
-        .expect("apply should succeed");
-    assert_eq!(
-        apply_result.outcomes.len(),
-        0,
-        "should have not produced any outcomes for the expired tx"
-    );
 }
