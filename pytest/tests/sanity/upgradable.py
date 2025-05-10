@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Test if the node is backwards compatible with the latest release."""
 import dataclasses
+import json
 import os
 import random
 import re
@@ -16,7 +17,7 @@ sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 import branches
 import cluster
 from configured_logger import logger
-from transaction import sign_deploy_contract_tx, sign_function_call_tx, sign_payment_tx
+from transaction import sign_function_call_tx, sign_payment_tx, sign_deploy_contract_to_new_account_tx
 import utils
 
 _EXECUTABLES = None
@@ -50,6 +51,8 @@ class TrafficGenerator(threading.Thread):
         self._stopped = False
         self._paused = False
         self._failed_txs = 0
+        self._acc1 = f"000000.{self._rpc_node.signer_key.account_id}"
+        self._acc2 = f"zzzzzz.{self._rpc_node.signer_key.account_id}"
 
     def run(self) -> None:
         logger.info("Starting traffic generator")
@@ -61,6 +64,7 @@ class TrafficGenerator(threading.Thread):
             try:
                 with self._lock:
                     self.send_transfer()
+                    self.call_test_contracts()
             except Exception:
                 traceback.print_exc()
                 self._failed_txs += 1
@@ -99,22 +103,48 @@ class TrafficGenerator(threading.Thread):
         assert 'error' not in res, res
         assert 'Failure' not in res['result']['status'], res
 
-    def deploy_test_contract(self, config: cluster.Config) -> None:
-        tx = sign_deploy_contract_tx(
-            self._rpc_node.signer_key,
-            utils.load_test_contract(config=config),
-            self.get_next_nonce(),
-            self.get_latest_block_hash(),
-        )
-        self.send_tx(tx)
+    def deploy_test_contracts(self, config: cluster.Config) -> None:
+        for acc in (self._acc1, self._acc2):
+            tx = sign_deploy_contract_to_new_account_tx(
+                self._rpc_node.signer_key,
+                acc,
+                utils.load_test_contract(config=config),
+                1000000000000000000000000,
+                self.get_next_nonce(),
+                self.get_latest_block_hash(),
+            )
+            self.send_tx(tx)
 
-    def call_test_contract(self) -> None:
+    def call_test_contracts(self) -> None:
+        # Make the contract deployed at `acc1` call the contract deployed on `acc2`
+        # and then make another call to itself. This should generate a postponed receipt,
+        # which allows detecting some potential implicit protocol changes.
+        data = json.dumps([{
+            "create": {
+                "account_id": self._acc2,
+                "method_name": "call_promise",
+                "arguments": [],
+                "amount": "0",
+                "gas": 10**14
+            },
+            "id": 0
+        }, {
+            "then": {
+                "promise_index": 0,
+                "account_id": self._acc1,
+                "method_name": "write_random_value",
+                "arguments": [],
+                "amount": "0",
+                "gas": 10**14,
+            },
+            "id": 1
+        }])
         tx = sign_function_call_tx(
             signer_key=self._rpc_node.signer_key,
-            contract_id=self._rpc_node.signer_key.account_id,
-            methodName='write_random_value',
-            args=[],
-            gas=10**13,
+            contract_id=self._acc1,
+            methodName='call_promise',
+            args=bytes(data, 'utf-8'),
+            gas=3 * (10**14),
             deposit=0,
             nonce=self.get_next_nonce(),
             blockHash=self.get_latest_block_hash(),
@@ -185,15 +215,14 @@ class TestUpgrade:
 
         1. Start a network with 3 `stable` nodes and 1 `new` node.
         2. Start switching `stable` nodes one by one with `new` nodes.
-        3. Run for three epochs and observe that current protocol version of the
+        3. Run for three epochs and observe that the current protocol version of the
            network matches `new` nodes.
         """
-        self.wait_epoch()  # Skip first epoch, because nodes are starting
+        self.wait_epoch()  # Skip the first epoch, because nodes are starting
         time.sleep(1)
         traffic_generator = TrafficGenerator(self._rpc_node)
-        traffic_generator.deploy_test_contract(
+        traffic_generator.deploy_test_contracts(
             self._executables.current.node_config())
-        traffic_generator.call_test_contract()
         traffic_generator.start()
 
         try:
@@ -277,7 +306,7 @@ class TestUpgrade:
         self,
         node_dirs: list[str],
     ) -> list[cluster.LocalNode]:
-        # Start `self._num_validators - 1` stable nodes and one current node.
+        # Start (`self._num_validators - 1`) stable nodes and one current node.
         stable_config = self._executables.stable.node_config()
         current_config = self._executables.current.node_config()
         stable_root = self._executables.stable.root
@@ -296,7 +325,7 @@ class TestUpgrade:
         return nodes
 
     def upgrade_nodes(self) -> None:
-        # Restart stable nodes into new version.
+        # Restart stable nodes into the new version.
         for node in self._stable_nodes:
             node.kill()
             self.dump_epoch_configs(node.node_dir, self._protocols.current)
@@ -326,36 +355,40 @@ class TestUpgrade:
         }  # yapf: disable
 
     def wait_for_no_missed_endorsements(self) -> None:
-        started = time.time()
-        while time.time() - started < TIMEOUT:
-            missed_endorsements = self.get_missed_endorsements()
-            if all(missed == 0 for missed in missed_endorsements):
-                break
-            time.sleep(1)
 
-        missed_endorsements = self.get_missed_endorsements()
-        logger.info(f"Missed endorsements: {missed_endorsements}")
-        for i in range(self._num_validators):
-            validator_id = f'{self._node_prefix}{i}'
-            assert validator_id in missed_endorsements, f'validator {validator_id} not in active validator set'
-            num_missed = missed_endorsements[validator_id]
-            assert num_missed == 0, f'validator {validator_id} missed {num_missed} endorsements'
+        def _condition():
+            missed_endorsements = self.get_missed_endorsements()
+            for i in range(self._num_validators):
+                validator_id = f'{self._node_prefix}{i}'
+                assert validator_id in missed_endorsements, \
+                    f'validator {validator_id} not in active validator set'
+                num_missed = missed_endorsements[validator_id]
+                assert num_missed == 0, f'validator {validator_id} missed {num_missed} endorsements'
+
+        wait_for_condition(_condition)
 
     def wait_for_protocol_version(self, expected_version: int) -> None:
-        started = time.time()
-        while time.time() - started < TIMEOUT:
-            all_done = True
-            for node in self._stable_nodes:
-                if node.get_status()['protocol_version'] != expected_version:
-                    all_done = False
-            if all_done:
-                break
-            time.sleep(1)
 
-        for node in self._stable_nodes:
-            protocol_version = node.get_status()['protocol_version']
-            assert protocol_version == expected_version, \
-                f"Wrong protocol version: {protocol_version} expected: {expected_version}"
+        def _condition():
+            for node in self._stable_nodes:
+                protocol_version = node.get_status()['protocol_version']
+                assert protocol_version == expected_version, \
+                    f"Wrong protocol version: {protocol_version} expected: {expected_version}"
+
+        wait_for_condition(_condition)
+
+
+def wait_for_condition(condition, timeout=TIMEOUT):
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        try:
+            condition()
+            return
+        except AssertionError as e:
+            error = e
+            time.sleep(1)
+    else:
+        raise error
 
 
 def test_upgrade() -> None:
