@@ -492,6 +492,7 @@ function drawProducedAndExpectedBar(
                     <div className="missed-count">{expected - produced}</div>
                 </>
             )}
+            <div className="produced-rate">{produced / expected * 100} %</div>
         </div>
     );
 }
