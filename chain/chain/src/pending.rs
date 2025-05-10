@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::BlockHeight;
-use tracing::warn;
+use tracing::debug;
 
 use crate::metrics;
 use crate::missing_chunks::BlockLike;
@@ -26,7 +26,7 @@ impl<Block: BlockLike> PendingBlocksPool<Block> {
     pub fn add_block(&mut self, block: Block) {
         let height = block.height();
         if self.blocks.contains_key(&height) {
-            warn!(target: "chain", "Block {:?} already exists in pending blocks pool", block.hash());
+            debug!(target: "chain", "Block {:?} already exists in pending blocks pool", block.hash());
             return;
         }
         self.block_hashes.insert(block.hash());
