@@ -28,8 +28,8 @@ use crate::store::{
     ChainStore, ChainStoreAccess, ChainStoreUpdate, MerkleProofAccess, ReceiptFilter,
 };
 use crate::types::{
-    AcceptedBlock, ApplyChunkBlockContext, BlockEconomicsConfig, ChainConfig, RuntimeAdapter,
-    StorageDataSource,
+    AcceptedBlock, ApplyChunkBlockContext, BlockEconomicsConfig, BlockType, ChainConfig,
+    RuntimeAdapter, StorageDataSource,
 };
 pub use crate::update_shard::{
     NewChunkData, NewChunkResult, OldChunkData, OldChunkResult, ShardContext, StorageContext,
@@ -242,20 +242,25 @@ impl ApplyChunksResultCache {
         &self,
         key: &CachedShardUpdateKey,
         shard_id: ShardId,
+        record_metric: bool,
     ) -> Option<&ShardUpdateResult> {
         let shard_id_label = shard_id.to_string();
         if let Some(result) = self.cache.peek(key) {
             self.hits.set(self.hits.get() + 1);
-            metrics::APPLY_CHUNK_RESULTS_CACHE_HITS
-                .with_label_values(&[shard_id_label.as_str()])
-                .inc();
+            if record_metric {
+                metrics::APPLY_CHUNK_RESULTS_CACHE_HITS
+                    .with_label_values(&[shard_id_label.as_str()])
+                    .inc();
+            }
             return Some(result);
         }
 
         self.misses.set(self.misses.get() + 1);
-        metrics::APPLY_CHUNK_RESULTS_CACHE_MISSES
-            .with_label_values(&[shard_id_label.as_str()])
-            .inc();
+        if record_metric {
+            metrics::APPLY_CHUNK_RESULTS_CACHE_MISSES
+                .with_label_values(&[shard_id_label.as_str()])
+                .inc();
+        }
         None
     }
 
@@ -1329,6 +1334,7 @@ impl Chain {
         for (shard_index, prev_chunk_header) in prev_chunk_headers.iter().enumerate() {
             let shard_id = shard_layout.get_shard_id(shard_index)?;
             let block_context = ApplyChunkBlockContext {
+                block_type: BlockType::Optimistic,
                 height: block_height,
                 // TODO: consider removing this field completely to avoid
                 // confusion with real block hash.
@@ -1685,7 +1691,7 @@ impl Chain {
                             "Process block: missing chunks"
                         );
                     }
-                    Error::OptimisticBlockInProcessing => {
+                    Error::BlockPendingOptimisticExecution => {
                         let block_hash = *block.hash();
                         self.blocks_delay_tracker.mark_block_pending_execution(&block_hash);
                         let orphan = Orphan { block, provenance, added: self.clock.now() };
@@ -2862,7 +2868,7 @@ impl Chain {
         let transaction = self.chain_store.get_transaction(transaction_hash)?.ok_or_else(|| {
             Error::DBNotFoundErr(format!("Transaction {} is not found", transaction_hash))
         })?;
-        let transaction: SignedTransactionView = SignedTransaction::clone(&transaction).into();
+        let transaction = SignedTransactionView::from(Arc::unwrap_or_clone(transaction));
         let transaction_outcome = outcomes.pop().unwrap();
         Ok(FinalExecutionOutcomeView { status, transaction, transaction_outcome, receipts_outcome })
     }
@@ -2876,7 +2882,7 @@ impl Chain {
         let transaction = self.chain_store.get_transaction(transaction_hash)?.ok_or_else(|| {
             Error::DBNotFoundErr(format!("Transaction {} is not found", transaction_hash))
         })?;
-        let transaction: SignedTransactionView = SignedTransaction::clone(&transaction).into();
+        let transaction = SignedTransactionView::from(Arc::unwrap_or_clone(transaction));
 
         let mut outcomes = Vec::new();
         self.get_recursive_transaction_results(&mut outcomes, transaction_hash, false)?;
@@ -2963,24 +2969,33 @@ impl Chain {
             || self.epoch_manager.is_chunk_producer_for_epoch(&next_epoch_id, account_id)?)
     }
 
-    /// Check if there is an optimistic block in processing corresponding to
-    /// the given block.
-    fn has_optimistic_block_in_processing(
+    /// Check if the block should be pending execution, which means waiting
+    /// for optimistic block to be applied.
+    fn should_be_pending_execution(
         &self,
         block: &Block,
         cached_shard_update_keys: &[&CachedShardUpdateKey],
     ) -> bool {
+        // If there is no matching optimistic block in processing, return false
+        // immediately.
         if !self
             .blocks_in_processing
             .has_optimistic_block_with(block.header().height(), cached_shard_update_keys)
         {
             return false;
         }
-        // If there is already a pending block with given height which matches
-        // optimistic execution, this is very unlikely case relevant to epoch
-        // switch or malicious behaviour. To avoid getting stuck, allow only
-        // one of these blocks to be pending.
-        !self.blocks_pending_execution.contains_key(&block.header().height())
+
+        // If we have optimistic block in processing and there are no pending
+        // blocks at this height, this block should be pending execution.
+        if !self.blocks_pending_execution.contains_key(&block.header().height()) {
+            return true;
+        }
+
+        // If there is already a pending block at this height, check if it is
+        // the same block. Otherwise we have multiple blocks at the same
+        // height. This is malicious case. To simplify behaviour, we process
+        // the block right away.
+        self.blocks_pending_execution.contains_block_hash(&block.hash())
     }
 
     /// Creates jobs which will update shards for the given block and incoming
@@ -3031,8 +3046,8 @@ impl Chain {
         // Otherwise there could be data races where optimistic block gets
         // postprocessed in the meantime, in case of which block would never
         // leave the pending pool.
-        if self.has_optimistic_block_in_processing(&block, &cached_shard_update_keys) {
-            return Err(Error::OptimisticBlockInProcessing);
+        if self.should_be_pending_execution(&block, &cached_shard_update_keys) {
+            return Err(Error::BlockPendingOptimisticExecution);
         }
 
         for (shard_index, (block_context, cached_shard_update_key)) in
@@ -3188,9 +3203,11 @@ impl Chain {
         let is_new_chunk = chunk_header.is_new_chunk(block_height);
 
         if !cfg!(feature = "sandbox") {
-            if let Some(result) =
-                self.apply_chunk_results_cache.peek(&cached_shard_update_key, shard_id)
-            {
+            if let Some(result) = self.apply_chunk_results_cache.peek(
+                &cached_shard_update_key,
+                shard_id,
+                matches!(block.block_type, BlockType::Normal),
+            ) {
                 debug!(target: "chain", ?shard_id, ?cached_shard_update_key, "Using cached ShardUpdate result");
                 let result = result.clone();
                 return Ok(Some((

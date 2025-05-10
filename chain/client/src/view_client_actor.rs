@@ -50,7 +50,6 @@ use near_primitives::state_sync::{
     ShardStateSyncResponse, ShardStateSyncResponseHeader, ShardStateSyncResponseV3,
 };
 use near_primitives::stateless_validation::ChunkProductionKey;
-use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{
     AccountId, BlockHeight, BlockId, BlockReference, EpochReference, Finality, MaybeBlockId,
     ShardId, SyncCheckpoint, TransactionOrReceiptId, ValidatorInfoIdentifier,
@@ -584,8 +583,8 @@ impl ViewClientActorInner {
                 Err(near_chain::Error::DBNotFoundErr(_)) => {
                     if let Ok(Some(transaction)) = self.chain.chain_store.get_transaction(&tx_hash)
                     {
-                        let transaction: SignedTransactionView =
-                            SignedTransaction::clone(&transaction).into();
+                        let transaction =
+                            SignedTransactionView::from(Arc::unwrap_or_clone(transaction));
                         if let Ok(tx_outcome) = self.chain.get_execution_outcome(&tx_hash) {
                             let outcome = FinalExecutionOutcomeViewEnum::FinalExecutionOutcome(
                                 FinalExecutionOutcomeView {
