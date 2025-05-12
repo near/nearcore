@@ -280,6 +280,36 @@ gen_forknet() {
     echo "===> Done initializing nodes with new-test"
 }
 
+check_tx_generator_feature() {
+    if [ "${TX_GENERATOR}" = false ]; then
+        return
+    fi
+
+    local version_output=$($MIRROR --host-type nodes run-cmd --cmd "${FORKNET_NEARD_PATH} --version")
+    local failed_nodes=""
+
+    # Parses the following output for each node:
+    # [2025-05-13 00:49:04] INFO: mocknet-mainnet-138038232-forknet-abcd:
+    # features: [default, json_rpc, rosetta_rpc, tx_generator]
+    # If tx_generator is not present in the string with list of features,
+    # node is added to the list of failed nodes and script exits with error.
+    while IFS= read -r line; do
+        if [[ $line == *"${FORKNET_NAME}"* ]]; then
+            local node_name=$(echo "$line" | grep -o "[^:]*${FORKNET_NAME}[^:]*")
+        elif [[ $line == *"features"* ]]; then
+            if ! echo "$line" | grep -q "tx_generator"; then
+                failed_nodes="${failed_nodes}${node_name}\n"
+            fi
+        fi
+    done <<< "$version_output"
+
+    if [ ! -z "$failed_nodes" ]; then
+        echo "Error: The following nodes do not have tx_generator feature enabled:"
+        echo -e "$failed_nodes"
+        exit 1
+    fi
+}
+
 init_forknet() {
     cd ${PYTEST_PATH}
     # Initialize neard runner with the specified binary
@@ -304,6 +334,8 @@ init_forknet() {
             $MIRROR --host-type nodes run-cmd --cmd "chmod +x ${BENCHNET_DIR}/${SYNTH_BM_BASENAME}"
         fi
     fi
+    
+    check_tx_generator_feature
     
     cd -
     
