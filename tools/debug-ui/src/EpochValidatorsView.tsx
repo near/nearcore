@@ -482,6 +482,8 @@ function drawProducedAndExpectedBar(
             producedWidth = expectedWidth - missedWidth;
         }
     }
+
+    const producedPercentage = ((100 * produced) / expected).toFixed(2) + '%';
     return (
         <div className="produced-and-expected-bar">
             <div className="produced-count">{produced}</div>
@@ -492,6 +494,7 @@ function drawProducedAndExpectedBar(
                     <div className="missed-count">{expected - produced}</div>
                 </>
             )}
+            <div className="produced-rate">({producedPercentage})</div>
         </div>
     );
 }
