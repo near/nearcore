@@ -700,7 +700,7 @@ get_traces() {
         -d "{\"start_timestamp_unix_ms\": $start_time, \"end_timestamp_unix_ms\": $end_time, \"filter\": {\"nodes\": [],\"threads\": []}}" \
         -o "${trace_file}"
     
-    # TODO: clarify the use of profile
+    # Uncomment if you want firefox-profiler compatible profile.
     # local profile_file="${output_dir}/profile_${start_time}.json"
     # curl -X POST http://${TRACING_SERVER_EXTERNAL_IP}:8080/profile --compressed \
     #     -H 'Content-Type: application/json' \
