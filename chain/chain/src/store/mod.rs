@@ -32,7 +32,8 @@ use near_primitives::types::{
     StateChangesKinds, StateChangesKindsExt, StateChangesRequest,
 };
 use near_primitives::utils::{
-    get_block_shard_id, get_outcome_id_block_hash_rev, index_to_bytes, to_timestamp,
+    get_block_shard_id, get_outcome_id_block_hash, get_outcome_id_block_hash_rev, index_to_bytes,
+    to_timestamp,
 };
 use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use near_primitives::views::LightClientBlockView;
