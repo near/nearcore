@@ -207,7 +207,7 @@ pub struct DumpConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(default)]
     #[serde(with = "near_time::serde_opt_duration_as_std")]
-    #[cfg_attr(feature = "schemars", schemars(with = "DurationSchemaProvider"))]
+    #[cfg_attr(feature = "schemars", schemars(with = "Option<DurationSchemaProvider>"))]
     pub iteration_delay: Option<Duration>,
     /// Location of a json file with credentials allowing write access to the bucket.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -373,7 +373,6 @@ pub struct ReshardingConfig {
     /// The number of blocks applied in a single batch during shard catch up.
     /// This value can be decreased if resharding is consuming too many
     /// resources and interfering with regular node operation.
-    #[cfg_attr(feature = "schemars", schemars(with = "DurationSchemaProvider"))]
     pub catch_up_blocks: BlockHeightDelta,
 }
 

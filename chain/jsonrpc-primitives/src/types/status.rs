@@ -59,7 +59,7 @@ pub enum RpcStatusError {
     NodeIsSyncing,
     #[error("No blocks for {elapsed:?}")]
     NoNewBlocks {
-        #[cfg_attr(feature = "schemars", schemars(with = "DurationSchemaProvider"))]
+        #[cfg_attr(feature = "schemars", schemars(with = "[u64;2]"))]
         elapsed: time::Duration,
     },
     #[error("Epoch Out Of Bounds {epoch_id:?}")]
