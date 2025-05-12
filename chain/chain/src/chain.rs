@@ -1233,9 +1233,7 @@ impl Chain {
                 .mark_block_dropped(&hash, DroppedReason::TooManyProcessingBlocks);
         }
         // Save the block as processed even if it failed. This is used to filter out the
-        // incoming blocks that are not requested on heights which we already processed.
-        // If there is a new incoming block that we didn't request and we already have height
-        // processed 'marked as true' - then we'll not even attempt to process it
+        // incoming blocks that are not requested but already processed.
         self.save_block_hash_processed(hash);
         if let Err(e) = self.save_block_height_processed(block_height) {
             warn!(target: "chain", "Failed to save processed height {}: {}", block_height, e);
