@@ -158,6 +158,25 @@ pub struct ShardChunkHeaderV2 {
 }
 
 impl ShardChunkHeaderV2 {
+    pub fn new_dummy(height: BlockHeight, shard_id: ShardId, prev_block_hash: CryptoHash) -> Self {
+        Self::new(
+            prev_block_hash,
+            Default::default(),
+            Default::default(),
+            Default::default(),
+            Default::default(),
+            height,
+            shard_id,
+            Default::default(),
+            Default::default(),
+            Default::default(),
+            Default::default(),
+            Default::default(),
+            Default::default(),
+            &EmptyValidatorSigner::default().into(),
+        )
+    }
+
     pub fn init(&mut self) {
         self.hash = Self::compute_hash(&self.inner);
     }
@@ -222,6 +241,27 @@ pub struct ShardChunkHeaderV3 {
 }
 
 impl ShardChunkHeaderV3 {
+    pub fn new_dummy(height: BlockHeight, shard_id: ShardId, prev_block_hash: CryptoHash) -> Self {
+        Self::new(
+            prev_block_hash,
+            Default::default(),
+            Default::default(),
+            Default::default(),
+            Default::default(),
+            height,
+            shard_id,
+            Default::default(),
+            Default::default(),
+            Default::default(),
+            Default::default(),
+            Default::default(),
+            Default::default(),
+            CongestionInfo::default(),
+            BandwidthRequests::empty(),
+            &EmptyValidatorSigner::default().into(),
+        )
+    }
+
     pub fn init(&mut self) {
         self.hash = Self::compute_hash(&self.inner);
     }
@@ -287,26 +327,7 @@ pub enum ShardChunkHeader {
 
 impl ShardChunkHeader {
     pub fn new_dummy(height: BlockHeight, shard_id: ShardId, prev_block_hash: CryptoHash) -> Self {
-        let congestion_info = CongestionInfo::default();
-
-        ShardChunkHeader::V3(ShardChunkHeaderV3::new(
-            prev_block_hash,
-            Default::default(),
-            Default::default(),
-            Default::default(),
-            Default::default(),
-            height,
-            shard_id,
-            Default::default(),
-            Default::default(),
-            Default::default(),
-            Default::default(),
-            Default::default(),
-            Default::default(),
-            congestion_info,
-            BandwidthRequests::empty(),
-            &EmptyValidatorSigner::default().into(),
-        ))
+        Self::V3(ShardChunkHeaderV3::new_dummy(height, shard_id, prev_block_hash))
     }
 
     #[inline]
@@ -595,6 +616,25 @@ pub struct BadHeaderForProtocolVersionError {
 pub struct ChunkHashHeight(pub ChunkHash, pub BlockHeight);
 
 impl ShardChunkHeaderV1 {
+    pub fn new_dummy(height: BlockHeight, shard_id: ShardId, prev_block_hash: CryptoHash) -> Self {
+        Self::new(
+            prev_block_hash,
+            Default::default(),
+            Default::default(),
+            Default::default(),
+            Default::default(),
+            height,
+            shard_id,
+            Default::default(),
+            Default::default(),
+            Default::default(),
+            Default::default(),
+            Default::default(),
+            Default::default(),
+            &EmptyValidatorSigner::default().into(),
+        )
+    }
+
     pub fn init(&mut self) {
         self.hash = Self::compute_hash(&self.inner);
     }
@@ -1344,5 +1384,224 @@ impl ShardChunkWithEncoding {
 
     pub fn into_parts(self) -> (ShardChunk, EncodedShardChunk) {
         (self.shard_chunk, self.bytes)
+    }
+}
+
+#[derive(BorshDeserialize, BorshSerialize, Clone)]
+pub struct ArcedShardChunkV1 {
+    pub chunk_hash: ChunkHash,
+    pub header: ShardChunkHeaderV1,
+    pub transactions: Vec<Arc<SignedTransaction>>,
+    pub prev_outgoing_receipts: Vec<Arc<Receipt>>,
+}
+
+#[derive(BorshDeserialize, BorshSerialize, Clone)]
+pub struct ArcedShardChunkV2 {
+    pub chunk_hash: ChunkHash,
+    pub header: ShardChunkHeader,
+    pub transactions: Vec<Arc<SignedTransaction>>,
+    pub prev_outgoing_receipts: Vec<Arc<Receipt>>,
+}
+
+/// This struct has the same borsh representation as `ShardChunk` but it stores
+/// some fields inside `Arc` to avoid some cloning when the chunk is being
+/// persisted to disk.
+#[derive(BorshDeserialize, BorshSerialize, Clone)]
+pub enum ArcedShardChunk {
+    V1(ArcedShardChunkV1),
+    V2(ArcedShardChunkV2),
+}
+
+impl ArcedShardChunk {
+    pub fn to_transactions(&self) -> &[Arc<SignedTransaction>] {
+        match self {
+            Self::V1(chunk) => &chunk.transactions,
+            Self::V2(chunk) => &chunk.transactions,
+        }
+    }
+
+    pub fn to_prev_outgoing_receipts(&self) -> &[Arc<Receipt>] {
+        match self {
+            Self::V1(chunk) => &chunk.prev_outgoing_receipts,
+            Self::V2(chunk) => &chunk.prev_outgoing_receipts,
+        }
+    }
+
+    pub fn to_chunk_hash(&self) -> ChunkHash {
+        match self {
+            Self::V1(chunk) => chunk.chunk_hash.clone(),
+            Self::V2(chunk) => chunk.chunk_hash.clone(),
+        }
+    }
+    pub fn height_created(&self) -> BlockHeight {
+        match self {
+            Self::V1(chunk) => chunk.header.inner.height_created,
+            Self::V2(chunk) => chunk.header.height_created(),
+        }
+    }
+}
+
+impl From<ShardChunkV1> for ArcedShardChunkV1 {
+    fn from(chunk: ShardChunkV1) -> Self {
+        let ShardChunkV1 { chunk_hash, header, transactions, prev_outgoing_receipts } = chunk;
+        let transactions = transactions.into_iter().map(Arc::new).collect();
+        let prev_outgoing_receipts = prev_outgoing_receipts.into_iter().map(Arc::new).collect();
+        Self { chunk_hash, header, prev_outgoing_receipts, transactions }
+    }
+}
+
+impl From<&ArcedShardChunkV1> for ShardChunkV1 {
+    fn from(chunk: &ArcedShardChunkV1) -> Self {
+        let ArcedShardChunkV1 { chunk_hash, header, transactions, prev_outgoing_receipts } = chunk;
+        let transactions = transactions.into_iter().map(|tx| tx.as_ref().clone()).collect();
+        let prev_outgoing_receipts =
+            prev_outgoing_receipts.into_iter().map(|r| r.as_ref().clone()).collect();
+
+        Self {
+            chunk_hash: chunk_hash.clone(),
+            header: header.clone(),
+            transactions,
+            prev_outgoing_receipts,
+        }
+    }
+}
+
+impl From<ShardChunkV2> for ArcedShardChunkV2 {
+    fn from(chunk: ShardChunkV2) -> Self {
+        let ShardChunkV2 { chunk_hash, header, transactions, prev_outgoing_receipts } = chunk;
+        let transactions = transactions.into_iter().map(Arc::new).collect();
+        let prev_outgoing_receipts = prev_outgoing_receipts.into_iter().map(Arc::new).collect();
+        Self { chunk_hash, header, prev_outgoing_receipts, transactions }
+    }
+}
+
+impl From<&ArcedShardChunkV2> for ShardChunkV2 {
+    fn from(chunk: &ArcedShardChunkV2) -> Self {
+        let ArcedShardChunkV2 { chunk_hash, header, transactions, prev_outgoing_receipts } = chunk;
+        let transactions = transactions.into_iter().map(|tx| tx.as_ref().clone()).collect();
+        let prev_outgoing_receipts =
+            prev_outgoing_receipts.into_iter().map(|r| r.as_ref().clone()).collect();
+
+        Self {
+            chunk_hash: chunk_hash.clone(),
+            header: header.clone(),
+            transactions,
+            prev_outgoing_receipts,
+        }
+    }
+}
+
+impl From<ShardChunk> for ArcedShardChunk {
+    fn from(chunk: ShardChunk) -> Self {
+        match chunk {
+            ShardChunk::V1(chunk) => ArcedShardChunk::V1(ArcedShardChunkV1::from(chunk)),
+            ShardChunk::V2(chunk) => ArcedShardChunk::V2(ArcedShardChunkV2::from(chunk)),
+        }
+    }
+}
+
+impl From<&ArcedShardChunk> for ShardChunk {
+    fn from(chunk: &ArcedShardChunk) -> Self {
+        match chunk {
+            ArcedShardChunk::V1(chunk) => Self::V1(ShardChunkV1::from(chunk)),
+            ArcedShardChunk::V2(chunk) => Self::V2(ShardChunkV2::from(chunk)),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::action::{Action, TransferAction};
+    use crate::receipt::{ActionReceipt, Receipt, ReceiptEnum, ReceiptV0};
+    use crate::sharding::{
+        ArcedShardChunk, ArcedShardChunkV1, ArcedShardChunkV2, ChunkHash, ShardChunk,
+        ShardChunkHeader, ShardChunkHeaderV1, ShardChunkHeaderV2, ShardChunkHeaderV3, ShardChunkV1,
+        ShardChunkV2,
+    };
+    use crate::transaction::SignedTransaction;
+    use near_crypto::{KeyType, PublicKey};
+    use near_primitives_core::hash::CryptoHash;
+    use near_primitives_core::types::ShardId;
+
+    fn get_receipt() -> Receipt {
+        let receipt_v0 = Receipt::V0(ReceiptV0 {
+            predecessor_id: "predecessor_id".parse().unwrap(),
+            receiver_id: "receiver_id".parse().unwrap(),
+            receipt_id: CryptoHash::default(),
+            receipt: ReceiptEnum::Action(ActionReceipt {
+                signer_id: "signer_id".parse().unwrap(),
+                signer_public_key: PublicKey::empty(KeyType::ED25519),
+                gas_price: 0,
+                output_data_receivers: vec![],
+                input_data_ids: vec![],
+                actions: vec![Action::Transfer(TransferAction { deposit: 0 })],
+            }),
+        });
+        receipt_v0
+    }
+
+    #[test]
+    fn shard_chunk_v1_conversion_is_valid() {
+        let hash = CryptoHash([1; 32]);
+        let chunk_hash = ChunkHash(hash);
+        let shard_id = ShardId::new(3);
+        let header = ShardChunkHeaderV1::new_dummy(1, shard_id, hash);
+        let chunk = ShardChunkV1 {
+            chunk_hash,
+            header,
+            transactions: vec![SignedTransaction::empty(hash)],
+            prev_outgoing_receipts: vec![get_receipt()],
+        };
+        let arced = ArcedShardChunkV1::from(chunk.clone());
+        assert_eq!(borsh::to_vec(&chunk).unwrap(), borsh::to_vec(&arced).unwrap());
+
+        let chunk = ShardChunkV1::from(&arced);
+        assert_eq!(borsh::to_vec(&chunk).unwrap(), borsh::to_vec(&arced).unwrap());
+    }
+
+    #[test]
+    fn shard_chunk_v2_conversion_is_valid() {
+        let hash = CryptoHash([2; 32]);
+        let chunk_hash = ChunkHash(hash);
+        let shard_id = ShardId::new(3);
+        let header = ShardChunkHeader::V2(ShardChunkHeaderV2::new_dummy(1, shard_id, hash));
+        let chunk = ShardChunkV2 {
+            chunk_hash: chunk_hash.clone(),
+            header,
+            transactions: vec![SignedTransaction::empty(hash)],
+            prev_outgoing_receipts: vec![get_receipt()],
+        };
+        let arced = ArcedShardChunkV2::from(chunk.clone());
+        assert_eq!(borsh::to_vec(&chunk).unwrap(), borsh::to_vec(&arced).unwrap());
+
+        let chunk = ShardChunkV2::from(&arced);
+        assert_eq!(borsh::to_vec(&chunk).unwrap(), borsh::to_vec(&arced).unwrap());
+
+        let header = ShardChunkHeader::V3(ShardChunkHeaderV3::new_dummy(1, shard_id, hash));
+        let chunk = ShardChunkV2 {
+            chunk_hash,
+            header,
+            transactions: vec![SignedTransaction::empty(hash)],
+            prev_outgoing_receipts: vec![get_receipt()],
+        };
+        let arced = ArcedShardChunkV2::from(chunk.clone());
+        assert_eq!(borsh::to_vec(&chunk).unwrap(), borsh::to_vec(&arced).unwrap());
+
+        let chunk = ShardChunkV2::from(&arced);
+        assert_eq!(borsh::to_vec(&chunk).unwrap(), borsh::to_vec(&arced).unwrap());
+    }
+
+    #[test]
+    fn arced_shard_chunk_is_valid() {
+        let shard_id = ShardId::new(3);
+        let hash = CryptoHash([1; 32]);
+        let header = ShardChunkHeader::new_dummy(1, shard_id, hash);
+        let chunk =
+            ShardChunk::new(header, vec![SignedTransaction::empty(hash)], vec![get_receipt()]);
+        let arced = ArcedShardChunk::from(chunk.clone());
+        assert_eq!(borsh::to_vec(&chunk).unwrap(), borsh::to_vec(&arced).unwrap());
+
+        let chunk = ShardChunk::from(&arced);
+        assert_eq!(borsh::to_vec(&chunk).unwrap(), borsh::to_vec(&arced).unwrap());
     }
 }

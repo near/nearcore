@@ -28,8 +28,8 @@ use crate::store::{
     ChainStore, ChainStoreAccess, ChainStoreUpdate, MerkleProofAccess, ReceiptFilter,
 };
 use crate::types::{
-    AcceptedBlock, ApplyChunkBlockContext, BlockEconomicsConfig, ChainConfig, RuntimeAdapter,
-    StorageDataSource,
+    AcceptedBlock, ApplyChunkBlockContext, BlockEconomicsConfig, BlockType, ChainConfig,
+    RuntimeAdapter, StorageDataSource,
 };
 pub use crate::update_shard::{
     NewChunkData, NewChunkResult, OldChunkData, OldChunkResult, ShardContext, StorageContext,
@@ -242,20 +242,25 @@ impl ApplyChunksResultCache {
         &self,
         key: &CachedShardUpdateKey,
         shard_id: ShardId,
+        record_metric: bool,
     ) -> Option<&ShardUpdateResult> {
         let shard_id_label = shard_id.to_string();
         if let Some(result) = self.cache.peek(key) {
             self.hits.set(self.hits.get() + 1);
-            metrics::APPLY_CHUNK_RESULTS_CACHE_HITS
-                .with_label_values(&[shard_id_label.as_str()])
-                .inc();
+            if record_metric {
+                metrics::APPLY_CHUNK_RESULTS_CACHE_HITS
+                    .with_label_values(&[shard_id_label.as_str()])
+                    .inc();
+            }
             return Some(result);
         }
 
         self.misses.set(self.misses.get() + 1);
-        metrics::APPLY_CHUNK_RESULTS_CACHE_MISSES
-            .with_label_values(&[shard_id_label.as_str()])
-            .inc();
+        if record_metric {
+            metrics::APPLY_CHUNK_RESULTS_CACHE_MISSES
+                .with_label_values(&[shard_id_label.as_str()])
+                .inc();
+        }
         None
     }
 
@@ -1329,6 +1334,7 @@ impl Chain {
         for (shard_index, prev_chunk_header) in prev_chunk_headers.iter().enumerate() {
             let shard_id = shard_layout.get_shard_id(shard_index)?;
             let block_context = ApplyChunkBlockContext {
+                block_type: BlockType::Optimistic,
                 height: block_height,
                 // TODO: consider removing this field completely to avoid
                 // confusion with real block hash.
@@ -3197,9 +3203,11 @@ impl Chain {
         let is_new_chunk = chunk_header.is_new_chunk(block_height);
 
         if !cfg!(feature = "sandbox") {
-            if let Some(result) =
-                self.apply_chunk_results_cache.peek(&cached_shard_update_key, shard_id)
-            {
+            if let Some(result) = self.apply_chunk_results_cache.peek(
+                &cached_shard_update_key,
+                shard_id,
+                matches!(block.block_type, BlockType::Normal),
+            ) {
                 debug!(target: "chain", ?shard_id, ?cached_shard_update_key, "Using cached ShardUpdate result");
                 let result = result.clone();
                 return Ok(Some((

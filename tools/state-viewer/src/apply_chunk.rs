@@ -2,7 +2,7 @@ use anyhow::{Context, anyhow};
 use borsh::BorshDeserialize;
 use near_chain::chain::collect_receipts_from_response;
 use near_chain::types::{
-    ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext, RuntimeAdapter,
+    ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext, BlockType, RuntimeAdapter,
 };
 use near_chain::{ChainStore, ChainStoreAccess, ReceiptFilter, get_incoming_receipts_for_shard};
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
@@ -183,6 +183,7 @@ pub fn apply_chunk(
                 is_new_chunk: true,
             },
             ApplyChunkBlockContext {
+                block_type: BlockType::Normal,
                 height: target_height,
                 block_timestamp: prev_timestamp + 1_000_000_000,
                 prev_block_hash: *prev_block_hash,
