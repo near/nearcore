@@ -280,19 +280,19 @@ gen_forknet() {
     echo "===> Done initializing nodes with new-test"
 }
 
-check_tx_generator_feature() {
+check_neard_binary() {
     if [ "${TX_GENERATOR}" = false ]; then
         return
     fi
 
     local version_output=$($MIRROR --host-type nodes run-cmd --cmd "${FORKNET_NEARD_PATH} --version")
     local failed_nodes=""
+    local commits=""
 
     # Parses the following output for each node:
     # [2025-05-13 00:49:04] INFO: mocknet-mainnet-138038232-forknet-abcd:
+    # neard (commit 05bd30882b00b41b3162c4b71d50cec8b37bfb90)
     # features: [default, json_rpc, rosetta_rpc, tx_generator]
-    # If tx_generator is not present in the string with list of features,
-    # node is added to the list of failed nodes and script exits with error.
     while IFS= read -r line; do
         if [[ $line == *"${FORKNET_NAME}"* ]]; then
             local node_name=$(echo "$line" | grep -o "[^:]*${FORKNET_NAME}[^:]*")
@@ -300,8 +300,16 @@ check_tx_generator_feature() {
             if ! echo "$line" | grep -q "tx_generator"; then
                 failed_nodes="${failed_nodes}${node_name}\n"
             fi
+        elif [[ $line == *"commit"* ]]; then
+            local commit=$(echo "$line" | grep -o "commit [0-9a-f]*" | cut -d' ' -f2 | cut -c1-9)
+            commits="${commits}${commit}\n"
         fi
     done <<< "$version_output"
+
+    if [ ! -z "$commits" ]; then
+        echo "Node commits:"
+        echo -e "$commits" | sort | uniq -c
+    fi
 
     if [ ! -z "$failed_nodes" ]; then
         echo "Error: The following nodes do not have tx_generator feature enabled:"
@@ -335,7 +343,7 @@ init_forknet() {
         fi
     fi
     
-    check_tx_generator_feature
+    check_neard_binary
     
     cd -
     
