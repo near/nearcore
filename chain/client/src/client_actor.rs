@@ -42,7 +42,7 @@ use near_chain::types::RuntimeAdapter;
 use near_chain::{
     Block, BlockHeader, ChainGenesis, Provenance, byzantine_assert, near_chain_primitives,
 };
-use near_chain_configs::{ClientConfig, MutableValidatorSigner, ReshardingHandle};
+use near_chain_configs::{ClientConfig, MutableValidatorSigner};
 use near_chain_primitives::error::EpochErrorResultToChainError;
 use near_chunks::adapter::ShardsManagerRequestFromClient;
 use near_chunks::client::{ShardedTransactionPool, ShardsManagerResponse};
@@ -119,7 +119,6 @@ fn wait_until_genesis(genesis_time: &Utc) {
 pub struct StartClientResult {
     pub client_actor: actix::Addr<ClientActor>,
     pub client_arbiter_handle: actix::ArbiterHandle,
-    pub resharding_handle: ReshardingHandle,
     pub tx_pool: Arc<Mutex<ShardedTransactionPool>>,
     pub chunk_endorsement_tracker: Arc<ChunkEndorsementTracker>,
 }
@@ -177,7 +176,6 @@ pub fn start_client(
         protocol_upgrade_schedule,
     )
     .unwrap();
-    let resharding_handle = client.chain.resharding_manager.resharding_handle.clone();
 
     let client_sender_for_sync_jobs = LateBoundSender::<ClientSenderForSyncJobs>::new();
     let sync_jobs_actor = SyncJobsActor::new(client_sender_for_sync_jobs.as_multi_sender());
@@ -211,7 +209,6 @@ pub fn start_client(
     StartClientResult {
         client_actor: client_addr,
         client_arbiter_handle,
-        resharding_handle,
         tx_pool,
         chunk_endorsement_tracker,
     }
