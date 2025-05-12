@@ -5,7 +5,7 @@ use crate::metrics::{SHARD_LAYOUT_NUM_SHARDS, SHARD_LAYOUT_VERSION};
 use crate::store::utils::get_block_header_on_chain_by_height;
 use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate};
 use crate::types::{
-    ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext, RuntimeAdapter,
+    ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext, BlockType, RuntimeAdapter,
     RuntimeStorageConfig,
 };
 use crate::update_shard::{NewChunkResult, OldChunkResult, ShardUpdateResult};
@@ -474,6 +474,7 @@ impl<'a> ChainUpdate<'a> {
                 is_new_chunk: true,
             },
             ApplyChunkBlockContext {
+                block_type: BlockType::Normal,
                 height: chunk_header.height_included(),
                 block_hash: *block_header.hash(),
                 prev_block_hash: *chunk_header.prev_block_hash(),

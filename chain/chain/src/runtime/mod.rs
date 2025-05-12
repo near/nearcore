@@ -162,6 +162,7 @@ impl NightshadeRuntime {
         state_patch: SandboxStatePatch,
     ) -> Result<ApplyChunkResult, Error> {
         let ApplyChunkBlockContext {
+            block_type: _,
             height: block_height,
             block_hash,
             ref prev_block_hash,

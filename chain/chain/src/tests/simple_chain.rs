@@ -342,7 +342,7 @@ fn test_pending_block() {
     };
 
     // Block must be rejected due to optimistic block in processing
-    assert_matches!(err, Error::OptimisticBlockInProcessing);
+    assert_matches!(err, Error::BlockPendingOptimisticExecution);
 
     // Verify the block is in the pending pool
     assert!(chain.blocks_pending_execution.contains_key(&block2.header().height()));
@@ -365,14 +365,19 @@ fn test_pending_block() {
     assert_eq!(chain.head().unwrap().height, 2);
 }
 
-/// Check that if chain receives two blocks which matches the same optimistic block,
-/// the first one gets pending but the second one gets processed, as this is likely
-/// malicious behaviour and processing blocks is a higher priority than apply chunk
-/// optimizations.
-/// We use two copies of the same block here.
+/// Check chain behaviour on processing blocks on same height:
+/// * If we receive the same block twice and it matches the optimistic block,
+/// it should be marked as pending both times, in order not to trigger chunk
+/// execution excessive in the regular flow.
+/// * If we receive the a different block with the same height, it is a
+/// malicious behaviour. We must process all these blocks anyway, because we
+/// don't know which one gets finalized. To simplify optimistic logic, we
+/// skip pending pool and process block right away.
 #[cfg(feature = "test_features")]
 #[test]
-fn test_pending_block_twice() {
+fn test_pending_block_same_height() {
+    use near_crypto::{KeyType, Signature};
+
     init_test_logger();
     let clock = Clock::real();
     let (mut chain, _, _, signer) = setup(clock.clone());
@@ -386,6 +391,17 @@ fn test_pending_block_twice() {
     // Create block 2 and its copy
     let block2 = TestBlockBuilder::new(clock, &block1, signer.clone()).build();
     let block2a = block2.clone();
+
+    // Create copy of block 2 with different hash.
+    // The content still matches the optimistic execution, but the hash is
+    // different.
+    // Approvals can be set arbitrarily because we process blocks in
+    // Provenance::PRODUCED mode.
+    let mut block2b = block2.clone();
+    let some_signature = Signature::from_parts(KeyType::ED25519, &[1; 64]).unwrap();
+    block2b.mut_header().set_approvals(vec![Some(Box::new(some_signature))]);
+    block2b.mut_header().resign(&*signer);
+    assert!(block2a.hash() != block2b.hash());
 
     // Create an optimistic block at height 2
     let optimistic_block = OptimisticBlock::adv_produce(
@@ -413,10 +429,14 @@ fn test_pending_block_twice() {
     let Err(err) = &result_a else {
         panic!("Block processing should not succeed");
     };
-    assert_matches!(err, Error::OptimisticBlockInProcessing);
+    assert_matches!(err, Error::BlockPendingOptimisticExecution);
 
-    // Check that processing the second copy is successful.
+    // Check that the copy is also marked as pending.
     let result_b = chain.process_block_test(&me, block2a);
+    assert_matches!(result_b, Err(Error::BlockPendingOptimisticExecution));
+
+    // Check that the copy with different hash is processed.
+    let result_b = chain.process_block_test(&me, block2b);
     assert_matches!(result_b, Ok(_));
     assert_eq!(chain.head().unwrap().height, 2);
 }

@@ -1389,11 +1389,12 @@ impl PeerActor {
                 let for_me = self.network_state.message_for_me(&msg.target);
                 if for_me {
                     // Check if we have already received this message.
+                    let new_hash = CryptoHash::hash_borsh(&msg.body);
                     let fastest = self
                         .network_state
                         .recent_routed_messages
                         .lock()
-                        .put(CryptoHash::hash_borsh(&msg.body), ())
+                        .put(new_hash, ())
                         .is_none();
                     // Register that the message has been received.
                     metrics::record_routed_msg_metrics(&self.clock, &msg, conn.tier, fastest);
