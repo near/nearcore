@@ -147,6 +147,9 @@ pub enum StorageError {
     /// Indicates that a resharding operation on flat storage is already in progress,
     /// when it wasn't expected to be so.
     FlatStorageReshardingAlreadyInProgress,
+    /// Indicates that a memtrie iterator was requested to be resumed but there
+    /// was no memtrie available.
+    InconsistentIteratorType,
 }
 
 impl std::fmt::Display for StorageError {

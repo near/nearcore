@@ -4,12 +4,14 @@ use std::sync::Arc;
 use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
+use near_primitives::state::FlatStateValue;
 use near_primitives::types::{BlockHeight, StateRoot};
 
 use crate::Trie;
 use crate::trie::MemTrieChanges;
 use crate::trie::mem::arena::ArenaMut;
 use crate::trie::mem::metrics::MEMTRIE_NUM_ROOTS;
+use crate::trie::ops::iter::TrieIteratorImplState;
 
 use super::arena::Arena;
 use super::arena::FrozenArena;
@@ -191,6 +193,16 @@ impl MemTries {
     pub fn get_iter<'a>(&'a self, trie: &'a Trie) -> Result<STMemTrieIterator<'a>, StorageError> {
         let iter_storage = MemTrieIteratorInner::new(self, trie);
         STMemTrieIterator::new(iter_storage, None)
+    }
+
+    /// Returns an iterator over the memtrie for the given trie, starting from the given state.
+    pub fn get_iter_from<'a>(
+        &'a self,
+        trie: &'a Trie,
+        state: TrieIteratorImplState<MemTrieNodeId, FlatStateValue>,
+    ) -> Result<STMemTrieIterator<'a>, StorageError> {
+        let iter_storage = MemTrieIteratorInner::new(self, trie);
+        STMemTrieIterator::from_state(iter_storage, state)
     }
 
     /// Looks up a key in the memtrie with the given state_root and returns the value if found.

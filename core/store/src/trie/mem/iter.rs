@@ -4,7 +4,7 @@ use super::memtries::MemTries;
 use super::node::MemTrieNodeId;
 use crate::Trie;
 use crate::trie::ops::interface::GenericTrieInternalStorage;
-use crate::trie::ops::iter::TrieIteratorImpl;
+use crate::trie::ops::iter::{TrieIteratorImpl, TrieIteratorImplState};
 use crate::trie::{AccessOptions, OptimizedValueRef};
 use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
@@ -55,3 +55,4 @@ impl<'a> GenericTrieInternalStorage<MemTrieNodeId, FlatStateValue> for MemTrieIt
 
 pub type STMemTrieIterator<'a> =
     TrieIteratorImpl<MemTrieNodeId, FlatStateValue, MemTrieIteratorInner<'a>>;
+pub type STMemTrieIteratorState = TrieIteratorImplState<MemTrieNodeId, FlatStateValue>;

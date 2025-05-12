@@ -4,9 +4,9 @@ use std::sync::Arc;
 use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
 
-use super::mem::iter::STMemTrieIterator;
+use super::mem::iter::{STMemTrieIterator, STMemTrieIteratorState};
 use super::ops::interface::GenericTrieInternalStorage;
-use super::ops::iter::{TrieItem, TrieIteratorImpl};
+use super::ops::iter::{TrieItem, TrieIteratorImpl, TrieIteratorImplState};
 use super::trie_storage_update::{TrieStorageNode, TrieStorageNodePtr};
 use super::{AccessOptions, Trie, ValueHandle};
 
@@ -67,10 +67,17 @@ impl<'a> GenericTrieInternalStorage<TrieStorageNodePtr, ValueHandle> for DiskTri
 
 pub(crate) type DiskTrieIterator<'a> =
     TrieIteratorImpl<TrieStorageNodePtr, ValueHandle, DiskTrieIteratorInner<'a>>;
+pub(crate) type DiskTrieIteratorState = TrieIteratorImplState<TrieStorageNodePtr, ValueHandle>;
 
 pub enum TrieIterator<'a> {
     Disk(DiskTrieIterator<'a>),
     Memtrie(STMemTrieIterator<'a>),
+}
+
+#[derive(Debug)]
+pub enum TrieIteratorState {
+    Disk(DiskTrieIteratorState),
+    Memtrie(STMemTrieIteratorState),
 }
 
 impl<'a> Iterator for TrieIterator<'a> {
@@ -96,6 +103,13 @@ impl<'a> TrieIterator<'a> {
         match self {
             TrieIterator::Disk(iter) => iter.seek(key),
             TrieIterator::Memtrie(iter) => iter.seek(key),
+        }
+    }
+
+    pub fn into_state(self) -> TrieIteratorState {
+        match self {
+            TrieIterator::Disk(iter) => TrieIteratorState::Disk(iter.into_state()),
+            TrieIterator::Memtrie(iter) => TrieIteratorState::Memtrie(iter.into_state()),
         }
     }
 }

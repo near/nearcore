@@ -70,42 +70,34 @@ pub enum ReshardingTaskResult {
 mod tests {
     use near_epoch_manager::test_utils;
     use near_primitives::shard_layout::ShardLayout;
-    use near_store::{
-        Trie,
-        test_utils::{
-            TestTriesBuilder, create_test_store, test_populate_flat_storage, test_populate_trie,
-        },
-        trie::AccessOptions,
+    use near_store::Trie;
+    use near_store::test_utils::{
+        TestTriesBuilder, create_test_store, test_populate_flat_storage, test_populate_trie,
     };
+    use near_store::trie::{AccessOptions, iterator::TrieIteratorState};
 
     use super::*;
 
     fn iterate_batch(
         trie: &Trie,
-        previous_batch_last_key: Option<Vec<u8>>,
+        previous_batch_iterator_state: Option<TrieIteratorState>,
         batch_items: usize,
-    ) -> Option<Vec<u8>> {
+    ) -> Option<TrieIteratorState> {
         let read_trie = trie.lock_for_iter();
-        let mut iter = read_trie.iter().expect("failed to get iterator");
-        if let Some(previous_batch_last_key) = &previous_batch_last_key {
-            iter.seek(previous_batch_last_key).expect("failed to seek prefix");
-            // So far, we just reached the state where last iteration terminated.
-            // We need to clear the recorder to avoid double counting.
-            _ = trie
-                .recorded_as_trie_changes(Trie::EMPTY_ROOT)
-                .expect("failed to get trie changes");
-            // Skip this key as it was handled in the previous iteration
-            iter.next().map(|result| result.expect("failed to iterate"));
-        }
+        let mut iter = if let Some(previous_batch_iterator_state) = previous_batch_iterator_state {
+            read_trie.iter_from(previous_batch_iterator_state).expect("failed to get iterator")
+        } else {
+            read_trie.iter().expect("failed to get iterator")
+        };
 
-        for result in iter {
+        while let Some(result) = iter.next() {
             let Ok((key, _value)) = result else {
                 panic!("failed to iterate");
             };
             eprintln!("{key:?}, {_value:?}");
             // TODO: should we expect here?
             if trie.recorder_stats().map(|stats| stats.items_count).unwrap_or(0) >= batch_items {
-                return Some(key);
+                return Some(iter.into_state());
             }
         }
 
@@ -146,7 +138,7 @@ mod tests {
         let trie: Trie = tries.get_trie_for_shard(shard_uid, root).recording_reads_new_recorder();
 
         let batch_size = 20;
-        let mut last_key: Option<Vec<u8>> = None;
+        let mut last_key: Option<TrieIteratorState> = None;
         loop {
             last_key = iterate_batch(&trie, last_key, batch_size);
             let trie_changes =

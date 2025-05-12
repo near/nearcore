@@ -15,7 +15,7 @@ pub use crate::trie::state_snapshot::{
 pub use crate::trie::trie_storage::{TrieCache, TrieCachingStorage, TrieDBStorage, TrieStorage};
 use borsh::{BorshDeserialize, BorshSerialize};
 pub use from_flat::construct_trie_from_flat;
-use iterator::{DiskTrieIterator, DiskTrieIteratorInner, TrieIterator};
+use iterator::{DiskTrieIterator, DiskTrieIteratorInner, TrieIterator, TrieIteratorState};
 use itertools::Itertools;
 use mem::memtrie_update::{TrackingMode, UpdatedMemTrieNodeWithSize};
 use mem::memtries::MemTries;
@@ -1790,6 +1790,23 @@ impl<'a> TrieWithReadLock<'a> {
             None => Ok(TrieIterator::Disk(DiskTrieIterator::new(
                 DiskTrieIteratorInner::new(&self.trie),
                 None,
+            )?)),
+        }
+    }
+
+    /// Resumes an iterator from a given state.
+    pub fn iter_from(&self, from: TrieIteratorState) -> Result<TrieIterator<'_>, StorageError> {
+        match from {
+            TrieIteratorState::Memtrie(from) => {
+                if let Some(memtries) = &self.memtries {
+                    Ok(TrieIterator::Memtrie(memtries.get_iter_from(self.trie, from)?))
+                } else {
+                    return Err(StorageError::InconsistentIteratorType);
+                }
+            }
+            TrieIteratorState::Disk(from) => Ok(TrieIterator::Disk(DiskTrieIterator::from_state(
+                DiskTrieIteratorInner::new(&self.trie),
+                from,
             )?)),
         }
     }

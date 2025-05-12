@@ -51,6 +51,13 @@ impl<N, V> Crumb<N, V> {
     }
 }
 
+#[derive(Debug)]
+/// Represents the state of a generic trie iterator.
+pub struct TrieIteratorImplState<N, V> {
+    trail: Vec<Crumb<N, V>>,
+    key_nibbles: Vec<u8>,
+}
+
 /// Trie iteration is done using a stack based approach.
 ///
 /// There are two stacks that we track while iterating: the trail and the key_nibbles.
@@ -108,6 +115,25 @@ where
         };
         iter.descend_into_node(root)?;
         Ok(iter)
+    }
+
+    /// Create a new iterator to resume from a given state.
+    pub fn from_state(
+        trie_interface: I,
+        state: TrieIteratorImplState<N, V>,
+    ) -> Result<Self, StorageError> {
+        let iter = Self {
+            trail: state.trail,
+            key_nibbles: state.key_nibbles,
+            trie_interface,
+            prune_condition: None,
+        };
+        Ok(iter)
+    }
+
+    /// Returns the current state of the iterator, which can be used to resume.
+    pub fn into_state(self) -> TrieIteratorImplState<N, V> {
+        TrieIteratorImplState { trail: self.trail, key_nibbles: self.key_nibbles }
     }
 
     /// Position the iterator on the first element with key >= `key`.
