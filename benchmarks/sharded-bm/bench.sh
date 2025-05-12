@@ -695,19 +695,19 @@ get_traces() {
     mkdir -p "${output_dir}"
     
     local trace_file="${output_dir}/trace_${start_time}.json"
-    local profile_file="${output_dir}/profile_${start_time}.json"
-    
     curl -X POST http://${TRACING_SERVER_EXTERNAL_IP}:8080/raw_trace --compressed \
         -H 'Content-Type: application/json' \
         -d "{\"start_timestamp_unix_ms\": $start_time, \"end_timestamp_unix_ms\": $end_time, \"filter\": {\"nodes\": [],\"threads\": []}}" \
         -o "${trace_file}"
     
-    curl -X POST http://${TRACING_SERVER_EXTERNAL_IP}:8080/profile --compressed \
-        -H 'Content-Type: application/json' \
-        -d "{\"start_timestamp_unix_ms\": $start_time, \"end_timestamp_unix_ms\": $end_time, \"filter\": {\"nodes\": [],\"threads\": []}}" \
-        -o "${profile_file}"
+    # Uncomment if you want firefox-profiler compatible profile.
+    # local profile_file="${output_dir}/profile_${start_time}.json"
+    # curl -X POST http://${TRACING_SERVER_EXTERNAL_IP}:8080/profile --compressed \
+    #     -H 'Content-Type: application/json' \
+    #     -d "{\"start_timestamp_unix_ms\": $start_time, \"end_timestamp_unix_ms\": $end_time, \"filter\": {\"nodes\": [],\"threads\": []}}" \
+    #     -o "${profile_file}"
         
-    echo "=> Traces saved to ${trace_file} and ${profile_file}"
+    echo "=> Trace saved to ${trace_file}"
 }
 
 case "${1}" in
