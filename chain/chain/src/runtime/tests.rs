@@ -1,6 +1,6 @@
 use super::*;
 use crate::rayon_spawner::RayonAsyncComputationSpawner;
-use crate::types::{ChainConfig, RuntimeStorageConfig};
+use crate::types::{BlockType, ChainConfig, RuntimeStorageConfig};
 use crate::{Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode};
 use assert_matches::assert_matches;
 use near_async::messaging::{IntoMultiSender, noop};
@@ -243,6 +243,7 @@ impl TestEnv {
                     is_new_chunk: true,
                 },
                 ApplyChunkBlockContext {
+                    block_type: BlockType::Normal,
                     height,
                     block_hash: new_block_hash,
                     prev_block_hash,
