@@ -302,13 +302,15 @@ check_neard_binary() {
             fi
         elif [[ $line == *"commit"* ]]; then
             local commit=$(echo "$line" | grep -o "commit [0-9a-f]*" | cut -d' ' -f2 | cut -c1-9)
-            commits="${commits}${commit}\n"
+            if [ ! -z "$commit" ]; then
+                commits="${commits}${commit}\n"
+            fi
         fi
     done <<< "$version_output"
 
     if [ ! -z "$commits" ]; then
         echo "Node commits:"
-        echo -e "$commits" | sort | uniq -c
+        echo -e "$commits" | grep -v '^$' | sort | uniq -c
     fi
 
     if [ ! -z "$failed_nodes" ]; then
