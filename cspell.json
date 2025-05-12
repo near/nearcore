@@ -415,7 +415,9 @@
         "zadd",
         "zstd",
         "Zulip",
-        "zulipchat"
+        "zulipchat",
+        "nodelay",
+        "NODELAY",
     ],
     "ignoreWords": [
         "euxo",
