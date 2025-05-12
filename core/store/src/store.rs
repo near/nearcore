@@ -1,4 +1,3 @@
-use std::collections::BTreeMap;
 use std::fs::File;
 use std::path::Path;
 use std::sync::Arc;
@@ -10,9 +9,7 @@ use near_fmt::{AbbrBytes, StorageKey};
 use crate::DBCol;
 use crate::adapter::{StoreAdapter, StoreUpdateAdapter};
 use crate::db::metadata::{DbKind, DbMetadata, DbVersion, KIND_KEY, VERSION_KEY};
-use crate::db::{
-    ColumnStats, DBIterator, DBOp, DBSlice, DBTransaction, Database, StoreStatistics, refcount,
-};
+use crate::db::{DBIterator, DBOp, DBSlice, DBTransaction, Database, StoreStatistics, refcount};
 
 const STATE_COLUMNS: [DBCol; 2] = [DBCol::State, DBCol::FlatState];
 const STATE_FILE_END_MARK: u8 = 255;
@@ -379,7 +376,7 @@ impl StoreUpdate {
     }
 
     #[tracing::instrument(
-        level = "trace",
+        level = "debug",
         target = "store::update",
         // FIXME: start moving things into tighter modules so that its easier to selectively trace
         // specific things.
@@ -423,43 +420,17 @@ impl StoreUpdate {
             let [mut insert_count, mut set_count, mut update_rc_count] = [0u64; 3];
             let [mut delete_count, mut delete_all_count, mut delete_range_count] = [0u64; 3];
             let mut total_bytes = 0;
-
-            let mut col_stats: BTreeMap<DBCol, ColumnStats> = BTreeMap::new();
-
             for op in &self.transaction.ops {
-                let op_bytes = op.bytes();
-                total_bytes += op_bytes;
-
-                let col = op.col();
-                let stats = col_stats.entry(col).or_insert_with(ColumnStats::new);
-                stats.bytes += op_bytes as u64;
-
-                match op {
-                    DBOp::Set { .. } => {
-                        stats.sets += 1;
-                        set_count += 1;
-                    }
-                    DBOp::Insert { .. } => {
-                        stats.inserts += 1;
-                        insert_count += 1;
-                    }
-                    DBOp::UpdateRefcount { .. } => {
-                        stats.rc_ops += 1;
-                        update_rc_count += 1;
-                    }
-                    DBOp::Delete { .. } => {
-                        stats.deletes += 1;
-                        delete_count += 1;
-                    }
-                    DBOp::DeleteAll { .. } => {
-                        stats.delete_all_ops += 1;
-                        delete_all_count += 1;
-                    }
-                    DBOp::DeleteRange { .. } => {
-                        stats.delete_range_ops += 1;
-                        delete_range_count += 1;
-                    }
+                total_bytes += op.bytes();
+                let count = match op {
+                    DBOp::Set { .. } => &mut set_count,
+                    DBOp::Insert { .. } => &mut insert_count,
+                    DBOp::UpdateRefcount { .. } => &mut update_rc_count,
+                    DBOp::Delete { .. } => &mut delete_count,
+                    DBOp::DeleteAll { .. } => &mut delete_all_count,
+                    DBOp::DeleteRange { .. } => &mut delete_range_count,
                 };
+                *count += 1;
             }
             span.record("inserts", insert_count);
             span.record("sets", set_count);
@@ -468,24 +439,7 @@ impl StoreUpdate {
             span.record("delete_all_ops", delete_all_count);
             span.record("delete_range_ops", delete_range_count);
             span.record("total_bytes", total_bytes);
-
-            for (col, stats) in col_stats {
-                tracing::debug!(
-                    target: "store::update::column_stats",
-                    col = %col,
-                    inserts = stats.inserts,
-                    sets = stats.sets,
-                    rc_ops = stats.rc_ops,
-                    deletes = stats.deletes,
-                    delete_all_ops = stats.delete_all_ops,
-                    delete_range_ops = stats.delete_range_ops,
-                    bytes = stats.bytes,
-                    avg_size = stats.avg_size(),
-                    "Column statistics"
-                );
-            }
         }
-
         if tracing::event_enabled!(target: "store::update::transactions", tracing::Level::TRACE) {
             for op in &self.transaction.ops {
                 match op {
