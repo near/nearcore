@@ -13,6 +13,7 @@ pub enum ShardChunkHeaderInner {
     V2(ShardChunkHeaderInnerV2),
     V3(ShardChunkHeaderInnerV3),
     V4(ShardChunkHeaderInnerV4),
+    // TODO(spice): Create a new version for tx-only chunk instead of using purpose enum.
 }
 
 impl ShardChunkHeaderInner {
@@ -21,8 +22,24 @@ impl ShardChunkHeaderInner {
         match self {
             Self::V1(inner) => &inner.prev_state_root,
             Self::V2(inner) => &inner.prev_state_root,
-            Self::V3(inner) => &inner.prev_state_root,
-            Self::V4(inner) => &inner.prev_state_root,
+            Self::V3(inner) => {
+                // TODO(spice): We should do similar assertion everywhere where old chunks wouldn't
+                // include actual fields.
+                // This would include the following:
+                // prev_state_root
+                // prev_outcome_root
+                // prev_gas_used
+                // gas_limit
+                // prev_balance_burnt
+                // prev_validator_proposals
+                // prev_outgoing_receipts_root
+                assert_ne!(inner.purpose, SpiceChunkPurpose::TransactionsOnly);
+                &inner.prev_state_root
+            }
+            Self::V4(inner) => {
+                assert_ne!(inner.purpose, SpiceChunkPurpose::TransactionsOnly);
+                &inner.prev_state_root
+            }
         }
     }
 
@@ -258,6 +275,9 @@ pub struct ShardChunkHeaderInnerV3 {
     pub prev_validator_proposals: Vec<ValidatorStake>,
     /// Congestion info about this shard after the previous chunk was applied.
     pub congestion_info: CongestionInfo,
+
+    // TODO(spice)
+    pub purpose: SpiceChunkPurpose,
 }
 
 // V3 -> V4: Add bandwidth requests.
@@ -289,4 +309,13 @@ pub struct ShardChunkHeaderInnerV4 {
     pub congestion_info: CongestionInfo,
     /// Requests for bandwidth to send receipts to other shards.
     pub bandwidth_requests: BandwidthRequests,
+
+    // TODO(spice)
+    pub purpose: SpiceChunkPurpose,
+}
+
+#[derive(BorshSerialize, BorshDeserialize, Clone, PartialEq, Eq, Debug, ProtocolSchema)]
+pub enum SpiceChunkPurpose {
+    TransactionsOnly,
+    ChunkExecution,
 }

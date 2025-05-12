@@ -2849,6 +2849,7 @@ fn test_chunk_header(h: &[CryptoHash], signer: &ValidatorSigner) -> ShardChunkHe
         Default::default(),
         BandwidthRequests::default_for_protocol_version(PROTOCOL_VERSION),
         signer,
+        true,
     ))
 }
 

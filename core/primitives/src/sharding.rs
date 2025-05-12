@@ -6,6 +6,7 @@ use crate::receipt::Receipt;
 use crate::transaction::SignedTransaction;
 #[cfg(feature = "solomon")]
 use crate::transaction::ValidatedTransaction;
+use crate::types::chunk_extra::ChunkExtra;
 use crate::types::validator_stake::{ValidatorStake, ValidatorStakeIter, ValidatorStakeV1};
 use crate::types::{Balance, BlockHeight, Gas, MerkleHash, ShardId, StateRoot};
 use crate::validator_signer::{EmptyValidatorSigner, ValidatorSigner};
@@ -130,6 +131,8 @@ pub use shard_chunk_header_inner::{
     ShardChunkHeaderInnerV3,
 };
 
+use self::shard_chunk_header_inner::SpiceChunkPurpose;
+
 #[derive(BorshSerialize, BorshDeserialize, Clone, PartialEq, Eq, Debug, ProtocolSchema)]
 #[borsh(init=init)]
 pub struct ShardChunkHeaderV1 {
@@ -252,7 +255,15 @@ impl ShardChunkHeaderV3 {
         congestion_info: CongestionInfo,
         bandwidth_requests: Option<BandwidthRequests>,
         signer: &ValidatorSigner,
+        tx_only: bool,
     ) -> Self {
+        // TODO(spice): tx_only should likely not be required eventually. Right now it's needed for
+        // genesis.
+        let purpose = if tx_only {
+            SpiceChunkPurpose::TransactionsOnly
+        } else {
+            SpiceChunkPurpose::ChunkExecution
+        };
         let inner = if let Some(bandwidth_requests) = bandwidth_requests {
             // `bandwidth_requests` can only be `Some` when bandwidth scheduler is enabled.
             assert!(ProtocolFeature::BandwidthScheduler.enabled(protocol_version));
@@ -273,6 +284,7 @@ impl ShardChunkHeaderV3 {
                 prev_validator_proposals,
                 congestion_info,
                 bandwidth_requests,
+                purpose,
             })
         } else {
             ShardChunkHeaderInner::V3(ShardChunkHeaderInnerV3 {
@@ -290,6 +302,7 @@ impl ShardChunkHeaderV3 {
                 tx_root,
                 prev_validator_proposals,
                 congestion_info,
+                purpose,
             })
         };
         Self::from_inner(inner, signer)
@@ -331,6 +344,7 @@ impl ShardChunkHeader {
             congestion_info,
             BandwidthRequests::default_for_protocol_version(PROTOCOL_VERSION),
             &EmptyValidatorSigner::default().into(),
+            true,
         ))
     }
 
@@ -412,6 +426,40 @@ impl ShardChunkHeader {
             Self::V2(header) => header.inner.prev_state_root,
             Self::V3(header) => *header.inner.prev_state_root(),
         }
+    }
+
+    #[inline]
+    pub fn into_spice_chunk_execution_header(
+        mut self,
+        prev_block_chunk_extra: &ChunkExtra,
+    ) -> Self {
+        if let Self::V3(header) = &mut self {
+            match &mut header.inner {
+                ShardChunkHeaderInner::V1(_) | ShardChunkHeaderInner::V2(_) => {}
+                ShardChunkHeaderInner::V3(inner) => {
+                    let chunk_extra = prev_block_chunk_extra;
+                    inner.prev_state_root = *chunk_extra.state_root();
+                    inner.prev_outcome_root = *chunk_extra.outcome_root();
+                    inner.prev_gas_used = chunk_extra.gas_used();
+                    inner.gas_limit = chunk_extra.gas_limit();
+                    inner.prev_balance_burnt = chunk_extra.balance_burnt();
+                    inner.prev_validator_proposals = chunk_extra.validator_proposals().collect();
+                    inner.purpose = SpiceChunkPurpose::ChunkExecution;
+                }
+                ShardChunkHeaderInner::V4(inner) => {
+                    let chunk_extra = prev_block_chunk_extra;
+                    inner.prev_state_root = *chunk_extra.state_root();
+                    inner.prev_outcome_root = *chunk_extra.outcome_root();
+                    inner.prev_gas_used = chunk_extra.gas_used();
+                    inner.gas_limit = chunk_extra.gas_limit();
+                    inner.prev_balance_burnt = chunk_extra.balance_burnt();
+                    inner.prev_validator_proposals = chunk_extra.validator_proposals().collect();
+                    inner.bandwidth_requests = chunk_extra.bandwidth_requests().cloned().unwrap();
+                    inner.purpose = SpiceChunkPurpose::ChunkExecution;
+                }
+            }
+        }
+        self
     }
 
     #[inline]
@@ -1209,6 +1257,8 @@ impl EncodedShardChunk {
         bandwidth_requests: Option<BandwidthRequests>,
         signer: &ValidatorSigner,
         protocol_version: ProtocolVersion,
+        // TODO(spice)
+        tx_only: bool,
     ) -> (Self, Vec<MerklePath>, Vec<Receipt>) {
         let signed_txs =
             validated_txs.into_iter().map(|validated_tx| validated_tx.into_signed_tx()).collect();
@@ -1238,6 +1288,7 @@ impl EncodedShardChunk {
             congestion_info,
             bandwidth_requests,
             signer,
+            tx_only,
         ));
         let encoded_chunk = Self::V2(EncodedShardChunkV2 { header, content });
         (encoded_chunk, merkle_paths, prev_outgoing_receipts)

@@ -221,6 +221,7 @@ pub fn create_chunk(
             header.bandwidth_requests().cloned(),
             &*signer,
             PROTOCOL_VERSION,
+            true,
         );
         swap(&mut encoded_chunk, &mut new_encoded_chunk);
         swap(&mut merkle_paths, &mut new_merkle_paths);

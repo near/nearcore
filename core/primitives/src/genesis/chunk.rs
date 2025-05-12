@@ -69,6 +69,7 @@ fn genesis_chunk(
     state_root: CryptoHash,
     congestion_info: CongestionInfo,
 ) -> EncodedShardChunk {
+    let tx_only = false;
     let (encoded_chunk, _, _) = EncodedShardChunk::new(
         CryptoHash::default(),
         state_root,
@@ -88,6 +89,7 @@ fn genesis_chunk(
         BandwidthRequests::default_for_protocol_version(genesis_protocol_version),
         &EmptyValidatorSigner::default().into(),
         genesis_protocol_version,
+        tx_only,
     );
     encoded_chunk
 }

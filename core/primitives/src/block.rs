@@ -1,6 +1,8 @@
 use crate::bandwidth_scheduler::BlockBandwidthRequests;
 use crate::block::BlockValidityError::{
-    InvalidChunkHeaderRoot, InvalidChunkMask, InvalidReceiptRoot, InvalidStateRoot,
+    InvalidChunkHeaderRoot,
+    InvalidChunkMask,
+    InvalidReceiptRoot, // InvalidStateRoot,
     InvalidTransactionRoot,
 };
 use crate::block_body::{BlockBody, BlockBodyV1, ChunkEndorsementSignatures};
@@ -210,7 +212,7 @@ impl Block {
             height,
             *prev.hash(),
             body.compute_hash(),
-            Block::compute_state_root(body.chunks()),
+            Default::default(), // TODO(spice): Block::compute_state_root(body.chunks()),
             Block::compute_chunk_prev_outgoing_receipts_root(body.chunks()),
             Block::compute_chunk_headers_root(body.chunks()).0,
             Block::compute_chunk_tx_root(body.chunks()),
@@ -455,11 +457,12 @@ impl Block {
 
     /// Checks that block content matches block hash, with the possible exception of chunk signatures
     pub fn check_validity(&self) -> Result<(), BlockValidityError> {
+        // TODO(spice)
         // Check that state root stored in the header matches the state root of the chunks
-        let state_root = Block::compute_state_root(self.chunks().iter_deprecated());
-        if self.header().prev_state_root() != &state_root {
-            return Err(InvalidStateRoot);
-        }
+        // let state_root = Block::compute_state_root(self.chunks().iter_deprecated());
+        // if self.header().prev_state_root() != &state_root {
+        //     return Err(InvalidStateRoot);
+        // }
 
         // Check that chunk receipts root stored in the header matches the state root of the chunks
         let chunk_receipts_root =

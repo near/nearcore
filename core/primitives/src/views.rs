@@ -1007,6 +1007,7 @@ impl From<ChunkHeaderView> for ShardChunkHeader {
                             .collect(),
                         congestion_info: congestion_info.into(),
                         bandwidth_requests,
+                        purpose: crate::sharding::shard_chunk_header_inner::SpiceChunkPurpose::TransactionsOnly,
                     }),
                     height_included: view.height_included,
                     signature: view.signature,
@@ -1036,6 +1037,7 @@ impl From<ChunkHeaderView> for ShardChunkHeader {
                             .map(Into::into)
                             .collect(),
                         congestion_info: congestion_info.into(),
+                        purpose: crate::sharding::shard_chunk_header_inner::SpiceChunkPurpose::TransactionsOnly,
                     }),
                     height_included: view.height_included,
                     signature: view.signature,

@@ -2035,6 +2035,7 @@ impl ShardsManagerActor {
             bandwidth_requests,
             signer,
             protocol_version,
+            true,
         )
     }
 

@@ -95,6 +95,7 @@ fn test_bad_shard_id() {
         congestion_info,
         chunk.bandwidth_requests().cloned(),
         &validator_signer,
+        true,
     );
     modified_chunk.height_included = 2;
     chunks[0] = ShardChunkHeader::V3(modified_chunk);
@@ -248,6 +249,7 @@ fn test_bad_congestion_info_impl(mode: BadCongestionInfoMode) {
         congestion_info,
         chunk.bandwidth_requests().cloned(),
         &validator_signer,
+        true,
     );
     modified_chunk_header.height_included = 2;
 

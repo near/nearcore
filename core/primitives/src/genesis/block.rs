@@ -36,7 +36,7 @@ pub fn genesis_block(
     let header = BlockHeader::genesis(
         genesis_protocol_version,
         height,
-        Block::compute_state_root(body.chunks()),
+        Default::default(), // TODO(spice): Block::compute_state_root(body.chunks()),
         body.compute_hash(),
         Block::compute_chunk_prev_outgoing_receipts_root(body.chunks()),
         Block::compute_chunk_headers_root(body.chunks()).0,
@@ -70,7 +70,7 @@ pub fn prod_genesis_block(
 
     let header = BlockHeader::prod_genesis(
         height,
-        Block::compute_state_root(body.chunks()),
+        Default::default(), // TOOD(spice): Block::compute_state_root(body.chunks()),
         Block::compute_chunk_prev_outgoing_receipts_root(body.chunks()),
         Block::compute_chunk_headers_root(body.chunks()).0,
         Block::compute_chunk_tx_root(body.chunks()),
