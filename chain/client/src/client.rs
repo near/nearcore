@@ -2330,6 +2330,10 @@ impl Client {
         // require some tuning in the future. In particular, if we decide that connecting to
         // block & chunk producers of the next epoch is too expensive, we can postpone it
         // till almost the end of this epoch.
+        //
+        // We include also all chunk validators of the current epoch, due to the importance of:
+        // - delivering state witnesses to the chunk validators
+        // - delivering the chunk validators' chunk endorsements to the block producers
         let mut account_keys = AccountKeys::new();
         for epoch_id in [&tip.epoch_id, &tip.next_epoch_id] {
             // We assume here that calls to get_epoch_chunk_producers and get_epoch_block_producers_ordered
@@ -2349,6 +2353,12 @@ impl Client {
                     .or_default()
                     .insert(bp.public_key().clone());
             }
+        }
+        for v in self.epoch_manager.get_epoch_all_validators(&tip.epoch_id)? {
+            account_keys
+                .entry(v.account_id().clone())
+                .or_default()
+                .insert(v.public_key().clone());
         }
         let account_keys = Arc::new(account_keys);
         self.tier1_accounts_cache = Some((tip.epoch_id, account_keys.clone()));
