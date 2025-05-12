@@ -293,6 +293,31 @@ def sign_staking_tx_and_get_hash(signer_key, validator_key, amount, nonce,
     return signed_tx, base58.b58encode(hash_bytes).decode('utf8')
 
 
+def sign_deploy_contract_to_new_account_tx(
+    signer_key,
+    new_account_id,
+    code,
+    balance,
+    nonce,
+    block_hash,
+) -> bytes:
+    actions = [
+        create_create_account_action(),
+        create_payment_action(balance),
+        create_deploy_contract_action(code),
+    ]
+
+    return sign_and_serialize_transaction(
+        new_account_id,
+        nonce,
+        actions,
+        block_hash,
+        signer_key.account_id,
+        signer_key.decoded_pk(),
+        signer_key.decoded_sk(),
+    )
+
+
 def sign_deploy_contract_transaction(signer_key, code, nonce,
                                      blockHash) -> SignedTransaction:
     action = create_deploy_contract_action(code)
