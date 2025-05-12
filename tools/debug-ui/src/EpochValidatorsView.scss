@@ -162,7 +162,7 @@
     justify-content: center;
     gap: 20px;
     margin-bottom: 20px;
-    
+
     .arrow-button {
         padding: 8px 16px;
         border: 1px solid #ccc;
@@ -171,21 +171,21 @@
         cursor: pointer;
         font-size: 18px;
         min-width: 45px;
-        
+
         &:disabled {
             opacity: 0.5;
             cursor: not-allowed;
         }
-        
+
         &:hover:not(:disabled) {
             background: #e5e5e5;
         }
     }
-    
+
     .epoch-info {
         text-align: center;
         min-width: 200px;
-        
+
         .epoch-height {
             font-size: 16px;
             font-weight: bold;
@@ -196,7 +196,7 @@
 
 .loading-overlay {
     position: relative;
-    
+
     &::after {
         content: '';
         position: absolute;
