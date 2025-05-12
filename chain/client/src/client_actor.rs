@@ -81,6 +81,7 @@ use parking_lot::Mutex;
 use rand::seq::SliceRandom;
 use rand::{Rng, thread_rng};
 use std::fmt;
+use std::collections::HashSet;
 use std::sync::Arc;
 use tokio::sync::broadcast;
 use tracing::{debug, debug_span, error, info, trace, warn};
@@ -90,12 +91,6 @@ const STATUS_WAIT_TIME_MULTIPLIER: i32 = 10;
 /// `max_block_production_time` times this multiplier is how long we wait before rebroadcasting
 /// the current `head`
 const HEAD_STALL_MULTIPLIER: u32 = 4;
-
-// After creating the optimistic block, we ideally need to send it to just the next
-// block producer at height h. However, due to possibility of skipped blocks the optimistic
-// block may be useful to later block producers. Keeping a threshold of 5 block producers
-// should be sufficient for most scenarios.
-const NUM_NEXT_BLOCK_PRODUCERS_TO_SEND_OPTIMISTIC_BLOCK: u64 = 5;
 
 pub type ClientActor = ActixWrapper<ClientActorInner>;
 
@@ -1387,27 +1382,23 @@ impl ClientActorInner {
             return Ok(());
         };
 
+        // If we produced the optimistic block, send it out before we save it.
         let epoch_id = self
             .client
             .chain
             .epoch_manager
             .get_epoch_id_from_prev_block(optimistic_block.prev_block_hash())?;
-
-        // Send the chunk endorsement to the next NUM_NEXT_BLOCK_PRODUCERS_TO_SEND_OPTIMISTIC_BLOCK block producers.
-        // It's possible we may reach the end of the epoch, in which case, ignore the error from get_block_producer.
-        // It is possible that the same validator appears multiple times in the upcoming block producers,
-        // thus we collect the unique set of account ids.
-        let block_producers = (0..NUM_NEXT_BLOCK_PRODUCERS_TO_SEND_OPTIMISTIC_BLOCK)
-            .map_while(|i| {
-                self.client.chain.epoch_manager.get_block_producer(&epoch_id, next_height + i).ok()
-            })
-            .unique()
-            .collect_vec();
-
-        // If we produced the optimistic block, send it out before we save it.
+        let block_producers: HashSet<AccountId> = self
+            .client
+            .chain
+            .epoch_manager
+            .get_epoch_block_producers_ordered(&epoch_id)?
+            .iter()
+            .map(|bp| bp.account_id().clone())
+            .collect();
         self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
             NetworkRequests::OptimisticBlock {
-                block_producers,
+                block_producers: block_producers.into_iter().collect_vec(),
                 optimistic_block: optimistic_block.clone(),
             },
         ));
