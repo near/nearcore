@@ -2355,10 +2355,7 @@ impl Client {
             }
         }
         for v in self.epoch_manager.get_epoch_all_validators(&tip.epoch_id)? {
-            account_keys
-                .entry(v.account_id().clone())
-                .or_default()
-                .insert(v.public_key().clone());
+            account_keys.entry(v.account_id().clone()).or_default().insert(v.public_key().clone());
         }
         let account_keys = Arc::new(account_keys);
         self.tier1_accounts_cache = Some((tip.epoch_id, account_keys.clone()));
