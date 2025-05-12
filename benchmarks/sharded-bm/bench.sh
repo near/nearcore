@@ -707,7 +707,7 @@ get_traces() {
     #     -d "{\"start_timestamp_unix_ms\": $start_time, \"end_timestamp_unix_ms\": $end_time, \"filter\": {\"nodes\": [],\"threads\": []}}" \
     #     -o "${profile_file}"
         
-    echo "=> Traces saved to ${trace_file}"
+    echo "=> Trace saved to ${trace_file}"
 }
 
 case "${1}" in
