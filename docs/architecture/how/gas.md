@@ -225,7 +225,7 @@ start execution will have the execution gas unspent. This gas is converted back
 to NEAR tokens and sent as a refund transfer to the original signer.
 
 Before protocol version 78, the full gas amount would be refunded and the refund
-transfer action was executed for free. Since version 78, thhe network charges a
+transfer action was executed for free. Since version 78, the network charges a
 fee of 5% of unspent gas or a minimum of 1 Tgas. This often removes the need to
 send a refund, which avoids additional load on the network, and it compensates
 for the load of the refund receipt when it needs to be issued. This is intended
