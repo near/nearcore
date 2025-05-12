@@ -1388,6 +1388,7 @@ impl ClientActorInner {
             .chain
             .epoch_manager
             .get_epoch_id_from_prev_block(optimistic_block.prev_block_hash())?;
+        //  TODO(#10584): Maybe we just need to send this to the next producers.
         let block_producers: HashSet<AccountId> = self
             .client
             .chain
