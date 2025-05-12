@@ -11,7 +11,7 @@ use super::{Trie, TrieChanges, TrieRefcountDeltaMap};
 
 /// A simple struct to capture a state proof as it's being accumulated.
 pub struct TrieRecorder {
-    recorded: HashMap<CryptoHash, ValueAndTimesSeen>,
+    recorded: HashMap<CryptoHash, TrieNodeWithRefcount>,
     size: usize,
     /// Size of the recorded state proof plus some additional size added to cover removals and contract code.
     /// An upper-bound estimation of the true recorded size after finalization.
@@ -28,16 +28,23 @@ pub struct TrieRecorder {
     pub codes_to_record: HashSet<AccountId>,
 }
 
-pub struct ValueAndTimesSeen {
-    /// The value of the trie node.
-    pub value: Arc<[u8]>,
-    /// The number of times this value has been seen.
-    pub seen: u32,
+struct TrieNodeWithRefcount(Arc<[u8]>, u32);
+
+impl From<Arc<[u8]>> for TrieNodeWithRefcount {
+    fn from(value: Arc<[u8]>) -> Self {
+        Self(value, 0)
+    }
 }
 
-impl ValueAndTimesSeen {
-    fn seen_once(value: Arc<[u8]>) -> Self {
-        Self { value, seen: 1 }
+impl TrieNodeWithRefcount {
+    /// Increment the reference count for this node, returning the new count.
+    fn increment(&mut self) -> u32 {
+        self.1 += 1;
+        self.1
+    }
+
+    fn value(&self) -> &Arc<[u8]> {
+        &self.0
     }
 }
 
@@ -83,22 +90,15 @@ impl TrieRecorder {
     /// large witness for testing.
     #[cfg(feature = "test_features")]
     pub fn record_unaccounted(&mut self, hash: &CryptoHash, node: Arc<[u8]>) {
-        self.recorded
-            .entry(*hash)
-            .and_modify(|v| v.seen += 1)
-            .or_insert_with(|| ValueAndTimesSeen::seen_once(node));
+        self.recorded.entry(*hash).or_insert_with(|| node.into()).increment();
     }
 
     pub fn record(&mut self, hash: &CryptoHash, node: Arc<[u8]>) {
         let size = node.len();
-        let entry = self
-            .recorded
-            .entry(*hash)
-            .and_modify(|v| v.seen += 1)
-            .or_insert_with(|| ValueAndTimesSeen::seen_once(node));
+        let times_seen = self.recorded.entry(*hash).or_insert_with(|| node.into()).increment();
 
         // Only do size accounting if this is the first time we see this value.
-        if entry.seen == 1 {
+        if times_seen == 1 {
             self.size = self.size.checked_add(size).unwrap();
             self.upper_bound_size = self.upper_bound_size.checked_add(size).unwrap();
         }
@@ -123,7 +123,8 @@ impl TrieRecorder {
     }
 
     pub fn recorded_storage(&mut self) -> PartialStorage {
-        let mut nodes: Vec<_> = self.recorded.drain().map(|(_key, value)| value.value).collect();
+        let mut nodes: Vec<_> =
+            self.recorded.drain().map(|(_key, value)| value.value().clone()).collect();
         nodes.sort();
         PartialStorage { nodes: PartialState::TrieValues(nodes) }
     }
@@ -131,8 +132,8 @@ impl TrieRecorder {
     pub fn recorded_as_trie_changes(&mut self, state_root: CryptoHash) -> TrieChanges {
         let recorded: HashMap<_, _> = self.recorded.drain().collect();
         let mut refcounts = TrieRefcountDeltaMap::new();
-        for (key, ValueAndTimesSeen { value, seen }) in recorded {
-            refcounts.add(key, value.to_vec(), seen);
+        for (key, TrieNodeWithRefcount(value, refcount)) in recorded {
+            refcounts.add(key, value.to_vec(), refcount);
         }
         let (insertions, deletions) = refcounts.into_changes();
         TrieChanges {
@@ -147,7 +148,7 @@ impl TrieRecorder {
 
     // TODO(resharding): remove this method after proper fix for refcount issue
     pub fn recorded_iter<'a>(&'a self) -> impl Iterator<Item = (&'a CryptoHash, &'a Arc<[u8]>)> {
-        self.recorded.iter().map(|(key, value)| (key, &value.value))
+        self.recorded.iter().map(|(key, value)| (key, value.value()))
     }
 
     pub fn recorded_storage_size(&self) -> usize {
@@ -199,8 +200,7 @@ impl TrieRecorder {
         let mut cur_node_hash = *trie_root;
 
         while !subtree_key.is_empty() {
-            let Some(ValueAndTimesSeen { value: raw_node_bytes, .. }) =
-                self.recorded.get(&cur_node_hash)
+            let Some(TrieNodeWithRefcount(raw_node_bytes, _)) = self.recorded.get(&cur_node_hash)
             else {
                 // This node wasn't recorded.
                 return None;
@@ -266,8 +266,7 @@ impl TrieRecorder {
                 continue;
             }
 
-            let Some(ValueAndTimesSeen { value: raw_node_bytes, .. }) =
-                self.recorded.get(&cur_node_hash)
+            let Some(TrieNodeWithRefcount(raw_node_bytes, _)) = self.recorded.get(&cur_node_hash)
             else {
                 // This node wasn't recorded.
                 continue;
@@ -287,7 +286,7 @@ impl TrieRecorder {
 
             match raw_node {
                 RawTrieNode::Leaf(_key, value) => {
-                    if let Some(ValueAndTimesSeen { value: value_bytes, .. }) =
+                    if let Some(TrieNodeWithRefcount(value_bytes, _)) =
                         self.recorded.get(&value.hash)
                     {
                         if !seen_items.contains(&value.hash) {
@@ -310,7 +309,7 @@ impl TrieRecorder {
                         }
                     }
 
-                    if let Some(ValueAndTimesSeen { value: value_bytes, .. }) =
+                    if let Some(TrieNodeWithRefcount(value_bytes, _)) =
                         self.recorded.get(&value.hash)
                     {
                         if !seen_items.contains(&value.hash) {
