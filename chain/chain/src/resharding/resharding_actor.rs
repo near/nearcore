@@ -18,12 +18,16 @@ use time::Duration;
 /// Dedicated actor for resharding V3.
 pub struct ReshardingActor {
     chain_store: ChainStoreAdapter,
-    // TODO
+    /// HashMap storing all scheduled resharding events. Typically there will be only
+    /// one event per parent shard, but we keep it as a HashMap to allow for
+    /// handling forks in the chain.
+    /// We start resharding when one of the resharding block becomes final.
     resharding_events: HashMap<ShardUId, Vec<ReshardingSplitShardParams>>,
-    resharding_in_progress: HashSet<ShardUId>,
+    /// Indicates whether resharding has started for a given parent shard.
+    /// This is used to prevent resharding from being started multiple times for the same parent shard.
+    resharding_started: HashSet<ShardUId>,
     /// Takes care of performing resharding on the flat storage.
     flat_storage_resharder: FlatStorageResharder,
-
     /// TEST ONLY. If non zero, the start of scheduled tasks (such as split parent)
     /// will be postponed by the specified number of blocks.
     #[cfg(feature = "test_features")]
@@ -61,7 +65,7 @@ impl ReshardingActor {
         Self {
             chain_store,
             resharding_events: HashMap::new(),
-            resharding_in_progress: HashSet::new(),
+            resharding_started: HashSet::new(),
             flat_storage_resharder,
             #[cfg(feature = "test_features")]
             adv_task_delay_by_blocks: 0,
@@ -76,7 +80,7 @@ impl ReshardingActor {
         tracing::info!(target: "resharding", ?split_shard_event, "handle_schedule_resharding");
 
         let parent_shard = split_shard_event.parent_shard;
-        if self.resharding_in_progress.contains(&parent_shard) {
+        if self.resharding_started.contains(&parent_shard) {
             // The event is already in progress, no need to reschedule.
             tracing::info!(target: "resharding", "resharding already in progress");
             return;
@@ -131,7 +135,7 @@ impl ReshardingActor {
     ) -> ReshardingSchedulingStatus {
         tracing::info!(target: "resharding", ?parent_shard_uid, "get_resharding_scheduling_status");
 
-        if self.resharding_in_progress.contains(&parent_shard_uid) {
+        if self.resharding_started.contains(&parent_shard_uid) {
             // The event is already in progress, no need to reschedule.
             tracing::info!(target: "resharding", "resharding already in progress");
             return ReshardingSchedulingStatus::AlreadyStarted;
@@ -180,15 +184,12 @@ impl ReshardingActor {
         parent_shard_uid: ShardUId,
         resharding_event: ReshardingSplitShardParams,
     ) {
-        self.resharding_in_progress.insert(parent_shard_uid);
+        self.resharding_started.insert(parent_shard_uid);
 
         // This is a long running task and would block the actor
         if let Err(err) = self.flat_storage_resharder.start_resharding(&resharding_event) {
             tracing::error!(target: "resharding", ?err, "Failed to start resharding");
             return;
         }
-
-        // Remove the event after resharding is completed.
-        self.resharding_in_progress.remove(&parent_shard_uid);
     }
 }
