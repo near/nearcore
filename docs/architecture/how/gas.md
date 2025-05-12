@@ -20,7 +20,7 @@ The topic is split into several sections.
 2. [Gas Price](#gas-price):
     - [Block-Level Gas Price](#block-level-gas-price): How the block-level gas price is determined.
     - [Pessimistic Gas Price](#pessimistic-gas-price): How worst-case gas pricing is estimated.
-    - [Gas Refund Tax](#gas-refund-tax): The cost paid for a receipt.
+    - [Gas Refund Fee](#gas-refund-fee): The cost paid for a gas refund receipt.
 3. [Tracking Gas](#tracking-gas-in-receipts): How the system keeps track of purchased gas during the transaction execution.
 
 ## Gas Flow
@@ -34,11 +34,13 @@ in more details.
 A signer pays all the gas required for a transaction upfront. However, there is
 no explicit act of buying gas. Instead, the fee is subtracted directly in NEAR
 tokens from the balance of the signer's account. The fee is calculated as `gas
-amount` * `gas price`.
+amount` * `gas price`. The gas amount for actions included in a `SignedTransaction`
+are all fixed, except for function calls where the user needs to specify the attached
+gas amount for the dynamic execution part.
+(See [here](https://docs.near.org/protocol/gas#cost-for-common-actions) for more details.)
 
-If the account has insufficient balance to pay for this pessimistic pricing, it
-will fail with a `NotEnoughBalance` error, with the required balance included in
-the error message.
+If the account has insufficient balance to pay for this, it will fail with a
+`NotEnoughBalance` error, with the required balance included in the error message.
 
 The `gas amount` is not a field of `SignedTransaction`, nor is it something the
 signer can choose. It is only a virtual field that is computed on-chain following
@@ -70,7 +72,7 @@ took note of this trade-off and agreed to take it.
 Buying gas immediately removes a part of the signer's tokens from the total
 supply. However, the equivalent value in gas still exists in the form of the
 receipt and the unused gas will be converted back to tokens as a refund after
-subtracting a small gas refund tax. (More on the tax / penalty further down.)
+subtracting a small gas refund fee. (More on the fee further down.)
 
 The gas spent on execution on the other hand is burnt and removed from total
 supply forever. Unlike gas in other chains, none of it goes to validators. This
@@ -214,7 +216,7 @@ incorrect block header validation.
 The pessimistic gas price features was removed with protocol version 78 and
 [NEP-536](https://github.com/near/NEPs/pull/536).
 
-### Gas Refund Tax
+### Gas Refund Fee
 
 After executing the transaction, there might be unspent gas left. For function
 calls, this is the normal case, since attaching exactly the right amount of gas
@@ -223,17 +225,19 @@ start execution will have the execution gas unspent. This gas is converted back
 to NEAR tokens and sent as a refund transfer to the original signer.
 
 Before protocol version 78, the full gas amount would be refunded and the refund
-transfer action was executed for free. Since version 78, there is a gas refund
-tax, acting as a penalty for attaching too much gas. The tax is 5% of unspent
-gas but at least 1 Tgas. This often removes the need to send a refund, avoiding
-additional load on the network.
+transfer action was executed for free. Since version 78, thhe network charges a
+fee of 5% of unspent gas or a minimum of 1 Tgas. This often removes the need to
+send a refund, which avoids additional load on the network, and it compensates
+for the load of the refund receipt when it needs to be issued. This is intended
+to discourage users from attaching more gas than needed to their transactions.
+In the nearcore code, you will find this fee under the name `gas_refund_penalty`.
 
 Technically, the refund transfer is still executed for free, since the gas price
 is set to 0. This keeps it in line with balance refunds. However, when the gas
 refund is produced, at least 1 Tgas has been burnt on receipt execution, which
 more than covers for a transfer.
 
-Finally, we can have a complete diagram, including the gas gas penalty.
+Finally, we can have a complete diagram, including the gas refund penalty.
 
 ![Complete Gas Flow
 Diagram](https://github.com/user-attachments/assets/28aea744-979d-4e1b-88b5-541b38ce58ca)
