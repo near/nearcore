@@ -8,8 +8,6 @@ use near_primitives::views::{
     RecentOutboundConnectionsView, RequestedStatePartsView, SnapshotHostsView,
     SplitStorageInfoView, SyncStatusView,
 };
-#[cfg(feature = "schemars")]
-use near_time::DurationSchemaProvider;
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
