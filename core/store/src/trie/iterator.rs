@@ -5,10 +5,10 @@ use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
 
 use super::mem::iter::STMemTrieIterator;
-use super::ops::interface::{GenericTrieInternalStorage, Recording};
+use super::ops::interface::GenericTrieInternalStorage;
 use super::ops::iter::{TrieItem, TrieIteratorImpl};
 use super::trie_storage_update::{TrieStorageNode, TrieStorageNodePtr};
-use super::{Trie, ValueHandle};
+use super::{AccessOptions, Trie, ValueHandle};
 
 pub struct DiskTrieIteratorInner<'a> {
     trie: &'a Trie,
@@ -43,10 +43,10 @@ impl<'a> GenericTrieInternalStorage<TrieStorageNodePtr, ValueHandle> for DiskTri
     fn get_node(
         &self,
         ptr: TrieStorageNodePtr,
-        record: Recording,
+        opts: AccessOptions,
     ) -> Result<TrieStorageNode, StorageError> {
-        let node = self.trie.retrieve_raw_node(&ptr, true, record.into())?.map(|(bytes, node)| {
-            if record == Recording::Record {
+        let node = self.trie.retrieve_raw_node(&ptr, true, opts)?.map(|(bytes, node)| {
+            if opts.enable_state_witness_recording {
                 if let Some(ref visited_nodes) = self.visited_nodes {
                     visited_nodes.borrow_mut().push(bytes);
                 }
@@ -59,10 +59,10 @@ impl<'a> GenericTrieInternalStorage<TrieStorageNodePtr, ValueHandle> for DiskTri
     fn get_value(
         &self,
         value_ref: ValueHandle,
-        record: Recording,
+        opts: AccessOptions,
     ) -> Result<Vec<u8>, StorageError> {
         match value_ref {
-            ValueHandle::HashAndSize(value) => self.trie.retrieve_value(&value.hash, record.into()),
+            ValueHandle::HashAndSize(value) => self.trie.retrieve_value(&value.hash, opts),
             ValueHandle::InMemory(value) => panic!("Unexpected in-memory value: {:?}", value),
         }
     }

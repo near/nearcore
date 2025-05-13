@@ -3,9 +3,9 @@ use super::memtrie_update::MemTrieNode;
 use super::memtries::MemTries;
 use super::node::MemTrieNodeId;
 use crate::Trie;
-use crate::trie::OptimizedValueRef;
-use crate::trie::ops::interface::{GenericTrieInternalStorage, Recording};
+use crate::trie::ops::interface::GenericTrieInternalStorage;
 use crate::trie::ops::iter::TrieIteratorImpl;
+use crate::trie::{AccessOptions, OptimizedValueRef};
 use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::state::FlatStateValue;
@@ -36,10 +36,10 @@ impl<'a> GenericTrieInternalStorage<MemTrieNodeId, FlatStateValue> for MemTrieIt
     fn get_node(
         &self,
         node: MemTrieNodeId,
-        record: Recording,
+        opts: AccessOptions,
     ) -> Result<MemTrieNode, StorageError> {
         let view = node.as_ptr(self.memtrie.arena.memory()).view();
-        if record == Recording::Record {
+        if opts.enable_state_witness_recording {
             if let Some(recorder) = &self.trie.recorder {
                 let raw_node_serialized =
                     borsh::to_vec(&view.to_raw_trie_node_with_size()).unwrap();
@@ -53,11 +53,11 @@ impl<'a> GenericTrieInternalStorage<MemTrieNodeId, FlatStateValue> for MemTrieIt
     fn get_value(
         &self,
         value_ref: FlatStateValue,
-        record: Recording,
+        opts: AccessOptions,
     ) -> Result<Vec<u8>, StorageError> {
         let optimized_value_ref = OptimizedValueRef::from_flat_value(value_ref);
-        let value = self.trie.deref_optimized(record.into(), &optimized_value_ref)?;
-        if record == Recording::Record {
+        let value = self.trie.deref_optimized(opts, &optimized_value_ref)?;
+        if opts.enable_state_witness_recording {
             if let Some(recorder) = &self.trie.recorder {
                 let value_hash = optimized_value_ref.into_value_ref().hash;
                 recorder.write().record(&value_hash, value.clone().into());

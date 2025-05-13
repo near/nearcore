@@ -247,23 +247,6 @@ pub(crate) trait GenericTrieUpdate<'a, GenericTrieNodePtr, GenericValueHandle> {
     fn delete_value(&mut self, value: GenericValueHandle) -> Result<(), StorageError>;
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum Recording {
-    /// Record the node in the recorder.
-    #[default]
-    Record,
-    /// Do not record the node in the recorder.
-    NoRecord,
-}
-
-impl<'a> Into<AccessOptions<'a>> for Recording {
-    fn into(self) -> AccessOptions<'a> {
-        match self {
-            Recording::Record => AccessOptions::DEFAULT,
-            Recording::NoRecord => AccessOptions::NO_SIDE_EFFECTS,
-        }
-    }
-}
 /// This is the interface used by TrieIterator to get nodes and values from the storage.
 /// It is used to abstract the storage of trie nodes and values.
 pub trait GenericTrieInternalStorage<GenericTrieNodePtr, GenericValueHandle> {
@@ -275,13 +258,13 @@ pub trait GenericTrieInternalStorage<GenericTrieNodePtr, GenericValueHandle> {
     fn get_node(
         &self,
         ptr: GenericTrieNodePtr,
-        record: Recording,
+        opts: AccessOptions,
     ) -> Result<GenericTrieNode<GenericTrieNodePtr, GenericValueHandle>, StorageError>;
 
     // Get a value from the storage, and record it if `record` is set to Recording::Record.
     fn get_value(
         &self,
         value_ref: GenericValueHandle,
-        record: Recording,
+        opts: AccessOptions,
     ) -> Result<Vec<u8>, StorageError>;
 }
