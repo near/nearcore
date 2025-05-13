@@ -48,7 +48,7 @@ pub struct BlocksDelayTracker {
 
 #[derive(Debug, Clone)]
 pub struct BlockTrackingStats {
-    /// Timestamp when block was received.
+    /// Timestamp when block was received or self-produced.
     pub received_timestamp: Instant,
     pub received_utc_timestamp: Utc,
     /// Timestamp when block was put to the orphan pool, if it ever was

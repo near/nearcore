@@ -61,6 +61,64 @@ fn test_not_process_height_twice() {
     }
 }
 
+/// Check that if block is received twice, it is processed only once.
+/// Runs for the case when we are processing optimistic block, so the full
+/// block can't be put in processing.
+#[cfg(feature = "test_features")]
+#[test]
+fn test_not_process_same_block_twice() {
+    let mut env = TestEnv::default_builder().build();
+
+    // Produce block 1
+    let prev_block = env.clients[0].produce_block(1).unwrap().unwrap();
+    env.process_block(0, prev_block.clone(), Provenance::PRODUCED);
+
+    // Produce block and optimistic block at height 2. Process optimistic block.
+    let signer = env.clients[0].validator_signer.get().unwrap();
+    let me = Some(signer.validator_id().clone());
+    let block = env.clients[0].produce_block(2).unwrap().unwrap();
+    let optimistic_block = OptimisticBlock::adv_produce(
+        &prev_block.header(),
+        2,
+        signer.as_ref(),
+        block.header().raw_timestamp(),
+        None,
+        near_primitives::optimistic_block::OptimisticBlockAdvType::Normal,
+    );
+    env.clients[0]
+        .chain
+        .process_optimistic_block(
+            &me,
+            optimistic_block,
+            block.chunks().iter_raw().cloned().collect(),
+            None,
+        )
+        .unwrap();
+
+    // First attempt to process block 2 should return error due to
+    // optimistic block in processing.
+    let signer = Some(signer);
+    let res = env.clients[0].receive_block_impl(
+        block.clone(),
+        PeerId::new(PublicKey::empty(KeyType::ED25519)),
+        false,
+        None,
+        &signer,
+    );
+    assert_matches!(res, Err(near_chain::Error::BlockPendingOptimisticExecution));
+
+    // Second attempt should return Ok because block is silently dropped
+    // as already processed.
+    let res = env.clients[0].receive_block_impl(
+        block,
+        PeerId::new(PublicKey::empty(KeyType::ED25519)),
+        false,
+        None,
+        &signer,
+    );
+    assert_matches!(res, Ok(_));
+}
+
 /// Test that if a block contains chunks with invalid shard_ids, the client will return error.
 #[test]
 fn test_bad_shard_id() {
