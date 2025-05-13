@@ -35,6 +35,7 @@ enum SubCommand {
     Open,
     /// Open NodeStorage and print cold head, hot head and hot final head.
     Head,
+    UpdateColdHead,
     /// Copy n blocks to cold storage and update cold HEAD. One by one.
     /// Updating of HEAD happens in every iteration.
     CopyNextBlocks(CopyNextBlocksCmd),
@@ -83,6 +84,7 @@ impl ColdStoreCommand {
         match self.subcmd {
             SubCommand::Open => check_open(&storage),
             SubCommand::Head => print_heads(&storage),
+            SubCommand::UpdateColdHead => update_cold_head_cmd(&storage),
             SubCommand::CopyNextBlocks(cmd) => {
                 for _ in 0..cmd.number_of_blocks {
                     copy_next_block(&storage, &near_config, epoch_manager.as_ref());
@@ -186,6 +188,23 @@ fn print_heads(store: &NodeStorage) -> anyhow::Result<()> {
         println!("COLD STORE KIND is {:#?}", kind);
         println!("COLD STORE HEAD is at {:#?}", head_in_cold);
     }
+    Ok(())
+}
+
+fn update_cold_head_cmd(storage: &NodeStorage) -> anyhow::Result<()> {
+    // If FINAL_HEAD is not set for hot storage we default it to 0
+    // not genesis_height, because hot db needs to contain genesis block for that
+    let hot_final_head = storage
+        .get_hot_store()
+        .get_ser::<Tip>(DBCol::BlockMisc, FINAL_HEAD_KEY)
+        .unwrap_or_else(|e| panic!("Error reading hot FINAL_HEAD: {:#}", e))
+        .map(|t| t.height)
+        .unwrap_or(0);
+
+    // Setting cold head to hot_final_head captured BEFORE the start of initial migration.
+    // Doesn't really matter here, but very important in case of migration during `neard run`.
+    update_cold_head(&*storage.cold_db().unwrap(), &storage.get_hot_store(), &hot_final_head)
+        .unwrap_or_else(|_| panic!("Failed to update cold HEAD to {}", hot_final_head));
     Ok(())
 }
 

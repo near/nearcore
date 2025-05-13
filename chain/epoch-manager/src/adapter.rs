@@ -804,39 +804,40 @@ pub trait EpochManagerAdapter: Send + Sync {
     /// already be loaded into memory after the first resharding.
     fn get_shard_uids_pending_resharding(
         &self,
-        head_protocol_version: ProtocolVersion,
-        client_protocol_version: ProtocolVersion,
+        _head_protocol_version: ProtocolVersion,
+        _client_protocol_version: ProtocolVersion,
     ) -> Result<HashSet<ShardUId>, Error> {
-        let head_shard_layout = self.get_shard_layout_from_protocol_version(head_protocol_version);
-        let mut shard_layouts = vec![];
-        for protocol_version in head_protocol_version + 1..=client_protocol_version {
-            let shard_layout = self.get_shard_layout_from_protocol_version(protocol_version);
-            if shard_layout == head_shard_layout {
-                continue;
-            }
+        return Ok(HashSet::new());
+        // let head_shard_layout = self.get_shard_layout_from_protocol_version(head_protocol_version);
+        // let mut shard_layouts = vec![];
+        // for protocol_version in head_protocol_version + 1..=client_protocol_version {
+        //     let shard_layout = self.get_shard_layout_from_protocol_version(protocol_version);
+        //     if shard_layout == head_shard_layout {
+        //         continue;
+        //     }
 
-            let last_shard_layout = shard_layouts.last();
-            if last_shard_layout != Some(&shard_layout) {
-                shard_layouts.push(shard_layout);
-            }
-        }
+        //     let last_shard_layout = shard_layouts.last();
+        //     if last_shard_layout != Some(&shard_layout) {
+        //         shard_layouts.push(shard_layout);
+        //     }
+        // }
 
-        let mut result = HashSet::new();
-        for shard_uid in head_shard_layout.shard_uids() {
-            let shard_id = shard_uid.shard_id();
-            for shard_layout in &shard_layouts {
-                let children = shard_layout.get_children_shards_uids(shard_id);
-                let Some(children) = children else {
-                    break;
-                };
-                if children.len() > 1 {
-                    result.insert(shard_uid);
-                    break;
-                }
-            }
-        }
+        // let mut result = HashSet::new();
+        // for shard_uid in head_shard_layout.shard_uids() {
+        //     let shard_id = shard_uid.shard_id();
+        //     for shard_layout in &shard_layouts {
+        //         let children = shard_layout.get_children_shards_uids(shard_id);
+        //         let Some(children) = children else {
+        //             break;
+        //         };
+        //         if children.len() > 1 {
+        //             result.insert(shard_uid);
+        //             break;
+        //         }
+        //     }
+        // }
 
-        Ok(result)
+        // Ok(result)
     }
 }
 

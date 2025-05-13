@@ -452,6 +452,7 @@ fn check_if_descendant_of_tracked_shard_impl(
         // The `ShardLayout` changed after this protocol version — get the parent shard of `shard_uid`.
         let Some(parent_shard_id) = shard_layout.try_get_parent_shard_id(shard_uid.shard_id())?
         else {
+            panic!("{:?} {:?} {:?}", protocol_version, shard_layout, shard_uid);
             return Ok(false);
         };
         // Update `shard_uid` and `shard_layout` to their parent `ShardUId` and `ShardLayout`.
