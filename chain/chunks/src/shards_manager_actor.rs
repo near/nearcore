@@ -1930,7 +1930,7 @@ impl ShardsManagerActor {
         // the chunk part is sent to the block producers, for fairness. Also, the
         // the chunk is encoded such that any sufficiently large subset of the parts
         // can be used to reconstruct it. By randomizing the order at each sender
-        // we spread the parts evently so that everyone gets the minimum required
+        // we spread the parts evenly so that everyone gets the minimum required
         // parts roughly at the same time, rather than some getting all of them
         // first while others are starved.
         for bp_account_id in block_producers {
