@@ -10,6 +10,7 @@ use near_async::messaging::{self, HandlerWithContext};
 use near_chain_configs::{MutableConfigValue, ReshardingConfig, ReshardingHandle};
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::shard_layout::ShardUId;
+#[cfg(feature = "test_features")]
 use near_primitives::types::BlockHeightDelta;
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::chain_store::ChainStoreAdapter;

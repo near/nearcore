@@ -907,10 +907,15 @@ enum ShardCatchupApplyDeltasOutcome {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
+    use std::sync::Arc;
+
     use assert_matches::assert_matches;
+    use near_async::messaging::{IntoMultiSender, noop};
     use near_async::time::Clock;
-    use near_chain_configs::{Genesis, ReshardingHandle};
+    use near_chain_configs::{Genesis, MutableConfigValue, ReshardingHandle, TrackedShardsConfig};
     use near_epoch_manager::EpochManager;
+    use near_epoch_manager::shard_tracker::ShardTracker;
     use near_o11y::testonly::init_test_logger;
     use near_primitives::hash::CryptoHash;
     use near_primitives::shard_layout::ShardLayout;
@@ -919,7 +924,7 @@ mod tests {
     use near_primitives::types::{AccountId, ShardId};
     use near_store::ShardUId;
     use near_store::adapter::StoreAdapter;
-    use near_store::adapter::flat_store::FlatStoreUpdateAdapter;
+    use near_store::adapter::flat_store::FlatStoreAdapter;
     use near_store::flat::{
         BlockInfo, FlatStorageReadyStatus, FlatStorageReshardingStatus, FlatStorageStatus,
         ParentSplitParameters,
@@ -928,52 +933,79 @@ mod tests {
     use near_store::test_utils::create_test_store;
 
     use crate::flat_storage_resharder::FlatStorageReshardingTaskResult;
+    use crate::rayon_spawner::RayonAsyncComputationSpawner;
     use crate::runtime::NightshadeRuntime;
-    use crate::types::ChainConfig;
+    use crate::types::{ChainConfig, RuntimeAdapter};
+    use crate::{Chain, ChainGenesis, DoomslugThresholdMode};
 
     use super::FlatStorageResharder;
 
-    fn create_flat_storage_resharder() -> FlatStorageResharder {
+    /// Simple shard layout with two shards.
+    fn simple_shard_layout() -> ShardLayout {
+        let s0 = ShardId::new(0);
+        let s1 = ShardId::new(1);
+        let shards_split_map = BTreeMap::from([(s0, vec![s0]), (s1, vec![s1])]);
+        ShardLayout::v2(vec!["ff".parse().unwrap()], vec![s0, s1], Some(shards_split_map))
+    }
+
+    /// Derived from [simple_shard_layout] by splitting the second shard.
+    fn shard_layout_after_split() -> ShardLayout {
+        ShardLayout::derive_shard_layout(&simple_shard_layout(), "pp".parse().unwrap())
+    }
+
+    fn setup_test() -> (FlatStorageResharder, ParentSplitParameters) {
+        let shard_layout = simple_shard_layout();
         let genesis = Genesis::from_accounts(
             Clock::real(),
             vec!["aa".parse().unwrap(), "mm".parse().unwrap(), "vv".parse().unwrap()],
             1,
-            ShardLayout::single_shard(),
+            shard_layout.clone(),
         );
         let tempdir = tempfile::tempdir().unwrap();
         let store = create_test_store();
         initialize_genesis_state(store.clone(), &genesis, Some(tempdir.path()));
         let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
-        let runtime = NightshadeRuntime::test(
-            tempdir.path(),
-            store.clone(),
-            &genesis.config,
+        let shard_tracker =
+            ShardTracker::new(TrackedShardsConfig::AllShards, epoch_manager.clone());
+        let runtime =
+            NightshadeRuntime::test(tempdir.path(), store, &genesis.config, epoch_manager.clone());
+        let chain_genesis = ChainGenesis::new(&genesis.config);
+        let chain = Chain::new(
+            Clock::real(),
             epoch_manager.clone(),
-        );
+            shard_tracker,
+            runtime.clone(),
+            &chain_genesis,
+            DoomslugThresholdMode::NoApprovals,
+            ChainConfig::test(),
+            None,
+            Arc::new(RayonAsyncComputationSpawner),
+            MutableConfigValue::new(None, "validator_signer"),
+            noop().into_multi_sender(),
+        )
+        .unwrap();
+        for shard_uid in shard_layout.shard_uids() {
+            runtime.get_flat_storage_manager().create_flat_storage_for_shard(shard_uid).unwrap();
+        }
 
-        FlatStorageResharder::new(
+        let flat_storage_resharder = FlatStorageResharder::new(
             epoch_manager,
             runtime,
             ReshardingHandle::new(),
             ChainConfig::test().resharding_config,
-        )
-    }
+        );
 
-    /// Split the parent shard with "pp" as the boundary account id.
-    fn get_split_params() -> ParentSplitParameters {
-        let shard_layout =
-            ShardLayout::derive_shard_layout(&ShardLayout::single_shard(), "pp".parse().unwrap());
-        let left_child_shard = ShardUId { version: 3, shard_id: 2 };
-        let right_child_shard = ShardUId { version: 3, shard_id: 3 };
-        let flat_head = BlockInfo::genesis(CryptoHash::default(), 0);
+        let flat_head = BlockInfo::genesis(*chain.genesis.hash(), chain.genesis.header().height());
         let resharding_blocks = vec![flat_head];
-        ParentSplitParameters {
-            left_child_shard,
-            right_child_shard,
+        let split_params = ParentSplitParameters {
+            left_child_shard: ShardUId { version: 3, shard_id: 2 },
+            right_child_shard: ShardUId { version: 3, shard_id: 3 },
             flat_head,
             resharding_blocks,
-            shard_layout,
-        }
+            shard_layout: shard_layout_after_split(),
+        };
+
+        (flat_storage_resharder, split_params)
     }
 
     /// Checks if the split shard task is working as expected.
@@ -983,9 +1015,8 @@ mod tests {
     #[test]
     fn test_flat_storage_split_shard_task() {
         init_test_logger();
-        let flat_storage_resharder = create_flat_storage_resharder();
-        let split_params = get_split_params();
-        let parent_shard = ShardUId { version: 1, shard_id: 0 };
+        let (flat_storage_resharder, split_params) = setup_test();
+        let parent_shard = ShardUId { version: 3, shard_id: 0 };
 
         // Set up initial flat storage status
         let store = flat_storage_resharder.runtime.store().flat_store();
@@ -1016,9 +1047,8 @@ mod tests {
     #[test]
     fn test_resume_resharding_from_dirty_state() {
         init_test_logger();
-        let flat_storage_resharder = create_flat_storage_resharder();
-        let split_params = get_split_params();
-        let parent_shard = ShardUId { version: 1, shard_id: 0 };
+        let (flat_storage_resharder, split_params) = setup_test();
+        let parent_shard = ShardUId { version: 3, shard_id: 0 };
 
         // Create dirty state in children shards and put parent in splitting status
         let store = flat_storage_resharder.runtime.store().flat_store();
@@ -1040,7 +1070,7 @@ mod tests {
         ];
 
         // Write dirty data to both child shards
-        for (key, value) in test_keys.iter() {
+        for (key, value) in &test_keys {
             for child_shard in [split_params.left_child_shard, split_params.right_child_shard] {
                 store_update.set(
                     child_shard,
@@ -1056,7 +1086,7 @@ mod tests {
 
         // Verify all dirty values are cleaned up from both children
         let store = flat_storage_resharder.runtime.store().flat_store();
-        for (key, _) in test_keys.iter() {
+        for (key, _) in &test_keys {
             for child_shard in [split_params.left_child_shard, split_params.right_child_shard] {
                 assert!(store.get(child_shard, key).unwrap().is_none());
             }
@@ -1066,9 +1096,8 @@ mod tests {
     #[test]
     fn test_cancel_split_shard() {
         init_test_logger();
-        let flat_storage_resharder = create_flat_storage_resharder();
-        let split_params = get_split_params();
-        let parent_shard = ShardUId { version: 1, shard_id: 0 };
+        let (flat_storage_resharder, split_params) = setup_test();
+        let parent_shard = ShardUId { version: 3, shard_id: 0 };
 
         // Set up initial flat storage status
         let store = flat_storage_resharder.runtime.store().flat_store();
@@ -1087,23 +1116,27 @@ mod tests {
             flat_storage_resharder.split_shard_task(parent_shard, split_params.clone());
         assert_matches!(task_result, FlatStorageReshardingTaskResult::Cancelled);
 
-        // Verify parent status is back to ready and children are cleaned up
-        let store = flat_storage_resharder.runtime.store().flat_store();
+        // Check that the resharding task was effectively cancelled.
+        // Note that resharding as a whole is not cancelled: it should resume if the node restarts.
+        let flat_store = flat_storage_resharder.runtime.store().flat_store();
         assert_matches!(
-            store.get_flat_storage_status(parent_shard),
-            Ok(FlatStorageStatus::Ready(_))
+            flat_store.get_flat_storage_status(parent_shard),
+            Ok(FlatStorageStatus::Resharding(FlatStorageReshardingStatus::SplittingParent(_)))
         );
-        // Children shards should have no status
-        assert_matches!(store.get_flat_storage_status(split_params.left_child_shard), Err(_));
-        assert_matches!(store.get_flat_storage_status(split_params.right_child_shard), Err(_));
+        for child_shard in [split_params.left_child_shard, split_params.right_child_shard] {
+            assert_eq!(
+                flat_store.get_flat_storage_status(child_shard),
+                Ok(FlatStorageStatus::Resharding(FlatStorageReshardingStatus::CreatingChild))
+            );
+            assert_eq!(flat_store.iter(child_shard).count(), 0);
+        }
     }
 
     #[test]
     fn test_cancel_shard_catchup() {
         init_test_logger();
-        let flat_storage_resharder = create_flat_storage_resharder();
-        let split_params = get_split_params();
-        let parent_shard = ShardUId { version: 1, shard_id: 0 };
+        let (flat_storage_resharder, split_params) = setup_test();
+        let parent_shard = ShardUId { version: 3, shard_id: 0 };
 
         // Set up initial flat storage status for catching up
         let store = flat_storage_resharder.runtime.store().flat_store();
@@ -1136,7 +1169,11 @@ mod tests {
         }
     }
 
-    fn insert_account_id_keys(store_update: &mut FlatStoreUpdateAdapter, parent_shard: ShardUId) {
+    fn insert_account_id_keys<'a>(
+        flat_store: &'a FlatStoreAdapter,
+        parent_shard: ShardUId,
+    ) -> Box<dyn FnOnce(ShardUId, ShardUId) + 'a> {
+        let mut store_update = flat_store.store_update();
         let test_value = Some(FlatStateValue::Inlined(vec![0]));
 
         // Helper closure to create all test keys for a given account. Returns the created keys.
@@ -1191,9 +1228,32 @@ mod tests {
         let account_aa_keys = inject("aa".parse().unwrap());
         let account_mm_keys = inject("mm".parse().unwrap());
         let account_vv_keys = inject("vv".parse().unwrap());
+
+        store_update.commit().unwrap();
+
+        Box::new(move |left_child_shard: ShardUId, right_child_shard: ShardUId| {
+            // Check each child has the correct keys assigned to itself.
+            for key in &account_aa_keys {
+                assert_eq!(flat_store.get(left_child_shard, key), Ok(test_value.clone()));
+                assert_eq!(flat_store.get(right_child_shard, key), Ok(None));
+            }
+            for key in &account_mm_keys {
+                assert_eq!(flat_store.get(left_child_shard, key), Ok(test_value.clone()));
+                assert_eq!(flat_store.get(right_child_shard, key), Ok(None));
+            }
+            for key in &account_vv_keys {
+                assert_eq!(flat_store.get(left_child_shard, key), Ok(None));
+                assert_eq!(flat_store.get(right_child_shard, key), Ok(test_value.clone()));
+            }
+        })
     }
 
-    fn insert_delayed_receipts(store_update: &mut FlatStoreUpdateAdapter, parent_shard: ShardUId) {
+    fn insert_delayed_receipts<'a>(
+        flat_store: &'a FlatStoreAdapter,
+        parent_shard: ShardUId,
+    ) -> Box<dyn FnOnce(ShardUId, ShardUId) + 'a> {
+        let mut store_update = flat_store.store_update();
+
         // Inject a delayed receipt into the parent flat storage.
         let delayed_receipt_indices_key = TrieKey::DelayedReceiptIndices.to_vec();
         let delayed_receipt_indices_value = Some(FlatStateValue::Inlined(vec![0]));
@@ -1206,16 +1266,37 @@ mod tests {
         let delayed_receipt_key = TrieKey::DelayedReceipt { index: 0 }.to_vec();
         let delayed_receipt_value = Some(FlatStateValue::Inlined(vec![1]));
         store_update.set(parent_shard, delayed_receipt_key.clone(), delayed_receipt_value.clone());
+
+        store_update.commit().unwrap();
+
+        Box::new(move |left_child_shard: ShardUId, right_child_shard: ShardUId| {
+            // Check that flat storages of both children contain the delayed receipt.
+            for child_shard in [left_child_shard, right_child_shard] {
+                assert_eq!(
+                    flat_store.get(child_shard, &delayed_receipt_indices_key),
+                    Ok(delayed_receipt_indices_value.clone())
+                );
+                assert_eq!(
+                    flat_store.get(child_shard, &delayed_receipt_key),
+                    Ok(delayed_receipt_value.clone())
+                );
+            }
+        })
     }
 
-    fn insert_promise_yield(store_update: &mut FlatStoreUpdateAdapter, parent_shard: ShardUId) {
+    fn insert_promise_yield<'a>(
+        flat_store: &'a FlatStoreAdapter,
+        parent_shard: ShardUId,
+    ) -> Box<dyn FnOnce(ShardUId, ShardUId) + 'a> {
+        let mut store_update = flat_store.store_update();
+
         // Inject two promise yield receipts into the parent flat storage.
         let promise_yield_indices_key = TrieKey::PromiseYieldIndices.to_vec();
         let promise_yield_indices_value = Some(FlatStateValue::Inlined(vec![0]));
         store_update.set(
             parent_shard,
             promise_yield_indices_key.clone(),
-            promise_yield_indices_value,
+            promise_yield_indices_value.clone(),
         );
 
         let promise_yield_timeout_key = TrieKey::PromiseYieldTimeout { index: 0 }.to_vec();
@@ -1223,7 +1304,7 @@ mod tests {
         store_update.set(
             parent_shard,
             promise_yield_timeout_key.clone(),
-            promise_yield_timeout_value,
+            promise_yield_timeout_value.clone(),
         );
 
         let promise_yield_receipt_mm_key = TrieKey::PromiseYieldReceipt {
@@ -1245,24 +1326,76 @@ mod tests {
         store_update.set(
             parent_shard,
             promise_yield_receipt_vv_key.clone(),
-            promise_yield_receipt_value,
+            promise_yield_receipt_value.clone(),
         );
+
+        store_update.commit().unwrap();
+
+        Box::new(move |left_child_shard: ShardUId, right_child_shard: ShardUId| {
+            // Check that flat storages of both children contain the promise yield timeout and indices.
+            for child_shard in [left_child_shard, right_child_shard] {
+                assert_eq!(
+                    flat_store.get(child_shard, &promise_yield_indices_key),
+                    Ok(promise_yield_indices_value.clone())
+                );
+                assert_eq!(
+                    flat_store.get(child_shard, &promise_yield_timeout_key),
+                    Ok(promise_yield_timeout_value.clone())
+                );
+            }
+            // Receipts work differently: these should be split depending on the account.
+            assert_eq!(
+                flat_store.get(left_child_shard, &promise_yield_receipt_mm_key),
+                Ok(promise_yield_receipt_value.clone())
+            );
+            assert_eq!(flat_store.get(left_child_shard, &promise_yield_receipt_vv_key), Ok(None));
+            assert_eq!(flat_store.get(right_child_shard, &promise_yield_receipt_mm_key), Ok(None));
+            assert_eq!(
+                flat_store.get(right_child_shard, &promise_yield_receipt_vv_key),
+                Ok(promise_yield_receipt_value)
+            );
+        })
     }
 
-    fn insert_buffered_receipts(store_update: &mut FlatStoreUpdateAdapter, parent_shard: ShardUId) {
+    fn insert_buffered_receipts<'a>(
+        flat_store: &'a FlatStoreAdapter,
+        parent_shard: ShardUId,
+    ) -> Box<dyn FnOnce(ShardUId, ShardUId) + 'a> {
+        let mut store_update = flat_store.store_update();
+
         // Inject a buffered receipt into the parent flat storage.
         let buffered_receipt_indices_key = TrieKey::BufferedReceiptIndices.to_vec();
         let buffered_receipt_indices_value = Some(FlatStateValue::Inlined(vec![0]));
         store_update.set(
             parent_shard,
             buffered_receipt_indices_key.clone(),
-            buffered_receipt_indices_value,
+            buffered_receipt_indices_value.clone(),
         );
 
         let receiving_shard = ShardId::new(0);
         let buffered_receipt_key = TrieKey::BufferedReceipt { receiving_shard, index: 0 }.to_vec();
         let buffered_receipt_value = Some(FlatStateValue::Inlined(vec![1]));
-        store_update.set(parent_shard, buffered_receipt_key.clone(), buffered_receipt_value);
+        store_update.set(
+            parent_shard,
+            buffered_receipt_key.clone(),
+            buffered_receipt_value.clone(),
+        );
+
+        store_update.commit().unwrap();
+
+        Box::new(move |left_child_shard: ShardUId, right_child_shard: ShardUId| {
+            // Check that only the first child contain the buffered receipt.
+            assert_eq!(
+                flat_store.get(left_child_shard, &buffered_receipt_indices_key),
+                Ok(buffered_receipt_indices_value)
+            );
+            assert_eq!(flat_store.get(right_child_shard, &buffered_receipt_indices_key), Ok(None));
+            assert_eq!(
+                flat_store.get(left_child_shard, &buffered_receipt_key),
+                Ok(buffered_receipt_value)
+            );
+            assert_eq!(flat_store.get(right_child_shard, &buffered_receipt_key), Ok(None));
+        })
     }
 
     /// Checks end to end flow of flat storage resharding.
@@ -1272,23 +1405,22 @@ mod tests {
     #[test]
     fn test_flat_storage_resharding() {
         init_test_logger();
-        let flat_storage_resharder = create_flat_storage_resharder();
-        let split_params = get_split_params();
-        let parent_shard = ShardUId { version: 1, shard_id: 0 };
+        let (flat_storage_resharder, split_params) = setup_test();
+        let parent_shard = ShardUId { version: 3, shard_id: 0 };
 
         let store = flat_storage_resharder.runtime.store().flat_store();
-        let mut store_update = store.store_update();
-        insert_account_id_keys(&mut store_update, parent_shard);
-        insert_delayed_receipts(&mut store_update, parent_shard);
-        insert_promise_yield(&mut store_update, parent_shard);
-        insert_buffered_receipts(&mut store_update, parent_shard);
-        store_update.commit().unwrap();
+        let validate_fns = vec![
+            insert_account_id_keys(&store, parent_shard),
+            insert_delayed_receipts(&store, parent_shard),
+            insert_promise_yield(&store, parent_shard),
+            insert_buffered_receipts(&store, parent_shard),
+        ];
 
         // Do the resharding.
         flat_storage_resharder.start_resharding_impl(parent_shard, split_params.clone());
 
         // Verify parent shard is gone
-        assert_matches!(store.get_flat_storage_status(parent_shard), Err(_));
+        assert_matches!(store.get_flat_storage_status(parent_shard), Ok(FlatStorageStatus::Empty));
 
         // Both children shards should be in Ready state
         for child_shard in [split_params.left_child_shard, split_params.right_child_shard] {
@@ -1296,6 +1428,11 @@ mod tests {
                 store.get_flat_storage_status(child_shard),
                 Ok(FlatStorageStatus::Ready(_))
             );
+        }
+
+        for validate_fn in validate_fns {
+            // Validate the key-value pairs in the child shards.
+            validate_fn(split_params.left_child_shard, split_params.right_child_shard);
         }
     }
 }
