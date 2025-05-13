@@ -5,10 +5,10 @@ use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
 
 use super::mem::iter::STMemTrieIterator;
-use super::ops::interface::GenericTrieInternalStorage;
+use super::ops::interface::{GenericTrieInternalStorage, Recording};
 use super::ops::iter::{TrieItem, TrieIteratorImpl};
 use super::trie_storage_update::{TrieStorageNode, TrieStorageNodePtr};
-use super::{AccessOptions, Trie, ValueHandle};
+use super::{Trie, ValueHandle};
 
 pub struct DiskTrieIteratorInner<'a> {
     trie: &'a Trie,
@@ -40,26 +40,29 @@ impl<'a> GenericTrieInternalStorage<TrieStorageNodePtr, ValueHandle> for DiskTri
         Some(self.trie.root)
     }
 
-    fn get_and_record_node(
+    fn get_node(
         &self,
         ptr: TrieStorageNodePtr,
+        record: Recording,
     ) -> Result<TrieStorageNode, StorageError> {
-        let node = self.trie.retrieve_raw_node(&ptr, true, AccessOptions::DEFAULT)?.map(
-            |(bytes, node)| {
+        let node = self.trie.retrieve_raw_node(&ptr, true, record.into())?.map(|(bytes, node)| {
+            if record == Recording::Record {
                 if let Some(ref visited_nodes) = self.visited_nodes {
                     visited_nodes.borrow_mut().push(bytes);
                 }
-                TrieStorageNode::from_raw_trie_node(node.node)
-            },
-        );
+            }
+            TrieStorageNode::from_raw_trie_node(node.node)
+        });
         Ok(node.unwrap_or_default())
     }
 
-    fn get_and_record_value(&self, value_ref: ValueHandle) -> Result<Vec<u8>, StorageError> {
+    fn get_value(
+        &self,
+        value_ref: ValueHandle,
+        record: Recording,
+    ) -> Result<Vec<u8>, StorageError> {
         match value_ref {
-            ValueHandle::HashAndSize(value) => {
-                self.trie.retrieve_value(&value.hash, AccessOptions::DEFAULT)
-            }
+            ValueHandle::HashAndSize(value) => self.trie.retrieve_value(&value.hash, record.into()),
             ValueHandle::InMemory(value) => panic!("Unexpected in-memory value: {:?}", value),
         }
     }

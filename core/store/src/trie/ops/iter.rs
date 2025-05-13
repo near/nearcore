@@ -9,7 +9,7 @@ use crate::trie::ValueHandle;
 use crate::trie::iterator::DiskTrieIteratorInner;
 use crate::trie::trie_storage_update::TrieStorageNodePtr;
 
-use super::interface::{GenericTrieInternalStorage, GenericTrieNode};
+use super::interface::{GenericTrieInternalStorage, GenericTrieNode, Recording};
 
 /// The TrieItem is a tuple of (key, value) of the node.
 pub type TrieItem = (Vec<u8>, Vec<u8>);
@@ -95,9 +95,12 @@ where
     I: GenericTrieInternalStorage<N, V>,
 {
     /// Create a new iterator.
+    /// If `start` is specified, the iterator will be positioned on the first element
+    /// with key >= `start`, without recording nodes accessed during the seek.
     pub fn new(
         trie_interface: I,
         prune_condition: Option<Box<dyn Fn(&Vec<u8>) -> bool>>,
+        start: Option<Vec<u8>>,
     ) -> Result<Self, StorageError> {
         let root = trie_interface.get_root();
         let mut iter = Self {
@@ -106,13 +109,17 @@ where
             trie_interface,
             prune_condition,
         };
-        iter.descend_into_node(root)?;
+        if let Some(start) = start {
+            iter.seek_nibble_slice(NibbleSlice::new(start.as_ref()), false, Recording::NoRecord)?;
+        } else {
+            iter.descend_into_node(root, Recording::default())?;
+        }
         Ok(iter)
     }
 
     /// Position the iterator on the first element with key >= `key`.
     pub fn seek_prefix<K: AsRef<[u8]>>(&mut self, key: K) -> Result<(), StorageError> {
-        self.seek_nibble_slice(NibbleSlice::new(key.as_ref()), true)?;
+        self.seek_nibble_slice(NibbleSlice::new(key.as_ref()), true, Recording::default())?;
         Ok(())
     }
 
@@ -121,6 +128,7 @@ where
         &mut self,
         mut key: NibbleSlice<'_>,
         is_prefix_seek: bool,
+        record: Recording,
     ) -> Result<Option<N>, StorageError> {
         self.trail.clear();
         self.key_nibbles.clear();
@@ -139,7 +147,7 @@ where
         let mut prev_prefix_boundary = &mut false;
         loop {
             *prev_prefix_boundary = is_prefix_seek;
-            self.descend_into_node(ptr)?;
+            self.descend_into_node(ptr, record)?;
             let Crumb { status, node, prefix_boundary } = self.trail.last_mut().unwrap();
             prev_prefix_boundary = prefix_boundary;
             match &node {
@@ -190,9 +198,9 @@ where
     /// Fetches node by its ptr and adds it to the trail.
     ///
     /// The node is stored as the last [`Crumb`] in the trail.
-    fn descend_into_node(&mut self, ptr: Option<N>) -> Result<(), StorageError> {
+    fn descend_into_node(&mut self, ptr: Option<N>, record: Recording) -> Result<(), StorageError> {
         let node = match ptr {
-            Some(ptr) => self.trie_interface.get_and_record_node(ptr)?,
+            Some(ptr) => self.trie_interface.get_node(ptr, record)?,
             None => GenericTrieNode::Empty,
         };
         self.trail.push(Crumb { status: CrumbStatus::Entering, node, prefix_boundary: false });
@@ -295,12 +303,14 @@ where
                 }
                 // Skip processing node if it should be pruned.
                 (_, true) => {}
-                (IterStep::Descend(ptr), false) => match self.descend_into_node(Some(ptr)) {
-                    Ok(_) => {}
-                    Err(e) => return Some(Err(e)),
-                },
+                (IterStep::Descend(ptr), false) => {
+                    match self.descend_into_node(Some(ptr), Recording::default()) {
+                        Ok(_) => {}
+                        Err(e) => return Some(Err(e)),
+                    }
+                }
                 (IterStep::Value(value_ref), false) => {
-                    let value = self.trie_interface.get_and_record_value(value_ref);
+                    let value = self.trie_interface.get_value(value_ref, Recording::default());
                     return Some(value.map(|value| (self.key(), value)));
                 }
             }
@@ -342,7 +352,11 @@ where
         .entered();
         let path_begin_encoded = NibbleSlice::encode_nibbles(path_begin, true);
         let last_hash = self
-            .seek_nibble_slice(NibbleSlice::from_encoded(&path_begin_encoded).0, false)?
+            .seek_nibble_slice(
+                NibbleSlice::from_encoded(&path_begin_encoded).0,
+                false,
+                Recording::default(),
+            )?
             .unwrap_or_default();
         let mut prefix = Self::common_prefix(path_end, &self.key_nibbles);
         if self.key_nibbles[prefix..] >= path_end[prefix..] {
@@ -373,7 +387,7 @@ where
                     if self.key_nibbles[prefix..] >= path_end[prefix..] {
                         break;
                     }
-                    self.descend_into_node(Some(hash))?;
+                    self.descend_into_node(Some(hash), Recording::default())?;
                     nodes_list.push(TrieTraversalItem { hash, key: None });
                 }
                 IterStep::Continue => {}
@@ -381,7 +395,7 @@ where
                     if self.key_nibbles[prefix..] >= path_end[prefix..] {
                         break;
                     }
-                    self.trie_interface.get_and_record_value(value)?;
+                    self.trie_interface.get_value(value, Recording::default())?;
                     let hash = match value {
                         ValueHandle::HashAndSize(hash) => hash.hash,
                         ValueHandle::InMemory(_) => panic!("Unexpected in-memory value"),
