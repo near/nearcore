@@ -813,7 +813,13 @@ mod memtrie_batch_iteration_tests {
         let read_trie = trie.lock_for_iter();
         // Get the iterator for the trie, skipping the first key if needed
         let mut iter =
-            read_trie.iter_seek(previous_batch_last_key).expect("failed to get iterator");
+            read_trie.iter_seek(previous_batch_last_key.clone()).expect("failed to get iterator");
+        if let Some(key) = previous_batch_last_key {
+            // Skip the last key from the previous batch.
+            // This can't be done by calling next() because it would record the
+            // key result in a duplicate refcount.
+            iter.skip_one(&key);
+        }
 
         // Iterate over the trie, stopping when we reach the batch size
         while let Some(result) = iter.next() {

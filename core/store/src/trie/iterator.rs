@@ -94,6 +94,16 @@ impl<'a> TrieIterator<'a> {
             TrieIterator::Memtrie(iter) => iter.seek_prefix(key),
         }
     }
+
+    /// Skips the next node in the iterator without recording its value.
+    /// As a safety check, the caller must know the key of the item to
+    /// be skipped. (e.g., for continuing a batched iteration).
+    pub fn skip_one(&mut self, expected_key: &[u8]) {
+        match self {
+            TrieIterator::Disk(iter) => iter.skip_one(expected_key),
+            TrieIterator::Memtrie(iter) => iter.skip_one(expected_key),
+        }
+    }
 }
 
 #[cfg(test)]
