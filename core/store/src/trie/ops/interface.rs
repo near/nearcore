@@ -247,18 +247,13 @@ pub(crate) trait GenericTrieUpdate<'a, GenericTrieNodePtr, GenericValueHandle> {
     fn delete_value(&mut self, value: GenericValueHandle) -> Result<(), StorageError>;
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Recording {
     /// Record the node in the recorder.
+    #[default]
     Record,
     /// Do not record the node in the recorder.
     NoRecord,
-}
-
-impl Default for Recording {
-    fn default() -> Self {
-        Recording::Record
-    }
 }
 
 impl<'a> Into<AccessOptions<'a>> for Recording {
