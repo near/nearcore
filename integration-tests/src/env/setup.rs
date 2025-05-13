@@ -451,18 +451,17 @@ fn process_peer_manager_message_default(
 
             hash_to_height.write().unwrap().insert(*block.header().hash(), block.header().height());
         }
-        NetworkRequests::OptimisticBlock { block_producers, optimistic_block } => {
+        NetworkRequests::OptimisticBlock { chunk_producers, optimistic_block } => {
             // TODO(#10584): maybe go through an adapter to facilitate testing.
             for (i, name) in validators.iter().enumerate() {
-                if block_producers.contains(name) {
-                    connectors[i].client_actor.do_send(
-                        OptimisticBlockMessage {
-                            optimistic_block: optimistic_block.clone(),
-                            from_peer: PeerInfo::random().id,
-                        }
-                        .with_span_context(),
-                    );
+                if !chunk_producers.contains(name) {
+                    continue;
                 }
+                let msg = OptimisticBlockMessage {
+                    optimistic_block: optimistic_block.clone(),
+                    from_peer: PeerInfo::random().id,
+                };
+                connectors[i].client_actor.do_send(msg.with_span_context());
             }
         }
         NetworkRequests::PartialEncodedChunkRequest { target, request, .. } => {

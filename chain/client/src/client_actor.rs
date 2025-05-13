@@ -1401,23 +1401,18 @@ impl ClientActorInner {
         };
 
         // If we produced the optimistic block, send it out before we save it.
-        let epoch_id = self
-            .client
-            .chain
-            .epoch_manager
-            .get_epoch_id_from_prev_block(optimistic_block.prev_block_hash())?;
+        let epoch_manager = self.client.chain.epoch_manager.clone();
+        let epoch_id =
+            epoch_manager.get_epoch_id_from_prev_block(optimistic_block.prev_block_hash())?;
         //  TODO(#10584): Maybe we just need to send this to the next producers.
-        let block_producers: HashSet<AccountId> = self
-            .client
-            .chain
-            .epoch_manager
-            .get_epoch_block_producers_ordered(&epoch_id)?
+        let chunk_producers: HashSet<AccountId> = epoch_manager
+            .get_epoch_chunk_producers(&epoch_id)?
             .iter()
             .map(|bp| bp.account_id().clone())
             .collect();
         self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
             NetworkRequests::OptimisticBlock {
-                block_producers: block_producers.into_iter().collect_vec(),
+                chunk_producers: chunk_producers.into_iter().collect_vec(),
                 optimistic_block: optimistic_block.clone(),
             },
         ));

@@ -2294,7 +2294,7 @@ impl Client {
 
 impl Client {
     /// Each epoch defines a set of important accounts: block producers, chunk producers,
-    /// approvers. Low-latency reliable communication between those accounts is critical,
+    /// chunk validators. Low-latency reliable communication between those accounts is critical,
     /// so that the blocks can be produced on time. This function computes the set of
     /// important accounts (aka TIER1 accounts) so that it can be fed to PeerManager, which
     /// will take care of the traffic prioritization.
