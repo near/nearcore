@@ -133,10 +133,10 @@ You should be able to use any valid forknet image with [forknet terraform recipe
 This [setup](https://github.com/Near-One/infra-ops/tree/tpsnet/provisioning/terraform/infra/network/mocknet/tpsnet) is an example infra suitable for the benchmark. You can make a copy then make the following modifications:
 
 1. in `main.tf`: update `unique_id` and `start_height`, then specify the number
-   of nodes to start & their regions. Number of instances specified in terraform
-   (when totalled across regions) _MUST_ match the `CASE` you intend to run (eg, 20
-   CP + 1 RPC = 21) -- see below or [`cases`](https://github.com/near/nearcore/tree/master/benchmarks/sharded-bm/cases) Note all regions may not
-   support starting all types of instances (you can check in the console)
+of nodes to start & their regions. Number of instances specified in terraform
+(when totalled across regions) _MUST_ match the `CASE` you intend to run (eg, 20
+CP + 1 RPC = 21) -- see below or [`cases`](https://github.com/near/nearcore/tree/master/benchmarks/sharded-bm/cases) Note all regions may not
+support starting all types of instances (you can check in the console)
 2. in `resources.tf` modify the bucket prefix to be unique (will store the terraform state)
 
 If needed, switch active project with:
