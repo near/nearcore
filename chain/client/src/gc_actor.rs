@@ -65,9 +65,12 @@ impl GCActor {
             );
         }
         // ReshardingV3 mapping for archival nodes (#12578) was built under assumption
-        // that archival nodes keep tracking all shards. If this ever changes and need
-        // to remove this assert, make sure State mapping is properly handled.
-        debug_assert!(self.shard_tracker.tracks_all_shards());
+        // that once we track a shard, we keep tracking descendant shards.
+        // If this ever changes and need to remove this assert,
+        // make sure State mapping is properly handled.
+        debug_assert!(
+            self.shard_tracker.tracks_all_shards() || self.shard_tracker.tracks_arbitrary_shards()
+        );
 
         // An archival node with split storage should perform garbage collection
         // on the hot storage. In order to determine if split storage is enabled

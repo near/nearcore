@@ -428,6 +428,10 @@ impl EpochManagerAdapter for MockEpochManager {
         12 + (self.num_shards as usize + 1) % 50
     }
 
+    fn genesis_protocol_version(&self) -> ProtocolVersion {
+        PROTOCOL_VERSION
+    }
+
     fn num_data_parts(&self) -> usize {
         // Same as in Nightshade Runtime
         let total_parts = self.num_total_parts();

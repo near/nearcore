@@ -10,7 +10,7 @@ use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::StateSyncInfo;
 use near_primitives::types::{AccountId, EpochId, ShardId};
-use near_primitives::version::PROD_GENESIS_PROTOCOL_VERSION;
+use near_store::ShardUId;
 
 // bit mask for which shard to track
 type BitMask = Vec<bool>;
@@ -74,7 +74,7 @@ impl ShardTracker {
             TrackedShardsConfig::AllShards => Ok(true),
             TrackedShardsConfig::Shards(tracked_shards) => {
                 // TODO(#13445): Turn the check below into a debug assert and call it earlier,
-                // for all `tracked_shards_config`` variants.
+                // for all `tracked_shards_config` variants.
                 let shard_layout = self.epoch_manager.get_shard_layout(epoch_id)?;
                 if !shard_layout.shard_ids().contains(&shard_id) {
                     return Err(EpochError::ShardingError(format!("Invalid shard id {shard_id}")));
@@ -290,6 +290,14 @@ impl ShardTracker {
         self.tracked_shards_config.tracks_all_shards()
     }
 
+    /// Returns whether the node tracks a non-empty, arbitrary subset of shards.
+    pub fn tracks_arbitrary_shards(&self) -> bool {
+        match &self.tracked_shards_config {
+            TrackedShardsConfig::Shards(shards) => !shards.is_empty(),
+            _ => false,
+        }
+    }
+
     /// Return all shards that whose states need to be caught up
     /// That has two cases:
     /// 1) Shard layout will change in the next epoch. In this case, the method returns all shards
@@ -364,7 +372,7 @@ impl ShardTracker {
 
     /// Checks whether `shard_id` is a descendant of any of the `tracked_shards`.
     /// Assumes that `shard_id` exists in the shard layout of `epoch_id`.
-    fn check_if_descendant_of_tracked_shard(
+    pub fn check_if_descendant_of_tracked_shard(
         &self,
         shard_id: ShardId,
         tracked_shards: &Vec<ShardId>,
@@ -376,7 +384,7 @@ impl ShardTracker {
             return Ok(*is_tracked);
         }
 
-        let is_tracked = check_if_descendant_of_tracked_shard(
+        let is_tracked = check_if_descendant_of_tracked_shard_impl(
             shard_id,
             &tracked_shards,
             &epoch_id,
@@ -385,9 +393,23 @@ impl ShardTracker {
         self.descendant_of_tracked_shard_cache.lock().unwrap().insert(shard_id, is_tracked);
         Ok(is_tracked)
     }
+
+    pub fn get_shards_tracks_in_epoch_non_validator(
+        &self,
+        epoch_id: &EpochId,
+    ) -> Result<Vec<ShardUId>, EpochError> {
+        let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
+        let mut tracked_shards = vec![];
+        for shard_uid in shard_layout.shard_uids() {
+            if self.tracks_shard_at_epoch(shard_uid.shard_id(), &epoch_id)? {
+                tracked_shards.push(shard_uid);
+            }
+        }
+        Ok(tracked_shards)
+    }
 }
 
-fn check_if_descendant_of_tracked_shard(
+fn check_if_descendant_of_tracked_shard_impl(
     mut shard_id: ShardId,
     tracked_shards: &Vec<ShardId>,
     epoch_id: &EpochId,
@@ -399,7 +421,8 @@ fn check_if_descendant_of_tracked_shard(
     }
     let mut tracked_shards: HashSet<ShardId> = tracked_shards.into_iter().cloned().collect();
     let mut protocol_version = epoch_manager.get_epoch_protocol_version(epoch_id)?;
-    while protocol_version > PROD_GENESIS_PROTOCOL_VERSION {
+    let genesis_protocol_version = epoch_manager.genesis_protocol_version();
+    while protocol_version >= genesis_protocol_version {
         let shard_layout = epoch_manager.get_shard_layout_from_protocol_version(protocol_version);
         // Invariants:
         // * `shard_id` is an ancestor of the original `shard_id` (or itself).

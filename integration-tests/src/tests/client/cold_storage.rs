@@ -4,6 +4,7 @@ use near_chain_configs::{Genesis, MutableConfigValue};
 use near_client::ProcessTxResponse;
 use near_crypto::{InMemorySigner, KeyType, Signer};
 use near_epoch_manager::EpochManager;
+use near_epoch_manager::shard_tracker::ShardTracker;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::block::Tip;
 use near_primitives::sharding::ShardChunk;
@@ -158,9 +159,10 @@ fn test_storage_after_commit_of_cold_update() {
         let client_store = client.runtime_adapter.store();
         let epoch_id = client.epoch_manager.get_epoch_id(block.hash()).unwrap();
         let shard_layout = client.epoch_manager.get_shard_layout(&epoch_id).unwrap();
+        let shard_uids = shard_layout.shard_uids().collect();
         let is_last_block_in_epoch =
             client.epoch_manager.is_next_block_epoch_start(block.hash()).unwrap();
-        update_cold_db(cold_db, &client_store, &shard_layout, &height, is_last_block_in_epoch, 4)
+        update_cold_db(cold_db, &client_store, &shard_uids, &height, is_last_block_in_epoch, 4)
             .unwrap();
 
         last_hash = *block.hash();
@@ -308,9 +310,10 @@ fn test_cold_db_copy_with_height_skips() {
         assert!(&block_hash == block.hash());
         let epoch_id = client.epoch_manager.get_epoch_id(&block_hash).unwrap();
         let shard_layout = client.epoch_manager.get_shard_layout(&epoch_id).unwrap();
+        let shard_uids = shard_layout.shard_uids().collect();
         let is_last_block_in_epoch =
             client.epoch_manager.is_next_block_epoch_start(&block_hash).unwrap();
-        update_cold_db(&cold_db, hot_store, &shard_layout, &height, is_last_block_in_epoch, 1)
+        update_cold_db(&cold_db, hot_store, &shard_uids, &height, is_last_block_in_epoch, 1)
             .unwrap();
         last_hash = block_hash;
     }
@@ -514,7 +517,11 @@ fn test_cold_loop_on_gc_boundary() {
 
     let epoch_manager =
         EpochManager::new_arc_handle(storage.get_hot_store(), &genesis.config, None);
-    spawn_cold_store_loop(&near_config, &storage, epoch_manager).unwrap();
+    let shard_tracker = ShardTracker::new(
+        near_config.client_config.tracked_shards_config.clone(),
+        epoch_manager.clone(),
+    );
+    spawn_cold_store_loop(&near_config, &storage, epoch_manager, shard_tracker).unwrap();
     std::thread::sleep(std::time::Duration::from_secs(1));
 
     let end_cold_head =
