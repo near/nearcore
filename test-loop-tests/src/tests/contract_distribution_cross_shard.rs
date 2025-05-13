@@ -83,7 +83,8 @@ fn setup(accounts: &Vec<AccountId>) -> (TestLoopEnv, AccountId) {
     let clients = accounts.iter().take(NUM_VALIDATORS + NUM_RPC).cloned().collect_vec();
     let rpc_id = accounts[NUM_VALIDATORS].clone();
 
-    let shard_layout = ShardLayout::simple_v1(&["account4"]);
+    let boundary_accounts = ["account4"].iter().map(|a| a.parse().unwrap()).collect();
+    let shard_layout = ShardLayout::multi_shard_custom(boundary_accounts, 1);
     let validators_spec =
         ValidatorsSpec::desired_roles(&block_and_chunk_producers, &chunk_validators_only);
 
