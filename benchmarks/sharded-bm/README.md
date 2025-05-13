@@ -33,7 +33,7 @@ The main objective is to make the benchmarks easy to run and reproducible.
    ```
 3. Install required Python packages:
    ```sh
-   pip install -r nearcore/pytest/requirements.txt
+   pip install -r pytest/requirements.txt
    ```
 4. Always run `./bench.sh` commands from within the active virtualenv.
 
