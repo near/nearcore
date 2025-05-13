@@ -184,9 +184,8 @@ const epochInfoAggregator = {
 };
 
 const epochConfig = {
-    struct: {
-    }
-}
+    struct: {},
+};
 
 const executionOutcome = {
     struct: {
