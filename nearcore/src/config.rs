@@ -116,7 +116,7 @@ pub const NETWORK_LEGACY_TELEMETRY_URL: &str = "https://explorer.{}.near.org/api
 pub const NETWORK_TELEMETRY_URL: &str = "https://telemetry.nearone.org/nodes";
 
 fn default_doomslug_step_period() -> Duration {
-    Duration::milliseconds(100)
+    Duration::milliseconds(10)
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
