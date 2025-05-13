@@ -4,7 +4,6 @@ use near_chain_configs::{Genesis, MutableConfigValue};
 use near_client::ProcessTxResponse;
 use near_crypto::{InMemorySigner, KeyType, Signer};
 use near_epoch_manager::EpochManager;
-use near_epoch_manager::shard_tracker::ShardTracker;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::block::Tip;
 use near_primitives::sharding::ShardChunk;
@@ -451,6 +450,7 @@ fn test_cold_loop_on_gc_boundary() {
         .archive(true)
         .save_trie_changes(true)
         .stores(vec![hot_store.clone()])
+        .track_all_shards()
         .nightshade_runtimes(&genesis)
         .build();
 
@@ -517,10 +517,7 @@ fn test_cold_loop_on_gc_boundary() {
 
     let epoch_manager =
         EpochManager::new_arc_handle(storage.get_hot_store(), &genesis.config, None);
-    let shard_tracker = ShardTracker::new(
-        near_config.client_config.tracked_shards_config.clone(),
-        epoch_manager.clone(),
-    );
+    let shard_tracker = env.clients[0].shard_tracker.clone();
     spawn_cold_store_loop(&near_config, &storage, epoch_manager, shard_tracker).unwrap();
     std::thread::sleep(std::time::Duration::from_secs(1));
 

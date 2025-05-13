@@ -1,5 +1,5 @@
 use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use crate::EpochManagerAdapter;
 use itertools::Itertools;
@@ -11,6 +11,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::StateSyncInfo;
 use near_primitives::types::{AccountId, EpochId, ShardId};
 use near_store::ShardUId;
+use parking_lot::Mutex;
 
 // bit mask for which shard to track
 type BitMask = Vec<bool>;
@@ -378,9 +379,7 @@ impl ShardTracker {
         tracked_shards: &Vec<ShardId>,
         epoch_id: &EpochId,
     ) -> Result<bool, EpochError> {
-        if let Some(is_tracked) =
-            self.descendant_of_tracked_shard_cache.lock().unwrap().get(&shard_id)
-        {
+        if let Some(is_tracked) = self.descendant_of_tracked_shard_cache.lock().get(&shard_id) {
             return Ok(*is_tracked);
         }
 
@@ -390,7 +389,7 @@ impl ShardTracker {
             &epoch_id,
             &self.epoch_manager,
         )?;
-        self.descendant_of_tracked_shard_cache.lock().unwrap().insert(shard_id, is_tracked);
+        self.descendant_of_tracked_shard_cache.lock().insert(shard_id, is_tracked);
         Ok(is_tracked)
     }
 
