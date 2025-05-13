@@ -2,8 +2,8 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use super::event_type::ReshardingSplitShardParams;
+use super::flat_storage_resharder::FlatStorageResharder;
 use super::types::ScheduleResharding;
-use crate::flat_storage_resharder::FlatStorageResharder;
 use crate::types::RuntimeAdapter;
 use near_async::futures::{DelayedActionRunner, DelayedActionRunnerExt};
 use near_async::messaging::{self, HandlerWithContext};

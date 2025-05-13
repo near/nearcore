@@ -932,8 +932,8 @@ mod tests {
     use near_store::genesis::initialize_genesis_state;
     use near_store::test_utils::create_test_store;
 
-    use crate::flat_storage_resharder::FlatStorageReshardingTaskResult;
     use crate::rayon_spawner::RayonAsyncComputationSpawner;
+    use crate::resharding::flat_storage_resharder::FlatStorageReshardingTaskResult;
     use crate::runtime::NightshadeRuntime;
     use crate::types::{ChainConfig, RuntimeAdapter};
     use crate::{Chain, ChainGenesis, DoomslugThresholdMode};
