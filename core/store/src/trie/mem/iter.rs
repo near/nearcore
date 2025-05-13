@@ -57,12 +57,6 @@ impl<'a> GenericTrieInternalStorage<MemTrieNodeId, FlatStateValue> for MemTrieIt
     ) -> Result<Vec<u8>, StorageError> {
         let optimized_value_ref = OptimizedValueRef::from_flat_value(value_ref);
         let value = self.trie.deref_optimized(opts, &optimized_value_ref)?;
-        if opts.enable_state_witness_recording {
-            if let Some(recorder) = &self.trie.recorder {
-                let value_hash = optimized_value_ref.into_value_ref().hash;
-                recorder.write().record(&value_hash, value.clone().into());
-            };
-        }
         Ok(value)
     }
 }
