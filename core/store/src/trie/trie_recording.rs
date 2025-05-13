@@ -856,7 +856,7 @@ mod memtrie_batch_iteration_tests {
         let root = test_populate_trie(&tries, &Trie::EMPTY_ROOT, shard_uid, initial.clone());
 
         // Iterate memtrie in batches
-        let trie: Trie = tries.get_trie_for_shard(shard_uid, root).recording_reads_new_recorder();
+        let trie = tries.get_trie_for_shard(shard_uid, root).recording_reads_new_recorder();
 
         let batch_size = 20;
         let mut last_key: Option<Vec<u8>> = None;
@@ -878,6 +878,6 @@ mod memtrie_batch_iteration_tests {
         let trie_changes = new_trie
             .update_with_trie_storage(initial, AccessOptions::DEFAULT)
             .expect("failed to update trie");
-        assert_eq!(all_changes, trie_changes);
+        assert_eq!(trie_changes, all_changes);
     }
 }
