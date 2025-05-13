@@ -203,7 +203,7 @@ Grafana mostly, [Blockchain utilization dashboard](https://grafana.nearone.org/g
 
 To benchmark a custom `neard` binary:
 
-1. **Build nearcore with tx_generator**:
+1. **Build neard with tx_generator**:
     ```sh
     cargo build --release --features=tx_generator
     ```
