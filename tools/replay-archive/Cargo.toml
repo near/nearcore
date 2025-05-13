@@ -18,6 +18,7 @@ itertools.workspace = true
 parking_lot.workspace = true
 
 near-chain.workspace = true
+node-runtime.workspace = true
 near-chunks.workspace = true
 near-primitives.workspace = true
 near-primitives-core.workspace = true
