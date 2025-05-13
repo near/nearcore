@@ -69,7 +69,7 @@ use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{CatchupStatusView, DroppedReason};
 use std::cmp::max;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 use tracing::{debug, debug_span, error, info, warn};
@@ -174,6 +174,8 @@ pub struct Client {
     upgrade_schedule: ProtocolUpgradeVotingSchedule,
     /// Produced optimistic block.
     last_optimistic_block_produced: Option<OptimisticBlock>,
+    /// Cached precomputed set of TIER1 accounts to which Optimistic Block should be sent.
+    optimistic_block_targets_cache: Option<(EpochId, Arc<Vec<AccountId>>)>,
 }
 
 impl AsRef<Client> for Client {
@@ -366,6 +368,7 @@ impl Client {
             chunk_distribution_network,
             upgrade_schedule,
             last_optimistic_block_produced: None,
+            optimistic_block_targets_cache: None,
         })
     }
 
@@ -2267,6 +2270,31 @@ impl Client {
         let account_keys = Arc::new(account_keys);
         self.tier1_accounts_cache = Some((tip.epoch_id, account_keys.clone()));
         Ok(account_keys)
+    }
+
+    /// We send the optimistic block to the chunk producers of the current and next epochs.
+    pub(crate) fn get_optimistic_block_targets(
+        &mut self,
+        tip: &Tip,
+    ) -> Result<Arc<Vec<AccountId>>, Error> {
+        match &self.optimistic_block_targets_cache {
+            Some(it) if it.0 == tip.epoch_id => return Ok(it.1.clone()),
+            _ => {}
+        }
+
+        let _guard =
+            tracing::debug_span!(target: "client", "get_optimistic_block_targets(): recomputing")
+                .entered();
+
+        let mut account_ids = HashSet::new();
+        for epoch_id in [&tip.epoch_id, &tip.next_epoch_id] {
+            for cp in self.epoch_manager.get_epoch_chunk_producers(epoch_id)? {
+                account_ids.insert(cp.account_id().clone());
+            }
+        }
+        let account_ids = Arc::new(account_ids.into_iter().collect_vec());
+        self.optimistic_block_targets_cache = Some((tip.epoch_id, account_ids.clone()));
+        Ok(account_ids)
     }
 
     /// send_network_chain_info sends ChainInfo to PeerManagerActor.

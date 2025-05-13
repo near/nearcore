@@ -424,15 +424,17 @@ fn network_message_to_client_handler(
         NetworkRequests::OptimisticBlock { chunk_producers, optimistic_block } => {
             let my_peer_id = shared_state.account_to_peer_id(&my_account_id);
             for account_id in shared_state.accounts() {
-                if chunk_producers.contains(&account_id) {
-                    let _ = shared_state
-                        .senders_for_account(&my_account_id, &account_id)
-                        .client_sender
-                        .send(OptimisticBlockMessage {
-                            optimistic_block: optimistic_block.clone(),
-                            from_peer: my_peer_id.clone(),
-                        });
+                if !chunk_producers.contains(&account_id) {
+                    continue;
                 }
+                let msg = OptimisticBlockMessage {
+                    optimistic_block: optimistic_block.clone(),
+                    from_peer: my_peer_id.clone(),
+                };
+                let _ = shared_state
+                    .senders_for_account(&my_account_id, &account_id)
+                    .client_sender
+                    .send(msg);
             }
             None
         }

@@ -22,7 +22,6 @@ use crate::sync::state::chain_requests::{
 use crate::sync_jobs_actor::{ClientSenderForSyncJobs, SyncJobsActor};
 use crate::{StatusResponse, metrics};
 use actix::Actor;
-use itertools::Itertools;
 use near_async::actix::AddrWithAutoSpanContextExt;
 use near_async::actix_wrapper::ActixWrapper;
 use near_async::futures::{DelayedActionRunner, DelayedActionRunnerExt, FutureSpawner};
@@ -80,7 +79,6 @@ use near_telemetry::TelemetryEvent;
 use parking_lot::Mutex;
 use rand::seq::SliceRandom;
 use rand::{Rng, thread_rng};
-use std::collections::HashSet;
 use std::fmt;
 use std::sync::Arc;
 use tokio::sync::broadcast;
@@ -1383,18 +1381,11 @@ impl ClientActorInner {
         };
 
         // If we produced the optimistic block, send it out before we save it.
-        let epoch_manager = self.client.chain.epoch_manager.clone();
-        let epoch_id =
-            epoch_manager.get_epoch_id_from_prev_block(optimistic_block.prev_block_hash())?;
-        //  TODO(#10584): Maybe we just need to send this to the next producers.
-        let chunk_producers: HashSet<AccountId> = epoch_manager
-            .get_epoch_chunk_producers(&epoch_id)?
-            .iter()
-            .map(|bp| bp.account_id().clone())
-            .collect();
+        let tip = self.client.chain.head()?;
+        let targets = self.client.get_optimistic_block_targets(&tip)?;
         self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
             NetworkRequests::OptimisticBlock {
-                chunk_producers: chunk_producers.into_iter().collect_vec(),
+                chunk_producers: (*targets).clone(),
                 optimistic_block: optimistic_block.clone(),
             },
         ));
