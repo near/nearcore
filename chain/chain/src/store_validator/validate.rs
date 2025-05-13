@@ -12,7 +12,7 @@ use near_primitives::state_sync::{ShardStateSyncResponseHeader, StateHeaderKey, 
 use near_primitives::transaction::{ExecutionOutcomeWithProof, SignedTransaction};
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, EpochId};
-use near_primitives::utils::{get_block_shard_id, get_outcome_id_block_hash, index_to_bytes};
+use near_primitives::utils::{get_block_shard_id, index_to_bytes};
 use near_store::{
     CHUNK_TAIL_KEY, DBCol, FORK_TAIL_KEY, HEAD_KEY, HEADER_HEAD_KEY, TAIL_KEY, TrieChanges,
 };
@@ -687,25 +687,6 @@ pub(crate) fn header_hash_of_height_exists(
             hash
         );
         check_discrepancy!(header.height(), *height, "Invalid Header {:?} stored", header);
-    }
-    Ok(())
-}
-
-pub(crate) fn outcome_by_outcome_id_exists(
-    sv: &mut StoreValidator,
-    block_hash: &CryptoHash,
-    outcome_ids: &[CryptoHash],
-) -> Result<(), StoreValidatorError> {
-    for outcome_id in outcome_ids {
-        let _outcome = unwrap_or_err_db!(
-            sv.store.get_ser::<ExecutionOutcomeWithProof>(
-                DBCol::TransactionResultForBlock,
-                &get_outcome_id_block_hash(outcome_id, block_hash)
-            ),
-            "Can't get TransactionResultForBlock from storage with Outcome id {:?} block hash {:?}",
-            outcome_id,
-            block_hash
-        );
     }
     Ok(())
 }

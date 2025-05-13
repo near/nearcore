@@ -32,7 +32,7 @@ use near_primitives::types::{
     StateChangesKinds, StateChangesKindsExt, StateChangesRequest,
 };
 use near_primitives::utils::{
-    get_block_shard_id, get_outcome_id_block_hash, get_outcome_id_block_hash_rev, index_to_bytes,
+    get_block_shard_id, get_outcome_id_block_hash_rev, index_to_bytes,
     to_timestamp,
 };
 use near_primitives::version::{ProtocolFeature, ProtocolVersion};
@@ -1926,15 +1926,6 @@ impl<'a> ChainStoreUpdate<'a> {
         {
             let _span = tracing::debug_span!(target: "store", "write_outcomes").entered();
 
-            for ((outcome_id, block_hash), outcome_with_proof) in
-                &self.chain_store_cache_update.outcomes
-            {
-                store_update.insert_ser(
-                    DBCol::TransactionResultForBlock,
-                    &get_outcome_id_block_hash(outcome_id, block_hash),
-                    &outcome_with_proof,
-                )?;
-            }
             for ((block_hash, shard_id), ids) in &self.chain_store_cache_update.outcome_ids {
                 store_update.set_ser(
                     DBCol::OutcomeIds,
