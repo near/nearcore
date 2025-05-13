@@ -457,7 +457,7 @@ export async function fetchBlockStatus(
 }
 
 export async function fetchEpochInfo(
-    addr: string, 
+    addr: string,
     epochId: string | null
 ): Promise<EpochInfoResponse> {
     const trailing = epochId ? `/${epochId}` : '';

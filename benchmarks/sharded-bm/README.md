@@ -7,8 +7,36 @@ The main objective is to make the benchmarks easy to run and reproducible.
 ## Requirements
 
 - `cargo` to build synthetic benchmark tools
-- `gcloud`, `python` for forknet benchmarks
-- a linux VM or machine to run benchmark and build binaries 
+- `gcloud`, `terraform` for forknet benchmarks
+- `python3` and `pip`
+- On Ubuntu 22.04/24.04 LTS, install additional dependencies:
+  ```sh
+  sudo apt update
+  sudo apt install -y build-essential libssl-dev pkg-config jq bc curl sysstat python3-venv
+  ```
+- Copy SSH keys to project metadata
+  ```sh
+  gcloud compute project-info add-metadata \
+    --project=nearone-mocknet \
+    --metadata ssh-keys="$(cat ~/.ssh/id_rsa.pub)"
+  ```
+
+### Python setup
+
+1. Create a virtual environment:
+   ```sh
+   python3 -m venv venv
+   ```
+2. Activate the virtual environment:
+   ```sh
+   source venv/bin/activate
+   ```
+3. Install required Python packages:
+   ```sh
+   pip install -r pytest/requirements.txt
+   ```
+4. Always run `./bench.sh` commands from `benchmarks/sharded-bm` folder and
+within the active virtualenv.
 
 ## Benchmark cases definition
 
@@ -47,7 +75,7 @@ The basic flow is the following:
     ./bench.sh start-nodes <BENCH CASE>
     ```
 
-    I advice checking that the network started correctly before proceeding, especially if there are multiple nodes.
+    I advise checking that the network started correctly before proceeding, especially if there are multiple nodes.
 
 4. Create the test accounts
 
@@ -91,7 +119,7 @@ The basic flow is the following:
 
 `neard` logs are inside `logs` for a localnet or in `journalctl` for a single node.
 
-`synth-bm` logs are inside `logs`
+`synth-bm` logs are inside `logs`.
 
 Debug UI works, just use the machine public IP.
 
@@ -111,7 +139,12 @@ CP + 1 RPC = 21) -- see below or [`cases`](https://github.com/near/nearcore/tree
 support starting all types of instances (you can check in the console)
 2. in `resources.tf` modify the bucket prefix to be unique (will store the terraform state)
 
-Next, you can deploy it with:
+If needed, switch active project with:
+```sh
+gcloud config set project nearone-mocknet
+gcloud auth application-default set-quota-project nearone-mocknet
+```
+Next, you can deploy the nodes with:
 ```sh
 terraform init
 terraform apply
@@ -127,7 +160,7 @@ gcloud compute instances list --project=nearone-mocknet --filter <UNIQUE ID>
 
 1. Set the correct values in the test case `params.json`. Keep in mind that:
    - Benchmarks run with one RPC node exactly. RPC node will be selected automatically and it will be the 'last' GCP instance.
-   - Nodes will run the `neard` binary specified in `forknet.binary_url`
+   - Nodes will run the `neard` binary specified in `forknet.binary_url`.
 2. Follow these instructions (they work on macOS as well):
 
 <!-- cspell:words BENCHNET -->
@@ -166,6 +199,37 @@ Grafana mostly, [Blockchain utilization dashboard](https://grafana.nearone.org/g
     ./bench.sh mirror <ARGS>
     ```
 
+### Testing Custom Binaries
+
+To benchmark a custom `neard` binary:
+
+1. **Build neard with tx_generator**:
+    ```sh
+    cargo build --release --features=tx_generator
+    ```
+
+2. **Create a Google Cloud Storage bucket** (if you don't have one already):
+    ```sh
+    gsutil mb gs://<your_bucket_name>
+    ```
+
+3. **Upload the `neard` binary**:
+    ```sh
+    NEARD=neard-$(date +%Y%m%d)
+    cp target/release/neard /tmp/${NEARD}
+    gsutil cp /tmp/${NEARD} gs://<your_bucket_name>/
+    gsutil -m acl set -R -a public-read gs://<your_bucket_name>/${NEARD}
+    ```
+
+4. **Use the public URL** in your `cases/.../params.json`:
+    ```json
+    {
+      "forknet": {
+        "binary_url": "https://storage.googleapis.com/<your_bucket_name>/<NEARD filename>"
+      }
+    }
+    ```
+
 ### Forknet - How to measure max TPS
 
 Follow these steps to determine the maximum TPS (transactions per second) the network can handle, to build a report similar to [this example](https://github.com/near/nearcore/issues/13130#issuecomment-2797211286):
@@ -183,6 +247,8 @@ Follow these steps to determine the maximum TPS (transactions per second) the ne
           - Repeat the loop to test the new TPS.
         - **If blocks per second drops below expected:**  
           - Stop the experiment. The previous *max TPS* is the network’s maximum sustainable throughput.
+
+**Note:** the `tx_generator.tps` parameter in `params.json` specifies the number of transactions per second to inject **per shard**.
 
 The idea is to gradually increase the load (TPS) in small steps, starting from a safe value, until the network can no longer keep up.
 

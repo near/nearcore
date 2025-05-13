@@ -280,6 +280,46 @@ gen_forknet() {
     echo "===> Done initializing nodes with new-test"
 }
 
+check_neard_binary() {
+    if [ "${TX_GENERATOR}" = false ]; then
+        return
+    fi
+
+    local version_output=$($MIRROR --host-type nodes run-cmd --cmd "${FORKNET_NEARD_PATH} --version")
+    local failed_nodes=""
+    local commits=""
+
+    # Parses the following output for each node:
+    # [2025-05-13 00:49:04] INFO: mocknet-mainnet-138038232-forknet-abcd:
+    # neard (commit 05bd30882b00b41b3162c4b71d50cec8b37bfb90)
+    # features: [default, json_rpc, rosetta_rpc, tx_generator]
+    while IFS= read -r line; do
+        if [[ $line == *"${FORKNET_NAME}"* ]]; then
+            local node_name=$(echo "$line" | grep -o "[^:]*${FORKNET_NAME}[^:]*")
+        elif [[ $line == *"features"* ]]; then
+            if ! echo "$line" | grep -q "tx_generator"; then
+                failed_nodes="${failed_nodes}${node_name}\n"
+            fi
+        elif [[ $line == *"commit"* ]]; then
+            local commit=$(echo "$line" | grep -o "commit [0-9a-f]*" | cut -d' ' -f2 | cut -c1-9)
+            if [ ! -z "$commit" ]; then
+                commits="${commits}${commit}\n"
+            fi
+        fi
+    done <<< "$version_output"
+
+    if [ ! -z "$commits" ]; then
+        echo "Node commits:"
+        echo -e "$commits" | grep -v '^$' | sort | uniq -c
+    fi
+
+    if [ ! -z "$failed_nodes" ]; then
+        echo "Error: The following nodes do not have tx_generator feature enabled:"
+        echo -e "$failed_nodes"
+        exit 1
+    fi
+}
+
 init_forknet() {
     cd ${PYTEST_PATH}
     # Initialize neard runner with the specified binary
@@ -304,6 +344,8 @@ init_forknet() {
             $MIRROR --host-type nodes run-cmd --cmd "chmod +x ${BENCHNET_DIR}/${SYNTH_BM_BASENAME}"
         fi
     fi
+    
+    check_neard_binary
     
     cd -
     
