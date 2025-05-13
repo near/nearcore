@@ -3360,7 +3360,7 @@
           "iteration_delay": {
             "allOf": [
               {
-                "$ref": "#/components/schemas/DurationSchemaProvider"
+                "$ref": "#/components/schemas/DurationAsStdSchemaProvider"
               }
             ],
             "description": "How often to check if a new epoch has started.\n Feel free to set to `None`, defaults are sensible."
@@ -3387,7 +3387,7 @@
         ],
         "type": "object"
       },
-      "DurationSchemaProvider": {
+      "DurationAsStdSchemaProvider": {
         "properties": {
           "nanos": {
             "format": "int32",
@@ -3433,7 +3433,7 @@
           "timeout_for_epoch_sync": {
             "allOf": [
               {
-                "$ref": "#/components/schemas/DurationSchemaProvider"
+                "$ref": "#/components/schemas/DurationAsStdSchemaProvider"
               }
             ],
             "description": "Timeout for epoch sync requests. The node will continue retrying indefinitely even\n if this timeout is exceeded."
@@ -4660,7 +4660,7 @@
           "gc_step_period": {
             "allOf": [
               {
-                "$ref": "#/components/schemas/DurationSchemaProvider"
+                "$ref": "#/components/schemas/DurationAsStdSchemaProvider"
               }
             ],
             "default": {

@@ -8,7 +8,7 @@ use near_primitives::types::{
 use near_primitives::version::Version;
 use near_time::Duration;
 #[cfg(feature = "schemars")]
-use near_time::DurationSchemaProvider;
+use near_time::{DurationAsStdSchemaProvider, DurationSchemarsProvider};
 use num_rational::Rational32;
 use std::cmp::{max, min};
 use std::num::NonZero;
@@ -123,7 +123,7 @@ pub struct GCConfig {
 
     /// How often gc should be run
     #[serde(with = "near_time::serde_duration_as_std")]
-    #[cfg_attr(feature = "schemars", schemars(with = "DurationSchemaProvider"))]
+    #[cfg_attr(feature = "schemars", schemars(with = "DurationAsStdSchemaProvider"))]
     pub gc_step_period: Duration,
 }
 
@@ -207,7 +207,7 @@ pub struct DumpConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(default)]
     #[serde(with = "near_time::serde_opt_duration_as_std")]
-    #[cfg_attr(feature = "schemars", schemars(with = "Option<DurationSchemaProvider>"))]
+    #[cfg_attr(feature = "schemars", schemars(with = "Option<DurationAsStdSchemaProvider>"))]
     pub iteration_delay: Option<Duration>,
     /// Location of a json file with credentials allowing write access to the bucket.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -287,7 +287,7 @@ pub struct EpochSyncConfig {
     /// Timeout for epoch sync requests. The node will continue retrying indefinitely even
     /// if this timeout is exceeded.
     #[serde(with = "near_time::serde_duration_as_std")]
-    #[cfg_attr(feature = "schemars", schemars(with = "DurationSchemaProvider"))]
+    #[cfg_attr(feature = "schemars", schemars(with = "DurationAsStdSchemaProvider"))]
     pub timeout_for_epoch_sync: Duration,
 }
 
@@ -345,21 +345,21 @@ pub struct ReshardingConfig {
     /// increased if resharding is consuming too many resources and interfering
     /// with regular node operation.
     #[serde(with = "near_time::serde_duration_as_std")]
-    #[cfg_attr(feature = "schemars", schemars(with = "DurationSchemaProvider"))]
+    #[cfg_attr(feature = "schemars", schemars(with = "DurationAsStdSchemaProvider"))]
     pub batch_delay: Duration,
 
     /// The delay between attempts to start resharding while waiting for the
     /// state snapshot to become available.
     /// UNUSED in ReshardingV3.
     #[serde(with = "near_time::serde_duration_as_std")]
-    #[cfg_attr(feature = "schemars", schemars(with = "DurationSchemaProvider"))]
+    #[cfg_attr(feature = "schemars", schemars(with = "DurationAsStdSchemaProvider"))]
     pub retry_delay: Duration,
 
     /// The delay between the resharding request is received and when the actor
     /// actually starts working on it. This delay should only be used in tests.
     /// UNUSED in ReshardingV3.
     #[serde(with = "near_time::serde_duration_as_std")]
-    #[cfg_attr(feature = "schemars", schemars(with = "DurationSchemaProvider"))]
+    #[cfg_attr(feature = "schemars", schemars(with = "DurationAsStdSchemaProvider"))]
     pub initial_delay: Duration,
 
     /// The maximum time that the actor will wait for the snapshot to be ready,
@@ -367,7 +367,7 @@ pub struct ReshardingConfig {
     /// report error early enough for the node maintainer to have time to recover.
     /// UNUSED in ReshardingV3.
     #[serde(with = "near_time::serde_duration_as_std")]
-    #[cfg_attr(feature = "schemars", schemars(with = "DurationSchemaProvider"))]
+    #[cfg_attr(feature = "schemars", schemars(with = "DurationAsStdSchemaProvider"))]
     pub max_poll_time: Duration,
 
     /// The number of blocks applied in a single batch during shard catch up.
@@ -541,16 +541,16 @@ pub struct ClientConfig {
     /// Graceful shutdown at expected block height.
     pub expected_shutdown: MutableConfigValue<Option<BlockHeight>>,
     /// Duration to check for producing / skipping block.
-    #[cfg_attr(feature = "schemars", schemars(with = "[u64;2]"))]
+    #[cfg_attr(feature = "schemars", schemars(with = "DurationSchemarsProvider"))]
     pub block_production_tracking_delay: Duration,
     /// Minimum duration before producing block.
-    #[cfg_attr(feature = "schemars", schemars(with = "[u64;2]"))]
+    #[cfg_attr(feature = "schemars", schemars(with = "DurationSchemarsProvider"))]
     pub min_block_production_delay: Duration,
     /// Maximum wait for approvals before producing block.
-    #[cfg_attr(feature = "schemars", schemars(with = "[u64;2]"))]
+    #[cfg_attr(feature = "schemars", schemars(with = "DurationSchemarsProvider"))]
     pub max_block_production_delay: Duration,
     /// Maximum duration before skipping given height.
-    #[cfg_attr(feature = "schemars", schemars(with = "[u64;2]"))]
+    #[cfg_attr(feature = "schemars", schemars(with = "DurationSchemarsProvider"))]
     pub max_block_wait_delay: Duration,
     /// Multiplier for the wait time for all chunks to be received.
     #[cfg_attr(feature = "schemars", schemars(with = "[i32; 2]"))]
@@ -558,42 +558,42 @@ pub struct ClientConfig {
     /// Skip waiting for sync (for testing or single node testnet).
     pub skip_sync_wait: bool,
     /// How often to check that we are not out of sync.
-    #[cfg_attr(feature = "schemars", schemars(with = "[u64;2]"))]
+    #[cfg_attr(feature = "schemars", schemars(with = "DurationSchemarsProvider"))]
     pub sync_check_period: Duration,
     /// While syncing, how long to check for each step.
-    #[cfg_attr(feature = "schemars", schemars(with = "[u64;2]"))]
+    #[cfg_attr(feature = "schemars", schemars(with = "DurationSchemarsProvider"))]
     pub sync_step_period: Duration,
     /// Sync height threshold: below this difference in height don't start syncing.
     pub sync_height_threshold: BlockHeightDelta,
     /// Maximum number of block requests to send to peers to sync
     pub sync_max_block_requests: usize,
     /// How much time to wait after initial header sync
-    #[cfg_attr(feature = "schemars", schemars(with = "[u64;2]"))]
+    #[cfg_attr(feature = "schemars", schemars(with = "DurationSchemarsProvider"))]
     pub header_sync_initial_timeout: Duration,
     /// How much time to wait after some progress is made in header sync
-    #[cfg_attr(feature = "schemars", schemars(with = "[u64;2]"))]
+    #[cfg_attr(feature = "schemars", schemars(with = "DurationSchemarsProvider"))]
     pub header_sync_progress_timeout: Duration,
     /// How much time to wait before banning a peer in header sync if sync is too slow
-    #[cfg_attr(feature = "schemars", schemars(with = "[u64;2]"))]
+    #[cfg_attr(feature = "schemars", schemars(with = "DurationSchemarsProvider"))]
     pub header_sync_stall_ban_timeout: Duration,
     /// Expected increase of header head height per second during header sync
     pub header_sync_expected_height_per_second: u64,
     /// How long to wait for a response from centralized state sync
-    #[cfg_attr(feature = "schemars", schemars(with = "[u64;2]"))]
+    #[cfg_attr(feature = "schemars", schemars(with = "DurationSchemarsProvider"))]
     pub state_sync_external_timeout: Duration,
     /// How long to wait for a response from p2p state sync
-    #[cfg_attr(feature = "schemars", schemars(with = "[u64;2]"))]
+    #[cfg_attr(feature = "schemars", schemars(with = "DurationSchemarsProvider"))]
     pub state_sync_p2p_timeout: Duration,
     /// How long to wait after a failed state sync request
-    #[cfg_attr(feature = "schemars", schemars(with = "[u64;2]"))]
+    #[cfg_attr(feature = "schemars", schemars(with = "DurationSchemarsProvider"))]
     pub state_sync_retry_backoff: Duration,
     /// Additional waiting period after a failed request to external storage
-    #[cfg_attr(feature = "schemars", schemars(with = "[u64;2]"))]
+    #[cfg_attr(feature = "schemars", schemars(with = "DurationSchemarsProvider"))]
     pub state_sync_external_backoff: Duration,
     /// Minimum number of peers to start syncing.
     pub min_num_peers: usize,
     /// Period between logging summary information.
-    #[cfg_attr(feature = "schemars", schemars(with = "[u64;2]"))]
+    #[cfg_attr(feature = "schemars", schemars(with = "DurationSchemarsProvider"))]
     pub log_summary_period: Duration,
     /// Enable coloring of the logs
     pub log_summary_style: LogSummaryStyle,
@@ -604,18 +604,18 @@ pub struct ClientConfig {
     /// Number of block producer seats
     pub num_block_producer_seats: NumSeats,
     /// Time to persist Accounts Id in the router without removing them.
-    #[cfg_attr(feature = "schemars", schemars(with = "[u64;2]"))]
+    #[cfg_attr(feature = "schemars", schemars(with = "DurationSchemarsProvider"))]
     pub ttl_account_id_router: Duration,
     /// Horizon at which instead of fetching block, fetch full state.
     pub block_fetch_horizon: BlockHeightDelta,
     /// Time between check to perform catchup.
-    #[cfg_attr(feature = "schemars", schemars(with = "[u64;2]"))]
+    #[cfg_attr(feature = "schemars", schemars(with = "DurationSchemarsProvider"))]
     pub catchup_step_period: Duration,
     /// Time between checking to re-request chunks.
-    #[cfg_attr(feature = "schemars", schemars(with = "[u64;2]"))]
+    #[cfg_attr(feature = "schemars", schemars(with = "DurationSchemarsProvider"))]
     pub chunk_request_retry_period: Duration,
     /// Time between running doomslug timer.
-    #[cfg_attr(feature = "schemars", schemars(with = "[u64;2]"))]
+    #[cfg_attr(feature = "schemars", schemars(with = "DurationSchemarsProvider"))]
     pub doomslug_step_period: Duration,
     /// Behind this horizon header fetch kicks in.
     pub block_header_fetch_horizon: BlockHeightDelta,
@@ -633,7 +633,7 @@ pub struct ClientConfig {
     /// Number of threads for ViewClientActor pool.
     pub view_client_threads: usize,
     /// Number of seconds between state requests for view client.
-    #[cfg_attr(feature = "schemars", schemars(with = "[u64;2]"))]
+    #[cfg_attr(feature = "schemars", schemars(with = "DurationSchemarsProvider"))]
     pub view_client_throttle_period: Duration,
     /// Upper bound of the byte size of contract state that is still viewable. None is no limit
     pub trie_viewer_state_size_limit: Option<u64>,
