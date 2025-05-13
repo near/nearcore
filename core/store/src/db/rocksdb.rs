@@ -437,7 +437,7 @@ impl Database for RocksDB {
 
     #[tracing::instrument(
         target = "store::db::rocksdb",
-        level = "trace",
+        level = "debug",
         "RocksDB::write",
         skip_all
     )]
