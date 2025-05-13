@@ -253,7 +253,7 @@ fn alter_optimistic_block_at_height(
         peer_actor.register_override_handler(Box::new({
             let validator_signer = signer.clone();
             move |request: NetworkRequests| {
-                if let NetworkRequests::OptimisticBlock { block_producers, optimistic_block } =
+                if let NetworkRequests::OptimisticBlock { chunk_producers, optimistic_block } =
                     &request
                 {
                     if optimistic_block.height() == height {
@@ -265,7 +265,7 @@ fn alter_optimistic_block_at_height(
                             ),
                         );
                         return Some(NetworkRequests::OptimisticBlock {
-                            block_producers: block_producers.clone(),
+                            chunk_producers: chunk_producers.clone(),
                             optimistic_block: altered_ob,
                         });
                     }
