@@ -1782,16 +1782,19 @@ impl<'a> TrieWithReadLock<'a> {
     }
 
     /// Obtains an iterator that can be used to traverse the trie (see `iter`).
-    /// The iterator will start at the first key >= `start`, or at the first key
+    /// The iterator will start at the first key > `start`, or at the first key
     /// if `start` is `None`. Trie nodes accessed during the seek will not be
     /// recorded.
-    pub fn iter_seek(&self, start: Option<Vec<u8>>) -> Result<TrieIterator<'_>, StorageError> {
+    pub fn iter_seek(
+        &self,
+        start_after: Option<Vec<u8>>,
+    ) -> Result<TrieIterator<'_>, StorageError> {
         match &self.memtries {
-            Some(memtries) => Ok(TrieIterator::Memtrie(memtries.get_iter(self.trie, start)?)),
+            Some(memtries) => Ok(TrieIterator::Memtrie(memtries.get_iter(self.trie, start_after)?)),
             None => Ok(TrieIterator::Disk(DiskTrieIterator::new(
                 DiskTrieIteratorInner::new(&self.trie),
                 None,
-                start,
+                start_after,
             )?)),
         }
     }

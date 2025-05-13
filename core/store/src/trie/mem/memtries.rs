@@ -191,10 +191,10 @@ impl MemTries {
     pub fn get_iter<'a>(
         &'a self,
         trie: &'a Trie,
-        start: Option<Vec<u8>>,
+        start_after: Option<Vec<u8>>,
     ) -> Result<STMemTrieIterator<'a>, StorageError> {
         let iter_storage = MemTrieIteratorInner::new(self, trie);
-        STMemTrieIterator::new(iter_storage, None, start)
+        STMemTrieIterator::new(iter_storage, None, start_after)
     }
 
     /// Looks up a key in the memtrie with the given state_root and returns the value if found.

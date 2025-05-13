@@ -788,17 +788,15 @@ mod trie_recording_tests {
 }
 
 #[cfg(test)]
-mod trie_reconstruction_from_memtrie_tests {
-    //// XXX: This part is WIP
-
+mod memtrie_batch_iteration_tests {
     use crate::Trie;
-    use crate::adapter::StoreAdapter;
     use crate::test_utils::{
         TestTriesBuilder, create_test_store, test_populate_flat_storage, test_populate_trie,
     };
     use crate::trie::AccessOptions;
+    use crate::trie::trie_tests::merge_trie_changes;
     use near_primitives::hash::hash;
-    use near_primitives::shard_layout::{ShardLayout, ShardUId};
+    use near_primitives::shard_layout::ShardUId;
 
     use super::*;
 
@@ -813,23 +811,15 @@ mod trie_reconstruction_from_memtrie_tests {
         batch_items: usize,
     ) -> Option<Vec<u8>> {
         let read_trie = trie.lock_for_iter();
-
-        // Skip the first key if it was handled in the previous iteration
-        let skip_first = previous_batch_last_key.is_some();
-
         // Get the iterator for the trie, skipping the first key if needed
         let mut iter =
             read_trie.iter_seek(previous_batch_last_key).expect("failed to get iterator");
-        if skip_first {
-            iter.next().map(|result| result.expect("failed to iterate"));
-        }
 
         // Iterate over the trie, stopping when we reach the batch size
         while let Some(result) = iter.next() {
             let Ok((key, _value)) = result else {
                 panic!("failed to iterate");
             };
-            eprintln!("{key:?}, {_value:?}");
             // TODO: should we expect here?
             if trie.recorder_stats().map(|stats| stats.items_count).unwrap_or(0) >= batch_items {
                 return Some(key);
@@ -840,59 +830,48 @@ mod trie_reconstruction_from_memtrie_tests {
     }
 
     #[test]
-    fn test_basics() {
-        let shard_layout = ShardLayout::multi_shard(2, 0);
-        let (shard_id, child_shard_id) = (
-            shard_layout.get_shard_id(0).expect("failed to get shard id"),
-            shard_layout.get_shard_id(1).expect("failed to get child shard id"),
-        );
-        let (shard_uid, child_shard_uid) = (
-            ShardUId::from_shard_id_and_layout(shard_id, &shard_layout),
-            ShardUId::from_shard_id_and_layout(child_shard_id, &shard_layout),
-        );
-
+    fn test_batched_iteration() {
         let store = create_test_store();
         let tries = TestTriesBuilder::new()
-            .with_store(store.clone())
+            .with_store(store)
             .with_flat_storage(true)
             .with_in_memory_tries(true)
-            .with_shard_layout(shard_layout)
             .build();
 
+        let shard_uid = ShardUId::single_shard();
         let block_id = CryptoHash::default();
 
         // Create arbitrary data to populate the trie
+        // Deliberately contains duplicate values to test reference counting
         let initial =
             (0..1000).map(|i| (Vec::from(fake_hash(i)), Some(vec![i as u8]))).collect::<Vec<_>>();
 
         test_populate_flat_storage(&tries, shard_uid, &block_id, &block_id, &initial);
         let root = test_populate_trie(&tries, &Trie::EMPTY_ROOT, shard_uid, initial.clone());
 
-        // Iterate memtrie
+        // Iterate memtrie in batches
         let trie: Trie = tries.get_trie_for_shard(shard_uid, root).recording_reads_new_recorder();
 
         let batch_size = 20;
         let mut last_key: Option<Vec<u8>> = None;
+        let mut change_batches: Vec<TrieChanges> = Vec::new();
         loop {
             last_key = iterate_batch(&trie, last_key, batch_size);
             let trie_changes =
                 trie.recorded_as_trie_changes(root).expect("failed to get trie changes");
-            let mut update = store.trie_store().store_update();
-            tries.apply_all(&trie_changes, child_shard_uid, &mut update);
-            update.commit().expect("failed to commit update");
-            eprintln!("Recorded changes, last_key = {:?}", last_key);
+            change_batches.push(trie_changes);
 
             if last_key.is_none() {
                 break;
             }
         }
+        let all_changes = merge_trie_changes(change_batches);
 
-        // Now we should be able to read the data from the child shard
-        // Note view_trie bypasses memtrie and reads directly from the store.
-        let child_trie = tries.get_view_trie_for_shard(child_shard_uid, root);
-        for (key, expected) in initial {
-            let value = child_trie.get(&key, AccessOptions::DEFAULT).expect("failed to get value");
-            assert_eq!(expected, value);
-        }
+        // Inserting the same key/values into an empty trie should result in the same TrieChanges
+        let new_trie = tries.get_trie_for_shard(shard_uid, Trie::EMPTY_ROOT);
+        let trie_changes = new_trie
+            .update_with_trie_storage(initial, AccessOptions::DEFAULT)
+            .expect("failed to update trie");
+        assert_eq!(all_changes, trie_changes);
     }
 }

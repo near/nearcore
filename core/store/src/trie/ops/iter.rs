@@ -96,11 +96,11 @@ where
 {
     /// Create a new iterator.
     /// If `start` is specified, the iterator will be positioned on the first element
-    /// with key >= `start`, without recording nodes accessed during the seek.
+    /// with key > `start`, without recording nodes accessed during the seek.
     pub fn new(
         trie_interface: I,
         prune_condition: Option<Box<dyn Fn(&Vec<u8>) -> bool>>,
-        start: Option<Vec<u8>>,
+        start_after: Option<Vec<u8>>,
     ) -> Result<Self, StorageError> {
         let root = trie_interface.get_root();
         let mut iter = Self {
@@ -109,12 +109,17 @@ where
             trie_interface,
             prune_condition,
         };
-        if let Some(start) = start {
+        if let Some(start_after) = start_after {
             iter.seek_nibble_slice(
-                NibbleSlice::new(start.as_ref()),
+                NibbleSlice::new(start_after.as_ref()),
                 false,
                 AccessOptions::NO_SIDE_EFFECTS,
             )?;
+            // If the iterator is positioned on the first element with key == `start`,
+            // move to the next element.
+            if iter.key() == start_after {
+                iter.iter_step();
+            }
         } else {
             iter.descend_into_node(root, AccessOptions::DEFAULT)?;
         }
