@@ -1772,26 +1772,21 @@ impl<'a> TrieWithReadLock<'a> {
     /// If memtries are present, returns an iterator that traverses the memtrie.
     /// Otherwise, it falls back to an iterator that traverses the on-disk trie.
     pub fn iter(&self) -> Result<TrieIterator<'_>, StorageError> {
-        match &self.memtries {
-            Some(memtries) => Ok(TrieIterator::Memtrie(memtries.get_iter(self.trie, None)?)),
-            None => Ok(TrieIterator::Disk(DiskTrieIterator::new(
-                DiskTrieIteratorInner::new(&self.trie),
-                None,
-                None,
-            )?)),
-        }
+        let start = None;
+        self.iter_seek(start)
     }
 
     /// Obtains an iterator that can be used to traverse the trie (see `iter`).
-    /// The iterator will start at the given key, or at the first key if `key` is `None`,
-    /// trie nodes accessed during the seek will not be recorded.
-    pub fn iter_seek(&self, key: Option<Vec<u8>>) -> Result<TrieIterator<'_>, StorageError> {
+    /// The iterator will start at the first key >= `start`, or at the first key
+    /// if `start` is `None`. Trie nodes accessed during the seek will not be
+    /// recorded.
+    pub fn iter_seek(&self, start: Option<Vec<u8>>) -> Result<TrieIterator<'_>, StorageError> {
         match &self.memtries {
-            Some(memtries) => Ok(TrieIterator::Memtrie(memtries.get_iter(self.trie, key)?)),
+            Some(memtries) => Ok(TrieIterator::Memtrie(memtries.get_iter(self.trie, start)?)),
             None => Ok(TrieIterator::Disk(DiskTrieIterator::new(
                 DiskTrieIteratorInner::new(&self.trie),
                 None,
-                key,
+                start,
             )?)),
         }
     }
