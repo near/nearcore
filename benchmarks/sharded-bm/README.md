@@ -35,7 +35,8 @@ The main objective is to make the benchmarks easy to run and reproducible.
    ```sh
    pip install -r pytest/requirements.txt
    ```
-4. Always run `./bench.sh` commands from within the active virtualenv.
+4. Always run `./bench.sh` commands from `benchmarks/sharded-bm` folder and
+within the active virtualenv.
 
 ## Benchmark cases definition
 
