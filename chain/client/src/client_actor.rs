@@ -76,10 +76,11 @@ use near_primitives::views::{DetailedDebugStatus, ValidatorInfo};
 #[cfg(feature = "test_features")]
 use near_store::DBCol;
 use near_telemetry::TelemetryEvent;
+use parking_lot::Mutex;
 use rand::seq::SliceRandom;
 use rand::{Rng, thread_rng};
 use std::fmt;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use tokio::sync::broadcast;
 use tracing::{debug, debug_span, error, info, trace, warn};
 
@@ -120,7 +121,7 @@ pub struct StartClientResult {
     pub client_arbiter_handle: actix::ArbiterHandle,
     pub resharding_handle: ReshardingHandle,
     pub tx_pool: Arc<Mutex<ShardedTransactionPool>>,
-    pub chunk_endorsement_tracker: Arc<Mutex<ChunkEndorsementTracker>>,
+    pub chunk_endorsement_tracker: Arc<ChunkEndorsementTracker>,
 }
 
 /// Starts client in a separate Arbiter (thread).
@@ -1104,10 +1105,10 @@ impl ClientActorInner {
             }
 
             {
-                let mut tracker = self.client.chunk_endorsement_tracker.lock().unwrap();
-                self.client
-                    .chunk_inclusion_tracker
-                    .prepare_chunk_headers_ready_for_inclusion(prev_block_hash, &mut tracker)?;
+                self.client.chunk_inclusion_tracker.prepare_chunk_headers_ready_for_inclusion(
+                    prev_block_hash,
+                    &self.client.chunk_endorsement_tracker,
+                )?;
             }
             let num_chunks = self
                 .client
@@ -1335,6 +1336,7 @@ impl ClientActorInner {
         };
 
         // If we produced the block, send it out before we apply the block.
+        self.client.chain.blocks_delay_tracker.mark_block_received(&block);
         self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
             NetworkRequests::Block { block: block.clone() },
         ));
@@ -1353,8 +1355,14 @@ impl ClientActorInner {
         match error {
             near_chain::Error::ChunksMissing(_) => {
                 debug!(target: "client", "chunks missing");
-                // missing chunks were already handled in Client::process_block, we don't need to
-                // do anything here
+                // If block is missing chunks, it will be processed in
+                // `check_blocks_with_missing_chunks`.
+                Ok(())
+            }
+            near_chain::Error::BlockPendingOptimisticExecution => {
+                debug!(target: "client", "block pending optimistic execution");
+                // If block is pending optimistic execution, it will be
+                // processed in `postprocess_optimistic_block`.
                 Ok(())
             }
             _ => {
@@ -1398,7 +1406,7 @@ impl ClientActorInner {
         Ok(())
     }
 
-    fn send_chunks_metrics(&mut self, block: &Block) {
+    fn send_chunks_metrics(&self, block: &Block) {
         let chunks = block.chunks();
         for (chunk, &included) in chunks.iter_deprecated().zip(block.header().chunk_mask().iter()) {
             if included {

@@ -43,7 +43,9 @@ use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::merkle::{PartialMerkleTree, verify_hash};
 use near_primitives::receipt::DelayedReceiptIndices;
 use near_primitives::shard_layout::{ShardUId, get_block_shard_uid};
-use near_primitives::sharding::{ShardChunkHeader, ShardChunkHeaderInner, ShardChunkHeaderV3};
+use near_primitives::sharding::{
+    ShardChunkHeader, ShardChunkHeaderInner, ShardChunkHeaderV3, ShardChunkWithEncoding,
+};
 use near_primitives::state_part::PartId;
 use near_primitives::state_sync::StatePartKey;
 use near_primitives::stateless_validation::ChunkProductionKey;
@@ -67,12 +69,13 @@ use near_store::archive::cold_storage::{update_cold_db, update_cold_head};
 use near_store::db::metadata::{DB_VERSION, DbKind};
 use near_store::test_utils::create_test_node_storage_with_cold;
 use near_store::{DBCol, TrieChanges, get};
+use parking_lot::RwLock;
 use rand::prelude::StdRng;
 use rand::{Rng, SeedableRng};
 use std::collections::{HashSet, VecDeque};
 use std::str::FromStr;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, RwLock};
 
 /// Runs block producing client and stops after network mock received two blocks.
 #[test]
@@ -117,7 +120,7 @@ fn receive_network_block() {
             false,
             Box::new(move |msg, _ctx, _, _| {
                 if let NetworkRequests::Approval { .. } = msg.as_network_requests_ref() {
-                    let mut first_header_announce = first_header_announce.write().unwrap();
+                    let mut first_header_announce = first_header_announce.write();
                     if *first_header_announce {
                         *first_header_announce = false;
                     } else {
@@ -335,7 +338,7 @@ fn slow_test_produce_block_with_approvals_arrived_early() {
                                         )
                                     }
                                 }
-                                *block_holder.write().unwrap() = Some(block.clone());
+                                *block_holder.write() = Some(block.clone());
                                 return (NetworkResponses::NoResponse.into(), false);
                             } else if block.header().height() == 4 {
                                 System::current().stop();
@@ -349,7 +352,7 @@ fn slow_test_produce_block_with_approvals_arrived_early() {
                                 approval_counter += 1;
                             }
                             if approval_counter == 3 {
-                                let block = block_holder.read().unwrap().clone().unwrap();
+                                let block = block_holder.read().clone().unwrap();
                                 conns[0].client_actor.do_send(
                                     BlockResponse {
                                         block,
@@ -1614,7 +1617,7 @@ fn test_tx_forwarding() {
         ProcessTxResponse::RequestRouted
     );
     assert_eq!(
-        env.network_adapters[client_index].requests.read().unwrap().len(),
+        env.network_adapters[client_index].requests.read().len(),
         env.clients[client_index].config.tx_routing_height_horizon as usize
     );
 }
@@ -1634,7 +1637,7 @@ fn test_tx_forwarding_no_double_forwarding() {
         env.rpc_handlers[0].process_tx(tx, is_forwarded, false),
         ProcessTxResponse::NoResponse
     );
-    assert!(env.network_adapters[0].requests.read().unwrap().is_empty());
+    assert!(env.network_adapters[0].requests.read().is_empty());
 }
 
 #[test]
@@ -1680,7 +1683,7 @@ fn test_tx_forward_around_epoch_boundary() {
     );
     assert_eq!(env.rpc_handlers[2].process_tx(tx, false, false), ProcessTxResponse::RequestRouted);
     let mut accounts_to_forward = HashSet::new();
-    for request in env.network_adapters[2].requests.read().unwrap().iter() {
+    for request in env.network_adapters[2].requests.read().iter() {
         if let PeerManagerMessageRequest::NetworkRequests(NetworkRequests::ForwardTx(
             account_id,
             _,
@@ -2174,9 +2177,9 @@ fn test_validate_chunk_extra() {
     // Construct two blocks that contain the same chunk and make the chunk unavailable.
     let validator_signer = create_test_signer("test0");
     let next_height = last_block.header().height() + 1;
-    let ProduceChunkResult {
-        encoded_chunk, encoded_chunk_parts_paths: merkle_paths, receipts, ..
-    } = create_chunk_on_height(&mut env.clients[0], next_height);
+    let ProduceChunkResult { chunk, encoded_chunk_parts_paths: merkle_paths, receipts, .. } =
+        create_chunk_on_height(&mut env.clients[0], next_height);
+    let encoded_chunk = chunk.into_parts().1;
     let mut block1 = env.clients[0].produce_block(next_height).unwrap().unwrap();
     let mut block2 = env.clients[0].produce_block(next_height + 1).unwrap().unwrap();
 
@@ -2225,8 +2228,9 @@ fn test_validate_chunk_extra() {
     let chunk_header = encoded_chunk.cloned_header();
     let signer = env.clients[0].validator_signer.get();
     let validator_id = signer.as_ref().unwrap().validator_id().clone();
+    let chunk = ShardChunkWithEncoding::from_encoded_shard_chunk(encoded_chunk).unwrap();
     env.clients[0]
-        .persist_and_distribute_encoded_chunk(encoded_chunk, merkle_paths, receipts, validator_id)
+        .persist_and_distribute_encoded_chunk(chunk, merkle_paths, receipts, validator_id)
         .unwrap();
     env.clients[0].chain.blocks_with_missing_chunks.accept_chunk(&chunk_header.chunk_hash());
     env.clients[0].process_blocks_with_missing_chunks(None, &signer);
@@ -2242,10 +2246,7 @@ fn test_validate_chunk_extra() {
     let client = &mut env.clients[0];
     client
         .chunk_inclusion_tracker
-        .prepare_chunk_headers_ready_for_inclusion(
-            block1.hash(),
-            &mut *client.chunk_endorsement_tracker.lock().unwrap(),
-        )
+        .prepare_chunk_headers_ready_for_inclusion(block1.hash(), &client.chunk_endorsement_tracker)
         .unwrap();
     let block = client.produce_block_on(next_height + 2, *block1.hash()).unwrap().unwrap();
     let epoch_id = *block.header().epoch_id();
@@ -2896,14 +2897,14 @@ fn produce_chunks(env: &mut TestEnv, epoch_id: &EpochId, height: u64) {
             .unwrap()
             .take_account_id();
 
-        let ProduceChunkResult { encoded_chunk, encoded_chunk_parts_paths, receipts, .. } =
-            create_chunk_on_height(env.client(&chunk_producer), height);
-
+        let produce_chunk_result = create_chunk_on_height(env.client(&chunk_producer), height);
+        let ProduceChunkResult { chunk, encoded_chunk_parts_paths, receipts } =
+            produce_chunk_result;
         for client in &mut env.clients {
             let validator_id = client.validator_signer.get().unwrap().validator_id().clone();
             client
                 .persist_and_distribute_encoded_chunk(
-                    encoded_chunk.clone(),
+                    chunk.clone(),
                     encoded_chunk_parts_paths.clone(),
                     receipts.clone(),
                     validator_id,
@@ -3069,8 +3070,9 @@ fn test_fork_receipt_ids() {
     // Construct two blocks that contain the same chunk and make the chunk unavailable.
     let validator_signer = create_test_signer("test0");
     let last_height = produced_block.header().height();
-    let ProduceChunkResult { encoded_chunk, .. } =
+    let ProduceChunkResult { chunk, .. } =
         create_chunk_on_height(&mut env.clients[0], last_height + 1);
+    let encoded_chunk = chunk.into_parts().1;
     let mut block1 = env.clients[0].produce_block(last_height + 1).unwrap().unwrap();
     let mut block2 = env.clients[0].produce_block(last_height + 2).unwrap().unwrap();
 
@@ -3126,8 +3128,8 @@ fn test_fork_execution_outcome() {
     // Construct two blocks that contain the same chunk and make the chunk unavailable.
     let validator_signer = create_test_signer("test0");
     let next_height = last_height + 1;
-    let ProduceChunkResult { encoded_chunk, .. } =
-        create_chunk_on_height(&mut env.clients[0], next_height);
+    let ProduceChunkResult { chunk, .. } = create_chunk_on_height(&mut env.clients[0], next_height);
+    let encoded_chunk = chunk.into_parts().1;
     let mut block1 = env.clients[0].produce_block(last_height + 1).unwrap().unwrap();
     let mut block2 = env.clients[0].produce_block(last_height + 2).unwrap().unwrap();
 
@@ -3217,7 +3219,7 @@ fn test_not_broadcast_block_on_accept() {
     for i in 0..2 {
         env.process_block(i, b1.clone(), Provenance::NONE);
     }
-    assert!(network_adapter.requests.read().unwrap().is_empty());
+    assert!(network_adapter.requests.read().is_empty());
 }
 
 #[test]

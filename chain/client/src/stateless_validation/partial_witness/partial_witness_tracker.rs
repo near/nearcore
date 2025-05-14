@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 use std::num::NonZeroUsize;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use lru::LruCache;
 use near_async::messaging::CanSend;
@@ -21,6 +21,9 @@ use near_primitives::stateless_validation::state_witness::{
     ChunkStateWitness, ChunkStateWitnessSize, EncodedChunkStateWitness,
 };
 use near_primitives::types::ShardId;
+use near_primitives::version::ProtocolFeature;
+use near_vm_runner::logic::ProtocolVersion;
+use parking_lot::Mutex;
 use time::ext::InstantExt as _;
 
 use crate::client_actor::ClientSenderForPartialWitness;
@@ -380,7 +383,7 @@ impl PartialEncodedStateWitnessTracker {
             return Ok(());
         }
 
-        let mut parts_cache = self.parts_cache.lock().unwrap();
+        let mut parts_cache = self.parts_cache.lock();
         if create_if_not_exists {
             Self::maybe_insert_new_entry_in_parts_cache(&mut parts_cache, &key);
         }
@@ -420,7 +423,9 @@ impl PartialEncodedStateWitnessTracker {
                 }
             };
 
-            let (mut witness, raw_witness_size) = self.decode_state_witness(&encoded_witness)?;
+            let protocol_version = self.epoch_manager.get_epoch_protocol_version(&key.epoch_id)?;
+            let (mut witness, raw_witness_size) =
+                self.decode_state_witness(&encoded_witness, protocol_version)?;
             if witness.chunk_production_key() != key {
                 return Err(Error::InvalidPartialChunkStateWitness(format!(
                     "Decoded witness key {:?} doesn't match partial witness {:?}",
@@ -430,7 +435,8 @@ impl PartialEncodedStateWitnessTracker {
             }
 
             // Merge accessed contracts into the main transition's partial state.
-            let PartialState::TrieValues(values) = &mut witness.main_state_transition.base_state;
+            let PartialState::TrieValues(values) =
+                &mut witness.mut_main_state_transition().base_state;
             values.extend(accessed_contracts.into_iter().map(|code| code.0.into()));
 
             tracing::debug!(target: "client", ?key, "Sending encoded witness to client.");
@@ -451,7 +457,7 @@ impl PartialEncodedStateWitnessTracker {
             .epoch_manager
             .get_chunk_validator_assignments(&key.epoch_id, key.shard_id, key.height_created)?
             .len();
-        let mut encoders = self.encoders.lock().unwrap();
+        let mut encoders = self.encoders.lock();
         Ok(encoders.entry(num_parts))
     }
 
@@ -479,11 +485,23 @@ impl PartialEncodedStateWitnessTracker {
     fn decode_state_witness(
         &self,
         encoded_witness: &EncodedChunkStateWitness,
+        protocol_version: ProtocolVersion,
     ) -> Result<(ChunkStateWitness, ChunkStateWitnessSize), Error> {
         let decode_start = std::time::Instant::now();
-        let (witness, raw_witness_size) = encoded_witness.decode()?;
+
+        let (witness, raw_witness_size) =
+            if ProtocolFeature::VersionedStateWitness.enabled(protocol_version) {
+                // If VersionedStateWitness is enabled, we expect the type of encoded_witness to be ChunkStateWitness
+                encoded_witness.decode()?
+            } else {
+                // If VersionedStateWitness is not enabled,
+                // we expect the type of encoded_witness to be ChunkStateWitnessV1 to maintain backward compatibility
+                // We then decode and wrap it in ChunkStateWitness::V1
+                let (witness, raw_witness_size) = encoded_witness.decode()?;
+                (ChunkStateWitness::V1(witness), raw_witness_size)
+            };
         let decode_elapsed_seconds = decode_start.elapsed().as_secs_f64();
-        let witness_shard = witness.chunk_header.shard_id();
+        let witness_shard = witness.chunk_header().shard_id();
 
         // Record metrics after validating the witness
         near_chain::stateless_validation::metrics::CHUNK_STATE_WITNESS_DECODE_TIME

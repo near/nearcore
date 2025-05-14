@@ -22,6 +22,7 @@ test-ci *FLAGS: check-cargo-fmt \
                 python-style-checks \
                 check-cargo-deny \
                 check-themis \
+                check-cargo-machete \
                 check-cargo-clippy \
                 check-non-default \
                 check-cargo-udeps \
@@ -125,6 +126,9 @@ install-rustc-nightly:
 # verify there is no unused dependency specified in a Cargo.toml
 check-cargo-udeps: install-rustc-nightly
     env CARGO_TARGET_DIR={{justfile_directory()}}/target/udeps RUSTFLAGS='--cfg=udeps --cap-lints=allow' cargo +nightly udeps
+
+check-cargo-machete:
+    cargo machete
 
 # lychee-based url validity checks
 check-lychee:

@@ -192,4 +192,8 @@ impl FeeHelper {
             + node_runtime::config::total_send_fees(&self.rt_cfg, sir, actions, receiver).unwrap();
         self.gas_to_balance(total_gas)
     }
+
+    pub fn gas_refund_cost(&self, gas: Gas) -> Balance {
+        Balance::from(self.cfg().gas_penalty_for_gas_refund(gas)) * self.gas_price
+    }
 }

@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use near_chain::stateless_validation::processing_tracker::{
     ProcessingDoneTracker, ProcessingDoneWaiter,
@@ -13,13 +13,32 @@ use near_primitives::sharding::ShardChunkHeaderV3;
 use near_primitives::sharding::{
     ChunkHash, ReceiptProof, ShardChunkHeader, ShardChunkHeaderInner, ShardProof,
 };
-use near_primitives::stateless_validation::state_witness::{
-    ChunkStateWitness, ChunkStateWitnessSize,
-};
+use near_primitives::stateless_validation::state_witness::ChunkStateWitness;
 use near_primitives::types::{AccountId, ShardId};
 
 use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
 use crate::env::test_env::TestEnv;
+
+trait ChunkStateWitnessExt {
+    fn mut_source_receipt_proofs(&mut self) -> &mut HashMap<ChunkHash, ReceiptProof>;
+    fn mut_chunk_header(&mut self) -> &mut ShardChunkHeader;
+}
+
+impl ChunkStateWitnessExt for ChunkStateWitness {
+    fn mut_source_receipt_proofs(&mut self) -> &mut HashMap<ChunkHash, ReceiptProof> {
+        match self {
+            ChunkStateWitness::V1(witness) => &mut witness.source_receipt_proofs,
+            ChunkStateWitness::V2(witness) => &mut witness.source_receipt_proofs,
+        }
+    }
+
+    fn mut_chunk_header(&mut self) -> &mut ShardChunkHeader {
+        match self {
+            ChunkStateWitness::V1(witness) => &mut witness.chunk_header,
+            ChunkStateWitness::V2(witness) => &mut witness.chunk_header,
+        }
+    }
+}
 
 struct OrphanWitnessTestEnv {
     env: TestEnv,
@@ -137,7 +156,7 @@ fn setup_orphan_witness_test() -> OrphanWitnessTestEnv {
         env.partial_witness_adapters[env.get_client_index(&block2_chunk_producer)].clone();
     while let Some(request) = partial_witness_adapter.pop_distribution_request() {
         let DistributeStateWitnessRequest { state_witness, .. } = request;
-        let raw_witness_size = borsh_size(&state_witness);
+        let raw_witness_size = borsh::object_length(&state_witness).unwrap();
         let key = state_witness.chunk_production_key();
         let chunk_validators = env
             .client(&block2_chunk_producer)
@@ -176,7 +195,7 @@ fn setup_orphan_witness_test() -> OrphanWitnessTestEnv {
         "There should be no missing chunks."
     );
     let witness = witness_opt.unwrap();
-    assert_eq!(witness.chunk_header.chunk_hash(), block2.chunks()[0].chunk_hash());
+    assert_eq!(witness.chunk_header().chunk_hash(), block2.chunks()[0].chunk_hash());
 
     for client_idx in clients_without_excluded {
         let blocks_processed = env.clients[client_idx]
@@ -217,7 +236,7 @@ fn test_orphan_witness_valid() {
 
     // `excluded_validator` receives witness for chunk belonging to `block2`, but it doesn't have `block1`.
     // The witness should become an orphaned witness and it should be saved to the orphan pool.
-    let witness_size = borsh_size(&witness);
+    let witness_size = borsh::object_length(&witness).unwrap();
     let client = env.client(&excluded_validator);
     client
         .process_chunk_state_witness(witness, witness_size, None, client.validator_signer.get())
@@ -291,7 +310,7 @@ fn test_orphan_witness_not_fully_validated() {
         setup_orphan_witness_test();
 
     // Make the witness invalid in a way that won't be detected during orphan witness validation
-    witness.source_receipt_proofs.insert(
+    witness.mut_source_receipt_proofs().insert(
         ChunkHash::default(),
         ReceiptProof(
             vec![],
@@ -306,7 +325,7 @@ fn test_orphan_witness_not_fully_validated() {
     // The witness should be accepted and saved into the pool, even though it's invalid.
     // There is no way to fully validate an orphan witness, so this is the correct behavior.
     // The witness will later be fully validated when the required block arrives.
-    let witness_size = borsh_size(&witness);
+    let witness_size = borsh::object_length(&witness).unwrap();
     let client = env.client(&excluded_validator);
     client
         .process_chunk_state_witness(witness, witness_size, None, client.validator_signer.get())
@@ -317,14 +336,10 @@ fn modify_witness_header_inner(
     witness: &mut ChunkStateWitness,
     f: impl FnOnce(&mut ShardChunkHeaderV3),
 ) {
-    match &mut witness.chunk_header {
+    match witness.mut_chunk_header() {
         ShardChunkHeader::V3(header) => {
             f(header);
         }
         _ => unreachable!(),
     };
-}
-
-fn borsh_size(witness: &ChunkStateWitness) -> ChunkStateWitnessSize {
-    borsh::to_vec(&witness).unwrap().len()
 }

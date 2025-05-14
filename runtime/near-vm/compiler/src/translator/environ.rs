@@ -184,7 +184,7 @@ impl<'data> ModuleEnvironment<'data> {
         Ok(())
     }
 
-    pub(crate) fn finish_imports(&mut self) -> WasmResult<()> {
+    pub(crate) fn finish_imports(&self) -> WasmResult<()> {
         Ok(())
     }
 
@@ -345,7 +345,7 @@ impl<'data> ModuleEnvironment<'data> {
         Ok(())
     }
 
-    pub(crate) fn reserve_passive_data(&mut self, _count: u32) -> WasmResult<()> {
+    pub(crate) fn reserve_passive_data(&self, _count: u32) -> WasmResult<()> {
         // TODO(0-copy): consider finding a more appropriate data structure for this?
         Ok(())
     }
@@ -377,14 +377,14 @@ impl<'data> ModuleEnvironment<'data> {
         Ok(())
     }
 
-    /// Provides the number of imports up front. By default this does nothing, but
+    /// Provides the number of imports up front. By default, this does nothing, but
     /// implementations can use this to preallocate memory if desired.
-    pub(crate) fn reserve_imports(&mut self, _num: u32) -> WasmResult<()> {
+    pub(crate) fn reserve_imports(&self, _num: u32) -> WasmResult<()> {
         Ok(())
     }
 
     /// Notifies the implementation that all exports have been declared.
-    pub(crate) fn finish_exports(&mut self) -> WasmResult<()> {
+    pub(crate) fn finish_exports(&self) -> WasmResult<()> {
         Ok(())
     }
 

@@ -107,8 +107,7 @@ pub struct ApplyChunkResult {
     /// version and Some otherwise.
     pub congestion_info: Option<CongestionInfo>,
     /// Requests for bandwidth to send receipts to other shards.
-    /// Will be None for protocol versions that don't have the BandwidthScheduler feature enabled.
-    pub bandwidth_requests: Option<BandwidthRequests>,
+    pub bandwidth_requests: BandwidthRequests,
     /// Used only for a sanity check.
     pub bandwidth_scheduler_state_hash: CryptoHash,
     /// Contracts accessed and deployed while applying the chunk.
@@ -283,7 +282,14 @@ impl RuntimeStorageConfig {
 }
 
 #[derive(Clone)]
+pub enum BlockType {
+    Normal,
+    Optimistic,
+}
+
+#[derive(Clone)]
 pub struct ApplyChunkBlockContext {
+    pub block_type: BlockType,
     pub height: BlockHeight,
     pub block_hash: CryptoHash,
     pub prev_block_hash: CryptoHash,
@@ -302,6 +308,7 @@ impl ApplyChunkBlockContext {
         bandwidth_requests: BlockBandwidthRequests,
     ) -> Self {
         Self {
+            block_type: BlockType::Normal,
             height: header.height(),
             block_hash: *header.hash(),
             prev_block_hash: *header.prev_hash(),

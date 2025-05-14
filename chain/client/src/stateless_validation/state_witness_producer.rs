@@ -91,8 +91,7 @@ impl Client {
                 my_signer.as_ref(),
                 &self.network_adapter.clone().into_sender(),
             ) {
-                let mut tracker = self.chunk_endorsement_tracker.lock().unwrap();
-                tracker.process_chunk_endorsement(endorsement)?;
+                self.chunk_endorsement_tracker.process_chunk_endorsement(endorsement)?;
             }
         }
 
@@ -105,7 +104,7 @@ impl Client {
     }
 
     pub(crate) fn create_state_witness(
-        &mut self,
+        &self,
         chunk_producer: AccountId,
         prev_block_header: &BlockHeader,
         prev_chunk_header: &ShardChunkHeader,
@@ -114,6 +113,7 @@ impl Client {
         let chunk_header = chunk.cloned_header();
         let epoch_id =
             self.epoch_manager.get_epoch_id_from_prev_block(chunk_header.prev_block_hash())?;
+        let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
         let prev_chunk = self.chain.get_chunk(&prev_chunk_header.chunk_hash())?;
         let StateTransitionData {
             main_transition,
@@ -138,6 +138,7 @@ impl Client {
             applied_receipts_hash,
             prev_chunk.to_transactions().to_vec(),
             implicit_transitions,
+            protocol_version,
         );
         Ok(CreateWitnessResult { state_witness, contract_updates, main_transition_shard_id })
     }
@@ -147,7 +148,7 @@ impl Client {
     /// Returns main state transition and implicit transitions, in the order
     /// they should be applied, and the hash of receipts to apply.
     fn collect_state_transition_data(
-        &mut self,
+        &self,
         chunk_header: &ShardChunkHeader,
         prev_chunk_header: &ShardChunkHeader,
     ) -> Result<StateTransitionData, Error> {

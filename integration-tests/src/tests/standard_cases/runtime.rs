@@ -338,27 +338,27 @@ fn test_contract_write_key_value_cost_runtime() {
 #[test]
 fn test_accounting_cache_same_common_parent() {
     let node = create_runtime_node();
-    let runtime_config = node.client.as_ref().read().unwrap().runtime_config.clone();
+    let runtime_config = node.client.as_ref().read().runtime_config.clone();
     test_accounting_cache_common_parent(node, runtime_config);
 }
 
 #[test]
 fn test_accounting_cache_branch_value_runtime() {
     let node = create_runtime_node();
-    let runtime_config = node.client.as_ref().read().unwrap().runtime_config.clone();
+    let runtime_config = node.client.as_ref().read().runtime_config.clone();
     test_accounting_cache_branch_value(node, runtime_config);
 }
 
 #[test]
 fn test_accounting_cache_mode_runtime() {
     let node = create_runtime_node();
-    let runtime_config = node.client.as_ref().read().unwrap().runtime_config.clone();
+    let runtime_config = node.client.as_ref().read().runtime_config.clone();
     test_accounting_cache_mode(node, runtime_config);
 }
 
 #[test]
 fn test_storage_read_write_costs_runtime() {
     let node = create_runtime_node();
-    let runtime_config = node.client.as_ref().read().unwrap().runtime_config.clone();
+    let runtime_config = node.client.as_ref().read().runtime_config.clone();
     test_storage_read_write_costs(node, runtime_config);
 }

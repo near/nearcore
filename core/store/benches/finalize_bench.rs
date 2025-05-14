@@ -11,13 +11,9 @@
 //! `PartialEncodedChunk`. These have been observed to become quite large and
 //! have ab impact on the overall client performance.
 
-#[macro_use]
-extern crate bencher;
-
-use bencher::{Bencher, black_box};
+use bencher::{Bencher, benchmark_group, benchmark_main, black_box};
 use borsh::BorshSerialize;
 use near_chain::Chain;
-use near_chunks::shards_manager_actor::ShardsManagerActor;
 use near_crypto::{InMemorySigner, KeyType};
 use near_primitives::bandwidth_scheduler::BandwidthRequests;
 use near_primitives::hash::CryptoHash;
@@ -27,14 +23,13 @@ use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::{
     ChunkHash, EncodedShardChunk, PartialEncodedChunk, PartialEncodedChunkPart,
     PartialEncodedChunkV2, ReceiptProof, ShardChunk, ShardChunkHeader, ShardChunkHeaderV3,
-    ShardChunkV2, ShardProof,
+    ShardChunkV2, ShardChunkWithEncoding, ShardProof,
 };
 use near_primitives::transaction::{
     Action, FunctionCallAction, SignedTransaction, ValidatedTransaction,
 };
 use near_primitives::types::{AccountId, ShardId};
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
-use near_primitives::version::PROTOCOL_VERSION;
 use near_store::DBCol;
 use rand::prelude::SliceRandom;
 use reed_solomon_erasure::galois_8::ReedSolomon;
@@ -68,8 +63,8 @@ fn benchmark_write_partial_encoded_chunk(bench: &mut Bencher) {
     let receipts = create_benchmark_receipts();
     let chunk_hash: ChunkHash = CryptoHash::default().into();
 
-    let (encoded_chunk, merkle_paths, _) =
-        create_encoded_shard_chunk(transactions, receipts.clone());
+    let (chunk, merkle_paths) = create_encoded_shard_chunk(transactions, receipts.clone());
+    let encoded_chunk = chunk.into_parts().1;
     let partial_chunk =
         encoded_chunk_to_partial_encoded_chunk(encoded_chunk, receipts, merkle_paths);
     let chunks = spread_in_memory(partial_chunk);
@@ -120,7 +115,6 @@ fn create_benchmark_receipts() -> Vec<Receipt> {
 
 fn create_chunk_header(height: u64, shard_id: ShardId) -> ShardChunkHeader {
     ShardChunkHeader::V3(ShardChunkHeaderV3::new(
-        PROTOCOL_VERSION,
         CryptoHash::default(),
         CryptoHash::default(),
         CryptoHash::default(),
@@ -135,7 +129,7 @@ fn create_chunk_header(height: u64, shard_id: ShardId) -> ShardChunkHeader {
         CryptoHash::default(),
         vec![],
         Default::default(),
-        BandwidthRequests::default_for_protocol_version(PROTOCOL_VERSION),
+        BandwidthRequests::empty(),
         &validator_signer(),
     ))
 }
@@ -186,10 +180,10 @@ fn create_shard_chunk(
 fn create_encoded_shard_chunk(
     validated_txs: Vec<ValidatedTransaction>,
     receipts: Vec<Receipt>,
-) -> (EncodedShardChunk, Vec<Vec<MerklePathItem>>, Vec<Receipt>) {
+) -> (ShardChunkWithEncoding, Vec<Vec<MerklePathItem>>) {
     let rs = ReedSolomon::new(33, 67).unwrap();
 
-    ShardsManagerActor::create_encoded_shard_chunk(
+    ShardChunkWithEncoding::new(
         Default::default(),
         Default::default(),
         Default::default(),
@@ -204,10 +198,9 @@ fn create_encoded_shard_chunk(
         Default::default(),
         Default::default(),
         Default::default(),
-        BandwidthRequests::default_for_protocol_version(PROTOCOL_VERSION),
+        BandwidthRequests::empty(),
         &validator_signer(),
         &rs,
-        100,
     )
 }
 

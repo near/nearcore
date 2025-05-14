@@ -19,9 +19,10 @@ use near_primitives::version::PROTOCOL_VERSION;
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::flat::{FlatStorageReadyStatus, FlatStorageStatus};
 use near_store::{DBCol, ShardUId, Store};
+use parking_lot::Mutex;
 use rand::prelude::SliceRandom;
 use rand::thread_rng;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
 
@@ -33,7 +34,7 @@ pub(super) struct StateSyncShardHandle {
 
 impl StateSyncShardHandle {
     pub fn status(&self) -> ShardSyncStatus {
-        *self.status.lock().unwrap()
+        *self.status.lock()
     }
 }
 
@@ -70,7 +71,7 @@ pub(super) async fn run_state_sync_for_shard(
     future_spawner: Arc<dyn FutureSpawner>,
 ) -> Result<(), near_chain::Error> {
     tracing::info!("Running state sync for shard {}", shard_id);
-    *status.lock().unwrap() = ShardSyncStatus::StateDownloadHeader;
+    *status.lock() = ShardSyncStatus::StateDownloadHeader;
     let header = downloader.ensure_shard_header(shard_id, sync_hash, cancel.clone()).await?;
     let state_root = header.chunk_prev_state_root();
     let num_parts = header.num_state_parts();
@@ -85,7 +86,7 @@ pub(super) async fn run_state_sync_for_shard(
         .set(num_parts as i64);
 
     return_if_cancelled!(cancel);
-    *status.lock().unwrap() = ShardSyncStatus::StateDownloadParts;
+    *status.lock() = ShardSyncStatus::StateDownloadParts;
     let mut parts_to_download: Vec<u64> = (0..num_parts).collect();
     {
         // Peer selection is designed such that different nodes downloading the same part will tend
@@ -128,7 +129,7 @@ pub(super) async fn run_state_sync_for_shard(
     }
 
     return_if_cancelled!(cancel);
-    *status.lock().unwrap() = ShardSyncStatus::StateApplyInProgress;
+    *status.lock() = ShardSyncStatus::StateApplyInProgress;
     runtime.get_tries().unload_memtrie(&shard_uid);
     let mut store_update = store.store_update();
     runtime
@@ -194,7 +195,7 @@ pub(super) async fn run_state_sync_for_shard(
     return_if_cancelled!(cancel);
 
     // Finalize; this needs to be done by the Chain.
-    *status.lock().unwrap() = ShardSyncStatus::StateApplyFinalizing;
+    *status.lock() = ShardSyncStatus::StateApplyFinalizing;
     chain_finalization_sender
         .send_async(ChainFinalizationRequest { shard_id, sync_hash })
         .await
@@ -202,7 +203,7 @@ pub(super) async fn run_state_sync_for_shard(
         near_chain::Error::Other("Chain finalization request could not be handled".to_owned())
     })??;
 
-    *status.lock().unwrap() = ShardSyncStatus::StateSyncDone;
+    *status.lock() = ShardSyncStatus::StateSyncDone;
 
     Ok(())
 }

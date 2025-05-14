@@ -13,7 +13,8 @@ use near_primitives::merkle::{MerklePath, PartialMerkleTree};
 use near_primitives::receipt::Receipt;
 use near_primitives::shard_layout::{ShardLayout, ShardUId, get_block_shard_uid};
 use near_primitives::sharding::{
-    ChunkHash, EncodedShardChunk, PartialEncodedChunk, ReceiptProof, ShardChunk, StateSyncInfo,
+    ArcedShardChunk, ChunkHash, EncodedShardChunk, PartialEncodedChunk, ReceiptProof, ShardChunk,
+    StateSyncInfo,
 };
 use near_primitives::state_sync::StateSyncDumpProgress;
 use near_primitives::stateless_validation::contract_distribution::ContractUpdates;
@@ -91,8 +92,6 @@ pub trait ChainStoreAccess {
     fn largest_target_height(&self) -> Result<BlockHeight, Error>;
     /// Get full block.
     fn get_block(&self, h: &CryptoHash) -> Result<Block, Error>;
-    /// Get full chunk.
-    fn get_chunk(&self, chunk_hash: &ChunkHash) -> Result<Arc<ShardChunk>, Error>;
     /// Get partial chunk.
     fn get_partial_chunk(&self, chunk_hash: &ChunkHash) -> Result<Arc<PartialEncodedChunk>, Error>;
     /// Does this full block exist?
@@ -868,11 +867,6 @@ impl ChainStoreAccess for ChainStore {
         ChainStoreAdapter::get_block(self, h)
     }
 
-    /// Get full chunk.
-    fn get_chunk(&self, chunk_hash: &ChunkHash) -> Result<Arc<ShardChunk>, Error> {
-        ChainStoreAdapter::get_chunk(self, chunk_hash)
-    }
-
     /// Get partial chunk.
     fn get_partial_chunk(&self, chunk_hash: &ChunkHash) -> Result<Arc<PartialEncodedChunk>, Error> {
         ChainStoreAdapter::get_partial_chunk(self, chunk_hash)
@@ -1004,7 +998,7 @@ pub(crate) struct ChainStoreCacheUpdate {
     block: Option<Block>,
     headers: HashMap<CryptoHash, BlockHeader>,
     chunk_extras: HashMap<(CryptoHash, ShardUId), Arc<ChunkExtra>>,
-    chunks: HashMap<ChunkHash, Arc<ShardChunk>>,
+    chunks: HashMap<ChunkHash, Arc<ArcedShardChunk>>,
     partial_chunks: HashMap<ChunkHash, Arc<PartialEncodedChunk>>,
     block_hash_per_height: HashMap<BlockHeight, HashMap<EpochId, HashSet<CryptoHash>>>,
     pub(crate) height_to_hashes: HashMap<BlockHeight, Option<CryptoHash>>,
@@ -1070,6 +1064,14 @@ impl<'a> ChainStoreUpdate<'a> {
             add_state_sync_infos: vec![],
             remove_state_sync_infos: vec![],
             chunk_apply_stats: HashMap::default(),
+        }
+    }
+
+    pub fn get_chunk(&self, chunk_hash: &ChunkHash) -> Result<Arc<ArcedShardChunk>, Error> {
+        if let Some(arced_chunk) = self.chain_store_cache_update.chunks.get(chunk_hash) {
+            Ok(Arc::clone(arced_chunk))
+        } else {
+            self.chain_store.get_chunk(chunk_hash).map(ArcedShardChunk::from).map(Arc::new)
         }
     }
 }
@@ -1279,14 +1281,6 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
             Ok(Arc::clone(receipt_proofs))
         } else {
             self.chain_store.get_incoming_receipts(hash, shard_id)
-        }
-    }
-
-    fn get_chunk(&self, chunk_hash: &ChunkHash) -> Result<Arc<ShardChunk>, Error> {
-        if let Some(chunk) = self.chain_store_cache_update.chunks.get(chunk_hash) {
-            Ok(Arc::clone(chunk))
-        } else {
-            self.chain_store.get_chunk(chunk_hash)
         }
     }
 
@@ -1507,17 +1501,18 @@ impl<'a> ChainStoreUpdate<'a> {
     }
 
     pub fn save_chunk(&mut self, chunk: ShardChunk) {
-        for transaction in chunk.to_transactions() {
-            self.chain_store_cache_update
-                .transactions
-                .insert(transaction.get_hash(), Arc::new(transaction.clone()));
+        let arced_chunk = ArcedShardChunk::from(chunk);
+        for tx in arced_chunk.to_transactions() {
+            self.chain_store_cache_update.transactions.insert(tx.get_hash(), Arc::clone(tx));
         }
-        for receipt in chunk.prev_outgoing_receipts() {
+        for receipt in arced_chunk.to_prev_outgoing_receipts() {
             self.chain_store_cache_update
                 .receipts
-                .insert(*receipt.receipt_id(), Arc::new(receipt.clone()));
+                .insert(*receipt.receipt_id(), Arc::clone(receipt));
         }
-        self.chain_store_cache_update.chunks.insert(chunk.chunk_hash(), Arc::new(chunk));
+        self.chain_store_cache_update
+            .chunks
+            .insert(arced_chunk.to_chunk_hash(), Arc::new(arced_chunk));
     }
 
     pub fn save_partial_chunk(&mut self, partial_chunk: Arc<PartialEncodedChunk>) {

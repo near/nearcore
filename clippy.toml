@@ -1,1 +1,7 @@
 stack-size-threshold = 102400
+
+disallowed-types = [
+    { path = "std::sync::Mutex", reason = "parking_lot offers simpler synchronization primitives", replacement = "parking_lot::Mutex" },
+    { path = "std::sync::RwLock", reason = "parking_lot offers simpler synchronization primitives", replacement = "parking_lot::RwLock" },
+    { path = "std::sync::Condvar", reason = "parking_lot offers simpler synchronization primitives", replacement = "parking_lot::Condvar" },
+]

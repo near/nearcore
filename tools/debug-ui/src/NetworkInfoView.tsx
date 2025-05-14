@@ -1,5 +1,5 @@
 import './NetworkInfoView.scss';
-import { NavLink, Navigate, Route, Routes } from 'react-router-dom';
+import { NavLink, Route, Routes } from 'react-router-dom';
 import { CurrentPeersView } from './CurrentPeersView';
 import { PeerStorageView } from './PeerStorageView';
 import { ConnectionStorageView } from './ConnectionStorageView';
@@ -15,27 +15,26 @@ export const NetworkInfoView = ({ addr }: NetworkInfoViewProps) => {
     return (
         <div className="network-info-view">
             <div className="navbar">
-                <NavLink to="current" className={navLinkClassName}>
+                <NavLink to="../current" className={navLinkClassName}>
                     Current Peers
                 </NavLink>
-                <NavLink to="peer_storage" className={navLinkClassName}>
+                <NavLink to="../peer_storage" className={navLinkClassName}>
                     Detailed Peer Storage
                 </NavLink>
-                <NavLink to="connection_storage" className={navLinkClassName}>
+                <NavLink to="../connection_storage" className={navLinkClassName}>
                     Connection Storage
                 </NavLink>
-                <NavLink to="tier1" className={navLinkClassName}>
+                <NavLink to="../tier1" className={navLinkClassName}>
                     TIER1
                 </NavLink>
-                <NavLink to="routing_table" className={navLinkClassName}>
+                <NavLink to="../routing_table" className={navLinkClassName}>
                     Routing Table
                 </NavLink>
-                <NavLink to="snapshot_hosts" className={navLinkClassName}>
+                <NavLink to="../snapshot_hosts" className={navLinkClassName}>
                     Snapshot Hosts
                 </NavLink>
             </div>
             <Routes>
-                <Route path="" element={<Navigate to="current" />} />
                 <Route path="current" element={<CurrentPeersView addr={addr} />} />
                 <Route path="peer_storage" element={<PeerStorageView addr={addr} />} />
                 <Route path="connection_storage" element={<ConnectionStorageView addr={addr} />} />

@@ -12,7 +12,6 @@ publish = false
 workspace = true
 
 [dependencies]
-actix-http.workspace = true
 awc.workspace = true
 futures.workspace = true
 serde.workspace = true

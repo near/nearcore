@@ -127,8 +127,8 @@ pub fn get_engine(config: &wasmtime::Config) -> Engine {
     Engine::new(config).unwrap()
 }
 
-pub(crate) fn default_wasmtime_config() -> wasmtime::Config {
-    let features = crate::features::WasmFeatures::new();
+pub(crate) fn default_wasmtime_config(c: &Config) -> wasmtime::Config {
+    let features = crate::features::WasmFeatures::new(c);
     let mut config = wasmtime::Config::from(features);
     config.max_wasm_stack(1024 * 1024 * 1024); // wasm stack metering is implemented by instrumentation, we don't want wasmtime to trap before that
     config
@@ -146,7 +146,7 @@ pub(crate) struct WasmtimeVM {
 
 impl WasmtimeVM {
     pub(crate) fn new(config: Arc<Config>) -> Self {
-        Self { engine: get_engine(&default_wasmtime_config()), config }
+        Self { engine: get_engine(&default_wasmtime_config(&config)), config }
     }
 
     #[tracing::instrument(target = "vm", level = "debug", "WasmtimeVM::compile_uncached", skip_all)]
@@ -416,11 +416,10 @@ impl crate::PreparedContract for VMResult<PreparedContract> {
 /// `anyhow` does not really give any opportunity to grab causes by value and the VM Logic
 /// errors end up a couple layers deep in a causal chain.
 #[derive(Debug)]
-pub(crate) struct ErrorContainer(std::sync::Mutex<Option<VMLogicError>>);
+pub(crate) struct ErrorContainer(parking_lot::Mutex<Option<VMLogicError>>);
 impl ErrorContainer {
     pub(crate) fn take(&self) -> Option<VMLogicError> {
-        let mut guard = self.0.lock().unwrap_or_else(|e| e.into_inner());
-        guard.take()
+        self.0.lock().take()
     }
 }
 impl std::error::Error for ErrorContainer {}
@@ -476,7 +475,7 @@ fn link<'a, 'b>(
                 match logic.$func( $( $arg_name as $arg_type, )* ) {
                     Ok(result) => Ok(result as ($( $returns ),* ) ),
                     Err(err) => {
-                        Err(ErrorContainer(std::sync::Mutex::new(Some(err))).into())
+                        Err(ErrorContainer(parking_lot::Mutex::new(Some(err))).into())
                     }
                 }
             }

@@ -23,6 +23,7 @@ use near_primitives::views::FinalExecutionStatus;
 use near_primitives_core::account::{AccessKey, Account};
 use near_primitives_core::types::{AccountId, NumSeats};
 use near_store::test_utils::create_test_store;
+use node_runtime::config::total_prepaid_gas;
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 use std::collections::{HashMap, HashSet};
@@ -347,7 +348,7 @@ fn test_chunk_state_witness_bad_shard_id() {
     let previous_block = env.clients[0].chain.head().unwrap().prev_block_hash;
     let invalid_shard_id = ShardId::new(1000000000);
     let witness = ChunkStateWitness::new_dummy(upper_height, invalid_shard_id, previous_block);
-    let witness_size = borsh::to_vec(&witness).unwrap().len();
+    let witness_size = borsh::object_length(&witness).unwrap();
 
     // Client should reject this ChunkStateWitness and the error message should mention "shard"
     tracing::info!(target: "test", "Processing invalid ChunkStateWitness");
@@ -356,8 +357,8 @@ fn test_chunk_state_witness_bad_shard_id() {
     let error = res.unwrap_err();
     let error_message = format!("{}", error).to_lowercase();
     tracing::info!(target: "test", "error message: {}", error_message);
-    assert!(error_message.contains("shard"));
-    assert_matches!(error, near_chain::Error::InvalidShardId(_));
+    assert!(error_message.contains("invalid shard 1000000000"));
+    assert_matches!(error, near_chain::Error::ValidatorError(_));
 }
 
 /// Tests that eth-implicit accounts still work with stateless validation.
@@ -441,6 +442,7 @@ fn test_eth_implicit_accounts() {
         &mut relayer_signer,
         &env,
     );
+    let prepaid_gas = total_prepaid_gas(signed_transaction.transaction.actions()).unwrap();
 
     assert_eq!(
         env.rpc_handlers[0].process_tx(signed_transaction, false, false),
@@ -479,14 +481,25 @@ fn test_eth_implicit_accounts() {
     let alice_final_balance = view_balance(&env, &alice_eth_account);
     let bob_final_balance = view_balance(&env, &bob_eth_account);
 
+    let tip = env.clients[0].chain.head().unwrap();
+    let runtime_config = env.get_runtime_config(0, tip.epoch_id);
+
+    let gas_price = env.clients[0].chain.block_economics_config.min_gas_price();
+
     // Bob receives the transfer
     assert_eq!(bob_final_balance, bob_init_balance + transfer_amount);
 
-    // The only tokens lost in the transaction are due to gas
-    let gas_cost =
+    // The only tokens lost in the transaction are due to gas and refund penalty
+    let max_gas_cost = ONE_NEAR / 500;
+    let max_refund_cost =
+        runtime_config.fees.gas_penalty_for_gas_refund(prepaid_gas) as u128 * gas_price;
+    let tx_cost =
         (alice_init_balance + bob_init_balance) - (alice_final_balance + bob_final_balance);
-    assert_eq!(alice_final_balance, alice_init_balance - transfer_amount - gas_cost);
-    assert!(gas_cost < ONE_NEAR / 500);
+    assert_eq!(alice_final_balance, alice_init_balance - transfer_amount - tx_cost);
+    assert!(
+        tx_cost < max_refund_cost + max_gas_cost,
+        "{tx_cost} < {max_refund_cost} + {max_gas_cost}"
+    );
 }
 
 /// Produce a block, apply it and propagate it through the network (including state witnesses).

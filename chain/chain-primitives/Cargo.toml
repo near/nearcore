@@ -13,7 +13,6 @@ workspace = true
 
 [dependencies]
 thiserror.workspace = true
-time.workspace = true
 tracing.workspace = true
 
 near-time.workspace = true

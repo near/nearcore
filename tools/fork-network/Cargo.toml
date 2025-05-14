@@ -17,6 +17,7 @@ anyhow.workspace = true
 chrono.workspace = true
 clap.workspace = true
 hex.workspace = true
+parking_lot.workspace = true
 rayon.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -36,13 +37,13 @@ nearcore.workspace = true
 
 [features]
 nightly = [
-  "near-chain-configs/nightly",
-  "near-chain/nightly",
-  "near-epoch-manager/nightly",
-  "near-mirror/nightly",
-  "near-o11y/nightly",
-  "near-parameters/nightly",
-  "near-primitives/nightly",
-  "near-store/nightly",
-  "nearcore/nightly",
+    "near-chain-configs/nightly",
+    "near-chain/nightly",
+    "near-epoch-manager/nightly",
+    "near-mirror/nightly",
+    "near-o11y/nightly",
+    "near-parameters/nightly",
+    "near-primitives/nightly",
+    "near-store/nightly",
+    "nearcore/nightly",
 ]

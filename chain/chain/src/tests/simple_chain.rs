@@ -4,6 +4,8 @@ use crate::{Block, BlockProcessingArtifact, ChainStoreAccess, Error};
 use assert_matches::assert_matches;
 use near_async::time::{Clock, Duration, FakeClock, Utc};
 use near_o11y::testonly::init_test_logger;
+#[cfg(feature = "test_features")]
+use near_primitives::optimistic_block::OptimisticBlock;
 use near_primitives::{
     block::MaybeNew, hash::CryptoHash, sharding::ShardChunkHeader, test_utils::TestBlockBuilder,
     version::PROTOCOL_VERSION,
@@ -24,17 +26,19 @@ fn build_chain() {
     // stabilizing any existing protocol features, this indicates bug in your
     // code which unexpectedly changes the protocol.
     //
-    // To update the hashes you can use cargo-insta.  Note that you’ll need to
+    // To update the hashes you can use cargo-insta.  Note that you'll need to
     // run the test twice: once with default features and once with
-    // ‘nightly’ feature enabled:
+    // 'nightly' feature enabled:
     //
     //     cargo install cargo-insta
     //     cargo insta test --accept -p near-chain                    -- tests::simple_chain::build_chain
     //     cargo insta test --accept -p near-chain --features nightly -- tests::simple_chain::build_chain
     let hash = chain.head().unwrap().last_block_hash;
     if cfg!(feature = "nightly") {
+        // cspell:disable-next-line
         insta::assert_snapshot!(hash, @"24ZC3eGVvtFdTEok4wPGBzx3x61tWqQpves7nFvow2zf");
     } else {
+        // cspell:disable-next-line
         insta::assert_snapshot!(hash, @"t1RB3jTh9mMtkQ1YFWxGMYefGcppSLYcJjvH7BXoSTz");
     }
 
@@ -51,8 +55,10 @@ fn build_chain() {
 
     let hash = chain.head().unwrap().last_block_hash;
     if cfg!(feature = "nightly") {
+        // cspell:disable-next-line
         insta::assert_snapshot!(hash, @"9enFQNcVUW65x3oW2iVdYSBxK9qFNETAixEQZLzXWeaQ");
     } else {
+        // cspell:disable-next-line
         insta::assert_snapshot!(hash, @"2HKQZ9swQZnWwv23TF6uYBfQ9up7faG3zvDDvjgvSgkf");
     }
 }
@@ -286,4 +292,151 @@ fn block_chunk_headers_iter() {
     assert_eq!(old_headers.len(), 8);
     assert_eq!(new_headers.len(), 8);
     assert_eq!(raw_headers.count(), old_headers.len() + new_headers.len());
+}
+
+/// Check that if block is processed while optimistic block is in processing,
+/// it is marked as pending and can be processed later.
+#[cfg(feature = "test_features")]
+#[test]
+fn test_pending_block() {
+    init_test_logger();
+    let clock = Clock::real();
+    let (mut chain, _, _, signer) = setup(clock.clone());
+    let me = Some(signer.validator_id().clone());
+    let genesis = chain.get_block(&chain.genesis().hash().clone()).unwrap();
+
+    // Create block 1
+    let block1 = TestBlockBuilder::new(clock.clone(), &genesis, signer.clone()).build();
+    chain.process_block_test(&me, block1.clone()).unwrap();
+
+    // Create block 2 (but don't process it yet)
+    let block2 = TestBlockBuilder::new(clock, &block1, signer.clone()).build();
+
+    // Create optimistic block at height 2 based on block 1
+    let optimistic_block = OptimisticBlock::adv_produce(
+        &block1.header(),
+        2,
+        &*signer,
+        block2.header().raw_timestamp(),
+        None,
+        near_primitives::optimistic_block::OptimisticBlockAdvType::Normal,
+    );
+    chain
+        .process_optimistic_block(
+            &me,
+            optimistic_block,
+            block2.chunks().iter_raw().cloned().collect(),
+            None,
+        )
+        .unwrap();
+
+    let result = chain.start_process_block_async(
+        &me,
+        block2.clone().into(),
+        crate::Provenance::PRODUCED,
+        &mut BlockProcessingArtifact::default(),
+        None,
+    );
+    let Err(err) = &result else {
+        panic!("Block processing should not succeed");
+    };
+
+    // Block must be rejected due to optimistic block in processing
+    assert_matches!(err, Error::BlockPendingOptimisticExecution);
+
+    // Verify the block is in the pending pool
+    assert!(chain.blocks_pending_execution.contains_key(&block2.header().height()));
+
+    // Process optimistic block
+    let mut block_processing_artifact = BlockProcessingArtifact::default();
+    while wait_for_all_blocks_in_processing(&mut chain) {
+        chain.postprocess_ready_blocks(&me, &mut block_processing_artifact, None);
+    }
+
+    // Verify the block is no longer in the pending pool
+    assert!(!chain.blocks_pending_execution.contains_key(&block2.header().height()));
+
+    // Wait for the pending block to be processed
+    while wait_for_all_blocks_in_processing(&mut chain) {
+        chain.postprocess_ready_blocks(&me, &mut block_processing_artifact, None);
+    }
+
+    // Verify the block is now in the chain
+    assert_eq!(chain.head().unwrap().height, 2);
+}
+
+/// Check chain behaviour on processing blocks on same height:
+/// * If we receive the same block twice and it matches the optimistic block,
+/// it should be marked as pending both times, in order not to trigger chunk
+/// execution excessive in the regular flow.
+/// * If we receive the a different block with the same height, it is a
+/// malicious behaviour. We must process all these blocks anyway, because we
+/// don't know which one gets finalized. To simplify optimistic logic, we
+/// skip pending pool and process block right away.
+#[cfg(feature = "test_features")]
+#[test]
+fn test_pending_block_same_height() {
+    use near_crypto::{KeyType, Signature};
+
+    init_test_logger();
+    let clock = Clock::real();
+    let (mut chain, _, _, signer) = setup(clock.clone());
+    let me = Some(signer.validator_id().clone());
+    let genesis = chain.get_block(&chain.genesis().hash().clone()).unwrap();
+
+    // Create block 1
+    let block1 = TestBlockBuilder::new(clock.clone(), &genesis, signer.clone()).build();
+    chain.process_block_test(&me, block1.clone()).unwrap();
+
+    // Create block 2 and its copy
+    let block2 = TestBlockBuilder::new(clock, &block1, signer.clone()).build();
+    let block2a = block2.clone();
+
+    // Create copy of block 2 with different hash.
+    // The content still matches the optimistic execution, but the hash is
+    // different.
+    // Approvals can be set arbitrarily because we process blocks in
+    // Provenance::PRODUCED mode.
+    let mut block2b = block2.clone();
+    let some_signature = Signature::from_parts(KeyType::ED25519, &[1; 64]).unwrap();
+    block2b.mut_header().set_approvals(vec![Some(Box::new(some_signature))]);
+    block2b.mut_header().resign(&*signer);
+    assert!(block2a.hash() != block2b.hash());
+
+    // Create an optimistic block at height 2
+    let optimistic_block = OptimisticBlock::adv_produce(
+        &block1.header(),
+        2,
+        &*signer,
+        block2.header().raw_timestamp(),
+        None,
+        near_primitives::optimistic_block::OptimisticBlockAdvType::Normal,
+    );
+
+    // Process the optimistic block
+    let chunk_headers = block2.chunks().iter_raw().cloned().collect();
+    chain.process_optimistic_block(&me, optimistic_block, chunk_headers, None).unwrap();
+
+    // Check that processing the first copy is failed due to optimistic block
+    // in processing.
+    let result_a = chain.start_process_block_async(
+        &me,
+        block2.into(),
+        crate::Provenance::PRODUCED,
+        &mut BlockProcessingArtifact::default(),
+        None,
+    );
+    let Err(err) = &result_a else {
+        panic!("Block processing should not succeed");
+    };
+    assert_matches!(err, Error::BlockPendingOptimisticExecution);
+
+    // Check that the copy is also marked as pending.
+    let result_b = chain.process_block_test(&me, block2a);
+    assert_matches!(result_b, Err(Error::BlockPendingOptimisticExecution));
+
+    // Check that the copy with different hash is processed.
+    let result_b = chain.process_block_test(&me, block2b);
+    assert_matches!(result_b, Ok(_));
+    assert_eq!(chain.head().unwrap().height, 2);
 }

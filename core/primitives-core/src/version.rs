@@ -264,7 +264,8 @@ pub enum ProtocolFeature {
     #[deprecated]
     _DeprecatedExcludeContractCodeFromStateWitness,
     /// A scheduler which limits bandwidth for sending receipts between shards.
-    BandwidthScheduler,
+    #[deprecated]
+    _DeprecatedBandwidthScheduler,
     /// Indicates that the "sync_hash" used to identify the point in the chain to sync state to
     /// should no longer be the first block of the epoch, but a couple blocks after that in order
     /// to sync the current epoch's state. This is not strictly a protocol feature, but is included
@@ -303,6 +304,9 @@ pub enum ProtocolFeature {
     /// 5% for gas refunds and charge the signer this fee for gas refund
     /// receipts.
     ReducedGasRefunds,
+    /// Move from ChunkStateWitness being a single struct to a versioned enum.
+    VersionedStateWitness,
+    SaturatingFloatToInt,
 }
 
 impl ProtocolFeature {
@@ -387,22 +391,23 @@ impl ProtocolFeature {
             | ProtocolFeature::_DeprecatedFixChunkProducerStakingThreshold
             | ProtocolFeature::_DeprecatedRelaxedChunkValidation
             | ProtocolFeature::_DeprecatedRemoveCheckBalance
-            | ProtocolFeature::BandwidthScheduler
+            | ProtocolFeature::_DeprecatedBandwidthScheduler
             | ProtocolFeature::_DeprecatedCurrentEpochStateSync => 74,
             ProtocolFeature::SimpleNightshadeV4 => 75,
             ProtocolFeature::SimpleNightshadeV5 => 76,
             ProtocolFeature::GlobalContracts
             | ProtocolFeature::BlockHeightForReceiptId
             | ProtocolFeature::ProduceOptimisticBlock => 77,
-            ProtocolFeature::SimpleNightshadeV6 => 78,
-
+            ProtocolFeature::SimpleNightshadeV6
+            | ProtocolFeature::VersionedStateWitness
+            | ProtocolFeature::SaturatingFloatToInt
+            | ProtocolFeature::ReducedGasRefunds => 78,
             // Nightly features:
             ProtocolFeature::FixContractLoadingCost => 129,
             // TODO(#11201): When stabilizing this feature in mainnet, also remove the temporary code
             // that always enables this for mocknet (see config_mocknet function).
             ProtocolFeature::ShuffleShardAssignments => 143,
             ProtocolFeature::ExcludeExistingCodeFromWitnessForCodeLen => 148,
-            ProtocolFeature::ReducedGasRefunds => 149,
             // Place features that are not yet in Nightly below this line.
         }
     }

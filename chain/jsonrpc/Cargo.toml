@@ -14,18 +14,12 @@ workspace = true
 [dependencies]
 actix-cors.workspace = true
 actix-web.workspace = true
-actix.workspace = true
 bs58.workspace = true
-derive_more.workspace = true
 easy-ext.workspace = true
-futures.workspace = true
-hex.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-serde_with.workspace = true
 tokio.workspace = true
 tracing.workspace = true
-tracing-subscriber.workspace = true
 
 near-async.workspace = true
 near-chain-configs.workspace = true
@@ -40,22 +34,25 @@ near-jsonrpc-adversarial-primitives = { workspace = true, optional = true }
 
 [features]
 test_features = [
-  "near-client/test_features",
-  "near-network/test_features",
-  "near-jsonrpc-primitives/test_features",
-  "near-jsonrpc-adversarial-primitives/test_features",
-  "near-primitives/test_features",
+    "near-client/test_features",
+    "near-network/test_features",
+    "near-jsonrpc-primitives/test_features",
+    "near-jsonrpc-adversarial-primitives/test_features",
+    "near-primitives/test_features",
 ]
 nightly = [
-  "near-async/nightly",
-  "near-chain-configs/nightly",
-  "near-client-primitives/nightly",
-  "near-client/nightly",
-  "near-jsonrpc-adversarial-primitives/nightly",
-  "near-jsonrpc-client-internal/nightly",
-  "near-jsonrpc-primitives/nightly",
-  "near-network/nightly",
-  "near-o11y/nightly",
-  "near-primitives/nightly",
+    "near-async/nightly",
+    "near-chain-configs/nightly",
+    "near-client-primitives/nightly",
+    "near-client/nightly",
+    "near-jsonrpc-adversarial-primitives/nightly",
+    "near-jsonrpc-client-internal/nightly",
+    "near-jsonrpc-primitives/nightly",
+    "near-network/nightly",
+    "near-o11y/nightly",
+    "near-primitives/nightly",
 ]
 sandbox = ["near-client/sandbox", "near-o11y/sandbox"]
+
+[package.metadata.cargo-machete]
+ignored = ["near-jsonrpc-adversarial-primitives"]

@@ -16,16 +16,13 @@ anyhow.workspace = true
 protobuf-codegen.workspace = true
 
 [dependencies]
-async-trait.workspace = true
 actix.workspace = true
 anyhow.workspace = true
 arc-swap.workspace = true
 borsh.workspace = true
 bytes.workspace = true
 bytesize.workspace = true
-chrono.workspace = true
 crossbeam-channel.workspace = true
-derive_more.workspace = true
 enum-map.workspace = true
 futures-util.workspace = true
 futures.workspace = true
@@ -40,14 +37,11 @@ rand.workspace = true
 rayon.workspace = true
 reed-solomon-erasure.workspace = true
 serde.workspace = true
-smart-default.workspace = true
 sha2.workspace = true
 strum.workspace = true
 stun.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
-tokio-stream.workspace = true
-tokio-util.workspace = true
 tracing.workspace = true
 time.workspace = true
 

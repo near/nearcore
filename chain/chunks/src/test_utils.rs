@@ -13,20 +13,20 @@ use near_primitives::merkle::{self, MerklePath};
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{
     EncodedShardChunk, PartialEncodedChunk, PartialEncodedChunkPart, PartialEncodedChunkV2,
-    ShardChunkHeader,
+    ShardChunkHeader, ShardChunkWithEncoding,
 };
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::MerkleHash;
 use near_primitives::types::{AccountId, EpochId};
-use near_primitives::version::PROTOCOL_VERSION;
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::chunk_store::ChunkStoreAdapter;
 use near_store::set_genesis_height;
 use near_store::test_utils::create_test_store;
+use parking_lot::{Mutex, RwLock};
 use reed_solomon_erasure::galois_8::ReedSolomon;
 use std::collections::VecDeque;
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::Arc;
 
 use crate::adapter::ShardsManagerRequestFromClient;
 use crate::client::ShardsManagerResponse;
@@ -152,7 +152,7 @@ impl ChunkTestFixture {
         let shard_layout = epoch_manager.get_shard_layout(&EpochId::default()).unwrap();
         let receipts_hashes = Chain::build_receipts_hashes(&[], &shard_layout).unwrap();
         let (receipts_root, _) = merkle::merklize(&receipts_hashes);
-        let (mock_chunk, mock_merkle_paths, _) = ShardsManagerActor::create_encoded_shard_chunk(
+        let (mock_chunk, mock_merkle_paths) = ShardChunkWithEncoding::new(
             mock_parent_hash,
             Default::default(),
             Default::default(),
@@ -167,14 +167,15 @@ impl ChunkTestFixture {
             receipts_root,
             MerkleHash::default(),
             Default::default(),
-            BandwidthRequests::default_for_protocol_version(PROTOCOL_VERSION),
+            BandwidthRequests::empty(),
             &signer,
             &rs,
-            PROTOCOL_VERSION,
         );
 
+        let mock_encoded_chunk = mock_chunk.into_parts().1;
+
         let all_part_ords: Vec<u64> =
-            (0..mock_chunk.content().parts.len()).map(|p| p as u64).collect();
+            (0..mock_encoded_chunk.content().parts.len()).map(|p| p as u64).collect();
         let mock_part_ords = all_part_ords
             .iter()
             .copied()
@@ -182,7 +183,7 @@ impl ChunkTestFixture {
                 epoch_manager.get_part_owner(&mock_epoch_id, *p).unwrap() == mock_chunk_part_owner
             })
             .collect();
-        let encoded_chunk = mock_chunk.create_partial_encoded_chunk(
+        let encoded_chunk = mock_encoded_chunk.create_partial_encoded_chunk(
             all_part_ords.clone(),
             Vec::new(),
             &mock_merkle_paths,
@@ -198,7 +199,7 @@ impl ChunkTestFixture {
             chain_store,
             all_part_ords,
             mock_part_ords,
-            mock_encoded_chunk: mock_chunk,
+            mock_encoded_chunk,
             mock_merkle_paths,
             mock_outgoing_receipts: vec![],
             mock_chunk_part_owner,
@@ -284,13 +285,13 @@ pub struct MockClientAdapterForShardsManager {
 
 impl CanSend<ShardsManagerResponse> for MockClientAdapterForShardsManager {
     fn send(&self, msg: ShardsManagerResponse) {
-        self.requests.write().unwrap().push_back(msg);
+        self.requests.write().push_back(msg);
     }
 }
 
 impl MockClientAdapterForShardsManager {
     pub fn pop(&self) -> Option<ShardsManagerResponse> {
-        self.requests.write().unwrap().pop_front()
+        self.requests.write().pop_front()
     }
 }
 
@@ -310,21 +311,21 @@ pub struct SynchronousShardsManagerAdapter {
 
 impl CanSend<ShardsManagerRequestFromClient> for SynchronousShardsManagerAdapter {
     fn send(&self, msg: ShardsManagerRequestFromClient) {
-        let mut shards_manager = self.shards_manager.lock().unwrap();
+        let mut shards_manager = self.shards_manager.lock();
         shards_manager.handle_client_request(msg);
     }
 }
 
 impl CanSend<ShardsManagerRequestFromNetwork> for SynchronousShardsManagerAdapter {
     fn send(&self, msg: ShardsManagerRequestFromNetwork) {
-        let mut shards_manager = self.shards_manager.lock().unwrap();
+        let mut shards_manager = self.shards_manager.lock();
         shards_manager.handle_network_request(msg);
     }
 }
 
 impl CanSend<ShardsManagerResendChunkRequests> for SynchronousShardsManagerAdapter {
     fn send(&self, _: ShardsManagerResendChunkRequests) {
-        let mut shards_manager = self.shards_manager.lock().unwrap();
+        let mut shards_manager = self.shards_manager.lock();
         shards_manager.resend_chunk_requests();
     }
 }
