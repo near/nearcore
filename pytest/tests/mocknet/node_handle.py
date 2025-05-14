@@ -188,14 +188,3 @@ class NodeHandle:
     def neard_clear_env(self, schedule_ctx: Optional[ScheduleContext]):
         return self.neard_runner_jsonrpc(schedule_ctx, 'clear_env')
 
-    def neard_runner_list_scheduled_commands(self):
-        #return self.neard_runner_jsonrpc('list_scheduled_commands')
-        pass
-
-    def neard_runner_cancel_scheduled_command(self, schedule_ctx: Optional[ScheduleContext], command_id):
-        #return self.neard_runner_jsonrpc(
-        #    'cancel_scheduled_command',
-        #    params={
-        #        'command_id': command_id,
-        #    })
-        pass

@@ -20,7 +20,11 @@ def run_cmd(node, cmd, raise_on_fail=False, return_on_fail=False):
     return r
 
 
-def schedule_cmd(node, cmd, schedule_ctx: ScheduleContext, raise_on_fail=False, return_on_fail=False):
+def schedule_cmd(node,
+                 cmd,
+                 schedule_ctx: ScheduleContext,
+                 raise_on_fail=False,
+                 return_on_fail=False):
     cmd_b64 = base64.b64encode(cmd.encode('utf-8')).decode('utf-8')
     scheduled_action = f'$(echo {cmd_b64} | base64 -d)'
     unit_name = f'mocknet-{schedule_ctx.id}'

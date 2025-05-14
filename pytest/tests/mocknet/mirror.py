@@ -75,6 +75,7 @@ def prompt_init_flags(args):
 
 
 def with_schedule_context(func):
+
     @wraps(func)
     def wrapper(args, *func_args, **func_kwargs):
         # Only build the context if the command is 'schedule' and has the right args
@@ -88,6 +89,7 @@ def with_schedule_context(func):
         )
 
         return func(args, context, *func_args, **func_kwargs)
+
     return wrapper
 
 
@@ -231,7 +233,8 @@ def _apply_stateless_config(args, node):
     do_update_config(node, None, 'save_latest_witnesses=false')
     if not node.want_state_dump:
         do_update_config(node, None, 'tracked_shards_config="NoShards"')
-        do_update_config(node, None, 'store.load_mem_tries_for_tracked_shards=true')
+        do_update_config(node, None,
+                         'store.load_mem_tries_for_tracked_shards=true')
     if not args.local_test:
         node.run_cmd(
             "sudo sysctl -w net.core.rmem_max=8388608 && sudo sysctl -w net.core.wmem_max=8388608 && sudo sysctl -w net.ipv4.tcp_rmem='4096 87380 8388608' && sudo sysctl -w net.ipv4.tcp_wmem='4096 16384 8388608' && sudo sysctl -w net.ipv4.tcp_slow_start_after_idle=0"
@@ -367,6 +370,7 @@ def status_cmd(args, traffic_generator, nodes):
             f'{len(targeted)-len(not_ready)}/{len(targeted)} ready. Nodes not ready: {not_ready[:3]}'
         )
 
+
 @with_schedule_context
 def reset_cmd(args, schedule_ctx, traffic_generator, nodes):
     if not args.yes:
@@ -393,14 +397,17 @@ def reset_cmd(args, schedule_ctx, traffic_generator, nodes):
             sys.exit()
 
     targeted = nodes + to_list(traffic_generator)
-    pmap(lambda node: node.neard_runner_reset(schedule_ctx, backup_id=args.backup_id),
-         targeted)
+    pmap(
+        lambda node: node.neard_runner_reset(schedule_ctx,
+                                             backup_id=args.backup_id),
+        targeted)
     logger.info(
         'Data dir reset in progress. Run the `status` command to see when this is finished. Until it is finished, neard runners may not respond to HTTP requests.'
     )
     # Do not clear state parts if scheduling
     if schedule_ctx is None:
         _clear_state_parts_if_exists(_get_state_parts_location(args), nodes)
+
 
 @with_schedule_context
 def make_backup_cmd(args, schedule_ctx, traffic_generator, nodes):
@@ -424,24 +431,29 @@ def make_backup_cmd(args, schedule_ctx, traffic_generator, nodes):
 
     targeted = nodes + to_list(traffic_generator)
     pmap(
-        lambda node: node.neard_runner_make_backup(
-            schedule_ctx,
-            backup_id=args.backup_id, description=args.description), targeted)
+        lambda node: node.neard_runner_make_backup(schedule_ctx,
+                                                   backup_id=args.backup_id,
+                                                   description=args.description
+                                                  ), targeted)
+
 
 @with_schedule_context
 def stop_nodes_cmd(args, schedule_ctx, traffic_generator, nodes):
     targeted = nodes + to_list(traffic_generator)
     pmap(lambda node: node.neard_runner_stop(schedule_ctx), targeted)
 
+
 @with_schedule_context
 def stop_traffic_cmd(args, schedule_ctx, traffic_generator, nodes):
     traffic_generator.neard_runner_stop(schedule_ctx)
+
 
 def do_update_config(node, schedule_ctx, config_change):
     result = node.neard_update_config(schedule_ctx, config_change)
     if not result:
         logger.warning(
             f'failed updating config on {node.name()}. result: {result}')
+
 
 @with_schedule_context
 def update_config_cmd(args, schedule_ctx, traffic_generator, nodes):
@@ -450,6 +462,7 @@ def update_config_cmd(args, schedule_ctx, traffic_generator, nodes):
         lambda node: do_update_config(node, schedule_ctx, args.set),
         nodes,
     )
+
 
 @with_schedule_context
 def start_nodes_cmd(args, schedule_ctx, traffic_generator, nodes):
@@ -462,6 +475,7 @@ def start_nodes_cmd(args, schedule_ctx, traffic_generator, nodes):
     # Wait for the nodes to be up if not scheduling
     if schedule_ctx is None:
         pmap(lambda node: node.wait_node_up(), nodes)
+
 
 @with_schedule_context
 def start_traffic_cmd(args, schedule_ctx, traffic_generator, nodes):
@@ -484,27 +498,26 @@ def start_traffic_cmd(args, schedule_ctx, traffic_generator, nodes):
             "waiting a bit after validators started before starting traffic")
         time.sleep(10)
     traffic_generator.neard_runner_start(
-        schedule_ctx,
-        batch_interval_millis=args.batch_interval_millis)
+        schedule_ctx, batch_interval_millis=args.batch_interval_millis)
     if schedule_ctx is None:
         logger.info(
             f'test running. to check the traffic sent, try running "curl --silent http://{traffic_generator.ip_addr()}:{traffic_generator.neard_port()}/metrics | grep near_mirror"'
         )
+
 
 @with_schedule_context
 def update_binaries_cmd(args, schedule_ctx, traffic_generator, nodes):
     pmap(lambda node: node.neard_runner_update_binaries(schedule_ctx),
          nodes + to_list(traffic_generator))
 
-@with_schedule_context 
+
+@with_schedule_context
 def amend_binaries_cmd(args, schedule_ctx, traffic_generator, nodes):
     pmap(
         lambda node: node.neard_runner_update_binaries(
-            schedule_ctx,
-            args.neard_binary_url, 
-            args.epoch_height,
-            args.binary_idx),
-        nodes + to_list(traffic_generator))
+            schedule_ctx, args.neard_binary_url, args.epoch_height, args.
+            binary_idx), nodes + to_list(traffic_generator))
+
 
 def _run_remote(schedule_ctx, hosts, cmd):
     pmap(lambda node: logger.info(
@@ -513,11 +526,13 @@ def _run_remote(schedule_ctx, hosts, cmd):
          hosts,
          on_exception="")
 
+
 @with_schedule_context
 def run_remote_cmd(args, schedule_ctx, traffic_generator, nodes):
     targeted = nodes + to_list(traffic_generator)
     logger.info(f'Running cmd on {"".join([h.name() for h in targeted ])}')
     _run_remote(schedule_ctx, targeted, args.cmd)
+
 
 def run_remote_upload_file(args, traffic_generator, nodes):
     targeted = nodes + to_list(traffic_generator)
@@ -529,6 +544,7 @@ def run_remote_upload_file(args, traffic_generator, nodes):
             node.name(), node.upload_file(args.src, args.dst))),
          targeted,
          on_exception="")
+
 
 @with_schedule_context
 def run_env_cmd(args, schedule_ctx, traffic_generator, nodes):
@@ -618,24 +634,34 @@ def build_parser():
     # register subcommands to root parser
     register_base_commands(subparsers)
     register_subcommands(subparsers)
-    return parser 
+    return parser
+
 
 def register_schedule_subcommands(subparsers):
-    schedule_parser = subparsers.add_parser('schedule', help='Schedule commands to run in the future.')
-    schedule_parser.add_argument('--schedule-in',
-                        type=str,
-                        help='Schedule the command to run after the specified time. Can be in the format of "10s", "10m", "10h", "10d"')
-    schedule_parser.add_argument('--schedule-id',
-                        type=str,
-                        help='The id of the scheduled command. If not provided, random string will be generated.')
+    schedule_parser = subparsers.add_parser(
+        'schedule', help='Schedule commands to run in the future.')
+    schedule_parser.add_argument(
+        '--schedule-in',
+        type=str,
+        help=
+        'Schedule the command to run after the specified time. Can be in the format of "10s", "10m", "10h", "10d"'
+    )
+    schedule_parser.add_argument(
+        '--schedule-id',
+        type=str,
+        help=
+        'The id of the scheduled command. If not provided, random string will be generated.'
+    )
 
     # Add nested subparsers under 'schedule'
-    schedule_subparsers = schedule_parser.add_subparsers(title='subcommands',
-                                                         description='valid subcommands',
-                                                         help='additional help',
-                                                         required=True)
+    schedule_subparsers = schedule_parser.add_subparsers(
+        title='subcommands',
+        description='valid subcommands',
+        help='additional help',
+        required=True)
     # register subcommands to schedule_subparsers
     register_subcommands(schedule_subparsers)
+
 
 def register_base_commands(subparsers):
     init_parser = subparsers.add_parser('init-neard-runner',
@@ -701,6 +727,7 @@ def register_base_commands(subparsers):
     upload_file_parser.add_argument('--src', type=str)
     upload_file_parser.add_argument('--dst', type=str)
     upload_file_parser.set_defaults(func=run_remote_upload_file)
+
 
 def register_subcommands(subparsers):
     update_config_parser = subparsers.add_parser(
@@ -819,6 +846,7 @@ def register_subcommands(subparsers):
     env_cmd_parser.add_argument('--clear-all', action='store_true')
     env_cmd_parser.add_argument('--key-value', type=str, nargs='+')
     env_cmd_parser.set_defaults(func=run_env_cmd)
+
 
 if __name__ == '__main__':
     parser = build_parser()

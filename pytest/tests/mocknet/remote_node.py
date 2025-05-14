@@ -18,6 +18,7 @@ from utils import ScheduleContext
 
 from configured_logger import logger
 
+
 class RemoteNeardRunner:
 
     def __init__(self, node, neard_runner_home):
@@ -55,11 +56,16 @@ class RemoteNeardRunner:
                             os.path.join(self.neard_runner_home, 'config.json'),
                             config)
 
-    def run_cmd(self, schedule_ctx: Optional[ScheduleContext], cmd, raise_on_fail=False, return_on_fail=False):
+    def run_cmd(self,
+                schedule_ctx: Optional[ScheduleContext],
+                cmd,
+                raise_on_fail=False,
+                return_on_fail=False):
         if schedule_ctx is None:
             r = cmd_utils.run_cmd(self.node, cmd, raise_on_fail, return_on_fail)
         else:
-            r = cmd_utils.schedule_cmd(self.node, cmd, schedule_ctx, raise_on_fail, return_on_fail)
+            r = cmd_utils.schedule_cmd(self.node, cmd, schedule_ctx,
+                                       raise_on_fail, return_on_fail)
         return r
 
     def upload_file(self, src, dst):
@@ -105,8 +111,12 @@ class RemoteNeardRunner:
         # in method or params into the command correctly
         body = body.replace("'", "'\"'\"'")
         if schedule_ctx is not None:
-            r = cmd_utils.schedule_cmd(self.node, f'curl localhost:3000 -d \'{body}\'', schedule_ctx, raise_on_fail=True)
-            logger.info('{0}:\nstdout:\n{1.stdout}\nstderr:\n{1.stderr}'.format(self.name(), r))
+            r = cmd_utils.schedule_cmd(self.node,
+                                       f'curl localhost:3000 -d \'{body}\'',
+                                       schedule_ctx,
+                                       raise_on_fail=True)
+            logger.info('{0}:\nstdout:\n{1.stdout}\nstderr:\n{1.stderr}'.format(
+                self.name(), r))
             return
         r = cmd_utils.run_cmd(self.node, f'curl localhost:3000 -d \'{body}\'')
         return json.loads(r.stdout)

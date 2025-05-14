@@ -92,7 +92,11 @@ class LocalTestNeardRunner:
         # handled by local_test_setup_cmd()
         return
 
-    def run_cmd(self, _schedule_ctx, cmd, raise_on_fail=False, return_on_fail=False):
+    def run_cmd(self,
+                _schedule_ctx,
+                cmd,
+                raise_on_fail=False,
+                return_on_fail=False):
         logger.error(
             "Does not make sense to run command on local host. The behavior may not be the desired one."
         )
