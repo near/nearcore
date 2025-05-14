@@ -1015,7 +1015,7 @@ mod tests {
     fn test_flat_storage_split_shard_task() {
         init_test_logger();
         let (flat_storage_resharder, split_params) = setup_test();
-        let parent_shard = ShardUId { version: 3, shard_id: 0 };
+        let parent_shard = ShardUId { version: 3, shard_id: 1 };
 
         // Set up initial flat storage status
         let store = flat_storage_resharder.runtime.store().flat_store();
@@ -1047,7 +1047,7 @@ mod tests {
     fn test_resume_resharding_from_dirty_state() {
         init_test_logger();
         let (flat_storage_resharder, split_params) = setup_test();
-        let parent_shard = ShardUId { version: 3, shard_id: 0 };
+        let parent_shard = ShardUId { version: 3, shard_id: 1 };
 
         // Create dirty state in children shards and put parent in splitting status
         let store = flat_storage_resharder.runtime.store().flat_store();
@@ -1096,7 +1096,7 @@ mod tests {
     fn test_cancel_split_shard() {
         init_test_logger();
         let (flat_storage_resharder, split_params) = setup_test();
-        let parent_shard = ShardUId { version: 3, shard_id: 0 };
+        let parent_shard = ShardUId { version: 3, shard_id: 1 };
 
         // Set up initial flat storage status
         let store = flat_storage_resharder.runtime.store().flat_store();
@@ -1136,7 +1136,7 @@ mod tests {
     fn test_cancel_shard_catchup() {
         init_test_logger();
         let (flat_storage_resharder, split_params) = setup_test();
-        let parent_shard = ShardUId { version: 3, shard_id: 0 };
+        let parent_shard = ShardUId { version: 3, shard_id: 1 };
 
         // Set up initial flat storage status for catching up
         let store = flat_storage_resharder.runtime.store().flat_store();
@@ -1227,7 +1227,6 @@ mod tests {
             keys
         };
 
-        let account_aa_keys = inject("aa".parse().unwrap());
         let account_mm_keys = inject("mm".parse().unwrap());
         let account_vv_keys = inject("vv".parse().unwrap());
 
@@ -1235,10 +1234,6 @@ mod tests {
 
         Box::new(move |left_child_shard: ShardUId, right_child_shard: ShardUId| {
             // Check each child has the correct keys assigned to itself.
-            for key in &account_aa_keys {
-                assert_eq!(flat_store.get(left_child_shard, key), Ok(test_value.clone()));
-                assert_eq!(flat_store.get(right_child_shard, key), Ok(None));
-            }
             for key in &account_mm_keys {
                 assert_eq!(flat_store.get(left_child_shard, key), Ok(test_value.clone()));
                 assert_eq!(flat_store.get(right_child_shard, key), Ok(None));
@@ -1414,7 +1409,7 @@ mod tests {
     fn test_flat_storage_resharding() {
         init_test_logger();
         let (flat_storage_resharder, split_params) = setup_test();
-        let parent_shard = ShardUId { version: 3, shard_id: 0 };
+        let parent_shard = ShardUId { version: 3, shard_id: 1 };
 
         let store = flat_storage_resharder.runtime.store().flat_store();
         let validate_fns = vec![
