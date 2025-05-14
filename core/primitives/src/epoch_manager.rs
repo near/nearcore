@@ -223,6 +223,7 @@ pub struct AllEpochConfig {
     /// Chain Id. Some parameters are specific to certain chains.
     chain_id: String,
     epoch_length: BlockHeightDelta,
+    genesis_protocol_version: ProtocolVersion,
 }
 
 impl AllEpochConfig {
@@ -230,8 +231,14 @@ impl AllEpochConfig {
         chain_id: &str,
         epoch_length: BlockHeightDelta,
         config_store: EpochConfigStore,
+        genesis_protocol_version: ProtocolVersion,
     ) -> Self {
-        Self { config_store, chain_id: chain_id.to_string(), epoch_length }
+        Self {
+            config_store,
+            chain_id: chain_id.to_string(),
+            epoch_length,
+            genesis_protocol_version,
+        }
     }
 
     pub fn for_protocol_version(&self, protocol_version: ProtocolVersion) -> EpochConfig {
@@ -245,6 +252,10 @@ impl AllEpochConfig {
 
     pub fn chain_id(&self) -> &str {
         &self.chain_id
+    }
+
+    pub fn genesis_protocol_version(&self) -> ProtocolVersion {
+        self.genesis_protocol_version
     }
 }
 

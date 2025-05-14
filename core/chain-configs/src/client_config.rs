@@ -2,6 +2,7 @@
 use crate::ExternalStorageLocation::GCS;
 use crate::MutableConfigValue;
 use bytesize::ByteSize;
+use near_primitives::shard_layout::ShardUId;
 use near_primitives::types::{
     AccountId, BlockHeight, BlockHeightDelta, Gas, NumBlocks, NumSeats, ShardId,
 };
@@ -44,7 +45,7 @@ pub enum TrackedShardsConfig {
     /// Tracks no shards (light client).
     NoShards,
     /// Tracks arbitrary shards.
-    Shards(Vec<ShardId>),
+    Shards(Vec<ShardUId>),
     /// Tracks all shards.
     AllShards,
     /// Tracks shards that are assigned to given validator account.

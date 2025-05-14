@@ -8,7 +8,7 @@ use near_chain_configs::{MIN_GC_NUM_EPOCHS_TO_KEEP, TrackedShardsConfig};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::shard_layout::{ShardLayout, get_block_shard_uid, get_block_shard_uid_rev};
-use near_primitives::types::{AccountId, ShardId};
+use near_primitives::types::AccountId;
 use near_primitives::version::{PROD_GENESIS_PROTOCOL_VERSION, ProtocolFeature};
 use near_store::adapter::StoreAdapter as _;
 use near_store::adapter::chain_store::ChainStoreAdapter;
@@ -40,13 +40,10 @@ fn test_rpc_single_shard_tracking() {
         .shard_layout(shard_layout.clone())
         .epoch_length(EPOCH_LENGTH)
         .build();
-    let shard_ids: Vec<ShardId> = shard_layout.shard_ids().collect();
+    let shard_uids: Vec<ShardUId> = shard_layout.shard_uids().collect();
     let (_untracked_shard, tracked_shards) =
-        shard_ids.split_last().map(|(l, r)| (*l, r.to_vec())).unwrap();
-    let tracked_shard_uids: HashSet<_> = tracked_shards
-        .iter()
-        .map(|shard_id| ShardUId::from_shard_id_and_layout(*shard_id, &shard_layout))
-        .collect();
+        shard_uids.split_last().map(|(l, r)| (*l, r.to_vec())).unwrap();
+    let tracked_shards_set = tracked_shards.iter().cloned().collect();
     let epoch_config = Arc::new(TestEpochConfigBuilder::from_genesis(&genesis).build());
     let epoch_configs = (PROD_GENESIS_PROTOCOL_VERSION..=genesis.config.protocol_version)
         .map(|protocol_version| (protocol_version, epoch_config.clone()))
@@ -66,8 +63,7 @@ fn test_rpc_single_shard_tracking() {
             }
             config.gc.gc_step_period = GC_STEP_PERIOD;
             config.gc.gc_num_epochs_to_keep = GC_NUM_EPOCHS_TO_KEEP;
-            config.tracked_shards_config =
-                TrackedShardsConfig::Shards(tracked_shards.clone().to_vec());
+            config.tracked_shards_config = TrackedShardsConfig::Shards(tracked_shards.clone());
         })
         .build()
         .warmup();
@@ -79,8 +75,8 @@ fn test_rpc_single_shard_tracking() {
         .chain
         .chain_store;
 
-    assert_old_chunks_are_cleared(chain_store, &tracked_shard_uids);
-    assert_new_chunks_exist(chain_store, &tracked_shard_uids);
+    assert_old_chunks_are_cleared(chain_store, &tracked_shards_set);
+    assert_new_chunks_exist(chain_store, &tracked_shards_set);
 
     env.shutdown_and_drain_remaining_events(Duration::seconds(10));
 }
@@ -108,20 +104,17 @@ fn test_archival_single_shard_tracking_when_resharding() {
     let new_epoch_config =
         derive_new_epoch_config_from_boundary(&base_epoch_config, &boundary_account);
     let new_shard_layout = new_epoch_config.shard_layout.clone();
-    let initial_shard_ids: Vec<ShardId> = base_shard_layout.shard_ids().collect();
-    let (untracked_shard, initially_tracked_shards) =
-        initial_shard_ids.split_last().map(|(l, r)| (*l, r.to_vec())).unwrap();
+    let initial_shards: Vec<ShardUId> = base_shard_layout.shard_uids().collect();
+    let (untracked_shard, initial_tracked_shards) =
+        initial_shards.split_last().map(|(l, r)| (*l, r.to_vec())).unwrap();
     // We want to test an archival node that is tracking the shard being resharded.
-    assert_ne!(untracked_shard, parent_shard_id);
-    let mut shards_tracked_after_resharding: HashSet<_> = initially_tracked_shards
+    assert_ne!(untracked_shard.shard_id(), parent_shard_id);
+    let mut shards_tracked_after_resharding: HashSet<_> = initial_tracked_shards
         .iter()
-        .filter_map(|shard_id| {
-            if shard_id == &parent_shard_id {
-                return None;
-            }
-            Some(ShardUId::from_shard_id_and_layout(*shard_id, &base_shard_layout))
-        })
+        .filter(|shard_uid| shard_uid.shard_id() != parent_shard_id)
+        .cloned()
         .collect();
+
     for child_shard_uid in new_shard_layout.get_children_shards_uids(parent_shard_id).unwrap() {
         shards_tracked_after_resharding.insert(child_shard_uid);
     }
@@ -145,7 +138,7 @@ fn test_archival_single_shard_tracking_when_resharding() {
                 return;
             }
             config.tracked_shards_config =
-                TrackedShardsConfig::Shards(initially_tracked_shards.clone().to_vec());
+                TrackedShardsConfig::Shards(initial_tracked_shards.clone());
         })
         .build()
         .warmup();
@@ -184,36 +177,33 @@ fn test_archival_single_shard_tracking_when_resharding() {
 
 fn assert_old_chunks_are_cleared(
     chain_store: &ChainStoreAdapter,
-    tracked_shard_uids: &HashSet<ShardUId>,
+    tracked_shards: &HashSet<ShardUId>,
 ) {
     let final_block_height = chain_store.final_head().unwrap().height;
     let store = chain_store.store().store();
-    let mut stored_shard_uids = HashSet::<ShardUId>::default();
+    let mut stored_shards = HashSet::<ShardUId>::default();
     for res in store.iter(DBCol::ChunkExtra) {
         let (block_hash, shard_uid) = get_block_shard_uid_rev(&res.unwrap().0).unwrap();
         let block_height = chain_store.get_block_height(&block_hash).unwrap();
-        stored_shard_uids.insert(shard_uid);
+        stored_shards.insert(shard_uid);
         assert!(
             block_height >= final_block_height.saturating_sub(EPOCH_LENGTH * GC_NUM_EPOCHS_TO_KEEP),
             "ChunkExtra data contains too old block at height {block_height} while final_block_height is {final_block_height}",
         );
     }
     assert_eq!(
-        &stored_shard_uids, tracked_shard_uids,
-        "ChunkExtra contains data for shards {stored_shard_uids:?} while the node is expected to track shards {tracked_shard_uids:?}",
+        &stored_shards, tracked_shards,
+        "ChunkExtra contains data for shards {stored_shards:?} while the node is expected to track shards {tracked_shards:?}",
     );
 }
 
-fn assert_new_chunks_exist(
-    chain_store: &ChainStoreAdapter,
-    tracked_shard_uids: &HashSet<ShardUId>,
-) {
+fn assert_new_chunks_exist(chain_store: &ChainStoreAdapter, tracked_shards: &HashSet<ShardUId>) {
     let final_block_height = chain_store.final_head().unwrap().height;
     let store = chain_store.store().store();
     let head_height = chain_store.head().unwrap().height;
     for height in final_block_height..head_height {
         let block_hash = chain_store.get_block_hash_by_height(height).unwrap();
-        for shard_uid in tracked_shard_uids {
+        for shard_uid in tracked_shards {
             assert!(
                 store
                     .get(DBCol::ChunkExtra, &get_block_shard_uid(&block_hash, shard_uid))

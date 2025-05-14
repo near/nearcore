@@ -70,43 +70,18 @@ impl ShardTracker {
         shard_id: ShardId,
         epoch_id: &EpochId,
     ) -> Result<bool, EpochError> {
+        // TODO(#13445): Add a debug assertion that shard exists in the epoch.
         match &self.tracked_shards_config {
             TrackedShardsConfig::NoShards => Ok(false),
             TrackedShardsConfig::AllShards => Ok(true),
             TrackedShardsConfig::Shards(tracked_shards) => {
-                // TODO(#13445): Turn the check below into a debug assert and call it earlier,
-                // for all `tracked_shards_config` variants.
-                let shard_layout = self.epoch_manager.get_shard_layout(epoch_id)?;
-                if !shard_layout.shard_ids().contains(&shard_id) {
-                    return Err(EpochError::ShardingError(format!("Invalid shard id {shard_id}")));
-                }
                 self.check_if_descendant_of_tracked_shard(shard_id, tracked_shards, epoch_id)
             }
             TrackedShardsConfig::Accounts(tracked_accounts) => {
-                let shard_layout = self.epoch_manager.get_shard_layout(epoch_id)?;
-                let tracking_mask = self.tracked_accounts_shard_cache.get_or_try_put(
-                    *epoch_id,
-                    |_| -> Result<Vec<bool>, EpochError> {
-                        let mut tracking_mask =
-                            shard_layout.shard_ids().map(|_| false).collect_vec();
-                        for account_id in tracked_accounts {
-                            let shard_id = shard_layout.account_id_to_shard_id(account_id);
-                            let shard_index = shard_layout.get_shard_index(shard_id)?;
-                            tracking_mask[shard_index] = true;
-                        }
-                        Ok(tracking_mask)
-                    },
-                )?;
-                let shard_index = shard_layout.get_shard_index(shard_id)?;
-                Ok(tracking_mask.get(shard_index).copied().unwrap_or(false))
+                self.check_if_shard_contains_tracked_account(shard_id, tracked_accounts, epoch_id)
             }
             TrackedShardsConfig::Schedule(schedule) => {
-                assert_ne!(schedule.len(), 0);
-                let epoch_info = self.epoch_manager.get_epoch_info(epoch_id)?;
-                let epoch_height = epoch_info.epoch_height();
-                let index = epoch_height % schedule.len() as u64;
-                let subset = &schedule[index as usize];
-                Ok(subset.contains(&shard_id))
+                self.check_if_shard_is_tracked_according_to_schedule(shard_id, schedule, epoch_id)
             }
             TrackedShardsConfig::ShadowValidator(account_id) => {
                 self.epoch_manager.cares_about_shard_in_epoch(epoch_id, account_id, shard_id)
@@ -291,9 +266,10 @@ impl ShardTracker {
         self.tracked_shards_config.tracks_all_shards()
     }
 
-    /// Returns whether the node tracks a non-empty, arbitrary subset of shards.
-    pub fn tracks_arbitrary_shards(&self) -> bool {
+    /// Returns whether the node tracks a non-empty subset of shards.
+    pub fn tracks_some_shards(&self) -> bool {
         match &self.tracked_shards_config {
+            TrackedShardsConfig::AllShards => true,
             TrackedShardsConfig::Shards(shards) => !shards.is_empty(),
             _ => false,
         }
@@ -371,12 +347,52 @@ impl ShardTracker {
         }
     }
 
+    /// Checks whether the given `shard_id` is part of the scheduled tracked shards for the
+    /// specified `epoch_id`, based on the provided `schedule`.
+    fn check_if_shard_is_tracked_according_to_schedule(
+        &self,
+        shard_id: ShardId,
+        schedule: &Vec<Vec<ShardId>>,
+        epoch_id: &EpochId,
+    ) -> Result<bool, EpochError> {
+        assert_ne!(schedule.len(), 0);
+        let epoch_info = self.epoch_manager.get_epoch_info(epoch_id)?;
+        let epoch_height = epoch_info.epoch_height();
+        let index = epoch_height % schedule.len() as u64;
+        let subset = &schedule[index as usize];
+        Ok(subset.contains(&shard_id))
+    }
+
+    /// Checks whether `shard_id` contains any of the `tracked_accounts` in the given `epoch_id`.
+    fn check_if_shard_contains_tracked_account(
+        &self,
+        shard_id: ShardId,
+        tracked_accounts: &Vec<AccountId>,
+        epoch_id: &EpochId,
+    ) -> Result<bool, EpochError> {
+        let shard_layout = self.epoch_manager.get_shard_layout(epoch_id)?;
+        let tracking_mask = self.tracked_accounts_shard_cache.get_or_try_put(
+            *epoch_id,
+            |_| -> Result<Vec<bool>, EpochError> {
+                let mut tracking_mask = shard_layout.shard_ids().map(|_| false).collect_vec();
+                for account_id in tracked_accounts {
+                    let shard_id = shard_layout.account_id_to_shard_id(account_id);
+                    let shard_index = shard_layout.get_shard_index(shard_id)?;
+                    tracking_mask[shard_index] = true;
+                }
+                Ok(tracking_mask)
+            },
+        )?;
+        let shard_index = shard_layout.get_shard_index(shard_id)?;
+        Ok(tracking_mask.get(shard_index).copied().unwrap_or(false))
+    }
+
     /// Checks whether `shard_id` is a descendant of any of the `tracked_shards`.
     /// Assumes that `shard_id` exists in the shard layout of `epoch_id`.
     pub fn check_if_descendant_of_tracked_shard(
         &self,
         shard_id: ShardId,
-        tracked_shards: &Vec<ShardId>,
+        tracked_shards: &Vec<ShardUId>,
         epoch_id: &EpochId,
     ) -> Result<bool, EpochError> {
         if let Some(is_tracked) = self.descendant_of_tracked_shard_cache.lock().get(&shard_id) {
@@ -409,40 +425,45 @@ impl ShardTracker {
 }
 
 fn check_if_descendant_of_tracked_shard_impl(
-    mut shard_id: ShardId,
-    tracked_shards: &Vec<ShardId>,
+    shard_id: ShardId,
+    tracked_shards: &Vec<ShardUId>,
     epoch_id: &EpochId,
     epoch_manager: &Arc<dyn EpochManagerAdapter>,
 ) -> Result<bool, EpochError> {
-    if tracked_shards.contains(&shard_id) {
-        // `shard_id` is one of the `tracked_shards` (a shard is a descendant of itself)
+    let mut protocol_version = epoch_manager.get_epoch_protocol_version(epoch_id)?;
+    let mut shard_layout = epoch_manager.get_shard_layout_from_protocol_version(protocol_version);
+    let mut shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
+    if tracked_shards.contains(&shard_uid) {
+        // We explicitly track `shard_id` (the shard is a descendant of itself).
         return Ok(true);
     }
-    let mut tracked_shards: HashSet<ShardId> = tracked_shards.into_iter().cloned().collect();
-    let mut protocol_version = epoch_manager.get_epoch_protocol_version(epoch_id)?;
+    // `shard_uid` does not belong to `tracked_shards`, but it might be a descendant of one.
+    // Iterate through all ancestors of `shard_uid` to see if any belong to `tracked_shards`.
+    let tracked_shards: HashSet<ShardUId> = tracked_shards.into_iter().cloned().collect();
     let genesis_protocol_version = epoch_manager.genesis_protocol_version();
-    while protocol_version >= genesis_protocol_version {
-        let shard_layout = epoch_manager.get_shard_layout_from_protocol_version(protocol_version);
-        // Invariants:
-        // * `shard_id` is an ancestor of the original `shard_id` (or itself).
-        // * `shard_id` belongs to the `shard_layout`.
-        // * `tracked_shards` do not contain `shard_id`.
-
-        // `shard_id` cannot be a descendant of another shard from the current shard layout.
-        // It could potentially be a descendant of an earlier shard with the same ID as a shard in the current shard layout.
-        // In that case, we are only interested in the latest occurrence of a shard with the given ID.
-        // To ensure that, we remove the shard IDs of the current shard layout from `tracked_shards`.
-        shard_layout.shard_ids().for_each(|not_tracked_shard| {
-            tracked_shards.remove(&not_tracked_shard);
-        });
+    while protocol_version > genesis_protocol_version {
         protocol_version -= 1;
-        let Some(parent_shard_id) = shard_layout.try_get_parent_shard_id(shard_id)? else {
+        let previous_protocol_version_shard_layout =
+            epoch_manager.get_shard_layout_from_protocol_version(protocol_version);
+        if previous_protocol_version_shard_layout == shard_layout {
+            // The `ShardLayout` hasn't changed, so we keep decrementing `protocol_version`.
             continue;
+        }
+        // The `ShardLayout` changed after this protocol version — get the parent shard of `shard_uid`.
+        let Some(parent_shard_id) = shard_layout.try_get_parent_shard_id(shard_uid.shard_id())?
+        else {
+            return Ok(false);
         };
-        if tracked_shards.contains(&parent_shard_id) {
+        // Update `shard_uid` and `shard_layout` to their parent `ShardUId` and `ShardLayout`.
+        shard_uid = ShardUId::from_shard_id_and_layout(
+            parent_shard_id,
+            &previous_protocol_version_shard_layout,
+        );
+        shard_layout = previous_protocol_version_shard_layout;
+        // Check whether the ancestor shard belongs to `tracked_shards`.
+        if tracked_shards.contains(&shard_uid) {
             return Ok(true);
         }
-        shard_id = parent_shard_id;
     }
     Ok(false)
 }

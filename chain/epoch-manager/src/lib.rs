@@ -209,6 +209,7 @@ impl EpochManager {
             genesis_config.chain_id.as_str(),
             epoch_length,
             epoch_config_store,
+            genesis_config.protocol_version,
         );
         Arc::new(
             Self::new(store, all_epoch_config, reward_calculator, genesis_config.validators())

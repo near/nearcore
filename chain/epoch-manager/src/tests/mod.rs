@@ -1865,7 +1865,8 @@ fn test_protocol_version_switch() {
         (0, Arc::new(epoch_config.clone())),
         (PROTOCOL_VERSION, Arc::new(epoch_config)),
     ]));
-    let config = AllEpochConfig::from_epoch_config_store("test-chain", 2, config_store);
+    let config =
+        AllEpochConfig::from_epoch_config_store("test-chain", 2, config_store, PROTOCOL_VERSION);
 
     let amount_staked = 1_000_000;
     let validators = vec![
@@ -1901,7 +1902,8 @@ fn test_protocol_version_switch_with_shard_layout_change() {
         (PROTOCOL_VERSION - 1, Arc::new(old_epoch_config)),
         (PROTOCOL_VERSION, Arc::new(new_epoch_config)),
     ]));
-    let config = AllEpochConfig::from_epoch_config_store("test-chain", 2, config_store);
+    let config =
+        AllEpochConfig::from_epoch_config_store("test-chain", 2, config_store, PROTOCOL_VERSION);
 
     let amount_staked = 1_000_000;
     let validators = vec![
@@ -1953,7 +1955,8 @@ fn test_protocol_version_switch_with_many_seats() {
         PROTOCOL_VERSION,
         TestEpochConfigBuilder::new().epoch_length(10).build(),
     );
-    let config = AllEpochConfig::from_epoch_config_store("test-chain", 10, config_store);
+    let config =
+        AllEpochConfig::from_epoch_config_store("test-chain", 10, config_store, PROTOCOL_VERSION);
 
     let mut epoch_manager =
         EpochManager::new(store, config, default_reward_calculator(), validators).unwrap();
@@ -1985,7 +1988,8 @@ fn test_version_switch_kickout_old_version() {
         (version, Arc::new(epoch_config.clone())),
         (new_version, Arc::new(epoch_config)),
     ]));
-    let config = AllEpochConfig::from_epoch_config_store("test-chain", 2, config_store);
+    let config =
+        AllEpochConfig::from_epoch_config_store("test-chain", 2, config_store, PROTOCOL_VERSION);
 
     let (large_stake, small_stake) = (1_000, 100);
     let validators = vec![

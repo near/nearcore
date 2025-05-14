@@ -462,8 +462,7 @@ pub fn spawn_cold_store_loop(
     // If the check fails when the node is starting it's better to just fail
     // fast and crash the node immediately.
     sanity_check(&hot_store, cold_db.as_ref(), genesis_height)?;
-    // Only supported shard tracking modes for archival nodes.
-    debug_assert!(shard_tracker.tracks_all_shards() || shard_tracker.tracks_arbitrary_shards());
+    debug_assert!(shard_tracker.tracks_some_shards());
 
     let split_storage_config = config.config.split_storage.clone().unwrap_or_default();
 
