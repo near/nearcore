@@ -11,7 +11,7 @@ use crate::{
 use anyhow::Context;
 use chrono::{DateTime, Utc};
 use near_config_utils::ValidationError;
-use near_parameters::{RuntimeConfig, RuntimeConfigView};
+use near_parameters::{RuntimeConfig, RuntimeConfigView, view::Rational32SchemarsProvider};
 use near_primitives::epoch_manager::EpochConfig;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::StateRoot;
@@ -135,7 +135,7 @@ pub struct GenesisConfig {
     /// Threshold of stake that needs to indicate that they ready for upgrade.
     #[serde(default = "default_protocol_upgrade_stake_threshold")]
     #[default(Rational32::new(8, 10))]
-    #[cfg_attr(feature = "schemars", schemars(with = "[i32; 2]"))]
+    #[cfg_attr(feature = "schemars", schemars(with = "Rational32SchemarsProvider"))]
     pub protocol_upgrade_stake_threshold: Rational32,
     /// Epoch length counted in block heights.
     pub epoch_length: BlockHeightDelta,
@@ -163,16 +163,16 @@ pub struct GenesisConfig {
     /// Online minimum threshold below which validator doesn't receive reward.
     #[serde(default = "default_online_min_threshold")]
     #[default(Rational32::new(90, 100))]
-    #[cfg_attr(feature = "schemars", schemars(with = "[i32; 2]"))]
+    #[cfg_attr(feature = "schemars", schemars(with = "Rational32SchemarsProvider"))]
     pub online_min_threshold: Rational32,
     /// Online maximum threshold above which validator gets full reward.
     #[serde(default = "default_online_max_threshold")]
     #[default(Rational32::new(99, 100))]
-    #[cfg_attr(feature = "schemars", schemars(with = "[i32; 2]"))]
+    #[cfg_attr(feature = "schemars", schemars(with = "Rational32SchemarsProvider"))]
     pub online_max_threshold: Rational32,
     /// Gas price adjustment rate
     #[default(Rational32::from_integer(0))]
-    #[cfg_attr(feature = "schemars", schemars(with = "[i32; 2]"))]
+    #[cfg_attr(feature = "schemars", schemars(with = "Rational32SchemarsProvider"))]
     pub gas_price_adjustment_rate: Rational32,
     /// List of initial validators.
     pub validators: Vec<AccountInfo>,
@@ -180,11 +180,11 @@ pub struct GenesisConfig {
     pub transaction_validity_period: NumBlocks,
     /// Protocol treasury rate
     #[default(Rational32::from_integer(0))]
-    #[cfg_attr(feature = "schemars", schemars(with = "[i32; 2]"))]
+    #[cfg_attr(feature = "schemars", schemars(with = "Rational32SchemarsProvider"))]
     pub protocol_reward_rate: Rational32,
     /// Maximum inflation on the total supply every epoch.
     #[default(Rational32::from_integer(0))]
-    #[cfg_attr(feature = "schemars", schemars(with = "[i32; 2]"))]
+    #[cfg_attr(feature = "schemars", schemars(with = "Rational32SchemarsProvider"))]
     pub max_inflation_rate: Rational32,
     /// Total supply of tokens at genesis.
     #[serde(with = "dec_format")]
@@ -223,7 +223,7 @@ pub struct GenesisConfig {
     /// See <https://github.com/near/NEPs/pull/167> for details
     #[serde(default = "default_minimum_stake_ratio")]
     #[default(Rational32::new(160, 1_000_000))]
-    #[cfg_attr(feature = "schemars", schemars(with = "[i32; 2]"))]
+    #[cfg_attr(feature = "schemars", schemars(with = "Rational32SchemarsProvider"))]
     pub minimum_stake_ratio: Rational32,
     /// If true, shuffle the chunk producers across shards. In other words, if
     /// the shard assignments were `[S_0, S_1, S_2, S_3]` where `S_i` represents
@@ -833,7 +833,7 @@ pub struct ProtocolConfigView {
     /// Enable dynamic re-sharding.
     pub dynamic_resharding: bool,
     /// Threshold of stake that needs to indicate that they ready for upgrade.
-    #[cfg_attr(feature = "schemars", schemars(with = "[i32; 2]"))]
+    #[cfg_attr(feature = "schemars", schemars(with = "Rational32SchemarsProvider"))]
     pub protocol_upgrade_stake_threshold: Rational32,
     /// Epoch length counted in block heights.
     pub epoch_length: BlockHeightDelta,
@@ -856,23 +856,23 @@ pub struct ProtocolConfigView {
     /// Number of target chunk validator mandates for each shard.
     pub target_validator_mandates_per_shard: NumSeats,
     /// Online minimum threshold below which validator doesn't receive reward.
-    #[cfg_attr(feature = "schemars", schemars(with = "[i32; 2]"))]
+    #[cfg_attr(feature = "schemars", schemars(with = "Rational32SchemarsProvider"))]
     pub online_min_threshold: Rational32,
     /// Online maximum threshold above which validator gets full reward.
-    #[cfg_attr(feature = "schemars", schemars(with = "[i32; 2]"))]
+    #[cfg_attr(feature = "schemars", schemars(with = "Rational32SchemarsProvider"))]
     pub online_max_threshold: Rational32,
     /// Gas price adjustment rate
-    #[cfg_attr(feature = "schemars", schemars(with = "[i32; 2]"))]
+    #[cfg_attr(feature = "schemars", schemars(with = "Rational32SchemarsProvider"))]
     pub gas_price_adjustment_rate: Rational32,
     /// Runtime configuration (mostly economics constants).
     pub runtime_config: RuntimeConfigView,
     /// Number of blocks for which a given transaction is valid
     pub transaction_validity_period: NumBlocks,
     /// Protocol treasury rate
-    #[cfg_attr(feature = "schemars", schemars(with = "[i32; 2]"))]
+    #[cfg_attr(feature = "schemars", schemars(with = "Rational32SchemarsProvider"))]
     pub protocol_reward_rate: Rational32,
     /// Maximum inflation on the total supply every epoch.
-    #[cfg_attr(feature = "schemars", schemars(with = "[i32; 2]"))]
+    #[cfg_attr(feature = "schemars", schemars(with = "Rational32SchemarsProvider"))]
     pub max_inflation_rate: Rational32,
     /// Expected number of blocks per year
     pub num_blocks_per_year: NumBlocks,
@@ -888,7 +888,7 @@ pub struct ProtocolConfigView {
     pub max_kickout_stake_perc: u8,
     /// The lowest ratio s/s_total any block producer can have.
     /// See <https://github.com/near/NEPs/pull/167> for details
-    #[cfg_attr(feature = "schemars", schemars(with = "[i32; 2]"))]
+    #[cfg_attr(feature = "schemars", schemars(with = "Rational32SchemarsProvider"))]
     pub minimum_stake_ratio: Rational32,
     /// If true, shuffle the chunk producers across shards. In other words, if
     /// the shard assignments were `[S_0, S_1, S_2, S_3]` where `S_i` represents

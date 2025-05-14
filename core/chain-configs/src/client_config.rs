@@ -5,6 +5,7 @@ use bytesize::ByteSize;
 use near_primitives::types::{
     AccountId, BlockHeight, BlockHeightDelta, Gas, NumBlocks, NumSeats, ShardId,
 };
+use near_parameters::view::Rational32SchemarsProvider;
 use near_primitives::version::Version;
 use near_time::Duration;
 #[cfg(feature = "schemars")]
@@ -43,7 +44,7 @@ pub const DEFAULT_EXTERNAL_STORAGE_FALLBACK_THRESHOLD: u64 = 3;
 
 /// Describes the expected behavior of the node regarding shard tracking.
 /// If the node is an active validator, it will also track the shards it is responsible for as a validator.
-#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
 pub enum TrackedShardsConfig {
     /// Tracks no shards (light client).
     NoShards,
@@ -338,7 +339,7 @@ pub struct ReshardingConfig {
     /// The soft limit on the size of a single batch. The batch size can be
     /// decreased if resharding is consuming too many resources and interfering
     /// with regular node operation.
-    #[cfg_attr(feature = "schemars", schemars(with = "u64"))]
+    #[schemars(with = "ByteSizeSchemarsProvider")]
     pub batch_size: ByteSize,
 
     /// The delay between writing batches to the db. The batch delay can be
@@ -553,7 +554,7 @@ pub struct ClientConfig {
     #[cfg_attr(feature = "schemars", schemars(with = "DurationSchemarsProvider"))]
     pub max_block_wait_delay: Duration,
     /// Multiplier for the wait time for all chunks to be received.
-    #[cfg_attr(feature = "schemars", schemars(with = "[i32; 2]"))]
+    #[cfg_attr(feature = "schemars", schemars(with = "Rational32SchemarsProvider"))]
     pub chunk_wait_mult: Rational32,
     /// Skip waiting for sync (for testing or single node testnet).
     pub skip_sync_wait: bool,
@@ -621,7 +622,6 @@ pub struct ClientConfig {
     pub block_header_fetch_horizon: BlockHeightDelta,
     /// Garbage collection configuration.
     pub gc: GCConfig,
-    #[cfg_attr(feature = "schemars", schemars(with = "[i32; 2]"))]
     pub tracked_shards_config: TrackedShardsConfig,
     /// Not clear old data, set `true` for archive nodes.
     pub archive: bool,
@@ -666,7 +666,7 @@ pub struct ClientConfig {
     /// A node produces a chunk by adding transactions from the transaction pool until
     /// some limit is reached. This time limit ensures that adding transactions won't take
     /// longer than the specified duration, which helps to produce the chunk quickly.
-    #[cfg_attr(feature = "schemars", schemars(with = "Option<String>"))]
+    #[cfg_attr(feature = "schemars", schemars(with = "String"))]
     pub produce_chunk_add_transactions_time_limit: MutableConfigValue<Option<Duration>>,
     /// Optional config for the Chunk Distribution Network feature.
     /// If set to `None` then this node does not participate in the Chunk Distribution Network.
@@ -681,7 +681,7 @@ pub struct ClientConfig {
     ///
     /// We keep only orphan witnesses which are smaller than this size.
     /// This limits the maximum memory usage of OrphanStateWitnessPool.
-    #[cfg_attr(feature = "schemars", schemars(with = "u64"))]
+    #[cfg_attr(feature = "schemars", schemars(with = "ByteSizeSchemarsProvider"))]
     pub orphan_state_witness_max_size: ByteSize,
     /// Save observed instances of ChunkStateWitness to the database in DBCol::LatestChunkStateWitnesses.
     /// Saving the latest witnesses is useful for analysis and debugging.
@@ -781,3 +781,6 @@ impl ClientConfig {
         }
     }
 }
+
+#[cfg(feature = "schemars")]
+pub type ByteSizeSchemarsProvider = u64;

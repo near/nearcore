@@ -125,7 +125,6 @@ pub struct LimitConfig {
     /// Whether to enforce account_id well-formed-ness where it wasn't enforced
     /// historically.
     #[serde(default = "AccountIdValidityRulesVersion::v0")]
-    #[cfg_attr(feature = "schemars", schemars(with = "u8"))]
     pub account_id_validity_rules_version: AccountIdValidityRulesVersion,
     /// Number of blocks after which a yielded promise times out.
     pub yield_timeout_length_in_blocks: u64,

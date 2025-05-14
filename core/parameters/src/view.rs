@@ -44,11 +44,11 @@ pub struct RuntimeFeesConfigView {
     pub storage_usage_config: StorageUsageConfigView,
 
     /// Fraction of the burnt gas to reward to the contract account for execution.
-    #[cfg_attr(feature = "schemars", schemars(with = "[i32; 2]"))]
+    #[cfg_attr(feature = "schemars", schemars(with = "Rational32SchemarsProvider"))]
     pub burnt_gas_reward: Rational32,
 
     /// Pessimistic gas price inflation ratio.
-    #[cfg_attr(feature = "schemars", schemars(with = "[i32; 2]"))]
+    #[cfg_attr(feature = "schemars", schemars(with = "Rational32SchemarsProvider"))]
     pub pessimistic_gas_price_inflation_ratio: Rational32,
 }
 
@@ -808,6 +808,9 @@ impl From<CongestionControlConfigView> for CongestionControlConfig {
         }
     }
 }
+
+#[cfg(feature = "schemars")]
+pub type Rational32SchemarsProvider = [i32; 2];
 
 #[cfg(test)]
 #[cfg(not(feature = "nightly"))]

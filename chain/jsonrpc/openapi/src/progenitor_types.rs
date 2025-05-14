@@ -44,13 +44,11 @@ pub enum StateChangeValueViewContent {
     },
     AccessKeyUpdate {
         account_id: near_primitives::types::AccountId,
-        #[schemars(with = "String")]
         public_key: near_crypto::PublicKey,
         access_key: near_primitives::views::AccessKeyView,
     },
     AccessKeyDeletion {
         account_id: near_primitives::types::AccountId,
-        #[schemars(with = "String")]
         public_key: near_crypto::PublicKey,
     },
     DataUpdate {
