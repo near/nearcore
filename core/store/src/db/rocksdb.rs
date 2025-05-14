@@ -35,6 +35,8 @@ static CF_PROPERTY_NAMES: LazyLock<Vec<std::ffi::CString>> = LazyLock::new(|| {
             properties::BLOCK_CACHE_USAGE,
             properties::CUR_SIZE_ACTIVE_MEM_TABLE,
             properties::SIZE_ALL_MEM_TABLES,
+            properties::ACTUAL_DELAYED_WRITE_RATE,
+            properties::IS_WRITE_STOPPED,
         ]
         .map(std::ffi::CStr::to_owned),
     );
