@@ -661,7 +661,7 @@ impl Trie {
 
     /// Takes the recorded state as trie changes out of the trie.
     pub fn recorded_trie_changes(&self, state_root: CryptoHash) -> Option<TrieChanges> {
-        self.recorder.as_ref().map(|recorder| recorder.write().recorded_as_trie_changes(state_root))
+        self.recorder.as_ref().map(|recorder| recorder.write().recorded_trie_changes(state_root))
     }
 
     /// Returns the in-memory size of the recorded state proof. Useful for checking size limit of state witness

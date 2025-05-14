@@ -128,7 +128,7 @@ impl TrieRecorder {
         PartialStorage { nodes: PartialState::TrieValues(nodes) }
     }
 
-    pub fn recorded_as_trie_changes(&mut self, state_root: CryptoHash) -> TrieChanges {
+    pub fn recorded_trie_changes(&mut self, state_root: CryptoHash) -> TrieChanges {
         let recorded: HashMap<_, _> = self.recorded.drain().collect();
         let mut refcounts = TrieRefcountDeltaMap::new();
         for (key, TrieNodeWithRefcount(value, refcount)) in recorded {
