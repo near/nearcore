@@ -254,14 +254,14 @@ pub trait GenericTrieInternalStorage<GenericTrieNodePtr, GenericValueHandle> {
     // Optionally return None if the trie is empty.
     fn get_root(&self) -> Option<GenericTrieNodePtr>;
 
-    // Get a node from the storage, and record it if `record` is set to Recording::Record.
+    // Get a node from the storage, and record it if specified in `opts`.
     fn get_node(
         &self,
         ptr: GenericTrieNodePtr,
         opts: AccessOptions,
     ) -> Result<GenericTrieNode<GenericTrieNodePtr, GenericValueHandle>, StorageError>;
 
-    // Get a value from the storage, and record it if `record` is set to Recording::Record.
+    // Get a value from the storage, and record it if specified in `opts`.
     fn get_value(
         &self,
         value_ref: GenericValueHandle,

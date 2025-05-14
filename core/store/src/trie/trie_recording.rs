@@ -860,7 +860,7 @@ mod memtrie_batch_iteration_tests {
         loop {
             last_key = iterate_batch(&trie, last_key, batch_size);
             let trie_changes =
-                trie.recorded_as_trie_changes(root).expect("failed to get trie changes");
+                trie.recorded_trie_changes(root).expect("failed to get trie changes");
             change_batches.push(trie_changes);
 
             if last_key.is_none() {
