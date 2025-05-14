@@ -111,7 +111,7 @@ impl ReshardingActor {
     ) {
         match self.get_resharding_scheduling_status(parent_shard_uid) {
             ReshardingSchedulingStatus::StartResharding(event) => {
-                self.start_resharding(parent_shard_uid, event)
+                self.start_resharding_blocking(parent_shard_uid, event)
             }
             ReshardingSchedulingStatus::WaitForFinalBlock => {
                 // The task must be retried later.
@@ -158,29 +158,33 @@ impl ReshardingActor {
                 continue;
             }
 
-            if self
-                .chain_store
-                .get_block_hash_by_height(event.resharding_block.height)
-                .is_ok_and(|hash| hash == event.resharding_block.hash)
-            {
-                // Check if resharding should be artificially delayed.
-                // This behavior is configured through `adv_task_delay_by_blocks`
-                #[cfg(feature = "test_features")]
-                if event.resharding_block.height + self.adv_task_delay_by_blocks
-                    > chain_final_height
-                {
-                    tracing::info!(target: "resharding", "resharding has been artificially postponed!");
-                    return ReshardingSchedulingStatus::WaitForFinalBlock;
-                }
+            // Get canonical block hash for the resharding block height.
+            let Ok(resharding_hash) =
+                self.chain_store.get_block_hash_by_height(event.resharding_block.height)
+            else {
+                continue;
+            };
 
-                return ReshardingSchedulingStatus::StartResharding(event.clone());
+            if resharding_hash != event.resharding_block.hash {
+                // The resharding block is not part of the canonical chain.
+                continue;
             }
+
+            // Check if resharding should be artificially delayed.
+            // This behavior is configured through `adv_task_delay_by_blocks`
+            #[cfg(feature = "test_features")]
+            if event.resharding_block.height + self.adv_task_delay_by_blocks > chain_final_height {
+                tracing::info!(target: "resharding", "resharding has been artificially postponed!");
+                return ReshardingSchedulingStatus::WaitForFinalBlock;
+            }
+
+            return ReshardingSchedulingStatus::StartResharding(event.clone());
         }
 
         ReshardingSchedulingStatus::WaitForFinalBlock
     }
 
-    fn start_resharding(
+    fn start_resharding_blocking(
         &mut self,
         parent_shard_uid: ShardUId,
         resharding_event: ReshardingSplitShardParams,
@@ -188,7 +192,7 @@ impl ReshardingActor {
         self.resharding_started.insert(parent_shard_uid);
 
         // This is a long running task and would block the actor
-        if let Err(err) = self.flat_storage_resharder.start_resharding(&resharding_event) {
+        if let Err(err) = self.flat_storage_resharder.start_resharding_blocking(&resharding_event) {
             tracing::error!(target: "resharding", ?err, "Failed to start resharding");
             return;
         }
