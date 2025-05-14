@@ -48,7 +48,7 @@ use lru::LruCache;
 use near_async::futures::{AsyncComputationSpawner, AsyncComputationSpawnerExt};
 use near_async::messaging::{IntoMultiSender, noop};
 use near_async::time::{Clock, Duration, Instant};
-use near_chain_configs::{MutableConfigValue, MutableValidatorSigner};
+use near_chain_configs::MutableValidatorSigner;
 use near_chain_primitives::error::{BlockKnownError, Error};
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
@@ -414,8 +414,6 @@ impl Chain {
         let resharding_manager = ReshardingManager::new(
             store.clone(),
             epoch_manager.clone(),
-            runtime_adapter.clone(),
-            MutableConfigValue::new(Default::default(), "resharding_config"),
             noop().into_multi_sender(),
         );
         Ok(Chain {
@@ -570,13 +568,8 @@ impl Chain {
         // Even though the channel is unbounded, the channel size is practically bounded by the size
         // of blocks_in_processing, which is set to 5 now.
         let (sc, rc) = unbounded();
-        let resharding_manager = ReshardingManager::new(
-            chain_store.store(),
-            epoch_manager.clone(),
-            runtime_adapter.clone(),
-            chain_config.resharding_config,
-            resharding_sender,
-        );
+        let resharding_manager =
+            ReshardingManager::new(chain_store.store(), epoch_manager.clone(), resharding_sender);
         Ok(Chain {
             clock: clock.clone(),
             chain_store,

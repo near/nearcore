@@ -1,10 +1,8 @@
 use super::event_type::{ReshardingEventType, ReshardingSplitShardParams};
-use super::types::ReshardingSender;
+use super::types::{ReshardingSender, ScheduleResharding};
 use crate::ChainStoreUpdate;
-use crate::flat_storage_resharder::{FlatStorageResharder, FlatStorageResharderController};
-use crate::types::RuntimeAdapter;
 use itertools::Itertools;
-use near_chain_configs::{MutableConfigValue, ReshardingConfig, ReshardingHandle};
+use near_async::messaging::CanSend;
 use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::block::Block;
@@ -25,31 +23,16 @@ use std::sync::Arc;
 pub struct ReshardingManager {
     store: Store,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
-    /// Configuration for resharding.
-    pub resharding_config: MutableConfigValue<ReshardingConfig>,
-    /// A handle that allows the main process to interrupt resharding if needed.
-    /// This typically happens when the main process is interrupted.
-    pub resharding_handle: ReshardingHandle,
-    /// Takes care of performing resharding on the flat storage.
-    pub flat_storage_resharder: FlatStorageResharder,
+    resharding_sender: ReshardingSender,
 }
 
 impl ReshardingManager {
     pub fn new(
         store: Store,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
-        runtime_adapter: Arc<dyn RuntimeAdapter>,
-        resharding_config: MutableConfigValue<ReshardingConfig>,
         resharding_sender: ReshardingSender,
     ) -> Self {
-        let resharding_handle = ReshardingHandle::new();
-        let flat_storage_resharder = FlatStorageResharder::new(
-            runtime_adapter,
-            resharding_sender,
-            FlatStorageResharderController::from_resharding_handle(resharding_handle.clone()),
-            resharding_config.clone(),
-        );
-        Self { store, epoch_manager, resharding_config, flat_storage_resharder, resharding_handle }
+        Self { store, epoch_manager, resharding_sender }
     }
 
     /// Trigger resharding if shard layout changes after the given block.
@@ -97,14 +80,7 @@ impl ReshardingManager {
             ReshardingEventType::from_shard_layout(&next_shard_layout, block_info)?;
         match resharding_event_type {
             Some(ReshardingEventType::SplitShard(split_shard_event)) => {
-                self.split_shard(
-                    chain_store_update,
-                    block,
-                    shard_uid,
-                    tries,
-                    split_shard_event,
-                    next_shard_layout,
-                )?;
+                self.split_shard(chain_store_update, block, shard_uid, tries, split_shard_event)?;
             }
             None => {
                 tracing::warn!(target: "resharding", ?resharding_event_type, "unsupported resharding event type, skipping");
@@ -120,7 +96,6 @@ impl ReshardingManager {
         shard_uid: ShardUId,
         tries: ShardTries,
         split_shard_event: ReshardingSplitShardParams,
-        next_shard_layout: ShardLayout,
     ) -> Result<(), Error> {
         if split_shard_event.parent_shard != shard_uid {
             let parent_shard = split_shard_event.parent_shard;
@@ -139,11 +114,9 @@ impl ReshardingManager {
             &split_shard_event,
         )?;
 
-        // Trigger resharding of flat storage.
-        self.flat_storage_resharder.start_resharding(
-            ReshardingEventType::SplitShard(split_shard_event),
-            &next_shard_layout,
-        )?;
+        // Trigger resharding by sending the event to the resharding actor.
+        // This would subsequently trigger the resharding after resharding block is finalized.
+        self.resharding_sender.send(ScheduleResharding { split_shard_event });
 
         Ok(())
     }

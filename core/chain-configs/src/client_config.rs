@@ -311,6 +311,10 @@ impl ReshardingHandle {
     pub fn stop(&self) -> () {
         self.keep_going.store(false, std::sync::atomic::Ordering::Relaxed);
     }
+
+    pub fn is_cancelled(&self) -> bool {
+        !self.get()
+    }
 }
 
 /// Configuration for resharding.
