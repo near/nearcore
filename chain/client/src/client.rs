@@ -2236,8 +2236,8 @@ impl Client {
         let _guard =
             tracing::debug_span!(target: "client", "get_tier1_accounts(): recomputing").entered();
 
-        // What we really need are: chunk producers, block producers and block approvers for
-        // this epoch and the beginning of the next epoch (so that all required connections are
+        // What we really need are: chunk producers/validators and block producers/approvers
+        // for this epoch and the beginning of the next epoch (so that all required connections are
         // established in advance). Note that block producers and block approvers are not
         // exactly the same - last blocks of this epoch will also need to be signed by the
         // block producers of the next epoch. On the other hand, block approvers
@@ -2245,15 +2245,11 @@ impl Client {
         // definitely don't need to connect to right now). Still, as long as there is no big churn
         // in the set of block producers, it doesn't make much difference.
         //
-        // With the current implementation we just fetch chunk producers and block producers
+        // With the current implementation we just fetch chunk producers/validators and block producers
         // of this and the next epoch (which covers what we need, as described above), but may
         // require some tuning in the future. In particular, if we decide that connecting to
-        // block & chunk producers of the next epoch is too expensive, we can postpone it
+        // the newly important nodes of the next epoch is too expensive, we can postpone it
         // till almost the end of this epoch.
-        //
-        // We include also all chunk validators of the current epoch, due to the importance of:
-        // - delivering state witnesses to the chunk validators
-        // - delivering the chunk validators' chunk endorsements to the block producers
         let mut account_keys = AccountKeys::new();
         for epoch_id in [&tip.epoch_id, &tip.next_epoch_id] {
             // We assume here that calls to get_epoch_chunk_producers and get_epoch_block_producers_ordered
@@ -2273,9 +2269,12 @@ impl Client {
                     .or_default()
                     .insert(bp.public_key().clone());
             }
-        }
-        for v in self.epoch_manager.get_epoch_all_validators(&tip.epoch_id)? {
-            account_keys.entry(v.account_id().clone()).or_default().insert(v.public_key().clone());
+            for v in self.epoch_manager.get_epoch_all_validators(&tip.epoch_id)? {
+                account_keys
+                    .entry(v.account_id().clone())
+                    .or_default()
+                    .insert(v.public_key().clone());
+            }
         }
         let account_keys = Arc::new(account_keys);
         self.tier1_accounts_cache = Some((tip.epoch_id, account_keys.clone()));
