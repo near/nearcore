@@ -401,7 +401,7 @@ impl PartialEncodedStateWitnessTracker {
             entry.update(update)
         {
             self.processed_witnesses.push(key.clone(), ());
-            
+
             // Record the time taken from receiving first part to decoding partial witness.
             let time_to_last_part = Instant::now().signed_duration_since(entry.created_at);
             metrics::PARTIAL_WITNESS_TIME_TO_LAST_PART
