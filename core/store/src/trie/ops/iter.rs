@@ -71,6 +71,10 @@ where
     trail: Vec<Crumb<TrieNodePtr, ValueHandle>>,
     key_nibbles: Vec<u8>,
 
+    /// If false, the iterator will descend into the root node and start iterating
+    /// when `next()` is called.
+    initialized: bool,
+
     /// We use this trie_interface as a distinction point between disk and memory trie.
     /// It provides the necessary methods to fetch nodes and values.
     trie_interface: I,
@@ -100,24 +104,14 @@ where
     pub fn new(
         trie_interface: I,
         prune_condition: Option<Box<dyn Fn(&Vec<u8>) -> bool>>,
-        start: Option<Vec<u8>>,
     ) -> Result<Self, StorageError> {
-        let root = trie_interface.get_root();
-        let mut iter = Self {
+        let iter = Self {
             trail: Vec::with_capacity(8),
             key_nibbles: Vec::with_capacity(64),
+            initialized: false,
             trie_interface,
             prune_condition,
         };
-        if let Some(start) = start {
-            iter.seek_nibble_slice(
-                NibbleSlice::new(start.as_ref()),
-                false,
-                AccessOptions::NO_SIDE_EFFECTS,
-            )?;
-        } else {
-            iter.descend_into_node(root, AccessOptions::DEFAULT)?;
-        }
         Ok(iter)
     }
 
@@ -133,6 +127,39 @@ where
         Ok(())
     }
 
+    /// Position the iterator on the first element with key >= `key`,
+    /// or the first element with key > `key` if `upper_bound` is true.
+    /// Does not record nodes accessed during the seek.
+    pub fn seek<K: AsRef<[u8]>>(&mut self, key: K, upper_bound: bool) -> Result<(), StorageError> {
+        self.seek_nibble_slice(
+            NibbleSlice::new(key.as_ref()),
+            false,
+            AccessOptions::NO_SIDE_EFFECTS,
+        )?;
+
+        // By this point, we are already positioned the iterator such that
+        // next() will return the first element with key >= `key`.
+        // If `upper_bound` is true, we need to check if the next element
+        // is actually key == `key` and skip it.
+        if upper_bound {
+            if let Some(last) = self.trail.last_mut() {
+                let mut compare_with = self.key_nibbles.clone();
+
+                // If the iterator is positioned on a leaf node, we need to
+                // consider the extension of the leaf node as well.
+                if let GenericTrieNode::Leaf { extension, .. } = &last.node {
+                    let existing_key = NibbleSlice::from_encoded(&extension).0;
+                    compare_with.extend(existing_key.iter());
+                }
+
+                if key.as_ref() == NibbleSlice::nibbles_to_bytes(&compare_with) {
+                    self.iter_step();
+                }
+            }
+        }
+        Ok(())
+    }
+
     /// Returns the hash of the last node.
     fn seek_nibble_slice(
         &mut self,
@@ -142,6 +169,7 @@ where
     ) -> Result<Option<N>, StorageError> {
         self.trail.clear();
         self.key_nibbles.clear();
+        self.initialized = true;
 
         // Checks if a key in an extension or leaf matches our search query.
         //
@@ -302,6 +330,15 @@ where
     type Item = Result<TrieItem, StorageError>;
 
     fn next(&mut self) -> Option<Self::Item> {
+        if !self.initialized {
+            let root = self.trie_interface.get_root();
+            match self.descend_into_node(root, AccessOptions::DEFAULT) {
+                Ok(_) => {}
+                Err(e) => return Some(Err(e)),
+            }
+            self.initialized = true;
+        }
+
         loop {
             let iter_step = self.iter_step()?;
 

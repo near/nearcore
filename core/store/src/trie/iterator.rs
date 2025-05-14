@@ -95,13 +95,13 @@ impl<'a> TrieIterator<'a> {
         }
     }
 
-    /// Skips the next node in the iterator without recording its value.
-    /// As a safety check, the caller must know the key of the item to
-    /// be skipped. (e.g., for continuing a batched iteration).
-    pub fn skip_one(&mut self, expected_key: &[u8]) {
+    /// Position the iterator on the first element with key >= `key`,
+    /// or the first element with key > `key` if `upper_bound` is true.
+    /// Does not record nodes accessed during the seek.
+    pub fn seek<K: AsRef<[u8]>>(&mut self, key: K, upper_bound: bool) -> Result<(), StorageError> {
         match self {
-            TrieIterator::Disk(iter) => iter.skip_one(expected_key),
-            TrieIterator::Memtrie(iter) => iter.skip_one(expected_key),
+            TrieIterator::Disk(iter) => iter.seek(key, upper_bound),
+            TrieIterator::Memtrie(iter) => iter.seek(key, upper_bound),
         }
     }
 }

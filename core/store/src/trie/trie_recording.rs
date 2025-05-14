@@ -812,13 +812,9 @@ mod memtrie_batch_iteration_tests {
     ) -> Option<Vec<u8>> {
         let read_trie = trie.lock_for_iter();
         // Get the iterator for the trie, skipping the first key if needed
-        let mut iter =
-            read_trie.iter_seek(previous_batch_last_key.clone()).expect("failed to get iterator");
+        let mut iter = read_trie.iter().expect("failed to get iterator");
         if let Some(key) = previous_batch_last_key {
-            // Skip the last key from the previous batch.
-            // This can't be done by calling next() because it would record the
-            // key result in a duplicate refcount.
-            iter.skip_one(&key);
+            iter.seek(&key, true).expect("failed to seek");
         }
 
         // Iterate over the trie, stopping when we reach the batch size
