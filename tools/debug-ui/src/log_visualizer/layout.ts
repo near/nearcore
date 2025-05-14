@@ -44,7 +44,7 @@ class OneRowLayout {
 
     public arrowLayout = new Map<ArrowRowPosition, ArrowLayoutStrip>();
 
-    constructor(public readonly time: number) { }
+    constructor(public readonly time: number) {}
 }
 
 // The layout parameters for a single column of items.
@@ -76,7 +76,7 @@ class OneColumnLayout {
     public itemEndOffset = 0;
     public arrowLayout = new Map<ArrowColumnPosition, ArrowLayoutStrip>();
 
-    constructor(public identifier: string) { }
+    constructor(public identifier: string) {}
 }
 
 // The computed layout parameters for a unique vertical position of horizontal
@@ -134,11 +134,13 @@ export class Layouts {
 
         // Convert the set to an sorted mapping
         const columnIdentifierMap = new Map<string, number>();
-        Array.from(columnIdentifiers).sort().forEach((identifier, index) => {
-            columnIdentifierMap.set(identifier, index);
-            this.columns.push(new OneColumnLayout(identifier));
-            nextRowForColumn.push(0);
-        });
+        Array.from(columnIdentifiers)
+            .sort()
+            .forEach((identifier, index) => {
+                columnIdentifierMap.set(identifier, index);
+                this.columns.push(new OneColumnLayout(identifier));
+                nextRowForColumn.push(0);
+            });
 
         sortedItems.sort((a, b) => {
             if (a.time < b.time) {
