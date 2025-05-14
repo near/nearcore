@@ -61,6 +61,7 @@ anyhow.workspace = true
 rustc_version = "0.4"
 
 [features]
+tx_generator = ["nearcore/tx_generator"]
 default = ["json_rpc", "rosetta_rpc"]
 
 performance_stats = ["nearcore/performance_stats"]

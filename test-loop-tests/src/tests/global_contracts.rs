@@ -192,7 +192,8 @@ impl GlobalContractsTestEnv {
         let [account_shard_0, account_shard_1, deploy_account, rpc] =
             ["account0", "account2", "account", "rpc"].map(|acc| acc.parse::<AccountId>().unwrap());
 
-        let shard_layout = ShardLayout::simple_v1(&["account1"]);
+        let boundary_accounts = ["account1"].iter().map(|&a| a.parse().unwrap()).collect();
+        let shard_layout = ShardLayout::multi_shard_custom(boundary_accounts, 1);
         let block_and_chunk_producers = ["cp0", "cp1"];
         let chunk_validators_only = ["cv0", "cv1"];
         let validators_spec =

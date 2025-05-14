@@ -4956,6 +4956,7 @@ dependencies = [
  "near-primitives-core",
  "near-store",
  "nearcore",
+ "node-runtime",
  "parking_lot 0.12.1",
  "state-viewer",
  "tracing",

@@ -26,7 +26,7 @@ fn test_producer_with_expired_transactions() {
     let validators_spec = ValidatorsSpec::desired_roles(&[chunk_producer], &validators);
     let genesis = TestLoopBuilder::new_genesis_builder()
         .epoch_length(10)
-        .shard_layout(ShardLayout::simple_v1(&[]))
+        .shard_layout(ShardLayout::multi_shard_custom(vec![], 1))
         .validators_spec(validators_spec)
         .add_user_accounts_simple(&accounts, 1_000_000 * ONE_NEAR)
         .genesis_height(10000)

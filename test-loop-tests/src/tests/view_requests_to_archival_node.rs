@@ -63,7 +63,9 @@ fn slow_test_view_requests_to_archival_node() {
     // Contains the account of the non-validator archival node.
     let archival_clients: HashSet<AccountId> =
         vec![all_clients[NUM_VALIDATORS].clone()].into_iter().collect();
-    let shard_layout = ShardLayout::simple_v1(&["account3", "account5", "account7"]);
+    let boundary_accounts =
+        ["account3", "account5", "account7"].iter().map(|a| a.parse().unwrap()).collect();
+    let shard_layout = ShardLayout::multi_shard_custom(boundary_accounts, 1);
     let genesis = TestLoopBuilder::new_genesis_builder()
         .epoch_length(EPOCH_LENGTH)
         .shard_layout(shard_layout.clone())
