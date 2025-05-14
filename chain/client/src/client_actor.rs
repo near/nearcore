@@ -5,6 +5,7 @@
 //! Unfortunately, this is not the case today. We are in the process of refactoring ClientActor
 //! <https://github.com/near/nearcore/issues/7899>
 
+use crate::chunk_executor_actor::ExecutorBlock;
 #[cfg(feature = "test_features")]
 pub use crate::chunk_producer::AdvProduceChunksMode;
 #[cfg(feature = "test_features")]
@@ -122,6 +123,8 @@ pub struct StartClientResult {
 }
 
 /// Starts client in a separate Arbiter (thread).
+// TODO(spice)
+#[allow(unreachable_code, unused_variables)]
 pub fn start_client(
     clock: Clock,
     client_config: ClientConfig,
@@ -189,6 +192,7 @@ pub fn start_client(
         adv,
         config_updater,
         sync_jobs_actor_addr.with_auto_span_context().into_multi_sender(),
+        todo!(), // TODO(spice): chunk_executor_sender
     )
     .unwrap();
     let tx_pool = client_actor_inner.client.chunk_producer.sharded_tx_pool.clone();
@@ -263,6 +267,8 @@ pub struct ClientActorInner {
 
     /// Manages updating the config.
     config_updater: Option<ConfigUpdater>,
+
+    chunk_executor_sender: Sender<ExecutorBlock>,
 }
 
 impl messaging::Actor for ClientActorInner {
@@ -336,6 +342,7 @@ impl ClientActorInner {
         adv: crate::adversarial::Controls,
         config_updater: Option<ConfigUpdater>,
         sync_jobs_sender: SyncJobsSenderForClient,
+        chunk_executor_sender: Sender<ExecutorBlock>,
     ) -> Result<Self, Error> {
         if let Some(vs) = &client.validator_signer.get() {
             info!(target: "client", "Starting validator node: {}", vs.validator_id());
@@ -374,6 +381,7 @@ impl ClientActorInner {
             shutdown_signal,
             config_updater,
             sync_jobs_sender,
+            chunk_executor_sender,
         })
     }
 }
@@ -1463,6 +1471,7 @@ impl ClientActorInner {
             self.send_chunks_metrics(&block);
             self.send_block_metrics(&block);
             self.check_send_announce_account(*block.header().last_final_block(), signer);
+            self.chunk_executor_sender.send(ExecutorBlock { block_hash: accepted_block });
         }
     }
 

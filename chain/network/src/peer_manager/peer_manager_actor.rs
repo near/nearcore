@@ -1156,6 +1156,10 @@ impl PeerManagerActor {
                 );
                 NetworkResponses::NoResponse
             }
+            NetworkRequests::SpiceIncomingReceipts { .. } => {
+                // TODO(spice):
+                todo!();
+            }
         }
     }
 

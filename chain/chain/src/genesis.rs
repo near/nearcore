@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use crate::types::RuntimeAdapter;
 use crate::{Chain, ChainGenesis, ChainStore, ChainStoreAccess, ChainStoreUpdate};
 use itertools::Itertools;
@@ -152,7 +154,10 @@ impl Chain {
                 shard_uid,
                 genesis.hash(),
                 genesis.header().height(),
-            )
+            );
+            let shard_id = shard_uid.shard_id();
+            // TODO(spice): this is needed for spice execution to be able to apply genesis chunks.
+            store_update.save_incoming_receipt(genesis.hash(), shard_id, Arc::new(Vec::new()));
         }
         store_update.merge(tmp_store_update);
         store_update.commit()?;

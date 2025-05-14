@@ -243,12 +243,10 @@ impl ChainStoreAdapter {
         block_hash: &CryptoHash,
         shard_uid: &ShardUId,
     ) -> Result<Arc<ChunkExtra>, Error> {
-        // TODO(spice)
-        Ok(option_to_not_found(
+        option_to_not_found(
             self.store.get_ser(DBCol::ChunkExtra, &get_block_shard_uid(block_hash, shard_uid)),
             format_args!("CHUNK EXTRA: {}:{:?}", block_hash, shard_uid),
         )
-        .expect("chunk extra access shouldn't happen in spice"))
     }
 
     pub fn get_chunk_apply_stats(
@@ -271,6 +269,14 @@ impl ChainStoreAdapter {
                 .get_ser(DBCol::OutgoingReceipts, &get_block_shard_id(prev_block_hash, shard_id)),
             format_args!("OUTGOING RECEIPT: {} {}", prev_block_hash, shard_id),
         )
+    }
+
+    pub fn incoming_receipts_exist(
+        &self,
+        block_hash: &CryptoHash,
+        shard_id: ShardId,
+    ) -> Result<bool, Error> {
+        Ok(self.store.exists(DBCol::IncomingReceipts, &get_block_shard_id(block_hash, shard_id))?)
     }
 
     pub fn get_incoming_receipts(
