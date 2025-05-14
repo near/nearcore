@@ -519,10 +519,19 @@ def amend_binaries_cmd(args, schedule_ctx, traffic_generator, nodes):
             binary_idx), nodes + to_list(traffic_generator))
 
 
+# Only print stdout and stderr if they are not empty
+def print_result(node, result):
+    RED = '\033[91m'
+    GREEN = '\033[92m'
+    RESET = '\033[0m'
+    stdout = f'\n{GREEN}stdout:{RESET}\n{result.stdout}' if result.stdout != "" else ''
+    stderr = f'\n{RED}stderr:{RESET}\n{result.stderr}' if result.stderr != "" else ''
+    logger.info('{0}:{1}{2}'.format(node.name(), stdout, stderr))
+
+
 def _run_remote(schedule_ctx, hosts, cmd):
-    pmap(lambda node: logger.info(
-        '{0}:\nstdout:\n{1.stdout}\nstderr:\n{1.stderr}'.format(
-            node.name(), node.run_cmd(schedule_ctx, cmd, return_on_fail=True))),
+    pmap(lambda node: print_result(
+        node, node.run_cmd(schedule_ctx, cmd, return_on_fail=True)),
          hosts,
          on_exception="")
 
@@ -530,18 +539,16 @@ def _run_remote(schedule_ctx, hosts, cmd):
 @with_schedule_context
 def run_remote_cmd(args, schedule_ctx, traffic_generator, nodes):
     targeted = nodes + to_list(traffic_generator)
-    logger.info(f'Running cmd on {"".join([h.name() for h in targeted ])}')
+    logger.info(f'Running cmd on {",".join([h.name() for h in targeted])}')
     _run_remote(schedule_ctx, targeted, args.cmd)
 
 
 def run_remote_upload_file(args, traffic_generator, nodes):
     targeted = nodes + to_list(traffic_generator)
     logger.info(
-        f'Uploading {args.src} in {args.dst} on {"".join([h.name() for h in targeted ])}'
+        f'Uploading {args.src} in {args.dst} on {",".join([h.name() for h in targeted])}'
     )
-    pmap(lambda node: logger.info(
-        '{0}:\nstdout:\n{1.stdout}\nstderr:\n{1.stderr}'.format(
-            node.name(), node.upload_file(args.src, args.dst))),
+    pmap(lambda node: print_result(node, node.upload_file(args.src, args.dst)),
          targeted,
          on_exception="")
 
@@ -554,6 +561,26 @@ def run_env_cmd(args, schedule_ctx, traffic_generator, nodes):
         func = lambda node: node.neard_update_env(schedule_ctx, args.key_value)
     targeted = nodes + to_list(traffic_generator)
     pmap(func, targeted)
+
+
+def list_scheduled_cmds(args, traffic_generator, nodes):
+    targeted = nodes + to_list(traffic_generator)
+    cmd = 'systemctl --user show "mocknet-*" -p Id -p ConditionTimestamp -p Description --value'
+    logger.info(
+        f'Getting schedule from {",".join([h.name() for h in targeted])}')
+    _run_remote(None, targeted, cmd)
+
+
+def clear_scheduled_cmds(args, traffic_generator, nodes):
+    targeted = nodes + to_list(traffic_generator)
+    filter = args.filter
+    if not filter.startswith('mocknet-'):
+        filter = 'mocknet-' + filter
+    logger.info(
+        f'Clearing scheduled commands matching "{filter}" from {",".join([h.name() for h in targeted])}'
+    )
+    cmd = f'systemctl --user stop "{filter}"'
+    _run_remote(None, targeted, cmd)
 
 
 def filter_hosts(args, traffic_generator, nodes):
@@ -666,6 +693,22 @@ def register_schedule_subcommands(subparsers):
         required=True)
     # register subcommands to schedule_subparsers
     register_subcommands(cmd_subcommands)
+
+    list_subparsers = subparsers.add_parser('list',
+                                            help='List all scheduled commands.')
+    list_subparsers.set_defaults(func=list_scheduled_cmds)
+
+    clear_subparsers = subparsers.add_parser(
+        'clear', help='Clear all scheduled commands.')
+    clear_subparsers.add_argument(
+        '--filter',
+        type=str,
+        default='*',
+        help='''Clear scheduled commands matching the regex.
+    Use the ids provided by the list command including the ".timer" suffix.
+    If not already, all values will be prefixed with 'mocknet-' to match the scheduled command name.
+    If not provided, all scheduled commands will be cleared.''')
+    clear_subparsers.set_defaults(func=clear_scheduled_cmds)
 
 
 def register_base_commands(subparsers):
