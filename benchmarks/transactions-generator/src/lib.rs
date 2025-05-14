@@ -11,6 +11,7 @@ use node_runtime::metrics::TRANSACTION_PROCESSED_FAILED_TOTAL;
 use parking_lot::Mutex;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
+use serde_with::serde_as;
 use std::path::PathBuf;
 use std::sync::{Arc, atomic};
 use std::time::Duration;
@@ -21,17 +22,24 @@ pub mod account;
 pub mod actix_actor;
 mod welford;
 
-#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
-pub struct TxGeneratorConfig {
+#[serde_as]
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
+struct Load {
     tps: u64,
-    volume: u64,
-    thread_count: u64,
+    #[serde_as(as = "serde_with::DurationSeconds<u64>")]
+    #[serde(rename = "duration_s")]
+    duration: Duration,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
+pub struct Config {
+    schedule: Vec<Load>,
     accounts_path: PathBuf,
 }
 
-impl Default for TxGeneratorConfig {
+impl Default for Config {
     fn default() -> Self {
-        Self { tps: 0, volume: 0, thread_count: 1, accounts_path: "".into() }
+        Self { schedule: Default::default(), accounts_path: "".into() }
     }
 }
 
@@ -47,10 +55,9 @@ pub struct ViewClientSender {
 }
 
 pub struct TxGenerator {
-    pub params: TxGeneratorConfig,
+    pub params: Config,
     client_sender: ClientSender,
     view_client_sender: ViewClientSender,
-    tasks: Vec<task::JoinHandle<()>>,
 }
 
 #[derive(Clone)]
@@ -82,22 +89,19 @@ impl std::ops::Sub for Stats {
 
 impl TxGenerator {
     pub fn new(
-        params: TxGeneratorConfig,
+        params: Config,
         client_sender: ClientSender,
         view_client_sender: ViewClientSender,
     ) -> anyhow::Result<Self> {
-        Ok(Self { params, client_sender, view_client_sender, tasks: Vec::new() })
+        Ok(Self { params, client_sender, view_client_sender })
     }
 
     pub fn start(self: &mut Self) -> anyhow::Result<()> {
-        if !self.tasks.is_empty() {
-            anyhow::bail!("attempt to (re)start the running transaction generator");
-        }
         let client_sender = self.client_sender.clone();
         let view_client_sender = self.view_client_sender.clone();
 
-        if self.params.tps == 0 {
-            anyhow::bail!("target TPS should be > 0");
+        if self.params.schedule.is_empty() {
+            anyhow::bail!("tx generator idle: no schedule provided");
         }
 
         let runner_state = RunnerState {
@@ -110,15 +114,15 @@ impl TxGenerator {
             })),
         };
 
-        self.tasks = Self::start_transactions_loop(
+        Self::start_transactions_loop(
             &self.params,
             client_sender,
             view_client_sender.clone(),
             runner_state.clone(),
         )?;
 
-        self.tasks.push(Self::start_block_updates(view_client_sender, runner_state.clone()));
-        self.tasks.push(Self::start_report_updates(runner_state));
+        Self::start_block_updates(view_client_sender, runner_state.clone());
+        Self::start_report_updates(runner_state);
 
         Ok(())
     }
@@ -171,20 +175,20 @@ impl TxGenerator {
     }
 
     fn start_transactions_loop(
-        config: &TxGeneratorConfig,
+        config: &Config,
         client_sender: ClientSender,
         view_client_sender: ViewClientSender,
         runner_state: RunnerState,
-    ) -> anyhow::Result<Vec<task::JoinHandle<()>>> {
+    ) -> anyhow::Result<()> {
         // TODO(slavas): generate accounts on the fly?
         let mut accounts = account::accounts_from_path(&config.accounts_path)?;
         if accounts.is_empty() {
             anyhow::bail!("No active accounts available");
         }
 
-        let (tx, _) = tokio::sync::broadcast::channel(1);
+        let (tx_clients, _) = tokio::sync::broadcast::channel(1);
         let sender = view_client_sender.clone();
-        let txs = tx.clone();
+        let txs = tx_clients.clone();
         tokio::spawn(async move {
             for account in &mut accounts {
                 let (id, pk) = (account.id.clone(), account.public_key.clone());
@@ -201,16 +205,19 @@ impl TxGenerator {
             txs.send(Arc::new(accounts)).unwrap();
         });
 
-        let mut tasks = Vec::<task::JoinHandle<()>>::new();
-        for _ in 0..config.thread_count {
-            let mut rx = tx.subscribe();
+        let (load_tx, _) = tokio::sync::broadcast::channel(config.schedule.len());
+
+        /// Number of tasks to run producing and sending transactions
+        /// We need several tasks to not get blocked by the sending latency.
+        /// 4 is currently more than enough.
+        const TASK_COUNT: u64 = 4;
+        for _ in 0..TASK_COUNT {
+            let mut rx_clients = tx_clients.subscribe();
+            let mut rx_load = load_tx.subscribe();
             let client_sender = client_sender.clone();
             let view_client_sender = view_client_sender.clone();
             let runner_state = runner_state.clone();
-            let mut tx_interval = tokio::time::interval(Duration::from_micros(
-                1_000_000 * config.thread_count / config.tps,
-            ));
-            tasks.push(tokio::spawn(async move {
+            tokio::spawn(async move {
                 let mut rnd: StdRng = SeedableRng::from_entropy();
 
                 match Self::get_latest_block(&view_client_sender).await {
@@ -223,9 +230,14 @@ impl TxGenerator {
                             "failed initializing the block hash: {err}");
                     }
                 }
-                let accounts = rx.recv().await.unwrap();
 
+                let accounts = rx_clients.recv().await.unwrap();
                 let block_hash = runner_state.block_hash.clone();
+
+                let load: Load = rx_load.recv().await.unwrap();
+                let mut tx_interval =
+                    tokio::time::interval(Duration::from_micros(1_000_000 * TASK_COUNT / load.tps));
+
                 loop {
                     tx_interval.tick().await;
                     let block_hash = *block_hash.lock();
@@ -244,10 +256,17 @@ impl TxGenerator {
                         stats.pool_rejected += 1;
                     }
                 }
-            }));
+            });
         }
 
-        Ok(tasks)
+        let schedule = config.schedule.clone();
+        tokio::spawn(async move {
+            for load in schedule {
+                load_tx.send(load).unwrap();
+            }
+        });
+
+        Ok(())
     }
 
     async fn get_latest_block(view_client_sender: &ViewClientSender) -> anyhow::Result<CryptoHash> {

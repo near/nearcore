@@ -245,7 +245,7 @@ pub struct Config {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rosetta_rpc: Option<RosettaRpcConfig>,
     #[cfg(feature = "tx_generator")]
-    pub tx_generator: Option<near_transactions_generator::TxGeneratorConfig>,
+    pub tx_generator: Option<near_transactions_generator::Config>,
     pub telemetry: TelemetryConfig,
     pub network: near_network::config_json::Config,
     pub consensus: Consensus,
@@ -523,7 +523,7 @@ pub struct NearConfig {
     pub config: Config,
     pub client_config: ClientConfig,
     #[cfg(feature = "tx_generator")]
-    pub tx_generator: Option<near_transactions_generator::TxGeneratorConfig>,
+    pub tx_generator: Option<near_transactions_generator::Config>,
     pub network_config: NetworkConfig,
     #[cfg(feature = "json_rpc")]
     pub rpc_config: Option<RpcConfig>,
