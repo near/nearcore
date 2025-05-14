@@ -1,6 +1,6 @@
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
 use itertools::Itertools as _;
 use near_async::messaging::{CanSend as _, Handler as _};
@@ -18,6 +18,7 @@ use near_primitives::types::{
     AccountId, BlockHeight, BlockHeightDelta, BlockReference, NumSeats, ShardId,
 };
 use near_primitives::views::{QueryRequest, QueryResponseKind};
+use parking_lot::RwLock;
 
 use crate::setup::builder::TestLoopBuilder;
 use crate::utils::ONE_NEAR;
@@ -328,7 +329,7 @@ fn ultra_slow_test_catchup_sanity_blocks_produced() {
     for node_datas in &env.node_datas {
         let check_height = {
             let heights = heights.clone();
-            move |hash: CryptoHash, height| match heights.write().unwrap().entry(hash) {
+            move |hash: CryptoHash, height| match heights.write().entry(hash) {
                 Entry::Occupied(entry) => {
                     assert_eq!(*entry.get(), height);
                 }
@@ -449,9 +450,9 @@ fn test_all_chunks_accepted_common(
         let peer_actor_handle = node_datas.peer_manager_sender.actor_handle();
         let peer_actor = env.test_loop.data.get_mut(&peer_actor_handle);
         peer_actor.register_override_handler(Box::new(move |msg| -> Option<NetworkRequests> {
-            let mut seen_chunk_same_sender = seen_chunk_same_sender.write().unwrap();
-            let mut requested = requested.write().unwrap();
-            let mut responded = responded.write().unwrap();
+            let mut seen_chunk_same_sender = seen_chunk_same_sender.write();
+            let mut requested = requested.write();
+            let mut responded = responded.write();
             match msg {
                 NetworkRequests::PartialEncodedChunkMessage {
                     ref account_id,
