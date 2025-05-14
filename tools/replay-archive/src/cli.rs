@@ -316,6 +316,7 @@ impl ReplayController {
 
             let transactions = SignedValidPeriodTransactions::new(
                 chunk.to_transactions().to_vec(),
+                // FIXME: see the `validate_chunk` thing above.
                 vec![true; chunk.to_transactions().len()],
             );
             ShardUpdateReason::NewChunk(NewChunkData {
