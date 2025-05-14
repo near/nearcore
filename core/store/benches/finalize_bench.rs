@@ -11,10 +11,7 @@
 //! `PartialEncodedChunk`. These have been observed to become quite large and
 //! have ab impact on the overall client performance.
 
-#[macro_use]
-extern crate bencher;
-
-use bencher::{Bencher, black_box};
+use bencher::{Bencher, benchmark_group, benchmark_main, black_box};
 use borsh::BorshSerialize;
 use near_chain::Chain;
 use near_crypto::{InMemorySigner, KeyType};

@@ -1,7 +1,4 @@
-#[macro_use]
-extern crate bencher;
-
-use bencher::Bencher;
+use bencher::{Bencher, benchmark_group, benchmark_main};
 use near_chain::{ChainStore, ChainStoreAccess, types::RuntimeAdapter};
 use near_chain_configs::GenesisValidationMode;
 use near_epoch_manager::EpochManager;

@@ -1,8 +1,4 @@
-#[macro_use]
-extern crate bencher;
-
-use bencher::{Bencher, black_box};
-
+use bencher::{Bencher, benchmark_group, benchmark_main, black_box};
 use borsh::BorshDeserialize;
 use near_crypto::{KeyType, PublicKey, Signature};
 use near_primitives::account::Account;

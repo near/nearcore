@@ -107,6 +107,9 @@ pub const APPLY_CHUNK_RESULTS_CACHE_SIZE: usize = 100;
 /// The size of the invalid_blocks in-memory pool
 pub const INVALID_CHUNKS_POOL_SIZE: usize = 5000;
 
+/// The size of the processed_hashes in-memory pool
+pub const PROCESSED_HASHES_POOL_SIZE: usize = 5000;
+
 /// 5000 years in seconds. Big constant for sandbox to allow time traveling.
 #[cfg(feature = "sandbox")]
 const ACCEPTABLE_TIME_DIFFERENCE: i64 = 60 * 60 * 24 * 365 * 5000;
@@ -317,6 +320,8 @@ pub struct Chain {
     pub apply_chunk_results_cache: ApplyChunksResultCache,
     /// Time when head was updated most recently.
     last_time_head_updated: Instant,
+    /// Prevents re-application of blocks received multiple times.
+    processed_hashes: LruCache<CryptoHash, ()>,
     /// Prevents re-application of known-to-be-invalid blocks, so that in case of a
     /// protocol issue we can recover faster by focusing on correct blocks.
     invalid_blocks: LruCache<CryptoHash, ()>,
@@ -434,6 +439,7 @@ impl Chain {
             apply_chunks_spawner: Arc::new(RayonAsyncComputationSpawner),
             apply_chunk_results_cache: ApplyChunksResultCache::new(APPLY_CHUNK_RESULTS_CACHE_SIZE),
             last_time_head_updated: clock.now(),
+            processed_hashes: LruCache::new(NonZeroUsize::new(PROCESSED_HASHES_POOL_SIZE).unwrap()),
             invalid_blocks: LruCache::new(NonZeroUsize::new(INVALID_CHUNKS_POOL_SIZE).unwrap()),
             pending_state_patch: Default::default(),
             snapshot_callbacks: None,
@@ -582,6 +588,7 @@ impl Chain {
             optimistic_block_chunks: OptimisticBlockChunksPool::new(),
             blocks_pending_execution: PendingBlocksPool::new(),
             blocks_in_processing: BlocksInProcessing::new(),
+            processed_hashes: LruCache::new(NonZeroUsize::new(PROCESSED_HASHES_POOL_SIZE).unwrap()),
             invalid_blocks: LruCache::new(NonZeroUsize::new(INVALID_CHUNKS_POOL_SIZE).unwrap()),
             genesis: genesis.clone(),
             epoch_length: chain_genesis.epoch_length,
@@ -665,6 +672,10 @@ impl Chain {
 
         chain_store_update.commit()?;
         Ok(())
+    }
+
+    fn save_block_hash_processed(&mut self, block_hash: CryptoHash) {
+        self.processed_hashes.put(block_hash, ());
     }
 
     fn save_block_height_processed(&mut self, block_height: BlockHeight) -> Result<(), Error> {
@@ -1222,9 +1233,8 @@ impl Chain {
                 .mark_block_dropped(&hash, DroppedReason::TooManyProcessingBlocks);
         }
         // Save the block as processed even if it failed. This is used to filter out the
-        // incoming blocks that are not requested on heights which we already processed.
-        // If there is a new incoming block that we didn't request and we already have height
-        // processed 'marked as true' - then we'll not even attempt to process it
+        // incoming blocks that are not requested but already processed.
+        self.save_block_hash_processed(hash);
         if let Err(e) = self.save_block_height_processed(block_height) {
             warn!(target: "chain", "Failed to save processed height {}: {}", block_height, e);
         }
@@ -3619,6 +3629,11 @@ impl Chain {
     #[inline]
     pub fn is_in_processing(&self, hash: &CryptoHash) -> bool {
         self.blocks_in_processing.contains(&BlockToApply::Normal(*hash))
+    }
+
+    #[inline]
+    pub fn is_hash_processed(&self, hash: &CryptoHash) -> bool {
+        self.processed_hashes.contains(hash)
     }
 
     #[inline]
