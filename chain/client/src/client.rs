@@ -174,8 +174,8 @@ pub struct Client {
     upgrade_schedule: ProtocolUpgradeVotingSchedule,
     /// Produced optimistic block.
     last_optimistic_block_produced: Option<OptimisticBlock>,
-    /// Cached precomputed set of TIER1 accounts to which Optimistic Block should be sent.
-    optimistic_block_targets_cache: Option<(EpochId, Arc<Vec<AccountId>>)>,
+    /// Cached precomputed set of the chunk producers for current and next epochs.
+    chunk_producer_accounts_cache: Option<(EpochId, Arc<Vec<AccountId>>)>,
 }
 
 impl AsRef<Client> for Client {
@@ -368,7 +368,7 @@ impl Client {
             chunk_distribution_network,
             upgrade_schedule,
             last_optimistic_block_produced: None,
-            optimistic_block_targets_cache: None,
+            chunk_producer_accounts_cache: None,
         })
     }
 
@@ -2277,7 +2277,7 @@ impl Client {
             }
         }
         let account_keys = Arc::new(account_keys);
-        self.tier1_accounts_cache = Some((tip.epoch_id, account_keys.clone()));
+        self.tier1_accounts_cache = Some((tip.epoch_id, Arc::clone(&account_keys)));
         Ok(account_keys)
     }
 
@@ -2286,12 +2286,12 @@ impl Client {
         &mut self,
         tip: &Tip,
     ) -> Result<Arc<Vec<AccountId>>, Error> {
-        match &self.optimistic_block_targets_cache {
+        match &self.chunk_producer_accounts_cache {
             Some(it) if it.0 == tip.epoch_id => return Ok(it.1.clone()),
             _ => {}
         }
 
-        let _guard =
+        let _span =
             tracing::debug_span!(target: "client", "get_optimistic_block_targets(): recomputing")
                 .entered();
 
@@ -2302,7 +2302,7 @@ impl Client {
             }
         }
         let account_ids = Arc::new(account_ids.into_iter().collect_vec());
-        self.optimistic_block_targets_cache = Some((tip.epoch_id, account_ids.clone()));
+        self.chunk_producer_accounts_cache = Some((tip.epoch_id, Arc::clone(&account_ids)));
         Ok(account_ids)
     }
 

@@ -1392,7 +1392,7 @@ impl ClientActorInner {
         let targets = self.client.get_optimistic_block_targets(&tip)?;
         self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
             NetworkRequests::OptimisticBlock {
-                chunk_producers: (*targets).clone(),
+                chunk_producers: targets,
                 optimistic_block: optimistic_block.clone(),
             },
         ));
