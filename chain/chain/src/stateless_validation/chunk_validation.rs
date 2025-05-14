@@ -34,6 +34,7 @@ use near_primitives::version::ProtocolFeature;
 use near_store::flat::BlockInfo;
 use near_store::trie::ops::resharding::RetainMode;
 use near_store::{PartialStorage, Trie};
+use node_runtime::SignedValidPeriodTransactions;
 use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::num::NonZeroUsize;
@@ -371,10 +372,13 @@ pub fn pre_validate_chunk_state_witness(
             shard_id: last_chunk_shard_id,
         }
     } else {
+        let transactions = SignedValidPeriodTransactions::new(
+            state_witness.transactions().clone(),
+            transaction_validity_check_results,
+        );
         MainTransition::NewChunk(NewChunkData {
             chunk_header: last_chunk_block.chunks().get(last_chunk_shard_index).unwrap().clone(),
-            transactions: state_witness.transactions().clone(),
-            transaction_validity_check_results,
+            transactions,
             receipts: receipts_to_apply,
             block: Chain::get_apply_chunk_block_context(
                 last_chunk_block,

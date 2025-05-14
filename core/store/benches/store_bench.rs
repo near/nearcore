@@ -1,7 +1,4 @@
-#[macro_use]
-extern crate bencher;
-
-use bencher::{Bencher, black_box};
+use bencher::{Bencher, benchmark_group, benchmark_main, black_box};
 use near_primitives::errors::StorageError;
 use near_store::{DBCol, NodeStorage, Store};
 use std::time::{Duration, Instant};
