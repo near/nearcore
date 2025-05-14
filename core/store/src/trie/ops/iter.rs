@@ -142,7 +142,7 @@ where
         // If `upper_bound` is true, we need to check if the next element
         // is actually key == `key` and skip it.
         if upper_bound {
-            if let Some(last) = self.trail.last_mut() {
+            if let Some(last) = self.trail.last() {
                 let mut compare_with = self.key_nibbles.clone();
 
                 // If the iterator is positioned on a leaf node, we need to
