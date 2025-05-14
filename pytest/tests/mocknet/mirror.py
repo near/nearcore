@@ -13,6 +13,7 @@ import re
 import sys
 import time
 import numpy as np
+from functools import wraps
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
@@ -20,6 +21,7 @@ from configured_logger import logger
 import local_test_node
 import node_config
 import remote_node
+from utils import ScheduleContext
 
 
 def to_list(item):
@@ -70,6 +72,23 @@ def prompt_init_flags(args):
         url = sys.stdin.readline().strip()
         if len(url) > 0:
             args.neard_upgrade_binary_url = url
+
+
+def with_schedule_context(func):
+    @wraps(func)
+    def wrapper(args, *func_args, **func_kwargs):
+        # Only build the context if the command is 'schedule' and has the right args
+        if getattr(args, 'schedule_in', None) is None:
+            return func(args, None, *func_args, **func_kwargs)
+
+        # Build the context
+        context = ScheduleContext(
+            id=getattr(args, 'schedule_id', None),
+            timespec=args.schedule_in,
+        )
+
+        return func(args, context, *func_args, **func_kwargs)
+    return wrapper
 
 
 def init_neard_runners(args, traffic_generator, nodes, remove_home_dir=False):
@@ -209,10 +228,10 @@ def _apply_stateless_config(args, node):
     including changing config.json file and updating TCP buffer size at OS level."""
     # TODO: it should be possible to update multiple keys in one RPC call so we dont have to make multiple round trips
     # TODO: Enable saving witness after fixing the performance problems.
-    do_update_config(node, 'save_latest_witnesses=false')
+    do_update_config(node, None, 'save_latest_witnesses=false')
     if not node.want_state_dump:
-        do_update_config(node, 'tracked_shards_config="NoShards"')
-        do_update_config(node, 'store.load_mem_tries_for_tracked_shards=true')
+        do_update_config(node, None, 'tracked_shards_config="NoShards"')
+        do_update_config(node, None, 'store.load_mem_tries_for_tracked_shards=true')
     if not args.local_test:
         node.run_cmd(
             "sudo sysctl -w net.core.rmem_max=8388608 && sudo sysctl -w net.core.wmem_max=8388608 && sudo sysctl -w net.ipv4.tcp_rmem='4096 87380 8388608' && sudo sysctl -w net.ipv4.tcp_wmem='4096 16384 8388608' && sudo sysctl -w net.ipv4.tcp_slow_start_after_idle=0"
@@ -236,7 +255,7 @@ def _apply_config_changes(node, state_sync_location):
             changes[
                 'store.state_snapshot_config.state_snapshot_type'] = "EveryEpoch"
     for key, change in changes.items():
-        do_update_config(node, f'{key}={json.dumps(change)}')
+        do_update_config(node, None, f'{key}={json.dumps(change)}')
 
 
 def _clear_state_parts_if_exists(location, nodes):
@@ -348,8 +367,8 @@ def status_cmd(args, traffic_generator, nodes):
             f'{len(targeted)-len(not_ready)}/{len(targeted)} ready. Nodes not ready: {not_ready[:3]}'
         )
 
-
-def reset_cmd(args, traffic_generator, nodes):
+@with_schedule_context
+def reset_cmd(args, schedule_ctx, traffic_generator, nodes):
     if not args.yes:
         print(
             'this will reset selected nodes\' home dirs to their initial states right after test initialization finished. continue? [yes/no]'
@@ -374,15 +393,17 @@ def reset_cmd(args, traffic_generator, nodes):
             sys.exit()
 
     targeted = nodes + to_list(traffic_generator)
-    pmap(lambda node: node.neard_runner_reset(backup_id=args.backup_id),
+    pmap(lambda node: node.neard_runner_reset(schedule_ctx, backup_id=args.backup_id),
          targeted)
     logger.info(
         'Data dir reset in progress. Run the `status` command to see when this is finished. Until it is finished, neard runners may not respond to HTTP requests.'
     )
-    _clear_state_parts_if_exists(_get_state_parts_location(args), nodes)
+    # Do not clear state parts if scheduling
+    if schedule_ctx is None:
+        _clear_state_parts_if_exists(_get_state_parts_location(args), nodes)
 
-
-def make_backup_cmd(args, traffic_generator, nodes):
+@with_schedule_context
+def make_backup_cmd(args, schedule_ctx, traffic_generator, nodes):
     if not args.yes:
         print(
             'this will stop all nodes and create a new backup of their home dirs. continue? [yes/no]'
@@ -404,44 +425,46 @@ def make_backup_cmd(args, traffic_generator, nodes):
     targeted = nodes + to_list(traffic_generator)
     pmap(
         lambda node: node.neard_runner_make_backup(
+            schedule_ctx,
             backup_id=args.backup_id, description=args.description), targeted)
 
-
-def stop_nodes_cmd(args, traffic_generator, nodes):
+@with_schedule_context
+def stop_nodes_cmd(args, schedule_ctx, traffic_generator, nodes):
     targeted = nodes + to_list(traffic_generator)
-    pmap(lambda node: node.neard_runner_stop(), targeted)
+    pmap(lambda node: node.neard_runner_stop(schedule_ctx), targeted)
 
+@with_schedule_context
+def stop_traffic_cmd(args, schedule_ctx, traffic_generator, nodes):
+    traffic_generator.neard_runner_stop(schedule_ctx)
 
-def stop_traffic_cmd(args, traffic_generator, nodes):
-    traffic_generator.neard_runner_stop()
-
-
-def do_update_config(node, config_change):
-    result = node.neard_update_config(config_change)
+def do_update_config(node, schedule_ctx, config_change):
+    result = node.neard_update_config(schedule_ctx, config_change)
     if not result:
         logger.warning(
             f'failed updating config on {node.name()}. result: {result}')
 
-
-def update_config_cmd(args, traffic_generator, nodes):
+@with_schedule_context
+def update_config_cmd(args, schedule_ctx, traffic_generator, nodes):
     nodes = nodes + to_list(traffic_generator)
     pmap(
-        lambda node: do_update_config(node, args.set),
+        lambda node: do_update_config(node, schedule_ctx, args.set),
         nodes,
     )
 
-
-def start_nodes_cmd(args, traffic_generator, nodes):
+@with_schedule_context
+def start_nodes_cmd(args, schedule_ctx, traffic_generator, nodes):
     if not all(pmap(lambda node: node.neard_runner_ready(), nodes)):
         logger.warning(
             'not all nodes are ready to start yet. Run the `status` command to check their statuses'
         )
         return
-    pmap(lambda node: node.neard_runner_start(), nodes)
-    pmap(lambda node: node.wait_node_up(), nodes)
+    pmap(lambda node: node.neard_runner_start(schedule_ctx), nodes)
+    # Wait for the nodes to be up if not scheduling
+    if schedule_ctx is None:
+        pmap(lambda node: node.wait_node_up(), nodes)
 
-
-def start_traffic_cmd(args, traffic_generator, nodes):
+@with_schedule_context
+def start_traffic_cmd(args, schedule_ctx, traffic_generator, nodes):
     if traffic_generator is None:
         logger.warning('No traffic node selected. Change filters.')
         return
@@ -452,40 +475,49 @@ def start_traffic_cmd(args, traffic_generator, nodes):
             'not all nodes are ready to start yet. Run the `status` command to check their statuses'
         )
         return
-    pmap(lambda node: node.neard_runner_start(), nodes)
-    logger.info("waiting for validators to be up")
-    pmap(lambda node: node.wait_node_up(), nodes)
-    logger.info(
-        "waiting a bit after validators started before starting traffic")
-    time.sleep(10)
+    pmap(lambda node: node.neard_runner_start(schedule_ctx), nodes)
+    # Wait for the nodes to be up if not scheduling
+    if schedule_ctx is None:
+        logger.info("waiting for validators to be up")
+        pmap(lambda node: node.wait_node_up(), nodes)
+        logger.info(
+            "waiting a bit after validators started before starting traffic")
+        time.sleep(10)
     traffic_generator.neard_runner_start(
+        schedule_ctx,
         batch_interval_millis=args.batch_interval_millis)
-    logger.info(
-        f'test running. to check the traffic sent, try running "curl --silent http://{traffic_generator.ip_addr()}:{traffic_generator.neard_port()}/metrics | grep near_mirror"'
-    )
+    if schedule_ctx is None:
+        logger.info(
+            f'test running. to check the traffic sent, try running "curl --silent http://{traffic_generator.ip_addr()}:{traffic_generator.neard_port()}/metrics | grep near_mirror"'
+        )
 
-
-def update_binaries_cmd(args, traffic_generator, nodes):
-    pmap(lambda node: node.neard_runner_update_binaries(),
+@with_schedule_context
+def update_binaries_cmd(args, schedule_ctx, traffic_generator, nodes):
+    pmap(lambda node: node.neard_runner_update_binaries(schedule_ctx),
          nodes + to_list(traffic_generator))
 
-
-def amend_binaries_cmd(args, traffic_generator, nodes):
+@with_schedule_context 
+def amend_binaries_cmd(args, schedule_ctx, traffic_generator, nodes):
     pmap(
         lambda node: node.neard_runner_update_binaries(
-            args.neard_binary_url, args.epoch_height, args.binary_idx),
+            schedule_ctx,
+            args.neard_binary_url, 
+            args.epoch_height,
+            args.binary_idx),
         nodes + to_list(traffic_generator))
 
-
-def run_remote_cmd(args, traffic_generator, nodes):
-    targeted = nodes + to_list(traffic_generator)
-    logger.info(f'Running cmd on {"".join([h.name() for h in targeted ])}')
+def _run_remote(schedule_ctx, hosts, cmd):
     pmap(lambda node: logger.info(
         '{0}:\nstdout:\n{1.stdout}\nstderr:\n{1.stderr}'.format(
-            node.name(), node.run_cmd(args.cmd, return_on_fail=True))),
-         targeted,
+            node.name(), node.run_cmd(schedule_ctx, cmd, return_on_fail=True))),
+         hosts,
          on_exception="")
 
+@with_schedule_context
+def run_remote_cmd(args, schedule_ctx, traffic_generator, nodes):
+    targeted = nodes + to_list(traffic_generator)
+    logger.info(f'Running cmd on {"".join([h.name() for h in targeted ])}')
+    _run_remote(schedule_ctx, targeted, args.cmd)
 
 def run_remote_upload_file(args, traffic_generator, nodes):
     targeted = nodes + to_list(traffic_generator)
@@ -498,12 +530,12 @@ def run_remote_upload_file(args, traffic_generator, nodes):
          targeted,
          on_exception="")
 
-
-def run_env_cmd(args, traffic_generator, nodes):
+@with_schedule_context
+def run_env_cmd(args, schedule_ctx, traffic_generator, nodes):
     if args.clear_all:
-        func = lambda node: node.neard_clear_env()
+        func = lambda node: node.neard_clear_env(schedule_ctx)
     else:
-        func = lambda node: node.neard_update_env(args.key_value)
+        func = lambda node: node.neard_update_env(schedule_ctx, args.key_value)
     targeted = nodes + to_list(traffic_generator)
     pmap(func, targeted)
 
@@ -548,7 +580,7 @@ class ParseFraction(Action):
         setattr(namespace, self.dest, (numerator, denominator))
 
 
-if __name__ == '__main__':
+def build_parser():
     parser = ArgumentParser(description='Control a mocknet instance')
     parser.add_argument('--mocknet-id',
                         type=str,
@@ -582,6 +614,30 @@ if __name__ == '__main__':
                                        description='valid subcommands',
                                        help='additional help')
 
+    register_schedule_subcommands(subparsers)
+    # register subcommands to root parser
+    register_base_commands(subparsers)
+    register_subcommands(subparsers)
+    return parser 
+
+def register_schedule_subcommands(subparsers):
+    schedule_parser = subparsers.add_parser('schedule', help='Schedule commands to run in the future.')
+    schedule_parser.add_argument('--schedule-in',
+                        type=str,
+                        help='Schedule the command to run after the specified time. Can be in the format of "10s", "10m", "10h", "10d"')
+    schedule_parser.add_argument('--schedule-id',
+                        type=str,
+                        help='The id of the scheduled command. If not provided, random string will be generated.')
+
+    # Add nested subparsers under 'schedule'
+    schedule_subparsers = schedule_parser.add_subparsers(title='subcommands',
+                                                         description='valid subcommands',
+                                                         help='additional help',
+                                                         required=True)
+    # register subcommands to schedule_subparsers
+    register_subcommands(schedule_subparsers)
+
+def register_base_commands(subparsers):
     init_parser = subparsers.add_parser('init-neard-runner',
                                         help='''
     Sets up the helper servers on each of the nodes. Doesn't start initializing the test
@@ -590,22 +646,6 @@ if __name__ == '__main__':
     init_parser.add_argument('--neard-binary-url', type=str)
     init_parser.add_argument('--neard-upgrade-binary-url', type=str)
     init_parser.set_defaults(func=init_cmd)
-
-    update_config_parser = subparsers.add_parser(
-        'update-config',
-        help='''Update config.json with given flags for all nodes.''')
-    update_config_parser.add_argument(
-        '--set',
-        help='''
-        A key value pair to set in the config. The key will be interpreted as a
-        json path to the config to be updated. The value will be parsed as json.   
-        e.g.
-        --set 'aaa.bbb.ccc=5'
-        --set 'aaa.bbb.ccc="5"'
-        --set 'aaa.bbb.ddd={"eee":6,"fff":"7"}' # no spaces!
-        ''',
-    )
-    update_config_parser.set_defaults(func=update_config_cmd)
 
     restart_parser = subparsers.add_parser(
         'restart-neard-runner',
@@ -652,6 +692,32 @@ if __name__ == '__main__':
         'status',
         help='''Checks the status of test initialization on each node''')
     status_parser.set_defaults(func=status_cmd)
+
+    upload_file_parser = subparsers.add_parser('upload-file',
+                                               help='''
+        Upload a file or a directory on the hosts.
+        Existing files are replaced.
+        ''')
+    upload_file_parser.add_argument('--src', type=str)
+    upload_file_parser.add_argument('--dst', type=str)
+    upload_file_parser.set_defaults(func=run_remote_upload_file)
+
+def register_subcommands(subparsers):
+    update_config_parser = subparsers.add_parser(
+        'update-config',
+        help='''Update config.json with given flags for all nodes.''')
+    update_config_parser.add_argument(
+        '--set',
+        help='''
+        A key value pair to set in the config. The key will be interpreted as a
+        json path to the config to be updated. The value will be parsed as json.   
+        e.g.
+        --set 'aaa.bbb.ccc=5'
+        --set 'aaa.bbb.ccc="5"'
+        --set 'aaa.bbb.ddd={"eee":6,"fff":"7"}' # no spaces!
+        ''',
+    )
+    update_config_parser.set_defaults(func=update_config_cmd)
 
     start_traffic_parser = subparsers.add_parser(
         'start-traffic',
@@ -748,21 +814,14 @@ if __name__ == '__main__':
     run_cmd_parser.add_argument('--cmd', type=str)
     run_cmd_parser.set_defaults(func=run_remote_cmd)
 
-    upload_file_parser = subparsers.add_parser('upload-file',
-                                               help='''
-        Upload a file or a directory on the hosts.
-        Existing files are replaced.
-        ''')
-    upload_file_parser.add_argument('--src', type=str)
-    upload_file_parser.add_argument('--dst', type=str)
-    upload_file_parser.set_defaults(func=run_remote_upload_file)
-
     env_cmd_parser = subparsers.add_parser(
         'env', help='''Update the environment variable on the hosts.''')
     env_cmd_parser.add_argument('--clear-all', action='store_true')
     env_cmd_parser.add_argument('--key-value', type=str, nargs='+')
     env_cmd_parser.set_defaults(func=run_env_cmd)
 
+if __name__ == '__main__':
+    parser = build_parser()
     args = parser.parse_args()
 
     if args.local_test:

@@ -2,10 +2,11 @@ import pathlib
 import requests
 import sys
 import time
-
+from typing import Optional
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 from configured_logger import logger
+from cmd_utils import ScheduleContext
 
 
 class NodeHandle:
@@ -35,8 +36,8 @@ class NodeHandle:
         self.node.upload_neard_runner()
         self.node.update_python()
 
-    def run_cmd(self, cmd, raise_on_fail=False, return_on_fail=False):
-        return self.node.run_cmd(cmd, raise_on_fail, return_on_fail)
+    def run_cmd(self, schedule_ctx: Optional[ScheduleContext], cmd, raise_on_fail=False, return_on_fail=False):
+        return self.node.run_cmd(schedule_ctx, cmd, raise_on_fail, return_on_fail)
 
     def upload_file(self, src, dst):
         return self.node.upload_file(src, dst)
@@ -77,37 +78,37 @@ class NodeHandle:
     # Same as neard_runner_jsonrpc() without checking the error
     # This should maybe be the behavior everywhere, and callers
     # should handle errors themselves
-    def neard_runner_jsonrpc_nocheck(self, method, params=[]):
+    def neard_runner_jsonrpc_nocheck(self, schedule_ctx: Optional[ScheduleContext], method, params=[]):
         body = {
             'method': method,
             'params': params,
             'id': 'dontcare',
             'jsonrpc': '2.0'
         }
-        return self.node.neard_runner_post(body)
+        return self.node.neard_runner_post(schedule_ctx, body)
 
-    def neard_runner_jsonrpc(self, method, params=[]):
-        response = self.neard_runner_jsonrpc_nocheck(method, params)
-        if 'error' in response:
+    def neard_runner_jsonrpc(self, schedule_ctx: Optional[ScheduleContext], method, params=[]):
+        response = self.neard_runner_jsonrpc_nocheck(schedule_ctx, method, params)
+        if getattr(response, 'result', None) is not None:
             # TODO: errors should be handled better here in general but just exit for now
             sys.exit(
                 f'bad response trying to send {method} JSON RPC to neard runner on {self.node.name()}:\n{response}'
             )
-        return response['result']
+        return getattr(response, 'result', None)
 
-    def neard_runner_start(self, batch_interval_millis=None):
+    def neard_runner_start(self, schedule_ctx: Optional[ScheduleContext], batch_interval_millis=None):
         if batch_interval_millis is None:
             params = []
         else:
             params = {'batch_interval_millis': batch_interval_millis}
-        return self.neard_runner_jsonrpc('start', params=params)
+        return self.neard_runner_jsonrpc(schedule_ctx, 'start', params=params)
 
-    def neard_runner_stop(self):
-        return self.neard_runner_jsonrpc('stop')
+    def neard_runner_stop(self, schedule_ctx: Optional[ScheduleContext]):
+        return self.neard_runner_jsonrpc(schedule_ctx, 'stop')
 
     def neard_runner_new_test(self):
         params = self.node.new_test_params()
-        return self.neard_runner_jsonrpc('new_test', params)
+        return self.neard_runner_jsonrpc(None, 'new_test', params)
 
     def neard_runner_network_init(self,
                                   validators,
@@ -131,55 +132,70 @@ class NodeHandle:
         }
         if genesis_time is not None:
             params['genesis_time'] = genesis_time
-        return self.neard_runner_jsonrpc('network_init', params=params)
+        return self.neard_runner_jsonrpc(None, 'network_init', params=params)
 
     def neard_runner_ready(self):
-        return self.neard_runner_jsonrpc('ready')
+        return self.neard_runner_jsonrpc(None, 'ready')
 
     def neard_runner_version(self):
-        return self.neard_runner_jsonrpc_nocheck('version')
+        return self.neard_runner_jsonrpc_nocheck(None, 'version')
 
-    def neard_runner_make_backup(self, backup_id, description=None):
-        return self.neard_runner_jsonrpc('make_backup',
+    def neard_runner_make_backup(self, schedule_ctx: Optional[ScheduleContext], backup_id, description=None):
+        return self.neard_runner_jsonrpc(schedule_ctx, 'make_backup',
                                          params={
                                              'backup_id': backup_id,
                                              'description': description
                                          })
 
     def neard_runner_ls_backups(self):
-        return self.neard_runner_jsonrpc('ls_backups')
+        return self.neard_runner_jsonrpc(None, 'ls_backups')
 
-    def neard_runner_reset(self, backup_id=None):
-        return self.neard_runner_jsonrpc('reset',
+    def neard_runner_reset(self, schedule_ctx: Optional[ScheduleContext], backup_id=None):
+        return self.neard_runner_jsonrpc(schedule_ctx, 'reset',
                                          params={'backup_id': backup_id})
 
     def neard_runner_update_binaries(self,
+                                     schedule_ctx: Optional[ScheduleContext],
                                      neard_binary_url=None,
                                      epoch_height=None,
-                                     binary_idx=None):
-        return self.neard_runner_jsonrpc(
+                                     binary_idx=None,
+                                     scheduling_context=None):
+        return self.neard_runner_jsonrpc(schedule_ctx,
             'update_binaries',
             params={
                 'neard_binary_url': neard_binary_url,
                 'epoch_height': epoch_height,
                 'binary_idx': binary_idx,
+                'scheduling_context': scheduling_context,
             })
 
-    def neard_update_config(self, key_value):
-        return self.neard_runner_jsonrpc(
+    def neard_update_config(self, schedule_ctx: Optional[ScheduleContext], key_value):
+        return self.neard_runner_jsonrpc(schedule_ctx,
             'update_config',
             params={
                 "key_value": key_value,
             },
         )
 
-    def neard_update_env(self, key_value):
-        return self.neard_runner_jsonrpc(
+    def neard_update_env(self, schedule_ctx: Optional[ScheduleContext], key_value):
+        return self.neard_runner_jsonrpc(schedule_ctx,
             'add_env',
             params={
                 "key_values": key_value,
             },
         )
 
-    def neard_clear_env(self):
-        return self.neard_runner_jsonrpc('clear_env')
+    def neard_clear_env(self, schedule_ctx: Optional[ScheduleContext]):
+        return self.neard_runner_jsonrpc(schedule_ctx, 'clear_env')
+
+    def neard_runner_list_scheduled_commands(self):
+        #return self.neard_runner_jsonrpc('list_scheduled_commands')
+        pass
+
+    def neard_runner_cancel_scheduled_command(self, schedule_ctx: Optional[ScheduleContext], command_id):
+        #return self.neard_runner_jsonrpc(
+        #    'cancel_scheduled_command',
+        #    params={
+        #        'command_id': command_id,
+        #    })
+        pass
