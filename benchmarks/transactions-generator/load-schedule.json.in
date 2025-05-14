@@ -1,0 +1,5 @@
+{
+   "schedule": [
+      { "tps": 20000, "duration_s": 120 }
+   ]	
+}
