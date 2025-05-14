@@ -28,7 +28,9 @@ fn setup_initial_blockchain(transaction_validity_period: BlockHeightDelta) -> Te
     let clients = accounts.iter().take(NUM_CLIENTS).cloned().collect_vec();
 
     let epoch_length = 10;
-    let shard_layout = ShardLayout::simple_v1(&["account3", "account5", "account7"]);
+    let boundary_accounts =
+        ["account3", "account5", "account7"].iter().map(|&a| a.parse().unwrap()).collect();
+    let shard_layout = ShardLayout::multi_shard_custom(boundary_accounts, 1);
     let validators_spec =
         ValidatorsSpec::desired_roles(&clients.iter().map(|t| t.as_str()).collect_vec(), &[]);
 

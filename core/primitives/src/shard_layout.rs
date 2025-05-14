@@ -405,15 +405,6 @@ impl ShardLayout {
         })
     }
 
-    /// Test-only helper to create a simple multi-shard ShardLayout with the provided boundaries.
-    /// The shard ids are deterministic but arbitrary in order to test the non-contiguous ShardIds.
-    #[cfg(all(feature = "test_utils", feature = "rand"))]
-    pub fn simple_v1(boundary_accounts: &[&str]) -> ShardLayout {
-        // TODO these test methods should go into a different namespace
-        let boundary_accounts = boundary_accounts.iter().map(|a| a.parse().unwrap()).collect();
-        Self::multi_shard_custom(boundary_accounts, 1)
-    }
-
     /// Return a V0 ShardLayout
     #[deprecated(note = "Use multi_shard() instead")]
     pub fn v0(num_shards: NumShards, version: ShardVersion) -> Self {

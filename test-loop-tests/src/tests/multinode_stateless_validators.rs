@@ -41,7 +41,9 @@ fn slow_test_stateless_validators_with_multi_test_loop() {
         .collect_vec();
     let clients = accounts.iter().take(NUM_VALIDATORS).cloned().collect_vec();
 
-    let shard_layout = ShardLayout::simple_v1(&["account3", "account5", "account7"]);
+    let boundary_accounts =
+        ["account3", "account5", "account7"].iter().map(|a| a.parse().unwrap()).collect();
+    let shard_layout = ShardLayout::multi_shard_custom(boundary_accounts, 1);
     let validators_spec =
         ValidatorsSpec::desired_roles(&block_and_chunk_producers, &chunk_validators_only);
     let genesis = TestLoopBuilder::new_genesis_builder()
