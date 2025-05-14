@@ -15,7 +15,7 @@ def run_cmd(node, cmd, raise_on_fail=False, return_on_fail=False):
         if return_on_fail:
             return r
         if raise_on_fail:
-            raise msg
+            raise Exception(msg)
         sys.exit(msg)
     return r
 

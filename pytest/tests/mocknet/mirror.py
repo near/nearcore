@@ -639,28 +639,35 @@ def build_parser():
 
 def register_schedule_subcommands(subparsers):
     schedule_parser = subparsers.add_parser(
-        'schedule', help='Schedule commands to run in the future.')
-    schedule_parser.add_argument(
+        'schedule', help='Manage scheduled commands.')
+    subparsers = schedule_parser.add_subparsers(title='subcommands',
+                                       description='Manage scheduled commands.',
+                                       help='additional help')
+    cmd_subparsers = subparsers.add_parser(
+        'cmd', help='Schedule commands to run in the future.')
+    cmd_subparsers.add_argument(
         '--schedule-in',
         type=str,
         help=
         'Schedule the command to run after the specified time. Can be in the format of "10s", "10m", "10h", "10d"'
     )
-    schedule_parser.add_argument(
+    cmd_subparsers.add_argument(
         '--schedule-id',
         type=str,
         help=
         'The id of the scheduled command. If not provided, random string will be generated.'
     )
-
-    # Add nested subparsers under 'schedule'
-    schedule_subparsers = schedule_parser.add_subparsers(
+    # Add all existing commands under 'cmd'
+    cmd_subcommands = cmd_subparsers.add_subparsers(
         title='subcommands',
         description='valid subcommands',
         help='additional help',
         required=True)
     # register subcommands to schedule_subparsers
-    register_subcommands(schedule_subparsers)
+    register_subcommands(cmd_subcommands)
+
+    
+
 
 
 def register_base_commands(subparsers):

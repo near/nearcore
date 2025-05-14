@@ -113,8 +113,7 @@ class RemoteNeardRunner:
         if schedule_ctx is not None:
             r = cmd_utils.schedule_cmd(self.node,
                                        f'curl localhost:3000 -d \'{body}\'',
-                                       schedule_ctx,
-                                       raise_on_fail=True)
+                                       schedule_ctx)
             logger.info('{0}:\nstdout:\n{1.stdout}\nstderr:\n{1.stderr}'.format(
                 self.name(), r))
             return
