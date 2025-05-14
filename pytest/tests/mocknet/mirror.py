@@ -638,11 +638,12 @@ def build_parser():
 
 
 def register_schedule_subcommands(subparsers):
-    schedule_parser = subparsers.add_parser(
-        'schedule', help='Manage scheduled commands.')
-    subparsers = schedule_parser.add_subparsers(title='subcommands',
-                                       description='Manage scheduled commands.',
-                                       help='additional help')
+    schedule_parser = subparsers.add_parser('schedule',
+                                            help='Manage scheduled commands.')
+    subparsers = schedule_parser.add_subparsers(
+        title='subcommands',
+        description='Manage scheduled commands.',
+        help='additional help')
     cmd_subparsers = subparsers.add_parser(
         'cmd', help='Schedule commands to run in the future.')
     cmd_subparsers.add_argument(
@@ -665,9 +666,6 @@ def register_schedule_subcommands(subparsers):
         required=True)
     # register subcommands to schedule_subparsers
     register_subcommands(cmd_subcommands)
-
-    
-
 
 
 def register_base_commands(subparsers):
