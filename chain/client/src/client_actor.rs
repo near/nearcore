@@ -1388,8 +1388,13 @@ impl ClientActorInner {
         };
 
         // If we produced the optimistic block, send it out before we save it.
+        let tip = self.client.chain.head()?;
+        let targets = self.client.get_optimistic_block_targets(&tip)?;
         self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
-            NetworkRequests::OptimisticBlock { optimistic_block: optimistic_block.clone() },
+            NetworkRequests::OptimisticBlock {
+                chunk_producers: targets,
+                optimistic_block: optimistic_block.clone(),
+            },
         ));
 
         // We’ve produced the optimistic block, mark it as done so we don't produce it again.
