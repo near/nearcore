@@ -46,7 +46,7 @@ fn ban_peer_for_invalid_block_common(mode: InvalidBlockMode) {
     let mut env = TestLoopBuilder::new()
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
-        .clients(clients.clone())
+        .clients(clients)
         .build()
         .warmup();
 
@@ -90,7 +90,7 @@ fn ban_peer_for_invalid_block_common(mode: InvalidBlockMode) {
                                 // produce an invalid block whose invalidity cannot be verified by just
                                 // having its header.
                                 let proposals = vec![ValidatorStake::new(
-                                    bp.clone(),
+                                    bp,
                                     PublicKey::empty(KeyType::ED25519),
                                     0,
                                 )];
@@ -180,7 +180,7 @@ fn test_produce_block_with_approvals_arrived_early() {
     let mut env = TestLoopBuilder::new()
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
-        .clients(clients.clone())
+        .clients(clients)
         .build()
         .warmup();
 
