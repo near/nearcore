@@ -476,6 +476,10 @@ pub fn default_orphan_state_witness_max_size() -> ByteSize {
     ByteSize::mb(40)
 }
 
+/// Returns the default value for the thread count associated with rpc-handler actor (currently
+/// handling incoming transactions and chunk endorsement validations).
+/// In the benchmarks no performance gains were observed when increasing the number of threads
+/// above half of available cores.
 pub fn default_rpc_handler_thread_count() -> usize {
     std::thread::available_parallelism().unwrap_or(NonZero::new(16 as usize).unwrap()).get() / 2
 }
