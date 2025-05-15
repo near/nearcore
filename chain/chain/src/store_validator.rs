@@ -15,10 +15,9 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::get_block_shard_uid_rev;
 use near_primitives::sharding::{ChunkHash, PartialEncodedChunk, ShardChunk, StateSyncInfo};
 use near_primitives::state_sync::{ShardStateSyncResponseHeader, StateHeaderKey, StatePartKey};
-use near_primitives::transaction::ExecutionOutcomeWithProof;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{AccountId, BlockHeight, EpochId};
-use near_primitives::utils::{get_block_shard_id_rev, get_outcome_id_block_hash_rev};
+use near_primitives::utils::get_block_shard_id_rev;
 use near_store::db::refcount;
 use near_store::{DBCol, Store, TrieChanges};
 use std::collections::{HashMap, HashSet};
@@ -251,15 +250,7 @@ impl StoreValidator {
                     );
                 }
                 DBCol::TransactionResultForBlock => {
-                    let (outcome_id, block_hash) = get_outcome_id_block_hash_rev(key_ref)?;
-                    let outcome = <ExecutionOutcomeWithProof>::try_from_slice(value_ref)?;
-                    // Outcome is reachable in ColOutcomesByBlockHash
-                    self.check(
-                        &validate::outcome_indexed_by_block_hash,
-                        &(outcome_id, block_hash),
-                        &outcome,
-                        col,
-                    );
+                    // Column deprecated – skip.
                 }
                 DBCol::StateDlInfos => {
                     let block_hash = CryptoHash::try_from(key_ref)?;

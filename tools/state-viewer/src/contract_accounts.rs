@@ -311,14 +311,30 @@ fn try_find_actions_spawned_by_receipt(
         if filter.receipts_in {
             *entry.receipts_in.get_or_insert(0) += 1;
         }
-        // next, check the execution results (one for each block in case of forks)
-        for pair in store.iter_prefix_ser::<ExecutionOutcomeWithProof>(
+        // Try to read execution outcomes from now-deprecated column.  If the
+        // column family is absent (new database), RocksDB returns IO error
+        // "no such column".  In that case we silently skip outcomes for this
+        // receipt and keep iterating over other receipts.
+
+        let iter = store.iter_prefix_ser::<ExecutionOutcomeWithProof>(
             DBCol::TransactionResultForBlock,
             &raw_key,
-        ) {
-            let (_key, outcome) = pair.map_err(|e| {
-                ContractAccountError::UnparsableValue(e, DBCol::TransactionResultForBlock)
-            })?;
+        );
+
+        for pair in iter {
+            let (_key, outcome) = match pair {
+                Ok(p) => p,
+                Err(err) => {
+                    if err.to_string().contains("TransactionResultForBlock: no such column") {
+                        break; // column absent
+                    } else {
+                        return Err(ContractAccountError::UnparsableValue(
+                            err,
+                            DBCol::TransactionResultForBlock,
+                        ));
+                    }
+                }
+            };
             if filter.receipts_out {
                 *entry.receipts_out.get_or_insert(0) += outcome.outcome.receipt_ids.len();
             }
