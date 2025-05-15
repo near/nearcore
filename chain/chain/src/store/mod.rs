@@ -514,40 +514,25 @@ impl ChainStore {
         &self,
         id: &CryptoHash,
     ) -> Result<Vec<ExecutionOutcomeWithIdAndProof>, Error> {
-        let store_ref = self.store.store();
-        let iter_res = store_ref.iter_prefix_ser::<ExecutionOutcomeWithProof>(
-            DBCol::TransactionResultForBlock,
-            id.as_ref(),
-        );
-
-        // Collect, but if the iterator immediately errors due to missing
-        // column family, just return an empty Vec.
-        let mut out = Vec::new();
-        for item in iter_res {
-            match item {
-                Ok((key, outcome_with_proof)) => {
-                    let (_, block_hash) = get_outcome_id_block_hash_rev(key.as_ref())?;
-                    out.push(ExecutionOutcomeWithIdAndProof {
-                        proof: outcome_with_proof.proof,
-                        block_hash,
-                        outcome_with_id: ExecutionOutcomeWithId {
-                            id: *id,
-                            outcome: outcome_with_proof.outcome,
-                        },
-                    });
-                }
-                Err(err) => {
-                    let msg = err.to_string();
-                    if msg.contains("TransactionResultForBlock: no such column") {
-                        // Column absent – return empty list.
-                        return Ok(Vec::new());
-                    } else {
-                        return Err(err.into());
-                    }
-                }
-            }
-        }
-        Ok(out)
+        self.store
+            .store()
+            .iter_prefix_ser::<ExecutionOutcomeWithProof>(
+                DBCol::TransactionResultForBlock,
+                id.as_ref(),
+            )
+            .map(|item| {
+                let (key, outcome_with_proof) = item?;
+                let (_, block_hash) = get_outcome_id_block_hash_rev(key.as_ref())?;
+                Ok(ExecutionOutcomeWithIdAndProof {
+                    proof: outcome_with_proof.proof,
+                    block_hash,
+                    outcome_with_id: ExecutionOutcomeWithId {
+                        id: *id,
+                        outcome: outcome_with_proof.outcome,
+                    },
+                })
+            })
+            .collect()
     }
 
     /// Get all execution outcomes generated when the chunk are applied
