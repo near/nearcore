@@ -465,7 +465,7 @@ fn check_if_descendant_of_tracked_shard_impl(
         else {
             debug_assert!(
                 false,
-                "Parent shard is missing for shard {} in shard layout {:?}, protcol version {}",
+                "Parent shard is missing for shard {} in shard layout {:?}, protocol version {}",
                 shard_uid, shard_layout, protocol_version
             );
             return Ok(false);
