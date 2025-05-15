@@ -168,6 +168,19 @@ mod tests {
                     (0..key_length).map(|_| *alphabet.choose(&mut rng).unwrap()).collect();
                 test_seek_prefix(&trie, &map, &seek_key, use_memtries);
             }
+
+            for upper_bound in [false, true] {
+                for (seek_key, _) in &trie_changes {
+                    test_seek(&trie, &map, seek_key, upper_bound, use_memtries);
+                }
+                for _ in 0..20 {
+                    let alphabet = &b"abcdefgh"[0..rng.gen_range(2..8)];
+                    let key_length = rng.gen_range(1..8);
+                    let seek_key: Vec<u8> =
+                        (0..key_length).map(|_| *alphabet.choose(&mut rng).unwrap()).collect();
+                    test_seek(&trie, &map, &seek_key, true, use_memtries);
+                }
+            }
         }
     }
 
@@ -355,8 +368,67 @@ mod tests {
         let want: Vec<_> = map
             .range(seek_key.to_vec()..)
             .map(|(k, v)| (k.clone(), v.clone()))
-            .take(5)
             .filter(|(x, _)| x.starts_with(seek_key))
+            .take(5)
+            .collect();
+        assert_eq!(got, want);
+    }
+
+    fn test_seek(
+        trie: &Trie,
+        map: &BTreeMap<Vec<u8>, Vec<u8>>,
+        seek_key: &[u8],
+        upper_bound: bool,
+        is_memtrie: bool,
+    ) {
+        let trie_with_recorder = trie.recording_reads_new_recorder();
+        let lock = trie_with_recorder.lock_for_iter();
+        let mut iterator = lock.iter().unwrap();
+        if is_memtrie {
+            assert!(matches!(iterator, TrieIterator::Memtrie(_)));
+        } else {
+            assert!(matches!(iterator, TrieIterator::Disk(_)));
+        }
+
+        iterator.seek(seek_key, upper_bound).unwrap();
+
+        // Calling seek should not record any nodes.
+        let recorded_storage =
+            trie_with_recorder.recorded_storage().expect("missing recorded storage");
+        assert_eq!(0, recorded_storage.nodes.len());
+
+        let mut got = Vec::with_capacity(5);
+
+        for item in iterator {
+            let (key, value) = item.unwrap();
+            if upper_bound {
+                assert!(
+                    key.as_slice() > seek_key,
+                    "‘{key:x?}’ is not greater than ‘{seek_key:x?}’"
+                );
+            } else {
+                assert!(
+                    key.as_slice() >= seek_key,
+                    "‘{key:x?}’ is not greater than or equal to ‘{seek_key:x?}’"
+                );
+            }
+            if got.len() < 5 {
+                got.push((key, value));
+            }
+        }
+
+        // Iteration should have recorded some nodes.
+        if !got.is_empty() {
+            let recorded_storage =
+                trie_with_recorder.recorded_storage().expect("missing recorded storage");
+            assert!(recorded_storage.nodes.len() > 0, "no nodes recorded");
+        }
+
+        let want: Vec<_> = map
+            .range(seek_key.to_vec()..)
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .filter(|(x, _)| x.as_slice() > seek_key || !upper_bound && x.as_slice() == seek_key)
+            .take(5)
             .collect();
         assert_eq!(got, want);
     }

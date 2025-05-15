@@ -115,12 +115,6 @@ where
         Ok(iter)
     }
 
-    /// Skips one element in the iteration without recording it.
-    pub fn skip_one(&mut self, expected_key: &[u8]) {
-        self.iter_step();
-        assert_eq!(expected_key, self.key());
-    }
-
     /// Position the iterator on the first element with key >= `key`.
     pub fn seek_prefix<K: AsRef<[u8]>>(&mut self, key: K) -> Result<(), StorageError> {
         self.seek_nibble_slice(NibbleSlice::new(key.as_ref()), true, AccessOptions::DEFAULT)?;
@@ -145,14 +139,22 @@ where
             if let Some(last) = self.trail.last() {
                 let mut compare_with = self.key_nibbles.clone();
 
-                // If the iterator is positioned on a leaf node, we need to
-                // consider the extension of the leaf node as well.
+                let is_entering_value_node = match (last.status, &last.node) {
+                    (CrumbStatus::Entering, GenericTrieNode::Branch { value: Some(_), .. }) => true,
+                    (CrumbStatus::Entering, GenericTrieNode::Leaf { .. }) => true,
+                    _ => false,
+                };
+
+                // If the iterator is positioned on a leaf, we need to consider
+                // the extension of the leaf as part of the key to compare.
                 if let GenericTrieNode::Leaf { extension, .. } = &last.node {
                     let existing_key = NibbleSlice::from_encoded(&extension).0;
                     compare_with.extend(existing_key.iter());
                 }
 
-                if key.as_ref() == NibbleSlice::nibbles_to_bytes(&compare_with) {
+                if is_entering_value_node
+                    && key.as_ref() == NibbleSlice::nibbles_to_bytes(&compare_with)
+                {
                     self.iter_step();
                 }
             }
