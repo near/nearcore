@@ -831,15 +831,13 @@ mod memtrie_batch_iteration_tests {
         None // No more items to iterate
     }
 
-    #[test]
-    fn test_batched_iteration() {
+    fn test_batched_iteration_impl(use_memtries: bool) {
         let store = create_test_store();
         let tries = TestTriesBuilder::new()
             .with_store(store)
-            .with_flat_storage(true)
-            .with_in_memory_tries(true)
+            .with_flat_storage(use_memtries)
+            .with_in_memory_tries(use_memtries)
             .build();
-
         let shard_uid = ShardUId::single_shard();
         let block_id = CryptoHash::default();
 
@@ -850,8 +848,6 @@ mod memtrie_batch_iteration_tests {
 
         test_populate_flat_storage(&tries, shard_uid, &block_id, &block_id, &initial);
         let root = test_populate_trie(&tries, &Trie::EMPTY_ROOT, shard_uid, initial.clone());
-
-        // Iterate memtrie in batches
         let trie = tries.get_trie_for_shard(shard_uid, root).recording_reads_new_recorder();
 
         let batch_size = 20;
@@ -875,5 +871,12 @@ mod memtrie_batch_iteration_tests {
             .update_with_trie_storage(initial, AccessOptions::DEFAULT)
             .expect("failed to update trie");
         assert_eq!(trie_changes, all_changes);
+    }
+
+    #[test]
+    fn test_batched_iteration_memtrie() {
+        for use_memtries in [true, false] {
+            test_batched_iteration_impl(use_memtries);
+        }
     }
 }
