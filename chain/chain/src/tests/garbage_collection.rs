@@ -831,10 +831,9 @@ fn test_clear_old_data_fixed_height() {
 #[test]
 #[allow(unreachable_code)]
 fn ultra_slow_test_clear_old_data_too_many_heights() {
-    // TODO(#10634): panics on `clear_data` -> `clear_resharding_data` ->
-    // `MockEpochManager::is_next_block_epoch_start` apparently because
-    // epoch manager is not updated at all. Should we fix it together with
-    // removing `MockEpochManager`?
+    // TODO: Fix, rewrite or remove this test. This test may be not well designed with existing
+    // restrictions. Panics when trying to override BlockInfo col for genesis (`write once column
+    // overwritten`).
     return;
 
     for i in 1..5 {
