@@ -29,24 +29,32 @@ use std::io::Write;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-fn old_outcomes(
-    store: Store,
-    new_outcomes: &[ExecutionOutcomeWithId],
-) -> Vec<ExecutionOutcomeWithId> {
+fn old_outcomes(store: Store, new_outcomes: &[ExecutionOutcomeWithId]) -> Vec<ExecutionOutcomeWithId> {
     new_outcomes
         .iter()
         .map(|outcome| {
-            let old_outcome = store
-                .iter_prefix_ser::<ExecutionOutcomeWithProof>(
-                    DBCol::TransactionResultForBlock,
-                    outcome.id.as_ref(),
-                )
+            let iter = store.iter_prefix_ser::<ExecutionOutcomeWithProof>(
+                DBCol::TransactionResultForBlock,
+                outcome.id.as_ref(),
+            );
+
+            // Take first stored outcome if available.
+            let maybe_old = iter
+                .take(1)
                 .next()
-                .unwrap()
-                .unwrap()
-                .1
-                .outcome;
-            ExecutionOutcomeWithId { id: outcome.id, outcome: old_outcome }
+                .and_then(|res| match res {
+                    Ok((_, proof)) => Some(proof.outcome),
+                    Err(err) => {
+                        if err.to_string().contains("TransactionResultForBlock: no such column") {
+                            None
+                        } else {
+                            eprintln!("state-viewer: error reading old outcome: {err}");
+                            None
+                        }
+                    }
+                });
+
+            ExecutionOutcomeWithId { id: outcome.id, outcome: maybe_old.unwrap_or_else(|| outcome.outcome.clone()) }
         })
         .collect()
 }
