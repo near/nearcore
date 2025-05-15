@@ -1,111 +1,200 @@
-use super::types::{
-    FlatStorageShardCatchupRequest, FlatStorageSplitShardRequest, MemtrieReloadRequest,
-};
-use crate::flat_storage_resharder::{FlatStorageResharder, FlatStorageReshardingTaskResult};
-use crate::{ChainGenesis, ChainStore};
+use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
+
+use super::event_type::ReshardingSplitShardParams;
+use super::flat_storage_resharder::FlatStorageResharder;
+use super::types::ScheduleResharding;
+use crate::types::RuntimeAdapter;
 use near_async::futures::{DelayedActionRunner, DelayedActionRunnerExt};
-use near_async::messaging::{self, Handler, HandlerWithContext};
+use near_async::messaging::{self, HandlerWithContext};
+use near_chain_configs::{MutableConfigValue, ReshardingConfig, ReshardingHandle};
+use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::shard_layout::ShardUId;
-use near_store::Store;
+#[cfg(feature = "test_features")]
+use near_primitives::types::BlockHeightDelta;
+use near_store::adapter::StoreAdapter;
+use near_store::adapter::chain_store::ChainStoreAdapter;
 use time::Duration;
 
 /// Dedicated actor for resharding V3.
 pub struct ReshardingActor {
-    chain_store: ChainStore,
+    chain_store: ChainStoreAdapter,
+    /// HashMap storing all scheduled resharding events. Typically there will be only
+    /// one event per parent shard, but we keep it as a HashMap to allow for
+    /// handling forks in the chain.
+    /// We start resharding when one of the resharding block becomes final.
+    resharding_events: HashMap<ShardUId, Vec<ReshardingSplitShardParams>>,
+    /// Indicates whether resharding has started for a given parent shard.
+    /// This is used to prevent resharding from being started multiple times for the same parent shard.
+    resharding_started: HashSet<ShardUId>,
+    /// Takes care of performing resharding on the flat storage.
+    flat_storage_resharder: FlatStorageResharder,
+    /// TEST ONLY. If non zero, the start of scheduled tasks (such as split parent)
+    /// will be postponed by the specified number of blocks.
+    #[cfg(feature = "test_features")]
+    pub adv_task_delay_by_blocks: BlockHeightDelta,
+}
+
+enum ReshardingSchedulingStatus {
+    StartResharding(ReshardingSplitShardParams),
+    WaitForFinalBlock,
+    AlreadyStarted,
 }
 
 impl messaging::Actor for ReshardingActor {}
 
-impl HandlerWithContext<FlatStorageSplitShardRequest> for ReshardingActor {
-    fn handle(
-        &mut self,
-        msg: FlatStorageSplitShardRequest,
-        ctx: &mut dyn DelayedActionRunner<Self>,
-    ) {
-        self.handle_flat_storage_split_shard(msg.resharder, ctx);
-    }
-}
-
-impl HandlerWithContext<FlatStorageShardCatchupRequest> for ReshardingActor {
-    fn handle(
-        &mut self,
-        msg: FlatStorageShardCatchupRequest,
-        ctx: &mut dyn DelayedActionRunner<Self>,
-    ) {
-        self.handle_flat_storage_catchup(msg.resharder, msg.shard_uid, ctx);
-    }
-}
-
-impl Handler<MemtrieReloadRequest> for ReshardingActor {
-    fn handle(&mut self, _msg: MemtrieReloadRequest) {
-        // TODO(resharding): implement memtrie reloading. At this stage the flat storage for
-        // `msg.shard_uid` should be ready. Construct a new memtrie in the background and replace
-        // with hybrid memtrie with it. Afterwards, the hybrid memtrie can be deleted.
+impl HandlerWithContext<ScheduleResharding> for ReshardingActor {
+    fn handle(&mut self, msg: ScheduleResharding, ctx: &mut dyn DelayedActionRunner<Self>) {
+        self.handle_schedule_resharding(msg.split_shard_event, ctx);
     }
 }
 
 impl ReshardingActor {
-    pub fn new(store: Store, genesis: &ChainGenesis) -> Self {
-        Self { chain_store: ChainStore::new(store, false, genesis.transaction_validity_period) }
-    }
-
-    fn handle_flat_storage_split_shard(
-        &self,
-        resharder: FlatStorageResharder,
-        ctx: &mut dyn DelayedActionRunner<Self>,
-    ) {
-        // In order to run to completion, the split task must wait until the resharding block
-        // becomes final. If the resharding block is not yet final, the task will exit early with
-        // `Postponed` status and it must be rescheduled.
-        match resharder.split_shard_task(&self.chain_store) {
-            FlatStorageReshardingTaskResult::Successful { .. } => {
-                // All good.
-            }
-            FlatStorageReshardingTaskResult::Failed => {
-                panic!("impossible to recover from a flat storage split shard failure!")
-            }
-            FlatStorageReshardingTaskResult::Cancelled => {
-                // The task has been cancelled. Nothing else to do.
-            }
-            FlatStorageReshardingTaskResult::Postponed => {
-                // The task must be retried later.
-                ctx.run_later(
-                    "ReshardingActor FlatStorageSplitShard",
-                    Duration::milliseconds(1000),
-                    move |act, ctx| {
-                        act.handle_flat_storage_split_shard(resharder, ctx);
-                    },
-                );
-            }
+    pub fn new(
+        epoch_manager: Arc<dyn EpochManagerAdapter>,
+        runtime_adapter: Arc<dyn RuntimeAdapter>,
+        resharding_handle: ReshardingHandle,
+        resharding_config: MutableConfigValue<ReshardingConfig>,
+    ) -> Self {
+        let chain_store = runtime_adapter.store().chain_store();
+        let flat_storage_resharder = FlatStorageResharder::new(
+            epoch_manager,
+            runtime_adapter,
+            resharding_handle,
+            resharding_config,
+        );
+        Self {
+            chain_store,
+            resharding_events: HashMap::new(),
+            resharding_started: HashSet::new(),
+            flat_storage_resharder,
+            #[cfg(feature = "test_features")]
+            adv_task_delay_by_blocks: 0,
         }
     }
 
-    fn handle_flat_storage_catchup(
-        &self,
-        resharder: FlatStorageResharder,
-        shard_uid: ShardUId,
+    fn handle_schedule_resharding(
+        &mut self,
+        split_shard_event: ReshardingSplitShardParams,
         ctx: &mut dyn DelayedActionRunner<Self>,
     ) {
-        match resharder.shard_catchup_task(shard_uid, &self.chain_store) {
-            FlatStorageReshardingTaskResult::Successful { .. } => {
-                // All good.
+        tracing::info!(target: "resharding", ?split_shard_event, "handle_schedule_resharding");
+
+        let parent_shard = split_shard_event.parent_shard;
+        if self.resharding_started.contains(&parent_shard) {
+            // The event is already in progress, no need to reschedule.
+            tracing::info!(target: "resharding", "resharding already in progress");
+            return;
+        }
+
+        let events = self.resharding_events.entry(split_shard_event.parent_shard).or_default();
+
+        if !events.is_empty() {
+            // Validate the event parameters. We should never have two events with
+            // different parameters for the same parent shard.
+            assert_eq!(events[0].left_child_shard, split_shard_event.left_child_shard);
+            assert_eq!(events[0].right_child_shard, split_shard_event.right_child_shard);
+            assert_eq!(events[0].boundary_account, split_shard_event.boundary_account);
+        }
+
+        events.push(split_shard_event);
+
+        // Schedule the resharding task and wait for the resharding block to become final.
+        self.schedule_resharding(parent_shard, ctx);
+    }
+
+    // Wait for the resharding block to become final and then start resharding.
+    fn schedule_resharding(
+        &mut self,
+        parent_shard_uid: ShardUId,
+        ctx: &mut dyn DelayedActionRunner<Self>,
+    ) {
+        match self.get_resharding_scheduling_status(parent_shard_uid) {
+            ReshardingSchedulingStatus::StartResharding(event) => {
+                self.start_resharding_blocking(parent_shard_uid, event)
             }
-            FlatStorageReshardingTaskResult::Failed => {
-                panic!("impossible to recover from a flat storage shard catchup failure!")
-            }
-            FlatStorageReshardingTaskResult::Cancelled => {
-                // The task has been cancelled. Nothing else to do.
-            }
-            FlatStorageReshardingTaskResult::Postponed => {
+            ReshardingSchedulingStatus::WaitForFinalBlock => {
                 // The task must be retried later.
                 ctx.run_later(
-                    "ReshardingActor FlatStorageCatchup",
+                    "ReshardingActor ScheduleResharding",
                     Duration::milliseconds(1000),
                     move |act, ctx| {
-                        act.handle_flat_storage_catchup(resharder, shard_uid, ctx);
+                        act.schedule_resharding(parent_shard_uid, ctx);
                     },
                 );
             }
+            // The event is already started, no need to reschedule.
+            ReshardingSchedulingStatus::AlreadyStarted => {}
+        }
+    }
+
+    // function to check if any one of the resharding block candidates is final
+    // and part of the canonical chain.
+    fn get_resharding_scheduling_status(
+        &self,
+        parent_shard_uid: ShardUId,
+    ) -> ReshardingSchedulingStatus {
+        tracing::info!(target: "resharding", ?parent_shard_uid, "get_resharding_scheduling_status");
+
+        if self.resharding_started.contains(&parent_shard_uid) {
+            // The event is already in progress, no need to reschedule.
+            tracing::info!(target: "resharding", "resharding already in progress");
+            return ReshardingSchedulingStatus::AlreadyStarted;
+        }
+
+        let events = self.resharding_events.get(&parent_shard_uid).unwrap();
+
+        let chain_final_height = self.chain_store.final_head().unwrap().height;
+        for event in events {
+            tracing::info!(
+                "get_resharding_scheduling_status: head height: {}, resharding_block: {:?}",
+                chain_final_height,
+                event.resharding_block,
+            );
+
+            // To check whether we can start resharding, we need to check if the resharding block is final.
+            // We check if the resharding block is behind the final block and is part of the canonical chain.
+            if event.resharding_block.height > chain_final_height {
+                continue;
+            }
+
+            // Get canonical block hash for the resharding block height.
+            let Ok(resharding_hash) =
+                self.chain_store.get_block_hash_by_height(event.resharding_block.height)
+            else {
+                continue;
+            };
+
+            if resharding_hash != event.resharding_block.hash {
+                // The resharding block is not part of the canonical chain.
+                continue;
+            }
+
+            // Check if resharding should be artificially delayed.
+            // This behavior is configured through `adv_task_delay_by_blocks`
+            #[cfg(feature = "test_features")]
+            if event.resharding_block.height + self.adv_task_delay_by_blocks > chain_final_height {
+                tracing::info!(target: "resharding", "resharding has been artificially postponed!");
+                return ReshardingSchedulingStatus::WaitForFinalBlock;
+            }
+
+            return ReshardingSchedulingStatus::StartResharding(event.clone());
+        }
+
+        ReshardingSchedulingStatus::WaitForFinalBlock
+    }
+
+    fn start_resharding_blocking(
+        &mut self,
+        parent_shard_uid: ShardUId,
+        resharding_event: ReshardingSplitShardParams,
+    ) {
+        self.resharding_started.insert(parent_shard_uid);
+
+        // This is a long running task and would block the actor
+        if let Err(err) = self.flat_storage_resharder.start_resharding_blocking(&resharding_event) {
+            tracing::error!(target: "resharding", ?err, "Failed to start resharding");
+            return;
         }
     }
 }

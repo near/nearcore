@@ -48,7 +48,7 @@ use lru::LruCache;
 use near_async::futures::{AsyncComputationSpawner, AsyncComputationSpawnerExt};
 use near_async::messaging::{IntoMultiSender, noop};
 use near_async::time::{Clock, Duration, Instant};
-use near_chain_configs::{MutableConfigValue, MutableValidatorSigner};
+use near_chain_configs::MutableValidatorSigner;
 use near_chain_primitives::error::{BlockKnownError, Error};
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
@@ -92,6 +92,7 @@ use near_primitives::views::{
 use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::get_genesis_state_roots;
 use near_store::{DBCol, StateSnapshotConfig};
+use node_runtime::SignedValidPeriodTransactions;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use std::cell::Cell;
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -106,6 +107,9 @@ pub const APPLY_CHUNK_RESULTS_CACHE_SIZE: usize = 100;
 
 /// The size of the invalid_blocks in-memory pool
 pub const INVALID_CHUNKS_POOL_SIZE: usize = 5000;
+
+/// The size of the processed_hashes in-memory pool
+pub const PROCESSED_HASHES_POOL_SIZE: usize = 5000;
 
 /// 5000 years in seconds. Big constant for sandbox to allow time traveling.
 #[cfg(feature = "sandbox")]
@@ -317,6 +321,8 @@ pub struct Chain {
     pub apply_chunk_results_cache: ApplyChunksResultCache,
     /// Time when head was updated most recently.
     last_time_head_updated: Instant,
+    /// Prevents re-application of blocks received multiple times.
+    processed_hashes: LruCache<CryptoHash, ()>,
     /// Prevents re-application of known-to-be-invalid blocks, so that in case of a
     /// protocol issue we can recover faster by focusing on correct blocks.
     invalid_blocks: LruCache<CryptoHash, ()>,
@@ -408,8 +414,6 @@ impl Chain {
         let resharding_manager = ReshardingManager::new(
             store.clone(),
             epoch_manager.clone(),
-            runtime_adapter.clone(),
-            MutableConfigValue::new(Default::default(), "resharding_config"),
             noop().into_multi_sender(),
         );
         Ok(Chain {
@@ -434,6 +438,7 @@ impl Chain {
             apply_chunks_spawner: Arc::new(RayonAsyncComputationSpawner),
             apply_chunk_results_cache: ApplyChunksResultCache::new(APPLY_CHUNK_RESULTS_CACHE_SIZE),
             last_time_head_updated: clock.now(),
+            processed_hashes: LruCache::new(NonZeroUsize::new(PROCESSED_HASHES_POOL_SIZE).unwrap()),
             invalid_blocks: LruCache::new(NonZeroUsize::new(INVALID_CHUNKS_POOL_SIZE).unwrap()),
             pending_state_patch: Default::default(),
             snapshot_callbacks: None,
@@ -563,13 +568,8 @@ impl Chain {
         // Even though the channel is unbounded, the channel size is practically bounded by the size
         // of blocks_in_processing, which is set to 5 now.
         let (sc, rc) = unbounded();
-        let resharding_manager = ReshardingManager::new(
-            chain_store.store(),
-            epoch_manager.clone(),
-            runtime_adapter.clone(),
-            chain_config.resharding_config,
-            resharding_sender,
-        );
+        let resharding_manager =
+            ReshardingManager::new(chain_store.store(), epoch_manager.clone(), resharding_sender);
         Ok(Chain {
             clock: clock.clone(),
             chain_store,
@@ -582,6 +582,7 @@ impl Chain {
             optimistic_block_chunks: OptimisticBlockChunksPool::new(),
             blocks_pending_execution: PendingBlocksPool::new(),
             blocks_in_processing: BlocksInProcessing::new(),
+            processed_hashes: LruCache::new(NonZeroUsize::new(PROCESSED_HASHES_POOL_SIZE).unwrap()),
             invalid_blocks: LruCache::new(NonZeroUsize::new(INVALID_CHUNKS_POOL_SIZE).unwrap()),
             genesis: genesis.clone(),
             epoch_length: chain_genesis.epoch_length,
@@ -665,6 +666,10 @@ impl Chain {
 
         chain_store_update.commit()?;
         Ok(())
+    }
+
+    fn save_block_hash_processed(&mut self, block_hash: CryptoHash) {
+        self.processed_hashes.put(block_hash, ());
     }
 
     fn save_block_height_processed(&mut self, block_height: BlockHeight) -> Result<(), Error> {
@@ -1222,9 +1227,8 @@ impl Chain {
                 .mark_block_dropped(&hash, DroppedReason::TooManyProcessingBlocks);
         }
         // Save the block as processed even if it failed. This is used to filter out the
-        // incoming blocks that are not requested on heights which we already processed.
-        // If there is a new incoming block that we didn't request and we already have height
-        // processed 'marked as true' - then we'll not even attempt to process it
+        // incoming blocks that are not requested but already processed.
+        self.save_block_hash_processed(hash);
         if let Err(e) = self.save_block_height_processed(block_height) {
             warn!(target: "chain", "Failed to save processed height {}: {}", block_height, e);
         }
@@ -3266,11 +3270,12 @@ impl Chain {
             )?;
             let old_receipts = collect_receipts_from_response(&old_receipts);
             let receipts = [new_receipts, old_receipts].concat();
+            let transactions =
+                SignedValidPeriodTransactions::new(chunk.into_transactions(), tx_valid_list);
 
             ShardUpdateReason::NewChunk(NewChunkData {
                 chunk_header: chunk_header.clone(),
-                transactions: chunk.into_transactions(),
-                transaction_validity_check_results: tx_valid_list,
+                transactions,
                 receipts,
                 block,
                 storage_context,
@@ -3619,6 +3624,11 @@ impl Chain {
     #[inline]
     pub fn is_in_processing(&self, hash: &CryptoHash) -> bool {
         self.blocks_in_processing.contains(&BlockToApply::Normal(*hash))
+    }
+
+    #[inline]
+    pub fn is_hash_processed(&self, hash: &CryptoHash) -> bool {
+        self.processed_hashes.contains(hash)
     }
 
     #[inline]

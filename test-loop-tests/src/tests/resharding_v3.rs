@@ -566,11 +566,11 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
     #[cfg(feature = "test_features")]
     {
         if params.delay_flat_state_resharding > 0 {
-            client_handles.iter().for_each(|handle| {
-                let client = &mut env.test_loop.data.get_mut(handle).client;
-                client.chain.resharding_manager.flat_storage_resharder.adv_task_delay_by_blocks =
-                    params.delay_flat_state_resharding;
-            });
+            for node_data in &env.node_datas {
+                let handle = node_data.resharding_sender.actor_handle();
+                let resharding_actor = env.test_loop.data.get_mut(&handle);
+                resharding_actor.adv_task_delay_by_blocks = params.delay_flat_state_resharding;
+            }
         }
     }
 

@@ -42,7 +42,7 @@ use near_chain::types::RuntimeAdapter;
 use near_chain::{
     Block, BlockHeader, ChainGenesis, Provenance, byzantine_assert, near_chain_primitives,
 };
-use near_chain_configs::{ClientConfig, MutableValidatorSigner, ReshardingHandle};
+use near_chain_configs::{ClientConfig, MutableValidatorSigner};
 use near_chain_primitives::error::EpochErrorResultToChainError;
 use near_chunks::adapter::ShardsManagerRequestFromClient;
 use near_chunks::client::{ShardedTransactionPool, ShardsManagerResponse};
@@ -119,7 +119,6 @@ fn wait_until_genesis(genesis_time: &Utc) {
 pub struct StartClientResult {
     pub client_actor: actix::Addr<ClientActor>,
     pub client_arbiter_handle: actix::ArbiterHandle,
-    pub resharding_handle: ReshardingHandle,
     pub tx_pool: Arc<Mutex<ShardedTransactionPool>>,
     pub chunk_endorsement_tracker: Arc<ChunkEndorsementTracker>,
 }
@@ -177,7 +176,6 @@ pub fn start_client(
         protocol_upgrade_schedule,
     )
     .unwrap();
-    let resharding_handle = client.chain.resharding_manager.resharding_handle.clone();
 
     let client_sender_for_sync_jobs = LateBoundSender::<ClientSenderForSyncJobs>::new();
     let sync_jobs_actor = SyncJobsActor::new(client_sender_for_sync_jobs.as_multi_sender());
@@ -211,7 +209,6 @@ pub fn start_client(
     StartClientResult {
         client_actor: client_addr,
         client_arbiter_handle,
-        resharding_handle,
         tx_pool,
         chunk_endorsement_tracker,
     }
@@ -1336,6 +1333,7 @@ impl ClientActorInner {
         };
 
         // If we produced the block, send it out before we apply the block.
+        self.client.chain.blocks_delay_tracker.mark_block_received(&block);
         self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
             NetworkRequests::Block { block: block.clone() },
         ));
@@ -1354,8 +1352,14 @@ impl ClientActorInner {
         match error {
             near_chain::Error::ChunksMissing(_) => {
                 debug!(target: "client", "chunks missing");
-                // missing chunks were already handled in Client::process_block, we don't need to
-                // do anything here
+                // If block is missing chunks, it will be processed in
+                // `check_blocks_with_missing_chunks`.
+                Ok(())
+            }
+            near_chain::Error::BlockPendingOptimisticExecution => {
+                debug!(target: "client", "block pending optimistic execution");
+                // If block is pending optimistic execution, it will be
+                // processed in `postprocess_optimistic_block`.
                 Ok(())
             }
             _ => {
@@ -1381,8 +1385,13 @@ impl ClientActorInner {
         };
 
         // If we produced the optimistic block, send it out before we save it.
+        let tip = self.client.chain.head()?;
+        let targets = self.client.get_optimistic_block_targets(&tip)?;
         self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
-            NetworkRequests::OptimisticBlock { optimistic_block: optimistic_block.clone() },
+            NetworkRequests::OptimisticBlock {
+                chunk_producers: targets,
+                optimistic_block: optimistic_block.clone(),
+            },
         ));
 
         // We’ve produced the optimistic block, mark it as done so we don't produce it again.

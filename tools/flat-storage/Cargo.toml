@@ -15,7 +15,6 @@ workspace = true
 anyhow.workspace = true
 borsh.workspace = true
 clap.workspace = true
-parking_lot.workspace = true
 tqdm.workspace = true
 tracing.workspace = true
 
@@ -25,4 +24,3 @@ near-epoch-manager.workspace = true
 near-primitives.workspace = true
 near-store.workspace = true
 nearcore.workspace = true
-near-async.workspace = true

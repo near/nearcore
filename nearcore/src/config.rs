@@ -68,20 +68,20 @@ use tracing::{info, warn};
 pub const MILLI_NEAR: Balance = NEAR_BASE / 1000;
 
 /// Block production tracking delay.
-pub const BLOCK_PRODUCTION_TRACKING_DELAY: i64 = 100;
+pub const BLOCK_PRODUCTION_TRACKING_DELAY: i64 = 10;
 
 /// Mainnet and testnet validators are configured with a different value due to
 /// performance values.
-pub const MAINNET_MIN_BLOCK_PRODUCTION_DELAY: i64 = 1_300;
-pub const TESTNET_MIN_BLOCK_PRODUCTION_DELAY: i64 = 1_000;
+pub const MAINNET_MIN_BLOCK_PRODUCTION_DELAY: i64 = 0_600;
+pub const TESTNET_MIN_BLOCK_PRODUCTION_DELAY: i64 = 0_600;
 
 /// Maximum time to delay block production without approvals is ms.
 pub const MAX_BLOCK_PRODUCTION_DELAY: i64 = 2_000;
 
 /// Mainnet and testnet validators are configured with a different value due to
 /// performance values.
-pub const MAINNET_MAX_BLOCK_PRODUCTION_DELAY: i64 = 3_000;
-pub const TESTNET_MAX_BLOCK_PRODUCTION_DELAY: i64 = 2_500;
+pub const MAINNET_MAX_BLOCK_PRODUCTION_DELAY: i64 = 1_800;
+pub const TESTNET_MAX_BLOCK_PRODUCTION_DELAY: i64 = 1_800;
 
 /// Maximum time until skipping the previous block is ms.
 pub const MAX_BLOCK_WAIT_DELAY: i64 = 6_000;
@@ -116,7 +116,7 @@ pub const NETWORK_LEGACY_TELEMETRY_URL: &str = "https://explorer.{}.near.org/api
 pub const NETWORK_TELEMETRY_URL: &str = "https://telemetry.nearone.org/nodes";
 
 fn default_doomslug_step_period() -> Duration {
-    Duration::milliseconds(100)
+    Duration::milliseconds(10)
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]

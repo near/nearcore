@@ -1,25 +1,16 @@
 # catchup tests
-# TODO: Tests are flaky, ignore till fixed
-# expensive --timeout=1800 integration-tests integration_tests tests::client::catching_up::ultra_slow_test_catchup_receipts_sync_third_epoch
-# expensive --timeout=1800 integration-tests integration_tests tests::client::catching_up::ultra_slow_test_catchup_receipts_sync_third_epoch --features nightly
-# expensive --timeout=1800 integration-tests integration_tests tests::client::catching_up::ultra_slow_test_catchup_receipts_sync_last_block
-# expensive --timeout=1800 integration-tests integration_tests tests::client::catching_up::ultra_slow_test_catchup_receipts_sync_last_block --features nightly
-# expensive --timeout=1800 integration-tests integration_tests tests::client::catching_up::ultra_slow_test_catchup_receipts_sync_distant_epoch
-# expensive --timeout=1800 integration-tests integration_tests tests::client::catching_up::ultra_slow_test_catchup_receipts_sync_distant_epoch --features nightly
-# expensive --timeout=1800 integration-tests integration_tests tests::client::catching_up::ultra_slow_test_catchup_receipts_sync_hold
-# expensive --timeout=1800 integration-tests integration_tests tests::client::catching_up::ultra_slow_test_catchup_receipts_sync_hold --features nightly
-expensive --timeout=1800 integration-tests integration_tests tests::client::catching_up::ultra_slow_test_catchup_random_single_part_sync
-expensive --timeout=1800 integration-tests integration_tests tests::client::catching_up::ultra_slow_test_catchup_random_single_part_sync --features nightly
-expensive --timeout=1800 integration-tests integration_tests tests::client::catching_up::ultra_slow_test_catchup_random_single_part_sync_skip_15
-expensive --timeout=1800 integration-tests integration_tests tests::client::catching_up::ultra_slow_test_catchup_random_single_part_sync_skip_15 --features nightly
-expensive --timeout=1800 integration-tests integration_tests tests::client::catching_up::ultra_slow_test_catchup_random_single_part_sync_send_15
-expensive --timeout=1800 integration-tests integration_tests tests::client::catching_up::ultra_slow_test_catchup_random_single_part_sync_send_15 --features nightly
-expensive --timeout=1800 integration-tests integration_tests tests::client::catching_up::ultra_slow_test_catchup_random_single_part_sync_non_zero_amounts
-expensive --timeout=1800 integration-tests integration_tests tests::client::catching_up::ultra_slow_test_catchup_random_single_part_sync_non_zero_amounts --features nightly
-expensive --timeout=1800 integration-tests integration_tests tests::client::catching_up::ultra_slow_test_catchup_random_single_part_sync_height_6
-expensive --timeout=1800 integration-tests integration_tests tests::client::catching_up::ultra_slow_test_catchup_random_single_part_sync_height_6 --features nightly
-expensive --timeout=1800 integration-tests integration_tests tests::client::catching_up::ultra_slow_test_catchup_sanity_blocks_produced
-expensive --timeout=1800 integration-tests integration_tests tests::client::catching_up::ultra_slow_test_catchup_sanity_blocks_produced --features nightly
+expensive --timeout=1800 test-loop-tests test_loop_tests tests::catching_up::ultra_slow_test_catchup_random_single_part_sync
+expensive --timeout=1800 test-loop-tests test_loop_tests tests::catching_up::ultra_slow_test_catchup_random_single_part_sync --features nightly
+expensive --timeout=1800 test-loop-tests test_loop_tests tests::catching_up::ultra_slow_test_catchup_random_single_part_sync_skip_24
+expensive --timeout=1800 test-loop-tests test_loop_tests tests::catching_up::ultra_slow_test_catchup_random_single_part_sync_skip_24 --features nightly
+expensive --timeout=1800 test-loop-tests test_loop_tests tests::catching_up::ultra_slow_test_catchup_random_single_part_sync_send_24
+expensive --timeout=1800 test-loop-tests test_loop_tests tests::catching_up::ultra_slow_test_catchup_random_single_part_sync_send_24 --features nightly
+expensive --timeout=1800 test-loop-tests test_loop_tests tests::catching_up::ultra_slow_test_catchup_random_single_part_sync_non_zero_amounts
+expensive --timeout=1800 test-loop-tests test_loop_tests tests::catching_up::ultra_slow_test_catchup_random_single_part_sync_non_zero_amounts --features nightly
+expensive --timeout=1800 test-loop-tests test_loop_tests tests::catching_up::ultra_slow_test_catchup_random_single_part_sync_height_9
+expensive --timeout=1800 test-loop-tests test_loop_tests tests::catching_up::ultra_slow_test_catchup_random_single_part_sync_height_9 --features nightly
+expensive --timeout=1800 test-loop-tests test_loop_tests tests::catching_up::ultra_slow_test_catchup_sanity_blocks_produced
+expensive --timeout=1800 test-loop-tests test_loop_tests tests::catching_up::ultra_slow_test_catchup_sanity_blocks_produced --features nightly
 
 expensive integration-tests integration_tests tests::other_tests::test_catchup::ultra_slow_test_catchup
 expensive integration-tests integration_tests tests::other_tests::test_catchup::ultra_slow_test_catchup --features nightly
