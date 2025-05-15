@@ -227,12 +227,13 @@ fn copy_next_block(store: &NodeStorage, config: &NearConfig, epoch_manager: &Epo
     // For that we might use the hash of the block.
     let epoch_id = &epoch_manager.get_epoch_id(&next_height_block_hash).unwrap();
     let shard_layout = &epoch_manager.get_shard_layout(epoch_id).unwrap();
+    let shard_uids = shard_layout.shard_uids().collect();
     let is_last_block_in_epoch =
         epoch_manager.is_next_block_epoch_start(&next_height_block_hash).unwrap();
     update_cold_db(
         &*store.cold_db().unwrap(),
         &store.get_hot_store(),
-        shard_layout,
+        &shard_uids,
         &next_height,
         is_last_block_in_epoch,
         1,
