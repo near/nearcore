@@ -85,7 +85,7 @@ def with_schedule_context(func):
         # Build the context
         context = ScheduleContext(
             id=getattr(args, 'schedule_id', None),
-            timespec=args.schedule_in,
+            time_spec=args.schedule_in,
         )
 
         return func(args, context, *func_args, **func_kwargs)
