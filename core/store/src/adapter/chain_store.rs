@@ -352,18 +352,10 @@ impl ChainStoreAdapter {
         id: &CryptoHash,
         block_hash: &CryptoHash,
     ) -> Result<Option<ExecutionOutcomeWithProof>, Error> {
-        let key = get_outcome_id_block_hash(id, block_hash);
-        match self.store.get_ser(DBCol::TransactionResultForBlock, &key) {
-            Ok(res) => Ok(res),
-            Err(err) => {
-                let msg = err.to_string();
-                if msg.contains("TransactionResultForBlock: no such column") {
-                    Ok(None)
-                } else {
-                    Err(err.into())
-                }
-            }
-        }
+        Ok(self.store.get_ser(
+            DBCol::TransactionResultForBlock,
+            &get_outcome_id_block_hash(id, block_hash),
+        )?)
     }
 
     /// Returns a vector of Outcome ids for given block and shard id

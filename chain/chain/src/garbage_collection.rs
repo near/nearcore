@@ -1053,7 +1053,7 @@ impl<'a> ChainStoreUpdate<'a> {
                 panic!("Must use gc_col_block_per_height method to gc DBCol::BlockPerHeight");
             }
             DBCol::TransactionResultForBlock => {
-                // Column deprecated – we no longer store anything here, so no GC action.
+                store_update.delete(col, key);
             }
             DBCol::OutcomeIds => {
                 store_update.delete(col, key);
