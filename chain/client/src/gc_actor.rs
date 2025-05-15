@@ -68,7 +68,7 @@ impl GCActor {
         // once we start tracking a shard, we continue tracking all of its descendant shards.
         // If this ever changes and this assertion needs to be removed, please make sure to
         // properly handle the State Mapping.
-        debug_assert!(self.shard_tracker.tracks_some_shards());
+        debug_assert!(self.shard_tracker.is_valid_for_archival());
 
         // An archival node with split storage should perform garbage collection
         // on the hot storage. In order to determine if split storage is enabled

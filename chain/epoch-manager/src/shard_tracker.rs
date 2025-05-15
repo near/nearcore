@@ -272,11 +272,14 @@ impl ShardTracker {
         self.tracked_shards_config.tracks_all_shards()
     }
 
-    /// Returns whether the node tracks a non-empty subset of shards.
-    pub fn tracks_some_shards(&self) -> bool {
+    /// Returns whether the tracker configuration is valid for an archival node.
+    pub fn is_valid_for_archival(&self) -> bool {
         match &self.tracked_shards_config {
             TrackedShardsConfig::AllShards => true,
             TrackedShardsConfig::Shards(shards) => !shards.is_empty(),
+            // `Accounts` config is likely to work as well,
+            // but this hasn't been fully tested or verified yet.
+            // Consider enabling support after proper validation.
             _ => false,
         }
     }
@@ -377,20 +380,20 @@ impl ShardTracker {
         epoch_id: &EpochId,
     ) -> Result<bool, EpochError> {
         let shard_layout = self.epoch_manager.get_shard_layout(epoch_id)?;
-        let tracking_mask = self.tracked_accounts_shard_cache.get_or_try_put(
-            *epoch_id,
-            |_| -> Result<Vec<bool>, EpochError> {
-                let mut tracking_mask = shard_layout.shard_ids().map(|_| false).collect_vec();
-                for account_id in tracked_accounts {
-                    let shard_id = shard_layout.account_id_to_shard_id(account_id);
-                    let shard_index = shard_layout.get_shard_index(shard_id)?;
-                    tracking_mask[shard_index] = true;
-                }
-                Ok(tracking_mask)
-            },
-        )?;
         let shard_index = shard_layout.get_shard_index(shard_id)?;
-        Ok(tracking_mask.get(shard_index).copied().unwrap_or(false))
+        if let Some(tracking_mask) = self.tracked_accounts_shard_cache.lock().get(&epoch_id) {
+            return Ok(tracking_mask.get(shard_index).copied().unwrap_or(false));
+        }
+
+        let mut tracking_mask = shard_layout.shard_ids().map(|_| false).collect_vec();
+        for account_id in tracked_accounts {
+            let shard_id = shard_layout.account_id_to_shard_id(account_id);
+            let shard_index = shard_layout.get_shard_index(shard_id)?;
+            tracking_mask[shard_index] = true;
+        }
+        let is_tracked = tracking_mask.get(shard_index).copied().unwrap_or(false);
+        self.tracked_accounts_shard_cache.lock().put(*epoch_id, tracking_mask);
+        Ok(is_tracked)
     }
 
     /// Checks whether `shard_id` is a descendant of any of the `tracked_shards`.
@@ -415,7 +418,9 @@ impl ShardTracker {
         Ok(is_tracked)
     }
 
-    pub fn get_shards_tracks_in_epoch_non_validator(
+    /// Returns shards tracked in the given epoch by a non-validator (e.g. archival) node.
+    /// Uses `tracks_shard_at_epoch` to filter based on the node's tracked shards config.
+    pub fn get_tracked_shards_for_non_validator_in_epoch(
         &self,
         epoch_id: &EpochId,
     ) -> Result<Vec<ShardUId>, EpochError> {
@@ -656,9 +661,8 @@ mod tests {
         // Ensure that the second resharding occurred.
         assert_ne!(first_split_shard_layout, second_split_shard_layout);
 
-        let intermediate_epoch_id = epoch_manager
-            .get_epoch_id_from_prev_block(&block_hashes[EPOCH_LENGTH + 1])
-            .unwrap();
+        let intermediate_epoch_id =
+            epoch_manager.get_epoch_id_from_prev_block(&block_hashes[EPOCH_LENGTH + 1]).unwrap();
         assert!(
             intermediate_epoch_id != genesis_epoch_id
                 && intermediate_epoch_id != epoch_id_after_first_resharding
@@ -694,14 +698,16 @@ mod tests {
         // We expect the shard layout version to change in this test.
         assert_ne!(non_parent_shard_new_uid.version, not_parent_shard_uid.version);
 
-        let grandchildren_shards =
-            second_split_shard_layout.get_children_shards_uids(right_child_shard_uid.shard_id()).unwrap();
-        let [left_grandchild_shard_uid, right_grandchild_shard_uid] = grandchildren_shards.try_into().unwrap();
+        let grandchildren_shards = second_split_shard_layout
+            .get_children_shards_uids(right_child_shard_uid.shard_id())
+            .unwrap();
+        let [left_grandchild_shard_uid, right_grandchild_shard_uid] =
+            grandchildren_shards.try_into().unwrap();
 
         // Before resharding, we track exactly what is configured in the tracked shards config.
         assert_eq!(
             tracker
-                .get_shards_tracks_in_epoch_non_validator(&genesis_epoch_id)
+                .get_tracked_shards_for_non_validator_in_epoch(&genesis_epoch_id)
                 .unwrap()
                 .into_iter()
                 .collect::<HashSet<_>>(),
@@ -711,7 +717,7 @@ mod tests {
         // so `genesis_epoch_id`'s EpochConfig will be used.
         assert_eq!(
             tracker
-                .get_shards_tracks_in_epoch_non_validator(&intermediate_epoch_id)
+                .get_tracked_shards_for_non_validator_in_epoch(&intermediate_epoch_id)
                 .unwrap()
                 .into_iter()
                 .collect::<HashSet<_>>(),
@@ -721,7 +727,7 @@ mod tests {
         // even though its shard layout version has changed.
         assert_eq!(
             tracker
-                .get_shards_tracks_in_epoch_non_validator(&epoch_id_after_first_resharding)
+                .get_tracked_shards_for_non_validator_in_epoch(&epoch_id_after_first_resharding)
                 .unwrap()
                 .into_iter()
                 .collect::<HashSet<_>>(),
@@ -734,7 +740,7 @@ mod tests {
         // After the second resharding, we track grandchildren instead of the child that was split.
         assert_eq!(
             tracker
-                .get_shards_tracks_in_epoch_non_validator(&epoch_id_after_second_resharding)
+                .get_tracked_shards_for_non_validator_in_epoch(&epoch_id_after_second_resharding)
                 .unwrap()
                 .into_iter()
                 .collect::<HashSet<_>>(),
@@ -753,21 +759,24 @@ mod tests {
         // Thanks to unique shard identifiers, we won't track the ancestor of "non_parent_shard",
         // even if the ShardId is the same.
         assert_eq!(
-            tracker.get_shards_tracks_in_epoch_non_validator(&genesis_epoch_id).unwrap(),
+            tracker.get_tracked_shards_for_non_validator_in_epoch(&genesis_epoch_id).unwrap(),
             vec![parent_shard_uid],
         );
 
         let tracker = ShardTracker::new(
             TrackedShardsConfig::Shards(vec![left_child_shard_uid]),
-            epoch_manager.clone(),
+            epoch_manager,
         );
         // We won't track the parent or sibling shards if we are only configured to track the child shard.
         assert!(
-            tracker.get_shards_tracks_in_epoch_non_validator(&genesis_epoch_id).unwrap().is_empty()
+            tracker
+                .get_tracked_shards_for_non_validator_in_epoch(&genesis_epoch_id)
+                .unwrap()
+                .is_empty()
         );
         assert_eq!(
             tracker
-                .get_shards_tracks_in_epoch_non_validator(&epoch_id_after_first_resharding)
+                .get_tracked_shards_for_non_validator_in_epoch(&epoch_id_after_first_resharding)
                 .unwrap(),
             vec![left_child_shard_uid],
         );
