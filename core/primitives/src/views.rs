@@ -323,6 +323,12 @@ pub enum QueryRequest {
         #[serde(rename = "args_base64")]
         args: FunctionArgs,
     },
+    ViewGlobalContractCode {
+        code_hash: CryptoHash,
+    },
+    ViewGlobalContractCodeByAccountId {
+        account_id: AccountId,
+    },
 }
 
 fn is_false(v: &bool) -> bool {
