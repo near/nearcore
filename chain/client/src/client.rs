@@ -2269,7 +2269,7 @@ impl Client {
                     .or_default()
                     .insert(bp.public_key().clone());
             }
-            for v in self.epoch_manager.get_epoch_all_validators(&tip.epoch_id)? {
+            for v in self.epoch_manager.get_epoch_all_validators(epoch_id)? {
                 account_keys
                     .entry(v.account_id().clone())
                     .or_default()
