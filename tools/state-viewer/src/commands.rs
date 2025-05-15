@@ -32,6 +32,7 @@ use near_epoch_manager::{EpochManager, EpochManagerAdapter, proposals_to_epoch_i
 use near_primitives::account::id::AccountId;
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::block::Block;
+use near_primitives::chains::MAINNET;
 use near_primitives::epoch_info::EpochInfo;
 use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::hash::CryptoHash;
@@ -1223,7 +1224,7 @@ pub(crate) fn contract_accounts(
     let (_, _runtime, state_roots, _header) = load_trie(store.clone(), home_dir, &near_config);
 
     let tries = state_roots.iter().enumerate().map(|(shard_index, &state_root)| {
-        let epoch_config_store = EpochConfigStore::for_chain_id("mainnet", None).unwrap();
+        let epoch_config_store = EpochConfigStore::for_chain_id(MAINNET, None).unwrap();
         let shard_layout = &epoch_config_store.get_config(PROTOCOL_VERSION).shard_layout;
         let shard_uid = shard_layout.get_shard_uid(shard_index).unwrap();
         // Use simple non-caching storage, we don't expect many duplicate lookups while iterating.

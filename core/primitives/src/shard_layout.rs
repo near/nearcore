@@ -448,14 +448,9 @@ impl ShardLayout {
             index_to_id_map.insert(shard_index, shard_id);
         }
 
-        let (shards_split_map, shards_parent_map) = if let Some(shards_split_map) = shards_split_map
-        {
-            let shards_parent_map =
-                validate_and_derive_shard_parent_map_v2(&shard_ids, &shards_split_map);
-            (Some(shards_split_map), Some(shards_parent_map))
-        } else {
-            (None, None)
-        };
+        let shards_parent_map = shards_split_map.as_ref().map(|shards_split_map| {
+            validate_and_derive_shard_parent_map_v2(&shard_ids, &shards_split_map)
+        });
 
         Self::V2(ShardLayoutV2 {
             boundary_accounts,
