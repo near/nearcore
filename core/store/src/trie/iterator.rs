@@ -158,14 +158,24 @@ mod tests {
             }
             test_seek_prefix(&trie, &map, &[], use_memtries);
 
+            let pick_non_existing_key = |rng: &mut rand::rngs::ThreadRng| {
+                loop {
+                    let alphabet = &b"abcdefgh"[0..rng.gen_range(2..8)];
+                    let key_length = rng.gen_range(1..8);
+                    let key = (0..key_length)
+                        .map(|_| *alphabet.choose(rng).unwrap())
+                        .collect::<Vec<u8>>();
+                    if !map.contains_key(&key) {
+                        return key;
+                    }
+                }
+            };
+
             for (seek_key, _) in &trie_changes {
                 test_seek_prefix(&trie, &map, seek_key, use_memtries);
             }
             for _ in 0..20 {
-                let alphabet = &b"abcdefgh"[0..rng.gen_range(2..8)];
-                let key_length = rng.gen_range(1..8);
-                let seek_key: Vec<u8> =
-                    (0..key_length).map(|_| *alphabet.choose(&mut rng).unwrap()).collect();
+                let seek_key = pick_non_existing_key(&mut rng);
                 test_seek_prefix(&trie, &map, &seek_key, use_memtries);
             }
 
@@ -174,10 +184,7 @@ mod tests {
                     test_seek(&trie, &map, seek_key, upper_bound, use_memtries);
                 }
                 for _ in 0..20 {
-                    let alphabet = &b"abcdefgh"[0..rng.gen_range(2..8)];
-                    let key_length = rng.gen_range(1..8);
-                    let seek_key: Vec<u8> =
-                        (0..key_length).map(|_| *alphabet.choose(&mut rng).unwrap()).collect();
+                    let seek_key = pick_non_existing_key(&mut rng);
                     test_seek(&trie, &map, &seek_key, true, use_memtries);
                 }
             }
