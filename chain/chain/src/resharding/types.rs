@@ -1,29 +1,13 @@
-use crate::flat_storage_resharder::FlatStorageResharder;
 use near_async::messaging::Sender;
-use near_store::ShardUId;
 
-/// Represents a request to start the split of a parent shard flat storage into two children flat
-/// storages.
+use super::event_type::ReshardingSplitShardParams;
+
+/// Request to schedule a resharding task. The resharding actor will wait till the resharding
+/// block is finalized before starting resharding.
 #[derive(actix::Message, Clone, Debug)]
 #[rtype(result = "()")]
-pub struct FlatStorageSplitShardRequest {
-    pub resharder: FlatStorageResharder,
-}
-
-/// Represents a request to start the catchup phase of a flat storage child shard.
-#[derive(actix::Message, Clone, Debug)]
-#[rtype(result = "()")]
-pub struct FlatStorageShardCatchupRequest {
-    pub resharder: FlatStorageResharder,
-    pub shard_uid: ShardUId,
-}
-
-/// Represents a request to reload a Mem Trie for a shard after its Flat Storage resharding is
-/// finished.
-#[derive(actix::Message, Clone, Debug)]
-#[rtype(result = "()")]
-pub struct MemtrieReloadRequest {
-    pub shard_uid: ShardUId,
+pub struct ScheduleResharding {
+    pub split_shard_event: ReshardingSplitShardParams,
 }
 
 /// A multi-sender for the FlatStorageResharder post processing API.
@@ -32,7 +16,5 @@ pub struct MemtrieReloadRequest {
 /// resharding the flat storage. An example is splitting a shard.
 #[derive(Clone, near_async::MultiSend, near_async::MultiSenderFrom)]
 pub struct ReshardingSender {
-    pub flat_storage_split_shard_sender: Sender<FlatStorageSplitShardRequest>,
-    pub flat_storage_shard_catchup_sender: Sender<FlatStorageShardCatchupRequest>,
-    pub memtrie_reload_sender: Sender<MemtrieReloadRequest>,
+    pub schedule_resharding_sender: Sender<ScheduleResharding>,
 }

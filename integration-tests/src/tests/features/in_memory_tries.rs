@@ -35,7 +35,9 @@ fn slow_test_in_memory_trie_node_consistency() {
     let mut clock = FakeClock::new(Utc::UNIX_EPOCH);
 
     let epoch_length = 9000;
-    let shard_layout = ShardLayout::simple_v1(&["account3", "account5", "account7"]);
+    let boundary_accounts =
+        ["account3", "account5", "account7"].iter().map(|a| a.parse().unwrap()).collect();
+    let shard_layout = ShardLayout::multi_shard_custom(boundary_accounts, 1);
     let validators_spec = ValidatorsSpec::desired_roles(&["account0", "account1"], &[]);
 
     let genesis = TestGenesisBuilder::new()
@@ -408,7 +410,9 @@ fn test_in_memory_trie_consistency_with_state_sync_base_case(track_all_shards: b
 
     let mut clock = FakeClock::new(Utc::UNIX_EPOCH);
 
-    let shard_layout = ShardLayout::simple_v1(&["account3", "account5", "account7"]);
+    let boundary_accounts =
+        ["account3", "account5", "account7"].iter().map(|a| a.parse().unwrap()).collect();
+    let shard_layout = ShardLayout::multi_shard_custom(boundary_accounts, 1);
     let validators_spec = ValidatorsSpec::desired_roles(
         &accounts[0..NUM_VALIDATORS].iter().map(|a| a.as_str()).collect::<Vec<_>>(),
         &[],

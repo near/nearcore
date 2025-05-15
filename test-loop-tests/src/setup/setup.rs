@@ -10,7 +10,7 @@ use near_chain::state_snapshot_actor::{
     SnapshotCallbacks, StateSnapshotActor, get_delete_snapshot_callback, get_make_snapshot_callback,
 };
 use near_chain::types::RuntimeAdapter;
-use near_chain_configs::MutableConfigValue;
+use near_chain_configs::{MutableConfigValue, ReshardingHandle};
 use near_chunks::shards_manager_actor::ShardsManagerActor;
 use near_client::client_actor::ClientActorInner;
 use near_client::gc_actor::GCActor;
@@ -264,7 +264,12 @@ pub fn setup_client(
     // We don't send messages to `GCActor` so adapter is not needed.
     test_loop.data.register_actor(identifier, gc_actor, None);
 
-    let resharding_actor = ReshardingActor::new(runtime_adapter.store().clone(), &chain_genesis);
+    let resharding_actor = ReshardingActor::new(
+        epoch_manager.clone(),
+        runtime_adapter.clone(),
+        ReshardingHandle::new(),
+        client_config.resharding_config.clone(),
+    );
 
     let state_sync_dumper = StateSyncDumper {
         clock: test_loop.clock(),
@@ -293,7 +298,8 @@ pub fn setup_client(
     );
     test_loop.data.register_actor(identifier, sync_jobs_actor, Some(sync_jobs_adapter));
     test_loop.data.register_actor(identifier, state_snapshot, Some(state_snapshot_adapter));
-    test_loop.data.register_actor(identifier, resharding_actor, Some(resharding_sender));
+    let resharding_sender =
+        test_loop.data.register_actor(identifier, resharding_actor, Some(resharding_sender));
 
     // State sync dumper is not an Actor, handle starting separately.
     let state_sync_dumper_handle_clone = state_sync_dumper_handle.clone();
@@ -314,6 +320,7 @@ pub fn setup_client(
         shards_manager_sender,
         partial_witness_sender,
         peer_manager_sender,
+        resharding_sender,
         state_sync_dumper_handle,
     };
 

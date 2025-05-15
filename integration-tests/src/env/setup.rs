@@ -20,7 +20,7 @@ use near_chain::types::{ChainConfig, RuntimeAdapter};
 use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode};
 use near_chain_configs::{
     ChunkDistributionNetworkConfig, ClientConfig, Genesis, MutableConfigValue, ReshardingConfig,
-    TrackedShardsConfig,
+    ReshardingHandle, TrackedShardsConfig,
 };
 use near_chunks::adapter::ShardsManagerRequestFromClient;
 use near_chunks::client::ShardsManagerResponse;
@@ -325,8 +325,12 @@ fn setup(
     ));
     let partial_witness_adapter = partial_witness_addr.with_auto_span_context();
 
-    let (resharding_sender_addr, _) =
-        spawn_actix_actor(ReshardingActor::new(store.clone(), &chain_genesis));
+    let (resharding_sender_addr, _) = spawn_actix_actor(ReshardingActor::new(
+        epoch_manager.clone(),
+        runtime.clone(),
+        ReshardingHandle::new(),
+        config.resharding_config.clone(),
+    ));
     let resharding_sender = resharding_sender_addr.with_auto_span_context();
 
     let shards_manager_adapter_for_client = LateBoundSender::new();
@@ -618,16 +622,17 @@ fn process_peer_manager_message_default(
 
             hash_to_height.write().insert(*block.header().hash(), block.header().height());
         }
-        NetworkRequests::OptimisticBlock { optimistic_block } => {
+        NetworkRequests::OptimisticBlock { chunk_producers, optimistic_block } => {
             // TODO(#10584): maybe go through an adapter to facilitate testing.
-            for actor_handles in connectors {
-                actor_handles.client_actor.do_send(
-                    OptimisticBlockMessage {
-                        optimistic_block: optimistic_block.clone(),
-                        from_peer: PeerInfo::random().id,
-                    }
-                    .with_span_context(),
-                );
+            for (i, name) in validators.iter().enumerate() {
+                if !chunk_producers.contains(name) {
+                    continue;
+                }
+                let msg = OptimisticBlockMessage {
+                    optimistic_block: optimistic_block.clone(),
+                    from_peer: PeerInfo::random().id,
+                };
+                connectors[i].client_actor.do_send(msg.with_span_context());
             }
         }
         NetworkRequests::PartialEncodedChunkRequest { target, request, .. } => {

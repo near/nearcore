@@ -27,7 +27,8 @@ fn test_load_memtrie_after_empty_chunks() {
     let num_clients = 2;
     let epoch_length = 5;
     // Set 2 shards, first of which doesn't have any validators.
-    let shard_layout = ShardLayout::simple_v1(&["account1"]);
+    let boundary_accounts = ["account1"].iter().map(|a| a.parse().unwrap()).collect();
+    let shard_layout = ShardLayout::multi_shard_custom(boundary_accounts, 1);
     let accounts = (num_accounts - num_clients..num_accounts)
         .map(|i| format!("account{}", i).parse().unwrap())
         .collect::<Vec<AccountId>>();

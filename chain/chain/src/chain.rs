@@ -48,7 +48,7 @@ use lru::LruCache;
 use near_async::futures::{AsyncComputationSpawner, AsyncComputationSpawnerExt};
 use near_async::messaging::{IntoMultiSender, noop};
 use near_async::time::{Clock, Duration, Instant};
-use near_chain_configs::{MutableConfigValue, MutableValidatorSigner};
+use near_chain_configs::MutableValidatorSigner;
 use near_chain_primitives::error::{BlockKnownError, Error};
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
@@ -92,6 +92,7 @@ use near_primitives::views::{
 use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::get_genesis_state_roots;
 use near_store::{DBCol, StateSnapshotConfig};
+use node_runtime::SignedValidPeriodTransactions;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use std::cell::Cell;
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -413,8 +414,6 @@ impl Chain {
         let resharding_manager = ReshardingManager::new(
             store.clone(),
             epoch_manager.clone(),
-            runtime_adapter.clone(),
-            MutableConfigValue::new(Default::default(), "resharding_config"),
             noop().into_multi_sender(),
         );
         Ok(Chain {
@@ -569,13 +568,8 @@ impl Chain {
         // Even though the channel is unbounded, the channel size is practically bounded by the size
         // of blocks_in_processing, which is set to 5 now.
         let (sc, rc) = unbounded();
-        let resharding_manager = ReshardingManager::new(
-            chain_store.store(),
-            epoch_manager.clone(),
-            runtime_adapter.clone(),
-            chain_config.resharding_config,
-            resharding_sender,
-        );
+        let resharding_manager =
+            ReshardingManager::new(chain_store.store(), epoch_manager.clone(), resharding_sender);
         Ok(Chain {
             clock: clock.clone(),
             chain_store,
@@ -3276,11 +3270,12 @@ impl Chain {
             )?;
             let old_receipts = collect_receipts_from_response(&old_receipts);
             let receipts = [new_receipts, old_receipts].concat();
+            let transactions =
+                SignedValidPeriodTransactions::new(chunk.into_transactions(), tx_valid_list);
 
             ShardUpdateReason::NewChunk(NewChunkData {
                 chunk_header: chunk_header.clone(),
-                transactions: chunk.into_transactions(),
-                transaction_validity_check_results: tx_valid_list,
+                transactions,
                 receipts,
                 block,
                 storage_context,

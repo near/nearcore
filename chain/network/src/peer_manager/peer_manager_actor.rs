@@ -783,12 +783,16 @@ impl PeerManagerActor {
                 self.state.tier2.broadcast_message(Arc::new(PeerMessage::Block(block)));
                 NetworkResponses::NoResponse
             }
-            NetworkRequests::OptimisticBlock { optimistic_block } => {
-                // TODO(#10584): send this message to all the producers.
-                // Maybe we just need to send this to the next producers.
-                self.state
-                    .tier1
-                    .broadcast_message(Arc::new(PeerMessage::OptimisticBlock(optimistic_block)));
+            NetworkRequests::OptimisticBlock { chunk_producers, optimistic_block } => {
+                // TODO(saketh): the chunk_producers are identified by their validator AccountId,
+                // but OptimisticBlock is sent over a direct PeerMessage. Hence we have to perform
+                // a conversion here from AccountId to peer connection. Consider reworking this.
+                let msg = Arc::new(PeerMessage::OptimisticBlock(optimistic_block));
+                for target_account in &*chunk_producers {
+                    if let Some(conn) = self.state.get_tier1_proxy_for_account_id(&target_account) {
+                        conn.send_message(msg.clone());
+                    }
+                }
                 NetworkResponses::NoResponse
             }
             NetworkRequests::Approval { approval_message } => {
