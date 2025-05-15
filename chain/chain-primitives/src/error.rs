@@ -53,6 +53,14 @@ pub enum QueryError {
         block_height: near_primitives::types::BlockHeight,
         block_hash: near_primitives::hash::CryptoHash,
     },
+    #[error(
+        "Global contract code with identifier {identifier:?} has never been observed on the node"
+    )]
+    NoGlobalContractCode {
+        identifier: near_primitives::action::GlobalContractIdentifier,
+        block_height: near_primitives::types::BlockHeight,
+        block_hash: near_primitives::hash::CryptoHash,
+    },
 }
 
 #[derive(Debug, thiserror::Error)]

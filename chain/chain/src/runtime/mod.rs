@@ -14,6 +14,7 @@ use near_epoch_manager::{EpochManagerAdapter, EpochManagerHandle};
 use near_parameters::{RuntimeConfig, RuntimeConfigStore};
 use near_pool::types::TransactionGroupIterator;
 use near_primitives::account::{AccessKey, Account};
+use near_primitives::action::GlobalContractIdentifier;
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::congestion_info::{
     CongestionControl, ExtendedCongestionInfo, RejectTransactionReason, ShardAcceptsTransactions,
@@ -430,6 +431,31 @@ impl NightshadeRuntime {
             .expect("serializer should not fail");
 
         Ok(state_part)
+    }
+
+    fn query_view_global_contract_code(
+        &self,
+        identifier: GlobalContractIdentifier,
+        shard_uid: ShardUId,
+        state_root: &StateRoot,
+        block_height: BlockHeight,
+        block_hash: &CryptoHash,
+    ) -> Result<QueryResponse, crate::near_chain_primitives::error::QueryError> {
+        let contract_code =
+            self.view_global_contract_code(&shard_uid, *state_root, identifier).map_err(|err| {
+                crate::near_chain_primitives::error::QueryError::from_view_contract_code_error(
+                    err,
+                    block_height,
+                    *block_hash,
+                )
+            })?;
+        let hash = *contract_code.hash();
+        let contract_code_view = ContractCodeView { hash, code: contract_code.into_code() };
+        Ok(QueryResponse {
+            kind: QueryResponseKind::ViewCode(contract_code_view),
+            block_height,
+            block_hash: *block_hash,
+        })
     }
 }
 
@@ -979,6 +1005,22 @@ impl RuntimeAdapter for NightshadeRuntime {
                     block_hash: *block_hash,
                 })
             }
+            QueryRequest::ViewGlobalContractCode { code_hash } => self
+                .query_view_global_contract_code(
+                    GlobalContractIdentifier::CodeHash(*code_hash),
+                    shard_uid,
+                    state_root,
+                    block_height,
+                    block_hash,
+                ),
+            QueryRequest::ViewGlobalContractCodeByAccountId { account_id } => self
+                .query_view_global_contract_code(
+                    GlobalContractIdentifier::AccountId(account_id.clone()),
+                    shard_uid,
+                    state_root,
+                    block_height,
+                    block_hash,
+                ),
         }
     }
 
@@ -1249,7 +1291,7 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
         account_id: &AccountId,
     ) -> Result<ContractCode, node_runtime::state_viewer::errors::ViewContractCodeError> {
         let state_update = self.tries.new_trie_update_view(*shard_uid, state_root);
-        self.trie_viewer.view_contract_code(&state_update, account_id)
+        self.trie_viewer.view_account_contract_code(&state_update, account_id)
     }
 
     fn call_function(
@@ -1324,5 +1366,15 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
     ) -> Result<ViewStateResult, node_runtime::state_viewer::errors::ViewStateError> {
         let state_update = self.tries.new_trie_update_view(*shard_uid, state_root);
         self.trie_viewer.view_state(&state_update, account_id, prefix, include_proof)
+    }
+
+    fn view_global_contract_code(
+        &self,
+        shard_uid: &ShardUId,
+        state_root: MerkleHash,
+        identifier: GlobalContractIdentifier,
+    ) -> Result<ContractCode, node_runtime::state_viewer::errors::ViewContractCodeError> {
+        let state_update = self.tries.new_trie_update_view(*shard_uid, state_root);
+        self.trie_viewer.view_global_contract_code(&state_update, identifier)
     }
 }

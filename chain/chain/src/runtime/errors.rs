@@ -59,6 +59,9 @@ impl QueryError {
             node_runtime::state_viewer::errors::ViewContractCodeError::NoContractCode {
                 contract_account_id,
             } => Self::NoContractCode { contract_account_id, block_height, block_hash },
+            node_runtime::state_viewer::errors::ViewContractCodeError::NoGlobalContractCode {
+                identifier,
+            } => Self::NoGlobalContractCode { identifier, block_height, block_hash },
         }
     }
 

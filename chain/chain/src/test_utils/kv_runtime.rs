@@ -1232,7 +1232,9 @@ impl RuntimeAdapter for KeyValueRuntime {
                 block_height,
                 block_hash: *block_hash,
             }),
-            QueryRequest::ViewCode { .. } => Ok(QueryResponse {
+            QueryRequest::ViewCode { .. }
+            | QueryRequest::ViewGlobalContractCode { .. }
+            | QueryRequest::ViewGlobalContractCodeByAccountId { .. } => Ok(QueryResponse {
                 kind: QueryResponseKind::ViewCode(ContractCodeView {
                     code: vec![],
                     hash: CryptoHash::default(),
