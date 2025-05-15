@@ -63,11 +63,6 @@ class JSONHandler(http.server.BaseHTTPRequestHandler):
                                    name="clear_env")
         self.dispatcher.add_method(server.neard_runner.do_add_env,
                                    name="add_env")
-
-        #self.dispatcher.add_method(server.neard_runner.do_list_scheduled_commands,
-        #                           name="list_scheduled_commands")
-        #self.dispatcher.add_method(server.neard_runner.do_cancel_scheduled_command,
-        #                           name="cancel_scheduled_command")
         super().__init__(request, client_address, server)
 
     def do_GET(self):
