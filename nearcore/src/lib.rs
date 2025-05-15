@@ -394,8 +394,13 @@ pub fn start_with_config_and_synchronization(
         config.client_config.archive,
     ));
 
-    let (resharding_sender_addr, _) =
-        spawn_actix_actor(ReshardingActor::new(runtime.store().clone(), &chain_genesis));
+    let resharding_handle = ReshardingHandle::new();
+    let (resharding_sender_addr, _) = spawn_actix_actor(ReshardingActor::new(
+        epoch_manager.clone(),
+        runtime.clone(),
+        resharding_handle.clone(),
+        config.client_config.resharding_config.clone(),
+    ));
     let resharding_sender = resharding_sender_addr.with_auto_span_context();
     let state_sync_runtime =
         Arc::new(tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap());
@@ -404,7 +409,6 @@ pub fn start_with_config_and_synchronization(
     let StartClientResult {
         client_actor,
         client_arbiter_handle,
-        resharding_handle,
         tx_pool,
         chunk_endorsement_tracker,
     } = start_client(

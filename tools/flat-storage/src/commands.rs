@@ -1,5 +1,5 @@
-use crate::resume_resharding::resume_resharding;
 /// Tools for modifying flat storage - should be used only for experimentation & debugging.
+use crate::resume_resharding::resume_resharding;
 use borsh::BorshDeserialize;
 use clap::Parser;
 use near_chain::types::RuntimeAdapter;

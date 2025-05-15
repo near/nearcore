@@ -242,7 +242,7 @@ pub enum NetworkRequests {
     /// Sends block, either when block was just produced or when requested.
     Block { block: Block },
     /// Sends optimistic block as soon as the production window for the height starts.
-    OptimisticBlock { optimistic_block: OptimisticBlock },
+    OptimisticBlock { chunk_producers: Arc<Vec<AccountId>>, optimistic_block: OptimisticBlock },
     /// Sends approval.
     Approval { approval_message: ApprovalMessage },
     /// Request block with given hash from given peer.

@@ -12,6 +12,7 @@ use near_async::time;
 use near_crypto::PublicKey;
 use near_o11y::log_assert;
 use near_primitives::network::PeerId;
+use near_primitives::types::AccountId;
 use rand::seq::IteratorRandom as _;
 use rand::seq::SliceRandom as _;
 use std::collections::{HashMap, HashSet};
@@ -371,6 +372,26 @@ impl super::NetworkState {
             if let Some(conn) = tier1.ready.get(&proxy.peer_id) {
                 return Some(conn.clone());
             }
+        }
+        None
+    }
+
+    /// Finds a TIER1 connection for the given AccountId. Currently used only for OptimisticBlock,
+    /// which is implemented as a PeerMessage but has targets identified by AccountId.
+    /// TODO(saketh): consider simplifying things by changing the message type of OptimisticBlock.
+    pub fn get_tier1_proxy_for_account_id(
+        &self,
+        account_id: &AccountId,
+    ) -> Option<Arc<connection::Connection>> {
+        let accounts_data = self.accounts_data.load();
+        for key in accounts_data.keys_by_id.get(account_id).iter().flat_map(|keys| keys.iter()) {
+            let Some(data) = accounts_data.data.get(key) else {
+                continue;
+            };
+            let Some(conn) = self.get_tier1_proxy(data) else {
+                continue;
+            };
+            return Some(conn);
         }
         None
     }

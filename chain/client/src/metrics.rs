@@ -1,8 +1,9 @@
 use near_o11y::metrics::{
-    Counter, CounterVec, Gauge, Histogram, HistogramVec, IntCounter, IntCounterVec, IntGauge,
-    IntGaugeVec, exponential_buckets, linear_buckets, try_create_counter, try_create_counter_vec,
-    try_create_gauge, try_create_histogram, try_create_histogram_vec, try_create_int_counter,
-    try_create_int_counter_vec, try_create_int_gauge, try_create_int_gauge_vec,
+    Counter, CounterVec, Gauge, GaugeVec, Histogram, HistogramVec, IntCounter, IntCounterVec,
+    IntGauge, IntGaugeVec, exponential_buckets, linear_buckets, try_create_counter,
+    try_create_counter_vec, try_create_gauge, try_create_gauge_vec, try_create_histogram,
+    try_create_histogram_vec, try_create_int_counter, try_create_int_counter_vec,
+    try_create_int_gauge, try_create_int_gauge_vec,
 };
 use near_store::db::metadata::DB_VERSION;
 use std::sync::LazyLock;
@@ -687,10 +688,11 @@ pub(crate) static PARTIAL_CONTRACT_DEPLOYS_TIME_TO_LAST_PART: LazyLock<Histogram
     .unwrap()
     });
 
-pub(crate) static PARTIAL_WITNESS_CACHE_SIZE: LazyLock<Gauge> = LazyLock::new(|| {
-    try_create_gauge(
+pub(crate) static PARTIAL_WITNESS_CACHE_SIZE: LazyLock<GaugeVec> = LazyLock::new(|| {
+    try_create_gauge_vec(
         "near_partial_witness_cache_size",
-        "Total size in bytes of all currently cached witness parts",
+        "Total size in bytes of all currently cached witness parts for a given shard",
+        &["shard_id"],
     )
     .unwrap()
 });

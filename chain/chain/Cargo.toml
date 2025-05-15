@@ -19,7 +19,6 @@ easy-ext.workspace = true
 enum-map.workspace = true
 itertools.workspace = true
 lru.workspace = true
-more-asserts.workspace = true
 num-rational.workspace = true
 parking_lot.workspace = true
 rand_chacha.workspace = true
