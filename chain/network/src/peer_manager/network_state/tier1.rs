@@ -385,13 +385,11 @@ impl super::NetworkState {
     ) -> Option<Arc<connection::Connection>> {
         let accounts_data = self.accounts_data.load();
         for key in accounts_data.keys_by_id.get(account_id).iter().flat_map(|keys| keys.iter()) {
-            let data = match accounts_data.data.get(key) {
-                Some(data) => data,
-                None => continue,
+            let Some(data) = accounts_data.data.get(key) else {
+                continue;
             };
-            let conn = match self.get_tier1_proxy(data) {
-                Some(conn) => conn,
-                None => continue,
+            let Some(conn) = self.get_tier1_proxy(data) else {
+                continue;
             };
             return Some(conn);
         }
