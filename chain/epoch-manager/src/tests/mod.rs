@@ -1866,8 +1866,12 @@ fn test_protocol_version_switch() {
         (genesis_protocol_version, Arc::new(epoch_config.clone())),
         (PROTOCOL_VERSION, Arc::new(epoch_config)),
     ]));
-    let config =
-        AllEpochConfig::from_epoch_config_store("test-chain", 2, config_store, genesis_protocol_version);
+    let config = AllEpochConfig::from_epoch_config_store(
+        "test-chain",
+        2,
+        config_store,
+        genesis_protocol_version,
+    );
 
     let amount_staked = 1_000_000;
     let validators = vec![
@@ -1904,8 +1908,12 @@ fn test_protocol_version_switch_with_shard_layout_change() {
         (genesis_protocol_version, Arc::new(old_epoch_config)),
         (PROTOCOL_VERSION, Arc::new(new_epoch_config)),
     ]));
-    let config =
-        AllEpochConfig::from_epoch_config_store("test-chain", 2, config_store, genesis_protocol_version);
+    let config = AllEpochConfig::from_epoch_config_store(
+        "test-chain",
+        2,
+        config_store,
+        genesis_protocol_version,
+    );
 
     let amount_staked = 1_000_000;
     let validators = vec![
