@@ -62,7 +62,6 @@ pub struct TxGenerator {
 
 #[derive(Clone)]
 struct RunnerState {
-    block_hash: Arc<Mutex<CryptoHash>>,
     stats: Arc<Mutex<Stats>>,
 }
 
@@ -105,7 +104,6 @@ impl TxGenerator {
         }
 
         let runner_state = RunnerState {
-            block_hash: Arc::new(Mutex::new(CryptoHash::default())),
             stats: Arc::new(Mutex::new(Stats {
                 pool_accepted: 0,
                 pool_rejected: 0,
@@ -121,7 +119,7 @@ impl TxGenerator {
             runner_state.clone(),
         )?;
 
-        Self::start_block_updates(view_client_sender, runner_state.clone());
+        Self::start_block_updates(view_client_sender);
         Self::start_report_updates(runner_state);
 
         Ok(())
@@ -174,15 +172,16 @@ impl TxGenerator {
         }
     }
 
-    fn run_block_updates()-> Receiver<CryptoHash> {
-
+    fn run_block_updates()-> tokio::sync::watch::Receiver<CryptoHash> {
+        let (_tx_latest_block, rx_latest_block) = tokio::sync::watch::channel(Default::default());
+        
+        rx_latest_block
     }
     
     async fn run_the_load(
         load: &Load,
-        block_rx: Receiver<CryptoHash>,
+        block_rx: tokio::sync::watch::Receiver<CryptoHash>,
     ) {
-        let (tx_latest_block, rx_latest_block) = tokio::sync::watch::channel(Default::default());
         
     }
 
@@ -246,23 +245,11 @@ impl TxGenerator {
             let mut rx_clients = tx_clients.subscribe();
             let mut rx_load = load_tx.subscribe();
             let client_sender = client_sender.clone();
-            let view_client_sender = view_client_sender.clone();
             let runner_state = runner_state.clone();
             let mut rx_block = rx_latest_block.clone();
             tokio::spawn(async move {
                 let mut rnd: StdRng = SeedableRng::from_entropy();
-
-                match Self::get_latest_block(&view_client_sender).await {
-                    Ok(new_hash) => {
-                        let mut block_hash = runner_state.block_hash.lock();
-                        *block_hash = new_hash;
-                    }
-                    Err(err) => {
-                        tracing::error!(target:"transaction-generator",
-                            "failed initializing the block hash: {err}");
-                    }
-                }
-
+                
                 let accounts = rx_clients.recv().await.unwrap();
                 
                 let load: Load = rx_load.recv().await.unwrap();
@@ -321,7 +308,6 @@ impl TxGenerator {
 
     fn start_block_updates(
         view_client_sender: ViewClientSender,
-        runner_state: RunnerState,
     ) -> task::JoinHandle<()> {
         let mut block_interval = tokio::time::interval(Duration::from_secs(5));
         tokio::spawn(async move {
@@ -329,9 +315,9 @@ impl TxGenerator {
             loop {
                 block_interval.tick().await;
                 match Self::get_latest_block(view_client).await {
-                    Ok(new_hash) => {
-                        let mut block_hash = runner_state.block_hash.lock();
-                        *block_hash = new_hash;
+                    Ok(_new_hash) => {
+                        // let mut block_hash = runner_state.block_hash.lock();
+                        // *block_hash = new_hash;
                     }
                     Err(err) => {
                         tracing::warn!(target: "transaction-generator", "block_hash update failed: {err}");
