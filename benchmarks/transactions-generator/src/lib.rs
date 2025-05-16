@@ -1,3 +1,4 @@
+use account::Account;
 use near_async::messaging::AsyncSender;
 use near_client::{GetBlock, Query, QueryError};
 use near_client_primitives::types::GetBlockError;
@@ -112,14 +113,16 @@ impl TxGenerator {
             })),
         };
 
+        let block_rx = Self::start_block_updates(self.view_client_sender.clone());
+        
         Self::start_transactions_loop(
             &self.params,
             client_sender,
             view_client_sender.clone(),
             runner_state.clone(),
+            block_rx,
         )?;
 
-        Self::start_block_updates(view_client_sender);
         Self::start_report_updates(runner_state);
 
         Ok(())
@@ -172,12 +175,45 @@ impl TxGenerator {
         }
     }
 
-    fn run_block_updates()-> tokio::sync::watch::Receiver<CryptoHash> {
-        let (_tx_latest_block, rx_latest_block) = tokio::sync::watch::channel(Default::default());
+    async fn get_latest_block(view_client_sender: &ViewClientSender) -> anyhow::Result<CryptoHash> {
+        match view_client_sender
+            .block_request_sender
+            .send_async(GetBlock(BlockReference::latest()))
+            .await
+        {
+            Ok(rsp) => Ok(rsp?.header.hash),
+            Err(err) => {
+                anyhow::bail!("async send error: {err}");
+            }
+        }
+    }
+    
+    fn start_block_updates(
+        view_client_sender: ViewClientSender,
+    )-> tokio::sync::watch::Receiver<CryptoHash> 
+    {
+        let (tx_latest_block, rx_latest_block) = tokio::sync::watch::channel(Default::default());
+
+        tokio::spawn(async move {
+            let view_client = &view_client_sender;
+            loop {
+                match Self::get_latest_block(view_client).await {
+                    Ok(new_hash) => {
+                        let _ = tx_latest_block.send(new_hash);
+                        tokio::time::interval(Duration::from_secs(3)).tick().await;
+                    }
+                    Err(err) => {
+                        tracing::warn!(target: "transaction-generator", "block_hash update failed: {err}");
+                        tokio::time::interval(Duration::from_millis(200)).tick().await;
+                    }
+                }
+            }
+        });
         
         rx_latest_block
     }
-    
+   
+
     async fn run_the_load(
         load: &Load,
         block_rx: tokio::sync::watch::Receiver<CryptoHash>,
@@ -185,21 +221,16 @@ impl TxGenerator {
         
     }
 
-    fn start_transactions_loop(
-        config: &Config,
-        client_sender: ClientSender,
-        view_client_sender: ViewClientSender,
-        runner_state: RunnerState,
-    ) -> anyhow::Result<()> {
-        // TODO(slavas): generate accounts on the fly?
-        let mut accounts = account::accounts_from_path(&config.accounts_path)?;
+    fn prepare_accounts(
+        accounts_path: &PathBuf,
+        sender: ViewClientSender,   
+    )-> anyhow::Result<Arc<Vec<Account>>> {
+        let mut accounts = account::accounts_from_path(accounts_path)?;
         if accounts.is_empty() {
             anyhow::bail!("No active accounts available");
         }
 
-        let (tx_clients, _) = tokio::sync::broadcast::channel(1);
-        let sender = view_client_sender.clone();
-        let txs = tx_clients.clone();
+        let (tx, rx) = tokio::sync::oneshot::channel();
         tokio::spawn(async move {
             for account in &mut accounts {
                 let (id, pk) = (account.id.clone(), account.public_key.clone());
@@ -213,50 +244,41 @@ impl TxGenerator {
                     }
                 }
             }
-            txs.send(Arc::new(accounts)).unwrap();
+            tx.send(Arc::new(accounts)).unwrap();
         });
-
-        let (load_tx, _) = tokio::sync::broadcast::channel(config.schedule.len());
-
-        let (tx_latest_block, rx_latest_block) = tokio::sync::watch::channel(Default::default());
         
-        let view_client_sender1 = view_client_sender.clone();
-        tokio::spawn(async move {
-            loop {
-                match Self::get_latest_block(&view_client_sender1).await {
-                    Ok(new_hash) => {
-                        let _ = tx_latest_block.send(new_hash);
-                        tokio::time::interval(Duration::from_secs(1)).tick().await;
-                    }
-                    Err(err) => {
-                        tracing::error!(target:"transaction-generator",
-                            "failed reading the latest block hash: {err}");
-                        tokio::time::interval(Duration::from_millis(100)).tick().await;
-                    }
-                }
-            }
-        });
+        Ok(rx.blocking_recv()?)
+    }
+
+    fn start_transactions_loop(
+        config: &Config,
+        client_sender: ClientSender,
+        view_client_sender: ViewClientSender,
+        runner_state: RunnerState,
+        rx_block: tokio::sync::watch::Receiver<CryptoHash>,
+    ) -> anyhow::Result<()> {
+        let accounts = Self::prepare_accounts(&config.accounts_path, view_client_sender.clone())?;
+        let (load_tx, _) = tokio::sync::broadcast::channel(config.schedule.len());
 
         /// Number of tasks to run producing and sending transactions
         /// We need several tasks to not get blocked by the sending latency.
         /// 4 is currently more than enough.
         const TASK_COUNT: u64 = 4;
         for _ in 0..TASK_COUNT {
-            let mut rx_clients = tx_clients.subscribe();
+            let accounts = accounts.clone();
             let mut rx_load = load_tx.subscribe();
             let client_sender = client_sender.clone();
             let runner_state = runner_state.clone();
-            let mut rx_block = rx_latest_block.clone();
+            let mut rx_block = rx_block.clone();
             tokio::spawn(async move {
                 let mut rnd: StdRng = SeedableRng::from_entropy();
-                
-                let accounts = rx_clients.recv().await.unwrap();
                 
                 let load: Load = rx_load.recv().await.unwrap();
                 let mut tx_interval =
                     tokio::time::interval(Duration::from_micros(1_000_000 * TASK_COUNT / load.tps));
 
-                let mut latest_block_hash = CryptoHash::default();
+                let _ = rx_block.wait_for(|hash| *hash != CryptoHash::default() ).await.is_ok();
+                let mut latest_block_hash = rx_block.borrow().clone();
                 loop {
                     tokio::select!{
                         _ = rx_block.changed() => {
@@ -291,40 +313,6 @@ impl TxGenerator {
         });
 
         Ok(())
-    }
-
-    async fn get_latest_block(view_client_sender: &ViewClientSender) -> anyhow::Result<CryptoHash> {
-        match view_client_sender
-            .block_request_sender
-            .send_async(GetBlock(BlockReference::latest()))
-            .await
-        {
-            Ok(rsp) => Ok(rsp?.header.hash),
-            Err(err) => {
-                anyhow::bail!("async send error: {err}");
-            }
-        }
-    }
-
-    fn start_block_updates(
-        view_client_sender: ViewClientSender,
-    ) -> task::JoinHandle<()> {
-        let mut block_interval = tokio::time::interval(Duration::from_secs(5));
-        tokio::spawn(async move {
-            let view_client = &view_client_sender;
-            loop {
-                block_interval.tick().await;
-                match Self::get_latest_block(view_client).await {
-                    Ok(_new_hash) => {
-                        // let mut block_hash = runner_state.block_hash.lock();
-                        // *block_hash = new_hash;
-                    }
-                    Err(err) => {
-                        tracing::warn!(target: "transaction-generator", "block_hash update failed: {err}");
-                    }
-                }
-            }
-        })
     }
 
     fn start_report_updates(runner_state: RunnerState) -> task::JoinHandle<()> {
