@@ -32,7 +32,7 @@ use near_primitives::types::{
     StateChangesKinds, StateChangesKindsExt, StateChangesRequest,
 };
 use near_primitives::utils::{
-    get_block_shard_id, get_outcome_id_block_hash_rev, index_to_bytes,
+    get_block_shard_id, get_outcome_id_block_hash, get_outcome_id_block_hash_rev, index_to_bytes,
     to_timestamp,
 };
 use near_primitives::version::{ProtocolFeature, ProtocolVersion};
@@ -268,6 +268,11 @@ pub struct ChainStore {
     /// - archive is true, cold_store is configured and migration to split_storage is finished - node
     /// working in split storage mode needs trie changes in order to do garbage collection on hot.
     save_trie_changes: bool,
+    /// Whether to persist `ExecutionOutcomeWithProof` objects into
+    /// `DBCol::TransactionResultForBlock`.  Disabling this on validator
+    /// nodes reduces write amplification.  RPC nodes keep it enabled so
+    /// that transaction status queries continue to work.
+    save_block_outcomes: bool,
     /// The maximum number of blocks for which a transaction is valid since its creation.
     pub(super) transaction_validity_period: BlockHeightDelta,
 }
@@ -301,8 +306,15 @@ impl ChainStore {
             store: store.chain_store(),
             latest_known: std::cell::Cell::new(None),
             save_trie_changes,
+            save_block_outcomes: true,
             transaction_validity_period,
         }
+    }
+
+    /// Enable or disable persisting `ExecutionOutcomeWithProof`s to
+    /// `DBCol::TransactionResultForBlock`.
+    pub fn set_save_block_outcomes(&mut self, value: bool) {
+        self.save_block_outcomes = value;
     }
 
     pub fn store_update(&mut self) -> ChainStoreUpdate<'_> {
@@ -1739,7 +1751,7 @@ impl<'a> ChainStoreUpdate<'a> {
     fn finalize(&mut self) -> Result<StoreUpdate, Error> {
         let mut store_update = self.store().store_update();
         {
-            let _span = tracing::debug_span!(target: "store", "write_col_misc").entered();
+            let _span = tracing::trace_span!(target: "store", "write_col_misc").entered();
             Self::write_col_misc(&mut store_update, HEAD_KEY, &mut self.head)?;
             Self::write_col_misc(&mut store_update, TAIL_KEY, &mut self.tail)?;
             Self::write_col_misc(&mut store_update, CHUNK_TAIL_KEY, &mut self.chunk_tail)?;
@@ -1753,7 +1765,7 @@ impl<'a> ChainStoreUpdate<'a> {
             )?;
         }
         {
-            let _span = tracing::debug_span!(target: "store", "write_block").entered();
+            let _span = tracing::trace_span!(target: "store", "write_block").entered();
             if let Some(block) = &self.chain_store_cache_update.block {
                 let mut map = HashMap::clone(
                     self.chain_store
@@ -1811,7 +1823,7 @@ impl<'a> ChainStoreUpdate<'a> {
         }
 
         {
-            let _span = tracing::debug_span!(target: "store", "write_chunk").entered();
+            let _span = tracing::trace_span!(target: "store", "write_chunk").entered();
 
             let mut chunk_hashes_by_height: HashMap<BlockHeight, HashSet<ChunkHash>> =
                 HashMap::new();
@@ -1900,7 +1912,7 @@ impl<'a> ChainStoreUpdate<'a> {
         }
         {
             let _span =
-                tracing::debug_span!(target: "store", "write_incoming_and_outgoing_receipts")
+                tracing::trace_span!(target: "store", "write_incoming_and_outgoing_receipts")
                     .entered();
 
             for ((block_hash, shard_id), receipt) in
@@ -1924,8 +1936,19 @@ impl<'a> ChainStoreUpdate<'a> {
         }
 
         {
-            let _span = tracing::debug_span!(target: "store", "write_outcomes").entered();
+            let _span = tracing::trace_span!(target: "store", "write_outcomes").entered();
 
+            if self.chain_store.save_block_outcomes {
+                for ((outcome_id, block_hash), outcome_with_proof) in
+                    &self.chain_store_cache_update.outcomes
+                {
+                    store_update.insert_ser(
+                        DBCol::TransactionResultForBlock,
+                        &get_outcome_id_block_hash(outcome_id, block_hash),
+                        &outcome_with_proof,
+                    )?;
+                }
+            }
             for ((block_hash, shard_id), ids) in &self.chain_store_cache_update.outcome_ids {
                 store_update.set_ser(
                     DBCol::OutcomeIds,
@@ -1953,7 +1976,7 @@ impl<'a> ChainStoreUpdate<'a> {
         // Create separate store update for deletions, because we want to update cache and don't want to remove nodes
         // from the store.
         {
-            let _span = tracing::debug_span!(target: "store", "write_trie_changes").entered();
+            let _span = tracing::trace_span!(target: "store", "write_trie_changes").entered();
             let mut deletions_store_update = self.store().trie_store().store_update();
             for (block_hash, mut wrapped_trie_changes) in self.trie_changes.drain(..) {
                 wrapped_trie_changes.apply_mem_changes();
@@ -1979,7 +2002,7 @@ impl<'a> ChainStoreUpdate<'a> {
             }
         }
         {
-            let _span = tracing::debug_span!(target: "store", "write_catchup").entered();
+            let _span = tracing::trace_span!(target: "store", "write_catchup").entered();
 
             let mut affected_catchup_blocks = HashSet::new();
             for (prev_hash, hash) in self.remove_blocks_to_catchup.drain(..) {
