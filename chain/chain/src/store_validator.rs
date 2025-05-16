@@ -236,13 +236,6 @@ impl StoreValidator {
                 DBCol::OutcomeIds => {
                     let (block_hash, _) = get_block_shard_id_rev(key_ref)?;
                     let outcome_ids = Vec::<CryptoHash>::try_from_slice(value_ref)?;
-                    // TransactionResultForBlock should exist for outcome ID and block hash
-                    self.check(
-                        &validate::outcome_by_outcome_id_exists,
-                        &block_hash,
-                        &outcome_ids,
-                        col,
-                    );
                     // Block which can be indexed by Outcome block_hash exists
                     self.check(&validate::outcome_id_block_exists, &block_hash, &outcome_ids, col);
                 }

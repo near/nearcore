@@ -268,6 +268,11 @@ pub struct ChainStore {
     /// - archive is true, cold_store is configured and migration to split_storage is finished - node
     /// working in split storage mode needs trie changes in order to do garbage collection on hot.
     save_trie_changes: bool,
+    /// Whether to persist `ExecutionOutcomeWithProof` objects into
+    /// `DBCol::TransactionResultForBlock`.  Disabling this on validator
+    /// nodes reduces write amplification.  RPC nodes keep it enabled so
+    /// that transaction status queries continue to work.
+    save_block_outcomes: bool,
     /// The maximum number of blocks for which a transaction is valid since its creation.
     pub(super) transaction_validity_period: BlockHeightDelta,
 }
@@ -301,8 +306,15 @@ impl ChainStore {
             store: store.chain_store(),
             latest_known: std::cell::Cell::new(None),
             save_trie_changes,
+            save_block_outcomes: true,
             transaction_validity_period,
         }
+    }
+
+    /// Enable or disable persisting `ExecutionOutcomeWithProof`s to
+    /// `DBCol::TransactionResultForBlock`.
+    pub fn set_save_block_outcomes(&mut self, value: bool) {
+        self.save_block_outcomes = value;
     }
 
     pub fn store_update(&mut self) -> ChainStoreUpdate<'_> {
@@ -1926,14 +1938,16 @@ impl<'a> ChainStoreUpdate<'a> {
         {
             let _span = tracing::trace_span!(target: "store", "write_outcomes").entered();
 
-            for ((outcome_id, block_hash), outcome_with_proof) in
-                &self.chain_store_cache_update.outcomes
-            {
-                store_update.insert_ser(
-                    DBCol::TransactionResultForBlock,
-                    &get_outcome_id_block_hash(outcome_id, block_hash),
-                    &outcome_with_proof,
-                )?;
+            if self.chain_store.save_block_outcomes {
+                for ((outcome_id, block_hash), outcome_with_proof) in
+                    &self.chain_store_cache_update.outcomes
+                {
+                    store_update.insert_ser(
+                        DBCol::TransactionResultForBlock,
+                        &get_outcome_id_block_hash(outcome_id, block_hash),
+                        &outcome_with_proof,
+                    )?;
+                }
             }
             for ((block_hash, shard_id), ids) in &self.chain_store_cache_update.outcome_ids {
                 store_update.set_ser(
