@@ -35,10 +35,8 @@ fn build_chain() {
     //     cargo insta test --accept -p near-chain --features nightly -- tests::simple_chain::build_chain
     let hash = chain.head().unwrap().last_block_hash;
     if cfg!(feature = "nightly") {
-        // cspell:disable-next-line
         insta::assert_snapshot!(hash, @"24ZC3eGVvtFdTEok4wPGBzx3x61tWqQpves7nFvow2zf");
     } else {
-        // cspell:disable-next-line
         insta::assert_snapshot!(hash, @"t1RB3jTh9mMtkQ1YFWxGMYefGcppSLYcJjvH7BXoSTz");
     }
 
@@ -55,10 +53,8 @@ fn build_chain() {
 
     let hash = chain.head().unwrap().last_block_hash;
     if cfg!(feature = "nightly") {
-        // cspell:disable-next-line
         insta::assert_snapshot!(hash, @"9enFQNcVUW65x3oW2iVdYSBxK9qFNETAixEQZLzXWeaQ");
     } else {
-        // cspell:disable-next-line
         insta::assert_snapshot!(hash, @"2HKQZ9swQZnWwv23TF6uYBfQ9up7faG3zvDDvjgvSgkf");
     }
 }
@@ -342,7 +338,7 @@ fn test_pending_block() {
     };
 
     // Block must be rejected due to optimistic block in processing
-    assert_matches!(err, Error::BlockPendingOptimisticExecution);
+    assert_matches!(err, Error::OptimisticBlockInProcessing);
 
     // Verify the block is in the pending pool
     assert!(chain.blocks_pending_execution.contains_key(&block2.header().height()));
@@ -365,19 +361,14 @@ fn test_pending_block() {
     assert_eq!(chain.head().unwrap().height, 2);
 }
 
-/// Check chain behaviour on processing blocks on same height:
-/// * If we receive the same block twice and it matches the optimistic block,
-/// it should be marked as pending both times, in order not to trigger chunk
-/// execution excessive in the regular flow.
-/// * If we receive the a different block with the same height, it is a
-/// malicious behaviour. We must process all these blocks anyway, because we
-/// don't know which one gets finalized. To simplify optimistic logic, we
-/// skip pending pool and process block right away.
+/// Check that if chain receives two blocks which matches the same optimistic block,
+/// the first one gets pending but the second one gets processed, as this is likely
+/// malicious behaviour and processing blocks is a higher priority than apply chunk
+/// optimizations.
+/// We use two copies of the same block here.
 #[cfg(feature = "test_features")]
 #[test]
-fn test_pending_block_same_height() {
-    use near_crypto::{KeyType, Signature};
-
+fn test_pending_block_twice() {
     init_test_logger();
     let clock = Clock::real();
     let (mut chain, _, _, signer) = setup(clock.clone());
@@ -391,17 +382,6 @@ fn test_pending_block_same_height() {
     // Create block 2 and its copy
     let block2 = TestBlockBuilder::new(clock, &block1, signer.clone()).build();
     let block2a = block2.clone();
-
-    // Create copy of block 2 with different hash.
-    // The content still matches the optimistic execution, but the hash is
-    // different.
-    // Approvals can be set arbitrarily because we process blocks in
-    // Provenance::PRODUCED mode.
-    let mut block2b = block2.clone();
-    let some_signature = Signature::from_parts(KeyType::ED25519, &[1; 64]).unwrap();
-    block2b.mut_header().set_approvals(vec![Some(Box::new(some_signature))]);
-    block2b.mut_header().resign(&*signer);
-    assert!(block2a.hash() != block2b.hash());
 
     // Create an optimistic block at height 2
     let optimistic_block = OptimisticBlock::adv_produce(
@@ -429,14 +409,10 @@ fn test_pending_block_same_height() {
     let Err(err) = &result_a else {
         panic!("Block processing should not succeed");
     };
-    assert_matches!(err, Error::BlockPendingOptimisticExecution);
+    assert_matches!(err, Error::OptimisticBlockInProcessing);
 
-    // Check that the copy is also marked as pending.
+    // Check that processing the second copy is successful.
     let result_b = chain.process_block_test(&me, block2a);
-    assert_matches!(result_b, Err(Error::BlockPendingOptimisticExecution));
-
-    // Check that the copy with different hash is processed.
-    let result_b = chain.process_block_test(&me, block2b);
     assert_matches!(result_b, Ok(_));
     assert_eq!(chain.head().unwrap().height, 2);
 }

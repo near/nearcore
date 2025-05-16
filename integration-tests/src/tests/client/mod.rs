@@ -1,6 +1,7 @@
 mod benchmarks;
 mod block_corruption;
 mod block_sync;
+mod catching_up;
 mod chunks_management;
 mod cold_storage;
 mod doomslug;

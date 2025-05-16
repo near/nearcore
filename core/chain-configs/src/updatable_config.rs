@@ -2,10 +2,9 @@ use near_primitives::types::BlockHeight;
 use near_primitives::validator_signer::ValidatorSigner;
 #[cfg(feature = "metrics")]
 use near_time::Clock;
-use parking_lot::Mutex;
 use serde::{Deserialize, Serialize, Serializer};
 use std::fmt::Debug;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use time::Duration;
 #[cfg(feature = "metrics")]
 use time::OffsetDateTime as Utc;
@@ -57,12 +56,12 @@ impl<T: Clone + PartialEq + Debug> MutableConfigValue<T> {
     }
 
     pub fn get(&self) -> T {
-        self.value.lock().clone()
+        self.value.lock().unwrap().clone()
     }
 
     /// Attempts to update the value and returns whether the value changed.
     pub fn update(&self, val: T) -> bool {
-        let mut lock = self.value.lock();
+        let mut lock = self.value.lock().unwrap();
         if *lock != val {
             tracing::info!(target: "config", "Updated config field '{}' from {:?} to {:?}", self.field_name, *lock, val);
             self.set_metric_value(lock.clone(), 0);

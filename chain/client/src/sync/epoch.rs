@@ -31,11 +31,10 @@ use near_primitives::types::{
 use near_primitives::utils::compression::CompressedData;
 use near_store::Store;
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
-use parking_lot::Mutex;
 use rand::seq::SliceRandom;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use tracing::instrument;
 
 pub struct EpochSync {
@@ -104,7 +103,7 @@ impl EpochSync {
         let target_epoch_second_last_block_header =
             chain_store.get_block_header(target_epoch_last_block_header.prev_hash())?;
 
-        let mut guard = cache.lock();
+        let mut guard = cache.lock().unwrap();
         if let Some((epoch_id, proof)) = &*guard {
             if epoch_id == target_epoch_last_block_header.epoch_id() {
                 return Ok(proof.clone());

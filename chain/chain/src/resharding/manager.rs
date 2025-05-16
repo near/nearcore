@@ -1,8 +1,10 @@
 use super::event_type::{ReshardingEventType, ReshardingSplitShardParams};
-use super::types::{ReshardingSender, ScheduleResharding};
+use super::types::ReshardingSender;
 use crate::ChainStoreUpdate;
+use crate::flat_storage_resharder::{FlatStorageResharder, FlatStorageResharderController};
+use crate::types::RuntimeAdapter;
 use itertools::Itertools;
-use near_async::messaging::CanSend;
+use near_chain_configs::{MutableConfigValue, ReshardingConfig, ReshardingHandle};
 use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::block::Block;
@@ -23,16 +25,31 @@ use std::sync::Arc;
 pub struct ReshardingManager {
     store: Store,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
-    resharding_sender: ReshardingSender,
+    /// Configuration for resharding.
+    pub resharding_config: MutableConfigValue<ReshardingConfig>,
+    /// A handle that allows the main process to interrupt resharding if needed.
+    /// This typically happens when the main process is interrupted.
+    pub resharding_handle: ReshardingHandle,
+    /// Takes care of performing resharding on the flat storage.
+    pub flat_storage_resharder: FlatStorageResharder,
 }
 
 impl ReshardingManager {
     pub fn new(
         store: Store,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
+        runtime_adapter: Arc<dyn RuntimeAdapter>,
+        resharding_config: MutableConfigValue<ReshardingConfig>,
         resharding_sender: ReshardingSender,
     ) -> Self {
-        Self { store, epoch_manager, resharding_sender }
+        let resharding_handle = ReshardingHandle::new();
+        let flat_storage_resharder = FlatStorageResharder::new(
+            runtime_adapter,
+            resharding_sender,
+            FlatStorageResharderController::from_resharding_handle(resharding_handle.clone()),
+            resharding_config.clone(),
+        );
+        Self { store, epoch_manager, resharding_config, flat_storage_resharder, resharding_handle }
     }
 
     /// Trigger resharding if shard layout changes after the given block.
@@ -80,7 +97,14 @@ impl ReshardingManager {
             ReshardingEventType::from_shard_layout(&next_shard_layout, block_info)?;
         match resharding_event_type {
             Some(ReshardingEventType::SplitShard(split_shard_event)) => {
-                self.split_shard(chain_store_update, block, shard_uid, tries, split_shard_event)?;
+                self.split_shard(
+                    chain_store_update,
+                    block,
+                    shard_uid,
+                    tries,
+                    split_shard_event,
+                    next_shard_layout,
+                )?;
             }
             None => {
                 tracing::warn!(target: "resharding", ?resharding_event_type, "unsupported resharding event type, skipping");
@@ -96,6 +120,7 @@ impl ReshardingManager {
         shard_uid: ShardUId,
         tries: ShardTries,
         split_shard_event: ReshardingSplitShardParams,
+        next_shard_layout: ShardLayout,
     ) -> Result<(), Error> {
         if split_shard_event.parent_shard != shard_uid {
             let parent_shard = split_shard_event.parent_shard;
@@ -114,9 +139,11 @@ impl ReshardingManager {
             &split_shard_event,
         )?;
 
-        // Trigger resharding by sending the event to the resharding actor.
-        // This would subsequently trigger the resharding after resharding block is finalized.
-        self.resharding_sender.send(ScheduleResharding { split_shard_event });
+        // Trigger resharding of flat storage.
+        self.flat_storage_resharder.start_resharding(
+            ReshardingEventType::SplitShard(split_shard_event),
+            &next_shard_layout,
+        )?;
 
         Ok(())
     }
@@ -228,7 +255,7 @@ impl ReshardingManager {
 
             // TODO(resharding): remove duplicate_nodes_at_split_boundary method after proper fix for refcount issue
             let trie_recorder = parent_trie.take_recorder().unwrap();
-            let mut trie_recorder = trie_recorder.write();
+            let mut trie_recorder = trie_recorder.write().expect("no poison");
             Self::duplicate_nodes_at_split_boundary(
                 &mut store_update,
                 trie_recorder.recorded_iter(),

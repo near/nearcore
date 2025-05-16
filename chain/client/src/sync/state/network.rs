@@ -15,9 +15,8 @@ use near_primitives::network::PeerId;
 use near_primitives::state_sync::{ShardStateSyncResponse, ShardStateSyncResponseHeader};
 use near_primitives::types::ShardId;
 use near_store::{DBCol, Store};
-use parking_lot::Mutex;
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use tokio::select;
 use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
@@ -194,7 +193,7 @@ impl StateSyncDownloadSourcePeer {
         // whether on success or timeout.
         let _remove_key_upon_drop = RemoveKeyUponDrop { key: key.clone(), state: state.clone() };
         {
-            let mut state_lock = state.lock();
+            let mut state_lock = state.lock().unwrap();
             state_lock.pending_requests.insert(key.clone(), state_value);
         }
 
@@ -232,7 +231,7 @@ struct RemoveKeyUponDrop {
 
 impl Drop for RemoveKeyUponDrop {
     fn drop(&mut self) {
-        let mut state_lock = self.state.lock();
+        let mut state_lock = self.state.lock().unwrap();
         state_lock.pending_requests.remove(&self.key);
     }
 }

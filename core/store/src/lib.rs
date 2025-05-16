@@ -1,5 +1,7 @@
 #![cfg_attr(enable_const_type_id, feature(const_type_id))]
 
+extern crate core;
+
 pub use crate::columns::DBCol;
 pub use crate::config::{Mode, StoreConfig};
 pub use crate::db::{

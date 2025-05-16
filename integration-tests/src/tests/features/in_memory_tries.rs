@@ -35,9 +35,7 @@ fn slow_test_in_memory_trie_node_consistency() {
     let mut clock = FakeClock::new(Utc::UNIX_EPOCH);
 
     let epoch_length = 9000;
-    let boundary_accounts =
-        ["account3", "account5", "account7"].iter().map(|a| a.parse().unwrap()).collect();
-    let shard_layout = ShardLayout::multi_shard_custom(boundary_accounts, 1);
+    let shard_layout = ShardLayout::simple_v1(&["account3", "account5", "account7"]);
     let validators_spec = ValidatorsSpec::desired_roles(&["account0", "account1"], &[]);
 
     let genesis = TestGenesisBuilder::new()
@@ -389,7 +387,15 @@ fn run_chain_for_some_blocks_while_sending_money_around(
 /// Returns the number of memtrie roots for the given client and shard, or
 /// None if that shard does not load memtries.
 fn num_memtrie_roots(env: &TestEnv, client_id: usize, shard: ShardUId) -> Option<usize> {
-    Some(env.clients[client_id].runtime_adapter.get_tries().get_memtries(shard)?.read().num_roots())
+    Some(
+        env.clients[client_id]
+            .runtime_adapter
+            .get_tries()
+            .get_memtries(shard)?
+            .read()
+            .unwrap()
+            .num_roots(),
+    )
 }
 
 /// Base case for testing in-memory tries consistency with state sync.
@@ -410,9 +416,7 @@ fn test_in_memory_trie_consistency_with_state_sync_base_case(track_all_shards: b
 
     let mut clock = FakeClock::new(Utc::UNIX_EPOCH);
 
-    let boundary_accounts =
-        ["account3", "account5", "account7"].iter().map(|a| a.parse().unwrap()).collect();
-    let shard_layout = ShardLayout::multi_shard_custom(boundary_accounts, 1);
+    let shard_layout = ShardLayout::simple_v1(&["account3", "account5", "account7"]);
     let validators_spec = ValidatorsSpec::desired_roles(
         &accounts[0..NUM_VALIDATORS].iter().map(|a| a.as_str()).collect::<Vec<_>>(),
         &[],

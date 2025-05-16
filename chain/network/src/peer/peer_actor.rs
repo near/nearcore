@@ -45,7 +45,9 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::types::EpochId;
 use near_primitives::utils::DisplayOption;
-use near_primitives::version::{MIN_SUPPORTED_PROTOCOL_VERSION, PROTOCOL_VERSION, ProtocolVersion};
+use near_primitives::version::{
+    PEER_MIN_ALLOWED_PROTOCOL_VERSION, PROTOCOL_VERSION, ProtocolVersion,
+};
 use parking_lot::Mutex;
 use rand::seq::IteratorRandom;
 use rand::thread_rng;
@@ -472,7 +474,7 @@ impl PeerActor {
             };
         let handshake = Handshake {
             protocol_version: spec.protocol_version,
-            oldest_supported_version: MIN_SUPPORTED_PROTOCOL_VERSION,
+            oldest_supported_version: PEER_MIN_ALLOWED_PROTOCOL_VERSION,
             sender_peer_id: self.network_state.config.node_id(),
             target_peer_id: spec.peer_id,
             sender_listen_port: self.network_state.config.node_addr.as_ref().map(|a| a.port()),
@@ -562,7 +564,7 @@ impl PeerActor {
                 }
             }
             ConnectingStatus::Inbound { .. } => {
-                if MIN_SUPPORTED_PROTOCOL_VERSION > handshake.protocol_version
+                if PEER_MIN_ALLOWED_PROTOCOL_VERSION > handshake.protocol_version
                     || handshake.protocol_version > PROTOCOL_VERSION
                 {
                     tracing::debug!(
@@ -573,7 +575,7 @@ impl PeerActor {
                         self.my_node_info.clone(),
                         HandshakeFailureReason::ProtocolVersionMismatch {
                             version: PROTOCOL_VERSION,
-                            oldest_supported_version: MIN_SUPPORTED_PROTOCOL_VERSION,
+                            oldest_supported_version: PEER_MIN_ALLOWED_PROTOCOL_VERSION,
                         },
                     ));
                     return;
@@ -892,9 +894,9 @@ impl PeerActor {
                         // Retry the handshake with the common protocol version.
                         let common_version = std::cmp::min(version, PROTOCOL_VERSION);
                         if common_version < oldest_supported_version
-                            || common_version < MIN_SUPPORTED_PROTOCOL_VERSION
+                            || common_version < PEER_MIN_ALLOWED_PROTOCOL_VERSION
                         {
-                            tracing::warn!(target: "network", "Unable to connect to a node ({}) due to a network protocol version mismatch. Our version: {:?}, their: {:?}", peer_info, (PROTOCOL_VERSION, MIN_SUPPORTED_PROTOCOL_VERSION), (version, oldest_supported_version));
+                            tracing::warn!(target: "network", "Unable to connect to a node ({}) due to a network protocol version mismatch. Our version: {:?}, their: {:?}", peer_info, (PROTOCOL_VERSION, PEER_MIN_ALLOWED_PROTOCOL_VERSION), (version, oldest_supported_version));
                             self.stop(ctx, ClosingReason::HandshakeFailed);
                             return;
                         }
@@ -1387,12 +1389,11 @@ impl PeerActor {
                 let for_me = self.network_state.message_for_me(&msg.target);
                 if for_me {
                     // Check if we have already received this message.
-                    let new_hash = CryptoHash::hash_borsh(&msg.body);
                     let fastest = self
                         .network_state
                         .recent_routed_messages
                         .lock()
-                        .put(new_hash, ())
+                        .put(CryptoHash::hash_borsh(&msg.body), ())
                         .is_none();
                     // Register that the message has been received.
                     metrics::record_routed_msg_metrics(&self.clock, &msg, conn.tier, fastest);

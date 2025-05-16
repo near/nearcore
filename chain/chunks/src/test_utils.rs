@@ -23,10 +23,9 @@ use near_store::adapter::StoreAdapter;
 use near_store::adapter::chunk_store::ChunkStoreAdapter;
 use near_store::set_genesis_height;
 use near_store::test_utils::create_test_store;
-use parking_lot::{Mutex, RwLock};
 use reed_solomon_erasure::galois_8::ReedSolomon;
 use std::collections::VecDeque;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, RwLock};
 
 use crate::adapter::ShardsManagerRequestFromClient;
 use crate::client::ShardsManagerResponse;
@@ -285,13 +284,13 @@ pub struct MockClientAdapterForShardsManager {
 
 impl CanSend<ShardsManagerResponse> for MockClientAdapterForShardsManager {
     fn send(&self, msg: ShardsManagerResponse) {
-        self.requests.write().push_back(msg);
+        self.requests.write().unwrap().push_back(msg);
     }
 }
 
 impl MockClientAdapterForShardsManager {
     pub fn pop(&self) -> Option<ShardsManagerResponse> {
-        self.requests.write().pop_front()
+        self.requests.write().unwrap().pop_front()
     }
 }
 
@@ -311,21 +310,21 @@ pub struct SynchronousShardsManagerAdapter {
 
 impl CanSend<ShardsManagerRequestFromClient> for SynchronousShardsManagerAdapter {
     fn send(&self, msg: ShardsManagerRequestFromClient) {
-        let mut shards_manager = self.shards_manager.lock();
+        let mut shards_manager = self.shards_manager.lock().unwrap();
         shards_manager.handle_client_request(msg);
     }
 }
 
 impl CanSend<ShardsManagerRequestFromNetwork> for SynchronousShardsManagerAdapter {
     fn send(&self, msg: ShardsManagerRequestFromNetwork) {
-        let mut shards_manager = self.shards_manager.lock();
+        let mut shards_manager = self.shards_manager.lock().unwrap();
         shards_manager.handle_network_request(msg);
     }
 }
 
 impl CanSend<ShardsManagerResendChunkRequests> for SynchronousShardsManagerAdapter {
     fn send(&self, _: ShardsManagerResendChunkRequests) {
-        let mut shards_manager = self.shards_manager.lock();
+        let mut shards_manager = self.shards_manager.lock().unwrap();
         shards_manager.resend_chunk_requests();
     }
 }

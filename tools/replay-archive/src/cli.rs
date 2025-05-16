@@ -30,7 +30,6 @@ use near_primitives::types::{BlockHeight, Gas, ShardId};
 use near_state_viewer::progress_reporter::ProgressReporter;
 use near_store::{ShardUId, Store, get_genesis_state_roots};
 use nearcore::{NearConfig, NightshadeRuntime, NightshadeRuntimeExt, load_config};
-use node_runtime::SignedValidPeriodTransactions;
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
@@ -289,7 +288,7 @@ impl ReplayController {
 
         self.validate_chunk(
             is_new_chunk,
-            &chunk,
+            chunk.as_ref(),
             chunk_header,
             prev_block_hash,
             prev_chunk_header,
@@ -314,14 +313,11 @@ impl ReplayController {
                 prev_chunk_header.height_included(),
             )?;
 
-            let transactions = SignedValidPeriodTransactions::new(
-                chunk.to_transactions().to_vec(),
-                // FIXME: see the `validate_chunk` thing above.
-                vec![true; chunk.to_transactions().len()],
-            );
             ShardUpdateReason::NewChunk(NewChunkData {
                 chunk_header: chunk_header.clone(),
-                transactions,
+                transactions: chunk.to_transactions().to_vec(),
+                // FIXME: see the `validate_chunk` thing above.
+                transaction_validity_check_results: vec![true; chunk.to_transactions().len()],
                 receipts,
                 block: block_context,
                 storage_context,

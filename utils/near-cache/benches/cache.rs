@@ -1,7 +1,11 @@
-use bencher::{Bencher, benchmark_group, benchmark_main};
+#[macro_use]
+extern crate bencher;
+
+use std::num::NonZeroUsize;
+
+use bencher::Bencher;
 use lru::LruCache;
 use near_cache::SyncLruCache;
-use std::num::NonZeroUsize;
 
 fn bench_lru(bench: &mut Bencher) {
     bench.iter(|| {

@@ -14,6 +14,7 @@ workspace = true
 
 [dependencies]
 toml.workspace = true
+serde.workspace = true
 anyhow.workspace = true
 semver.workspace = true
 cargo_metadata.workspace = true

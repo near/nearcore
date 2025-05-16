@@ -67,12 +67,11 @@ pub mod sender;
 use data::TestLoopData;
 use futures::{TestLoopAsyncComputationSpawner, TestLoopFutureSpawner};
 use near_time::{Clock, Duration, FakeClock};
-use parking_lot::Mutex;
 use pending_events_sender::{CallbackEvent, PendingEventsSender, RawPendingEventsSender};
 use serde::Serialize;
 use std::collections::{BinaryHeap, HashSet};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use time::ext::InstantExt;
 
 /// Main struct for the Test Loop framework.
@@ -197,7 +196,7 @@ impl TestLoopV2 {
         let pending_events = Arc::new(Mutex::new(InFlightEvents::new()));
         let pending_events_clone = pending_events.clone();
         let raw_pending_events_sender = RawPendingEventsSender::new(move |callback_event| {
-            let mut pending_events = pending_events_clone.lock();
+            let mut pending_events = pending_events_clone.lock().unwrap();
             pending_events.add(callback_event);
         });
         let shutting_down = Arc::new(AtomicBool::new(false));
@@ -276,7 +275,7 @@ impl TestLoopV2 {
 
     /// Helper to push events we have just received into the heap.
     fn queue_received_events(&mut self) {
-        for event in self.pending_events.lock().events.drain(..) {
+        for event in self.pending_events.lock().unwrap().events.drain(..) {
             self.events.push(EventInHeap {
                 due: self.current_time + event.delay,
                 id: self.next_event_index,

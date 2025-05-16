@@ -32,10 +32,9 @@ use near_epoch_manager::{EpochManager, EpochManagerAdapter, proposals_to_epoch_i
 use near_primitives::account::id::AccountId;
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::block::Block;
-use near_primitives::chains::MAINNET;
 use near_primitives::epoch_info::EpochInfo;
-use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::hash::CryptoHash;
+use near_primitives::shard_layout::ShardLayout;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::sharding::{ChunkHash, ShardChunk};
 use near_primitives::state::FlatStateValue;
@@ -402,7 +401,8 @@ pub(crate) fn dump_code(
     let shard_layout = epoch_manager.get_shard_layout(epoch_id).unwrap();
 
     for (shard_index, state_root) in state_roots.iter().enumerate() {
-        let shard_uid = shard_layout.get_shard_uid(shard_index).unwrap();
+        let shard_id = shard_layout.get_shard_id(shard_index).unwrap();
+        let shard_uid = shard_id_to_uid(epoch_manager.as_ref(), shard_id, epoch_id).unwrap();
         if let Ok(contract_code) =
             runtime.view_contract_code(&shard_uid, *state_root, &account_id.parse().unwrap())
         {
@@ -874,7 +874,7 @@ pub(crate) fn view_genesis(
 fn read_genesis_from_store(
     chain_store: &ChainStore,
     genesis_height: u64,
-) -> Result<(Block, Vec<ShardChunk>), Error> {
+) -> Result<(Block, Vec<Arc<ShardChunk>>), Error> {
     let genesis_hash = chain_store.get_block_hash_by_height(genesis_height)?;
     let genesis_block = chain_store.get_block(&genesis_hash)?;
     let mut genesis_chunks = vec![];
@@ -1224,9 +1224,10 @@ pub(crate) fn contract_accounts(
     let (_, _runtime, state_roots, _header) = load_trie(store.clone(), home_dir, &near_config);
 
     let tries = state_roots.iter().enumerate().map(|(shard_index, &state_root)| {
-        let epoch_config_store = EpochConfigStore::for_chain_id(MAINNET, None).unwrap();
-        let shard_layout = &epoch_config_store.get_config(PROTOCOL_VERSION).shard_layout;
-        let shard_uid = shard_layout.get_shard_uid(shard_index).unwrap();
+        // TODO: This assumes simple nightshade layout, it will need an update when we reshard.
+        let shard_layout = ShardLayout::get_simple_nightshade_layout();
+        let shard_id = shard_layout.get_shard_id(shard_index).unwrap();
+        let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
         // Use simple non-caching storage, we don't expect many duplicate lookups while iterating.
         let storage = TrieDBStorage::new(store.trie_store(), shard_uid);
         // We don't need flat state to traverse all accounts.

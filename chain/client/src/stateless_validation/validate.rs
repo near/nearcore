@@ -283,12 +283,14 @@ fn validate_chunk_endorsement_signature(
     epoch_manager: &dyn EpochManagerAdapter,
     endorsement: &ChunkEndorsement,
 ) -> Result<(), Error> {
-    let validator = epoch_manager.get_validator_by_account_id(
-        &endorsement.chunk_production_key().epoch_id,
-        &endorsement.account_id(),
-    )?;
-    if !endorsement.verify(validator.public_key()) {
-        return Err(Error::InvalidChunkEndorsement);
+    if epoch_manager.should_validate_signatures() {
+        let validator = epoch_manager.get_validator_by_account_id(
+            &endorsement.chunk_production_key().epoch_id,
+            &endorsement.account_id(),
+        )?;
+        if !endorsement.verify(validator.public_key()) {
+            return Err(Error::InvalidChunkEndorsement);
+        }
     }
     Ok(())
 }
@@ -297,12 +299,14 @@ fn validate_witness_contract_code_request_signature(
     epoch_manager: &dyn EpochManagerAdapter,
     request: &ContractCodeRequest,
 ) -> Result<(), Error> {
-    let validator = epoch_manager.get_validator_by_account_id(
-        &request.chunk_production_key().epoch_id,
-        &request.requester(),
-    )?;
-    if !request.verify_signature(validator.public_key()) {
-        return Err(Error::Other("Invalid witness contract code request signature".to_owned()));
+    if epoch_manager.should_validate_signatures() {
+        let validator = epoch_manager.get_validator_by_account_id(
+            &request.chunk_production_key().epoch_id,
+            &request.requester(),
+        )?;
+        if !request.verify_signature(validator.public_key()) {
+            return Err(Error::Other("Invalid witness contract code request signature".to_owned()));
+        }
     }
     Ok(())
 }
@@ -311,9 +315,12 @@ fn validate_witness_contract_accesses_signature(
     epoch_manager: &dyn EpochManagerAdapter,
     accesses: &ChunkContractAccesses,
 ) -> Result<(), Error> {
-    let chunk_producer = epoch_manager.get_chunk_producer_info(accesses.chunk_production_key())?;
-    if !accesses.verify_signature(chunk_producer.public_key()) {
-        return Err(Error::Other("Invalid witness contract accesses signature".to_owned()));
+    if epoch_manager.should_validate_signatures() {
+        let chunk_producer =
+            epoch_manager.get_chunk_producer_info(accesses.chunk_production_key())?;
+        if !accesses.verify_signature(chunk_producer.public_key()) {
+            return Err(Error::Other("Invalid witness contract accesses signature".to_owned()));
+        }
     }
     Ok(())
 }

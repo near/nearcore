@@ -58,9 +58,10 @@ available to test them.
 
 ## Client
 
-The Client is separated from the runtime via a `RuntimeAdapter` trait for historical reasons.
+The Client is separated from the runtime via a `RuntimeAdapter` trait.
 In production, it uses `NightshadeRuntime` which uses real runtime and epoch managers.
-The same should be used in tests.
+To test the client without instantiating runtime and epoch manager, we have a mock runtime
+`KeyValueRuntime`.
 
 Most of the tests in the client work by setting up either a single node (via
 `setup_mock()`) or multiple nodes (via `setup_mock_all_validators()`) and then

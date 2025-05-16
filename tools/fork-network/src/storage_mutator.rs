@@ -20,9 +20,8 @@ use near_store::trie::update::TrieUpdateResult;
 use near_store::{DBCol, ShardTries};
 
 use anyhow::Context;
-use parking_lot::Mutex;
 use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 /// Stores the state root and next height we want to pass to apply_memtrie_changes() and delete_until_height()
 /// When multiple StorageMutators in different threads want to commit changes to the same shard, they'll first
@@ -119,7 +118,7 @@ impl ShardUpdateState {
     }
 
     pub(crate) fn state_root(&self) -> CryptoHash {
-        self.root.lock().as_ref().map_or_else(CryptoHash::default, |s| s.state_root)
+        self.root.lock().unwrap().as_ref().map_or_else(CryptoHash::default, |s| s.state_root)
     }
 }
 
@@ -373,7 +372,8 @@ impl StorageMutator {
         let mut state_roots = Vec::new();
 
         for (shard_index, update) in updates.into_iter().enumerate() {
-            let shard_uid = target_shard_layout.get_shard_uid(shard_index).unwrap();
+            let shard_id = target_shard_layout.get_shard_id(shard_index).unwrap();
+            let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &target_shard_layout);
             let new_state_root =
                 commit_shard(shard_uid, &shard_tries, &update.update_state, update.updates)?;
             state_roots.push(new_state_root);
@@ -410,7 +410,7 @@ fn commit_to_existing_state(
     shard_tries.apply_memtrie_changes(&trie_changes, shard_uid, root.update_height);
     // We may not have loaded memtries (some commands don't need to), so check.
     if let Some(memtries) = shard_tries.get_memtries(shard_uid) {
-        memtries.write().delete_until_height(root.update_height);
+        memtries.write().unwrap().delete_until_height(root.update_height);
     }
     root.update_height += 1;
     root.state_root = state_root;
@@ -465,7 +465,7 @@ pub(crate) fn commit_shard(
     update_state: &ShardUpdateState,
     updates: Vec<(TrieKey, Option<Vec<u8>>)>,
 ) -> anyhow::Result<StateRoot> {
-    let mut root = update_state.root.lock();
+    let mut root = update_state.root.lock().unwrap();
 
     let new_root = match root.as_mut() {
         Some(root) => {

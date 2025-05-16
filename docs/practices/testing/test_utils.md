@@ -50,11 +50,16 @@ let store = create_test_store();
 
 ## EpochManager
 
-Use EpochManager itself.
+See usages of MockEpochManager. Note that this is deprecated. Try to use
+EpochManager itself wherever possible.
 
 ## Runtime
 
-Use Nightshade runtime.
+You can use the KeyValueRuntime (instead of the Nightshade one):
+
+```rust
+KeyValueRuntime::new(store, &epoch_manager);
+```
 
 ## Chain
 

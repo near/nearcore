@@ -1,8 +1,7 @@
 use std::ops::ControlFlow;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 use actix::System;
-use parking_lot::RwLock;
 
 use near_client::{GetBlock, GetChunk};
 use near_network::test_utils::wait_or_timeout;
@@ -29,7 +28,7 @@ fn ultra_slow_test_track_shards() {
         let view_client = clients[clients.len() - 1].1.clone();
         let last_block_hash: Arc<RwLock<Option<CryptoHash>>> = Arc::new(RwLock::new(None));
         wait_or_timeout(100, 30000, || async {
-            let bh = *last_block_hash.read();
+            let bh = *last_block_hash.read().unwrap();
             if let Some(block_hash) = bh {
                 let msg = GetChunk::BlockHash(block_hash, ShardId::new(3));
                 let res = view_client.send(msg.with_span_context()).await;
@@ -46,7 +45,7 @@ fn ultra_slow_test_track_shards() {
                 let res = view_client.send(GetBlock::latest().with_span_context()).await;
                 match &res {
                     Ok(Ok(b)) if b.header.height > 10 => {
-                        *last_block_hash1.write() = Some(b.header.hash);
+                        *last_block_hash1.write().unwrap() = Some(b.header.hash);
                     }
                     Err(_) => return ControlFlow::Continue(()),
                     _ => {}
