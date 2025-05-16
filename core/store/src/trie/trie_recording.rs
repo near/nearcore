@@ -791,7 +791,8 @@ mod trie_recording_tests {
 mod memtrie_batch_iteration_tests {
     use crate::Trie;
     use crate::test_utils::{
-        TestTriesBuilder, create_test_store, test_populate_flat_storage, test_populate_trie,
+        TestTriesBuilder, create_test_store, simplify_changes, test_populate_flat_storage,
+        test_populate_trie,
     };
     use crate::trie::AccessOptions;
     use crate::trie::trie_tests::merge_trie_changes;
@@ -869,9 +870,31 @@ mod memtrie_batch_iteration_tests {
         // Inserting the same key/values into an empty trie should result in the same TrieChanges
         let new_trie = tries.get_trie_for_shard(shard_uid, Trie::EMPTY_ROOT);
         let trie_changes = new_trie
-            .update_with_trie_storage(initial, AccessOptions::DEFAULT)
+            .update_with_trie_storage(initial.clone(), AccessOptions::DEFAULT)
             .expect("failed to update trie");
         assert_eq!(trie_changes, all_changes);
+
+        // Create a new store and apply the changes to it, then iterate the trie
+        // as a consistency check. We should get the same key/values and
+        // recorded changes.
+        let new_store = create_test_store();
+        let new_tries = TestTriesBuilder::new().with_store(new_store).build();
+        let mut store_update = new_tries.store_update();
+        new_tries.apply_all(&trie_changes, shard_uid, &mut store_update);
+        store_update.commit().expect("failed to commit store update");
+
+        let trie = new_tries.get_trie_for_shard(shard_uid, root).recording_reads_new_recorder();
+        let read_trie = trie.lock_for_iter();
+        let iter = read_trie.iter().expect("failed to get iterator");
+        let got = iter
+            .map(|item| item.expect("got error iterating"))
+            .map(|(k, v)| (k, Some(v)))
+            .collect::<Vec<_>>();
+        assert_eq!(simplify_changes(&initial), got);
+
+        let recorded_changes =
+            trie.recorded_trie_changes(root).expect("failed to get recorded changes");
+        assert_eq!(trie_changes, recorded_changes);
     }
 
     #[test]
