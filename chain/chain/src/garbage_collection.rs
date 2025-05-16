@@ -15,7 +15,7 @@ use near_primitives::types::{
     AccountId, BlockHeight, BlockHeightDelta, EpochId, NumBlocks, ShardId,
 };
 use near_primitives::utils::{
-    get_block_shard_id, get_block_shard_id_rev, index_to_bytes,
+    get_block_shard_id, get_block_shard_id_rev, get_outcome_id_block_hash, index_to_bytes,
 };
 use near_store::adapter::trie_store::get_shard_uid_mapping;
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
@@ -972,6 +972,14 @@ impl<'a> ChainStoreUpdate<'a> {
             // It is ok to use the shard id from the header because it is a new
             // chunk. An old chunk may have the shard id from the parent shard.
             let shard_id = chunk_header.shard_id();
+            let outcome_ids =
+                self.chain_store().get_outcomes_by_block_hash_and_shard_id(block_hash, shard_id)?;
+            for outcome_id in outcome_ids {
+                self.gc_col(
+                    DBCol::TransactionResultForBlock,
+                    &get_outcome_id_block_hash(&outcome_id, block_hash),
+                );
+            }
             self.gc_col(DBCol::OutcomeIds, &get_block_shard_id(block_hash, shard_id));
         }
         self.merge(store_update);

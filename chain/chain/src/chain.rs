@@ -475,6 +475,11 @@ impl Chain {
             chain_config.save_trie_changes,
             transaction_validity_period,
         );
+
+        // Disable TRFB writes on validator nodes.  We treat the presence of a
+        // validator signer as an indicator the node produces blocks.
+        let save_block_outcomes = validator.get().is_none();
+        chain_store.set_save_block_outcomes(save_block_outcomes);
         let state_sync_adapter = ChainStateSyncAdapter::new(
             clock.clone(),
             ChainStoreAdapter::new(chain_store.store()),
