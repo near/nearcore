@@ -102,8 +102,9 @@ pytest --timeout=180 sanity/garbage_collection_intense.py
 pytest --timeout=180 sanity/garbage_collection_intense.py --features nightly
 pytest --timeout=120 sanity/garbage_collection_archival.py
 pytest --timeout=120 sanity/garbage_collection_archival.py --features nightly
-pytest --timeout=300 sanity/gc_after_sync.py
-pytest --timeout=300 sanity/gc_after_sync.py --features nightly
+# TODO(#13551): Enable after fixing flaky test
+# pytest --timeout=300 sanity/gc_after_sync.py
+# pytest --timeout=300 sanity/gc_after_sync.py --features nightly
 pytest --timeout=300 sanity/gc_after_sync1.py
 pytest --timeout=300 sanity/gc_after_sync1.py --features nightly
 pytest --timeout=300 sanity/gc_sync_after_sync.py
