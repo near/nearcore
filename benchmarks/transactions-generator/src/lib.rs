@@ -174,6 +174,18 @@ impl TxGenerator {
         }
     }
 
+    fn run_block_updates()-> Receiver<CryptoHash> {
+
+    }
+    
+    async fn run_the_load(
+        load: &Load,
+        block_rx: Receiver<CryptoHash>,
+    ) {
+        let (tx_latest_block, rx_latest_block) = tokio::sync::watch::channel(Default::default());
+        
+    }
+
     fn start_transactions_loop(
         config: &Config,
         client_sender: ClientSender,
@@ -207,6 +219,25 @@ impl TxGenerator {
 
         let (load_tx, _) = tokio::sync::broadcast::channel(config.schedule.len());
 
+        let (tx_latest_block, rx_latest_block) = tokio::sync::watch::channel(Default::default());
+        
+        let view_client_sender1 = view_client_sender.clone();
+        tokio::spawn(async move {
+            loop {
+                match Self::get_latest_block(&view_client_sender1).await {
+                    Ok(new_hash) => {
+                        let _ = tx_latest_block.send(new_hash);
+                        tokio::time::interval(Duration::from_secs(1)).tick().await;
+                    }
+                    Err(err) => {
+                        tracing::error!(target:"transaction-generator",
+                            "failed reading the latest block hash: {err}");
+                        tokio::time::interval(Duration::from_millis(100)).tick().await;
+                    }
+                }
+            }
+        });
+
         /// Number of tasks to run producing and sending transactions
         /// We need several tasks to not get blocked by the sending latency.
         /// 4 is currently more than enough.
@@ -217,6 +248,7 @@ impl TxGenerator {
             let client_sender = client_sender.clone();
             let view_client_sender = view_client_sender.clone();
             let runner_state = runner_state.clone();
+            let mut rx_block = rx_latest_block.clone();
             tokio::spawn(async move {
                 let mut rnd: StdRng = SeedableRng::from_entropy();
 
@@ -232,28 +264,33 @@ impl TxGenerator {
                 }
 
                 let accounts = rx_clients.recv().await.unwrap();
-                let block_hash = runner_state.block_hash.clone();
-
+                
                 let load: Load = rx_load.recv().await.unwrap();
                 let mut tx_interval =
                     tokio::time::interval(Duration::from_micros(1_000_000 * TASK_COUNT / load.tps));
 
+                let mut latest_block_hash = CryptoHash::default();
                 loop {
-                    tx_interval.tick().await;
-                    let block_hash = *block_hash.lock();
-                    let ok = Self::generate_send_transaction(
-                        &mut rnd,
-                        &accounts,
-                        &block_hash,
-                        &client_sender,
-                    )
-                    .await;
+                    tokio::select!{
+                        _ = rx_block.changed() => {
+                            latest_block_hash = rx_block.borrow().clone();
+                        }
+                        _ = tx_interval.tick() => {
+                            let ok = Self::generate_send_transaction(
+                                &mut rnd,
+                                &accounts,
+                                &latest_block_hash,
+                                &client_sender,
+                            )
+                            .await;
 
-                    let mut stats = runner_state.stats.lock();
-                    if ok {
-                        stats.pool_accepted += 1;
-                    } else {
-                        stats.pool_rejected += 1;
+                            let mut stats = runner_state.stats.lock();
+                            if ok {
+                                stats.pool_accepted += 1;
+                            } else {
+                                stats.pool_rejected += 1;
+                            }         
+                        }
                     }
                 }
             });
