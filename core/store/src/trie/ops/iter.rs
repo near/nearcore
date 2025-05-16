@@ -144,21 +144,22 @@ where
         // If `upper_bound` is true, we need to check if the next element
         // is actually key == `key` and skip it.
         if upper_bound {
-            if let Some(last) = self.trail.last() {
-                let mut compare_with = self.key_nibbles.clone();
+            let last =
+                self.trail.last().expect("Trail should not be empty after seek_nibble_slice");
+            let mut compare_with = self.key_nibbles.clone();
 
-                // If the iterator is positioned on a leaf, we need to consider
-                // the extension of the leaf as part of the key to compare.
-                if let GenericTrieNode::Leaf { extension, .. } = &last.node {
-                    let existing_key = NibbleSlice::from_encoded(&extension).0;
-                    compare_with.extend(existing_key.iter());
-                }
+            // If the iterator is positioned on a leaf, we need to consider
+            // the extension of the leaf as part of the key to compare.
+            if let GenericTrieNode::Leaf { extension, .. } = &last.node {
+                let existing_key = NibbleSlice::from_encoded(&extension).0;
+                compare_with.extend(existing_key.iter());
+            }
 
-                if last.is_entering_value_node()
-                    && key.as_ref() == NibbleSlice::nibbles_to_bytes(&compare_with)
-                {
-                    self.iter_step();
-                }
+            if last.is_entering_value_node()
+                && key.as_ref() == NibbleSlice::nibbles_to_bytes(&compare_with)
+            {
+                let result = self.iter_step();
+                assert!(matches!(result, Some(IterStep::Value(_))));
             }
         }
         Ok(())
