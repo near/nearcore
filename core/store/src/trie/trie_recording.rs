@@ -808,7 +808,7 @@ mod memtrie_batch_iteration_tests {
     fn iterate_batch(
         trie: &Trie,
         previous_batch_last_key: Option<Vec<u8>>,
-        batch_items: usize,
+        batch_limit: usize,
     ) -> Option<Vec<u8>> {
         let read_trie = trie.lock_for_iter();
         // Get the iterator for the trie, skipping the first key if needed
@@ -818,14 +818,15 @@ mod memtrie_batch_iteration_tests {
         }
 
         // Iterate over the trie, stopping when we reach the batch size
+        let mut items = 0;
         while let Some(result) = iter.next() {
             let Ok((key, _value)) = result else {
                 panic!("failed to iterate");
             };
-            // TODO: should we expect here?
-            if trie.recorder_stats().map(|stats| stats.items_count).unwrap_or(0) >= batch_items {
+            if items >= batch_limit {
                 return Some(key);
             }
+            items += 1;
         }
 
         None // No more items to iterate
