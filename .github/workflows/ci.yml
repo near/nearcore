@@ -368,6 +368,7 @@ jobs:
   publishable_packages_check:
     name: "Cargo check publishable packages separately"
     runs-on: ${{ matrix.os }}
+    if: github.event_name == 'merge_group' || github.event_name == 'workflow_dispatch'
     strategy:
       fail-fast: false
       matrix:
