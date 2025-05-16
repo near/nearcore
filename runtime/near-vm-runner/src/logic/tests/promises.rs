@@ -290,6 +290,84 @@ fn test_promise_batch_action_deploy_contract() {
 }
 
 #[test]
+fn test_promise_batch_action_deploy_global_contract() {
+    let mut logic_builder = VMLogicBuilder::default();
+    let mut logic = logic_builder.build();
+    let index = promise_create(&mut logic, b"rick.test", 0, 0).expect("should create a promise");
+
+    let index_ptr = logic.internal_mem_write(&index.to_le_bytes()).ptr;
+    let code = logic.internal_mem_write(b"sample");
+
+    logic
+        .promise_batch_action_deploy_global_contract(123, code.len, code.ptr)
+        .expect_err("shouldn't accept not existent promise index");
+    let non_receipt =
+        logic.promise_and(index_ptr, 1u64).expect("should create a non-receipt promise");
+    logic
+        .promise_batch_action_deploy_global_contract(non_receipt, code.len, code.ptr)
+        .expect_err("shouldn't accept non-receipt promise index");
+
+    logic
+        .promise_batch_action_deploy_global_contract(index, code.len, code.ptr)
+        .expect("should add an action to deploy contract");
+    assert_eq!(logic.used_gas().unwrap(), 7472882202158);
+    expect_test::expect![[r#"
+        [
+          {
+            "CreateReceipt": {
+              "receipt_indices": [],
+              "receiver_id": "rick.test"
+            }
+          },
+          {
+            "FunctionCallWeight": {
+              "receipt_index": 0,
+              "method_name": [
+                112,
+                114,
+                111,
+                109,
+                105,
+                115,
+                101,
+                95,
+                99,
+                114,
+                101,
+                97,
+                116,
+                101
+              ],
+              "args": [
+                97,
+                114,
+                103,
+                115
+              ],
+              "attached_deposit": 0,
+              "prepaid_gas": 0,
+              "gas_weight": 0
+            }
+          },
+          {
+            "DeployGlobalContract": {
+              "receipt_index": 0,
+              "code": [
+                115,
+                97,
+                109,
+                112,
+                108,
+                101
+              ],
+              "mode": "code_hash",
+            }
+          }
+        ]"#]]
+    .assert_eq(&serde_json::to_string_pretty(&vm_receipts(&logic_builder.ext)).unwrap());
+}
+
+#[test]
 fn test_promise_batch_action_transfer() {
     let mut logic_builder = VMLogicBuilder::default();
     let mut logic = logic_builder.build();

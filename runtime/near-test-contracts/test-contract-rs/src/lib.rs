@@ -74,6 +74,8 @@ extern "C" {
     // #######################
     fn promise_batch_action_create_account(promise_index: u64);
     fn promise_batch_action_deploy_contract(promise_index: u64, code_len: u64, code_ptr: u64);
+    fn promise_batch_action_deploy_global_contract(promise_index: u64, code_len: u64, code_ptr: u64);
+    fn promise_batch_action_deploy_global_contract_by_account_id(promise_index: u64, code_len: u64, code_ptr: u64);
     fn promise_batch_action_function_call(
         promise_index: u64,
         method_name_len: u64,
@@ -819,6 +821,24 @@ fn call_promise() {
                     code.as_ptr() as u64,
                 );
                 promise_index
+            } else if let Some(action) = arg.get("action_deploy_global_contract") {
+                let promise_index = action["promise_index"].as_i64().unwrap() as u64;
+                let code = from_base64(action["code"].as_str().unwrap());
+                promise_batch_action_deploy_global_contract(
+                    promise_index,
+                    code.len() as u64,
+                    code.as_ptr() as u64,
+                );
+                promise_index
+            } else if let Some(action) = arg.get("action_deploy_global_contract_by_account_id") {
+                let promise_index = action["promise_index"].as_i64().unwrap() as u64;
+                let code = from_base64(action["code"].as_str().unwrap());
+                promise_batch_action_deploy_global_contract_by_account_id(
+                    promise_index,
+                    code.len() as u64,
+                    code.as_ptr() as u64,
+                );
+                promise_index
             } else if let Some(action) = arg.get("action_function_call") {
                 let promise_index = action["promise_index"].as_i64().unwrap() as u64;
                 let method_name = action["method_name"].as_str().unwrap().as_bytes();
@@ -1386,6 +1406,16 @@ pub unsafe fn sanity_check() {
         &amount_non_zero as *const u128 as *const u64 as u64,
     );
     promise_batch_action_deploy_contract(
+        batch_promise_idx,
+        contract_code.len() as u64,
+        contract_code.as_ptr() as u64,
+    );
+    promise_batch_action_deploy_global_contract(
+        batch_promise_idx,
+        contract_code.len() as u64,
+        contract_code.as_ptr() as u64,
+    );
+    promise_batch_action_deploy_global_contract_by_account_id(
         batch_promise_idx,
         contract_code.len() as u64,
         contract_code.as_ptr() as u64,
