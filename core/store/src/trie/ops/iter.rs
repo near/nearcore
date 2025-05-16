@@ -49,6 +49,14 @@ impl<N, V> Crumb<N, V> {
             _ => CrumbStatus::Exiting,
         }
     }
+
+    fn is_entering_value_node(&self) -> bool {
+        match (self.status, &self.node) {
+            (CrumbStatus::Entering, GenericTrieNode::Branch { value: Some(_), .. }) => true,
+            (CrumbStatus::Entering, GenericTrieNode::Leaf { .. }) => true,
+            _ => false,
+        }
+    }
 }
 
 /// Trie iteration is done using a stack based approach.
@@ -139,12 +147,6 @@ where
             if let Some(last) = self.trail.last() {
                 let mut compare_with = self.key_nibbles.clone();
 
-                let is_entering_value_node = match (last.status, &last.node) {
-                    (CrumbStatus::Entering, GenericTrieNode::Branch { value: Some(_), .. }) => true,
-                    (CrumbStatus::Entering, GenericTrieNode::Leaf { .. }) => true,
-                    _ => false,
-                };
-
                 // If the iterator is positioned on a leaf, we need to consider
                 // the extension of the leaf as part of the key to compare.
                 if let GenericTrieNode::Leaf { extension, .. } = &last.node {
@@ -152,7 +154,7 @@ where
                     compare_with.extend(existing_key.iter());
                 }
 
-                if is_entering_value_node
+                if last.is_entering_value_node()
                     && key.as_ref() == NibbleSlice::nibbles_to_bytes(&compare_with)
                 {
                     self.iter_step();
