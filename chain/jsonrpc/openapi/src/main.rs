@@ -49,11 +49,10 @@ use progenitor_types::{
 };
 
 #[derive(JsonSchema)]
-pub struct ResponseEither<T, E> {
-    #[serde(rename = "result")]
-    Result: T,
-    #[serde(rename = "error")]
-    Error: E,
+#[serde(rename_all="snake_case")]
+pub enum ResponseEither<T, E> {
+    Result(T),
+    Error(E),
 }
 
 #[derive(JsonSchema)]

@@ -6815,539 +6815,892 @@
         "type": "object"
       },
       "JsonRpcResponse_for_Array_of_Range_of_uint64_and_RpcError": {
-        "properties": {
-          "error": {
-            "$ref": "#/components/schemas/RpcError"
+        "oneOf": [
+          {
+            "properties": {
+              "result": {
+                "items": {
+                  "$ref": "#/components/schemas/Range_of_uint64"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "result"
+            ],
+            "type": "object"
           },
+          {
+            "properties": {
+              "error": {
+                "$ref": "#/components/schemas/RpcError"
+              }
+            },
+            "required": [
+              "error"
+            ],
+            "type": "object"
+          }
+        ],
+        "properties": {
           "id": {
             "type": "string"
           },
           "jsonrpc": {
             "type": "string"
-          },
-          "result": {
-            "items": {
-              "$ref": "#/components/schemas/Range_of_uint64"
-            },
-            "type": "array"
           }
         },
         "required": [
           "jsonrpc",
-          "id",
-          "result",
-          "error"
+          "id"
         ],
         "title": "JsonRpcResponse_for_Array_of_Range_of_uint64_and_RpcError",
         "type": "object"
       },
       "JsonRpcResponse_for_Array_of_ValidatorStakeView_and_RpcError": {
-        "properties": {
-          "error": {
-            "$ref": "#/components/schemas/RpcError"
+        "oneOf": [
+          {
+            "properties": {
+              "result": {
+                "items": {
+                  "$ref": "#/components/schemas/ValidatorStakeView"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "result"
+            ],
+            "type": "object"
           },
+          {
+            "properties": {
+              "error": {
+                "$ref": "#/components/schemas/RpcError"
+              }
+            },
+            "required": [
+              "error"
+            ],
+            "type": "object"
+          }
+        ],
+        "properties": {
           "id": {
             "type": "string"
           },
           "jsonrpc": {
             "type": "string"
-          },
-          "result": {
-            "items": {
-              "$ref": "#/components/schemas/ValidatorStakeView"
-            },
-            "type": "array"
           }
         },
         "required": [
           "jsonrpc",
-          "id",
-          "result",
-          "error"
+          "id"
         ],
         "title": "JsonRpcResponse_for_Array_of_ValidatorStakeView_and_RpcError",
         "type": "object"
       },
       "JsonRpcResponse_for_CryptoHash_and_RpcError": {
-        "properties": {
-          "error": {
-            "$ref": "#/components/schemas/RpcError"
+        "oneOf": [
+          {
+            "properties": {
+              "result": {
+                "$ref": "#/components/schemas/CryptoHash"
+              }
+            },
+            "required": [
+              "result"
+            ],
+            "type": "object"
           },
+          {
+            "properties": {
+              "error": {
+                "$ref": "#/components/schemas/RpcError"
+              }
+            },
+            "required": [
+              "error"
+            ],
+            "type": "object"
+          }
+        ],
+        "properties": {
           "id": {
             "type": "string"
           },
           "jsonrpc": {
             "type": "string"
-          },
-          "result": {
-            "$ref": "#/components/schemas/CryptoHash"
           }
         },
         "required": [
           "jsonrpc",
-          "id",
-          "result",
-          "error"
+          "id"
         ],
         "title": "JsonRpcResponse_for_CryptoHash_and_RpcError",
         "type": "object"
       },
       "JsonRpcResponse_for_GenesisConfig_and_RpcError": {
-        "properties": {
-          "error": {
-            "$ref": "#/components/schemas/RpcError"
+        "oneOf": [
+          {
+            "properties": {
+              "result": {
+                "$ref": "#/components/schemas/GenesisConfig"
+              }
+            },
+            "required": [
+              "result"
+            ],
+            "type": "object"
           },
+          {
+            "properties": {
+              "error": {
+                "$ref": "#/components/schemas/RpcError"
+              }
+            },
+            "required": [
+              "error"
+            ],
+            "type": "object"
+          }
+        ],
+        "properties": {
           "id": {
             "type": "string"
           },
           "jsonrpc": {
             "type": "string"
-          },
-          "result": {
-            "$ref": "#/components/schemas/GenesisConfig"
           }
         },
         "required": [
           "jsonrpc",
-          "id",
-          "result",
-          "error"
+          "id"
         ],
         "title": "JsonRpcResponse_for_GenesisConfig_and_RpcError",
         "type": "object"
       },
       "JsonRpcResponse_for_Nullable_RpcHealthResponse_and_RpcError": {
-        "properties": {
-          "error": {
-            "$ref": "#/components/schemas/RpcError"
+        "oneOf": [
+          {
+            "properties": {
+              "result": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/RpcHealthResponse"
+                  }
+                ],
+                "nullable": true
+              }
+            },
+            "required": [
+              "result"
+            ],
+            "type": "object"
           },
+          {
+            "properties": {
+              "error": {
+                "$ref": "#/components/schemas/RpcError"
+              }
+            },
+            "required": [
+              "error"
+            ],
+            "type": "object"
+          }
+        ],
+        "properties": {
           "id": {
             "type": "string"
           },
           "jsonrpc": {
             "type": "string"
-          },
-          "result": {
-            "allOf": [
-              {
-                "$ref": "#/components/schemas/RpcHealthResponse"
-              }
-            ],
-            "nullable": true
           }
         },
         "required": [
           "jsonrpc",
-          "id",
-          "error"
+          "id"
         ],
         "title": "JsonRpcResponse_for_Nullable_RpcHealthResponse_and_RpcError",
         "type": "object"
       },
       "JsonRpcResponse_for_RpcBlockResponse_and_RpcError": {
-        "properties": {
-          "error": {
-            "$ref": "#/components/schemas/RpcError"
+        "oneOf": [
+          {
+            "properties": {
+              "result": {
+                "$ref": "#/components/schemas/RpcBlockResponse"
+              }
+            },
+            "required": [
+              "result"
+            ],
+            "type": "object"
           },
+          {
+            "properties": {
+              "error": {
+                "$ref": "#/components/schemas/RpcError"
+              }
+            },
+            "required": [
+              "error"
+            ],
+            "type": "object"
+          }
+        ],
+        "properties": {
           "id": {
             "type": "string"
           },
           "jsonrpc": {
             "type": "string"
-          },
-          "result": {
-            "$ref": "#/components/schemas/RpcBlockResponse"
           }
         },
         "required": [
           "jsonrpc",
-          "id",
-          "result",
-          "error"
+          "id"
         ],
         "title": "JsonRpcResponse_for_RpcBlockResponse_and_RpcError",
         "type": "object"
       },
       "JsonRpcResponse_for_RpcChunkResponse_and_RpcError": {
-        "properties": {
-          "error": {
-            "$ref": "#/components/schemas/RpcError"
+        "oneOf": [
+          {
+            "properties": {
+              "result": {
+                "$ref": "#/components/schemas/RpcChunkResponse"
+              }
+            },
+            "required": [
+              "result"
+            ],
+            "type": "object"
           },
+          {
+            "properties": {
+              "error": {
+                "$ref": "#/components/schemas/RpcError"
+              }
+            },
+            "required": [
+              "error"
+            ],
+            "type": "object"
+          }
+        ],
+        "properties": {
           "id": {
             "type": "string"
           },
           "jsonrpc": {
             "type": "string"
-          },
-          "result": {
-            "$ref": "#/components/schemas/RpcChunkResponse"
           }
         },
         "required": [
           "jsonrpc",
-          "id",
-          "result",
-          "error"
+          "id"
         ],
         "title": "JsonRpcResponse_for_RpcChunkResponse_and_RpcError",
         "type": "object"
       },
       "JsonRpcResponse_for_RpcClientConfigResponse_and_RpcError": {
-        "properties": {
-          "error": {
-            "$ref": "#/components/schemas/RpcError"
+        "oneOf": [
+          {
+            "properties": {
+              "result": {
+                "$ref": "#/components/schemas/RpcClientConfigResponse"
+              }
+            },
+            "required": [
+              "result"
+            ],
+            "type": "object"
           },
+          {
+            "properties": {
+              "error": {
+                "$ref": "#/components/schemas/RpcError"
+              }
+            },
+            "required": [
+              "error"
+            ],
+            "type": "object"
+          }
+        ],
+        "properties": {
           "id": {
             "type": "string"
           },
           "jsonrpc": {
             "type": "string"
-          },
-          "result": {
-            "$ref": "#/components/schemas/RpcClientConfigResponse"
           }
         },
         "required": [
           "jsonrpc",
-          "id",
-          "result",
-          "error"
+          "id"
         ],
         "title": "JsonRpcResponse_for_RpcClientConfigResponse_and_RpcError",
         "type": "object"
       },
       "JsonRpcResponse_for_RpcCongestionLevelResponse_and_RpcError": {
-        "properties": {
-          "error": {
-            "$ref": "#/components/schemas/RpcError"
+        "oneOf": [
+          {
+            "properties": {
+              "result": {
+                "$ref": "#/components/schemas/RpcCongestionLevelResponse"
+              }
+            },
+            "required": [
+              "result"
+            ],
+            "type": "object"
           },
+          {
+            "properties": {
+              "error": {
+                "$ref": "#/components/schemas/RpcError"
+              }
+            },
+            "required": [
+              "error"
+            ],
+            "type": "object"
+          }
+        ],
+        "properties": {
           "id": {
             "type": "string"
           },
           "jsonrpc": {
             "type": "string"
-          },
-          "result": {
-            "$ref": "#/components/schemas/RpcCongestionLevelResponse"
           }
         },
         "required": [
           "jsonrpc",
-          "id",
-          "result",
-          "error"
+          "id"
         ],
         "title": "JsonRpcResponse_for_RpcCongestionLevelResponse_and_RpcError",
         "type": "object"
       },
       "JsonRpcResponse_for_RpcGasPriceResponse_and_RpcError": {
-        "properties": {
-          "error": {
-            "$ref": "#/components/schemas/RpcError"
+        "oneOf": [
+          {
+            "properties": {
+              "result": {
+                "$ref": "#/components/schemas/RpcGasPriceResponse"
+              }
+            },
+            "required": [
+              "result"
+            ],
+            "type": "object"
           },
+          {
+            "properties": {
+              "error": {
+                "$ref": "#/components/schemas/RpcError"
+              }
+            },
+            "required": [
+              "error"
+            ],
+            "type": "object"
+          }
+        ],
+        "properties": {
           "id": {
             "type": "string"
           },
           "jsonrpc": {
             "type": "string"
-          },
-          "result": {
-            "$ref": "#/components/schemas/RpcGasPriceResponse"
           }
         },
         "required": [
           "jsonrpc",
-          "id",
-          "result",
-          "error"
+          "id"
         ],
         "title": "JsonRpcResponse_for_RpcGasPriceResponse_and_RpcError",
         "type": "object"
       },
       "JsonRpcResponse_for_RpcLightClientBlockProofResponse_and_RpcError": {
-        "properties": {
-          "error": {
-            "$ref": "#/components/schemas/RpcError"
+        "oneOf": [
+          {
+            "properties": {
+              "result": {
+                "$ref": "#/components/schemas/RpcLightClientBlockProofResponse"
+              }
+            },
+            "required": [
+              "result"
+            ],
+            "type": "object"
           },
+          {
+            "properties": {
+              "error": {
+                "$ref": "#/components/schemas/RpcError"
+              }
+            },
+            "required": [
+              "error"
+            ],
+            "type": "object"
+          }
+        ],
+        "properties": {
           "id": {
             "type": "string"
           },
           "jsonrpc": {
             "type": "string"
-          },
-          "result": {
-            "$ref": "#/components/schemas/RpcLightClientBlockProofResponse"
           }
         },
         "required": [
           "jsonrpc",
-          "id",
-          "result",
-          "error"
+          "id"
         ],
         "title": "JsonRpcResponse_for_RpcLightClientBlockProofResponse_and_RpcError",
         "type": "object"
       },
       "JsonRpcResponse_for_RpcLightClientExecutionProofResponse_and_RpcError": {
-        "properties": {
-          "error": {
-            "$ref": "#/components/schemas/RpcError"
+        "oneOf": [
+          {
+            "properties": {
+              "result": {
+                "$ref": "#/components/schemas/RpcLightClientExecutionProofResponse"
+              }
+            },
+            "required": [
+              "result"
+            ],
+            "type": "object"
           },
+          {
+            "properties": {
+              "error": {
+                "$ref": "#/components/schemas/RpcError"
+              }
+            },
+            "required": [
+              "error"
+            ],
+            "type": "object"
+          }
+        ],
+        "properties": {
           "id": {
             "type": "string"
           },
           "jsonrpc": {
             "type": "string"
-          },
-          "result": {
-            "$ref": "#/components/schemas/RpcLightClientExecutionProofResponse"
           }
         },
         "required": [
           "jsonrpc",
-          "id",
-          "result",
-          "error"
+          "id"
         ],
         "title": "JsonRpcResponse_for_RpcLightClientExecutionProofResponse_and_RpcError",
         "type": "object"
       },
       "JsonRpcResponse_for_RpcLightClientNextBlockResponse_and_RpcError": {
-        "properties": {
-          "error": {
-            "$ref": "#/components/schemas/RpcError"
+        "oneOf": [
+          {
+            "properties": {
+              "result": {
+                "$ref": "#/components/schemas/RpcLightClientNextBlockResponse"
+              }
+            },
+            "required": [
+              "result"
+            ],
+            "type": "object"
           },
+          {
+            "properties": {
+              "error": {
+                "$ref": "#/components/schemas/RpcError"
+              }
+            },
+            "required": [
+              "error"
+            ],
+            "type": "object"
+          }
+        ],
+        "properties": {
           "id": {
             "type": "string"
           },
           "jsonrpc": {
             "type": "string"
-          },
-          "result": {
-            "$ref": "#/components/schemas/RpcLightClientNextBlockResponse"
           }
         },
         "required": [
           "jsonrpc",
-          "id",
-          "result",
-          "error"
+          "id"
         ],
         "title": "JsonRpcResponse_for_RpcLightClientNextBlockResponse_and_RpcError",
         "type": "object"
       },
       "JsonRpcResponse_for_RpcNetworkInfoResponse_and_RpcError": {
-        "properties": {
-          "error": {
-            "$ref": "#/components/schemas/RpcError"
+        "oneOf": [
+          {
+            "properties": {
+              "result": {
+                "$ref": "#/components/schemas/RpcNetworkInfoResponse"
+              }
+            },
+            "required": [
+              "result"
+            ],
+            "type": "object"
           },
+          {
+            "properties": {
+              "error": {
+                "$ref": "#/components/schemas/RpcError"
+              }
+            },
+            "required": [
+              "error"
+            ],
+            "type": "object"
+          }
+        ],
+        "properties": {
           "id": {
             "type": "string"
           },
           "jsonrpc": {
             "type": "string"
-          },
-          "result": {
-            "$ref": "#/components/schemas/RpcNetworkInfoResponse"
           }
         },
         "required": [
           "jsonrpc",
-          "id",
-          "result",
-          "error"
+          "id"
         ],
         "title": "JsonRpcResponse_for_RpcNetworkInfoResponse_and_RpcError",
         "type": "object"
       },
       "JsonRpcResponse_for_RpcProtocolConfigResponse_and_RpcError": {
-        "properties": {
-          "error": {
-            "$ref": "#/components/schemas/RpcError"
+        "oneOf": [
+          {
+            "properties": {
+              "result": {
+                "$ref": "#/components/schemas/RpcProtocolConfigResponse"
+              }
+            },
+            "required": [
+              "result"
+            ],
+            "type": "object"
           },
+          {
+            "properties": {
+              "error": {
+                "$ref": "#/components/schemas/RpcError"
+              }
+            },
+            "required": [
+              "error"
+            ],
+            "type": "object"
+          }
+        ],
+        "properties": {
           "id": {
             "type": "string"
           },
           "jsonrpc": {
             "type": "string"
-          },
-          "result": {
-            "$ref": "#/components/schemas/RpcProtocolConfigResponse"
           }
         },
         "required": [
           "jsonrpc",
-          "id",
-          "result",
-          "error"
+          "id"
         ],
         "title": "JsonRpcResponse_for_RpcProtocolConfigResponse_and_RpcError",
         "type": "object"
       },
       "JsonRpcResponse_for_RpcReceiptResponse_and_RpcError": {
-        "properties": {
-          "error": {
-            "$ref": "#/components/schemas/RpcError"
+        "oneOf": [
+          {
+            "properties": {
+              "result": {
+                "$ref": "#/components/schemas/RpcReceiptResponse"
+              }
+            },
+            "required": [
+              "result"
+            ],
+            "type": "object"
           },
+          {
+            "properties": {
+              "error": {
+                "$ref": "#/components/schemas/RpcError"
+              }
+            },
+            "required": [
+              "error"
+            ],
+            "type": "object"
+          }
+        ],
+        "properties": {
           "id": {
             "type": "string"
           },
           "jsonrpc": {
             "type": "string"
-          },
-          "result": {
-            "$ref": "#/components/schemas/RpcReceiptResponse"
           }
         },
         "required": [
           "jsonrpc",
-          "id",
-          "result",
-          "error"
+          "id"
         ],
         "title": "JsonRpcResponse_for_RpcReceiptResponse_and_RpcError",
         "type": "object"
       },
       "JsonRpcResponse_for_RpcSplitStorageInfoResponse_and_RpcError": {
-        "properties": {
-          "error": {
-            "$ref": "#/components/schemas/RpcError"
+        "oneOf": [
+          {
+            "properties": {
+              "result": {
+                "$ref": "#/components/schemas/RpcSplitStorageInfoResponse"
+              }
+            },
+            "required": [
+              "result"
+            ],
+            "type": "object"
           },
+          {
+            "properties": {
+              "error": {
+                "$ref": "#/components/schemas/RpcError"
+              }
+            },
+            "required": [
+              "error"
+            ],
+            "type": "object"
+          }
+        ],
+        "properties": {
           "id": {
             "type": "string"
           },
           "jsonrpc": {
             "type": "string"
-          },
-          "result": {
-            "$ref": "#/components/schemas/RpcSplitStorageInfoResponse"
           }
         },
         "required": [
           "jsonrpc",
-          "id",
-          "result",
-          "error"
+          "id"
         ],
         "title": "JsonRpcResponse_for_RpcSplitStorageInfoResponse_and_RpcError",
         "type": "object"
       },
       "JsonRpcResponse_for_RpcStateChangesInBlockByTypeResponse_and_RpcError": {
-        "properties": {
-          "error": {
-            "$ref": "#/components/schemas/RpcError"
+        "oneOf": [
+          {
+            "properties": {
+              "result": {
+                "$ref": "#/components/schemas/RpcStateChangesInBlockByTypeResponse"
+              }
+            },
+            "required": [
+              "result"
+            ],
+            "type": "object"
           },
+          {
+            "properties": {
+              "error": {
+                "$ref": "#/components/schemas/RpcError"
+              }
+            },
+            "required": [
+              "error"
+            ],
+            "type": "object"
+          }
+        ],
+        "properties": {
           "id": {
             "type": "string"
           },
           "jsonrpc": {
             "type": "string"
-          },
-          "result": {
-            "$ref": "#/components/schemas/RpcStateChangesInBlockByTypeResponse"
           }
         },
         "required": [
           "jsonrpc",
-          "id",
-          "result",
-          "error"
+          "id"
         ],
         "title": "JsonRpcResponse_for_RpcStateChangesInBlockByTypeResponse_and_RpcError",
         "type": "object"
       },
       "JsonRpcResponse_for_RpcStateChangesInBlockResponse_and_RpcError": {
-        "properties": {
-          "error": {
-            "$ref": "#/components/schemas/RpcError"
+        "oneOf": [
+          {
+            "properties": {
+              "result": {
+                "$ref": "#/components/schemas/RpcStateChangesInBlockResponse"
+              }
+            },
+            "required": [
+              "result"
+            ],
+            "type": "object"
           },
+          {
+            "properties": {
+              "error": {
+                "$ref": "#/components/schemas/RpcError"
+              }
+            },
+            "required": [
+              "error"
+            ],
+            "type": "object"
+          }
+        ],
+        "properties": {
           "id": {
             "type": "string"
           },
           "jsonrpc": {
             "type": "string"
-          },
-          "result": {
-            "$ref": "#/components/schemas/RpcStateChangesInBlockResponse"
           }
         },
         "required": [
           "jsonrpc",
-          "id",
-          "result",
-          "error"
+          "id"
         ],
         "title": "JsonRpcResponse_for_RpcStateChangesInBlockResponse_and_RpcError",
         "type": "object"
       },
       "JsonRpcResponse_for_RpcStatusResponse_and_RpcError": {
-        "properties": {
-          "error": {
-            "$ref": "#/components/schemas/RpcError"
+        "oneOf": [
+          {
+            "properties": {
+              "result": {
+                "$ref": "#/components/schemas/RpcStatusResponse"
+              }
+            },
+            "required": [
+              "result"
+            ],
+            "type": "object"
           },
+          {
+            "properties": {
+              "error": {
+                "$ref": "#/components/schemas/RpcError"
+              }
+            },
+            "required": [
+              "error"
+            ],
+            "type": "object"
+          }
+        ],
+        "properties": {
           "id": {
             "type": "string"
           },
           "jsonrpc": {
             "type": "string"
-          },
-          "result": {
-            "$ref": "#/components/schemas/RpcStatusResponse"
           }
         },
         "required": [
           "jsonrpc",
-          "id",
-          "result",
-          "error"
+          "id"
         ],
         "title": "JsonRpcResponse_for_RpcStatusResponse_and_RpcError",
         "type": "object"
       },
       "JsonRpcResponse_for_RpcTransactionResponse_and_RpcError": {
-        "properties": {
-          "error": {
-            "$ref": "#/components/schemas/RpcError"
+        "oneOf": [
+          {
+            "properties": {
+              "result": {
+                "$ref": "#/components/schemas/RpcTransactionResponse"
+              }
+            },
+            "required": [
+              "result"
+            ],
+            "type": "object"
           },
+          {
+            "properties": {
+              "error": {
+                "$ref": "#/components/schemas/RpcError"
+              }
+            },
+            "required": [
+              "error"
+            ],
+            "type": "object"
+          }
+        ],
+        "properties": {
           "id": {
             "type": "string"
           },
           "jsonrpc": {
             "type": "string"
-          },
-          "result": {
-            "$ref": "#/components/schemas/RpcTransactionResponse"
           }
         },
         "required": [
           "jsonrpc",
-          "id",
-          "result",
-          "error"
+          "id"
         ],
         "title": "JsonRpcResponse_for_RpcTransactionResponse_and_RpcError",
         "type": "object"
       },
       "JsonRpcResponse_for_RpcValidatorResponse_and_RpcError": {
-        "properties": {
-          "error": {
-            "$ref": "#/components/schemas/RpcError"
+        "oneOf": [
+          {
+            "properties": {
+              "result": {
+                "$ref": "#/components/schemas/RpcValidatorResponse"
+              }
+            },
+            "required": [
+              "result"
+            ],
+            "type": "object"
           },
+          {
+            "properties": {
+              "error": {
+                "$ref": "#/components/schemas/RpcError"
+              }
+            },
+            "required": [
+              "error"
+            ],
+            "type": "object"
+          }
+        ],
+        "properties": {
           "id": {
             "type": "string"
           },
           "jsonrpc": {
             "type": "string"
-          },
-          "result": {
-            "$ref": "#/components/schemas/RpcValidatorResponse"
           }
         },
         "required": [
           "jsonrpc",
-          "id",
-          "result",
-          "error"
+          "id"
         ],
         "title": "JsonRpcResponse_for_RpcValidatorResponse_and_RpcError",
         "type": "object"
