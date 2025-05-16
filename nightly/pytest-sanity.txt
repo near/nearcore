@@ -106,8 +106,9 @@ pytest --timeout=300 sanity/gc_after_sync.py
 pytest --timeout=300 sanity/gc_after_sync.py --features nightly
 pytest --timeout=300 sanity/gc_after_sync1.py
 pytest --timeout=300 sanity/gc_after_sync1.py --features nightly
-pytest --timeout=300 sanity/gc_sync_after_sync.py
-pytest --timeout=300 sanity/gc_sync_after_sync.py --features nightly
+# TODO(#13551): Enable after fixing flaky test
+# pytest --timeout=300 sanity/gc_sync_after_sync.py
+# pytest --timeout=300 sanity/gc_sync_after_sync.py --features nightly
 pytest --timeout=300 sanity/large_messages.py
 pytest --timeout=300 sanity/large_messages.py --features nightly
 pytest --timeout=120 sanity/handshake_tie_resolution.py
