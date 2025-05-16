@@ -1,3 +1,8 @@
+"""
+Command utilities for the mocknet.
+
+This module provides utilities for executing commands on remote mocknet nodes.
+"""
 import sys
 from typing import Optional
 import base64

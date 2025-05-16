@@ -110,14 +110,13 @@ class RemoteNeardRunner:
         # followed by a new quote started with ' and the rest of the string, to get any single quotes
         # in method or params into the command correctly
         body = body.replace("'", "'\"'\"'")
+        cmd = f'curl localhost:3000 -d \'{body}\''
         if schedule_ctx is not None:
-            r = cmd_utils.schedule_cmd(self.node,
-                                       f'curl localhost:3000 -d \'{body}\'',
-                                       schedule_ctx)
+            r = cmd_utils.schedule_cmd(self.node, cmd, schedule_ctx)
             logger.info('{0}:\nstdout:\n{1.stdout}\nstderr:\n{1.stderr}'.format(
                 self.name(), r))
-            return
-        r = cmd_utils.run_cmd(self.node, f'curl localhost:3000 -d \'{body}\'')
+            return {'result': r}
+        r = cmd_utils.run_cmd(self.node, cmd)
         return json.loads(r.stdout)
 
     def new_test_params(self):

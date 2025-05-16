@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-
+Cli tool for managing the mocknet instances.
 """
 from argparse import ArgumentParser, Action
 import datetime
@@ -14,6 +14,7 @@ import sys
 import time
 import numpy as np
 from functools import wraps
+from typing import Optional
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
@@ -74,26 +75,126 @@ def prompt_init_flags(args):
             args.neard_upgrade_binary_url = url
 
 
-def with_schedule_context(func):
+class CommandContext:
 
-    @wraps(func)
-    def wrapper(args, *func_args, **func_kwargs):
-        # Only build the context if the command is 'schedule' and has the right args
-        if getattr(args, 'schedule_in', None) is None:
-            return func(args, None, *func_args, **func_kwargs)
+    def __init__(self, args):
+        self.args = args
+        self.is_scheduled = False
+        self.nodes = []
+        self.traffic_generator = None
 
-        # Build the context
+        # will set the schedule context in the nodes if the command is scheduled
+        self._set_nodes()
+        # Filter hosts based on the base args of the command
+        self._filter_hosts()
+
+    def get_targeted(self):
+        return self.nodes + to_list(self.traffic_generator)
+
+    def _set_nodes(self):
+        """
+        Get the nodes in the network.
+        """
+        if self.args.local_test:
+            self._get_local_nodes()
+        else:
+            self._get_remote_nodes()
+
+    def _get_local_nodes(self):
+        """
+        Get nodes in the local infrastructure.
+        """
+        if (self.args.chain_id is not None or
+                self.args.start_height is not None or
+                self.args.unique_id is not None or
+                self.args.mocknet_id is not None):
+            sys.exit(
+                f'cannot give --chain-id, --start-height, --unique-id or --mocknet-id along with --local-test'
+            )
+            traffic_generator, nodes = local_test_node.get_nodes()
+            node_config.configure_nodes(nodes + to_list(traffic_generator),
+                                        node_config.TEST_CONFIG, None)
+        self.traffic_generator = traffic_generator
+        self.nodes = nodes
+
+    def _get_remote_nodes(self):
+        """
+        Get nodes in the remote infrastructure.
+        """
+        if (self.args.chain_id is not None and
+                self.args.start_height is not None and
+                self.args.unique_id is not None):
+            mocknet_id = self.args.chain_id + '-' + str(
+                self.args.start_height) + '-' + self.args.unique_id
+        elif self.args.mocknet_id is not None:
+            mocknet_id = self.args.mocknet_id
+        else:
+            sys.exit(
+                f'must give all of --chain-id --start-height and --unique-id or --mocknet-id'
+            )
+        traffic_generator, nodes = remote_node.get_nodes(mocknet_id)
+        schedule_ctx = self._make_schedule_context()
+        self.is_scheduled = schedule_ctx is not None
+        node_config.configure_nodes(nodes + to_list(traffic_generator),
+                                    node_config.REMOTE_CONFIG, schedule_ctx)
+        self.traffic_generator = traffic_generator
+        self.nodes = nodes
+
+    def _filter_hosts(self):
+        """
+        Select the affected hosts.
+        traffic_generator can become None,
+        nodes list can become empty
+        """
+        # Only keep nodes that want a neard runner not the auxiliary nodes i.e. tracers.
+        self.nodes = [node for node in self.nodes if node.want_neard_runner]
+
+        if self.args.host_filter is not None and self.traffic_generator is not None:
+            if not re.search(self.args.host_filter,
+                             self.traffic_generator.name()):
+                self.traffic_generator = None
+            self.nodes = [
+                h for h in self.nodes
+                if re.search(self.args.host_filter, h.name())
+            ]
+        if self.args.host_type not in ['all', 'traffic']:
+            self.traffic_generator = None
+        if self.args.host_type not in ['all', 'nodes']:
+            self.nodes = []
+
+        if len(self.nodes) == 0 and self.traffic_generator == None:
+            logger.error(f'No hosts selected. Change filters and try again.')
+            exit(1)
+
+        if self.args.select_partition is not None:
+            i, n = self.args.select_partition
+
+            if len(self.nodes) < n and self.traffic_generator == None:
+                logger.error(
+                    f'Partitioning {len(self.nodes)} nodes in {n} groups will result in empty groups.'
+                )
+                exit(1)
+            self.nodes.sort(key=lambda node: node.name())
+            self.nodes = np.array_split(self.nodes, n)[i - 1]
+
+    def _make_schedule_context(self) -> Optional[ScheduleContext]:
+        """
+        Make a schedule context if the command is scheduled.
+        """
+        if getattr(self.args, 'schedule_in', None) is None:
+            return None
+
         context = ScheduleContext(
-            id=getattr(args, 'schedule_id', None),
-            time_spec=args.schedule_in,
+            id=getattr(self.args, 'schedule_id', None),
+            time_spec=self.args.schedule_in,
         )
-
-        return func(args, context, *func_args, **func_kwargs)
-
-    return wrapper
+        return context
 
 
-def init_neard_runners(args, traffic_generator, nodes, remove_home_dir=False):
+def init_neard_runners(ctx: CommandContext, remove_home_dir=False):
+    args = ctx.args
+    nodes = ctx.nodes
+    traffic_generator = ctx.traffic_generator
     prompt_init_flags(args)
     if args.neard_upgrade_binary_url is None or args.neard_upgrade_binary_url == '':
         configs = [{
@@ -143,11 +244,11 @@ def init_neard_runners(args, traffic_generator, nodes, remove_home_dir=False):
          zip(nodes, configs))
 
 
-def init_cmd(args, traffic_generator, nodes):
-    init_neard_runners(args, traffic_generator, nodes, remove_home_dir=False)
+def init_cmd(ctx: CommandContext):
+    init_neard_runners(ctx, remove_home_dir=False)
 
 
-def hard_reset_cmd(args, traffic_generator, nodes):
+def hard_reset_cmd(ctx: CommandContext):
     print("""
         WARNING!!!!
         WARNING!!!!
@@ -156,20 +257,20 @@ def hard_reset_cmd(args, traffic_generator, nodes):
         Continue? [yes/no]""")
     if sys.stdin.readline().strip() != 'yes':
         return
-    init_neard_runners(args, traffic_generator, nodes, remove_home_dir=True)
+    init_neard_runners(ctx, remove_home_dir=True)
     _clear_state_parts_if_exists(_get_state_parts_location(args), nodes)
 
 
-def restart_cmd(args, traffic_generator, nodes):
-    targeted = nodes + to_list(traffic_generator)
+def restart_cmd(ctx: CommandContext):
+    targeted = ctx.get_targeted()
     pmap(lambda node: node.stop_neard_runner(), targeted)
-    if args.upload_program:
+    if ctx.args.upload_program:
         pmap(lambda node: node.upload_neard_runner(), targeted)
     pmap(lambda node: node.start_neard_runner(), targeted)
 
 
-def stop_runner_cmd(args, traffic_generator, nodes):
-    targeted = nodes + to_list(traffic_generator)
+def stop_runner_cmd(ctx: CommandContext):
+    targeted = ctx.get_targeted()
     pmap(lambda node: node.stop_neard_runner(), targeted)
 
 
@@ -230,11 +331,10 @@ def _apply_stateless_config(args, node):
     including changing config.json file and updating TCP buffer size at OS level."""
     # TODO: it should be possible to update multiple keys in one RPC call so we dont have to make multiple round trips
     # TODO: Enable saving witness after fixing the performance problems.
-    do_update_config(node, None, 'save_latest_witnesses=false')
+    do_update_config(node, 'save_latest_witnesses=false')
     if not node.want_state_dump:
-        do_update_config(node, None, 'tracked_shards_config="NoShards"')
-        do_update_config(node, None,
-                         'store.load_mem_tries_for_tracked_shards=true')
+        do_update_config(node, 'tracked_shards_config="NoShards"')
+        do_update_config(node, 'store.load_mem_tries_for_tracked_shards=true')
     if not args.local_test:
         node.run_cmd(
             "sudo sysctl -w net.core.rmem_max=8388608 && sudo sysctl -w net.core.wmem_max=8388608 && sudo sysctl -w net.ipv4.tcp_rmem='4096 87380 8388608' && sudo sysctl -w net.ipv4.tcp_wmem='4096 16384 8388608' && sudo sysctl -w net.ipv4.tcp_slow_start_after_idle=0"
@@ -258,7 +358,7 @@ def _apply_config_changes(node, state_sync_location):
             changes[
                 'store.state_snapshot_config.state_snapshot_type'] = "EveryEpoch"
     for key, change in changes.items():
-        do_update_config(node, None, f'{key}={json.dumps(change)}')
+        do_update_config(node, f'{key}={json.dumps(change)}')
 
 
 def _clear_state_parts_if_exists(location, nodes):
@@ -303,7 +403,10 @@ def _get_state_parts_location(args):
     return {"GCS": {"bucket": _get_state_parts_bucket_name(args)}}
 
 
-def new_test_cmd(args, traffic_generator, nodes):
+def new_test_cmd(ctx: CommandContext):
+    args = ctx.args
+    nodes = ctx.nodes
+    traffic_generator = ctx.traffic_generator
     prompt_setup_flags(args, [n.name() for n in nodes if n.want_state_dump])
 
     if args.epoch_length <= 0:
@@ -354,8 +457,8 @@ Run `status` to check if the nodes are ready. After they're ready,
     _clear_state_parts_if_exists(location, nodes)
 
 
-def status_cmd(args, traffic_generator, nodes):
-    targeted = nodes + to_list(traffic_generator)
+def status_cmd(ctx: CommandContext):
+    targeted = ctx.get_targeted()
     statuses = pmap(lambda node: node.neard_runner_ready(), targeted)
 
     not_ready = []
@@ -371,8 +474,11 @@ def status_cmd(args, traffic_generator, nodes):
         )
 
 
-@with_schedule_context
-def reset_cmd(args, schedule_ctx, traffic_generator, nodes):
+def reset_cmd(ctx: CommandContext):
+    args = ctx.args
+    nodes = ctx.nodes
+    traffic_generator = ctx.traffic_generator
+
     if not args.yes:
         print(
             'this will reset selected nodes\' home dirs to their initial states right after test initialization finished. continue? [yes/no]'
@@ -397,20 +503,18 @@ def reset_cmd(args, schedule_ctx, traffic_generator, nodes):
             sys.exit()
 
     targeted = nodes + to_list(traffic_generator)
-    pmap(
-        lambda node: node.neard_runner_reset(schedule_ctx,
-                                             backup_id=args.backup_id),
-        targeted)
+    pmap(lambda node: node.neard_runner_reset(backup_id=args.backup_id),
+         targeted)
     logger.info(
         'Data dir reset in progress. Run the `status` command to see when this is finished. Until it is finished, neard runners may not respond to HTTP requests.'
     )
     # Do not clear state parts if scheduling
-    if schedule_ctx is None:
+    if not ctx.is_scheduled:
         _clear_state_parts_if_exists(_get_state_parts_location(args), nodes)
 
 
-@with_schedule_context
-def make_backup_cmd(args, schedule_ctx, traffic_generator, nodes):
+def make_backup_cmd(ctx: CommandContext):
+    args = ctx.args
     if not args.yes:
         print(
             'this will stop all nodes and create a new backup of their home dirs. continue? [yes/no]'
@@ -429,94 +533,87 @@ def make_backup_cmd(args, schedule_ctx, traffic_generator, nodes):
             if len(description) > 0:
                 args.description = description
 
-    targeted = nodes + to_list(traffic_generator)
     pmap(
-        lambda node: node.neard_runner_make_backup(schedule_ctx,
-                                                   backup_id=args.backup_id,
-                                                   description=args.description
-                                                  ), targeted)
+        lambda node: node.neard_runner_make_backup(
+            backup_id=args.backup_id, description=args.description),
+        ctx.get_targeted())
 
 
-@with_schedule_context
-def stop_nodes_cmd(args, schedule_ctx, traffic_generator, nodes):
-    targeted = nodes + to_list(traffic_generator)
-    pmap(lambda node: node.neard_runner_stop(schedule_ctx), targeted)
+def stop_nodes_cmd(ctx: CommandContext):
+    pmap(lambda node: node.neard_runner_stop(), ctx.get_targeted())
 
 
-@with_schedule_context
-def stop_traffic_cmd(args, schedule_ctx, traffic_generator, nodes):
-    traffic_generator.neard_runner_stop(schedule_ctx)
+def stop_traffic_cmd(ctx: CommandContext):
+    ctx.traffic_generator.neard_runner_stop()
 
 
-def do_update_config(node, schedule_ctx, config_change):
-    result = node.neard_update_config(schedule_ctx, config_change)
+def do_update_config(node, config_change):
+    result = node.neard_update_config(config_change)
     if not result:
         logger.warning(
             f'failed updating config on {node.name()}. result: {result}')
 
 
-@with_schedule_context
-def update_config_cmd(args, schedule_ctx, traffic_generator, nodes):
-    nodes = nodes + to_list(traffic_generator)
+def update_config_cmd(ctx: CommandContext):
     pmap(
-        lambda node: do_update_config(node, schedule_ctx, args.set),
-        nodes,
+        lambda node: do_update_config(node, ctx.args.set),
+        ctx.get_targeted(),
     )
 
 
-@with_schedule_context
-def start_nodes_cmd(args, schedule_ctx, traffic_generator, nodes):
-    if not all(pmap(lambda node: node.neard_runner_ready(), nodes)):
+def start_nodes_cmd(ctx: CommandContext):
+    nodes = ctx.nodes
+    if not ctx.is_scheduled and not all(
+            pmap(lambda node: node.neard_runner_ready(), nodes)):
         logger.warning(
             'not all nodes are ready to start yet. Run the `status` command to check their statuses'
         )
         return
-    pmap(lambda node: node.neard_runner_start(schedule_ctx), nodes)
+    pmap(lambda node: node.neard_runner_start(), nodes)
     # Wait for the nodes to be up if not scheduling
-    if schedule_ctx is None:
+    if not ctx.is_scheduled:
         pmap(lambda node: node.wait_node_up(), nodes)
 
 
-@with_schedule_context
-def start_traffic_cmd(args, schedule_ctx, traffic_generator, nodes):
+def start_traffic_cmd(ctx: CommandContext):
+    nodes = ctx.nodes
+    traffic_generator = ctx.traffic_generator
+
     if traffic_generator is None:
         logger.warning('No traffic node selected. Change filters.')
         return
-    if not all(
-            pmap(lambda node: node.neard_runner_ready(),
-                 nodes + [traffic_generator])):
+    if not all(pmap(lambda node: node.neard_runner_ready(),
+                    ctx.get_targeted())):
         logger.warning(
             'not all nodes are ready to start yet. Run the `status` command to check their statuses'
         )
         return
-    pmap(lambda node: node.neard_runner_start(schedule_ctx), nodes)
+    pmap(lambda node: node.neard_runner_start(), nodes)
     # Wait for the nodes to be up if not scheduling
-    if schedule_ctx is None:
+    if not ctx.is_scheduled:
         logger.info("waiting for validators to be up")
         pmap(lambda node: node.wait_node_up(), nodes)
         logger.info(
             "waiting a bit after validators started before starting traffic")
         time.sleep(10)
     traffic_generator.neard_runner_start(
-        schedule_ctx, batch_interval_millis=args.batch_interval_millis)
-    if schedule_ctx is None:
+        batch_interval_millis=ctx.args.batch_interval_millis)
+    if not ctx.is_scheduled:
         logger.info(
             f'test running. to check the traffic sent, try running "curl --silent http://{traffic_generator.ip_addr()}:{traffic_generator.neard_port()}/metrics | grep near_mirror"'
         )
 
 
-@with_schedule_context
-def update_binaries_cmd(args, schedule_ctx, traffic_generator, nodes):
-    pmap(lambda node: node.neard_runner_update_binaries(schedule_ctx),
-         nodes + to_list(traffic_generator))
+def update_binaries_cmd(ctx: CommandContext):
+    pmap(lambda node: node.neard_runner_update_binaries(), ctx.get_targeted())
 
 
-@with_schedule_context
-def amend_binaries_cmd(args, schedule_ctx, traffic_generator, nodes):
+def amend_binaries_cmd(ctx: CommandContext):
+    args = ctx.args
     pmap(
         lambda node: node.neard_runner_update_binaries(
-            schedule_ctx, args.neard_binary_url, args.epoch_height, args.
-            binary_idx), nodes + to_list(traffic_generator))
+            args.neard_binary_url, args.epoch_height, args.binary_idx),
+        ctx.get_targeted())
 
 
 # Only print stdout and stderr if they are not empty
@@ -529,86 +626,57 @@ def print_result(node, result):
     logger.info('{0}:{1}{2}'.format(node.name(), stdout, stderr))
 
 
-def _run_remote(schedule_ctx, hosts, cmd):
-    pmap(lambda node: print_result(
-        node, node.run_cmd(schedule_ctx, cmd, return_on_fail=True)),
-         hosts,
-         on_exception="")
+def _run_remote(hosts, cmd):
+    pmap(
+        lambda node: print_result(node, node.run_cmd(cmd, return_on_fail=True)),
+        hosts,
+        on_exception="")
 
 
-@with_schedule_context
-def run_remote_cmd(args, schedule_ctx, traffic_generator, nodes):
-    targeted = nodes + to_list(traffic_generator)
+def run_remote_cmd(ctx: CommandContext):
+    targeted = ctx.get_targeted()
     logger.info(f'Running cmd on {",".join([h.name() for h in targeted])}')
-    _run_remote(schedule_ctx, targeted, args.cmd)
+    _run_remote(targeted, ctx.args.cmd)
 
 
-def run_remote_upload_file(args, traffic_generator, nodes):
-    targeted = nodes + to_list(traffic_generator)
+def run_remote_upload_file(ctx: CommandContext):
+    targeted = ctx.get_targeted()
     logger.info(
-        f'Uploading {args.src} in {args.dst} on {",".join([h.name() for h in targeted])}'
+        f'Uploading {ctx.args.src} in {ctx.args.dst} on {",".join([h.name() for h in targeted])}'
     )
-    pmap(lambda node: print_result(node, node.upload_file(args.src, args.dst)),
+    pmap(lambda node: print_result(
+        node, node.upload_file(ctx.args.src, ctx.args.dst)),
          targeted,
          on_exception="")
 
 
-@with_schedule_context
-def run_env_cmd(args, schedule_ctx, traffic_generator, nodes):
-    if args.clear_all:
-        func = lambda node: node.neard_clear_env(schedule_ctx)
+def run_env_cmd(ctx: CommandContext):
+    if ctx.args.clear_all:
+        func = lambda node: node.neard_clear_env()
     else:
-        func = lambda node: node.neard_update_env(schedule_ctx, args.key_value)
-    targeted = nodes + to_list(traffic_generator)
+        func = lambda node: node.neard_update_env(ctx.args.key_value)
+    targeted = ctx.get_targeted()
     pmap(func, targeted)
 
 
-def list_scheduled_cmds(args, traffic_generator, nodes):
-    targeted = nodes + to_list(traffic_generator)
+def list_scheduled_cmds(ctx: CommandContext):
+    targeted = ctx.get_targeted()
     cmd = 'systemctl --user show "mocknet-*" -p Id -p ConditionTimestamp -p Description --value'
     logger.info(
         f'Getting schedule from {",".join([h.name() for h in targeted])}')
-    _run_remote(None, targeted, cmd)
+    _run_remote(targeted, cmd)
 
 
-def clear_scheduled_cmds(args, traffic_generator, nodes):
-    targeted = nodes + to_list(traffic_generator)
-    filter = args.filter
+def clear_scheduled_cmds(ctx: CommandContext):
+    targeted = ctx.get_targeted()
+    filter = ctx.args.filter
     if not filter.startswith('mocknet-'):
         filter = 'mocknet-' + filter
     logger.info(
         f'Clearing scheduled commands matching "{filter}" from {",".join([h.name() for h in targeted])}'
     )
     cmd = f'systemctl --user stop "{filter}"'
-    _run_remote(None, targeted, cmd)
-
-
-def filter_hosts(args, traffic_generator, nodes):
-    if args.host_filter is not None and traffic_generator is not None:
-        if not re.search(args.host_filter, traffic_generator.name()):
-            traffic_generator = None
-        nodes = [h for h in nodes if re.search(args.host_filter, h.name())]
-    if args.host_type not in ['all', 'traffic']:
-        traffic_generator = None
-    if args.host_type not in ['all', 'nodes']:
-        nodes = []
-
-    if len(nodes) == 0 and traffic_generator == None:
-        logger.error(f'No hosts selected. Change filters and try again.')
-        exit(1)
-
-    if args.select_partition is not None:
-        i, n = args.select_partition
-
-        if len(nodes) < n and traffic_generator == None:
-            logger.error(
-                f'Partitioning {len(nodes)} nodes in {n} groups will result in empty groups.'
-            )
-            exit(1)
-        nodes.sort(key=lambda node: node.name())
-        nodes = np.array_split(nodes, n)[i - 1]
-
-    return traffic_generator, nodes
+    _run_remote(targeted, cmd)
 
 
 class ParseFraction(Action):
@@ -675,6 +743,7 @@ def register_schedule_subcommands(subparsers):
         'cmd', help='Schedule commands to run in the future.')
     cmd_subparsers.add_argument(
         '--schedule-in',
+        required=True,
         type=str,
         help=
         'Schedule the command to run after the specified time. Can be in the format of "10s", "10m", "10h", "10d"'
@@ -778,6 +847,11 @@ def register_base_commands(subparsers):
 
 
 def register_subcommands(subparsers):
+    """
+    This function registers the commands that can also be scheduled.
+    Before adding a new command, make sure that is makes sense for it to be scheduled.
+    Otherwise, just add it to the base commands.
+    """
     update_config_parser = subparsers.add_parser(
         'update-config',
         help='''Update config.json with given flags for all nodes.''')
@@ -899,38 +973,5 @@ def register_subcommands(subparsers):
 if __name__ == '__main__':
     parser = build_parser()
     args = parser.parse_args()
-
-    if args.local_test:
-        if (args.chain_id is not None or args.start_height is not None or
-                args.unique_id is not None or args.mocknet_id is not None):
-            sys.exit(
-                f'cannot give --chain-id, --start-height, --unique-id or --mocknet-id along with --local-test'
-            )
-        traffic_generator, nodes = local_test_node.get_nodes()
-        node_config.configure_nodes(nodes + to_list(traffic_generator),
-                                    node_config.TEST_CONFIG)
-    else:
-        if (args.chain_id is not None and args.start_height is not None and
-                args.unique_id is not None):
-            mocknet_id = args.chain_id + '-' + str(
-                args.start_height) + '-' + args.unique_id
-        elif args.mocknet_id is not None:
-            mocknet_id = args.mocknet_id
-        else:
-            sys.exit(
-                f'must give all of --chain-id --start-height and --unique-id or --mocknet-id'
-            )
-        traffic_generator, nodes = remote_node.get_nodes(mocknet_id)
-        node_config.configure_nodes(nodes + to_list(traffic_generator),
-                                    node_config.REMOTE_CONFIG)
-
-    # Select the affected hosts.
-    # traffic_generator can become None,
-    # nodes list can become empty
-    traffic_generator, nodes = filter_hosts(args, traffic_generator, nodes)
-    wanted_nodes = []
-    for node in nodes:
-        if node.want_neard_runner:
-            wanted_nodes.append(node)
-
-    args.func(args, traffic_generator, wanted_nodes)
+    ctx = CommandContext(args)
+    args.func(ctx)
