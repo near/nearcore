@@ -25,7 +25,7 @@ use tracing::{debug, info};
 /// `parallelize` can be used to speed up reading from db. However, it should
 /// only be used when no other work is being done, such as during initial
 /// startup. It also incurs a higher peak memory usage.
-fn load_trie_from_flat_state(
+pub fn load_trie_from_flat_state(
     store: &Store,
     shard_uid: ShardUId,
     state_root: StateRoot,
@@ -87,7 +87,7 @@ fn load_memtrie_single_thread(
     Ok((arena, root_id))
 }
 
-fn get_state_root(
+pub fn get_state_root(
     store: &Store,
     block_hash: CryptoHash,
     shard_uid: ShardUId,
