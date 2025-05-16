@@ -1,5 +1,7 @@
-use parking_lot::{Condvar, Mutex, MutexGuard};
 use std::ops::{Deref, DerefMut};
+use std::sync::{Condvar, Mutex, MutexGuard};
+
+const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 
 /// A convenience wrapper around a Mutex and a Condvar.
 ///
@@ -26,18 +28,17 @@ impl<T> Monitor<T> {
     }
 
     pub fn lock(&self) -> MonitorReadGuard<'_, T> {
-        let guard = self.mutex.lock();
+        let guard = self.mutex.lock().expect(POISONED_LOCK_ERR);
         MonitorReadGuard { guard }
     }
 
     pub fn lock_mut(&self) -> MonitorWriteGuard<'_, T> {
-        let guard = self.mutex.lock();
+        let guard = self.mutex.lock().expect(POISONED_LOCK_ERR);
         MonitorWriteGuard { guard, cvar: &self.cvar }
     }
 
     pub fn wait<'a>(&'a self, guard: MonitorReadGuard<'a, T>) -> MonitorReadGuard<'a, T> {
-        let mut guard = guard.guard;
-        self.cvar.wait(&mut guard);
+        let guard = self.cvar.wait(guard.guard).expect(POISONED_LOCK_ERR);
         MonitorReadGuard { guard }
     }
 }

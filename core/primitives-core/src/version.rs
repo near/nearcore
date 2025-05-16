@@ -304,8 +304,6 @@ pub enum ProtocolFeature {
     /// 5% for gas refunds and charge the signer this fee for gas refund
     /// receipts.
     ReducedGasRefunds,
-    /// Move from ChunkStateWitness being a single struct to a versioned enum.
-    VersionedStateWitness,
     SaturatingFloatToInt,
 }
 
@@ -399,9 +397,9 @@ impl ProtocolFeature {
             | ProtocolFeature::BlockHeightForReceiptId
             | ProtocolFeature::ProduceOptimisticBlock => 77,
             ProtocolFeature::SimpleNightshadeV6
-            | ProtocolFeature::VersionedStateWitness
             | ProtocolFeature::SaturatingFloatToInt
             | ProtocolFeature::ReducedGasRefunds => 78,
+
             // Nightly features:
             ProtocolFeature::FixContractLoadingCost => 129,
             // TODO(#11201): When stabilizing this feature in mainnet, also remove the temporary code
@@ -432,3 +430,8 @@ const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 149;
 /// Largest protocol version supported by the current binary.
 pub const PROTOCOL_VERSION: ProtocolVersion =
     if cfg!(feature = "nightly") { NIGHTLY_PROTOCOL_VERSION } else { STABLE_PROTOCOL_VERSION };
+
+/// Both, outgoing and incoming tcp connections to peers, will be rejected if `peer's`
+/// protocol version is lower than this.
+/// TODO(pugachag): revert back to `- 3` after mainnet is upgraded
+pub const PEER_MIN_ALLOWED_PROTOCOL_VERSION: ProtocolVersion = STABLE_PROTOCOL_VERSION - 4;

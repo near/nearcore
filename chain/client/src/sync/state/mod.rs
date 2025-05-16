@@ -29,11 +29,10 @@ use near_primitives::state_sync::{ShardStateSyncResponse, ShardStateSyncResponse
 use near_primitives::types::ShardId;
 use near_store::Store;
 use network::{StateSyncDownloadSourcePeer, StateSyncDownloadSourcePeerSharedState};
-use parking_lot::Mutex;
 use shard::{StateSyncShardHandle, run_state_sync_for_shard};
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use task_tracker::{TaskHandle, TaskTracker};
 use tokio::sync::oneshot;
 use tokio::sync::oneshot::error::TryRecvError;
@@ -207,7 +206,10 @@ impl StateSync {
         sync_hash: CryptoHash,
         data: ShardStateSyncResponse,
     ) -> Result<(), near_chain::Error> {
-        self.peer_source_state.lock().receive_peer_message(peer_id, shard_id, sync_hash, data)?;
+        self.peer_source_state
+            .lock()
+            .unwrap()
+            .receive_peer_message(peer_id, shard_id, sync_hash, data)?;
         Ok(())
     }
 
@@ -223,7 +225,7 @@ impl StateSync {
             tracing::debug_span!(target: "sync", "run_sync", sync_type = "StateSync").entered();
         tracing::debug!(%sync_hash, ?tracking_shards, "syncing state");
 
-        self.peer_source_state.lock().set_highest_peers(
+        self.peer_source_state.lock().unwrap().set_highest_peers(
             highest_height_peers.iter().map(|info| info.peer_info.id.clone()).collect(),
         );
 

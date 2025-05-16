@@ -45,3 +45,5 @@ pub use types::{
     BlockInfo, FetchingStateStatus, FlatStateIterator, FlatStorageCreationStatus, FlatStorageError,
     FlatStorageReadyStatus, FlatStorageReshardingStatus, FlatStorageStatus, ParentSplitParameters,
 };
+
+pub(crate) const POISONED_LOCK_ERR: &str = "The lock was poisoned.";

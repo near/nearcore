@@ -1,4 +1,7 @@
-use bencher::{Bencher, benchmark_group, benchmark_main};
+#[macro_use]
+extern crate bencher;
+
+use bencher::Bencher;
 use near_primitives::shard_layout::ShardUId;
 use near_store::Trie;
 use near_store::test_utils::TestTriesBuilder;

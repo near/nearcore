@@ -50,6 +50,7 @@ use near_primitives::state_sync::{
     ShardStateSyncResponse, ShardStateSyncResponseHeader, ShardStateSyncResponseV3,
 };
 use near_primitives::stateless_validation::ChunkProductionKey;
+use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{
     AccountId, BlockHeight, BlockId, BlockReference, EpochReference, Finality, MaybeBlockId,
     ShardId, SyncCheckpoint, TransactionOrReceiptId, ValidatorInfoIdentifier,
@@ -64,18 +65,19 @@ use near_primitives::views::{
     TxExecutionStatus, TxStatusView,
 };
 use near_store::{COLD_HEAD_KEY, DBCol, FINAL_HEAD_KEY, HEAD_KEY};
-use parking_lot::{Mutex, RwLock};
 use std::cmp::Ordering;
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 use std::hash::Hash;
 use std::num::NonZeroUsize;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, RwLock};
 use tracing::{error, info, warn};
 
 /// Max number of queries that we keep.
 const QUERY_REQUEST_LIMIT: usize = 500;
 /// Waiting time between requests, in ms
 const REQUEST_WAIT_TIME: i64 = 1000;
+
+const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 
 /// Request and response manager across all instances of ViewClientActor.
 pub struct ViewClientRequestManager {
@@ -542,7 +544,7 @@ impl ViewClientActorInner {
         {
             // TODO(telezhnaya): take into account `fetch_receipt()`
             // https://github.com/near/nearcore/issues/9545
-            let mut request_manager = self.request_manager.write();
+            let mut request_manager = self.request_manager.write().expect(POISONED_LOCK_ERR);
             if let Some(res) = request_manager.tx_status_response.pop(&tx_hash) {
                 request_manager.tx_status_requests.pop(&tx_hash);
                 let status = self.get_tx_execution_status(&res)?;
@@ -583,8 +585,8 @@ impl ViewClientActorInner {
                 Err(near_chain::Error::DBNotFoundErr(_)) => {
                     if let Ok(Some(transaction)) = self.chain.chain_store.get_transaction(&tx_hash)
                     {
-                        let transaction =
-                            SignedTransactionView::from(Arc::unwrap_or_clone(transaction));
+                        let transaction: SignedTransactionView =
+                            SignedTransaction::clone(&transaction).into();
                         if let Ok(tx_outcome) = self.chain.get_execution_outcome(&tx_hash) {
                             let outcome = FinalExecutionOutcomeViewEnum::FinalExecutionOutcome(
                                 FinalExecutionOutcomeView {
@@ -614,7 +616,7 @@ impl ViewClientActorInner {
                 }
             }
         } else {
-            let mut request_manager = self.request_manager.write();
+            let mut request_manager = self.request_manager.write().expect(POISONED_LOCK_ERR);
             if self.need_request(tx_hash, &mut request_manager.tx_status_requests) {
                 let target_shard_id = account_id_to_shard_id(
                     self.epoch_manager.as_ref(),
@@ -665,7 +667,7 @@ impl ViewClientActorInner {
     /// Returns true if this request needs to be **dropped** due to exceeding a
     /// rate limit of state sync requests.
     fn throttle_state_sync_request(&self) -> bool {
-        let mut cache = self.state_request_cache.lock();
+        let mut cache = self.state_request_cache.lock().expect(POISONED_LOCK_ERR);
         let now = self.clock.now();
         while let Some(&instant) = cache.front() {
             if now - instant > self.config.view_client_throttle_period {
@@ -1269,7 +1271,7 @@ impl Handler<TxStatusResponse> for ViewClientActorInner {
             .with_label_values(&["TxStatusResponse"])
             .start_timer();
         let tx_hash = tx_result.transaction_outcome.id;
-        let mut request_manager = self.request_manager.write();
+        let mut request_manager = self.request_manager.write().expect(POISONED_LOCK_ERR);
         if request_manager.tx_status_requests.pop(&tx_hash).is_some() {
             request_manager.tx_status_response.put(tx_hash, *tx_result);
         }

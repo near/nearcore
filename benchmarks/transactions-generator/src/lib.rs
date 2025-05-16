@@ -8,7 +8,6 @@ use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockReference};
 use near_primitives::views::{BlockView, QueryRequest, QueryResponse, QueryResponseKind};
 use node_runtime::metrics::TRANSACTION_PROCESSED_FAILED_TOTAL;
-use parking_lot::Mutex;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use std::path::PathBuf;
@@ -55,8 +54,8 @@ pub struct TxGenerator {
 
 #[derive(Clone)]
 struct RunnerState {
-    block_hash: Arc<Mutex<CryptoHash>>,
-    stats: Arc<Mutex<Stats>>,
+    block_hash: Arc<std::sync::Mutex<CryptoHash>>,
+    stats: Arc<std::sync::Mutex<Stats>>,
 }
 
 #[derive(Debug, Clone)]
@@ -101,8 +100,8 @@ impl TxGenerator {
         }
 
         let runner_state = RunnerState {
-            block_hash: Arc::new(Mutex::new(CryptoHash::default())),
-            stats: Arc::new(Mutex::new(Stats {
+            block_hash: Arc::new(std::sync::Mutex::new(CryptoHash::default())),
+            stats: Arc::new(std::sync::Mutex::new(Stats {
                 pool_accepted: 0,
                 pool_rejected: 0,
                 included_in_chunk: 0,
@@ -215,7 +214,7 @@ impl TxGenerator {
 
                 match Self::get_latest_block(&view_client_sender).await {
                     Ok(new_hash) => {
-                        let mut block_hash = runner_state.block_hash.lock();
+                        let mut block_hash = runner_state.block_hash.lock().unwrap();
                         *block_hash = new_hash;
                     }
                     Err(err) => {
@@ -228,7 +227,7 @@ impl TxGenerator {
                 let block_hash = runner_state.block_hash.clone();
                 loop {
                     tx_interval.tick().await;
-                    let block_hash = *block_hash.lock();
+                    let block_hash = *block_hash.lock().unwrap();
                     let ok = Self::generate_send_transaction(
                         &mut rnd,
                         &accounts,
@@ -237,7 +236,7 @@ impl TxGenerator {
                     )
                     .await;
 
-                    let mut stats = runner_state.stats.lock();
+                    let mut stats = runner_state.stats.lock().unwrap();
                     if ok {
                         stats.pool_accepted += 1;
                     } else {
@@ -274,7 +273,7 @@ impl TxGenerator {
                 block_interval.tick().await;
                 match Self::get_latest_block(view_client).await {
                     Ok(new_hash) => {
-                        let mut block_hash = runner_state.block_hash.lock();
+                        let mut block_hash = runner_state.block_hash.lock().unwrap();
                         *block_hash = new_hash;
                     }
                     Err(err) => {
@@ -288,7 +287,7 @@ impl TxGenerator {
     fn start_report_updates(runner_state: RunnerState) -> task::JoinHandle<()> {
         let mut report_interval = tokio::time::interval(Duration::from_secs(1));
         tokio::spawn(async move {
-            let mut stats_prev = runner_state.stats.lock().clone();
+            let mut stats_prev = runner_state.stats.lock().unwrap().clone();
             let mut mean_diff = welford::Mean::<i64>::new();
             loop {
                 report_interval.tick().await;
@@ -299,7 +298,7 @@ impl TxGenerator {
 
                     let failed = TRANSACTION_PROCESSED_FAILED_TOTAL.get();
 
-                    let mut stats = runner_state.stats.lock();
+                    let mut stats = runner_state.stats.lock().unwrap();
                     stats.included_in_chunk = included_in_chunk;
                     stats.failed = failed;
                     stats.clone()

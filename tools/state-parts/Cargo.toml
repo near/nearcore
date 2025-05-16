@@ -13,6 +13,7 @@ workspace = true
 
 [dependencies]
 anyhow.workspace = true
+chrono.workspace = true
 clap.workspace = true
 sha2 = "0.10.6"
 time.workspace = true
@@ -28,12 +29,9 @@ near-primitives.workspace = true
 
 [features]
 nightly = [
-    "near-jsonrpc/nightly",
-    "near-network/nightly",
-    "near-o11y/nightly",
-    "near-ping/nightly",
-    "near-primitives/nightly",
+  "near-jsonrpc/nightly",
+  "near-network/nightly",
+  "near-o11y/nightly",
+  "near-ping/nightly",
+  "near-primitives/nightly",
 ]
-
-[package.metadata.cargo-machete]
-ignored = ["near-jsonrpc", "near-o11y"]

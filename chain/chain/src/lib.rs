@@ -26,6 +26,7 @@ mod chain_update;
 pub mod crypto_hash_timer;
 mod doomslug;
 pub mod flat_storage_init;
+pub mod flat_storage_resharder;
 mod garbage_collection;
 pub mod genesis;
 mod lightclient;

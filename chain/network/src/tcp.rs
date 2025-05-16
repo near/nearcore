@@ -2,9 +2,9 @@ use crate::config::SocketOptions;
 use crate::network_protocol::PeerInfo;
 use anyhow::{Context as _, anyhow};
 use near_primitives::network::PeerId;
-use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::fmt;
+use std::sync::Mutex;
 
 const LISTENER_BACKLOG: u32 = 128;
 
@@ -85,9 +85,6 @@ impl Socket {
 
 impl Stream {
     fn new(stream: tokio::net::TcpStream, type_: StreamType) -> std::io::Result<Self> {
-        if let Err(err) = stream.set_nodelay(true) {
-            tracing::warn!(target: "network", "Failed to set TCP_NODELAY: {}", err);
-        }
         Ok(Self { peer_addr: stream.peer_addr()?, local_addr: stream.local_addr()?, stream, type_ })
     }
 
@@ -220,7 +217,7 @@ impl ListenerAddr {
         guard.set_reuseport(true).unwrap();
         guard.bind("[::1]:0".parse().unwrap()).unwrap();
         let addr = guard.local_addr().unwrap();
-        RESERVED_LISTENER_ADDRS.lock().insert(addr, guard);
+        RESERVED_LISTENER_ADDRS.lock().unwrap().insert(addr, guard);
         Self(addr)
     }
 
@@ -235,7 +232,7 @@ impl ListenerAddr {
             std::net::SocketAddr::V4(_) => tokio::net::TcpSocket::new_v4()?,
             std::net::SocketAddr::V6(_) => tokio::net::TcpSocket::new_v6()?,
         };
-        if RESERVED_LISTENER_ADDRS.lock().contains_key(&self.0) {
+        if RESERVED_LISTENER_ADDRS.lock().unwrap().contains_key(&self.0) {
             socket.set_reuseport(true)?;
         }
         socket.set_reuseaddr(true)?;

@@ -2,12 +2,11 @@
 //! manipulate and access a wasm module's imports including memories, tables, globals, and
 //! functions.
 use near_vm_vm::{Export, NamedResolver};
-use parking_lot::Mutex;
 use std::borrow::BorrowMut;
 use std::collections::VecDeque;
 use std::collections::{HashMap, hash_map::Entry};
 use std::fmt;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 /// The `LikeNamespace` trait represents objects that act as a namespace for imports.
 /// For example, an `Instance` or `Namespace` could be
@@ -60,7 +59,7 @@ impl ImportObject {
     /// import_object.get_export("module", "name");
     /// ```
     pub fn get_export(&self, module: &str, name: &str) -> Option<Export> {
-        let map_ref = self.map.lock();
+        let map_ref = self.map.lock().unwrap();
         if map_ref.contains_key(module) {
             let namespace = map_ref[module].as_ref();
             return namespace.get_namespace_export(name);
@@ -70,7 +69,7 @@ impl ImportObject {
 
     /// Returns true if the ImportObject contains namespace with the provided name.
     pub fn contains_namespace(&self, name: &str) -> bool {
-        self.map.lock().contains_key(name)
+        self.map.lock().unwrap().contains_key(name)
     }
 
     /// Register anything that implements `LikeNamespace` as a namespace.
@@ -89,7 +88,7 @@ impl ImportObject {
         S: Into<String>,
         N: LikeNamespace + Send + Sync + 'static,
     {
-        let mut guard = self.map.lock();
+        let mut guard = self.map.lock().unwrap();
         let map = guard.borrow_mut();
 
         match map.entry(name.into()) {
@@ -103,7 +102,7 @@ impl ImportObject {
 
     fn get_objects(&self) -> VecDeque<((String, String), Export)> {
         let mut out = VecDeque::new();
-        let map = self.map.lock();
+        let map = self.map.lock().unwrap();
         for (name, ns) in map.iter() {
             for (id, exp) in ns.get_namespace_exports() {
                 out.push_back(((name.clone(), id), exp));
@@ -162,7 +161,9 @@ impl fmt::Debug for ImportObject {
             }
         }
 
-        f.debug_struct("ImportObject").field("map", &SecretMap::new(self.map.lock().len())).finish()
+        f.debug_struct("ImportObject")
+            .field("map", &SecretMap::new(self.map.lock().unwrap().len()))
+            .finish()
     }
 }
 

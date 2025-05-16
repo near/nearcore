@@ -145,8 +145,7 @@ jobs:
       - run: echo "CURRENT_NEARD=$PWD/target/dev-release/neard" >> "$GITHUB_ENV"
       - run: echo "NEAR_ROOT=$PWD" >> "$GITHUB_ENV"
       - run: python3 scripts/state/update_res.py check
-      # TODO(#13556): Test is flaky, disable for now
-      # - run: pushd pytest && python3 tests/sanity/upgradable.py && popd
+      - run: pushd pytest && python3 tests/sanity/upgradable.py && popd
       - run: pushd pytest && python3 tests/sanity/db_migration.py && popd
       - run: pushd pytest && python3 tests/sanity/backward_compatible.py && popd
 
@@ -237,16 +236,6 @@ jobs:
         with:
           tool: just
       - run: just check-themis
-
-  check_machete:
-    name: "Cargo machete (unused dependencies)"
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
-        with:
-          tool: just,cargo-machete
-      - run: just check-cargo-machete
 
   check_non_default:
     name: "Non-default Configuration Builds"
@@ -368,7 +357,6 @@ jobs:
   publishable_packages_check:
     name: "Cargo check publishable packages separately"
     runs-on: ${{ matrix.os }}
-    if: github.event_name == 'merge_group' || github.event_name == 'workflow_dispatch'
     strategy:
       fail-fast: false
       matrix:
