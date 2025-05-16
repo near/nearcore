@@ -37,3 +37,9 @@ pub enum PromiseResult {
     Successful(Vec<u8>),
     Failed,
 }
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub enum GlobalContractDeployMode {
+    CodeHash,
+    AccountId,
+}
