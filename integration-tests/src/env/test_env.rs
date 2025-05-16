@@ -5,7 +5,6 @@ use near_chain::near_chain_primitives::error::QueryError;
 use near_chain::stateless_validation::processing_tracker::{
     ProcessingDoneTracker, ProcessingDoneWaiter,
 };
-use near_chain::test_utils::ValidatorSchedule;
 use near_chain::types::Tip;
 use near_chain::{ChainGenesis, ChainStoreAccess, Provenance};
 use near_chain_configs::{Genesis, GenesisConfig};
@@ -662,18 +661,13 @@ impl TestEnv {
 
     /// Restarts client at given index. Note that the new client reuses runtime
     /// adapter of old client.
-    /// TODO (#8269): create new `KeyValueRuntime` for new client. Currently it
-    /// doesn't work because `KeyValueRuntime` misses info about new epochs in
-    /// memory caches.
-    /// Though, it seems that it is not necessary for current use cases.
     pub fn restart(&mut self, idx: usize) {
         let account_id = self.get_client_id(idx);
         let rng_seed = match self.seeds.get(&account_id) {
             Some(seed) => *seed,
             None => TEST_SEED,
         };
-        let vs = ValidatorSchedule::new().block_producers_per_epoch(vec![self.validators.clone()]);
-        let num_validator_seats = vs.all_block_producers().count() as NumSeats;
+        let num_validator_seats = self.validators.len() as NumSeats;
         self.clients[idx] = setup_client_with_runtime(
             self.clock.clone(),
             num_validator_seats,

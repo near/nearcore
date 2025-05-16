@@ -55,9 +55,6 @@ pub fn verify_chunk_header_signature_with_epoch_manager_and_parts(
     height_created: BlockHeight,
     shard_id: ShardId,
 ) -> Result<bool, Error> {
-    if !epoch_manager.should_validate_signatures() {
-        return Ok(true);
-    }
     let key = ChunkProductionKey { epoch_id, height_created, shard_id };
     let chunk_producer = epoch_manager.get_chunk_producer_info(&key)?;
     Ok(signature.verify(chunk_hash.as_ref(), chunk_producer.public_key()))

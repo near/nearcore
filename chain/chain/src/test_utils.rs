@@ -1,6 +1,3 @@
-mod kv_runtime;
-mod validator_schedule;
-
 use std::cmp::Ordering;
 use std::sync::Arc;
 
@@ -32,8 +29,6 @@ use near_store::test_utils::create_test_store;
 use num_rational::Ratio;
 use tracing::debug;
 
-pub use self::kv_runtime::{KeyValueRuntime, MockEpochManager, account_id_to_shard_id};
-pub use self::validator_schedule::ValidatorSchedule;
 use near_async::messaging::{IntoMultiSender, noop};
 
 pub fn get_chain(clock: Clock) -> Chain {

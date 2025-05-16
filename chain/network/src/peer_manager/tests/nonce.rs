@@ -62,7 +62,7 @@ async fn test_nonces() {
         let peer_id = PeerId::new(peer_key.public_key());
         let handshake = PeerMessage::Tier2Handshake(Handshake {
             protocol_version: version::PROTOCOL_VERSION,
-            oldest_supported_version: version::PEER_MIN_ALLOWED_PROTOCOL_VERSION,
+            oldest_supported_version: version::MIN_SUPPORTED_PROTOCOL_VERSION,
             sender_peer_id: peer_id.clone(),
             target_peer_id: pm.cfg.node_id(),
             // we have to set this even if we have no intention of listening since otherwise
