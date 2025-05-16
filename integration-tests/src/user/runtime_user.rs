@@ -289,7 +289,7 @@ impl User for RuntimeUser {
     fn view_contract_code(&self, account_id: &AccountId) -> Result<ContractCodeView, String> {
         let state_update = self.client.read().get_state_update();
         self.trie_viewer
-            .view_contract_code(&state_update, account_id)
+            .view_account_contract_code(&state_update, account_id)
             .map(|contract_code| {
                 let hash = *contract_code.hash();
                 ContractCodeView { hash, code: contract_code.into_code() }
