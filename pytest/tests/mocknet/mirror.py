@@ -22,6 +22,7 @@ from configured_logger import logger
 import local_test_node
 import node_config
 import remote_node
+from node_handle import NodeHandle
 from utils import ScheduleContext
 
 
@@ -79,17 +80,40 @@ class CommandContext:
 
     def __init__(self, args):
         self.args = args
-        self.is_scheduled = False
         self.nodes = []
         self.traffic_generator = None
+        self.schedule_ctx = self._make_schedule_context()
 
         # will set the schedule context in the nodes if the command is scheduled
         self._set_nodes()
         # Filter hosts based on the base args of the command
         self._filter_hosts()
 
-    def get_targeted(self):
+    def is_scheduled(self) -> bool:
+        return self.schedule_ctx is not None
+
+    def get_targeted(self) -> list[NodeHandle]:
+        """
+        Returns the nodes and traffic generator with the previous schedule context.
+        """
         return self.nodes + to_list(self.traffic_generator)
+
+    def get_targeted_with_schedule_ctx(self) -> list[NodeHandle]:
+        """
+        Sets the schedule context in the nodes and traffic generator.
+        All the commands will be scheduled if schedule is set.
+        """
+        return [
+            node.with_schedule_ctx(self.schedule_ctx)
+            for node in self.get_targeted()
+        ]
+
+    def get_without_schedule_ctx(self) -> list[NodeHandle]:
+        """
+        Clears the schedule context in the nodes and traffic generator.
+        All the commands will be executed now.
+        """
+        return [node.with_schedule_ctx(None) for node in self.get_targeted()]
 
     def _set_nodes(self):
         """
@@ -113,7 +137,7 @@ class CommandContext:
             )
             traffic_generator, nodes = local_test_node.get_nodes()
             node_config.configure_nodes(nodes + to_list(traffic_generator),
-                                        node_config.TEST_CONFIG, None)
+                                        node_config.TEST_CONFIG)
         self.traffic_generator = traffic_generator
         self.nodes = nodes
 
@@ -133,10 +157,8 @@ class CommandContext:
                 f'must give all of --chain-id --start-height and --unique-id or --mocknet-id'
             )
         traffic_generator, nodes = remote_node.get_nodes(mocknet_id)
-        schedule_ctx = self._make_schedule_context()
-        self.is_scheduled = schedule_ctx is not None
         node_config.configure_nodes(nodes + to_list(traffic_generator),
-                                    node_config.REMOTE_CONFIG, schedule_ctx)
+                                    node_config.REMOTE_CONFIG)
         self.traffic_generator = traffic_generator
         self.nodes = nodes
 
@@ -502,14 +524,15 @@ def reset_cmd(ctx: CommandContext):
                 f'Given backup ID ({args.backup_id}) was not in the list given')
             sys.exit()
 
-    targeted = nodes + to_list(traffic_generator)
     pmap(lambda node: node.neard_runner_reset(backup_id=args.backup_id),
-         targeted)
+         ctx.get_targeted_with_schedule_ctx())
     logger.info(
         'Data dir reset in progress. Run the `status` command to see when this is finished. Until it is finished, neard runners may not respond to HTTP requests.'
     )
     # Do not clear state parts if scheduling
-    if not ctx.is_scheduled:
+    # NOTE: This may be a problem if you want to schedule the reset command on a dumper node
+    #       because the dumper node will start dumping the current epoch after reset.
+    if not ctx.is_scheduled():
         _clear_state_parts_if_exists(_get_state_parts_location(args), nodes)
 
 
@@ -536,15 +559,17 @@ def make_backup_cmd(ctx: CommandContext):
     pmap(
         lambda node: node.neard_runner_make_backup(
             backup_id=args.backup_id, description=args.description),
-        ctx.get_targeted())
+        ctx.get_targeted_with_schedule_ctx())
 
 
 def stop_nodes_cmd(ctx: CommandContext):
-    pmap(lambda node: node.neard_runner_stop(), ctx.get_targeted())
+    pmap(lambda node: node.neard_runner_stop(),
+         ctx.get_targeted_with_schedule_ctx())
 
 
 def stop_traffic_cmd(ctx: CommandContext):
-    ctx.traffic_generator.neard_runner_stop()
+    ctx.traffic_generator.with_schedule_ctx(
+        ctx.schedule_ctx).neard_runner_stop()
 
 
 def do_update_config(node, config_change):
@@ -557,21 +582,22 @@ def do_update_config(node, config_change):
 def update_config_cmd(ctx: CommandContext):
     pmap(
         lambda node: do_update_config(node, ctx.args.set),
-        ctx.get_targeted(),
+        ctx.get_targeted_with_schedule_ctx(),
     )
 
 
 def start_nodes_cmd(ctx: CommandContext):
     nodes = ctx.nodes
-    if not ctx.is_scheduled and not all(
-            pmap(lambda node: node.neard_runner_ready(), nodes)):
+    if not all(pmap(lambda node: node.neard_runner_ready(), nodes)):
         logger.warning(
             'not all nodes are ready to start yet. Run the `status` command to check their statuses'
         )
         return
-    pmap(lambda node: node.neard_runner_start(), nodes)
+    pmap(
+        lambda node: node.with_schedule_ctx(ctx.schedule_ctx).
+        neard_runner_start(), nodes)
     # Wait for the nodes to be up if not scheduling
-    if not ctx.is_scheduled:
+    if not ctx.is_scheduled():
         pmap(lambda node: node.wait_node_up(), nodes)
 
 
@@ -588,24 +614,28 @@ def start_traffic_cmd(ctx: CommandContext):
             'not all nodes are ready to start yet. Run the `status` command to check their statuses'
         )
         return
-    pmap(lambda node: node.neard_runner_start(), nodes)
+    pmap(
+        lambda node: node.with_schedule_ctx(ctx.schedule_ctx).
+        neard_runner_start(), nodes)
     # Wait for the nodes to be up if not scheduling
-    if not ctx.is_scheduled:
+    if not ctx.is_scheduled():
         logger.info("waiting for validators to be up")
         pmap(lambda node: node.wait_node_up(), nodes)
         logger.info(
             "waiting a bit after validators started before starting traffic")
         time.sleep(10)
-    traffic_generator.neard_runner_start(
+    # TODO: maybe add 20 seconds delay to the schedule command to allow the other nodes to start
+    traffic_generator.with_schedule_ctx(ctx.schedule_ctx).neard_runner_start(
         batch_interval_millis=ctx.args.batch_interval_millis)
-    if not ctx.is_scheduled:
+    if not ctx.is_scheduled():
         logger.info(
             f'test running. to check the traffic sent, try running "curl --silent http://{traffic_generator.ip_addr()}:{traffic_generator.neard_port()}/metrics | grep near_mirror"'
         )
 
 
 def update_binaries_cmd(ctx: CommandContext):
-    pmap(lambda node: node.neard_runner_update_binaries(), ctx.get_targeted())
+    pmap(lambda node: node.neard_runner_update_binaries(),
+         ctx.get_targeted_with_schedule_ctx())
 
 
 def amend_binaries_cmd(ctx: CommandContext):
@@ -613,7 +643,7 @@ def amend_binaries_cmd(ctx: CommandContext):
     pmap(
         lambda node: node.neard_runner_update_binaries(
             args.neard_binary_url, args.epoch_height, args.binary_idx),
-        ctx.get_targeted())
+        ctx.get_targeted_with_schedule_ctx())
 
 
 # Only print stdout and stderr if they are not empty
@@ -634,7 +664,7 @@ def _run_remote(hosts, cmd):
 
 
 def run_remote_cmd(ctx: CommandContext):
-    targeted = ctx.get_targeted()
+    targeted = ctx.get_targeted_with_schedule_ctx()
     logger.info(f'Running cmd on {",".join([h.name() for h in targeted])}')
     _run_remote(targeted, ctx.args.cmd)
 
@@ -655,13 +685,14 @@ def run_env_cmd(ctx: CommandContext):
         func = lambda node: node.neard_clear_env()
     else:
         func = lambda node: node.neard_update_env(ctx.args.key_value)
-    targeted = ctx.get_targeted()
-    pmap(func, targeted)
+    pmap(func, ctx.get_targeted_with_schedule_ctx())
 
 
 def list_scheduled_cmds(ctx: CommandContext):
     targeted = ctx.get_targeted()
-    cmd = 'systemctl --user show "mocknet-*" -p Id -p ConditionTimestamp -p Description --value'
+    cmd = 'systemctl --user --legend=false list-timers "mocknet*" --all'
+    if ctx.args.full:
+        cmd += '; systemctl --user show "mocknet-*" -p Id -p Description --value'
     logger.info(
         f'Getting schedule from {",".join([h.name() for h in targeted])}')
     _run_remote(targeted, cmd)
@@ -765,6 +796,10 @@ def register_schedule_subcommands(subparsers):
 
     list_subparsers = subparsers.add_parser('list',
                                             help='List all scheduled commands.')
+    list_subparsers.add_argument(
+        '--full',
+        action='store_true',
+        help='Show more details about the scheduled commands.')
     list_subparsers.set_defaults(func=list_scheduled_cmds)
 
     clear_subparsers = subparsers.add_parser(

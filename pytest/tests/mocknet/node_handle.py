@@ -6,7 +6,7 @@ import pathlib
 import requests
 import sys
 import time
-from typing import Optional
+from typing import Optional, Self
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
@@ -22,6 +22,16 @@ class NodeHandle:
         self.want_state_dump = want_state_dump
         self.want_neard_runner = True
         self.schedule_ctx = None
+
+    def with_schedule_ctx(self,
+                          schedule_ctx: Optional[ScheduleContext]) -> Self:
+        """
+        Sets the schedule context in the node.
+        If schedule is set, all the commands will be scheduled.
+        If schedule is not set, all the commands will be executed now.
+        """
+        self.schedule_ctx = schedule_ctx
+        return self
 
     def name(self):
         return self.node.name()
