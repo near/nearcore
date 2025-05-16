@@ -195,10 +195,9 @@ first one has some tests still scheduled to run.</p>
 <p>Different levels of the reference implementation have different infrastructures
 available to test them.</p>
 <h2 id="client"><a class="header" href="#client">Client</a></h2>
-<p>The Client is separated from the runtime via a <code>RuntimeAdapter</code> trait.
+<p>The Client is separated from the runtime via a <code>RuntimeAdapter</code> trait for historical reasons.
 In production, it uses <code>NightshadeRuntime</code> which uses real runtime and epoch managers.
-To test the client without instantiating runtime and epoch manager, we have a mock runtime
-<code>KeyValueRuntime</code>.</p>
+The same should be used in tests.</p>
 <p>Most of the tests in the client work by setting up either a single node (via
 <code>setup_mock()</code>) or multiple nodes (via <code>setup_mock_all_validators()</code>) and then
 launching the nodes and waiting for a particular message to occur, with a

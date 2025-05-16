@@ -182,15 +182,9 @@ to use the seed that is matching the account name.</p>
 <span class="boring">}
 </span></code></pre></pre>
 <h2 id="epochmanager"><a class="header" href="#epochmanager">EpochManager</a></h2>
-<p>See usages of MockEpochManager. Note that this is deprecated. Try to use
-EpochManager itself wherever possible.</p>
+<p>Use EpochManager itself.</p>
 <h2 id="runtime"><a class="header" href="#runtime">Runtime</a></h2>
-<p>You can use the KeyValueRuntime (instead of the Nightshade one):</p>
-<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span>KeyValueRuntime::new(store, &amp;epoch_manager);
-<span class="boring">}
-</span></code></pre></pre>
+<p>Use Nightshade runtime.</p>
 <h2 id="chain"><a class="header" href="#chain">Chain</a></h2>
 <p>No fakes or mocks.</p>
 <h2 id="client"><a class="header" href="#client">Client</a></h2>

@@ -6179,10 +6179,9 @@ first one has some tests still scheduled to run.</p>
 <p>Different levels of the reference implementation have different infrastructures
 available to test them.</p>
 <h2 id="client"><a class="header" href="#client">Client</a></h2>
-<p>The Client is separated from the runtime via a <code>RuntimeAdapter</code> trait.
+<p>The Client is separated from the runtime via a <code>RuntimeAdapter</code> trait for historical reasons.
 In production, it uses <code>NightshadeRuntime</code> which uses real runtime and epoch managers.
-To test the client without instantiating runtime and epoch manager, we have a mock runtime
-<code>KeyValueRuntime</code>.</p>
+The same should be used in tests.</p>
 <p>Most of the tests in the client work by setting up either a single node (via
 <code>setup_mock()</code>) or multiple nodes (via <code>setup_mock_all_validators()</code>) and then
 launching the nodes and waiting for a particular message to occur, with a
@@ -6515,15 +6514,9 @@ to use the seed that is matching the account name.</p>
 <span class="boring">}
 </span></code></pre></pre>
 <h2 id="epochmanager"><a class="header" href="#epochmanager">EpochManager</a></h2>
-<p>See usages of MockEpochManager. Note that this is deprecated. Try to use
-EpochManager itself wherever possible.</p>
+<p>Use EpochManager itself.</p>
 <h2 id="runtime-1"><a class="header" href="#runtime-1">Runtime</a></h2>
-<p>You can use the KeyValueRuntime (instead of the Nightshade one):</p>
-<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span>KeyValueRuntime::new(store, &amp;epoch_manager);
-<span class="boring">}
-</span></code></pre></pre>
+<p>Use Nightshade runtime.</p>
 <h2 id="chain"><a class="header" href="#chain">Chain</a></h2>
 <p>No fakes or mocks.</p>
 <h2 id="client-1"><a class="header" href="#client-1">Client</a></h2>
