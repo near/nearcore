@@ -12,6 +12,7 @@ use near_client_primitives::debug::ChunkProduction;
 use near_client_primitives::types::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
+use near_pool::types::TransactionGroupIterator;
 use near_primitives::bandwidth_scheduler::BandwidthRequests;
 use near_primitives::epoch_info::RngSeed;
 use near_primitives::hash::CryptoHash;
@@ -239,10 +240,14 @@ impl ChunkProducer {
         debug!(target: "client", me = ?validator_signer.validator_id(), next_height, ?shard_id, "Producing chunk");
 
         let shard_uid = shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, epoch_id)?;
-        let chunk_extra = self
-            .chain
-            .get_chunk_extra(&prev_block_hash, &shard_uid)
-            .map_err(|err| Error::ChunkProducer(format!("No chunk extra available: {}", err)))?;
+        let chunk_extra = if cfg!(feature = "protocol_feature_spice") {
+            // TODO(spice): using default values as a placeholder is a temporary hack
+            Arc::new(ChunkExtra::new_with_only_state_root(&Default::default()))
+        } else {
+            self.chain
+                .get_chunk_extra(&prev_block_hash, &shard_uid)
+                .map_err(|err| Error::ChunkProducer(format!("No chunk extra available: {}", err)))?
+        };
 
         let prepared_transactions = {
             #[cfg(feature = "test_features")]
@@ -362,6 +367,15 @@ impl ChunkProducer {
         let mut pool_guard = self.sharded_tx_pool.lock();
         let prepared_transactions = if let Some(mut iter) = pool_guard.get_pool_iterator(shard_uid)
         {
+            if cfg!(feature = "protocol_feature_spice") {
+                // TODO(spice): properly implement transaction preparation to respect limits
+                let mut res = vec![];
+                while let Some(iter) = iter.next() {
+                    res.push(iter.next().unwrap());
+                }
+                return Ok(PreparedTransactions { transactions: res, limited_by: None });
+            }
+
             let storage_config = RuntimeStorageConfig {
                 state_root: *chunk_extra.state_root(),
                 use_flat_storage: true,

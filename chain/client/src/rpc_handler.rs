@@ -203,31 +203,33 @@ impl RpcHandler {
             self.shard_tracker.will_care_about_shard(me, &head.last_block_hash, shard_id, true);
 
         if cares_about_shard || will_care_about_shard {
-            let state_root =
-                match self.chain_store.get_chunk_extra(&head.last_block_hash, &shard_uid) {
-                    Ok(chunk_extra) => *chunk_extra.state_root(),
-                    Err(_) => {
-                        // Not being able to fetch a state root most likely implies that we haven't
-                        //     caught up with the next epoch yet.
-                        if is_forwarded {
-                            return Err(near_client_primitives::types::Error::Other(
-                                "Node has not caught up yet".to_string(),
-                            ));
-                        } else {
-                            self.forward_tx(&epoch_id, signed_tx, signer)?;
-                            return Ok(ProcessTxResponse::RequestRouted);
+            if !cfg!(feature = "protocol_feature_spice") {
+                let state_root =
+                    match self.chain_store.get_chunk_extra(&head.last_block_hash, &shard_uid) {
+                        Ok(chunk_extra) => *chunk_extra.state_root(),
+                        Err(_) => {
+                            // Not being able to fetch a state root most likely implies that we haven't
+                            //     caught up with the next epoch yet.
+                            if is_forwarded {
+                                return Err(near_client_primitives::types::Error::Other(
+                                    "Node has not caught up yet".to_string(),
+                                ));
+                            } else {
+                                self.forward_tx(&epoch_id, signed_tx, signer)?;
+                                return Ok(ProcessTxResponse::RequestRouted);
+                            }
                         }
-                    }
-                };
-            if let Err(err) = self.runtime.can_verify_and_charge_tx(
-                &shard_layout,
-                gas_price,
-                state_root,
-                &validated_tx,
-                protocol_version,
-            ) {
-                tracing::debug!(target: "client", ?err, "Invalid tx");
-                return Ok(ProcessTxResponse::InvalidTx(err));
+                    };
+                if let Err(err) = self.runtime.can_verify_and_charge_tx(
+                    &shard_layout,
+                    gas_price,
+                    state_root,
+                    &validated_tx,
+                    protocol_version,
+                ) {
+                    tracing::debug!(target: "client", ?err, "Invalid tx");
+                    return Ok(ProcessTxResponse::InvalidTx(err));
+                }
             }
             if check_only {
                 return Ok(ProcessTxResponse::ValidTx);
