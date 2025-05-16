@@ -5,6 +5,7 @@ use actix::System;
 use awc::http::StatusCode;
 use futures::{FutureExt, future};
 use near_chain_configs::test_utils::TESTING_INIT_BALANCE;
+use near_primitives::action::GlobalContractDeployMode;
 use near_primitives::transaction::SignedTransaction;
 use serde_json::json;
 
@@ -689,4 +690,82 @@ fn test_get_chunk_with_object_in_params() {
         let same_chunk = client.chunk(ChunkId::Hash(chunk.header.chunk_hash)).await.unwrap();
         assert_eq!(chunk.header.chunk_hash, same_chunk.header.chunk_hash);
     });
+}
+
+#[test]
+fn test_query_global_contract_code_by_hash() {
+    test_query_global_contract_code(GlobalContractDeployMode::CodeHash);
+}
+
+#[test]
+fn test_query_global_contract_code_by_account_id() {
+    test_query_global_contract_code(GlobalContractDeployMode::AccountId);
+}
+
+fn test_query_global_contract_code(deploy_mode: GlobalContractDeployMode) {
+    test_with_client!(test_utils::NodeType::Validator, client, async move {
+        let account = "test".parse().unwrap();
+        let code = near_test_contracts::rs_contract().to_vec();
+        let code_hash = CryptoHash::hash_bytes(&code);
+        deploy_global_contract(&client, &account, code.clone(), deploy_mode.clone()).await;
+
+        // Global contract distribution takes time, so we might not be able to query the contract
+        // immediately after broadcast_tx_commit.
+        wait_or_timeout(100, 10000, || async {
+            let request = match deploy_mode {
+                GlobalContractDeployMode::CodeHash => {
+                    QueryRequest::ViewGlobalContractCode { code_hash }
+                }
+                GlobalContractDeployMode::AccountId => {
+                    QueryRequest::ViewGlobalContractCodeByAccountId { account_id: account.clone() }
+                }
+            };
+            let query_res = client
+                .query(near_jsonrpc_primitives::types::query::RpcQueryRequest {
+                    block_reference: BlockReference::latest(),
+                    request,
+                })
+                .await;
+
+            let Ok(query_response) = query_res else {
+                return ControlFlow::Continue(());
+            };
+
+            let response_code = if let QueryResponseKind::ViewCode(code) = query_response.kind {
+                code
+            } else {
+                panic!("queried code, but received something else: {:?}", query_response.kind);
+            };
+            assert_eq!(response_code.code, code);
+            assert_eq!(response_code.hash, code_hash);
+            ControlFlow::Break(())
+        })
+        .await
+        .unwrap();
+    });
+}
+
+async fn deploy_global_contract(
+    client: &JsonRpcClient,
+    account: &AccountId,
+    code: Vec<u8>,
+    deploy_mode: GlobalContractDeployMode,
+) {
+    let block_hash = client.block(BlockReference::latest()).await.unwrap().header.hash;
+    let signer = InMemorySigner::test_signer(&account);
+    let tx = SignedTransaction::deploy_global_contract(
+        1,
+        account.clone(),
+        code,
+        &signer,
+        block_hash,
+        deploy_mode,
+    );
+    let bytes = borsh::to_vec(&tx).unwrap();
+    let result =
+        client.broadcast_tx_commit(near_primitives::serialize::to_base64(&bytes)).await.unwrap();
+    assert_eq!(
+        result.final_execution_outcome.unwrap().into_outcome().status,
+        FinalExecutionStatus::SuccessValue(Vec::new())
+    );
 }
