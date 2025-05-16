@@ -7,9 +7,11 @@ use near_primitives::types::AccountId;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 
+use super::{Trie, TrieChanges, TrieRefcountDeltaMap};
+
 /// A simple struct to capture a state proof as it's being accumulated.
 pub struct TrieRecorder {
-    recorded: HashMap<CryptoHash, Arc<[u8]>>,
+    recorded: HashMap<CryptoHash, TrieNodeWithRefcount>,
     size: usize,
     /// Size of the recorded state proof plus some additional size added to cover removals and contract code.
     /// An upper-bound estimation of the true recorded size after finalization.
@@ -24,6 +26,25 @@ pub struct TrieRecorder {
     code_len_counter: usize,
     /// Account IDs for which the code should be recorded.
     pub codes_to_record: HashSet<AccountId>,
+}
+struct TrieNodeWithRefcount(Arc<[u8]>, u32);
+
+impl From<Arc<[u8]>> for TrieNodeWithRefcount {
+    fn from(value: Arc<[u8]>) -> Self {
+        Self(value, 0)
+    }
+}
+
+impl TrieNodeWithRefcount {
+    /// Increment the reference count for this node, returning the new count.
+    fn increment(&mut self) -> u32 {
+        self.1 += 1;
+        self.1
+    }
+
+    fn value(&self) -> &Arc<[u8]> {
+        &self.0
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -68,12 +89,15 @@ impl TrieRecorder {
     /// large witness for testing.
     #[cfg(feature = "test_features")]
     pub fn record_unaccounted(&mut self, hash: &CryptoHash, node: Arc<[u8]>) {
-        self.recorded.insert(*hash, node);
+        self.recorded.entry(*hash).or_insert_with(|| node.into()).increment();
     }
 
     pub fn record(&mut self, hash: &CryptoHash, node: Arc<[u8]>) {
         let size = node.len();
-        if self.recorded.insert(*hash, node).is_none() {
+        let times_seen = self.recorded.entry(*hash).or_insert_with(|| node.into()).increment();
+
+        // Only do size accounting if this is the first time we see this value.
+        if times_seen == 1 {
             self.size = self.size.checked_add(size).unwrap();
             self.upper_bound_size = self.upper_bound_size.checked_add(size).unwrap();
         }
@@ -98,14 +122,32 @@ impl TrieRecorder {
     }
 
     pub fn recorded_storage(&mut self) -> PartialStorage {
-        let mut nodes: Vec<_> = self.recorded.drain().map(|(_key, value)| value).collect();
+        let mut nodes: Vec<_> =
+            self.recorded.drain().map(|(_key, value)| value.value().clone()).collect();
         nodes.sort();
         PartialStorage { nodes: PartialState::TrieValues(nodes) }
     }
 
+    pub fn recorded_trie_changes(&mut self, state_root: CryptoHash) -> TrieChanges {
+        let recorded: HashMap<_, _> = self.recorded.drain().collect();
+        let mut refcounts = TrieRefcountDeltaMap::new();
+        for (key, TrieNodeWithRefcount(value, refcount)) in recorded {
+            refcounts.add(key, value.to_vec(), refcount);
+        }
+        let (insertions, deletions) = refcounts.into_changes();
+        TrieChanges {
+            old_root: Trie::EMPTY_ROOT,
+            new_root: state_root,
+            insertions,
+            deletions,
+            memtrie_changes: None,
+            children_memtrie_changes: Default::default(),
+        }
+    }
+
     // TODO(resharding): remove this method after proper fix for refcount issue
     pub fn recorded_iter<'a>(&'a self) -> impl Iterator<Item = (&'a CryptoHash, &'a Arc<[u8]>)> {
-        self.recorded.iter()
+        self.recorded.iter().map(|(key, value)| (key, value.value()))
     }
 
     pub fn recorded_storage_size(&self) -> usize {
@@ -157,7 +199,8 @@ impl TrieRecorder {
         let mut cur_node_hash = *trie_root;
 
         while !subtree_key.is_empty() {
-            let Some(raw_node_bytes) = self.recorded.get(&cur_node_hash) else {
+            let Some(TrieNodeWithRefcount(raw_node_bytes, _)) = self.recorded.get(&cur_node_hash)
+            else {
                 // This node wasn't recorded.
                 return None;
             };
@@ -222,7 +265,8 @@ impl TrieRecorder {
                 continue;
             }
 
-            let Some(raw_node_bytes) = self.recorded.get(&cur_node_hash) else {
+            let Some(TrieNodeWithRefcount(raw_node_bytes, _)) = self.recorded.get(&cur_node_hash)
+            else {
                 // This node wasn't recorded.
                 continue;
             };
@@ -241,7 +285,9 @@ impl TrieRecorder {
 
             match raw_node {
                 RawTrieNode::Leaf(_key, value) => {
-                    if let Some(value_bytes) = self.recorded.get(&value.hash) {
+                    if let Some(TrieNodeWithRefcount(value_bytes, _)) =
+                        self.recorded.get(&value.hash)
+                    {
                         if !seen_items.contains(&value.hash) {
                             values_size = values_size.saturating_add(value_bytes.len());
                             seen_items.insert(value.hash);
@@ -262,7 +308,9 @@ impl TrieRecorder {
                         }
                     }
 
-                    if let Some(value_bytes) = self.recorded.get(&value.hash) {
+                    if let Some(TrieNodeWithRefcount(value_bytes, _)) =
+                        self.recorded.get(&value.hash)
+                    {
                         if !seen_items.contains(&value.hash) {
                             values_size = values_size.saturating_add(value_bytes.len());
                             seen_items.insert(value.hash);
@@ -736,5 +784,123 @@ mod trie_recording_tests {
     #[test]
     fn test_trie_recording_consistency_with_flat_storage_with_accounting_cache_and_missing_keys() {
         test_trie_recording_consistency(true, true, true);
+    }
+}
+
+#[cfg(test)]
+mod memtrie_batch_iteration_tests {
+    use crate::Trie;
+    use crate::test_utils::{
+        TestTriesBuilder, create_test_store, simplify_changes, test_populate_flat_storage,
+        test_populate_trie,
+    };
+    use crate::trie::AccessOptions;
+    use crate::trie::trie_tests::merge_trie_changes;
+    use near_primitives::hash::hash;
+    use near_primitives::shard_layout::ShardUId;
+
+    use super::*;
+
+    /// Returns the hash of height (as le_bytes) for use as a fake block hash in tests.
+    fn fake_hash(height: usize) -> CryptoHash {
+        hash(height.to_le_bytes().as_ref())
+    }
+
+    fn iterate_batch(
+        trie: &Trie,
+        previous_batch_last_key: Option<Vec<u8>>,
+        batch_limit: usize,
+    ) -> Option<Vec<u8>> {
+        let read_trie = trie.lock_for_iter();
+        // Get the iterator for the trie, skipping the first key if needed
+        let mut iter = read_trie.iter().expect("failed to get iterator");
+        if let Some(key) = previous_batch_last_key {
+            iter.seek(&key, true).expect("failed to seek");
+        }
+
+        // Iterate over the trie, stopping when we reach the batch size
+        let mut items = 0;
+        while let Some(result) = iter.next() {
+            let Ok((key, _value)) = result else {
+                panic!("failed to iterate");
+            };
+            if items >= batch_limit {
+                return Some(key);
+            }
+            items += 1;
+        }
+
+        None // No more items to iterate
+    }
+
+    fn test_batched_iteration_impl(use_memtries: bool) {
+        let store = create_test_store();
+        let tries = TestTriesBuilder::new()
+            .with_store(store)
+            .with_flat_storage(use_memtries)
+            .with_in_memory_tries(use_memtries)
+            .build();
+        let shard_uid = ShardUId::single_shard();
+        let block_id = CryptoHash::default();
+
+        // Create arbitrary data to populate the trie
+        // Deliberately contains duplicate values to test reference counting
+        let initial =
+            (0..1000).map(|i| (Vec::from(fake_hash(i)), Some(vec![i as u8]))).collect::<Vec<_>>();
+
+        test_populate_flat_storage(&tries, shard_uid, &block_id, &block_id, &initial);
+        let root = test_populate_trie(&tries, &Trie::EMPTY_ROOT, shard_uid, initial.clone());
+        let trie = tries.get_trie_for_shard(shard_uid, root).recording_reads_new_recorder();
+
+        let batch_size = 20;
+        let mut last_key: Option<Vec<u8>> = None;
+        let mut change_batches: Vec<TrieChanges> = Vec::new();
+        loop {
+            last_key = iterate_batch(&trie, last_key, batch_size);
+            let trie_changes =
+                trie.recorded_trie_changes(root).expect("failed to get trie changes");
+            change_batches.push(trie_changes);
+
+            if last_key.is_none() {
+                break;
+            }
+        }
+        let all_changes = merge_trie_changes(change_batches);
+
+        // Inserting the same key/values into an empty trie should result in the same TrieChanges
+        let new_trie = tries.get_trie_for_shard(shard_uid, Trie::EMPTY_ROOT);
+        let trie_changes = new_trie
+            .update_with_trie_storage(initial.clone(), AccessOptions::DEFAULT)
+            .expect("failed to update trie");
+        assert_eq!(trie_changes, all_changes);
+
+        // Create a new store and apply the changes to it, then iterate the trie
+        // as a consistency check. We should get the same key/values and
+        // recorded changes.
+        let new_store = create_test_store();
+        let new_tries = TestTriesBuilder::new().with_store(new_store).build();
+        let mut store_update = new_tries.store_update();
+        new_tries.apply_all(&trie_changes, shard_uid, &mut store_update);
+        store_update.commit().expect("failed to commit store update");
+
+        let trie = new_tries.get_trie_for_shard(shard_uid, root).recording_reads_new_recorder();
+        let read_trie = trie.lock_for_iter();
+        let iter = read_trie.iter().expect("failed to get iterator");
+        let got = iter
+            .map(|item| item.expect("got error iterating"))
+            .map(|(k, v)| (k, Some(v)))
+            .collect::<Vec<_>>();
+        assert_eq!(simplify_changes(&initial), got);
+
+        let recorded_changes =
+            trie.recorded_trie_changes(root).expect("failed to get recorded changes");
+        assert_eq!(trie_changes, recorded_changes);
+    }
+
+    #[test]
+    fn test_batched_iteration_memtrie() {
+        for use_memtries in [true, false] {
+            test_batched_iteration_impl(use_memtries);
+        }
     }
 }
