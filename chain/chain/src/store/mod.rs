@@ -35,7 +35,6 @@ use near_primitives::utils::{
     get_block_shard_id, get_outcome_id_block_hash, get_outcome_id_block_hash_rev, index_to_bytes,
     to_timestamp,
 };
-use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use near_primitives::views::LightClientBlockView;
 use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
@@ -394,11 +393,8 @@ impl ChainStore {
 
             if shard_layout != receipts_shard_layout {
                 // the shard layout has changed so we need to reassign the outgoing receipts
-                let epoch_id = epoch_manager.get_epoch_id_from_prev_block(&prev_block_hash)?;
-                let protocol_version = epoch_manager.get_epoch_protocol_version(&epoch_id)?;
                 Self::reassign_outgoing_receipts_for_resharding(
                     &mut receipts,
-                    protocol_version,
                     &shard_layout,
                     shard_id,
                     receipts_shard_id,
@@ -407,28 +403,6 @@ impl ChainStore {
 
             return Ok(receipts);
         }
-    }
-
-    pub fn reassign_outgoing_receipts_for_resharding(
-        receipts: &mut Vec<Receipt>,
-        protocol_version: ProtocolVersion,
-        shard_layout: &ShardLayout,
-        shard_id: ShardId,
-        receipts_shard_id: ShardId,
-    ) -> Result<(), Error> {
-        tracing::trace!(target: "resharding", ?protocol_version, ?shard_id, ?receipts_shard_id, "reassign_outgoing_receipts_for_resharding");
-        // If simple nightshade v2 is enabled and stable use that.
-        // Same reassignment of outgoing receipts works for simple nightshade v3
-        if ProtocolFeature::SimpleNightshadeV2.enabled(protocol_version) {
-            Self::reassign_outgoing_receipts_for_resharding_impl(
-                receipts,
-                shard_layout,
-                shard_id,
-                receipts_shard_id,
-            )?;
-            return Ok(());
-        }
-        Ok(())
     }
 
     /// Reassign the outgoing receipts from the parent shard to the children
@@ -448,12 +422,14 @@ impl ChainStore {
     /// 3' will get all outgoing receipts from its parent 3
     /// 4' will get no outgoing receipts from its parent 3
     /// All receipts are distributed to children, each exactly once.
-    fn reassign_outgoing_receipts_for_resharding_impl(
+    pub fn reassign_outgoing_receipts_for_resharding(
         receipts: &mut Vec<Receipt>,
         shard_layout: &ShardLayout,
         shard_id: ShardId,
         receipts_shard_id: ShardId,
     ) -> Result<(), Error> {
+        tracing::debug!(target: "resharding", ?shard_id, ?receipts_shard_id, "reassign_outgoing_receipts_for_resharding");
+
         let split_shard_ids = shard_layout.get_children_shards_ids(receipts_shard_id);
         let split_shard_ids =
             split_shard_ids.ok_or(Error::InvalidSplitShardsIds(shard_id, receipts_shard_id))?;
