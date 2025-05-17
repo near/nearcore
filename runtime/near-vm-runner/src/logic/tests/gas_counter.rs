@@ -483,6 +483,49 @@ fn deploy_contract(logic: &mut TestVMLogic) -> Result<(), VMLogicError> {
 
 /// see longer comment above for how this test works
 #[test]
+fn out_of_gas_deploy_global_contract_base() {
+    check_action_gas_exceeds_limit(
+        ActionCosts::deploy_global_contract_base,
+        1,
+        deploy_global_contract,
+    );
+
+    check_action_gas_exceeds_attached(
+        ActionCosts::deploy_contract_base,
+        1,
+        expect!["119677812659 burnt 10000000000000 used"],
+        deploy_contract,
+    );
+}
+
+/// see longer comment above for how this test works
+#[test]
+fn out_of_gas_deploy_global_contract_byte() {
+    check_action_gas_exceeds_limit(
+        ActionCosts::deploy_global_contract_byte,
+        26,
+        deploy_global_contract,
+    );
+
+    check_action_gas_exceeds_attached(
+        ActionCosts::deploy_contract_byte,
+        26,
+        expect!["304443562909 burnt 10000000000000 used"],
+        deploy_contract,
+    );
+}
+
+/// function to trigger base + 26 bytes global contract deployment costs (26 is arbitrary)
+fn deploy_global_contract(logic: &mut TestVMLogic) -> Result<(), VMLogicError> {
+    let account_id = "rick.test";
+    let idx = promise_batch_create(logic, account_id)?;
+    let code = logic.internal_mem_write(b"lorem ipsum with length 26");
+    logic.promise_batch_action_deploy_global_contract(idx, code.len, code.ptr)?;
+    Ok(())
+}
+
+/// see longer comment above for how this test works
+#[test]
 fn out_of_gas_function_call_base() {
     check_action_gas_exceeds_limit(ActionCosts::function_call_base, 1, cross_contract_call);
     check_action_gas_exceeds_limit(

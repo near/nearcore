@@ -74,6 +74,8 @@ extern "C" {
     // #######################
     fn promise_batch_action_create_account(promise_index: u64);
     fn promise_batch_action_deploy_contract(promise_index: u64, code_len: u64, code_ptr: u64);
+    fn promise_batch_action_deploy_global_contract(promise_index: u64, code_len: u64, code_ptr: u64);
+    fn promise_batch_action_deploy_global_contract_by_account_id(promise_index: u64, code_len: u64, code_ptr: u64);
     fn promise_batch_action_function_call(
         promise_index: u64,
         method_name_len: u64,
