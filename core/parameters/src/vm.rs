@@ -173,6 +173,9 @@ pub struct Config {
     /// Whether to enable saturating float-to-integer wasm operators.
     pub saturating_float_to_int: bool,
 
+    /// Whether to enable saturating reference types and bulk memory wasm extensions.
+    pub reftypes_bulk_memory: bool,
+
     /// Describes limits for VM and Runtime.
     pub limit_config: LimitConfig,
 }
