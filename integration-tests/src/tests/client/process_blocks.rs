@@ -1,5 +1,5 @@
 use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
-use crate::env::setup::setup_mock;
+use crate::env::setup::{setup_mock, setup_mock_all_validators};
 use crate::env::test_env::TestEnv;
 use crate::env::test_env_builder::TestEnvBuilder;
 use crate::utils::process_blocks::{
@@ -11,6 +11,7 @@ use futures::{FutureExt, future};
 use itertools::Itertools;
 use near_actix_test_utils::run_actix;
 use near_async::time::{Clock, Duration};
+use near_chain::test_utils::ValidatorSchedule;
 use near_chain::types::{LatestKnown, RuntimeAdapter};
 use near_chain::validate::validate_chunk_with_chunk_extra;
 use near_chain::{Block, BlockProcessingArtifact, ChainStoreAccess, Error, Provenance};
@@ -22,7 +23,7 @@ use near_client::{
     BlockApproval, BlockResponse, GetBlockWithMerkleTree, ProcessTxResponse, ProduceChunkResult,
     SetNetworkInfo,
 };
-use near_crypto::{InMemorySigner, KeyType, Signature};
+use near_crypto::{InMemorySigner, KeyType, PublicKey, Signature};
 use near_network::test_utils::{MockPeerManagerAdapter, wait_or_panic};
 use near_network::types::{
     BlockInfo, ConnectedPeerInfo, HighestHeightPeerInfo, NetworkInfo, PeerChainInfo,
@@ -57,6 +58,7 @@ use near_primitives::transaction::{
     Transaction, TransactionV0,
 };
 use near_primitives::trie_key::TrieKey;
+use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{AccountId, BlockHeight, EpochId, NumBlocks};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{FinalExecutionStatus, QueryRequest, QueryResponseKind};
@@ -67,13 +69,12 @@ use near_store::archive::cold_storage::{update_cold_db, update_cold_head};
 use near_store::db::metadata::{DB_VERSION, DbKind};
 use near_store::test_utils::create_test_node_storage_with_cold;
 use near_store::{DBCol, TrieChanges, get};
-use parking_lot::RwLock;
 use rand::prelude::StdRng;
 use rand::{Rng, SeedableRng};
 use std::collections::{HashSet, VecDeque};
 use std::str::FromStr;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, RwLock};
 
 /// Runs block producing client and stops after network mock received two blocks.
 #[test]
@@ -118,7 +119,7 @@ fn receive_network_block() {
             false,
             Box::new(move |msg, _ctx, _, _| {
                 if let NetworkRequests::Approval { .. } = msg.as_network_requests_ref() {
-                    let mut first_header_announce = first_header_announce.write();
+                    let mut first_header_announce = first_header_announce.write().unwrap();
                     if *first_header_announce {
                         *first_header_announce = false;
                     } else {
@@ -286,6 +287,92 @@ fn produce_block_with_approvals() {
     });
 }
 
+/// When approvals arrive early, they should be properly cached.
+#[test]
+fn slow_test_produce_block_with_approvals_arrived_early() {
+    init_test_logger();
+    let vs = ValidatorSchedule::new().num_shards(4).block_producers_per_epoch(vec![vec![
+        "test1".parse().unwrap(),
+        "test2".parse().unwrap(),
+        "test3".parse().unwrap(),
+        "test4".parse().unwrap(),
+    ]]);
+    let archive = vec![false; vs.all_block_producers().count()];
+    let key_pairs =
+        vec![PeerInfo::random(), PeerInfo::random(), PeerInfo::random(), PeerInfo::random()];
+    let block_holder: Arc<RwLock<Option<Block>>> = Arc::new(RwLock::new(None));
+    run_actix(async move {
+        let mut approval_counter = 0;
+        setup_mock_all_validators(
+            Clock::real(),
+            vs,
+            key_pairs,
+            true,
+            2000,
+            false,
+            false,
+            100,
+            true,
+            archive,
+            false,
+            None,
+            Box::new(
+                move |conns,
+                      _,
+                      msg: &PeerManagerMessageRequest|
+                      -> (PeerManagerMessageResponse, bool) {
+                    let msg = msg.as_network_requests_ref();
+                    match msg {
+                        NetworkRequests::Block { block } => {
+                            if block.header().height() == 3 {
+                                for (i, actor_handles) in conns.iter().enumerate() {
+                                    if i > 0 {
+                                        actor_handles.client_actor.do_send(
+                                            BlockResponse {
+                                                block: block.clone(),
+                                                peer_id: PeerInfo::random().id,
+                                                was_requested: false,
+                                            }
+                                            .with_span_context(),
+                                        )
+                                    }
+                                }
+                                *block_holder.write().unwrap() = Some(block.clone());
+                                return (NetworkResponses::NoResponse.into(), false);
+                            } else if block.header().height() == 4 {
+                                System::current().stop();
+                            }
+                            (NetworkResponses::NoResponse.into(), true)
+                        }
+                        NetworkRequests::Approval { approval_message } => {
+                            if approval_message.target == "test1"
+                                && approval_message.approval.target_height == 4
+                            {
+                                approval_counter += 1;
+                            }
+                            if approval_counter == 3 {
+                                let block = block_holder.read().unwrap().clone().unwrap();
+                                conns[0].client_actor.do_send(
+                                    BlockResponse {
+                                        block,
+                                        peer_id: PeerInfo::random().id,
+                                        was_requested: false,
+                                    }
+                                    .with_span_context(),
+                                );
+                            }
+                            (NetworkResponses::NoResponse.into(), true)
+                        }
+                        _ => (NetworkResponses::NoResponse.into(), true),
+                    }
+                },
+            ),
+        );
+
+        near_network::test_utils::wait_or_panic(10000);
+    });
+}
+
 /// Sends one invalid block followed by one valid block, and checks that client announces only valid block.
 /// and that the node bans the peer for invalid block header.
 fn invalid_blocks_common(is_requested: bool) {
@@ -448,6 +535,173 @@ fn test_invalid_blocks_not_requested() {
 #[test]
 fn test_invalid_blocks_requested() {
     invalid_blocks_common(true);
+}
+
+enum InvalidBlockMode {
+    /// Header is invalid
+    InvalidHeader,
+    /// Block is ill-formed (roots check fail)
+    IllFormed,
+    /// Block is invalid for other reasons
+    InvalidBlock,
+}
+
+fn ban_peer_for_invalid_block_common(mode: InvalidBlockMode) {
+    init_test_logger();
+    let vs = ValidatorSchedule::new().block_producers_per_epoch(vec![vec![
+        "test1".parse().unwrap(),
+        "test2".parse().unwrap(),
+        "test3".parse().unwrap(),
+        "test4".parse().unwrap(),
+    ]]);
+    let validators = vs.all_block_producers().cloned().collect::<Vec<_>>();
+    let key_pairs =
+        vec![PeerInfo::random(), PeerInfo::random(), PeerInfo::random(), PeerInfo::random()];
+    run_actix(async move {
+        let mut ban_counter = 0;
+        let mut sent_bad_blocks = false;
+        setup_mock_all_validators(
+            Clock::real(),
+            vs,
+            key_pairs,
+            true,
+            100,
+            false,
+            false,
+            100,
+            true,
+            vec![false; validators.len()],
+            false,
+            None,
+            Box::new(
+                move |conns,
+                      _,
+                      msg: &PeerManagerMessageRequest|
+                      -> (PeerManagerMessageResponse, bool) {
+                    match msg.as_network_requests_ref() {
+                        NetworkRequests::Block { block } => {
+                            if block.header().height() >= 4 && !sent_bad_blocks {
+                                let block_producer_idx =
+                                    block.header().height() as usize % validators.len();
+                                let block_producer = &validators[block_producer_idx];
+                                let validator_signer1 = create_test_signer(block_producer.as_str());
+                                sent_bad_blocks = true;
+                                let mut block_mut = block.clone();
+                                match mode {
+                                    InvalidBlockMode::InvalidHeader => {
+                                        // produce an invalid block with invalid header.
+                                        block_mut.mut_header().set_chunk_mask(vec![]);
+                                        block_mut.mut_header().resign(&validator_signer1);
+                                    }
+                                    InvalidBlockMode::IllFormed => {
+                                        // produce an ill-formed block
+                                        block_mut.mut_header().set_chunk_headers_root(hash(&[1]));
+                                        block_mut.mut_header().resign(&validator_signer1);
+                                    }
+                                    InvalidBlockMode::InvalidBlock => {
+                                        // produce an invalid block whose invalidity cannot be verified by just
+                                        // having its header.
+                                        let proposals = vec![ValidatorStake::new(
+                                            "test1".parse().unwrap(),
+                                            PublicKey::empty(KeyType::ED25519),
+                                            0,
+                                        )];
+
+                                        block_mut
+                                            .mut_header()
+                                            .set_prev_validator_proposals(proposals);
+                                        block_mut.mut_header().resign(&validator_signer1);
+                                    }
+                                }
+
+                                for (i, actor_handles) in conns.into_iter().enumerate() {
+                                    if i != block_producer_idx {
+                                        actor_handles.client_actor.do_send(
+                                            BlockResponse {
+                                                block: block_mut.clone(),
+                                                peer_id: PeerInfo::random().id,
+                                                was_requested: false,
+                                            }
+                                            .with_span_context(),
+                                        )
+                                    }
+                                }
+
+                                return (
+                                    PeerManagerMessageResponse::NetworkResponses(
+                                        NetworkResponses::NoResponse,
+                                    ),
+                                    false,
+                                );
+                            }
+                            if block.header().height() > 20 {
+                                match mode {
+                                    InvalidBlockMode::InvalidHeader
+                                    | InvalidBlockMode::IllFormed => {
+                                        assert_eq!(ban_counter, 3);
+                                    }
+                                    _ => {}
+                                }
+                                System::current().stop();
+                            }
+                            (
+                                PeerManagerMessageResponse::NetworkResponses(
+                                    NetworkResponses::NoResponse,
+                                ),
+                                true,
+                            )
+                        }
+                        NetworkRequests::BanPeer { peer_id, ban_reason } => match mode {
+                            InvalidBlockMode::InvalidHeader | InvalidBlockMode::IllFormed => {
+                                assert_eq!(ban_reason, &ReasonForBan::BadBlockHeader);
+                                ban_counter += 1;
+                                if ban_counter > 3 {
+                                    panic!("more bans than expected");
+                                }
+                                (
+                                    PeerManagerMessageResponse::NetworkResponses(
+                                        NetworkResponses::NoResponse,
+                                    ),
+                                    true,
+                                )
+                            }
+                            InvalidBlockMode::InvalidBlock => {
+                                panic!(
+                                    "banning peer {:?} unexpectedly for {:?}",
+                                    peer_id, ban_reason
+                                );
+                            }
+                        },
+                        _ => (
+                            PeerManagerMessageResponse::NetworkResponses(
+                                NetworkResponses::NoResponse,
+                            ),
+                            true,
+                        ),
+                    }
+                },
+            ),
+        );
+        near_network::test_utils::wait_or_panic(20000);
+    });
+}
+
+/// If a peer sends a block whose header is valid and passes basic validation, the peer is not banned.
+#[test]
+fn test_not_ban_peer_for_invalid_block() {
+    ban_peer_for_invalid_block_common(InvalidBlockMode::InvalidBlock);
+}
+
+/// If a peer sends a block whose header is invalid, we should ban them and do not forward the block
+#[test]
+fn test_ban_peer_for_invalid_block_header() {
+    ban_peer_for_invalid_block_common(InvalidBlockMode::InvalidHeader);
+}
+
+/// If a peer sends a block that is ill-formed, we should ban them and do not forward the block
+#[test]
+fn test_ban_peer_for_ill_formed_block() {
+    ban_peer_for_invalid_block_common(InvalidBlockMode::IllFormed);
 }
 
 /// Runs two validators runtime with only one validator online.
@@ -1362,7 +1616,7 @@ fn test_tx_forwarding() {
         ProcessTxResponse::RequestRouted
     );
     assert_eq!(
-        env.network_adapters[client_index].requests.read().len(),
+        env.network_adapters[client_index].requests.read().unwrap().len(),
         env.clients[client_index].config.tx_routing_height_horizon as usize
     );
 }
@@ -1382,7 +1636,7 @@ fn test_tx_forwarding_no_double_forwarding() {
         env.rpc_handlers[0].process_tx(tx, is_forwarded, false),
         ProcessTxResponse::NoResponse
     );
-    assert!(env.network_adapters[0].requests.read().is_empty());
+    assert!(env.network_adapters[0].requests.read().unwrap().is_empty());
 }
 
 #[test]
@@ -1428,7 +1682,7 @@ fn test_tx_forward_around_epoch_boundary() {
     );
     assert_eq!(env.rpc_handlers[2].process_tx(tx, false, false), ProcessTxResponse::RequestRouted);
     let mut accounts_to_forward = HashSet::new();
-    for request in env.network_adapters[2].requests.read().iter() {
+    for request in env.network_adapters[2].requests.read().unwrap().iter() {
         if let PeerManagerMessageRequest::NetworkRequests(NetworkRequests::ForwardTx(
             account_id,
             _,
@@ -1991,7 +2245,10 @@ fn test_validate_chunk_extra() {
     let client = &mut env.clients[0];
     client
         .chunk_inclusion_tracker
-        .prepare_chunk_headers_ready_for_inclusion(block1.hash(), &client.chunk_endorsement_tracker)
+        .prepare_chunk_headers_ready_for_inclusion(
+            block1.hash(),
+            &mut *client.chunk_endorsement_tracker.lock().unwrap(),
+        )
         .unwrap();
     let block = client.produce_block_on(next_height + 2, *block1.hash()).unwrap().unwrap();
     let epoch_id = *block.header().epoch_id();
@@ -2964,7 +3221,7 @@ fn test_not_broadcast_block_on_accept() {
     for i in 0..2 {
         env.process_block(i, b1.clone(), Provenance::NONE);
     }
-    assert!(network_adapter.requests.read().is_empty());
+    assert!(network_adapter.requests.read().unwrap().is_empty());
 }
 
 #[test]

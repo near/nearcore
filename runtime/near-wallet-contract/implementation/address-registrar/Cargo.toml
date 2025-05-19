@@ -12,3 +12,4 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 hex.workspace = true
 near-sdk.workspace = true
+serde.workspace = true

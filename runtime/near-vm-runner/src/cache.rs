@@ -10,13 +10,12 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use near_parameters::vm::VMKind;
 use near_primitives_core::hash::CryptoHash;
 use near_schema_checker_lib::ProtocolSchema;
-use parking_lot::Mutex;
 
 use std::any::Any;
 use std::collections::HashMap;
 use std::fmt;
 use std::num::NonZeroUsize;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 #[cfg(not(windows))]
 use rand::Rng as _;
@@ -180,18 +179,18 @@ pub struct MockContractRuntimeCache {
 
 impl MockContractRuntimeCache {
     pub fn len(&self) -> usize {
-        self.store.lock().len()
+        self.store.lock().unwrap().len()
     }
 }
 
 impl ContractRuntimeCache for MockContractRuntimeCache {
     fn put(&self, key: &CryptoHash, value: CompiledContractInfo) -> std::io::Result<()> {
-        self.store.lock().insert(*key, value);
+        self.store.lock().unwrap().insert(*key, value);
         Ok(())
     }
 
     fn get(&self, key: &CryptoHash) -> std::io::Result<Option<CompiledContractInfo>> {
-        Ok(self.store.lock().get(key).map(Clone::clone))
+        Ok(self.store.lock().unwrap().get(key).map(Clone::clone))
     }
 
     fn handle(&self) -> Box<dyn ContractRuntimeCache> {
@@ -201,7 +200,7 @@ impl ContractRuntimeCache for MockContractRuntimeCache {
 
 impl fmt::Debug for MockContractRuntimeCache {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let guard = self.store.lock();
+        let guard = self.store.lock().unwrap();
         let hm: &HashMap<_, _> = &*guard;
         fmt::Debug::fmt(hm, f)
     }
@@ -476,7 +475,7 @@ impl AnyCache {
 
     pub fn clear(&self) {
         if let Some(cache) = &self.cache {
-            cache.lock().clear();
+            cache.lock().unwrap().clear();
         }
     }
 
@@ -536,7 +535,7 @@ impl AnyCache {
             return Ok(with(&*v));
         };
         {
-            let mut guard = cache.lock();
+            let mut guard = cache.lock().unwrap();
             if let Some(cached_value) = guard.get(&key) {
                 // Same here.
                 return Ok(with(&**cached_value));
@@ -545,7 +544,7 @@ impl AnyCache {
         let generated = generate()?;
         let result = with(&*generated);
         {
-            let mut guard = cache.lock();
+            let mut guard = cache.lock().unwrap();
             guard.put(key, generated);
         }
         Ok(result)
@@ -554,7 +553,7 @@ impl AnyCache {
     /// Checks if the cache contains the key without modifying the cache.
     pub fn contains(&self, key: CryptoHash) -> bool {
         let Some(cache) = &self.cache else { return false };
-        let guard = cache.lock();
+        let guard = cache.lock().unwrap();
         guard.contains(&key)
     }
 }

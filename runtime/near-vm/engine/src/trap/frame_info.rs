@@ -14,9 +14,8 @@
 use near_vm_compiler::{CompiledFunctionFrameInfo, SourceLoc, TrapInformation};
 use near_vm_types::entity::{EntityRef, PrimaryMap};
 use near_vm_types::{LocalFunctionIndex, ModuleInfo};
-use parking_lot::RwLock;
 use std::collections::BTreeMap;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 /// This is a global cache of backtrace frame information for all active
 ///
@@ -154,7 +153,9 @@ impl GlobalFrameInfo {
 
 impl Drop for GlobalFrameInfoRegistration {
     fn drop(&mut self) {
-        FRAME_INFO.write().ranges.remove(&self.key);
+        if let Ok(mut info) = FRAME_INFO.write() {
+            info.ranges.remove(&self.key);
+        }
     }
 }
 

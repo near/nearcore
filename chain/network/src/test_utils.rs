@@ -13,11 +13,10 @@ use near_primitives::hash::hash;
 use near_primitives::network::PeerId;
 use near_primitives::types::EpochId;
 use near_primitives::utils::index_to_bytes;
-use parking_lot::RwLock;
 use rand::{RngCore, thread_rng};
 use std::collections::{HashMap, VecDeque};
 use std::ops::ControlFlow;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 use tokio::sync::Notify;
 use tracing::debug;
 
@@ -241,7 +240,7 @@ impl CanSend<MessageWithCallback<PeerManagerMessageRequest, PeerManagerMessageRe
         &self,
         message: MessageWithCallback<PeerManagerMessageRequest, PeerManagerMessageResponse>,
     ) {
-        self.requests.write().push_back(message.message);
+        self.requests.write().unwrap().push_back(message.message);
         self.notify.notify_one();
         (message.callback)(
             std::future::ready(Ok(PeerManagerMessageResponse::NetworkResponses(
@@ -254,7 +253,7 @@ impl CanSend<MessageWithCallback<PeerManagerMessageRequest, PeerManagerMessageRe
 
 impl CanSend<PeerManagerMessageRequest> for MockPeerManagerAdapter {
     fn send(&self, msg: PeerManagerMessageRequest) {
-        self.requests.write().push_back(msg);
+        self.requests.write().unwrap().push_back(msg);
         self.notify.notify_one();
     }
 }
@@ -273,13 +272,13 @@ impl CanSend<Tier3Request> for MockPeerManagerAdapter {
 
 impl MockPeerManagerAdapter {
     pub fn pop(&self) -> Option<PeerManagerMessageRequest> {
-        self.requests.write().pop_front()
+        self.requests.write().unwrap().pop_front()
     }
     pub fn pop_most_recent(&self) -> Option<PeerManagerMessageRequest> {
-        self.requests.write().pop_back()
+        self.requests.write().unwrap().pop_back()
     }
     pub fn put_back_most_recent(&self, request: PeerManagerMessageRequest) {
-        self.requests.write().push_back(request);
+        self.requests.write().unwrap().push_back(request);
     }
     /// Calls the handler for each message, but removing only those for which the handler returns
     /// None (or else the returned message gets requeued; the returned message should be the same
@@ -292,12 +291,12 @@ impl MockPeerManagerAdapter {
         // grabbing the lock for the whole duration, which might lead to a
         // deadlock if the processing of the request results in more network
         // messages.
-        let num_requests = self.requests.read().len();
+        let num_requests = self.requests.read().unwrap().len();
         let mut handled = false;
         for _ in 0..num_requests {
-            let request = self.requests.write().pop_front().unwrap();
+            let request = self.requests.write().unwrap().pop_front().unwrap();
             if let Some(request) = f(request) {
-                self.requests.write().push_back(request);
+                self.requests.write().unwrap().push_back(request);
             } else {
                 handled = true;
             }

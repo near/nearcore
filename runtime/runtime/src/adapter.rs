@@ -1,7 +1,6 @@
 use crate::near_primitives::shard_layout::ShardUId;
 use near_crypto::PublicKey;
 use near_primitives::account::{AccessKey, Account};
-use near_primitives::action::GlobalContractIdentifier;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{
     AccountId, BlockHeight, EpochHeight, EpochId, EpochInfoProvider, MerkleHash,
@@ -67,11 +66,4 @@ pub trait ViewRuntimeAdapter {
         prefix: &[u8],
         include_proof: bool,
     ) -> Result<ViewStateResult, crate::state_viewer::errors::ViewStateError>;
-
-    fn view_global_contract_code(
-        &self,
-        shard_uid: &ShardUId,
-        state_root: MerkleHash,
-        identifier: GlobalContractIdentifier,
-    ) -> Result<ContractCode, crate::state_viewer::errors::ViewContractCodeError>;
 }

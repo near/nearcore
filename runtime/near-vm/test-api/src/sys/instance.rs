@@ -5,8 +5,7 @@ use super::module::Module;
 use super::native::NativeFunc;
 use near_vm_engine::{LinkError, RuntimeError};
 use near_vm_vm::{Export, InstanceHandle, Resolver};
-use parking_lot::{Mutex, MutexGuard};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use thiserror::Error;
 
 pub use near_vm_types::InstanceConfig;
@@ -132,7 +131,7 @@ impl Instance {
 
     /// Lookup an exported entity by its name.
     pub fn lookup(&self, field: &str) -> Option<Export> {
-        let vmextern = self.handle.lock().lookup(field)?;
+        let vmextern = self.handle.lock().unwrap().lookup(field)?;
         Some(vmextern.into())
     }
 
@@ -167,7 +166,7 @@ impl Instance {
 
     // Used internally by wast only
     #[doc(hidden)]
-    pub fn handle(&self) -> MutexGuard<'_, InstanceHandle> {
-        self.handle.lock()
+    pub fn handle(&self) -> std::sync::MutexGuard<'_, InstanceHandle> {
+        self.handle.lock().unwrap()
     }
 }

@@ -61,9 +61,7 @@ fn run_test_chunk_validator_kickout(accounts: Vec<AccountId>, test_case: TestCas
             None
         };
 
-    let boundary_accounts =
-        ["account2", "account4", "account6"].iter().map(|&a| a.parse().unwrap()).collect();
-    let shard_layout = ShardLayout::multi_shard_custom(boundary_accounts, 1);
+    let shard_layout = ShardLayout::simple_v1(&["account2", "account4", "account6"]);
     let validators_spec =
         ValidatorsSpec::desired_roles(block_and_chunk_producers, chunk_validators_only);
 
