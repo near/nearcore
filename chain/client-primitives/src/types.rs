@@ -436,6 +436,14 @@ pub enum QueryError {
         "Block either has never been observed on the node or has been garbage collected: {block_reference:?}"
     )]
     UnknownBlock { block_reference: near_primitives::types::BlockReference },
+    #[error(
+        "Global contract code with identifier {identifier:?} has never been observed on the node"
+    )]
+    NoGlobalContractCode {
+        identifier: near_primitives::action::GlobalContractIdentifier,
+        block_height: near_primitives::types::BlockHeight,
+        block_hash: near_primitives::hash::CryptoHash,
+    },
     // NOTE: Currently, the underlying errors are too broad, and while we tried to handle
     // expected cases, we cannot statically guarantee that no other errors will be returned
     // in the future.

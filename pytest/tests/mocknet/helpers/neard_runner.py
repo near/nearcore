@@ -769,7 +769,7 @@ class NeardRunner:
         with self.lock:
             env_file_path = self.home_path('.env')
             open(env_file_path, 'w').close()
-            print(f'File {env_file_path} has been successfully cleared.')
+            logging.info(f'File {env_file_path} has been successfully cleared.')
 
     def do_add_env(self, key_values):
         with self.lock:
