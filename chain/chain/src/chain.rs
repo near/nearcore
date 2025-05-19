@@ -487,13 +487,13 @@ impl Chain {
         // such cases we re-enable the writes and emit a warning so that node
         // operators are aware of the behaviour.
 
-        let mut save_block_outcomes = validator.get().is_none();
+        //let mut save_block_outcomes = validator.get().is_none();
 
-        if let Some(explicit) = chain_config.save_block_outcomes {
-            save_block_outcomes = explicit;
-        }
+        //if let Some(explicit) = chain_config.save_block_outcomes {
+        //    save_block_outcomes = explicit;
+        //}
 
-        chain_store.set_save_block_outcomes(save_block_outcomes);
+        chain_store.set_save_block_outcomes(true);
         let state_sync_adapter = ChainStateSyncAdapter::new(
             clock.clone(),
             ChainStoreAdapter::new(chain_store.store()),
