@@ -24,31 +24,32 @@ use near_primitives::shard_layout::ShardUId;
 #[derive(BorshSerialize, BorshDeserialize)]
 struct TrieStateReshardingChildStatus {
     shard_uid: ShardUId,
+    state_root: CryptoHash,
     next_key: Vec<u8>,
 
     #[borsh(skip)]
     metrics: Option<TrieStateResharderMetrics>,
 }
 
+impl TrieStateReshardingChildStatus {
+    fn new(shard_uid: ShardUId, state_root: CryptoHash) -> Self {
+        Self { shard_uid, state_root, next_key: vec![], metrics: None }
+    }
+}
+
 #[derive(BorshSerialize, BorshDeserialize)]
 struct TrieStateReshardingStatus {
-    state_root: CryptoHash,
+    shard_uid: ShardUId,
     children: Vec<TrieStateReshardingChildStatus>,
 }
 
 impl TrieStateReshardingStatus {
-    fn new(state_root: CryptoHash, left: ShardUId, right: ShardUId) -> Self {
-        Self {
-            state_root,
-            children: vec![
-                TrieStateReshardingChildStatus { shard_uid: left, next_key: vec![], metrics: None },
-                TrieStateReshardingChildStatus {
-                    shard_uid: right,
-                    next_key: vec![],
-                    metrics: None,
-                },
-            ],
-        }
+    fn new(
+        shard_uid: ShardUId,
+        left: TrieStateReshardingChildStatus,
+        right: TrieStateReshardingChildStatus,
+    ) -> Self {
+        Self { shard_uid, children: vec![left, right] }
     }
 
     fn with_metrics(mut self) -> Self {
@@ -86,18 +87,16 @@ impl TrieStateResharder {
     //
     fn process_batch_and_update_status(
         &self,
-        state_root: CryptoHash,
         status: &mut TrieStateReshardingStatus,
     ) -> Result<(), Error> {
         let tries = self.runtime.get_tries();
         let batch_size = self.resharding_config.get().batch_size.as_u64() as usize;
         while let Some(child) = status.children.first_mut() {
-            let shard_uid = child.shard_uid;
             let mut store_update = self.runtime.store().store_update();
             let next_key = next_batch(
                 self.runtime.get_tries(),
-                shard_uid,
-                state_root,
+                child.shard_uid,
+                child.state_root,
                 child.next_key.clone(),
                 batch_size,
                 &mut store_update.trie_store_update(),
@@ -146,9 +145,6 @@ impl TrieStateResharder {
         // Get the new shard layout right after resharding.
         let next_epoch_id = self.epoch_manager.get_next_epoch_id(&event.resharding_block.hash)?;
         let shard_layout = self.epoch_manager.get_shard_layout(&next_epoch_id)?;
-        let resharding_block =
-            self.runtime.store().chain_store().get_block_header(&event.resharding_block.hash)?;
-        let state_root = resharding_block.prev_state_root();
 
         let status = self.load_status()?;
         // TODO: existing status means resharding was in progress, error out so the node operator
@@ -157,15 +153,23 @@ impl TrieStateResharder {
         //  tracing::error!(target: "resharding", "impossible to recover from a state shard split failure!");
         //  panic!("impossible to recover from a state split shard failure!")
 
+        // Get state root from the chunk extra of the child shard.
+        let block_hash = event.resharding_block.hash;
+        let store = self.runtime.store().chain_store();
+        let left_state_root =
+            *store.get_chunk_extra(&block_hash, &event.left_child_shard)?.state_root();
+        let right_state_root =
+            *store.get_chunk_extra(&block_hash, &event.right_child_shard)?.state_root();
+
         let mut status = TrieStateReshardingStatus::new(
-            *state_root,
-            event.left_child_shard,
-            event.right_child_shard,
+            event.parent_shard,
+            TrieStateReshardingChildStatus::new(event.left_child_shard, left_state_root),
+            TrieStateReshardingChildStatus::new(event.right_child_shard, right_state_root),
         )
         .with_metrics();
         while !status.done() {
             // Process the batch and update the status.
-            self.process_batch_and_update_status(status.state_root, &mut status)?;
+            self.process_batch_and_update_status(&mut status)?;
         }
 
         Ok(())
@@ -175,10 +179,17 @@ impl TrieStateResharder {
     pub fn resume(&self, shard_uid: ShardUId) -> Result<(), Error> {
         let status = self.load_status()?;
         let status = status.unwrap(); // TODO: should always have a status if resuming
+        if status.shard_uid != shard_uid {
+            error!(target: "resharding", "Resharding status shard UID does not match the provided shard UID.");
+            return Err(Error::ReshardingError(format!(
+                "Resharding status shard UID {} does not match the provided shard UID {}.",
+                status.shard_uid, shard_uid
+            )));
+        }
         let mut status = status.with_metrics();
         while !status.done() {
             // Process the batch and update the status.
-            self.process_batch_and_update_status(status.state_root, &mut status)?;
+            self.process_batch_and_update_status(&mut status)?;
         }
 
         Ok(())
