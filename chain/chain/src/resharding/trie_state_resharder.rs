@@ -17,7 +17,6 @@ use crate::resharding::event_type::ReshardingSplitShardParams;
 use crate::types::RuntimeAdapter;
 use near_chain_configs::{MutableConfigValue, ReshardingConfig, ReshardingHandle};
 use near_chain_primitives::Error;
-use near_epoch_manager::EpochManagerAdapter;
 use near_o11y::metrics::IntGauge;
 use near_primitives::shard_layout::ShardUId;
 
@@ -66,7 +65,6 @@ impl TrieStateReshardingStatus {
 
 /// TrieStateResharder is responsible for handling state resharding operations.
 pub struct TrieStateResharder {
-    epoch_manager: Arc<dyn EpochManagerAdapter>,
     runtime: Arc<dyn RuntimeAdapter>,
     /// Controls cancellation of background processing.
     pub handle: ReshardingHandle,
@@ -76,12 +74,11 @@ pub struct TrieStateResharder {
 
 impl TrieStateResharder {
     pub fn new(
-        epoch_manager: Arc<dyn EpochManagerAdapter>,
         runtime: Arc<dyn RuntimeAdapter>,
         handle: ReshardingHandle,
         resharding_config: MutableConfigValue<ReshardingConfig>,
     ) -> Self {
-        Self { epoch_manager, runtime, handle, resharding_config }
+        Self { runtime, handle, resharding_config }
     }
 
     //
@@ -142,10 +139,6 @@ impl TrieStateResharder {
         &self,
         event: &ReshardingSplitShardParams,
     ) -> Result<(), Error> {
-        // Get the new shard layout right after resharding.
-        let next_epoch_id = self.epoch_manager.get_next_epoch_id(&event.resharding_block.hash)?;
-        let shard_layout = self.epoch_manager.get_shard_layout(&next_epoch_id)?;
-
         let status = self.load_status()?;
         // TODO: existing status means resharding was in progress, error out so the node operator
         // manually resumes it.
