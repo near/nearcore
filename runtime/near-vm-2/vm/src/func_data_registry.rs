@@ -28,8 +28,8 @@ unsafe impl Sync for FuncDataRegistry {}
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct VMFuncRef(pub(crate) *const VMCallerCheckedAnyfunc);
 
-impl near_vm_types::NativeWasmType for VMFuncRef {
-    const WASM_TYPE: near_vm_types::Type = near_vm_types::Type::FuncRef;
+impl near_vm_2_types::NativeWasmType for VMFuncRef {
+    const WASM_TYPE: near_vm_2_types::Type = near_vm_2_types::Type::FuncRef;
     type Abi = Self;
 
     #[inline]

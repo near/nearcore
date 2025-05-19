@@ -1,6 +1,6 @@
 use crate::instance::WeakOrStrongInstanceRef;
 use crate::memory::{LinearMemory, MemoryStyle};
-use near_vm_types::MemoryType;
+use near_vm_2_types::MemoryType;
 use std::sync::Arc;
 
 /// A memory export value.

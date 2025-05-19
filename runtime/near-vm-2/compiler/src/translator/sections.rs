@@ -15,9 +15,9 @@ use super::state::ModuleTranslationState;
 use crate::wasm_unsupported;
 use crate::{WasmError, WasmResult};
 use core::convert::TryFrom;
-use near_vm_types::entity::EntityRef;
-use near_vm_types::entity::packed_option::ReservedValue;
-use near_vm_types::{
+use near_vm_2_types::entity::EntityRef;
+use near_vm_2_types::entity::packed_option::ReservedValue;
+use near_vm_2_types::{
     DataIndex, ElemIndex, FunctionIndex, FunctionType, GlobalIndex, GlobalInit, GlobalType,
     MemoryIndex, MemoryType, Mutability, Pages, SignatureIndex, TableIndex, TableType, Type, V128,
 };

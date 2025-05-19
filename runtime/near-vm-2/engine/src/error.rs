@@ -1,7 +1,7 @@
 //! The WebAssembly possible errors
 use crate::trap::RuntimeError;
 use near_vm_compiler::CompileError;
-use near_vm_types::ExternType;
+use near_vm_2_types::ExternType;
 use std::io;
 use thiserror::Error;
 

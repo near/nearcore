@@ -5,7 +5,7 @@
 //!
 //! `LinearMemory` is to WebAssembly linear memories what `Table` is to WebAssembly tables.
 
-use near_vm_types::Pages;
+use near_vm_2_types::Pages;
 use thiserror::Error;
 
 mod linear_memory;

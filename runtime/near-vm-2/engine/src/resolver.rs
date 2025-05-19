@@ -3,8 +3,8 @@
 
 use crate::{ImportError, LinkError};
 use more_asserts::assert_ge;
-use near_vm_types::entity::{BoxedSlice, EntityRef, PrimaryMap};
-use near_vm_types::{ExternType, FunctionIndex, ImportCounts, MemoryType, TableType};
+use near_vm_2_types::entity::{BoxedSlice, EntityRef, PrimaryMap};
+use near_vm_2_types::{ExternType, FunctionIndex, ImportCounts, MemoryType, TableType};
 
 use near_vm_vm::{
     Export, ExportFunctionMetadata, FunctionBodyPtr, ImportFunctionEnv, Imports, MemoryStyle,
@@ -13,7 +13,7 @@ use near_vm_vm::{
 };
 
 fn is_compatible_table(ex: &TableType, im: &TableType) -> bool {
-    (ex.ty == near_vm_types::Type::FuncRef || ex.ty == im.ty)
+    (ex.ty == near_vm_2_types::Type::FuncRef || ex.ty == im.ty)
         && im.minimum <= ex.minimum
         && (im.maximum.is_none()
             || (ex.maximum.is_some() && im.maximum.unwrap() >= ex.maximum.unwrap()))

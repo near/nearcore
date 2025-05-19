@@ -94,7 +94,7 @@ mod test_vmfunction_import {
     use super::VMFunctionImport;
     use crate::VMOffsets;
     use memoffset::offset_of;
-    use near_vm_types::ModuleInfo;
+    use near_vm_2_types::ModuleInfo;
     use std::mem::size_of;
 
     #[test]
@@ -168,7 +168,7 @@ mod test_vmdynamicfunction_import_context {
     use super::VMDynamicFunctionContext;
     use crate::VMOffsets;
     use memoffset::offset_of;
-    use near_vm_types::ModuleInfo;
+    use near_vm_2_types::ModuleInfo;
     use std::mem::size_of;
 
     #[test]
@@ -266,7 +266,7 @@ mod test_vmtable_import {
     use super::VMTableImport;
     use crate::VMOffsets;
     use memoffset::offset_of;
-    use near_vm_types::ModuleInfo;
+    use near_vm_2_types::ModuleInfo;
     use std::mem::size_of;
 
     #[test]
@@ -299,7 +299,7 @@ mod test_vmmemory_import {
     use super::VMMemoryImport;
     use crate::VMOffsets;
     use memoffset::offset_of;
-    use near_vm_types::ModuleInfo;
+    use near_vm_2_types::ModuleInfo;
     use std::mem::size_of;
 
     #[test]
@@ -344,7 +344,7 @@ mod test_vmglobal_import {
     use super::VMGlobalImport;
     use crate::VMOffsets;
     use memoffset::offset_of;
-    use near_vm_types::ModuleInfo;
+    use near_vm_2_types::ModuleInfo;
     use std::mem::size_of;
 
     #[test]
@@ -453,7 +453,7 @@ mod test_vmmemory_definition {
     use super::VMMemoryDefinition;
     use crate::VMOffsets;
     use memoffset::offset_of;
-    use near_vm_types::ModuleInfo;
+    use near_vm_2_types::ModuleInfo;
     use std::mem::size_of;
 
     #[test]
@@ -492,7 +492,7 @@ mod test_vmtable_definition {
     use super::VMTableDefinition;
     use crate::VMOffsets;
     use memoffset::offset_of;
-    use near_vm_types::ModuleInfo;
+    use near_vm_2_types::ModuleInfo;
     use std::mem::size_of;
 
     #[test]
@@ -558,7 +558,7 @@ mod test_vmglobal_definition {
     use super::VMGlobalDefinition;
     use crate::{VMFuncRef, VMOffsets};
     use more_asserts::assert_ge;
-    use near_vm_types::ModuleInfo;
+    use near_vm_2_types::ModuleInfo;
     use std::mem::{align_of, size_of};
 
     #[test]
@@ -787,7 +787,7 @@ impl VMGlobalDefinition {
 mod test_vmshared_signature_index {
     use super::VMSharedSignatureIndex;
     use crate::vmoffsets::{TargetSharedSignatureIndex, VMOffsets};
-    use near_vm_types::ModuleInfo;
+    use near_vm_2_types::ModuleInfo;
     use std::mem::size_of;
 
     #[test]
@@ -826,7 +826,7 @@ mod test_vmcaller_checked_anyfunc {
     use super::VMCallerCheckedAnyfunc;
     use crate::VMOffsets;
     use memoffset::offset_of;
-    use near_vm_types::ModuleInfo;
+    use near_vm_2_types::ModuleInfo;
     use std::mem::size_of;
 
     #[test]

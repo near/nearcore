@@ -4,7 +4,7 @@
 //! Implement a registry of function signatures, for fast indirect call
 //! signature checking.
 
-use near_vm_types::FunctionType;
+use near_vm_2_types::FunctionType;
 use std::collections::{HashMap, hash_map};
 use std::convert::TryFrom;
 

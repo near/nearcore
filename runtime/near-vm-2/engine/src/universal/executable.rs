@@ -3,8 +3,8 @@ use near_vm_compiler::{
     CompileModuleInfo, CompiledFunctionFrameInfo, CustomSection, Dwarf, FunctionBody,
     JumpTableOffsets, Relocation, SectionIndex, TrampolinesSection,
 };
-use near_vm_types::entity::{EntityRef as _, PrimaryMap};
-use near_vm_types::{
+use near_vm_2_types::entity::{EntityRef as _, PrimaryMap};
+use near_vm_2_types::{
     ExportIndex, FunctionIndex, ImportIndex, LocalFunctionIndex, OwnedDataInitializer,
     SignatureIndex,
 };

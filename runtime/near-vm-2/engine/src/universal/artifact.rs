@@ -2,8 +2,8 @@
 //! done as separate steps.
 
 use crate::InstantiationError;
-use near_vm_types::entity::{BoxedSlice, EntityRef, PrimaryMap};
-use near_vm_types::{
+use near_vm_2_types::entity::{BoxedSlice, EntityRef, PrimaryMap};
+use near_vm_2_types::{
     DataIndex, ElemIndex, FunctionIndex, GlobalInit, GlobalType, ImportCounts, LocalFunctionIndex,
     LocalGlobalIndex, MemoryType, OwnedDataInitializer, OwnedTableInitializer, SignatureIndex,
     TableType,
@@ -28,7 +28,7 @@ pub struct UniversalArtifact {
     pub(crate) imports: Vec<VMImport>,
     pub(crate) dynamic_function_trampolines: BoxedSlice<FunctionIndex, FunctionBodyPtr>,
     pub(crate) functions: BoxedSlice<LocalFunctionIndex, VMLocalFunction>,
-    pub(crate) exports: BTreeMap<String, near_vm_types::ExportIndex>,
+    pub(crate) exports: BTreeMap<String, near_vm_2_types::ExportIndex>,
     pub(crate) signatures: BoxedSlice<SignatureIndex, VMSharedSignatureIndex>,
     pub(crate) local_memories: Vec<(MemoryType, MemoryStyle)>,
     pub(crate) data_segments: Vec<OwnedDataInitializer>,
@@ -71,7 +71,7 @@ impl Instantiatable for UniversalArtifact {
         tunables: &dyn Tunables,
         resolver: &dyn Resolver,
         host_state: Box<dyn std::any::Any>,
-        config: near_vm_types::InstanceConfig,
+        config: near_vm_2_types::InstanceConfig,
     ) -> Result<InstanceHandle, Self::Error> {
         let (imports, import_function_envs) = {
             let mut imports = crate::resolve_imports(
@@ -94,7 +94,7 @@ impl Instantiatable for UniversalArtifact {
             near_vm_vm::InstanceAllocator::new(self.vmoffsets.clone());
 
         // Memories
-        let mut memories: PrimaryMap<near_vm_types::LocalMemoryIndex, _> =
+        let mut memories: PrimaryMap<near_vm_2_types::LocalMemoryIndex, _> =
             PrimaryMap::with_capacity(self.local_memories.len());
         for (idx, (ty, style)) in (self.import_counts.memories..).zip(self.local_memories.iter()) {
             let memory = unsafe {
@@ -110,7 +110,7 @@ impl Instantiatable for UniversalArtifact {
         }
 
         // Tables
-        let mut tables: PrimaryMap<near_vm_types::LocalTableIndex, _> =
+        let mut tables: PrimaryMap<near_vm_2_types::LocalTableIndex, _> =
             PrimaryMap::with_capacity(self.local_tables.len());
         for (idx, (ty, style)) in (self.import_counts.tables..).zip(self.local_tables.iter()) {
             let table = unsafe {
@@ -178,7 +178,7 @@ impl Artifact for UniversalArtifact {
         self.start_function
     }
 
-    fn export_field(&self, name: &str) -> Option<near_vm_types::ExportIndex> {
+    fn export_field(&self, name: &str) -> Option<near_vm_2_types::ExportIndex> {
         self.exports.get(name).cloned()
     }
 

@@ -7,7 +7,7 @@
 //! related bugs when implementing an ABI.
 
 use super::externals::FromToNativeWasmType;
-use near_vm_types::ValueType;
+use near_vm_2_types::ValueType;
 use std::marker::PhantomData;
 
 /// The `Item` marker type. This is the default and does not usually need to be

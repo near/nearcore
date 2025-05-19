@@ -30,8 +30,8 @@ use crate::{Artifact, VMOffsets, VMTrampoline, near_vm_call_trampoline};
 use crate::{VMExtern, VMFunction, VMGlobal};
 use memoffset::offset_of;
 use more_asserts::assert_lt;
-use near_vm_types::entity::{BoxedSlice, EntityRef, PrimaryMap, packed_option::ReservedValue};
-use near_vm_types::{
+use near_vm_2_types::entity::{BoxedSlice, EntityRef, PrimaryMap, packed_option::ReservedValue};
+use near_vm_2_types::{
     DataIndex, DataInitializer, ElemIndex, ExportIndex, FastGasCounter, FunctionIndex, GlobalIndex,
     GlobalInit, InstanceConfig, LocalGlobalIndex, LocalMemoryIndex, LocalTableIndex, MemoryIndex,
     OwnedTableInitializer, Pages, TableIndex,

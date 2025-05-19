@@ -11,11 +11,11 @@ use near_vm_compiler::{
     CustomSectionProtection, FunctionBody, FunctionBodyData, InstructionAddressMap, Relocation,
     RelocationKind, RelocationTarget, SectionBody, SectionIndex, SourceLoc, Target,
 };
-use near_vm_types::{
+use near_vm_2_types::{
     FastGasCounter, FunctionType,
     entity::{EntityRef, PrimaryMap, SecondaryMap},
 };
-use near_vm_types::{
+use near_vm_2_types::{
     FunctionIndex, GlobalIndex, LocalFunctionIndex, LocalMemoryIndex, MemoryIndex, ModuleInfo,
     SignatureIndex, TableIndex, Type,
 };
@@ -58,7 +58,7 @@ pub(crate) struct FuncGen<'a> {
     assembler: &'a mut Assembler,
 
     /// Types of the local variables, including arguments.
-    local_types: near_vm_types::partial_sum_map::PartialSumMap<u32, WpType>,
+    local_types: near_vm_2_types::partial_sum_map::PartialSumMap<u32, WpType>,
 
     /// Value stack.
     value_stack: Vec<Location>,
@@ -1707,7 +1707,7 @@ impl<'a> FuncGen<'a> {
             config,
             target,
             vmoffsets,
-            local_types: near_vm_types::partial_sum_map::PartialSumMap::new(),
+            local_types: near_vm_2_types::partial_sum_map::PartialSumMap::new(),
             assembler,
             value_stack: vec![],
             fp_stack: vec![],

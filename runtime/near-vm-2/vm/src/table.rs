@@ -9,7 +9,7 @@ use crate::VMExternRef;
 use crate::func_data_registry::VMFuncRef;
 use crate::trap::{Trap, TrapCode};
 use crate::vmcontext::VMTableDefinition;
-use near_vm_types::{ExternRef, TableType, Type as ValType};
+use near_vm_2_types::{ExternRef, TableType, Type as ValType};
 use parking_lot::Mutex;
 use std::borrow::BorrowMut;
 use std::cell::UnsafeCell;

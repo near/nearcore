@@ -2,7 +2,7 @@ use crate::mmap::Mmap;
 use crate::vmcontext::VMMemoryDefinition;
 use crate::{MemoryError, MemoryStyle};
 use more_asserts::assert_ge;
-use near_vm_types::{Bytes, MemoryType, Pages};
+use near_vm_2_types::{Bytes, MemoryType, Pages};
 use parking_lot::Mutex;
 use std::borrow::BorrowMut;
 use std::cell::UnsafeCell;

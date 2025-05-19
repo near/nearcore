@@ -42,7 +42,7 @@ pub struct Function {
     pub(crate) exported: ExportFunction,
 }
 
-impl near_vm_types::WasmValueType for Function {
+impl near_vm_2_types::WasmValueType for Function {
     /// Write the value.
     unsafe fn write_value_to(&self, p: *mut i128) {
         let func_ref =
@@ -857,7 +857,7 @@ impl<T: VMDynamicFunction> VMDynamicFunctionCall<T> for VMDynamicFunctionContext
 /// This private inner module contains the low-level implementation
 /// for `Function` and its siblings.
 mod inner {
-    use near_vm_types::{FunctionType, NativeWasmType, Type};
+    use near_vm_2_types::{FunctionType, NativeWasmType, Type};
     use near_vm_vm::{VMFunctionBody, raise_user_trap, resume_panic};
     use std::array::TryFromSliceError;
     use std::convert::{Infallible, TryInto};
@@ -1450,7 +1450,7 @@ mod inner {
     #[cfg(test)]
     mod test_wasm_type_list {
         use super::*;
-        use near_vm_types::Type;
+        use near_vm_2_types::Type;
 
         #[test]
         fn test_from_array() {
@@ -1523,7 +1523,7 @@ mod inner {
     #[cfg(test)]
     mod test_function {
         use super::*;
-        use near_vm_types::Type;
+        use near_vm_2_types::Type;
 
         fn func() {}
         fn func__i32() -> i32 {

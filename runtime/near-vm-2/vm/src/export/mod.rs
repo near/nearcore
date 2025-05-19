@@ -6,7 +6,7 @@ use crate::global::Global;
 use crate::instance::WeakOrStrongInstanceRef;
 use crate::table::{Table, TableStyle};
 use crate::vmcontext::{VMFunctionBody, VMFunctionEnvironment, VMFunctionKind, VMTrampoline};
-use near_vm_types::TableType;
+use near_vm_2_types::TableType;
 use std::sync::Arc;
 
 mod vmmemory;

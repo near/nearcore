@@ -1,5 +1,5 @@
 use crate::{InstanceHandle, Resolver, Tunables, VMLocalFunction, VMSharedSignatureIndex};
-use near_vm_types::{
+use near_vm_2_types::{
     ElemIndex, FunctionIndex, GlobalInit, GlobalType, ImportCounts, InstanceConfig,
     LocalFunctionIndex, OwnedDataInitializer, OwnedTableInitializer, entity::BoxedSlice,
 };
@@ -60,7 +60,7 @@ pub trait Artifact: Send + Sync {
     fn start_function(&self) -> Option<FunctionIndex>;
 
     /// Function by export name.
-    fn export_field(&self, name: &str) -> Option<near_vm_types::ExportIndex>;
+    fn export_field(&self, name: &str) -> Option<near_vm_2_types::ExportIndex>;
 
     /// Mapping between module SignatureIndex and VMSharedSignatureIndex.
     fn signatures(&self) -> &[VMSharedSignatureIndex];

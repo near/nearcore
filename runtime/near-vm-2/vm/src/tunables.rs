@@ -2,7 +2,7 @@ use crate::MemoryError;
 use crate::{LinearMemory, Table};
 use crate::{MemoryStyle, TableStyle};
 use crate::{VMMemoryDefinition, VMTableDefinition};
-use near_vm_types::{MemoryType, TableType};
+use near_vm_2_types::{MemoryType, TableType};
 use std::ptr::NonNull;
 use std::sync::Arc;
 

@@ -12,8 +12,8 @@ use near_vm_compiler::{
     CompiledFunction, Compiler, CompilerConfig, CpuFeature, FunctionBody, FunctionBodyData,
     ModuleTranslationState, OperatingSystem, SectionIndex, Target, TrapInformation,
 };
-use near_vm_types::entity::{EntityRef, PrimaryMap};
-use near_vm_types::{
+use near_vm_2_types::entity::{EntityRef, PrimaryMap};
+use near_vm_2_types::{
     FunctionIndex, FunctionType, LocalFunctionIndex, MemoryIndex, ModuleInfo, TableIndex,
 };
 use near_vm_vm::{TrapCode, VMOffsets};

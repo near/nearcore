@@ -6,14 +6,14 @@
 //! # Example
 //! ```ignore
 //! use near_vm_vm::{FRAME_INFO};
-//! use near_vm_types::ModuleInfo;
+//! use near_vm_2_types::ModuleInfo;
 //!
 //! let module: ModuleInfo = ...;
 //! FRAME_INFO.register(module, compiled_functions);
 //! ```
 use near_vm_compiler::{CompiledFunctionFrameInfo, SourceLoc, TrapInformation};
-use near_vm_types::entity::{EntityRef, PrimaryMap};
-use near_vm_types::{LocalFunctionIndex, ModuleInfo};
+use near_vm_2_types::entity::{EntityRef, PrimaryMap};
+use near_vm_2_types::{LocalFunctionIndex, ModuleInfo};
 use parking_lot::RwLock;
 use std::collections::BTreeMap;
 use std::sync::Arc;

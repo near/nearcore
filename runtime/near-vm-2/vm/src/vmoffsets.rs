@@ -8,7 +8,7 @@
 
 use crate::VMBuiltinFunctionIndex;
 use more_asserts::assert_lt;
-use near_vm_types::{
+use near_vm_2_types::{
     FunctionIndex, GlobalIndex, LocalGlobalIndex, LocalMemoryIndex, LocalTableIndex, MemoryIndex,
     ModuleInfo, SignatureIndex, TableIndex,
 };
@@ -233,7 +233,7 @@ impl VMOffsets {
             self.vmctx_trap_handler_begin,
             if self.has_trap_handlers { 1 } else { 0 },
             u32::from(self.pointer_size),
-            align_of::<*mut near_vm_types::FastGasCounter>(),
+            align_of::<*mut near_vm_2_types::FastGasCounter>(),
         );
         self.vmctx_stack_limit_begin = offset_by(
             self.vmctx_gas_limiter_pointer,

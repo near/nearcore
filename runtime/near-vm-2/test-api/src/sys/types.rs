@@ -1,8 +1,8 @@
 use super::externals::Function;
 use super::store::{Store, StoreObject};
 use near_vm_engine::RuntimeError;
-use near_vm_types::Value;
-pub use near_vm_types::{
+use near_vm_2_types::Value;
+pub use near_vm_2_types::{
     FunctionType, GlobalType, MemoryType, Mutability, TableType, Type as ValType,
 };
 use near_vm_vm::VMFuncRef;

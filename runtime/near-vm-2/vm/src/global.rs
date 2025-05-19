@@ -1,5 +1,5 @@
 use crate::vmcontext::VMGlobalDefinition;
-use near_vm_types::{GlobalType, Mutability, Type, Value, WasmValueType};
+use near_vm_2_types::{GlobalType, Mutability, Type, Value, WasmValueType};
 use parking_lot::Mutex;
 use std::cell::UnsafeCell;
 use std::ptr::NonNull;

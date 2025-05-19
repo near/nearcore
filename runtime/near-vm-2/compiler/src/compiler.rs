@@ -9,8 +9,8 @@ use crate::function::Compilation;
 use crate::lib::std::boxed::Box;
 use crate::module::CompileModuleInfo;
 use crate::target::Target;
-use near_vm_types::entity::PrimaryMap;
-use near_vm_types::{Features, FunctionIndex, LocalFunctionIndex, SignatureIndex};
+use near_vm_2_types::entity::PrimaryMap;
+use near_vm_2_types::{Features, FunctionIndex, LocalFunctionIndex, SignatureIndex};
 use wasmparser::{Validator, WasmFeatures};
 
 /// The compiler configuration options.

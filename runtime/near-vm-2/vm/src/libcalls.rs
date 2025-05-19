@@ -43,7 +43,7 @@ use crate::probestack::PROBESTACK;
 use crate::table::{RawTableElement, TableElement};
 use crate::trap::{Trap, TrapCode, raise_lib_trap};
 use crate::vmcontext::VMContext;
-use near_vm_types::{
+use near_vm_2_types::{
     DataIndex, ElemIndex, FunctionIndex, LocalMemoryIndex, LocalTableIndex, MemoryIndex,
     TableIndex, Type,
 };

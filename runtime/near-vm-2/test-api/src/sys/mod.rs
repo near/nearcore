@@ -21,7 +21,7 @@ pub use crate::sys::store::Store;
 pub use crate::sys::tunables::BaseTunables;
 pub use crate::sys::types::{FunctionType, MemoryType, TableType, Val, ValType};
 pub use crate::sys::types::{Val as Value, ValType as Type};
-pub use near_vm_types::ExternRef;
+pub use near_vm_2_types::ExternRef;
 pub use near_vm_vm::{Export, NamedResolver};
 
 #[cfg(feature = "wat")]

@@ -6,7 +6,7 @@ use near_vm_compiler::CompileError;
 #[cfg(feature = "wat")]
 use near_vm_compiler::WasmError;
 use near_vm_engine::RuntimeError;
-use near_vm_types::InstanceConfig;
+use near_vm_2_types::InstanceConfig;
 use near_vm_vm::{InstanceHandle, Instantiatable, Resolver};
 use std::fmt;
 use std::io;

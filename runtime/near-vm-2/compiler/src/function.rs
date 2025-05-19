@@ -10,8 +10,8 @@ use crate::lib::std::vec::Vec;
 use crate::section::{CustomSection, SectionIndex};
 use crate::trap::TrapInformation;
 use crate::{FunctionAddressMap, JumpTableOffsets, Relocation};
-use near_vm_types::entity::PrimaryMap;
-use near_vm_types::{FunctionIndex, LocalFunctionIndex, SignatureIndex};
+use near_vm_2_types::entity::PrimaryMap;
+use near_vm_2_types::{FunctionIndex, LocalFunctionIndex, SignatureIndex};
 
 /// The frame info for a Compiled function.
 ///

@@ -1,8 +1,8 @@
 use super::{Instance, InstanceRef};
 use crate::VMOffsets;
 use crate::vmcontext::{VMMemoryDefinition, VMTableDefinition};
-use near_vm_types::entity::EntityRef;
-use near_vm_types::{LocalMemoryIndex, LocalTableIndex};
+use near_vm_2_types::entity::EntityRef;
+use near_vm_2_types::{LocalMemoryIndex, LocalTableIndex};
 use std::alloc::{self, Layout};
 use std::convert::TryFrom;
 use std::mem;

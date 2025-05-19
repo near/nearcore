@@ -64,8 +64,8 @@ pub use crate::vmoffsets::{TargetSharedSignatureIndex, VMOffsets};
     since = "2.1.0",
     note = "ModuleInfo, ExportsIterator, ImportsIterator should be imported from near_vm_types."
 )]
-pub use near_vm_types::ModuleInfo;
-pub use near_vm_types::VMExternRef;
+pub use near_vm_2_types::ModuleInfo;
+pub use near_vm_2_types::VMExternRef;
 
 /// Version number of this crate.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

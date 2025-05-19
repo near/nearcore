@@ -12,15 +12,15 @@ use near_vm_compiler::{CompileError, SectionIndex, Target};
 #[cfg(not(windows))]
 use near_vm_compiler::{CustomSectionProtection, CustomSectionRef, FunctionBodyRef, JumpTable};
 #[cfg(not(windows))]
-use near_vm_types::entity::EntityRef;
-use near_vm_types::entity::PrimaryMap;
+use near_vm_2_types::entity::EntityRef;
+use near_vm_2_types::entity::PrimaryMap;
 #[cfg(not(windows))]
-use near_vm_types::{
+use near_vm_2_types::{
     DataInitializer, ExportIndex, FunctionIndex, FunctionTypeRef, GlobalInit, GlobalType,
     ImportCounts, ImportIndex, LocalFunctionIndex, LocalGlobalIndex, MemoryIndex, SignatureIndex,
     TableIndex,
 };
-use near_vm_types::{Features, FunctionType};
+use near_vm_2_types::{Features, FunctionType};
 use near_vm_vm::{
     FuncDataRegistry, SignatureRegistry, Tunables, VMCallerCheckedAnyfunc, VMFuncRef,
     VMSharedSignatureIndex,
@@ -125,13 +125,13 @@ impl UniversalEngine {
         let environ = near_vm_compiler::ModuleEnvironment::new();
         let translation = environ.translate(binary).map_err(CompileError::Wasm)?;
 
-        let memory_styles: PrimaryMap<near_vm_types::MemoryIndex, _> = translation
+        let memory_styles: PrimaryMap<near_vm_2_types::MemoryIndex, _> = translation
             .module
             .memories
             .values()
             .map(|memory_type| tunables.memory_style(memory_type))
             .collect();
-        let table_styles: PrimaryMap<near_vm_types::TableIndex, _> = translation
+        let table_styles: PrimaryMap<near_vm_2_types::TableIndex, _> = translation
             .module
             .tables
             .values()
@@ -162,7 +162,7 @@ impl UniversalEngine {
         let data_initializers = translation
             .data_initializers
             .iter()
-            .map(near_vm_types::OwnedDataInitializer::new)
+            .map(near_vm_2_types::OwnedDataInitializer::new)
             .collect();
         let mut function_frame_info = PrimaryMap::with_capacity(functions.len());
         let mut function_bodies = PrimaryMap::with_capacity(functions.len());
@@ -361,7 +361,7 @@ impl UniversalEngine {
         let data_segments = executable.data_initializers.iter();
         let data_segments = data_segments.map(|s| DataInitializer::from(s).into()).collect();
         let element_segments = unrkyv(&module.table_initializers);
-        let passive_elements: BTreeMap<near_vm_types::ElemIndex, Box<[FunctionIndex]>> =
+        let passive_elements: BTreeMap<near_vm_2_types::ElemIndex, Box<[FunctionIndex]>> =
             unrkyv(&module.passive_elements);
 
         let import_counts: ImportCounts = unrkyv(&module.import_counts);

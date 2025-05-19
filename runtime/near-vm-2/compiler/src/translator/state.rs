@@ -1,8 +1,8 @@
 // This file contains code from external sources.
 // Attributions: https://github.com/wasmerio/wasmer/blob/2.3.0/ATTRIBUTIONS.md
 
-use near_vm_types::entity::PrimaryMap;
-use near_vm_types::{FunctionIndex, ImportIndex, ModuleInfo, SignatureIndex};
+use near_vm_2_types::entity::PrimaryMap;
+use near_vm_2_types::{FunctionIndex, ImportIndex, ModuleInfo, SignatureIndex};
 use std::boxed::Box;
 use std::collections::HashMap;
 

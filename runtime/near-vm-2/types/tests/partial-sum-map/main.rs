@@ -1,4 +1,4 @@
-use near_vm_types::partial_sum_map::{Error, PartialSumMap};
+use near_vm_2_types::partial_sum_map::{Error, PartialSumMap};
 
 #[test]
 fn partial_sum_map_fuzzer() {

@@ -9,7 +9,7 @@ use parking_lot::{Mutex, MutexGuard};
 use std::sync::Arc;
 use thiserror::Error;
 
-pub use near_vm_types::InstanceConfig;
+pub use near_vm_2_types::InstanceConfig;
 
 /// A WebAssembly Instance is a stateful, executable
 /// instance of a WebAssembly [`Module`].

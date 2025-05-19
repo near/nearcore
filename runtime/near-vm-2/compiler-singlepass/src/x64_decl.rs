@@ -1,6 +1,6 @@
 //! X64 structures.
 use near_vm_compiler::CallingConvention;
-use near_vm_types::Type;
+use near_vm_2_types::Type;
 
 /// General-purpose registers.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, strum::FromRepr)]

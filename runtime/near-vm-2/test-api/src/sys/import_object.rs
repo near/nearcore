@@ -236,7 +236,7 @@ macro_rules! import_namespace {
 mod test {
     use super::super::{Global, Store, Val};
     use super::*;
-    use near_vm_types::Type;
+    use near_vm_2_types::Type;
     use near_vm_vm::ChainableNamedResolver;
 
     #[test]

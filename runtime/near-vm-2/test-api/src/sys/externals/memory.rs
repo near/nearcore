@@ -1,7 +1,7 @@
 use super::super::exports::Exportable;
 use super::super::store::Store;
 use super::super::types::MemoryType;
-use near_vm_types::{MemoryView, Pages, ValueType};
+use near_vm_2_types::{MemoryView, Pages, ValueType};
 use near_vm_vm::{Export, MemoryError, VMMemory};
 use std::convert::TryInto;
 use std::slice;

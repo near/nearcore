@@ -4,7 +4,7 @@
 use crate::compiler::SinglepassCompiler;
 use crate::emitter_x64::Location;
 use near_vm_compiler::{Compiler, CompilerConfig, CpuFeature, Target};
-use near_vm_types::{Features, FunctionType, Type};
+use near_vm_2_types::{Features, FunctionType, Type};
 use smallvec::SmallVec;
 use std::sync::Arc;
 
