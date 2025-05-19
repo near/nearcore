@@ -2221,7 +2221,7 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
 
         self.pay_action_base(ActionCosts::deploy_global_contract_base, sir)?;
-        self.pay_action_per_byte(ActionCosts::deploy_global_contract_base, code_len, sir)?;
+        self.pay_action_per_byte(ActionCosts::deploy_global_contract_byte, code_len, sir)?;
 
         self.ext.append_action_deploy_global_contract(receipt_idx, code, mode)?;
         Ok(())

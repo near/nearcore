@@ -310,7 +310,7 @@ fn test_promise_batch_action_deploy_global_contract() {
     logic
         .promise_batch_action_deploy_global_contract(index, code.len, code.ptr)
         .expect("should add an action to deploy contract");
-    assert_eq!(logic.used_gas().unwrap(), 7472882202158);
+    assert_eq!(logic.used_gas().unwrap(), 5256154080152);
     expect_test::expect![[r#"
         [
           {
@@ -360,7 +360,7 @@ fn test_promise_batch_action_deploy_global_contract() {
                 108,
                 101
               ],
-              "mode": "code_hash",
+              "mode": "CodeHash"
             }
           }
         ]"#]]

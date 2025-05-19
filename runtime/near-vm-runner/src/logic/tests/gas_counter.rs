@@ -491,10 +491,10 @@ fn out_of_gas_deploy_global_contract_base() {
     );
 
     check_action_gas_exceeds_attached(
-        ActionCosts::deploy_contract_base,
+        ActionCosts::deploy_global_contract_base,
         1,
         expect!["119677812659 burnt 10000000000000 used"],
-        deploy_contract,
+        deploy_global_contract,
     );
 }
 
@@ -508,10 +508,10 @@ fn out_of_gas_deploy_global_contract_byte() {
     );
 
     check_action_gas_exceeds_attached(
-        ActionCosts::deploy_contract_byte,
+        ActionCosts::deploy_global_contract_byte,
         26,
         expect!["304443562909 burnt 10000000000000 used"],
-        deploy_contract,
+        deploy_global_contract,
     );
 }
 
