@@ -10953,7 +10953,7 @@
             "additionalProperties": false,
             "properties": {
               "signed_tx_base64": {
-                "$ref": "#/components/schemas/SignedTransaction2"
+                "type": "string"
               }
             },
             "required": [
@@ -10962,9 +10962,6 @@
             "type": "object"
           }
         ],
-        "type": "string"
-      },
-      "SignedTransaction2": {
         "type": "string"
       },
       "SignedTransactionView": {

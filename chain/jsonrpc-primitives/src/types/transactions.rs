@@ -33,6 +33,7 @@ pub enum TransactionInfo {
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub enum SignedTransaction {
     #[serde(rename = "signed_tx_base64")]
+    #[schemars(with = "String")]
     SignedTransaction(near_primitives::transaction::SignedTransaction),
 }
 
