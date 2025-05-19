@@ -167,7 +167,7 @@ impl TrieStateResharder {
             TrieStateReshardingChildStatus::new(event.right_child_shard, right_state_root),
         )
         .with_metrics();
-        while !status.done() {
+        while !status.done() && !self.handle.is_cancelled() {
             // Process the batch and update the status.
             self.process_batch_and_update_status(&mut status)?;
         }
@@ -187,7 +187,7 @@ impl TrieStateResharder {
             )));
         }
         let mut status = status.with_metrics();
-        while !status.done() {
+        while !status.done() && !self.handle.is_cancelled() {
             // Process the batch and update the status.
             self.process_batch_and_update_status(&mut status)?;
         }
