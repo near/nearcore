@@ -1,5 +1,5 @@
 [package]
-name = "near-vm-engine"
+name = "near-vm-2-engine"
 version.workspace = true
 description = "Wasmer Engine abstraction"
 categories = ["wasm"]
@@ -16,11 +16,11 @@ workspace = true
 
 [dependencies]
 backtrace.workspace = true
-finite-wasm.workspace = true
+finite-wasm-6.workspace = true
 more-asserts.workspace = true
-near-vm-compiler.workspace = true
-near-vm-types.workspace = true
-near-vm-vm.workspace = true
+near-vm-2-compiler.workspace = true
+near-vm-2-types.workspace = true
+near-vm-2-vm.workspace = true
 parking_lot.workspace = true
 rkyv.workspace = true
 rustc-demangle.workspace = true

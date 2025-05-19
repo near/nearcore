@@ -1,5 +1,5 @@
 [package]
-name = "near-vm-types"
+name = "near-vm-2-types"
 version.workspace = true
 description = "Near VM Common Types"
 categories = ["wasm", "data-structures"]

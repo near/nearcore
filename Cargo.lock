@@ -5192,6 +5192,89 @@ dependencies = [
 ]
 
 [[package]]
+name = "near-vm-2-compiler"
+version = "0.0.0"
+dependencies = [
+ "enumset",
+ "finite-wasm 0.6.0",
+ "near-vm-2-types",
+ "near-vm-2-vm",
+ "rkyv",
+ "target-lexicon 0.12.16",
+ "thiserror 2.0.12",
+ "tracing",
+ "wasmparser 0.99.0",
+]
+
+[[package]]
+name = "near-vm-2-compiler-singlepass"
+version = "0.0.0"
+dependencies = [
+ "dynasm",
+ "dynasmrt",
+ "enumset",
+ "finite-wasm 0.6.0",
+ "memoffset 0.8.0",
+ "near-vm-2-compiler",
+ "near-vm-2-types",
+ "near-vm-2-vm",
+ "rayon",
+ "smallvec",
+ "strum",
+ "target-lexicon 0.12.16",
+ "tracing",
+]
+
+[[package]]
+name = "near-vm-2-engine"
+version = "0.0.0"
+dependencies = [
+ "backtrace",
+ "finite-wasm 0.6.0",
+ "more-asserts",
+ "near-vm-2-compiler",
+ "near-vm-2-types",
+ "near-vm-2-vm",
+ "parking_lot 0.12.1",
+ "rkyv",
+ "rustc-demangle",
+ "rustix 1.0.1",
+ "thiserror 2.0.12",
+ "tracing",
+]
+
+[[package]]
+name = "near-vm-2-types"
+version = "0.0.0"
+dependencies = [
+ "bolero",
+ "indexmap 2.7.0",
+ "num-traits",
+ "rkyv",
+ "thiserror 2.0.12",
+]
+
+[[package]]
+name = "near-vm-2-vm"
+version = "0.0.0"
+dependencies = [
+ "backtrace",
+ "cc",
+ "cfg-if",
+ "finite-wasm 0.6.0",
+ "libc",
+ "memoffset 0.8.0",
+ "more-asserts",
+ "near-vm-2-types",
+ "parking_lot 0.12.1",
+ "region",
+ "rkyv",
+ "thiserror 2.0.12",
+ "tracing",
+ "winapi",
+]
+
+[[package]]
 name = "near-vm-compiler"
 version = "0.0.0"
 dependencies = [
@@ -5286,6 +5369,11 @@ dependencies = [
  "near-schema-checker-lib",
  "near-stdx",
  "near-test-contracts",
+ "near-vm-2-compiler",
+ "near-vm-2-compiler-singlepass",
+ "near-vm-2-engine",
+ "near-vm-2-types",
+ "near-vm-2-vm",
  "near-vm-compiler",
  "near-vm-compiler-singlepass",
  "near-vm-engine",

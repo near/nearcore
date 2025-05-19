@@ -1,5 +1,5 @@
 [package]
-name = "near-vm-test-api"
+name = "near-vm-2-test-api"
 version.workspace = true
 description = "High-performance WebAssembly runtime"
 categories = ["wasm"]
@@ -19,7 +19,7 @@ workspace = true
 [dependencies]
 # - Mandatory shared dependencies.
 cfg-if.workspace = true
-finite-wasm.workspace = true
+finite-wasm-6.workspace = true
 indexmap.workspace = true
 parking_lot.workspace = true
 prefix-sum-vec.workspace = true
@@ -32,13 +32,13 @@ wat = { workspace = true, optional = true }
 # Dependencies and Development Dependencies for `sys`.
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 # - Mandatory dependencies for `sys`.
-near-vm-vm.workspace = true
-near-vm-compiler.workspace = true
-near-vm-engine.workspace = true
-near-vm-types.workspace = true
+near-vm-2-vm.workspace = true
+near-vm-2-compiler.workspace = true
+near-vm-2-engine.workspace = true
+near-vm-2-types.workspace = true
 target-lexicon.workspace = true
 # - Optional dependencies for `sys`.
-near-vm-compiler-singlepass = { workspace = true, optional = true }
+near-vm-2-compiler-singlepass = { workspace = true, optional = true }
 
 # - Mandatory dependencies for `sys` on Windows.
 [target.'cfg(all(not(target_arch = "wasm32"), target_os = "windows"))'.dependencies]
@@ -48,13 +48,13 @@ winapi.workspace = true
 anyhow.workspace = true
 tempfile.workspace = true
 wat.workspace = true
-near-vm-compiler-test-derive.workspace = true
-near-vm-wast.workspace = true
+near-vm-2-compiler-test-derive.workspace = true
+near-vm-2-wast.workspace = true
 test-log.workspace = true
 tracing-subscriber.workspace = true
 
 [build-dependencies]
-near-vm-test-generator.workspace = true
+near-vm-2-test-generator.workspace = true
 anyhow.workspace = true
 
 [badges]
@@ -72,7 +72,7 @@ compiler = [
 ]
 singlepass = [
     "compiler",
-    "near-vm-compiler-singlepass",
+    "near-vm-2-compiler-singlepass",
 ]
 default-compiler = []
 default-singlepass = [

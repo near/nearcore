@@ -1,5 +1,5 @@
 [package]
-name = "near-vm-compiler"
+name = "near-vm-2-compiler"
 version.workspace = true
 description = "Base compiler abstraction for Wasmer WebAssembly runtime"
 categories = ["wasm", "no-std"]
@@ -15,9 +15,9 @@ publish = true
 workspace = true
 
 [dependencies]
-finite-wasm.workspace = true
-near-vm-vm.workspace = true
-near-vm-types.workspace = true
+finite-wasm-6.workspace = true
+near-vm-2-vm.workspace = true
+near-vm-2-types.workspace = true
 wasmparser = { version = "0.99.0", default-features = false }
 target-lexicon.workspace = true
 enumset.workspace = true

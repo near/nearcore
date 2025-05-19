@@ -1,5 +1,5 @@
 [package]
-name = "near-vm-compiler-singlepass"
+name = "near-vm-2-compiler-singlepass"
 version.workspace = true
 description = "Singlepass compiler for Wasmer WebAssembly runtime"
 categories = ["wasm"]
@@ -15,10 +15,10 @@ publish = true
 workspace = true
 
 [dependencies]
-finite-wasm.workspace = true
-near-vm-compiler.workspace = true
-near-vm-vm.workspace = true
-near-vm-types.workspace = true
+finite-wasm-6.workspace = true
+near-vm-2-compiler.workspace = true
+near-vm-2-vm.workspace = true
+near-vm-2-types.workspace = true
 dynasm.workspace = true
 dynasmrt.workspace = true
 enumset.workspace = true
