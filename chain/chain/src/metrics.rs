@@ -68,7 +68,14 @@ pub static VALIDATOR_AMOUNT_STAKED: LazyLock<IntGauge> = LazyLock::new(|| {
 pub static VALIDATOR_ACTIVE_TOTAL: LazyLock<IntGauge> = LazyLock::new(|| {
     try_create_int_gauge(
         "near_validator_active_total",
-        "The total number of validators active after last block",
+        "The total number of chunk producers active after last block (DEPRECATED: use near_validator_chunk_producers_total instead)",
+    )
+    .unwrap()
+});
+pub static VALIDATOR_CHUNK_PRODUCERS_TOTAL: LazyLock<IntGauge> = LazyLock::new(|| {
+    try_create_int_gauge(
+        "near_validator_chunk_producers_total",
+        "The total number of chunk producers active after last block",
     )
     .unwrap()
 });

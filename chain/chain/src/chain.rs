@@ -1921,8 +1921,47 @@ impl Chain {
 
         self.pending_state_patch.clear();
 
-        if let Some(tip) = &new_head {            // TODO: move this logic of tracking validators metrics to EpochManager            let mut chunk_producers_count = 0;            let mut block_producers_count = 0;            let mut chunk_validators_count = 0;            let mut stake = 0;                        // Get chunk producers count and total stake            if let Ok(producers) = self.epoch_manager.get_epoch_chunk_producers(&tip.epoch_id) {                stake += producers.iter().map(|info| info.stake()).sum::<Balance>();                chunk_producers_count += producers.len();            }            // Get block producers count            if let Ok(block_producers) = self.epoch_manager.get_epoch_block_producers_ordered(&tip.epoch_id) {                block_producers_count = block_producers.len();            }            // Get chunk validators count - use the first shard and height to get a representative value            // This is an approximation as validators can vary by shard and height            if let Ok(shard_ids) = self.epoch_manager.shard_ids(&tip.epoch_id) {                if !shard_ids.is_empty() {                    if let Ok(assignments) = self.epoch_manager.get_chunk_validator_assignments(                        &tip.epoch_id,                        shard_ids[0],                        tip.height,                    ) {                        chunk_validators_count = assignments.len();                    }                }            }            stake /= NEAR_BASE;            metrics::VALIDATOR_AMOUNT_STAKED.set(i64::try_from(stake).unwrap_or(i64::MAX));            metrics::VALIDATOR_ACTIVE_TOTAL.set(i64::try_from(chunk_producers_count).unwrap_or(i64::MAX));            metrics::VALIDATOR_BLOCK_PRODUCERS_TOTAL.set(i64::try_from(block_producers_count).unwrap_or(i64::MAX));            metrics::VALIDATOR_CHUNK_VALIDATORS_TOTAL.set(i64::try_from(chunk_validators_count).unwrap_or(i64::MAX));            self.last_time_head_updated = self.clock.now();
-        };
+        if let Some(tip) = &new_head {
+            // TODO: move this logic of tracking validators metrics to EpochManager
+            let mut chunk_producers_count = 0;
+            let mut block_producers_count = 0;
+            let mut chunk_validators_count = 0;
+            let mut stake = 0;
+            
+            // Get chunk producers count and total stake
+            if let Ok(producers) = self.epoch_manager.get_epoch_chunk_producers(&tip.epoch_id) {
+                stake += producers.iter().map(|info| info.stake()).sum::<Balance>();
+                chunk_producers_count += producers.len();
+            }
+            
+            // Get block producers count
+            if let Ok(block_producers) = self.epoch_manager.get_epoch_block_producers_ordered(&tip.epoch_id) {
+                block_producers_count = block_producers.len();
+            }
+            
+            // Get chunk validators count - use the first shard and height to get a representative value
+            // This is an approximation as validators can vary by shard and height
+            if let Ok(shard_ids) = self.epoch_manager.shard_ids(&tip.epoch_id) {
+                if !shard_ids.is_empty() {
+                    if let Ok(assignments) = self.epoch_manager.get_chunk_validator_assignments(
+                        &tip.epoch_id,
+                        shard_ids[0],
+                        tip.height,
+                    ) {
+                        chunk_validators_count = assignments.len();
+                    }
+                }
+            }
+            
+            stake /= NEAR_BASE;
+            metrics::VALIDATOR_AMOUNT_STAKED.set(i64::try_from(stake).unwrap_or(i64::MAX));
+            metrics::VALIDATOR_ACTIVE_TOTAL.set(i64::try_from(chunk_producers_count).unwrap_or(i64::MAX));
+            metrics::VALIDATOR_CHUNK_PRODUCERS_TOTAL.set(i64::try_from(chunk_producers_count).unwrap_or(i64::MAX));
+            metrics::VALIDATOR_BLOCK_PRODUCERS_TOTAL.set(i64::try_from(block_producers_count).unwrap_or(i64::MAX));
+            metrics::VALIDATOR_CHUNK_VALIDATORS_TOTAL.set(i64::try_from(chunk_validators_count).unwrap_or(i64::MAX));
+            
+            self.last_time_head_updated = self.clock.now();
+        }
 
         metrics::BLOCK_PROCESSED_TOTAL.inc();
         metrics::BLOCK_PROCESSING_TIME.observe(
