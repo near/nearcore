@@ -20,8 +20,8 @@ use near_store::flat::{
     FlatStorageReadyStatus, FlatStorageReshardingStatus, FlatStorageStatus, ParentSplitParameters,
 };
 
-/// StateResharder is responsible for handling state resharding operations.
-pub struct StateResharder {
+/// TrieStateResharder is responsible for handling state resharding operations.
+pub struct TrieStateResharder {
     epoch_manager: Arc<dyn EpochManagerAdapter>,
     runtime: Arc<dyn RuntimeAdapter>,
     /// Controls cancellation of background processing.
@@ -30,7 +30,7 @@ pub struct StateResharder {
     resharding_config: MutableConfigValue<ReshardingConfig>,
 }
 
-impl StateResharder {
+impl TrieStateResharder {
     pub fn new(
         epoch_manager: Arc<dyn EpochManagerAdapter>,
         runtime: Arc<dyn RuntimeAdapter>,
@@ -286,9 +286,9 @@ impl StateResharder {
     }
 }
 
-impl Debug for StateResharder {
+impl Debug for TrieStateResharder {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("StateResharder").field("handle", &self.handle).finish()
+        f.debug_struct("TrieStateResharder").field("handle", &self.handle).finish()
     }
 }
 
