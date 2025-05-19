@@ -11,7 +11,6 @@ use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::db::TRIE_STATE_RESHARDING_STATUS_KEY;
 use near_store::metrics::trie_state_metrics;
 use near_store::{DBCol, ShardTries, StorageError};
-use tracing::{error, info};
 
 use crate::resharding::event_type::ReshardingSplitShardParams;
 use crate::types::RuntimeAdapter;
@@ -139,12 +138,14 @@ impl TrieStateResharder {
         &self,
         event: &ReshardingSplitShardParams,
     ) -> Result<(), Error> {
-        let status = self.load_status()?;
-        // TODO: existing status means resharding was in progress, error out so the node operator
-        // manually resumes it.
-        // Add some code like this:
-        //  tracing::error!(target: "resharding", "impossible to recover from a state shard split failure!");
-        //  panic!("impossible to recover from a state split shard failure!")
+        if let Some(status) = self.load_status()? {
+            tracing::error!(
+                target: "resharding", status_shard_uid=?status.shard_uid,
+                "TrieStateReshardingStatus already exists, cannot start a new resharding operation. Run resume_resharding to continue.");
+            panic!(
+                "TrieStateReshardingStatus already exists, cannot start a new resharding operation. Run resume_resharding to continue."
+            );
+        }
 
         // Get state root from the chunk extra of the child shard.
         let block_hash = event.resharding_block.hash;
@@ -170,10 +171,15 @@ impl TrieStateResharder {
 
     /// Resume an interrupted resharding operation.
     pub fn resume(&self, shard_uid: ShardUId) -> Result<(), Error> {
-        let status = self.load_status()?;
-        let status = status.unwrap(); // TODO: should always have a status if resuming
+        let Some(status) = self.load_status()? else {
+            tracing::info!(target: "resharding", "Resharding status not found, nothing to resume.");
+            return Ok(());
+        };
+
         if status.shard_uid != shard_uid {
-            error!(target: "resharding", "Resharding status shard UID does not match the provided shard UID.");
+            tracing::error!(
+                target: "resharding", status_shard_uid=?status.shard_uid, ?shard_uid,
+                "Resharding status shard UID does not match the provided shard UID.");
             return Err(Error::ReshardingError(format!(
                 "Resharding status shard UID {} does not match the provided shard UID {}.",
                 status.shard_uid, shard_uid
