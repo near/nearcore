@@ -1,7 +1,7 @@
 use crate::lib::std::sync::Arc;
 use near_vm_2_types::entity::PrimaryMap;
 use near_vm_2_types::{Features, MemoryIndex, ModuleInfo, TableIndex};
-use near_vm_vm::{MemoryStyle, TableStyle};
+use near_vm_2_vm::{MemoryStyle, TableStyle};
 
 /// The required info for compiling a module.
 ///

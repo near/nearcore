@@ -8,7 +8,7 @@ use super::super::types::{Val, ValFuncRef};
 pub use inner::{FromToNativeWasmType, HostFunction, WasmTypeList, WithEnv, WithoutEnv};
 use near_vm_engine::RuntimeError;
 
-use near_vm_vm::{
+use near_vm_2_vm::{
     Export, ExportFunction, ExportFunctionMetadata, ImportInitializerFuncPtr, TableElement,
     VMCallerCheckedAnyfunc, VMDynamicFunctionContext, VMFuncRef, VMFunction, VMFunctionBody,
     VMFunctionEnvironment, VMFunctionKind, VMTrampoline, near_vm_call_trampoline, raise_user_trap,
@@ -80,19 +80,19 @@ impl Function {
         if func_ref.is_null() {
             return None;
         }
-        let near_vm_vm::VMCallerCheckedAnyfunc { func_ptr: address, type_index: signature, vmctx } =
+        let near_vm_2_vm::VMCallerCheckedAnyfunc { func_ptr: address, type_index: signature, vmctx } =
             unsafe { **func_ref };
-        let export = near_vm_vm::ExportFunction {
+        let export = near_vm_2_vm::ExportFunction {
             // TODO:
             // figure out if we ever need a value here: need testing with complicated import patterns
             metadata: None,
-            vm_function: near_vm_vm::VMFunction {
+            vm_function: near_vm_2_vm::VMFunction {
                 address,
                 signature,
                 // TODO: review this comment (unclear if it's still correct):
                 // All functions in tables are already Static (as dynamic functions
                 // are converted to use the trampolines with static signatures).
-                kind: near_vm_vm::VMFunctionKind::Static,
+                kind: near_vm_2_vm::VMFunctionKind::Static,
                 vmctx,
                 call_trampoline: None,
                 instance_ref: None,
@@ -858,7 +858,7 @@ impl<T: VMDynamicFunction> VMDynamicFunctionCall<T> for VMDynamicFunctionContext
 /// for `Function` and its siblings.
 mod inner {
     use near_vm_2_types::{FunctionType, NativeWasmType, Type};
-    use near_vm_vm::{VMFunctionBody, raise_user_trap, resume_panic};
+    use near_vm_2_vm::{VMFunctionBody, raise_user_trap, resume_panic};
     use std::array::TryFromSliceError;
     use std::convert::{Infallible, TryInto};
     use std::error::Error;
@@ -1570,7 +1570,7 @@ mod inner {
         fn test_function_pointer() {
             let f = Function::new(func_i32__i32);
             let function = unsafe {
-                std::mem::transmute::<*const near_vm_vm::VMFunctionBody, fn(usize, i32) -> i32>(
+                std::mem::transmute::<*const near_vm_2_vm::VMFunctionBody, fn(usize, i32) -> i32>(
                     f.address,
                 )
             };

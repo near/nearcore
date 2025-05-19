@@ -21,12 +21,12 @@ use near_vm_2_types::{
     TableIndex,
 };
 use near_vm_2_types::{Features, FunctionType};
-use near_vm_vm::{
+use near_vm_2_vm::{
     FuncDataRegistry, SignatureRegistry, Tunables, VMCallerCheckedAnyfunc, VMFuncRef,
     VMSharedSignatureIndex,
 };
 #[cfg(not(windows))]
-use near_vm_vm::{
+use near_vm_2_vm::{
     FunctionBodyPtr, SectionBodyPtr, VMImportType, VMLocalFunction, VMOffsets, VMTrampoline,
 };
 use parking_lot::{Mutex, MutexGuard};
@@ -252,7 +252,7 @@ impl UniversalEngine {
         let imports = module
             .imports
             .iter()
-            .map(|((module_name, field, idx), entity)| near_vm_vm::VMImport {
+            .map(|((module_name, field, idx), entity)| near_vm_2_vm::VMImport {
                 module: String::from(module_name),
                 field: String::from(field),
                 import_no: *idx,
@@ -397,7 +397,7 @@ impl UniversalEngine {
             module
                 .imports
                 .iter()
-                .map(|(ArchivedTuple3(module_name, field, idx), entity)| near_vm_vm::VMImport {
+                .map(|(ArchivedTuple3(module_name, field, idx), entity)| near_vm_2_vm::VMImport {
                     module: String::from(module_name.as_str()),
                     field: String::from(field.as_str()),
                     import_no: idx.into(),

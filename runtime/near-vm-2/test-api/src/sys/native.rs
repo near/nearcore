@@ -14,7 +14,7 @@ use super::externals::{FromToNativeWasmType, Function, WasmTypeList};
 use super::store::Store;
 use near_vm_engine::RuntimeError;
 use near_vm_2_types::NativeWasmType;
-use near_vm_vm::{
+use near_vm_2_vm::{
     ExportFunction, VMDynamicFunctionContext, VMFunctionBody, VMFunctionEnvironment, VMFunctionKind,
 };
 use std::panic::{AssertUnwindSafe, catch_unwind};
@@ -134,7 +134,7 @@ macro_rules! impl_native_traits {
                         rets_list.as_mut()
                     };
                     unsafe {
-                        near_vm_vm::near_vm_call_trampoline(
+                        near_vm_2_vm::near_vm_call_trampoline(
                             self.vmctx(),
                             trampoline,
                             self.address(),
@@ -158,7 +158,7 @@ macro_rules! impl_native_traits {
                     // but we can't currently detect whether that's safe.
                     //
                     // let results = unsafe {
-                    //     near_vm_vm::catch_traps_with_result(self.vmctx, || {
+                    //     near_vm_2_vm::catch_traps_with_result(self.vmctx, || {
                     //         let f = std::mem::transmute::<_, unsafe extern "C" fn( *mut VMContext, $( $x, )*) -> Rets::CStruct>(self.address());
                     //         // We always pass the vmctx
                     //         f( self.vmctx, $( $x, )* )

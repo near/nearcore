@@ -1,7 +1,7 @@
 use crate::sys::externals::Extern;
 use crate::sys::import_object::LikeNamespace;
 use indexmap::IndexMap;
-use near_vm_vm::Export;
+use near_vm_2_vm::Export;
 use std::sync::Arc;
 use thiserror::Error;
 

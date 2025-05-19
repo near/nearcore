@@ -4,7 +4,7 @@ use super::externals::WasmTypeList;
 use super::module::Module;
 use super::native::NativeFunc;
 use near_vm_engine::{LinkError, RuntimeError};
-use near_vm_vm::{Export, InstanceHandle, Resolver};
+use near_vm_2_vm::{Export, InstanceHandle, Resolver};
 use parking_lot::{Mutex, MutexGuard};
 use std::sync::Arc;
 use thiserror::Error;
@@ -121,7 +121,7 @@ impl Instance {
         // correct error type returned by `WasmerEnv::init_with_instance` as a generic
         // parameter.
         unsafe {
-            near_vm_vm::initialize_host_envs::<HostEnvInitError>(
+            near_vm_2_vm::initialize_host_envs::<HostEnvInitError>(
                 &*instance.handle,
                 &instance as *const _ as *const _,
             )?;

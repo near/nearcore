@@ -114,7 +114,7 @@ pub trait Compiler: Send {
         module: &'module CompileModuleInfo,
         // The list of function bodies
         function_body_inputs: PrimaryMap<LocalFunctionIndex, FunctionBodyData<'data>>,
-        tunables: &dyn near_vm_vm::Tunables,
+        tunables: &dyn near_vm_2_vm::Tunables,
         instrumentation: &finite_wasm_6::AnalysisOutcome,
     ) -> Result<Compilation, CompileError>;
 

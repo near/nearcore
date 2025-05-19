@@ -2,7 +2,7 @@ use crate::sys::tunables::BaseTunables;
 #[cfg(all(feature = "compiler", feature = "engine"))]
 use near_vm_compiler::CompilerConfig;
 use near_vm_engine::universal::UniversalEngine;
-use near_vm_vm::Tunables;
+use near_vm_2_vm::Tunables;
 use std::fmt;
 use std::sync::Arc;
 

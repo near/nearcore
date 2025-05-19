@@ -1,6 +1,6 @@
 use super::frame_info::{FRAME_INFO, FrameInfo, GlobalFrameInfo};
 use backtrace::Backtrace;
-use near_vm_vm::{Trap, TrapCode, raise_user_trap};
+use near_vm_2_vm::{Trap, TrapCode, raise_user_trap};
 use std::error::Error;
 use std::fmt;
 use std::sync::Arc;

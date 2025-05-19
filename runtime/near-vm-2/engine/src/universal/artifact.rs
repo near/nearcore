@@ -8,7 +8,7 @@ use near_vm_2_types::{
     LocalGlobalIndex, MemoryType, OwnedDataInitializer, OwnedTableInitializer, SignatureIndex,
     TableType,
 };
-use near_vm_vm::{
+use near_vm_2_vm::{
     Artifact, FunctionBodyPtr, FunctionExtent, InstanceHandle, Instantiatable, MemoryStyle,
     Resolver, TableStyle, Tunables, VMImport, VMImportType, VMLocalFunction, VMOffsets,
     VMSharedSignatureIndex,
@@ -91,7 +91,7 @@ impl Instantiatable for UniversalArtifact {
         };
 
         let (allocator, memory_definition_locations, table_definition_locations) =
-            near_vm_vm::InstanceAllocator::new(self.vmoffsets.clone());
+            near_vm_2_vm::InstanceAllocator::new(self.vmoffsets.clone());
 
         // Memories
         let mut memories: PrimaryMap<near_vm_2_types::LocalMemoryIndex, _> =
@@ -124,7 +124,7 @@ impl Instantiatable for UniversalArtifact {
         let mut globals =
             PrimaryMap::<LocalGlobalIndex, _>::with_capacity(self.local_globals.len());
         for (ty, _) in &self.local_globals {
-            globals.push(Arc::new(near_vm_vm::Global::new(*ty)));
+            globals.push(Arc::new(near_vm_2_vm::Global::new(*ty)));
         }
 
         let passive_data = self.passive_data.clone();
@@ -146,7 +146,7 @@ impl Instantiatable for UniversalArtifact {
 }
 
 impl Artifact for UniversalArtifact {
-    fn offsets(&self) -> &near_vm_vm::VMOffsets {
+    fn offsets(&self) -> &near_vm_2_vm::VMOffsets {
         &self.vmoffsets
     }
 
@@ -182,7 +182,7 @@ impl Artifact for UniversalArtifact {
         self.exports.get(name).cloned()
     }
 
-    fn signatures(&self) -> &[near_vm_vm::VMSharedSignatureIndex] {
+    fn signatures(&self) -> &[near_vm_2_vm::VMSharedSignatureIndex] {
         self.signatures.values().as_slice()
     }
 

@@ -16,7 +16,7 @@ use near_vm_2_types::entity::{EntityRef, PrimaryMap};
 use near_vm_2_types::{
     FunctionIndex, FunctionType, LocalFunctionIndex, MemoryIndex, ModuleInfo, TableIndex,
 };
-use near_vm_vm::{TrapCode, VMOffsets};
+use near_vm_2_vm::{TrapCode, VMOffsets};
 use rayon::prelude::{IntoParallelIterator, ParallelIterator};
 use std::sync::Arc;
 
@@ -47,7 +47,7 @@ impl Compiler for SinglepassCompiler {
         target: &Target,
         compile_info: &CompileModuleInfo,
         function_body_inputs: PrimaryMap<LocalFunctionIndex, FunctionBodyData<'_>>,
-        tunables: &dyn near_vm_vm::Tunables,
+        tunables: &dyn near_vm_2_vm::Tunables,
         instrumentation: &finite_wasm_6::AnalysisOutcome,
     ) -> Result<Compilation, CompileError> {
         /*if target.triple().operating_system == OperatingSystem::Windows {
@@ -233,7 +233,7 @@ fn to_compile_error<T: ToCompileError>(x: T) -> CompileError {
 mod tests {
     use super::*;
     use near_vm_compiler::{CpuFeature, Features, Triple};
-    use near_vm_vm::{MemoryStyle, TableStyle};
+    use near_vm_2_vm::{MemoryStyle, TableStyle};
     use std::str::FromStr;
     use target_lexicon::triple;
 
@@ -270,7 +270,7 @@ mod tests {
             &linux32,
             &mut info,
             inputs,
-            &near_vm_vm::TestTunables,
+            &near_vm_2_vm::TestTunables,
             &analysis,
         );
         match result.unwrap_err() {
@@ -285,7 +285,7 @@ mod tests {
             &win32,
             &mut info,
             inputs,
-            &near_vm_vm::TestTunables,
+            &near_vm_2_vm::TestTunables,
             &analysis,
         );
         match result.unwrap_err() {

@@ -3,7 +3,7 @@ use std::sync::Arc;
 use near_vm_compiler::CompileError;
 use near_vm_engine::universal::{MemoryPool, Universal};
 use near_vm_test_api::*;
-use near_vm_vm::Artifact;
+use near_vm_2_vm::Artifact;
 
 fn slow_to_compile_contract(n_fns: usize, n_locals: usize) -> Vec<u8> {
     let fns = format!("(func (local {}))\n", "i32 ".repeat(n_locals)).repeat(n_fns);

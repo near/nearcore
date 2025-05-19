@@ -62,7 +62,7 @@ pub struct ExportFunctionMetadata {
     /// Thus, we only bother to store the master copy at all here so that
     /// we can free it.
     ///
-    /// See `near_vm_vm::export::VMFunction::vmctx` for the version of
+    /// See `near_vm_2_vm::export::VMFunction::vmctx` for the version of
     /// this pointer that is used by the VM when creating an `Instance`.
     pub host_env: *mut std::ffi::c_void,
 
@@ -244,7 +244,7 @@ pub struct NamedResolverChain<A: NamedResolver + Send + Sync, B: NamedResolver +
 /// A trait for chaining resolvers together.
 ///
 /// ```
-/// # use near_vm_vm::{ChainableNamedResolver, NamedResolver};
+/// # use near_vm_2_vm::{ChainableNamedResolver, NamedResolver};
 /// # fn chainable_test<A, B>(imports1: A, imports2: B)
 /// # where A: NamedResolver + Sized + Send + Sync,
 /// #       B: NamedResolver + Sized + Send + Sync,
@@ -259,7 +259,7 @@ pub trait ChainableNamedResolver: NamedResolver + Sized + Send + Sync {
     /// This will cause the second resolver to override the first.
     ///
     /// ```
-    /// # use near_vm_vm::{ChainableNamedResolver, NamedResolver};
+    /// # use near_vm_2_vm::{ChainableNamedResolver, NamedResolver};
     /// # fn chainable_test<A, B>(imports1: A, imports2: B)
     /// # where A: NamedResolver + Sized + Send + Sync,
     /// #       B: NamedResolver + Sized + Send + Sync,
@@ -280,7 +280,7 @@ pub trait ChainableNamedResolver: NamedResolver + Sized + Send + Sync {
     /// This will cause the first resolver to override the second.
     ///
     /// ```
-    /// # use near_vm_vm::{ChainableNamedResolver, NamedResolver};
+    /// # use near_vm_2_vm::{ChainableNamedResolver, NamedResolver};
     /// # fn chainable_test<A, B>(imports1: A, imports2: B)
     /// # where A: NamedResolver + Sized + Send + Sync,
     /// #       B: NamedResolver + Sized + Send + Sync,

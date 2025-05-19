@@ -1,7 +1,7 @@
 //! The import module contains the implementation data structures and helper functions used to
 //! manipulate and access a wasm module's imports including memories, tables, globals, and
 //! functions.
-use near_vm_vm::{Export, NamedResolver};
+use near_vm_2_vm::{Export, NamedResolver};
 use parking_lot::Mutex;
 use std::borrow::BorrowMut;
 use std::collections::VecDeque;
@@ -55,7 +55,7 @@ impl ImportObject {
     ///
     /// # Usage
     /// ```ignore
-    /// # use near_vm_vm::{ImportObject, Instance, Namespace};
+    /// # use near_vm_2_vm::{ImportObject, Instance, Namespace};
     /// let mut import_object = ImportObject::new();
     /// import_object.get_export("module", "name");
     /// ```
@@ -77,7 +77,7 @@ impl ImportObject {
     ///
     /// # Usage:
     /// ```ignore
-    /// # use near_vm_vm::{ImportObject, Instance, Namespace};
+    /// # use near_vm_2_vm::{ImportObject, Instance, Namespace};
     /// let mut import_object = ImportObject::new();
     ///
     /// import_object.register("namespace0", instance);
@@ -237,7 +237,7 @@ mod test {
     use super::super::{Global, Store, Val};
     use super::*;
     use near_vm_2_types::Type;
-    use near_vm_vm::ChainableNamedResolver;
+    use near_vm_2_vm::ChainableNamedResolver;
 
     #[test]
     fn chaining_works() {

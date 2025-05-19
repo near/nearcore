@@ -5,7 +5,7 @@ use near_vm_2_types::Value;
 pub use near_vm_2_types::{
     FunctionType, GlobalType, MemoryType, Mutability, TableType, Type as ValType,
 };
-use near_vm_vm::VMFuncRef;
+use near_vm_2_vm::VMFuncRef;
 
 /// WebAssembly computations manipulate values of basic value types:
 /// * Integers (32 or 64 bit width)
@@ -41,7 +41,7 @@ pub trait ValFuncRef {
     unsafe fn from_vm_funcref(item: VMFuncRef, store: &Store) -> Self;
 
     fn into_table_reference(&self, store: &Store)
-    -> Result<near_vm_vm::TableElement, RuntimeError>;
+    -> Result<near_vm_2_vm::TableElement, RuntimeError>;
 }
 
 impl ValFuncRef for Val {
@@ -66,17 +66,17 @@ impl ValFuncRef for Val {
     fn into_table_reference(
         &self,
         store: &Store,
-    ) -> Result<near_vm_vm::TableElement, RuntimeError> {
+    ) -> Result<near_vm_2_vm::TableElement, RuntimeError> {
         if !self.comes_from_same_store(store) {
             return Err(RuntimeError::new("cross-`Store` values are not supported"));
         }
         Ok(match self {
             // TODO(reftypes): review this clone
             Self::ExternRef(extern_ref) => {
-                near_vm_vm::TableElement::ExternRef(extern_ref.clone().into())
+                near_vm_2_vm::TableElement::ExternRef(extern_ref.clone().into())
             }
-            Self::FuncRef(None) => near_vm_vm::TableElement::FuncRef(VMFuncRef::null()),
-            Self::FuncRef(Some(f)) => near_vm_vm::TableElement::FuncRef(f.vm_funcref()),
+            Self::FuncRef(None) => near_vm_2_vm::TableElement::FuncRef(VMFuncRef::null()),
+            Self::FuncRef(Some(f)) => near_vm_2_vm::TableElement::FuncRef(f.vm_funcref()),
             _ => return Err(RuntimeError::new("val is not reference")),
         })
     }

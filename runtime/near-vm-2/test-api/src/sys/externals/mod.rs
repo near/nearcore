@@ -11,7 +11,7 @@ pub use self::table::Table;
 
 use super::exports::Exportable;
 use super::store::{Store, StoreObject};
-use near_vm_vm::Export;
+use near_vm_2_vm::Export;
 use std::fmt;
 
 /// An `Extern` is the runtime representation of an entity that

@@ -19,7 +19,7 @@ use near_vm_2_types::{
     FunctionIndex, GlobalIndex, LocalFunctionIndex, LocalMemoryIndex, MemoryIndex, ModuleInfo,
     SignatureIndex, TableIndex, Type,
 };
-use near_vm_vm::{TableStyle, TrapCode, VMBuiltinFunctionIndex, VMOffsets};
+use near_vm_2_vm::{TableStyle, TrapCode, VMBuiltinFunctionIndex, VMOffsets};
 use smallvec::{SmallVec, smallvec};
 use std::convert::TryFrom;
 use std::iter;

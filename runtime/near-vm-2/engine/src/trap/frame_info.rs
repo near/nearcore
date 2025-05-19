@@ -5,7 +5,7 @@
 //!
 //! # Example
 //! ```ignore
-//! use near_vm_vm::{FRAME_INFO};
+//! use near_vm_2_vm::{FRAME_INFO};
 //! use near_vm_2_types::ModuleInfo;
 //!
 //! let module: ModuleInfo = ...;

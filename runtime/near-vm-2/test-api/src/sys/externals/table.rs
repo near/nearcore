@@ -3,7 +3,7 @@ use super::super::store::Store;
 use super::super::types::TableType;
 use super::super::types::{Val, ValFuncRef};
 use near_vm_engine::RuntimeError;
-use near_vm_vm::{Export, Table as RuntimeTable, TableElement, VMTable};
+use near_vm_2_vm::{Export, Table as RuntimeTable, TableElement, VMTable};
 use std::sync::Arc;
 
 /// A WebAssembly `table` instance.

@@ -15,7 +15,7 @@ use crate::section::SectionIndex;
 use crate::{Addend, CodeOffset, JumpTable};
 use near_vm_2_types::LocalFunctionIndex;
 use near_vm_2_types::entity::PrimaryMap;
-use near_vm_vm::libcalls::LibCall;
+use near_vm_2_vm::libcalls::LibCall;
 
 /// Relocation kinds for every ISA.
 #[derive(rkyv::Serialize, rkyv::Deserialize, rkyv::Archive, Copy, Clone, Debug, PartialEq, Eq)]

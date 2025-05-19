@@ -1,8 +1,8 @@
 use super::types::{MemoryType, TableType};
 use near_vm_compiler::Target;
 use near_vm_2_types::Pages;
-use near_vm_vm::MemoryError;
-use near_vm_vm::{
+use near_vm_2_vm::MemoryError;
+use near_vm_2_vm::{
     LinearMemory, LinearTable, MemoryStyle, Table, TableStyle, Tunables, VMMemoryDefinition,
     VMTableDefinition,
 };
