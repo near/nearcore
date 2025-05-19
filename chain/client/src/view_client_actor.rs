@@ -41,6 +41,7 @@ use near_network::types::{
 use near_performance_metrics_macros::perf;
 use near_primitives::block::{Block, BlockHeader};
 use near_primitives::epoch_info::EpochInfo;
+use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{PartialMerkleTree, merklize};
 use near_primitives::network::AnnounceAccount;
@@ -51,8 +52,8 @@ use near_primitives::state_sync::{
 };
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::types::{
-    AccountId, BlockHeight, BlockId, BlockReference, EpochReference, Finality, MaybeBlockId,
-    ShardId, SyncCheckpoint, TransactionOrReceiptId, ValidatorInfoIdentifier,
+    AccountId, BlockHeight, BlockId, BlockReference, EpochId, EpochReference, Finality,
+    MaybeBlockId, ShardId, SyncCheckpoint, TransactionOrReceiptId, ValidatorInfoIdentifier,
 };
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::views::validator_stake_view::ValidatorStakeView;
@@ -360,17 +361,9 @@ impl ViewClientActorInner {
             Err(err) => Err(QueryError::Unreachable { error_message: err.to_string() }),
         }?;
 
-        let account_id = match &msg.request {
-            QueryRequest::ViewAccount { account_id, .. } => account_id,
-            QueryRequest::ViewState { account_id, .. } => account_id,
-            QueryRequest::ViewAccessKey { account_id, .. } => account_id,
-            QueryRequest::ViewAccessKeyList { account_id, .. } => account_id,
-            QueryRequest::CallFunction { account_id, .. } => account_id,
-            QueryRequest::ViewCode { account_id, .. } => account_id,
-        };
-        let shard_id =
-            account_id_to_shard_id(self.epoch_manager.as_ref(), account_id, header.epoch_id())
-                .map_err(|err| QueryError::InternalError { error_message: err.to_string() })?;
+        let shard_id = self
+            .query_shard_uid(&msg.request, *header.epoch_id())
+            .map_err(|err| QueryError::InternalError { error_message: err.to_string() })?;
         let shard_uid =
             shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, header.epoch_id())
                 .map_err(|err| QueryError::InternalError { error_message: err.to_string() })?;
@@ -453,7 +446,35 @@ impl ViewClientActorInner {
                     block_height,
                     block_hash,
                 },
+                near_chain::near_chain_primitives::error::QueryError::NoGlobalContractCode {
+                    identifier,
+                    block_height,
+                    block_hash,
+                } => QueryError::NoGlobalContractCode { identifier, block_height, block_hash },
             }),
+        }
+    }
+
+    fn query_shard_uid(
+        &self,
+        request: &QueryRequest,
+        epoch_id: EpochId,
+    ) -> Result<ShardId, EpochError> {
+        match &request {
+            QueryRequest::ViewAccount { account_id, .. }
+            | QueryRequest::ViewState { account_id, .. }
+            | QueryRequest::ViewAccessKey { account_id, .. }
+            | QueryRequest::ViewAccessKeyList { account_id, .. }
+            | QueryRequest::CallFunction { account_id, .. }
+            | QueryRequest::ViewCode { account_id, .. } => {
+                account_id_to_shard_id(self.epoch_manager.as_ref(), account_id, &epoch_id)
+            }
+            QueryRequest::ViewGlobalContractCode { .. }
+            | QueryRequest::ViewGlobalContractCodeByAccountId { .. } => {
+                // for global contract queries we can use any shard_id, so just take the first one
+                let shard_ids = self.epoch_manager.shard_ids(&epoch_id)?;
+                Ok(*shard_ids.iter().next().expect("at least one shard should always exist"))
+            }
         }
     }
 
