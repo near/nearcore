@@ -72,6 +72,20 @@ pub static VALIDATOR_ACTIVE_TOTAL: LazyLock<IntGauge> = LazyLock::new(|| {
     )
     .unwrap()
 });
+pub static VALIDATOR_BLOCK_PRODUCERS_TOTAL: LazyLock<IntGauge> = LazyLock::new(|| {
+    try_create_int_gauge(
+        "near_validator_block_producers_total",
+        "The total number of block producers active after last block",
+    )
+    .unwrap()
+});
+pub static VALIDATOR_CHUNK_VALIDATORS_TOTAL: LazyLock<IntGauge> = LazyLock::new(|| {
+    try_create_int_gauge(
+        "near_validator_chunk_validators_total",
+        "The total number of chunk validators active after last block",
+    )
+    .unwrap()
+});
 pub static NUM_ORPHANS: LazyLock<IntGauge> =
     LazyLock::new(|| try_create_int_gauge("near_num_orphans", "Number of orphan blocks.").unwrap());
 pub static NUM_OPTIMISTIC_ORPHANS: LazyLock<IntGauge> = LazyLock::new(|| {
