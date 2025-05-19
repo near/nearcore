@@ -1,6 +1,6 @@
 use crate::commands::ResumeReshardingCmd;
 use near_chain::resharding::flat_storage_resharder::FlatStorageResharder;
-use near_chain::resharding::trie_state_resharder::{self, TrieStateResharder};
+use near_chain::resharding::trie_state_resharder::TrieStateResharder;
 use near_chain_configs::ReshardingHandle;
 use near_epoch_manager::EpochManager;
 use near_store::{ShardUId, StoreOpener};

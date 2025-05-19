@@ -1,6 +1,3 @@
-#![allow(unused_variables)]
-#![allow(dead_code)]
-
 use std::fmt::Debug;
 use std::sync::Arc;
 
@@ -85,7 +82,6 @@ impl TrieStateResharder {
         &self,
         status: &mut TrieStateReshardingStatus,
     ) -> Result<(), Error> {
-        let tries = self.runtime.get_tries();
         let batch_size = self.resharding_config.get().batch_size.as_u64() as usize;
         while let Some(child) = status.children.first_mut() {
             let mut store_update = self.runtime.store().store_update();
