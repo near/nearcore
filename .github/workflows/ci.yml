@@ -36,4 +36,4 @@ jobs:
       - run: cargo build --locked --profile dev-release -p neard --bin neard
       - run: echo "CURRENT_NEARD=$PWD/target/dev-release/neard" >> "$GITHUB_ENV"
       - run: echo "NEAR_ROOT=$PWD" >> "$GITHUB_ENV"
-      - run: pushd pytest && python3 tests/sanity/upgradable.py && popd
+      - run: for i in {1..100}; do pushd pytest && python3 tests/sanity/upgradable.py && popd || break; done
