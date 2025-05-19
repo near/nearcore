@@ -115,7 +115,7 @@ pub trait Compiler: Send {
         // The list of function bodies
         function_body_inputs: PrimaryMap<LocalFunctionIndex, FunctionBodyData<'data>>,
         tunables: &dyn near_vm_vm::Tunables,
-        instrumentation: &finite_wasm::AnalysisOutcome,
+        instrumentation: &finite_wasm_6::AnalysisOutcome,
     ) -> Result<Compilation, CompileError>;
 
     /// Compiles a module into a native object file.

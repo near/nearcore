@@ -113,7 +113,7 @@ impl UniversalEngine {
         tunables: &dyn Tunables,
     ) -> Result<super::UniversalExecutable, CompileError> {
         // Compute the needed instrumentation
-        let instrumentation = finite_wasm::Analysis::new()
+        let instrumentation = finite_wasm_6::Analysis::new()
             .with_stack(tunables.stack_limiter_cfg())
             .with_gas(tunables.gas_cfg())
             .analyze(binary)

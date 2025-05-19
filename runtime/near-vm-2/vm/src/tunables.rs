@@ -52,10 +52,10 @@ pub trait Tunables: Sync {
     ) -> Result<Arc<dyn Table>, String>;
 
     /// Instrumentation configuration: stack limiter config
-    fn stack_limiter_cfg(&self) -> Box<dyn finite_wasm::max_stack::SizeConfig>;
+    fn stack_limiter_cfg(&self) -> Box<dyn finite_wasm_6::max_stack::SizeConfig>;
 
     /// Instrumentation configuration: gas accounting config
-    fn gas_cfg(&self) -> Box<dyn finite_wasm::wasmparser::VisitOperator<Output = u64>>;
+    fn gas_cfg(&self) -> Box<dyn finite_wasm_6::wasmparser::VisitOperator<Output = u64>>;
 
     /// Cost for initializing a stack frame
     fn stack_init_gas_cost(&self, frame_size: u64) -> u64;
@@ -107,11 +107,11 @@ impl Tunables for TestTunables {
         unimplemented!()
     }
 
-    fn stack_limiter_cfg(&self) -> Box<dyn finite_wasm::max_stack::SizeConfig> {
+    fn stack_limiter_cfg(&self) -> Box<dyn finite_wasm_6::max_stack::SizeConfig> {
         unimplemented!()
     }
 
-    fn gas_cfg(&self) -> Box<dyn finite_wasm::wasmparser::VisitOperator<Output = u64>> {
+    fn gas_cfg(&self) -> Box<dyn finite_wasm_6::wasmparser::VisitOperator<Output = u64>> {
         unimplemented!()
     }
 

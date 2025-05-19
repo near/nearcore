@@ -24,7 +24,7 @@ pub enum CompileError {
 
     /// Finite-wasm failed to handle the module.
     #[error("Finite-wasm analysis error: {0}")]
-    Analyze(finite_wasm::Error),
+    Analyze(finite_wasm_6::Error),
 
     /// The compiler doesn't support a Wasm feature
     #[error("Feature {0} is not yet supported")]

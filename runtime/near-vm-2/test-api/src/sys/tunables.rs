@@ -151,21 +151,21 @@ impl Tunables for BaseTunables {
     }
 
     /// Instrumentation configuration: stack limiter config
-    fn stack_limiter_cfg(&self) -> Box<dyn finite_wasm::max_stack::SizeConfig> {
+    fn stack_limiter_cfg(&self) -> Box<dyn finite_wasm_6::max_stack::SizeConfig> {
         Box::new(SimpleMaxStackCfg)
     }
 
     /// Instrumentation configuration: gas accounting config
-    fn gas_cfg(&self) -> Box<dyn finite_wasm::wasmparser::VisitOperator<Output = u64>> {
+    fn gas_cfg(&self) -> Box<dyn finite_wasm_6::wasmparser::VisitOperator<Output = u64>> {
         Box::new(SimpleGasCostCfg(self.regular_op_cost))
     }
 }
 
 struct SimpleMaxStackCfg;
 
-impl finite_wasm::max_stack::SizeConfig for SimpleMaxStackCfg {
-    fn size_of_value(&self, ty: finite_wasm::wasmparser::ValType) -> u8 {
-        use finite_wasm::wasmparser::ValType;
+impl finite_wasm_6::max_stack::SizeConfig for SimpleMaxStackCfg {
+    fn size_of_value(&self, ty: finite_wasm_6::wasmparser::ValType) -> u8 {
+        use finite_wasm_6::wasmparser::ValType;
         match ty {
             ValType::I32 => 4,
             ValType::I64 => 8,
@@ -177,7 +177,7 @@ impl finite_wasm::max_stack::SizeConfig for SimpleMaxStackCfg {
     }
     fn size_of_function_activation(
         &self,
-        locals: &prefix_sum_vec::PrefixSumVec<finite_wasm::wasmparser::ValType, u32>,
+        locals: &prefix_sum_vec::PrefixSumVec<finite_wasm_6::wasmparser::ValType, u32>,
     ) -> u64 {
         let mut res = 0;
         res += locals.max_index().map_or(0, |l| u64::from(*l).saturating_add(1)) * 8;
@@ -212,9 +212,9 @@ macro_rules! gas_cost {
     };
 }
 
-impl<'a> finite_wasm::wasmparser::VisitOperator<'a> for SimpleGasCostCfg {
+impl<'a> finite_wasm_6::wasmparser::VisitOperator<'a> for SimpleGasCostCfg {
     type Output = u64;
-    finite_wasm::wasmparser::for_each_operator!(gas_cost);
+    finite_wasm_6::wasmparser::for_each_operator!(gas_cost);
 }
 
 #[cfg(test)]

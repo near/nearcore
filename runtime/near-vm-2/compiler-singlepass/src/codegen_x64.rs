@@ -3,7 +3,7 @@
 use crate::address_map::get_function_address_map;
 use crate::{config::Singlepass, emitter_x64::*, machine::Machine, x64_decl::*};
 use dynasmrt::{DynamicLabel, VecAssembler, x64::X64Relocation};
-use finite_wasm::gas::InstrumentationKind;
+use finite_wasm_6::gas::InstrumentationKind;
 use memoffset::offset_of;
 use near_vm_compiler::wasmparser::{BlockType as WpBlockType, MemArg, Operator, ValType as WpType};
 use near_vm_compiler::{

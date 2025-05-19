@@ -48,7 +48,7 @@ impl Compiler for SinglepassCompiler {
         compile_info: &CompileModuleInfo,
         function_body_inputs: PrimaryMap<LocalFunctionIndex, FunctionBodyData<'_>>,
         tunables: &dyn near_vm_vm::Tunables,
-        instrumentation: &finite_wasm::AnalysisOutcome,
+        instrumentation: &finite_wasm_6::AnalysisOutcome,
     ) -> Result<Compilation, CompileError> {
         /*if target.triple().operating_system == OperatingSystem::Windows {
             return Err(CompileError::UnsupportedTarget(
@@ -240,7 +240,7 @@ mod tests {
     fn dummy_compilation_ingredients<'a>() -> (
         CompileModuleInfo,
         PrimaryMap<LocalFunctionIndex, FunctionBodyData<'a>>,
-        finite_wasm::AnalysisOutcome,
+        finite_wasm_6::AnalysisOutcome,
     ) {
         let compile_info = CompileModuleInfo {
             features: Features::new(),
@@ -249,7 +249,7 @@ mod tests {
             table_styles: PrimaryMap::<TableIndex, TableStyle>::new(),
         };
         let function_body_inputs = PrimaryMap::<LocalFunctionIndex, FunctionBodyData<'_>>::new();
-        let analysis = finite_wasm::AnalysisOutcome {
+        let analysis = finite_wasm_6::AnalysisOutcome {
             function_frame_sizes: Vec::new(),
             function_operand_stack_sizes: Vec::new(),
             gas_offsets: Vec::new(),

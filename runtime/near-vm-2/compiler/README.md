@@ -38,7 +38,7 @@ pub trait Compiler {
         compile_info: &'module CompileModuleInfo,
         // The list of function bodies
         function_body_inputs: PrimaryMap<LocalFunctionIndex, FunctionBodyData<'data>>,
-        instrumentation: &finite_wasm::Module,
+        instrumentation: &finite_wasm_6::Module,
     ) -> Result<Compilation, CompileError>;
 }
 ```
