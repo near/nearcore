@@ -5,7 +5,9 @@ use crate::{config::Singlepass, emitter_x64::*, machine::Machine, x64_decl::*};
 use dynasmrt::{DynamicLabel, VecAssembler, x64::X64Relocation};
 use finite_wasm_6::gas::InstrumentationKind;
 use memoffset::offset_of;
-use near_vm_2_compiler::wasmparser::{BlockType as WpBlockType, MemArg, Operator, ValType as WpType};
+use near_vm_2_compiler::wasmparser::{
+    BlockType as WpBlockType, MemArg, Operator, ValType as WpType,
+};
 use near_vm_2_compiler::{
     CallingConvention, CompiledFunction, CompiledFunctionFrameInfo, CustomSection,
     CustomSectionProtection, FunctionBody, FunctionBodyData, InstructionAddressMap, Relocation,
@@ -96,7 +98,8 @@ pub(crate) struct FuncGen<'a> {
     stack_init_gas_cost: u64,
 
     /// Iterator over the gas instrumentation points
-    gas_iter: iter::Peekable<iter::Zip<slice::Iter<'a, usize>, slice::Iter<'a, u64>>>,
+    gas_iter:
+        iter::Peekable<iter::Zip<slice::Iter<'a, usize>, slice::Iter<'a, finite_wasm_6::Fee>>>,
 
     /// Maximum size of the stack for this function
     stack_size: u32,
@@ -350,16 +353,21 @@ impl<'a> FuncGen<'a> {
         Ok(())
     }
 
-    fn emit_gas_const(&mut self, cost: u64) {
-        if let Ok(cost) = i32::try_from(cost) {
-            // This as `u32` cast is valid, as fallible u64->i32 conversions can’t produce a
-            // negative integer.
-            return self.emit_gas(Location::Imm32(cost as u32));
+    fn emit_gas_const(&mut self, cost: finite_wasm_6::Fee) {
+        let finite_wasm_6::Fee { constant, linear } = cost;
+        if linear == 0 {
+            todo!();
+        } else {
+            if let Ok(cost) = i32::try_from(constant) {
+                // This as `u32` cast is valid, as fallible u64->i32 conversions can’t produce a
+                // negative integer.
+                return self.emit_gas(Location::Imm32(cost as u32));
+            }
+            let cost_reg = self.machine.acquire_temp_gpr().unwrap();
+            self.assembler.emit_mov(Size::S64, Location::Imm64(constant), Location::GPR(cost_reg));
+            self.emit_gas(Location::GPR(cost_reg));
+            self.machine.release_temp_gpr(cost_reg);
         }
-        let cost_reg = self.machine.acquire_temp_gpr().unwrap();
-        self.assembler.emit_mov(Size::S64, Location::Imm64(cost), Location::GPR(cost_reg));
-        self.emit_gas(Location::GPR(cost_reg));
-        self.machine.release_temp_gpr(cost_reg);
     }
 
     /// Emit a gas charge operation. The gas amount is stored in `cost_location`, which must be either an imm32 or a GPR
@@ -1635,7 +1643,7 @@ impl<'a> FuncGen<'a> {
         self.assembler.emit_jmp(Condition::Carry, self.special_labels.stack_overflow);
 
         // Charge for the stack initialization
-        self.emit_gas_const(self.stack_init_gas_cost);
+        self.emit_gas_const(finite_wasm_6::Fee::constant(self.stack_init_gas_cost));
 
         // Initialize the locals
         let local_count = self.local_count();
@@ -1682,7 +1690,7 @@ impl<'a> FuncGen<'a> {
         calling_convention: CallingConvention,
         stack_init_gas_cost: u64,
         gas_offsets: &'a [usize],
-        gas_costs: &'a [u64],
+        gas_costs: &'a [finite_wasm_6::Fee],
         _gas_kinds: &'a [InstrumentationKind],
         stack_size: u64,
     ) -> Result<FuncGen<'a>, CodegenError> {
@@ -1766,7 +1774,9 @@ impl<'a> FuncGen<'a> {
     }
 
     /// Consume offset self.src_loc, return Some(cost) iff there must be an instrumentation point here
-    fn consume_gas_offset(&mut self /*, should_be_unreachable: bool */) -> Option<u64> {
+    fn consume_gas_offset(
+        &mut self, /*, should_be_unreachable: bool */
+    ) -> Option<finite_wasm_6::Fee> {
         if let Some(&(&offset, &cost /* (&cost, &kind) */)) = self.gas_iter.peek() {
             if offset == self.src_loc as usize {
                 // assert!(matches!(kind, InstrumentationKind::Unreachable) == should_be_unreachable, "gas computation results are not of the expected reachability: kind is {:?}, expected reachability is {:?}", kind, !should_be_unreachable);
