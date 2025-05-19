@@ -2,8 +2,8 @@
 // cspell:ignore vmctx, winapi, wasmparser
 
 use crate::emitter_x64::*;
-use near_vm_compiler::CallingConvention;
-use near_vm_compiler::wasmparser::ValType as WpType;
+use near_vm_2_compiler::CallingConvention;
+use near_vm_2_compiler::wasmparser::ValType as WpType;
 use smallvec::SmallVec;
 use smallvec::smallvec;
 use std::convert::TryFrom;

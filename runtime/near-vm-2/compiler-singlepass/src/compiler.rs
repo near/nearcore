@@ -7,7 +7,7 @@ use crate::codegen_x64::{
     gen_std_trampoline,
 };
 use crate::config::Singlepass;
-use near_vm_compiler::{
+use near_vm_2_compiler::{
     Architecture, CallingConvention, Compilation, CompileError, CompileModuleInfo,
     CompiledFunction, Compiler, CompilerConfig, CpuFeature, FunctionBody, FunctionBodyData,
     ModuleTranslationState, OperatingSystem, SectionIndex, Target, TrapInformation,
@@ -113,7 +113,7 @@ impl Compiler for SinglepassCompiler {
             .map_init(make_assembler, |assembler, (i, input)| {
                 tracing::trace_span!(target: "near_vm", "function", i = i.index()).in_scope(|| {
                     let reader =
-                        near_vm_compiler::FunctionReader::new(input.module_offset, input.data);
+                        near_vm_2_compiler::FunctionReader::new(input.module_offset, input.data);
                     let stack_init_gas_cost = tunables
                         .stack_init_gas_cost(instrumentation.function_frame_sizes[i.index()]);
                     let stack_size = instrumentation.function_frame_sizes[i.index()]
@@ -232,7 +232,7 @@ fn to_compile_error<T: ToCompileError>(x: T) -> CompileError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use near_vm_compiler::{CpuFeature, Features, Triple};
+    use near_vm_2_compiler::{CpuFeature, Features, Triple};
     use near_vm_2_vm::{MemoryStyle, TableStyle};
     use std::str::FromStr;
     use target_lexicon::triple;

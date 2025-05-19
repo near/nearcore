@@ -1,5 +1,5 @@
 use crate::DeserializeError;
-use near_vm_compiler::{
+use near_vm_2_compiler::{
     CompileModuleInfo, CompiledFunctionFrameInfo, CustomSection, Dwarf, FunctionBody,
     JumpTableOffsets, Relocation, SectionIndex, TrampolinesSection,
 };

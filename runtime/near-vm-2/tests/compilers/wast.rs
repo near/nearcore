@@ -1,4 +1,4 @@
-use near_vm_compiler::Features;
+use near_vm_2_compiler::Features;
 use near_vm_wast::Wast;
 use std::path::Path;
 

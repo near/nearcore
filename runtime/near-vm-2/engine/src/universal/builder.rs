@@ -1,5 +1,5 @@
 use crate::universal::UniversalEngine;
-use near_vm_compiler::{CompilerConfig, Features, Target};
+use near_vm_2_compiler::{CompilerConfig, Features, Target};
 
 /// The Universal builder
 pub struct Universal {

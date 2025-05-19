@@ -2,7 +2,7 @@
 // Attributions: https://github.com/wasmerio/wasmer/blob/2.3.0/ATTRIBUTIONS.md
 
 //! Memory management for executable code.
-use near_vm_compiler::CompileError;
+use near_vm_2_compiler::CompileError;
 #[cfg(not(windows))]
 use rustix::mm::{self, MapFlags, MprotectFlags, ProtFlags};
 #[cfg(not(windows))]

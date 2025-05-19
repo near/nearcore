@@ -11,7 +11,7 @@
 //! let module: ModuleInfo = ...;
 //! FRAME_INFO.register(module, compiled_functions);
 //! ```
-use near_vm_compiler::{CompiledFunctionFrameInfo, SourceLoc, TrapInformation};
+use near_vm_2_compiler::{CompiledFunctionFrameInfo, SourceLoc, TrapInformation};
 use near_vm_2_types::entity::{EntityRef, PrimaryMap};
 use near_vm_2_types::{LocalFunctionIndex, ModuleInfo};
 use parking_lot::RwLock;

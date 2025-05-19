@@ -1,5 +1,5 @@
 //! X64 structures.
-use near_vm_compiler::CallingConvention;
+use near_vm_2_compiler::CallingConvention;
 use near_vm_2_types::Type;
 
 /// General-purpose registers.

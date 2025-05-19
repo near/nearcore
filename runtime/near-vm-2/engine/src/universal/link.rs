@@ -1,6 +1,6 @@
 //! Linking for Universal-compiled code.
 
-use near_vm_compiler::{
+use near_vm_2_compiler::{
     JumpTable, Relocation, RelocationKind, RelocationTarget, SectionIndex, TrampolinesSection,
 };
 use near_vm_2_types::LocalFunctionIndex;
@@ -71,7 +71,7 @@ fn apply_relocation(
     body: usize,
     r: &Relocation,
     allocated_functions: &PrimaryMap<LocalFunctionIndex, VMLocalFunction>,
-    jt_offsets: impl Fn(LocalFunctionIndex, JumpTable) -> near_vm_compiler::CodeOffset,
+    jt_offsets: impl Fn(LocalFunctionIndex, JumpTable) -> near_vm_2_compiler::CodeOffset,
     allocated_sections: &PrimaryMap<SectionIndex, SectionBodyPtr>,
     trampolines: &Option<TrampolinesSection>,
     trampolines_map: &mut HashMap<usize, usize>,
@@ -168,7 +168,7 @@ fn apply_relocation(
 #[tracing::instrument(target = "near_vm", level = "trace", skip_all)]
 pub fn link_module(
     allocated_functions: &PrimaryMap<LocalFunctionIndex, VMLocalFunction>,
-    jt_offsets: impl Fn(LocalFunctionIndex, JumpTable) -> near_vm_compiler::CodeOffset,
+    jt_offsets: impl Fn(LocalFunctionIndex, JumpTable) -> near_vm_2_compiler::CodeOffset,
     function_relocations: impl Iterator<Item = (LocalFunctionIndex, impl Iterator<Item = Relocation>)>,
     allocated_sections: &PrimaryMap<SectionIndex, SectionBodyPtr>,
     section_relocations: impl Iterator<Item = (SectionIndex, impl Iterator<Item = Relocation>)>,

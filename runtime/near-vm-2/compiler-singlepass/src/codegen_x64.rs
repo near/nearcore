@@ -5,8 +5,8 @@ use crate::{config::Singlepass, emitter_x64::*, machine::Machine, x64_decl::*};
 use dynasmrt::{DynamicLabel, VecAssembler, x64::X64Relocation};
 use finite_wasm_6::gas::InstrumentationKind;
 use memoffset::offset_of;
-use near_vm_compiler::wasmparser::{BlockType as WpBlockType, MemArg, Operator, ValType as WpType};
-use near_vm_compiler::{
+use near_vm_2_compiler::wasmparser::{BlockType as WpBlockType, MemArg, Operator, ValType as WpType};
+use near_vm_2_compiler::{
     CallingConvention, CompiledFunction, CompiledFunctionFrameInfo, CustomSection,
     CustomSectionProtection, FunctionBody, FunctionBodyData, InstructionAddressMap, Relocation,
     RelocationKind, RelocationTarget, SectionBody, SectionIndex, SourceLoc, Target,

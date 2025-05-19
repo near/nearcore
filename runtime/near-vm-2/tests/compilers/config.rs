@@ -1,4 +1,4 @@
-use near_vm_compiler::{CompilerConfig, Features};
+use near_vm_2_compiler::{CompilerConfig, Features};
 use near_vm_engine::universal::UniversalEngine;
 use near_vm_test_api::Store;
 

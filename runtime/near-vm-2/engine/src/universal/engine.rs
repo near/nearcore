@@ -7,10 +7,10 @@ use super::executable::{UniversalExecutableRef, unrkyv};
 #[cfg(not(windows))]
 use super::{CodeMemory, UniversalArtifact, UniversalExecutable};
 use crate::EngineId;
-use near_vm_compiler::Compiler;
-use near_vm_compiler::{CompileError, SectionIndex, Target};
+use near_vm_2_compiler::Compiler;
+use near_vm_2_compiler::{CompileError, SectionIndex, Target};
 #[cfg(not(windows))]
-use near_vm_compiler::{CustomSectionProtection, CustomSectionRef, FunctionBodyRef, JumpTable};
+use near_vm_2_compiler::{CustomSectionProtection, CustomSectionRef, FunctionBodyRef, JumpTable};
 #[cfg(not(windows))]
 use near_vm_2_types::entity::EntityRef;
 use near_vm_2_types::entity::PrimaryMap;
@@ -122,7 +122,7 @@ impl UniversalEngine {
         let inner_engine = self.inner_mut();
         let features = inner_engine.features();
         let compiler = inner_engine.compiler()?;
-        let environ = near_vm_compiler::ModuleEnvironment::new();
+        let environ = near_vm_2_compiler::ModuleEnvironment::new();
         let translation = environ.translate(binary).map_err(CompileError::Wasm)?;
 
         let memory_styles: PrimaryMap<near_vm_2_types::MemoryIndex, _> = translation
@@ -139,13 +139,13 @@ impl UniversalEngine {
             .collect();
 
         // Compile the Module
-        let compile_info = near_vm_compiler::CompileModuleInfo {
+        let compile_info = near_vm_2_compiler::CompileModuleInfo {
             module: Arc::new(translation.module),
             features: features.clone(),
             memory_styles,
             table_styles,
         };
-        let near_vm_compiler::Compilation {
+        let near_vm_2_compiler::Compilation {
             functions,
             custom_sections,
             function_call_trampolines,
