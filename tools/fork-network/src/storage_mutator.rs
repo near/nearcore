@@ -373,8 +373,7 @@ impl StorageMutator {
         let mut state_roots = Vec::new();
 
         for (shard_index, update) in updates.into_iter().enumerate() {
-            let shard_id = target_shard_layout.get_shard_id(shard_index).unwrap();
-            let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &target_shard_layout);
+            let shard_uid = target_shard_layout.get_shard_uid(shard_index).unwrap();
             let new_state_root =
                 commit_shard(shard_uid, &shard_tries, &update.update_state, update.updates)?;
             state_roots.push(new_state_root);
