@@ -412,17 +412,6 @@ impl<'de> serde::Deserialize<'de> for SignedTransaction {
     }
 }
 
-#[cfg(feature = "schemars")]
-impl schemars::JsonSchema for SignedTransaction {
-    fn schema_name() -> std::borrow::Cow<'static, str> {
-        "SignedTransaction".to_string().into()
-    }
-
-    fn json_schema(generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
-        String::json_schema(generator)
-    }
-}
-
 /// The status of execution for a transaction or a receipt.
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Default, ProtocolSchema)]
 pub enum ExecutionStatus {

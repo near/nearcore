@@ -6,6 +6,7 @@ use serde_json::Value;
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct RpcSendTransactionRequest {
     #[serde(rename = "signed_tx_base64")]
+    #[schemars(with = "String")]
     pub signed_transaction: near_primitives::transaction::SignedTransaction,
     #[serde(default)]
     pub wait_until: near_primitives::views::TxExecutionStatus,

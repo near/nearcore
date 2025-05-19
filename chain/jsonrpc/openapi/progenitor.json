@@ -10062,7 +10062,7 @@
       "RpcSendTransactionRequest": {
         "properties": {
           "signed_tx_base64": {
-            "$ref": "#/components/schemas/SignedTransaction"
+            "type": "string"
           },
           "wait_until": {
             "allOf": [
@@ -10961,8 +10961,7 @@
             ],
             "type": "object"
           }
-        ],
-        "type": "string"
+        ]
       },
       "SignedTransactionView": {
         "properties": {
