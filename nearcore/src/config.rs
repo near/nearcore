@@ -616,6 +616,7 @@ impl NearConfig {
                 orphan_state_witness_max_size: config.orphan_state_witness_max_size,
                 save_latest_witnesses: config.save_latest_witnesses,
                 transaction_request_handler_threads: config.transaction_request_handler_threads,
+                save_block_outcomes: None,
             },
             #[cfg(feature = "tx_generator")]
             tx_generator: config.tx_generator,

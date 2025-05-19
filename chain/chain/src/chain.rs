@@ -476,9 +476,23 @@ impl Chain {
             transaction_validity_period,
         );
 
-        // Disable TRFB writes on validator nodes.  We treat the presence of a
-        // validator signer as an indicator the node produces blocks.
-        let save_block_outcomes = validator.get().is_none();
+        // Decide whether to persist `ExecutionOutcomeWithProof`s into
+        // `DBCol::TransactionResultForBlock`.
+        // By default we disable these writes on validator nodes to reduce
+        // write‐amplification.
+        //
+        // However, validator nodes which track more than one shard (e.g.
+        // multi‐shard validators) as well as archival / RPC nodes still rely
+        // on this column to serve `tx_status` calls.  In
+        // such cases we re-enable the writes and emit a warning so that node
+        // operators are aware of the behaviour.
+
+        let mut save_block_outcomes = validator.get().is_none();
+
+        if let Some(explicit) = chain_config.save_block_outcomes {
+            save_block_outcomes = explicit;
+        }
+
         chain_store.set_save_block_outcomes(save_block_outcomes);
         let state_sync_adapter = ChainStateSyncAdapter::new(
             clock.clone(),

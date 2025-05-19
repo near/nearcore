@@ -488,6 +488,7 @@ pub fn setup_synchronous_shards_manager(
                 ReshardingConfig::default(),
                 "resharding_config",
             ),
+            save_block_outcomes: None,
         }, // irrelevant
         None,
         Arc::new(RayonAsyncComputationSpawner),
