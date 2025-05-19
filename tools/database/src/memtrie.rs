@@ -117,23 +117,23 @@ impl SplitShardTrieCommand {
 
         let rocksdb = Arc::new(open_rocksdb(home, near_store::Mode::ReadOnly)?);
         let store = near_store::NodeStorage::new(rocksdb).get_hot_store();
+        let final_head = store.chain_store().final_head()?;
 
         let epoch_manager =
             EpochManager::new_arc_handle(store.clone(), &genesis_config, Some(home));
+        let old_shard_layout = epoch_manager.get_shard_layout(&final_head.epoch_id)?;
+
         let runtime =
             NightshadeRuntime::from_config(home, store.clone(), &near_config, epoch_manager)
                 .context("could not create the transaction runtime")?;
-        let final_head = runtime.store().chain_store().final_head()?;
 
-        let shard_layout = ShardLayout::derive_shard_layout(
-            &genesis_config.shard_layout,
-            self.boundary_account.clone(),
-        );
-        let num_shards = shard_layout.num_shards();
-        let mut shard_uids = shard_layout.shard_uids().skip(num_shards as usize - 2);
-        let left_child_shard = shard_uids.next().unwrap();
-        let right_child_shard = shard_uids.next().unwrap();
-        drop(shard_uids);
+        let shard_layout =
+            ShardLayout::derive_shard_layout(&old_shard_layout, self.boundary_account.clone());
+        let child_shards = shard_layout
+            .get_children_shards_uids(self.shard_uid.shard_id())
+            .ok_or_else(|| anyhow::anyhow!("Cannot get child shards"))?;
+        let left_child_shard = child_shards[0];
+        let right_child_shard = child_shards[1];
 
         let epoch_manager = DummyEpochManager::new(shard_layout);
         let resharding_handle = ReshardingHandle::new();
