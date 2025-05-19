@@ -6,7 +6,7 @@
 
 * When the protocol update version voting takes place, validators that did not upgrade to the latest version will be scheduled for removal (aka kickout) in the epoch the new version takes effect. This helps avoid missed blocks in the first epoch of the new version, as un-upgraded validators would produce invalid blocks. Technically this is a protocol change as it impacts the validator set, however it will take effect during the next version upgrade therefore does not require its own protocol version. [#13375](https://github.com/near/nearcore/issues/13375)
 * Implement [NEP-536](https://github.com/near/NEPs/pull/536): Reduce the number of refund receipts by adding a gas refund penalty and removing pessimistic gas pricing. (#13397)
-
+* Implemented p2p sync for state sync headers. (#13377)
 
 ### Non-protocol Changes
 **No Changes**

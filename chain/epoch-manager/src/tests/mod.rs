@@ -3328,18 +3328,16 @@ fn test_get_shard_uids_pending_resharding_none() {
 }
 
 /// Test there are no ShardUIds pending resharding when there are no planned
-/// reshardings in the simple nightshade v3 shard layout that is used in prod.
+/// reshardings in the simple nightshade shard layout that is used in prod.
 ///
 /// This test checks that when then protocol version is changing but the shard
 /// layout is not, no shard is pending resharding.
 #[test]
 fn test_get_shard_uids_pending_resharding_simple_nightshade() {
-    let v3 = ShardLayout::get_simple_nightshade_layout_v3();
-    let shard_uids = test_get_shard_uids_pending_resharding_base(&[v3.clone(), v3]);
-    assert_eq!(shard_uids.len(), 0);
-
-    let v4 = ShardLayout::get_simple_nightshade_layout_v4();
-    let shard_uids = test_get_shard_uids_pending_resharding_base(&[v4.clone(), v4]);
+    let epoch_config_store = EpochConfigStore::for_chain_id("mainnet", None).unwrap();
+    let shard_layout = epoch_config_store.get_config(PROTOCOL_VERSION).shard_layout.clone();
+    let shard_uids =
+        test_get_shard_uids_pending_resharding_base(&[shard_layout.clone(), shard_layout]);
     assert_eq!(shard_uids.len(), 0);
 }
 

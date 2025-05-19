@@ -6,12 +6,17 @@ import pathlib
 import json
 import os
 import sys
+from functools import wraps
+from typing import Optional
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 import cmd_utils
 from node_handle import NodeHandle
 import mocknet
+from utils import ScheduleContext
+
+from configured_logger import logger
 
 
 class RemoteNeardRunner:
@@ -51,8 +56,16 @@ class RemoteNeardRunner:
                             os.path.join(self.neard_runner_home, 'config.json'),
                             config)
 
-    def run_cmd(self, cmd, raise_on_fail=False, return_on_fail=False):
-        r = cmd_utils.run_cmd(self.node, cmd, raise_on_fail, return_on_fail)
+    def run_cmd(self,
+                schedule_ctx: Optional[ScheduleContext],
+                cmd,
+                raise_on_fail=False,
+                return_on_fail=False):
+        if schedule_ctx is None:
+            r = cmd_utils.run_cmd(self.node, cmd, raise_on_fail, return_on_fail)
+        else:
+            r = cmd_utils.schedule_cmd(self.node, cmd, schedule_ctx,
+                                       raise_on_fail, return_on_fail)
         return r
 
     def upload_file(self, src, dst):
@@ -91,13 +104,19 @@ class RemoteNeardRunner:
 
         self.node.machine.run(SYSTEMD_RUN_NEARD_RUNNER_CMD)
 
-    def neard_runner_post(self, body):
+    def neard_runner_post(self, schedule_ctx: Optional[ScheduleContext], body):
         body = json.dumps(body)
         # '"'"' will be interpreted as ending the first quote and then concatenating it with "'",
         # followed by a new quote started with ' and the rest of the string, to get any single quotes
         # in method or params into the command correctly
         body = body.replace("'", "'\"'\"'")
-        r = cmd_utils.run_cmd(self.node, f'curl localhost:3000 -d \'{body}\'')
+        cmd = f'curl localhost:3000 -d \'{body}\''
+        if schedule_ctx is not None:
+            r = cmd_utils.schedule_cmd(self.node, cmd, schedule_ctx)
+            logger.info('{0}:\nstdout:\n{1.stdout}\nstderr:\n{1.stderr}'.format(
+                self.name(), r))
+            return {'result': r}
+        r = cmd_utils.run_cmd(self.node, cmd)
         return json.loads(r.stdout)
 
     def new_test_params(self):
