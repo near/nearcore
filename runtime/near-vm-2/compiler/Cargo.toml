@@ -1,0 +1,32 @@
+[package]
+name = "near-vm-compiler"
+version.workspace = true
+description = "Base compiler abstraction for Wasmer WebAssembly runtime"
+categories = ["wasm", "no-std"]
+keywords = ["wasm", "webassembly", "compiler"]
+authors = ["Wasmer Engineering Team <engineering@wasmer.io>", "Near Inc <hello@nearprotocol.com>"]
+repository.workspace = true
+license = "MIT OR Apache-2.0 WITH LLVM-exception"
+readme = "README.md"
+edition.workspace = true
+publish = true
+
+[lints]
+workspace = true
+
+[dependencies]
+finite-wasm.workspace = true
+near-vm-vm.workspace = true
+near-vm-types.workspace = true
+wasmparser = { version = "0.99.0", default-features = false }
+target-lexicon.workspace = true
+enumset.workspace = true
+thiserror.workspace = true
+rkyv.workspace = true
+tracing.workspace = true
+
+[features]
+default = []
+
+[badges]
+maintenance = { status = "experimental" }

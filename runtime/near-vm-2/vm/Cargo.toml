@@ -1,0 +1,41 @@
+[package]
+name = "near-vm-vm"
+version.workspace = true
+description = "Runtime library support for Wasmer"
+categories = ["wasm"]
+keywords = ["wasm", "webassembly"]
+authors = ["Wasmer Engineering Team <engineering@wasmer.io>", "Near Inc <hello@nearprotocol.com>"]
+repository.workspace = true
+license = "MIT OR Apache-2.0 WITH LLVM-exception"
+readme = "README.md"
+edition.workspace = true
+publish = true
+
+[lints]
+workspace = true
+
+[dependencies]
+backtrace.workspace = true
+cfg-if.workspace = true
+finite-wasm.workspace = true
+libc.workspace = true
+memoffset.workspace = true
+more-asserts.workspace = true
+parking_lot.workspace = true
+region.workspace = true
+rkyv.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+near-vm-types.workspace = true
+
+[target.'cfg(target_os = "windows")'.dependencies]
+winapi.workspace = true
+
+[build-dependencies]
+cc.workspace = true
+
+[badges]
+maintenance = { status = "actively-developed" }
+
+[features]
+default = []

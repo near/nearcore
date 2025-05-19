@@ -1,0 +1,32 @@
+[package]
+name = "near-vm-engine"
+version.workspace = true
+description = "Wasmer Engine abstraction"
+categories = ["wasm"]
+keywords = ["wasm", "webassembly", "engine"]
+authors = ["Wasmer Engineering Team <engineering@wasmer.io>", "Near Inc <hello@nearprotocol.com>"]
+repository.workspace = true
+license = "MIT OR Apache-2.0 WITH LLVM-exception "
+readme = "README.md"
+edition.workspace = true
+publish = true
+
+[lints]
+workspace = true
+
+[dependencies]
+backtrace.workspace = true
+finite-wasm.workspace = true
+more-asserts.workspace = true
+near-vm-compiler.workspace = true
+near-vm-types.workspace = true
+near-vm-vm.workspace = true
+parking_lot.workspace = true
+rkyv.workspace = true
+rustc-demangle.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+rustix = { workspace = true, features = ["param", "mm"] }
+
+[badges]
+maintenance = { status = "actively-developed" }

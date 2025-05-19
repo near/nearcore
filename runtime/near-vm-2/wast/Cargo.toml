@@ -1,0 +1,28 @@
+[package]
+name = "near-vm-wast"
+version.workspace = true
+authors = ["Wasmer Engineering Team <engineering@wasmer.io>", "Near Inc <hello@nearprotocol.com>"]
+description = "wast testing support for wasmer"
+license = "MIT OR Apache-2.0 WITH LLVM-exception"
+categories = ["wasm"]
+keywords = ["wasm", "webassembly"]
+repository.workspace = true
+readme = "README.md"
+edition.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+anyhow.workspace = true
+near-vm-test-api.workspace = true
+wast.workspace = true
+thiserror.workspace = true
+
+[features]
+default = ["wat"]
+wat = ["near-vm-test-api/wat"]
+
+[badges]
+maintenance = { status = "actively-developed" }

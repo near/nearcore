@@ -1,0 +1,27 @@
+[lib]
+proc-macro = true
+
+[package]
+name = "near-vm-compiler-test-derive"
+version.workspace = true
+authors = ["Wasmer Engineering Team <engineering@wasmer.io>", "Near Inc <hello@nearprotocol.com>"]
+edition.workspace = true
+license = "MIT"
+description = "A macro to generate easily tests across compilers and engines"
+keywords = ["unsafe", "body", "fn", "safety", "hygiene"]
+categories = ["rust-patterns"]
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+proc-macro2.workspace = true
+quote.workspace = true
+syn.workspace = true
+
+[features]
+
+[dev-dependencies]
+pretty_assertions.workspace = true
+trybuild.workspace = true
