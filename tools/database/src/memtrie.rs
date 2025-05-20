@@ -110,9 +110,8 @@ impl SplitShardTrieCommand {
     ) -> anyhow::Result<()> {
         let env_filter = EnvFilterBuilder::from_env().verbose(Some("memtrie")).finish()?;
         let _subscriber = default_subscriber(env_filter, &Default::default()).global();
-        let mut near_config = nearcore::config::load_config(&home, genesis_validation)
+        let near_config = nearcore::config::load_config(&home, genesis_validation)
             .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
-        near_config.config.store.load_memtries_for_tracked_shards = true;
         let genesis_config = &near_config.genesis.config;
 
         let rocksdb = Arc::new(open_rocksdb(home, near_store::Mode::ReadOnly)?);
@@ -122,18 +121,24 @@ impl SplitShardTrieCommand {
         let epoch_manager =
             EpochManager::new_arc_handle(store.clone(), &genesis_config, Some(home));
         let old_shard_layout = epoch_manager.get_shard_layout(&final_head.epoch_id)?;
-
-        let runtime =
-            NightshadeRuntime::from_config(home, store.clone(), &near_config, epoch_manager)
-                .context("could not create the transaction runtime")?;
+        println!("Old shard layout: {old_shard_layout:?}");
 
         let shard_layout =
             ShardLayout::derive_shard_layout(&old_shard_layout, self.boundary_account.clone());
+        println!("New shard layout: {shard_layout:?}");
         let child_shards = shard_layout
             .get_children_shards_uids(self.shard_uid.shard_id())
             .ok_or_else(|| anyhow::anyhow!("Cannot get child shards"))?;
         let left_child_shard = child_shards[0];
         let right_child_shard = child_shards[1];
+        println!("Left child shard: {left_child_shard}, Right child shard: {right_child_shard}");
+
+        let runtime =
+            NightshadeRuntime::from_config(home, store.clone(), &near_config, epoch_manager)
+                .context("could not create the transaction runtime")?;
+        println!("Creating flat storage for shard {}...", self.shard_uid);
+        runtime.get_flat_storage_manager().create_flat_storage_for_shard(self.shard_uid)?;
+        println!("Flat storage created");
 
         let epoch_manager = DummyEpochManager::new(shard_layout);
         let resharding_handle = ReshardingHandle::new();
