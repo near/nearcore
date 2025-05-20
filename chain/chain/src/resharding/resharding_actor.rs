@@ -117,7 +117,7 @@ impl ReshardingActor {
     ) {
         match self.get_resharding_scheduling_status(parent_shard_uid) {
             ReshardingSchedulingStatus::StartResharding(event) => {
-                self.start_resharding_blocking(parent_shard_uid, event)
+                self.start_resharding_blocking(ctx, parent_shard_uid, event)
             }
             ReshardingSchedulingStatus::WaitForFinalBlock => {
                 // The task must be retried later.
@@ -192,6 +192,7 @@ impl ReshardingActor {
 
     fn start_resharding_blocking(
         &mut self,
+        ctx: &mut dyn DelayedActionRunner<Self>,
         parent_shard_uid: ShardUId,
         resharding_event: ReshardingSplitShardParams,
     ) {
@@ -203,9 +204,23 @@ impl ReshardingActor {
             return;
         }
 
-        if let Err(err) = self.trie_state_resharder.start_resharding_blocking(&resharding_event) {
-            tracing::error!(target: "resharding", ?err, "Failed to start trie state resharding");
-            return;
+        {
+            // This is delayed so test-loop can run before the trie resharding completes.
+            // Otherwise, this could be instantaneous & the test-loop would not have the
+            // chance to verify the state in-between the resharding event and the completion
+            // of TrieStateResharding.
+            let resharding_event = resharding_event.clone();
+            ctx.run_later(
+                "ReshardingActor TrieStateResharding",
+                Duration::milliseconds(50),
+                move |act, _| {
+                    tracing::info!(target: "resharding", "start trie state resharding");
+                    if let Err(err) = act.trie_state_resharder.start_resharding_blocking(&resharding_event) {
+                        tracing::error!(target: "resharding", ?err, "Failed to start trie state resharding");
+                        return;
+                    }
+                },
+            );
         }
     }
 }
