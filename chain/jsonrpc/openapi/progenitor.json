@@ -10486,7 +10486,15 @@
       "RpcTransactionStatusRequest": {
         "anyOf": [
           {
-            "$ref": "#/components/schemas/SignedTransactionEnum"
+            "properties": {
+              "signed_tx_base64": {
+                "$ref": "#/components/schemas/SignedTransaction"
+              }
+            },
+            "required": [
+              "signed_tx_base64"
+            ],
+            "type": "object"
           },
           {
             "properties": {
@@ -10950,18 +10958,6 @@
       "SignedTransaction": {
         "format": "byte",
         "type": "string"
-      },
-      "SignedTransactionEnum": {
-        "properties": {
-          "signed_tx_base64": {
-            "format": "byte",
-            "type": "string"
-          }
-        },
-        "required": [
-          "signed_tx_base64"
-        ],
-        "type": "object"
       },
       "SignedTransactionView": {
         "properties": {

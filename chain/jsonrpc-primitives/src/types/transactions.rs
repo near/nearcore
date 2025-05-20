@@ -1,6 +1,5 @@
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::AccountId;
-use schemars::json_schema;
 use serde_json::Value;
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -26,36 +25,14 @@ pub struct RpcTransactionStatusRequest {
 #[serde(untagged)]
 #[allow(clippy::large_enum_variant)]
 pub enum TransactionInfo {
-    Transaction(SignedTransaction),
-    TransactionId { tx_hash: CryptoHash, sender_account_id: AccountId },
-}
-
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
-pub enum SignedTransaction {
-    #[serde(rename = "signed_tx_base64")]
-    SignedTransaction(near_primitives::transaction::SignedTransaction),
-}
-
-#[cfg(feature = "schemars")]
-impl schemars::JsonSchema for SignedTransaction {
-    fn schema_name() -> std::borrow::Cow<'static, str> {
-        "SignedTransactionEnum".to_string().into()
-    }
-
-    fn json_schema(generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
-        json_schema!({
-            "properties": {
-              "signed_tx_base64": {
-                "type": "string",
-                "format": "byte",
-              }
-            },
-            "required": [
-              "signed_tx_base64",
-            ],
-            "type": "object"
-          })
-    }
+    Transaction {
+        #[serde(rename = "signed_tx_base64")]
+        signed_tx: near_primitives::transaction::SignedTransaction,
+    },
+    TransactionId {
+        tx_hash: CryptoHash,
+        sender_account_id: AccountId,
+    },
 }
 
 #[derive(thiserror::Error, Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -94,26 +71,22 @@ pub struct RpcBroadcastTxSyncResponse {
 }
 
 impl TransactionInfo {
-    pub fn from_signed_tx(tx: near_primitives::transaction::SignedTransaction) -> Self {
-        Self::Transaction(SignedTransaction::SignedTransaction(tx))
+    pub fn from_signed_tx(signed_tx: near_primitives::transaction::SignedTransaction) -> Self {
+        Self::Transaction { signed_tx }
     }
 
     pub fn to_signed_tx(&self) -> Option<&near_primitives::transaction::SignedTransaction> {
         match self {
-            TransactionInfo::Transaction(tx) => match tx {
-                SignedTransaction::SignedTransaction(tx) => Some(tx),
-            },
+            TransactionInfo::Transaction { signed_tx } => Some(signed_tx),
             TransactionInfo::TransactionId { .. } => None,
         }
     }
 
     pub fn to_tx_hash_and_account(&self) -> (CryptoHash, &AccountId) {
         match self {
-            TransactionInfo::Transaction(tx) => match tx {
-                SignedTransaction::SignedTransaction(tx) => {
-                    (tx.get_hash(), tx.transaction.signer_id())
-                }
-            },
+            TransactionInfo::Transaction { signed_tx } => {
+                (signed_tx.get_hash(), &signed_tx.transaction.signer_id())
+            }
             TransactionInfo::TransactionId { tx_hash, sender_account_id } => {
                 (*tx_hash, sender_account_id)
             }
@@ -122,8 +95,8 @@ impl TransactionInfo {
 }
 
 impl From<near_primitives::transaction::SignedTransaction> for TransactionInfo {
-    fn from(transaction_info: near_primitives::transaction::SignedTransaction) -> Self {
-        Self::Transaction(SignedTransaction::SignedTransaction(transaction_info))
+    fn from(signed_tx: near_primitives::transaction::SignedTransaction) -> Self {
+        Self::Transaction { signed_tx }
     }
 }
 

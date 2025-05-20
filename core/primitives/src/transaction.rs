@@ -419,7 +419,7 @@ impl schemars::JsonSchema for SignedTransaction {
         "SignedTransaction".to_string().into()
     }
 
-    fn json_schema(generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
+    fn json_schema(_generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
         json_schema!({
             "type": "string",
             "format": "byte"
