@@ -301,13 +301,14 @@ impl NetworkConfig {
 
         let node_addr = match cfg.addr.as_str() {
             "" => None,
-            addr => Some(tcp::ListenerAddr::new(
-                addr.parse().context("Failed to parse SocketAddr")?,
-            )),
+            addr => {
+                Some(tcp::ListenerAddr::new(addr.parse().context("Failed to parse SocketAddr")?))
+            }
         };
 
         // Parse blacklist from config
-        let blacklist = cfg.blacklist
+        let blacklist = cfg
+            .blacklist
             .iter()
             .map(|e| e.parse::<blacklist::Entry>())
             .collect::<Result<Vec<_>, _>>()
