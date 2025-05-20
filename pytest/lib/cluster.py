@@ -853,6 +853,7 @@ def spin_up_node(
     skip_starting_proxy=False,
     single_node=False,
     sleep_after_start=3,
+    change_conf=None,
 ) -> BaseNode:
     is_local = config['local']
 
@@ -873,6 +874,8 @@ def spin_up_node(
                          config.get('binary_name'),
                          single_node,
                          ordinal=ordinal)
+        if change_conf is not None:
+            node.change_config(change_conf)
     else:
         # TODO: Figure out how to know IP address beforehand for remote deployment.
         assert len(
@@ -1081,17 +1084,23 @@ def apply_config_changes(node_dir: str,
         'state_sync',
         'state_sync_enabled',
         'store.state_snapshot_config.state_snapshot_type',
+        'tracked_shards',
         'tracked_shard_schedule',
         'tracked_shards_config.Schedule',
+        'tracked_shadow_validator',
         'tracked_shards_config.ShadowValidator',
         'cold_store',
         'store.load_mem_tries_for_tracked_shards',
     )
+    if "tracked_shards_config" in config_json:
+        del config_json["tracked_shards_config"]
 
     for k, v in client_config_change.items():
         if not (k in allowed_missing_configs or k in config_json):
             raise ValueError(f'Unknown configuration option: {k}')
         if k in config_json and isinstance(v, dict):
+            if not isinstance(config_json[k], dict):
+                config_json[k] = {}
             config_json[k].update(v)
         else:
             # Support keys in the form of "a.b.c".

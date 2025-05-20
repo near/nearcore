@@ -161,7 +161,7 @@ def get_state_sync_config_combined():
             }
         },
         "store.state_snapshot_config.state_snapshot_type": "Enabled",
-        "tracked_shards_config": 'AllShards'
+        "tracked_shards": [0]
     }
 
     return config

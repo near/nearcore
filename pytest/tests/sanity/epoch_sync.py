@@ -71,11 +71,17 @@ class EpochSyncTest(unittest.TestCase):
                 break
             ctx.send_moar_txs(block_hash, 1, False)
 
+        change_conf = {
+            "tracked_shards": [],
+            'tracked_shadow_validator': 'test1',
+            "store.load_mem_tries_for_tracked_shards": True
+        }
         node2 = spin_up_node(self.config,
                              self.near_root,
                              self.node_dirs[2],
                              2,
-                             boot_node=node0)
+                             boot_node=node0,
+                             change_conf=change_conf)
         tracker = utils.LogTracker(node2)
 
         utils.wait_for_blocks(node2,
