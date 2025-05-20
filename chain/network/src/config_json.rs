@@ -209,13 +209,13 @@ pub struct Config {
     /// such a case.
     #[serde(default = "default_trusted_stun_servers")]
     pub trusted_stun_servers: Vec<stun::ServerAddr>,
-    
+
     /// Configuration for Tier1 network.
     /// Tier1 network is a special network between validator nodes that provides faster
     /// consensus-related message delivery.
     #[serde(default)]
     pub tier1: Tier1Config,
-    
+
     // Experimental part of the JSON config. Regular users/validators should not have to set any values there.
     // Field names in here can change/disappear at any moment without warning.
     #[serde(default)]
@@ -244,7 +244,7 @@ fn default_tier1_enabled() -> bool {
 }
 
 /// Configuration for Tier1 network
-/// 
+///
 /// This replaces the previous configuration that was in the experimental section.
 /// Migration is simple:
 /// 1. Move the following from experimental section:
@@ -254,7 +254,7 @@ fn default_tier1_enabled() -> bool {
 ///    - tier1_new_connections_per_attempt => tier1.new_connections_per_attempt
 /// 2. Add tier1.enabled = true to explicitly enable Tier1 network
 ///    (or tier1.enabled = false to disable it completely)
-/// 
+///
 /// Example:
 /// ```
 /// "tier1": {
@@ -270,20 +270,20 @@ pub struct Tier1Config {
     /// If false, disables Tier1 network completely
     #[serde(default = "default_tier1_enabled")]
     pub enabled: bool,
-    
+
     /// Makes your node accept inbound Tier1 connections from other validator nodes.
     #[serde(default = "default_tier1_enable_inbound")]
     pub enable_inbound: bool,
-    
+
     /// Makes your node actively try to establish outbound Tier1 connections (recommended)
     #[serde(default = "default_tier1_enable_outbound")]
     pub enable_outbound: bool,
-    
+
     /// Interval between attempts to connect to proxies of other Tier1 nodes
     #[serde(default = "default_tier1_connect_interval")]
     #[serde(with = "near_async::time::serde_duration_as_std")]
     pub connect_interval: Duration,
-    
+
     /// Maximal number of new connections established every connect_interval
     #[serde(default = "default_tier1_new_connections_per_attempt")]
     pub new_connections_per_attempt: u64,
