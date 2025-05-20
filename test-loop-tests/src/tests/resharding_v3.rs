@@ -373,7 +373,7 @@ fn setup_global_contracts(
             &env.node_datas,
             client_account_id,
             deployer_id.clone(),
-            near_test_contracts::rs_contract().into(),
+            near_test_contracts::backwards_compatible_rs_contract().into(),
             nonce,
             deploy_mode.clone(),
         );
@@ -540,7 +540,7 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
             &env.node_datas,
             &client_account_id,
             contract_id,
-            near_test_contracts::rs_contract().into(),
+            near_test_contracts::backwards_compatible_rs_contract().into(),
             1,
         );
         test_setup_transactions.push(deploy_contract_tx);

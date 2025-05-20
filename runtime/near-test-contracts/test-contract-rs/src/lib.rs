@@ -83,7 +83,6 @@ extern "C" {
         amount_ptr: u64,
         gas: u64,
     );
-    #[cfg(feature = "latest_protocol")]
     fn promise_batch_action_function_call_weight(
         promise_index: u64,
         method_name_len: u64,
@@ -1149,7 +1148,6 @@ pub unsafe fn call_yield_create_and_resume() {
     promise_return(promise_index);
 }
 
-#[cfg(feature = "latest_protocol")]
 #[unsafe(no_mangle)]
 fn attach_unspent_gas_but_burn_all_gas() {
     unsafe {
@@ -1178,7 +1176,6 @@ fn attach_unspent_gas_but_burn_all_gas() {
     }
 }
 
-#[cfg(feature = "latest_protocol")]
 #[unsafe(no_mangle)]
 fn attach_unspent_gas_but_use_all_gas() {
     unsafe {
@@ -1402,7 +1399,6 @@ pub unsafe fn sanity_check() {
         &amount_zero as *const u128 as *const u64 as u64,
         gas_per_promise,
     );
-    #[cfg(feature = "latest_protocol")]
     promise_batch_action_function_call_weight(
         batch_promise_idx,
         method_deployed_contract.len() as u64,
