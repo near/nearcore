@@ -1896,9 +1896,14 @@ impl Chain {
             tracing::debug!(target: "chain", ?shard_id, need_storage_update, "Updating storage");
 
             if need_storage_update {
+                let block_info = near_store::flat::BlockInfo {
+                    hash: *block.hash(),
+                    height: block.header().height(),
+                    prev_hash: *block.header().prev_hash(),
+                };
                 self.resharding_manager.start_resharding(
                     self.chain_store.store_update(),
-                    &block,
+                    &block_info,
                     shard_uid,
                     self.runtime_adapter.get_tries(),
                 )?;
@@ -2731,10 +2736,15 @@ impl Chain {
                 shard_id,
                 true,
             ) {
+                let block_info = near_store::flat::BlockInfo {
+                    hash: *block.hash(),
+                    height: block.header().height(),
+                    prev_hash: *block.header().prev_hash(),
+                };
                 let shard_uid = shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, epoch_id)?;
                 self.resharding_manager.start_resharding(
                     self.chain_store.store_update(),
-                    &block,
+                    &block_info,
                     shard_uid,
                     self.runtime_adapter.get_tries(),
                 )?;

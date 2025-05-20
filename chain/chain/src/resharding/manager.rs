@@ -5,7 +5,6 @@ use itertools::Itertools;
 use near_async::messaging::CanSend;
 use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
-use near_primitives::block::Block;
 use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
@@ -39,19 +38,20 @@ impl ReshardingManager {
     pub fn start_resharding(
         &mut self,
         chain_store_update: ChainStoreUpdate,
-        block: &Block,
+        block: &BlockInfo,
         shard_uid: ShardUId,
         tries: ShardTries,
     ) -> Result<(), Error> {
-        let block_hash = block.hash();
-        let block_height = block.header().height();
+        let block_hash = &block.hash;
+        let block_height = block.height;
         let _span = tracing::debug_span!(
             target: "resharding", "start_resharding",
             ?block_hash, block_height, ?shard_uid)
         .entered();
 
-        let prev_hash = block.header().prev_hash();
-        let shard_layout = self.epoch_manager.get_shard_layout(&block.header().epoch_id())?;
+        let prev_hash = &block.prev_hash;
+        let epoch_id = self.epoch_manager.get_epoch_id(block_hash)?;
+        let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
         let next_epoch_id = self.epoch_manager.get_next_epoch_id_from_prev_block(prev_hash)?;
         let next_shard_layout = self.epoch_manager.get_shard_layout(&next_epoch_id)?;
 
@@ -71,13 +71,8 @@ impl ReshardingManager {
             return Ok(());
         }
 
-        let block_info = BlockInfo {
-            hash: *block.hash(),
-            height: block.header().height(),
-            prev_hash: *block.header().prev_hash(),
-        };
         let resharding_event_type =
-            ReshardingEventType::from_shard_layout(&next_shard_layout, block_info)?;
+            ReshardingEventType::from_shard_layout(&next_shard_layout, *block)?;
         match resharding_event_type {
             Some(ReshardingEventType::SplitShard(split_shard_event)) => {
                 self.split_shard(chain_store_update, block, shard_uid, tries, split_shard_event)?;
@@ -89,10 +84,10 @@ impl ReshardingManager {
         Ok(())
     }
 
-    fn split_shard(
+    pub fn split_shard(
         &self,
         chain_store_update: ChainStoreUpdate,
-        block: &Block,
+        block: &BlockInfo,
         shard_uid: ShardUId,
         tries: ShardTries,
         split_shard_event: ReshardingSplitShardParams,
@@ -159,12 +154,12 @@ impl ReshardingManager {
     fn process_memtrie_resharding_storage_update(
         &self,
         mut chain_store_update: ChainStoreUpdate,
-        block: &Block,
+        block: &BlockInfo,
         tries: ShardTries,
         split_shard_event: &ReshardingSplitShardParams,
     ) -> Result<(), Error> {
-        let block_hash = block.hash();
-        let block_height = block.header().height();
+        let block_hash = &block.hash;
+        let block_height = block.height;
         let ReshardingSplitShardParams {
             left_child_shard,
             right_child_shard,
@@ -206,7 +201,7 @@ impl ReshardingManager {
 
             // Get the congestion info for the child.
             // We need to record this as this is used later in ImplicitTransitionParams::Resharding chunk validation.
-            let parent_epoch_id = block.header().epoch_id();
+            let parent_epoch_id = self.epoch_manager.get_epoch_id(block_hash)?;
             let parent_shard_layout = self.epoch_manager.get_shard_layout(&parent_epoch_id)?;
             let parent_congestion_info = parent_chunk_extra.congestion_info();
 

@@ -77,7 +77,9 @@ impl TrieStateResharder {
         Self { runtime, handle, resharding_config }
     }
 
-    //
+    // Handle one batch of iterating the memtrie of a child shard.
+    // This function will be called in a loop until all batches are processed.
+    // It will update and persist the status of the resharding operation.
     fn process_batch_and_update_status(
         &self,
         status: &mut TrieStateReshardingStatus,
@@ -241,4 +243,136 @@ fn next_batch(
         trie.recorded_trie_changes(state_root).expect("trie changes should be available");
     tries.apply_all(&trie_changes, shard_uid, store_update);
     Ok(next_key)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeMap;
+
+    use near_async::time::Clock;
+    use near_chain_configs::{Genesis, TrackedShardsConfig};
+    use near_epoch_manager::EpochManager;
+    use near_epoch_manager::shard_tracker::ShardTracker;
+    use near_parameters::RuntimeConfigStore;
+    use near_primitives::shard_layout::ShardLayout;
+    use near_primitives::types::ShardId;
+    use near_store::TrieConfig;
+    use near_store::flat::BlockInfo;
+    use near_store::genesis::initialize_genesis_state;
+    use near_store::test_utils::create_test_store;
+    use near_vm_runner::{ContractRuntimeCache, FilesystemContractRuntimeCache};
+
+    use crate::rayon_spawner::RayonAsyncComputationSpawner;
+    use crate::resharding::manager::ReshardingManager;
+    use crate::runtime::NightshadeRuntime;
+    use crate::types::ChainConfig;
+    use crate::{Chain, ChainGenesis, ChainStore, DoomslugThresholdMode};
+    use near_async::messaging::{IntoMultiSender, noop};
+
+    use super::*;
+
+    /// Simple shard layout with two shards.
+    fn simple_shard_layout() -> ShardLayout {
+        let s0 = ShardId::new(0);
+        let s1 = ShardId::new(1);
+        let shards_split_map = BTreeMap::from([(s0, vec![s0]), (s1, vec![s1])]);
+        ShardLayout::v2(vec!["ff".parse().unwrap()], vec![s0, s1], Some(shards_split_map))
+    }
+
+    /// Derived from [simple_shard_layout] by splitting the second shard.
+    fn shard_layout_after_split() -> ShardLayout {
+        ShardLayout::derive_shard_layout(&simple_shard_layout(), "pp".parse().unwrap())
+    }
+
+    fn setup_test() -> (TrieStateResharder, ReshardingSplitShardParams) {
+        let shard_layout = simple_shard_layout();
+        let genesis = Genesis::from_accounts(
+            Clock::real(),
+            vec!["aa".parse().unwrap(), "mm".parse().unwrap(), "vv".parse().unwrap()],
+            1,
+            shard_layout.clone(),
+        );
+        let tempdir = tempfile::tempdir().unwrap();
+        let store = create_test_store();
+        initialize_genesis_state(store.clone(), &genesis, Some(tempdir.path()));
+        let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
+        let shard_tracker =
+            ShardTracker::new(TrackedShardsConfig::AllShards, epoch_manager.clone());
+        let compiled_contract_cache =
+            FilesystemContractRuntimeCache::with_memory_cache(tempdir.path(), None::<&str>, 1)
+                .expect("filesystem contract cache")
+                .handle();
+        let trie_config =
+            TrieConfig { load_memtries_for_tracked_shards: true, ..Default::default() };
+        let runtime = NightshadeRuntime::test_with_trie_config(
+            tempdir.path(),
+            store.clone(),
+            compiled_contract_cache,
+            &genesis.config,
+            epoch_manager.clone(),
+            Some(RuntimeConfigStore::test()),
+            trie_config,
+            3,
+        );
+        let chain_genesis = ChainGenesis::new(&genesis.config);
+        let chain = Chain::new(
+            Clock::real(),
+            epoch_manager.clone(),
+            shard_tracker,
+            runtime.clone(),
+            &chain_genesis,
+            DoomslugThresholdMode::NoApprovals,
+            ChainConfig::test(),
+            None,
+            Arc::new(RayonAsyncComputationSpawner),
+            MutableConfigValue::new(None, "validator_signer"),
+            noop().into_multi_sender(),
+        )
+        .unwrap();
+        for shard_uid in shard_layout.shard_uids() {
+            runtime.get_flat_storage_manager().create_flat_storage_for_shard(shard_uid).unwrap();
+        }
+
+        let trie_state_resharder = TrieStateResharder::new(
+            runtime.clone(),
+            ReshardingHandle::new(),
+            ChainConfig::test().resharding_config,
+        );
+
+        let flat_head = BlockInfo::genesis(*chain.genesis.hash(), chain.genesis.header().height());
+        let split_params = ReshardingSplitShardParams {
+            parent_shard: ShardUId { version: 3, shard_id: 1 },
+            left_child_shard: ShardUId { version: 3, shard_id: 2 },
+            right_child_shard: ShardUId { version: 3, shard_id: 3 },
+            resharding_block: flat_head,
+            boundary_account: "pp".parse().unwrap(),
+        };
+
+        let manager = ReshardingManager::new(
+            store.clone(),
+            epoch_manager.clone(),
+            noop().into_multi_sender(),
+        );
+        let mut chain_store =
+            ChainStore::new(store, true, genesis.config.transaction_validity_period);
+        manager
+            .split_shard(
+                chain_store.store_update(),
+                &flat_head,
+                split_params.parent_shard,
+                runtime.get_tries(),
+                split_params.clone(),
+            )
+            .expect("failed to split shard");
+
+        (trie_state_resharder, split_params)
+    }
+
+    #[test]
+    fn test_trie_state_resharding() {
+        let (trie_state_resharder, split_params) = setup_test();
+        trie_state_resharder
+            .start_resharding_blocking(&split_params)
+            .expect("trie state resharding failed");
+    }
 }
