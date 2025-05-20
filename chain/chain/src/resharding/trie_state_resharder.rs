@@ -102,6 +102,7 @@ impl TrieStateResharder {
                 child.next_key = next_key;
             } else {
                 // No more keys to process for this child shard.
+                store_update.trie_store_update().unset_shard_uid_mapping(child.shard_uid);
                 status.children.remove(0);
             };
 
@@ -157,12 +158,7 @@ impl TrieStateResharder {
             TrieStateReshardingChildStatus::new(event.right_child_shard, right_state_root),
         )
         .with_metrics();
-        while !status.done() && !self.handle.is_cancelled() {
-            // Process the batch and update the status.
-            self.process_batch_and_update_status(&mut status)?;
-        }
-
-        Ok(())
+        self.resharding_blocking_impl(&mut status)
     }
 
     /// Resume an interrupted resharding operation.
@@ -182,9 +178,15 @@ impl TrieStateResharder {
             )));
         }
         let mut status = status.with_metrics();
+        self.resharding_blocking_impl(&mut status)
+    }
+
+    fn resharding_blocking_impl(
+        &self,
+        status: &mut TrieStateReshardingStatus,
+    ) -> Result<(), Error> {
         while !status.done() && !self.handle.is_cancelled() {
-            // Process the batch and update the status.
-            self.process_batch_and_update_status(&mut status)?;
+            self.process_batch_and_update_status(status)?;
         }
 
         Ok(())
