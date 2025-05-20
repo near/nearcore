@@ -236,7 +236,6 @@ near-account-id = { version = "1.1.1", features = [
     "internal_unstable",
     "serde",
     "borsh",
-    "schemars-alpha",
 ] }
 near-actix-test-utils = { path = "test-utils/actix-test-utils" }
 near-amend-genesis = { path = "tools/amend-genesis" }

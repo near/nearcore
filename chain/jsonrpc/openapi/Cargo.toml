@@ -25,6 +25,7 @@ near-primitives-core = { workspace = true, features = ["schemars"] }
 near-time = { workspace = true, features = ["schemars"] }
 near-chain-configs = { workspace = true, features = ["schemars"] }
 near-crypto = { workspace = true, features = ["schemars"] }
+near-account-id = { workspace = true, features = ["schemars-alpha"] }
 
 
 [features]
