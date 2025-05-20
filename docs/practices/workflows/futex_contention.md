@@ -1,4 +1,4 @@
-<!-- cspell:ignore Futex futexes futexctn kptr libelf libbpf pgrep futexctn's msecs vtable -->
+<!-- cspell:words Futex futexes futexctn kptr libelf libbpf pgrep futexctn's msecs vtable -->
 # Futex contention
 
 Futex contention occurs when multiple threads compete for access to shared resources protected by futexes (fast user-space mutexes). Futexes are efficient synchronization mechanisms in the Linux kernel, but contention can lead to performance bottlenecks in multithreaded programs.
