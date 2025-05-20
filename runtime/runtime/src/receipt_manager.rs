@@ -2,7 +2,7 @@ use near_crypto::PublicKey;
 use near_primitives::action::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
     DeployContractAction, DeployGlobalContractAction, FunctionCallAction, StakeAction,
-    TransferAction,
+    TransferAction, UseGlobalContractAction,
 };
 use near_primitives::errors::RuntimeError;
 use near_primitives::receipt::DataReceiver;
@@ -11,7 +11,7 @@ use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::{AccountId, Balance, Gas, GasWeight, Nonce};
 use near_vm_runner::logic::HostError;
 use near_vm_runner::logic::VMLogicError;
-use near_vm_runner::logic::types::GlobalContractDeployMode;
+use near_vm_runner::logic::types::{GlobalContractDeployMode, GlobalContractIdentifier};
 use std::collections::HashMap;
 
 use crate::config::safe_add_gas;
@@ -274,6 +274,36 @@ impl ReceiptManager {
                 code: code.into(),
                 deploy_mode,
             }),
+        );
+        Ok(())
+    }
+
+    /// Attach the [`UseGlobalContractAction`] action to an existing receipt.
+    ///
+    /// # Arguments
+    ///
+    /// * `receipt_index` - an index of Receipt to append an action
+    /// * `contract_id` - identifier of the contract to use
+    ///
+    /// # Panics
+    ///
+    /// Panics if the `receipt_index` does not refer to a known receipt.
+    pub(super) fn append_use_deploy_global_contract(
+        &mut self,
+        receipt_index: ReceiptIndex,
+        contract_id: GlobalContractIdentifier,
+    ) -> Result<(), VMLogicError> {
+        let contract_identifier = match contract_id {
+            GlobalContractIdentifier::CodeHash(code_hash) => {
+                near_primitives::action::GlobalContractIdentifier::CodeHash(code_hash)
+            }
+            GlobalContractIdentifier::AccountId(account_id) => {
+                near_primitives::action::GlobalContractIdentifier::AccountId(account_id)
+            }
+        };
+        self.append_action(
+            receipt_index,
+            Action::UseGlobalContract(Box::new(UseGlobalContractAction { contract_identifier })),
         );
         Ok(())
     }

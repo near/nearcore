@@ -1,6 +1,6 @@
 use crate::ContractCode;
 use crate::logic::dependencies::{Result, StorageAccessTracker};
-use crate::logic::types::{GlobalContractDeployMode, ReceiptIndex};
+use crate::logic::types::{GlobalContractDeployMode, GlobalContractIdentifier, ReceiptIndex};
 use crate::logic::{External, ValuePtr};
 use near_primitives_core::hash::{CryptoHash, hash};
 use near_primitives_core::types::{AccountId, Balance, Gas, GasWeight};
@@ -29,6 +29,10 @@ pub enum MockAction {
         receipt_index: ReceiptIndex,
         code: Vec<u8>,
         mode: GlobalContractDeployMode,
+    },
+    UseGlobalContract {
+        receipt_index: ReceiptIndex,
+        contract_id: GlobalContractIdentifier,
     },
     FunctionCallWeight {
         receipt_index: ReceiptIndex,
@@ -249,6 +253,15 @@ impl External for MockedExternal {
         mode: crate::logic::types::GlobalContractDeployMode,
     ) -> Result<(), crate::logic::VMLogicError> {
         self.action_log.push(MockAction::DeployGlobalContract { receipt_index, code, mode });
+        Ok(())
+    }
+
+    fn append_action_use_global_contract(
+        &mut self,
+        receipt_index: ReceiptIndex,
+        contract_id: crate::logic::types::GlobalContractIdentifier,
+    ) -> Result<(), crate::logic::VMLogicError> {
+        self.action_log.push(MockAction::UseGlobalContract { receipt_index, contract_id });
         Ok(())
     }
 

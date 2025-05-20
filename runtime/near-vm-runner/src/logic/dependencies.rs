@@ -1,6 +1,6 @@
 //! External dependencies of the near-vm-logic.
 use super::VMLogicError;
-use super::types::{GlobalContractDeployMode, ReceiptIndex};
+use super::types::{GlobalContractDeployMode, GlobalContractIdentifier, ReceiptIndex};
 use near_crypto::PublicKey;
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::{AccountId, Balance, Gas, GasWeight, Nonce};
@@ -361,6 +361,22 @@ pub trait External {
         receipt_index: ReceiptIndex,
         code: Vec<u8>,
         mode: GlobalContractDeployMode,
+    ) -> Result<(), VMLogicError>;
+
+    /// Attach the [`UseGlobalContractAction`] action to an existing receipt.
+    ///
+    /// # Arguments
+    ///
+    /// * `receipt_index` - an index of Receipt to append an action
+    /// * `contract_id` - identifier of the contract to use
+    ///
+    /// # Panics
+    ///
+    /// Panics if the `receipt_index` does not refer to a known receipt.
+    fn append_action_use_global_contract(
+        &mut self,
+        receipt_index: ReceiptIndex,
+        contract_id: GlobalContractIdentifier,
     ) -> Result<(), VMLogicError>;
 
     /// Attach the [`FunctionCallAction`] action to an existing receipt.

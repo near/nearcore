@@ -76,6 +76,8 @@ extern "C" {
     fn promise_batch_action_deploy_contract(promise_index: u64, code_len: u64, code_ptr: u64);
     fn promise_batch_action_deploy_global_contract(promise_index: u64, code_len: u64, code_ptr: u64);
     fn promise_batch_action_deploy_global_contract_by_account_id(promise_index: u64, code_len: u64, code_ptr: u64);
+    fn promise_batch_action_use_global_contract(promise_index: u64, code_hash_len: u64, code_hash_ptr: u64);
+    fn promise_batch_action_use_global_contract_by_account_id(promise_index: u64, account_id_len: u64, account_id_ptr: u64);
     fn promise_batch_action_function_call(
         promise_index: u64,
         method_name_len: u64,
@@ -837,6 +839,24 @@ fn call_promise() {
                     promise_index,
                     code.len() as u64,
                     code.as_ptr() as u64,
+                );
+                promise_index
+            } else if let Some(action) = arg.get("action_use_global_contract") {
+                let promise_index = action["promise_index"].as_i64().unwrap() as u64;
+                let code_hash = from_base64(action["code_hash"].as_str().unwrap());
+                promise_batch_action_use_global_contract(
+                    promise_index,
+                    code_hash.len() as u64,
+                    code_hash.as_ptr() as u64,
+                );
+                promise_index
+            } else if let Some(action) = arg.get("action_use_global_contract_by_account_id") {
+                let promise_index = action["promise_index"].as_i64().unwrap() as u64;
+                let account_id = action["account_id"].as_str().unwrap().as_bytes();
+                promise_batch_action_use_global_contract_by_account_id(
+                    promise_index,
+                    account_id.len() as u64,
+                    account_id.as_ptr() as u64,
                 );
                 promise_index
             } else if let Some(action) = arg.get("action_function_call") {
