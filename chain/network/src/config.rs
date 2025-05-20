@@ -327,8 +327,7 @@ impl NetworkConfig {
                 enable_outbound: cfg.tier1.enable_outbound,
             })
         } else {
-            // For backwards compatibility, check if old configuration has tier1 enabled
-            // This is for migration support
+            // If tier1.enabled is false, disable Tier1 network completely
             None
         };
 

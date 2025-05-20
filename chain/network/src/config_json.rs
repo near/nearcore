@@ -245,26 +245,8 @@ fn default_tier1_enabled() -> bool {
 
 /// Configuration for Tier1 network
 ///
-/// This replaces the previous configuration that was in the experimental section.
-/// Migration is simple:
-/// 1. Move the following from experimental section:
-///    - tier1_enable_inbound => tier1.enable_inbound
-///    - tier1_enable_outbound => tier1.enable_outbound
-///    - tier1_connect_interval => tier1.connect_interval
-///    - tier1_new_connections_per_attempt => tier1.new_connections_per_attempt
-/// 2. Add tier1.enabled = true to explicitly enable Tier1 network
-///    (or tier1.enabled = false to disable it completely)
-///
-/// Example:
-/// ```
-/// "tier1": {
-///   "enabled": true,
-///   "enable_inbound": true,
-///   "enable_outbound": true,
-///   "connect_interval": { "secs": 60, "nanos": 0 },
-///   "new_connections_per_attempt": 50
-/// }
-/// ```
+/// Tier1 network is a special network between validator nodes that provides faster
+/// consensus-related message delivery.
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 pub struct Tier1Config {
     /// If false, disables Tier1 network completely
@@ -370,7 +352,7 @@ impl Default for Config {
             archival_peer_connections_lower_bound: default_archival_peer_connections_lower_bound(),
             handshake_timeout: Duration::seconds(20),
             skip_sync_wait: false,
-            ban_window: Duration::hours(1),
+            ban_window: Duration::hours(3),
             blacklist: vec![],
             ttl_account_id_router: default_ttl_account_id_router(),
             peer_stats_period: default_peer_stats_period(),
