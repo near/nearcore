@@ -209,6 +209,13 @@ pub struct Config {
     /// such a case.
     #[serde(default = "default_trusted_stun_servers")]
     pub trusted_stun_servers: Vec<stun::ServerAddr>,
+    
+    /// Configuration for Tier1 network.
+    /// Tier1 network is a special network between validator nodes that provides faster
+    /// consensus-related message delivery.
+    #[serde(default)]
+    pub tier1: Tier1Config,
+    
     // Experimental part of the JSON config. Regular users/validators should not have to set any values there.
     // Field names in here can change/disappear at any moment without warning.
     #[serde(default)]
@@ -231,6 +238,69 @@ fn default_tier1_new_connections_per_attempt() -> u64 {
     50
 }
 
+/// Indicates if Tier1 is enabled
+fn default_tier1_enabled() -> bool {
+    true
+}
+
+/// Configuration for Tier1 network
+/// 
+/// This replaces the previous configuration that was in the experimental section.
+/// Migration is simple:
+/// 1. Move the following from experimental section:
+///    - tier1_enable_inbound => tier1.enable_inbound
+///    - tier1_enable_outbound => tier1.enable_outbound
+///    - tier1_connect_interval => tier1.connect_interval
+///    - tier1_new_connections_per_attempt => tier1.new_connections_per_attempt
+/// 2. Add tier1.enabled = true to explicitly enable Tier1 network
+///    (or tier1.enabled = false to disable it completely)
+/// 
+/// Example:
+/// ```
+/// "tier1": {
+///   "enabled": true,
+///   "enable_inbound": true,
+///   "enable_outbound": true,
+///   "connect_interval": { "secs": 60, "nanos": 0 },
+///   "new_connections_per_attempt": 50
+/// }
+/// ```
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
+pub struct Tier1Config {
+    /// If false, disables Tier1 network completely
+    #[serde(default = "default_tier1_enabled")]
+    pub enabled: bool,
+    
+    /// Makes your node accept inbound Tier1 connections from other validator nodes.
+    #[serde(default = "default_tier1_enable_inbound")]
+    pub enable_inbound: bool,
+    
+    /// Makes your node actively try to establish outbound Tier1 connections (recommended)
+    #[serde(default = "default_tier1_enable_outbound")]
+    pub enable_outbound: bool,
+    
+    /// Interval between attempts to connect to proxies of other Tier1 nodes
+    #[serde(default = "default_tier1_connect_interval")]
+    #[serde(with = "near_async::time::serde_duration_as_std")]
+    pub connect_interval: Duration,
+    
+    /// Maximal number of new connections established every connect_interval
+    #[serde(default = "default_tier1_new_connections_per_attempt")]
+    pub new_connections_per_attempt: u64,
+}
+
+impl Default for Tier1Config {
+    fn default() -> Self {
+        Self {
+            enabled: default_tier1_enabled(),
+            enable_inbound: default_tier1_enable_inbound(),
+            enable_outbound: default_tier1_enable_outbound(),
+            connect_interval: default_tier1_connect_interval(),
+            new_connections_per_attempt: default_tier1_new_connections_per_attempt(),
+        }
+    }
+}
+
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 pub struct ExperimentalConfig {
     // If true - don't allow any inbound connections.
@@ -247,23 +317,6 @@ pub struct ExperimentalConfig {
     // compatibility.
     #[serde(default)]
     pub skip_sending_tombstones_seconds: i64,
-
-    /// See `near_network::config::Tier1::enable_inbound`.
-    #[serde(default = "default_tier1_enable_inbound")]
-    pub tier1_enable_inbound: bool,
-
-    /// See `near_network::config::Tier1::enable_outbound`.
-    #[serde(default = "default_tier1_enable_outbound")]
-    pub tier1_enable_outbound: bool,
-
-    /// See `near_network::config::Tier1::connect_interval`.
-    #[serde(default = "default_tier1_connect_interval")]
-    #[serde(with = "near_async::time::serde_duration_as_std")]
-    pub tier1_connect_interval: Duration,
-
-    /// See `near_network::config::Tier1::new_connections_per_attempt`.
-    #[serde(default = "default_tier1_new_connections_per_attempt")]
-    pub tier1_new_connections_per_attempt: u64,
 
     /// See `NetworkConfig`.
     /// Fields set here will override the NetworkConfig fields.
@@ -295,11 +348,7 @@ impl Default for ExperimentalConfig {
             inbound_disabled: false,
             connect_only_to_boot_nodes: false,
             skip_sending_tombstones_seconds: 0,
-            tier1_enable_inbound: default_tier1_enable_inbound(),
-            tier1_enable_outbound: default_tier1_enable_outbound(),
-            tier1_connect_interval: default_tier1_connect_interval(),
-            tier1_new_connections_per_attempt: default_tier1_new_connections_per_attempt(),
-            network_config_overrides: Default::default(),
+            network_config_overrides: NetworkConfigOverrides::default(),
         }
     }
 }
@@ -321,18 +370,19 @@ impl Default for Config {
             archival_peer_connections_lower_bound: default_archival_peer_connections_lower_bound(),
             handshake_timeout: Duration::seconds(20),
             skip_sync_wait: false,
-            peer_states_cache_size: default_peer_states_cache_size(),
-            snapshot_hosts_cache_size: default_snapshot_hosts_cache_size(),
-            ban_window: Duration::seconds(3 * 60 * 60),
+            ban_window: Duration::hours(1),
             blacklist: vec![],
             ttl_account_id_router: default_ttl_account_id_router(),
             peer_stats_period: default_peer_stats_period(),
             monitor_peers_max_period: default_monitor_peers_max_period(),
+            peer_states_cache_size: default_peer_states_cache_size(),
+            snapshot_hosts_cache_size: default_snapshot_hosts_cache_size(),
             peer_expiration_duration: default_peer_expiration_duration(),
             public_addrs: vec![],
             allow_private_ip_in_public_addrs: false,
             trusted_stun_servers: default_trusted_stun_servers(),
-            experimental: Default::default(),
+            tier1: Tier1Config::default(),
+            experimental: ExperimentalConfig::default(),
         }
     }
 }
