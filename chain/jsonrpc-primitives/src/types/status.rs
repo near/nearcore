@@ -10,7 +10,7 @@ use near_primitives::views::{
 };
 
 #[cfg(feature = "schemars")]
-use  near_time::DurationSchemarsProvider;
+use near_time::DurationSchemarsProvider;
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]

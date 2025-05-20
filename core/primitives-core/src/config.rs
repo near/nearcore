@@ -31,7 +31,6 @@ pub enum AccountIdValidityRulesVersion {
     V1,
 }
 
-
 #[cfg(feature = "schemars")]
 impl schemars::JsonSchema for AccountIdValidityRulesVersion {
     fn schema_name() -> std::borrow::Cow<'static, str> {

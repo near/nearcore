@@ -49,7 +49,7 @@ use progenitor_types::{
 };
 
 #[derive(JsonSchema)]
-#[serde(rename_all="snake_case")]
+#[serde(rename_all = "snake_case")]
 pub enum ResponseEither<T, E> {
     Result(T),
     Error(E),
