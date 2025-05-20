@@ -174,6 +174,10 @@ impl<'a> TrieStoreUpdateAdapter<'a> {
         )
     }
 
+    pub fn delete_shard_uid_mapping(&mut self, child_shard_uid: ShardUId) {
+        self.store_update.delete(DBCol::StateShardUIdMapping, child_shard_uid.to_bytes().as_ref());
+    }
+
     /// Remove State of any shard that uses `shard_uid_db_key_prefix` as database key prefix.
     /// That is potentially State of any descendant of the shard with the given `ShardUId`.
     /// Use with caution, as it might potentially remove the State of a descendant shard that is still in use!

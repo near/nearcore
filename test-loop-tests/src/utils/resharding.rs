@@ -796,8 +796,7 @@ fn check_has_the_only_shard_state(
     } else {
         assert_eq!(mapped_shard_uid, the_only_shard_uid);
     };
-    let shard_uid_prefixes = shard_uid_prefixes.into_iter().collect_vec();
-    assert_eq!(shard_uid_prefixes, [mapped_shard_uid]);
+    assert_eq!(shard_uid_prefixes, HashSet::from_iter([the_only_shard_uid, mapped_shard_uid]));
 }
 
 /// Loop action testing state cleanup.

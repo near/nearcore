@@ -380,8 +380,6 @@ pub fn check_state_shard_uid_mapping_after_resharding(
     for kv in store.iter_raw_bytes(DBCol::State) {
         let (key, value) = kv.unwrap();
         let shard_uid = ShardUId::try_from_slice(&key[0..8]).unwrap();
-        // Just after resharding, no State data must be keyed using children ShardUIds.
-        assert!(!shard_uid_mapping.contains_key(&shard_uid));
         if shard_uid != parent_shard_uid {
             continue;
         }
