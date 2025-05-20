@@ -315,7 +315,7 @@ pub fn make_handshake<R: Rng>(rng: &mut R, chain: &Chain) -> Handshake {
     let b_id = PeerId::new(b.public_key());
     Handshake {
         protocol_version: version::PROTOCOL_VERSION,
-        oldest_supported_version: version::PEER_MIN_ALLOWED_PROTOCOL_VERSION,
+        oldest_supported_version: version::MIN_SUPPORTED_PROTOCOL_VERSION,
         sender_peer_id: a_id,
         target_peer_id: b_id,
         sender_listen_port: Some(rng.r#gen()),

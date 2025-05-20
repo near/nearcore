@@ -13,7 +13,7 @@ use anyhow::Context as _;
 use assert_matches::assert_matches;
 use near_async::time;
 use near_o11y::testonly::init_test_logger;
-use near_primitives::version::{PEER_MIN_ALLOWED_PROTOCOL_VERSION, PROTOCOL_VERSION};
+use near_primitives::version::{MIN_SUPPORTED_PROTOCOL_VERSION, PROTOCOL_VERSION};
 use std::sync::Arc;
 
 #[allow(clippy::large_stack_frames)]
@@ -197,8 +197,8 @@ async fn test_handshake(outbound_encoding: Option<Encoding>, inbound_encoding: O
 
     // Send too old PROTOCOL_VERSION, expect ProtocolVersionMismatch
     let mut handshake = Handshake {
-        protocol_version: PEER_MIN_ALLOWED_PROTOCOL_VERSION - 1,
-        oldest_supported_version: PEER_MIN_ALLOWED_PROTOCOL_VERSION - 1,
+        protocol_version: MIN_SUPPORTED_PROTOCOL_VERSION - 1,
+        oldest_supported_version: MIN_SUPPORTED_PROTOCOL_VERSION - 1,
         sender_peer_id: outbound_cfg.id(),
         target_peer_id: inbound.cfg.id(),
         sender_listen_port: Some(outbound_port),

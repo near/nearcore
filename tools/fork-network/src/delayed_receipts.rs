@@ -160,9 +160,7 @@ pub(crate) fn write_delayed_receipts(
     for (shard_idx, (updates, update_state)) in
         trie_updates.into_iter().zip(update_state.iter()).enumerate()
     {
-        let shard_id = target_shard_layout.get_shard_id(shard_idx).unwrap();
-        let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, target_shard_layout);
-
+        let shard_uid = target_shard_layout.get_shard_uid(shard_idx).unwrap();
         let mut updates = updates
             .into_iter()
             .map(|(index, value)| (TrieKey::DelayedReceipt { index }, value))

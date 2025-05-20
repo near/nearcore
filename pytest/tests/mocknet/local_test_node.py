@@ -92,7 +92,11 @@ class LocalTestNeardRunner:
         # handled by local_test_setup_cmd()
         return
 
-    def run_cmd(self, cmd, raise_on_fail=False, return_on_fail=False):
+    def run_cmd(self,
+                _schedule_ctx,
+                cmd,
+                raise_on_fail=False,
+                return_on_fail=False):
         logger.error(
             "Does not make sense to run command on local host. The behavior may not be the desired one."
         )
@@ -136,7 +140,9 @@ class LocalTestNeardRunner:
             f'started neard runner process with pid {process.pid} listening on port {self.port}'
         )
 
-    def neard_runner_post(self, body):
+    def neard_runner_post(self, _schedule_ctx, body):
+        if _schedule_ctx is not None:
+            raise ValueError('Scheduling is not supported for local test node')
         return http_post(self.ip_addr(), self.port, body)
 
     def new_test_params(self):

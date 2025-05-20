@@ -6,6 +6,7 @@ use crate::receipt_manager::ReceiptManager;
 use near_crypto::{KeyType, PublicKey};
 use near_parameters::RuntimeConfigStore;
 use near_primitives::account::{AccessKey, Account};
+use near_primitives::action::GlobalContractIdentifier;
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
 use near_primitives::borsh::BorshDeserialize;
@@ -85,7 +86,7 @@ impl TrieViewer {
         })
     }
 
-    pub fn view_contract_code(
+    pub fn view_account_contract_code(
         &self,
         state_update: &TrieUpdate,
         account_id: &AccountId,
@@ -96,6 +97,16 @@ impl TrieViewer {
                 contract_account_id: account_id.clone(),
             },
         )
+    }
+
+    pub fn view_global_contract_code(
+        &self,
+        state_update: &TrieUpdate,
+        identifier: GlobalContractIdentifier,
+    ) -> Result<ContractCode, errors::ViewContractCodeError> {
+        state_update
+            .get_global_contract_code(identifier.clone().into())?
+            .ok_or(errors::ViewContractCodeError::NoGlobalContractCode { identifier })
     }
 
     pub fn view_access_key(

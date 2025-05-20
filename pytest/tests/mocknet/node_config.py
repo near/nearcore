@@ -1,3 +1,9 @@
+"""
+Mocknet node configuration.
+
+This module contains the configuration for the mocknet nodes.
+It is used to configure the nodes for the test.
+"""
 import sys
 
 

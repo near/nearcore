@@ -32,6 +32,10 @@
         "block_production_tracking_delay": {
             "secs": 0,
             "nanos": 10000000
+        },
+        "doomslug_step_period": {
+            "secs": 0,
+            "nanos": 10000000
         }
     }
 }

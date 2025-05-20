@@ -1,6 +1,6 @@
 use crate::test_utils::{TestTriesBuilder, gen_changes, simplify_changes, test_populate_trie};
-use crate::trie::AccessOptions;
 use crate::trie::trie_storage::{TrieMemoryPartialStorage, TrieStorage};
+use crate::trie::{AccessOptions, TrieRefcountAddition, TrieRefcountSubtraction};
 use crate::{PartialStorage, Trie, TrieUpdate};
 use assert_matches::assert_matches;
 use near_primitives::errors::{MissingTrieValueContext, StorageError};
@@ -13,6 +13,36 @@ use rand::seq::SliceRandom;
 use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
 use std::sync::Arc;
+
+use super::{TrieChanges, TrieRefcountDeltaMap};
+
+pub(crate) fn merge_trie_changes(changes: Vec<TrieChanges>) -> TrieChanges {
+    if changes.is_empty() {
+        return TrieChanges::empty(Trie::EMPTY_ROOT);
+    }
+    let new_root = changes[0].new_root;
+    let mut map = TrieRefcountDeltaMap::new();
+    for changes_set in changes {
+        assert!(changes_set.deletions.is_empty(), "state parts only have insertions");
+        for TrieRefcountAddition { trie_node_or_value_hash, trie_node_or_value, rc } in
+            changes_set.insertions
+        {
+            map.add(trie_node_or_value_hash, trie_node_or_value, rc.get());
+        }
+        for TrieRefcountSubtraction { trie_node_or_value_hash, rc, .. } in changes_set.deletions {
+            map.subtract(trie_node_or_value_hash, rc.get());
+        }
+    }
+    let (insertions, deletions) = map.into_changes();
+    TrieChanges {
+        old_root: Default::default(),
+        new_root,
+        insertions,
+        deletions,
+        memtrie_changes: None,
+        children_memtrie_changes: Default::default(),
+    }
+}
 
 /// TrieMemoryPartialStorage, but contains only the first n requested nodes.
 pub struct IncompletePartialStorage {
