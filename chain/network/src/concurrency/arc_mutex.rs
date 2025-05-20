@@ -1,6 +1,5 @@
 use arc_swap::ArcSwap;
-use parking_lot::Mutex;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 /// Mutex which only synchronizes on writes.
 /// Reads always succeed and return the latest written version.
@@ -24,7 +23,7 @@ impl<T: Clone> ArcMutex<T> {
     /// State monad is a function which takes the old state and
     /// returns the new state + additional result value.
     pub fn update<R>(&self, f: impl FnOnce(T) -> (R, T)) -> R {
-        let _guard = self.mutex.lock();
+        let _guard = self.mutex.lock().unwrap();
         let (res, val) = f(self.value.load().as_ref().clone());
         self.value.store(Arc::new(val));
         res
@@ -34,7 +33,7 @@ impl<T: Clone> ArcMutex<T> {
     /// Note that `T -> Result<(R,T),E>` is a state monad transformer applied to the exception
     /// monad.
     pub fn try_update<R, E>(&self, f: impl FnOnce(T) -> Result<(R, T), E>) -> Result<R, E> {
-        let _guard = self.mutex.lock();
+        let _guard = self.mutex.lock().unwrap();
         match f(self.value.load().as_ref().clone()) {
             Ok((res, val)) => {
                 self.value.store(Arc::new(val));

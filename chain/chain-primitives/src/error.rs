@@ -53,14 +53,6 @@ pub enum QueryError {
         block_height: near_primitives::types::BlockHeight,
         block_hash: near_primitives::hash::CryptoHash,
     },
-    #[error(
-        "Global contract code with identifier {identifier:?} has never been observed on the node"
-    )]
-    NoGlobalContractCode {
-        identifier: near_primitives::action::GlobalContractIdentifier,
-        block_height: near_primitives::types::BlockHeight,
-        block_hash: near_primitives::hash::CryptoHash,
-    },
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -79,9 +71,9 @@ pub enum Error {
     /// Chunks missing with header info.
     #[error("Chunks Missing: {0:?}")]
     ChunksMissing(Vec<ShardChunkHeader>),
-    /// Block is pending optimistic block execution.
-    #[error("Block Pending Optimistic Execution")]
-    BlockPendingOptimisticExecution,
+    /// Optimistic block in processing.
+    #[error("Optimistic block in processing")]
+    OptimisticBlockInProcessing,
     /// Block time is before parent block time.
     #[error("Invalid Block Time: block time {1} before previous {0}")]
     InvalidBlockPastTime(Utc, Utc),
@@ -278,7 +270,7 @@ impl Error {
             | Error::Orphan
             | Error::ChunkMissing(_)
             | Error::ChunksMissing(_)
-            | Error::BlockPendingOptimisticExecution
+            | Error::OptimisticBlockInProcessing
             | Error::InvalidChunkHeight
             | Error::IOErr(_)
             | Error::Other(_)
@@ -359,7 +351,7 @@ impl Error {
             Error::Orphan => "orphan",
             Error::ChunkMissing(_) => "chunk_missing",
             Error::ChunksMissing(_) => "chunks_missing",
-            Error::BlockPendingOptimisticExecution => "block_pending_optimistic_execution",
+            Error::OptimisticBlockInProcessing => "optimistic_block_in_processing",
             Error::InvalidChunkHeight => "invalid_chunk_height",
             Error::IOErr(_) => "io_err",
             Error::Other(_) => "other",

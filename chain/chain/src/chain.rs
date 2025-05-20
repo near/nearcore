@@ -28,8 +28,8 @@ use crate::store::{
     ChainStore, ChainStoreAccess, ChainStoreUpdate, MerkleProofAccess, ReceiptFilter,
 };
 use crate::types::{
-    AcceptedBlock, ApplyChunkBlockContext, BlockEconomicsConfig, BlockType, ChainConfig,
-    RuntimeAdapter, StorageDataSource,
+    AcceptedBlock, ApplyChunkBlockContext, BlockEconomicsConfig, ChainConfig, RuntimeAdapter,
+    StorageDataSource,
 };
 pub use crate::update_shard::{
     NewChunkData, NewChunkResult, OldChunkData, OldChunkResult, ShardContext, StorageContext,
@@ -48,7 +48,7 @@ use lru::LruCache;
 use near_async::futures::{AsyncComputationSpawner, AsyncComputationSpawnerExt};
 use near_async::messaging::{IntoMultiSender, noop};
 use near_async::time::{Clock, Duration, Instant};
-use near_chain_configs::MutableValidatorSigner;
+use near_chain_configs::{MutableConfigValue, MutableValidatorSigner};
 use near_chain_primitives::error::{BlockKnownError, Error};
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
@@ -92,7 +92,6 @@ use near_primitives::views::{
 use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::get_genesis_state_roots;
 use near_store::{DBCol, StateSnapshotConfig};
-use node_runtime::SignedValidPeriodTransactions;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use std::cell::Cell;
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -107,9 +106,6 @@ pub const APPLY_CHUNK_RESULTS_CACHE_SIZE: usize = 100;
 
 /// The size of the invalid_blocks in-memory pool
 pub const INVALID_CHUNKS_POOL_SIZE: usize = 5000;
-
-/// The size of the processed_hashes in-memory pool
-pub const PROCESSED_HASHES_POOL_SIZE: usize = 5000;
 
 /// 5000 years in seconds. Big constant for sandbox to allow time traveling.
 #[cfg(feature = "sandbox")]
@@ -246,25 +242,20 @@ impl ApplyChunksResultCache {
         &self,
         key: &CachedShardUpdateKey,
         shard_id: ShardId,
-        record_metric: bool,
     ) -> Option<&ShardUpdateResult> {
         let shard_id_label = shard_id.to_string();
         if let Some(result) = self.cache.peek(key) {
             self.hits.set(self.hits.get() + 1);
-            if record_metric {
-                metrics::APPLY_CHUNK_RESULTS_CACHE_HITS
-                    .with_label_values(&[shard_id_label.as_str()])
-                    .inc();
-            }
+            metrics::APPLY_CHUNK_RESULTS_CACHE_HITS
+                .with_label_values(&[shard_id_label.as_str()])
+                .inc();
             return Some(result);
         }
 
         self.misses.set(self.misses.get() + 1);
-        if record_metric {
-            metrics::APPLY_CHUNK_RESULTS_CACHE_MISSES
-                .with_label_values(&[shard_id_label.as_str()])
-                .inc();
-        }
+        metrics::APPLY_CHUNK_RESULTS_CACHE_MISSES
+            .with_label_values(&[shard_id_label.as_str()])
+            .inc();
         None
     }
 
@@ -321,8 +312,6 @@ pub struct Chain {
     pub apply_chunk_results_cache: ApplyChunksResultCache,
     /// Time when head was updated most recently.
     last_time_head_updated: Instant,
-    /// Prevents re-application of blocks received multiple times.
-    processed_hashes: LruCache<CryptoHash, ()>,
     /// Prevents re-application of known-to-be-invalid blocks, so that in case of a
     /// protocol issue we can recover faster by focusing on correct blocks.
     invalid_blocks: LruCache<CryptoHash, ()>,
@@ -414,6 +403,8 @@ impl Chain {
         let resharding_manager = ReshardingManager::new(
             store.clone(),
             epoch_manager.clone(),
+            runtime_adapter.clone(),
+            MutableConfigValue::new(Default::default(), "resharding_config"),
             noop().into_multi_sender(),
         );
         Ok(Chain {
@@ -438,7 +429,6 @@ impl Chain {
             apply_chunks_spawner: Arc::new(RayonAsyncComputationSpawner),
             apply_chunk_results_cache: ApplyChunksResultCache::new(APPLY_CHUNK_RESULTS_CACHE_SIZE),
             last_time_head_updated: clock.now(),
-            processed_hashes: LruCache::new(NonZeroUsize::new(PROCESSED_HASHES_POOL_SIZE).unwrap()),
             invalid_blocks: LruCache::new(NonZeroUsize::new(INVALID_CHUNKS_POOL_SIZE).unwrap()),
             pending_state_patch: Default::default(),
             snapshot_callbacks: None,
@@ -568,8 +558,13 @@ impl Chain {
         // Even though the channel is unbounded, the channel size is practically bounded by the size
         // of blocks_in_processing, which is set to 5 now.
         let (sc, rc) = unbounded();
-        let resharding_manager =
-            ReshardingManager::new(chain_store.store(), epoch_manager.clone(), resharding_sender);
+        let resharding_manager = ReshardingManager::new(
+            chain_store.store(),
+            epoch_manager.clone(),
+            runtime_adapter.clone(),
+            chain_config.resharding_config,
+            resharding_sender,
+        );
         Ok(Chain {
             clock: clock.clone(),
             chain_store,
@@ -582,7 +577,6 @@ impl Chain {
             optimistic_block_chunks: OptimisticBlockChunksPool::new(),
             blocks_pending_execution: PendingBlocksPool::new(),
             blocks_in_processing: BlocksInProcessing::new(),
-            processed_hashes: LruCache::new(NonZeroUsize::new(PROCESSED_HASHES_POOL_SIZE).unwrap()),
             invalid_blocks: LruCache::new(NonZeroUsize::new(INVALID_CHUNKS_POOL_SIZE).unwrap()),
             genesis: genesis.clone(),
             epoch_length: chain_genesis.epoch_length,
@@ -666,10 +660,6 @@ impl Chain {
 
         chain_store_update.commit()?;
         Ok(())
-    }
-
-    fn save_block_hash_processed(&mut self, block_hash: CryptoHash) {
-        self.processed_hashes.put(block_hash, ());
     }
 
     fn save_block_height_processed(&mut self, block_height: BlockHeight) -> Result<(), Error> {
@@ -1227,8 +1217,9 @@ impl Chain {
                 .mark_block_dropped(&hash, DroppedReason::TooManyProcessingBlocks);
         }
         // Save the block as processed even if it failed. This is used to filter out the
-        // incoming blocks that are not requested but already processed.
-        self.save_block_hash_processed(hash);
+        // incoming blocks that are not requested on heights which we already processed.
+        // If there is a new incoming block that we didn't request and we already have height
+        // processed 'marked as true' - then we'll not even attempt to process it
         if let Err(e) = self.save_block_height_processed(block_height) {
             warn!(target: "chain", "Failed to save processed height {}: {}", block_height, e);
         }
@@ -1338,7 +1329,6 @@ impl Chain {
         for (shard_index, prev_chunk_header) in prev_chunk_headers.iter().enumerate() {
             let shard_id = shard_layout.get_shard_id(shard_index)?;
             let block_context = ApplyChunkBlockContext {
-                block_type: BlockType::Optimistic,
                 height: block_height,
                 // TODO: consider removing this field completely to avoid
                 // confusion with real block hash.
@@ -1695,7 +1685,7 @@ impl Chain {
                             "Process block: missing chunks"
                         );
                     }
-                    Error::BlockPendingOptimisticExecution => {
+                    Error::OptimisticBlockInProcessing => {
                         let block_hash = *block.hash();
                         self.blocks_delay_tracker.mark_block_pending_execution(&block_hash);
                         let orphan = Orphan { block, provenance, added: self.clock.now() };
@@ -1923,43 +1913,19 @@ impl Chain {
 
         if let Some(tip) = &new_head {
             // TODO: move this logic of tracking validators metrics to EpochManager
-            let mut block_producers_count = 0;
-            let mut chunk_producers_count = 0;
-            let mut chunk_validators_count = 0;
+            let mut count = 0;
             let mut stake = 0;
-
-            // Get block producers count
-            if let Ok(block_producers) =
-                self.epoch_manager.get_epoch_block_producers_ordered(&tip.epoch_id)
-            {
-                block_producers_count = block_producers.len();
-            }
-
-            // Get chunk producers count and total stake
             if let Ok(producers) = self.epoch_manager.get_epoch_chunk_producers(&tip.epoch_id) {
                 stake += producers.iter().map(|info| info.stake()).sum::<Balance>();
-                chunk_producers_count += producers.len();
-            }
-
-            // Get chunk validators count using validators_len
-            // Note: Currently all validators are chunk validators
-            if let Ok(epoch_info) = self.epoch_manager.get_epoch_info(&tip.epoch_id) {
-                chunk_validators_count = epoch_info.validators_len();
+                count += producers.len();
             }
 
             stake /= NEAR_BASE;
             metrics::VALIDATOR_AMOUNT_STAKED.set(i64::try_from(stake).unwrap_or(i64::MAX));
-            metrics::VALIDATOR_ACTIVE_TOTAL
-                .set(i64::try_from(chunk_producers_count).unwrap_or(i64::MAX));
-            metrics::VALIDATOR_BLOCK_PRODUCERS_TOTAL
-                .set(i64::try_from(block_producers_count).unwrap_or(i64::MAX));
-            metrics::VALIDATOR_CHUNK_PRODUCERS_TOTAL
-                .set(i64::try_from(chunk_producers_count).unwrap_or(i64::MAX));
-            metrics::VALIDATOR_CHUNK_VALIDATORS_TOTAL
-                .set(i64::try_from(chunk_validators_count).unwrap_or(i64::MAX));
+            metrics::VALIDATOR_ACTIVE_TOTAL.set(i64::try_from(count).unwrap_or(i64::MAX));
 
             self.last_time_head_updated = self.clock.now();
-        }
+        };
 
         metrics::BLOCK_PROCESSED_TOTAL.inc();
         metrics::BLOCK_PROCESSING_TIME.observe(
@@ -2896,7 +2862,7 @@ impl Chain {
         let transaction = self.chain_store.get_transaction(transaction_hash)?.ok_or_else(|| {
             Error::DBNotFoundErr(format!("Transaction {} is not found", transaction_hash))
         })?;
-        let transaction = SignedTransactionView::from(Arc::unwrap_or_clone(transaction));
+        let transaction: SignedTransactionView = SignedTransaction::clone(&transaction).into();
         let transaction_outcome = outcomes.pop().unwrap();
         Ok(FinalExecutionOutcomeView { status, transaction, transaction_outcome, receipts_outcome })
     }
@@ -2910,7 +2876,7 @@ impl Chain {
         let transaction = self.chain_store.get_transaction(transaction_hash)?.ok_or_else(|| {
             Error::DBNotFoundErr(format!("Transaction {} is not found", transaction_hash))
         })?;
-        let transaction = SignedTransactionView::from(Arc::unwrap_or_clone(transaction));
+        let transaction: SignedTransactionView = SignedTransaction::clone(&transaction).into();
 
         let mut outcomes = Vec::new();
         self.get_recursive_transaction_results(&mut outcomes, transaction_hash, false)?;
@@ -2997,33 +2963,24 @@ impl Chain {
             || self.epoch_manager.is_chunk_producer_for_epoch(&next_epoch_id, account_id)?)
     }
 
-    /// Check if the block should be pending execution, which means waiting
-    /// for optimistic block to be applied.
-    fn should_be_pending_execution(
+    /// Check if there is an optimistic block in processing corresponding to
+    /// the given block.
+    fn has_optimistic_block_in_processing(
         &self,
         block: &Block,
         cached_shard_update_keys: &[&CachedShardUpdateKey],
     ) -> bool {
-        // If there is no matching optimistic block in processing, return false
-        // immediately.
         if !self
             .blocks_in_processing
             .has_optimistic_block_with(block.header().height(), cached_shard_update_keys)
         {
             return false;
         }
-
-        // If we have optimistic block in processing and there are no pending
-        // blocks at this height, this block should be pending execution.
-        if !self.blocks_pending_execution.contains_key(&block.header().height()) {
-            return true;
-        }
-
-        // If there is already a pending block at this height, check if it is
-        // the same block. Otherwise we have multiple blocks at the same
-        // height. This is malicious case. To simplify behaviour, we process
-        // the block right away.
-        self.blocks_pending_execution.contains_block_hash(&block.hash())
+        // If there is already a pending block with given height which matches
+        // optimistic execution, this is very unlikely case relevant to epoch
+        // switch or malicious behaviour. To avoid getting stuck, allow only
+        // one of these blocks to be pending.
+        !self.blocks_pending_execution.contains_key(&block.header().height())
     }
 
     /// Creates jobs which will update shards for the given block and incoming
@@ -3074,8 +3031,8 @@ impl Chain {
         // Otherwise there could be data races where optimistic block gets
         // postprocessed in the meantime, in case of which block would never
         // leave the pending pool.
-        if self.should_be_pending_execution(&block, &cached_shard_update_keys) {
-            return Err(Error::BlockPendingOptimisticExecution);
+        if self.has_optimistic_block_in_processing(&block, &cached_shard_update_keys) {
+            return Err(Error::OptimisticBlockInProcessing);
         }
 
         for (shard_index, (block_context, cached_shard_update_key)) in
@@ -3231,11 +3188,9 @@ impl Chain {
         let is_new_chunk = chunk_header.is_new_chunk(block_height);
 
         if !cfg!(feature = "sandbox") {
-            if let Some(result) = self.apply_chunk_results_cache.peek(
-                &cached_shard_update_key,
-                shard_id,
-                matches!(block.block_type, BlockType::Normal),
-            ) {
+            if let Some(result) =
+                self.apply_chunk_results_cache.peek(&cached_shard_update_key, shard_id)
+            {
                 debug!(target: "chain", ?shard_id, ?cached_shard_update_key, "Using cached ShardUpdate result");
                 let result = result.clone();
                 return Ok(Some((
@@ -3294,12 +3249,11 @@ impl Chain {
             )?;
             let old_receipts = collect_receipts_from_response(&old_receipts);
             let receipts = [new_receipts, old_receipts].concat();
-            let transactions =
-                SignedValidPeriodTransactions::new(chunk.into_transactions(), tx_valid_list);
 
             ShardUpdateReason::NewChunk(NewChunkData {
                 chunk_header: chunk_header.clone(),
-                transactions,
+                transactions: chunk.into_transactions(),
+                transaction_validity_check_results: tx_valid_list,
                 receipts,
                 block,
                 storage_context,
@@ -3494,7 +3448,9 @@ impl Chain {
         self.chain_store.get_block(&tip.last_block_hash)
     }
 
-    pub fn get_chunk(&self, chunk_hash: &ChunkHash) -> Result<ShardChunk, Error> {
+    /// Gets a chunk from hash.
+    #[inline]
+    pub fn get_chunk(&self, chunk_hash: &ChunkHash) -> Result<Arc<ShardChunk>, Error> {
         self.chain_store.get_chunk(chunk_hash)
     }
 
@@ -3648,11 +3604,6 @@ impl Chain {
     #[inline]
     pub fn is_in_processing(&self, hash: &CryptoHash) -> bool {
         self.blocks_in_processing.contains(&BlockToApply::Normal(*hash))
-    }
-
-    #[inline]
-    pub fn is_hash_processed(&self, hash: &CryptoHash) -> bool {
-        self.processed_hashes.contains(hash)
     }
 
     #[inline]

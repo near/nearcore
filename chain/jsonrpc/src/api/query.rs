@@ -131,9 +131,6 @@ impl RpcFrom<QueryError> for RpcQueryError {
             QueryError::TooLargeContractState { contract_account_id, block_height, block_hash } => {
                 Self::TooLargeContractState { contract_account_id, block_height, block_hash }
             }
-            QueryError::NoGlobalContractCode { identifier, block_height, block_hash } => {
-                Self::NoGlobalContractCode { identifier, block_height, block_hash }
-            }
         }
     }
 }

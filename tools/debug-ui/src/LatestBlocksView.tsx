@@ -202,11 +202,7 @@ const BlocksTable = ({ rows, knownProducers, expandAll, hideMissingHeights }: Bl
         // this block. This is only useful during resharding, otherwise all
         // blocks have the same shard layout and shard ids.
         // TODO add some style
-        const empty = (
-            <Fragment>
-                <td colSpan={3}></td>
-            </Fragment>
-        );
+        const empty = <Fragment><td colSpan={3}></td></Fragment>;
 
         const block = row.block;
         const chunkCells = Array(numShards).fill(empty) as ReactElement[];
@@ -214,32 +210,24 @@ const BlocksTable = ({ rows, knownProducers, expandAll, hideMissingHeights }: Bl
             const shardId = chunk.shard_id;
             const shardUIIndex = shardIdToUIIndex.get(shardId);
 
-            const chunk_info = (
-                <HashElement
-                    hashValue={chunk.chunk_hash}
-                    creator={chunk.chunk_producer || ''}
-                    expandAll={expandAll}
-                    knownProducers={knownProducers}
-                />
-            );
-            const fragment = (
-                <Fragment key={shardId}>
-                    <td className={row.chunkSkipped[shardId] ? 'skipped-chunk' : ''}>
-                        {chunk_info}
-                    </td>
-                    <td>{(chunk.gas_used / (1024 * 1024 * 1024 * 1024)).toFixed(1)}</td>
-                    <td>{chunk.processing_time_ms}</td>
-                </Fragment>
-            );
+            const chunk_info = <HashElement
+                hashValue={chunk.chunk_hash}
+                creator={chunk.chunk_producer || ''}
+                expandAll={expandAll}
+                knownProducers={knownProducers}
+            />;
+            const fragment = <Fragment key={shardId}>
+                <td className={row.chunkSkipped[shardId] ? 'skipped-chunk' : ''}>{chunk_info}</td>
+                <td>{(chunk.gas_used / (1024 * 1024 * 1024 * 1024)).toFixed(1)}</td>
+                <td>{chunk.processing_time_ms}</td>
+            </Fragment>;
             chunkCells[shardUIIndex!] = fragment;
         }
 
         tableRows.push(
             <tr
                 key={block.block_hash}
-                className={`block-row ${
-                    row.block.is_on_canonical_chain ? '' : 'not-on-canonical-chain'
-                }`}>
+                className={`block-row ${row.block.is_on_canonical_chain ? '' : 'not-on-canonical-chain'}`}>
                 <td className="graph-node-cell">
                     <div
                         id={`graph-node-${i}`}
@@ -300,8 +288,7 @@ const calculateAvgBlockTime = (blocks: BlockTableRowBlock[]): number => {
     let totalTime = 0;
     let count = 0;
     for (let i = 1; i < blocks.length; i++) {
-        const timeDiff =
-            (blocks[i - 1].block.block_timestamp - blocks[i].block.block_timestamp) / 1e9;
+        const timeDiff = (blocks[i - 1].block.block_timestamp - blocks[i].block.block_timestamp) / 1e9;
         totalTime += timeDiff;
         count++;
     }
@@ -412,11 +399,10 @@ export const LatestBlocksView = ({ addr }: LatestBlockViewProps) => {
                 <div className="height-controller">
                     <span className="prompt">
                         {(() => {
-                            const blocksText = `${numBlocks == null ? '' : numBlocks} blocks`;
-                            let promptText =
-                                height == null
-                                    ? `Displaying most recent ${blocksText}`
-                                    : `Displaying ${blocksText} from height ${height}`;
+                            let blocksText = `${numBlocks == null ? '' : numBlocks} blocks`;
+                            let promptText = height == null ?
+                                `Displaying most recent ${blocksText}` :
+                                `Displaying ${blocksText} from height ${height}`;
                             if (mode != null && mode != 'all') {
                                 promptText += ` in mode ${mode}`;
                             }
@@ -435,7 +421,10 @@ export const LatestBlocksView = ({ addr }: LatestBlockViewProps) => {
                         value={numBlocksInInput}
                         onChange={(e) => setNumBlocksInInput(e.target.value)}
                     />
-                    <select value={modeInInput} onChange={(e) => setModeInInput(e.target.value)}>
+                    <select
+                        value={modeInInput}
+                        onChange={(e) => setModeInInput(e.target.value)}
+                    >
                         <option value="all">All</option>
                         <option value="first_block_miss">Jump To Block Miss</option>
                         <option value="first_chunk_miss">Jump To Chunk Miss</option>
@@ -452,19 +441,18 @@ export const LatestBlocksView = ({ addr }: LatestBlockViewProps) => {
                 </div>
                 {!!error && <div className="error">{(error as Error).stack}</div>}
                 <div className="missed-blocks">
-                    Missing blocks: {canonicalHeightCount - numCanonicalBlocks} {}
-                    Produced: {numCanonicalBlocks} {}
+                    Missing blocks: {canonicalHeightCount - numCanonicalBlocks} { }
+                    Produced: {numCanonicalBlocks} { }
                     Missing Rate:{' '}
                     {(
                         ((canonicalHeightCount - numCanonicalBlocks) / canonicalHeightCount) *
                         100
                     ).toFixed(2)}
-                    % {}
+                    % { }
                     Average Block Time:{' '}
                     {calculateAvgBlockTime(
                         rows.filter((row): row is BlockTableRowBlock => 'block' in row)
-                    ).toFixed(2)}
-                    s
+                    ).toFixed(2)}s
                 </div>
                 <button
                     onClick={() => {
@@ -493,8 +481,8 @@ export const LatestBlocksView = ({ addr }: LatestBlockViewProps) => {
                     <div className="missed-chunks">
                         {numChunksSkipped.map((numSkipped, shardId) => (
                             <div key={shardId}>
-                                Shard {shardId}: Missing chunks: {numSkipped} {}
-                                Produced: {numCanonicalBlocks - numSkipped} {}
+                                Shard {shardId}: Missing chunks: {numSkipped} { }
+                                Produced: {numCanonicalBlocks - numSkipped} { }
                                 Missing Rate: {((numSkipped / numCanonicalBlocks) * 100).toFixed(2)}
                                 %
                             </div>

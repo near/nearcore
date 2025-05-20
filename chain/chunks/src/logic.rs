@@ -214,7 +214,7 @@ pub fn persist_chunk(
         update.save_partial_chunk(partial_chunk);
     }
     if let Some(shard_chunk) = shard_chunk {
-        if !update.chunk_exists(&shard_chunk.chunk_hash())? {
+        if update.get_chunk(&shard_chunk.chunk_hash()).is_err() {
             update.save_chunk(shard_chunk);
         }
     }

@@ -1,10 +1,9 @@
 use std::cmp::Ordering;
 use std::collections::BinaryHeap;
-use std::sync::Arc;
-use std::sync::LazyLock;
-
-use parking_lot::Mutex;
+use std::sync::{Arc, Mutex};
 use time::ext::InstantExt;
+
+use std::sync::LazyLock;
 
 use crate::{Deadline, Duration, Instant, Utc};
 
@@ -162,23 +161,23 @@ impl FakeClock {
         Self(Arc::new(Mutex::new(FakeClockInner::new(utc))))
     }
     pub fn now(&self) -> Instant {
-        self.0.lock().now()
+        self.0.lock().unwrap().now()
     }
 
     pub fn now_utc(&self) -> Utc {
-        self.0.lock().now_utc()
+        self.0.lock().unwrap().now_utc()
     }
     pub fn advance(&self, d: Duration) {
-        self.0.lock().advance(d);
+        self.0.lock().unwrap().advance(d);
     }
     pub fn advance_until(&self, t: Instant) {
-        self.0.lock().advance_until(t);
+        self.0.lock().unwrap().advance_until(t);
     }
     pub fn clock(&self) -> Clock {
         Clock(ClockInner::Fake(self.clone()))
     }
     pub fn set_utc(&self, utc: Utc) {
-        self.0.lock().utc = utc;
+        self.0.lock().unwrap().utc = utc;
     }
 
     /// Cancel-safe.
@@ -187,7 +186,7 @@ impl FakeClock {
             return;
         }
         let receiver = {
-            let mut inner = self.0.lock();
+            let mut inner = self.0.lock().unwrap();
             let (sender, receiver) = tokio::sync::oneshot::channel();
             let waiter = ClockWaiterInHeap { waker: sender, deadline: inner.now() + d };
             inner.waiters.push(waiter);
@@ -199,7 +198,7 @@ impl FakeClock {
     /// Cancel-safe.
     pub async fn sleep_until(&self, t: Instant) {
         let receiver = {
-            let mut inner = self.0.lock();
+            let mut inner = self.0.lock().unwrap();
             if inner.now() >= t {
                 return;
             }
@@ -215,7 +214,8 @@ impl FakeClock {
     /// The returned instant is guaranteed to be <= any waiter that is currently
     /// waiting on the clock to advance.
     pub fn first_waiter(&self) -> Option<Instant> {
-        self.0.lock().waiters.peek().map(|waiter| waiter.deadline)
+        let inner = self.0.lock().unwrap();
+        inner.waiters.peek().map(|waiter| waiter.deadline)
     }
 }
 

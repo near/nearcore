@@ -18,10 +18,9 @@ use near_store::ShardTries;
 use near_store::genesis::GenesisStateApplier;
 use near_store::test_utils::TestTriesBuilder;
 use node_runtime::{ApplyState, Runtime, SignedValidPeriodTransactions};
-use parking_lot::{Condvar, Mutex};
 use random_config::random_config;
 use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
+use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
 use std::thread::JoinHandle;
 
@@ -234,7 +233,7 @@ impl RuntimeGroup {
 
         for signer in signers {
             res.signers.push(signer.clone());
-            res.mailboxes.0.lock().insert(signer.get_account_id(), Default::default());
+            res.mailboxes.0.lock().unwrap().insert(signer.get_account_id(), Default::default());
         }
         res.validators = validators;
         Arc::new(res)
@@ -296,6 +295,7 @@ impl RuntimeGroup {
                 .mailboxes
                 .0
                 .lock()
+                .unwrap()
                 .get_mut(transaction.transaction.signer_id())
                 .unwrap()
                 .incoming_transactions
@@ -329,7 +329,7 @@ impl RuntimeGroup {
             loop {
                 let account_id = runtime.account_id();
 
-                let mut mailboxes = group.mailboxes.0.lock();
+                let mut mailboxes = group.mailboxes.0.lock().unwrap();
                 loop {
                     if !mailboxes.get(&account_id).unwrap().is_empty() {
                         break;
@@ -337,19 +337,21 @@ impl RuntimeGroup {
                     if mailboxes.values().all(|m| m.is_empty()) {
                         return;
                     }
-                    group.mailboxes.1.wait(&mut mailboxes);
+                    mailboxes = group.mailboxes.1.wait(mailboxes).unwrap();
                 }
 
                 let mailbox = mailboxes.get_mut(&account_id).unwrap();
                 group
                     .executed_receipts
                     .lock()
+                    .unwrap()
                     .entry(account_id.clone())
                     .or_insert_with(Vec::new)
                     .extend(mailbox.incoming_receipts.clone());
                 group
                     .executed_transactions
                     .lock()
+                    .unwrap()
                     .entry(account_id.clone())
                     .or_insert_with(Vec::new)
                     .extend(mailbox.incoming_transactions.clone());
@@ -371,7 +373,7 @@ impl RuntimeGroup {
 
                 mailbox.incoming_receipts.clear();
                 mailbox.incoming_transactions.clear();
-                group.transaction_logs.lock().extend(execution_outcomes);
+                group.transaction_logs.lock().unwrap().extend(execution_outcomes);
                 for outgoing_receipts in outgoing_receipts {
                     let locked_other_mailbox =
                         mailboxes.get_mut(outgoing_receipts.receiver_id()).unwrap();
@@ -386,6 +388,7 @@ impl RuntimeGroup {
     pub fn get_receipt(&self, executing_runtime: &str, hash: &CryptoHash) -> Receipt {
         self.executed_receipts
             .lock()
+            .unwrap()
             .get(AccountIdRef::new_or_panic(executing_runtime))
             .expect("Runtime not found")
             .iter()
@@ -398,13 +401,14 @@ impl RuntimeGroup {
     pub fn get_transaction_log(&self, producer_hash: &CryptoHash) -> ExecutionOutcomeWithId {
         self.transaction_logs
             .lock()
+            .unwrap()
             .iter()
             .find_map(|tl| if &tl.id == producer_hash { Some(tl.clone()) } else { None })
             .expect("The execution log of the given receipt is missing")
     }
 
     pub fn get_receipt_debug(&self, hash: &CryptoHash) -> (AccountId, Receipt) {
-        for (executed_runtime, tls) in self.executed_receipts.lock().iter() {
+        for (executed_runtime, tls) in self.executed_receipts.lock().unwrap().iter() {
             if let Some(res) =
                 tls.iter().find_map(|r| if &r.get_hash() == hash { Some(r.clone()) } else { None })
             {

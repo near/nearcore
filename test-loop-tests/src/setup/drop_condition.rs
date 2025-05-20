@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use std::ops::Range;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use near_async::messaging::{CanSend, LateBoundSender};
 use near_async::test_loop::data::TestLoopData;
@@ -11,7 +11,6 @@ use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
 use near_primitives::types::{AccountId, BlockHeight, ShardId, ShardIndex};
 use near_vm_runner::logic::ProtocolVersion;
-use parking_lot::Mutex;
 
 use crate::utils::network::{
     block_dropper_by_height, chunk_endorsement_dropper, chunk_endorsement_dropper_by_hash,
@@ -88,7 +87,7 @@ impl CanSend<ShardsManagerRequestFromClient> for ClientToShardsManagerSender {
         if let ShardsManagerRequestFromClient::DistributeEncodedChunk { partial_chunk, .. } =
             &message
         {
-            let mut chunks_storage = self.chunks_storage.lock();
+            let mut chunks_storage = self.chunks_storage.lock().unwrap();
             chunks_storage.insert(partial_chunk.cloned_header());
         }
         // After maybe storing the chunk, send the message as usual.

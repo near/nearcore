@@ -156,7 +156,7 @@ impl TrieUpdate {
         // by the runtime are assumed to be non-malicious and we don't charge extra for them.
         if let Some(recorder) = &self.trie.recorder {
             if matches!(trie_key, TrieKey::ContractData { .. }) {
-                recorder.write().record_key_removal();
+                recorder.write().expect("no poison").record_key_removal();
             }
         }
 
@@ -187,19 +187,6 @@ impl TrieUpdate {
             AccountContract::None | AccountContract::GlobalByAccount(_) => None,
             AccountContract::Local(hash) | AccountContract::Global(hash) => Some(*hash),
         };
-        self.get(&key, AccessOptions::DEFAULT)
-            .map(|opt| opt.map(|code| ContractCode::new(code, code_hash)))
-    }
-
-    pub fn get_global_contract_code(
-        &self,
-        identifier: GlobalContractCodeIdentifier,
-    ) -> Result<Option<ContractCode>, StorageError> {
-        let code_hash = match identifier {
-            GlobalContractCodeIdentifier::CodeHash(hash) => Some(hash),
-            GlobalContractCodeIdentifier::AccountId(_) => None,
-        };
-        let key = TrieKey::GlobalContractCode { identifier };
         self.get(&key, AccessOptions::DEFAULT)
             .map(|opt| opt.map(|code| ContractCode::new(code, code_hash)))
     }

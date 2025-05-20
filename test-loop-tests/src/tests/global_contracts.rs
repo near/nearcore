@@ -162,7 +162,7 @@ fn test_global_contract_rpc_calls(deploy_mode: GlobalContractDeployMode) {
     env.deploy_global_contract(deploy_mode.clone());
     let target_account = env.account_shard_0.clone();
     let identifier = env.global_contract_identifier(&deploy_mode);
-    env.use_global_contract(&target_account, identifier.clone());
+    env.use_global_contract(&target_account, identifier);
     env.env.test_loop.run_for(Duration::seconds(2));
 
     let view_call_result = env.view_call_global_contract(&target_account);
@@ -170,9 +170,6 @@ fn test_global_contract_rpc_calls(deploy_mode: GlobalContractDeployMode) {
 
     let view_code_result = env.view_code(&target_account);
     assert_eq!(view_code_result.hash, *env.contract.hash());
-
-    let view_global_code_result = env.view_global_contract_code(identifier);
-    assert_eq!(view_global_code_result.hash, *env.contract.hash());
 
     env.shutdown();
 }
@@ -195,8 +192,7 @@ impl GlobalContractsTestEnv {
         let [account_shard_0, account_shard_1, deploy_account, rpc] =
             ["account0", "account2", "account", "rpc"].map(|acc| acc.parse::<AccountId>().unwrap());
 
-        let boundary_accounts = ["account1"].iter().map(|&a| a.parse().unwrap()).collect();
-        let shard_layout = ShardLayout::multi_shard_custom(boundary_accounts, 1);
+        let shard_layout = ShardLayout::simple_v1(&["account1"]);
         let block_and_chunk_producers = ["cp0", "cp1"];
         let chunk_validators_only = ["cv0", "cv1"];
         let validators_spec =
@@ -386,22 +382,6 @@ impl GlobalContractsTestEnv {
         let response = self
             .clients()
             .runtime_query(account, QueryRequest::ViewCode { account_id: account.clone() });
-        let QueryResponseKind::ViewCode(contract_code_view) = response.kind else { unreachable!() };
-        contract_code_view
-    }
-
-    fn view_global_contract_code(&self, identifier: GlobalContractIdentifier) -> ContractCodeView {
-        let query = match identifier {
-            GlobalContractIdentifier::CodeHash(code_hash) => {
-                QueryRequest::ViewGlobalContractCode { code_hash }
-            }
-            GlobalContractIdentifier::AccountId(account_id) => {
-                QueryRequest::ViewGlobalContractCodeByAccountId { account_id }
-            }
-        };
-        // account is required by `runtime_query` to resolve shard_id
-        let account = self.account_shard_0.clone();
-        let response = self.clients().runtime_query(&account, query);
         let QueryResponseKind::ViewCode(contract_code_view) = response.kind else { unreachable!() };
         contract_code_view
     }

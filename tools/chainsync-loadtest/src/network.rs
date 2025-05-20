@@ -22,11 +22,10 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::sharding::ShardChunkHeader;
 use nearcore::config::NearConfig;
-use parking_lot::Mutex;
 use rand::seq::SliceRandom;
 use rand::thread_rng;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
 use tokio::sync::oneshot;
 
 #[derive(Default, Debug)]
@@ -139,7 +138,7 @@ impl Network {
     pub async fn info(self: &Arc<Self>) -> anyhow::Result<Arc<NetworkInfo>> {
         let (send, recv) = oneshot::channel();
         {
-            let mut n = self.data.lock();
+            let mut n = self.data.lock().unwrap();
             if n.info_.num_connected_peers >= self.min_peers {
                 let _ = send.send(n.info_.clone());
             } else {
@@ -250,7 +249,7 @@ impl Network {
                 Ok(())
             }),
             network_info: Sender::from_async_fn(move |info: SetNetworkInfo| {
-                let mut n = data.lock();
+                let mut n = data.lock().unwrap();
                 n.info_ = Arc::new(info.0);
                 if n.info_.num_connected_peers < min_peers {
                     info!("connected = {}/{}", n.info_.num_connected_peers, min_peers);

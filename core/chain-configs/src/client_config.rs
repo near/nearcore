@@ -9,7 +9,6 @@ use near_primitives::version::Version;
 use near_time::Duration;
 use num_rational::Rational32;
 use std::cmp::{max, min};
-use std::num::NonZero;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
@@ -311,10 +310,6 @@ impl ReshardingHandle {
     pub fn stop(&self) -> () {
         self.keep_going.store(false, std::sync::atomic::Ordering::Relaxed);
     }
-
-    pub fn is_cancelled(&self) -> bool {
-        !self.get()
-    }
 }
 
 /// Configuration for resharding.
@@ -478,14 +473,6 @@ pub fn default_orphan_state_witness_pool_size() -> usize {
 /// the OrphanStateWitnessPool.
 pub fn default_orphan_state_witness_max_size() -> ByteSize {
     ByteSize::mb(40)
-}
-
-/// Returns the default value for the thread count associated with rpc-handler actor (currently
-/// handling incoming transactions and chunk endorsement validations).
-/// In the benchmarks no performance gains were observed when increasing the number of threads
-/// above half of available cores.
-pub fn default_rpc_handler_thread_count() -> usize {
-    std::thread::available_parallelism().unwrap_or(NonZero::new(16 as usize).unwrap()).get() / 2
 }
 
 /// Config for the Chunk Distribution Network feature.
@@ -732,7 +719,7 @@ impl ClientConfig {
             orphan_state_witness_pool_size: default_orphan_state_witness_pool_size(),
             orphan_state_witness_max_size: default_orphan_state_witness_max_size(),
             save_latest_witnesses: false,
-            transaction_request_handler_threads: default_rpc_handler_thread_count(),
+            transaction_request_handler_threads: 4,
         }
     }
 }
