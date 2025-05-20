@@ -1,12 +1,12 @@
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::AccountId;
+use schemars::json_schema;
 use serde_json::Value;
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct RpcSendTransactionRequest {
     #[serde(rename = "signed_tx_base64")]
-    #[schemars(with = "String")]
     pub signed_transaction: near_primitives::transaction::SignedTransaction,
     #[serde(default)]
     pub wait_until: near_primitives::views::TxExecutionStatus,
@@ -31,11 +31,31 @@ pub enum TransactionInfo {
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub enum SignedTransaction {
     #[serde(rename = "signed_tx_base64")]
-    #[schemars(with = "String")]
     SignedTransaction(near_primitives::transaction::SignedTransaction),
+}
+
+#[cfg(feature = "schemars")]
+impl schemars::JsonSchema for SignedTransaction {
+    fn schema_name() -> std::borrow::Cow<'static, str> {
+        "SignedTransactionEnum".to_string().into()
+    }
+
+    fn json_schema(generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
+        json_schema!({
+            "properties": {
+              "signed_tx_base64": {
+                "type": "string",
+                "format": "byte",
+              }
+            },
+            "required": [
+              "signed_tx_base64",
+            ],
+            "type": "object"
+          })
+    }
 }
 
 #[derive(thiserror::Error, Debug, Clone, serde::Serialize, serde::Deserialize)]

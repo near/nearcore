@@ -10098,7 +10098,7 @@
       "RpcSendTransactionRequest": {
         "properties": {
           "signed_tx_base64": {
-            "type": "string"
+            "$ref": "#/components/schemas/SignedTransaction"
           },
           "wait_until": {
             "allOf": [
@@ -10522,7 +10522,7 @@
       "RpcTransactionStatusRequest": {
         "anyOf": [
           {
-            "$ref": "#/components/schemas/SignedTransaction"
+            "$ref": "#/components/schemas/SignedTransactionEnum"
           },
           {
             "properties": {
@@ -10984,20 +10984,20 @@
         "type": "object"
       },
       "SignedTransaction": {
-        "oneOf": [
-          {
-            "additionalProperties": false,
-            "properties": {
-              "signed_tx_base64": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "signed_tx_base64"
-            ],
-            "type": "object"
+        "format": "byte",
+        "type": "string"
+      },
+      "SignedTransactionEnum": {
+        "properties": {
+          "signed_tx_base64": {
+            "format": "byte",
+            "type": "string"
           }
-        ]
+        },
+        "required": [
+          "signed_tx_base64"
+        ],
+        "type": "object"
       },
       "SignedTransactionView": {
         "properties": {
