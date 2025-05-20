@@ -122,6 +122,7 @@
         "freelists",
         "funcref",
         "functiontype",
+        "Futex",
         "Gbit",
         "gced",
         "Ggas",
