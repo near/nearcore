@@ -3521,7 +3521,7 @@
             "description": "Execution status. Contains the result in case of successful execution."
           },
           "tokens_burnt": {
-            "description": "The amount of tokens burnt corresponding to the burnt gas amount.\n This value doesn't always equal to the `gas_burnt` multiplied by the gas price, because\n the prepaid gas price might be lower than the actual gas price and it creates a deficit.",
+            "description": "The amount of tokens burnt corresponding to the burnt gas amount.\n This value doesn't always equal to the `gas_burnt` multiplied by the gas price, because\n the prepaid gas price might be lower than the actual gas price and it creates a deficit.\n `tokens_burnt` also contains the penalty subtracted from refunds, while\n `gas_burnt` only contains the gas that we actually burn for the execution.",
             "type": "string"
           }
         },
@@ -5823,7 +5823,7 @@
           },
           {
             "additionalProperties": false,
-            "description": "Transaction nonce must be `account[access_key].nonce + 1`.",
+            "description": "Transaction nonce must be strictly greater than `account[access_key].nonce`.",
             "properties": {
               "InvalidNonce": {
                 "properties": {
@@ -11776,13 +11776,6 @@
               "MemTrieLoadingError"
             ],
             "type": "object"
-          },
-          {
-            "description": "Indicates that a resharding operation on flat storage is already in progress,\n when it wasn't expected to be so.",
-            "enum": [
-              "FlatStorageReshardingAlreadyInProgress"
-            ],
-            "type": "string"
           }
         ]
       },
@@ -12076,6 +12069,10 @@
             "minimum": 0,
             "type": "integer"
           },
+          "saturating_float_to_int": {
+            "description": "See [VMConfig::saturating_float_to_int](crate::vm::Config::saturating_float_to_int).",
+            "type": "boolean"
+          },
           "storage_get_mode": {
             "allOf": [
               {
@@ -12099,6 +12096,7 @@
           "regular_op_cost",
           "vm_kind",
           "discard_custom_sections",
+          "saturating_float_to_int",
           "storage_get_mode",
           "fix_contract_loading_cost",
           "implicit_account_creation",
@@ -12283,6 +12281,35 @@
             },
             "required": [
               "NotEnoughChunkEndorsements"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Validator's last block proposal was for a protocol version older than\n the network's voted protocol version.",
+            "properties": {
+              "ProtocolVersionTooOld": {
+                "properties": {
+                  "network_version": {
+                    "format": "uint32",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "version": {
+                    "format": "uint32",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "version",
+                  "network_version"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "ProtocolVersionTooOld"
             ],
             "type": "object"
           }
