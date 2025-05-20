@@ -792,6 +792,8 @@ fn check_has_the_only_shard_state(
     }
     let mapped_shard_uid = get_shard_uid_mapping(&store.store(), the_only_shard_uid);
     if expect_shard_uid_is_mapped {
+        // XXX: disabling this makes slow_test_resharding_v3_stop_track_child_for_5_epochs_with_sibling_in_between
+        // pass
         assert_ne!(mapped_shard_uid, the_only_shard_uid);
     } else {
         assert_eq!(mapped_shard_uid, the_only_shard_uid);

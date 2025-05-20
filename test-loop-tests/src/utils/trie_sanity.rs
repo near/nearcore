@@ -250,8 +250,12 @@ fn assert_state_sanity(
             .get_view_trie_for_shard(shard_uid.shard_id(), &final_head.prev_block_hash, state_root)
             .unwrap();
         assert!(!trie.has_memtries());
-        let trie_state =
-            trie.lock_for_iter().iter().unwrap().collect::<Result<HashSet<_>, _>>().unwrap();
+        let trie_state = trie
+            .lock_for_iter()
+            .iter()
+            .unwrap()
+            .collect::<Result<HashSet<_>, _>>()
+            .expect(format!("Could not find root {state_root}, {shard_uid}").as_str());
         assert_state_equal(&memtrie_state, &trie_state, shard_uid, "memtrie and trie");
 
         let flat_storage_manager = client.chain.runtime_adapter.get_flat_storage_manager();
@@ -381,7 +385,8 @@ pub fn check_state_shard_uid_mapping_after_resharding(
         let (key, value) = kv.unwrap();
         let shard_uid = ShardUId::try_from_slice(&key[0..8]).unwrap();
         // Just after resharding, no State data must be keyed using children ShardUIds.
-        assert!(!shard_uid_mapping.contains_key(&shard_uid));
+        // XXX: This would no longer be true with the simultaneous refcounting.
+        // assert!(!shard_uid_mapping.contains_key(&shard_uid));
         if shard_uid != parent_shard_uid {
             continue;
         }
