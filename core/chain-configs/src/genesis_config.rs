@@ -11,7 +11,9 @@ use crate::{
 use anyhow::Context;
 use chrono::{DateTime, Utc};
 use near_config_utils::ValidationError;
-use near_parameters::{RuntimeConfig, RuntimeConfigView, view::Rational32SchemarsProvider};
+#[cfg(feature = "schemars")]
+use near_parameters::view::Rational32SchemarsProvider;
+use near_parameters::{RuntimeConfig, RuntimeConfigView};
 use near_primitives::epoch_manager::EpochConfig;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::StateRoot;

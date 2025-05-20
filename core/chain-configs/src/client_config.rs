@@ -2,6 +2,7 @@
 use crate::ExternalStorageLocation::GCS;
 use crate::MutableConfigValue;
 use bytesize::ByteSize;
+#[cfg(feature = "schemars")]
 use near_parameters::view::Rational32SchemarsProvider;
 use near_primitives::types::{
     AccountId, BlockHeight, BlockHeightDelta, Gas, NumBlocks, NumSeats, ShardId,
@@ -44,7 +45,8 @@ pub const DEFAULT_EXTERNAL_STORAGE_FALLBACK_THRESHOLD: u64 = 3;
 
 /// Describes the expected behavior of the node regarding shard tracking.
 /// If the node is an active validator, it will also track the shards it is responsible for as a validator.
-#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub enum TrackedShardsConfig {
     /// Tracks no shards (light client).
     NoShards,
@@ -339,7 +341,7 @@ pub struct ReshardingConfig {
     /// The soft limit on the size of a single batch. The batch size can be
     /// decreased if resharding is consuming too many resources and interfering
     /// with regular node operation.
-    #[schemars(with = "ByteSizeSchemarsProvider")]
+    #[cfg_attr(feature = "schemars", schemars(with = "ByteSizeSchemarsProvider"))]
     pub batch_size: ByteSize,
 
     /// The delay between writing batches to the db. The batch delay can be

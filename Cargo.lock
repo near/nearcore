@@ -4581,10 +4581,8 @@ dependencies = [
  "near-network",
  "near-o11y",
  "near-primitives",
- "schemars 1.0.0-alpha.17",
  "serde",
  "serde_json",
- "serde_with",
  "tokio",
  "tracing",
 ]
@@ -4631,14 +4629,10 @@ dependencies = [
 name = "near-jsonrpc-openapi-spec"
 version = "0.0.0"
 dependencies = [
- "near-account-id",
  "near-chain-configs",
  "near-crypto",
  "near-jsonrpc-primitives",
- "near-parameters",
  "near-primitives",
- "near-primitives-core",
- "near-time",
  "okapi",
  "schemars 1.0.0-alpha.17",
  "serde",

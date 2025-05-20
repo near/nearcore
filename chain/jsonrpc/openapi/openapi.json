@@ -1735,6 +1735,7 @@
               "DeployContract": {
                 "properties": {
                   "code": {
+                    "format": "bytes",
                     "type": "string"
                   }
                 },
@@ -1755,6 +1756,7 @@
               "FunctionCall": {
                 "properties": {
                   "args": {
+                    "format": "bytes",
                     "type": "string"
                   },
                   "deposit": {
@@ -1921,6 +1923,7 @@
               "DeployGlobalContract": {
                 "properties": {
                   "code": {
+                    "format": "bytes",
                     "type": "string"
                   }
                 },
@@ -1941,6 +1944,7 @@
               "DeployGlobalContractByAccountId": {
                 "properties": {
                   "code": {
+                    "format": "bytes",
                     "type": "string"
                   }
                 },
@@ -10287,6 +10291,7 @@
                     "type": "string"
                   },
                   "key_prefix_base64": {
+                    "format": "bytes",
                     "type": "string"
                   }
                 },
@@ -11502,9 +11507,11 @@
                     "$ref": "#/components/schemas/AccountId"
                   },
                   "key_base64": {
+                    "format": "bytes",
                     "type": "string"
                   },
                   "value_base64": {
+                    "format": "bytes",
                     "type": "string"
                   }
                 },
@@ -11536,6 +11543,7 @@
                     "$ref": "#/components/schemas/AccountId"
                   },
                   "key_base64": {
+                    "format": "bytes",
                     "type": "string"
                   }
                 },

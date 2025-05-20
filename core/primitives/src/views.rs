@@ -59,6 +59,7 @@ use std::ops::Range;
 use std::sync::Arc;
 use strum::IntoEnumIterator;
 use validator_stake_view::ValidatorStakeView;
+
 /// A view of the account
 #[derive(serde::Serialize, serde::Deserialize, Debug, Eq, PartialEq, Clone)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
@@ -230,7 +231,7 @@ pub struct ViewStateResult {
     pub values: Vec<StateItem>,
     #[serde_as(as = "Vec<Base64>")]
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    #[cfg_attr(feature = "schemars", schemars(with = "String"))]
+    #[cfg_attr(feature = "schemars", schemars(with = "Vec<String>"))]
     pub proof: Vec<Arc<[u8]>>,
 }
 
@@ -1216,7 +1217,10 @@ pub enum ActionView {
     CreateAccount,
     DeployContract {
         #[serde_as(as = "Base64")]
-        #[cfg_attr(feature = "schemars", schemars(with = "String"))]
+        #[cfg_attr(
+            feature = "schemars",
+            schemars(schema_with = "crate::serialize::base64_schema")
+        )]
         code: Vec<u8>,
     },
     FunctionCall {
@@ -1254,12 +1258,18 @@ pub enum ActionView {
     },
     DeployGlobalContract {
         #[serde_as(as = "Base64")]
-        #[cfg_attr(feature = "schemars", schemars(with = "String"))]
+        #[cfg_attr(
+            feature = "schemars",
+            schemars(schema_with = "crate::serialize::base64_schema")
+        )]
         code: Vec<u8>,
     },
     DeployGlobalContractByAccountId {
         #[serde_as(as = "Base64")]
-        #[cfg_attr(feature = "schemars", schemars(with = "String"))]
+        #[cfg_attr(
+            feature = "schemars",
+            schemars(schema_with = "crate::serialize::base64_schema")
+        )]
         code: Vec<u8>,
     },
     UseGlobalContract {

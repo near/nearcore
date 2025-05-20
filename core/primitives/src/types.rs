@@ -83,7 +83,7 @@ pub struct AccountInfo {
 #[serde(transparent)]
 pub struct StoreKey(
     #[serde_as(as = "Base64")]
-    #[cfg_attr(feature = "schemars", schemars(with = "String"))]
+    #[cfg_attr(feature = "schemars", schemars(schema_with = "crate::serialize::base64_schema"))]
     Vec<u8>,
 );
 
@@ -109,7 +109,7 @@ pub struct StoreKey(
 #[serde(transparent)]
 pub struct StoreValue(
     #[serde_as(as = "Base64")]
-    #[cfg_attr(feature = "schemars", schemars(with = "String"))]
+    #[cfg_attr(feature = "schemars", schemars(schema_with = "crate::serialize::base64_schema"))]
     Vec<u8>,
 );
 
@@ -136,7 +136,7 @@ pub struct StoreValue(
 #[serde(transparent)]
 pub struct FunctionArgs(
     #[serde_as(as = "Base64")]
-    #[cfg_attr(feature = "schemars", schemars(with = "String"))]
+    #[cfg_attr(feature = "schemars", schemars(schema_with = "crate::serialize::base64_schema"))]
     Vec<u8>,
 );
 
