@@ -77,12 +77,14 @@ impl TrieStateResharder {
         Self { runtime, handle, resharding_config }
     }
 
-    //
+    // Processes one batch of a trie state resharding and updates the status,
+    // also persisting the status to the store.
     fn process_batch_and_update_status(
         &self,
         status: &mut TrieStateReshardingStatus,
     ) -> Result<(), Error> {
         let batch_size = self.resharding_config.get().batch_size.as_u64() as usize;
+        let batch_delay = self.resharding_config.get().batch_delay.unsigned_abs();
         while let Some(child) = status.children.first_mut() {
             let mut store_update = self.runtime.store().store_update();
             let next_key = next_batch(
@@ -97,7 +99,6 @@ impl TrieStateResharder {
             if let Some(metrics) = &child.metrics {
                 metrics.inc_processed_batches();
             }
-
             if let Some(next_key) = next_key {
                 child.next_key = next_key;
             } else {
@@ -117,6 +118,10 @@ impl TrieStateResharder {
                 );
             }
             store_update.commit()?;
+
+            // Sleep between batches in order to throttle resharding and leave some resource for the
+            // regular node operation.
+            std::thread::sleep(batch_delay);
         }
 
         Ok(())
