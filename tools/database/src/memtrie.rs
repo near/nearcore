@@ -1,10 +1,11 @@
 use crate::utils::open_rocksdb;
 use anyhow::Context;
-use bytesize::ByteSize;
+use near_async::messaging::{IntoMultiSender, noop};
 use near_chain::resharding::event_type::ReshardingSplitShardParams;
-use near_chain::resharding::flat_storage_resharder::FlatStorageResharder;
+use near_chain::resharding::manager::ReshardingManager;
 use near_chain::types::RuntimeAdapter;
-use near_chain_configs::{GenesisValidationMode, ReshardingHandle};
+use near_chain::{ChainStore, ChainStoreAccess};
+use near_chain_configs::GenesisValidationMode;
 use near_epoch_manager::{EpochManager, EpochManagerAdapter};
 use near_o11y::default_subscriber;
 use near_o11y::env_filter::EnvFilterBuilder;
@@ -17,13 +18,11 @@ use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::{
-    AccountId, BlockHeight, EpochId, ProtocolVersion, ShardId, ValidatorInfoIdentifier,
+    AccountId, BlockHeight, EpochId, ProtocolVersion, ShardId, StateRoot, ValidatorInfoIdentifier,
 };
 use near_primitives::views::EpochValidatorInfo;
 use near_store::adapter::StoreAdapter;
-use near_store::flat::FlatStorageStatus;
-use near_store::trie::mem::loading::{get_state_root, load_trie_from_flat_state};
-use near_store::{DBCol, HEAD_KEY, ShardUId, Store, StoreUpdate};
+use near_store::{DBCol, HEAD_KEY, ShardTries, ShardUId, StoreUpdate};
 use nearcore::{NightshadeRuntime, NightshadeRuntimeExt};
 use std::path::Path;
 use std::sync::Arc;
@@ -110,8 +109,9 @@ impl SplitShardTrieCommand {
     ) -> anyhow::Result<()> {
         let env_filter = EnvFilterBuilder::from_env().verbose(Some("memtrie")).finish()?;
         let _subscriber = default_subscriber(env_filter, &Default::default()).global();
-        let near_config = nearcore::config::load_config(&home, genesis_validation)
+        let mut near_config = nearcore::config::load_config(&home, genesis_validation)
             .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
+        near_config.config.store.load_memtries_for_tracked_shards = true;
         let genesis_config = &near_config.genesis.config;
 
         let rocksdb = Arc::new(open_rocksdb(home, near_store::Mode::ReadOnly)?);
@@ -136,19 +136,19 @@ impl SplitShardTrieCommand {
         let runtime =
             NightshadeRuntime::from_config(home, store.clone(), &near_config, epoch_manager)
                 .context("could not create the transaction runtime")?;
-        println!("Creating flat storage for shard {}...", self.shard_uid);
-        runtime.get_flat_storage_manager().create_flat_storage_for_shard(self.shard_uid)?;
-        println!("Flat storage created");
+        let shard_tries = runtime.get_tries();
+        println!("Loading memtrie for shard {}...", self.shard_uid);
+        shard_tries.load_memtrie(&self.shard_uid, None, false)?;
+        println!("Memtrie loaded");
 
         let epoch_manager = DummyEpochManager::new(shard_layout);
-        let resharding_handle = ReshardingHandle::new();
-        let mut resharding_config_override = near_config.config.resharding_config;
-        resharding_config_override.batch_size = ByteSize::tb(1);
-        let resharding_config = near_config.client_config.resharding_config.clone();
-        resharding_config.update(resharding_config_override);
-        let resharder =
-            FlatStorageResharder::new(epoch_manager, runtime, resharding_handle, resharding_config);
+        let sender = noop().into_multi_sender();
+        let resharding_manager = ReshardingManager::new(store.clone(), epoch_manager, sender);
 
+        let mut chain_store =
+            ChainStore::new(store, true, near_config.genesis.config.transaction_validity_period);
+        let block = chain_store.get_block(&final_head.prev_block_hash)?;
+        let chain_store_update = chain_store.store_update();
         let split_params = ReshardingSplitShardParams {
             parent_shard: self.shard_uid,
             left_child_shard,
@@ -158,11 +158,22 @@ impl SplitShardTrieCommand {
         };
 
         println!("Splitting shard {} at account {}...", self.shard_uid, self.boundary_account);
-        resharder.start_resharding_blocking(&split_params)?;
+        resharding_manager.split_shard(
+            chain_store_update,
+            &block,
+            self.shard_uid,
+            shard_tries.clone(),
+            split_params,
+        )?;
         println!("Resharding done");
 
-        let left_size = get_shard_trie_size(&store, left_child_shard)?;
-        let right_size = get_shard_trie_size(&store, right_child_shard)?;
+        let left_extra = chain_store.get_chunk_extra(block.hash(), &left_child_shard)?;
+        let right_extra = chain_store.get_chunk_extra(block.hash(), &right_child_shard)?;
+
+        let left_size =
+            get_shard_trie_size(&shard_tries, left_child_shard, left_extra.state_root())?;
+        let right_size =
+            get_shard_trie_size(&shard_tries, right_child_shard, right_extra.state_root())?;
         println!("Left child size: {left_size} bytes");
         println!("Right child size: {right_size} bytes");
 
@@ -170,17 +181,18 @@ impl SplitShardTrieCommand {
     }
 }
 
-fn get_shard_trie_size(store: &Store, shard_uid: ShardUId) -> anyhow::Result<u64> {
-    let flat_storage_status = store.flat_store().get_flat_storage_status(shard_uid)?;
-    let flat_head = match flat_storage_status {
-        FlatStorageStatus::Ready(status) => status.flat_head,
-        _ => anyhow::bail!("Flat storage status not ready"),
-    };
-    let state_root = get_state_root(&store, flat_head.hash, shard_uid)?;
-    let memtries =
-        load_trie_from_flat_state(&store, shard_uid, state_root, flat_head.height, true)?;
-    let root = memtries.get_root(&state_root)?.view();
-    Ok(root.memory_usage())
+fn get_shard_trie_size(
+    tries: &ShardTries,
+    shard_uid: ShardUId,
+    state_root: &StateRoot,
+) -> anyhow::Result<u64> {
+    Ok(tries
+        .get_memtries(shard_uid)
+        .ok_or_else(|| anyhow::anyhow!("Cannot get memtrie"))?
+        .read()
+        .get_root(state_root)?
+        .view()
+        .memory_usage())
 }
 
 struct DummyEpochManager {
