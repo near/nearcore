@@ -312,6 +312,7 @@ pub enum ProtocolFeature {
     /// Move from ChunkStateWitness being a single struct to a versioned enum.
     VersionedStateWitness,
     SaturatingFloatToInt,
+    BulkMemoryRefTypes,
 }
 
 impl ProtocolFeature {
@@ -406,7 +407,9 @@ impl ProtocolFeature {
             ProtocolFeature::SimpleNightshadeV6
             | ProtocolFeature::VersionedStateWitness
             | ProtocolFeature::SaturatingFloatToInt
-            | ProtocolFeature::ReducedGasRefunds => 78,
+            | ProtocolFeature::ReducedGasRefunds
+            | ProtocolFeature::BulkMemoryRefTypes => 78,
+
             // Nightly features:
             ProtocolFeature::FixContractLoadingCost => 129,
             // TODO(#11201): When stabilizing this feature in mainnet, also remove the temporary code
