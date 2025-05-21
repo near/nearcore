@@ -1,5 +1,7 @@
 use clap::Parser;
 use indicatif::{ProgressBar, ProgressIterator};
+use near_primitives::epoch_manager::EpochConfigStore;
+use near_primitives::version::PROTOCOL_VERSION;
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::flat_store::FlatStoreAdapter;
 use std::collections::BTreeMap;
@@ -8,7 +10,7 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use near_primitives::shard_layout::{ShardLayout, ShardUId};
+use near_primitives::shard_layout::ShardUId;
 use near_primitives::state::ValueRef;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
@@ -165,7 +167,12 @@ impl PerfContext {
 
 fn generate_state_requests(store: FlatStoreAdapter, samples: usize) -> Vec<(ShardUId, ValueRef)> {
     eprintln!("Generate {samples} requests to State");
-    let shard_uids = ShardLayout::get_simple_nightshade_layout().shard_uids().collect::<Vec<_>>();
+    let epoch_config_store = EpochConfigStore::for_chain_id("mainnet", None).unwrap();
+    let shard_uids = epoch_config_store
+        .get_config(PROTOCOL_VERSION)
+        .shard_layout
+        .shard_uids()
+        .collect::<Vec<_>>();
     let num_shards = shard_uids.len();
     let mut ret = Vec::new();
     let progress = ProgressBar::new(samples as u64);

@@ -1,11 +1,17 @@
+"""
+This is an abstraction over the node.
+The actual implementation differs between local and remote nodes.
+"""
 import pathlib
 import requests
 import sys
 import time
+from typing import Optional, Self
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 from configured_logger import logger
+from cmd_utils import ScheduleContext
 
 
 class NodeHandle:
@@ -15,6 +21,17 @@ class NodeHandle:
         self.can_validate = can_validate
         self.want_state_dump = want_state_dump
         self.want_neard_runner = True
+        self.schedule_ctx = None
+
+    def with_schedule_ctx(self,
+                          schedule_ctx: Optional[ScheduleContext]) -> Self:
+        """
+        Sets the schedule context in the node.
+        If schedule is set, all the commands will be scheduled.
+        If schedule is not set, all the commands will be executed now.
+        """
+        self.schedule_ctx = schedule_ctx
+        return self
 
     def name(self):
         return self.node.name()
@@ -36,7 +53,8 @@ class NodeHandle:
         self.node.update_python()
 
     def run_cmd(self, cmd, raise_on_fail=False, return_on_fail=False):
-        return self.node.run_cmd(cmd, raise_on_fail, return_on_fail)
+        return self.node.run_cmd(self.schedule_ctx, cmd, raise_on_fail,
+                                 return_on_fail)
 
     def upload_file(self, src, dst):
         return self.node.upload_file(src, dst)
@@ -84,16 +102,16 @@ class NodeHandle:
             'id': 'dontcare',
             'jsonrpc': '2.0'
         }
-        return self.node.neard_runner_post(body)
+        return self.node.neard_runner_post(self.schedule_ctx, body)
 
     def neard_runner_jsonrpc(self, method, params=[]):
         response = self.neard_runner_jsonrpc_nocheck(method, params)
-        if 'error' in response:
+        if response.get('error', None) is not None:
             # TODO: errors should be handled better here in general but just exit for now
             sys.exit(
                 f'bad response trying to send {method} JSON RPC to neard runner on {self.node.name()}:\n{response}'
             )
-        return response['result']
+        return response.get('result', None)
 
     def neard_runner_start(self, batch_interval_millis=None):
         if batch_interval_millis is None:
@@ -166,20 +184,16 @@ class NodeHandle:
             })
 
     def neard_update_config(self, key_value):
-        return self.neard_runner_jsonrpc(
-            'update_config',
-            params={
-                "key_value": key_value,
-            },
-        )
+        return self.neard_runner_jsonrpc('update_config',
+                                         params={
+                                             "key_value": key_value,
+                                         })
 
     def neard_update_env(self, key_value):
-        return self.neard_runner_jsonrpc(
-            'add_env',
-            params={
-                "key_values": key_value,
-            },
-        )
+        return self.neard_runner_jsonrpc('add_env',
+                                         params={
+                                             "key_values": key_value,
+                                         })
 
     def neard_clear_env(self):
         return self.neard_runner_jsonrpc('clear_env')

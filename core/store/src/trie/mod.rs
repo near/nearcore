@@ -659,6 +659,11 @@ impl Trie {
         self.recorder.as_ref().map(|recorder| recorder.write().recorded_storage())
     }
 
+    /// Takes the recorded state as trie changes out of the trie.
+    pub fn recorded_trie_changes(&self, state_root: CryptoHash) -> Option<TrieChanges> {
+        self.recorder.as_ref().map(|recorder| recorder.write().recorded_trie_changes(state_root))
+    }
+
     /// Returns the in-memory size of the recorded state proof. Useful for checking size limit of state witness
     pub fn recorded_storage_size(&self) -> usize {
         self.recorder
@@ -1768,7 +1773,7 @@ pub struct TrieWithReadLock<'a> {
 }
 
 impl<'a> TrieWithReadLock<'a> {
-    /// Obtains an iterator that can be used to traverse any range in the trie.
+    /// Obtains an iterator that can be used to traverse the trie.
     /// If memtries are present, returns an iterator that traverses the memtrie.
     /// Otherwise, it falls back to an iterator that traverses the on-disk trie.
     pub fn iter(&self) -> Result<TrieIterator<'_>, StorageError> {

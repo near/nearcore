@@ -98,19 +98,6 @@ pub fn shard_uids_to_ids(shard_uids: &[ShardUId]) -> Vec<ShardId> {
     shard_uids.iter().map(|shard_uid| shard_uid.shard_id()).collect_vec()
 }
 
-fn new_shard_ids_vec(shard_ids: Vec<u64>) -> Vec<ShardId> {
-    shard_ids.into_iter().map(Into::into).collect()
-}
-
-fn new_shards_split_map(shards_split_map: Vec<Vec<u64>>) -> ShardsSplitMap {
-    shards_split_map.into_iter().map(new_shard_ids_vec).collect()
-}
-
-#[allow(dead_code)]
-fn new_shards_split_map_v2(shards_split_map: BTreeMap<u64, Vec<u64>>) -> ShardsSplitMapV2 {
-    shards_split_map.into_iter().map(|(k, v)| (k.into(), new_shard_ids_vec(v))).collect()
-}
-
 #[derive(
     BorshSerialize,
     BorshDeserialize,
@@ -461,22 +448,10 @@ impl ShardLayout {
             index_to_id_map.insert(shard_index, shard_id);
         }
 
-        let Some(shards_split_map) = shards_split_map else {
-            return Self::V2(ShardLayoutV2 {
-                boundary_accounts,
-                shard_ids,
-                id_to_index_map,
-                index_to_id_map,
-                shards_split_map: None,
-                shards_parent_map: None,
-                version: VERSION,
-            });
-        };
+        let shards_parent_map = shards_split_map.as_ref().map(|shards_split_map| {
+            validate_and_derive_shard_parent_map_v2(&shard_ids, &shards_split_map)
+        });
 
-        let shards_parent_map =
-            validate_and_derive_shard_parent_map_v2(&shard_ids, &shards_split_map);
-        let shards_split_map = Some(shards_split_map);
-        let shards_parent_map = Some(shards_parent_map);
         Self::V2(ShardLayoutV2 {
             boundary_accounts,
             shard_ids,
@@ -486,106 +461,6 @@ impl ShardLayout {
             shards_parent_map,
             version: VERSION,
         })
-    }
-
-    /// Returns the simple nightshade layout that we use in production
-    pub fn get_simple_nightshade_layout() -> ShardLayout {
-        #[allow(deprecated)]
-        ShardLayout::v1(
-            vec!["aurora", "aurora-0", "kkuuue2akv_1630967379.near"]
-                .into_iter()
-                .map(|s| s.parse().unwrap())
-                .collect(),
-            Some(new_shards_split_map(vec![vec![0, 1, 2, 3]])),
-            1,
-        )
-    }
-
-    /// Returns the simple nightshade layout, version 2, that will be used in production.
-    pub fn get_simple_nightshade_layout_v2() -> ShardLayout {
-        #[allow(deprecated)]
-        ShardLayout::v1(
-            vec!["aurora", "aurora-0", "kkuuue2akv_1630967379.near", "tge-lockup.sweat"]
-                .into_iter()
-                .map(|s| s.parse().unwrap())
-                .collect(),
-            Some(new_shards_split_map(vec![vec![0], vec![1], vec![2], vec![3, 4]])),
-            2,
-        )
-    }
-
-    /// Returns the simple nightshade layout, version 3, that will be used in production.
-    pub fn get_simple_nightshade_layout_v3() -> ShardLayout {
-        #[allow(deprecated)]
-        ShardLayout::v1(
-            vec![
-                "aurora",
-                "aurora-0",
-                "game.hot.tg",
-                "kkuuue2akv_1630967379.near",
-                "tge-lockup.sweat",
-            ]
-            .into_iter()
-            .map(|s| s.parse().unwrap())
-            .collect(),
-            Some(new_shards_split_map(vec![vec![0], vec![1], vec![2, 3], vec![4], vec![5]])),
-            3,
-        )
-    }
-
-    /// Returns the simple nightshade layout, version 4, that will be used in
-    /// production. It adds a new boundary account "game.hot.tg".
-    ///
-    /// This is the first layout used in the Resharding V3 and it is the first
-    /// one where the arbitrary shard ids are used.
-    pub fn get_simple_nightshade_layout_v4() -> ShardLayout {
-        let base_shard_layout = Self::get_simple_nightshade_layout_v3();
-        let new_boundary_account = "game.hot.tg-0".parse().unwrap();
-        ShardLayout::derive_shard_layout(&base_shard_layout, new_boundary_account)
-    }
-
-    /// Returns the simple nightshade layout, version 5, that will be used in
-    /// production. It adds a new boundary account "earn.kaiching".
-    pub fn get_simple_nightshade_layout_v5() -> ShardLayout {
-        let base_shard_layout = Self::get_simple_nightshade_layout_v4();
-        let new_boundary_account = "earn.kaiching".parse().unwrap();
-        ShardLayout::derive_shard_layout(&base_shard_layout, new_boundary_account)
-    }
-
-    /// Returns the simple nightshade layout, version 6, with new boundary account "750".
-    pub fn get_simple_nightshade_layout_v6() -> ShardLayout {
-        let base_shard_layout = Self::get_simple_nightshade_layout_v5();
-        let new_boundary_account = "750".parse().unwrap();
-        ShardLayout::derive_shard_layout(&base_shard_layout, new_boundary_account)
-    }
-
-    /// This layout is used only in resharding tests. It allows testing of any features which were
-    /// introduced after the last layout upgrade in production. Currently, it is built on top of V3.
-    #[cfg(feature = "nightly")]
-    pub fn get_simple_nightshade_layout_testonly() -> ShardLayout {
-        #[allow(deprecated)]
-        ShardLayout::v1(
-            vec![
-                "aurora",
-                "aurora-0",
-                "game.hot.tg",
-                "kkuuue2akv_1630967379.near",
-                "nightly",
-                "tge-lockup.sweat",
-            ]
-            .into_iter()
-            .map(|s| s.parse().unwrap())
-            .collect(),
-            Some(new_shards_split_map(vec![
-                vec![0],
-                vec![1],
-                vec![2],
-                vec![3],
-                vec![4, 5],
-                vec![6],
-            ])),
-            4,
-        )
     }
 
     /// Maps an account to the shard_id that it belongs to in this shard_layout
@@ -820,6 +695,11 @@ impl ShardLayout {
         }
     }
 
+    pub fn get_shard_uid(&self, shard_index: ShardIndex) -> Result<ShardUId, ShardLayoutError> {
+        let shard_id = self.get_shard_id(shard_index)?;
+        Ok(ShardUId::from_shard_id_and_layout(shard_id, self))
+    }
+
     /// Returns all the shards from the previous shard layout that were
     /// split into multiple shards in this shard layout.
     pub fn get_split_parent_shard_ids(&self) -> Result<BTreeSet<ShardId>, ShardLayoutError> {
@@ -966,7 +846,6 @@ pub fn get_block_shard_uid(block_hash: &CryptoHash, shard_uid: &ShardUId) -> Vec
 }
 
 /// Deserialize from a byte representation to (block, shard_uid)
-#[allow(unused)]
 pub fn get_block_shard_uid_rev(
     key: &[u8],
 ) -> Result<(CryptoHash, ShardUId), Box<dyn std::error::Error + Send + Sync>> {
@@ -1101,37 +980,27 @@ impl ShardInfo {
 #[cfg(test)]
 mod tests {
     use crate::epoch_manager::EpochConfigStore;
-    use crate::shard_layout::{
-        ShardLayout, ShardLayoutV1, ShardUId, new_shard_ids_vec, new_shards_split_map,
-    };
+    use crate::shard_layout::{ShardLayout, ShardUId};
     use itertools::Itertools;
     use near_primitives_core::types::ProtocolVersion;
     use near_primitives_core::types::{AccountId, ShardId};
-    use near_primitives_core::version::ProtocolFeature;
     use rand::distributions::Alphanumeric;
     use rand::rngs::StdRng;
     use rand::{Rng, SeedableRng};
     use std::collections::{BTreeMap, HashMap};
 
-    use super::{ShardVersion, ShardsSplitMap, new_shards_split_map_v2};
+    use super::{ShardsSplitMap, ShardsSplitMapV2};
 
-    // The old ShardLayoutV1, before fixed shards were removed. tests only
-    #[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq, Eq)]
-    pub struct OldShardLayoutV1 {
-        /// num_shards = fixed_shards.len() + boundary_accounts.len() + 1
-        /// Each account and all sub-accounts map to the shard of position in this array.
-        fixed_shards: Vec<AccountId>,
-        /// The rest are divided by boundary_accounts to ranges, each range is mapped to a shard
-        boundary_accounts: Vec<AccountId>,
-        /// Maps shards from the last shard layout to shards that it splits to in this shard layout,
-        /// Useful for constructing states for the shards.
-        /// None for the genesis shard layout
-        shards_split_map: Option<ShardsSplitMap>,
-        /// Maps shard in this shard layout to their parent shard
-        /// Since shard_ids always range from 0 to num_shards - 1, we use vec instead of a hashmap
-        to_parent_shard_map: Option<Vec<ShardId>>,
-        /// Version of the shard layout, this is useful for uniquely identify the shard layout
-        version: ShardVersion,
+    fn new_shard_ids_vec(shard_ids: Vec<u64>) -> Vec<ShardId> {
+        shard_ids.into_iter().map(Into::into).collect()
+    }
+
+    fn new_shards_split_map(shards_split_map: Vec<Vec<u64>>) -> ShardsSplitMap {
+        shards_split_map.into_iter().map(new_shard_ids_vec).collect()
+    }
+
+    fn new_shards_split_map_v2(shards_split_map: BTreeMap<u64, Vec<u64>>) -> ShardsSplitMapV2 {
+        shards_split_map.into_iter().map(|(k, v)| (k.into(), new_shard_ids_vec(v))).collect()
     }
 
     impl ShardLayout {
@@ -1176,9 +1045,11 @@ mod tests {
         let aid = |s: &str| s.parse().unwrap();
         let sid = |s: u64| ShardId::new(s);
 
+        let boundary_accounts =
+            ["aurora", "bar", "foo", "foo.baz", "paz"].iter().map(|a| a.parse().unwrap()).collect();
         #[allow(deprecated)]
         let shard_layout = ShardLayout::v1(
-            parse_account_ids(&["aurora", "bar", "foo", "foo.baz", "paz"]),
+            boundary_accounts,
             Some(new_shards_split_map(vec![vec![0, 1, 2], vec![3, 4, 5]])),
             1,
         );
@@ -1211,33 +1082,6 @@ mod tests {
         assert_eq!(shard_layout.account_id_to_shard_id(&aid("foo.goo")), sid(4));
         assert_eq!(shard_layout.account_id_to_shard_id(&aid("goo")), sid(4));
         assert_eq!(shard_layout.account_id_to_shard_id(&aid("zoo")), sid(5));
-    }
-
-    // check that after removing the fixed shards from the shard layout v1
-    // the fixed shards are skipped in deserialization
-    // this should be the default as long as serde(deny_unknown_fields) is not set
-    #[test]
-    fn test_remove_fixed_shards() {
-        let old = OldShardLayoutV1 {
-            fixed_shards: vec![],
-            boundary_accounts: parse_account_ids(&["aaa", "bbb"]),
-            shards_split_map: Some(new_shards_split_map(vec![vec![0, 1, 2]])),
-            to_parent_shard_map: Some(new_shard_ids_vec(vec![0, 0, 0])),
-            version: 1,
-        };
-        let json = serde_json::to_string_pretty(&old).unwrap();
-        println!("json");
-        println!("{json:#?}");
-
-        let new = serde_json::from_str::<ShardLayoutV1>(json.as_str()).unwrap();
-        assert_eq!(old.boundary_accounts, new.boundary_accounts);
-        assert_eq!(old.shards_split_map, new.shards_split_map);
-        assert_eq!(old.to_parent_shard_map, new.to_parent_shard_map);
-        assert_eq!(old.version, new.version);
-    }
-
-    fn parse_account_ids(ids: &[&str]) -> Vec<AccountId> {
-        ids.into_iter().map(|a| a.parse().unwrap()).collect()
     }
 
     #[test]
@@ -1301,391 +1145,6 @@ mod tests {
         let shards_split_map = Some(shards_split_map);
 
         ShardLayout::v2(boundary_accounts, shard_ids, shards_split_map)
-    }
-
-    #[test]
-    fn test_shard_layout_all() {
-        #[allow(deprecated)]
-        let v0 = ShardLayout::v0(1, 0);
-        let v1 = ShardLayout::get_simple_nightshade_layout();
-        let v2 = ShardLayout::get_simple_nightshade_layout_v2();
-        let v3 = ShardLayout::get_simple_nightshade_layout_v3();
-        let v4 = ShardLayout::get_simple_nightshade_layout_v4();
-        let v5 = ShardLayout::get_simple_nightshade_layout_v5();
-        let v6 = ShardLayout::get_simple_nightshade_layout_v6();
-
-        insta::assert_snapshot!(serde_json::to_string_pretty(&v0).unwrap(), @r###"
-        {
-          "V0": {
-            "num_shards": 1,
-            "version": 0
-          }
-        }
-        "###);
-        insta::assert_snapshot!(serde_json::to_string_pretty(&v1).unwrap(), @r###"
-        {
-          "V1": {
-            "boundary_accounts": [
-              "aurora",
-              "aurora-0",
-              "kkuuue2akv_1630967379.near"
-            ],
-            "shards_split_map": [
-              [
-                0,
-                1,
-                2,
-                3
-              ]
-            ],
-            "to_parent_shard_map": [
-              0,
-              0,
-              0,
-              0
-            ],
-            "version": 1
-          }
-        }
-        "###);
-        insta::assert_snapshot!(serde_json::to_string_pretty(&v2).unwrap(), @r###"
-        {
-          "V1": {
-            "boundary_accounts": [
-              "aurora",
-              "aurora-0",
-              "kkuuue2akv_1630967379.near",
-              "tge-lockup.sweat"
-            ],
-            "shards_split_map": [
-              [
-                0
-              ],
-              [
-                1
-              ],
-              [
-                2
-              ],
-              [
-                3,
-                4
-              ]
-            ],
-            "to_parent_shard_map": [
-              0,
-              1,
-              2,
-              3,
-              3
-            ],
-            "version": 2
-          }
-        }
-        "###);
-        insta::assert_snapshot!(serde_json::to_string_pretty(&v3).unwrap(), @r###"
-        {
-          "V1": {
-            "boundary_accounts": [
-              "aurora",
-              "aurora-0",
-              "game.hot.tg",
-              "kkuuue2akv_1630967379.near",
-              "tge-lockup.sweat"
-            ],
-            "shards_split_map": [
-              [
-                0
-              ],
-              [
-                1
-              ],
-              [
-                2,
-                3
-              ],
-              [
-                4
-              ],
-              [
-                5
-              ]
-            ],
-            "to_parent_shard_map": [
-              0,
-              1,
-              2,
-              2,
-              3,
-              4
-            ],
-            "version": 3
-          }
-        }
-        "###);
-
-        insta::assert_snapshot!(serde_json::to_string_pretty(&v4).unwrap(), @r###"
-        {
-          "V2": {
-            "boundary_accounts": [
-              "aurora",
-              "aurora-0",
-              "game.hot.tg",
-              "game.hot.tg-0",
-              "kkuuue2akv_1630967379.near",
-              "tge-lockup.sweat"
-            ],
-            "shard_ids": [
-              0,
-              1,
-              2,
-              6,
-              7,
-              4,
-              5
-            ],
-            "id_to_index_map": {
-              "0": 0,
-              "1": 1,
-              "2": 2,
-              "4": 5,
-              "5": 6,
-              "6": 3,
-              "7": 4
-            },
-            "index_to_id_map": {
-              "0": 0,
-              "1": 1,
-              "2": 2,
-              "3": 6,
-              "4": 7,
-              "5": 4,
-              "6": 5
-            },
-            "shards_split_map": {
-              "0": [
-                0
-              ],
-              "1": [
-                1
-              ],
-              "2": [
-                2
-              ],
-              "3": [
-                6,
-                7
-              ],
-              "4": [
-                4
-              ],
-              "5": [
-                5
-              ]
-            },
-            "shards_parent_map": {
-              "0": 0,
-              "1": 1,
-              "2": 2,
-              "4": 4,
-              "5": 5,
-              "6": 3,
-              "7": 3
-            },
-            "version": 3
-          }
-        }
-        "###);
-
-        insta::assert_snapshot!(serde_json::to_string_pretty(&v5).unwrap(), @r###"
-        {
-          "V2": {
-            "boundary_accounts": [
-              "aurora",
-              "aurora-0",
-              "earn.kaiching",
-              "game.hot.tg",
-              "game.hot.tg-0",
-              "kkuuue2akv_1630967379.near",
-              "tge-lockup.sweat"
-            ],
-            "shard_ids": [
-              0,
-              1,
-              8,
-              9,
-              6,
-              7,
-              4,
-              5
-            ],
-            "id_to_index_map": {
-              "0": 0,
-              "1": 1,
-              "4": 6,
-              "5": 7,
-              "6": 4,
-              "7": 5,
-              "8": 2,
-              "9": 3
-            },
-            "index_to_id_map": {
-              "0": 0,
-              "1": 1,
-              "2": 8,
-              "3": 9,
-              "4": 6,
-              "5": 7,
-              "6": 4,
-              "7": 5
-            },
-            "shards_split_map": {
-              "0": [
-                0
-              ],
-              "1": [
-                1
-              ],
-              "2": [
-                8,
-                9
-              ],
-              "4": [
-                4
-              ],
-              "5": [
-                5
-              ],
-              "6": [
-                6
-              ],
-              "7": [
-                7
-              ]
-            },
-            "shards_parent_map": {
-              "0": 0,
-              "1": 1,
-              "4": 4,
-              "5": 5,
-              "6": 6,
-              "7": 7,
-              "8": 2,
-              "9": 2
-            },
-            "version": 3
-          }
-        }
-        "###);
-
-        insta::assert_snapshot!(serde_json::to_string_pretty(&v6).unwrap(), @r###"
-        {
-          "V2": {
-            "boundary_accounts": [
-              "750",
-              "aurora",
-              "aurora-0",
-              "earn.kaiching",
-              "game.hot.tg",
-              "game.hot.tg-0",
-              "kkuuue2akv_1630967379.near",
-              "tge-lockup.sweat"
-            ],
-            "shard_ids": [
-              10,
-              11,
-              1,
-              8,
-              9,
-              6,
-              7,
-              4,
-              5
-            ],
-            "id_to_index_map": {
-              "1": 2,
-              "10": 0,
-              "11": 1,
-              "4": 7,
-              "5": 8,
-              "6": 5,
-              "7": 6,
-              "8": 3,
-              "9": 4
-            },
-            "index_to_id_map": {
-              "0": 10,
-              "1": 11,
-              "2": 1,
-              "3": 8,
-              "4": 9,
-              "5": 6,
-              "6": 7,
-              "7": 4,
-              "8": 5
-            },
-            "shards_split_map": {
-              "0": [
-                10,
-                11
-              ],
-              "1": [
-                1
-              ],
-              "4": [
-                4
-              ],
-              "5": [
-                5
-              ],
-              "6": [
-                6
-              ],
-              "7": [
-                7
-              ],
-              "8": [
-                8
-              ],
-              "9": [
-                9
-              ]
-            },
-            "shards_parent_map": {
-              "1": 1,
-              "10": 0,
-              "11": 0,
-              "4": 4,
-              "5": 5,
-              "6": 6,
-              "7": 7,
-              "8": 8,
-              "9": 9
-            },
-            "version": 3
-          }
-        }
-        "###);
-    }
-
-    #[test]
-    fn test_shard_layout_for_protocol_version() {
-        assert_eq!(
-            ShardLayout::get_simple_nightshade_layout(),
-            ShardLayout::for_protocol_version(ProtocolFeature::SimpleNightshade.protocol_version())
-        );
-        assert_eq!(
-            ShardLayout::get_simple_nightshade_layout_v2(),
-            ShardLayout::for_protocol_version(
-                ProtocolFeature::SimpleNightshadeV2.protocol_version()
-            )
-        );
-        assert_eq!(
-            ShardLayout::get_simple_nightshade_layout_v3(),
-            ShardLayout::for_protocol_version(
-                ProtocolFeature::SimpleNightshadeV3.protocol_version()
-            )
-        );
     }
 
     #[test]

@@ -5,7 +5,6 @@ use crate::analyze_delayed_receipt::AnalyzeDelayedReceiptCommand;
 use crate::analyze_gas_usage::AnalyzeGasUsageCommand;
 use crate::analyze_high_load::HighLoadStatsCommand;
 use crate::compact::RunCompactionCommand;
-use crate::corrupt::CorruptStateSnapshotCommand;
 use crate::drop_column::DropColumnCommand;
 use crate::make_snapshot::MakeSnapshotCommand;
 use crate::memtrie::LoadMemTrieCommand;
@@ -37,9 +36,6 @@ enum SubCommand {
 
     /// Run SST file compaction on database
     CompactDatabase(RunCompactionCommand),
-
-    /// Corrupt the state snapshot.
-    CorruptStateSnapshot(CorruptStateSnapshotCommand),
 
     /// Drop a column from the database.
     DropColumn(DropColumnCommand),
@@ -81,7 +77,6 @@ impl DatabaseCommand {
             SubCommand::AnalyzeGasUsage(cmd) => cmd.run(home, genesis_validation),
             SubCommand::ChangeDbKind(cmd) => cmd.run(home, genesis_validation),
             SubCommand::CompactDatabase(cmd) => cmd.run(home),
-            SubCommand::CorruptStateSnapshot(cmd) => cmd.run(home),
             SubCommand::DropColumn(cmd) => cmd.run(home, genesis_validation),
             SubCommand::MakeSnapshot(cmd) => {
                 let near_config = load_config(home, genesis_validation);
