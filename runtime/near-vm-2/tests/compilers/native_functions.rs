@@ -2,7 +2,7 @@
 
 use anyhow::Result;
 use near_vm_2_engine::RuntimeError;
-use near_vm_test_api::*;
+use near_vm_2_test_api::*;
 use std::convert::Infallible;
 use std::sync::{Arc, Mutex};
 

@@ -1,6 +1,6 @@
 //! This file is mainly to assure specific issues are working well
 use anyhow::Result;
-use near_vm_test_api::*;
+use near_vm_2_test_api::*;
 
 #[derive(Clone)]
 struct Env {

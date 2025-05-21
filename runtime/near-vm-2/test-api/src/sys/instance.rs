@@ -82,7 +82,7 @@ impl Instance {
     /// [`ImportObject`]: crate::ImportObject
     ///
     /// ```
-    /// # use near_vm_test_api::{imports, Store, Module, Global, Value, Instance, InstanceConfig};
+    /// # use near_vm_2_test_api::{imports, Store, Module, Global, Value, Instance, InstanceConfig};
     /// # fn main() -> anyhow::Result<()> {
     /// let store = Store::default();
     /// let module = Module::new(&store, "(module)")?;

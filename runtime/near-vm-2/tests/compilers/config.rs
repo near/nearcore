@@ -1,6 +1,6 @@
 use near_vm_2_compiler::{CompilerConfig, Features};
 use near_vm_2_engine::universal::UniversalEngine;
-use near_vm_test_api::Store;
+use near_vm_2_test_api::Store;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Compiler {

@@ -62,7 +62,7 @@ impl Module {
     /// Reading from a WAT file.
     ///
     /// ```
-    /// use near_vm_test_api::*;
+    /// use near_vm_2_test_api::*;
     /// # fn main() -> anyhow::Result<()> {
     /// # let store = Store::default();
     /// let wat = "(module)";
@@ -74,7 +74,7 @@ impl Module {
     /// Reading from bytes:
     ///
     /// ```
-    /// use near_vm_test_api::*;
+    /// use near_vm_2_test_api::*;
     /// # fn main() -> anyhow::Result<()> {
     /// # let store = Store::default();
     /// // The following is the same as:

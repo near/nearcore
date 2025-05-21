@@ -1149,7 +1149,7 @@ impl InstanceHandle {
 /// - This function must be called with the correct `Err` type parameter: the error type is not
 ///   visible to code in `near_vm_vm`, so it's the caller's responsibility to ensure these
 ///   functions are called with the correct type.
-/// - `instance_ptr` must point to a valid `near_vm_test_api::Instance`.
+/// - `instance_ptr` must point to a valid `near_vm_2_test_api::Instance`.
 #[tracing::instrument(target = "near_vm", level = "trace", skip_all)]
 pub unsafe fn initialize_host_envs<Err: Sized>(
     handle: &parking_lot::Mutex<InstanceHandle>,

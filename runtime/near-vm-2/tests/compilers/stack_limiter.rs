@@ -1,6 +1,6 @@
 use near_vm_2_compiler_singlepass::Singlepass;
 use near_vm_2_engine::universal::{MemoryPool, Universal};
-use near_vm_test_api::*;
+use near_vm_2_test_api::*;
 use near_vm_2_types::InstanceConfig;
 use near_vm_2_vm::TrapCode;
 

@@ -58,7 +58,7 @@ impl Global {
     /// # Example
     ///
     /// ```
-    /// # use near_vm_test_api::{Global, Store, Value};
+    /// # use near_vm_2_test_api::{Global, Store, Value};
     /// # let store = Store::default();
     /// #
     /// let g = Global::new(&store, Value::I32(1));
@@ -74,7 +74,7 @@ impl Global {
     /// # Example
     ///
     /// ```
-    /// # use near_vm_test_api::{Global, Store, Value};
+    /// # use near_vm_2_test_api::{Global, Store, Value};
     /// # let store = Store::default();
     /// #
     /// let g = Global::new(&store, Value::I32(1));
@@ -90,7 +90,7 @@ impl Global {
     /// # Example
     ///
     /// ```
-    /// # use near_vm_test_api::{Global, Store, Value};
+    /// # use near_vm_2_test_api::{Global, Store, Value};
     /// # let store = Store::default();
     /// #
     /// let g = Global::new_mut(&store, Value::I32(1));
@@ -107,7 +107,7 @@ impl Global {
     /// Trying to mutate an immutable global will raise an error:
     ///
     /// ```should_panic
-    /// # use near_vm_test_api::{Global, Store, Value};
+    /// # use near_vm_2_test_api::{Global, Store, Value};
     /// # let store = Store::default();
     /// #
     /// let g = Global::new(&store, Value::I32(1));
@@ -118,7 +118,7 @@ impl Global {
     /// Trying to set a value of an incompatible type will raise an error:
     ///
     /// ```should_panic
-    /// # use near_vm_test_api::{Global, Store, Value};
+    /// # use near_vm_2_test_api::{Global, Store, Value};
     /// # let store = Store::default();
     /// #
     /// let g = Global::new(&store, Value::I32(1));

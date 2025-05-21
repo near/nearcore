@@ -1,5 +1,5 @@
 use anyhow::Result;
-use near_vm_test_api::*;
+use near_vm_2_test_api::*;
 
 #[compiler_test(serialize)]
 fn test_serialize(config: crate::Config) -> Result<()> {
