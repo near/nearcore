@@ -22,7 +22,9 @@ use near_primitives::types::{
 };
 use near_primitives::views::EpochValidatorInfo;
 use near_store::adapter::StoreAdapter;
-use near_store::{DBCol, HEAD_KEY, ShardTries, ShardUId, StoreUpdate};
+use near_store::db::RocksDB;
+use near_store::db::rocksdb::snapshot::Snapshot;
+use near_store::{DBCol, HEAD_KEY, Mode, ShardTries, ShardUId, StoreUpdate, Temperature};
 use nearcore::{NightshadeRuntime, NightshadeRuntimeExt};
 use std::path::Path;
 use std::sync::Arc;
@@ -114,7 +116,21 @@ impl SplitShardTrieCommand {
         near_config.config.store.load_memtries_for_tracked_shards = true;
         let genesis_config = &near_config.genesis.config;
 
-        let rocksdb = Arc::new(open_rocksdb(home, near_store::Mode::ReadOnly)?);
+        println!("Creating database snapshot...");
+        let db_path =
+            near_config.config.store.path.as_ref().cloned().unwrap_or_else(|| home.join("data"));
+        let snapshot =
+            Snapshot::new(db_path.as_path(), &near_config.config.store, Temperature::Hot)?;
+        let snapshot_path =
+            snapshot.0.as_ref().ok_or_else(|| anyhow::anyhow!("Snapshot not created"))?;
+        println!("Database snapshot created at {}", snapshot_path.display());
+
+        let rocksdb = Arc::new(RocksDB::open(
+            snapshot_path,
+            &near_config.config.store,
+            Mode::ReadWrite,
+            Temperature::Hot,
+        )?);
         let store = near_store::NodeStorage::new(rocksdb).get_hot_store();
         let final_head = store.chain_store().final_head()?;
 
@@ -148,6 +164,14 @@ impl SplitShardTrieCommand {
         let mut chain_store =
             ChainStore::new(store, true, near_config.genesis.config.transaction_validity_period);
         let block = chain_store.get_block(&final_head.prev_block_hash)?;
+        let parent_extra = chain_store.get_chunk_extra(block.hash(), &self.shard_uid)?;
+        let parent_size =
+            get_shard_trie_size(&shard_tries, self.shard_uid, parent_extra.state_root())?;
+        println!(
+            "Parent shard state_root: {} size: {parent_size} bytes",
+            parent_extra.state_root()
+        );
+
         let chain_store_update = chain_store.store_update();
         let split_params = ReshardingSplitShardParams {
             parent_shard: self.shard_uid,
@@ -174,8 +198,10 @@ impl SplitShardTrieCommand {
             get_shard_trie_size(&shard_tries, left_child_shard, left_extra.state_root())?;
         let right_size =
             get_shard_trie_size(&shard_tries, right_child_shard, right_extra.state_root())?;
-        println!("Left child size: {left_size} bytes");
-        println!("Right child size: {right_size} bytes");
+        println!("Left child state root: {} size: {left_size} bytes", left_extra.state_root());
+        println!("Right child state root: {} size: {right_size} bytes", right_extra.state_root());
+
+        snapshot.remove()?;
 
         Ok(())
     }

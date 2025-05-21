@@ -10,7 +10,7 @@ pub mod metadata;
 mod mixeddb;
 mod recoverydb;
 pub mod refcount;
-pub(crate) mod rocksdb;
+pub mod rocksdb;
 mod slice;
 mod splitdb;
 mod testdb;
