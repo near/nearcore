@@ -17,8 +17,8 @@ use crate::{
 };
 use crate::{NoContractRuntimeCache, prepare};
 use finite_wasm::Fee;
-use finite_wasm_6::wasmparser as wp;
 use finite_wasm_6 as finite_wasm;
+use finite_wasm_6::wasmparser as wp;
 use memoffset::offset_of;
 use near_parameters::RuntimeFeesConfig;
 use near_parameters::vm::VMKind;

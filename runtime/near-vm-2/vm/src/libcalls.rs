@@ -497,7 +497,10 @@ pub unsafe extern "C" fn near_vm_2_imported_table_grow(
 ///
 /// * `vmctx` must be dereferenceable.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn near_vm_2_func_ref(vmctx: *mut VMContext, function_index: u32) -> VMFuncRef {
+pub unsafe extern "C" fn near_vm_2_func_ref(
+    vmctx: *mut VMContext,
+    function_index: u32,
+) -> VMFuncRef {
     let instance = unsafe { (&*vmctx).instance() };
     let function_index = FunctionIndex::from_u32(function_index);
 

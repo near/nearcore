@@ -9,9 +9,9 @@ pub mod logic;
 #[cfg(feature = "metrics")]
 mod metrics;
 #[cfg(all(feature = "near_vm", target_arch = "x86_64"))]
-mod near_vm_runner;
-#[cfg(all(feature = "near_vm", target_arch = "x86_64"))]
 mod near_vm_2_runner;
+#[cfg(all(feature = "near_vm", target_arch = "x86_64"))]
+mod near_vm_runner;
 #[cfg(feature = "prepare")]
 pub mod prepare;
 mod profile;
