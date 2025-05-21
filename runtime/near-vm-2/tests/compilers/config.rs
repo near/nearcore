@@ -1,5 +1,5 @@
 use near_vm_2_compiler::{CompilerConfig, Features};
-use near_vm_engine::universal::UniversalEngine;
+use near_vm_2_engine::universal::UniversalEngine;
 use near_vm_test_api::Store;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -45,8 +45,8 @@ impl Config {
     }
 
     pub fn engine(&self, compiler_config: Box<dyn CompilerConfig>) -> UniversalEngine {
-        let mut engine = near_vm_engine::universal::Universal::new(compiler_config)
-            .code_memory_pool(near_vm_engine::universal::MemoryPool::new(4, 16 * 4096).unwrap());
+        let mut engine = near_vm_2_engine::universal::Universal::new(compiler_config)
+            .code_memory_pool(near_vm_2_engine::universal::MemoryPool::new(4, 16 * 4096).unwrap());
         if let Some(ref features) = self.features {
             engine = engine.features(features.clone())
         }
@@ -54,7 +54,7 @@ impl Config {
     }
 
     pub fn engine_headless(&self) -> UniversalEngine {
-        near_vm_engine::universal::Universal::headless().engine()
+        near_vm_2_engine::universal::Universal::headless().engine()
     }
 
     pub fn compiler_config(&self, canonicalize_nans: bool) -> Box<dyn CompilerConfig> {

@@ -1,7 +1,7 @@
 use crate::sys::tunables::BaseTunables;
 #[cfg(all(feature = "compiler", feature = "engine"))]
 use near_vm_2_compiler::CompilerConfig;
-use near_vm_engine::universal::UniversalEngine;
+use near_vm_2_engine::universal::UniversalEngine;
 use near_vm_2_vm::Tunables;
 use std::fmt;
 use std::sync::Arc;
@@ -84,8 +84,8 @@ impl Default for Store {
         fn get_engine(mut config: impl CompilerConfig + 'static) -> UniversalEngine {
             cfg_if::cfg_if! {
                 if #[cfg(feature = "default-universal")] {
-                    let pool = near_vm_engine::universal::MemoryPool::new(1, 0x10000).unwrap();
-                    near_vm_engine::universal::Universal::new(config)
+                    let pool = near_vm_2_engine::universal::MemoryPool::new(1, 0x10000).unwrap();
+                    near_vm_2_engine::universal::Universal::new(config)
                         .code_memory_pool(pool)
                         .engine()
                 } else if #[cfg(feature = "default-dylib")] {

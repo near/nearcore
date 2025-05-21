@@ -31,7 +31,7 @@ pub enum Extern {
 }
 
 impl Extern {
-    /// Create an `Extern` from an `near_vm_engine::Export`.
+    /// Create an `Extern` from an `near_vm_2_engine::Export`.
     pub fn from_vm_export(store: &Store, export: Export) -> Self {
         match export {
             Export::Function(f) => Self::Function(Function::from_vm_export(store, f)),

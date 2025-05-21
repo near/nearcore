@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use near_vm_2_compiler::CompileError;
-use near_vm_engine::universal::{MemoryPool, Universal};
+use near_vm_2_engine::universal::{MemoryPool, Universal};
 use near_vm_test_api::*;
 use near_vm_2_vm::Artifact;
 
@@ -16,7 +16,7 @@ fn compile_uncached<'a>(
     engine: &'a UniversalEngine,
     code: &'a [u8],
     time: bool,
-) -> Result<near_vm_engine::universal::UniversalExecutable, CompileError> {
+) -> Result<near_vm_2_engine::universal::UniversalExecutable, CompileError> {
     use std::time::Instant;
     let now = Instant::now();
     engine.validate(code)?;
@@ -82,7 +82,7 @@ fn profiling() {
         Ok(art) => unsafe {
             let serialized = art.serialize().unwrap();
             let executable =
-                near_vm_engine::universal::UniversalExecutableRef::deserialize(&serialized)
+                near_vm_2_engine::universal::UniversalExecutableRef::deserialize(&serialized)
                     .unwrap();
             let artifact = engine.load_universal_executable_ref(&executable).unwrap();
             let info = artifact

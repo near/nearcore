@@ -12,7 +12,7 @@ use std::marker::PhantomData;
 use super::externals::function::{DynamicFunction, VMDynamicFunction};
 use super::externals::{FromToNativeWasmType, Function, WasmTypeList};
 use super::store::Store;
-use near_vm_engine::RuntimeError;
+use near_vm_2_engine::RuntimeError;
 use near_vm_2_types::NativeWasmType;
 use near_vm_2_vm::{
     ExportFunction, VMDynamicFunctionContext, VMFunctionBody, VMFunctionEnvironment, VMFunctionKind,

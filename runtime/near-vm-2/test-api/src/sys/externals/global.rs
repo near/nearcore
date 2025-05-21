@@ -3,7 +3,7 @@ use super::super::store::{Store, StoreObject};
 use super::super::types::GlobalType;
 use super::super::types::Mutability;
 use super::super::types::Val;
-use near_vm_engine::RuntimeError;
+use near_vm_2_engine::RuntimeError;
 use near_vm_2_vm::{Export, Global as RuntimeGlobal, VMGlobal};
 use std::fmt;
 use std::sync::Arc;

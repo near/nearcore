@@ -31,4 +31,4 @@ pub use wat::parse_bytes as wat2wasm;
 pub use near_vm_compiler_singlepass::Singlepass;
 
 #[cfg(feature = "universal")]
-pub use near_vm_engine::universal::{Universal, UniversalArtifact, UniversalEngine};
+pub use near_vm_2_engine::universal::{Universal, UniversalArtifact, UniversalEngine};

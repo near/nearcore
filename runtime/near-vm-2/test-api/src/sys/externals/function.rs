@@ -6,7 +6,7 @@ use super::super::store::Store;
 use super::super::types::FunctionType;
 use super::super::types::{Val, ValFuncRef};
 pub use inner::{FromToNativeWasmType, HostFunction, WasmTypeList, WithEnv, WithoutEnv};
-use near_vm_engine::RuntimeError;
+use near_vm_2_engine::RuntimeError;
 
 use near_vm_2_vm::{
     Export, ExportFunction, ExportFunctionMetadata, ImportInitializerFuncPtr, TableElement,

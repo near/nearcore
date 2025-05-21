@@ -3,7 +3,7 @@ use super::exports::ExportError;
 use super::externals::WasmTypeList;
 use super::module::Module;
 use super::native::NativeFunc;
-use near_vm_engine::{LinkError, RuntimeError};
+use near_vm_2_engine::{LinkError, RuntimeError};
 use near_vm_2_vm::{Export, InstanceHandle, Resolver};
 use parking_lot::{Mutex, MutexGuard};
 use std::sync::Arc;
@@ -53,12 +53,12 @@ pub enum InstantiationError {
     HostEnvInitialization(HostEnvInitError),
 }
 
-impl From<near_vm_engine::InstantiationError> for InstantiationError {
-    fn from(other: near_vm_engine::InstantiationError) -> Self {
+impl From<near_vm_2_engine::InstantiationError> for InstantiationError {
+    fn from(other: near_vm_2_engine::InstantiationError) -> Self {
         match other {
-            near_vm_engine::InstantiationError::Link(e) => Self::Link(e),
-            near_vm_engine::InstantiationError::Start(e) => Self::Start(e),
-            near_vm_engine::InstantiationError::CpuFeature(e) => Self::CpuFeature(e),
+            near_vm_2_engine::InstantiationError::Link(e) => Self::Link(e),
+            near_vm_2_engine::InstantiationError::Start(e) => Self::Start(e),
+            near_vm_2_engine::InstantiationError::CpuFeature(e) => Self::CpuFeature(e),
         }
     }
 }

@@ -5,7 +5,7 @@ use super::store::Store;
 use near_vm_2_compiler::CompileError;
 #[cfg(feature = "wat")]
 use near_vm_2_compiler::WasmError;
-use near_vm_engine::RuntimeError;
+use near_vm_2_engine::RuntimeError;
 use near_vm_2_types::InstanceConfig;
 use near_vm_2_vm::{InstanceHandle, Instantiatable, Resolver};
 use std::fmt;
@@ -34,7 +34,7 @@ pub enum IoCompileError {
 #[derive(Clone)]
 pub struct Module {
     store: Store,
-    artifact: Arc<near_vm_engine::universal::UniversalArtifact>,
+    artifact: Arc<near_vm_2_engine::universal::UniversalArtifact>,
 }
 
 impl Module {

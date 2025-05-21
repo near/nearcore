@@ -6,7 +6,7 @@
 #![allow(dependency_on_unit_never_type_fallback)]
 
 use anyhow::Result;
-use near_vm_engine::RuntimeError;
+use near_vm_2_engine::RuntimeError;
 use near_vm_test_api::*;
 use std::panic::{self, AssertUnwindSafe};
 
