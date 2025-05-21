@@ -95,54 +95,54 @@ impl TrieStateResharder {
     ) -> Result<(), Error> {
         let batch_size = self.resharding_config.get().batch_size.as_u64() as usize;
         let batch_delay = self.resharding_config.get().batch_delay.unsigned_abs();
-        while let Some(child) = status.children.first_mut() {
-            // Sleep between batches in order to throttle resharding and leave some resource for the
-            // regular node operation.
-            std::thread::sleep(batch_delay);
+        let Some(child) = status.children.first_mut() else {
+            // No more children to process.
+            return Ok(());
+        };
 
-            let _span = tracing::debug_span!(
-                target: "resharding",
-                "TrieStateResharder::process_batch_and_update_status",
-                parent_shard_uid = ?status.parent_shard_uid,
-                child_shard_uid = ?child.shard_uid,
-            );
-            let mut store_update = self.runtime.store().store_update();
-            let next_key = next_batch(
-                self.runtime.get_tries(),
-                child.shard_uid,
-                child.state_root,
-                child.next_key.clone(),
-                batch_size,
-                &mut store_update.trie_store_update(),
-            )?;
+        // Sleep between batches in order to throttle resharding and leave some resource for the
+        // regular node operation.
+        std::thread::sleep(batch_delay);
+        let _span = tracing::debug_span!(
+            target: "resharding",
+            "TrieStateResharder::process_batch_and_update_status",
+            parent_shard_uid = ?status.parent_shard_uid,
+            child_shard_uid = ?child.shard_uid,
+        );
 
-            if let Some(metrics) = &child.metrics {
-                metrics.inc_processed_batches();
-            }
-            if let Some(next_key) = next_key {
-                child.next_key = next_key;
-            } else {
-                // No more keys to process for this child shard.
-                // TODO(resharding): Remove the shard UID mapping from the store.
-                // store_update.trie_store_update().delete_shard_uid_mapping(child.shard_uid);
-                status.children.remove(0);
-            };
+        let mut store_update = self.runtime.store().store_update();
+        let next_key = next_batch(
+            self.runtime.get_tries(),
+            child.shard_uid,
+            child.state_root,
+            child.next_key.clone(),
+            batch_size,
+            &mut store_update.trie_store_update(),
+        )?;
 
-            // Commit the changes to the store, along with the status.
-            if status.done() {
-                store_update.delete(DBCol::Misc, TRIE_STATE_RESHARDING_STATUS_KEY);
-            } else {
-                store_update.set(
-                    DBCol::Misc,
-                    TRIE_STATE_RESHARDING_STATUS_KEY,
-                    &borsh::to_vec(status)?,
-                );
-            }
-            store_update.commit()?;
-
-            break;
+        if let Some(metrics) = &child.metrics {
+            metrics.inc_processed_batches();
         }
+        if let Some(next_key) = next_key {
+            child.next_key = next_key;
+        } else {
+            // No more keys to process for this child shard.
+            // TODO(resharding): Remove the shard UID mapping from the store.
+            // store_update.trie_store_update().delete_shard_uid_mapping(child.shard_uid);
+            status.children.remove(0);
+        };
 
+        // Commit the changes to the store, along with the status.
+        if status.done() {
+            store_update.delete(DBCol::Misc, TRIE_STATE_RESHARDING_STATUS_KEY);
+        } else {
+            store_update.set(
+                DBCol::Misc,
+                TRIE_STATE_RESHARDING_STATUS_KEY,
+                &borsh::to_vec(status)?,
+            );
+        }
+        store_update.commit()?;
         Ok(())
     }
 
