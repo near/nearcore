@@ -6,7 +6,7 @@ use near_primitives::hash::CryptoHash;
 use near_store::adapter::trie_store::TrieStoreUpdateAdapter;
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::db::TRIE_STATE_RESHARDING_STATUS_KEY;
-use near_store::metrics::trie_state_metrics;
+use near_store::metrics::resharding::trie_state_metrics;
 use near_store::trie::iterator::RangeBound;
 use near_store::{DBCol, ShardTries, StorageError};
 
