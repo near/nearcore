@@ -124,8 +124,7 @@ impl TrieStateResharder {
             child.next_key = Some(next_key);
         } else {
             // No more keys to process for this child shard.
-            // TODO(resharding): Remove the shard UID mapping from the store.
-            // store_update.trie_store_update().delete_shard_uid_mapping(child.shard_uid);
+            store_update.trie_store_update().delete_shard_uid_mapping(child.shard_uid);
             *child_ref = None;
         };
 

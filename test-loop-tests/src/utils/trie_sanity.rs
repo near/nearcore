@@ -346,7 +346,7 @@ pub fn check_state_shard_uid_mapping_after_resharding(
     client: &Client,
     resharding_block_hash: &CryptoHash,
     parent_shard_uid: ShardUId,
-) {
+) -> usize {
     let tip = client.chain.head().unwrap();
     let epoch_id = tip.epoch_id;
     let shard_layout = client.epoch_manager.get_shard_layout(&epoch_id).unwrap();
@@ -371,8 +371,11 @@ pub fn check_state_shard_uid_mapping_after_resharding(
             tracked_mapped_children.push(*child_shard_uid);
         }
     }
-    // Currently we set the mapping for both children, or the mapping has been deleted.
-    assert!(shard_uid_mapping.is_empty() || shard_uid_mapping.len() == 2);
+
+    let num_mapped_children = tracked_mapped_children.len();
+    if num_mapped_children == 0 {
+        return 0;
+    }
 
     // Whether we found any value in DB for which we could test the mapping.
     let mut has_any_parent_shard_uid_prefix = false;
@@ -426,4 +429,6 @@ pub fn check_state_shard_uid_mapping_after_resharding(
             assert!(shard_uid_mapping.is_empty());
         }
     }
+
+    num_mapped_children
 }
