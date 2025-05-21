@@ -71,7 +71,7 @@ impl TrieStateReshardingStatus {
 pub struct TrieStateResharder {
     runtime: Arc<dyn RuntimeAdapter>,
     /// Controls cancellation of background processing.
-    pub handle: ReshardingHandle,
+    handle: ReshardingHandle,
     /// Configuration for resharding.
     resharding_config: MutableConfigValue<ReshardingConfig>,
 }
