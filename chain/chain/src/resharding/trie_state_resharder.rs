@@ -26,7 +26,7 @@ struct TrieStateReshardingChildStatus {
     state_root: CryptoHash,
 
     /// The key to start the next batch from.
-    next_key: Vec<u8>,
+    next_key: Option<Vec<u8>>,
 
     #[borsh(skip)]
     metrics: Option<TrieStateResharderMetrics>,
@@ -34,7 +34,7 @@ struct TrieStateReshardingChildStatus {
 
 impl TrieStateReshardingChildStatus {
     fn new(shard_uid: ShardUId, state_root: CryptoHash) -> Self {
-        Self { shard_uid, state_root, next_key: vec![], metrics: None }
+        Self { shard_uid, state_root, next_key: None, metrics: None }
     }
 }
 
@@ -124,7 +124,7 @@ impl TrieStateResharder {
             metrics.inc_processed_batches();
         }
         if let Some(next_key) = next_key {
-            child.next_key = next_key;
+            child.next_key = Some(next_key);
         } else {
             // No more keys to process for this child shard.
             store_update.trie_store_update().delete_shard_uid_mapping(child.shard_uid);
@@ -246,14 +246,14 @@ fn next_batch(
     tries: ShardTries,
     child_shard_uid: ShardUId,
     state_root: CryptoHash,
-    seek_key: Vec<u8>,
+    seek_key: Option<Vec<u8>>,
     batch_size: usize,
     store_update: &mut TrieStoreUpdateAdapter,
 ) -> Result<Option<Vec<u8>>, StorageError> {
     let trie = tries.get_trie_for_shard(child_shard_uid, state_root).recording_reads_new_recorder();
     let locked = trie.lock_for_iter();
     let mut iter = locked.iter()?;
-    if !seek_key.is_empty() {
+    if let Some(seek_key) = seek_key {
         iter.seek(seek_key, RangeBound::Exclusive)?;
     }
 
