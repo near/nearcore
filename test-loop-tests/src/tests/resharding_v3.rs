@@ -1304,7 +1304,6 @@ fn test_resharding_v3_buffered_receipts_towards_splitted_shard_base(
 
 #[test]
 #[cfg_attr(not(feature = "test_features"), ignore)]
-#[ignore = "v1 is not supported"]
 fn slow_test_resharding_v3_buffered_receipts_towards_splitted_shard_v1() {
     test_resharding_v3_buffered_receipts_towards_splitted_shard_base(1);
 }
@@ -1488,11 +1487,9 @@ fn slow_test_resharding_v3_yield_timeout() {
     test_resharding_v3_base(params);
 }
 
-/// TODO(resharding): un-ignore after proper fix for refcount incident.
 /// Check that adding a new promise yield after resharding in one child doesn't
 /// leave the other child's promise yield indices with a dangling trie value.
 #[test]
-#[ignore]
 fn slow_test_resharding_v3_promise_yield_indices_gc_correctness() {
     let account_in_left_child: AccountId = "account4".parse().unwrap();
     let account_in_right_child: AccountId = "account6".parse().unwrap();
@@ -1513,12 +1510,10 @@ fn slow_test_resharding_v3_promise_yield_indices_gc_correctness() {
     test_resharding_v3_base(params);
 }
 
-/// TODO(resharding): un-ignore after proper fix for refcount incident.
 /// Check that accumulating new delayed receipts after resharding in one child doesn't
 /// leave the other child's delayed receipts indices with a dangling trie value.
 #[test]
 #[cfg_attr(not(feature = "test_features"), ignore)]
-#[ignore]
 fn slow_test_resharding_v3_delayed_receipts_gc_correctness() {
     let account_in_left_child: AccountId = "account4".parse().unwrap();
     let account_in_right_child: AccountId = "account6".parse().unwrap();

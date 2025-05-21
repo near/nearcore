@@ -2375,7 +2375,6 @@ impl Chain {
 
         let (apply_chunks_done_waiter, apply_chunks_still_applying) = ApplyChunksDoneWaiter::new();
 
-        // here
         Ok((
             apply_chunk_work,
             BlockPreprocessInfo {
