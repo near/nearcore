@@ -664,14 +664,13 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
                 assert_eq!(epoch_height, epoch_height_after_first_resharding.get().unwrap() + 1);
             }
         }
-        if epoch_height <= GC_NUM_EPOCHS_TO_KEEP {
-            for client in clients {
-                check_state_shard_uid_mapping_after_resharding(
-                    client,
-                    &resharding_block_hash.get().unwrap(),
-                    parent_shard_uid,
-                );
-            }
+
+        for client in clients {
+            check_state_shard_uid_mapping_after_resharding(
+                client,
+                &resharding_block_hash.get().unwrap(),
+                parent_shard_uid,
+            );
         }
 
         // Return false if garbage collection window has not passed yet since resharding.
