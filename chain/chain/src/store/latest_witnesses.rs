@@ -8,10 +8,8 @@
 use std::io::ErrorKind;
 
 use near_primitives::hash::CryptoHash;
-use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::state_witness::ChunkStateWitness;
 use near_primitives::types::EpochId;
-use near_primitives::types::ShardId;
 use near_store::DBCol;
 
 use crate::ChainStoreAccess;
@@ -37,8 +35,8 @@ const LATEST_WITNESSES_MAX_COUNT: u64 = 60 * 30;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LatestWitnessesKey {
-    pub height_created: u64,
-    pub shard_id: ShardId,
+    pub height: u64,
+    pub shard_id: u64,
     pub epoch_id: EpochId,
     pub witness_size: u64,
     /// Each witness has a random UUID to ensure that the key is unique.
@@ -52,7 +50,7 @@ impl LatestWitnessesKey {
     /// This allows to query using a key prefix to find all witnesses for a given height (and shard_id).
     pub fn serialized(&self) -> [u8; 72] {
         let mut result = [0u8; 72];
-        result[..8].copy_from_slice(&self.height_created.to_be_bytes());
+        result[..8].copy_from_slice(&self.height.to_be_bytes());
         result[8..16].copy_from_slice(&self.shard_id.to_be_bytes());
         result[16..48].copy_from_slice(&self.epoch_id.0.0);
         result[48..56].copy_from_slice(&self.witness_size.to_be_bytes());
@@ -73,8 +71,8 @@ impl LatestWitnessesKey {
 
         // Data length is known, so it's safe to unwrap the slices, they'll fit.
         Ok(LatestWitnessesKey {
-            height_created: u64::from_be_bytes(data[0..8].try_into().unwrap()),
-            shard_id: ShardId::new(u64::from_be_bytes(data[8..16].try_into().unwrap())),
+            height: u64::from_be_bytes(data[0..8].try_into().unwrap()),
+            shard_id: u64::from_be_bytes(data[8..16].try_into().unwrap()),
             epoch_id: EpochId(CryptoHash(data[16..48].try_into().unwrap())),
             witness_size: u64::from_be_bytes(data[48..56].try_into().unwrap()),
             random_uuid: data[56..].try_into().unwrap(),
@@ -111,15 +109,19 @@ impl ChainStore {
         witness: &ChunkStateWitness,
     ) -> Result<(), std::io::Error> {
         let start_time = std::time::Instant::now();
-        let ChunkProductionKey { shard_id, epoch_id, height_created } =
-            witness.chunk_production_key();
-        let _span = tracing::info_span!(target: "client", "save_latest_chunk_state_witness", ?height_created, ?shard_id).entered();
+        let _span = tracing::info_span!(
+            target: "client",
+            "save_latest_chunk_state_witness",
+            witness_height = witness.chunk_header.height_created(),
+            witness_shard = ?witness.chunk_header.shard_id(),
+        )
+        .entered();
 
         let serialized_witness = borsh::to_vec(witness)?;
-        let witness_size: u64 =
+        let serialized_witness_size: u64 =
             serialized_witness.len().try_into().expect("Cannot convert usize to u64");
 
-        if witness_size > SINGLE_LATEST_WITNESS_MAX_SIZE.as_u64() {
+        if serialized_witness_size > SINGLE_LATEST_WITNESS_MAX_SIZE.as_u64() {
             tracing::warn!(
                 "Cannot save latest ChunkStateWitness because it's too big. Witness size: {} byte. Size limit: {} bytes.",
                 serialized_witness.len(),
@@ -170,8 +172,13 @@ impl ChainStore {
         // Limits are ok, insert the new witness.
         let mut random_uuid = [0u8; 16];
         OsRng.fill_bytes(&mut random_uuid);
-        let key =
-            LatestWitnessesKey { shard_id, epoch_id, height_created, witness_size, random_uuid };
+        let key = LatestWitnessesKey {
+            height: witness.chunk_header.height_created(),
+            shard_id: witness.chunk_header.shard_id().into(),
+            epoch_id: witness.epoch_id,
+            witness_size: serialized_witness_size,
+            random_uuid,
+        };
         store_update.set(DBCol::LatestChunkStateWitnesses, &key.serialized(), &serialized_witness);
         store_update.set(
             DBCol::LatestWitnessesByIndex,
@@ -189,7 +196,7 @@ impl ChainStore {
 
         let store_commit_time = start_time.elapsed().saturating_sub(store_update_time);
 
-        let shard_id_str = shard_id.to_string();
+        let shard_id_str = witness.chunk_header.shard_id().to_string();
         stateless_validation::metrics::SAVE_LATEST_WITNESS_GENERATE_UPDATE_TIME
             .with_label_values(&[shard_id_str.as_str()])
             .observe(store_update_time.as_secs_f64());
@@ -237,7 +244,7 @@ impl ChainStore {
 
             let key = LatestWitnessesKey::deserialize(&key_bytes)?;
             if let Some(h) = height {
-                if key.height_created != h {
+                if key.height != h {
                     continue;
                 }
             }
