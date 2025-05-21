@@ -408,7 +408,7 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
         return;
     }
 
-    // init_test_logger();
+    init_test_logger();
     let mut builder = TestLoopBuilder::new();
     let tracked_shard_schedule = params.tracked_shard_schedule.clone();
 
