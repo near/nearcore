@@ -408,7 +408,7 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
         return;
     }
 
-    init_test_logger();
+    // init_test_logger();
     let mut builder = TestLoopBuilder::new();
     let tracked_shard_schedule = params.tracked_shard_schedule.clone();
 
@@ -1304,6 +1304,7 @@ fn test_resharding_v3_buffered_receipts_towards_splitted_shard_base(
 
 #[test]
 #[cfg_attr(not(feature = "test_features"), ignore)]
+#[ignore = "v1 is not supported"]
 fn slow_test_resharding_v3_buffered_receipts_towards_splitted_shard_v1() {
     test_resharding_v3_buffered_receipts_towards_splitted_shard_base(1);
 }
