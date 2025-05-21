@@ -269,14 +269,6 @@ fn next_batch(
 
     let trie_changes =
         trie.recorded_trie_changes(state_root).expect("trie changes should be available");
-    tracing::info!(
-        target: "resharding",
-        ?child_shard_uid,
-        ?state_root,
-        ?next_key,
-        ?trie_changes,
-        "TrieStateResharding: next batch"
-    );
     tries.apply_all(&trie_changes, child_shard_uid, store_update);
     Ok(next_key)
 }

@@ -408,7 +408,7 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
         return;
     }
 
-    // init_test_logger();
+    init_test_logger();
     let mut builder = TestLoopBuilder::new();
     let tracked_shard_schedule = params.tracked_shard_schedule.clone();
 
@@ -704,7 +704,6 @@ fn slow_test_resharding_v3() {
 }
 
 #[test]
-#[ignore = "Check why is this failing, resharding one after another"]
 fn slow_test_resharding_v3_two_independent_splits() {
     let second_resharding_boundary_account = "account2".parse().unwrap();
     test_resharding_v3_base(
@@ -731,7 +730,6 @@ fn shard_sequence_to_schedule(
 }
 
 #[test]
-#[ignore = "Check why is this failing, resharding one after another"]
 fn slow_test_resharding_v3_two_splits_one_after_another_at_single_node() {
     let first_resharding_boundary_account: AccountId = NEW_BOUNDARY_ACCOUNT.parse().unwrap();
     let second_resharding_boundary_account: AccountId = "account2".parse().unwrap();

@@ -32,7 +32,7 @@ fn setup_subscriber_from_filter(mut env_filter: EnvFilter) {
 
 pub fn init_test_logger() {
     let env_filter = EnvFilter::new(
-        "resharding=info,cranelift=warn,wasmtime=warn,h2=warn,tower=warn,trust_dns=warn,tokio_reactor=info,tokio_core=info,hyper=info,warn",
+        "resharding=info,garbage_collection=info,cranelift=warn,wasmtime=warn,h2=warn,tower=warn,trust_dns=warn,tokio_reactor=info,tokio_core=info,hyper=info,warn",
     );
     setup_subscriber_from_filter(env_filter);
 }
