@@ -1,5 +1,5 @@
 use near_vm_2_compiler::Features;
-use near_vm_wast::Wast;
+use near_vm_2_wast::Wast;
 use std::path::Path;
 
 // The generated tests (from build.rs) look like:
