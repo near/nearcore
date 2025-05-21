@@ -55,6 +55,7 @@ fn try_main() -> Result<(), Error> {
         "estimator_contract",
     )?;
 
+    res_contract("legacy_backwards_compatible_rs_contract");
     res_contract("test_contract_ts");
     res_contract("fungible_token");
     Ok(())

@@ -1161,7 +1161,8 @@ fn slow_test_resharding_v3_delayed_receipts_left_child() {
 #[test]
 #[cfg_attr(not(all(feature = "test_features", feature = "nightly")), ignore)]
 fn slow_test_resharding_v3_global_contract_by_hash() {
-    let code_hash = CryptoHash::hash_bytes(&near_test_contracts::rs_contract());
+    let code_hash =
+        CryptoHash::hash_bytes(&near_test_contracts::backwards_compatible_rs_contract());
     test_resharding_v3_global_contract_base(
         GlobalContractIdentifier::CodeHash(code_hash),
         GlobalContractDeployMode::CodeHash,
