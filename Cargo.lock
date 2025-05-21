@@ -5247,6 +5247,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "near-vm-2-compiler-test-derive"
+version = "0.0.0"
+dependencies = [
+ "pretty_assertions",
+ "proc-macro2",
+ "quote",
+ "syn 2.0.87",
+ "trybuild",
+]
+
+[[package]]
 name = "near-vm-2-engine"
 version = "0.0.0"
 dependencies = [
@@ -5262,6 +5273,41 @@ dependencies = [
  "rustix 1.0.1",
  "thiserror 2.0.12",
  "tracing",
+]
+
+[[package]]
+name = "near-vm-2-test-api"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "cfg-if",
+ "finite-wasm 0.6.0",
+ "indexmap 2.7.0",
+ "near-vm-2-compiler",
+ "near-vm-2-compiler-singlepass",
+ "near-vm-2-compiler-test-derive",
+ "near-vm-2-engine",
+ "near-vm-2-test-generator",
+ "near-vm-2-types",
+ "near-vm-2-vm",
+ "near-vm-2-wast",
+ "parking_lot 0.12.1",
+ "prefix-sum-vec",
+ "target-lexicon 0.12.16",
+ "tempfile",
+ "test-log",
+ "thiserror 2.0.12",
+ "tracing",
+ "tracing-subscriber",
+ "wat",
+ "winapi",
+]
+
+[[package]]
+name = "near-vm-2-test-generator"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
 ]
 
 [[package]]
@@ -5293,6 +5339,16 @@ dependencies = [
  "thiserror 2.0.12",
  "tracing",
  "winapi",
+]
+
+[[package]]
+name = "near-vm-2-wast"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "near-vm-2-test-api",
+ "thiserror 2.0.12",
+ "wast",
 ]
 
 [[package]]

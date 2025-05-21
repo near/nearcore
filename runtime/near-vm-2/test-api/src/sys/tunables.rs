@@ -1,4 +1,5 @@
 use super::types::{MemoryType, TableType};
+use finite_wasm_6::Fee;
 use near_vm_2_compiler::Target;
 use near_vm_2_types::Pages;
 use near_vm_2_vm::MemoryError;
@@ -156,7 +157,7 @@ impl Tunables for BaseTunables {
     }
 
     /// Instrumentation configuration: gas accounting config
-    fn gas_cfg(&self) -> Box<dyn finite_wasm_6::wasmparser::VisitOperator<Output = u64>> {
+    fn gas_cfg(&self) -> Box<dyn finite_wasm_6::wasmparser::VisitSimdOperator<Output = Fee>> {
         Box::new(SimpleGasCostCfg(self.regular_op_cost))
     }
 }
@@ -190,31 +191,32 @@ impl finite_wasm_6::max_stack::SizeConfig for SimpleMaxStackCfg {
 struct SimpleGasCostCfg(u64);
 
 macro_rules! gas_cost {
-    ($( @$proposal:ident $op:ident $({ $($arg:ident: $argty:ty),* })? => $visit:ident)*) => {
+    ($( @$proposal:ident $op:ident $({ $($arg:ident: $argty:ty),* })? => $visit:ident ($($ann:tt)*))*) => {
         $(
-            fn $visit(&mut self $($(, $arg: $argty)*)?) -> u64 {
-                gas_cost!(@@$proposal $op self $({ $($arg: $argty),* })? => $visit)
+            fn $visit(&mut self $($(, $arg: $argty)*)?) -> Fee {
+                gas_cost!(@@self $visit)
             }
         )*
     };
-
-    (@@mvp $_op:ident $_self:ident $({ $($_arg:ident: $_argty:ty),* })? => visit_block) => {
-        0
-    };
-    (@@mvp $_op:ident $_self:ident $({ $($_arg:ident: $_argty:ty),* })? => visit_end) => {
-        0
-    };
-    (@@mvp $_op:ident $_self:ident $({ $($_arg:ident: $_argty:ty),* })? => visit_else) => {
-        0
-    };
-    (@@$_proposal:ident $_op:ident $self:ident $({ $($arg:ident: $argty:ty),* })? => $visit:ident) => {
-        $self.0
-    };
+    (@@$self:ident visit_block) => { Fee::ZERO };
+    (@@$self:ident visit_end) => { Fee::ZERO };
+    (@@$self:ident visit_else) => { Fee::ZERO };
+    (@@$self:ident visit_memory_init) => { Fee { linear: $self.0, constant: 0 } };
+    (@@$self:ident visit_memory_copy) => { Fee { linear: $self.0, constant: 0 } };
+    (@@$self:ident visit_memory_fill) => { Fee { linear: $self.0, constant: 0 } };
+    (@@$self:ident visit_table_init) => { Fee { linear: $self.0, constant: 0 } };
+    (@@$self:ident visit_table_copy) => { Fee { linear: $self.0, constant: 0 } };
+    (@@$self:ident visit_table_fill) => { Fee { linear: $self.0, constant: 0 } };
+    (@@$self:ident $visit:ident) => { Fee::constant($self.0) };
 }
 
 impl<'a> finite_wasm_6::wasmparser::VisitOperator<'a> for SimpleGasCostCfg {
-    type Output = u64;
-    finite_wasm_6::wasmparser::for_each_operator!(gas_cost);
+    type Output = Fee;
+    finite_wasm_6::wasmparser::for_each_visit_operator!(gas_cost);
+}
+
+impl<'a> finite_wasm_6::wasmparser::VisitSimdOperator<'a> for SimpleGasCostCfg {
+    finite_wasm_6::wasmparser::for_each_visit_simd_operator!(gas_cost);
 }
 
 #[cfg(test)]
