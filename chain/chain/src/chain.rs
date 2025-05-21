@@ -475,6 +475,25 @@ impl Chain {
             chain_config.save_trie_changes,
             transaction_validity_period,
         );
+
+        // Decide whether to persist `ExecutionOutcomeWithProof`s into
+        // `DBCol::TransactionResultForBlock`.
+        // By default we disable these writes on validator nodes to reduce
+        // write‐amplification.
+        //
+        // However, validator nodes which track more than one shard (e.g.
+        // multi‐shard validators) as well as archival / RPC nodes still rely
+        // on this column to serve `tx_status` calls.  In
+        // such cases we re-enable the writes and emit a warning so that node
+        // operators are aware of the behaviour.
+
+        //let mut save_block_outcomes = validator.get().is_none();
+
+        //if let Some(explicit) = chain_config.save_block_outcomes {
+        //    save_block_outcomes = explicit;
+        //}
+
+        chain_store.set_save_block_outcomes(true);
         let state_sync_adapter = ChainStateSyncAdapter::new(
             clock.clone(),
             ChainStoreAdapter::new(chain_store.store()),

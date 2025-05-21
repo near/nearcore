@@ -234,6 +234,7 @@ impl Client {
             save_trie_changes: config.save_trie_changes,
             background_migration_threads: config.client_background_migration_threads,
             resharding_config: config.resharding_config.clone(),
+            save_block_outcomes: config.save_block_outcomes,
         };
         let chain = Chain::new(
             clock.clone(),

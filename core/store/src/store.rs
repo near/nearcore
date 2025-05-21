@@ -376,7 +376,7 @@ impl StoreUpdate {
     }
 
     #[tracing::instrument(
-        level = "trace",
+        level = "debug",
         target = "store::update",
         // FIXME: start moving things into tighter modules so that its easier to selectively trace
         // specific things.

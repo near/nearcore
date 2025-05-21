@@ -261,6 +261,7 @@ fn load_snapshot(load_cmd: LoadCmd) {
                 ReshardingConfig::default(),
                 "resharding_config",
             ),
+            save_block_outcomes: None,
         },
         None,
         Arc::new(RayonAsyncComputationSpawner),

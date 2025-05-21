@@ -588,6 +588,10 @@ pub struct ClientConfig {
     /// - archive is true, cold_store is configured and migration to split_storage is finished - node
     /// working in split storage mode needs trie changes in order to do garbage collection on hot.
     pub save_trie_changes: bool,
+    /// Whether to persist `ExecutionOutcomeWithProof` objects into
+    /// `DBCol::TransactionResultForBlock`. If set to `None`, decided by heuristic.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub save_block_outcomes: Option<bool>,
     /// Number of threads for ViewClientActor pool.
     pub view_client_threads: usize,
     /// Number of seconds between state requests for view client.
@@ -733,6 +737,7 @@ impl ClientConfig {
             orphan_state_witness_max_size: default_orphan_state_witness_max_size(),
             save_latest_witnesses: false,
             transaction_request_handler_threads: default_rpc_handler_thread_count(),
+            save_block_outcomes: None,
         }
     }
 }

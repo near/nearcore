@@ -203,6 +203,9 @@ pub struct ChainConfig {
     pub background_migration_threads: usize,
     /// The resharding configuration.
     pub resharding_config: MutableConfigValue<ReshardingConfig>,
+    /// Explicit configuration for whether to persist `ExecutionOutcomeWithProof`s.
+    /// If `None`, chain will decide automatically.
+    pub save_block_outcomes: Option<bool>,
 }
 
 impl ChainConfig {
@@ -214,6 +217,7 @@ impl ChainConfig {
                 ReshardingConfig::default(),
                 "resharding_config",
             ),
+            save_block_outcomes: None,
         }
     }
 }
