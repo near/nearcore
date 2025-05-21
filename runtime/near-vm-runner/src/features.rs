@@ -92,9 +92,8 @@ impl From<WasmFeatures> for near_vm_2_types::Features {
         Self {
             mutable_global: true,
             saturating_float_to_int: f.saturating_float_to_int,
-            reference_types: f.reftypes_bulk_memory,
-            bulk_memory: f.reftypes_bulk_memory,
-
+            reference_types: REFERENCE_TYPES,
+            bulk_memory: BULK_MEMORY,
             sign_extension: SIGN_EXTENSION,
             threads: THREADS,
             simd: SIMD,

@@ -20,6 +20,7 @@ borsh.workspace = true
 ed25519-dalek.workspace = true
 enum-map.workspace = true
 finite-wasm = { workspace = true, features = ["instrument"], optional = true }
+finite-wasm-6 = { workspace = true, features = ["instrument"], optional = true }
 lru.workspace = true
 memoffset = { workspace = true, optional = true }
 num-rational.workspace = true
@@ -100,6 +101,7 @@ near_vm = [
 ]
 prepare = [
     "finite-wasm",
+    "finite-wasm-6",
     "wasm-encoder",
     "wasmparser",
     "prefix-sum-vec",
