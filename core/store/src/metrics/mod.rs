@@ -531,6 +531,20 @@ pub mod flat_state_metrics {
     }
 }
 
+pub mod trie_state_metrics {
+    use super::*;
+
+    pub static STATE_COL_RESHARDING_PROCESSED_BATCHES: LazyLock<IntGaugeVec> =
+        LazyLock::new(|| {
+            try_create_int_gauge_vec(
+                "near_state_col_resharding_processed_batches",
+                "Number of processed batches inside the state column resharding task",
+                &["shard_uid"],
+            )
+            .unwrap()
+        });
+}
+
 pub static COLD_STORE_MIGRATION_BATCH_WRITE_COUNT: LazyLock<IntCounterVec> = LazyLock::new(|| {
     try_create_int_counter_vec(
         "near_cold_migration_initial_writes",
