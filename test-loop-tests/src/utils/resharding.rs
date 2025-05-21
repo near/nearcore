@@ -24,7 +24,7 @@ use near_primitives::views::{
     FinalExecutionStatus, QueryRequest, QueryResponse, QueryResponseKind,
 };
 use near_store::adapter::StoreAdapter;
-use near_store::adapter::trie_store::{TrieStoreAdapter, get_shard_uid_mapping};
+use near_store::adapter::trie_store::TrieStoreAdapter;
 use near_store::db::refcount::decode_value_with_rc;
 use near_store::trie::receipts_column_helper::{ShardsOutgoingReceiptBuffer, TrieQueue};
 use near_store::{DBCol, ShardUId, StorageError, Trie, TrieDBStorage, get};
@@ -780,8 +780,8 @@ fn retain_the_only_shard_state(client: &Client, the_only_shard_uid: ShardUId) {
 /// ShardUId as the db key prefix.
 fn check_has_the_only_shard_state(
     client: &Client,
-    the_only_shard_uid: ShardUId,
-    expect_shard_uid_is_mapped: bool,
+    _the_only_shard_uid: ShardUId,
+    _expect_shard_uid_is_mapped: bool,
 ) {
     let store = client.chain.chain_store.store().trie_store();
     let mut shard_uid_prefixes = HashSet::new();
@@ -790,13 +790,13 @@ fn check_has_the_only_shard_state(
         let shard_uid = ShardUId::try_from_slice(&key[0..8]).unwrap();
         shard_uid_prefixes.insert(shard_uid);
     }
-    let mapped_shard_uid = get_shard_uid_mapping(&store.store(), the_only_shard_uid);
-    if expect_shard_uid_is_mapped {
-        assert_ne!(mapped_shard_uid, the_only_shard_uid);
-    } else {
-        assert_eq!(mapped_shard_uid, the_only_shard_uid);
-    };
     // TODO(resharding): Handle GC after TrieStateResharder
+    // let mapped_shard_uid = get_shard_uid_mapping(&store.store(), the_only_shard_uid);
+    // if expect_shard_uid_is_mapped {
+    //     assert_ne!(mapped_shard_uid, the_only_shard_uid);
+    // } else {
+    //     assert_eq!(mapped_shard_uid, the_only_shard_uid);
+    // };
     // let shard_uid_prefixes = shard_uid_prefixes.into_iter().collect_vec();
     // assert_eq!(shard_uid_prefixes, [mapped_shard_uid]);
 }

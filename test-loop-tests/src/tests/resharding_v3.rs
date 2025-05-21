@@ -666,11 +666,15 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
         }
 
         for client in clients {
-            check_state_shard_uid_mapping_after_resharding(
+            let num_mapped_children = check_state_shard_uid_mapping_after_resharding(
                 client,
                 &resharding_block_hash.get().unwrap(),
                 parent_shard_uid,
             );
+
+            if num_mapped_children > 0 {
+                return false; // Wait for all mappings to be removed.
+            }
         }
 
         // Return false if garbage collection window has not passed yet since resharding.
