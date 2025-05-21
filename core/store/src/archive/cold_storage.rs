@@ -6,8 +6,8 @@ use crate::{DBCol, DBTransaction, Database, Store, TrieChanges, metrics};
 use borsh::BorshDeserialize;
 use near_primitives::block::{Block, BlockHeader, Tip};
 use near_primitives::hash::CryptoHash;
-use near_primitives::shard_layout::ShardUId;
-use near_primitives::sharding::ShardChunk;
+use near_primitives::shard_layout::{ShardLayout, ShardUId};
+use near_primitives::sharding::{ChunkHash, ShardChunk};
 use near_primitives::types::{BlockHeight, ShardId};
 use rayon::prelude::{IntoParallelIterator, ParallelIterator};
 use std::collections::{HashMap, HashSet};
@@ -78,6 +78,7 @@ struct BatchTransaction {
 pub fn update_cold_db(
     cold_db: &ColdDB,
     hot_store: &Store,
+    shard_layout: &ShardLayout,
     tracked_shards: &Vec<ShardUId>,
     height: &BlockHeight,
     is_last_block_in_epoch: bool,
@@ -91,7 +92,7 @@ pub fn update_cold_db(
     let block_hash_key = block_hash_vec.as_slice();
 
     let key_type_to_keys =
-        get_keys_from_store(&hot_store, tracked_shards, &height_key, block_hash_key)?;
+        get_keys_from_store(&hot_store, shard_layout, tracked_shards, &height_key, block_hash_key)?;
     let columns_to_update = DBCol::iter()
         .filter(|col| {
             if !col.is_cold() {
@@ -401,6 +402,7 @@ pub fn test_get_store_initial_writes(column: DBCol) -> u64 {
 /// But for TransactionHash, for example, it is all of the tx hashes in that block.
 fn get_keys_from_store(
     store: &Store,
+    shard_layout: &ShardLayout,
     tracked_shards: &Vec<ShardUId>,
     height_key: &[u8],
     block_hash_key: &[u8],
@@ -410,6 +412,11 @@ fn get_keys_from_store(
         tracked_shards.iter().map(|shard_uid| shard_uid.shard_id()).collect();
 
     let block: Block = store.get_ser_or_err_for_cold(DBCol::Block, &block_hash_key)?;
+    let chunk_hashes = block
+        .chunks()
+        .iter_deprecated()
+        .map(|chunk_header| chunk_header.chunk_hash())
+        .collect::<Vec<ChunkHash>>();
     let chunks = block
         .chunks()
         .iter_deprecated()
@@ -438,13 +445,14 @@ fn get_keys_from_store(
                 DBKeyType::PreviousBlockHash => {
                     vec![block.header().prev_hash().as_bytes().to_vec()]
                 }
-                DBKeyType::ShardId => tracked_shards
-                    .iter()
-                    .map(|shard_uid| shard_uid.shard_id().to_le_bytes().to_vec())
+                DBKeyType::ShardId => shard_layout
+                    .shard_ids()
+                    .map(|shard_id| shard_id.to_le_bytes().to_vec())
                     .collect(),
-                DBKeyType::ShardUId => {
-                    tracked_shards.iter().map(|shard_uid| shard_uid.to_bytes().to_vec()).collect()
-                }
+                DBKeyType::ShardUId => shard_layout
+                    .shard_uids()
+                    .map(|shard_uid| shard_uid.to_bytes().to_vec())
+                    .collect(),
                 // TODO: write StateChanges values to colddb directly, not to cache.
                 DBKeyType::TrieKey => {
                     let mut keys = vec![];
@@ -472,22 +480,19 @@ fn get_keys_from_store(
                     })
                     .collect(),
                 DBKeyType::ChunkHash => {
-                    chunks.iter().map(|c| c.chunk_hash().as_bytes().to_vec()).collect()
+                    chunk_hashes.iter().map(|chunk_hash| chunk_hash.as_bytes().to_vec()).collect()
                 }
                 DBKeyType::OutcomeId => {
                     debug_assert_eq!(
                         DBCol::OutcomeIds.key_type(),
                         &[DBKeyType::BlockHash, DBKeyType::ShardId]
                     );
-                    tracked_shards
-                        .iter()
-                        .map(|shard_uid| {
+                    shard_layout
+                        .shard_ids()
+                        .map(|shard_id| {
                             store.get_ser(
                                 DBCol::OutcomeIds,
-                                &join_two_keys(
-                                    &block_hash_key,
-                                    &shard_uid.shard_id().to_le_bytes(),
-                                ),
+                                &join_two_keys(&block_hash_key, &shard_id.to_le_bytes()),
                             )
                         })
                         .collect::<io::Result<Vec<Option<Vec<CryptoHash>>>>>()?

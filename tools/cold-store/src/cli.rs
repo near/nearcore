@@ -233,6 +233,7 @@ fn copy_next_block(store: &NodeStorage, config: &NearConfig, epoch_manager: &Epo
     update_cold_db(
         &*store.cold_db().unwrap(),
         &store.get_hot_store(),
+        &shard_layout,
         &shard_uids,
         &next_height,
         is_last_block_in_epoch,

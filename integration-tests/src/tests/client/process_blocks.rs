@@ -1043,6 +1043,7 @@ fn test_archival_gc_common(
             update_cold_db(
                 storage.cold_db().unwrap(),
                 hot_store,
+                &shard_layout,
                 &tracked_shards,
                 &i,
                 is_last_block_in_epoch,

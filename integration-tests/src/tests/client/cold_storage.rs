@@ -161,8 +161,16 @@ fn test_storage_after_commit_of_cold_update() {
         let shard_uids = shard_layout.shard_uids().collect();
         let is_last_block_in_epoch =
             client.epoch_manager.is_next_block_epoch_start(block.hash()).unwrap();
-        update_cold_db(cold_db, &client_store, &shard_uids, &height, is_last_block_in_epoch, 4)
-            .unwrap();
+        update_cold_db(
+            cold_db,
+            &client_store,
+            &shard_layout,
+            &shard_uids,
+            &height,
+            is_last_block_in_epoch,
+            4,
+        )
+        .unwrap();
 
         last_hash = *block.hash();
     }
@@ -312,8 +320,16 @@ fn test_cold_db_copy_with_height_skips() {
         let shard_uids = shard_layout.shard_uids().collect();
         let is_last_block_in_epoch =
             client.epoch_manager.is_next_block_epoch_start(&block_hash).unwrap();
-        update_cold_db(&cold_db, hot_store, &shard_uids, &height, is_last_block_in_epoch, 1)
-            .unwrap();
+        update_cold_db(
+            &cold_db,
+            hot_store,
+            &shard_layout,
+            &shard_uids,
+            &height,
+            is_last_block_in_epoch,
+            1,
+        )
+        .unwrap();
         last_hash = block_hash;
     }
 
