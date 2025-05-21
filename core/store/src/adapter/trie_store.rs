@@ -37,8 +37,8 @@ impl TrieStoreAdapter {
     ///
     /// For more details, see `get_shard_uid_mapping()`.
     pub fn get(&self, shard_uid: ShardUId, hash: &CryptoHash) -> Result<Arc<[u8]>, StorageError> {
-        let shard_uid = get_shard_uid_mapping(&self.store, shard_uid);
-        let key = get_key_from_shard_uid_and_hash(shard_uid, hash);
+        let mapped_shard_uid = get_shard_uid_mapping(&self.store, shard_uid);
+        let key = get_key_from_shard_uid_and_hash(mapped_shard_uid, hash);
         let val = self
             .store
             .get(DBCol::State, key.as_ref())
@@ -210,6 +210,8 @@ fn maybe_get_shard_uid_mapping(store: &Store, child_shard_uid: ShardUId) -> Opti
         })
 }
 
+/// Get the key for the given `shard_uid` and `hash`.
+/// The key is a 40-byte array, where the first 8 bytes are the `shard_uid` and the last 32 bytes are the `hash`.
 fn get_key_from_shard_uid_and_hash(shard_uid: ShardUId, hash: &CryptoHash) -> [u8; 40] {
     let mut key = [0; 40];
     key[0..8].copy_from_slice(&shard_uid.to_bytes());
