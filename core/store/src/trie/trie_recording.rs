@@ -789,13 +789,14 @@ mod trie_recording_tests {
 
 #[cfg(test)]
 mod memtrie_batch_iteration_tests {
+    use std::ops::Bound;
+
     use crate::Trie;
     use crate::test_utils::{
         TestTriesBuilder, create_test_store, simplify_changes, test_populate_flat_storage,
         test_populate_trie,
     };
     use crate::trie::AccessOptions;
-    use crate::trie::iterator::RangeBound;
     use crate::trie::trie_tests::merge_trie_changes;
     use near_primitives::hash::hash;
     use near_primitives::shard_layout::ShardUId;
@@ -816,7 +817,7 @@ mod memtrie_batch_iteration_tests {
         // Get the iterator for the trie, skipping the first key if needed
         let mut iter = read_trie.iter().expect("failed to get iterator");
         if let Some(key) = previous_batch_last_key {
-            iter.seek(&key, RangeBound::Exclusive).expect("failed to seek");
+            iter.seek(Bound::Excluded(key)).expect("failed to seek");
         }
 
         // Iterate over the trie, stopping when we reach the batch size
