@@ -201,7 +201,9 @@ impl SplitShardTrieCommand {
         println!("Left child state root: {} size: {left_size} bytes", left_extra.state_root());
         println!("Right child state root: {} size: {right_size} bytes", right_extra.state_root());
 
+        println!("Removing database snapshot...");
         snapshot.remove()?;
+        println!("Database snapshot removed");
 
         Ok(())
     }
