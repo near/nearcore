@@ -5,7 +5,7 @@ use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
 
 use crate::NibbleSlice;
-use crate::trie::iterator::DiskTrieIteratorInner;
+use crate::trie::iterator::{DiskTrieIteratorInner, RangeBound};
 use crate::trie::trie_storage_update::TrieStorageNodePtr;
 use crate::trie::{AccessOptions, ValueHandle};
 
@@ -129,10 +129,14 @@ where
         Ok(())
     }
 
-    /// Position the iterator on the first element with key >= `key`,
-    /// or the first element with key > `key` if `upper_bound` is true.
-    /// Does not record nodes accessed during the seek.
-    pub fn seek<K: AsRef<[u8]>>(&mut self, key: K, upper_bound: bool) -> Result<(), StorageError> {
+    /// Position the iterator on the first element with key >= `key`, or the
+    /// first element with key > `key` if `include_start` is Exclusive. Does
+    /// not record nodes accessed during the seek.
+    pub fn seek<K: AsRef<[u8]>>(
+        &mut self,
+        key: K,
+        include_start: RangeBound,
+    ) -> Result<(), StorageError> {
         self.seek_nibble_slice(
             NibbleSlice::new(key.as_ref()),
             false,
@@ -141,9 +145,9 @@ where
 
         // By this point, we are already positioned the iterator such that
         // next() will return the first element with key >= `key`.
-        // If `upper_bound` is true, we need to check if the next element
+        // If `include_start` is Exclusive, we need to check if the next element
         // is actually key == `key` and skip it.
-        if upper_bound {
+        if include_start == RangeBound::Exclusive {
             let last =
                 self.trail.last().expect("Trail should not be empty after seek_nibble_slice");
             let mut compare_with = self.key_nibbles.clone();

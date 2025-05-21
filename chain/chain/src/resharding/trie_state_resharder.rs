@@ -7,6 +7,7 @@ use near_store::adapter::trie_store::TrieStoreUpdateAdapter;
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::db::TRIE_STATE_RESHARDING_STATUS_KEY;
 use near_store::metrics::trie_state_metrics;
+use near_store::trie::iterator::RangeBound;
 use near_store::{DBCol, ShardTries, StorageError};
 
 use crate::resharding::event_type::ReshardingSplitShardParams;
@@ -17,9 +18,14 @@ use near_o11y::metrics::IntGauge;
 use near_primitives::shard_layout::ShardUId;
 
 #[derive(BorshSerialize, BorshDeserialize)]
+/// Represents the status of one child shard during trie state resharding.
 struct TrieStateReshardingChildStatus {
     shard_uid: ShardUId,
+
+    /// The post-state root of the child shard after the resharding block.
     state_root: CryptoHash,
+
+    /// The key to start the next batch from.
     next_key: Vec<u8>,
 
     #[borsh(skip)]
@@ -33,18 +39,22 @@ impl TrieStateReshardingChildStatus {
 }
 
 #[derive(BorshSerialize, BorshDeserialize)]
+/// Represents the status of an ongoing trie state resharding.
+/// It is used to resume the resharding process after a crash or restart.
 struct TrieStateReshardingStatus {
-    shard_uid: ShardUId,
+    parent_shard_uid: ShardUId,
+
+    /// The child shards that still need to be processed.
     children: Vec<TrieStateReshardingChildStatus>,
 }
 
 impl TrieStateReshardingStatus {
     fn new(
-        shard_uid: ShardUId,
+        parent_shard_uid: ShardUId,
         left: TrieStateReshardingChildStatus,
         right: TrieStateReshardingChildStatus,
     ) -> Self {
-        Self { shard_uid, children: vec![left, right] }
+        Self { parent_shard_uid, children: vec![left, right] }
     }
 
     fn with_metrics(mut self) -> Self {
@@ -86,6 +96,16 @@ impl TrieStateResharder {
         let batch_size = self.resharding_config.get().batch_size.as_u64() as usize;
         let batch_delay = self.resharding_config.get().batch_delay.unsigned_abs();
         while let Some(child) = status.children.first_mut() {
+            // Sleep between batches in order to throttle resharding and leave some resource for the
+            // regular node operation.
+            std::thread::sleep(batch_delay);
+
+            let _span = tracing::debug_span!(
+                target: "resharding",
+                "TrieStateResharder::process_batch_and_update_status",
+                parent_shard_uid = ?status.parent_shard_uid,
+                child_shard_uid = ?child.shard_uid,
+            );
             let mut store_update = self.runtime.store().store_update();
             let next_key = next_batch(
                 self.runtime.get_tries(),
@@ -120,9 +140,7 @@ impl TrieStateResharder {
             }
             store_update.commit()?;
 
-            // Sleep between batches in order to throttle resharding and leave some resource for the
-            // regular node operation.
-            std::thread::sleep(batch_delay);
+            break;
         }
 
         Ok(())
@@ -142,11 +160,9 @@ impl TrieStateResharder {
         event: &ReshardingSplitShardParams,
     ) -> Result<(), Error> {
         if let Some(status) = self.load_status()? {
-            tracing::error!(
-                target: "resharding", status_shard_uid=?status.shard_uid,
-                "TrieStateReshardingStatus already exists, cannot start a new resharding operation. Run resume_resharding to continue.");
             panic!(
-                "TrieStateReshardingStatus already exists, cannot start a new resharding operation. Run resume_resharding to continue."
+                "TrieStateReshardingStatus already exists for shard {}, cannot start a new resharding operation. Run resume_resharding to continue.",
+                status.parent_shard_uid
             );
         }
 
@@ -176,19 +192,16 @@ impl TrieStateResharder {
     }
 
     /// Resume an interrupted resharding operation.
-    pub fn resume(&self, shard_uid: ShardUId) -> Result<(), Error> {
+    pub fn resume(&self, parent_shard_uid: ShardUId) -> Result<(), Error> {
         let Some(status) = self.load_status()? else {
             tracing::info!(target: "resharding", "Resharding status not found, nothing to resume.");
             return Ok(());
         };
 
-        if status.shard_uid != shard_uid {
-            tracing::error!(
-                target: "resharding", status_shard_uid=?status.shard_uid, ?shard_uid,
-                "Resharding status shard UID does not match the provided shard UID.");
+        if status.parent_shard_uid != parent_shard_uid {
             return Err(Error::ReshardingError(format!(
                 "Resharding status shard UID {} does not match the provided shard UID {}.",
-                status.shard_uid, shard_uid
+                status.parent_shard_uid, parent_shard_uid
             )));
         }
         let mut status = status.with_metrics();
@@ -232,16 +245,16 @@ impl TrieStateResharderMetrics {
 
 fn next_batch(
     tries: ShardTries,
-    shard_uid: ShardUId,
+    child_shard_uid: ShardUId,
     state_root: CryptoHash,
     seek_key: Vec<u8>,
     batch_size: usize,
     store_update: &mut TrieStoreUpdateAdapter,
 ) -> Result<Option<Vec<u8>>, StorageError> {
-    let trie = tries.get_trie_for_shard(shard_uid, state_root).recording_reads_new_recorder();
+    let trie = tries.get_trie_for_shard(child_shard_uid, state_root).recording_reads_new_recorder();
     let locked = trie.lock_for_iter();
     let mut iter = locked.iter()?;
-    iter.seek(seek_key, true)?;
+    iter.seek(seek_key, RangeBound::Exclusive)?;
 
     let mut next_key: Option<Vec<u8>> = None;
     for item in iter {
@@ -255,6 +268,6 @@ fn next_batch(
 
     let trie_changes =
         trie.recorded_trie_changes(state_root).expect("trie changes should be available");
-    tries.apply_all(&trie_changes, shard_uid, store_update);
+    tries.apply_all(&trie_changes, child_shard_uid, store_update);
     Ok(next_key)
 }
