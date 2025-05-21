@@ -127,8 +127,7 @@ impl TrieStateResharder {
             child.next_key = next_key;
         } else {
             // No more keys to process for this child shard.
-            // TODO(resharding): Remove the shard UID mapping from the store.
-            // store_update.trie_store_update().delete_shard_uid_mapping(child.shard_uid);
+            store_update.trie_store_update().delete_shard_uid_mapping(child.shard_uid);
             status.children.remove(0);
         };
 
@@ -254,7 +253,9 @@ fn next_batch(
     let trie = tries.get_trie_for_shard(child_shard_uid, state_root).recording_reads_new_recorder();
     let locked = trie.lock_for_iter();
     let mut iter = locked.iter()?;
-    iter.seek(seek_key, RangeBound::Exclusive)?;
+    if !seek_key.is_empty() {
+        iter.seek(seek_key, RangeBound::Exclusive)?;
+    }
 
     let mut next_key: Option<Vec<u8>> = None;
     for item in iter {
@@ -268,6 +269,14 @@ fn next_batch(
 
     let trie_changes =
         trie.recorded_trie_changes(state_root).expect("trie changes should be available");
+    tracing::info!(
+        target: "resharding",
+        ?child_shard_uid,
+        ?state_root,
+        ?next_key,
+        ?trie_changes,
+        "TrieStateResharding: next batch"
+    );
     tries.apply_all(&trie_changes, child_shard_uid, store_update);
     Ok(next_key)
 }

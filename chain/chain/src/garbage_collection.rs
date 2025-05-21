@@ -279,14 +279,14 @@ impl ChainStore {
                 gc_blocks_remaining -= 1;
 
                 if let Some(potential_shards_for_cleanup) = potential_shards_for_cleanup {
-                    gc_state(
-                        &mut chain_store_update,
-                        block_hash,
-                        potential_shards_for_cleanup,
-                        &epoch_manager,
-                        shard_tracker,
-                        me,
-                    )?;
+                    // gc_state(
+                    //     &mut chain_store_update,
+                    //     block_hash,
+                    //     potential_shards_for_cleanup,
+                    //     &epoch_manager,
+                    //     shard_tracker,
+                    //     me,
+                    // )?;
                 }
             }
             chain_store_update.update_tail(height)?;

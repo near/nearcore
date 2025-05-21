@@ -408,7 +408,7 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
         return;
     }
 
-    init_test_logger();
+    // init_test_logger();
     let mut builder = TestLoopBuilder::new();
     let tracked_shard_schedule = params.tracked_shard_schedule.clone();
 
@@ -666,11 +666,15 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
         }
 
         for client in clients {
-            check_state_shard_uid_mapping_after_resharding(
+            let num_mapped_children = check_state_shard_uid_mapping_after_resharding(
                 client,
                 &resharding_block_hash.get().unwrap(),
                 parent_shard_uid,
             );
+
+            if num_mapped_children > 0 {
+                return false; // Wait for all reshardings to finish.
+            }
         }
 
         // Return false if garbage collection window has not passed yet since resharding.
@@ -1039,6 +1043,7 @@ fn slow_test_resharding_v3_double_sign_resharding_block_first_fork() {
     );
 }
 
+// here
 #[test]
 // Scenario:
 // Two double signed blocks B(height=15) and B'(height=15) and a third block C(height=19)
