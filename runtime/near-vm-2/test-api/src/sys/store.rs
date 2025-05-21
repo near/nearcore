@@ -73,7 +73,7 @@ impl Default for Store {
         fn get_config() -> impl CompilerConfig + 'static {
             cfg_if::cfg_if! {
                 if #[cfg(feature = "default-singlepass")] {
-                    near_vm_compiler_singlepass::Singlepass::default()
+                    near_vm_2_compiler_singlepass::Singlepass::default()
                 } else {
                     compile_error!("No default compiler chosen")
                 }

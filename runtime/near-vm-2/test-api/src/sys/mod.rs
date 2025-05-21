@@ -28,7 +28,7 @@ pub use near_vm_2_vm::{Export, NamedResolver};
 pub use wat::parse_bytes as wat2wasm;
 
 #[cfg(feature = "singlepass")]
-pub use near_vm_compiler_singlepass::Singlepass;
+pub use near_vm_2_compiler_singlepass::Singlepass;
 
 #[cfg(feature = "universal")]
 pub use near_vm_2_engine::universal::{Universal, UniversalArtifact, UniversalEngine};

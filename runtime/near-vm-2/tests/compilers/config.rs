@@ -60,7 +60,7 @@ impl Config {
     pub fn compiler_config(&self, canonicalize_nans: bool) -> Box<dyn CompilerConfig> {
         match &self.compiler {
             Compiler::Singlepass => {
-                let mut compiler = near_vm_compiler_singlepass::Singlepass::new();
+                let mut compiler = near_vm_2_compiler_singlepass::Singlepass::new();
                 compiler.canonicalize_nans(canonicalize_nans);
                 compiler.enable_verifier();
                 Box::new(compiler)
