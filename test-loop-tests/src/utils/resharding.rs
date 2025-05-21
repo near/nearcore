@@ -790,15 +790,15 @@ fn check_has_the_only_shard_state(
         let shard_uid = ShardUId::try_from_slice(&key[0..8]).unwrap();
         shard_uid_prefixes.insert(shard_uid);
     }
-    let mapped_shard_uid = get_shard_uid_mapping(&store.store(), the_only_shard_uid);
+    // We no longer need to check for get_shard_uid_mapping and expect_shard_uid_is_mapped
+    // let mapped_shard_uid = get_shard_uid_mapping(&store.store(), the_only_shard_uid);
     // if expect_shard_uid_is_mapped {
     //     assert_ne!(mapped_shard_uid, the_only_shard_uid);
     // } else {
     //     assert_eq!(mapped_shard_uid, the_only_shard_uid);
     // };
-    // TODO(resharding): Handle GC after TrieStateResharder
-    // let shard_uid_prefixes = shard_uid_prefixes.into_iter().collect_vec();
-    // assert_eq!(shard_uid_prefixes, [mapped_shard_uid]);
+    let shard_uid_prefixes = shard_uid_prefixes.into_iter().collect_vec();
+    assert_eq!(shard_uid_prefixes, [the_only_shard_uid]);
 }
 
 /// Loop action testing state cleanup.

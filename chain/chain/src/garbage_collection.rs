@@ -278,22 +278,30 @@ impl ChainStore {
                 )?;
                 gc_blocks_remaining -= 1;
 
-                if let Some(potential_shards_for_cleanup) = potential_shards_for_cleanup {
-                    gc_state(
-                        &mut chain_store_update,
-                        block_hash,
-                        potential_shards_for_cleanup,
-                        &epoch_manager,
-                        shard_tracker,
-                        me,
-                    )?;
-                }
+                // if let Some(potential_shards_for_cleanup) = potential_shards_for_cleanup {
+                //     gc_state(
+                //         &mut chain_store_update,
+                //         block_hash,
+                //         potential_shards_for_cleanup,
+                //         &epoch_manager,
+                //         shard_tracker,
+                //         me,
+                //     )?;
+                // }
 
                 gc_parent_shard_after_resharding(
                     &mut chain_store_update,
                     epoch_manager.as_ref(),
                     block_hash,
                 )?;
+
+                gc_state2(
+                    &mut chain_store_update,
+                    epoch_manager.as_ref(),
+                    block_hash,
+                    shard_tracker,
+                    me,
+                )?
             }
             chain_store_update.update_tail(height)?;
             chain_store_update.commit()?;
@@ -1177,7 +1185,7 @@ fn gc_parent_shard_after_resharding(
 // Maybe use this function instead of gc_state
 fn gc_state2(
     chain_store_update: &mut ChainStoreUpdate,
-    epoch_manager: &Arc<dyn EpochManagerAdapter>,
+    epoch_manager: &dyn EpochManagerAdapter,
     block_hash: &CryptoHash,
     shard_tracker: &ShardTracker,
     me: Option<&AccountId>,
@@ -1308,6 +1316,7 @@ fn gc_state(
             continue;
         }
         let mapped_shard_uid = get_shard_uid_mapping(&store, shard_uid);
+        assert!(mapped_shard_uid == shard_uid);
         potential_shards_to_cleanup.remove(&mapped_shard_uid);
     }
 
@@ -1332,6 +1341,7 @@ fn gc_state(
                 continue;
             }
             let mapped_shard_uid = get_shard_uid_mapping(&store, shard_uid);
+            assert!(mapped_shard_uid == shard_uid);
             potential_shards_to_cleanup.remove(&mapped_shard_uid);
         }
     }
@@ -1342,6 +1352,7 @@ fn gc_state(
     for kv in store.iter_ser::<ShardUId>(DBCol::StateShardUIdMapping) {
         let (child_shard_uid_bytes, parent_shard_uid) = kv?;
         if shards_to_cleanup.contains(&parent_shard_uid) {
+            assert!(false);
             shard_uid_mappings_to_remove.push(child_shard_uid_bytes);
         }
     }
