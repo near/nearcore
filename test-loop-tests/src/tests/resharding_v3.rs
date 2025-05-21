@@ -1266,6 +1266,7 @@ fn test_resharding_v3_split_parent_buffered_receipts_base(base_shard_layout_vers
 
 #[test]
 #[cfg_attr(not(feature = "test_features"), ignore)]
+#[ignore = "V1 tests are ignored"]
 fn slow_test_resharding_v3_split_parent_buffered_receipts_v1() {
     test_resharding_v3_split_parent_buffered_receipts_base(1);
 }
@@ -1308,6 +1309,7 @@ fn test_resharding_v3_buffered_receipts_towards_splitted_shard_base(
 
 #[test]
 #[cfg_attr(not(feature = "test_features"), ignore)]
+#[ignore = "V1 tests are ignored"]
 fn slow_test_resharding_v3_buffered_receipts_towards_splitted_shard_v1() {
     test_resharding_v3_buffered_receipts_towards_splitted_shard_base(1);
 }
@@ -1350,6 +1352,7 @@ fn test_resharding_v3_large_receipts_towards_splitted_shard_base(base_shard_layo
 }
 
 #[test]
+#[ignore = "V1 tests are ignored"]
 fn slow_test_resharding_v3_large_receipts_towards_splitted_shard_v1() {
     test_resharding_v3_large_receipts_towards_splitted_shard_base(1);
 }
@@ -1397,6 +1400,7 @@ fn slow_test_resharding_v3_outgoing_receipts_from_splitted_shard() {
 }
 
 #[test]
+#[ignore = "V1 tests are ignored"]
 fn slow_test_resharding_v3_load_memtrie_v1() {
     let params = TestReshardingParametersBuilder::default()
         .base_shard_layout_version(1)

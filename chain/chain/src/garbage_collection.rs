@@ -279,15 +279,21 @@ impl ChainStore {
                 gc_blocks_remaining -= 1;
 
                 if let Some(potential_shards_for_cleanup) = potential_shards_for_cleanup {
-                    // gc_state(
-                    //     &mut chain_store_update,
-                    //     block_hash,
-                    //     potential_shards_for_cleanup,
-                    //     &epoch_manager,
-                    //     shard_tracker,
-                    //     me,
-                    // )?;
+                    gc_state(
+                        &mut chain_store_update,
+                        block_hash,
+                        potential_shards_for_cleanup,
+                        &epoch_manager,
+                        shard_tracker,
+                        me,
+                    )?;
                 }
+
+                gc_parent_shard_after_resharding(
+                    &mut chain_store_update,
+                    epoch_manager.as_ref(),
+                    block_hash,
+                )?;
             }
             chain_store_update.update_tail(height)?;
             chain_store_update.commit()?;
@@ -1132,6 +1138,95 @@ impl<'a> ChainStoreUpdate<'a> {
         }
         self.merge(store_update);
     }
+}
+
+/// Cleans up the state of the parent shard of the resharding block.
+///
+/// When we are GC'ing the last block of the epoch where a resharding happened, we need to cleanup
+/// the state of the parent shard. This is done by iterating through the new shard layout and
+/// deleting the state of the parent shard for each child shard.
+fn gc_parent_shard_after_resharding(
+    chain_store_update: &mut ChainStoreUpdate,
+    epoch_manager: &dyn EpochManagerAdapter,
+    block_hash: &CryptoHash,
+) -> Result<(), Error> {
+    // If we are GC'ing the resharding block, i.e. the last block of the epoch, clear out state for the parent shard
+    if !epoch_manager.is_last_block_in_finished_epoch(block_hash)? {
+        return Ok(());
+    }
+
+    let store = chain_store_update.store();
+    let mut trie_store_update = store.trie_store().store_update();
+    // Given block_hash is the resharding block, shard_layout is the shard layout of the next epoch
+    let shard_layout = epoch_manager.get_shard_layout_from_prev_block(block_hash)?;
+
+    for parent_shard_uid in shard_layout.get_split_parent_shard_uids()? {
+        let child_shard_uids =
+            shard_layout.get_children_shards_uids(parent_shard_uid.shard_id()).unwrap();
+        for child_shard_uid in child_shard_uids {
+            // At this point, we should have completed resharding and removed the child shard mapping.
+            assert_eq!(get_shard_uid_mapping(&store, child_shard_uid), child_shard_uid);
+        }
+        trie_store_update.delete_shard_uid_prefixed_state(parent_shard_uid);
+    }
+
+    chain_store_update.merge(trie_store_update.into());
+    Ok(())
+}
+
+// Maybe use this function instead of gc_state
+fn gc_state2(
+    chain_store_update: &mut ChainStoreUpdate,
+    epoch_manager: &Arc<dyn EpochManagerAdapter>,
+    block_hash: &CryptoHash,
+    shard_tracker: &ShardTracker,
+    me: Option<&AccountId>,
+) -> Result<(), Error> {
+    if !epoch_manager.is_last_block_in_finished_epoch(block_hash)? {
+        return Ok(());
+    }
+
+    // reverse iterate over the epochs
+    let store = chain_store_update.store();
+    let latest_block_hash = chain_store_update.head()?.last_block_hash;
+    let mut block_info = epoch_manager.get_block_info(&latest_block_hash)?;
+    let mut shards_to_cleanup = HashSet::new();
+
+    // At this point we know that block_hash is the last block of some epoch.
+    while block_info.hash() != block_hash {
+        let shard_layout = epoch_manager.get_shard_layout(block_info.epoch_id())?;
+        for shard_uid in shard_layout.shard_uids() {
+            let trie_changes_key = get_block_shard_uid(&block_info.hash(), &shard_uid);
+            if store.exists(DBCol::TrieChanges, &trie_changes_key)? {
+                continue;
+            }
+
+            if shard_tracker.cares_about_shard_this_or_next_epoch(
+                me,
+                &latest_block_hash,
+                shard_uid.shard_id(),
+                true,
+            ) {
+                continue;
+            }
+
+            shards_to_cleanup.insert(shard_uid);
+        }
+
+        let epoch_first_block_hash = block_info.epoch_first_block();
+        let epoch_first_block_info = epoch_manager.get_block_info(epoch_first_block_hash)?;
+        let prev_epoch_last_block_hash = epoch_first_block_info.prev_hash();
+        block_info = epoch_manager.get_block_info(prev_epoch_last_block_hash)?;
+    }
+
+    // Delete State of `shards_to_cleanup` and associated ShardUId mapping.
+    tracing::info!(target: "garbage_collection", ?shards_to_cleanup, "state_cleanup");
+    let mut trie_store_update = store.trie_store().store_update();
+    for shard_uid_prefix in shards_to_cleanup {
+        trie_store_update.delete_shard_uid_prefixed_state(shard_uid_prefix);
+    }
+    chain_store_update.merge(trie_store_update.into());
+    Ok(())
 }
 
 /// Returns shards that we tracked in an epoch, given a hash of the last block in the epoch.
