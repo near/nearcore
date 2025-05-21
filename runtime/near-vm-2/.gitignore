@@ -8,7 +8,6 @@ api-docs-repo/
 /.cargo_home/
 /package/
 /dist/
-/wapm-cli/
 /src/windows-installer/WasmerInstaller.exe
 /lib/c-api/wasmer.h
 

@@ -80,8 +80,11 @@ impl Function {
         if func_ref.is_null() {
             return None;
         }
-        let near_vm_2_vm::VMCallerCheckedAnyfunc { func_ptr: address, type_index: signature, vmctx } =
-            unsafe { **func_ref };
+        let near_vm_2_vm::VMCallerCheckedAnyfunc {
+            func_ptr: address,
+            type_index: signature,
+            vmctx,
+        } = unsafe { **func_ref };
         let export = near_vm_2_vm::ExportFunction {
             // TODO:
             // figure out if we ever need a value here: need testing with complicated import patterns

@@ -40,8 +40,10 @@ pub trait ValFuncRef {
 
     unsafe fn from_vm_funcref(item: VMFuncRef, store: &Store) -> Self;
 
-    fn into_table_reference(&self, store: &Store)
-    -> Result<near_vm_2_vm::TableElement, RuntimeError>;
+    fn into_table_reference(
+        &self,
+        store: &Store,
+    ) -> Result<near_vm_2_vm::TableElement, RuntimeError>;
 }
 
 impl ValFuncRef for Val {

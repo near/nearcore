@@ -2,7 +2,7 @@
 //! This test suite does all the tests that involve any compiler
 //! implementation, such as: singlepass.
 #[macro_use]
-extern crate near_vm_compiler_test_derive;
+extern crate near_vm_2_compiler_test_derive;
 
 mod config;
 mod deterministic;
