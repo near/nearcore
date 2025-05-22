@@ -10,7 +10,7 @@ use std::io::ErrorKind;
 use near_primitives::hash::CryptoHash;
 use near_primitives::stateless_validation::state_witness::ChunkStateWitness;
 use near_primitives::types::EpochId;
-use near_store::DBCol;
+use near_store::{DBCol, Store};
 
 use crate::ChainStoreAccess;
 use crate::stateless_validation;
@@ -247,123 +247,6 @@ impl ChainStore {
         Ok(())
     }
 
-    /// Saves an observed `ChunkStateWitness` to the database for later analysis and debugging.
-    /// The witness is stored in `DBCol::InvalidChunkStateWitnesses`.
-    /// This function does a read-before-write. Don't call it in parallel on the same database,
-    /// or there will be race conditions.
-    pub fn save_invalid_chunk_state_witness(
-        &mut self,
-        witness: &ChunkStateWitness,
-    ) -> Result<(), std::io::Error> {
-        let start_time = std::time::Instant::now();
-        let _span = tracing::info_span!(
-            target: "client",
-            "save_invalid_chunk_state_witness",
-            witness_height = witness.chunk_header.height_created(),
-            witness_shard = ?witness.chunk_header.shard_id(),
-        )
-        .entered();
-
-        let serialized_witness = borsh::to_vec(witness)?;
-        let serialized_witness_size: u64 =
-            serialized_witness.len().try_into().expect("Cannot convert usize to u64");
-
-        if serialized_witness_size > SINGLE_INVALID_WITNESS_MAX_SIZE.as_u64() {
-            tracing::warn!(
-                "Cannot save invalid ChunkStateWitness because it's too big. Witness size: {} byte. Size limit: {} bytes.",
-                serialized_witness.len(),
-                SINGLE_INVALID_WITNESS_MAX_SIZE.as_u64()
-            );
-            return Ok(());
-        }
-
-        // Read the current `InvalidWitnessesInfo`, or create a new one if there is none.
-        let mut info = self
-            .store()
-            .get_ser::<InvalidWitnessesInfo>(DBCol::Misc, INVALID_WITNESSES_INFO)?
-            .unwrap_or_default();
-
-        let new_witness_index = info.next_witness_index;
-
-        // Adjust the info to include the new witness.
-        info.count += 1;
-        info.total_size += serialized_witness.len() as u64;
-        info.next_witness_index += 1;
-
-        let mut store_update = self.store().store_update();
-
-        // Go over witnesses with increasing indexes and remove them until the limits are satisfied.
-        while !info.is_within_limits() && info.lowest_index < info.next_witness_index {
-            let store = self.store();
-            let key_to_delete = store
-                .get(DBCol::InvalidWitnessesByIndex, &info.lowest_index.to_be_bytes())?
-                .ok_or_else(|| {
-                    std::io::Error::new(
-                        ErrorKind::NotFound,
-                        format!(
-                            "Cannot find witness key to delete with index {}",
-                            info.lowest_index
-                        ),
-                    )
-                })?;
-            // cspell:words deser
-            let key_deser = StoredWitnessesKey::deserialize(&key_to_delete)?;
-
-            store_update.delete(DBCol::InvalidChunkStateWitnesses, &key_to_delete);
-            store_update.delete(DBCol::InvalidWitnessesByIndex, &info.lowest_index.to_be_bytes());
-            info.lowest_index += 1;
-            info.count -= 1;
-            info.total_size -= key_deser.witness_size;
-        }
-
-        // Limits are ok, insert the new witness.
-        let mut random_uuid = [0u8; 16];
-        OsRng.fill_bytes(&mut random_uuid);
-        let key = StoredWitnessesKey {
-            height: witness.chunk_header.height_created(),
-            shard_id: witness.chunk_header.shard_id().into(),
-            epoch_id: witness.epoch_id,
-            witness_size: serialized_witness_size,
-            random_uuid,
-        };
-        store_update.set(DBCol::InvalidChunkStateWitnesses, &key.serialized(), &serialized_witness);
-        store_update.set(
-            DBCol::InvalidWitnessesByIndex,
-            &new_witness_index.to_be_bytes(),
-            &key.serialized(),
-        );
-
-        // Update InvalidWitnessesInfo
-        store_update.set(DBCol::Misc, &INVALID_WITNESSES_INFO, &borsh::to_vec(&info)?);
-
-        let store_update_time = start_time.elapsed();
-
-        // Commit the transaction
-        store_update.commit()?;
-
-        let store_commit_time = start_time.elapsed().saturating_sub(store_update_time);
-
-        let shard_id_str = witness.chunk_header.shard_id().to_string();
-        stateless_validation::metrics::SAVE_INVALID_WITNESS_GENERATE_UPDATE_TIME
-            .with_label_values(&[shard_id_str.as_str()])
-            .observe(store_update_time.as_secs_f64());
-        stateless_validation::metrics::SAVE_INVALID_WITNESS_COMMIT_UPDATE_TIME
-            .with_label_values(&[shard_id_str.as_str()])
-            .observe(store_commit_time.as_secs_f64());
-        stateless_validation::metrics::SAVED_INVALID_WITNESSES_COUNT.set(info.count as i64);
-        stateless_validation::metrics::SAVED_INVALID_WITNESSES_SIZE.set(info.total_size as i64);
-
-        tracing::debug!(
-            ?store_update_time,
-            ?store_commit_time,
-            total_count = info.count,
-            total_size = info.total_size,
-            "Saved invalid witness",
-        );
-
-        Ok(())
-    }
-
     /// Queries the specified DBCol using a key prefix to find
     /// all saved witnesses that match the given criteria.
     fn get_stored_witnesses(
@@ -432,4 +315,119 @@ impl ChainStore {
     ) -> Result<Vec<ChunkStateWitness>, std::io::Error> {
         self.get_stored_witnesses(height, shard_id, epoch_id, DBCol::InvalidChunkStateWitnesses)
     }
+}
+
+/// Saves an observed `ChunkStateWitness` to the database for later analysis and debugging.
+/// The witness is stored in `DBCol::InvalidChunkStateWitnesses`.
+/// This function does a read-before-write. Don't call it in parallel on the same database,
+/// or there will be race conditions.
+pub fn save_invalid_chunk_state_witness(
+    store: Store,
+    witness: &ChunkStateWitness,
+) -> Result<(), std::io::Error> {
+    let start_time = std::time::Instant::now();
+    let _span = tracing::info_span!(
+        target: "client",
+        "save_invalid_chunk_state_witness",
+        witness_height = witness.chunk_header.height_created(),
+        witness_shard = ?witness.chunk_header.shard_id(),
+    )
+        .entered();
+
+    let serialized_witness = borsh::to_vec(witness)?;
+    let serialized_witness_size: u64 =
+        serialized_witness.len().try_into().expect("Cannot convert usize to u64");
+
+    if serialized_witness_size > SINGLE_INVALID_WITNESS_MAX_SIZE.as_u64() {
+        tracing::warn!(
+            "Cannot save invalid ChunkStateWitness because it's too big. Witness size: {} byte. Size limit: {} bytes.",
+            serialized_witness.len(),
+            SINGLE_INVALID_WITNESS_MAX_SIZE.as_u64()
+        );
+        return Ok(());
+    }
+
+    // Read the current `InvalidWitnessesInfo`, or create a new one if there is none.
+    let mut info = store
+        .get_ser::<InvalidWitnessesInfo>(DBCol::Misc, INVALID_WITNESSES_INFO)?
+        .unwrap_or_default();
+
+    let new_witness_index = info.next_witness_index;
+
+    // Adjust the info to include the new witness.
+    info.count += 1;
+    info.total_size += serialized_witness.len() as u64;
+    info.next_witness_index += 1;
+
+    let mut store_update = store.store_update();
+
+    // Go over witnesses with increasing indexes and remove them until the limits are satisfied.
+    while !info.is_within_limits() && info.lowest_index < info.next_witness_index {
+        let key_to_delete = store
+            .get(DBCol::InvalidWitnessesByIndex, &info.lowest_index.to_be_bytes())?
+            .ok_or_else(|| {
+                std::io::Error::new(
+                    ErrorKind::NotFound,
+                    format!(
+                        "Cannot find witness key to delete with index {}",
+                        info.lowest_index
+                    ),
+                )
+            })?;
+        // cspell:words deser
+        let key_deser = StoredWitnessesKey::deserialize(&key_to_delete)?;
+
+        store_update.delete(DBCol::InvalidChunkStateWitnesses, &key_to_delete);
+        store_update.delete(DBCol::InvalidWitnessesByIndex, &info.lowest_index.to_be_bytes());
+        info.lowest_index += 1;
+        info.count -= 1;
+        info.total_size -= key_deser.witness_size;
+    }
+
+    // Limits are ok, insert the new witness.
+    let mut random_uuid = [0u8; 16];
+    OsRng.fill_bytes(&mut random_uuid);
+    let key = StoredWitnessesKey {
+        height: witness.chunk_header.height_created(),
+        shard_id: witness.chunk_header.shard_id().into(),
+        epoch_id: witness.epoch_id,
+        witness_size: serialized_witness_size,
+        random_uuid,
+    };
+    store_update.set(DBCol::InvalidChunkStateWitnesses, &key.serialized(), &serialized_witness);
+    store_update.set(
+        DBCol::InvalidWitnessesByIndex,
+        &new_witness_index.to_be_bytes(),
+        &key.serialized(),
+    );
+
+    // Update InvalidWitnessesInfo
+    store_update.set(DBCol::Misc, &INVALID_WITNESSES_INFO, &borsh::to_vec(&info)?);
+
+    let store_update_time = start_time.elapsed();
+
+    // Commit the transaction
+    store_update.commit()?;
+
+    let store_commit_time = start_time.elapsed().saturating_sub(store_update_time);
+
+    let shard_id_str = witness.chunk_header.shard_id().to_string();
+    stateless_validation::metrics::SAVE_INVALID_WITNESS_GENERATE_UPDATE_TIME
+        .with_label_values(&[shard_id_str.as_str()])
+        .observe(store_update_time.as_secs_f64());
+    stateless_validation::metrics::SAVE_INVALID_WITNESS_COMMIT_UPDATE_TIME
+        .with_label_values(&[shard_id_str.as_str()])
+        .observe(store_commit_time.as_secs_f64());
+    stateless_validation::metrics::SAVED_INVALID_WITNESSES_COUNT.set(info.count as i64);
+    stateless_validation::metrics::SAVED_INVALID_WITNESSES_SIZE.set(info.total_size as i64);
+
+    tracing::debug!(
+        ?store_update_time,
+        ?store_commit_time,
+        total_count = info.count,
+        total_size = info.total_size,
+        "Saved invalid witness",
+    );
+
+    Ok(())
 }
