@@ -1,4 +1,5 @@
 //! Iterator implementation that is shared between DiskTrieIterator and MemTrieIterator.
+use std::ops::Bound;
 use std::sync::Arc;
 
 use near_primitives::errors::StorageError;
@@ -129,10 +130,16 @@ where
         Ok(())
     }
 
-    /// Position the iterator on the first element with key >= `key`,
-    /// or the first element with key > `key` if `upper_bound` is true.
-    /// Does not record nodes accessed during the seek.
-    pub fn seek<K: AsRef<[u8]>>(&mut self, key: K, upper_bound: bool) -> Result<(), StorageError> {
+    /// Position the iterator on the first element with key >= `key`, or the
+    /// first element with key > `key` if `key` is Excluded. Does not record
+    /// nodes accessed during the seek.
+    pub fn seek<K: AsRef<[u8]>>(&mut self, key: Bound<K>) -> Result<(), StorageError> {
+        let (key, exclusive) = match key {
+            Bound::Included(key) => (key, false),
+            Bound::Excluded(key) => (key, true),
+            Bound::Unbounded => return Ok(()),
+        };
+
         self.seek_nibble_slice(
             NibbleSlice::new(key.as_ref()),
             false,
@@ -140,10 +147,10 @@ where
         )?;
 
         // By this point, we are already positioned the iterator such that
-        // next() will return the first element with key >= `key`.
-        // If `upper_bound` is true, we need to check if the next element
-        // is actually key == `key` and skip it.
-        if upper_bound {
+        // next() will return the first element with key >= `key`. If `key` is
+        // Excluded, we need to check if the next element is actually key ==
+        // `key` and skip it.
+        if exclusive {
             let last =
                 self.trail.last().expect("Trail should not be empty after seek_nibble_slice");
             let mut compare_with = self.key_nibbles.clone();
