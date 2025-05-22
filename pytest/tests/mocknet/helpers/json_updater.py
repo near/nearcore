@@ -19,13 +19,14 @@ def deep_merge(original: dict, patch: dict) -> dict:
         The merged dictionary
     """
     result = original.copy()
-    
+
     for key, value in patch.items():
-        if key in result and isinstance(result[key], dict) and isinstance(value, dict):
+        if key in result and isinstance(result[key], dict) and isinstance(
+                value, dict):
             result[key] = deep_merge(result[key], value)
         else:
             result[key] = value
-            
+
     return result
 
 
@@ -39,20 +40,20 @@ def update_json(original_path: str, patch_paths: list[str]):
     if not os.path.exists(original_path):
         print(f"Error: Original file {original_path} does not exist")
         sys.exit(1)
-        
+
     for patch_path in patch_paths:
         if not os.path.exists(patch_path):
             print(f"Error: Patch file {patch_path} does not exist")
             sys.exit(1)
-            
+
     with open(original_path) as f:
         original = json.load(f)
-        
+
     for patch_path in patch_paths:
         with open(patch_path) as f:
             patch = json.load(f)
             original = deep_merge(original, patch)
-            
+
     # Remove quotes around "gas_limit" (workaround for jq 1.6 bigint bug)
     if original_path.endswith('genesis.json'):
         original['gas_limit'] = int(original['gas_limit'])
@@ -64,18 +65,14 @@ def update_json(original_path: str, patch_paths: list[str]):
 def main():
     parser = argparse.ArgumentParser(
         description='Update a JSON file with one or more patch files.',
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter
-    )
-    parser.add_argument(
-        'original',
-        help='Path to the original JSON file to update'
-    )
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    parser.add_argument('original',
+                        help='Path to the original JSON file to update')
     parser.add_argument(
         'patches',
         nargs='+',
-        help='One or more patch JSON files to apply in sequence'
-    )
-    
+        help='One or more patch JSON files to apply in sequence')
+
     args = parser.parse_args()
     update_json(args.original, args.patches)
 

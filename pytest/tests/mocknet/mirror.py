@@ -487,6 +487,7 @@ def get_nodes_status(targeted):
             not_ready.append(node.name())
     return not_ready
 
+
 def status_cmd(ctx: CommandContext):
     targeted = ctx.get_targeted()
     not_ready = get_nodes_status(targeted)

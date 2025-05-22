@@ -19,21 +19,26 @@ from mirror import CommandContext, get_nodes_status, init_cmd, new_test_cmd, \
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 from configured_logger import logger
 
+# cspell:words BENCHNET
+
 # TODO: consider moving local directory to pytest.
 LOCAL_BENCHNET_DIR = "../benchmarks/sharded-bm"
 
 REMOTE_BENCHNET_DIR = "/home/ubuntu/bench"
 NEAR_HOME = "/home/ubuntu/.near"
 
+
 def fetch_forknet_details(forknet_name):
     """Fetch the forknet details from GCP."""
     find_instances_cmd = [
-        "gcloud", "compute", "instances", "list",
-        "--project=nearone-mocknet",
+        "gcloud", "compute", "instances", "list", "--project=nearone-mocknet",
         f"--filter=name~'-{forknet_name}-' AND -name~'traffic' AND -name~'tracing'",
         "--format=get(name,networkInterfaces[0].networkIP)"
     ]
-    find_instances_cmd_result = subprocess.run(find_instances_cmd, capture_output=True, text=True, check=True)
+    find_instances_cmd_result = subprocess.run(find_instances_cmd,
+                                               capture_output=True,
+                                               text=True,
+                                               check=True)
     output = find_instances_cmd_result.stdout.splitlines()
     num_cp_instances = len(output) - 1
     rpc_instance = output[-1]
@@ -42,12 +47,14 @@ def fetch_forknet_details(forknet_name):
     cp_instance_names = [instance[0] for instance in cp_instances]
 
     find_tracing_server_cmd = [
-        "gcloud", "compute", "instances", "list",
-        "--project=nearone-mocknet",
+        "gcloud", "compute", "instances", "list", "--project=nearone-mocknet",
         f"--filter=name~'-{forknet_name}-' AND name~'tracing'",
         "--format=get(networkInterfaces[0].networkIP,networkInterfaces[0].accessConfigs[0].natIP)"
     ]
-    tracing_server_cmd_result = subprocess.run(find_tracing_server_cmd, capture_output=True, text=True, check=True)
+    tracing_server_cmd_result = subprocess.run(find_tracing_server_cmd,
+                                               capture_output=True,
+                                               text=True,
+                                               check=True)
     output = tracing_server_cmd_result.stdout.strip()
     internal_ip, external_ip = output.split() if output else (None, None)
     return {
@@ -77,7 +84,7 @@ def handle_init(args):
     run_cmd_args = copy.deepcopy(args)
     run_cmd_args.cmd = f"mkdir -p {REMOTE_BENCHNET_DIR}"
     run_remote_cmd(CommandContext(run_cmd_args))
-    
+
     # TODO: check neard binary version
 
     upload_file_args = copy.deepcopy(args)
@@ -101,8 +108,7 @@ def handle_init(args):
         gcs_state_sync=False,
         stateless_setup=True,
         yes=True,
-        **vars(args)
-    )
+        **vars(args))
     new_test_cmd(CommandContext(new_test_cmd_args))
 
     status_cmd_args = copy.deepcopy(args)
@@ -117,16 +123,19 @@ def handle_init(args):
     logger.info("All nodes are ready")
 
     tracing_server_ip = args.forknet_details['tracing_server_internal_ip']
-    env_cmd_args = SimpleNamespace(
-        key_value=[f"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://{tracing_server_ip}:4317"],
-        clear_all=False,
-        **vars(args)
-    )
-    run_env_cmd(CommandContext(env_cmd_args))
+    if tracing_server_ip is None:
+        logger.info("No tracing server found, skipping tracing setup")
+    else:
+        env_cmd_args = SimpleNamespace(key_value=[
+            f"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://{tracing_server_ip}:4317"
+        ],
+                                       clear_all=False,
+                                       **vars(args))
+        run_env_cmd(CommandContext(env_cmd_args))
 
     genesis = f"{NEAR_HOME}/genesis.json"
     base_genesis_patch = f"{REMOTE_BENCHNET_DIR}/{args.case}/{args.bm_params['base_genesis_patch']}"
-    
+
     config = f"{NEAR_HOME}/config.json"
     base_config_patch = f"{REMOTE_BENCHNET_DIR}/{args.case}/{args.bm_params['base_config_patch']}"
     config_patch = f"{REMOTE_BENCHNET_DIR}/{args.case}/config_patch.json"
@@ -141,10 +150,12 @@ def handle_init(args):
         touch {log_config} && \
         python3 {REMOTE_BENCHNET_DIR}/helpers/json_updater.py {log_config} {log_config_patch} \
     "
-    if args.forknet_details['tracing_server_internal_ip']:
+
+    if tracing_server_ip is None:
         run_cmd_args.cmd += f"\
             jq '.opentelemetry = null' {log_config} >tmp.$$.json && mv tmp.$$.json {log_config} && rm tmp.$$.json \
         "
+
     run_remote_cmd(CommandContext(run_cmd_args))
 
     start_nodes(args)
@@ -160,6 +171,7 @@ def handle_init(args):
         mkdir -p {REMOTE_BENCHNET_DIR}/user-data && \
         cp {NEAR_HOME}/user-data/shard_$shard.json {accounts_path} \
     "
+
     run_remote_cmd(CommandContext(run_cmd_args))
 
     handle_stop(args)
@@ -195,6 +207,7 @@ def handle_reset(args):
     config = f"{NEAR_HOME}/config.json"
     run_cmd_args.cmd = f"jq 'del(.tx_generator)' {config} > tmp.$$.json && \
         mv tmp.$$.json {config} || rm tmp.$$.json"
+
     run_remote_cmd(CommandContext(run_cmd_args))
 
 
@@ -202,7 +215,7 @@ def start_nodes(args, with_tx_generator=False):
     """Handle the start command - start the benchmark."""
     if with_tx_generator:
         logger.info("Setting tx generator parameters")
-        
+
         tps = int(args.bm_params['tx_generator']['tps'])
         volume = int(args.bm_params['tx_generator']['volume'])
         accounts_path = f"{REMOTE_BENCHNET_DIR}/user-data/shard.json"
@@ -216,6 +229,7 @@ def start_nodes(args, with_tx_generator=False):
             {NEAR_HOME}/config.json > tmp.$$.json && \
             mv tmp.$$.json {NEAR_HOME}/config.json || rm tmp.$$.json \
         "
+
         run_remote_cmd(CommandContext(run_cmd_args))
 
     logger.info("Starting nodes")
@@ -242,7 +256,7 @@ def main():
         sys.exit(1)
 
     forknet_details = fetch_forknet_details(unique_id)
-    print(forknet_details)
+    logger.info(forknet_details)
 
     try:
         bm_params_path = f"{LOCAL_BENCHNET_DIR}/{case}/params.json"
@@ -271,10 +285,9 @@ def main():
     subparsers.add_parser('init', help='Initialize the benchmark')
 
     start_parser = subparsers.add_parser('start', help='Start the benchmark')
-    start_parser.add_argument(
-        '--with-tx-generator',
-        action='store_true',
-        help='Set the tx generator parameters')
+    start_parser.add_argument('--with-tx-generator',
+                              action='store_true',
+                              help='Set the tx generator parameters')
 
     subparsers.add_parser('stop', help='Stop the benchmark')
     subparsers.add_parser('reset', help='Reset the benchmark state')
