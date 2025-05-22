@@ -9,6 +9,6 @@
         "enabled": true
     },
     "forknet": {
-        "binary_url": "https://s3-us-west-1.amazonaws.com/build.nearprotocol.com/nearcore/Linux/tx-generator-neard/neard"
+        "binary_url": "https://s3-us-west-1.amazonaws.com/build.nearprotocol.com/nearcore/Linux/slavas-bench-exp/neard"
     }
 }
