@@ -56,8 +56,6 @@ def fetch_forknet_details(forknet_name):
                                                text=True,
                                                check=True)
     output = tracing_server_cmd_result.stdout.strip()
-    ### HACK
-    output = None
     internal_ip, external_ip = output.split() if output else (None, None)
     return {
         "rpc_instance_name": rpc_instance_name,
