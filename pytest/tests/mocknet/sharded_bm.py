@@ -197,6 +197,7 @@ def handle_reset(args):
         rm -rf {REMOTE_BENCHNET_DIR} && \
         jq 'del(.tx_generator)' {config} > tmp.$$.json && mv tmp.$$.json {config} || rm tmp.$$.json \
     "
+
     run_remote_cmd(CommandContext(run_cmd_args))
 
     env_cmd_args = copy.deepcopy(args)
