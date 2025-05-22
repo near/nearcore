@@ -479,15 +479,17 @@ Run `status` to check if the nodes are ready. After they're ready,
     _clear_state_parts_if_exists(location, nodes)
 
 
-def status_cmd(ctx: CommandContext):
-    targeted = ctx.get_targeted()
+def get_nodes_status(targeted):
     statuses = pmap(lambda node: node.neard_runner_ready(), targeted)
-
     not_ready = []
     for ready, node in zip(statuses, targeted):
         if not ready:
             not_ready.append(node.name())
+    return not_ready
 
+def status_cmd(ctx: CommandContext):
+    targeted = ctx.get_targeted()
+    not_ready = get_nodes_status(targeted)
     if len(not_ready) == 0:
         print(f'all {len(targeted)} nodes ready')
     else:
