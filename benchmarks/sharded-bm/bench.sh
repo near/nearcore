@@ -44,6 +44,7 @@ CONFIG_PATCH=${CASE}/config_patch.json
 USERS_DATA_DIR="${USERS_DATA_DIR:-user-data}"
 LOG_DIR="${LOG_DIR:-logs}"
 BENCHNET_DIR="${BENCHNET_DIR:-/home/ubuntu/bench}"
+SCHEDULE_FILE=${BENCHNET_DIR}/${CASE}/load-schedule.json
 
 RPC_ADDR="127.0.0.1:4040"
 SYNTH_BM_PATH="../synth-bm/Cargo.toml"
@@ -629,8 +630,6 @@ native_transfers_local() {
 
 native_transfers_injection() {
     fetch_forknet_details
-    local tps=$(jq -r '.tx_generator.tps' ${BM_PARAMS})
-    local volume=$(jq -r '.tx_generator.volume' ${BM_PARAMS})
     local accounts_path="${BENCHNET_DIR}/${USERS_DATA_DIR}/shard.json"
     cd ${PYTEST_PATH}
     # Create a glob pattern for the host filter
@@ -638,11 +637,14 @@ native_transfers_injection() {
     
     # Update the CONFIG file on all chunk producer nodes
     $MIRROR --host-filter ".*(${host_filter})" stop-nodes
-    $MIRROR --host-filter ".*(${host_filter})" run-cmd --cmd "jq --arg tps ${tps} \
-        --arg volume ${volume} --arg accounts_path ${accounts_path} \
-        '.tx_generator = {\"tps\": ${tps}, \"volume\": ${volume}, \
-        \"accounts_path\": \"${accounts_path}\", \"thread_count\": 2}' ${CONFIG} > tmp.$$.json && \
+    $MIRROR --host-filter ".*(${host_filter})" run-cmd --cmd "jq \
+        --arg accounts_path ${accounts_path} \
+        '.tx_generator = { \"accounts_path\": \"${accounts_path}\"}' ${CONFIG} > tmp.$$.json && \
         mv tmp.$$.json ${CONFIG} || rm tmp.$$.json"
+    $MIRROR --host-filter ".*(${host_filter})" run-cmd --cmd "
+        jq --slurpfile patch ${SCHEDULE_FILE} \
+        '. as \$orig | \$patch[0].schedule as \$sched | .[\"tx_generator\"] += {\"schedule\": \$sched }' \
+        ${CONFIG} > tmp.$$.json && mv tmp.$$.json ${CONFIG} || rm tmp.$$.json"    
     $MIRROR --host-filter ".*(${host_filter})" start-nodes
 
     cd -
