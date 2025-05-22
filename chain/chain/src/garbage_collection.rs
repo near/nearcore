@@ -1139,8 +1139,8 @@ fn gc_parent_shard_after_resharding(
     block_hash: &CryptoHash,
 ) -> Result<(), Error> {
     // If we are GC'ing the resharding block, i.e. the last block of the epoch, clear out state for the parent shard
-    if !epoch_manager.is_last_block_in_finished_epoch(block_hash)?
-        || !epoch_manager.will_shard_layout_change(block_hash)?
+    if !epoch_manager.will_shard_layout_change(block_hash)?
+        || !epoch_manager.is_last_block_in_finished_epoch(block_hash)?
     {
         return Ok(());
     }
