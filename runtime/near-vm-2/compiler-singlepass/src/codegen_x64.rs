@@ -355,7 +355,7 @@ impl<'a> FuncGen<'a> {
 
     fn emit_gas_const(&mut self, cost: finite_wasm_6::Fee) {
         let finite_wasm_6::Fee { constant, linear } = cost;
-        if linear == 0 {
+        if linear != 0 {
             todo!();
         } else {
             if let Ok(cost) = i32::try_from(constant) {
