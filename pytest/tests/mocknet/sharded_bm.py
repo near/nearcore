@@ -56,6 +56,8 @@ def fetch_forknet_details(forknet_name):
                                                text=True,
                                                check=True)
     output = tracing_server_cmd_result.stdout.strip()
+    ### HACK
+    output = None
     internal_ip, external_ip = output.split() if output else (None, None)
     return {
         "rpc_instance_name": rpc_instance_name,
@@ -145,28 +147,29 @@ def handle_init(args):
 
     run_cmd_args = copy.deepcopy(args)
     run_cmd_args.cmd = f"\
-        python3 {REMOTE_BENCHNET_DIR}/helpers/json_updater.py {genesis} {base_genesis_patch} && \
-        python3 {REMOTE_BENCHNET_DIR}/helpers/json_updater.py {config} {base_config_patch} {config_patch} && \
-        touch {log_config} && \
-        python3 {REMOTE_BENCHNET_DIR}/helpers/json_updater.py {log_config} {log_config_patch} \
+        python3 {REMOTE_BENCHNET_DIR}/helpers/json_updater.py {genesis} {base_genesis_patch} \
+        && python3 {REMOTE_BENCHNET_DIR}/helpers/json_updater.py {config} {base_config_patch} {config_patch} \
+        && touch {log_config} \
+        && python3 {REMOTE_BENCHNET_DIR}/helpers/json_updater.py {log_config} {log_config_patch} \
     "
 
     if tracing_server_ip is None:
         run_cmd_args.cmd += f"\
-            jq '.opentelemetry = null' {log_config} >tmp.$$.json && mv tmp.$$.json {log_config} && rm tmp.$$.json \
+            && jq '.opentelemetry = null' {log_config} >tmp.$$.json && mv tmp.$$.json {log_config} || rm tmp.$$.json \
         "
 
     run_remote_cmd(CommandContext(run_cmd_args))
 
     start_nodes(args)
 
-    time.sleep(5)
+    time.sleep(10)
 
     run_cmd_args = copy.deepcopy(args)
     run_cmd_args.host_filter = f"({'|'.join(args.forknet_details['cp_instance_names'])})"
     accounts_path = f"{REMOTE_BENCHNET_DIR}/user-data/shard.json"
     run_cmd_args.cmd = f"\
         shard=$(python3 {REMOTE_BENCHNET_DIR}/helpers/get_tracked_shard.py) && \
+        echo \"Tracked shard: $shard\" && \
         rm -rf {REMOTE_BENCHNET_DIR}/user-data && \
         mkdir -p {REMOTE_BENCHNET_DIR}/user-data && \
         cp {NEAR_HOME}/user-data/shard_$shard.json {accounts_path} \
