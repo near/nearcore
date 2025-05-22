@@ -673,7 +673,7 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
             );
 
             if num_mapped_children > 0 {
-                return false; // Wait for all reshardings to finish.
+                return false; // Wait for all mappings to be removed.
             }
         }
 
