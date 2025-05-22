@@ -716,6 +716,16 @@ impl ShardLayout {
         }
         Ok(parent_shard_ids)
     }
+
+    /// Returns all the shards from the previous shard layout that were
+    /// split into multiple shards in this shard layout.
+    pub fn get_split_parent_shard_uids(&self) -> Result<BTreeSet<ShardUId>, ShardLayoutError> {
+        let parent_shard_ids = self.get_split_parent_shard_ids()?;
+        Ok(parent_shard_ids
+            .into_iter()
+            .map(|shard_id| ShardUId::new(self.version(), shard_id))
+            .collect())
+    }
 }
 
 // Validates the shards_split_map and derives the shards_parent_map from it.
@@ -1234,6 +1244,12 @@ mod tests {
                 ])),
             )
         );
+
+        // In case we are changing the shard layout version from hardcoded 3,
+        // make sure that we correctly return the shard_uid of the parent shards in
+        // get_split_parent_shard_uids function.
+        assert_eq!(base_layout.version(), 3);
+        assert_eq!(base_layout.version(), derived_layout.version());
     }
 
     // Check that the ShardLayout::multi_shard method returns interesting shard
