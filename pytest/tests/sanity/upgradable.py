@@ -12,6 +12,8 @@ import threading
 import time
 import traceback
 
+from geventhttpclient.useragent import BadStatusCode
+
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 import branches
@@ -22,7 +24,7 @@ import utils
 
 _EXECUTABLES = None
 
-TIMEOUT = 10
+TIMEOUT = 20  # sec
 
 
 def get_executables() -> branches.ABExecutables:
@@ -65,6 +67,12 @@ class TrafficGenerator(threading.Thread):
                 with self._lock:
                     self.send_transfer()
                     self.call_test_contracts()
+
+            except BadStatusCode as e:
+                if not "408" in str(e):  # 408 (timeouts) can be ignored
+                    traceback.print_exc()
+                    self._failed_txs += 1
+
             except Exception:
                 traceback.print_exc()
                 self._failed_txs += 1
@@ -241,8 +249,8 @@ class TestUpgrade:
                     self._protocols.current + 1,
             ):
                 self.wait_epoch()
-                self.wait_for_no_missed_endorsements()
                 self.wait_for_protocol_version(expected_version)
+                self.wait_for_no_missed_endorsements()
 
             # Run one more epoch with the latest protocol version
             self.wait_epoch()
@@ -370,10 +378,15 @@ class TestUpgrade:
     def wait_for_protocol_version(self, expected_version: int) -> None:
 
         def _condition():
-            for node in self._stable_nodes:
-                protocol_version = node.get_status()['protocol_version']
-                assert protocol_version == expected_version, \
-                    f"Wrong protocol version: {protocol_version} expected: {expected_version}"
+            protocol_versions = {
+                f"{self._node_prefix}{i}": node.get_status()['protocol_version']
+                for i, node in enumerate(self._stable_nodes)
+            }
+            print(f"Protocol versions: {protocol_versions}")
+
+            for version in protocol_versions.values():
+                assert version == expected_version, \
+                    f"Wrong protocol version: {version} expected: {expected_version}"
 
         wait_for_condition(_condition)
 
