@@ -223,23 +223,27 @@ impl ReshardingManager {
 
             // Split the parent trie and create a new child trie.
             let trie_changes = parent_trie.retain_split_shard(boundary_account, retain_mode)?;
-            let new_root = tries.apply_all(&trie_changes, *parent_shard_uid, &mut store_update);
+            tries.apply_insertions(&trie_changes, *parent_shard_uid, &mut store_update);
             tries.apply_memtrie_changes(&trie_changes, *parent_shard_uid, block_height);
+            // tracing::info!(target: "resharding", ?parent_shard_uid, ?new_shard_uid, ?trie_changes, "TRIE CHANGES");
 
             // TODO(resharding): remove duplicate_nodes_at_split_boundary method after proper fix for refcount issue
             let trie_recorder = parent_trie.take_recorder().unwrap();
             let mut trie_recorder = trie_recorder.write();
-            Self::duplicate_nodes_at_split_boundary(
-                &mut store_update,
-                trie_recorder.recorded_iter(),
-                *parent_shard_uid,
-            );
+
+            let nodes = trie_recorder.recorded_iter().collect_vec();
+            // tracing::info!(target: "resharding", ?parent_shard_uid, ?new_shard_uid, ?nodes, "Duplicating nodes at split boundary...");
+            // Self::duplicate_nodes_at_split_boundary(
+            //     &mut store_update,
+            //     trie_recorder.recorded_iter(),
+            //     *parent_shard_uid,
+            // );
 
             // TODO(resharding): set all fields of `ChunkExtra`. Consider stronger
             // typing. Clarify where it should happen when `State` and
             // `FlatState` update is implemented.
             let mut child_chunk_extra = ChunkExtra::clone(&parent_chunk_extra);
-            *child_chunk_extra.state_root_mut() = new_root;
+            *child_chunk_extra.state_root_mut() = trie_changes.new_root;
             *child_chunk_extra.congestion_info_mut() = child_congestion_info;
 
             chain_store_update.save_chunk_extra(block_hash, &new_shard_uid, child_chunk_extra);
@@ -253,7 +257,7 @@ impl ReshardingManager {
                 Default::default(),
             );
 
-            tracing::info!(target: "resharding", ?new_shard_uid, ?new_root, "Child trie created");
+            tracing::info!(target: "resharding", ?new_shard_uid, new_root=?trie_changes.new_root, "Child trie created");
         }
 
         // After committing the split changes, the parent trie has the state root of both the children.

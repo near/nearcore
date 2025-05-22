@@ -811,12 +811,12 @@ fn shard_split_handle_key_value(
                 }
             };
             let refcount_increment = NonZero::new(1).unwrap();
-            store_update.trie_store_update().increment_refcount_by(
-                shard_uid,
-                &node_hash,
-                &node_value,
-                refcount_increment,
-            );
+            // store_update.trie_store_update().increment_refcount_by(
+            //     shard_uid,
+            //     &node_hash,
+            //     &node_value,
+            //     refcount_increment,
+            // );
         }
         col::BUFFERED_RECEIPT_INDICES
         | col::BUFFERED_RECEIPT

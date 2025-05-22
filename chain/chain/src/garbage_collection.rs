@@ -1190,9 +1190,7 @@ fn gc_state2(
     shard_tracker: &ShardTracker,
     me: Option<&AccountId>,
 ) -> Result<(), Error> {
-    if shard_tracker.tracks_all_shards()
-        || !epoch_manager.is_last_block_in_finished_epoch(block_hash)?
-    {
+    if !epoch_manager.is_last_block_in_finished_epoch(block_hash)? {
         return Ok(());
     }
 
@@ -1217,7 +1215,7 @@ fn gc_state2(
     });
 
     // At this point we know that block_hash is the last block of some epoch.
-    while block_info.hash() != block_hash {
+    while !shards_to_cleanup.is_empty() && block_info.hash() != block_hash {
         shards_to_cleanup.retain(|shard_uid| {
             // If shard_uid exists in the TrieChanges column, remove it from the set
             let trie_changes_key = get_block_shard_uid(&block_info.hash(), shard_uid);
