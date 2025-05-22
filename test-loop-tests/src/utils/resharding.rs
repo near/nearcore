@@ -780,7 +780,7 @@ fn retain_the_only_shard_state(client: &Client, the_only_shard_uid: ShardUId) {
 /// ShardUId as the db key prefix.
 fn check_has_the_only_shard_state(
     client: &Client,
-    _the_only_shard_uid: ShardUId,
+    the_only_shard_uid: ShardUId,
     _expect_shard_uid_is_mapped: bool,
 ) {
     let store = client.chain.chain_store.store().trie_store();
@@ -798,7 +798,7 @@ fn check_has_the_only_shard_state(
     //     assert_eq!(mapped_shard_uid, the_only_shard_uid);
     // };
     // let shard_uid_prefixes = shard_uid_prefixes.into_iter().collect_vec();
-    // assert_eq!(shard_uid_prefixes, [mapped_shard_uid]);
+    assert_eq!(shard_uid_prefixes, [the_only_shard_uid].into());
 }
 
 /// Loop action testing state cleanup.
