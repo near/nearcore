@@ -49,8 +49,11 @@ pub fn rs_contract() -> &'static [u8] {
     include_bytes!(env!("CONTRACT_test_contract_rs"))
 }
 
-/// Standard test contract which is compatible with the latest supported
-/// protocol versions set.
+/// Standard test contract which is compatible with the earliest
+/// protocol version still supported by current implementation of neard.
+///
+/// Note, that neard typically supports two or three protocol versions
+/// at any given time.
 ///
 /// This is useful for tests that use a specific protocol version rather then
 /// just the latest one. In particular, protocol upgrade tests should use this
