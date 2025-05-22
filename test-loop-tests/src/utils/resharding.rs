@@ -783,7 +783,7 @@ fn check_has_the_only_shard_state(client: &Client, the_only_shard_uid: ShardUId)
         let shard_uid = ShardUId::try_from_slice(&key[0..8]).unwrap();
         shard_uid_prefixes.insert(shard_uid);
     }
-    assert_eq!(shard_uid_prefixes, [the_only_shard_uid].into());
+    assert_eq!(shard_uid_prefixes.into_iter().collect_vec(), [the_only_shard_uid]);
 }
 
 /// Loop action testing state cleanup.
