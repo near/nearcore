@@ -35,9 +35,10 @@ impl TrieStoreAdapter {
     /// Replaces shard_uid prefix with a mapped value according to mapping strategy in Resharding V3.
     /// For this, it does extra read from `DBCol::StateShardUIdMapping`.
     ///
-    /// For more details, see `get_key_from_shard_uid_and_hash()` docs.
+    /// For more details, see `get_shard_uid_mapping()`.
     pub fn get(&self, shard_uid: ShardUId, hash: &CryptoHash) -> Result<Arc<[u8]>, StorageError> {
-        let key = get_key_from_shard_uid_and_hash(&self.store, shard_uid, hash);
+        let mapped_shard_uid = get_shard_uid_mapping(&self.store, shard_uid);
+        let key = get_key_from_shard_uid_and_hash(mapped_shard_uid, hash);
         let val = self
             .store
             .get(DBCol::State, key.as_ref())
@@ -98,23 +99,23 @@ impl<'a> TrieStoreUpdateAdapter<'a> {
         Self { store_update: StoreUpdateHolder::Reference(store_update) }
     }
 
-    fn get_key_from_shard_uid_and_hash(&self, shard_uid: ShardUId, hash: &CryptoHash) -> [u8; 40] {
-        get_key_from_shard_uid_and_hash(&self.store_update.store, shard_uid, hash)
-    }
-
     pub fn decrement_refcount_by(
         &mut self,
         shard_uid: ShardUId,
         hash: &CryptoHash,
         decrement: NonZero<u32>,
     ) {
-        let key = self.get_key_from_shard_uid_and_hash(shard_uid, hash);
-        self.store_update.decrement_refcount_by(DBCol::State, key.as_ref(), decrement);
+        // For Resharding V3, along with decrementing the refcount of the child shard_uid, we also need to
+        // decrement the refcount of the parent shard_uid, if it exists.
+        let mapped_shard_uid = maybe_get_shard_uid_mapping(&self.store_update.store, shard_uid);
+        for shard_uid in [shard_uid].into_iter().chain(mapped_shard_uid.into_iter()) {
+            let key = get_key_from_shard_uid_and_hash(shard_uid, hash);
+            self.store_update.decrement_refcount_by(DBCol::State, key.as_ref(), decrement);
+        }
     }
 
     pub fn decrement_refcount(&mut self, shard_uid: ShardUId, hash: &CryptoHash) {
-        let key = self.get_key_from_shard_uid_and_hash(shard_uid, hash);
-        self.store_update.decrement_refcount(DBCol::State, key.as_ref());
+        self.decrement_refcount_by(shard_uid, hash, NonZero::new(1).unwrap());
     }
 
     pub fn increment_refcount_by(
@@ -124,8 +125,13 @@ impl<'a> TrieStoreUpdateAdapter<'a> {
         data: &[u8],
         increment: NonZero<u32>,
     ) {
-        let key = self.get_key_from_shard_uid_and_hash(shard_uid, hash);
-        self.store_update.increment_refcount_by(DBCol::State, key.as_ref(), data, increment);
+        // For Resharding V3, along with incrementing the refcount of the child shard_uid, we also need to
+        // increment the refcount of the parent shard_uid, if it exists.
+        let mapped_shard_uid = maybe_get_shard_uid_mapping(&self.store_update.store, shard_uid);
+        for shard_uid in [shard_uid].into_iter().chain(mapped_shard_uid.into_iter()) {
+            let key = get_key_from_shard_uid_and_hash(shard_uid, hash);
+            self.store_update.increment_refcount_by(DBCol::State, key.as_ref(), data, increment);
+        }
     }
 
     pub fn set_state_snapshot_hash(&mut self, hash: Option<CryptoHash>) {
@@ -168,6 +174,10 @@ impl<'a> TrieStoreUpdateAdapter<'a> {
         )
     }
 
+    pub fn delete_shard_uid_mapping(&mut self, child_shard_uid: ShardUId) {
+        self.store_update.delete(DBCol::StateShardUIdMapping, child_shard_uid.to_bytes().as_ref());
+    }
+
     /// Remove State of any shard that uses `shard_uid_db_key_prefix` as database key prefix.
     /// That is potentially State of any descendant of the shard with the given `ShardUId`.
     /// Use with caution, as it might potentially remove the State of a descendant shard that is still in use!
@@ -188,30 +198,23 @@ impl<'a> TrieStoreUpdateAdapter<'a> {
 /// It is kept out of `TrieStoreAdapter`, so that `TrieStoreUpdateAdapter` can use it without
 /// cloning `store` each time, see https://github.com/near/nearcore/pull/12232#discussion_r1804810508.
 pub fn get_shard_uid_mapping(store: &Store, child_shard_uid: ShardUId) -> ShardUId {
+    maybe_get_shard_uid_mapping(store, child_shard_uid).unwrap_or(child_shard_uid)
+}
+
+/// Get the `ShardUId` mapping for child_shard_uid. If the mapping does not exist, return None.
+fn maybe_get_shard_uid_mapping(store: &Store, child_shard_uid: ShardUId) -> Option<ShardUId> {
     store
         .get_ser::<ShardUId>(DBCol::StateShardUIdMapping, &child_shard_uid.to_bytes())
         .unwrap_or_else(|_| {
             panic!("get_shard_uid_mapping() failed for child_shard_uid = {}", child_shard_uid)
         })
-        .unwrap_or(child_shard_uid)
 }
 
-/// Constructs db key to be used to access the State column.
-/// First, it consults the `StateShardUIdMapping` column to map the `shard_uid` prefix
-/// to its ancestor in the resharding tree (according to Resharding V3)
-/// or map to itself if the mapping does not exist.
-///
-/// Please note that the mapped shard uid is read from db each time which may seem slow.
-/// In practice the `StateShardUIdMapping` is very small and should always be stored in the RocksDB cache.
-/// The deserialization of ShardUId is also very cheap.
-fn get_key_from_shard_uid_and_hash(
-    store: &Store,
-    shard_uid: ShardUId,
-    hash: &CryptoHash,
-) -> [u8; 40] {
-    let mapped_shard_uid = get_shard_uid_mapping(store, shard_uid);
+/// Get the key for the given `shard_uid` and `hash`.
+/// The key is a 40-byte array, where the first 8 bytes are the `shard_uid` and the last 32 bytes are the `hash`.
+fn get_key_from_shard_uid_and_hash(shard_uid: ShardUId, hash: &CryptoHash) -> [u8; 40] {
     let mut key = [0; 40];
-    key[0..8].copy_from_slice(&mapped_shard_uid.to_bytes());
+    key[0..8].copy_from_slice(&shard_uid.to_bytes());
     key[8..].copy_from_slice(hash.as_ref());
     key
 }
