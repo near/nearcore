@@ -11,13 +11,12 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_store::adapter::StoreAdapter;
-use near_store::adapter::trie_store::{TrieStoreUpdateAdapter, get_shard_uid_mapping};
+use near_store::adapter::trie_store::get_shard_uid_mapping;
 use near_store::flat::BlockInfo;
 use near_store::trie::ops::resharding::RetainMode;
 use near_store::trie::outgoing_metadata::ReceiptGroupsQueue;
 use near_store::{ShardTries, ShardUId, Store, TrieAccess};
 use std::io;
-use std::num::NonZero;
 use std::sync::Arc;
 
 pub struct ReshardingManager {
@@ -137,23 +136,6 @@ impl ReshardingManager {
         store_update.commit()
     }
 
-    /// TODO(resharding): Remove once proper solution for negative refcounts is implemented.
-    fn duplicate_nodes_at_split_boundary<'a>(
-        trie_store_update: &mut TrieStoreUpdateAdapter,
-        trie_nodes: impl Iterator<Item = (&'a CryptoHash, &'a Arc<[u8]>)>,
-        shard_uid_prefix: ShardUId,
-    ) {
-        let refcount_increment = NonZero::new(1).unwrap();
-        for (node_hash, node_value) in trie_nodes {
-            trie_store_update.increment_refcount_by(
-                shard_uid_prefix,
-                &node_hash,
-                &node_value,
-                refcount_increment,
-            );
-        }
-    }
-
     /// Creates temporary memtries for new shards to be able to process them in the next epoch.
     /// Note this doesn't complete memtries resharding, proper memtries are to be created later.
     fn process_memtrie_resharding_storage_update(
@@ -221,39 +203,32 @@ impl ReshardingManager {
                 retain_mode,
             )?;
 
-            // Split the parent trie and create a new child trie.
+            // Split the parent trie and create a new child trie. Save the trie nodes in store and memtrie.
+            // Note that we only apply the insertions from the trie changes as we don't want to delete
+            // nodes associated with retain_split_shard operation for the child.
             let trie_changes = parent_trie.retain_split_shard(boundary_account, retain_mode)?;
-            let new_root = tries.apply_all(&trie_changes, *parent_shard_uid, &mut store_update);
+            tries.apply_insertions(&trie_changes, *parent_shard_uid, &mut store_update);
             tries.apply_memtrie_changes(&trie_changes, *parent_shard_uid, block_height);
-
-            // TODO(resharding): remove duplicate_nodes_at_split_boundary method after proper fix for refcount issue
-            let trie_recorder = parent_trie.take_recorder().unwrap();
-            let mut trie_recorder = trie_recorder.write();
-            Self::duplicate_nodes_at_split_boundary(
-                &mut store_update,
-                trie_recorder.recorded_iter(),
-                *parent_shard_uid,
-            );
 
             // TODO(resharding): set all fields of `ChunkExtra`. Consider stronger
             // typing. Clarify where it should happen when `State` and
             // `FlatState` update is implemented.
             let mut child_chunk_extra = ChunkExtra::clone(&parent_chunk_extra);
-            *child_chunk_extra.state_root_mut() = new_root;
+            *child_chunk_extra.state_root_mut() = trie_changes.new_root;
             *child_chunk_extra.congestion_info_mut() = child_congestion_info;
 
             chain_store_update.save_chunk_extra(block_hash, &new_shard_uid, child_chunk_extra);
             chain_store_update.save_state_transition_data(
                 *block_hash,
                 new_shard_uid.shard_id(),
-                Some(trie_recorder.recorded_storage()),
+                parent_trie.recorded_storage(),
                 CryptoHash::default(),
                 // No contract code is accessed or deployed during resharding.
                 // TODO(#11099): Confirm if sending no contracts is ok here.
                 Default::default(),
             );
 
-            tracing::info!(target: "resharding", ?new_shard_uid, ?new_root, "Child trie created");
+            tracing::info!(target: "resharding", ?new_shard_uid, ?trie_changes.new_root, "Child trie created");
         }
 
         // After committing the split changes, the parent trie has the state root of both the children.
