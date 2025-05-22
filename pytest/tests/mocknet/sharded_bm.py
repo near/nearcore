@@ -191,7 +191,12 @@ def handle_reset(args):
     handle_stop(args)
 
     run_cmd_args = copy.deepcopy(args)
-    run_cmd_args.cmd = f"find {NEAR_HOME}/data -mindepth 1 -delete ; rm -rf {REMOTE_BENCHNET_DIR}"
+    config = f"{NEAR_HOME}/config.json"
+    run_cmd_args.cmd = f"\
+        find {NEAR_HOME}/data -mindepth 1 -delete && \
+        rm -rf {REMOTE_BENCHNET_DIR} && \
+        jq 'del(.tx_generator)' {config} > tmp.$$.json && mv tmp.$$.json {config} || rm tmp.$$.json \
+    "
     run_remote_cmd(CommandContext(run_cmd_args))
 
     env_cmd_args = copy.deepcopy(args)
@@ -202,13 +207,6 @@ def handle_reset(args):
     reset_cmd_args.backup_id = "start"
     reset_cmd_args.yes = True
     reset_cmd(CommandContext(reset_cmd_args))
-
-    run_cmd_args = copy.deepcopy(args)
-    config = f"{NEAR_HOME}/config.json"
-    run_cmd_args.cmd = f"jq 'del(.tx_generator)' {config} > tmp.$$.json && \
-        mv tmp.$$.json {config} || rm tmp.$$.json"
-
-    run_remote_cmd(CommandContext(run_cmd_args))
 
 
 def start_nodes(args, with_tx_generator=False):
