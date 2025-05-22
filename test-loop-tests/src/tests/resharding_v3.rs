@@ -1490,11 +1490,9 @@ fn slow_test_resharding_v3_yield_timeout() {
     test_resharding_v3_base(params);
 }
 
-/// TODO(resharding): un-ignore after proper fix for refcount incident.
 /// Check that adding a new promise yield after resharding in one child doesn't
 /// leave the other child's promise yield indices with a dangling trie value.
 #[test]
-#[ignore]
 fn slow_test_resharding_v3_promise_yield_indices_gc_correctness() {
     let account_in_left_child: AccountId = "account4".parse().unwrap();
     let account_in_right_child: AccountId = "account6".parse().unwrap();
