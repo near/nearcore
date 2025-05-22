@@ -171,9 +171,9 @@ class CommandContext:
         # Only keep nodes that want a neard runner not the auxiliary nodes i.e. tracers.
         self.nodes = [node for node in self.nodes if node.want_neard_runner]
 
-        if self.args.host_filter is not None and self.traffic_generator is not None:
-            if not re.search(self.args.host_filter,
-                             self.traffic_generator.name()):
+        if self.args.host_filter is not None:
+            if self.traffic_generator is not None and not re.search(
+                    self.args.host_filter, self.traffic_generator.name()):
                 self.traffic_generator = None
             self.nodes = [
                 h for h in self.nodes
