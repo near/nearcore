@@ -342,7 +342,10 @@ mod tests {
         );
         let tempdir = tempfile::tempdir().unwrap();
         let store = create_test_store();
-        let tries = TestTriesBuilder::new()
+
+        // This enables the flat storage and in-memory tries for testing.
+        // It sets FlatStorageReadyStatus and creates an empty ChunkExtra.
+        let _tries = TestTriesBuilder::new()
             .with_shard_layout(shard_layout.clone())
             .with_store(store.clone())
             .with_flat_storage(true)
@@ -399,21 +402,6 @@ mod tests {
         TestSetup { runtime, initial, parent_shard, left_shard, right_shard, left_root, right_root }
     }
 
-    fn enable_flat_storage(tries: Arc<dyn StoreAdapter>) {
-        let mut store_update = tries.store_update();
-        store_update.enable_flat_storage().unwrap();
-        store_update.commit().unwrap();
-        let mut store_update = tries.store_update();
-        for &shard_uid in &shard_uids {
-            let flat_head = BlockInfo::genesis(CryptoHash::default(), 0);
-            store_update.flat_store_update().set_flat_storage_status(
-                shard_uid,
-                FlatStorageStatus::Ready(FlatStorageReadyStatus { flat_head }),
-            );
-        }
-        store_update.commit().unwrap();
-    }
-
     #[test]
     fn test_trie_state_resharder() {
         let test = setup_test();
@@ -438,7 +426,7 @@ mod tests {
         // Set the batch size to 1, this should stop iteration after the first key.
         resharder
             .resharding_config
-            .update(ReshardingConfig { batch_size: ByteSize(100), ..ReshardingConfig::test() });
+            .update(ReshardingConfig { batch_size: ByteSize(1), ..ReshardingConfig::test() });
         let mut update_status = test.as_status();
         resharder.process_batch_and_update_status(&mut update_status).unwrap();
 
