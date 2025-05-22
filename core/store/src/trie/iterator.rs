@@ -1,4 +1,5 @@
 use std::cell::RefCell;
+use std::ops::Bound;
 use std::sync::Arc;
 
 use near_primitives::errors::StorageError;
@@ -95,13 +96,13 @@ impl<'a> TrieIterator<'a> {
         }
     }
 
-    /// Position the iterator on the first element with key >= `key`,
-    /// or the first element with key > `key` if `upper_bound` is true.
-    /// Does not record nodes accessed during the seek.
-    pub fn seek<K: AsRef<[u8]>>(&mut self, key: K, upper_bound: bool) -> Result<(), StorageError> {
+    /// Position the iterator on the first element with key >= `key`, or the
+    /// first element with key > `key` if `key` is Excluded. Does not record
+    /// nodes accessed during the seek.
+    pub fn seek<K: AsRef<[u8]>>(&mut self, key: Bound<K>) -> Result<(), StorageError> {
         match self {
-            TrieIterator::Disk(iter) => iter.seek(key, upper_bound),
-            TrieIterator::Memtrie(iter) => iter.seek(key, upper_bound),
+            TrieIterator::Disk(iter) => iter.seek(key),
+            TrieIterator::Memtrie(iter) => iter.seek(key),
         }
     }
 }
@@ -117,6 +118,7 @@ mod tests {
     use rand::Rng;
     use rand::seq::SliceRandom;
     use std::collections::BTreeMap;
+    use std::ops::Bound;
 
     fn value() -> Option<Vec<u8>> {
         Some(vec![0])
@@ -179,13 +181,13 @@ mod tests {
                 test_seek_prefix(&trie, &map, &seek_key, use_memtries);
             }
 
-            for upper_bound in [false, true] {
+            for include_start in [true, false] {
                 for (seek_key, _) in &trie_changes {
-                    test_seek(&trie, &map, seek_key, upper_bound, use_memtries);
+                    test_seek(&trie, &map, seek_key, include_start, use_memtries);
                 }
                 for _ in 0..20 {
                     let seek_key = pick_non_existing_key(&mut rng);
-                    test_seek(&trie, &map, &seek_key, true, use_memtries);
+                    test_seek(&trie, &map, &seek_key, include_start, use_memtries);
                 }
             }
         }
@@ -387,7 +389,7 @@ mod tests {
         trie: &Trie,
         map: &BTreeMap<Vec<u8>, Vec<u8>>,
         seek_key: &[u8],
-        upper_bound: bool,
+        include_start: bool,
         is_memtrie: bool,
     ) {
         let trie_with_recorder = trie.recording_reads_new_recorder();
@@ -399,7 +401,9 @@ mod tests {
             assert!(matches!(iterator, TrieIterator::Disk(_)));
         }
 
-        iterator.seek(seek_key, upper_bound).unwrap();
+        let seek_bound =
+            if include_start { Bound::Included(seek_key) } else { Bound::Excluded(seek_key) };
+        iterator.seek(seek_bound).unwrap();
 
         // Calling seek should not record any nodes.
         let recorded_storage =
@@ -409,7 +413,7 @@ mod tests {
         let got = iterator
             .map(|item| {
                 let (key, value) = item.unwrap();
-                if upper_bound {
+                if include_start == false {
                     assert!(
                         key.as_slice() > seek_key,
                         "‘{key:x?}’ is not greater than ‘{seek_key:x?}’"
@@ -434,7 +438,7 @@ mod tests {
         let want: Vec<_> = map
             .range(seek_key.to_vec()..)
             .map(|(k, v)| (k.clone(), v.clone()))
-            .filter(|(x, _)| x.as_slice() > seek_key || !upper_bound && x.as_slice() == seek_key)
+            .filter(|(x, _)| x.as_slice() > seek_key || include_start && x.as_slice() == seek_key)
             .collect();
         assert_eq!(got, want);
     }
