@@ -11,20 +11,14 @@ use near_o11y::default_subscriber;
 use near_o11y::env_filter::EnvFilterBuilder;
 use near_primitives::block::Tip;
 use near_primitives::block_header::BlockHeader;
-use near_primitives::epoch_block_info::BlockInfo;
-use near_primitives::epoch_info::EpochInfo;
-use near_primitives::epoch_manager::EpochConfig;
-use near_primitives::errors::EpochError;
-use near_primitives::hash::CryptoHash;
+use near_primitives::config::INLINE_DISK_VALUE_THRESHOLD;
+use near_primitives::epoch_manager::EpochConfigStore;
+use near_primitives::errors::StorageError;
 use near_primitives::shard_layout::ShardLayout;
-use near_primitives::types::{
-    AccountId, BlockHeight, EpochId, ProtocolVersion, ShardId, StateRoot, ValidatorInfoIdentifier,
-};
-use near_primitives::views::EpochValidatorInfo;
-use near_store::adapter::StoreAdapter;
+use near_primitives::types::{AccountId, ShardId, StateRoot};
 use near_store::db::RocksDB;
 use near_store::db::rocksdb::snapshot::Snapshot;
-use near_store::{DBCol, HEAD_KEY, Mode, ShardTries, ShardUId, StoreUpdate, Temperature};
+use near_store::{DBCol, HEAD_KEY, Mode, ShardTries, ShardUId, Temperature};
 use nearcore::{NightshadeRuntime, NightshadeRuntimeExt};
 use std::path::Path;
 use std::sync::Arc;
@@ -115,7 +109,9 @@ impl SplitShardTrieCommand {
             .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
         near_config.config.store.load_memtries_for_tracked_shards = true;
         let genesis_config = &near_config.genesis.config;
+        let chain_id = &genesis_config.chain_id;
 
+        // Create a database snapshot to avoid corrupting the existing database
         println!("Creating database snapshot...");
         let db_path =
             near_config.config.store.path.as_ref().cloned().unwrap_or_else(|| home.join("data"));
@@ -125,6 +121,7 @@ impl SplitShardTrieCommand {
             snapshot.0.as_ref().ok_or_else(|| anyhow::anyhow!("Snapshot not created"))?;
         println!("Database snapshot created at {}", snapshot_path.display());
 
+        // Initialize storage
         let rocksdb = Arc::new(RocksDB::open(
             snapshot_path,
             &near_config.config.store,
@@ -132,13 +129,20 @@ impl SplitShardTrieCommand {
             Temperature::Hot,
         )?);
         let store = near_store::NodeStorage::new(rocksdb).get_hot_store();
-        let final_head = store.chain_store().final_head()?;
+        let mut chain_store = ChainStore::new(
+            store.clone(),
+            true,
+            near_config.genesis.config.transaction_validity_period,
+        );
+        let final_head = chain_store.final_head()?;
+        let block = chain_store.get_block(&final_head.prev_block_hash)?;
 
+        // Load the old shard layout and derive a new one
         let epoch_manager =
             EpochManager::new_arc_handle(store.clone(), &genesis_config, Some(home));
+        let protocol_version = epoch_manager.get_epoch_protocol_version(&final_head.epoch_id)?;
         let old_shard_layout = epoch_manager.get_shard_layout(&final_head.epoch_id)?;
         println!("Old shard layout: {old_shard_layout:?}");
-
         let shard_layout =
             ShardLayout::derive_shard_layout(&old_shard_layout, self.boundary_account.clone());
         println!("New shard layout: {shard_layout:?}");
@@ -149,6 +153,7 @@ impl SplitShardTrieCommand {
         let right_child_shard = child_shards[1];
         println!("Left child shard: {left_child_shard}, Right child shard: {right_child_shard}");
 
+        // Create runtime and load memtrie
         let runtime =
             NightshadeRuntime::from_config(home, store.clone(), &near_config, epoch_manager)
                 .context("could not create the transaction runtime")?;
@@ -157,21 +162,31 @@ impl SplitShardTrieCommand {
         shard_tries.load_memtrie(&self.shard_uid, None, false)?;
         println!("Memtrie loaded");
 
-        let epoch_manager = DummyEpochManager::new(shard_layout);
-        let sender = noop().into_multi_sender();
-        let resharding_manager = ReshardingManager::new(store.clone(), epoch_manager, sender);
-
-        let mut chain_store =
-            ChainStore::new(store, true, near_config.genesis.config.transaction_validity_period);
-        let block = chain_store.get_block(&final_head.prev_block_hash)?;
+        // Get parent shard size
         let parent_extra = chain_store.get_chunk_extra(block.hash(), &self.shard_uid)?;
-        let parent_size =
+        let (parent_total_size, parent_ram_size) =
             get_shard_trie_size(&shard_tries, self.shard_uid, parent_extra.state_root())?;
         println!(
-            "Parent shard state_root: {} size: {parent_size} bytes",
+            "Parent shard state_root: {} size: {parent_total_size} bytes ({parent_ram_size} in RAM)",
             parent_extra.state_root()
         );
 
+        // Re-create epoch manager with new shard layout
+        let epoch_config_store = EpochConfigStore::for_chain_id(chain_id, None)
+            .ok_or_else(|| anyhow::anyhow!("Cannot load epoch config store"))?;
+        let mut epoch_config = (**epoch_config_store.get_config(protocol_version)).clone();
+        epoch_config.shard_layout = shard_layout;
+        let epoch_config_store =
+            EpochConfigStore::test_single_version(protocol_version, epoch_config);
+        let epoch_manager = EpochManager::new_arc_handle_from_epoch_config_store(
+            store.clone(),
+            &genesis_config,
+            epoch_config_store,
+        );
+
+        // Create resharding manager and prepare split params
+        let sender = noop().into_multi_sender();
+        let resharding_manager = ReshardingManager::new(store, epoch_manager, sender);
         let chain_store_update = chain_store.store_update();
         let split_params = ReshardingSplitShardParams {
             parent_shard: self.shard_uid,
@@ -194,12 +209,18 @@ impl SplitShardTrieCommand {
         let left_extra = chain_store.get_chunk_extra(block.hash(), &left_child_shard)?;
         let right_extra = chain_store.get_chunk_extra(block.hash(), &right_child_shard)?;
 
-        let left_size =
+        let (left_total_size, left_ram_size) =
             get_shard_trie_size(&shard_tries, left_child_shard, left_extra.state_root())?;
-        let right_size =
+        let (right_total_size, right_ram_size) =
             get_shard_trie_size(&shard_tries, right_child_shard, right_extra.state_root())?;
-        println!("Left child state root: {} size: {left_size} bytes", left_extra.state_root());
-        println!("Right child state root: {} size: {right_size} bytes", right_extra.state_root());
+        println!(
+            "Left child state root: {} size: {left_total_size} bytes ({left_ram_size} in RAM)",
+            left_extra.state_root()
+        );
+        println!(
+            "Right child state root: {} size: {right_total_size} bytes ({right_ram_size} in RAM)",
+            right_extra.state_root()
+        );
 
         println!("Removing database snapshot...");
         snapshot.remove()?;
@@ -209,87 +230,32 @@ impl SplitShardTrieCommand {
     }
 }
 
+/// Get `(total_size, ram_size)` of shard trie
 fn get_shard_trie_size(
     tries: &ShardTries,
     shard_uid: ShardUId,
     state_root: &StateRoot,
-) -> anyhow::Result<u64> {
-    Ok(tries
+) -> anyhow::Result<(u64, u64)> {
+    let total_size = tries
         .get_memtries(shard_uid)
         .ok_or_else(|| anyhow::anyhow!("Cannot get memtrie"))?
         .read()
         .get_root(state_root)?
         .view()
-        .memory_usage())
-}
-
-struct DummyEpochManager {
-    shard_layout: ShardLayout,
-}
-
-impl DummyEpochManager {
-    fn new(shard_layout: ShardLayout) -> Arc<Self> {
-        Arc::new(Self { shard_layout })
-    }
-}
-
-impl EpochManagerAdapter for DummyEpochManager {
-    fn get_epoch_config_from_protocol_version(&self, _: ProtocolVersion) -> EpochConfig {
-        unimplemented!()
-    }
-
-    fn get_block_info(&self, _hash: &CryptoHash) -> Result<Arc<BlockInfo>, EpochError> {
-        unimplemented!()
-    }
-
-    fn get_epoch_info(&self, _: &EpochId) -> Result<Arc<EpochInfo>, EpochError> {
-        unimplemented!()
-    }
-
-    fn get_epoch_start_from_epoch_id(&self, _: &EpochId) -> Result<BlockHeight, EpochError> {
-        unimplemented!()
-    }
-
-    fn num_total_parts(&self) -> usize {
-        unimplemented!()
-    }
-
-    fn get_next_epoch_id(&self, _: &CryptoHash) -> Result<EpochId, EpochError> {
-        Ok(Default::default())
-    }
-
-    fn get_shard_layout(&self, _: &EpochId) -> Result<ShardLayout, EpochError> {
-        Ok(self.shard_layout.clone())
-    }
-
-    fn get_validator_info(
-        &self,
-        _: ValidatorInfoIdentifier,
-    ) -> Result<EpochValidatorInfo, EpochError> {
-        unimplemented!()
-    }
-
-    fn add_validator_proposals(
-        &self,
-        _: BlockInfo,
-        _: CryptoHash,
-    ) -> Result<StoreUpdate, EpochError> {
-        unimplemented!()
-    }
-
-    fn init_after_epoch_sync(
-        &self,
-        _: &mut StoreUpdate,
-        _: BlockInfo,
-        _: BlockInfo,
-        _: BlockInfo,
-        _: &EpochId,
-        _: EpochInfo,
-        _: &EpochId,
-        _: EpochInfo,
-        _: &EpochId,
-        _: EpochInfo,
-    ) -> Result<(), EpochError> {
-        unimplemented!()
-    }
+        .memory_usage();
+    // Values over `INLINE_DISK_VALUE_THRESHOLD` are not loaded into RAM,
+    // so we have to calculate their total size and subtract that from the `total_size`
+    let excluded_values_size = tries
+        .get_trie_for_shard(shard_uid, *state_root)
+        .lock_for_iter()
+        .iter()?
+        .try_fold(0u64, |acc, res| -> Result<u64, StorageError> {
+            let (_key, value) = res?;
+            if value.len() > INLINE_DISK_VALUE_THRESHOLD {
+                Ok(acc + value.len() as u64)
+            } else {
+                Ok(acc)
+            }
+        })?;
+    Ok((total_size, total_size - excluded_values_size))
 }
