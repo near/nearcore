@@ -1276,6 +1276,11 @@ fn slow_test_resharding_v3_buffered_receipts_towards_splitted_shard() {
     test_resharding_v3_base(params);
 }
 
+/// This test sends large (3MB) receipts from a stable shard to shard that will be split into two.
+/// These large receipts are buffered and at the resharding boundary the stable shard's outgoing
+/// buffer contains receipts to the shard that was split. Bandwidth requests to the child where the
+/// receipts will be sent must include the receipts stored in outgoing buffer to the parent shard,
+/// otherwise there will be no bandwidth grants to send them.
 #[test]
 fn slow_test_resharding_v3_large_receipts_towards_splitted_shard() {
     let account_in_left_child: AccountId = "account4".parse().unwrap();
