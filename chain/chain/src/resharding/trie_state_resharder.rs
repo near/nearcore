@@ -354,7 +354,7 @@ mod tests {
 
         let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
         let runtime =
-            NightshadeRuntime::test(tempdir.path(), store, &genesis.config, epoch_manager.clone());
+            NightshadeRuntime::test(tempdir.path(), store, &genesis.config, epoch_manager);
 
         let parent_shard = ShardUId { version: 3, shard_id: 0 };
         let tries = runtime.get_tries();
@@ -412,6 +412,8 @@ mod tests {
 
         let mut update_status = test.as_status();
         resharder.resharding_blocking_impl(&mut update_status).unwrap();
+        // The resharding status should be None after completion.
+        assert!(resharder.load_status().unwrap().is_none());
         check_child_tries_contain_all_keys(&test);
     }
 
