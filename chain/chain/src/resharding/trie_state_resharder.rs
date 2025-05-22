@@ -17,7 +17,7 @@ use near_chain_primitives::Error;
 use near_o11y::metrics::IntGauge;
 use near_primitives::shard_layout::ShardUId;
 
-#[derive(BorshSerialize, BorshDeserialize)]
+#[derive(BorshSerialize, BorshDeserialize, Debug)]
 /// Represents the status of one child shard during trie state resharding.
 struct TrieStateReshardingChildStatus {
     shard_uid: ShardUId,
@@ -29,13 +29,23 @@ struct TrieStateReshardingChildStatus {
     metrics: Option<TrieStateResharderMetrics>,
 }
 
+impl PartialEq for TrieStateReshardingChildStatus {
+    fn eq(&self, other: &Self) -> bool {
+        // ignores metrics for equality check
+        self.shard_uid == other.shard_uid
+            && self.state_root == other.state_root
+            && self.next_key == other.next_key
+    }
+}
+impl Eq for TrieStateReshardingChildStatus {}
+
 impl TrieStateReshardingChildStatus {
     fn new(shard_uid: ShardUId, state_root: CryptoHash) -> Self {
         Self { shard_uid, state_root, next_key: None, metrics: None }
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize)]
+#[derive(BorshSerialize, BorshDeserialize, Debug, PartialEq, Eq)]
 /// Represents the status of an ongoing trie state resharding.
 /// It is used to resume the resharding process after a crash or restart.
 struct TrieStateReshardingStatus {
@@ -209,7 +219,7 @@ impl TrieStateResharder {
             *store.get_chunk_extra(&block_hash, &event.left_child_shard)?.state_root();
         let right_state_root =
             *store.get_chunk_extra(&block_hash, &event.right_child_shard)?.state_root();
-        tracing::info!(
+        tracing::debug!(
             target: "resharding",
             ?left_state_root,
             ?right_state_root,
@@ -263,6 +273,7 @@ impl Debug for TrieStateResharder {
 }
 
 /// Metrics for tracking store column update during resharding.
+#[derive(Debug)]
 struct TrieStateResharderMetrics {
     processed_batches: IntGauge,
 }
@@ -276,5 +287,213 @@ impl TrieStateResharderMetrics {
 
     pub fn inc_processed_batches(&self) {
         self.processed_batches.inc();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use bytesize::ByteSize;
+    use itertools::Itertools;
+    use near_async::time::Clock;
+    use near_chain_configs::Genesis;
+    use near_epoch_manager::EpochManager;
+    use near_primitives::shard_layout::ShardLayout;
+    use near_primitives::trie_key::TrieKey;
+    use near_primitives::types::{AccountId, ShardId};
+    use near_store::Trie;
+    use near_store::test_utils::{
+        TestTriesBuilder, create_test_store, simplify_changes, test_populate_trie,
+    };
+    use near_store::trie::ops::resharding::RetainMode;
+
+    use crate::runtime::NightshadeRuntime;
+    use crate::types::ChainConfig;
+
+    use super::*;
+
+    type KeyValues = Vec<(Vec<u8>, Option<Vec<u8>>)>;
+    struct TestSetup {
+        runtime: Arc<dyn RuntimeAdapter>,
+        initial: KeyValues,
+        parent_shard: ShardUId,
+        left_shard: ShardUId,
+        right_shard: ShardUId,
+        left_root: CryptoHash,
+        right_root: CryptoHash,
+    }
+
+    impl TestSetup {
+        fn as_status(&self) -> TrieStateReshardingStatus {
+            TrieStateReshardingStatus::new(
+                self.parent_shard,
+                TrieStateReshardingChildStatus::new(self.left_shard, self.left_root),
+                TrieStateReshardingChildStatus::new(self.right_shard, self.right_root),
+            )
+        }
+    }
+
+    fn setup_test() -> TestSetup {
+        let shard_layout = ShardLayout::v2(vec![], vec![ShardId::new(0)], None);
+        let genesis = Genesis::from_accounts(
+            Clock::real(),
+            vec!["aa".parse().unwrap(), "mm".parse().unwrap(), "vv".parse().unwrap()],
+            1,
+            shard_layout.clone(),
+        );
+        let tempdir = tempfile::tempdir().unwrap();
+        let store = create_test_store();
+        let tries = TestTriesBuilder::new()
+            .with_shard_layout(shard_layout.clone())
+            .with_store(store.clone())
+            .with_flat_storage(true)
+            .with_in_memory_tries(true)
+            .build();
+
+        let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
+        let runtime =
+            NightshadeRuntime::test(tempdir.path(), store, &genesis.config, epoch_manager.clone());
+
+        let parent_shard = ShardUId { version: 3, shard_id: 0 };
+        let tries = runtime.get_tries();
+        tries.load_memtrie(&parent_shard, None, false).unwrap();
+
+        let make_account_key = |i: usize| {
+            let account_str = format!("account-{:02}", i);
+            TrieKey::Account { account_id: account_str.parse().unwrap() }
+        };
+
+        // The keys for the trie should be ones splittable by account ID.
+        // Create a set of arbitraty account IDs to use as keys.
+        // Deliberately contains duplicate values to test reference counting
+        let initial =
+            (0..1000).map(|i| (make_account_key(i).to_vec(), Some(vec![i as u8]))).collect_vec();
+        let initial = simplify_changes(&initial); // Sorts & deduplicates the changes
+
+        let parent_root =
+            test_populate_trie(&tries, &Trie::EMPTY_ROOT, parent_shard, initial.clone());
+
+        // Create tries to represent the post-state root at the end of the resharding block.
+        // Each child shard will have its post-state.
+        let boundary_account: AccountId =
+            make_account_key(initial.len() / 2 as usize).get_account_id().unwrap();
+        let new_layout = ShardLayout::derive_shard_layout(&shard_layout, boundary_account.clone());
+        let children = new_layout.get_children_shards_uids(parent_shard.shard_id()).unwrap();
+        assert_eq!(2, children.len());
+
+        let block_height = 1;
+        let parent_trie = tries.get_trie_for_shard(parent_shard, parent_root);
+        let (left_shard, right_shard) = (children[0], children[1]);
+
+        let mut store_update = runtime.store().trie_store().store_update();
+        let [left_root, right_root] = [RetainMode::Left, RetainMode::Right].map(|retain_mode| {
+            let trie_changes =
+                parent_trie.retain_split_shard(&boundary_account, retain_mode).unwrap();
+            tries.apply_insertions(&trie_changes, parent_shard, &mut store_update);
+            tries.apply_memtrie_changes(&trie_changes, parent_shard, block_height);
+            trie_changes.new_root
+        });
+        store_update.commit().unwrap();
+
+        tries.freeze_parent_memtrie(parent_shard, children).unwrap();
+
+        TestSetup { runtime, initial, parent_shard, left_shard, right_shard, left_root, right_root }
+    }
+
+    fn enable_flat_storage(tries: Arc<dyn StoreAdapter>) {
+        let mut store_update = tries.store_update();
+        store_update.enable_flat_storage().unwrap();
+        store_update.commit().unwrap();
+        let mut store_update = tries.store_update();
+        for &shard_uid in &shard_uids {
+            let flat_head = BlockInfo::genesis(CryptoHash::default(), 0);
+            store_update.flat_store_update().set_flat_storage_status(
+                shard_uid,
+                FlatStorageStatus::Ready(FlatStorageReadyStatus { flat_head }),
+            );
+        }
+        store_update.commit().unwrap();
+    }
+
+    #[test]
+    fn test_trie_state_resharder() {
+        let test = setup_test();
+
+        let config = ChainConfig::test().resharding_config;
+        let resharder =
+            TrieStateResharder::new(test.runtime.clone(), ReshardingHandle::new(), config);
+
+        let mut update_status = test.as_status();
+        resharder.resharding_blocking_impl(&mut update_status).unwrap();
+        check_child_tries_contain_all_keys(&test);
+    }
+
+    #[test]
+    fn test_trie_state_resharder_interrupt_and_resume() {
+        let test = setup_test();
+
+        let config = ChainConfig::test().resharding_config;
+        let resharder =
+            TrieStateResharder::new(test.runtime.clone(), ReshardingHandle::new(), config);
+
+        // Set the batch size to 1, this should stop iteration after the first key.
+        resharder
+            .resharding_config
+            .update(ReshardingConfig { batch_size: ByteSize(100), ..ReshardingConfig::test() });
+        let mut update_status = test.as_status();
+        resharder.process_batch_and_update_status(&mut update_status).unwrap();
+
+        let got_status = resharder
+            .load_status()
+            .unwrap()
+            .expect("status should not be empty after processing one batch");
+        assert_eq!(update_status, got_status);
+        // The persisted status should indicate continuing from the expected next key,
+        // which is the first key in the left child.
+        assert_eq!(
+            &test.initial.first().unwrap().0,
+            update_status.left.as_ref().unwrap().next_key.as_ref().unwrap()
+        );
+
+        // Test cancelling the resharding operation.
+        resharder.handle.stop();
+        resharder.process_batch_and_update_status(&mut update_status).unwrap();
+
+        // The resharding status should not have changed after cancellation.
+        let got_status = resharder
+            .load_status()
+            .unwrap()
+            .expect("status should not be empty after processing one batch");
+        assert_eq!(update_status, got_status);
+
+        // Test resuming the resharding operation.
+        let config = ChainConfig::test().resharding_config;
+        let resharder =
+            TrieStateResharder::new(test.runtime.clone(), ReshardingHandle::new(), config);
+
+        resharder.resume(test.parent_shard).expect("resume should succeed");
+
+        // The resharding status should be None after completion.
+        assert!(resharder.load_status().unwrap().is_none());
+
+        check_child_tries_contain_all_keys(&test);
+    }
+
+    fn check_child_tries_contain_all_keys(test: &TestSetup) {
+        let tries = test.runtime.get_tries();
+        // Using view_trie to bypass the memtrie and read from disk.
+        let left_trie = tries.get_view_trie_for_shard(test.left_shard, test.left_root);
+        let left_kvs = left_trie.lock_for_iter().iter().unwrap().map(Result::unwrap).collect_vec();
+        let right_trie = tries.get_view_trie_for_shard(test.right_shard, test.right_root);
+        let right_kvs =
+            right_trie.lock_for_iter().iter().unwrap().map(Result::unwrap).collect_vec();
+
+        // Iterate the child shards and check we can access the key/values.
+        let expected_keys = &test.initial;
+        expected_keys.iter().zip_eq(left_kvs.iter().chain(right_kvs.iter())).for_each(
+            |(expected, got)| {
+                assert_eq!(expected.0, got.0);
+                assert_eq!(expected.1.as_ref().unwrap(), &got.1);
+            },
+        );
     }
 }
