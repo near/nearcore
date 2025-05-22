@@ -54,7 +54,8 @@ def update_json(original_path: str, patch_paths: list[str]):
             patch = json.load(f)
             original = deep_merge(original, patch)
 
-    # Remove quotes around "gas_limit" (workaround for jq 1.6 bigint bug)
+    # TODO: set "gas_limit" to int everywhere once bench.sh is deprecated.
+    # Was needed as a workaround for jq 1.6 bigint bug.
     if original_path.endswith('genesis.json'):
         original['gas_limit'] = int(original['gas_limit'])
 

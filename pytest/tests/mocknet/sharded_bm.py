@@ -26,6 +26,7 @@ LOCAL_BENCHNET_DIR = "../benchmarks/sharded-bm"
 
 REMOTE_BENCHNET_DIR = "/home/ubuntu/bench"
 NEAR_HOME = "/home/ubuntu/.near"
+CONFIG_PATH = f"{NEAR_HOME}/config.json"
 
 
 def fetch_forknet_details(forknet_name):
@@ -67,7 +68,7 @@ def fetch_forknet_details(forknet_name):
 
 
 def handle_init(args):
-    """Handle the init command - initialize and possibly run the benchmark."""
+    """Handle the init command - initialize the benchmark before running it."""
 
     node_binary_url = args.bm_params['forknet']['binary_url']
     neard_upgrade_binary_url = ""
@@ -133,30 +134,7 @@ def handle_init(args):
                                        **vars(args))
         run_env_cmd(CommandContext(env_cmd_args))
 
-    genesis = f"{NEAR_HOME}/genesis.json"
-    base_genesis_patch = f"{REMOTE_BENCHNET_DIR}/{args.case}/{args.bm_params['base_genesis_patch']}"
-
-    config = f"{NEAR_HOME}/config.json"
-    base_config_patch = f"{REMOTE_BENCHNET_DIR}/{args.case}/{args.bm_params['base_config_patch']}"
-    config_patch = f"{REMOTE_BENCHNET_DIR}/{args.case}/config_patch.json"
-
-    log_config = f"{NEAR_HOME}/log_config.json"
-    log_config_patch = f"{REMOTE_BENCHNET_DIR}/cases/log_patch.json"
-
-    run_cmd_args = copy.deepcopy(args)
-    run_cmd_args.cmd = f"\
-        python3 {REMOTE_BENCHNET_DIR}/helpers/json_updater.py {genesis} {base_genesis_patch} \
-        && python3 {REMOTE_BENCHNET_DIR}/helpers/json_updater.py {config} {base_config_patch} {config_patch} \
-        && touch {log_config} \
-        && python3 {REMOTE_BENCHNET_DIR}/helpers/json_updater.py {log_config} {log_config_patch} \
-    "
-
-    if tracing_server_ip is None:
-        run_cmd_args.cmd += f"\
-            && jq '.opentelemetry = null' {log_config} >tmp.$$.json && mv tmp.$$.json {log_config} || rm tmp.$$.json \
-        "
-
-    run_remote_cmd(CommandContext(run_cmd_args))
+    handle_apply_json_patches(args)
 
     start_nodes(args)
 
@@ -175,28 +153,67 @@ def handle_init(args):
 
     run_remote_cmd(CommandContext(run_cmd_args))
 
-    handle_stop(args)
+    stop_nodes(args)
 
 
-def handle_stop(args):
-    """Handle the stop command - stop the benchmark."""
+def handle_apply_json_patches(args):
+    """Handle the apply-json-patches command."""
+    genesis = f"{NEAR_HOME}/genesis.json"
+    base_genesis_patch = f"{REMOTE_BENCHNET_DIR}/{args.case}/{args.bm_params['base_genesis_patch']}"
+
+    base_config_patch = f"{REMOTE_BENCHNET_DIR}/{args.case}/{args.bm_params['base_config_patch']}"
+    config_patch = f"{REMOTE_BENCHNET_DIR}/{args.case}/config_patch.json"
+
+    log_config = f"{NEAR_HOME}/log_config.json"
+    log_config_patch = f"{REMOTE_BENCHNET_DIR}/cases/log_patch.json"
+
+    run_cmd_args = copy.deepcopy(args)
+    run_cmd_args.cmd = f"\
+        python3 {REMOTE_BENCHNET_DIR}/helpers/json_updater.py {genesis} {base_genesis_patch} \
+        && python3 {REMOTE_BENCHNET_DIR}/helpers/json_updater.py {CONFIG_PATH} {base_config_patch} {config_patch} \
+        && touch {log_config} \
+        && python3 {REMOTE_BENCHNET_DIR}/helpers/json_updater.py {log_config} {log_config_patch} \
+    "
+
+    if args.forknet_details['tracing_server_internal_ip'] is None:
+        run_cmd_args.cmd += f"\
+            && jq '.opentelemetry = null' {log_config} >tmp.$$.json && mv tmp.$$.json {log_config} || rm tmp.$$.json \
+        "
+
+    run_remote_cmd(CommandContext(run_cmd_args))
+
+
+def stop_nodes(args, disable_tx_generator=False):
+    """Stop the benchmark nodes."""
     logger.info("Stopping nodes")
     stop_nodes_cmd_args = copy.deepcopy(args)
     stop_nodes_cmd_args.host_filter = f"({'|'.join(args.forknet_details['cp_instance_names'])})"
     stop_nodes_cmd(CommandContext(stop_nodes_cmd_args))
 
+    if disable_tx_generator:
+        run_cmd_args = copy.deepcopy(args)
+        run_cmd_args.cmd = f"\
+            jq 'del(.tx_generator)' {CONFIG_PATH} > tmp.$$.json && mv tmp.$$.json {CONFIG_PATH} || rm tmp.$$.json \
+        "
+
+        run_remote_cmd(CommandContext(run_cmd_args))
+
+
+def handle_stop(args):
+    """Handle the stop command - stop the benchmark."""
+    stop_nodes(args, args.disable_tx_generator)
+
 
 def handle_reset(args):
     """Handle the reset command - reset the benchmark state."""
     logger.info("Resetting benchmark state")
-    handle_stop(args)
+    stop_nodes(args)
 
     run_cmd_args = copy.deepcopy(args)
-    config = f"{NEAR_HOME}/config.json"
     run_cmd_args.cmd = f"\
         find {NEAR_HOME}/data -mindepth 1 -delete && \
         rm -rf {REMOTE_BENCHNET_DIR} && \
-        jq 'del(.tx_generator)' {config} > tmp.$$.json && mv tmp.$$.json {config} || rm tmp.$$.json \
+        jq 'del(.tx_generator)' {CONFIG_PATH} > tmp.$$.json && mv tmp.$$.json {CONFIG_PATH} || rm tmp.$$.json \
     "
 
     run_remote_cmd(CommandContext(run_cmd_args))
@@ -211,9 +228,9 @@ def handle_reset(args):
     reset_cmd(CommandContext(reset_cmd_args))
 
 
-def start_nodes(args, with_tx_generator=False):
-    """Handle the start command - start the benchmark."""
-    if with_tx_generator:
+def start_nodes(args, enable_tx_generator=False):
+    """Start the benchmark nodes with the given parameters."""
+    if enable_tx_generator:
         logger.info("Setting tx generator parameters")
 
         tps = int(args.bm_params['tx_generator']['tps'])
@@ -239,7 +256,8 @@ def start_nodes(args, with_tx_generator=False):
 
 
 def handle_start(args):
-    start_nodes(args, args.with_tx_generator)
+    """Handle the start command - start the benchmark."""
+    start_nodes(args, args.enable_tx_generator)
 
 
 def main():
@@ -283,13 +301,20 @@ def main():
                                        help='Available commands')
 
     subparsers.add_parser('init', help='Initialize the benchmark')
+    subparsers.add_parser(
+        'apply-json-patches',
+        help='Apply the patches to genesis, config and log_config')
 
     start_parser = subparsers.add_parser('start', help='Start the benchmark')
-    start_parser.add_argument('--with-tx-generator',
+    start_parser.add_argument('--enable-tx-generator',
                               action='store_true',
-                              help='Set the tx generator parameters')
+                              help='Enable the tx generator')
 
-    subparsers.add_parser('stop', help='Stop the benchmark')
+    stop_parser = subparsers.add_parser('stop', help='Stop the benchmark')
+    stop_parser.add_argument('--disable-tx-generator',
+                             action='store_true',
+                             help='Disable the tx generator')
+
     subparsers.add_parser('reset', help='Reset the benchmark state')
 
     args = parser.parse_args()
@@ -297,6 +322,8 @@ def main():
     # Route to appropriate handler based on command
     if args.command == 'init':
         handle_init(args)
+    elif args.command == 'apply-json-patches':
+        handle_apply_json_patches(args)
     elif args.command == 'stop':
         handle_stop(args)
     elif args.command == 'start':
