@@ -232,7 +232,6 @@ impl ViewClientActorInner {
     /// Returns `None` if the reference is a `SyncCheckpoint::EarliestAvailable`
     /// reference and no such block exists yet.  This is typically translated by
     /// the caller into some form of ‘no sync block’ higher-level error.
-
     fn get_block_header_by_reference(
         &self,
         reference: &BlockReference,
@@ -265,7 +264,7 @@ impl ViewClientActorInner {
     ///
     /// Returns `None` if the reference is a `SyncCheckpoint::EarliestAvailable`
     /// reference and no such block exists yet.  This is typically translated by
-    /// the caller into some form of 'no sync block' higher-level error.
+    /// the caller into some form of ‘no sync block’ higher-level error.
     fn get_block_by_reference(
         &self,
         reference: &BlockReference,
@@ -560,10 +559,9 @@ impl ViewClientActorInner {
         signer_account_id: AccountId,
         fetch_receipt: bool,
         validator_signer: &Option<Arc<ValidatorSigner>>,
-    ) -> Result<TxStatusView, TxStatusError> {
+    ) -> Result<TxStatusView, TxStatusError> { 
         // Debug assertion to verify that RPC nodes track all shards
         debug_assert!(self.shard_tracker.tracks_all_shards(), "RPC nodes should track all shards");
-
         {
             // TODO(telezhnaya): take into account `fetch_receipt()`
             // https://github.com/near/nearcore/issues/9545
@@ -1498,8 +1496,6 @@ impl Handler<AnnounceAccountRequest> for ViewClientActorInner {
                 //   could be OK at the moment that peer has sent it out.
                 // - the current epoch_id is not related to announce_account.epoch_id,
                 //   so it carry a perfectly valid (outdated) information.
-                // We currently do NOT ban the peer for either.
-                // TODO(gprusak): consider whether we should change that.
                 Ok(false) => {
                     return Err(ReasonForBan::InvalidSignature);
                 }
