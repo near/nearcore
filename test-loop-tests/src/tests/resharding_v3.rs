@@ -373,7 +373,7 @@ fn setup_global_contracts(
             &env.node_datas,
             client_account_id,
             deployer_id.clone(),
-            near_test_contracts::rs_contract().into(),
+            near_test_contracts::backwards_compatible_rs_contract().into(),
             nonce,
             deploy_mode.clone(),
         );
@@ -540,7 +540,7 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
             &env.node_datas,
             &client_account_id,
             contract_id,
-            near_test_contracts::rs_contract().into(),
+            near_test_contracts::backwards_compatible_rs_contract().into(),
             1,
         );
         test_setup_transactions.push(deploy_contract_tx);
@@ -1165,7 +1165,8 @@ fn slow_test_resharding_v3_delayed_receipts_left_child() {
 #[test]
 #[cfg_attr(not(all(feature = "test_features", feature = "nightly")), ignore)]
 fn slow_test_resharding_v3_global_contract_by_hash() {
-    let code_hash = CryptoHash::hash_bytes(&near_test_contracts::rs_contract());
+    let code_hash =
+        CryptoHash::hash_bytes(&near_test_contracts::backwards_compatible_rs_contract());
     test_resharding_v3_global_contract_base(
         GlobalContractIdentifier::CodeHash(code_hash),
         GlobalContractDeployMode::CodeHash,
