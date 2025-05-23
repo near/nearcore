@@ -376,7 +376,8 @@ mod tests {
             test_populate_trie(&tries, &Trie::EMPTY_ROOT, parent_shard, initial.clone());
 
         // Create tries to represent the post-state root at the end of the resharding block.
-        // Each child shard will have its post-state.
+        // Each child shard will have its post-state. Here the test uses the midpoint of the
+        // initial keys to split the parent trie to two roughly equally sized children.
         let boundary_account =
             make_account_key(initial.len() / 2 as usize).get_account_id().unwrap();
         let new_layout = ShardLayout::derive_shard_layout(&shard_layout, boundary_account.clone());
@@ -469,8 +470,11 @@ mod tests {
         let right_trie = tries.get_view_trie_for_shard(test.right_shard, test.right_root);
         let right_kvs =
             right_trie.lock_for_iter().iter().unwrap().map(Result::unwrap).collect_vec();
+        assert!(!left_trie.has_memtries() && !right_trie.has_memtries());
 
         // Iterate the child shards and check we can access the key/values.
+        // Note `test.initial` was already sorted and deduplicated, and iteration
+        // over the child tries should yield the key/values in sorted order.
         let expected_keys = &test.initial;
         expected_keys.iter().zip_eq(left_kvs.iter().chain(right_kvs.iter())).for_each(
             |(expected, got)| {
