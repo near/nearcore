@@ -73,6 +73,9 @@ test_features = [
     "node-runtime/test_features",
 ]
 shadow_chunk_validation = []
+protocol_feature_spice = [
+    "near-epoch-manager/protocol_feature_spice",
+]
 
 nightly = [
     "near-async/nightly",
