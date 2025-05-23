@@ -396,6 +396,11 @@ mod tests {
             tries.apply_memtrie_changes(&trie_changes, parent_shard, block_height);
             trie_changes.new_root
         });
+        // Add a mapping from the child shards to the parent shard. This is not
+        // needed as TrieStateResharder will iterate the memtrie, not consult
+        // disk. Adding here just to test they will be removed.
+        store_update.set_shard_uid_mapping(left_shard, parent_shard);
+        store_update.set_shard_uid_mapping(right_shard, parent_shard);
         store_update.commit().unwrap();
 
         tries.freeze_parent_memtrie(parent_shard, children).unwrap();
@@ -416,6 +421,8 @@ mod tests {
         // The resharding status should be None after completion.
         assert!(resharder.load_status().unwrap().is_none());
         check_child_tries_contain_all_keys(&test);
+        // StateShardUIdMapping should be removed after resharding.
+        assert_eq!(0, test.runtime.store().iter(DBCol::StateShardUIdMapping).count());
     }
 
     #[test]
@@ -444,6 +451,8 @@ mod tests {
             &test.initial.first().unwrap().0,
             update_status.left.as_ref().unwrap().next_key.as_ref().unwrap()
         );
+        // StateShardUIdMapping should still be present after processing one batch.
+        assert_eq!(2, test.runtime.store().iter(DBCol::StateShardUIdMapping).count());
 
         // Test cancelling the resharding operation.
         resharder.handle.stop();
@@ -460,6 +469,8 @@ mod tests {
         // The resharding status should be None after completion.
         assert!(resharder.load_status().unwrap().is_none());
         check_child_tries_contain_all_keys(&test);
+        // StateShardUIdMapping should be removed after resharding.
+        assert_eq!(0, test.runtime.store().iter(DBCol::StateShardUIdMapping).count());
     }
 
     fn check_child_tries_contain_all_keys(test: &TestSetup) {
