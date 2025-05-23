@@ -559,7 +559,7 @@ impl ViewClientActorInner {
         signer_account_id: AccountId,
         fetch_receipt: bool,
         validator_signer: &Option<Arc<ValidatorSigner>>,
-    ) -> Result<TxStatusView, TxStatusError> { 
+    ) -> Result<TxStatusView, TxStatusError> {
         // Debug assertion to verify that RPC nodes track all shards
         debug_assert!(self.shard_tracker.tracks_all_shards(), "RPC nodes should track all shards");
         {
