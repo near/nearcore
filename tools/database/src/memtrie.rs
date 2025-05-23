@@ -165,8 +165,8 @@ impl SplitShardTrieCommand {
         println!("Memtrie loaded");
 
         // Get parent shard size
-        let size_helper = MemtrieSizeHelper::new(store.chain_store(), &shard_tries, &block);
-        let parent_size = size_helper.get_shard_trie_size(self.shard_uid)?;
+        let size_calculator = MemtrieSizeCalculator::new(store.chain_store(), &shard_tries, &block);
+        let parent_size = size_calculator.get_shard_trie_size(self.shard_uid)?;
         println!("Parent shard size: {parent_size} bytes");
 
         // Re-create epoch manager with new shard layout
@@ -204,10 +204,14 @@ impl SplitShardTrieCommand {
         )?;
         println!("Resharding done");
 
-        let left_size = size_helper.get_shard_trie_size(left_child_shard)?;
-        let right_size = size_helper.get_shard_trie_size(right_child_shard)?;
+        let left_size = size_calculator.get_shard_trie_size(left_child_shard)?;
+        let right_size = size_calculator.get_shard_trie_size(right_child_shard)?;
         println!("Left child state size: {left_size} bytes");
         println!("Right child state size: {right_size} bytes");
+        println!(
+            "WARNING: Calculated memory usages are only approximations and may differ from
+            actual RAM allocation when the shards are loaded into memory."
+        );
 
         println!("Removing database snapshot...");
         snapshot.remove()?;
@@ -217,13 +221,13 @@ impl SplitShardTrieCommand {
     }
 }
 
-struct MemtrieSizeHelper<'a, 'b> {
+struct MemtrieSizeCalculator<'a, 'b> {
     chain_store: ChainStoreAdapter,
     shard_tries: &'a ShardTries,
     block: &'b Block,
 }
 
-impl<'a, 'b> MemtrieSizeHelper<'a, 'b> {
+impl<'a, 'b> MemtrieSizeCalculator<'a, 'b> {
     fn new(chain_store: ChainStoreAdapter, shard_tries: &'a ShardTries, block: &'b Block) -> Self {
         Self { chain_store, shard_tries, block }
     }

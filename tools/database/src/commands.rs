@@ -52,7 +52,8 @@ enum SubCommand {
 
     /// Loads an in-memory trie for research purposes.
     LoadMemTrie(LoadMemTrieCommand),
-    /// Splits given shard on a given boundary account and prints child sizes
+    /// Splits given shard on a given boundary account and prints approximate
+    /// RAM usage of the child shards.
     SplitShardTrie(SplitShardTrieCommand),
 
     /// Write CryptoHash to DB
