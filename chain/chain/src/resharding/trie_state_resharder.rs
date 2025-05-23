@@ -446,7 +446,7 @@ mod tests {
 
         // Test cancelling the resharding operation.
         resharder.handle.stop();
-        resharder.process_batch_and_update_status(&mut update_status).unwrap();
+        resharder.resharding_blocking_impl(&mut update_status).unwrap();
         // The resharding status should not have changed after cancellation.
         assert_eq!(got_status, update_status);
 
