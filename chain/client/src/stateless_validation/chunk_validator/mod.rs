@@ -22,6 +22,7 @@ use near_primitives::stateless_validation::state_witness::{
     ChunkStateWitness, ChunkStateWitnessAck, ChunkStateWitnessSize,
 };
 use near_primitives::validator_signer::ValidatorSigner;
+use near_store::adapter::StoreAdapter;
 use orphan_witness_pool::OrphanStateWitnessPool;
 use std::sync::Arc;
 
@@ -152,6 +153,7 @@ impl ChunkValidator {
         }
 
         let runtime_adapter = self.runtime_adapter.clone();
+        let store = chain.chain_store.store();
         let cache = self.main_state_transition_result_cache.clone();
         let signer = signer.clone();
         self.validation_spawner.spawn("stateless_validation", move || {
@@ -165,6 +167,7 @@ impl ChunkValidator {
                 epoch_manager.as_ref(),
                 runtime_adapter.as_ref(),
                 &cache,
+                store,
             ) {
                 Ok(()) => {
                     send_chunk_endorsement_to_block_producers(
