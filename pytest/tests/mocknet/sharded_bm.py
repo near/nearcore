@@ -21,8 +21,8 @@ from configured_logger import logger
 
 # cspell:words BENCHNET
 
-# TODO: consider moving local directory to pytest.
-LOCAL_BENCHNET_DIR = "../benchmarks/sharded-bm"
+# TODO: consider moving source directory to pytest.
+SOURCE_BENCHNET_DIR = "../benchmarks/sharded-bm"
 
 BENCHNET_DIR = "/home/ubuntu/bench"
 NEAR_HOME = "/home/ubuntu/.near"
@@ -100,7 +100,7 @@ def handle_init(args):
     # TODO: check neard binary version
 
     upload_file_args = copy.deepcopy(args)
-    upload_file_args.src = f"{LOCAL_BENCHNET_DIR}/cases"
+    upload_file_args.src = f"{SOURCE_BENCHNET_DIR}/cases"
     upload_file_args.dst = BENCHNET_DIR
     run_remote_upload_file(CommandContext(upload_file_args))
 
@@ -290,7 +290,7 @@ def main():
         sys.exit(1)
 
     try:
-        bm_params_path = f"{LOCAL_BENCHNET_DIR}/{case}/params.json"
+        bm_params_path = f"{SOURCE_BENCHNET_DIR}/{case}/params.json"
         with open(bm_params_path) as f:
             bm_params = json.load(f)
     except (json.JSONDecodeError, KeyError) as e:
