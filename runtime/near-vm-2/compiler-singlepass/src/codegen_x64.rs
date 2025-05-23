@@ -353,10 +353,42 @@ impl<'a> FuncGen<'a> {
         Ok(())
     }
 
-    fn emit_gas_const(&mut self, cost: finite_wasm_6::Fee) {
+    fn emit_gas_fee(&mut self, cost: finite_wasm_6::Fee) {
         let finite_wasm_6::Fee { constant, linear } = cost;
         if linear != 0 {
-            todo!();
+            let count = *self.value_stack.last().unwrap();
+            if let Ok(cost) = i32::try_from(linear) {
+                let cost_reg = self.machine.acquire_temp_gpr().unwrap();
+                // Zeroes out the top 32-bits of `tmp` GPR, effectively zero-extending the count.
+                self.assembler.emit_mov(Size::S32, count, Location::GPR(cost_reg));
+                self.assembler.emit_imul_imm32_gpr64(cost as u32, cost_reg);
+                self.emit_gas(Location::GPR(cost_reg));
+                self.machine.release_temp_gpr(cost_reg);
+            } else {
+                // `mul` is a `RDX:RAX := RAX * operand`, so we need to save both registers if they
+                // are being used... Fortunately both are dedicated as temporary registers...
+                if self.machine.get_gpr_used(GPR::RAX) {
+                    self.assembler.emit_push(Size::S64, Location::GPR(GPR::RAX));
+                }
+                if self.machine.get_gpr_used(GPR::RDX) {
+                    self.assembler.emit_push(Size::S64, Location::GPR(GPR::RDX));
+                }
+                self.assembler.emit_mov(
+                    Size::S64,
+                    Location::Imm64(linear),
+                    Location::GPR(GPR::RAX),
+                );
+                self.assembler.emit_mov(Size::S64, count, Location::GPR(GPR::RDX));
+                self.assembler.emit_ax_mul(Size::S64, Location::GPR(GPR::RDX));
+                self.assembler.emit_jmp(Condition::Overflow, self.special_labels.integer_overflow);
+                self.emit_gas(Location::GPR(GPR::RAX));
+                if self.machine.get_gpr_used(GPR::RDX) {
+                    self.assembler.emit_pop(Size::S64, Location::GPR(GPR::RDX));
+                }
+                if self.machine.get_gpr_used(GPR::RAX) {
+                    self.assembler.emit_pop(Size::S64, Location::GPR(GPR::RAX));
+                }
+            }
         } else {
             if let Ok(cost) = i32::try_from(constant) {
                 // This as `u32` cast is valid, as fallible u64->i32 conversions can’t produce a
@@ -1643,7 +1675,7 @@ impl<'a> FuncGen<'a> {
         self.assembler.emit_jmp(Condition::Carry, self.special_labels.stack_overflow);
 
         // Charge for the stack initialization
-        self.emit_gas_const(finite_wasm_6::Fee::constant(self.stack_init_gas_cost));
+        self.emit_gas_fee(finite_wasm_6::Fee::constant(self.stack_init_gas_cost));
 
         // Initialize the locals
         let local_count = self.local_count();
@@ -1821,7 +1853,7 @@ impl<'a> FuncGen<'a> {
         }
 
         while let Some(cost) = self.consume_gas_offset(/* false */) {
-            self.emit_gas_const(cost);
+            self.emit_gas_fee(cost);
         }
 
         match op {
