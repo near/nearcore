@@ -771,7 +771,7 @@ impl PartialWitnessActor {
             }
             match storage.retrieve_raw_bytes(&contract_hash.0) {
                 Ok(bytes) => contracts.push(CodeBytes(bytes)),
-                Err(StorageError::MissingTrieValue(_, _)) => {
+                Err(StorageError::MissingTrieValue(_)) => {
                     tracing::warn!(
                         target: "client",
                         ?contract_hash,

@@ -3,7 +3,7 @@ use crate::trie::trie_storage::{TrieMemoryPartialStorage, TrieStorage};
 use crate::trie::{AccessOptions, TrieRefcountAddition, TrieRefcountSubtraction};
 use crate::{PartialStorage, Trie, TrieUpdate};
 use assert_matches::assert_matches;
-use near_primitives::errors::{MissingTrieValueContext, StorageError};
+use near_primitives::errors::{MissingTrieValue, MissingTrieValueContext, StorageError};
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::state::PartialState;
@@ -75,10 +75,10 @@ impl TrieStorage for IncompletePartialStorage {
         lock.insert(*hash);
 
         if lock.len() > self.node_count_to_fail_after {
-            Err(StorageError::MissingTrieValue(
-                MissingTrieValueContext::TrieMemoryPartialStorage,
-                *hash,
-            ))
+            Err(StorageError::MissingTrieValue(MissingTrieValue {
+                context: MissingTrieValueContext::TrieMemoryPartialStorage,
+                hash: *hash,
+            }))
         } else {
             Ok(result)
         }
@@ -115,10 +115,10 @@ where
         if i < size {
             assert_matches!(
                 result,
-                Err(StorageError::MissingTrieValue(
-                    MissingTrieValueContext::TrieMemoryPartialStorage,
-                    _
-                ))
+                Err(StorageError::MissingTrieValue(MissingTrieValue {
+                    context: MissingTrieValueContext::TrieMemoryPartialStorage,
+                    hash: _
+                }))
             );
         } else {
             assert_eq!(result.as_ref(), Ok(&expected));
@@ -255,7 +255,7 @@ mod trie_storage_tests {
         let key = hash(&value);
 
         let result = trie_caching_storage.retrieve_raw_bytes(&key);
-        assert_matches!(result, Err(StorageError::MissingTrieValue(_, _)));
+        assert_matches!(result, Err(StorageError::MissingTrieValue(_)));
     }
 
     fn test_memtrie_and_disk_updates_consistency(updates: Vec<(Vec<u8>, Option<Vec<u8>>)>) {

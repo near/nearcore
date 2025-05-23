@@ -9,7 +9,11 @@ use near_primitives::views::{
     SplitStorageInfoView, SyncStatusView,
 };
 
+#[cfg(feature = "schemars")]
+use near_time::DurationSchemarsProvider;
+
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct RpcStatusResponse {
     #[serde(flatten)]
     pub status_response: near_primitives::views::StatusResponse,
@@ -45,15 +49,20 @@ pub struct RpcDebugStatusResponse {
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct RpcHealthResponse;
 
 #[derive(thiserror::Error, Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(tag = "name", content = "info", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum RpcStatusError {
     #[error("Node is syncing")]
     NodeIsSyncing,
     #[error("No blocks for {elapsed:?}")]
-    NoNewBlocks { elapsed: time::Duration },
+    NoNewBlocks {
+        #[cfg_attr(feature = "schemars", schemars(with = "DurationSchemarsProvider"))]
+        elapsed: time::Duration,
+    },
     #[error("Epoch Out Of Bounds {epoch_id:?}")]
     EpochOutOfBounds { epoch_id: near_primitives::types::EpochId },
     #[error("The node reached its limits. Try again later. More details: {error_message}")]
