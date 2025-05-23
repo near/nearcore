@@ -42,15 +42,16 @@ pub static SAVED_LATEST_WITNESSES_SIZE: LazyLock<IntGauge> = LazyLock::new(|| {
     .unwrap()
 });
 
-pub static SAVE_INVALID_WITNESS_GENERATE_UPDATE_TIME: LazyLock<HistogramVec> = LazyLock::new(|| {
-    try_create_histogram_vec(
-        "near_save_invalid_witness_generate_update_time",
-        "Time taken to generate an update of invalid witnesses",
-        &["shard_id"],
-        Some(exponential_buckets(0.001, 1.6, 20).unwrap()),
-    )
-    .unwrap()
-});
+pub static SAVE_INVALID_WITNESS_GENERATE_UPDATE_TIME: LazyLock<HistogramVec> =
+    LazyLock::new(|| {
+        try_create_histogram_vec(
+            "near_save_invalid_witness_generate_update_time",
+            "Time taken to generate an update of invalid witnesses",
+            &["shard_id"],
+            Some(exponential_buckets(0.001, 1.6, 20).unwrap()),
+        )
+        .unwrap()
+    });
 
 pub static SAVE_INVALID_WITNESS_COMMIT_UPDATE_TIME: LazyLock<HistogramVec> = LazyLock::new(|| {
     try_create_histogram_vec(

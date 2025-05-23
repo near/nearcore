@@ -20,7 +20,7 @@ use super::ChainStore;
 use borsh::{BorshDeserialize, BorshSerialize};
 use bytesize::ByteSize;
 use near_schema_checker_lib::ProtocolSchema;
-use near_store::db::{LATEST_WITNESSES_INFO, INVALID_WITNESSES_INFO};
+use near_store::db::{INVALID_WITNESSES_INFO, LATEST_WITNESSES_INFO};
 use rand::RngCore;
 use rand::rngs::OsRng;
 
@@ -256,7 +256,6 @@ impl ChainStore {
         epoch_id: Option<EpochId>,
         db_col: DBCol,
     ) -> Result<Vec<ChunkStateWitness>, std::io::Error> {
-
         let mut key_prefix: Vec<u8> = Vec::new();
         if let Some(h) = height {
             key_prefix.extend_from_slice(&h.to_be_bytes());
@@ -268,10 +267,7 @@ impl ChainStore {
 
         let mut result: Vec<ChunkStateWitness> = Vec::new();
 
-        for read_result in self
-            .store()
-            .iter_prefix_ser::<ChunkStateWitness>(db_col, &key_prefix)
-        {
+        for read_result in self.store().iter_prefix_ser::<ChunkStateWitness>(db_col, &key_prefix) {
             let (key_bytes, witness) = read_result?;
 
             let key = StoredWitnessesKey::deserialize(&key_bytes)?;
@@ -332,7 +328,7 @@ pub fn save_invalid_chunk_state_witness(
         witness_height = witness.chunk_header.height_created(),
         witness_shard = ?witness.chunk_header.shard_id(),
     )
-        .entered();
+    .entered();
 
     let serialized_witness = borsh::to_vec(witness)?;
     let serialized_witness_size: u64 =
@@ -368,10 +364,7 @@ pub fn save_invalid_chunk_state_witness(
             .ok_or_else(|| {
                 std::io::Error::new(
                     ErrorKind::NotFound,
-                    format!(
-                        "Cannot find witness key to delete with index {}",
-                        info.lowest_index
-                    ),
+                    format!("Cannot find witness key to delete with index {}", info.lowest_index),
                 )
             })?;
         // cspell:words deser
