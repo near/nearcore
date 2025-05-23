@@ -161,7 +161,12 @@ pub fn epoch_config(
         validator_max_kickout_stake_perc: 100,
     };
     let config_store = EpochConfigStore::test_single_version(PROTOCOL_VERSION, epoch_config);
-    AllEpochConfig::from_epoch_config_store("test-chain", epoch_length, config_store)
+    AllEpochConfig::from_epoch_config_store(
+        "test-chain",
+        epoch_length,
+        config_store,
+        PROTOCOL_VERSION,
+    )
 }
 
 pub fn stake(account_id: AccountId, amount: Balance) -> ValidatorStake {
