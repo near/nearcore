@@ -560,6 +560,8 @@ impl ViewClientActorInner {
         fetch_receipt: bool,
         validator_signer: &Option<Arc<ValidatorSigner>>,
     ) -> Result<TxStatusView, TxStatusError> {
+        // Debug assertion to verify that RPC nodes track all shards
+        debug_assert!(self.shard_tracker.tracks_all_shards(), "RPC nodes should track all shards");
         {
             // TODO(telezhnaya): take into account `fetch_receipt()`
             // https://github.com/near/nearcore/issues/9545
