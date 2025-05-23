@@ -336,7 +336,7 @@ mod tests {
         let shard_layout = ShardLayout::v2(vec![], vec![ShardId::new(0)], None);
         let genesis = Genesis::from_accounts(
             Clock::real(),
-            vec!["aa".parse().unwrap(), "mm".parse().unwrap(), "vv".parse().unwrap()],
+            vec!["aa".parse().unwrap()],
             1,
             shard_layout.clone(),
         );
@@ -365,9 +365,9 @@ mod tests {
             TrieKey::Account { account_id: account_str.parse().unwrap() }
         };
 
-        // The keys for the trie should be ones splittable by account ID.
-        // Create a set of arbitraty account IDs to use as keys.
-        // Deliberately contains duplicate values to test reference counting
+        // Using `TrieKey::Account` to create the trie keys. This is so in
+        // resharding, the keys can be split by `AccountId`. Deliberately
+        // contains duplicate values to test reference counting
         let initial =
             (0..1000).map(|i| (make_account_key(i).to_vec(), Some(vec![i as u8]))).collect_vec();
         let initial = simplify_changes(&initial); // Sorts & deduplicates the changes
@@ -377,7 +377,7 @@ mod tests {
 
         // Create tries to represent the post-state root at the end of the resharding block.
         // Each child shard will have its post-state.
-        let boundary_account: AccountId =
+        let boundary_account =
             make_account_key(initial.len() / 2 as usize).get_account_id().unwrap();
         let new_layout = ShardLayout::derive_shard_layout(&shard_layout, boundary_account.clone());
         let children = new_layout.get_children_shards_uids(parent_shard.shard_id()).unwrap();
