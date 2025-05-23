@@ -80,11 +80,24 @@ def fetch_forknet_details(forknet_name, bm_params):
 def handle_init(args):
     """Handle the init command - initialize the benchmark before running it."""
 
-    node_binary_url = args.bm_params['forknet']['binary_url']
+    if args.neard_binary_url is not None:
+        logger.info(f"Using neard binary URL from CLI: {args.neard_binary_url}")
+        neard_binary_url = args.neard_binary_url
+    elif os.environ.get('NEARD_BINARY_URL') is not None:
+        logger.info(
+            f"Using neard binary URL from env: {os.environ['NEARD_BINARY_URL']}"
+        )
+        neard_binary_url = os.environ['NEARD_BINARY_URL']
+    else:
+        logger.info(
+            f"Using neard binary URL from benchmark params: {args.bm_params['forknet']['binary_url']}"
+        )
+        neard_binary_url = args.bm_params['forknet']['binary_url']
+
     neard_upgrade_binary_url = ""
 
     init_args = SimpleNamespace(
-        neard_binary_url=node_binary_url,
+        neard_binary_url=neard_binary_url,
         neard_upgrade_binary_url=neard_upgrade_binary_url,
         **vars(args),
     )
@@ -320,7 +333,12 @@ def main():
         help='Available commands',
     )
 
-    subparsers.add_parser('init', help='Initialize the benchmark')
+    init_parser = subparsers.add_parser('init', help='Initialize the benchmark')
+    init_parser.add_argument(
+        '--neard-binary-url',
+        help='URL of the neard binary to use',
+    )
+
     subparsers.add_parser(
         'apply-json-patches',
         help='Apply the patches to genesis, config and log_config',
