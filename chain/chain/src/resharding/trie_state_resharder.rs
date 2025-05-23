@@ -454,12 +454,10 @@ mod tests {
         let config = ChainConfig::test().resharding_config;
         let resharder =
             TrieStateResharder::new(test.runtime.clone(), ReshardingHandle::new(), config);
-
         resharder.resume(test.parent_shard).expect("resume should succeed");
 
         // The resharding status should be None after completion.
         assert!(resharder.load_status().unwrap().is_none());
-
         check_child_tries_contain_all_keys(&test);
     }
 
