@@ -7,7 +7,7 @@ use crate::analyze_high_load::HighLoadStatsCommand;
 use crate::compact::RunCompactionCommand;
 use crate::drop_column::DropColumnCommand;
 use crate::make_snapshot::MakeSnapshotCommand;
-use crate::memtrie::LoadMemTrieCommand;
+use crate::memtrie::{LoadMemTrieCommand, SplitShardTrieCommand};
 use crate::run_migrations::RunMigrationsCommand;
 use crate::set_version::SetVersionCommand;
 use crate::state_perf::StatePerfCommand;
@@ -52,6 +52,10 @@ enum SubCommand {
 
     /// Loads an in-memory trie for research purposes.
     LoadMemTrie(LoadMemTrieCommand),
+    /// Splits given shard on a given boundary account and prints approximate
+    /// RAM usage of the child shards.
+    SplitShardTrie(SplitShardTrieCommand),
+
     /// Write CryptoHash to DB
     WriteCryptoHash(WriteCryptoHashCommand),
     /// Outputs stats that are needed to analyze high load
@@ -85,6 +89,7 @@ impl DatabaseCommand {
             SubCommand::RunMigrations(cmd) => cmd.run(home, genesis_validation),
             SubCommand::StatePerf(cmd) => cmd.run(home),
             SubCommand::LoadMemTrie(cmd) => cmd.run(home, genesis_validation),
+            SubCommand::SplitShardTrie(cmd) => cmd.run(home, genesis_validation),
             SubCommand::WriteCryptoHash(cmd) => cmd.run(home, genesis_validation),
             SubCommand::HighLoadStats(cmd) => cmd.run(home),
             SubCommand::AnalyzeDelayedReceipt(cmd) => cmd.run(home, genesis_validation),
