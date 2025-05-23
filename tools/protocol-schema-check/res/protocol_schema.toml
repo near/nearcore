@@ -157,6 +157,7 @@ IgnoredVecU8 = 1855789801
 IntegerOverflowError = 2542362165
 InvalidAccessKeyError = 2954698659
 InvalidTxError = 1219344901
+InvalidWitnessesInfo = 2205399556
 KeyForFlatStateDelta = 2002998927
 LatestKnown = 2945167085
 LatestWitnessesInfo = 2488443612
