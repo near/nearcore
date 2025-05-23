@@ -479,23 +479,23 @@ Run `status` to check if the nodes are ready. After they're ready,
     _clear_state_parts_if_exists(location, nodes)
 
 
-def get_nodes_status(targeted):
-    statuses = pmap(lambda node: node.neard_runner_ready(), targeted)
-    not_ready = []
-    for ready, node in zip(statuses, targeted):
+def get_nodes_status(nodes: list[NodeHandle]) -> list[str]:
+    statuses = pmap(lambda node: node.neard_runner_ready(), nodes)
+    not_ready_nodes = []
+    for ready, node in zip(statuses, nodes):
         if not ready:
-            not_ready.append(node.name())
-    return not_ready
+            not_ready_nodes.append(node.name())
+    return not_ready_nodes
 
 
 def status_cmd(ctx: CommandContext):
-    targeted = ctx.get_targeted()
-    not_ready = get_nodes_status(targeted)
-    if len(not_ready) == 0:
-        print(f'all {len(targeted)} nodes ready')
+    nodes = ctx.get_targeted()
+    not_ready_nodes = get_nodes_status(nodes)
+    if len(not_ready_nodes) == 0:
+        print(f'all {len(nodes)} nodes ready')
     else:
         print(
-            f'{len(targeted)-len(not_ready)}/{len(targeted)} ready. Nodes not ready: {not_ready[:3]}'
+            f'{len(nodes)-len(not_ready_nodes)}/{len(nodes)} ready. Nodes not ready: {not_ready_nodes[:3]}'
         )
 
 

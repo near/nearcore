@@ -21,11 +21,13 @@ def deep_merge(original: dict, patch: dict) -> dict:
     result = original.copy()
 
     for key, value in patch.items():
-        if key in result and isinstance(result[key], dict) and isinstance(
-                value, dict):
-            result[key] = deep_merge(result[key], value)
-        else:
+        if key not in result:
             result[key] = value
+            continue
+
+        assert isinstance(result[key], dict) == isinstance(value, dict)
+        if isinstance(result[key], dict):
+            result[key] = deep_merge(result[key], value)
 
     return result
 
@@ -66,13 +68,17 @@ def update_json(original_path: str, patch_paths: list[str]):
 def main():
     parser = argparse.ArgumentParser(
         description='Update a JSON file with one or more patch files.',
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    parser.add_argument('original',
-                        help='Path to the original JSON file to update')
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    parser.add_argument(
+        'original',
+        help='Path to the original JSON file to update',
+    )
     parser.add_argument(
         'patches',
         nargs='+',
-        help='One or more patch JSON files to apply in sequence')
+        help='One or more patch JSON files to apply in sequence',
+    )
 
     args = parser.parse_args()
     update_json(args.original, args.patches)

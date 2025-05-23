@@ -24,24 +24,32 @@ from configured_logger import logger
 # TODO: consider moving local directory to pytest.
 LOCAL_BENCHNET_DIR = "../benchmarks/sharded-bm"
 
-REMOTE_BENCHNET_DIR = "/home/ubuntu/bench"
+BENCHNET_DIR = "/home/ubuntu/bench"
 NEAR_HOME = "/home/ubuntu/.near"
 CONFIG_PATH = f"{NEAR_HOME}/config.json"
 
 
-def fetch_forknet_details(forknet_name):
+def fetch_forknet_details(forknet_name, bm_params):
     """Fetch the forknet details from GCP."""
     find_instances_cmd = [
         "gcloud", "compute", "instances", "list", "--project=nearone-mocknet",
         f"--filter=name~'-{forknet_name}-' AND -name~'traffic' AND -name~'tracing'",
         "--format=get(name,networkInterfaces[0].networkIP)"
     ]
-    find_instances_cmd_result = subprocess.run(find_instances_cmd,
-                                               capture_output=True,
-                                               text=True,
-                                               check=True)
+    find_instances_cmd_result = subprocess.run(
+        find_instances_cmd,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
     output = find_instances_cmd_result.stdout.splitlines()
-    num_cp_instances = len(output) - 1
+
+    num_cp_instances = bm_params['chunk_producers']
+    if len(output) != num_cp_instances + 1:
+        logger.error(
+            f"Expected {num_cp_instances + 1} instances, got {len(output)}")
+        sys.exit(1)
+
     rpc_instance = output[-1]
     rpc_instance_name, rpc_instance_ip = rpc_instance.split()
     cp_instances = list(map(lambda x: x.split(), output[:num_cp_instances]))
@@ -52,10 +60,12 @@ def fetch_forknet_details(forknet_name):
         f"--filter=name~'-{forknet_name}-' AND name~'tracing'",
         "--format=get(networkInterfaces[0].networkIP,networkInterfaces[0].accessConfigs[0].natIP)"
     ]
-    tracing_server_cmd_result = subprocess.run(find_tracing_server_cmd,
-                                               capture_output=True,
-                                               text=True,
-                                               check=True)
+    tracing_server_cmd_result = subprocess.run(
+        find_tracing_server_cmd,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
     output = tracing_server_cmd_result.stdout.strip()
     internal_ip, external_ip = output.split() if output else (None, None)
     return {
@@ -76,31 +86,34 @@ def handle_init(args):
     init_args = SimpleNamespace(
         neard_binary_url=node_binary_url,
         neard_upgrade_binary_url=neard_upgrade_binary_url,
-        **vars(args))
+        **vars(args),
+    )
     init_cmd(CommandContext(init_args))
 
     update_binaries_args = copy.deepcopy(args)
     update_binaries_cmd(CommandContext(update_binaries_args))
 
     run_cmd_args = copy.deepcopy(args)
-    run_cmd_args.cmd = f"mkdir -p {REMOTE_BENCHNET_DIR}"
+    run_cmd_args.cmd = f"mkdir -p {BENCHNET_DIR}"
     run_remote_cmd(CommandContext(run_cmd_args))
 
     # TODO: check neard binary version
 
     upload_file_args = copy.deepcopy(args)
     upload_file_args.src = f"{LOCAL_BENCHNET_DIR}/cases"
-    upload_file_args.dst = REMOTE_BENCHNET_DIR
+    upload_file_args.dst = BENCHNET_DIR
     run_remote_upload_file(CommandContext(upload_file_args))
 
     upload_file_args = copy.deepcopy(args)
     upload_file_args.src = "tests/mocknet/helpers"
-    upload_file_args.dst = REMOTE_BENCHNET_DIR
+    upload_file_args.dst = BENCHNET_DIR
     run_remote_upload_file(CommandContext(upload_file_args))
 
     new_test_cmd_args = SimpleNamespace(
         state_source="empty",
-        patches_path=f"{REMOTE_BENCHNET_DIR}/{args.case}",
+        patches_path=f"{BENCHNET_DIR}/{args.case}",
+        # Epoch length is required to be set but will get overwritten by the
+        # genesis patch.
         epoch_length=1000,
         num_validators=args.bm_params['chunk_producers'],
         num_seats=None,
@@ -109,7 +122,8 @@ def handle_init(args):
         gcs_state_sync=False,
         stateless_setup=True,
         yes=True,
-        **vars(args))
+        **vars(args),
+    )
     new_test_cmd(CommandContext(new_test_cmd_args))
 
     status_cmd_args = copy.deepcopy(args)
@@ -127,11 +141,13 @@ def handle_init(args):
     if tracing_server_ip is None:
         logger.info("No tracing server found, skipping tracing setup")
     else:
-        env_cmd_args = SimpleNamespace(key_value=[
-            f"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://{tracing_server_ip}:4317"
-        ],
-                                       clear_all=False,
-                                       **vars(args))
+        env_cmd_args = SimpleNamespace(
+            key_value=[
+                f"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://{tracing_server_ip}:4317"
+            ],
+            clear_all=False,
+            **vars(args),
+        )
         run_env_cmd(CommandContext(env_cmd_args))
 
     handle_apply_json_patches(args)
@@ -142,12 +158,12 @@ def handle_init(args):
 
     run_cmd_args = copy.deepcopy(args)
     run_cmd_args.host_filter = f"({'|'.join(args.forknet_details['cp_instance_names'])})"
-    accounts_path = f"{REMOTE_BENCHNET_DIR}/user-data/shard.json"
+    accounts_path = f"{BENCHNET_DIR}/user-data/shard.json"
     run_cmd_args.cmd = f"\
-        shard=$(python3 {REMOTE_BENCHNET_DIR}/helpers/get_tracked_shard.py) && \
+        shard=$(python3 {BENCHNET_DIR}/helpers/get_tracked_shard.py) && \
         echo \"Tracked shard: $shard\" && \
-        rm -rf {REMOTE_BENCHNET_DIR}/user-data && \
-        mkdir -p {REMOTE_BENCHNET_DIR}/user-data && \
+        rm -rf {BENCHNET_DIR}/user-data && \
+        mkdir -p {BENCHNET_DIR}/user-data && \
         cp {NEAR_HOME}/user-data/shard_$shard.json {accounts_path} \
     "
 
@@ -159,20 +175,20 @@ def handle_init(args):
 def handle_apply_json_patches(args):
     """Handle the apply-json-patches command."""
     genesis = f"{NEAR_HOME}/genesis.json"
-    base_genesis_patch = f"{REMOTE_BENCHNET_DIR}/{args.case}/{args.bm_params['base_genesis_patch']}"
+    base_genesis_patch = f"{BENCHNET_DIR}/{args.case}/{args.bm_params['base_genesis_patch']}"
 
-    base_config_patch = f"{REMOTE_BENCHNET_DIR}/{args.case}/{args.bm_params['base_config_patch']}"
-    config_patch = f"{REMOTE_BENCHNET_DIR}/{args.case}/config_patch.json"
+    base_config_patch = f"{BENCHNET_DIR}/{args.case}/{args.bm_params['base_config_patch']}"
+    config_patch = f"{BENCHNET_DIR}/{args.case}/config_patch.json"
 
     log_config = f"{NEAR_HOME}/log_config.json"
-    log_config_patch = f"{REMOTE_BENCHNET_DIR}/cases/log_patch.json"
+    log_config_patch = f"{BENCHNET_DIR}/cases/log_patch.json"
 
     run_cmd_args = copy.deepcopy(args)
     run_cmd_args.cmd = f"\
-        python3 {REMOTE_BENCHNET_DIR}/helpers/json_updater.py {genesis} {base_genesis_patch} \
-        && python3 {REMOTE_BENCHNET_DIR}/helpers/json_updater.py {CONFIG_PATH} {base_config_patch} {config_patch} \
+        python3 {BENCHNET_DIR}/helpers/json_updater.py {genesis} {base_genesis_patch} \
+        && python3 {BENCHNET_DIR}/helpers/json_updater.py {CONFIG_PATH} {base_config_patch} {config_patch} \
         && touch {log_config} \
-        && python3 {REMOTE_BENCHNET_DIR}/helpers/json_updater.py {log_config} {log_config_patch} \
+        && python3 {BENCHNET_DIR}/helpers/json_updater.py {log_config} {log_config_patch} \
     "
 
     if args.forknet_details['tracing_server_internal_ip'] is None:
@@ -212,7 +228,7 @@ def handle_reset(args):
     run_cmd_args = copy.deepcopy(args)
     run_cmd_args.cmd = f"\
         find {NEAR_HOME}/data -mindepth 1 -delete && \
-        rm -rf {REMOTE_BENCHNET_DIR} && \
+        rm -rf {BENCHNET_DIR} && \
         jq 'del(.tx_generator)' {CONFIG_PATH} > tmp.$$.json && mv tmp.$$.json {CONFIG_PATH} || rm tmp.$$.json \
     "
 
@@ -235,7 +251,7 @@ def start_nodes(args, enable_tx_generator=False):
 
         tps = int(args.bm_params['tx_generator']['tps'])
         volume = int(args.bm_params['tx_generator']['volume'])
-        accounts_path = f"{REMOTE_BENCHNET_DIR}/user-data/shard.json"
+        accounts_path = f"{BENCHNET_DIR}/user-data/shard.json"
 
         run_cmd_args = copy.deepcopy(args)
         run_cmd_args.host_filter = f"({'|'.join(args.forknet_details['cp_instance_names'])})"
@@ -273,9 +289,6 @@ def main():
         logger.error("Error: FORKNET_START_HEIGHT must be an integer")
         sys.exit(1)
 
-    forknet_details = fetch_forknet_details(unique_id)
-    logger.info(forknet_details)
-
     try:
         bm_params_path = f"{LOCAL_BENCHNET_DIR}/{case}/params.json"
         with open(bm_params_path) as f:
@@ -284,36 +297,48 @@ def main():
         logger.error(f"Error reading binary_url from {bm_params_path}: {e}")
         sys.exit(1)
 
+    forknet_details = fetch_forknet_details(unique_id, bm_params)
+    logger.info(forknet_details)
+
     parser = ArgumentParser(
         description='Forknet cluster parameters to launch a sharded benchmark')
-    parser.set_defaults(chain_id=chain_id,
-                        start_height=start_height,
-                        unique_id=unique_id,
-                        case=case,
-                        bm_params=bm_params,
-                        forknet_details=forknet_details,
-                        local_test=False,
-                        host_filter=None,
-                        host_type="nodes",
-                        select_partition=None)
+    parser.set_defaults(
+        chain_id=chain_id,
+        start_height=start_height,
+        unique_id=unique_id,
+        case=case,
+        bm_params=bm_params,
+        forknet_details=forknet_details,
+        local_test=False,
+        host_filter=None,
+        host_type="nodes",
+        select_partition=None,
+    )
 
-    subparsers = parser.add_subparsers(dest='command',
-                                       help='Available commands')
+    subparsers = parser.add_subparsers(
+        dest='command',
+        help='Available commands',
+    )
 
     subparsers.add_parser('init', help='Initialize the benchmark')
     subparsers.add_parser(
         'apply-json-patches',
-        help='Apply the patches to genesis, config and log_config')
+        help='Apply the patches to genesis, config and log_config',
+    )
 
     start_parser = subparsers.add_parser('start', help='Start the benchmark')
-    start_parser.add_argument('--enable-tx-generator',
-                              action='store_true',
-                              help='Enable the tx generator')
+    start_parser.add_argument(
+        '--enable-tx-generator',
+        action='store_true',
+        help='Enable the tx generator',
+    )
 
     stop_parser = subparsers.add_parser('stop', help='Stop the benchmark')
-    stop_parser.add_argument('--disable-tx-generator',
-                             action='store_true',
-                             help='Disable the tx generator')
+    stop_parser.add_argument(
+        '--disable-tx-generator',
+        action='store_true',
+        help='Disable the tx generator',
+    )
 
     subparsers.add_parser('reset', help='Reset the benchmark state')
 
