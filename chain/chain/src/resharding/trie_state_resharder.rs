@@ -299,7 +299,6 @@ mod tests {
     use near_epoch_manager::EpochManager;
     use near_primitives::shard_layout::ShardLayout;
     use near_primitives::trie_key::TrieKey;
-    use near_primitives::types::ShardId;
     use near_store::Trie;
     use near_store::test_utils::{
         TestTriesBuilder, create_test_store, simplify_changes, test_populate_trie,
@@ -333,7 +332,7 @@ mod tests {
     }
 
     fn setup_test() -> TestSetup {
-        let shard_layout = ShardLayout::v2(vec![], vec![ShardId::new(0)], None);
+        let shard_layout = ShardLayout::single_shard();
         let genesis = Genesis::from_accounts(
             Clock::real(),
             vec!["aa".parse().unwrap()],
@@ -356,7 +355,7 @@ mod tests {
         let runtime =
             NightshadeRuntime::test(tempdir.path(), store, &genesis.config, epoch_manager);
 
-        let parent_shard = ShardUId { version: 3, shard_id: 0 };
+        let parent_shard = ShardUId::single_shard();
         let tries = runtime.get_tries();
         tries.load_memtrie(&parent_shard, None, false).unwrap();
 
