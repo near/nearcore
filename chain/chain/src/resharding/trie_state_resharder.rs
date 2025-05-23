@@ -299,7 +299,7 @@ mod tests {
     use near_epoch_manager::EpochManager;
     use near_primitives::shard_layout::ShardLayout;
     use near_primitives::trie_key::TrieKey;
-    use near_primitives::types::{AccountId, ShardId};
+    use near_primitives::types::ShardId;
     use near_store::Trie;
     use near_store::test_utils::{
         TestTriesBuilder, create_test_store, simplify_changes, test_populate_trie,
