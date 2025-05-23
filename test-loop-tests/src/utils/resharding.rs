@@ -775,43 +775,24 @@ fn retain_the_only_shard_state(client: &Client, the_only_shard_uid: ShardUId) {
 }
 
 /// Asserts that all other shards State except `the_only_shard_uid` have been cleaned-up.
-///
-/// `expect_shard_uid_is_mapped` means that `the_only_shard_uid` should use an ancestor
-/// ShardUId as the db key prefix.
-fn check_has_the_only_shard_state(
-    client: &Client,
-    _the_only_shard_uid: ShardUId,
-    _expect_shard_uid_is_mapped: bool,
-) {
-    let store = client.chain.chain_store.store().trie_store();
+fn check_has_the_only_shard_state(client: &Client, the_only_shard_uid: ShardUId) {
+    let store = client.chain.chain_store.store();
     let mut shard_uid_prefixes = HashSet::new();
-    for kv in store.store().iter_raw_bytes(DBCol::State) {
+    for kv in store.iter_raw_bytes(DBCol::State) {
         let (key, _) = kv.unwrap();
         let shard_uid = ShardUId::try_from_slice(&key[0..8]).unwrap();
         shard_uid_prefixes.insert(shard_uid);
     }
-    // TODO(resharding): Handle GC after TrieStateResharder
-    // let mapped_shard_uid = get_shard_uid_mapping(&store.store(), the_only_shard_uid);
-    // if expect_shard_uid_is_mapped {
-    //     assert_ne!(mapped_shard_uid, the_only_shard_uid);
-    // } else {
-    //     assert_eq!(mapped_shard_uid, the_only_shard_uid);
-    // };
-    // let shard_uid_prefixes = shard_uid_prefixes.into_iter().collect_vec();
-    // assert_eq!(shard_uid_prefixes, [mapped_shard_uid]);
+    assert_eq!(shard_uid_prefixes.into_iter().collect_vec(), [the_only_shard_uid]);
 }
 
 /// Loop action testing state cleanup.
 /// It assumes single shard tracking and it waits for `num_epochs_to_wait`.
 /// Then it checks whether the last shard tracked by the client
 /// is the only ShardUId prefix for nodes in the State column.
-///
-/// Pass `expect_shard_uid_is_mapped` as true if it is expected at the end of the test
-/// that the last tracked shard will use an ancestor ShardUId as a db key prefix.
 pub(crate) fn check_state_cleanup(
     tracked_shard_schedule: TrackedShardSchedule,
     num_epochs_to_wait: u64,
-    expect_shard_uid_is_mapped: bool,
 ) -> LoopAction {
     let client_index = tracked_shard_schedule.client_index;
     let latest_height = Cell::new(0);
@@ -854,7 +835,7 @@ pub(crate) fn check_state_cleanup(
                 return;
             }
             // At this point, we should only have State from the last tracked shard.
-            check_has_the_only_shard_state(&client, tracked_shard_uid, expect_shard_uid_is_mapped);
+            check_has_the_only_shard_state(&client, tracked_shard_uid);
             done.set(true);
         },
     );
