@@ -74,6 +74,14 @@ extern "C" {
     // #######################
     fn promise_batch_action_create_account(promise_index: u64);
     fn promise_batch_action_deploy_contract(promise_index: u64, code_len: u64, code_ptr: u64);
+    #[cfg(feature = "latest_protocol")]
+    fn promise_batch_action_deploy_global_contract(promise_index: u64, code_len: u64, code_ptr: u64);
+    #[cfg(feature = "latest_protocol")]
+    fn promise_batch_action_deploy_global_contract_by_account_id(promise_index: u64, code_len: u64, code_ptr: u64);
+    #[cfg(feature = "latest_protocol")]
+    fn promise_batch_action_use_global_contract(promise_index: u64, code_hash_len: u64, code_hash_ptr: u64);
+    #[cfg(feature = "latest_protocol")]
+    fn promise_batch_action_use_global_contract_by_account_id(promise_index: u64, account_id_len: u64, account_id_ptr: u64);
     fn promise_batch_action_function_call(
         promise_index: u64,
         method_name_len: u64,
@@ -1386,6 +1394,18 @@ pub unsafe fn sanity_check() {
         &amount_non_zero as *const u128 as *const u64 as u64,
     );
     promise_batch_action_deploy_contract(
+        batch_promise_idx,
+        contract_code.len() as u64,
+        contract_code.as_ptr() as u64,
+    );
+    #[cfg(feature = "latest_protocol")]
+    promise_batch_action_deploy_global_contract(
+        batch_promise_idx,
+        contract_code.len() as u64,
+        contract_code.as_ptr() as u64,
+    );
+    #[cfg(feature = "latest_protocol")]
+    promise_batch_action_deploy_global_contract_by_account_id(
         batch_promise_idx,
         contract_code.len() as u64,
         contract_code.as_ptr() as u64,
