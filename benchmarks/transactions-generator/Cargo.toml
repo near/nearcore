@@ -31,10 +31,10 @@ near-client.workspace = true
 near-client-primitives.workspace = true
 node-runtime.workspace = true
 
-parking_lot.workspace = true
 rand.workspace = true
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
+serde_with.workspace = true
 tokio = { workspace = true, features = ["full"] }
 tracing = { workspace = true, features = ["std"] }
 
