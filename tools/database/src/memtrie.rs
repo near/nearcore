@@ -9,17 +9,19 @@ use near_chain_configs::GenesisValidationMode;
 use near_epoch_manager::{EpochManager, EpochManagerAdapter};
 use near_o11y::default_subscriber;
 use near_o11y::env_filter::EnvFilterBuilder;
-use near_primitives::block::Tip;
+use near_primitives::block::{Block, Tip};
 use near_primitives::block_header::BlockHeader;
-use near_primitives::config::INLINE_DISK_VALUE_THRESHOLD;
 use near_primitives::epoch_manager::EpochConfigStore;
-use near_primitives::errors::StorageError;
 use near_primitives::shard_layout::ShardLayout;
-use near_primitives::types::{AccountId, ShardId, StateRoot};
+use near_primitives::types::{AccountId, ShardId};
+use near_store::adapter::StoreAdapter;
+use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::db::RocksDB;
 use near_store::db::rocksdb::snapshot::Snapshot;
+use near_store::trie::mem::node::MemTrieNodeView;
 use near_store::{DBCol, HEAD_KEY, Mode, ShardTries, ShardUId, Temperature};
 use nearcore::{NightshadeRuntime, NightshadeRuntimeExt};
+use std::collections::VecDeque;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
@@ -163,13 +165,9 @@ impl SplitShardTrieCommand {
         println!("Memtrie loaded");
 
         // Get parent shard size
-        let parent_extra = chain_store.get_chunk_extra(block.hash(), &self.shard_uid)?;
-        let (parent_total_size, parent_ram_size) =
-            get_shard_trie_size(&shard_tries, self.shard_uid, parent_extra.state_root())?;
-        println!(
-            "Parent shard state_root: {} size: {parent_total_size} bytes ({parent_ram_size} in RAM)",
-            parent_extra.state_root()
-        );
+        let size_helper = MemtrieSizeHelper::new(store.chain_store(), &shard_tries, &block);
+        let parent_size = size_helper.get_shard_trie_size(self.shard_uid)?;
+        println!("Parent shard size: {parent_size} bytes");
 
         // Re-create epoch manager with new shard layout
         let epoch_config_store = EpochConfigStore::for_chain_id(chain_id, None)
@@ -206,21 +204,10 @@ impl SplitShardTrieCommand {
         )?;
         println!("Resharding done");
 
-        let left_extra = chain_store.get_chunk_extra(block.hash(), &left_child_shard)?;
-        let right_extra = chain_store.get_chunk_extra(block.hash(), &right_child_shard)?;
-
-        let (left_total_size, left_ram_size) =
-            get_shard_trie_size(&shard_tries, left_child_shard, left_extra.state_root())?;
-        let (right_total_size, right_ram_size) =
-            get_shard_trie_size(&shard_tries, right_child_shard, right_extra.state_root())?;
-        println!(
-            "Left child state root: {} size: {left_total_size} bytes ({left_ram_size} in RAM)",
-            left_extra.state_root()
-        );
-        println!(
-            "Right child state root: {} size: {right_total_size} bytes ({right_ram_size} in RAM)",
-            right_extra.state_root()
-        );
+        let left_size = size_helper.get_shard_trie_size(left_child_shard)?;
+        let right_size = size_helper.get_shard_trie_size(right_child_shard)?;
+        println!("Left child state size: {left_size} bytes");
+        println!("Right child state size: {right_size} bytes");
 
         println!("Removing database snapshot...");
         snapshot.remove()?;
@@ -230,32 +217,47 @@ impl SplitShardTrieCommand {
     }
 }
 
-/// Get `(total_size, ram_size)` of shard trie
-fn get_shard_trie_size(
-    tries: &ShardTries,
-    shard_uid: ShardUId,
-    state_root: &StateRoot,
-) -> anyhow::Result<(u64, u64)> {
-    let total_size = tries
-        .get_memtries(shard_uid)
-        .ok_or_else(|| anyhow::anyhow!("Cannot get memtrie"))?
-        .read()
-        .get_root(state_root)?
-        .view()
-        .memory_usage();
-    // Values over `INLINE_DISK_VALUE_THRESHOLD` are not loaded into RAM,
-    // so we have to calculate their total size and subtract that from the `total_size`
-    let excluded_values_size = tries
-        .get_trie_for_shard(shard_uid, *state_root)
-        .lock_for_iter()
-        .iter()?
-        .try_fold(0u64, |acc, res| -> Result<u64, StorageError> {
-            let (_key, value) = res?;
-            if value.len() > INLINE_DISK_VALUE_THRESHOLD {
-                Ok(acc + value.len() as u64)
-            } else {
-                Ok(acc)
+struct MemtrieSizeHelper<'a, 'b> {
+    chain_store: ChainStoreAdapter,
+    shard_tries: &'a ShardTries,
+    block: &'b Block,
+}
+
+impl<'a, 'b> MemtrieSizeHelper<'a, 'b> {
+    fn new(chain_store: ChainStoreAdapter, shard_tries: &'a ShardTries, block: &'b Block) -> Self {
+        Self { chain_store, shard_tries, block }
+    }
+
+    /// Get RAM usage of a shard trie
+    /// Does a BFS of the whole memtrie
+    fn get_shard_trie_size(&self, shard_uid: ShardUId) -> anyhow::Result<u64> {
+        let chunk_extra = self.chain_store.get_chunk_extra(self.block.hash(), &shard_uid)?;
+        let state_root = chunk_extra.state_root();
+        println!("Shard {shard_uid}: state root: {state_root}");
+
+        let memtries = self
+            .shard_tries
+            .get_memtries(shard_uid)
+            .ok_or_else(|| anyhow::anyhow!("Cannot get memtrie"))?;
+        let read_guard = memtries.read();
+        let root_ptr = read_guard.get_root(state_root)?;
+
+        let mut queue = VecDeque::new();
+        queue.push_back(root_ptr);
+        let mut total_size = 0;
+
+        while let Some(node_ptr) = queue.pop_front() {
+            total_size += node_ptr.size_of_allocation() as u64;
+            match node_ptr.view() {
+                MemTrieNodeView::Leaf { .. } => {}
+                MemTrieNodeView::Extension { child, .. } => queue.push_back(child),
+                MemTrieNodeView::Branch { children, .. }
+                | MemTrieNodeView::BranchWithValue { children, .. } => {
+                    queue.extend(children.iter())
+                }
             }
-        })?;
-    Ok((total_size, total_size - excluded_values_size))
+        }
+
+        Ok(total_size)
+    }
 }
