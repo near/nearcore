@@ -337,12 +337,11 @@ impl TxGenerator {
                 )
                 .await;
             }
-            panic::set_hook(Box::new(|_| {
-                println!(
-                    "transaction-generator completed running the schedule. stopping the neard..."
-                );
-            }));
-            panic!("the end");
+
+            tracing::info!(target: "transaction-generator",
+                "completed running the schedule. stopping the neard..."
+            );
+            std::process::exit(0);
         });
 
         Ok(())
