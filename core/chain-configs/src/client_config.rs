@@ -375,6 +375,12 @@ impl Default for ReshardingConfig {
     }
 }
 
+impl ReshardingConfig {
+    pub fn test() -> Self {
+        Self { batch_delay: Duration::ZERO, ..ReshardingConfig::default() }
+    }
+}
+
 pub fn default_header_sync_initial_timeout() -> Duration {
     Duration::seconds(10)
 }
