@@ -514,7 +514,7 @@ fn validate_receipt_proof(
 }
 
 pub fn validate_chunk_state_witness_impl(
-    state_witness: &ChunkStateWitness,
+    state_witness: ChunkStateWitness,
     pre_validation_output: PreValidationOutput,
     epoch_manager: &dyn EpochManagerAdapter,
     runtime_adapter: &dyn RuntimeAdapter,
@@ -612,7 +612,7 @@ pub fn validate_chunk_state_witness_impl(
     for (implicit_transition_params, transition) in pre_validation_output
         .implicit_transition_params
         .into_iter()
-        .zip(state_witness.implicit_transitions.clone().into_iter())
+        .zip(state_witness.implicit_transitions.into_iter())
     {
         let (shard_uid, new_state_root, new_congestion_info) = match implicit_transition_params {
             ImplicitTransitionParams::ApplyOldChunk(block, shard_uid) => {
@@ -705,9 +705,21 @@ pub fn validate_chunk_state_witness(
     runtime_adapter: &dyn RuntimeAdapter,
     main_state_transition_cache: &MainStateTransitionCache,
     store: Store,
+    save_witness_if_invalid: bool,
 ) -> Result<(), Error> {
+    // Avoid cloning the witness if possible
+    if !save_witness_if_invalid {
+        return validate_chunk_state_witness_impl(
+            state_witness,
+            pre_validation_output,
+            epoch_manager,
+            runtime_adapter,
+            main_state_transition_cache,
+        );
+    }
+
     let result = validate_chunk_state_witness_impl(
-        &state_witness,
+        state_witness.clone(),
         pre_validation_output,
         epoch_manager,
         runtime_adapter,
@@ -804,6 +816,7 @@ impl Chain {
                 runtime_adapter.as_ref(),
                 &MainStateTransitionCache::default(),
                 store,
+                false,
             ) {
                 Ok(()) => {
                     tracing::debug!(
