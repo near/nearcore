@@ -285,7 +285,7 @@ impl Client {
                 &block,
                 processing_done_tracker,
                 &signer,
-                self.config.save_latest_witnesses,
+                self.config.save_invalid_witnesses,
             ),
             Err(Error::DBNotFoundErr(_)) => {
                 // Previous block isn't available at the moment, add this witness to the orphan pool.

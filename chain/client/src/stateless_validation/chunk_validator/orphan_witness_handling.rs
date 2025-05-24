@@ -97,7 +97,7 @@ impl Client {
                 new_block,
                 None,
                 signer,
-                self.config.save_latest_witnesses,
+                self.config.save_invalid_witnesses,
             ) {
                 tracing::error!(target: "client", ?err, "Error processing orphan chunk state witness");
             }
