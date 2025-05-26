@@ -7,10 +7,12 @@ use num_rational::Rational32;
 
 /// View that preserves JSON format of the runtime config.
 #[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct RuntimeConfigView {
     /// Amount of yN per byte required to have on the account.  See
     /// <https://nomicon.io/Economics/Economic#state-stake> for details.
     #[serde(with = "dec_format")]
+    #[cfg_attr(feature = "schemars", schemars(with = "String"))]
     pub storage_amount_per_byte: Balance,
     /// Costs of different actions that need to be performed when sending and
     /// processing transaction and receipts.
@@ -26,6 +28,7 @@ pub struct RuntimeConfigView {
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct RuntimeFeesConfigView {
     /// Describes the cost of creating an action receipt, `ActionReceipt`, excluding the actual cost
     /// of actions.
@@ -41,14 +44,17 @@ pub struct RuntimeFeesConfigView {
     pub storage_usage_config: StorageUsageConfigView,
 
     /// Fraction of the burnt gas to reward to the contract account for execution.
+    #[cfg_attr(feature = "schemars", schemars(with = "Rational32SchemarsProvider"))]
     pub burnt_gas_reward: Rational32,
 
     /// Pessimistic gas price inflation ratio.
+    #[cfg_attr(feature = "schemars", schemars(with = "Rational32SchemarsProvider"))]
     pub pessimistic_gas_price_inflation_ratio: Rational32,
 }
 
 /// The structure describes configuration for creation of new accounts.
 #[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct AccountCreationConfigView {
     /// The minimum length of the top-level account ID that is allowed to be created by any account.
     pub min_allowed_top_level_account_length: u8,
@@ -58,6 +64,7 @@ pub struct AccountCreationConfigView {
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize, Clone, Hash, PartialEq, Eq)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct DataReceiptCreationConfigView {
     /// Base cost of creating a data receipt.
     /// Both `send` and `exec` costs are burned when a new receipt has input dependencies. The gas
@@ -76,6 +83,7 @@ pub struct DataReceiptCreationConfigView {
 
 /// Describes the cost of creating a specific action, `Action`. Includes all variants.
 #[derive(Debug, serde::Serialize, serde::Deserialize, Clone, Hash, PartialEq, Eq)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct ActionCreationConfigView {
     /// Base cost of creating an account.
     pub create_account_cost: Fee,
@@ -113,6 +121,7 @@ pub struct ActionCreationConfigView {
 
 /// Describes the cost of creating an access key.
 #[derive(Debug, serde::Serialize, serde::Deserialize, Clone, Hash, PartialEq, Eq)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct AccessKeyCreationConfigView {
     /// Base cost of creating a full access access-key.
     pub full_access_cost: Fee,
@@ -124,6 +133,7 @@ pub struct AccessKeyCreationConfigView {
 
 /// Describes cost of storage per block
 #[derive(Debug, serde::Serialize, serde::Deserialize, Clone, Hash, PartialEq, Eq)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct StorageUsageConfigView {
     /// Number of bytes for an account record, including rounding up for account id.
     pub num_bytes_account: u64,
@@ -201,6 +211,7 @@ impl From<crate::RuntimeConfig> for RuntimeConfigView {
 }
 
 #[derive(Clone, Debug, Hash, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct VMConfigView {
     /// Costs for runtime externals
     pub ext_costs: ExtCostsConfigView,
@@ -276,6 +287,7 @@ impl From<VMConfigView> for crate::vm::Config {
 /// Typed view of ExtCostsConfig to preserve JSON output field names in protocol
 /// config RPC output.
 #[derive(Debug, serde::Serialize, serde::Deserialize, Clone, Hash, PartialEq, Eq)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct ExtCostsConfigView {
     /// Base cost for calling a host function.
     pub base: Gas,
@@ -673,6 +685,7 @@ impl From<ExtCostsConfigView> for crate::ExtCostsConfig {
 
 /// Configuration specific to ChunkStateWitness.
 #[derive(Debug, serde::Serialize, serde::Deserialize, Clone, Hash, PartialEq, Eq)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct WitnessConfigView {
     /// Size limit for storage proof generated while executing receipts in a chunk.
     /// After this limit is reached we defer execution of any new receipts.
@@ -697,6 +710,7 @@ impl From<WitnessConfig> for WitnessConfigView {
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize, Clone, PartialEq)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct CongestionControlConfigView {
     /// How much gas in delayed receipts of a shard is 100% incoming congestion.
     ///
@@ -798,6 +812,9 @@ impl From<CongestionControlConfigView> for CongestionControlConfig {
         }
     }
 }
+
+#[cfg(feature = "schemars")]
+pub type Rational32SchemarsProvider = [i32; 2];
 
 #[cfg(test)]
 #[cfg(not(feature = "nightly"))]

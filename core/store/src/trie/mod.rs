@@ -1844,11 +1844,11 @@ mod tests {
     use near_primitives::shard_layout::ShardLayout;
     use rand::Rng;
 
-    use crate::MissingTrieValueContext;
     use crate::test_utils::{
         TestTriesBuilder, create_test_store, gen_changes, simplify_changes,
         test_populate_flat_storage, test_populate_trie,
     };
+    use crate::{MissingTrieValue, MissingTrieValueContext};
 
     use super::*;
 
@@ -2262,10 +2262,10 @@ mod tests {
         assert_eq!(trie3.get(b"horse", AccessOptions::DEFAULT), Ok(Some(b"stallion".to_vec())));
         assert_matches!(
             trie3.get(b"doge", AccessOptions::DEFAULT),
-            Err(StorageError::MissingTrieValue(
-                MissingTrieValueContext::TrieMemoryPartialStorage,
-                _
-            ))
+            Err(StorageError::MissingTrieValue(MissingTrieValue {
+                context: MissingTrieValueContext::TrieMemoryPartialStorage,
+                hash: _
+            }))
         );
     }
 

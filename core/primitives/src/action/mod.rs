@@ -32,6 +32,7 @@ pub fn base64(s: &[u8]) -> String {
     serde::Deserialize,
     ProtocolSchema,
 )]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct AddKeyAction {
     /// A public key which will be associated with an access_key
     pub public_key: PublicKey,
@@ -51,6 +52,7 @@ pub struct AddKeyAction {
     serde::Deserialize,
     ProtocolSchema,
 )]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct CreateAccountAction {}
 
 #[derive(
@@ -64,6 +66,7 @@ pub struct CreateAccountAction {}
     serde::Deserialize,
     ProtocolSchema,
 )]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct DeleteAccountAction {
     pub beneficiary_id: AccountId,
 }
@@ -79,6 +82,7 @@ pub struct DeleteAccountAction {
     serde::Deserialize,
     ProtocolSchema,
 )]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct DeleteKeyAction {
     /// A public key associated with the access_key to be deleted.
     pub public_key: PublicKey,
@@ -96,9 +100,11 @@ pub struct DeleteKeyAction {
     Clone,
     ProtocolSchema,
 )]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct DeployContractAction {
     /// WebAssembly binary
     #[serde_as(as = "Base64")]
+    #[cfg_attr(feature = "schemars", schemars(with = "String"))]
     pub code: Vec<u8>,
 }
 
@@ -122,6 +128,7 @@ impl fmt::Debug for DeployContractAction {
     ProtocolSchema,
     Debug,
 )]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[repr(u8)]
 pub enum GlobalContractDeployMode {
     /// Contract is deployed under its code hash.
@@ -146,9 +153,11 @@ pub enum GlobalContractDeployMode {
     Clone,
     ProtocolSchema,
 )]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct DeployGlobalContractAction {
     /// WebAssembly binary
     #[serde_as(as = "Base64")]
+    #[cfg_attr(feature = "schemars", schemars(with = "String"))]
     pub code: Arc<[u8]>,
 
     pub deploy_mode: GlobalContractDeployMode,
@@ -176,6 +185,7 @@ impl fmt::Debug for DeployGlobalContractAction {
     ProtocolSchema,
     Debug,
 )]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub enum GlobalContractIdentifier {
     CodeHash(CryptoHash),
     AccountId(AccountId),
@@ -216,6 +226,7 @@ impl GlobalContractIdentifier {
     ProtocolSchema,
     Debug,
 )]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct UseGlobalContractAction {
     pub contract_identifier: GlobalContractIdentifier,
 }
@@ -231,12 +242,15 @@ pub struct UseGlobalContractAction {
     Clone,
     ProtocolSchema,
 )]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct FunctionCallAction {
     pub method_name: String,
     #[serde_as(as = "Base64")]
+    #[cfg_attr(feature = "schemars", schemars(with = "String"))]
     pub args: Vec<u8>,
     pub gas: Gas,
     #[serde(with = "dec_format")]
+    #[cfg_attr(feature = "schemars", schemars(with = "String"))]
     pub deposit: Balance,
 }
 
@@ -263,9 +277,11 @@ impl fmt::Debug for FunctionCallAction {
     serde::Deserialize,
     ProtocolSchema,
 )]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct StakeAction {
     /// Amount of tokens to stake.
     #[serde(with = "dec_format")]
+    #[cfg_attr(feature = "schemars", schemars(with = "String"))]
     pub stake: Balance,
     /// Validator key which will be used to sign transactions on behalf of signer_id
     pub public_key: PublicKey,
@@ -282,8 +298,10 @@ pub struct StakeAction {
     serde::Deserialize,
     ProtocolSchema,
 )]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct TransferAction {
     #[serde(with = "dec_format")]
+    #[cfg_attr(feature = "schemars", schemars(with = "String"))]
     pub deposit: Balance,
 }
 
@@ -299,6 +317,7 @@ pub struct TransferAction {
     strum::AsRefStr,
     ProtocolSchema,
 )]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub enum Action {
     /// Create an (sub)account using a transaction `receiver_id` as an ID for
     /// a new account ID must pass validation rules described here

@@ -388,3 +388,12 @@ jobs:
       - run: just check-publishable-separately
       - run: just check-publishable-separately --no-default-features
       - run: just check-publishable-separately --all-features
+  openapi_spec:
+    name: "OpenAPI Spec"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
+        with:
+          tool: just
+      - run: just openapi-spec
