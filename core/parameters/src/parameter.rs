@@ -235,6 +235,7 @@ pub enum Parameter {
     ActionUseGlobalContract,
     ActionUseGlobalContractPerIdentifierByte,
     SaturatingFloatToInt,
+    GlobalContractHostFns,
 }
 
 #[derive(

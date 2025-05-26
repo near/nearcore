@@ -121,3 +121,21 @@ fn test_get_account_from_trie() {
     let get_res = get_account(&new_state_update, &account_id).unwrap().unwrap();
     assert_eq!(test_account, get_res);
 }
+
+/// This test checks that `len` fn implementation of `near_vm_runner::logic::types::GlobalContractIdentifier`
+/// matches the `near_primitives::action::GlobalContractIdentifier` to ensure the same costs
+/// are charged when using `promise_batch_action_use_global_contract` host functions and converting
+/// transactions to receipts.
+#[test]
+fn test_vm_types_global_contract_identifier_len() {
+    let code_hash = CryptoHash::hash_bytes(b"arbitrary");
+    assert_eq!(
+        near_vm_runner::logic::types::GlobalContractIdentifier::CodeHash(code_hash).len(),
+        near_primitives::action::GlobalContractIdentifier::CodeHash(code_hash).len()
+    );
+    let account_id: AccountId = "alice.near".parse().unwrap();
+    assert_eq!(
+        near_vm_runner::logic::types::GlobalContractIdentifier::AccountId(account_id.clone()).len(),
+        near_primitives::action::GlobalContractIdentifier::AccountId(account_id).len()
+    );
+}

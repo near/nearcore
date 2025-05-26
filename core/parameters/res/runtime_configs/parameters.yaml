@@ -246,6 +246,7 @@ vm_kind: Wasmer0
 eth_implicit_accounts: false
 discard_custom_sections: false
 saturating_float_to_int: false
+global_contract_host_fns: false
 
 
 # Congestion Control configuration

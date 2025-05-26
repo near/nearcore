@@ -942,7 +942,9 @@ impl Chain {
                 return Err(Error::InvalidBlockMerkleRoot);
             }
 
-            validate_chunk_endorsements_in_header(self.epoch_manager.as_ref(), header)?;
+            if !cfg!(feature = "protocol_feature_spice") {
+                validate_chunk_endorsements_in_header(self.epoch_manager.as_ref(), header)?;
+            }
         }
 
         Ok(())
@@ -1312,6 +1314,10 @@ impl Chain {
             height = ?block.height()
         )
         .entered();
+
+        if cfg!(feature = "protocol_feature_spice") {
+            return Ok(());
+        }
 
         let block_height = block.height();
         let prev_block_hash = *block.prev_block_hash();
@@ -2369,17 +2375,25 @@ impl Chain {
 
         self.validate_chunk_headers(&block, &prev_block)?;
 
-        validate_chunk_endorsements_in_block(self.epoch_manager.as_ref(), &block)?;
+        if !cfg!(feature = "protocol_feature_spice") {
+            validate_chunk_endorsements_in_block(self.epoch_manager.as_ref(), &block)?;
+        }
 
         self.ping_missing_chunks(me, prev_hash, block)?;
 
-        let receipts_shuffle_salt = get_receipts_shuffle_salt(self.epoch_manager.as_ref(), &block)?;
-        let incoming_receipts = self.collect_incoming_receipts_from_chunks(
-            me,
-            &block.chunks(),
-            &prev_hash,
-            receipts_shuffle_salt,
-        )?;
+        let incoming_receipts = if cfg!(feature = "protocol_feature_spice") {
+            // TODO(spice): move incoming receipts collection inside apply_chunks_preprocessing
+            HashMap::default()
+        } else {
+            let receipts_shuffle_salt =
+                get_receipts_shuffle_salt(self.epoch_manager.as_ref(), &block)?;
+            self.collect_incoming_receipts_from_chunks(
+                me,
+                &block.chunks(),
+                &prev_hash,
+                receipts_shuffle_salt,
+            )?
+        };
 
         // Check if block can be finalized and drop it otherwise.
         self.check_if_finalizable(header)?;
@@ -3039,6 +3053,11 @@ impl Chain {
         invalid_chunks: &mut Vec<ShardChunkHeader>,
     ) -> Result<Vec<UpdateShardJob>, Error> {
         let _span = tracing::debug_span!(target: "chain", "apply_chunks_preprocessing").entered();
+
+        if cfg!(feature = "protocol_feature_spice") {
+            return Ok(vec![]);
+        }
+
         let prev_chunk_headers =
             Chain::get_prev_chunk_headers(self.epoch_manager.as_ref(), prev_block)?;
 

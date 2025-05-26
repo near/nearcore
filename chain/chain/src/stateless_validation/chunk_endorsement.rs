@@ -156,7 +156,6 @@ pub fn validate_chunk_endorsements_in_block(
 }
 
 /// Validates the [`ChunkEndorsementBitmap`] in the [`BlockHeader`] if it is present, otherwise returns an error.
-/// This function must be called only if ChunkEndorsementInBlockHeader feature is enabled.
 pub fn validate_chunk_endorsements_in_header(
     epoch_manager: &dyn EpochManagerAdapter,
     header: &BlockHeader,

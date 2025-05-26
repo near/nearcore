@@ -649,11 +649,6 @@ impl Trie {
         trie
     }
 
-    // TODO(resharding): remove this method after proper fix for refcount issue
-    pub fn take_recorder(self) -> Option<RwLock<TrieRecorder>> {
-        self.recorder
-    }
-
     /// Takes the recorded state proof out of the trie.
     pub fn recorded_storage(&self) -> Option<PartialStorage> {
         self.recorder.as_ref().map(|recorder| recorder.write().recorded_storage())

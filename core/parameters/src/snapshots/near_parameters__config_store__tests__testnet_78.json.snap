@@ -199,6 +199,7 @@ expression: config_view
     "vm_kind": "<REDACTED>",
     "discard_custom_sections": true,
     "saturating_float_to_int": true,
+    "global_contract_host_fns": true,
     "storage_get_mode": "FlatStorage",
     "fix_contract_loading_cost": false,
     "implicit_account_creation": true,
