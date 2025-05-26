@@ -702,10 +702,12 @@ impl ShardLayout {
 
     /// Returns all the shards from the previous shard layout that were
     /// split into multiple shards in this shard layout.
-    pub fn get_split_parent_shard_ids(&self) -> Result<BTreeSet<ShardId>, ShardLayoutError> {
+    pub fn get_split_parent_shard_ids(&self) -> BTreeSet<ShardId> {
         let mut parent_shard_ids = BTreeSet::new();
         for shard_id in self.shard_ids() {
-            let parent_shard_id = self.try_get_parent_shard_id(shard_id)?;
+            let parent_shard_id = self
+                .try_get_parent_shard_id(shard_id)
+                .expect("shard_id belongs to the shard layout");
             let Some(parent_shard_id) = parent_shard_id else {
                 continue;
             };
@@ -714,17 +716,17 @@ impl ShardLayout {
             }
             parent_shard_ids.insert(parent_shard_id);
         }
-        Ok(parent_shard_ids)
+        parent_shard_ids
     }
 
     /// Returns all the shards from the previous shard layout that were
     /// split into multiple shards in this shard layout.
-    pub fn get_split_parent_shard_uids(&self) -> Result<BTreeSet<ShardUId>, ShardLayoutError> {
-        let parent_shard_ids = self.get_split_parent_shard_ids()?;
-        Ok(parent_shard_ids
+    pub fn get_split_parent_shard_uids(&self) -> BTreeSet<ShardUId> {
+        let parent_shard_ids = self.get_split_parent_shard_ids();
+        parent_shard_ids
             .into_iter()
             .map(|shard_id| ShardUId::new(self.version(), shard_id))
-            .collect())
+            .collect()
     }
 }
 
