@@ -171,9 +171,9 @@ class CommandContext:
         # Only keep nodes that want a neard runner not the auxiliary nodes i.e. tracers.
         self.nodes = [node for node in self.nodes if node.want_neard_runner]
 
-        if self.args.host_filter is not None and self.traffic_generator is not None:
-            if not re.search(self.args.host_filter,
-                             self.traffic_generator.name()):
+        if self.args.host_filter is not None:
+            if self.traffic_generator is not None and not re.search(
+                    self.args.host_filter, self.traffic_generator.name()):
                 self.traffic_generator = None
             self.nodes = [
                 h for h in self.nodes
@@ -479,20 +479,23 @@ Run `status` to check if the nodes are ready. After they're ready,
     _clear_state_parts_if_exists(location, nodes)
 
 
-def status_cmd(ctx: CommandContext):
-    targeted = ctx.get_targeted()
-    statuses = pmap(lambda node: node.neard_runner_ready(), targeted)
-
-    not_ready = []
-    for ready, node in zip(statuses, targeted):
+def get_nodes_status(nodes: list[NodeHandle]) -> list[str]:
+    statuses = pmap(lambda node: node.neard_runner_ready(), nodes)
+    not_ready_nodes = []
+    for ready, node in zip(statuses, nodes):
         if not ready:
-            not_ready.append(node.name())
+            not_ready_nodes.append(node.name())
+    return not_ready_nodes
 
-    if len(not_ready) == 0:
-        print(f'all {len(targeted)} nodes ready')
+
+def status_cmd(ctx: CommandContext):
+    nodes = ctx.get_targeted()
+    not_ready_nodes = get_nodes_status(nodes)
+    if len(not_ready_nodes) == 0:
+        print(f'all {len(nodes)} nodes ready')
     else:
         print(
-            f'{len(targeted)-len(not_ready)}/{len(targeted)} ready. Nodes not ready: {not_ready[:3]}'
+            f'{len(nodes)-len(not_ready_nodes)}/{len(nodes)} ready. Nodes not ready: {not_ready_nodes[:3]}'
         )
 
 
