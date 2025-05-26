@@ -1151,7 +1151,7 @@ fn gc_parent_shard_after_resharding(
     let shard_layout = epoch_manager.get_shard_layout_from_prev_block(block_hash)?;
     let store = chain_store_update.store();
     let mut trie_store_update = store.trie_store().store_update();
-    for parent_shard_uid in shard_layout.get_split_parent_shard_uids()? {
+    for parent_shard_uid in shard_layout.get_split_parent_shard_uids() {
         // Delete the state of the parent shard
         tracing::debug!(target: "garbage_collection", ?parent_shard_uid, "resharding state cleanup");
         trie_store_update.delete_shard_uid_prefixed_state(parent_shard_uid);
