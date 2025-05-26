@@ -12049,6 +12049,10 @@
             "description": "See [VMConfig::fix_contract_loading_cost](crate::vm::Config::fix_contract_loading_cost).",
             "type": "boolean"
           },
+          "global_contract_host_fns": {
+            "description": "See [VMConfig::global_contract_host_fns](crate::vm::Config::global_contract_host_fns).",
+            "type": "boolean"
+          },
           "grow_mem_cost": {
             "description": "Gas cost of a growing memory by single page.",
             "format": "uint32",
@@ -12101,6 +12105,7 @@
           "vm_kind",
           "discard_custom_sections",
           "saturating_float_to_int",
+          "global_contract_host_fns",
           "storage_get_mode",
           "fix_contract_loading_cost",
           "implicit_account_creation",
