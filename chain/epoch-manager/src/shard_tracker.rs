@@ -673,7 +673,7 @@ mod tests {
             epoch_manager.get_epoch_protocol_version(&intermediate_epoch_id).unwrap()
         );
 
-        let parent_shard_ids = first_split_shard_layout.get_split_parent_shard_ids().unwrap();
+        let parent_shard_ids = first_split_shard_layout.get_split_parent_shard_ids();
         let parent_shard_uid = ShardUId::from_shard_id_and_layout(
             *parent_shard_ids.first().unwrap(),
             &base_shard_layout,

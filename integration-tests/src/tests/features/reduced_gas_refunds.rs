@@ -62,7 +62,9 @@ fn test_small_gas_refund() {
     let refunds = generated_refunds_after_fn_call(attached_gas, burn_gas, deposit);
 
     if ProtocolFeature::ReducedGasRefunds.enabled(PROTOCOL_VERSION) {
-        assert_eq!(refunds, vec![], "new version should not refund small amounts");
+        // Note: If we had a gas refund penalty, this refund should not exist.
+        // But for now, the penalty is 0, hence we still see the refund.
+        assert_eq!(refunds.len(), 1, "new version should still refund small amounts");
     } else {
         assert_eq!(refunds.len(), 1, "old version should refund");
     }

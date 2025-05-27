@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 use super::event_type::ReshardingSplitShardParams;
 use super::flat_storage_resharder::FlatStorageResharder;
+use super::trie_state_resharder::TrieStateResharder;
 use super::types::ScheduleResharding;
 use crate::types::RuntimeAdapter;
 use near_async::futures::{DelayedActionRunner, DelayedActionRunnerExt};
@@ -29,6 +30,8 @@ pub struct ReshardingActor {
     resharding_started: HashSet<ShardUId>,
     /// Takes care of performing resharding on the flat storage.
     flat_storage_resharder: FlatStorageResharder,
+    /// Takes care of performing resharding on the trie state.
+    trie_state_resharder: TrieStateResharder,
     /// TEST ONLY. If non zero, the start of scheduled tasks (such as split parent)
     /// will be postponed by the specified number of blocks.
     #[cfg(feature = "test_features")]
@@ -59,15 +62,18 @@ impl ReshardingActor {
         let chain_store = runtime_adapter.store().chain_store();
         let flat_storage_resharder = FlatStorageResharder::new(
             epoch_manager,
-            runtime_adapter,
-            resharding_handle,
-            resharding_config,
+            runtime_adapter.clone(),
+            resharding_handle.clone(),
+            resharding_config.clone(),
         );
+        let trie_state_resharder =
+            TrieStateResharder::new(runtime_adapter, resharding_handle, resharding_config);
         Self {
             chain_store,
             resharding_events: HashMap::new(),
             resharding_started: HashSet::new(),
             flat_storage_resharder,
+            trie_state_resharder,
             #[cfg(feature = "test_features")]
             adv_task_delay_by_blocks: 0,
         }
@@ -193,7 +199,13 @@ impl ReshardingActor {
 
         // This is a long running task and would block the actor
         if let Err(err) = self.flat_storage_resharder.start_resharding_blocking(&resharding_event) {
-            tracing::error!(target: "resharding", ?err, "Failed to start resharding");
+            tracing::error!(target: "resharding", ?err, "Failed to start flat storage resharding");
+            return;
+        }
+
+        tracing::info!(target: "resharding", "TrieStateResharder starting");
+        if let Err(err) = self.trie_state_resharder.start_resharding_blocking(&resharding_event) {
+            tracing::error!(target: "resharding", ?err, "Failed to start trie state resharding");
             return;
         }
     }

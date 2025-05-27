@@ -180,3 +180,6 @@ check-publishable-separately *OPTIONS:
     done
     echo -e $REPORT
     exit $FINAL_RESULT
+
+openapi-spec:
+    cargo run -p near-jsonrpc-openapi-spec > {{ justfile_directory() }}/new-openapi.json && cmp {{ justfile_directory() }}/new-openapi.json chain/jsonrpc/openapi/openapi.json

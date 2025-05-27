@@ -119,4 +119,8 @@ skip = [
     { name = "http", version = "^0.2" },
     { name = "h2", version = "^0.3" },
     { name = "base64", version = "^0.21" },
+
+    # okApi uses mostly schemars 0.8 for now, though it's not necessary
+    { name = "schemars" , version = "^0.8" },
+    { name = "schemars_derive", version = "^0.8" },
 ]

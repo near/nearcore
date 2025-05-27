@@ -12,7 +12,9 @@ use near_store::contract::ContractStorage;
 use near_store::trie::{AccessOptions, AccessTracker};
 use near_store::{KeyLookupMode, TrieUpdate, TrieUpdateValuePtr, has_promise_yield_receipt};
 use near_vm_runner::logic::errors::{AnyError, InconsistentStateError, VMLogicError};
-use near_vm_runner::logic::types::ReceiptIndex;
+use near_vm_runner::logic::types::{
+    GlobalContractDeployMode, GlobalContractIdentifier, ReceiptIndex,
+};
 use near_vm_runner::logic::{External, StorageAccessTracker, ValuePtr};
 use near_vm_runner::{Contract, ContractCode};
 use near_wallet_contract::wallet_contract;
@@ -385,6 +387,23 @@ impl<'a> External for RuntimeExt<'a> {
         code: Vec<u8>,
     ) -> Result<(), VMLogicError> {
         self.receipt_manager.append_action_deploy_contract(receipt_index, code)
+    }
+
+    fn append_action_deploy_global_contract(
+        &mut self,
+        receipt_index: ReceiptIndex,
+        code: Vec<u8>,
+        mode: GlobalContractDeployMode,
+    ) -> Result<(), VMLogicError> {
+        self.receipt_manager.append_action_deploy_global_contract(receipt_index, code, mode)
+    }
+
+    fn append_action_use_global_contract(
+        &mut self,
+        receipt_index: ReceiptIndex,
+        contract_id: GlobalContractIdentifier,
+    ) -> Result<(), VMLogicError> {
+        self.receipt_manager.append_use_deploy_global_contract(receipt_index, contract_id)
     }
 
     fn append_action_function_call_weight(

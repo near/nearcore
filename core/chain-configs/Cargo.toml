@@ -20,6 +20,7 @@ num-rational.workspace = true
 parking_lot = { workspace = true, features = ["serde"] }
 serde.workspace = true
 serde_json.workspace = true
+schemars = {workspace = true, optional = true }
 sha2.workspace = true
 smart-default.workspace = true
 time.workspace = true
@@ -42,3 +43,4 @@ test_genesis = ["near-primitives/rand", "near-primitives/test_utils"]
 test_utils = ["near-primitives/rand"]
 default = []
 metrics = ["near-o11y", "near-time/clock"]
+schemars = ["dep:schemars", "near-primitives/schemars", "near-parameters/schemars", "near-time/schemars", "near-crypto/schemars"]

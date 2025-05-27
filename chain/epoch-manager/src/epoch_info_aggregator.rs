@@ -123,6 +123,10 @@ impl EpochInfoAggregator {
                 })
                 .or_insert_with(|| ChunkStats::new_with_production(u64::from(*mask), 1));
 
+            if cfg!(feature = "protocol_feature_spice") {
+                continue;
+            }
+
             let chunk_validators = chunk_validator_assignment
                 .get(shard_index)
                 .map_or::<&[(u64, u128)], _>(&[], Vec::as_slice)
