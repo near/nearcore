@@ -46,6 +46,7 @@ use near_network::types::{AccountKeys, ChainInfo, PeerManagerMessageRequest, Set
 use near_network::types::{
     HighestHeightPeerInfo, NetworkRequests, PeerManagerAdapter, ReasonForBan,
 };
+use near_o11y::span_tags;
 use near_primitives::block::{Approval, ApprovalInner, ApprovalMessage, Block, BlockHeader, Tip};
 use near_primitives::block_header::ApprovalType;
 use near_primitives::epoch_info::RngSeed;
@@ -612,7 +613,7 @@ impl Client {
         height: BlockHeight,
     ) -> Result<Option<OptimisticBlock>, Error> {
         let _span =
-            tracing::debug_span!(target: "client", "produce_optimistic_block_on_head", height)
+            tracing::debug_span!(target: "client", "produce_optimistic_block_on_head", height, tag = span_tags::BLOCK_PRODUCTION)
                 .entered();
 
         let head = self.chain.head()?;
@@ -677,7 +678,7 @@ impl Client {
         prepare_chunk_headers: bool,
     ) -> Result<Option<Block>, Error> {
         let _span =
-            tracing::debug_span!(target: "client", "produce_block_on_head", height).entered();
+            tracing::debug_span!(target: "client", "produce_block_on_head", height, tag = span_tags::BLOCK_PRODUCTION).entered();
 
         let head = self.chain.head()?;
         assert_eq!(

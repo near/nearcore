@@ -12,6 +12,7 @@ use near_client_primitives::debug::ChunkProduction;
 use near_client_primitives::types::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
+use near_o11y::span_tags;
 use near_pool::types::TransactionGroupIterator;
 use near_primitives::bandwidth_scheduler::BandwidthRequests;
 use near_primitives::epoch_info::RngSeed;
@@ -206,6 +207,7 @@ impl ChunkProducer {
         shard_id,
         ?epoch_id,
         chunk_hash = tracing::field::Empty,
+        tag = span_tags::BLOCK_PRODUCTION
     ))]
     fn produce_chunk_internal(
         &mut self,

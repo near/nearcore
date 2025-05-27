@@ -15,6 +15,7 @@ use near_primitives::types::{AccountId, BlockHeightDelta};
 use near_primitives::validator_signer::ValidatorSigner;
 use near_store::{DBCol, FINAL_HEAD_KEY, HEAD_KEY, Store};
 use strum::IntoStaticStr;
+use near_o11y::span_tags;
 
 /// This is taken to be the same value as near_chunks::chunk_cache::MAX_HEIGHTS_AHEAD, and we
 /// reject partial witnesses with height more than this value above the height of our current HEAD
@@ -125,6 +126,15 @@ pub fn validate_chunk_endorsement(
     endorsement: &ChunkEndorsement,
     store: &Store,
 ) -> Result<ChunkRelevance, Error> {
+    let _span = tracing::debug_span!(
+        target: "stateless_validation",
+        "validate_chunk_endorsement",
+        height = endorsement.chunk_production_key().height_created,
+        shard_id = ?endorsement.chunk_production_key().shard_id,
+        tag = span_tags::BLOCK_PRODUCTION
+    )
+    .entered();
+
     require_relevant!(validate_chunk_relevant_as_validator(
         epoch_manager,
         &endorsement.chunk_production_key(),

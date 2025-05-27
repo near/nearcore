@@ -7,7 +7,7 @@ use near_chain::{
 };
 use near_chain_primitives::Error;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
-use near_o11y::log_assert_fail;
+use near_o11y::{log_assert_fail, span_tags};
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{ChunkHash, ReceiptProof, ShardChunk, ShardChunkHeader};
@@ -60,7 +60,16 @@ impl Client {
     ) -> Result<(), Error> {
         let chunk_header = chunk.cloned_header();
         let shard_id = chunk_header.shard_id();
-        let _span = tracing::debug_span!(target: "client", "send_chunk_state_witness", chunk_hash=?chunk_header.chunk_hash(), ?shard_id).entered();
+        let height = chunk_header.height_created();
+        let _span = tracing::debug_span!(
+            target: "client",
+            "send_chunk_state_witness",
+            chunk_hash=?chunk_header.chunk_hash(),
+            height,
+            ?shard_id,
+            tag = span_tags::BLOCK_PRODUCTION
+        )
+        .entered();
 
         let my_signer = validator_signer
             .as_ref()
@@ -77,7 +86,6 @@ impl Client {
             self.chain.chain_store.save_latest_chunk_state_witness(&state_witness)?;
         }
 
-        let height = chunk_header.height_created();
         if self
             .epoch_manager
             .get_chunk_validator_assignments(epoch_id, shard_id, height)?
