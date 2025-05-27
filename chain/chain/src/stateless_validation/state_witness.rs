@@ -1,11 +1,7 @@
-use super::partial_witness::partial_witness_actor::DistributeStateWitnessRequest;
-use crate::Client;
-use crate::stateless_validation::chunk_validator::send_chunk_endorsement_to_block_producers;
-use near_async::messaging::{CanSend, IntoSender};
-use near_chain::{
-    BlockHeader, Chain, ChainStoreAccess, ReceiptFilter, get_incoming_receipts_for_shard,
-};
+use crate::store::ChainStoreAccess;
+use crate::{BlockHeader, Chain, ChainStore, ReceiptFilter, get_incoming_receipts_for_shard};
 use near_chain_primitives::Error;
+use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_o11y::log_assert_fail;
 use near_primitives::hash::{CryptoHash, hash};
@@ -19,9 +15,7 @@ use near_primitives::stateless_validation::stored_chunk_state_transition_data::{
     StoredChunkStateTransitionData, StoredChunkStateTransitionDataV1,
 };
 use near_primitives::types::{AccountId, EpochId, ShardId};
-use near_primitives::validator_signer::ValidatorSigner;
 use std::collections::HashMap;
-use std::sync::Arc;
 
 /// Result of collecting state transition data from the database to generate a state witness.
 /// Keep this private to this file.
@@ -37,74 +31,20 @@ struct StateTransitionData {
 ///
 /// Since we distribute the contracts accessed separately from the state witness,
 /// we contain them in separate fields in the result.
-pub(crate) struct CreateWitnessResult {
+pub struct CreateWitnessResult {
     /// State witness created.
-    pub(crate) state_witness: ChunkStateWitness,
+    pub state_witness: ChunkStateWitness,
     /// Contracts accessed and deployed while applying the chunk.
-    pub(crate) contract_updates: ContractUpdates,
+    pub contract_updates: ContractUpdates,
     /// Shard id for the main transition. This can be different from the
     /// witness chunk header shard id due to resharding.
-    pub(crate) main_transition_shard_id: ShardId,
+    pub main_transition_shard_id: ShardId,
 }
 
-impl Client {
-    /// Distributes the chunk state witness to chunk validators that are
-    /// selected to validate this chunk.
-    pub fn send_chunk_state_witness_to_chunk_validators(
-        &mut self,
-        epoch_id: &EpochId,
-        prev_block_header: &BlockHeader,
-        prev_chunk_header: &ShardChunkHeader,
-        chunk: &ShardChunk,
-        validator_signer: &Option<Arc<ValidatorSigner>>,
-    ) -> Result<(), Error> {
-        let chunk_header = chunk.cloned_header();
-        let shard_id = chunk_header.shard_id();
-        let _span = tracing::debug_span!(target: "client", "send_chunk_state_witness", chunk_hash=?chunk_header.chunk_hash(), ?shard_id).entered();
-
-        let my_signer = validator_signer
-            .as_ref()
-            .ok_or_else(|| Error::NotAValidator(format!("send state witness")))?;
-        let CreateWitnessResult { state_witness, main_transition_shard_id, contract_updates } =
-            self.create_state_witness(
-                my_signer.validator_id().clone(),
-                prev_block_header,
-                prev_chunk_header,
-                chunk,
-            )?;
-
-        if self.config.save_latest_witnesses {
-            self.chain.chain_store.save_latest_chunk_state_witness(&state_witness)?;
-        }
-
-        let height = chunk_header.height_created();
-        if self
-            .epoch_manager
-            .get_chunk_validator_assignments(epoch_id, shard_id, height)?
-            .contains(my_signer.validator_id())
-        {
-            // Bypass state witness validation if we created state witness. Endorse the chunk immediately.
-            tracing::debug!(target: "client", chunk_hash=?chunk_header.chunk_hash(), ?shard_id, "send_chunk_endorsement_from_chunk_producer");
-            if let Some(endorsement) = send_chunk_endorsement_to_block_producers(
-                &chunk_header,
-                self.epoch_manager.as_ref(),
-                my_signer.as_ref(),
-                &self.network_adapter.clone().into_sender(),
-            ) {
-                self.chunk_endorsement_tracker.process_chunk_endorsement(endorsement)?;
-            }
-        }
-
-        self.partial_witness_adapter.send(DistributeStateWitnessRequest {
-            state_witness,
-            contract_updates,
-            main_transition_shard_id,
-        });
-        Ok(())
-    }
-
-    pub(crate) fn create_state_witness(
+impl ChainStore {
+    pub fn create_state_witness(
         &self,
+        epoch_manager: &dyn EpochManagerAdapter,
         chunk_producer: AccountId,
         prev_block_header: &BlockHeader,
         prev_chunk_header: &ShardChunkHeader,
@@ -112,18 +52,21 @@ impl Client {
     ) -> Result<CreateWitnessResult, Error> {
         let chunk_header = chunk.cloned_header();
         let epoch_id =
-            self.epoch_manager.get_epoch_id_from_prev_block(chunk_header.prev_block_hash())?;
-        let prev_chunk = self.chain.get_chunk(&prev_chunk_header.chunk_hash())?;
+            epoch_manager.get_epoch_id_from_prev_block(chunk_header.prev_block_hash())?;
+        let prev_chunk = self.get_chunk(&prev_chunk_header.chunk_hash())?;
         let StateTransitionData {
             main_transition,
             main_transition_shard_id,
             implicit_transitions,
             applied_receipts_hash,
             contract_updates,
-        } = self.collect_state_transition_data(&chunk_header, prev_chunk_header)?;
+        } = self.collect_state_transition_data(epoch_manager, &chunk_header, prev_chunk_header)?;
 
-        let source_receipt_proofs =
-            self.collect_source_receipt_proofs(prev_block_header, prev_chunk_header)?;
+        let source_receipt_proofs = self.collect_source_receipt_proofs(
+            epoch_manager,
+            prev_block_header,
+            prev_chunk_header,
+        )?;
 
         let state_witness = ChunkStateWitness::new(
             chunk_producer,
@@ -147,6 +90,7 @@ impl Client {
     /// they should be applied, and the hash of receipts to apply.
     fn collect_state_transition_data(
         &self,
+        epoch_manager: &dyn EpochManagerAdapter,
         chunk_header: &ShardChunkHeader,
         prev_chunk_header: &ShardChunkHeader,
     ) -> Result<StateTransitionData, Error> {
@@ -162,27 +106,29 @@ impl Client {
         // TODO(logunov): consider uniting with `get_incoming_receipts_for_shard`
         // because it has the same purpose.
         let mut current_block_hash = *chunk_header.prev_block_hash();
-        let mut next_epoch_id =
-            self.epoch_manager.get_epoch_id_from_prev_block(&current_block_hash)?;
+        let mut next_epoch_id = epoch_manager.get_epoch_id_from_prev_block(&current_block_hash)?;
         let mut next_shard_id = chunk_header.shard_id();
         let mut implicit_transitions = vec![];
 
         loop {
-            let header = self.chain.get_block_header(&current_block_hash)?;
+            let header = self.get_block_header(&current_block_hash)?;
             if header.height() < prev_chunk_height_included {
                 return Err(Error::InvalidBlockHeight(prev_chunk_height_included));
             }
 
             let current_epoch_id = *header.epoch_id();
-            let current_shard_id = self
-                .epoch_manager
+            let current_shard_id = epoch_manager
                 .get_prev_shard_id_from_prev_hash(&current_block_hash, next_shard_id)?
                 .1;
             if current_shard_id != next_shard_id {
                 // If shard id changes, we need to get implicit state
                 // transition from current shard id to the next shard id.
-                let (chunk_state_transition, _, _) =
-                    self.get_state_transition(&current_block_hash, &next_epoch_id, next_shard_id)?;
+                let (chunk_state_transition, _, _) = self.get_state_transition(
+                    epoch_manager,
+                    &current_block_hash,
+                    &next_epoch_id,
+                    next_shard_id,
+                )?;
                 implicit_transitions.push(chunk_state_transition);
             }
             next_epoch_id = current_epoch_id;
@@ -194,6 +140,7 @@ impl Client {
 
             // Add implicit state transition.
             let (chunk_state_transition, _, _) = self.get_state_transition(
+                epoch_manager,
                 &current_block_hash,
                 &current_epoch_id,
                 current_shard_id,
@@ -210,9 +157,19 @@ impl Client {
 
         // Get the main state transition.
         let (main_transition, receipts_hash, contract_updates) = if prev_chunk_header.is_genesis() {
-            self.get_genesis_state_transition(&main_block, &epoch_id, main_transition_shard_id)?
+            self.get_genesis_state_transition(
+                epoch_manager,
+                &main_block,
+                &epoch_id,
+                main_transition_shard_id,
+            )?
         } else {
-            self.get_state_transition(&main_block, &epoch_id, main_transition_shard_id)?
+            self.get_state_transition(
+                epoch_manager,
+                &main_block,
+                &epoch_id,
+                main_transition_shard_id,
+            )?
         };
 
         Ok(StateTransitionData {
@@ -227,14 +184,13 @@ impl Client {
     /// Read state transition data from chain.
     fn get_state_transition(
         &self,
+        epoch_manager: &dyn EpochManagerAdapter,
         block_hash: &CryptoHash,
         epoch_id: &EpochId,
         shard_id: ShardId,
     ) -> Result<(ChunkStateTransition, CryptoHash, ContractUpdates), Error> {
-        let shard_uid = shard_id_to_uid(self.chain.epoch_manager.as_ref(), shard_id, epoch_id)?;
+        let shard_uid = shard_id_to_uid(epoch_manager, shard_id, epoch_id)?;
         let stored_chunk_state_transition_data = self
-            .chain
-            .chain_store()
             .store()
             .get_ser(
                 near_store::DBCol::StateTransitionData,
@@ -263,7 +219,7 @@ impl Client {
             ChunkStateTransition {
                 block_hash: *block_hash,
                 base_state,
-                post_state_root: *self.chain.get_chunk_extra(block_hash, &shard_uid)?.state_root(),
+                post_state_root: *self.get_chunk_extra(block_hash, &shard_uid)?.state_root(),
             },
             receipts_hash,
             contract_updates,
@@ -272,16 +228,17 @@ impl Client {
 
     fn get_genesis_state_transition(
         &self,
+        epoch_manager: &dyn EpochManagerAdapter,
         block_hash: &CryptoHash,
         epoch_id: &EpochId,
         shard_id: ShardId,
     ) -> Result<(ChunkStateTransition, CryptoHash, ContractUpdates), Error> {
-        let shard_uid = shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, &epoch_id)?;
+        let shard_uid = shard_id_to_uid(epoch_manager, shard_id, &epoch_id)?;
         Ok((
             ChunkStateTransition {
                 block_hash: *block_hash,
                 base_state: Default::default(),
-                post_state_root: *self.chain.get_chunk_extra(block_hash, &shard_uid)?.state_root(),
+                post_state_root: *self.get_chunk_extra(block_hash, &shard_uid)?.state_root(),
             },
             hash(&borsh::to_vec::<[Receipt]>(&[]).unwrap()),
             Default::default(),
@@ -297,6 +254,7 @@ impl Client {
     /// filter it to remove the receipts that were meant for the other half of the split shard.
     fn collect_source_receipt_proofs(
         &self,
+        epoch_manager: &dyn EpochManagerAdapter,
         prev_block_header: &BlockHeader,
         prev_chunk_header: &ShardChunkHeader,
     ) -> Result<HashMap<ChunkHash, ReceiptProof>, Error> {
@@ -315,17 +273,16 @@ impl Client {
                     break cur_block;
                 }
 
-                cur_block = self.chain.chain_store().get_block_header(cur_block.prev_hash())?;
+                cur_block = self.get_block_header(cur_block.prev_hash())?;
             }
         };
 
         // Get the last block that contained `prev_prev_chunk` (the chunk before `prev_chunk`).
         // We are interested in all incoming receipts that weren't handled by `prev_prev_chunk`.
-        let prev_prev_chunk_block =
-            self.chain.chain_store().get_block(prev_chunk_original_block.prev_hash())?;
+        let prev_prev_chunk_block = self.get_block(prev_chunk_original_block.prev_hash())?;
         // Find the header of the chunk before `prev_chunk`
         let prev_prev_chunk_header = Chain::get_prev_chunk_header(
-            self.epoch_manager.as_ref(),
+            epoch_manager,
             &prev_prev_chunk_block,
             prev_chunk_header.shard_id(),
         )?;
@@ -333,12 +290,11 @@ impl Client {
         // Fetch all incoming receipts for `prev_chunk`.
         // They will be between `prev_prev_chunk.height_included` (first block containing `prev_prev_chunk`)
         // and `prev_chunk_original_block`
-        let shard_layout = self
-            .epoch_manager
+        let shard_layout = epoch_manager
             .get_shard_layout_from_prev_block(prev_chunk_original_block.prev_hash())?;
         let incoming_receipt_proofs = get_incoming_receipts_for_shard(
-            &self.chain.chain_store(),
-            self.epoch_manager.as_ref(),
+            &self,
+            epoch_manager,
             prev_chunk_header.shard_id(),
             &shard_layout,
             *prev_chunk_original_block.hash(),
@@ -349,9 +305,8 @@ impl Client {
         // Convert to the right format (from [block_hash -> Vec<ReceiptProof>] to [chunk_hash -> ReceiptProof])
         let mut source_receipt_proofs = HashMap::new();
         for receipt_proof_response in incoming_receipt_proofs {
-            let from_block = self.chain.chain_store().get_block(&receipt_proof_response.0)?;
-            let shard_layout =
-                self.epoch_manager.get_shard_layout(from_block.header().epoch_id())?;
+            let from_block = self.get_block(&receipt_proof_response.0)?;
+            let shard_layout = epoch_manager.get_shard_layout(from_block.header().epoch_id())?;
             for proof in receipt_proof_response.1.iter() {
                 let from_shard_id = proof.1.from_shard_id;
                 let from_shard_index = shard_layout.get_shard_index(from_shard_id)?;
