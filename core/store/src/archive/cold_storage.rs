@@ -175,7 +175,7 @@ fn update_state_shard_uid_mapping(cold_db: &ColdDB, shard_layout: &ShardLayout) 
         let mapped_shard_uid = get_shard_uid_mapping(&cold_store, parent_shard_uid);
         let children = shard_layout
             .get_children_shards_uids(parent_shard_uid.shard_id())
-            .expect("ShardId should be present in ShardLayout");
+            .expect("get_children_shards_uids should not fail for split parents");
         for child_shard_uid in children {
             update.trie_store_update().set_shard_uid_mapping(child_shard_uid, mapped_shard_uid);
         }
