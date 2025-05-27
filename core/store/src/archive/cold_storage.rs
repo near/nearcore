@@ -81,7 +81,7 @@ pub fn update_cold_db(
     hot_store: &Store,
     shard_layout: &ShardLayout,
     height: &BlockHeight,
-    is_last_block_in_epoch: bool,
+    is_resharding_boundary: bool,
     num_threads: usize,
 ) -> io::Result<()> {
     let _span = tracing::debug_span!(target: "cold_store", "update cold db", height = height);
@@ -95,13 +95,8 @@ pub fn update_cold_db(
         get_keys_from_store(&hot_store, shard_layout, &height_key, block_hash_key)?;
     let columns_to_update = DBCol::iter()
         .filter(|col| {
-            if !col.is_cold() {
-                return false;
-            }
-            if col == &DBCol::StateShardUIdMapping {
-                return false;
-            }
-            true
+            // DBCol::StateShardUIdMapping is handled separately
+            col.is_cold() && col != &DBCol::StateShardUIdMapping
         })
         .collect::<Vec<DBCol>>();
 
@@ -116,7 +111,7 @@ pub fn update_cold_db(
                 // Copy column to cold db.
                 .map(|col: DBCol| -> io::Result<()> {
                     if col == DBCol::State {
-                        if is_last_block_in_epoch {
+                        if is_resharding_boundary {
                             update_state_shard_uid_mapping(cold_db, shard_layout)?;
                         }
                         copy_state_from_store(shard_layout, block_hash_key, cold_db, &hot_store)
@@ -174,19 +169,13 @@ fn update_state_shard_uid_mapping(cold_db: &ColdDB, shard_layout: &ShardLayout) 
     let _span = tracing::debug_span!(target: "cold_store", "update_state_shard_uid_mapping");
     let cold_store = cold_db.as_store();
     let mut update = cold_store.store_update();
-    let split_parents = shard_layout.get_split_parent_shard_uids().map_err(|e| {
-        io::Error::new(io::ErrorKind::Other, format!("Failed to get split shard uids: {}", e))
-    })?;
+    let split_parents = shard_layout.get_split_parent_shard_uids();
     for parent_shard_uid in split_parents {
         // Need to check if the parent itself was previously mapped.
         let mapped_shard_uid = get_shard_uid_mapping(&cold_store, parent_shard_uid);
-        let Some(children) = shard_layout.get_children_shards_uids(parent_shard_uid.shard_id())
-        else {
-            return Err(io::Error::new(
-                io::ErrorKind::Other,
-                format!("Failed to get children shard uids for parent {}", parent_shard_uid),
-            ));
-        };
+        let children = shard_layout
+            .get_children_shards_uids(parent_shard_uid.shard_id())
+            .expect("ShardId should be present in ShardLayout");
         for child_shard_uid in children {
             update.trie_store_update().set_shard_uid_mapping(child_shard_uid, mapped_shard_uid);
         }

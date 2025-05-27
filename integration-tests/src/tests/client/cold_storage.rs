@@ -158,9 +158,10 @@ fn test_storage_after_commit_of_cold_update() {
         let client_store = client.runtime_adapter.store();
         let epoch_id = client.epoch_manager.get_epoch_id(block.hash()).unwrap();
         let shard_layout = client.epoch_manager.get_shard_layout(&epoch_id).unwrap();
-        let is_last_block_in_epoch =
-            client.epoch_manager.is_next_block_epoch_start(block.hash()).unwrap();
-        update_cold_db(cold_db, &client_store, &shard_layout, &height, is_last_block_in_epoch, 4)
+        let is_resharding_boundary =
+            client.epoch_manager.is_resharding_boundary(block.header().prev_hash()).unwrap();
+
+        update_cold_db(cold_db, &client_store, &shard_layout, &height, is_resharding_boundary, 4)
             .unwrap();
 
         last_hash = *block.hash();
