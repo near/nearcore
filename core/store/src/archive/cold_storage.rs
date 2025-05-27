@@ -7,7 +7,7 @@ use borsh::BorshDeserialize;
 use near_primitives::block::{Block, BlockHeader, Tip};
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
-use near_primitives::sharding::{ChunkHash, ShardChunk};
+use near_primitives::sharding::ShardChunk;
 use near_primitives::types::{BlockHeight, ShardId};
 use rayon::prelude::{IntoParallelIterator, ParallelIterator};
 use std::collections::{HashMap, HashSet};
@@ -116,7 +116,13 @@ pub fn update_cold_db(
                 // Copy column to cold db.
                 .map(|col: DBCol| -> io::Result<()> {
                     if col == DBCol::State {
-                        copy_state_from_store(&tracked_shards, block_hash_key, cold_db, &hot_store)
+                        copy_state_from_store(
+                            shard_layout,
+                            &tracked_shards,
+                            block_hash_key,
+                            cold_db,
+                            &hot_store,
+                        )
                     } else {
                         let keys = combine_keys(&key_type_to_keys, &col.key_type());
                         copy_from_store(cold_db, &hot_store, col, keys)
@@ -164,13 +170,17 @@ fn rc_aware_set(
 }
 
 // A specialized version of copy_from_store for the State column. Finds all the
-// State nodes that were inserted at given height by reading from the
-// TrieChanges and inserts them into the cold store.
+// State nodes that were inserted at given height by reading TrieChanges from
+// all shards and inserts them into the cold store. While `tracked_shards`
+// determine what data must be present, we iterate over all shards as a
+// precaution to avoid missing data due to unexpected issues, making the process
+// more robust and future-proof.
 //
 // The generic implementation is not efficient for State because it would
 // attempt to read every node from every shard. Here we know exactly what shard
 // the node belongs to.
 fn copy_state_from_store(
+    shard_layout: &ShardLayout,
     tracked_shards: &Vec<ShardUId>,
     block_hash_key: &[u8],
     cold_db: &ColdDB,
@@ -183,7 +193,8 @@ fn copy_state_from_store(
     let mut total_keys = 0;
     let mut total_size = 0;
     let mut transaction = DBTransaction::new();
-    for shard_uid in tracked_shards {
+    let mut copied_shards = HashSet::<ShardUId>::new();
+    for shard_uid in shard_layout.shard_uids() {
         debug_assert_eq!(
             DBCol::TrieChanges.key_type(),
             &[DBKeyType::BlockHash, DBKeyType::ShardUId]
@@ -195,8 +206,9 @@ fn copy_state_from_store(
             hot_store.get_ser::<TrieChanges>(DBCol::TrieChanges, &key)?;
 
         let Some(trie_changes) = trie_changes else { continue };
+        copied_shards.insert(shard_uid);
         total_keys += trie_changes.insertions().len();
-        let mapped_shard_uid_key = get_shard_uid_mapping(hot_store, *shard_uid).to_bytes();
+        let mapped_shard_uid_key = get_shard_uid_mapping(hot_store, shard_uid).to_bytes();
         for op in trie_changes.insertions() {
             // TODO(resharding) Test it properly. Currently this path is not triggered in testloop.
             let key = join_two_keys(&mapped_shard_uid_key, op.hash().as_bytes());
@@ -206,6 +218,17 @@ fn copy_state_from_store(
             tracing::trace!(target: "cold_store", pretty_key=?near_fmt::StorageKey(&key), "copying state node to colddb");
             rc_aware_set(&mut transaction, DBCol::State, key, value);
         }
+    }
+    for tracked_shard in tracked_shards {
+        if !copied_shards.contains(tracked_shard) {
+            let error_message = format!("TrieChanges for {tracked_shard} not present in hot store");
+            return Err(io::Error::new(io::ErrorKind::NotFound, error_message));
+        }
+    }
+    // We know that `copied_shards` includes all `tracked_shards`.
+    // Emit a warning if `copied_shards` contains any unexpected extra shards.
+    if copied_shards.len() > tracked_shards.len() {
+        tracing::warn!(target: "cold_store", "Copied state for shards {:?} while tracking {:?}", copied_shards, tracked_shards);
     }
 
     let read_duration = instant.elapsed();
@@ -400,6 +423,12 @@ pub fn test_get_store_initial_writes(column: DBCol) -> u64 {
 /// So, for every KeyType we need to capture all the keys that are related to that block.
 /// For BlockHash it is just one key -- block hash of that height.
 /// But for TransactionHash, for example, it is all of the tx hashes in that block.
+///
+/// Although `tracked_shards` should be sufficient to determine which shards matter,
+/// we process all shards as a precaution to ensure robustness and avoid
+/// missing data in case `tracked_shards` are incomplete due to bugs or future
+/// changes. This redundancy is acceptable because only the State column is
+/// performance- and size-sensitive, and it is handled separately in `copy_state_from_store`.
 fn get_keys_from_store(
     store: &Store,
     shard_layout: &ShardLayout,
@@ -408,26 +437,31 @@ fn get_keys_from_store(
     block_hash_key: &[u8],
 ) -> io::Result<HashMap<DBKeyType, Vec<StoreKey>>> {
     let mut key_type_to_keys = HashMap::new();
-    let tracked_shard_ids: HashSet<ShardId> =
+    let tracked_shards: HashSet<ShardId> =
         tracked_shards.iter().map(|shard_uid| shard_uid.shard_id()).collect();
 
     let block: Block = store.get_ser_or_err_for_cold(DBCol::Block, &block_hash_key)?;
-    let chunk_hashes = block
-        .chunks()
-        .iter_deprecated()
-        .map(|chunk_header| chunk_header.chunk_hash())
-        .collect::<Vec<ChunkHash>>();
-    let chunks = block
-        .chunks()
-        .iter_deprecated()
-        .filter_map(|chunk_header| {
-            if !tracked_shard_ids.contains(&chunk_header.shard_id()) {
-                return None;
+    let mut chunk_hashes = vec![];
+    let mut chunks = vec![];
+    for chunk_header in block.chunks().iter_deprecated() {
+        let chunk_hash = chunk_header.chunk_hash();
+        chunk_hashes.push(chunk_hash.clone());
+        let chunk: Option<ShardChunk> =
+            store.get_ser_for_cold(DBCol::Chunks, chunk_hash.as_bytes())?;
+        let shard_id = chunk_header.shard_id();
+        let Some(chunk) = chunk else {
+            if tracked_shards.contains(&shard_id) {
+                let error_message =
+                    format!("Chunk missing for shard {shard_id}, hash {chunk_hash:?}");
+                return Err(io::Error::new(io::ErrorKind::NotFound, error_message));
             }
-            Some(store.get_ser_or_err_for_cold(DBCol::Chunks, chunk_header.chunk_hash().as_bytes()))
-        })
-        .collect::<io::Result<Vec<ShardChunk>>>()?;
-
+            continue;
+        };
+        if !tracked_shards.contains(&shard_id) {
+            tracing::warn!(target: "cold_store", "Copied chunk for shard {} which is not tracked", shard_id);
+        }
+        chunks.push(chunk);
+    }
     for key_type in DBKeyType::iter() {
         if key_type == DBKeyType::TrieNodeOrValueHash {
             // The TrieNodeOrValueHash is only used in the State column, which is handled separately.
