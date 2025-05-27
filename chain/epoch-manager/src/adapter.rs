@@ -230,12 +230,15 @@ pub trait EpochManagerAdapter: Send + Sync {
         self.get_shard_layout(&epoch_id)
     }
 
+    /// Given the `parent_hash` of a block, returns true if that block starts a
+    /// new epoch with a different shard layout.
     fn is_resharding_boundary(&self, parent_hash: &CryptoHash) -> Result<bool, EpochError> {
-        Ok(self.is_next_block_epoch_start(parent_hash)? && {
-            let shard_layout = self.get_shard_layout_from_prev_block(parent_hash)?;
-            let prev_shard_layout = self.get_shard_layout(&self.get_epoch_id(parent_hash)?)?;
-            shard_layout != prev_shard_layout
-        })
+        if !self.is_next_block_epoch_start(parent_hash)? {
+            return Ok(false);
+        }
+        let shard_layout = self.get_shard_layout_from_prev_block(parent_hash)?;
+        let prev_shard_layout = self.get_shard_layout(&self.get_epoch_id(parent_hash)?)?;
+        Ok(shard_layout != prev_shard_layout)
     }
 
     fn get_shard_layout_from_protocol_version(

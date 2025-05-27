@@ -161,10 +161,11 @@ fn rc_aware_set(
     };
 }
 
-/// Should be called with the shard_layout for the new epoch, once per epoch.
-/// It will update the shard_uid mapping for all children of split shards to
-/// point to the same shard_uid as their parent.
-/// If a parent was already mapped, the children will point to the grandparent.
+/// Updates the shard_uid mapping for all children of split shards to point to
+/// the same shard_uid as their parent. If a parent was already mapped, the
+/// children will point to the grandparent.
+/// This should be called once while processing the block at the resharding
+/// boundary and before calling `copy_state_from_store`.
 fn update_state_shard_uid_mapping(cold_db: &ColdDB, shard_layout: &ShardLayout) -> io::Result<()> {
     let _span = tracing::debug_span!(target: "cold_store", "update_state_shard_uid_mapping");
     let cold_store = cold_db.as_store();
