@@ -1,9 +1,9 @@
 use serde_json::Value;
 
-pub type RpcMaintenanceWindowsResponse =
-    Vec<(near_primitives::types::BlockHeight, near_primitives::types::BlockHeight)>;
+pub type RpcMaintenanceWindowsResponse = Vec<std::ops::Range<near_primitives::types::BlockHeight>>;
 
 #[derive(thiserror::Error, Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(tag = "name", content = "info", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum RpcMaintenanceWindowsError {
     #[error("The node reached its limits. Try again later. More details: {error_message}")]
@@ -11,6 +11,7 @@ pub enum RpcMaintenanceWindowsError {
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct RpcMaintenanceWindowsRequest {
     pub account_id: near_primitives::types::AccountId,
 }

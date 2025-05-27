@@ -302,6 +302,7 @@ pub struct BlockHeaderInnerRestV5 {
     Hash,
     ProtocolSchema,
 )]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub enum ApprovalInner {
     Endorsement(CryptoHash),
     Skip(BlockHeight),

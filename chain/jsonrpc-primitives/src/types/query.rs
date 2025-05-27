@@ -1,4 +1,5 @@
 #[derive(serde::Serialize, serde::Deserialize, Debug)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct RpcQueryRequest {
     #[serde(flatten)]
     pub block_reference: near_primitives::types::BlockReference,
@@ -7,6 +8,7 @@ pub struct RpcQueryRequest {
 }
 
 #[derive(thiserror::Error, Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(tag = "name", content = "info", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum RpcQueryError {
     #[error("There are no fully synchronized blocks on the node yet")]
@@ -75,6 +77,7 @@ pub enum RpcQueryError {
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct RpcQueryResponse {
     #[serde(flatten)]
     pub kind: QueryResponseKind,
@@ -83,6 +86,7 @@ pub struct RpcQueryResponse {
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(untagged)]
 pub enum QueryResponseKind {
     ViewAccount(near_primitives::views::AccountView),

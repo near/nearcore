@@ -11,7 +11,7 @@ use near_primitives::bandwidth_scheduler::{
 };
 use near_primitives::chunk_apply_stats::{ChunkApplyStatsV0, ReceiptSinkStats, ReceiptsStats};
 use near_primitives::congestion_info::{CongestionControl, CongestionInfo, CongestionInfoV1};
-use near_primitives::errors::{EpochError, IntegerOverflowError, RuntimeError};
+use near_primitives::errors::{IntegerOverflowError, RuntimeError};
 use near_primitives::receipt::{
     Receipt, ReceiptEnum, ReceiptOrStateStoredReceipt, StateStoredReceipt,
     StateStoredReceiptMetadata,
@@ -217,10 +217,7 @@ impl ReceiptSinkV2 {
         let shard_layout = epoch_info_provider.shard_layout(&apply_state.epoch_id)?;
         let (shard_ids, parent_shard_ids) =
             if ProtocolFeature::SimpleNightshadeV4.enabled(protocol_version) {
-                (
-                    shard_layout.shard_ids().collect_vec(),
-                    shard_layout.get_split_parent_shard_ids().map_err(Into::<EpochError>::into)?,
-                )
+                (shard_layout.shard_ids().collect_vec(), shard_layout.get_split_parent_shard_ids())
             } else {
                 (self.outgoing_limit.keys().copied().collect_vec(), BTreeSet::new())
             };
