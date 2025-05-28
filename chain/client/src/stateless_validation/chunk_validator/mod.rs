@@ -106,8 +106,7 @@ impl ChunkValidator {
         // creates chunk extra for new shard uid.
         let shard_uid = shard_id_to_uid(epoch_manager.as_ref(), shard_id, &epoch_id)?;
         let prev_block = chain.get_block(prev_block_hash)?;
-        let last_header =
-            Chain::get_prev_chunk_header(epoch_manager.as_ref(), &prev_block, shard_id)?;
+        let last_header = epoch_manager.get_prev_chunk_header(&prev_block, shard_id)?;
 
         let chunk_production_key = ChunkProductionKey {
             shard_id,

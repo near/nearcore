@@ -1,13 +1,14 @@
 use crate::EpochManagerHandle;
 use near_chain_primitives::Error;
 use near_crypto::Signature;
-use near_primitives::block::Tip;
+use near_primitives::block::{Block, Tip};
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::epoch_info::EpochInfo;
 use near_primitives::epoch_manager::{EpochConfig, ShardConfig};
 use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
+use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::validator_assignment::ChunkValidatorAssignments;
 use near_primitives::types::validator_stake::ValidatorStake;
@@ -219,6 +220,42 @@ pub trait EpochManagerAdapter: Send + Sync {
             let shard_index = shard_layout.get_shard_index(shard_id)?;
             Ok((shard_layout, shard_id, shard_index))
         }
+    }
+
+    /// Returns a vector of chunk headers, each of which corresponds to the chunk in the `prev_block`
+    /// This function is important when the block after `prev_block` has different number of chunks
+    /// from `prev_block` in cases of resharding.
+    /// In block production and processing, often we need to get the previous chunks of chunks
+    /// in the current block, this function provides a way to do so while handling sharding changes
+    /// correctly.
+    /// For example, if `prev_block` has two shards 0, 1 and the block after `prev_block` will have
+    /// 4 shards 0, 1, 2, 3, 0 and 1 split from shard 0 and 2 and 3 split from shard 1.
+    /// `get_prev_chunk_headers(epoch_manager, prev_block)` will return
+    /// `[prev_block.chunks()[0], prev_block.chunks()[0], prev_block.chunks()[1], prev_block.chunks()[1]]`
+    fn get_prev_chunk_headers(&self, prev_block: &Block) -> Result<Vec<ShardChunkHeader>, Error> {
+        let epoch_id = self.get_epoch_id_from_prev_block(prev_block.hash())?;
+        let shard_ids = self.shard_ids(&epoch_id)?;
+
+        let prev_shard_ids = self.get_prev_shard_ids(prev_block.hash(), shard_ids)?;
+        let prev_chunks = prev_block.chunks();
+        Ok(prev_shard_ids
+            .into_iter()
+            .map(|(_, shard_index)| prev_chunks.get(shard_index).unwrap().clone())
+            .collect())
+    }
+
+    fn get_prev_chunk_header(
+        &self,
+        prev_block: &Block,
+        shard_id: ShardId,
+    ) -> Result<ShardChunkHeader, Error> {
+        let (_, prev_shard_id, prev_shard_index) =
+            self.get_prev_shard_id_from_prev_hash(prev_block.hash(), shard_id)?;
+        Ok(prev_block
+            .chunks()
+            .get(prev_shard_index)
+            .ok_or(Error::InvalidShardId(prev_shard_id))?
+            .clone())
     }
 
     /// Get shard layout given hash of previous block.

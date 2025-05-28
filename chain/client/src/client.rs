@@ -817,8 +817,7 @@ impl Client {
         // The ordinal of the next Block will be equal to this amount plus one.
         let block_ordinal: NumBlocks = block_merkle_tree.size() + 1;
         let prev_block = self.chain.get_block(&prev_hash)?;
-        let mut chunk_headers =
-            Chain::get_prev_chunk_headers(self.epoch_manager.as_ref(), &prev_block)?;
+        let mut chunk_headers = self.epoch_manager.get_prev_chunk_headers(&prev_block)?;
         let mut chunk_endorsements = vec![vec![]; chunk_headers.len()];
 
         // Add debug information about the block production (and info on when did the chunks arrive).
@@ -1710,7 +1709,7 @@ impl Client {
             let _timer = metrics::PRODUCE_AND_DISTRIBUTE_CHUNK_TIME
                 .with_label_values(&[&shard_id.to_string()])
                 .start_timer();
-            let last_header = Chain::get_prev_chunk_header(epoch_manager, block, shard_id).unwrap();
+            let last_header = epoch_manager.get_prev_chunk_header(block, shard_id).unwrap();
             let result = self.chunk_producer.produce_chunk(
                 block,
                 &epoch_id,
