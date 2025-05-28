@@ -4327,6 +4327,7 @@ dependencies = [
  "near-store",
  "near-telemetry",
  "near-vm-runner",
+ "node-runtime",
  "num-rational 0.3.2",
  "object_store",
  "parking_lot 0.12.1",

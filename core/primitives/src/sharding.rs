@@ -6,6 +6,7 @@ use crate::receipt::Receipt;
 use crate::transaction::SignedTransaction;
 #[cfg(feature = "solomon")]
 use crate::transaction::ValidatedTransaction;
+use crate::types::chunk_extra::ChunkExtra;
 use crate::types::validator_stake::{ValidatorStake, ValidatorStakeIter, ValidatorStakeV1};
 use crate::types::{Balance, BlockHeight, Gas, MerkleHash, ShardId, StateRoot};
 use crate::validator_signer::{EmptyValidatorSigner, ValidatorSigner};
@@ -129,6 +130,8 @@ pub use shard_chunk_header_inner::{
     ShardChunkHeaderInner, ShardChunkHeaderInnerV1, ShardChunkHeaderInnerV2,
     ShardChunkHeaderInnerV3,
 };
+
+use self::shard_chunk_header_inner::ShardChunkHeaderInnerV5SpiceTxOnly;
 
 #[derive(BorshSerialize, BorshDeserialize, Clone, PartialEq, Eq, Debug, ProtocolSchema)]
 #[borsh(init=init)]
@@ -292,23 +295,37 @@ impl ShardChunkHeaderV3 {
         bandwidth_requests: BandwidthRequests,
         signer: &ValidatorSigner,
     ) -> Self {
-        let inner = ShardChunkHeaderInner::V4(ShardChunkHeaderInnerV4 {
-            prev_block_hash,
-            prev_state_root,
-            prev_outcome_root,
-            encoded_merkle_root,
-            encoded_length,
-            height_created: height,
-            shard_id,
-            prev_gas_used,
-            gas_limit,
-            prev_balance_burnt,
-            prev_outgoing_receipts_root,
-            tx_root,
-            prev_validator_proposals,
-            congestion_info,
-            bandwidth_requests,
-        });
+        // TODO(spice): Allow callers to decide whether tx-only chunk is needed by intoducing a
+        // separate constructor to avoid passing defaults in here.
+        let inner = if cfg!(feature = "protocol_feature_spice") {
+            ShardChunkHeaderInner::V5(ShardChunkHeaderInnerV5SpiceTxOnly {
+                prev_block_hash,
+                encoded_merkle_root,
+                encoded_length,
+                height_created: height,
+                shard_id,
+                tx_root,
+                prev_outgoing_receipts_root,
+            })
+        } else {
+            ShardChunkHeaderInner::V4(ShardChunkHeaderInnerV4 {
+                prev_block_hash,
+                prev_state_root,
+                prev_outcome_root,
+                encoded_merkle_root,
+                encoded_length,
+                height_created: height,
+                shard_id,
+                prev_gas_used,
+                gas_limit,
+                prev_balance_burnt,
+                prev_outgoing_receipts_root,
+                tx_root,
+                prev_validator_proposals,
+                congestion_info,
+                bandwidth_requests,
+            })
+        };
         Self::from_inner(inner, signer)
     }
 
@@ -411,6 +428,52 @@ impl ShardChunkHeader {
         }
     }
 
+    // TODO(spice): Create a separate data structure that will be used for chunk application
+    // and equivalent to current chunk version that includes chunk extra information.
+    #[inline]
+    pub fn into_spice_chunk_execution_header(self, prev_chunk_extra: &ChunkExtra) -> Self {
+        let Self::V3(mut header) = self else {
+            return self;
+        };
+
+        header.inner = match header.inner {
+            ShardChunkHeaderInner::V1(_)
+            | ShardChunkHeaderInner::V2(_)
+            | ShardChunkHeaderInner::V3(_)
+            | ShardChunkHeaderInner::V4(_) => header.inner,
+            ShardChunkHeaderInner::V5(ShardChunkHeaderInnerV5SpiceTxOnly {
+                prev_block_hash,
+                encoded_merkle_root,
+                encoded_length,
+                height_created,
+                shard_id,
+                prev_outgoing_receipts_root,
+                tx_root,
+            }) => {
+                let chunk_extra = prev_chunk_extra;
+                ShardChunkHeaderInner::V4(ShardChunkHeaderInnerV4 {
+                    prev_state_root: *chunk_extra.state_root(),
+                    prev_outcome_root: *chunk_extra.outcome_root(),
+                    prev_gas_used: chunk_extra.gas_used(),
+                    gas_limit: chunk_extra.gas_limit(),
+                    prev_balance_burnt: chunk_extra.balance_burnt(),
+                    prev_validator_proposals: chunk_extra.validator_proposals().collect(),
+                    bandwidth_requests: chunk_extra.bandwidth_requests().cloned().unwrap(),
+                    congestion_info: chunk_extra.congestion_info(),
+                    prev_block_hash,
+                    encoded_merkle_root,
+                    encoded_length,
+                    height_created,
+                    shard_id,
+                    tx_root,
+                    prev_outgoing_receipts_root,
+                })
+            }
+        };
+        header.hash = ShardChunkHeaderV3::compute_hash(&header.inner);
+        Self::V3(header)
+    }
+
     #[inline]
     pub fn prev_block_hash(&self) -> &CryptoHash {
         match self {
@@ -493,7 +556,16 @@ impl ShardChunkHeader {
         match &self {
             ShardChunkHeader::V1(header) => header.inner.prev_outcome_root,
             ShardChunkHeader::V2(header) => header.inner.prev_outcome_root,
-            ShardChunkHeader::V3(header) => *header.inner.prev_outcome_root(),
+            ShardChunkHeader::V3(header) => {
+                if let ShardChunkHeaderInner::V5(_) = header.inner {
+                    // TODO(spice): make sure that nothing depends on prev_outcome_root
+                    // being in chunk and add debug_assert(false).
+                    // Since with spice execution is async outcome cannot be present in chunks.
+                    CryptoHash::default()
+                } else {
+                    *header.inner.prev_outcome_root()
+                }
+            }
         }
     }
 
@@ -547,6 +619,7 @@ impl ShardChunkHeader {
                 ShardChunkHeaderInner::V2(_) => false,
                 ShardChunkHeaderInner::V3(_) => false,
                 ShardChunkHeaderInner::V4(_) => true,
+                ShardChunkHeaderInner::V5(_) => true,
             },
         };
 
@@ -1084,6 +1157,21 @@ impl ShardChunk {
         match self {
             Self::V1(chunk) => ShardChunkHeaderV1::compute_hash(&chunk.header.inner),
             Self::V2(chunk) => chunk.header.compute_hash(),
+        }
+    }
+
+    // TODO(spice): Use a separate data structure for chunk application. Having two sorts of the
+    // chunks with different meaning within the same data structure is confusing.
+    /// For spice converts chunk containing only transactions into an equivalent chunk that can be used
+    /// for chunk application.
+    pub fn into_spice_chunk_with_execution(self, chunk_extra: &ChunkExtra) -> Self {
+        match self {
+            Self::V1(_) => self,
+            Self::V2(mut chunk) => {
+                chunk.header = chunk.header.into_spice_chunk_execution_header(chunk_extra);
+                chunk.chunk_hash = chunk.header.chunk_hash();
+                Self::V2(chunk)
+            }
         }
     }
 }
