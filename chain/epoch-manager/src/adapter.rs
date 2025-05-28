@@ -93,9 +93,9 @@ pub trait EpochManagerAdapter: Send + Sync {
         }
     }
 
-    /// Returns true, if given hash is last block in its epoch.
-    fn is_next_block_epoch_start(&self, hash: &CryptoHash) -> Result<bool, EpochError> {
-        let block_info = self.get_block_info(hash)?;
+    /// Returns true, if the block with the given `parent_hash` is last block in its epoch.
+    fn is_next_block_epoch_start(&self, parent_hash: &CryptoHash) -> Result<bool, EpochError> {
+        let block_info = self.get_block_info(parent_hash)?;
         if block_info.is_genesis() {
             return Ok(true);
         }
