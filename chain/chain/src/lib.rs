@@ -46,6 +46,7 @@ pub mod store_validator;
 pub mod test_utils;
 #[cfg(test)]
 mod tests;
+mod thread_pool;
 pub mod types;
 pub mod update_shard;
 pub mod validate;

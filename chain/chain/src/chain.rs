@@ -10,7 +10,6 @@ use crate::lightclient::get_epoch_block_producers_view;
 use crate::missing_chunks::{MissingChunksPool, OptimisticBlockChunksPool};
 use crate::orphan::{Orphan, OrphanBlockPool};
 use crate::pending::PendingBlocksPool;
-use crate::rayon_spawner::RayonAsyncComputationSpawner;
 use crate::resharding::manager::ReshardingManager;
 use crate::resharding::types::ReshardingSender;
 use crate::sharding::{get_receipts_shuffle_salt, shuffle_receipt_proofs};
@@ -27,6 +26,7 @@ use crate::store::utils::{get_chunk_clone_from_header, get_incoming_receipts_for
 use crate::store::{
     ChainStore, ChainStoreAccess, ChainStoreUpdate, MerkleProofAccess, ReceiptFilter,
 };
+use crate::thread_pool::ThreadPool;
 use crate::types::{
     AcceptedBlock, ApplyChunkBlockContext, BlockEconomicsConfig, BlockType, ChainConfig,
     RuntimeAdapter, StorageDataSource,
@@ -45,7 +45,6 @@ use crate::{DoomslugThresholdMode, metrics};
 use crossbeam_channel::{Receiver, Sender, unbounded};
 use itertools::Itertools;
 use lru::LruCache;
-use near_async::futures::{AsyncComputationSpawner, AsyncComputationSpawnerExt};
 use near_async::messaging::{IntoMultiSender, noop};
 use near_async::time::{Clock, Duration, Instant};
 use near_chain_configs::MutableValidatorSigner;
@@ -317,7 +316,7 @@ pub struct Chain {
     /// Used to receive apply chunks results
     apply_chunks_receiver: Receiver<BlockApplyChunksResult>,
     /// Used to spawn the apply chunks jobs.
-    apply_chunks_spawner: Arc<dyn AsyncComputationSpawner>,
+    apply_chunks_spawner: ThreadPool<usize>,
     pub apply_chunk_results_cache: ApplyChunksResultCache,
     /// Time when head was updated most recently.
     last_time_head_updated: Instant,
@@ -435,7 +434,11 @@ impl Chain {
             blocks_delay_tracker: BlocksDelayTracker::new(clock.clone()),
             apply_chunks_sender: sc,
             apply_chunks_receiver: rc,
-            apply_chunks_spawner: Arc::new(RayonAsyncComputationSpawner),
+            apply_chunks_spawner: ThreadPool::new(
+                "apply_chunks",
+                std::time::Duration::from_secs(30),
+                20,
+            ),
             apply_chunk_results_cache: ApplyChunksResultCache::new(APPLY_CHUNK_RESULTS_CACHE_SIZE),
             last_time_head_updated: clock.now(),
             processed_hashes: LruCache::new(NonZeroUsize::new(PROCESSED_HASHES_POOL_SIZE).unwrap()),
@@ -455,7 +458,6 @@ impl Chain {
         doomslug_threshold_mode: DoomslugThresholdMode,
         chain_config: ChainConfig,
         snapshot_callbacks: Option<SnapshotCallbacks>,
-        apply_chunks_spawner: Arc<dyn AsyncComputationSpawner>,
         validator: MutableValidatorSigner,
         resharding_sender: ReshardingSender,
     ) -> Result<Chain, Error> {
@@ -591,7 +593,11 @@ impl Chain {
             blocks_delay_tracker: BlocksDelayTracker::new(clock.clone()),
             apply_chunks_sender: sc,
             apply_chunks_receiver: rc,
-            apply_chunks_spawner,
+            apply_chunks_spawner: ThreadPool::new(
+                "apply_chunks",
+                std::time::Duration::from_secs(30),
+                20,
+            ),
             apply_chunk_results_cache: ApplyChunksResultCache::new(APPLY_CHUNK_RESULTS_CACHE_SIZE),
             last_time_head_updated: clock.now(),
             pending_state_patch: Default::default(),
@@ -1772,21 +1778,24 @@ impl Chain {
     ) {
         let sc = self.apply_chunks_sender.clone();
         let clock = self.clock.clone();
-        self.apply_chunks_spawner.spawn("apply_chunks", move || {
-            let apply_all_chunks_start_time = clock.now();
-            // do_apply_chunks runs `work` in parallel, but still waits for all of them to finish
-            let res = do_apply_chunks(block.clone(), block_height, work);
-            // If we encounter error here, that means the receiver is deallocated and the client
-            // thread is already shut down. The node is already crashed, so we can unwrap here
-            metrics::APPLY_ALL_CHUNKS_TIME.with_label_values(&[block.as_ref()]).observe(
-                (clock.now().signed_duration_since(apply_all_chunks_start_time)).as_seconds_f64(),
-            );
-            sc.send((block, res)).unwrap();
-            drop(apply_chunks_still_applying);
-            if let Some(sender) = apply_chunks_done_sender {
-                sender.send(ApplyChunksDoneMessage {});
-            }
-        });
+        self.apply_chunks_spawner
+            .spawn(move || {
+                let apply_all_chunks_start_time = clock.now();
+                // do_apply_chunks runs `work` in parallel, but still waits for all of them to finish
+                let res = do_apply_chunks(block.clone(), block_height, work);
+                // If we encounter error here, that means the receiver is deallocated and the client
+                // thread is already shut down. The node is already crashed, so we can unwrap here
+                metrics::APPLY_ALL_CHUNKS_TIME.with_label_values(&[block.as_ref()]).observe(
+                    (clock.now().signed_duration_since(apply_all_chunks_start_time))
+                        .as_seconds_f64(),
+                );
+                sc.send((block, res)).unwrap();
+                drop(apply_chunks_still_applying);
+                if let Some(sender) = apply_chunks_done_sender {
+                    sender.send(ApplyChunksDoneMessage {});
+                }
+            })
+            .expect("spawning apply_chunks failed");
     }
 
     #[tracing::instrument(level = "debug", target = "chain", "postprocess_block_only", skip_all)]
