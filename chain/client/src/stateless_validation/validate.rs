@@ -3,7 +3,6 @@ use itertools::Itertools;
 use near_chain::types::Tip;
 use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
-use near_o11y::span_tags;
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::stateless_validation::contract_distribution::{
@@ -131,7 +130,7 @@ pub fn validate_chunk_endorsement(
         "validate_chunk_endorsement",
         height = endorsement.chunk_production_key().height_created,
         shard_id = ?endorsement.chunk_production_key().shard_id,
-        tag = span_tags::BLOCK_PRODUCTION
+        tag_block_production = true
     )
     .entered();
 

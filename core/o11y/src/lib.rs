@@ -21,7 +21,6 @@ pub mod macros;
 pub mod metrics;
 mod opentelemetry;
 mod reload;
-pub mod span_tags;
 mod subscriber;
 pub mod testonly;
 

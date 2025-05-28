@@ -54,7 +54,6 @@ use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::validate::validate_optimistic_block_relevant;
-use near_o11y::span_tags;
 use near_primitives::block::{
     Block, BlockValidityError, Chunks, MaybeNew, Tip, compute_bp_hash_from_validator_stakes,
 };
@@ -1313,7 +1312,7 @@ impl Chain {
             "process_optimistic_block",
             hash = ?block.hash(),
             height = ?block.height(),
-            tag = span_tags::BLOCK_PRODUCTION
+            tag_block_production = true
         )
         .entered();
 
@@ -1839,7 +1838,7 @@ impl Chain {
             target: "chain",
             "postprocess_ready_block",
             height = block.header().height(),
-            tag = span_tags::BLOCK_PRODUCTION
+            tag_block_production = true
         )
         .entered();
 
@@ -2259,7 +2258,7 @@ impl Chain {
             target: "chain",
             "preprocess_block",
             height = block.header().height(),
-            tag = span_tags::BLOCK_PRODUCTION
+            tag_block_production = true
         )
         .entered();
 

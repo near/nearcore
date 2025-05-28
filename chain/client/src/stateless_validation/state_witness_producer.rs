@@ -5,7 +5,6 @@ use near_async::messaging::{CanSend, IntoSender};
 use near_chain::BlockHeader;
 use near_chain::stateless_validation::state_witness::CreateWitnessResult;
 use near_chain_primitives::Error;
-use near_o11y::span_tags;
 use near_primitives::sharding::{ShardChunk, ShardChunkHeader};
 use near_primitives::types::EpochId;
 use near_primitives::validator_signer::ValidatorSigner;
@@ -31,7 +30,7 @@ impl Client {
             chunk_hash=?chunk_header.chunk_hash(),
             height,
             ?shard_id,
-            tag = span_tags::BLOCK_PRODUCTION
+            tag_block_production = true
         )
         .entered();
 

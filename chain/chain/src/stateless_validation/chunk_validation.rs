@@ -16,7 +16,6 @@ use near_async::futures::AsyncComputationSpawnerExt;
 use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
-use near_o11y::span_tags;
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::block::{Block, BlockHeader};
 use near_primitives::hash::{CryptoHash, hash};
@@ -529,7 +528,7 @@ pub fn validate_chunk_state_witness(
         "validate_chunk_state_witness",
         height = state_witness.chunk_header.height_created(),
         shard_id = ?witness_chunk_shard_id,
-        tag = span_tags::BLOCK_PRODUCTION
+        tag_block_production = true
     )
     .entered();
     let witness_shard_layout = epoch_manager.get_shard_layout(&state_witness.epoch_id)?;
