@@ -612,7 +612,7 @@ impl Client {
         height: BlockHeight,
     ) -> Result<Option<OptimisticBlock>, Error> {
         let _span =
-            tracing::debug_span!(target: "client", "produce_optimistic_block_on_head", height)
+            tracing::debug_span!(target: "client", "produce_optimistic_block_on_head", height, tag_block_production = true)
                 .entered();
 
         let head = self.chain.head()?;
@@ -677,7 +677,7 @@ impl Client {
         prepare_chunk_headers: bool,
     ) -> Result<Option<Block>, Error> {
         let _span =
-            tracing::debug_span!(target: "client", "produce_block_on_head", height).entered();
+            tracing::debug_span!(target: "client", "produce_block_on_head", height, tag_block_production = true).entered();
 
         let head = self.chain.head()?;
         assert_eq!(

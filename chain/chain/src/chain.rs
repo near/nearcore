@@ -1311,7 +1311,8 @@ impl Chain {
             target: "chain",
             "process_optimistic_block",
             hash = ?block.hash(),
-            height = ?block.height()
+            height = ?block.height(),
+            tag_block_production = true
         )
         .entered();
 
@@ -1836,7 +1837,9 @@ impl Chain {
         let _span = tracing::debug_span!(
             target: "chain",
             "postprocess_ready_block",
-            height = block.header().height())
+            height = block.header().height(),
+            tag_block_production = true
+        )
         .entered();
 
         let epoch_id = block.header().epoch_id();
@@ -2251,6 +2254,14 @@ impl Chain {
         block_received_time: Instant,
         state_patch: SandboxStatePatch,
     ) -> Result<PreprocessBlockResult, Error> {
+        let _span = tracing::debug_span!(
+            target: "chain",
+            "preprocess_block",
+            height = block.header().height(),
+            tag_block_production = true
+        )
+        .entered();
+
         let header = block.header();
 
         // see if the block is already in processing or if there are too many blocks being processed

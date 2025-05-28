@@ -519,12 +519,19 @@ pub fn validate_chunk_state_witness(
     runtime_adapter: &dyn RuntimeAdapter,
     main_state_transition_cache: &MainStateTransitionCache,
 ) -> Result<(), Error> {
-    let _timer = crate::stateless_validation::metrics::CHUNK_STATE_WITNESS_VALIDATION_TIME
-        .with_label_values(&[&state_witness.chunk_header.shard_id().to_string()])
-        .start_timer();
-    let span = tracing::debug_span!(target: "client", "validate_chunk_state_witness").entered();
-    let witness_shard_layout = epoch_manager.get_shard_layout(&state_witness.epoch_id)?;
     let witness_chunk_shard_id = state_witness.chunk_header.shard_id();
+    let _timer = crate::stateless_validation::metrics::CHUNK_STATE_WITNESS_VALIDATION_TIME
+        .with_label_values(&[&witness_chunk_shard_id.to_string()])
+        .start_timer();
+    let span = tracing::debug_span!(
+        target: "client",
+        "validate_chunk_state_witness",
+        height = state_witness.chunk_header.height_created(),
+        shard_id = ?witness_chunk_shard_id,
+        tag_block_production = true
+    )
+    .entered();
+    let witness_shard_layout = epoch_manager.get_shard_layout(&state_witness.epoch_id)?;
     let witness_chunk_shard_uid =
         shard_id_to_uid(epoch_manager, witness_chunk_shard_id, &state_witness.epoch_id)?;
     let block_hash = pre_validation_output.main_transition_params.block_hash();
