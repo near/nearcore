@@ -3,6 +3,7 @@ use itertools::Itertools;
 use near_chain::types::Tip;
 use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
+use near_o11y::span_tags;
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::stateless_validation::contract_distribution::{
@@ -15,7 +16,6 @@ use near_primitives::types::{AccountId, BlockHeightDelta};
 use near_primitives::validator_signer::ValidatorSigner;
 use near_store::{DBCol, FINAL_HEAD_KEY, HEAD_KEY, Store};
 use strum::IntoStaticStr;
-use near_o11y::span_tags;
 
 /// This is taken to be the same value as near_chunks::chunk_cache::MAX_HEIGHTS_AHEAD, and we
 /// reject partial witnesses with height more than this value above the height of our current HEAD

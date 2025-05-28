@@ -1,3 +1,4 @@
+use crate::adapter::StoreUpdateAdapter;
 use crate::adapter::trie_store::get_shard_uid_mapping;
 use crate::columns::DBKeyType;
 use crate::db::{COLD_HEAD_KEY, ColdDB, HEAD_KEY};
@@ -80,7 +81,7 @@ pub fn update_cold_db(
     hot_store: &Store,
     shard_layout: &ShardLayout,
     height: &BlockHeight,
-    is_last_block_in_epoch: bool,
+    is_resharding_boundary: bool,
     num_threads: usize,
 ) -> io::Result<()> {
     let _span = tracing::debug_span!(target: "cold_store", "update cold db", height = height);
@@ -94,13 +95,8 @@ pub fn update_cold_db(
         get_keys_from_store(&hot_store, shard_layout, &height_key, block_hash_key)?;
     let columns_to_update = DBCol::iter()
         .filter(|col| {
-            if !col.is_cold() {
-                return false;
-            }
-            if col == &DBCol::StateShardUIdMapping && !is_last_block_in_epoch {
-                return false;
-            }
-            true
+            // DBCol::StateShardUIdMapping is handled separately
+            col.is_cold() && col != &DBCol::StateShardUIdMapping
         })
         .collect::<Vec<DBCol>>();
 
@@ -115,6 +111,9 @@ pub fn update_cold_db(
                 // Copy column to cold db.
                 .map(|col: DBCol| -> io::Result<()> {
                     if col == DBCol::State {
+                        if is_resharding_boundary {
+                            update_state_shard_uid_mapping(cold_db, shard_layout)?;
+                        }
                         copy_state_from_store(shard_layout, block_hash_key, cold_db, &hot_store)
                     } else {
                         let keys = combine_keys(&key_type_to_keys, &col.key_type());
@@ -162,6 +161,29 @@ fn rc_aware_set(
     };
 }
 
+/// Updates the shard_uid mapping for all children of split shards to point to
+/// the same shard_uid as their parent. If a parent was already mapped, the
+/// children will point to the grandparent.
+/// This should be called once while processing the block at the resharding
+/// boundary and before calling `copy_state_from_store`.
+fn update_state_shard_uid_mapping(cold_db: &ColdDB, shard_layout: &ShardLayout) -> io::Result<()> {
+    let _span = tracing::debug_span!(target: "cold_store", "update_state_shard_uid_mapping");
+    let cold_store = cold_db.as_store();
+    let mut update = cold_store.store_update();
+    let split_parents = shard_layout.get_split_parent_shard_uids();
+    for parent_shard_uid in split_parents {
+        // Need to check if the parent itself was previously mapped.
+        let mapped_shard_uid = get_shard_uid_mapping(&cold_store, parent_shard_uid);
+        let children = shard_layout
+            .get_children_shards_uids(parent_shard_uid.shard_id())
+            .expect("get_children_shards_uids should not fail for split parents");
+        for child_shard_uid in children {
+            update.trie_store_update().set_shard_uid_mapping(child_shard_uid, mapped_shard_uid);
+        }
+    }
+    update.commit()
+}
+
 // A specialized version of copy_from_store for the State column. Finds all the
 // State nodes that were inserted at given height by reading from the
 // TrieChanges and inserts them into the cold store.
@@ -178,6 +200,7 @@ fn copy_state_from_store(
     let col = DBCol::State;
     let _span = tracing::debug_span!(target: "cold_store", "copy_state_from_store", %col);
     let instant = std::time::Instant::now();
+    let cold_store = cold_db.as_store();
 
     let mut total_keys = 0;
     let mut total_size = 0;
@@ -195,7 +218,7 @@ fn copy_state_from_store(
 
         let Some(trie_changes) = trie_changes else { continue };
         total_keys += trie_changes.insertions().len();
-        let mapped_shard_uid_key = get_shard_uid_mapping(hot_store, shard_uid).to_bytes();
+        let mapped_shard_uid_key = get_shard_uid_mapping(&cold_store, shard_uid).to_bytes();
         for op in trie_changes.insertions() {
             // TODO(resharding) Test it properly. Currently this path is not triggered in testloop.
             let key = join_two_keys(&mapped_shard_uid_key, op.hash().as_bytes());
