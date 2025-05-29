@@ -538,7 +538,6 @@ pub fn validate_chunk_state_witness(
     let epoch_id = epoch_manager.get_epoch_id(&block_hash)?;
     let shard_id = pre_validation_output.main_transition_params.shard_id();
     let shard_uid = shard_id_to_uid(epoch_manager, shard_id, &epoch_id)?;
-    let protocol_version = epoch_manager.get_epoch_protocol_version(&epoch_id)?;
     let cache_result = {
         let mut shard_cache = main_state_transition_cache.lock();
         shard_cache
@@ -582,7 +581,6 @@ pub fn validate_chunk_state_witness(
         if chunk_shard_layout != witness_shard_layout {
             ChainStore::reassign_outgoing_receipts_for_resharding(
                 &mut outgoing_receipts,
-                protocol_version,
                 &witness_shard_layout,
                 state_witness.chunk_header.shard_id(),
                 shard_id,
