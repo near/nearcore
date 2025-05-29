@@ -9,7 +9,7 @@ use super::{Params, RpcFrom, RpcRequest};
 
 impl RpcRequest for RpcGasPriceRequest {
     fn parse(value: Value) -> Result<Self, RpcParseError> {
-        Params::parse(value).map(|(block_id,)| Self { block_id })
+        Params::<RpcGasPriceRequest>::parse(value)
     }
 }
 

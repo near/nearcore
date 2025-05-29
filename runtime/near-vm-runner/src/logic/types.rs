@@ -1,3 +1,4 @@
+use near_primitives_core::hash::CryptoHash;
 pub use near_primitives_core::types::*;
 
 pub type PublicKey = Vec<u8>;
@@ -36,4 +37,26 @@ pub enum PromiseResult {
     NotReady,
     Successful(Vec<u8>),
     Failed,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub enum GlobalContractDeployMode {
+    CodeHash,
+    AccountId,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub enum GlobalContractIdentifier {
+    CodeHash(CryptoHash),
+    AccountId(AccountId),
+}
+
+impl GlobalContractIdentifier {
+    /// Corresponds to `near_primitives::action::GlobalContractIdentifier::len` impl
+    pub fn len(&self) -> usize {
+        match &self {
+            Self::CodeHash(_) => 32,
+            Self::AccountId(account_id) => account_id.len(),
+        }
+    }
 }

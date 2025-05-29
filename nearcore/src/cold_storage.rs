@@ -141,14 +141,15 @@ fn cold_store_copy(
     // The next block hash exists in hot store so we can use it to get epoch id.
     let epoch_id = epoch_manager.get_epoch_id(&next_height_block_hash)?;
     let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
-    let is_last_block_in_epoch =
-        epoch_manager.is_next_block_epoch_start(&next_height_block_hash)?;
+    let block_info = epoch_manager.get_block_info(&next_height_block_hash)?;
+    let is_resharding_boundary = epoch_manager.is_resharding_boundary(block_info.prev_hash())?;
+
     update_cold_db(
         cold_db,
         hot_store,
         &shard_layout,
         &next_height,
-        is_last_block_in_epoch,
+        is_resharding_boundary,
         num_threads,
     )?;
     update_cold_head(cold_db, hot_store, &next_height)?;

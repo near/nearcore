@@ -612,7 +612,7 @@ impl Client {
         height: BlockHeight,
     ) -> Result<Option<OptimisticBlock>, Error> {
         let _span =
-            tracing::debug_span!(target: "client", "produce_optimistic_block_on_head", height)
+            tracing::debug_span!(target: "client", "produce_optimistic_block_on_head", height, tag_block_production = true)
                 .entered();
 
         let head = self.chain.head()?;
@@ -677,7 +677,7 @@ impl Client {
         prepare_chunk_headers: bool,
     ) -> Result<Option<Block>, Error> {
         let _span =
-            tracing::debug_span!(target: "client", "produce_block_on_head", height).entered();
+            tracing::debug_span!(target: "client", "produce_block_on_head", height, tag_block_production = true).entered();
 
         let head = self.chain.head()?;
         assert_eq!(
@@ -1737,14 +1737,16 @@ impl Client {
                     return;
                 }
             };
-            if let Err(err) = self.send_chunk_state_witness_to_chunk_validators(
-                &epoch_id,
-                block.header(),
-                &last_header,
-                chunk.to_shard_chunk(),
-                &Some(signer.clone()),
-            ) {
-                tracing::error!(target: "client", ?err, "Failed to send chunk state witness to chunk validators");
+            if !cfg!(feature = "protocol_feature_spice") {
+                if let Err(err) = self.send_chunk_state_witness_to_chunk_validators(
+                    &epoch_id,
+                    block.header(),
+                    &last_header,
+                    chunk.to_shard_chunk(),
+                    &Some(signer.clone()),
+                ) {
+                    tracing::error!(target: "client", ?err, "Failed to send chunk state witness to chunk validators");
+                }
             }
             self.persist_and_distribute_encoded_chunk(
                 chunk,

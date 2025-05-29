@@ -2,17 +2,20 @@ use near_primitives::types::MaybeBlockId;
 use serde_json::Value;
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, arbitrary::Arbitrary)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct RpcGasPriceRequest {
     pub block_id: MaybeBlockId,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct RpcGasPriceResponse {
     #[serde(flatten)]
     pub gas_price_view: near_primitives::views::GasPriceView,
 }
 
 #[derive(thiserror::Error, Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(tag = "name", content = "info", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum RpcGasPriceError {
     #[error("Internal error: {error_message}")]

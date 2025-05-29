@@ -93,7 +93,7 @@ pub trait EpochManagerAdapter: Send + Sync {
         }
     }
 
-    /// Returns true, if given hash is last block in it's epoch.
+    /// Returns true, if the block with the given `parent_hash` is last block in its epoch.
     fn is_next_block_epoch_start(&self, parent_hash: &CryptoHash) -> Result<bool, EpochError> {
         let block_info = self.get_block_info(parent_hash)?;
         if block_info.is_genesis() {
@@ -228,6 +228,17 @@ pub trait EpochManagerAdapter: Send + Sync {
     ) -> Result<ShardLayout, EpochError> {
         let epoch_id = self.get_epoch_id_from_prev_block(parent_hash)?;
         self.get_shard_layout(&epoch_id)
+    }
+
+    /// Given the `parent_hash` of a block, returns true if that block starts a
+    /// new epoch with a different shard layout.
+    fn is_resharding_boundary(&self, parent_hash: &CryptoHash) -> Result<bool, EpochError> {
+        if !self.is_next_block_epoch_start(parent_hash)? {
+            return Ok(false);
+        }
+        let shard_layout = self.get_shard_layout_from_prev_block(parent_hash)?;
+        let prev_shard_layout = self.get_shard_layout(&self.get_epoch_id(parent_hash)?)?;
+        Ok(shard_layout != prev_shard_layout)
     }
 
     fn get_shard_layout_from_protocol_version(

@@ -352,7 +352,7 @@ fn setup_global_contracts(
             &env.node_datas,
             client_account_id,
             deployer_id.clone(),
-            near_test_contracts::rs_contract().into(),
+            near_test_contracts::backwards_compatible_rs_contract().into(),
             nonce,
             deploy_mode.clone(),
         );
@@ -519,7 +519,7 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
             &env.node_datas,
             &client_account_id,
             contract_id,
-            near_test_contracts::rs_contract().into(),
+            near_test_contracts::backwards_compatible_rs_contract().into(),
             1,
         );
         test_setup_transactions.push(deploy_contract_tx);
@@ -645,11 +645,15 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
         }
 
         for client in clients {
-            check_state_shard_uid_mapping_after_resharding(
+            let num_mapped_children = check_state_shard_uid_mapping_after_resharding(
                 client,
                 &resharding_block_hash.get().unwrap(),
                 parent_shard_uid,
             );
+
+            if num_mapped_children > 0 {
+                return false; // Wait for all mappings to be removed.
+            }
         }
 
         // Return false if garbage collection window has not passed yet since resharding.
@@ -784,7 +788,7 @@ fn slow_test_resharding_v3_state_cleanup() {
         TestReshardingParametersBuilder::default()
             .num_clients(num_clients)
             .tracked_shard_schedule(Some(tracked_shard_schedule.clone()))
-            .add_loop_action(check_state_cleanup(tracked_shard_schedule, num_epochs_to_wait, false))
+            .add_loop_action(check_state_cleanup(tracked_shard_schedule, num_epochs_to_wait))
             .build(),
     );
 }
@@ -812,7 +816,7 @@ fn slow_test_resharding_v3_do_not_track_children_after_resharding() {
         TestReshardingParametersBuilder::default()
             .num_clients(num_clients)
             .tracked_shard_schedule(Some(tracked_shard_schedule.clone()))
-            .add_loop_action(check_state_cleanup(tracked_shard_schedule, num_epochs_to_wait, false))
+            .add_loop_action(check_state_cleanup(tracked_shard_schedule, num_epochs_to_wait))
             .build(),
     );
 }
@@ -853,7 +857,7 @@ fn slow_test_resharding_v3_stop_track_child_for_5_epochs() {
         TestReshardingParametersBuilder::default()
             .num_clients(num_clients)
             .tracked_shard_schedule(Some(tracked_shard_schedule.clone()))
-            .add_loop_action(check_state_cleanup(tracked_shard_schedule, num_epochs_to_wait, false))
+            .add_loop_action(check_state_cleanup(tracked_shard_schedule, num_epochs_to_wait))
             .num_epochs_to_wait(num_epochs_to_wait)
             .build(),
     );
@@ -896,7 +900,7 @@ fn slow_test_resharding_v3_stop_track_child_for_5_epochs_with_sibling_in_between
         TestReshardingParametersBuilder::default()
             .num_clients(num_clients)
             .tracked_shard_schedule(Some(tracked_shard_schedule.clone()))
-            .add_loop_action(check_state_cleanup(tracked_shard_schedule, num_epochs_to_wait, true))
+            .add_loop_action(check_state_cleanup(tracked_shard_schedule, num_epochs_to_wait))
             .num_epochs_to_wait(num_epochs_to_wait)
             .build(),
     );
@@ -926,7 +930,7 @@ fn slow_test_resharding_v3_sync_child() {
         TestReshardingParametersBuilder::default()
             .num_clients(num_clients)
             .tracked_shard_schedule(Some(tracked_shard_schedule.clone()))
-            .add_loop_action(check_state_cleanup(tracked_shard_schedule, num_epochs_to_wait, false))
+            .add_loop_action(check_state_cleanup(tracked_shard_schedule, num_epochs_to_wait))
             .build(),
     );
 }
@@ -1074,7 +1078,7 @@ fn slow_test_resharding_v3_shard_shuffling_untrack_then_track() {
         .num_epochs_to_wait(num_epochs_to_wait)
         .num_clients(num_clients)
         .tracked_shard_schedule(Some(tracked_shard_schedule.clone()))
-        .add_loop_action(check_state_cleanup(tracked_shard_schedule, num_epochs_to_wait, true))
+        .add_loop_action(check_state_cleanup(tracked_shard_schedule, num_epochs_to_wait))
         .build();
     test_resharding_v3_base(params);
 }
@@ -1140,7 +1144,8 @@ fn slow_test_resharding_v3_delayed_receipts_left_child() {
 #[test]
 #[cfg_attr(not(all(feature = "test_features", feature = "nightly")), ignore)]
 fn slow_test_resharding_v3_global_contract_by_hash() {
-    let code_hash = CryptoHash::hash_bytes(&near_test_contracts::rs_contract());
+    let code_hash =
+        CryptoHash::hash_bytes(&near_test_contracts::backwards_compatible_rs_contract());
     test_resharding_v3_global_contract_base(
         GlobalContractIdentifier::CodeHash(code_hash),
         GlobalContractDeployMode::CodeHash,
@@ -1211,7 +1216,7 @@ fn slow_test_resharding_v3_delayed_receipts_right_child() {
 
 #[test]
 #[cfg_attr(not(feature = "test_features"), ignore)]
-fn test_resharding_v3_split_parent_buffered_receipts() {
+fn slow_test_resharding_v3_split_parent_buffered_receipts() {
     let receiver_account: AccountId = "account0".parse().unwrap();
     let account_in_parent: AccountId = "account4".parse().unwrap();
     let account_in_left_child: AccountId = "account4".parse().unwrap();
@@ -1240,7 +1245,7 @@ fn test_resharding_v3_split_parent_buffered_receipts() {
 
 #[test]
 #[cfg_attr(not(feature = "test_features"), ignore)]
-fn test_resharding_v3_buffered_receipts_towards_splitted_shard() {
+fn slow_test_resharding_v3_buffered_receipts_towards_splitted_shard() {
     let account_in_left_child: AccountId = "account4".parse().unwrap();
     let account_in_right_child: AccountId = "account6".parse().unwrap();
     let account_in_stable_shard: AccountId = "account1".parse().unwrap();
@@ -1273,7 +1278,7 @@ fn test_resharding_v3_buffered_receipts_towards_splitted_shard() {
 /// receipts will be sent must include the receipts stored in outgoing buffer to the parent shard,
 /// otherwise there will be no bandwidth grants to send them.
 #[test]
-fn test_resharding_v3_large_receipts_towards_splitted_shard() {
+fn slow_test_resharding_v3_large_receipts_towards_splitted_shard() {
     let account_in_left_child: AccountId = "account4".parse().unwrap();
     let account_in_right_child: AccountId = "account6".parse().unwrap();
     let account_in_stable_shard: AccountId = "account1".parse().unwrap();

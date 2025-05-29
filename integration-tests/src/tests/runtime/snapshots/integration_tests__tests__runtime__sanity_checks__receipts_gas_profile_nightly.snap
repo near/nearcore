@@ -46,6 +46,16 @@ expression: receipts_gas_profile
         },
         CostGasUsed {
             cost_category: "ACTION_COST",
+            cost: "DEPLOY_GLOBAL_CONTRACT_BASE",
+            gas_used: 369531500000,
+        },
+        CostGasUsed {
+            cost_category: "ACTION_COST",
+            cost: "DEPLOY_GLOBAL_CONTRACT_BYTE",
+            gas_used: 3242492620,
+        },
+        CostGasUsed {
+            cost_category: "ACTION_COST",
             cost: "FUNCTION_CALL_BASE",
             gas_used: 1800000000000,
         },
@@ -102,7 +112,7 @@ expression: receipts_gas_profile
         CostGasUsed {
             cost_category: "WASM_HOST_COST",
             cost: "BASE",
-            gas_used: 17209927215,
+            gas_used: 17739463437,
         },
         CostGasUsed {
             cost_category: "WASM_HOST_COST",
@@ -147,12 +157,12 @@ expression: receipts_gas_profile
         CostGasUsed {
             cost_category: "WASM_HOST_COST",
             cost: "READ_MEMORY_BASE",
-            gas_used: 182690424000,
+            gas_used: 187910150400,
         },
         CostGasUsed {
             cost_category: "WASM_HOST_COST",
             cost: "READ_MEMORY_BYTE",
-            gas_used: 4744063584,
+            gas_used: 5002554228,
         },
         CostGasUsed {
             cost_category: "WASM_HOST_COST",
