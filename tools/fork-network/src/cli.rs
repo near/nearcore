@@ -432,10 +432,6 @@ impl ForkNetworkCommand {
             NightshadeRuntime::from_config(home_dir, store.clone(), &near_config, epoch_manager)
                 .context("could not create the transaction runtime")?;
         // TODO: add an option to not load them all at once. As is, this takes an insane amount of memory for mainnet state.
-        runtime
-            .get_tries()
-            .load_memtries_for_enabled_shards(&all_shard_uids, &[].into(), true)
-            .unwrap();
 
         let shard_tries = runtime.get_tries();
         let target_shard_layout2 = target_shard_layout.clone();
@@ -927,32 +923,48 @@ impl ForkNetworkCommand {
             &source_state_roots,
         )?;
 
-        // the try_fold().try_reduce() will give a Vec<> of the return values and return early if one fails
-        let receipt_trackers = shard_uids
-            .into_par_iter()
-            .try_fold(
-                || Vec::new(),
-                |mut trackers, shard_uid| {
-                    let t = self.prepare_shard_state(
-                        batch_size,
-                        source_shard_layout.clone(),
-                        target_shard_layout.clone(),
-                        shard_uid,
-                        store.clone(),
-                        make_storage_mutator.clone(),
-                        update_state.clone(),
-                    )?;
-                    trackers.push(t);
-                    anyhow::Ok(trackers)
-                },
-            )
-            .try_reduce(
-                || Vec::new(),
-                |mut l, mut r| {
-                    l.append(&mut r);
-                    Ok(l)
-                },
-            )?;
+        let mut receipt_trackers = Vec::new();
+        for shard_uids_chunk in shard_uids.chunks(3) {
+            // Load memtries for this chunk of shards
+            runtime
+                .get_tries()
+                .load_memtries_for_enabled_shards(shard_uids_chunk, &[].into(), true)
+                .unwrap();
+
+            // Process this chunk in parallel
+            let chunk_trackers = shard_uids_chunk
+                .into_par_iter()
+                .try_fold(
+                    || Vec::new(),
+                    |mut trackers, shard_uid| {
+                        let t = self.prepare_shard_state(
+                            batch_size,
+                            source_shard_layout.clone(),
+                            target_shard_layout.clone(),
+                            *shard_uid,
+                            store.clone(),
+                            make_storage_mutator.clone(),
+                            update_state.clone(),
+                        )?;
+                        trackers.push(t);
+                        anyhow::Ok(trackers)
+                    },
+                )
+                .try_reduce(
+                    || Vec::new(),
+                    |mut l, mut r| {
+                        l.append(&mut r);
+                        Ok(l)
+                    },
+                )?;
+
+            // Unload memtries for this chunk
+            for shard_uid in shard_uids_chunk {
+                runtime.get_tries().unload_memtrie(shard_uid);
+            }
+
+            receipt_trackers.extend(chunk_trackers);
+        }
 
         Self::update_source_state_roots(
             &mut source_state_roots,
