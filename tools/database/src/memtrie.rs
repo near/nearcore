@@ -41,25 +41,28 @@ impl LoadMemTrieCommand {
         let genesis_config = &near_config.genesis.config;
         // Note: this is not necessarily correct; it's just an estimate of the shard layout,
         // so that users of this tool doesn't have to specify the full shard UID.
-        let head =
-            store.get_ser::<Tip>(DBCol::BlockMisc, HEAD_KEY).unwrap().unwrap().last_block_hash;
-        let block_header = store
-            .get_ser::<BlockHeader>(DBCol::BlockHeader, &borsh::to_vec(&head).unwrap())?
-            .ok_or_else(|| anyhow::anyhow!("Block header not found"))?;
+        // let head =
+        //     store.get_ser::<Tip>(DBCol::BlockMisc, HEAD_KEY).unwrap().unwrap().last_block_hash;
+        // let block_header = store
+        //     .get_ser::<BlockHeader>(DBCol::BlockHeader, &borsh::to_vec(&head).unwrap())?
+        //     .ok_or_else(|| anyhow::anyhow!("Block header not found"))?;
         let epoch_manager =
             EpochManager::new_arc_handle(store.clone(), &genesis_config, Some(home));
 
-        let all_shard_uids: Vec<ShardUId> =
-            epoch_manager.get_shard_layout(block_header.epoch_id()).unwrap().shard_uids().collect();
-        let selected_shard_uids: Vec<ShardUId> = match &self.shard_id {
-            None => all_shard_uids,
-            Some(shard_ids) => all_shard_uids
-                .iter()
-                .filter(|uid| shard_ids.contains(&uid.shard_id()))
-                .map(|uid| *uid)
-                .collect(),
-        };
+        // let all_shard_uids: Vec<ShardUId> =
+        //     epoch_manager.get_shard_layout(block_header.epoch_id()).unwrap().shard_uids().collect();
+        // let selected_shard_uids: Vec<ShardUId> = match &self.shard_id {
+        //     None => all_shard_uids,
+        //     Some(shard_ids) => all_shard_uids
+        //         .iter()
+        //         .filter(|uid| shard_ids.contains(&uid.shard_id()))
+        //         .map(|uid| *uid)
+        //         .collect(),
+        // };
 
+        let shard_ids = self.shard_id.clone().unwrap_or_default();
+        let selected_shard_uids: Vec<_> =
+            shard_ids.into_iter().map(|shard_id| ShardUId::new(3, shard_id)).collect();
         let runtime = NightshadeRuntime::from_config(home, store, &near_config, epoch_manager)
             .context("could not create the transaction runtime")?;
 
