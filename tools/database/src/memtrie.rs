@@ -60,7 +60,7 @@ impl LoadMemTrieCommand {
         //         .collect(),
         // };
 
-        let shard_ids = self.shard_id.unwrap_or_default();
+        let shard_ids = self.shard_id.clone().unwrap_or_default();
         let selected_shard_uids: Vec<_> =
             shard_ids.into_iter().map(|shard_id| ShardUId::new(3, shard_id)).collect();
         let runtime = NightshadeRuntime::from_config(home, store, &near_config, epoch_manager)
