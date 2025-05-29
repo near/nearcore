@@ -284,5 +284,5 @@ fn create_replay_store(home_dir: &Path, near_config: &NearConfig) -> Store {
         storage.into_inner(Temperature::Hot)
     };
     let write_db = TestDB::new();
-    Store::new(MixedDB::new(read_db, write_db, ReadOrder::WriteDBFirst))
+    Store::new(MixedDB::new(read_db, write_db, ReadOrder::WriteDBFirst), Default::default())
 }

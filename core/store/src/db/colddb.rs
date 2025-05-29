@@ -23,7 +23,7 @@ impl ColdDB {
     }
 
     pub fn as_store(&self) -> Store {
-        Store::new(self.cold.clone())
+        Store::new(self.cold.clone(), Default::default())
     }
 
     fn err_msg(col: DBCol) -> String {

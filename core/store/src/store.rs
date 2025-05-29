@@ -1,18 +1,62 @@
+use crate::DBCol;
+use crate::adapter::{StoreAdapter, StoreUpdateAdapter};
+use crate::db::metadata::{DbKind, DbMetadata, DbVersion, KIND_KEY, VERSION_KEY};
+use crate::db::{DBIterator, DBOp, DBSlice, DBTransaction, Database, StoreStatistics, refcount};
+use borsh::{BorshDeserialize, BorshSerialize};
+use near_fmt::{AbbrBytes, StorageKey};
 use std::fs::File;
 use std::path::Path;
 use std::sync::Arc;
 use std::{fmt, io};
 
-use borsh::{BorshDeserialize, BorshSerialize};
-use near_fmt::{AbbrBytes, StorageKey};
-
-use crate::DBCol;
-use crate::adapter::{StoreAdapter, StoreUpdateAdapter};
-use crate::db::metadata::{DbKind, DbMetadata, DbVersion, KIND_KEY, VERSION_KEY};
-use crate::db::{DBIterator, DBOp, DBSlice, DBTransaction, Database, StoreStatistics, refcount};
-
 const STATE_COLUMNS: [DBCol; 2] = [DBCol::State, DBCol::FlatState];
 const STATE_FILE_END_MARK: u8 = 255;
+
+pub(super) mod deserialized_column {
+    use crate::DBCol;
+    use std::any::Any;
+    use std::sync::Arc;
+
+    type CacheContainer = near_cache::SyncLruCache<Vec<u8>, Arc<dyn Any + Send + Sync>>;
+
+    struct ColumnCache {
+        values: Option<CacheContainer>,
+    }
+
+    impl ColumnCache {
+        pub fn get_enabled(&self) -> Option<&CacheContainer> {
+            self.values.as_ref()
+        }
+
+        fn disabled() -> Self {
+            Self::new(0)
+        }
+
+        fn new(capacity: usize) -> Self {
+            Self { values: (capacity > 0).then(|| near_cache::SyncLruCache::new(capacity)) }
+        }
+    }
+
+    pub struct Cache {
+        column_map: enum_map::EnumMap<DBCol, ColumnCache>,
+    }
+
+    impl Default for Cache {
+        fn default() -> Self {
+            Self {
+                column_map: enum_map::enum_map! {
+                    _ => ColumnCache::disabled(),
+                },
+            }
+        }
+    }
+
+    impl Cache {
+        pub fn work_with(&self, col: DBCol) -> Option<&CacheContainer> {
+            self.column_map[col].get_enabled()
+        }
+    }
+}
 
 /// Node’s single storage source.
 ///
@@ -23,6 +67,7 @@ const STATE_FILE_END_MARK: u8 = 255;
 #[derive(Clone)]
 pub struct Store {
     storage: Arc<dyn Database>,
+    cache: Arc<deserialized_column::Cache>,
 }
 
 impl StoreAdapter for Store {
@@ -32,8 +77,8 @@ impl StoreAdapter for Store {
 }
 
 impl Store {
-    pub fn new(storage: Arc<dyn Database>) -> Self {
-        Self { storage }
+    pub fn new(storage: Arc<dyn Database>, cache: Arc<deserialized_column::Cache>) -> Self {
+        Self { storage, cache }
     }
 
     pub fn database(&self) -> &dyn Database {
@@ -64,6 +109,41 @@ impl Store {
 
     pub fn get_ser<T: BorshDeserialize>(&self, column: DBCol, key: &[u8]) -> io::Result<Option<T>> {
         self.get(column, key)?.as_deref().map(T::try_from_slice).transpose()
+    }
+
+    pub fn caching_get_ser<T: BorshDeserialize + Send + Sync + 'static>(
+        &self,
+        column: DBCol,
+        key: &[u8],
+    ) -> io::Result<Option<Arc<T>>> {
+        let Some(column_cache) = self.cache.work_with(column) else {
+            return self.get_ser::<T>(column, key).map(|v| v.map(Into::into));
+        };
+        let mut cache_lock = column_cache.lock();
+        if let Some(value) = cache_lock.get(key) {
+            match Arc::downcast::<T>(Arc::clone(value)) {
+                Ok(result) => return Ok(Some(result)),
+                Err(_) => {
+                    tracing::debug!(
+                        target: "store",
+                        requested = std::any::type_name::<T>(),
+                        "could not downcast an available cached deserialized value"
+                    );
+                }
+            }
+        }
+        // We drop the lock on LRU cache here as the lookup in rocksdb and deserialization can take
+        // quite some time and we don't really want to block other requests from making progress
+        // during this procedure...
+        drop(cache_lock);
+        let value = match self.get_ser::<T>(column, key) {
+            Ok(Some(value)) => Arc::from(value),
+            Ok(None) => return Ok(None),
+            Err(e) => return Err(e),
+        };
+        cache_lock = column_cache.lock();
+        cache_lock.put(key.into(), Arc::clone(&value) as _);
+        Ok(Some(value))
     }
 
     pub fn exists(&self, column: DBCol, key: &[u8]) -> io::Result<bool> {
@@ -168,6 +248,25 @@ impl Store {
             }
             let (key, value) = BorshDeserialize::deserialize_reader(&mut file)?;
             transaction.set(STATE_COLUMNS[usize::from(column)], key, value);
+        }
+        self.write(transaction)
+    }
+
+    pub fn write(&self, transaction: DBTransaction) -> io::Result<()> {
+        for op in &transaction.ops {
+            match op {
+                DBOp::Set { col, key, .. }
+                | DBOp::Insert { col, key, .. }
+                | DBOp::UpdateRefcount { col, key, .. }
+                | DBOp::Delete { col, key } => {
+                    let Some(cache) = self.cache.work_with(*col) else { continue };
+                    cache.lock().pop(key);
+                }
+                DBOp::DeleteAll { col } | DBOp::DeleteRange { col, .. } => {
+                    let Some(cache) = self.cache.work_with(*col) else { continue };
+                    cache.lock().clear();
+                }
+            }
         }
         self.storage.write(transaction)
     }
@@ -492,7 +591,7 @@ impl StoreUpdate {
                 }
             }
         }
-        self.store.storage.write(self.transaction)
+        self.store.write(self.transaction)
     }
 }
 

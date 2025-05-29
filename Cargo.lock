@@ -5111,6 +5111,7 @@ dependencies = [
  "itertools 0.12.1",
  "itoa",
  "lru 0.12.3",
+ "near-cache",
  "near-chain",
  "near-chain-configs",
  "near-chain-primitives",
