@@ -89,7 +89,15 @@ impl ParallelMemTrieLoader {
         max_subtree_size: Option<u64>,
     ) -> Result<TrieLoadingPlanNode, StorageError> {
         // Read the node from the State column.
-        let value = self.store.get(self.shard_uid, &hash)?;
+        let maybe_value = self.store.get(self.shard_uid, &hash);
+        let value = match maybe_value {
+            Ok(value) => value,
+            Err(e) => {
+                println!("MISSING: {:?} {:?} {:?}", prefix, self.shard_uid, hash);
+                return Err(e);
+            }
+        };
+
         let node = RawTrieNodeWithSize::try_from_slice(&value)
             .map_err(|e| StorageError::StorageInconsistentState(e.to_string()))?;
 
