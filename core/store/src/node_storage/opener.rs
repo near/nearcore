@@ -360,7 +360,7 @@ impl<'a> StoreOpener<'a> {
                 tracing::info!(target: "db_opener", path=%opener.path.display(), "The database doesn't exist, creating it.");
 
                 let db = opener.create()?;
-                let store = Store { storage: Arc::new(db) };
+                let store = Store::new(Arc::new(db));
                 store.set_db_version(DB_VERSION)?;
                 return Ok(());
             }
@@ -488,13 +488,13 @@ impl<'a> StoreOpener<'a> {
         version: DbVersion,
     ) -> Result<Store, StoreOpenerError> {
         let (db, _) = opener.open(mode, version)?;
-        let store = Store { storage: Arc::new(db) };
+        let store = Store::new(Arc::new(db));
         Ok(store)
     }
 
     fn open_store_unsafe(mode: Mode, opener: &DBOpener) -> Result<Store, StoreOpenerError> {
         let db = opener.open_unsafe(mode)?;
-        let store = Store { storage: Arc::new(db) };
+        let store = Store::new(Arc::new(db));
         Ok(store)
     }
 }
@@ -611,14 +611,14 @@ pub fn checkpoint_hot_storage_and_cleanup_columns(
     let _span =
         tracing::info_span!(target: "state_snapshot", "checkpoint_hot_storage_and_cleanup_columns")
             .entered();
-    if let Some(storage) = hot_store.storage.copy_if_test(columns_to_keep) {
+    if let Some(storage) = hot_store.database().copy_if_test(columns_to_keep) {
         return Ok(NodeStorage::new(storage));
     }
     let checkpoint_path = checkpoint_base_path.join("data");
     std::fs::create_dir_all(&checkpoint_base_path)?;
 
     hot_store
-        .storage
+        .database()
         .create_checkpoint(&checkpoint_path, columns_to_keep)
         .map_err(StoreOpenerError::CheckpointError)?;
 
@@ -692,7 +692,7 @@ mod tests {
     fn slow_test_checkpoint_hot_storage_and_cleanup_columns() {
         let (home_dir, opener) = NodeStorage::test_opener();
         let node_storage = opener.open().unwrap();
-        let hot_store = Store { storage: node_storage.hot_storage.clone() };
+        let hot_store = Store::new(node_storage.hot_storage.clone());
         assert_eq!(hot_store.get_db_kind().unwrap(), Some(DbKind::RPC));
 
         let keys = vec![vec![0], vec![1], vec![2], vec![3]];

@@ -144,15 +144,16 @@ fn cold_store_copy(
     let epoch_id = epoch_manager.get_epoch_id(&next_height_block_hash)?;
     let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
     let tracked_shards = shard_tracker.get_tracked_shards_for_non_validator_in_epoch(&epoch_id)?;
-    let is_last_block_in_epoch =
-        epoch_manager.is_next_block_epoch_start(&next_height_block_hash)?;
+    let block_info = epoch_manager.get_block_info(&next_height_block_hash)?;
+    let is_resharding_boundary = epoch_manager.is_resharding_boundary(block_info.prev_hash())?;
+
     update_cold_db(
         cold_db,
         hot_store,
         &shard_layout,
         &tracked_shards,
         &next_height,
-        is_last_block_in_epoch,
+        is_resharding_boundary,
         num_threads,
     )?;
     update_cold_head(cold_db, hot_store, &next_height)?;

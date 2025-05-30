@@ -1,6 +1,6 @@
 use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
 use crate::env::test_env::TestEnv;
-use near_chain::{Chain, Provenance};
+use near_chain::Provenance;
 use near_chain_configs::Genesis;
 use near_client::test_utils::create_chunk;
 use near_client::{ProcessTxResponse, ProduceChunkResult};
@@ -102,12 +102,10 @@ fn test_invalid_transactions_no_panic() {
                 )
                 .unwrap();
             let prev_block = client.chain.get_block(shard_chunk.prev_block()).unwrap();
-            let prev_chunk_header = Chain::get_prev_chunk_header(
-                client.epoch_manager.as_ref(),
-                &prev_block,
-                shard_chunk.shard_id(),
-            )
-            .unwrap();
+            let prev_chunk_header = client
+                .epoch_manager
+                .get_prev_chunk_header(&prev_block, shard_chunk.shard_id())
+                .unwrap();
             client
                 .send_chunk_state_witness_to_chunk_validators(
                     &client
@@ -227,12 +225,8 @@ fn test_invalid_transactions_dont_invalidate_chunk() {
         .unwrap();
 
     let prev_block = client.chain.get_block(shard_chunk.prev_block()).unwrap();
-    let prev_chunk_header = Chain::get_prev_chunk_header(
-        client.epoch_manager.as_ref(),
-        &prev_block,
-        shard_chunk.shard_id(),
-    )
-    .unwrap();
+    let prev_chunk_header =
+        client.epoch_manager.get_prev_chunk_header(&prev_block, shard_chunk.shard_id()).unwrap();
     client
         .send_chunk_state_witness_to_chunk_validators(
             &client.epoch_manager.get_epoch_id_from_prev_block(shard_chunk.prev_block()).unwrap(),

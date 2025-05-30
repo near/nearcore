@@ -9,7 +9,7 @@ use near_o11y::testonly::init_test_logger;
 use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::shard_layout::{ShardLayout, get_block_shard_uid, get_block_shard_uid_rev};
 use near_primitives::types::AccountId;
-use near_primitives::version::{PROD_GENESIS_PROTOCOL_VERSION, ProtocolFeature};
+use near_primitives::version::{PROD_GENESIS_PROTOCOL_VERSION, PROTOCOL_VERSION};
 use near_store::adapter::StoreAdapter as _;
 use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::{DBCol, ShardUId};
@@ -92,7 +92,7 @@ fn test_archival_single_shard_tracking_when_resharding() {
     let validator_client: AccountId = validator.parse().unwrap();
     let validators_spec = ValidatorsSpec::desired_roles(&[validator], &[]);
     let genesis = TestLoopBuilder::new_genesis_builder()
-        .protocol_version(ProtocolFeature::SimpleNightshadeV4.protocol_version())
+        .protocol_version(PROTOCOL_VERSION - 1)
         .validators_spec(validators_spec)
         .shard_layout(base_shard_layout.clone())
         .epoch_length(EPOCH_LENGTH)
