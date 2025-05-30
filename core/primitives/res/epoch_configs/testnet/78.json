@@ -45,7 +45,7 @@
   "shard_layout": {
     "V2": {
       "boundary_accounts": [
-        "750",
+        "650",
         "aurora",
         "aurora-0",
         "earn.kaiching",

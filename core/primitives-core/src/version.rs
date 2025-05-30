@@ -258,7 +258,7 @@ pub enum ProtocolFeature {
     SimpleNightshadeV4,
     /// Resharding V3 - Adding "earn.kaiching" boundary.
     SimpleNightshadeV5,
-    /// Resharding V3 - Adding "750" boundary.
+    /// Resharding V3 - Adding "650" boundary.
     SimpleNightshadeV6,
     /// Exclude contract code from the chunk state witness and distribute it to chunk validators separately.
     #[deprecated]
