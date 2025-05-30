@@ -20,7 +20,7 @@ use near_primitives::block_header::BlockHeader;
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
-use near_primitives::sharding::ShardChunk;
+use near_primitives::sharding::{ReceiptProof, ShardChunk};
 use near_primitives::state_sync::{ReceiptProofResponse, ShardStateSyncResponseHeader};
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, ShardId};
@@ -65,7 +65,7 @@ impl<'a> ChainUpdate<'a> {
         self.chain_store_update.commit()
     }
 
-    pub(crate) fn apply_chunk_postprocessing(
+    pub fn apply_chunk_postprocessing(
         &mut self,
         block: &Block,
         apply_results: Vec<ShardUpdateResult>,
@@ -206,6 +206,14 @@ impl<'a> ChainUpdate<'a> {
         }
     }
 
+    pub fn save_incoming_receipt(
+        &mut self,
+        hash: &CryptoHash,
+        shard_id: ShardId,
+        receipt_proof: Arc<Vec<ReceiptProof>>,
+    ) {
+        self.chain_store_update.save_incoming_receipt(hash, shard_id, receipt_proof);
+    }
     /// This is the last step of process_block_single, where we take the preprocess block info
     /// apply chunk results and store the results on chain.
     #[tracing::instrument(
@@ -239,11 +247,7 @@ impl<'a> ChainUpdate<'a> {
         }
 
         for (shard_id, receipt_proofs) in incoming_receipts {
-            self.chain_store_update.save_incoming_receipt(
-                block.hash(),
-                shard_id,
-                Arc::new(receipt_proofs),
-            );
+            self.save_incoming_receipt(block.hash(), shard_id, Arc::new(receipt_proofs));
         }
         if let Some(state_sync_info) = state_sync_info {
             self.chain_store_update.add_state_sync_info(state_sync_info);

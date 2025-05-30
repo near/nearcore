@@ -134,6 +134,7 @@ fn test_client_with_simple_test_loop() {
         Default::default(),
         None,
         sync_jobs_adapter.as_multi_sender(),
+        noop().into_sender(),
     )
     .unwrap();
 
