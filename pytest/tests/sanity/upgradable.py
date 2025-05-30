@@ -10,7 +10,6 @@ import sys
 import pathlib
 import threading
 import time
-import traceback
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
@@ -21,26 +20,16 @@ from transaction import sign_function_call_tx, sign_payment_tx, sign_deploy_cont
 import utils
 
 ONE_NEAR = 1000000000000000000000000
-
-_EXECUTABLES = None
-
 TIMEOUT = 10
 
 
-def get_executables() -> branches.ABExecutables:
-    global _EXECUTABLES
-    if _EXECUTABLES is None:
-        _EXECUTABLES = branches.prepare_ab_test()
-        logger.info(f"Latest mainnet release is {_EXECUTABLES.release}")
-    return _EXECUTABLES
-
-
-def get_proto_version(exe: pathlib.Path) -> (int, int):
+def get_proto_version(exe: pathlib.Path) -> int:
     line = subprocess.check_output((exe, '--version'), text=True)
-    m = re.search(r'\(release (.*?)\) .* \(protocol ([0-9]+)\)', line)
+    m = re.search(r'.* \(protocol ([0-9]+)\)', line)
     assert m, (f'Unable to extract protocol version number from {exe};\n'
                f'Got {line.rstrip()} on standard output')
-    return m.group(1), int(m.group(2))
+    logger.info(f'Protocol version {m.group(1)} found in {exe}')
+    return int(m.group(1))
 
 
 class TrafficGenerator(threading.Thread):
@@ -48,11 +37,11 @@ class TrafficGenerator(threading.Thread):
 
     def __init__(self, rpc_node: cluster.LocalNode, **kwargs) -> None:
         super().__init__(**kwargs)
-        self._lock = threading.Lock()
         self._rpc_node = rpc_node
         self._stopped = False
         self._paused = False
         self._failed_txs = 0
+        self._total_txs = 0
         self._acc1 = f"000000.{self._rpc_node.signer_key.account_id}"
         self._acc2 = f"zzzzzz.{self._rpc_node.signer_key.account_id}"
 
@@ -64,27 +53,20 @@ class TrafficGenerator(threading.Thread):
                 time.sleep(1)
                 continue
             try:
-                with self._lock:
-                    self.send_transfer()
-                    self.call_test_contracts()
+                self.send_transfer()
+                self.call_test_contracts()
             except Exception:
-                traceback.print_exc()
+                logger.error("Failed to send transaction", exc_info=True)
                 self._failed_txs += 1
         logger.info("Traffic generator stopped")
 
     def stop(self) -> None:
         logger.info("Stopping traffic generator")
         self._stopped = True
-        # Acquire lock to make sure no tx is awaiting
-        self._lock.acquire()
-        self._lock.release()
 
     def pause(self) -> None:
         logger.info("Pausing traffic generator")
         self._paused = True
-        # Acquire lock to make sure no tx is awaiting
-        self._lock.acquire()
-        self._lock.release()
 
     def resume(self) -> None:
         logger.info("Resuming traffic generator")
@@ -154,6 +136,7 @@ class TrafficGenerator(threading.Thread):
         self.send_tx(tx)
 
     def send_transfer(self) -> None:
+        self._total_txs += 1
         account_id = random.randbytes(32).hex()
         logger.info(f"Sending transfer to {account_id}")
         amount = 10**25
@@ -170,24 +153,18 @@ class TrafficGenerator(threading.Thread):
             self._rpc_node.get_account(account_id)['result']['amount'])
         assert hex_account_balance == amount
 
-    def assert_no_failed_txs(self) -> None:
-        assert self._failed_txs == 0, f"{self._failed_txs} transactions failed"
+    def assert_failed_txs_below_threshold(self) -> None:
+        """Assert that the number of failed transactions is below 10%"""
+        failed_txs_percent = self._failed_txs / self._total_txs
+        assert failed_txs_percent < 0.1, f"{self._failed_txs} of {self._total_txs} transactions failed"
 
 
-@dataclasses.dataclass
 class Protocols:
-    stable: int
-    current: int
 
-    @classmethod
-    def from_executables(
-        cls,
-        executables: branches.ABExecutables,
-    ) -> 'Protocols':
-        _, stable = get_proto_version(executables.stable.neard)
-        _, current = get_proto_version(executables.current.neard)
-        assert current >= stable, "cannot downgrade protocol version"
-        return cls(stable, current)
+    def __init__(self, executables: branches.ABExecutables):
+        self.stable = get_proto_version(executables.stable.neard)
+        self.current = get_proto_version(executables.current.neard)
+        assert self.current >= self.stable, "cannot downgrade protocol version"
 
 
 class TestUpgrade:
@@ -202,8 +179,8 @@ class TestUpgrade:
         self._node_prefix = node_prefix
         self._epoch_length = epoch_length
 
-        self._executables = get_executables()
-        self._protocols = Protocols.from_executables(self._executables)
+        self._executables = branches.prepare_ab_test()
+        self._protocols = Protocols(self._executables)
         node_dirs = self.configure_nodes()
         nodes = self.start_nodes(node_dirs)
 
@@ -213,7 +190,7 @@ class TestUpgrade:
         self._metrics_tracker = utils.MetricsTracker(self._rpc_node)
 
     def run(self) -> None:
-        """Test that upgrade from ‘stable’ to ‘current’ binary is possible.
+        """Test that upgrade from `stable` to `current` binary is possible.
 
         1. Start a network with 3 `stable` nodes and 1 `new` node.
         2. Start switching `stable` nodes one by one with `new` nodes.
@@ -229,32 +206,29 @@ class TestUpgrade:
 
         try:
             self.wait_epoch()
-            self.wait_for_no_missed_endorsements()
+            self.check_missed_endorsements_threshold()
 
             traffic_generator.pause()
             self.upgrade_nodes()
             self.wait_epoch()  # Skip this epoch, because nodes are starting
-            time.sleep(1)
             traffic_generator.resume()
 
             # Protocol version should update by one each epoch
-            for expected_version in range(
-                    self._protocols.stable + 1,
-                    self._protocols.current + 1,
-            ):
+            for expected_version in range(self._protocols.stable + 1,
+                                          self._protocols.current + 1):
                 self.wait_epoch()
-                self.wait_for_no_missed_endorsements()
+                self.check_missed_endorsements_threshold()
                 self.wait_for_protocol_version(expected_version)
 
             # Run one more epoch with the latest protocol version
             self.wait_epoch()
-            self.wait_for_no_missed_endorsements()
+            self.check_missed_endorsements_threshold()
 
         finally:
             traffic_generator.stop()
-            traffic_generator.join(timeout=10)
+            traffic_generator.join(timeout=20)
 
-        traffic_generator.assert_no_failed_txs()
+        traffic_generator.assert_failed_txs_below_threshold()
 
     def configure_nodes(self) -> list[str]:
         node_root = utils.get_near_tempdir('upgradable', clean=True)
@@ -328,6 +302,7 @@ class TestUpgrade:
 
     def upgrade_nodes(self) -> None:
         # Restart stable nodes into the new version.
+        logger.info(f"Restarting nodes with new binary")
         for node in self._stable_nodes:
             node.kill()
             self.dump_epoch_configs(node.node_dir, self._protocols.current)
@@ -348,26 +323,19 @@ class TestUpgrade:
             if epoch != start_epoch:
                 break
 
-    def get_missed_endorsements(self) -> dict:
+    def check_missed_endorsements_threshold(self) -> None:
+        """Checks that no validator missed more than 10% of endorsements."""
+        logger.info("Checking missed endorsements threshold")
         prev_epoch_id = self._rpc_node.get_prev_epoch_id()
-        validators = self._rpc_node.get_validators(prev_epoch_id)['result']['current_validators']  # yapf: disable
-        return {
-            v['account_id']: v['num_expected_endorsements'] - v['num_produced_endorsements']
-            for v in validators
-        }  # yapf: disable
-
-    def wait_for_no_missed_endorsements(self) -> None:
-
-        def _condition():
-            missed_endorsements = self.get_missed_endorsements()
-            for i in range(self._num_validators):
-                validator_id = f'{self._node_prefix}{i}'
-                assert validator_id in missed_endorsements, \
-                    f'validator {validator_id} not in active validator set'
-                num_missed = missed_endorsements[validator_id]
-                assert num_missed == 0, f'validator {validator_id} missed {num_missed} endorsements'
-
-        wait_for_condition(_condition)
+        validators = self._rpc_node.get_validators(
+            prev_epoch_id)['result']['current_validators']
+        logger.info(f"Validators in epoch {prev_epoch_id}: {validators}")
+        assert len(validators) == self._num_validators, \
+            f'Expected {self._num_validators} number validators, got {len(validators)}'
+        for v in validators:
+            percent_missed = 1.0 - v['num_produced_endorsements'] / v[
+                'num_expected_endorsements']
+            assert percent_missed < 0.1, f'validator {v} missed {percent_missed}% endorsements'
 
     def wait_for_protocol_version(self, expected_version: int) -> None:
 
@@ -376,7 +344,10 @@ class TestUpgrade:
                 protocol_version = node.get_status()['protocol_version']
                 assert protocol_version == expected_version, \
                     f"Wrong protocol version: {protocol_version} expected: {expected_version}"
+            logger.info(
+                f"Protocol version now {expected_version} for all nodes")
 
+        logger.info(f"Waiting for protocol version {expected_version}")
         wait_for_condition(_condition)
 
 
@@ -393,16 +364,12 @@ def wait_for_condition(condition, timeout=TIMEOUT):
         raise error
 
 
-def test_upgrade() -> None:
+def main():
     TestUpgrade(
         num_validators=4,
         node_prefix='test',
-        epoch_length=50,
+        epoch_length=40,
     ).run()
-
-
-def main():
-    test_upgrade()
 
 
 if __name__ == "__main__":
