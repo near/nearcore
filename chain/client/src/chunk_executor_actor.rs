@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 use std::num::NonZeroUsize;
-use std::ops::Deref as _;
 use std::sync::Arc;
 
 use itertools::Itertools as _;
@@ -183,7 +182,7 @@ impl ChunkExecutorActor {
                 return Ok(());
             }
         }
-        self.apply_chunks(me, block, SandboxStatePatch {})
+        self.apply_chunks(me, block, SandboxStatePatch::default())
     }
 
     fn get_incoming_receipts(
@@ -242,7 +241,7 @@ impl ChunkExecutorActor {
             }
             // TODO(spice-resharding): We may need to take resharding into account here.
             let receipt_proofs = self.get_incoming_receipts(prev_hash, shard_id)?;
-            let incoming_receipts = Some(receipt_proofs.deref());
+            let incoming_receipts = Some(&*receipt_proofs);
 
             let storage_context =
                 StorageContext { storage_data_source: StorageDataSource::Db, state_patch };
@@ -314,11 +313,7 @@ impl ChunkExecutorActor {
         Ok(())
     }
 
-    fn send_outgoing_receipts(
-        &mut self,
-        block_hash: CryptoHash,
-        receipt_proofs: Vec<ReceiptProof>,
-    ) {
+    fn send_outgoing_receipts(&self, block_hash: CryptoHash, receipt_proofs: Vec<ReceiptProof>) {
         tracing::debug!(target: "chunk_executor", %block_hash, ?receipt_proofs, "sending outgoing receipts");
         self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
             NetworkRequests::TestonlySpiceIncomingReceipts { block_hash, receipt_proofs },
