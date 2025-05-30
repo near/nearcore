@@ -596,6 +596,30 @@ impl RoutedMessageBody {
             _ => false,
         }
     }
+
+    pub fn signature(&self) -> Option<Signature> {
+        match self {
+            RoutedMessageBody::BlockApproval(approval) => Some(approval.signature.clone()),
+            RoutedMessageBody::ForwardTx(tx) => Some(tx.signature.clone()),
+            RoutedMessageBody::PartialEncodedStateWitness(witness) => {
+                Some(witness.signature.clone())
+            }
+            RoutedMessageBody::PartialEncodedStateWitnessForward(witness) => {
+                Some(witness.signature.clone())
+            }
+            RoutedMessageBody::VersionedChunkEndorsement(endorsement) => {
+                Some(endorsement.signature())
+            }
+            RoutedMessageBody::ChunkContractAccesses(accesses) => {
+                Some(accesses.signature().clone())
+            }
+            RoutedMessageBody::ContractCodeRequest(request) => Some(request.signature().clone()),
+            RoutedMessageBody::PartialEncodedContractDeploys(deploys) => {
+                Some(deploys.signature().clone())
+            }
+            _ => None,
+        }
+    }
 }
 
 impl fmt::Debug for RoutedMessageBody {
@@ -700,9 +724,6 @@ pub struct RoutedMessage {
     pub target: PeerIdOrHash,
     /// Original sender of this message
     pub author: PeerId,
-    /// Signature from the author of the message. If this signature is invalid we should ban
-    /// last sender of this message. If the message is invalid we should ben author of the message.
-    pub signature: Signature,
     /// Time to live for this message. After passing through some hop this number should be
     /// decreased by 1. If this number is 0, drop this message.
     pub ttl: u8,
@@ -753,10 +774,6 @@ impl RoutedMessage {
 
     pub fn hash(&self) -> CryptoHash {
         RoutedMessage::build_hash(&self.target, &self.author, &self.body)
-    }
-
-    pub fn verify(&self) -> bool {
-        self.signature.verify(self.hash().as_ref(), self.author.public_key())
     }
 
     pub fn expect_response(&self) -> bool {
@@ -948,13 +965,10 @@ impl RawRoutedMessage {
         now: Option<time::Utc>,
     ) -> RoutedMessageV2 {
         let author = PeerId::new(node_key.public_key());
-        let hash = RoutedMessage::build_hash(&self.target, &author, &self.body);
-        let signature = node_key.sign(hash.as_ref());
         RoutedMessageV2 {
             msg: RoutedMessage {
                 target: self.target,
                 author,
-                signature,
                 ttl: routed_message_ttl,
                 body: self.body,
             },
