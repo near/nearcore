@@ -223,8 +223,10 @@ pub trait ChainStoreAccess {
                 break Ok(*block_header.epoch_id());
             }
             candidate_hash = *block_header.prev_hash();
-            (shard_id, shard_index) =
-                epoch_manager.get_prev_shard_ids(&candidate_hash, vec![shard_id])?[0];
+            let shard_info =
+                epoch_manager.get_prev_shard_infos(&candidate_hash, vec![shard_id])?[0];
+            shard_id = shard_info.shard_id();
+            shard_index = shard_info.shard_index();
         }
     }
 

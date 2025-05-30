@@ -10,7 +10,7 @@ use itertools::Itertools;
 use near_async::messaging::Sender;
 use near_chain::chain::{BlockCatchUpRequest, do_apply_chunks};
 use near_chain::test_utils::{wait_for_all_blocks_in_processing, wait_for_block_in_processing};
-use near_chain::{Chain, ChainStoreAccess, Provenance};
+use near_chain::{ChainStoreAccess, Provenance};
 use near_client_primitives::types::Error;
 use near_network::types::HighestHeightPeerInfo;
 use near_primitives::bandwidth_scheduler::BandwidthRequests;
@@ -116,12 +116,8 @@ impl Client {
         )
         .unwrap();
         let prev_block = self.chain.get_block(shard_chunk.prev_block()).unwrap();
-        let prev_chunk_header = Chain::get_prev_chunk_header(
-            self.epoch_manager.as_ref(),
-            &prev_block,
-            shard_chunk.shard_id(),
-        )
-        .unwrap();
+        let prev_chunk_header =
+            self.epoch_manager.get_prev_chunk_header(&prev_block, shard_chunk.shard_id()).unwrap();
         self.send_chunk_state_witness_to_chunk_validators(
             &self.epoch_manager.get_epoch_id_from_prev_block(shard_chunk.prev_block()).unwrap(),
             prev_block.header(),
@@ -147,8 +143,7 @@ fn create_chunk_on_height_for_shard(
         .produce_chunk(
             &last_block,
             &client.epoch_manager.get_epoch_id_from_prev_block(&last_block_hash).unwrap(),
-            Chain::get_prev_chunk_header(client.epoch_manager.as_ref(), &last_block, shard_id)
-                .unwrap(),
+            client.epoch_manager.get_prev_chunk_header(&last_block, shard_id).unwrap(),
             next_height,
             shard_id,
             &signer,
