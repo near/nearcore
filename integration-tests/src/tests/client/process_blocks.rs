@@ -1033,6 +1033,7 @@ fn test_archival_gc_common(
         let header = block.header();
         let epoch_id = header.epoch_id();
         let shard_layout = env.clients[0].epoch_manager.get_shard_layout(epoch_id).unwrap();
+        let tracked_shards = shard_layout.shard_uids().collect();
         let is_resharding_boundary =
             env.clients[0].epoch_manager.is_resharding_boundary(header.prev_hash()).unwrap();
 
@@ -1043,6 +1044,7 @@ fn test_archival_gc_common(
                 storage.cold_db().unwrap(),
                 hot_store,
                 &shard_layout,
+                &tracked_shards,
                 &i,
                 is_resharding_boundary,
                 1,

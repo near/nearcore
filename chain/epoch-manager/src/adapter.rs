@@ -51,6 +51,8 @@ pub trait EpochManagerAdapter: Send + Sync {
     /// parts.
     fn num_total_parts(&self) -> usize;
 
+    fn genesis_protocol_version(&self) -> ProtocolVersion;
+
     /// Check if epoch exists.
     fn epoch_exists(&self, epoch_id: &EpochId) -> bool {
         self.get_epoch_info(epoch_id).is_ok()
@@ -883,12 +885,17 @@ pub trait EpochManagerAdapter: Send + Sync {
 impl EpochManagerAdapter for EpochManagerHandle {
     fn num_total_parts(&self) -> usize {
         let epoch_manager = self.read();
-        let genesis_protocol_version = epoch_manager.reward_calculator.genesis_protocol_version;
+        let genesis_protocol_version = epoch_manager.config.genesis_protocol_version();
         let seats = epoch_manager
             .config
             .for_protocol_version(genesis_protocol_version)
             .num_block_producer_seats;
         if seats > 1 { seats as usize } else { 2 }
+    }
+
+    fn genesis_protocol_version(&self) -> ProtocolVersion {
+        let epoch_manager = self.read();
+        epoch_manager.config.genesis_protocol_version()
     }
 
     fn get_block_info(&self, hash: &CryptoHash) -> Result<Arc<BlockInfo>, EpochError> {
