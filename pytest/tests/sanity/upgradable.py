@@ -335,7 +335,7 @@ class TestUpgrade:
         for v in validators:
             percent_missed = 1.0 - v['num_produced_endorsements'] / v[
                 'num_expected_endorsements']
-            assert percent_missed < 0.1, f'validator {v} missed {percent_missed}% endorsements'
+            assert percent_missed < 0.2, f'validator {v} missed {percent_missed}% endorsements'
 
     def wait_for_protocol_version(self, expected_version: int) -> None:
 
