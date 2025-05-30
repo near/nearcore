@@ -19,7 +19,8 @@ use nearcore::NightshadeRuntimeExt;
 
 #[derive(clap::Subcommand)]
 pub enum StateWitnessCmd {
-    /// Generates state witnesses for the given range of blocks.
+    /// Generates and validates resulting state witnesses for the given range
+    /// of blocks.
     Generate(GenerateWitnessesCmd),
     /// Dumps some of the latest stored state witnesses.
     Dump(DumpWitnessesCmd),
@@ -60,8 +61,6 @@ fn setup_chain(home_dir: &Path, near_config: NearConfig, store: Store) -> Chain 
     .unwrap()
 }
 
-/// Generate state witnesses for chunks in the given range of blocks for given
-/// shard id.
 #[derive(clap::Parser)]
 pub struct GenerateWitnessesCmd {
     /// Start block height.
