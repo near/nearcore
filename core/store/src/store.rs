@@ -45,6 +45,9 @@ pub(super) mod deserialized_column {
         fn default() -> Self {
             Self {
                 column_map: enum_map::enum_map! {
+                    | DBCol::BlockHeader
+                    | DBCol::BlockHeight
+                    | DBCol::BlockMisc => ColumnCache::new(512),
                     _ => ColumnCache::disabled(),
                 },
             }
