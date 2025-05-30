@@ -25,9 +25,11 @@ def deep_merge(original: dict, patch: dict) -> dict:
             result[key] = value
             continue
 
+        assert type(result[key]) == type(
+            value
+        ), f"Cannot merge values of different types: {type(result[key])} and {type(value)}"
         if isinstance(result[key], dict):
             # If both values are dictionaries, merge them recursively
-            assert isinstance(value, dict)
             result[key] = deep_merge(result[key], value)
         else:
             # For non-dictionary values, overwrite with patch value
