@@ -1065,7 +1065,6 @@ async fn state_sync_dump(
     Ok(())
 }
 
-#[allow(unused_variables, unreachable_code)]
 async fn do_state_sync_dump(
     clock: Clock,
     chain: Chain,

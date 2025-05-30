@@ -44,7 +44,6 @@ pub fn validate_chunk_proofs(
     }
     // 2c. Checking that chunk receipts are valid
     if height_created == 0 {
-        assert!(receipts.is_empty() && outgoing_receipts_root == CryptoHash::default());
         return Ok(receipts.is_empty() && outgoing_receipts_root == CryptoHash::default());
     } else {
         let shard_layout = {

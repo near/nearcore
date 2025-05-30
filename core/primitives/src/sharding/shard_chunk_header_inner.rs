@@ -14,7 +14,6 @@ pub enum ShardChunkHeaderInner {
     V3(ShardChunkHeaderInnerV3),
     V4(ShardChunkHeaderInnerV4),
     V5(ShardChunkHeaderInnerV5SpiceTxOnly),
-    // TODO(spice): Create a new version for tx-only chunk instead of using purpose enum.
 }
 
 impl ShardChunkHeaderInner {

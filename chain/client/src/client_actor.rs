@@ -272,7 +272,8 @@ pub struct ClientActorInner {
     /// Manages updating the config.
     config_updater: Option<ConfigUpdater>,
 
-    /// In spice executes chunks asynchronously.
+    /// With spice chunk executor executes chunks asynchronously.
+    /// Should be noop sender otherwise.
     chunk_executor_sender: Sender<ExecutorBlock>,
 }
 
