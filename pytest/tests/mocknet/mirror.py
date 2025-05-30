@@ -280,7 +280,7 @@ def hard_reset_cmd(ctx: CommandContext):
     if sys.stdin.readline().strip() != 'yes':
         return
     init_neard_runners(ctx, remove_home_dir=True)
-    _clear_state_parts_if_exists(_get_state_parts_location(args), nodes)
+    _clear_state_parts_if_exists(_get_state_parts_location(ctx.args), ctx.nodes)
 
 
 def restart_cmd(ctx: CommandContext):

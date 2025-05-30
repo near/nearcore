@@ -88,7 +88,8 @@ pub enum ProtocolFeature {
     /// version -- we can safely do that in a separate step.
     #[deprecated]
     _DeprecatedWasmer2,
-    SimpleNightshade,
+    #[deprecated]
+    _DeprecatedSimpleNightshade,
     #[deprecated]
     _DeprecatedLowerDataReceiptAndEcrecoverBaseCost,
     /// Lowers the cost of wasm instruction due to switch to wasmer2.
@@ -186,9 +187,11 @@ pub enum ProtocolFeature {
     _DeprecatedBlockHeaderV4,
     /// Resharding V2. A new implementation for resharding and a new shard
     /// layout for the production networks.
-    SimpleNightshadeV2,
+    #[deprecated]
+    _DeprecatedSimpleNightshadeV2,
     /// Built on top of Resharding V2. Changes shard layout to V3 to split shard 2 into two parts.
-    SimpleNightshadeV3,
+    #[deprecated]
+    _DeprecatedSimpleNightshadeV3,
     /// In case not all validator seats are occupied our algorithm provide incorrect minimal seat
     /// price - it reports as alpha * sum_stake instead of alpha * sum_stake / (1 - alpha), where
     /// alpha is min stake ratio
@@ -255,9 +258,11 @@ pub enum ProtocolFeature {
     #[deprecated]
     _DeprecatedStateStoredReceipt,
     /// Resharding V3 - Adding "game.hot.tg-0" boundary.
-    SimpleNightshadeV4,
+    #[deprecated]
+    _DeprecatedSimpleNightshadeV4,
     /// Resharding V3 - Adding "earn.kaiching" boundary.
-    SimpleNightshadeV5,
+    #[deprecated]
+    _DeprecatedSimpleNightshadeV5,
     /// Resharding V3 - Adding "750" boundary.
     SimpleNightshadeV6,
     /// Exclude contract code from the chunk state witness and distribute it to chunk validators separately.
@@ -341,7 +346,7 @@ impl ProtocolFeature {
             ProtocolFeature::_DeprecatedWasmer2
             | ProtocolFeature::_DeprecatedLowerDataReceiptAndEcrecoverBaseCost
             | ProtocolFeature::_DeprecatedLowerRegularOpCost
-            | ProtocolFeature::SimpleNightshade => 48,
+            | ProtocolFeature::_DeprecatedSimpleNightshade => 48,
             ProtocolFeature::_DeprecatedLowerRegularOpCost2
             | ProtocolFeature::_DeprecatedLimitContractFunctionsNumber
             | ProtocolFeature::_DeprecatedBlockHeaderV3
@@ -368,8 +373,8 @@ impl ProtocolFeature {
             ProtocolFeature::_DeprecatedBlockHeaderV4 => 63,
             ProtocolFeature::_DeprecatedRestrictTla
             | ProtocolFeature::_DeprecatedTestnetFewerBlockProducers
-            | ProtocolFeature::SimpleNightshadeV2 => 64,
-            ProtocolFeature::SimpleNightshadeV3 => 65,
+            | ProtocolFeature::_DeprecatedSimpleNightshadeV2 => 64,
+            ProtocolFeature::_DeprecatedSimpleNightshadeV3 => 65,
             ProtocolFeature::_DeprecatedDecreaseFunctionCallBaseCost
             | ProtocolFeature::_DeprecatedFixedMinimumNewReceiptGas => 66,
             ProtocolFeature::_DeprecatedYieldExecution => 67,
@@ -391,8 +396,8 @@ impl ProtocolFeature {
             | ProtocolFeature::_DeprecatedRemoveCheckBalance
             | ProtocolFeature::_DeprecatedBandwidthScheduler
             | ProtocolFeature::_DeprecatedCurrentEpochStateSync => 74,
-            ProtocolFeature::SimpleNightshadeV4 => 75,
-            ProtocolFeature::SimpleNightshadeV5 => 76,
+            ProtocolFeature::_DeprecatedSimpleNightshadeV4 => 75,
+            ProtocolFeature::_DeprecatedSimpleNightshadeV5 => 76,
             ProtocolFeature::GlobalContracts
             | ProtocolFeature::BlockHeightForReceiptId
             | ProtocolFeature::ProduceOptimisticBlock => 77,
@@ -419,7 +424,7 @@ impl ProtocolFeature {
 pub const PROD_GENESIS_PROTOCOL_VERSION: ProtocolVersion = 29;
 
 /// Minimum supported protocol version for the current binary
-pub const MIN_SUPPORTED_PROTOCOL_VERSION: ProtocolVersion = 75;
+pub const MIN_SUPPORTED_PROTOCOL_VERSION: ProtocolVersion = 77;
 
 /// Current protocol version used on the mainnet with all stable features.
 const STABLE_PROTOCOL_VERSION: ProtocolVersion = 78;
