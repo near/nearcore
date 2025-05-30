@@ -985,6 +985,7 @@ impl<'de> serde::de::Visitor<'de> for ShardUIdVisitor {
     }
 }
 
+#[derive(Clone, Copy)]
 pub struct ShardInfo {
     pub shard_index: ShardIndex,
     pub shard_uid: ShardUId,
