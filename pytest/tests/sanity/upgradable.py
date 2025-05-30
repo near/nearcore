@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 """Test if the node is backwards compatible with the latest release."""
-import dataclasses
 import json
 import os
 import random
@@ -20,7 +19,8 @@ from transaction import sign_function_call_tx, sign_payment_tx, sign_deploy_cont
 import utils
 
 ONE_NEAR = 1000000000000000000000000
-TIMEOUT = 10
+TIMEOUT = 20
+EPOCH_LENGTH = 40
 
 
 def get_proto_version(exe: pathlib.Path) -> int:
@@ -44,6 +44,7 @@ class TrafficGenerator(threading.Thread):
         self._total_txs = 0
         self._acc1 = f"000000.{self._rpc_node.signer_key.account_id}"
         self._acc2 = f"zzzzzz.{self._rpc_node.signer_key.account_id}"
+        self._nonce = 1_000_000
 
     def run(self) -> None:
         logger.info("Starting traffic generator")
@@ -76,14 +77,11 @@ class TrafficGenerator(threading.Thread):
         return self._rpc_node.get_latest_block().hash_bytes
 
     def get_next_nonce(self) -> int:
-        rpc_response = self._rpc_node.get_access_key(
-            account_id=self._rpc_node.signer_key.account_id,
-            public_key=self._rpc_node.signer_key.pk,
-        )
-        return rpc_response['result']['nonce'] + 1
+        self._nonce += 1
+        return self._nonce
 
-    def send_tx(self, tx: bytes, timeout=10) -> None:
-        res = self._rpc_node.send_tx_and_wait(tx, timeout=timeout)
+    def send_tx(self, tx: bytes) -> None:
+        res = self._rpc_node.send_tx_and_wait(tx, timeout=10)
         assert 'error' not in res, res
         assert 'Failure' not in res['result']['status'], res
 
@@ -187,7 +185,6 @@ class TestUpgrade:
         self._stable_nodes = nodes[0:num_validators]
         self._current_node = nodes[-2]
         self._rpc_node = nodes[-1]
-        self._metrics_tracker = utils.MetricsTracker(self._rpc_node)
 
     def run(self) -> None:
         """Test that upgrade from `stable` to `current` binary is possible.
@@ -246,8 +243,6 @@ class TestUpgrade:
             ("epoch_length", self._epoch_length),
             ("num_block_producer_seats", 10),
             ("num_block_producer_seats_per_shard", [10]),
-            ("block_producer_kickout_threshold", 80),
-            ("chunk_producer_kickout_threshold", 80),
         ]
         node_dirs = [
             os.path.join(node_root, f'{self._node_prefix}{i}')
@@ -260,9 +255,7 @@ class TestUpgrade:
             cluster.apply_config_changes(node_dir, {'tracked_shards': []})
 
         # Dump epoch configs to use mainnet shard layout
-        for node_dir in node_dirs[:self._num_validators - 1]:
-            self.dump_epoch_configs(node_dir, self._protocols.stable)
-        for node_dir in node_dirs[self._num_validators - 1:]:
+        for node_dir in node_dirs:
             self.dump_epoch_configs(node_dir, self._protocols.current)
 
         return node_dirs
@@ -278,26 +271,45 @@ class TestUpgrade:
         logger.info(' '.join(str(arg) for arg in cmd))
         subprocess.check_call(cmd)
 
+        # Reduce kickout thresholds in epoch configs for 10% to avoid kickouts
+        config_dir = os.path.join(node_dir, 'epoch_configs')
+        for file in os.listdir(config_dir):
+            file = os.path.join(config_dir, file)
+            data = json.load(open(file))
+            data['block_producer_kickout_threshold'] = 10
+            data['chunk_producer_kickout_threshold'] = 10
+            data['chunk_validator_only_kickout_threshold'] = 10
+            json.dump(data, open(file, 'w'), indent=4)
+            pass
+
     def start_nodes(
         self,
         node_dirs: list[str],
     ) -> list[cluster.LocalNode]:
-        # Start (`self._num_validators - 1`) stable nodes and one current node.
-        stable_config = self._executables.stable.node_config()
-        current_config = self._executables.current.node_config()
-        stable_root = self._executables.stable.root
-        current_root = self._executables.current.root
+        # Start (`self._num_validators - 1`) stable nodes, one current node, one rpc node.
         nodes = []
-        nodes.extend(
-            cluster.spin_up_node(
-                config=stable_config if i < (self._num_validators - 1) else current_config,
-                near_root=stable_root if i < (self._num_validators - 1) else current_root,
+        for i in range(self._num_validators - 1):
+            node = cluster.spin_up_node(
+                config=self._executables.stable.node_config(),
+                near_root=self._executables.stable.root,
                 node_dir=node_dirs[i],
                 ordinal=i,
                 boot_node=nodes[0] if i > 0 else None,
                 sleep_after_start=0,
-            ) for i in range(self._num_validators + 1)
-        )  # yapf: disable
+            )
+            nodes.append(node)
+
+        for i in range(self._num_validators - 1, len(node_dirs)):
+            node = cluster.spin_up_node(
+                config=self._executables.current.node_config(),
+                near_root=self._executables.current.root,
+                node_dir=node_dirs[i],
+                ordinal=i,
+                boot_node=nodes[0],
+                sleep_after_start=0,
+            )
+            nodes.append(node)
+
         return nodes
 
     def upgrade_nodes(self) -> None:
@@ -305,7 +317,6 @@ class TestUpgrade:
         logger.info(f"Restarting nodes with new binary")
         for node in self._stable_nodes:
             node.kill()
-            self.dump_epoch_configs(node.node_dir, self._protocols.current)
             node.near_root = self._executables.current.root
             node.binary_name = self._executables.current.neard
             node.start(
@@ -329,9 +340,8 @@ class TestUpgrade:
         prev_epoch_id = self._rpc_node.get_prev_epoch_id()
         validators = self._rpc_node.get_validators(
             prev_epoch_id)['result']['current_validators']
-        logger.info(f"Validators in epoch {prev_epoch_id}: {validators}")
         assert len(validators) == self._num_validators, \
-            f'Expected {self._num_validators} number validators, got {len(validators)}'
+            f'Expected {self._num_validators} number validators, got {len(validators)}: {validators}'
         for v in validators:
             percent_missed = 1.0 - v['num_produced_endorsements'] / v[
                 'num_expected_endorsements']
@@ -368,7 +378,7 @@ def main():
     TestUpgrade(
         num_validators=4,
         node_prefix='test',
-        epoch_length=40,
+        epoch_length=EPOCH_LENGTH,
     ).run()
 
 
