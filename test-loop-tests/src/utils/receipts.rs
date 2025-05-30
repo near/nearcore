@@ -42,9 +42,9 @@ pub fn check_receipts_presence_at_resharding_block(
                 return;
             }
 
-            accounts.iter().for_each(|account| {
-                check_receipts_at_block(client_actor, &account, &kind, tip.clone())
-            });
+            accounts
+                .iter()
+                .for_each(|account| check_receipts_at_block(client_actor, &account, &kind, &tip));
             checked_receipts.set(true);
         },
     );
@@ -70,9 +70,9 @@ pub fn check_receipts_presence_after_resharding_block(
                 return;
             }
 
-            accounts.iter().for_each(|account| {
-                check_receipts_at_block(client_actor, &account, &kind, tip.clone())
-            });
+            accounts
+                .iter()
+                .for_each(|account| check_receipts_at_block(client_actor, &account, &kind, &tip));
             checked_receipts.set(true);
         },
     );
@@ -84,7 +84,7 @@ pub fn check_receipts_at_block(
     client_actor: &ClientActorInner,
     account: &AccountId,
     kind: &ReceiptKind,
-    tip: Tip,
+    tip: &Tip,
 ) {
     let epoch_manager = &client_actor.client.epoch_manager;
     let shard_layout = epoch_manager.get_shard_layout(&tip.epoch_id).unwrap();

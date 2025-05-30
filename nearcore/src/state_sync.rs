@@ -651,7 +651,7 @@ impl StateDumper {
         }
     }
 
-    fn get_block_header(&self, hash: &CryptoHash) -> anyhow::Result<BlockHeader> {
+    fn get_block_header(&self, hash: &CryptoHash) -> anyhow::Result<Arc<BlockHeader>> {
         self.chain.get_block_header(hash).with_context(|| format!("Failed getting header {}", hash))
     }
 
@@ -681,7 +681,7 @@ impl StateDumper {
     }
 
     /// Returns the `sync_hash` header corresponding to the latest final block if it's already known.
-    fn latest_sync_header(&self) -> anyhow::Result<Option<BlockHeader>> {
+    fn latest_sync_header(&self) -> anyhow::Result<Option<Arc<BlockHeader>>> {
         let head = self.chain.head().context("Failed getting chain head")?;
         let header = self.get_block_header(&head.last_block_hash)?;
         let final_hash = header.last_final_block();
