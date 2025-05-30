@@ -121,7 +121,7 @@ impl From<&BlockHeader> for proto::BlockHeader {
 
 pub type ParseBlockHeaderError = std::io::Error;
 
-impl TryFrom<&proto::BlockHeader> for BlockHeader {
+impl TryFrom<&proto::BlockHeader> for Arc<BlockHeader> {
     type Error = ParseBlockHeaderError;
     fn try_from(x: &proto::BlockHeader) -> Result<Self, Self::Error> {
         Self::try_from_slice(&x.borsh)
@@ -315,7 +315,7 @@ impl From<&PeerMessage> for proto::PeerMessage {
                 }
                 PeerMessage::BlockHeaders(bhs) => {
                     ProtoMT::BlockHeadersResponse(proto::BlockHeadersResponse {
-                        block_headers: bhs.iter().map(Into::into).collect(),
+                        block_headers: bhs.iter().map(|b| b.as_ref().into()).collect(),
                         ..Default::default()
                     })
                 }

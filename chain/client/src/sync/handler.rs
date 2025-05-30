@@ -116,7 +116,7 @@ impl SyncHandler {
         // We should state sync if it's already started or if we have enough
         // headers and blocks. The should_state_sync method may run block sync.
         let should_state_sync =
-            self.should_state_sync(chain, header_head, highest_height, highest_height_peers);
+            self.should_state_sync(chain, &header_head, highest_height, highest_height_peers);
         let should_state_sync = unwrap_and_report_state_sync_result!(should_state_sync);
         if !should_state_sync {
             return None;
@@ -141,7 +141,8 @@ impl SyncHandler {
             chain.epoch_manager.as_ref(),
         );
 
-        let blocks_to_request = self.request_sync_blocks(chain, block_header, highest_height_peers);
+        let blocks_to_request =
+            self.request_sync_blocks(chain, &block_header, highest_height_peers);
         let blocks_to_request = unwrap_and_report_state_sync_result!(blocks_to_request);
 
         let state_sync_status = match &mut self.sync_status {
@@ -214,7 +215,7 @@ impl SyncHandler {
     fn should_state_sync(
         &mut self,
         chain: &Chain,
-        header_head: Tip,
+        header_head: &Tip,
         highest_height: u64,
         highest_height_peers: &[HighestHeightPeerInfo],
     ) -> Result<bool, near_chain::Error> {
@@ -315,7 +316,7 @@ impl SyncHandler {
     fn request_sync_blocks(
         &mut self,
         chain: &Chain,
-        block_header: BlockHeader,
+        block_header: &BlockHeader,
         highest_height_peers: &[HighestHeightPeerInfo],
     ) -> Result<Vec<(CryptoHash, PeerId)>, near_chain::Error> {
         let now = self.clock.now_utc();
