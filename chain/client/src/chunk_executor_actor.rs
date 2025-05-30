@@ -206,8 +206,7 @@ impl ChunkExecutorActor {
         let prev_hash = header.prev_hash();
         let prev_block = self.chain_store.get_block(prev_hash)?;
 
-        let prev_chunk_headers =
-            Chain::get_prev_chunk_headers(self.epoch_manager.as_ref(), &prev_block)?;
+        let prev_chunk_headers = self.epoch_manager.get_prev_chunk_headers(&prev_block)?;
 
         let epoch_id = block.header().epoch_id();
         let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
