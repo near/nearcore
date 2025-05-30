@@ -473,15 +473,18 @@ fn get_keys_from_store(
             store.get_ser_for_cold(DBCol::Chunks, chunk_hash.as_bytes())?;
         let shard_id = chunk_header.shard_id();
         let Some(chunk) = chunk else {
-            if tracked_shards.contains(&shard_id) {
-                let error_message =
-                    format!("Chunk missing for shard {shard_id}, hash {chunk_hash:?}");
-                return Err(io::Error::new(io::ErrorKind::NotFound, error_message));
-            }
+            // TODO(archival_v2): Uncomment the check below and cover it with test
+            // if chunk_header.height_included() == block.header().height()
+            //     && tracked_shards.contains(&shard_id)
+            // {
+            //     let error_message =
+            //         format!("Chunk missing for shard {shard_id}, hash {chunk_hash:?}");
+            //     return Err(io::Error::new(io::ErrorKind::NotFound, error_message));
+            // }
             continue;
         };
         if !tracked_shards.contains(&shard_id) {
-            tracing::warn!(target: "cold_store", "Copied chunk for shard {} which is not tracked", shard_id);
+            tracing::warn!(target: "cold_store", "Copied chunk for shard {} which is not tracked at height {}", shard_id, block.header().height());
         }
         chunks.push(chunk);
     }
