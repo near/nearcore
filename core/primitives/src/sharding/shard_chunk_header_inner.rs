@@ -345,7 +345,7 @@ pub struct ShardChunkHeaderInnerV5SpiceTxOnly {
     // TODO(spice): remove prev_outgoing_receipts_root. We have it for now
     // so that some of the existing validations pass. List of outgoing receipts is always empty,
     // but it wouldn't mean that prev_outgoing_receipts_root is CryptoHash::default() since it's
-    // computed by merkelizing those empty lists from all shards.
+    // computed as root of merkle tree of those empty lists from all shards.
     /// Previous chunk's outgoing receipts merkle root.
     pub prev_outgoing_receipts_root: CryptoHash,
     /// Tx merkle root.

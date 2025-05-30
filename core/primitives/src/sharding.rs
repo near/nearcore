@@ -295,7 +295,7 @@ impl ShardChunkHeaderV3 {
         bandwidth_requests: BandwidthRequests,
         signer: &ValidatorSigner,
     ) -> Self {
-        // TODO(spice): Allow callers to decide whether tx-only chunk is needed by intoducing a
+        // TODO(spice): Allow callers to decide whether tx-only chunk is needed by introducing a
         // separate constructor to avoid passing defaults in here.
         let inner = if cfg!(feature = "protocol_feature_spice") {
             ShardChunkHeaderInner::V5(ShardChunkHeaderInnerV5SpiceTxOnly {

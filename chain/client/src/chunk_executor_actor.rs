@@ -320,7 +320,7 @@ impl ChunkExecutorActor {
         block_hash: CryptoHash,
         receipt_proofs: Vec<ReceiptProof>,
     ) {
-        tracing::debug!(target: "chunk_executor", %block_hash, ?receipt_proofs, "sending outoging receipts");
+        tracing::debug!(target: "chunk_executor", %block_hash, ?receipt_proofs, "sending outgoing receipts");
         self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
             NetworkRequests::TestonlySpiceIncomingReceipts { block_hash, receipt_proofs },
         ));
@@ -437,7 +437,7 @@ impl ChunkExecutorActor {
         )
     }
 
-    /// Returns keys from block_receipts_cache for prev_block_hash that correspond to all incomming
+    /// Returns keys from block_receipts_cache for prev_block_hash that correspond to all incoming
     /// receipts that we care about grouped by destination shard id.
     /// Returns an error if some of the receipts are still missing.
     fn all_incoming_receipts_keys(
