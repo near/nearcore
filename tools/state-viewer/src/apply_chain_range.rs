@@ -13,10 +13,14 @@ use near_epoch_manager::shard_assignment::{shard_id_to_index, shard_id_to_uid};
 use near_epoch_manager::{EpochManagerAdapter, EpochManagerHandle};
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::receipt::DelayedReceiptIndices;
+use near_primitives::stateless_validation::stored_chunk_state_transition_data::{
+    StoredChunkStateTransitionData, StoredChunkStateTransitionDataV1,
+};
 use near_primitives::transaction::{Action, ExecutionOutcomeWithId, ExecutionOutcomeWithProof};
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, ShardId};
+use near_primitives::utils::get_block_shard_id;
 use near_store::adapter::StoreAdapter;
 use near_store::flat::{BlockInfo, FlatStateChanges, FlatStorageStatus};
 use near_store::{DBCol, Store};
@@ -337,6 +341,33 @@ fn apply_block_from_range(
     }
     match (mode, storage) {
         (ApplyRangeMode::Benchmark, _) => {}
+        (ApplyRangeMode::Sequential { save_state_transitions: true }, _) => {
+            let mut store_update = read_store.store_update();
+            let state_transition_data =
+                StoredChunkStateTransitionData::V1(StoredChunkStateTransitionDataV1 {
+                    base_state: apply_result.proof.unwrap().nodes,
+                    receipts_hash: apply_result.applied_receipts_hash,
+                    contract_accesses: apply_result
+                        .contract_updates
+                        .contract_accesses
+                        .into_iter()
+                        .collect(),
+                    contract_deploys: apply_result
+                        .contract_updates
+                        .contract_deploys
+                        .into_iter()
+                        .map(|c| c.into())
+                        .collect(),
+                });
+            store_update
+                .set_ser(
+                    DBCol::StateTransitionData,
+                    &get_block_shard_id(&block_hash, shard_id),
+                    &state_transition_data,
+                )
+                .unwrap();
+            store_update.commit().unwrap();
+        }
         (_, StorageSource::FlatStorage) => {
             // Apply trie changes to trie node caches.
             let mut fake_store_update = read_store.trie_store().store_update();
@@ -486,7 +517,7 @@ pub fn apply_chain_range(
 
     let start_time = near_time::Instant::now();
     match mode {
-        ApplyRangeMode::Sequential => {
+        ApplyRangeMode::Sequential { .. } => {
             range.clone().into_iter().for_each(|height| {
                 let _span = tracing::debug_span!(
                     target: "state_viewer",

@@ -6,7 +6,7 @@ use near_primitives::chains::MAINNET;
 use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::types::AccountId;
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
+use near_primitives::version::{MIN_SUPPORTED_PROTOCOL_VERSION, PROTOCOL_VERSION};
 use near_time::Duration;
 use std::{collections::HashMap, str::FromStr};
 
@@ -201,12 +201,9 @@ impl StoreConfig {
     fn default_per_shard_max_bytes() -> HashMap<ShardUId, bytesize::ByteSize> {
         let epoch_config_store = EpochConfigStore::for_chain_id(MAINNET, None).unwrap();
         let mut shard_layouts: Vec<ShardLayout> = Vec::new();
-        // Ideally we should use the protocol version from current epoch config as start of
-        // the range, but store should not need to depend on the knowledge of current epoch.
-        let start_version = ProtocolFeature::SimpleNightshadeV4.protocol_version() - 1;
-        // T-1 to ensure cache limits for old layout are included on the edge of upgrading.
-        let start_version = start_version.min(PROTOCOL_VERSION - 1);
-        for protocol_version in start_version..=PROTOCOL_VERSION {
+
+        // MIN_SUPPORTED_PROTOCOL_VERSION to ensure cache limits for old shard layout are included.
+        for protocol_version in MIN_SUPPORTED_PROTOCOL_VERSION..=PROTOCOL_VERSION {
             let epoch_config = epoch_config_store.get_config(protocol_version);
             let shard_layout = epoch_config.shard_layout.clone();
             // O(n) is fine as list is short
