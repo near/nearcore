@@ -27,7 +27,11 @@ def deep_merge(original: dict, patch: dict) -> dict:
 
         assert isinstance(result[key], dict) == isinstance(value, dict)
         if isinstance(result[key], dict):
+            # If both values are dictionaries, merge them recursively
             result[key] = deep_merge(result[key], value)
+        else:
+            # For non-dictionary values, overwrite with patch value
+            result[key] = value
 
     return result
 
