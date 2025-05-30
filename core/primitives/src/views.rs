@@ -606,6 +606,12 @@ impl From<Tip> for BlockStatusView {
     }
 }
 
+impl From<&Tip> for BlockStatusView {
+    fn from(tip: &Tip) -> Self {
+        Self { height: tip.height, hash: tip.last_block_hash }
+    }
+}
+
 #[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct PartElapsedTimeView {
