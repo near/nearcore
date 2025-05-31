@@ -57,7 +57,7 @@ class TrafficGenerator(threading.Thread):
             try:
                 return fn()
             except Exception as e:
-                logger.error(f"Failed traffic try {i}", exc_info=True)
+                logger.error(f"Failed txn try {i}", exc_info=True)
         raise
 
     def stop(self) -> None:
@@ -170,10 +170,10 @@ class TestUpgrade:
         3. Run for three epochs and observe that the current protocol version of the
            network matches `new` nodes.
         """
-        # traffic_generator = TrafficGenerator(self._rpc_node)
-        # traffic_generator.deploy_test_contracts(
-        #     self._executables.current.node_config())
-        # traffic_generator.start()
+        traffic_generator = TrafficGenerator(self._rpc_node)
+        traffic_generator.deploy_test_contracts(
+            self._executables.current.node_config())
+        traffic_generator.start()
 
         self.wait_epoch()
         self.upgrade_nodes()
@@ -188,8 +188,8 @@ class TestUpgrade:
         self.wait_epoch()
         self.check_validator_stats()
 
-        # traffic_generator.stop()
-        # traffic_generator.join(timeout=30)
+        traffic_generator.stop()
+        traffic_generator.join(timeout=30)
 
     def configure_nodes(self) -> list[str]:
         node_root = utils.get_near_tempdir('upgradable', clean=True)
@@ -213,6 +213,10 @@ class TestUpgrade:
             cluster.apply_genesis_changes(node_dir, genesis_config_changes)
             # Dump epoch configs to use mainnet shard layout
             self.dump_epoch_configs(node_dir, self._protocols.current)
+
+        for node_dir in node_dirs[:NUM_VALIDATORS]:
+            # Validators should track only assigned shards
+            cluster.apply_config_changes(node_dir, {'tracked_shards': []})
 
         return node_dirs
 
