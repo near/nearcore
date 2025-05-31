@@ -1,0 +1,9 @@
+{
+   "schedule": [
+      { "tps": 6000, "duration_s": 300 },
+      { "tps": 6800, "duration_s": 300 },
+      { "tps": 7000, "duration_s": 300 },
+      { "tps": 7200, "duration_s": 300 },
+      { "tps": 7400, "duration_s": 300 }
+   ]	
+}
