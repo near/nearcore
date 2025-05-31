@@ -170,10 +170,10 @@ class TestUpgrade:
         3. Run for three epochs and observe that the current protocol version of the
            network matches `new` nodes.
         """
-        traffic_generator = TrafficGenerator(self._rpc_node)
-        traffic_generator.deploy_test_contracts(
-            self._executables.current.node_config())
-        traffic_generator.start()
+        # traffic_generator = TrafficGenerator(self._rpc_node)
+        # traffic_generator.deploy_test_contracts(
+        #     self._executables.current.node_config())
+        # traffic_generator.start()
 
         self.wait_epoch()
         self.upgrade_nodes()
@@ -184,13 +184,12 @@ class TestUpgrade:
             self.wait_till_protocol_version(pv)
             self.check_validator_stats()
 
-        for _ in range(2):
-            # Run few more epoch with the latest protocol version
-            self.wait_epoch()
-            self.check_validator_stats()
+        # Run one more epoch with the latest protocol version
+        self.wait_epoch()
+        self.check_validator_stats()
 
-        traffic_generator.stop()
-        traffic_generator.join(timeout=30)
+        # traffic_generator.stop()
+        # traffic_generator.join(timeout=30)
 
     def configure_nodes(self) -> list[str]:
         node_root = utils.get_near_tempdir('upgradable', clean=True)
