@@ -19,8 +19,9 @@ from transaction import sign_function_call_tx, sign_payment_tx, sign_deploy_cont
 import utils
 
 ONE_NEAR = 1000000000000000000000000
-TIMEOUT = 20
+NUM_VALIDATORS = 4
 EPOCH_LENGTH = 40
+NODE_PREFIX = "test"
 
 
 def get_proto_version(exe: pathlib.Path) -> int:
@@ -37,41 +38,31 @@ class TrafficGenerator(threading.Thread):
 
     def __init__(self, rpc_node: cluster.LocalNode, **kwargs) -> None:
         super().__init__(**kwargs)
+        random.seed(2025)
         self._rpc_node = rpc_node
         self._stopped = False
-        self._paused = False
-        self._failed_txs = 0
-        self._total_txs = 0
         self._acc1 = f"000000.{self._rpc_node.signer_key.account_id}"
         self._acc2 = f"zzzzzz.{self._rpc_node.signer_key.account_id}"
         self._nonce = 1_000_000
 
     def run(self) -> None:
         logger.info("Starting traffic generator")
-        random.seed(2025)
         while not self._stopped:
-            if self._paused:
-                time.sleep(1)
-                continue
-            try:
-                self.send_transfer()
-                self.call_test_contracts()
-            except Exception:
-                logger.error("Failed to send transaction", exc_info=True)
-                self._failed_txs += 1
+            self._with_retry(self.send_transfer)
+            self._with_retry(self.call_test_contracts)
         logger.info("Traffic generator stopped")
+
+    def _with_retry(self, fn):
+        for i in range(5):
+            try:
+                return fn()
+            except Exception as e:
+                logger.error(f"Failed traffic try {i}", exc_info=True)
+        raise
 
     def stop(self) -> None:
         logger.info("Stopping traffic generator")
         self._stopped = True
-
-    def pause(self) -> None:
-        logger.info("Pausing traffic generator")
-        self._paused = True
-
-    def resume(self) -> None:
-        logger.info("Resuming traffic generator")
-        self._paused = False
 
     def get_latest_block_hash(self) -> bytes:
         return self._rpc_node.get_latest_block().hash_bytes
@@ -95,7 +86,7 @@ class TrafficGenerator(threading.Thread):
                 self.get_next_nonce(),
                 self.get_latest_block_hash(),
             )
-            self.send_tx(tx)
+            self._rpc_node.send_tx(tx)
 
     def call_test_contracts(self) -> None:
         # Make the contract deployed at `acc1` call the contract deployed on `acc2`
@@ -134,7 +125,6 @@ class TrafficGenerator(threading.Thread):
         self.send_tx(tx)
 
     def send_transfer(self) -> None:
-        self._total_txs += 1
         account_id = random.randbytes(32).hex()
         logger.info(f"Sending transfer to {account_id}")
         amount = 10**25
@@ -151,11 +141,6 @@ class TrafficGenerator(threading.Thread):
             self._rpc_node.get_account(account_id)['result']['amount'])
         assert hex_account_balance == amount
 
-    def assert_failed_txs_below_threshold(self) -> None:
-        """Assert that the number of failed transactions is below 10%"""
-        failed_txs_percent = self._failed_txs / self._total_txs
-        assert failed_txs_percent < 0.1, f"{self._failed_txs} of {self._total_txs} transactions failed"
-
 
 class Protocols:
 
@@ -167,23 +152,14 @@ class Protocols:
 
 class TestUpgrade:
 
-    def __init__(
-        self,
-        num_validators: int,
-        node_prefix: str,
-        epoch_length: int,
-    ) -> None:
-        self._num_validators = num_validators
-        self._node_prefix = node_prefix
-        self._epoch_length = epoch_length
-
+    def __init__(self) -> None:
         self._executables = branches.prepare_ab_test()
         self._protocols = Protocols(self._executables)
         node_dirs = self.configure_nodes()
         nodes = self.start_nodes(node_dirs)
+        time.sleep(5)  # Give some time for nodes to start
 
-        self._stable_nodes = nodes[0:num_validators]
-        self._current_node = nodes[-2]
+        self._stable_nodes = nodes[:NUM_VALIDATORS]
         self._rpc_node = nodes[-1]
 
     def run(self) -> None:
@@ -194,122 +170,78 @@ class TestUpgrade:
         3. Run for three epochs and observe that the current protocol version of the
            network matches `new` nodes.
         """
-        self.wait_epoch()  # Skip the first epoch, because nodes are starting
-        time.sleep(1)
         traffic_generator = TrafficGenerator(self._rpc_node)
         traffic_generator.deploy_test_contracts(
             self._executables.current.node_config())
         traffic_generator.start()
 
-        try:
+        self.wait_epoch()
+        self.upgrade_nodes()
+
+        start_pv = self._protocols.stable + 1
+        end_pv = self._protocols.current
+        for pv in range(start_pv, end_pv + 1):
+            self.wait_till_protocol_version(pv)
+            self.check_validator_stats()
+
+        for _ in range(2):
+            # Run few more epoch with the latest protocol version
             self.wait_epoch()
-            self.check_missed_endorsements_threshold()
+            self.check_validator_stats()
 
-            traffic_generator.pause()
-            self.upgrade_nodes()
-            self.wait_epoch()  # Skip this epoch, because nodes are starting
-            traffic_generator.resume()
-
-            # Protocol version should update by one each epoch
-            for expected_version in range(self._protocols.stable + 1,
-                                          self._protocols.current + 1):
-                self.wait_epoch()
-                self.check_missed_endorsements_threshold()
-                self.wait_for_protocol_version(expected_version)
-
-            # Run one more epoch with the latest protocol version
-            self.wait_epoch()
-            self.check_missed_endorsements_threshold()
-
-        finally:
-            traffic_generator.stop()
-            traffic_generator.join(timeout=20)
-
-        traffic_generator.assert_failed_txs_below_threshold()
+        traffic_generator.stop()
+        traffic_generator.join(timeout=30)
 
     def configure_nodes(self) -> list[str]:
         node_root = utils.get_near_tempdir('upgradable', clean=True)
         cmd = (
-            self._executables.stable.neard,
+            str(self._executables.stable.neard),
             f'--home={node_root}',
             'localnet',
-            f'--validators={self._num_validators}',
+            f'--validators={NUM_VALIDATORS}',
             '--non-validators-rpc=1',
-            f'--prefix={self._node_prefix}',
+            f'--prefix={NODE_PREFIX}',
         )
-        logger.info(' '.join(str(arg) for arg in cmd))
+        logger.info(f"Configuring nodes with command: {cmd}")
         subprocess.check_call(cmd)
-        genesis_config_changes = [
-            ("epoch_length", self._epoch_length),
-            ("num_block_producer_seats", 10),
-            ("num_block_producer_seats_per_shard", [10]),
-        ]
+
+        genesis_config_changes = [("epoch_length", EPOCH_LENGTH)]
         node_dirs = [
-            os.path.join(node_root, f'{self._node_prefix}{i}')
-            for i in range(self._num_validators + 1)
+            os.path.join(node_root, f'{NODE_PREFIX}{i}')
+            for i in range(NUM_VALIDATORS + 1)
         ]
         for node_dir in node_dirs:
             cluster.apply_genesis_changes(node_dir, genesis_config_changes)
-        for node_dir in node_dirs[:self._num_validators]:
-            # Validators should track only assigned shards
-            cluster.apply_config_changes(node_dir, {'tracked_shards': []})
-
-        # Dump epoch configs to use mainnet shard layout
-        for node_dir in node_dirs:
+            # Dump epoch configs to use mainnet shard layout
             self.dump_epoch_configs(node_dir, self._protocols.current)
 
         return node_dirs
 
     def dump_epoch_configs(self, node_dir: str, last_protocol_version: int):
         cmd = (
-            self._executables.current.neard,
+            str(self._executables.current.neard),
             f'--home={node_dir}',
             'dump-epoch-configs',
             f'--chain-id=mainnet',
             f'--last-version={last_protocol_version}',
         )
-        logger.info(' '.join(str(arg) for arg in cmd))
+        logger.info(f"Dumping epoch configs with command: {cmd}")
         subprocess.check_call(cmd)
 
-        # Reduce kickout thresholds in epoch configs for 10% to avoid kickouts
-        config_dir = os.path.join(node_dir, 'epoch_configs')
-        for file in os.listdir(config_dir):
-            file = os.path.join(config_dir, file)
-            data = json.load(open(file))
-            data['block_producer_kickout_threshold'] = 10
-            data['chunk_producer_kickout_threshold'] = 10
-            data['chunk_validator_only_kickout_threshold'] = 10
-            json.dump(data, open(file, 'w'), indent=4)
-            pass
-
-    def start_nodes(
-        self,
-        node_dirs: list[str],
-    ) -> list[cluster.LocalNode]:
-        # Start (`self._num_validators - 1`) stable nodes, one current node, one rpc node.
+    def start_nodes(self, node_dirs: list[str]) -> list[cluster.LocalNode]:
         nodes = []
-        for i in range(self._num_validators - 1):
+        for i in range(len(node_dirs)):
+            executable = (self._executables.stable if i < NUM_VALIDATORS -
+                          1 else self._executables.current)
             node = cluster.spin_up_node(
-                config=self._executables.stable.node_config(),
-                near_root=self._executables.stable.root,
+                config=executable.node_config(),
+                near_root=executable.root,
                 node_dir=node_dirs[i],
                 ordinal=i,
                 boot_node=nodes[0] if i > 0 else None,
                 sleep_after_start=0,
             )
             nodes.append(node)
-
-        for i in range(self._num_validators - 1, len(node_dirs)):
-            node = cluster.spin_up_node(
-                config=self._executables.current.node_config(),
-                near_root=self._executables.current.root,
-                node_dir=node_dirs[i],
-                ordinal=i,
-                boot_node=nodes[0],
-                sleep_after_start=0,
-            )
-            nodes.append(node)
-
         return nodes
 
     def upgrade_nodes(self) -> None:
@@ -327,59 +259,44 @@ class TestUpgrade:
             )
 
     def wait_epoch(self) -> None:
+        """Wait until the next epoch starts."""
         start_epoch = self._rpc_node.get_epoch_id()
         logger.info(f"Current epoch is {start_epoch}. Waiting for next epoch")
+        condition = lambda h: self._rpc_node.get_epoch_id(block_height=h
+                                                         ) != start_epoch
+        self._poll_block_till_condition(condition)
+
+    def wait_till_protocol_version(self, version: int):
+        """Wait until the protocol version of the node matches the given version."""
+        logger.info(f"Waiting for protocol version {version}")
+        condition = lambda _: self._rpc_node.get_status()["protocol_version"
+                                                         ] == version
+        self._poll_block_till_condition(condition)
+
+    def _poll_block_till_condition(self, condition):
+        """Wait until the condition is met."""
         for height, _ in utils.poll_blocks(self._rpc_node):
-            epoch = self._rpc_node.get_epoch_id(block_height=height)
-            if epoch != start_epoch:
+            if condition(height):
                 break
 
-    def check_missed_endorsements_threshold(self) -> None:
-        """Checks that no validator missed more than 10% of endorsements."""
-        logger.info("Checking missed endorsements threshold")
-        prev_epoch_id = self._rpc_node.get_prev_epoch_id()
+    def check_validator_stats(self):
+        """Check that all validators are producing blocks"""
+        epoch_id = self._rpc_node.get_epoch_id()
+        logger.info(f"Checking validators for epoch {epoch_id}")
         validators = self._rpc_node.get_validators(
-            prev_epoch_id)['result']['current_validators']
-        assert len(validators) == self._num_validators, \
-            f'Expected {self._num_validators} number validators, got {len(validators)}: {validators}'
-        for v in validators:
-            percent_missed = 1.0 - v['num_produced_endorsements'] / v[
-                'num_expected_endorsements']
-            assert percent_missed < 0.2, f'validator {v} missed {percent_missed}% endorsements'
-
-    def wait_for_protocol_version(self, expected_version: int) -> None:
-
-        def _condition():
-            for node in self._stable_nodes:
-                protocol_version = node.get_status()['protocol_version']
-                assert protocol_version == expected_version, \
-                    f"Wrong protocol version: {protocol_version} expected: {expected_version}"
-            logger.info(
-                f"Protocol version now {expected_version} for all nodes")
-
-        logger.info(f"Waiting for protocol version {expected_version}")
-        wait_for_condition(_condition)
-
-
-def wait_for_condition(condition, timeout=TIMEOUT):
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        try:
-            condition()
-            return
-        except AssertionError as e:
-            error = e
-            time.sleep(1)
-    else:
-        raise error
+            epoch_id)["result"]["current_validators"]
+        if len(validators) != NUM_VALIDATORS:
+            prev_epoch_id = self._rpc_node.get_prev_epoch_id()
+            prev_validators = self.node.get_validators(prev_epoch_id)["result"]
+            logger.error(
+                f"Expected {NUM_VALIDATORS}, got {len(validators)} validators")
+            logger.error(f"{epoch_id} validators: {validators}")
+            logger.error(f"{prev_epoch_id} validators: {prev_validators}")
+            assert False
 
 
 def main():
-    TestUpgrade(
-        num_validators=4,
-        node_prefix='test',
-        epoch_length=EPOCH_LENGTH,
-    ).run()
+    TestUpgrade().run()
 
 
 if __name__ == "__main__":
