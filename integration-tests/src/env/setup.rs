@@ -490,7 +490,6 @@ pub fn setup_synchronous_shards_manager(
             ),
         }, // irrelevant
         None,
-        Arc::new(RayonAsyncComputationSpawner),
         MutableConfigValue::new(None, "validator_signer"),
         noop().into_multi_sender(),
     )

@@ -244,7 +244,6 @@ impl Client {
             doomslug_threshold_mode,
             chain_config,
             snapshot_callbacks,
-            async_computation_spawner.clone(),
             validator_signer.clone(),
             resharding_sender.clone(),
         )?;
