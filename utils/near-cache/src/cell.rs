@@ -1,5 +1,5 @@
 use lru::LruCache;
-use std::borrow::Borrow;
+use std::borrow::{Borrow, Cow};
 use std::cell::RefCell;
 use std::convert::Infallible;
 use std::hash::Hash;
@@ -33,12 +33,14 @@ where
     /// Return the value of they key in the cache otherwise computes the value and inserts it into
     /// the cache. If the key is already in the cache, they get moved to the head of
     /// the LRU list.
-    pub fn get_or_put<F>(&self, key: K, f: F) -> V
+    pub fn get_or_put<F, Q>(&self, key: Cow<Q>, f: F) -> V
     where
         V: Clone,
-        F: FnOnce(&K) -> V,
+        Q: ToOwned<Owned = K> + Hash + Eq + ?Sized,
+        K: Borrow<Q>,
+        F: FnOnce(&Q) -> V,
     {
-        Result::<_, Infallible>::unwrap(self.get_or_try_put(key, |k| Ok(f(k))))
+        Result::<_, Infallible>::unwrap(self.get_by_cow_or_try_put(key, |k| Ok(f(k))))
     }
 
     /// Returns the value of they key in the cache if present, otherwise
@@ -60,6 +62,30 @@ where
         let val = f(&key)?;
         let val_clone = val.clone();
         self.inner.borrow_mut().put(key, val_clone);
+        Ok(val)
+    }
+
+    /// Returns the value of they key in the cache if present, otherwise
+    /// computes the value using the provided closure.
+    ///
+    /// If the key is already in the cache, it gets moved to the head of the LRU
+    /// list.
+    ///
+    /// If the provided closure fails, the error is returned and the cache is
+    /// not updated.
+    pub fn get_by_cow_or_try_put<F, E, Q>(&self, key: Cow<Q>, f: F) -> Result<V, E>
+    where
+        V: Clone,
+        Q: ToOwned<Owned = K> + Hash + Eq + ?Sized,
+        K: Borrow<Q>,
+        F: FnOnce(&Q) -> Result<V, E>,
+    {
+        if let Some(result) = self.get(key.borrow()) {
+            return Ok(result);
+        }
+        let val = f(key.borrow())?;
+        let val_clone = val.clone();
+        self.inner.borrow_mut().put(key.into_owned(), val_clone);
         Ok(val)
     }
 
@@ -97,7 +123,7 @@ mod tests {
         let cache = CellLruCache::<u64, Vec<u64>>::new(100);
 
         assert_eq!(cache.get(&0u64), None);
-        assert_eq!(cache.get_or_put(123u64, |key| vec![*key, 123]), vec![123u64, 123]);
+        assert_eq!(cache.get_or_put(Cow::Owned(123u64), |key| vec![*key, 123]), vec![123u64, 123]);
         assert_eq!(cache.get(&123u64), Some(vec![123u64, 123]));
         assert_eq!(cache.get(&0u64), None);
     }

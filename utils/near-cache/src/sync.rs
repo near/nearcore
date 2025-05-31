@@ -1,5 +1,6 @@
 use lru::LruCache;
 use parking_lot::{Mutex, MutexGuard};
+use std::borrow::{Borrow, Cow};
 use std::convert::Infallible;
 use std::hash::Hash;
 use std::num::NonZeroUsize;
@@ -45,12 +46,14 @@ where
     /// Return the value of they key in the cache otherwise computes the value and inserts it into
     /// the cache. If the key is already in the cache, they get moved to the head of
     /// the LRU list.
-    pub fn get_or_put<F>(&self, key: K, f: F) -> V
+    pub fn get_or_put<F, Q>(&self, key: Cow<Q>, f: F) -> V
     where
         V: Clone,
-        F: FnOnce(&K) -> V,
+        Q: ToOwned<Owned = K> + Hash + Eq + ?Sized,
+        K: Borrow<Q>,
+        F: FnOnce(&Q) -> V,
     {
-        Result::<_, Infallible>::unwrap(self.get_or_try_put(key, |k| Ok(f(k))))
+        Result::<_, Infallible>::unwrap(self.get_by_cow_or_try_put(key, |k| Ok(f(k))))
     }
 
     /// Returns the value of they key in the cache if present, otherwise
@@ -75,6 +78,30 @@ where
         Ok(val)
     }
 
+    /// Returns the value of they key in the cache if present, otherwise
+    /// computes the value using the provided closure.
+    ///
+    /// If the key is already in the cache, it gets moved to the head of the LRU
+    /// list.
+    ///
+    /// If the provided closure fails, the error is returned and the cache is
+    /// not updated.
+    pub fn get_by_cow_or_try_put<F, E, Q>(&self, key: Cow<Q>, f: F) -> Result<V, E>
+    where
+        V: Clone,
+        Q: ToOwned<Owned = K> + Hash + Eq + ?Sized,
+        K: Borrow<Q>,
+        F: FnOnce(&Q) -> Result<V, E>,
+    {
+        if let Some(result) = self.get(key.borrow()) {
+            return Ok(result);
+        }
+        let val = f(key.borrow())?;
+        let val_clone = val.clone();
+        self.inner.lock().put(key.into_owned(), val_clone);
+        Ok(val)
+    }
+
     /// Puts a key-value pair into cache. If the key already exists in the cache,
     /// then it updates the key's value.
     pub fn put(&self, key: K, value: V) {
@@ -83,7 +110,11 @@ where
 
     /// Returns the value of the key in the cache or None if it is not present in the cache.
     /// Moves the key to the head of the LRU list if it exists.
-    pub fn get(&self, key: &K) -> Option<V> {
+    pub fn get<Q>(&self, key: &Q) -> Option<V>
+    where
+        K: Borrow<Q>,
+        Q: Hash + Eq + ?Sized,
+    {
         self.inner.lock().get(key).cloned()
     }
 
@@ -102,7 +133,7 @@ mod tests {
         let cache = SyncLruCache::<u64, Vec<u64>>::new(100);
 
         assert_eq!(cache.get(&0u64), None);
-        assert_eq!(cache.get_or_put(123u64, |key| vec![*key, 123]), vec![123u64, 123]);
+        assert_eq!(cache.get_or_put(Cow::Owned(123u64), |key| vec![*key, 123]), vec![123u64, 123]);
         assert_eq!(cache.get(&123u64), Some(vec![123u64, 123]));
         assert_eq!(cache.get(&0u64), None);
     }
