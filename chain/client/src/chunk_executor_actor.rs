@@ -50,12 +50,16 @@ pub struct ChunkExecutorActor {
 
     /// Receipts originating from block keyed by block hash.
     block_receipts_cache: LruCache<CryptoHash, HashMap<(ShardId, ShardId), ReceiptProof>>,
+
+    // Hash of the genesis block.
+    genesis_hash: CryptoHash,
 }
 
 impl ChunkExecutorActor {
     pub fn new(
         store: Store,
         genesis: &ChainGenesis,
+        genesis_hash: CryptoHash,
         runtime_adapter: Arc<dyn RuntimeAdapter>,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
         validator_signer: MutableValidatorSigner,
@@ -71,6 +75,7 @@ impl ChunkExecutorActor {
             shard_tracker,
             network_adapter,
             block_receipts_cache: LruCache::new(block_receipts_cache_capacity),
+            genesis_hash,
         }
     }
 }
@@ -173,15 +178,18 @@ impl ChunkExecutorActor {
         let block = self.chain_store.get_block(block_hash)?;
         let header = block.header();
         let prev_block_hash = header.prev_hash();
-        for shard_id in self.epoch_manager.shard_ids(&epoch_id)? {
-            let is_me = true;
-            if self
-                .shard_tracker
-                .cares_about_shard_this_or_next_epoch(me, block_hash, shard_id, is_me)
-                && !self.chain_store.incoming_receipts_exist(&prev_block_hash, shard_id)?
-            {
-                tracing::debug!(target: "chunk_executor", %block_hash, %prev_block_hash, "missing receipts to apply all tracked chunks for a block");
-                return Ok(());
+        // Genesis block has no outgoing receipts.
+        if *prev_block_hash != self.genesis_hash {
+            for shard_id in self.epoch_manager.shard_ids(&epoch_id)? {
+                let is_me = true;
+                if self
+                    .shard_tracker
+                    .cares_about_shard_this_or_next_epoch(me, block_hash, shard_id, is_me)
+                    && !self.chain_store.incoming_receipts_exist(&block_hash, shard_id)?
+                {
+                    tracing::debug!(target: "chunk_executor", %block_hash, %prev_block_hash, "missing receipts to apply all tracked chunks for a block");
+                    return Ok(());
+                }
             }
         }
         self.apply_chunks(me, block, SandboxStatePatch::default())
@@ -189,10 +197,15 @@ impl ChunkExecutorActor {
 
     fn get_incoming_receipts(
         &self,
+        block_hash: &CryptoHash,
         prev_block_hash: &CryptoHash,
         shard_id: ShardId,
     ) -> Result<Arc<Vec<ReceiptProof>>, Error> {
-        self.chain_store.get_incoming_receipts(prev_block_hash, shard_id)
+        // Genesis block has no outgoing receipts.
+        if *prev_block_hash == self.genesis_hash {
+            return Ok(Arc::new(Vec::new()));
+        }
+        self.chain_store.get_incoming_receipts(block_hash, shard_id)
     }
 
     // Logic here is based on Chain::apply_chunk_preprocessing
@@ -238,7 +251,7 @@ impl ChunkExecutorActor {
                 continue;
             }
             // TODO(spice-resharding): We may need to take resharding into account here.
-            let receipt_proofs = self.get_incoming_receipts(prev_hash, shard_id)?;
+            let receipt_proofs = self.get_incoming_receipts(block_hash, prev_hash, shard_id)?;
             let incoming_receipts = Some(&*receipt_proofs);
 
             let storage_context =
@@ -479,9 +492,7 @@ impl ChunkExecutorActor {
             shuffle_receipt_proofs(&mut proofs, shuffle_salt);
 
             tracing::debug!(target: "chunk_executor", %prev_block_hash, ?to_shard_id, ?proofs, "saving incoming receipts");
-            // TODO(spice): It's hacky to reuse incoming receipts column, but keying it on
-            // previous hash. We should probably use a separate column for spice instead.
-            chain_update.save_incoming_receipt(&prev_block_hash, to_shard_id, Arc::new(proofs));
+            chain_update.save_incoming_receipt(&block_hash, to_shard_id, Arc::new(proofs));
         }
         chain_update.commit()?;
         Ok(())

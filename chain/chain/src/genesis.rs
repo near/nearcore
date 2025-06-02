@@ -155,13 +155,6 @@ impl Chain {
                 genesis.hash(),
                 genesis.header().height(),
             );
-            let shard_id = shard_uid.shard_id();
-            if cfg!(feature = "protocol_feature_spice") {
-                // TODO(spice): It's hacky to reuse incoming receipts column, but keying it on
-                // previous hash. We should probably use a separate column for spice instead.
-                // In spice this is needed for spice execution to be able to apply block following genesis.
-                store_update.save_incoming_receipt(genesis.hash(), shard_id, Arc::new(Vec::new()));
-            }
         }
         store_update.merge(tmp_store_update);
         store_update.commit()?;
