@@ -10983,6 +10983,26 @@
         ],
         "type": "object"
       },
+      "ShardUId": {
+        "description": "`ShardUId` is a unique representation for shards from different shard layouts.\n\n Comparing to `ShardId`, which is just an ordinal number ranging from 0 to NUM_SHARDS-1,\n `ShardUId` provides a way to unique identify shards when shard layouts may change across epochs.\n This is important because we store states indexed by shards in our database, so we need a\n way to unique identify shard even when shards change across epochs.\n Another difference between `ShardUId` and `ShardId` is that `ShardUId` should only exist in\n a node's internal state while `ShardId` can be exposed to outside APIs and used in protocol\n level information (for example, `ShardChunkHeader` contains `ShardId` instead of `ShardUId`)",
+        "properties": {
+          "shard_id": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "version": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "shard_id"
+        ],
+        "type": "object"
+      },
       "Signature": {
         "type": "string"
       },
@@ -11874,6 +11894,22 @@
               "NoShards"
             ],
             "type": "string"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Tracks arbitrary shards.",
+            "properties": {
+              "Shards": {
+                "items": {
+                  "$ref": "#/components/schemas/ShardUId"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "Shards"
+            ],
+            "type": "object"
           },
           {
             "description": "Tracks all shards.",
