@@ -110,7 +110,7 @@ impl Handler<ExecutorIncomingReceipt> for ChunkExecutorActor {
 
         // TODO(spice): Make sure that we are executing all the forks correctly. For this we may
         // have to keep track of blocks pending execution and check appropriately if enough
-        // receipts are avaiable for all of them.
+        // receipts are available for all of them.
         let next_block_hash = self.chain_store.get_next_block_hash(&block_hash);
         let next_block_hash = match next_block_hash {
             Ok(hash) => hash,
