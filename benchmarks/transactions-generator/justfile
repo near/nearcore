@@ -60,4 +60,3 @@ do-it:
     just create-accounts
     just enable-tx
     just run-localnet
-    [ $? -eq 124 ] && exit 0 || exit $?
