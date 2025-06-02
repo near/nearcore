@@ -182,6 +182,7 @@ check-publishable-separately *OPTIONS:
     exit $FINAL_RESULT
 
 openapi-spec:
+    #!/usr/bin/env bash
     cargo run -p near-jsonrpc-openapi-spec > {{ justfile_directory() }}/new-openapi.json
     cmp {{ justfile_directory() }}/new-openapi.json chain/jsonrpc/openapi/openapi.json
     res=$?
