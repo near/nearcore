@@ -12,6 +12,7 @@ import requests
 import subprocess
 import time
 import datetime
+from tqdm import tqdm
 
 from types import SimpleNamespace
 from mirror import CommandContext, get_nodes_status, init_cmd, new_test_cmd, \
@@ -320,7 +321,11 @@ def handle_get_traces(args):
 
     response = requests.post(
         f"http://{args.forknet_details['tracing_server_external_ip']}:8080/raw_trace",
-        headers={'Content-Type': 'application/json'},
+        headers={
+            'Content-Type': 'application/json',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'Accept': '*/*'
+        },
         json={
             "start_timestamp_unix_ms": start_time,
             "end_timestamp_unix_ms": end_time,
@@ -328,11 +333,28 @@ def handle_get_traces(args):
                 "nodes": [],
                 "threads": []
             }
-        })
+        },
+        stream=True)
 
     if response.status_code == 200:
-        with open(trace_file, 'wb') as f:
-            f.write(response.content)
+        content_encoding = response.headers.get('content-encoding', 'none')
+        logger.info(f"Response encoding: {content_encoding}")
+
+        block_size = 1024
+        total_bytes = 0
+
+        with open(trace_file, 'wb') as f, tqdm(
+                desc="Downloading trace",
+                unit='iB',
+                unit_scale=True,
+                unit_divisor=1024,
+                bar_format='{desc}: {n_fmt} [{elapsed}, {rate_fmt}]') as pbar:
+            for data in response.iter_content(block_size):
+                size = f.write(data)
+                total_bytes += size
+                pbar.update(size)
+
+        logger.info(f"Downloaded size: {total_bytes/1024/1024:.1f}MB")
         logger.info(f"=> Trace saved to {trace_file}")
     else:
         logger.error(
