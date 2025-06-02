@@ -323,7 +323,7 @@ def handle_get_traces(args):
         f"http://{args.forknet_details['tracing_server_external_ip']}:8080/raw_trace",
         headers={
             'Content-Type': 'application/json',
-            'Accept-Encoding': 'gzip, deflate, br',
+            'Accept-Encoding': 'gzip, deflate',
             'Accept': '*/*'
         },
         json={
