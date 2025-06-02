@@ -124,7 +124,7 @@ fn run_worker(
         job();
         // Notify the pool that this thread is idle by pushing the sender into the idle queue
         let (sender, receiver) = oneshot::channel();
-        idle_queue.lock().push_back(sender);
+        idle_queue.lock().push_front(sender);
 
         job = match receiver.recv_timeout(idle_timeout) {
             Ok(Some(job)) => job,
