@@ -374,8 +374,9 @@ fn ultra_slow_test_catchup_sanity_blocks_produced() {
 fn slow_test_all_chunks_accepted() {
     init_test_logger();
 
-    let epoch_length = 20;
-    let last_height = epoch_length * 5 + 2;
+    // In case the test starts failing, first try increasing the epoch length.
+    let epoch_length = 9;
+    let last_height = epoch_length * 8 + 2;
     let validators: Vec<Vec<AccountId>> = [
         vec!["test1.1", "test1.2", "test1.3", "test1.4"],
         vec!["test2.1", "test2.2", "test2.3", "test2.4"],
