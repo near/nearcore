@@ -4,7 +4,6 @@ use std::time::Duration;
 
 use actix::{Actor, AsyncContext, System};
 use futures::FutureExt;
-use near_async::futures::StdThreadAsyncComputationSpawnerForTest;
 use near_async::messaging::{IntoMultiSender, IntoSender, noop};
 use tracing::info;
 
@@ -35,7 +34,6 @@ fn make_peer_manager(
         noop().into_sender(),
         noop().into_multi_sender(),
         GenesisId::default(),
-        Arc::new(StdThreadAsyncComputationSpawnerForTest),
     )
     .unwrap()
 }

@@ -26,7 +26,6 @@ use ::time::ext::InstantExt as _;
 use actix::fut::future::wrap_future;
 use actix::{Actor as _, AsyncContext as _};
 use anyhow::Context as _;
-use near_async::futures::AsyncComputationSpawner;
 use near_async::messaging::{SendAsync, Sender};
 use near_async::time;
 use near_o11y::{WithSpanContext, handler_debug_span, handler_trace_span};
@@ -102,8 +101,6 @@ pub struct PeerManagerActor {
 
     /// State that is shared between multiple threads (including PeerActors).
     pub(crate) state: Arc<NetworkState>,
-
-    _rayon_spawner: Arc<dyn AsyncComputationSpawner>,
 }
 
 /// TEST-ONLY
@@ -221,7 +218,6 @@ impl PeerManagerActor {
         shards_manager_adapter: Sender<ShardsManagerRequestFromNetwork>,
         partial_witness_adapter: PartialWitnessSenderForNetwork,
         genesis_id: GenesisId,
-        rayon_spawner: Arc<dyn AsyncComputationSpawner>,
     ) -> anyhow::Result<actix::Addr<Self>> {
         let config = config.verify().context("config")?;
         let store = store::Store::from(store);
@@ -356,7 +352,6 @@ impl PeerManagerActor {
             started_connect_attempts: false,
             state,
             clock,
-            _rayon_spawner: rayon_spawner,
         }))
     }
 
@@ -1211,15 +1206,6 @@ impl PeerManagerActor {
             }
         }
     }
-
-    // fn shoot_rayon_sender_thread(&self, account_id: &AccountId, message_body: RoutedMessageBody) {
-    //     let state = self.state.clone();
-    //     let clock = self.clock.clone();
-    //     let account_id = account_id.clone();
-    //     self.rayon_spawner.spawn("Rayon Sender Thread", move || {
-    //         state.send_message_to_account(&clock, &account_id, message_body);
-    //     });
-    // }
 
     fn handle_peer_manager_message(
         &mut self,

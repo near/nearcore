@@ -30,7 +30,6 @@ use crate::types::{
     PeerManagerSenderForNetworkInput, PeerManagerSenderForNetworkMessage, ReasonForBan,
 };
 use futures::FutureExt;
-use near_async::futures::StdThreadAsyncComputationSpawnerForTest;
 use near_async::messaging::IntoMultiSender;
 use near_async::messaging::Sender;
 use near_async::time;
@@ -658,7 +657,6 @@ pub(crate) async fn start(
                 shards_manager_sender,
                 state_witness_sender.break_apart().into_multi_sender(),
                 genesis_id,
-                Arc::new(StdThreadAsyncComputationSpawnerForTest),
             )
             .unwrap()
         }
