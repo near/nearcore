@@ -942,7 +942,9 @@ impl Chain {
                 return Err(Error::InvalidBlockMerkleRoot);
             }
 
-            validate_chunk_endorsements_in_header(self.epoch_manager.as_ref(), header)?;
+            if !cfg!(feature = "protocol_feature_spice") {
+                validate_chunk_endorsements_in_header(self.epoch_manager.as_ref(), header)?;
+            }
         }
 
         Ok(())
@@ -1000,8 +1002,7 @@ impl Chain {
 
     /// Do basic validation of the information that we can get from the chunk headers in `block`
     fn validate_chunk_headers(&self, block: &Block, prev_block: &Block) -> Result<(), Error> {
-        let prev_chunk_headers =
-            Chain::get_prev_chunk_headers(self.epoch_manager.as_ref(), prev_block)?;
+        let prev_chunk_headers = self.epoch_manager.get_prev_chunk_headers(prev_block)?;
         for (chunk_header, prev_chunk_header) in
             block.chunks().iter_deprecated().zip(prev_chunk_headers.iter())
         {
@@ -1309,16 +1310,20 @@ impl Chain {
             target: "chain",
             "process_optimistic_block",
             hash = ?block.hash(),
-            height = ?block.height()
+            height = ?block.height(),
+            tag_block_production = true
         )
         .entered();
+
+        if cfg!(feature = "protocol_feature_spice") {
+            return Ok(());
+        }
 
         let block_height = block.height();
         let prev_block_hash = *block.prev_block_hash();
         let prev_block = self.get_block(&prev_block_hash)?;
         let prev_prev_hash = prev_block.header().prev_hash();
-        let prev_chunk_headers =
-            Chain::get_prev_chunk_headers(self.epoch_manager.as_ref(), &prev_block)?;
+        let prev_chunk_headers = self.epoch_manager.get_prev_chunk_headers(&prev_block)?;
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&prev_block_hash)?;
 
         let (is_caught_up, _) =
@@ -1830,7 +1835,9 @@ impl Chain {
         let _span = tracing::debug_span!(
             target: "chain",
             "postprocess_ready_block",
-            height = block.header().height())
+            height = block.header().height(),
+            tag_block_production = true
+        )
         .entered();
 
         let epoch_id = block.header().epoch_id();
@@ -2245,6 +2252,14 @@ impl Chain {
         block_received_time: Instant,
         state_patch: SandboxStatePatch,
     ) -> Result<PreprocessBlockResult, Error> {
+        let _span = tracing::debug_span!(
+            target: "chain",
+            "preprocess_block",
+            height = block.header().height(),
+            tag_block_production = true
+        )
+        .entered();
+
         let header = block.header();
 
         // see if the block is already in processing or if there are too many blocks being processed
@@ -2369,17 +2384,25 @@ impl Chain {
 
         self.validate_chunk_headers(&block, &prev_block)?;
 
-        validate_chunk_endorsements_in_block(self.epoch_manager.as_ref(), &block)?;
+        if !cfg!(feature = "protocol_feature_spice") {
+            validate_chunk_endorsements_in_block(self.epoch_manager.as_ref(), &block)?;
+        }
 
         self.ping_missing_chunks(me, prev_hash, block)?;
 
-        let receipts_shuffle_salt = get_receipts_shuffle_salt(self.epoch_manager.as_ref(), &block)?;
-        let incoming_receipts = self.collect_incoming_receipts_from_chunks(
-            me,
-            &block.chunks(),
-            &prev_hash,
-            receipts_shuffle_salt,
-        )?;
+        let incoming_receipts = if cfg!(feature = "protocol_feature_spice") {
+            // TODO(spice): move incoming receipts collection inside apply_chunks_preprocessing
+            HashMap::default()
+        } else {
+            let receipts_shuffle_salt =
+                get_receipts_shuffle_salt(self.epoch_manager.as_ref(), &block)?;
+            self.collect_incoming_receipts_from_chunks(
+                me,
+                &block.chunks(),
+                &prev_hash,
+                receipts_shuffle_salt,
+            )?
+        };
 
         // Check if block can be finalized and drop it otherwise.
         self.check_if_finalizable(header)?;
@@ -3039,8 +3062,12 @@ impl Chain {
         invalid_chunks: &mut Vec<ShardChunkHeader>,
     ) -> Result<Vec<UpdateShardJob>, Error> {
         let _span = tracing::debug_span!(target: "chain", "apply_chunks_preprocessing").entered();
-        let prev_chunk_headers =
-            Chain::get_prev_chunk_headers(self.epoch_manager.as_ref(), prev_block)?;
+
+        if cfg!(feature = "protocol_feature_spice") {
+            return Ok(vec![]);
+        }
+
+        let prev_chunk_headers = self.epoch_manager.get_prev_chunk_headers(prev_block)?;
 
         let epoch_id = block.header().epoch_id();
         let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
@@ -3689,45 +3716,6 @@ impl Chain {
                 Err(_) => false,
             })
             .ok_or_else(|| Error::DBNotFoundErr(format!("EXECUTION OUTCOME: {}", id)))
-    }
-
-    /// Returns a vector of chunk headers, each of which corresponds to the chunk in the `prev_block`
-    /// This function is important when the block after `prev_block` has different number of chunks
-    /// from `prev_block` in cases of resharding.
-    /// In block production and processing, often we need to get the previous chunks of chunks
-    /// in the current block, this function provides a way to do so while handling sharding changes
-    /// correctly.
-    /// For example, if `prev_block` has two shards 0, 1 and the block after `prev_block` will have
-    /// 4 shards 0, 1, 2, 3, 0 and 1 split from shard 0 and 2 and 3 split from shard 1.
-    /// `get_prev_chunk_headers(epoch_manager, prev_block)` will return
-    /// `[prev_block.chunks()[0], prev_block.chunks()[0], prev_block.chunks()[1], prev_block.chunks()[1]]`
-    pub fn get_prev_chunk_headers(
-        epoch_manager: &dyn EpochManagerAdapter,
-        prev_block: &Block,
-    ) -> Result<Vec<ShardChunkHeader>, Error> {
-        let epoch_id = epoch_manager.get_epoch_id_from_prev_block(prev_block.hash())?;
-        let shard_ids = epoch_manager.shard_ids(&epoch_id)?;
-
-        let prev_shard_ids = epoch_manager.get_prev_shard_ids(prev_block.hash(), shard_ids)?;
-        let prev_chunks = prev_block.chunks();
-        Ok(prev_shard_ids
-            .into_iter()
-            .map(|(_, shard_index)| prev_chunks.get(shard_index).unwrap().clone())
-            .collect())
-    }
-
-    pub fn get_prev_chunk_header(
-        epoch_manager: &dyn EpochManagerAdapter,
-        prev_block: &Block,
-        shard_id: ShardId,
-    ) -> Result<ShardChunkHeader, Error> {
-        let (_, prev_shard_id, prev_shard_index) =
-            epoch_manager.get_prev_shard_id_from_prev_hash(prev_block.hash(), shard_id)?;
-        Ok(prev_block
-            .chunks()
-            .get(prev_shard_index)
-            .ok_or(Error::InvalidShardId(prev_shard_id))?
-            .clone())
     }
 
     pub fn group_receipts_by_shard(

@@ -16,6 +16,7 @@ parking_lot.workspace = true
 time = { workspace = true, features = ["formatting", "parsing"] }
 tokio = { workspace = true, default-features = false, features = ["time", "sync"], optional = true }
 serde = { workspace = true, optional = true }
+schemars = { workspace = true, optional = true }
 
 [dev-dependencies]
 serde_json.workspace = true

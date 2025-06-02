@@ -88,7 +88,7 @@ impl ReshardingManager {
         Ok(())
     }
 
-    fn split_shard(
+    pub fn split_shard(
         &self,
         chain_store_update: ChainStoreUpdate,
         block: &Block,

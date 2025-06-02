@@ -1,0 +1,28 @@
+[package]
+name = "near-jsonrpc-openapi-spec"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+license.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+schemars.workspace = true
+serde_json.workspace = true
+okapi.workspace = true
+serde.workspace = true
+serde_with.workspace = true
+
+near-jsonrpc-primitives = { workspace = true, features = ["schemars"] }
+near-primitives = { workspace = true, features = ["schemars"] }
+near-chain-configs = { workspace = true, features = ["schemars"] }
+near-crypto = { workspace = true, features = ["schemars"] }
+
+
+[features]
+progenitor = []

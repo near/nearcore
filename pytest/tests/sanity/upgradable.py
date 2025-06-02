@@ -20,6 +20,8 @@ from configured_logger import logger
 from transaction import sign_function_call_tx, sign_payment_tx, sign_deploy_contract_to_new_account_tx
 import utils
 
+ONE_NEAR = 1000000000000000000000000
+
 _EXECUTABLES = None
 
 TIMEOUT = 10
@@ -109,7 +111,7 @@ class TrafficGenerator(threading.Thread):
                 self._rpc_node.signer_key,
                 acc,
                 utils.load_test_contract(config=config),
-                1000000000000000000000000,
+                100000 * ONE_NEAR,
                 self.get_next_nonce(),
                 self.get_latest_block_hash(),
             )

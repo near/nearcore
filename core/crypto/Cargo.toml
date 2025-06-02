@@ -33,6 +33,7 @@ thiserror.workspace = true
 near-config-utils.workspace = true
 near-schema-checker-lib.workspace = true
 rand = { workspace = true, optional = true }
+schemars = {workspace = true, optional = true }
 
 [dev-dependencies]
 bolero.workspace = true
