@@ -111,7 +111,7 @@ impl ReplayController {
         end_height: Option<BlockHeight>,
     ) -> Result<Self> {
         let storage = open_storage_for_replay(home_dir, &near_config)?;
-        let store = Store::new(storage.clone(), Default::default());
+        let store = Store::new(storage.clone());
 
         let genesis_height = near_config.genesis.config.genesis_height;
         let chain_store = ChainStore::new(

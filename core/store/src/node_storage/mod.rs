@@ -1,14 +1,12 @@
 pub(super) mod opener;
 
+use crate::config::ArchivalConfig;
+use crate::db::{Database, SplitDB, metadata};
+use crate::{Store, StoreConfig};
+use opener::StoreOpener;
 use std::io;
 use std::str::FromStr;
 use std::sync::{Arc, LazyLock};
-
-use opener::StoreOpener;
-
-use crate::config::ArchivalConfig;
-use crate::db::{Database, SplitDB, metadata};
-use crate::{Store, StoreConfig, store};
 
 /// Specifies temperature of a storage.
 ///
@@ -42,7 +40,6 @@ impl FromStr for Temperature {
 pub struct NodeStorage {
     hot_storage: Arc<dyn Database>,
     cold_storage: Option<Arc<crate::db::ColdDB>>,
-    store_cache: Arc<store::deserialized_column::Cache>,
 }
 
 impl NodeStorage {
@@ -54,23 +51,6 @@ impl NodeStorage {
         archival_config: Option<ArchivalConfig<'a>>,
     ) -> StoreOpener<'a> {
         StoreOpener::new(home_dir, store_config, archival_config)
-    }
-
-    /// Constructs new object backed by given database.
-    fn from_rocksdb(
-        hot_storage: crate::db::RocksDB,
-        cold_storage: Option<crate::db::RocksDB>,
-    ) -> Self {
-        let hot_storage = Arc::new(hot_storage);
-        let cold_storage = cold_storage.map(|storage| Arc::new(storage));
-
-        let cold_db = if let Some(cold_storage) = cold_storage {
-            Some(Arc::new(crate::db::ColdDB::new(cold_storage)))
-        } else {
-            None
-        };
-
-        Self { hot_storage, cold_storage: cold_db, store_cache: Default::default() }
     }
 
     /// Initializes an opener for a new temporary test store.
@@ -89,6 +69,23 @@ impl NodeStorage {
     }
 
     /// Constructs new object backed by given database.
+    fn from_rocksdb(
+        hot_storage: crate::db::RocksDB,
+        cold_storage: Option<crate::db::RocksDB>,
+    ) -> Self {
+        let hot_storage = Arc::new(hot_storage);
+        let cold_storage = cold_storage.map(|storage| Arc::new(storage));
+
+        let cold_db = if let Some(cold_storage) = cold_storage {
+            Some(Arc::new(crate::db::ColdDB::new(cold_storage)))
+        } else {
+            None
+        };
+
+        Self { hot_storage, cold_storage: cold_db }
+    }
+
+    /// Constructs new object backed by given database.
     ///
     /// Note that you most likely don’t want to use this method.  If you’re
     /// opening an on-disk storage, you want to use [`Self::opener`] instead
@@ -98,7 +95,7 @@ impl NodeStorage {
     /// possibly [`crate::test_utils::create_test_store`] (depending whether you
     /// need [`NodeStorage`] or [`Store`] object.
     pub fn new(storage: Arc<dyn Database>) -> Self {
-        Self { hot_storage: storage, cold_storage: None, store_cache: Default::default() }
+        Self { hot_storage: storage, cold_storage: None }
     }
 }
 
@@ -117,7 +114,7 @@ impl NodeStorage {
     /// store, the view client should use the split store and the cold store
     /// loop should use cold store.
     pub fn get_hot_store(&self) -> Store {
-        Store::new(self.hot_storage.clone(), Arc::clone(&self.store_cache))
+        Store::new(self.hot_storage.clone())
     }
 
     /// Returns the cold store. The cold store is only available in archival
@@ -129,9 +126,7 @@ impl NodeStorage {
     /// loop should use cold store.
     pub fn get_cold_store(&self) -> Option<Store> {
         match &self.cold_storage {
-            Some(cold_storage) => {
-                Some(Store::new(cold_storage.clone(), Arc::clone(&self.store_cache)))
-            }
+            Some(cold_storage) => Some(Store::new(cold_storage.clone())),
             None => None,
         }
     }
@@ -142,10 +137,9 @@ impl NodeStorage {
     /// Recovery store should be use only to perform data recovery on archival nodes.
     pub fn get_recovery_store(&self) -> Option<Store> {
         match &self.cold_storage {
-            Some(cold_storage) => Some(Store::new(
-                Arc::new(crate::db::RecoveryDB::new(cold_storage.clone())),
-                Arc::clone(&self.store_cache),
-            )),
+            Some(cold_storage) => {
+                Some(Store::new(Arc::new(crate::db::RecoveryDB::new(cold_storage.clone()))))
+            }
             None => None,
         }
     }
@@ -158,7 +152,7 @@ impl NodeStorage {
     /// store, the view client should use the split store and the cold store
     /// loop should use cold store.
     pub fn get_split_store(&self) -> Option<Store> {
-        self.get_split_db().map(|split_db| Store::new(split_db, Arc::clone(&self.store_cache)))
+        self.get_split_db().map(|split_db| Store::new(split_db))
     }
 
     pub fn get_split_db(&self) -> Option<Arc<SplitDB>> {
@@ -210,11 +204,7 @@ impl NodeStorage {
     }
 
     pub fn new_with_cold(hot: Arc<dyn Database>, cold: Arc<dyn Database>) -> Self {
-        Self {
-            hot_storage: hot,
-            cold_storage: Some(Arc::new(crate::db::ColdDB::new(cold))),
-            store_cache: Default::default(),
-        }
+        Self { hot_storage: hot, cold_storage: Some(Arc::new(crate::db::ColdDB::new(cold))) }
     }
 
     pub fn cold_db(&self) -> Option<&Arc<crate::db::ColdDB>> {

@@ -360,7 +360,7 @@ impl<'a> StoreOpener<'a> {
                 tracing::info!(target: "db_opener", path=%opener.path.display(), "The database doesn't exist, creating it.");
 
                 let db = opener.create()?;
-                let store = Store::new(Arc::new(db), Default::default());
+                let store = Store::new(Arc::new(db));
                 store.set_db_version(DB_VERSION)?;
                 return Ok(());
             }
@@ -488,13 +488,13 @@ impl<'a> StoreOpener<'a> {
         version: DbVersion,
     ) -> Result<Store, StoreOpenerError> {
         let (db, _) = opener.open(mode, version)?;
-        let store = Store::new(Arc::new(db), Default::default());
+        let store = Store::new(Arc::new(db));
         Ok(store)
     }
 
     fn open_store_unsafe(mode: Mode, opener: &DBOpener) -> Result<Store, StoreOpenerError> {
         let db = opener.open_unsafe(mode)?;
-        let store = Store::new(Arc::new(db), Default::default());
+        let store = Store::new(Arc::new(db));
         Ok(store)
     }
 }
@@ -692,7 +692,7 @@ mod tests {
     fn slow_test_checkpoint_hot_storage_and_cleanup_columns() {
         let (home_dir, opener) = NodeStorage::test_opener();
         let node_storage = opener.open().unwrap();
-        let hot_store = Store::new(node_storage.hot_storage.clone(), Default::default());
+        let hot_store = Store::new(node_storage.hot_storage.clone());
         assert_eq!(hot_store.get_db_kind().unwrap(), Some(DbKind::RPC));
 
         let keys = vec![vec![0], vec![1], vec![2], vec![3]];

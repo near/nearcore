@@ -3,46 +3,71 @@ use crate::adapter::{StoreAdapter, StoreUpdateAdapter};
 use crate::db::metadata::{DbKind, DbMetadata, DbVersion, KIND_KEY, VERSION_KEY};
 use crate::db::{DBIterator, DBOp, DBSlice, DBTransaction, Database, StoreStatistics, refcount};
 use borsh::{BorshDeserialize, BorshSerialize};
+use enum_map::EnumMap;
 use near_fmt::{AbbrBytes, StorageKey};
 use std::fs::File;
 use std::path::Path;
 use std::sync::Arc;
 use std::{fmt, io};
+use strum::IntoEnumIterator;
 
 const STATE_COLUMNS: [DBCol; 2] = [DBCol::State, DBCol::FlatState];
 const STATE_FILE_END_MARK: u8 = 255;
 
-pub(super) mod deserialized_column {
+pub mod deserialized_column {
     use crate::DBCol;
+    use parking_lot::Mutex;
     use std::any::Any;
+    use std::num::NonZeroUsize;
     use std::sync::Arc;
 
-    type CacheContainer = near_cache::SyncLruCache<Vec<u8>, Arc<dyn Any + Send + Sync>>;
-
-    struct ColumnCache {
-        values: Option<CacheContainer>,
+    pub(super) struct ColumnCache {
+        pub(super) values: lru::LruCache<Vec<u8>, Arc<dyn Any + Send + Sync>>,
+        /// A counter indicating the number of ongoing write transaction flushes.
+        ///
+        /// This cache and transactional write operation in the underlying database can be
+        /// difficult to synchronize, so instead any time there is an in-progress write operation
+        /// that affects this column, we will simply disable the use of this column's cache
+        /// altogether and have the read operations go to the underlying database unconditionally.
+        ///
+        /// This solves a race condition where we'd potentially serve inconsistent data from the
+        /// cache between the moment when the transaction is written out and the modified keys are
+        /// erased from the relevant columns in the cache.
+        ///
+        /// So for example, if we clear the cache contents before sending the transaction to the
+        /// database, without any locking the following sequence of events is possible:
+        ///
+        /// 1. Erase all affected keys in the cache;
+        /// 2. Code reads some of the affected keys and remembers it in the cache;
+        /// 3. DB write transaction is applied;
+        /// 4. From this point on cache still serves data it recalls from step 2.
+        ///
+        /// See the state machine constants for more information on how this is implemented.
+        ///
+        /// Instead, any time this counter is non-zero, the cache will stop saving values read out
+        /// of database into itself and return them directly to the caller. The write operation
+        /// itself will take care of discarding dirty data.
+        pub(super) active_flushes: u64,
     }
 
     impl ColumnCache {
-        pub fn get_enabled(&self) -> Option<&CacheContainer> {
-            self.values.as_ref()
-        }
-
-        fn disabled() -> Self {
+        fn disabled() -> Option<Mutex<Self>> {
             Self::new(0)
         }
 
-        fn new(capacity: usize) -> Self {
-            Self { values: (capacity > 0).then(|| near_cache::SyncLruCache::new(capacity)) }
+        fn new(capacity: usize) -> Option<Mutex<Self>> {
+            let capacity = NonZeroUsize::new(capacity);
+            let values = capacity.map(|cap| lru::LruCache::new(cap))?;
+            Some(Mutex::new(Self { values, active_flushes: 0 }))
         }
     }
 
     pub struct Cache {
-        column_map: enum_map::EnumMap<DBCol, ColumnCache>,
+        column_map: enum_map::EnumMap<DBCol, Option<Mutex<ColumnCache>>>,
     }
 
-    impl Default for Cache {
-        fn default() -> Self {
+    impl Cache {
+        pub(crate) fn enabled() -> Self {
             Self {
                 column_map: enum_map::enum_map! {
                     | DBCol::BlockHeader
@@ -52,11 +77,20 @@ pub(super) mod deserialized_column {
                 },
             }
         }
-    }
 
-    impl Cache {
-        pub fn work_with(&self, col: DBCol) -> Option<&CacheContainer> {
-            self.column_map[col].get_enabled()
+        pub fn disabled() -> Arc<Self> {
+            static ONCE: std::sync::OnceLock<Arc<Cache>> = std::sync::OnceLock::new();
+            Arc::clone(ONCE.get_or_init(|| {
+                Arc::new(Self {
+                    column_map: enum_map::enum_map! {
+                        _ => ColumnCache::disabled(),
+                    },
+                })
+            }))
+        }
+
+        pub(super) fn work_with(&self, col: DBCol) -> Option<&Mutex<ColumnCache>> {
+            self.column_map[col].as_ref()
         }
     }
 }
@@ -80,7 +114,13 @@ impl StoreAdapter for Store {
 }
 
 impl Store {
-    pub fn new(storage: Arc<dyn Database>, cache: Arc<deserialized_column::Cache>) -> Self {
+    pub fn new(storage: Arc<dyn Database>) -> Self {
+        let cache = storage.deserialized_column_cache();
+        println!(
+            "created a new store with cache at {:?} at {:?}",
+            Arc::as_ptr(&cache),
+            std::backtrace::Backtrace::capture()
+        );
         Self { storage, cache }
     }
 
@@ -119,33 +159,36 @@ impl Store {
         column: DBCol,
         key: &[u8],
     ) -> io::Result<Option<Arc<T>>> {
-        let Some(column_cache) = self.cache.work_with(column) else {
+        let Some(cache) = self.cache.work_with(column) else {
             return self.get_ser::<T>(column, key).map(|v| v.map(Into::into));
         };
-        let mut cache_lock = column_cache.lock();
-        if let Some(value) = cache_lock.get(key) {
-            match Arc::downcast::<T>(Arc::clone(value)) {
-                Ok(result) => return Ok(Some(result)),
-                Err(_) => {
-                    tracing::debug!(
-                        target: "store",
-                        requested = std::any::type_name::<T>(),
-                        "could not downcast an available cached deserialized value"
-                    );
+
+        {
+            let mut lock = cache.lock();
+            if let Some(value) = lock.values.get(key) {
+                match Arc::downcast::<T>(Arc::clone(value)) {
+                    Ok(result) => return Ok(Some(result)),
+                    Err(_) => {
+                        tracing::debug!(
+                            target: "store",
+                            requested = std::any::type_name::<T>(),
+                            "could not downcast an available cached deserialized value"
+                        );
+                    }
                 }
             }
         }
-        // We drop the lock on LRU cache here as the lookup in rocksdb and deserialization can take
-        // quite some time and we don't really want to block other requests from making progress
-        // during this procedure...
-        drop(cache_lock);
+
         let value = match self.get_ser::<T>(column, key) {
             Ok(Some(value)) => Arc::from(value),
             Ok(None) => return Ok(None),
             Err(e) => return Err(e),
         };
-        cache_lock = column_cache.lock();
-        cache_lock.put(key.into(), Arc::clone(&value) as _);
+
+        let mut lock = cache.lock();
+        if lock.active_flushes == 0 {
+            lock.values.put(key.into(), Arc::clone(&value) as _);
+        }
         Ok(Some(value))
     }
 
@@ -256,6 +299,8 @@ impl Store {
     }
 
     pub fn write(&self, transaction: DBTransaction) -> io::Result<()> {
+        let mut keys_flushed = EnumMap::<DBCol, u64>::from_fn(|_| 0);
+
         for op in &transaction.ops {
             match op {
                 DBOp::Set { col, key, .. }
@@ -263,15 +308,29 @@ impl Store {
                 | DBOp::UpdateRefcount { col, key, .. }
                 | DBOp::Delete { col, key } => {
                     let Some(cache) = self.cache.work_with(*col) else { continue };
-                    cache.lock().pop(key);
+                    let mut lock = cache.lock();
+                    lock.active_flushes += 1;
+                    keys_flushed[*col] += 1;
+                    lock.values.pop(key);
                 }
                 DBOp::DeleteAll { col } | DBOp::DeleteRange { col, .. } => {
                     let Some(cache) = self.cache.work_with(*col) else { continue };
-                    cache.lock().clear();
+                    let mut lock = cache.lock();
+                    lock.active_flushes += 1;
+                    keys_flushed[*col] += 1;
+                    lock.values.clear();
                 }
             }
         }
-        self.storage.write(transaction)
+        let result = self.storage.write(transaction);
+        for col in DBCol::iter() {
+            let flushed = keys_flushed[col];
+            if flushed != 0 {
+                let Some(cache) = self.cache.work_with(col) else { continue };
+                cache.lock().active_flushes -= flushed;
+            }
+        }
+        result
     }
 
     /// If the storage is backed by disk, flushes any in-memory data to disk.
