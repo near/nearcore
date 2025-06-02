@@ -198,6 +198,10 @@ impl StoreConfig {
         }
     }
 
+    pub const fn col_cache_capacity(&self, _col: DBCol) -> usize {
+        return 1000;
+    }
+
     fn default_per_shard_max_bytes() -> HashMap<ShardUId, bytesize::ByteSize> {
         let epoch_config_store = EpochConfigStore::for_chain_id(MAINNET, None).unwrap();
         let mut shard_layouts: Vec<ShardLayout> = Vec::new();

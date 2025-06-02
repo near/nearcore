@@ -80,10 +80,10 @@ impl Database for TestDB {
         let mut db = self.db.write();
         for op in transaction.ops {
             match op {
-                DBOp::Set { col, key, value } => {
+                DBOp::Set { col, key, value, .. } => {
                     db[col].insert(key, value);
                 }
-                DBOp::Insert { col, key, value } => {
+                DBOp::Insert { col, key, value, .. } => {
                     if cfg!(debug_assertions) {
                         if let Some(old_value) = db[col].get(&key) {
                             super::assert_no_overwrite(col, &key, &value, &*old_value)

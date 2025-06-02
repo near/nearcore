@@ -6,13 +6,15 @@ use ::rocksdb::{
 };
 use anyhow::Context;
 use itertools::Itertools;
+use parking_lot::RwLock;
 use std::io;
 use std::path::Path;
-use std::sync::LazyLock;
+use std::sync::{Arc, LazyLock};
 use strum::IntoEnumIterator;
 use tracing::warn;
 
-use super::metadata;
+use super::cache::FifoCache;
+use super::{Anything, metadata};
 
 mod instance_tracker;
 pub mod snapshot;
@@ -44,6 +46,8 @@ static CF_PROPERTY_NAMES: LazyLock<Vec<std::ffi::CString>> = LazyLock::new(|| {
     ret
 });
 
+type AnythingCache = FifoCache<Vec<u8>, Anything>;
+
 pub struct RocksDB {
     db: DB,
     db_opt: Options,
@@ -54,6 +58,8 @@ pub struct RocksDB {
     /// method instead.  It returns `&ColumnFamily` which is what you usually
     /// want.
     cf_handles: enum_map::EnumMap<DBCol, Option<std::ptr::NonNull<ColumnFamily>>>,
+
+    cache: Arc<RwLock<enum_map::EnumMap<DBCol, AnythingCache>>>,
 
     // RAII-style of keeping track of the number of instances of RocksDB and
     // counting total sum of max_open_files.
@@ -120,7 +126,11 @@ impl RocksDB {
             .map_err(io::Error::other)?;
         let (db, db_opt) = Self::open_db(path, store_config, mode, temp, columns)?;
         let cf_handles = Self::get_cf_handles(&db, columns);
-        Ok(Self { db, db_opt, cf_handles, _instance_tracker: counter })
+        let cache =
+            Arc::new(RwLock::new(enum_map::EnumMap::<DBCol, AnythingCache>::from_fn(|col| {
+                FifoCache::new(store_config.col_cache_capacity(col))
+            })));
+        Ok(Self { db, db_opt, cf_handles, cache, _instance_tracker: counter })
     }
 
     /// Opens the database with given column families configured.
@@ -307,13 +317,24 @@ impl RocksDB {
         fields(transaction.ops.len = transaction.ops.len()),
     )]
     fn build_write_batch(&self, transaction: DBTransaction) -> io::Result<WriteBatch> {
+        let mut cache = self.cache.write();
         let mut batch = WriteBatch::default();
         for op in transaction.ops {
             match op {
-                DBOp::Set { col, key, value } => {
+                DBOp::Set { col, key, value, anything } => {
+                    if let Some(anything) = anything {
+                        cache[col].insert(key.to_vec(), anything);
+                    } else {
+                        cache[col].remove(&key.to_vec());
+                    }
                     batch.put_cf(self.cf_handle(col)?, key, value);
                 }
-                DBOp::Insert { col, key, value } => {
+                DBOp::Insert { col, key, value, anything } => {
+                    if let Some(anything) = anything {
+                        cache[col].insert(key.to_vec(), anything);
+                    } else {
+                        cache[col].remove(&key.to_vec());
+                    }
                     if cfg!(debug_assertions) {
                         if let Ok(Some(old_value)) = self.get_raw_bytes(col, &key) {
                             super::assert_no_overwrite(col, &key, &value, &*old_value)
@@ -325,9 +346,11 @@ impl RocksDB {
                     batch.merge_cf(self.cf_handle(col)?, key, value);
                 }
                 DBOp::Delete { col, key } => {
+                    cache[col].remove(&key.to_vec());
                     batch.delete_cf(self.cf_handle(col)?, key);
                 }
                 DBOp::DeleteAll { col } => {
+                    cache[col].remove_all();
                     let cf_handle = self.cf_handle(col)?;
                     let range = self.get_cf_key_range(cf_handle).map_err(io::Error::other)?;
                     if let Some(range) = range {
@@ -337,6 +360,7 @@ impl RocksDB {
                     }
                 }
                 DBOp::DeleteRange { col, from, to } => {
+                    cache[col].remove_range(&from, &to);
                     batch.delete_range_cf(self.cf_handle(col)?, from, to);
                 }
             }
@@ -357,6 +381,12 @@ impl Database for RocksDB {
             .map(DBSlice::from_rocksdb_slice);
         timer.observe_duration();
         Ok(result)
+    }
+
+    fn get_anything(&self, col: DBCol, key: &[u8]) -> io::Result<Option<Anything>> {
+        let cache = self.cache.read();
+        let anyref = cache[col].get(&key.to_vec());
+        Ok(anyref.cloned())
     }
 
     fn iter_raw_bytes(&self, col: DBCol) -> DBIterator {

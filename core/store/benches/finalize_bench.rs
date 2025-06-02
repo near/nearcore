@@ -50,7 +50,11 @@ fn benchmark_write_shard_chunk(bench: &mut Bencher) {
     bench.iter(|| {
         let mut update = store.store_update();
         update
-            .insert_ser(DBCol::Chunks, chunk_hash.as_ref(), &chunks.choose(&mut rand::thread_rng()))
+            .insert_ser_no_clone(
+                DBCol::Chunks,
+                chunk_hash.as_ref(),
+                &chunks.choose(&mut rand::thread_rng()),
+            )
             .unwrap();
         black_box(update);
     });
@@ -74,7 +78,7 @@ fn benchmark_write_partial_encoded_chunk(bench: &mut Bencher) {
     bench.iter(|| {
         let mut update = store.store_update();
         update
-            .insert_ser(
+            .insert_ser_no_clone(
                 DBCol::PartialChunks,
                 chunk_hash.as_ref(),
                 &chunks.choose(&mut rand::thread_rng()),

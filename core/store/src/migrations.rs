@@ -269,7 +269,7 @@ struct LegacyEpochSummaryV38 {
 ///
 /// Rewrites Epoch summary to include endorsement stats.
 pub fn migrate_38_to_39(store: &Store) -> anyhow::Result<()> {
-    #[derive(BorshSerialize, BorshDeserialize)]
+    #[derive(BorshSerialize, BorshDeserialize, Clone)]
     struct EpochInfoAggregator<T> {
         /// Map from validator index to (num_blocks_produced, num_blocks_expected) so far in the given epoch.
         pub block_tracker: HashMap<ValidatorId, ValidatorStats>,

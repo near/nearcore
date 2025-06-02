@@ -314,7 +314,7 @@ fn check_iter(
 
 /// Calls get_ser on Store with provided temperature from provided NodeStorage.
 /// Expects read to not result in errors.
-fn get_ser_from_store<T: near_primitives::borsh::BorshDeserialize>(
+fn get_ser_from_store<T: near_primitives::borsh::BorshDeserialize + Clone + 'static>(
     store: &Store,
     col: DBCol,
     key: &[u8],

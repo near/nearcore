@@ -7,7 +7,7 @@ use super::contract_distribution::{CodeBytes, CodeHash};
 
 /// Stored on disk for each chunk, including missing chunks, in order to
 /// produce a chunk state witness when needed.
-#[derive(Debug, BorshSerialize, BorshDeserialize, ProtocolSchema)]
+#[derive(Debug, BorshSerialize, BorshDeserialize, ProtocolSchema, Clone)]
 pub enum StoredChunkStateTransitionData {
     V1(StoredChunkStateTransitionDataV1),
 }
@@ -20,7 +20,7 @@ impl StoredChunkStateTransitionData {
     }
 }
 
-#[derive(Debug, BorshSerialize, BorshDeserialize, ProtocolSchema)]
+#[derive(Debug, BorshSerialize, BorshDeserialize, ProtocolSchema, Clone)]
 pub struct StoredChunkStateTransitionDataV1 {
     /// The partial state that is needed to apply the state transition,
     /// whether it is a new chunk state transition or an implicit missing chunk

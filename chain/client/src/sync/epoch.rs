@@ -583,7 +583,7 @@ impl EpochSync {
         // Store the EpochSyncProof, so that this node can derive a more recent EpochSyncProof
         // to facilitate epoch sync of other nodes.
         let proof = EpochSyncProof::V1(proof); // convert to avoid cloning
-        store_update.epoch_store_update().set_epoch_sync_proof(&proof);
+        store_update.epoch_store_update().set_epoch_sync_proof(proof.clone());
         let proof = proof.into_v1();
 
         let last_header = proof.current_epoch.first_block_header_in_epoch;

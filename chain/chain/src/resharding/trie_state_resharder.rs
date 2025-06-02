@@ -17,7 +17,7 @@ use near_chain_primitives::Error;
 use near_o11y::metrics::IntGauge;
 use near_primitives::shard_layout::ShardUId;
 
-#[derive(BorshSerialize, BorshDeserialize, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone)]
 /// Represents the status of one child shard during trie state resharding.
 struct TrieStateReshardingChildStatus {
     shard_uid: ShardUId,
@@ -45,7 +45,7 @@ impl TrieStateReshardingChildStatus {
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Debug, PartialEq, Eq)]
+#[derive(BorshSerialize, BorshDeserialize, Debug, PartialEq, Eq, Clone)]
 /// Represents the status of an ongoing trie state resharding.
 /// It is used to resume the resharding process after a crash or restart.
 struct TrieStateReshardingStatus {
@@ -273,7 +273,7 @@ impl Debug for TrieStateResharder {
 }
 
 /// Metrics for tracking store column update during resharding.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct TrieStateResharderMetrics {
     processed_batches: IntGauge,
 }

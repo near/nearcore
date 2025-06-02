@@ -122,7 +122,7 @@ impl<'a> EpochStoreUpdateAdapter<'a> {
         self.store_update.set_ser(DBCol::EpochInfo, epoch_id.as_ref(), epoch_info).unwrap();
     }
 
-    pub fn set_epoch_sync_proof(&mut self, proof: &EpochSyncProof) {
+    pub fn set_epoch_sync_proof(&mut self, proof: EpochSyncProof) {
         self.store_update.set_ser(DBCol::EpochSyncProof, &[], &proof).unwrap();
     }
 }

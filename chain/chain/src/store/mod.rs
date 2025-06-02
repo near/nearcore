@@ -1718,7 +1718,7 @@ impl<'a> ChainStoreUpdate<'a> {
         value: &mut Option<T>,
     ) -> Result<(), Error> {
         if let Some(t) = value.take() {
-            store_update.set_ser(DBCol::BlockMisc, key, &t)?;
+            store_update.set_ser_no_clone(DBCol::BlockMisc, key, &t)?;
         }
         Ok(())
     }
@@ -1793,7 +1793,7 @@ impl<'a> ChainStoreUpdate<'a> {
                 store_update.set_ser(
                     DBCol::ChunkExtra,
                     &get_block_shard_uid(block_hash, shard_uid),
-                    chunk_extra,
+                    chunk_extra.as_ref(),
                 )?;
             }
         }
@@ -1835,7 +1835,9 @@ impl<'a> ChainStoreUpdate<'a> {
                     );
                 }
 
-                store_update.insert_ser(DBCol::Chunks, chunk_hash.as_ref(), chunk)?;
+                let shard_chunk = ShardChunk::from(chunk.as_ref());
+                store_update.insert_ser(DBCol::Chunks, chunk_hash.as_ref(), &shard_chunk)?;
+                //store_update.insert_ser_no_clone(DBCol::Chunks, chunk_hash.as_ref(), chunk)?;
             }
             for (height, hash_set) in chunk_hashes_by_height {
                 store_update.set_ser(
@@ -1920,14 +1922,14 @@ impl<'a> ChainStoreUpdate<'a> {
                 store_update.insert_ser(
                     DBCol::TransactionResultForBlock,
                     &get_outcome_id_block_hash(outcome_id, block_hash),
-                    &outcome_with_proof,
+                    outcome_with_proof,
                 )?;
             }
             for ((block_hash, shard_id), ids) in &self.chain_store_cache_update.outcome_ids {
                 store_update.set_ser(
                     DBCol::OutcomeIds,
                     &get_block_shard_id(block_hash, *shard_id),
-                    &ids,
+                    ids,
                 )?;
             }
         }

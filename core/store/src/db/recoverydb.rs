@@ -116,8 +116,8 @@ impl RecoveryDB {
             return false;
         }
         match op {
-            DBOp::Set { col, key, value }
-            | DBOp::Insert { col, key, value }
+            DBOp::Set { col, key, value, .. }
+            | DBOp::Insert { col, key, value, .. }
             | DBOp::UpdateRefcount { col, key, value } => {
                 !self.overwrites_same_data(col, key, value)
             }
@@ -192,7 +192,8 @@ mod test {
         let db = create_test_recovery_db();
         let col = DBCol::Block;
 
-        let op = DBOp::Set { col, key: HASH.to_vec(), value: [VALUE, ONE].concat() };
+        let op =
+            DBOp::Set { col, key: HASH.to_vec(), value: [VALUE, ONE].concat(), anything: None };
 
         let mut tx = DBTransaction { ops: vec![op] };
         db.filter_db_ops(&mut tx);
@@ -205,7 +206,8 @@ mod test {
         let db = create_test_recovery_db();
         let col = COL;
 
-        let generate_op = || DBOp::Set { col, key: HASH.to_vec(), value: [VALUE, ONE].concat() };
+        let generate_op =
+            || DBOp::Set { col, key: HASH.to_vec(), value: [VALUE, ONE].concat(), anything: None };
 
         assert_op_writes_only_once(generate_op, db, col);
     }
@@ -216,7 +218,12 @@ mod test {
         let db = create_test_recovery_db();
         let col = COL;
 
-        let generate_op = || DBOp::Insert { col, key: HASH.to_vec(), value: [VALUE, ONE].concat() };
+        let generate_op = || DBOp::Insert {
+            col,
+            key: HASH.to_vec(),
+            value: [VALUE, ONE].concat(),
+            anything: None,
+        };
 
         assert_op_writes_only_once(generate_op, db, col);
     }
