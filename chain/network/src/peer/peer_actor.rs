@@ -38,7 +38,6 @@ use actix::{Actor as _, ActorContext as _, ActorFutureExt as _, AsyncContext as 
 use lru::LruCache;
 use near_async::messaging::{CanSend, SendAsync};
 use near_async::time;
-use near_crypto::Signature;
 use near_o11y::{WithSpanContext, handler_debug_span, log_assert};
 use near_performance_metrics_macros::perf;
 use near_primitives::hash::CryptoHash;
@@ -171,7 +170,7 @@ pub(crate) struct PeerActor {
     /// Network bandwidth stats.
     stats: Arc<connection::Stats>,
     /// Cache of recently routed messages, this allows us to drop duplicates
-    routed_message_cache: LruCache<(PeerId, PeerIdOrHash, Option<Signature>), time::Instant>,
+    routed_message_cache: LruCache<CryptoHash, time::Instant>,
     /// Whether we detected support for protocol buffers during handshake.
     protocol_buffers_supported: bool,
     /// Whether the PeerActor should skip protobuf support detection and use
@@ -1399,7 +1398,8 @@ impl PeerActor {
                 }
 
                 // Drop duplicated messages routed within DROP_DUPLICATED_MESSAGES_PERIOD ms
-                let key = (msg.author.clone(), msg.target.clone(), msg.body.signature());
+                let key = msg.hash();
+                // let key = (msg.author.clone(), msg.target.clone(), msg.body.signature());
                 let now = self.clock.now();
                 if let Some(&t) = self.routed_message_cache.get(&key) {
                     if now <= t + DROP_DUPLICATED_MESSAGES_PERIOD {
