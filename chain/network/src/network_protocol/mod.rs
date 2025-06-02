@@ -702,7 +702,7 @@ pub struct RoutedMessage {
     pub author: PeerId,
     /// Signature from the author of the message. If this signature is invalid we should ban
     /// last sender of this message. If the message is invalid we should ben author of the message.
-    pub signature: Signature,
+    pub signature: Option<Signature>,
     /// Time to live for this message. After passing through some hop this number should be
     /// decreased by 1. If this number is 0, drop this message.
     pub ttl: u8,
@@ -756,7 +756,10 @@ impl RoutedMessage {
     }
 
     pub fn verify(&self) -> bool {
-        self.signature.verify(self.hash().as_ref(), self.author.public_key())
+        match &self.signature {
+            None => true,
+            Some(signature) => signature.verify(self.hash().as_ref(), self.author.public_key()),
+        }
     }
 
     pub fn expect_response(&self) -> bool {
@@ -948,8 +951,9 @@ impl RawRoutedMessage {
         now: Option<time::Utc>,
     ) -> RoutedMessageV2 {
         let author = PeerId::new(node_key.public_key());
-        let hash = RoutedMessage::build_hash(&self.target, &author, &self.body);
-        let signature = node_key.sign(hash.as_ref());
+        // XXX: Don't bother to sign or calculate the hash
+        // let hash = RoutedMessage::build_hash(&self.target, &author, &self.body);
+        let signature = None; // node_key.sign(hash.as_ref());
         RoutedMessageV2 {
             msg: RoutedMessage {
                 target: self.target,
