@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use crate::types::RuntimeAdapter;
 use crate::{Chain, ChainGenesis, ChainStore, ChainStoreAccess, ChainStoreUpdate};
 use itertools::Itertools;
@@ -154,7 +152,7 @@ impl Chain {
                 shard_uid,
                 genesis.hash(),
                 genesis.header().height(),
-            );
+            )
         }
         store_update.merge(tmp_store_update);
         store_update.commit()?;
