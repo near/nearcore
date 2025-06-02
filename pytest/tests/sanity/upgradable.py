@@ -41,6 +41,7 @@ class TrafficGenerator(threading.Thread):
         random.seed(2025)
         self._rpc_node = rpc_node
         self._stopped = False
+        self._failed = False
         self._acc1 = f"000000.{self._rpc_node.signer_key.account_id}"
         self._acc2 = f"zzzzzz.{self._rpc_node.signer_key.account_id}"
         self._nonce = 1_000_000
