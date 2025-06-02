@@ -348,11 +348,11 @@ def handle_get_traces(args):
                 unit='iB',
                 unit_scale=True,
                 unit_divisor=1024,
-                bar_format='{desc}: {n_fmt} [{elapsed}, {rate_fmt}]') as pbar:
+                bar_format='{desc}: {n_fmt} [{elapsed}, {rate_fmt}]') as bar:
             for data in response.iter_content(block_size):
                 size = f.write(data)
                 total_bytes += size
-                pbar.update(size)
+                bar.update(size)
 
         logger.info(f"Downloaded size: {total_bytes/1024/1024:.1f}MB")
         logger.info(f"=> Trace saved to {trace_file}")
