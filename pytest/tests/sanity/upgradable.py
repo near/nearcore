@@ -52,13 +52,17 @@ class TrafficGenerator(threading.Thread):
             self._with_retry(self.call_test_contracts)
         logger.info("Traffic generator stopped")
 
+    def join(self, timeout):
+        assert not self._failed
+        return super().join(timeout=timeout)
+
     def _with_retry(self, fn):
         for i in range(5):
             try:
                 return fn()
             except Exception as e:
                 logger.error(f"Failed txn try {i}", exc_info=True)
-        raise
+        self._failed = True
 
     def stop(self) -> None:
         logger.info("Stopping traffic generator")
@@ -92,6 +96,7 @@ class TrafficGenerator(threading.Thread):
         # Make the contract deployed at `acc1` call the contract deployed on `acc2`
         # and then make another call to itself. This should generate a postponed receipt,
         # which allows detecting some potential implicit protocol changes.
+        logger.info(f"Calling test contracts")
         data = json.dumps([{
             "create": {
                 "account_id": self._acc2,
@@ -175,21 +180,23 @@ class TestUpgrade:
             self._executables.current.node_config())
         traffic_generator.start()
 
-        self.wait_epoch()
-        self.upgrade_nodes()
+        try:
+            self.wait_epoch()
+            self.upgrade_nodes()
 
-        start_pv = self._protocols.stable + 1
-        end_pv = self._protocols.current
-        for pv in range(start_pv, end_pv + 1):
-            self.wait_till_protocol_version(pv)
+            start_pv = self._protocols.stable + 1
+            end_pv = self._protocols.current
+            for pv in range(start_pv, end_pv + 1):
+                self.wait_till_protocol_version(pv)
+                self.check_validator_stats()
+
+            # Run one more epoch with the latest protocol version
+            self.wait_epoch()
             self.check_validator_stats()
 
-        # Run one more epoch with the latest protocol version
-        self.wait_epoch()
-        self.check_validator_stats()
-
-        traffic_generator.stop()
-        traffic_generator.join(timeout=30)
+        finally:
+            traffic_generator.stop()
+            traffic_generator.join(timeout=30)
 
     def configure_nodes(self) -> list[str]:
         node_root = utils.get_near_tempdir('upgradable', clean=True)
@@ -290,7 +297,8 @@ class TestUpgrade:
             epoch_id)["result"]["current_validators"]
         if len(validators) != NUM_VALIDATORS:
             prev_epoch_id = self._rpc_node.get_prev_epoch_id()
-            prev_validators = self.node.get_validators(prev_epoch_id)["result"]
+            prev_validators = self._rpc_node.get_validators(
+                prev_epoch_id)["result"]
             logger.error(
                 f"Expected {NUM_VALIDATORS}, got {len(validators)} validators")
             logger.error(f"{epoch_id} validators: {validators}")
