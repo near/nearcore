@@ -7,8 +7,8 @@ use lru::LruCache;
 use near_async::messaging::CanSend;
 use near_async::messaging::Handler;
 use near_chain::chain::{
-    ApplyChunksMode, NewChunkData, NewChunkResult, OldChunkData, OldChunkResult, ShardContext,
-    StorageContext, UpdateShardJob, do_apply_chunks, get_should_apply_chunk,
+    ApplyChunksMode, NewChunkData, NewChunkResult, OldChunkResult, ShardContext, StorageContext,
+    UpdateShardJob, do_apply_chunks, get_should_apply_chunk,
 };
 use near_chain::sharding::shuffle_receipt_proofs;
 use near_chain::types::{ApplyChunkBlockContext, RuntimeAdapter, StorageDataSource};
@@ -29,10 +29,9 @@ use near_primitives::merkle::merklize;
 use near_primitives::optimistic_block::{BlockToApply, CachedShardUpdateKey};
 use near_primitives::receipt::Receipt;
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
+use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::ReceiptProof;
-use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::sharding::ShardProof;
-use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{AccountId, EpochId, ShardId, ShardIndex};
 use near_store::Store;
 use node_runtime::SignedValidPeriodTransactions;
@@ -109,6 +108,9 @@ impl Handler<ExecutorIncomingReceipt> for ChunkExecutorActor {
 
         let me = self.validator_signer.get().map(|signer| signer.validator_id().clone());
 
+        // TODO(spice): Make sure that we are executing all the forks correctly. For this we may
+        // have to keep track of blocks pending execution and check appropriately if enough
+        // receipts are avaiable for all of them.
         let next_block_hash = self.chain_store.get_next_block_hash(&block_hash);
         let next_block_hash = match next_block_hash {
             Ok(hash) => hash,
@@ -219,11 +221,7 @@ impl ChunkExecutorActor {
             let state_patch = state_patch.take();
             let shard_id = shard_layout.get_shard_id(shard_index)?;
 
-            let chunk_header =
-                chunk_headers.get(shard_index).ok_or(Error::InvalidShardId(shard_id))?;
-
-            let is_new_chunk = chunk_header.is_new_chunk(block.header().height());
-
+            let is_new_chunk = true;
             let block_context = Chain::get_apply_chunk_block_context_from_block_header(
                 block.header(),
                 &chunk_headers,
@@ -288,16 +286,11 @@ impl ChunkExecutorActor {
                     (shard_uid, apply_result)
                 }
             };
-            // TODO(spice-resharding): Make sure this logic is correct with resharding.
             let shard_id = shard_uid.shard_id();
-            let shard_index = shard_layout.get_shard_index(shard_id)?;
-            let chunk_header =
-                chunk_headers.get(shard_index).ok_or(Error::InvalidShardId(shard_id))?;
-
             let receipt_proofs = make_outgoing_receipts_proofs(
-                &chunk_header,
+                &shard_layout,
+                shard_id,
                 apply_result.outgoing_receipts.clone(),
-                self.epoch_manager.as_ref(),
             )?;
             self.send_outgoing_receipts(*block_hash, receipt_proofs);
         }
@@ -349,9 +342,7 @@ impl ChunkExecutorActor {
         }
 
         let chunk_header = chunk_headers.get(shard_index).ok_or(Error::InvalidShardId(shard_id))?;
-        let is_new_chunk = chunk_header.is_new_chunk(block_height);
-
-        let shard_update_reason = if is_new_chunk {
+        let shard_update_reason = {
             let chunk = get_chunk_clone_from_header(&self.chain_store, chunk_header)?;
             let tx_valid_list =
                 self.chain_store.compute_transaction_validity(prev_block.header(), &chunk);
@@ -368,16 +359,6 @@ impl ChunkExecutorActor {
                 transactions,
                 receipts,
                 block,
-                storage_context,
-            })
-        } else {
-            ShardUpdateReason::OldChunk(OldChunkData {
-                block,
-                prev_chunk_extra: ChunkExtra::clone(
-                    self.chain_store
-                        .get_chunk_extra(prev_block_hash, &shard_context.shard_uid)?
-                        .as_ref(),
-                ),
                 storage_context,
             })
         };
@@ -509,14 +490,10 @@ impl ChunkExecutorActor {
 
 /// Returns receipt proofs for specified chunk.
 fn make_outgoing_receipts_proofs(
-    chunk_header: &ShardChunkHeader,
+    shard_layout: &ShardLayout,
+    shard_id: ShardId,
     outgoing_receipts: Vec<Receipt>,
-    epoch_manager: &dyn EpochManagerAdapter,
 ) -> Result<Vec<ReceiptProof>, EpochError> {
-    let shard_id = chunk_header.shard_id();
-    let shard_layout =
-        epoch_manager.get_shard_layout_from_prev_block(chunk_header.prev_block_hash())?;
-
     let hashes = Chain::build_receipts_hashes(&outgoing_receipts, &shard_layout)?;
     let (_root, proofs) = merklize(&hashes);
 
