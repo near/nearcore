@@ -70,7 +70,8 @@ const MAX_TRANSACTIONS_PER_BLOCK_MESSAGE: usize = 1000;
 /// Limit cache size of 1000 messages
 const ROUTED_MESSAGE_CACHE_SIZE: usize = 1000;
 /// Duplicated messages will be dropped if routed through the same peer multiple times.
-pub(crate) const DROP_DUPLICATED_MESSAGES_PERIOD: time::Duration = time::Duration::milliseconds(50);
+pub(crate) const _DROP_DUPLICATED_MESSAGES_PERIOD: time::Duration =
+    time::Duration::milliseconds(50);
 /// How often to send the latest block to peers.
 const SYNC_LATEST_BLOCK_INTERVAL: time::Duration = time::Duration::seconds(60);
 /// How often to perform a full sync of AccountsData with the peer.
@@ -170,7 +171,7 @@ pub(crate) struct PeerActor {
     /// Network bandwidth stats.
     stats: Arc<connection::Stats>,
     /// Cache of recently routed messages, this allows us to drop duplicates
-    routed_message_cache: LruCache<CryptoHash, time::Instant>,
+    _routed_message_cache: LruCache<CryptoHash, time::Instant>,
     /// Whether we detected support for protocol buffers during handshake.
     protocol_buffers_supported: bool,
     /// Whether the PeerActor should skip protobuf support detection and use
@@ -352,7 +353,7 @@ impl PeerActor {
                     framed,
                     tracker: Default::default(),
                     stats,
-                    routed_message_cache: LruCache::new(
+                    _routed_message_cache: LruCache::new(
                         NonZeroUsize::new(ROUTED_MESSAGE_CACHE_SIZE).unwrap(),
                     ),
                     protocol_buffers_supported: false,
@@ -1397,19 +1398,6 @@ impl PeerActor {
                     metrics::record_routed_msg_metrics(&self.clock, &msg, conn.tier, fastest);
                 }
 
-                // Drop duplicated messages routed within DROP_DUPLICATED_MESSAGES_PERIOD ms
-                let key = msg.hash();
-                // let key = (msg.author.clone(), msg.target.clone(), msg.body.signature());
-                let now = self.clock.now();
-                if let Some(&t) = self.routed_message_cache.get(&key) {
-                    if now <= t + DROP_DUPLICATED_MESSAGES_PERIOD {
-                        metrics::MessageDropped::Duplicate.inc(&msg.body);
-                        #[cfg(test)]
-                        self.network_state.config.event_sink.send(Event::RoutedMessageDropped);
-                        tracing::debug!(target: "network", "Dropping duplicated message from {} to {:?}", msg.author, msg.target);
-                        return;
-                    }
-                }
                 if let RoutedMessageBody::ForwardTx(_) = &msg.body {
                     // Check whenever we exceeded number of transactions we got since last block.
                     // If so, drop the transaction.
@@ -1423,7 +1411,6 @@ impl PeerActor {
                     }
                     self.network_state.txns_since_last_block.fetch_add(1, Ordering::AcqRel);
                 }
-                self.routed_message_cache.put(key, now);
 
                 self.network_state.add_route_back(&self.clock, &conn, msg.as_ref());
                 if for_me {
