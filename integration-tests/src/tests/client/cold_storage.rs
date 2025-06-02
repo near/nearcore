@@ -158,11 +158,19 @@ fn test_storage_after_commit_of_cold_update() {
         let client_store = client.runtime_adapter.store();
         let epoch_id = client.epoch_manager.get_epoch_id(block.hash()).unwrap();
         let shard_layout = client.epoch_manager.get_shard_layout(&epoch_id).unwrap();
+        let shard_uids = shard_layout.shard_uids().collect();
         let is_resharding_boundary =
             client.epoch_manager.is_resharding_boundary(block.header().prev_hash()).unwrap();
-
-        update_cold_db(cold_db, &client_store, &shard_layout, &height, is_resharding_boundary, 4)
-            .unwrap();
+        update_cold_db(
+            cold_db,
+            &client_store,
+            &shard_layout,
+            &shard_uids,
+            &height,
+            is_resharding_boundary,
+            4,
+        )
+        .unwrap();
 
         last_hash = *block.hash();
     }
@@ -309,10 +317,19 @@ fn test_cold_db_copy_with_height_skips() {
         assert!(&block_hash == block.hash());
         let epoch_id = client.epoch_manager.get_epoch_id(&block_hash).unwrap();
         let shard_layout = client.epoch_manager.get_shard_layout(&epoch_id).unwrap();
+        let shard_uids = shard_layout.shard_uids().collect();
         let is_last_block_in_epoch =
             client.epoch_manager.is_next_block_epoch_start(&block_hash).unwrap();
-        update_cold_db(&cold_db, hot_store, &shard_layout, &height, is_last_block_in_epoch, 1)
-            .unwrap();
+        update_cold_db(
+            &cold_db,
+            hot_store,
+            &shard_layout,
+            &shard_uids,
+            &height,
+            is_last_block_in_epoch,
+            1,
+        )
+        .unwrap();
         last_hash = block_hash;
     }
 
@@ -449,6 +466,7 @@ fn test_cold_loop_on_gc_boundary() {
         .archive(true)
         .save_trie_changes(true)
         .stores(vec![hot_store.clone()])
+        .track_all_shards()
         .nightshade_runtimes(&genesis)
         .build();
 
@@ -515,7 +533,8 @@ fn test_cold_loop_on_gc_boundary() {
 
     let epoch_manager =
         EpochManager::new_arc_handle(storage.get_hot_store(), &genesis.config, None);
-    spawn_cold_store_loop(&near_config, &storage, epoch_manager).unwrap();
+    let shard_tracker = env.clients[0].shard_tracker.clone();
+    spawn_cold_store_loop(&near_config, &storage, epoch_manager, shard_tracker).unwrap();
     std::thread::sleep(std::time::Duration::from_secs(1));
 
     let end_cold_head =

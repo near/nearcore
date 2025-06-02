@@ -10,7 +10,7 @@ use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::{ShardLayout, shard_uids_to_ids};
 use near_primitives::types::{AccountId, BlockHeightDelta, ShardId, ShardIndex};
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
+use near_primitives::version::PROTOCOL_VERSION;
 use std::cell::Cell;
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
@@ -78,7 +78,6 @@ const NEW_BOUNDARY_ACCOUNT: &str = "account6";
 #[builder(pattern = "owned", build_fn(skip))]
 #[allow(unused)]
 struct TestReshardingParameters {
-    base_protocol_version: u32,
     /// Number of accounts.
     num_accounts: u64,
     /// Number of clients.
@@ -254,9 +253,6 @@ impl TestReshardingParametersBuilder {
         }
 
         TestReshardingParameters {
-            base_protocol_version: self
-                .base_protocol_version
-                .unwrap_or(ProtocolFeature::SimpleNightshadeV4.protocol_version() - 1),
             num_accounts,
             num_clients,
             num_producers,
@@ -387,10 +383,6 @@ fn setup_global_contracts(
 
 /// Base setup to check sanity of Resharding V3.
 fn test_resharding_v3_base(params: TestReshardingParameters) {
-    if !ProtocolFeature::SimpleNightshadeV4.enabled(PROTOCOL_VERSION) {
-        return;
-    }
-
     init_test_logger();
     let mut builder = TestLoopBuilder::new();
     let tracked_shard_schedule = params.tracked_shard_schedule.clone();
@@ -410,10 +402,14 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
     });
 
     // Prepare shard split configuration.
-    let base_epoch_config_store = EpochConfigStore::for_chain_id("mainnet", None).unwrap();
-    let base_protocol_version = params.base_protocol_version;
-    let mut base_epoch_config =
-        base_epoch_config_store.get_config(base_protocol_version).as_ref().clone();
+    // We need to set base_protocol_version to `PROTOCOL_VERSION - 2` because it's
+    // possible to have two reshardings in the same test. See `second_resharding_boundary_account`
+    let base_protocol_version = PROTOCOL_VERSION - 2;
+    let mut base_epoch_config = EpochConfigStore::for_chain_id("mainnet", None)
+        .unwrap()
+        .get_config(base_protocol_version)
+        .as_ref()
+        .clone();
     base_epoch_config.num_block_producer_seats = params.num_producers;
     base_epoch_config.num_chunk_producer_seats = params.num_producers;
     base_epoch_config.num_chunk_validator_seats = params.num_producers + params.num_validators;
@@ -1180,7 +1176,6 @@ fn test_resharding_v3_global_contract_base(
     ];
     let global_contract_user: AccountId = "account6".parse().unwrap();
     let params = TestReshardingParametersBuilder::default()
-        .base_protocol_version(PROTOCOL_VERSION - 1)
         .deploy_test_global_contract(global_contract_deployer, deploy_mode)
         .use_test_global_contract(global_contract_user.clone(), identifier)
         .add_loop_action(call_burn_gas_contract(

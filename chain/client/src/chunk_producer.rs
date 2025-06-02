@@ -206,6 +206,7 @@ impl ChunkProducer {
         shard_id,
         ?epoch_id,
         chunk_hash = tracing::field::Empty,
+        tag_block_production = true
     ))]
     fn produce_chunk_internal(
         &mut self,
