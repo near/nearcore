@@ -130,6 +130,7 @@ pub fn validate_chunk_endorsement(
         "validate_chunk_endorsement",
         height = endorsement.chunk_production_key().height_created,
         shard_id = ?endorsement.chunk_production_key().shard_id,
+        validator = %endorsement.account_id(),
         tag_block_production = true
     )
     .entered();
