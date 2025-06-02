@@ -23,7 +23,7 @@ cd benchmarks/synth-bm && cargo build --release
 - run the thing
 
 ```
-just do-it [<TPS>] [<TIMEOUT>]
+just do-it
 ```
 
 The last command will init a single-node network, apply customizations to the config, create the accounts and run the
@@ -35,6 +35,8 @@ just run-localnet
 ```
 
 For a more fine-grained control feel free to dive into the `justfile` for the commands executing the intermediate steps.
+By default benchmark is using the the load schedule of 20000 tps for the duration of 2 minutes.
+To run it with a different schedule one needs to modify the contents of "load-schedule.json" file.
 
 ## What you should see
 
@@ -55,3 +57,6 @@ For a more fine-grained control feel free to dive into the `justfile` for the co
 $ curl http://localhost:4040/metrics -s | rg "near_transaction_processed_successfully_total (\\d+)"
 near_transaction_processed_successfully_total 852883
 ```
+
+## Gotchas
+- by default the `.near` directory is created right in the script directory. That may be suboptimal as the prod environment mounts the `.near` on a separate drive. To change that one needs to modify the `justfile` `near_localnet_home` variable. 
