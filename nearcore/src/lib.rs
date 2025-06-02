@@ -15,7 +15,9 @@ use near_async::actix_wrapper::{ActixWrapper, spawn_actix_actor};
 use near_async::futures::TokioRuntimeFutureSpawner;
 use near_async::messaging::{IntoMultiSender, IntoSender, LateBoundSender};
 use near_async::time::{self, Clock};
-use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
+use near_chain::rayon_spawner::{
+    DedicatedThreadsAsyncComputationSpawner, RayonAsyncComputationSpawner,
+};
 use near_chain::resharding::resharding_actor::ReshardingActor;
 pub use near_chain::runtime::NightshadeRuntime;
 use near_chain::state_snapshot_actor::{
@@ -372,6 +374,7 @@ pub fn start_with_config_and_synchronization(
     );
     let snapshot_callbacks = SnapshotCallbacks { make_snapshot_callback, delete_snapshot_callback };
 
+    let partial_witness_spawner = Arc::new(DedicatedThreadsAsyncComputationSpawner::new(32));
     let (partial_witness_actor, partial_witness_arbiter) =
         spawn_actix_actor(PartialWitnessActor::new(
             Clock::real(),
@@ -381,7 +384,7 @@ pub fn start_with_config_and_synchronization(
             epoch_manager.clone(),
             runtime.clone(),
             Arc::new(RayonAsyncComputationSpawner),
-            Arc::new(RayonAsyncComputationSpawner),
+            partial_witness_spawner,
         ));
 
     let (_gc_actor, gc_arbiter) = spawn_actix_actor(GCActor::new(

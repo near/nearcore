@@ -87,6 +87,8 @@ fn test_client_with_simple_test_loop() {
     let sync_jobs_actor = SyncJobsActor::new(client_adapter.as_multi_sender());
 
     let protocol_upgrade_schedule = get_protocol_upgrade_schedule(&chain_genesis.chain_id);
+    let async_computation_spawner =
+        Arc::new(test_loop.async_computation_spawner("node0", |_| Duration::milliseconds(80)));
     let client = Client::new(
         test_loop.clock(),
         client_config,
@@ -100,7 +102,8 @@ fn test_client_with_simple_test_loop() {
         true,
         [0; 32],
         None,
-        Arc::new(test_loop.async_computation_spawner("node0", |_| Duration::milliseconds(80))),
+        async_computation_spawner.clone(),
+        async_computation_spawner,
         noop().into_multi_sender(),
         noop().into_multi_sender(),
         Arc::new(test_loop.future_spawner("node0")),
