@@ -599,6 +599,33 @@
         }
       }
     },
+    "/query": {
+      "post": {
+        "operationId": "query",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JsonRpcRequest_for_query"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonRpcResponse_for_RpcQueryResponse_and_RpcError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/send_tx": {
       "post": {
         "operationId": "send_tx",
@@ -769,6 +796,35 @@
         ],
         "type": "object"
       },
+      "AccessKeyInfoView": {
+        "properties": {
+          "access_key": {
+            "$ref": "#/components/schemas/AccessKeyView"
+          },
+          "public_key": {
+            "$ref": "#/components/schemas/PublicKey"
+          }
+        },
+        "required": [
+          "public_key",
+          "access_key"
+        ],
+        "type": "object"
+      },
+      "AccessKeyList": {
+        "properties": {
+          "keys": {
+            "items": {
+              "$ref": "#/components/schemas/AccessKeyInfoView"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "keys"
+        ],
+        "type": "object"
+      },
       "AccessKeyPermission": {
         "description": "Defines permissions for AccessKey",
         "oneOf": [
@@ -927,6 +983,55 @@
           "account_id",
           "public_key",
           "amount"
+        ],
+        "type": "object"
+      },
+      "AccountView": {
+        "description": "A view of the account",
+        "properties": {
+          "amount": {
+            "type": "string"
+          },
+          "code_hash": {
+            "$ref": "#/components/schemas/CryptoHash"
+          },
+          "global_contract_account_id": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/AccountId"
+              }
+            ],
+            "nullable": true
+          },
+          "global_contract_hash": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/CryptoHash"
+              }
+            ],
+            "nullable": true
+          },
+          "locked": {
+            "type": "string"
+          },
+          "storage_paid_at": {
+            "default": 0,
+            "description": "TODO(2271): deprecated.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "storage_usage": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "amount",
+          "locked",
+          "code_hash",
+          "storage_usage"
         ],
         "type": "object"
       },
@@ -2673,6 +2778,29 @@
         ],
         "type": "object"
       },
+      "CallResult": {
+        "properties": {
+          "logs": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "result": {
+            "items": {
+              "format": "uint8",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "result",
+          "logs"
+        ],
+        "type": "object"
+      },
       "CatchupStatusView": {
         "properties": {
           "blocks_to_catchup": {
@@ -3019,6 +3147,22 @@
           "buffered_receipts_gas",
           "receipt_bytes",
           "allowed_shard"
+        ],
+        "type": "object"
+      },
+      "ContractCodeView": {
+        "description": "A view of the contract code.",
+        "properties": {
+          "code_base64": {
+            "type": "string"
+          },
+          "hash": {
+            "$ref": "#/components/schemas/CryptoHash"
+          }
+        },
+        "required": [
+          "code_base64",
+          "hash"
         ],
         "type": "object"
       },
@@ -6710,6 +6854,33 @@
         "title": "JsonRpcRequest_for_next_light_client_block",
         "type": "object"
       },
+      "JsonRpcRequest_for_query": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "jsonrpc": {
+            "type": "string"
+          },
+          "method": {
+            "enum": [
+              "query"
+            ],
+            "type": "string"
+          },
+          "params": {
+            "$ref": "#/components/schemas/RpcQueryRequest"
+          }
+        },
+        "required": [
+          "jsonrpc",
+          "id",
+          "params",
+          "method"
+        ],
+        "title": "JsonRpcRequest_for_query",
+        "type": "object"
+      },
       "JsonRpcRequest_for_send_tx": {
         "properties": {
           "id": {
@@ -7427,6 +7598,46 @@
           "id"
         ],
         "title": "JsonRpcResponse_for_RpcProtocolConfigResponse_and_RpcError",
+        "type": "object"
+      },
+      "JsonRpcResponse_for_RpcQueryResponse_and_RpcError": {
+        "oneOf": [
+          {
+            "properties": {
+              "result": {
+                "$ref": "#/components/schemas/RpcQueryResponse"
+              }
+            },
+            "required": [
+              "result"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "error": {
+                "$ref": "#/components/schemas/RpcError"
+              }
+            },
+            "required": [
+              "error"
+            ],
+            "type": "object"
+          }
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "jsonrpc": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "jsonrpc",
+          "id"
+        ],
+        "title": "JsonRpcResponse_for_RpcQueryResponse_and_RpcError",
         "type": "object"
       },
       "JsonRpcResponse_for_RpcReceiptResponse_and_RpcError": {
@@ -10002,6 +10213,255 @@
         ],
         "type": "object"
       },
+      "RpcQueryRequest": {
+        "allOf": [
+          {
+            "oneOf": [
+              {
+                "properties": {
+                  "block_id": {
+                    "$ref": "#/components/schemas/BlockId"
+                  }
+                },
+                "required": [
+                  "block_id"
+                ],
+                "type": "object"
+              },
+              {
+                "properties": {
+                  "finality": {
+                    "$ref": "#/components/schemas/Finality"
+                  }
+                },
+                "required": [
+                  "finality"
+                ],
+                "type": "object"
+              },
+              {
+                "properties": {
+                  "sync_checkpoint": {
+                    "$ref": "#/components/schemas/SyncCheckpoint"
+                  }
+                },
+                "required": [
+                  "sync_checkpoint"
+                ],
+                "type": "object"
+              }
+            ]
+          },
+          {
+            "oneOf": [
+              {
+                "properties": {
+                  "account_id": {
+                    "$ref": "#/components/schemas/AccountId"
+                  },
+                  "request_type": {
+                    "enum": [
+                      "view_account"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "request_type",
+                  "account_id"
+                ],
+                "type": "object"
+              },
+              {
+                "properties": {
+                  "account_id": {
+                    "$ref": "#/components/schemas/AccountId"
+                  },
+                  "request_type": {
+                    "enum": [
+                      "view_code"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "request_type",
+                  "account_id"
+                ],
+                "type": "object"
+              },
+              {
+                "properties": {
+                  "account_id": {
+                    "$ref": "#/components/schemas/AccountId"
+                  },
+                  "include_proof": {
+                    "type": "boolean"
+                  },
+                  "prefix_base64": {
+                    "format": "bytes",
+                    "type": "string"
+                  },
+                  "request_type": {
+                    "enum": [
+                      "view_state"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "request_type",
+                  "account_id",
+                  "prefix_base64"
+                ],
+                "type": "object"
+              },
+              {
+                "properties": {
+                  "account_id": {
+                    "$ref": "#/components/schemas/AccountId"
+                  },
+                  "public_key": {
+                    "$ref": "#/components/schemas/PublicKey"
+                  },
+                  "request_type": {
+                    "enum": [
+                      "view_access_key"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "request_type",
+                  "account_id",
+                  "public_key"
+                ],
+                "type": "object"
+              },
+              {
+                "properties": {
+                  "account_id": {
+                    "$ref": "#/components/schemas/AccountId"
+                  },
+                  "request_type": {
+                    "enum": [
+                      "view_access_key_list"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "request_type",
+                  "account_id"
+                ],
+                "type": "object"
+              },
+              {
+                "properties": {
+                  "account_id": {
+                    "$ref": "#/components/schemas/AccountId"
+                  },
+                  "args_base64": {
+                    "format": "bytes",
+                    "type": "string"
+                  },
+                  "method_name": {
+                    "type": "string"
+                  },
+                  "request_type": {
+                    "enum": [
+                      "call_function"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "request_type",
+                  "account_id",
+                  "method_name",
+                  "args_base64"
+                ],
+                "type": "object"
+              },
+              {
+                "properties": {
+                  "code_hash": {
+                    "$ref": "#/components/schemas/CryptoHash"
+                  },
+                  "request_type": {
+                    "enum": [
+                      "view_global_contract_code"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "request_type",
+                  "code_hash"
+                ],
+                "type": "object"
+              },
+              {
+                "properties": {
+                  "account_id": {
+                    "$ref": "#/components/schemas/AccountId"
+                  },
+                  "request_type": {
+                    "enum": [
+                      "view_global_contract_code_by_account_id"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "request_type",
+                  "account_id"
+                ],
+                "type": "object"
+              }
+            ]
+          }
+        ],
+        "title": "RpcQueryRequest",
+        "type": "object"
+      },
+      "RpcQueryResponse": {
+        "anyOf": [
+          {
+            "$ref": "#/components/schemas/AccountView"
+          },
+          {
+            "$ref": "#/components/schemas/ContractCodeView"
+          },
+          {
+            "$ref": "#/components/schemas/ViewStateResult"
+          },
+          {
+            "$ref": "#/components/schemas/CallResult"
+          },
+          {
+            "$ref": "#/components/schemas/AccessKeyView"
+          },
+          {
+            "$ref": "#/components/schemas/AccessKeyList"
+          }
+        ],
+        "properties": {
+          "block_hash": {
+            "$ref": "#/components/schemas/CryptoHash"
+          },
+          "block_height": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "block_height",
+          "block_hash"
+        ],
+        "type": "object"
+      },
       "RpcReceiptRequest": {
         "properties": {
           "receipt_id": {
@@ -10978,6 +11438,26 @@
         ],
         "type": "object"
       },
+      "ShardUId": {
+        "description": "`ShardUId` is a unique representation for shards from different shard layouts.\n\n Comparing to `ShardId`, which is just an ordinal number ranging from 0 to NUM_SHARDS-1,\n `ShardUId` provides a way to unique identify shards when shard layouts may change across epochs.\n This is important because we store states indexed by shards in our database, so we need a\n way to unique identify shard even when shards change across epochs.\n Another difference between `ShardUId` and `ShardId` is that `ShardUId` should only exist in\n a node's internal state while `ShardId` can be exposed to outside APIs and used in protocol\n level information (for example, `ShardChunkHeader` contains `ShardId` instead of `ShardUId`)",
+        "properties": {
+          "shard_id": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "version": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "shard_id"
+        ],
+        "type": "object"
+      },
       "Signature": {
         "type": "string"
       },
@@ -11633,6 +12113,24 @@
         ],
         "type": "object"
       },
+      "StateItem": {
+        "description": "Item of the state, key and value are serialized in base64 and proof for inclusion of given state item.",
+        "properties": {
+          "key": {
+            "format": "bytes",
+            "type": "string"
+          },
+          "value": {
+            "format": "bytes",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "value"
+        ],
+        "type": "object"
+      },
       "StateSyncConfig": {
         "description": "Options for dumping state to S3.",
         "properties": {
@@ -11869,6 +12367,22 @@
               "NoShards"
             ],
             "type": "string"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Tracks arbitrary shards.",
+            "properties": {
+              "Shards": {
+                "items": {
+                  "$ref": "#/components/schemas/ShardUId"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "Shards"
+            ],
+            "type": "object"
           },
           {
             "description": "Tracks all shards.",
@@ -12402,6 +12916,26 @@
           "version",
           "build",
           "commit"
+        ],
+        "type": "object"
+      },
+      "ViewStateResult": {
+        "properties": {
+          "proof": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "values": {
+            "items": {
+              "$ref": "#/components/schemas/StateItem"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "values"
         ],
         "type": "object"
       },
