@@ -2686,6 +2686,8 @@ impl Chain {
         prev_block_header: &BlockHeader,
         chunk: &ShardChunk,
     ) -> Vec<bool> {
+        let _span =
+            tracing::debug_span!(target: "chain", "validate_chunk_transactions", measure = "detail").entered();
         self.chain_store().compute_transaction_validity(prev_block_header, chunk)
     }
 

@@ -364,6 +364,12 @@ impl ChunkProducer {
         chunk_extra: &ChunkExtra,
         chain_validate: &dyn Fn(&SignedTransaction) -> bool,
     ) -> Result<PreparedTransactions, Error> {
+        let _span = tracing::debug_span!(
+            target: "client",
+            "prepare_transactions",
+            measure = "detail",
+        )
+        .entered();
         let shard_id = shard_uid.shard_id();
         let mut pool_guard = self.sharded_tx_pool.lock();
         let prepared_transactions = if let Some(mut iter) = pool_guard.get_pool_iterator(shard_uid)

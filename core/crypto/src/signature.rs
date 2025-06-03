@@ -556,6 +556,14 @@ impl Signature {
     /// Verifies that this signature is indeed signs the data with given public key.
     /// Also if public key doesn't match on the curve returns `false`.
     pub fn verify(&self, data: &[u8], public_key: &PublicKey) -> bool {
+        let _span = tracing::debug_span!(
+            target: "near_crypto",
+            "Signature::verify",
+            signature_type = self.key_type().to_string(),
+            public_key_type = public_key.key_type().to_string(),
+            measure = "detail",
+        )
+        .entered();
         match (&self, public_key) {
             (Signature::ED25519(signature), PublicKey::ED25519(public_key)) => {
                 match ed25519_dalek::VerifyingKey::from_bytes(&public_key.0) {

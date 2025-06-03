@@ -48,6 +48,12 @@ impl Store {
     /// a slice, for cases when caller doesn’t need to own the value, and
     /// provides conversion into a vector or an Arc.
     pub fn get(&self, column: DBCol, key: &[u8]) -> io::Result<Option<DBSlice<'_>>> {
+        let _span = tracing::debug_span!(
+            target: "store",
+            "Store::get",
+            measure = "detail",
+        )
+        .entered();
         let value = if column.is_rc() {
             self.storage.get_with_rc_stripped(column, &key)
         } else {
@@ -68,6 +74,12 @@ impl Store {
         column: DBCol,
         key: &[u8],
     ) -> io::Result<Option<T>> {
+        let _span = tracing::debug_span!(
+            target: "store",
+            "Store::get_ser",
+            measure = "detail",
+        )
+        .entered();
         if let Some(anything) = self.storage.get_anything(column, key)? {
             if anything.arc_type_id() == std::any::TypeId::of::<T>() {
                 return Ok(anything.as_arc_any().downcast_ref::<T>().cloned());
@@ -451,6 +463,8 @@ impl StoreUpdate {
         )
     )]
     pub fn commit(self) -> io::Result<()> {
+        let _span = tracing::debug_span!(target: "store", "StoreUpdate::commit", measure="detail")
+            .entered();
         debug_assert!(
             {
                 let non_refcount_keys = self
