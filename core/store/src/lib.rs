@@ -13,7 +13,6 @@ pub use crate::node_storage::opener::{
     clear_columns,
 };
 pub use crate::node_storage::{NodeStorage, Temperature};
-pub use crate::store::deserialized_column;
 pub use crate::store::{Store, StoreUpdate};
 pub use crate::trie::update::{TrieUpdate, TrieUpdateIterator, TrieUpdateValuePtr};
 pub use crate::trie::{
@@ -33,6 +32,7 @@ mod columns;
 pub mod config;
 pub mod contract;
 pub mod db;
+mod deserialized_column;
 pub mod flat;
 pub mod genesis;
 pub mod metrics;
