@@ -2,7 +2,7 @@ use crate::opentelemetry::add_opentelemetry_layer;
 use crate::reload::{
     LogLayer, SimpleLogLayer, set_default_otlp_level, set_log_layer_handle, set_otlp_layer_handle,
 };
-use crate::{OpenTelemetryLevel, log_counter};
+use crate::{OpenTelemetryLevel, log_counter, span_duration_logger};
 use near_crypto::PublicKey;
 use near_primitives_core::types::AccountId;
 use std::path::PathBuf;
@@ -253,6 +253,10 @@ pub async fn default_subscriber_with_opentelemetry(
     let subscriber = tracing_subscriber::registry();
     // Installs LogCounter as the innermost layer.
     let subscriber = subscriber.with(log_counter::LogCounter::default());
+    // Installs SpanDurationLogger.
+    // TODO: add filter to SpanDurationLogger
+    let span_duration_logger = span_duration_logger::SpanDurationLogger::default();
+    let subscriber = subscriber.with(span_duration_logger);
 
     set_default_otlp_level(options.opentelemetry);
 

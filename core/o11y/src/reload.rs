@@ -1,5 +1,8 @@
 use crate::opentelemetry::get_opentelemetry_filter;
-use crate::{BuildEnvFilterError, EnvFilterBuilder, OpenTelemetryLevel, log_config, log_counter};
+use crate::{
+    BuildEnvFilterError, EnvFilterBuilder, OpenTelemetryLevel, log_config, log_counter,
+    span_duration_logger,
+};
 use opentelemetry_sdk::trace::Tracer;
 use std::sync::OnceLock;
 use tracing_appender::non_blocking::NonBlocking;
@@ -10,14 +13,17 @@ use tracing_subscriber::reload::Handle;
 use tracing_subscriber::{EnvFilter, Registry, fmt, reload};
 
 static LOG_LAYER_RELOAD_HANDLE: OnceLock<
-    Handle<EnvFilter, log_counter::LogCountingLayer<Registry>>,
+    Handle<EnvFilter, SpanDurationLayer<log_counter::LogCountingLayer<Registry>>>,
 > = OnceLock::new();
 static OTLP_LAYER_RELOAD_HANDLE: OnceLock<
-    Handle<EnvFilter, LogLayer<log_counter::LogCountingLayer<Registry>>>,
+    Handle<EnvFilter, LogLayer<SpanDurationLayer<log_counter::LogCountingLayer<Registry>>>>,
 > = OnceLock::new();
 
 // Records the level of opentelemetry tracing verbosity configured via command-line flags at the startup.
 static DEFAULT_OTLP_LEVEL: OnceLock<OpenTelemetryLevel> = OnceLock::new();
+
+pub(crate) type SpanDurationLayer<Inner> =
+    Layered<span_duration_logger::SpanDurationLogger, Inner, Inner>;
 
 pub(crate) type LogLayer<Inner> = Layered<
     Filtered<
@@ -43,7 +49,7 @@ pub(crate) type TracingLayer<Inner> = Layered<
 >;
 
 pub(crate) fn set_log_layer_handle(
-    handle: Handle<EnvFilter, log_counter::LogCountingLayer<Registry>>,
+    handle: Handle<EnvFilter, SpanDurationLayer<log_counter::LogCountingLayer<Registry>>>,
 ) {
     LOG_LAYER_RELOAD_HANDLE
         .set(handle)
@@ -51,7 +57,7 @@ pub(crate) fn set_log_layer_handle(
 }
 
 pub(crate) fn set_otlp_layer_handle(
-    handle: Handle<EnvFilter, LogLayer<log_counter::LogCountingLayer<Registry>>>,
+    handle: Handle<EnvFilter, LogLayer<SpanDurationLayer<log_counter::LogCountingLayer<Registry>>>>,
 ) {
     OTLP_LAYER_RELOAD_HANDLE
         .set(handle)

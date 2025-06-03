@@ -1,12 +1,12 @@
 use crate::metrics::try_create_histogram_vec;
-use std::sync::LazyLock;
 use prometheus::HistogramVec;
+use std::sync::LazyLock;
 use std::time::{Duration, Instant};
-use tracing::span::Attributes;
 use tracing::Id;
+use tracing::span::Attributes;
+use tracing_subscriber::Layer;
 use tracing_subscriber::layer::Context;
 use tracing_subscriber::registry::LookupSpan;
-use tracing_subscriber::Layer;
 
 #[derive(Default)]
 pub(crate) struct SpanDurationLogger {}
@@ -15,7 +15,7 @@ pub(crate) static SPAN_BUSY_DURATIONS: LazyLock<HistogramVec> = LazyLock::new(||
     try_create_histogram_vec(
         "near_span_busy_duration",
         "Busy duration of spans",
-        &["name", "level", "target"],
+        &["name", "level", "target", "measure"],
         // Cover the range from 0.01s to 10s.
         // Keep the number of buckets small to limit the memory usage.
         Some(vec![0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0]),
@@ -33,11 +33,13 @@ struct Timings {
     busy: Duration,
     /// Instant of a last event: creation, enter, exit.
     last: Instant,
+    /// Label to use for the "measure" attribute.
+    measure: String,
 }
 
 impl Timings {
-    fn new() -> Self {
-        Self { idle: Duration::ZERO, busy: Duration::ZERO, last: Instant::now() }
+    fn new(measure: String) -> Self {
+        Self { idle: Duration::ZERO, busy: Duration::ZERO, last: Instant::now(), measure }
     }
 
     // Unlikely to overflow. Even if overflows, the impact is negligible.
@@ -55,17 +57,66 @@ impl Timings {
     }
 }
 
+struct CheckForAttribute<'a> {
+    name: &'a str,
+    value: Option<String>,
+}
+
+impl<'a> CheckForAttribute<'a> {
+    fn new(name: &'a str) -> Self {
+        Self { name, value: None }
+    }
+}
+
+impl<'a> tracing::field::Visit for CheckForAttribute<'a> {
+    fn record_str(&mut self, field: &tracing::field::Field, value: &str) {
+        if field.name() == self.name {
+            self.value = Some(value.to_string());
+        }
+    }
+
+    fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
+        if field.name() == self.name {
+            self.value = Some(format!("{:?}", value));
+        }
+    }
+
+    fn record_bool(&mut self, field: &tracing::field::Field, value: bool) {
+        if self.value.is_some() {
+            return; // Already found a measure attribute, no need to overwrite.
+        }
+        if field.name() == "tag_block_production" && value {
+            self.value = "tag_block_production".to_string().into();
+        }
+    }
+}
+
 impl<S> Layer<S> for SpanDurationLogger
 where
     S: tracing::Subscriber + for<'span> LookupSpan<'span> + Send + Sync,
 {
-    fn on_new_span(&self, _attrs: &Attributes<'_>, id: &Id, ctx: Context<'_, S>) {
-        if let Some(span) = ctx.span(id) {
-            let mut extensions = span.extensions_mut();
-            extensions.insert(Timings::new());
-        } else {
+    fn on_new_span(&self, attrs: &Attributes<'_>, id: &Id, ctx: Context<'_, S>) {
+        let Some(span) = ctx.span(id) else {
             tracing::error!(target: "span_duration_logger", ?id, "on_new_span: no span available");
+            return;
+        };
+
+        // TODO: implement with filter
+        let level = span.metadata().level();
+        if matches!(level, &tracing::Level::TRACE) {
+            return;
         }
+
+        // Check if the attribute "measure" is set and capture its value.
+        let mut check = CheckForAttribute::new("measure");
+        attrs.record(&mut check);
+
+        let Some(measure) = check.value else {
+            return;
+        };
+
+        let mut extensions = span.extensions_mut();
+        extensions.insert(Timings::new(measure));
     }
 
     fn on_enter(&self, id: &Id, ctx: Context<'_, S>) {
@@ -100,7 +151,7 @@ where
                 let level = span.metadata().level();
                 let target = span.metadata().target();
                 SPAN_BUSY_DURATIONS
-                    .with_label_values(&[name, level.as_str(), target])
+                    .with_label_values(&[name, level.as_str(), target, timings.measure.as_str()])
                     .observe(timings.busy.as_secs_f64());
 
                 const MAX_SPAN_BUSY_DURATION_SEC: u64 = 1;
