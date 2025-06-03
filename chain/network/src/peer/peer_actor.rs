@@ -35,7 +35,6 @@ use crate::types::{
 };
 use actix::fut::future::wrap_future;
 use actix::{Actor as _, ActorContext as _, ActorFutureExt as _, AsyncContext as _};
-use lru::LruCache;
 use near_async::messaging::{CanSend, SendAsync};
 use near_async::time;
 use near_o11y::{WithSpanContext, handler_debug_span, log_assert};
@@ -52,7 +51,6 @@ use std::cmp::min;
 use std::fmt::Debug;
 use std::io;
 use std::net::SocketAddr;
-use std::num::NonZeroUsize;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use tracing::Instrument as _;
@@ -67,11 +65,6 @@ const MAX_CLOCK_SKEW: time::Duration = time::Duration::minutes(30);
 /// The purpose of this constant is to ensure we do not spend too much time deserializing and
 /// dispatching transactions when we should be focusing on consensus-related messages.
 const MAX_TRANSACTIONS_PER_BLOCK_MESSAGE: usize = 1000;
-/// Limit cache size of 1000 messages
-const ROUTED_MESSAGE_CACHE_SIZE: usize = 1000;
-/// Duplicated messages will be dropped if routed through the same peer multiple times.
-pub(crate) const _DROP_DUPLICATED_MESSAGES_PERIOD: time::Duration =
-    time::Duration::milliseconds(50);
 /// How often to send the latest block to peers.
 const SYNC_LATEST_BLOCK_INTERVAL: time::Duration = time::Duration::seconds(60);
 /// How often to perform a full sync of AccountsData with the peer.
@@ -170,8 +163,6 @@ pub(crate) struct PeerActor {
     tracker: Arc<Mutex<Tracker>>,
     /// Network bandwidth stats.
     stats: Arc<connection::Stats>,
-    /// Cache of recently routed messages, this allows us to drop duplicates
-    _routed_message_cache: LruCache<CryptoHash, time::Instant>,
     /// Whether we detected support for protocol buffers during handshake.
     protocol_buffers_supported: bool,
     /// Whether the PeerActor should skip protobuf support detection and use
@@ -353,9 +344,6 @@ impl PeerActor {
                     framed,
                     tracker: Default::default(),
                     stats,
-                    _routed_message_cache: LruCache::new(
-                        NonZeroUsize::new(ROUTED_MESSAGE_CACHE_SIZE).unwrap(),
-                    ),
                     protocol_buffers_supported: false,
                     force_encoding,
                     peer_info: match &stream_type {

@@ -596,30 +596,6 @@ impl RoutedMessageBody {
             _ => false,
         }
     }
-
-    pub fn signature(&self) -> Option<Signature> {
-        match self {
-            RoutedMessageBody::BlockApproval(approval) => Some(approval.signature.clone()),
-            RoutedMessageBody::ForwardTx(tx) => Some(tx.signature.clone()),
-            RoutedMessageBody::PartialEncodedStateWitness(witness) => {
-                Some(witness.signature.clone())
-            }
-            RoutedMessageBody::PartialEncodedStateWitnessForward(witness) => {
-                Some(witness.signature.clone())
-            }
-            RoutedMessageBody::VersionedChunkEndorsement(endorsement) => {
-                Some(endorsement.signature())
-            }
-            RoutedMessageBody::ChunkContractAccesses(accesses) => {
-                Some(accesses.signature().clone())
-            }
-            RoutedMessageBody::ContractCodeRequest(request) => Some(request.signature().clone()),
-            RoutedMessageBody::PartialEncodedContractDeploys(deploys) => {
-                Some(deploys.signature().clone())
-            }
-            _ => None,
-        }
-    }
 }
 
 impl fmt::Debug for RoutedMessageBody {

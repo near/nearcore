@@ -65,12 +65,6 @@ impl ChunkContractAccesses {
             Self::V1(accesses) => accesses.verify_signature(public_key),
         }
     }
-
-    pub fn signature(&self) -> &Signature {
-        match self {
-            Self::V1(accesses) => &accesses.signature,
-        }
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
@@ -172,12 +166,6 @@ impl ContractCodeRequest {
     pub fn verify_signature(&self, public_key: &PublicKey) -> bool {
         match self {
             Self::V1(v1) => v1.verify_signature(public_key),
-        }
-    }
-
-    pub fn signature(&self) -> &Signature {
-        match self {
-            Self::V1(request) => &request.signature,
         }
     }
 }
@@ -449,12 +437,6 @@ impl PartialEncodedContractDeploys {
     pub fn verify_signature(&self, public_key: &PublicKey) -> bool {
         match self {
             Self::V1(accesses) => accesses.verify_signature(public_key),
-        }
-    }
-
-    pub fn signature(&self) -> &Signature {
-        match self {
-            Self::V1(v1) => &v1.signature,
         }
     }
 }
