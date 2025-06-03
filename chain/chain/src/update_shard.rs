@@ -176,7 +176,6 @@ pub fn apply_old_chunk(
         "apply_old_chunk",
         height = block.height,
         ?shard_id,
-        height = block.height,
         ?apply_reason,
         tag_block_production = true)
     .entered();
