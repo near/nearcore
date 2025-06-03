@@ -3283,6 +3283,7 @@
             "type": "array"
           },
           "shards_endorsed": {
+            "default": [],
             "description": "Shards this validator is assigned to as chunk validator in the current epoch.",
             "items": {
               "$ref": "#/components/schemas/ShardId"
@@ -3300,8 +3301,7 @@
           "stake",
           "shards",
           "num_produced_blocks",
-          "num_expected_blocks",
-          "shards_endorsed"
+          "num_expected_blocks"
         ],
         "type": "object"
       },
