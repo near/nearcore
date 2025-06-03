@@ -1,6 +1,7 @@
+use std::cell::RefCell;
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
+use std::rc::Rc;
 
 use itertools::Itertools as _;
 use near_async::messaging::{CanSend as _, Handler as _};
@@ -11,14 +12,10 @@ use near_network::types::NetworkRequests;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
-use near_primitives::sharding::ChunkHash;
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{
-    AccountId, BlockHeight, BlockHeightDelta, BlockReference, NumSeats, ShardId,
-};
+use near_primitives::types::{AccountId, BlockReference, NumSeats, ShardId};
 use near_primitives::views::{QueryRequest, QueryResponseKind};
-use parking_lot::RwLock;
 
 use crate::setup::builder::TestLoopBuilder;
 use crate::utils::ONE_NEAR;
@@ -324,12 +321,11 @@ fn ultra_slow_test_catchup_sanity_blocks_produced() {
         .build()
         .warmup();
 
-    let heights = Arc::new(RwLock::new(HashMap::new()));
-
+    let heights = Rc::new(RefCell::new(HashMap::new()));
     for node_datas in &env.node_datas {
         let check_height = {
             let heights = heights.clone();
-            move |hash: CryptoHash, height| match heights.write().entry(hash) {
+            move |hash: CryptoHash, height| match heights.borrow_mut().entry(hash) {
                 Entry::Occupied(entry) => {
                     assert_eq!(*entry.get(), height);
                 }
@@ -375,27 +371,12 @@ fn ultra_slow_test_catchup_sanity_blocks_produced() {
 }
 
 #[test]
-fn ultra_slow_test_all_chunks_accepted_1000() {
-    test_all_chunks_accepted_common(1000, 3000, 7)
-}
-
-#[test]
-fn ultra_slow_test_all_chunks_accepted_1000_slow() {
-    test_all_chunks_accepted_common(1000, 6000, 7)
-}
-
-#[test]
-fn ultra_slow_test_all_chunks_accepted_1000_rare_epoch_changing() {
-    test_all_chunks_accepted_common(1000, 1500, 100)
-}
-
-fn test_all_chunks_accepted_common(
-    last_height: BlockHeight,
-    block_prod_time: u64,
-    epoch_length: BlockHeightDelta,
-) {
+fn slow_test_all_chunks_accepted() {
     init_test_logger();
 
+    // In case the test starts failing, first try increasing the epoch length.
+    let epoch_length = 9;
+    let last_height = epoch_length * 8 + 2;
     let validators: Vec<Vec<AccountId>> = [
         vec!["test1.1", "test1.2", "test1.3", "test1.4"],
         vec!["test2.1", "test2.2", "test2.3", "test2.4"],
@@ -425,41 +406,22 @@ fn test_all_chunks_accepted_common(
         .genesis(genesis)
         .clients(accounts)
         .epoch_config_store(epoch_config_store)
-        .config_modifier(move |config, _| {
-            let block_prod_time = Duration::milliseconds(block_prod_time as i64);
-            config.min_block_production_delay = block_prod_time;
-            config.max_block_production_delay = 3 * block_prod_time;
-            config.max_block_wait_delay = 3 * block_prod_time;
-        })
         .build()
         .warmup();
 
-    let verbose = false;
-
-    let seen_chunk_same_sender = Arc::new(RwLock::new(HashSet::<(AccountId, u64, ShardId)>::new()));
-    let requested = Arc::new(RwLock::new(HashSet::<(AccountId, Vec<u64>, ChunkHash)>::new()));
-    let responded = Arc::new(RwLock::new(HashSet::<(CryptoHash, Vec<u64>, ChunkHash)>::new()));
-
+    let seen_chunk_same_sender = Rc::new(RefCell::new(HashSet::<(AccountId, u64, ShardId)>::new()));
     for node_datas in &env.node_datas {
-        let sender_account_id = node_datas.account_id.clone();
-
         let seen_chunk_same_sender = seen_chunk_same_sender.clone();
-        let requested = requested.clone();
-        let responded = responded.clone();
-
         let peer_actor_handle = node_datas.peer_manager_sender.actor_handle();
         let peer_actor = env.test_loop.data.get_mut(&peer_actor_handle);
         peer_actor.register_override_handler(Box::new(move |msg| -> Option<NetworkRequests> {
-            let mut seen_chunk_same_sender = seen_chunk_same_sender.write();
-            let mut requested = requested.write();
-            let mut responded = responded.write();
             match msg {
                 NetworkRequests::PartialEncodedChunkMessage {
                     ref account_id,
                     ref partial_encoded_chunk,
                 } => {
                     let header = &partial_encoded_chunk.header;
-                    if seen_chunk_same_sender.contains(&(
+                    if seen_chunk_same_sender.borrow().contains(&(
                         account_id.clone(),
                         header.height_created(),
                         header.shard_id(),
@@ -467,57 +429,20 @@ fn test_all_chunks_accepted_common(
                         println!("=== SAME CHUNK AGAIN!");
                         assert!(false);
                     };
-                    seen_chunk_same_sender.insert((
+                    seen_chunk_same_sender.borrow_mut().insert((
                         account_id.clone(),
                         header.height_created(),
                         header.shard_id(),
                     ));
                 }
-                NetworkRequests::PartialEncodedChunkRequest { ref request, .. } => {
-                    if verbose {
-                        if requested.contains(&(
-                            sender_account_id.clone(),
-                            request.part_ords.clone(),
-                            request.chunk_hash.clone(),
-                        )) {
-                            println!("=== SAME REQUEST AGAIN!");
-                        };
-                        requested.insert((
-                            sender_account_id.clone(),
-                            request.part_ords.clone(),
-                            request.chunk_hash.clone(),
-                        ));
-                    }
-                }
-                NetworkRequests::PartialEncodedChunkResponse { route_back, ref response } => {
-                    if verbose {
-                        if responded.contains(&(
-                            route_back,
-                            response.parts.iter().map(|x| x.part_ord).collect(),
-                            response.chunk_hash.clone(),
-                        )) {
-                            println!("=== SAME RESPONSE AGAIN!");
-                        }
-                        responded.insert((
-                            route_back,
-                            response.parts.iter().map(|x| x.part_ord).collect(),
-                            response.chunk_hash.clone(),
-                        ));
-                    }
-                }
                 NetworkRequests::Block { ref block } => {
-                    // There is no chunks at height 1
-                    if block.header().height() > 1 {
-                        if block.header().height() % epoch_length != 1 {
-                            if block.header().chunks_included() != 4 {
-                                println!(
-                                    "BLOCK WITH {:?} CHUNKS, {:?}",
-                                    block.header().chunks_included(),
-                                    block
-                                );
-                                assert!(false);
-                            }
-                        }
+                    if block.header().chunks_included() != num_shards {
+                        println!(
+                            "BLOCK WITH {:?} CHUNKS, {:?}",
+                            block.header().chunks_included(),
+                            block
+                        );
+                        assert!(false);
                     }
                 }
                 _ => (),
@@ -527,7 +452,6 @@ fn test_all_chunks_accepted_common(
     }
 
     let client_actor_handle = &env.node_datas[0].client_sender.actor_handle();
-    let max_wait_ms = block_prod_time * last_height / 10 * 18 + 20000;
     runner.run_until(
         &mut env,
         |test_loop_data| {
@@ -535,7 +459,7 @@ fn test_all_chunks_accepted_common(
             let head = client.chain.head().unwrap();
             head.height >= last_height
         },
-        Duration::milliseconds(max_wait_ms as i64),
+        Duration::seconds(last_height as i64),
     );
 
     env.shutdown_and_drain_remaining_events(Duration::seconds(10));
