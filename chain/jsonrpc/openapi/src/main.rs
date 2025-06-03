@@ -21,14 +21,17 @@ use near_jsonrpc_primitives::types::{
     },
     maintenance::{RpcMaintenanceWindowsRequest, RpcMaintenanceWindowsResponse},
     network_info::RpcNetworkInfoResponse,
+    query::{RpcQueryRequest, RpcQueryResponse},
     receipts::{RpcReceiptRequest, RpcReceiptResponse},
     split_storage::{RpcSplitStorageInfoRequest, RpcSplitStorageInfoResponse},
     status::{RpcHealthResponse, RpcStatusResponse},
     transactions::{
         RpcSendTransactionRequest, RpcTransactionResponse, RpcTransactionStatusRequest,
     },
-    validator::RpcValidatorsOrderedRequest,
-    validator::{RpcValidatorRequest, RpcValidatorResponse, RpcValidatorsOrderedResponse},
+    validator::{
+        RpcValidatorRequest, RpcValidatorResponse, RpcValidatorsOrderedRequest,
+        RpcValidatorsOrderedResponse,
+    },
 };
 use near_primitives::hash::CryptoHash;
 
@@ -423,6 +426,11 @@ fn main() {
         &mut all_schemas,
         &mut all_paths,
         "EXPERIMENTAL_split_storage_info".to_string(),
+    );
+    add_spec_for_path::<RpcQueryRequest, RpcQueryResponse>(
+        &mut all_schemas,
+        &mut all_paths,
+        "query".to_string(),
     );
 
     let path_schema = whole_spec(all_schemas, all_paths);
