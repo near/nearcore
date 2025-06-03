@@ -21,6 +21,7 @@ pub mod macros;
 pub mod metrics;
 mod opentelemetry;
 mod reload;
+mod span_duration_logger;
 mod subscriber;
 pub mod testonly;
 
