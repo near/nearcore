@@ -70,9 +70,6 @@ pub mod deserialized_column {
         pub(crate) fn enabled() -> Self {
             Self {
                 column_map: enum_map::enum_map! {
-                    | DBCol::BlockHeader
-                    | DBCol::BlockHeight
-                    | DBCol::BlockMisc => ColumnCache::new(512),
                     _ => ColumnCache::disabled(),
                 },
             }
@@ -116,11 +113,6 @@ impl StoreAdapter for Store {
 impl Store {
     pub fn new(storage: Arc<dyn Database>) -> Self {
         let cache = storage.deserialized_column_cache();
-        println!(
-            "created a new store with cache at {:?} at {:?}",
-            Arc::as_ptr(&cache),
-            std::backtrace::Backtrace::capture()
-        );
         Self { storage, cache }
     }
 
@@ -307,6 +299,9 @@ impl Store {
                 | DBOp::Insert { col, key, .. }
                 | DBOp::UpdateRefcount { col, key, .. }
                 | DBOp::Delete { col, key } => {
+                    // FIXME(nagisa): investigate if collecting all the keys to discard into a
+                    // vector and then flushing everything in a single lock would be more
+                    // performant.
                     let Some(cache) = self.cache.work_with(*col) else { continue };
                     let mut lock = cache.lock();
                     lock.active_flushes += 1;
