@@ -22,6 +22,7 @@ use std::borrow::Borrow;
 use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::io::{Error, ErrorKind, Read, Write};
+use std::sync::OnceLock;
 
 pub type LogEntry = String;
 
@@ -335,42 +336,32 @@ impl ValidatedTransactionHash {
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Eq, Debug, Clone, ProtocolSchema)]
-#[borsh(init=init)]
 pub struct SignedTransaction {
     pub transaction: Transaction,
     pub signature: Signature,
     #[borsh(skip)]
-    hash: CryptoHash,
+    hash: OnceLock<CryptoHash>,
     #[borsh(skip)]
-    size: u64,
+    size: OnceLock<u64>,
 }
 
 impl SignedTransaction {
     pub fn new(signature: Signature, transaction: Transaction) -> Self {
-        let mut signed_tx =
-            Self { signature, transaction, hash: CryptoHash::default(), size: u64::default() };
-        signed_tx.init();
-        signed_tx
-    }
-
-    pub fn init(&mut self) {
-        let (hash, size) = self.transaction.get_hash_and_size();
-        self.hash = hash;
-        self.size = size;
+        Self { signature, transaction, hash: OnceLock::new(), size: OnceLock::new() }
     }
 
     pub fn get_hash(&self) -> CryptoHash {
-        self.hash
+        self.hash.get_or_init(|| self.transaction.get_hash_and_size().0).clone()
     }
 
     pub fn get_size(&self) -> u64 {
-        self.size
+        *self.size.get_or_init(|| self.transaction.get_hash_and_size().1)
     }
 }
 
 impl Hash for SignedTransaction {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        self.hash.hash(state)
+        self.get_hash().hash(state)
     }
 }
 
@@ -382,7 +373,7 @@ impl PartialEq for SignedTransaction {
 
 impl Borrow<CryptoHash> for SignedTransaction {
     fn borrow(&self) -> &CryptoHash {
-        &self.hash
+        self.hash.get().unwrap()
     }
 }
 
