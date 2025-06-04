@@ -199,7 +199,6 @@ mod tests {
                 ShardChunkHeaderInner::V2(inner) => inner.encoded_length = encoded_length,
                 ShardChunkHeaderInner::V3(inner) => inner.encoded_length = encoded_length,
                 ShardChunkHeaderInner::V4(inner) => inner.encoded_length = encoded_length,
-                ShardChunkHeaderInner::V5(inner) => inner.encoded_length = encoded_length,
             },
             _ => unimplemented!(),
         }

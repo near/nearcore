@@ -13,7 +13,6 @@ pub enum ShardChunkHeaderInner {
     V2(ShardChunkHeaderInnerV2),
     V3(ShardChunkHeaderInnerV3),
     V4(ShardChunkHeaderInnerV4),
-    V5(ShardChunkHeaderInnerV5SpiceTxOnly),
 }
 
 impl ShardChunkHeaderInner {
@@ -24,10 +23,6 @@ impl ShardChunkHeaderInner {
             Self::V2(inner) => &inner.prev_state_root,
             Self::V3(inner) => &inner.prev_state_root,
             Self::V4(inner) => &inner.prev_state_root,
-            Self::V5(inner) => {
-                debug_assert!(false, "Transaction only header doesn't include prev_state_root");
-                &inner.default_hash
-            }
         }
     }
 
@@ -38,7 +33,6 @@ impl ShardChunkHeaderInner {
             Self::V2(inner) => &inner.prev_block_hash,
             Self::V3(inner) => &inner.prev_block_hash,
             Self::V4(inner) => &inner.prev_block_hash,
-            Self::V5(inner) => &inner.prev_block_hash,
         }
     }
 
@@ -49,11 +43,6 @@ impl ShardChunkHeaderInner {
             Self::V2(inner) => inner.gas_limit,
             Self::V3(inner) => inner.gas_limit,
             Self::V4(inner) => inner.gas_limit,
-            Self::V5(_) => {
-                // TODO(spice): debug_assert this is unreachable after verifying that nothing depend on this
-                // anymore.
-                0
-            }
         }
     }
 
@@ -64,11 +53,6 @@ impl ShardChunkHeaderInner {
             Self::V2(inner) => inner.prev_gas_used,
             Self::V3(inner) => inner.prev_gas_used,
             Self::V4(inner) => inner.prev_gas_used,
-            Self::V5(_) => {
-                // TODO(spice): debug_assert this is unreachable after verifying that nothing depend on this
-                // anymore.
-                0
-            }
         }
     }
 
@@ -79,11 +63,6 @@ impl ShardChunkHeaderInner {
             Self::V2(inner) => ValidatorStakeIter::new(&inner.prev_validator_proposals),
             Self::V3(inner) => ValidatorStakeIter::new(&inner.prev_validator_proposals),
             Self::V4(inner) => ValidatorStakeIter::new(&inner.prev_validator_proposals),
-            Self::V5(_) => {
-                // TODO(spice): debug_assert this is unreachable after verifying that nothing depend on this
-                // anymore.
-                ValidatorStakeIter::empty()
-            }
         }
     }
 
@@ -94,7 +73,6 @@ impl ShardChunkHeaderInner {
             Self::V2(inner) => inner.height_created,
             Self::V3(inner) => inner.height_created,
             Self::V4(inner) => inner.height_created,
-            Self::V5(inner) => inner.height_created,
         }
     }
 
@@ -105,7 +83,6 @@ impl ShardChunkHeaderInner {
             Self::V2(inner) => inner.shard_id,
             Self::V3(inner) => inner.shard_id,
             Self::V4(inner) => inner.shard_id,
-            Self::V5(inner) => inner.shard_id,
         }
     }
 
@@ -116,11 +93,6 @@ impl ShardChunkHeaderInner {
             Self::V2(inner) => &inner.prev_outcome_root,
             Self::V3(inner) => &inner.prev_outcome_root,
             Self::V4(inner) => &inner.prev_outcome_root,
-            Self::V5(inner) => {
-                // TODO(spice): add debug_assert after making sure nothing depends on
-                // prev_outcome_root.
-                &inner.default_hash
-            }
         }
     }
 
@@ -131,7 +103,6 @@ impl ShardChunkHeaderInner {
             Self::V2(inner) => &inner.encoded_merkle_root,
             Self::V3(inner) => &inner.encoded_merkle_root,
             Self::V4(inner) => &inner.encoded_merkle_root,
-            Self::V5(inner) => &inner.encoded_merkle_root,
         }
     }
 
@@ -142,7 +113,6 @@ impl ShardChunkHeaderInner {
             Self::V2(inner) => inner.encoded_length,
             Self::V3(inner) => inner.encoded_length,
             Self::V4(inner) => inner.encoded_length,
-            Self::V5(inner) => inner.encoded_length,
         }
     }
 
@@ -153,11 +123,6 @@ impl ShardChunkHeaderInner {
             Self::V2(inner) => inner.prev_balance_burnt,
             Self::V3(inner) => inner.prev_balance_burnt,
             Self::V4(inner) => inner.prev_balance_burnt,
-            Self::V5(_) => {
-                // TODO(spice): debug_assert this is unreachable after verifying that nothing depend on this
-                // anymore.
-                0
-            }
         }
     }
 
@@ -168,8 +133,6 @@ impl ShardChunkHeaderInner {
             Self::V2(inner) => &inner.prev_outgoing_receipts_root,
             Self::V3(inner) => &inner.prev_outgoing_receipts_root,
             Self::V4(inner) => &inner.prev_outgoing_receipts_root,
-            // TODO(spice): debug_assert as unreachable. See comment on the field for more details.
-            Self::V5(inner) => &inner.prev_outgoing_receipts_root,
         }
     }
 
@@ -180,7 +143,6 @@ impl ShardChunkHeaderInner {
             Self::V2(inner) => &inner.tx_root,
             Self::V3(inner) => &inner.tx_root,
             Self::V4(inner) => &inner.tx_root,
-            Self::V5(inner) => &inner.tx_root,
         }
     }
 
@@ -193,9 +155,6 @@ impl ShardChunkHeaderInner {
             }
             Self::V3(v3) => v3.congestion_info,
             Self::V4(v4) => v4.congestion_info,
-            // TODO(spice): debug_assert this is unreachable after verifying that nothing depend on this
-            // anymore.
-            Self::V5(_) => CongestionInfo::default(),
         }
     }
 
@@ -204,7 +163,6 @@ impl ShardChunkHeaderInner {
         match self {
             Self::V1(_) | Self::V2(_) | Self::V3(_) => None,
             Self::V4(inner) => Some(&inner.bandwidth_requests),
-            Self::V5(_) => None,
         }
     }
 
@@ -216,7 +174,6 @@ impl ShardChunkHeaderInner {
             Self::V2(_) => 2,
             Self::V3(_) => 3,
             Self::V4(_) => 4,
-            Self::V5(_) => 5,
         }
     }
 }
@@ -332,33 +289,4 @@ pub struct ShardChunkHeaderInnerV4 {
     pub congestion_info: CongestionInfo,
     /// Requests for bandwidth to send receipts to other shards.
     pub bandwidth_requests: BandwidthRequests,
-}
-
-// V4 -> V5: a version for spice of a chunk header including only transactions (no previous
-// execution results).
-#[derive(BorshSerialize, BorshDeserialize, Clone, PartialEq, Eq, Debug, ProtocolSchema)]
-pub struct ShardChunkHeaderInnerV5SpiceTxOnly {
-    /// Previous block hash.
-    pub prev_block_hash: CryptoHash,
-    pub encoded_merkle_root: CryptoHash,
-    pub encoded_length: u64,
-    pub height_created: BlockHeight,
-    /// Shard index.
-    pub shard_id: ShardId,
-    // TODO(spice): remove prev_outgoing_receipts_root. We have it for now
-    // so that some of the existing validations pass. List of outgoing receipts is always empty,
-    // but it wouldn't mean that prev_outgoing_receipts_root is CryptoHash::default() since it's
-    // computed as root of merkle tree of those empty lists from all shards.
-    /// Previous chunk's outgoing receipts merkle root.
-    pub prev_outgoing_receipts_root: CryptoHash,
-    /// Tx merkle root.
-    pub tx_root: CryptoHash,
-
-    /// Contains default CryptoHash. Some methods return references to CryptoHash that aren't
-    /// available anymore in this version and for now we cannot make sure that all of them are
-    /// unreachable when spice is disabled so we want to return default hash instead to avoid
-    /// crashing.
-    // TODO(spice): Remove after making sure that none of the places where this is required are
-    // reachable.
-    pub default_hash: CryptoHash,
 }
