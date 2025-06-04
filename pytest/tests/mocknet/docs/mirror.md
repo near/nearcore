@@ -1,53 +1,231 @@
-# Mirror
+# Mirror Guide
 
-This document explains how to mirror transactions from a given network into a custom mocknet network and add load.
+## Prerequisites
 
-1. Setup a custom mocknet network following the instructions in the `README` file in the `provisioning/terraform/infra/network/mocknet/mirror/` directory of the Near-One/infra-ops repository.
-    - An example setup command should look like the following: `terraform apply -var="unique_id=stateless" -var="chain_id=mainnet" -var="start_height=116991260" -var="size=small"`
+* GCP access (SRE)
+* Infra-ops access (SRE)
+* Install gcloud tools locally [link](https://cloud.google.com/sdk/docs/install)
 
-    - Use the same values of `unique_id`, `chain_id`, and `start_height` from this setup when running the mirror.py commands below.
+## Creating the infrastructure
 
-2. Run `python3 tests/mocknet/mirror.py --chain-id {chain_id} --start-height {start_height} --unique-id {unique_id} init-neard-runner`, replacing the `{}`s with appropriate values from the `nearcore/pytest` directory. This starts a helper program on each node that will be in charge of the test state and neard process.
+Running terraform apply take about 10 minutes, depending on how many hosts you need.
 
-3. Run `python3 tests/mocknet/mirror.py --chain-id {chain_id} --start-height {start_height} --unique-id {unique_id} new-test`. This will take a few hours.
+To setup the GCP hosts that you want to use in your mocknet, you need to create a Terraform recipe. 
 
-4. Run `python3 tests/mocknet/mirror.py --chain-id {chain_id} --start-height {start_height} --unique-id {unique_id} start-traffic` replacing the `{}`s with appropriate values
+Start in Infra-ops repo, in `infra-ops/provisioning/terraform/infra/network/mocknet` [folder (link)](https://github.com/Near-One/infra-ops/tree/main/provisioning/terraform/infra/network/mocknet/). Make a copy of `example-forknet` folder. 
 
-5. Monitoring
-    - See metrics on grafana mocknet <https://nearinc.grafana.net/d/jHbiNgSnz/mocknet?orgId=1&refresh=30s&var-chain_id=All&var-node_id=.*unique_id.*&var-account_id=All> replacing the "unique_id" with the value from earlier
+Find the forknet image that you are going to use in your test by running `sh mirror-base/util.sh ls-test-cases`. If you are not sure, use the latest `START_HEIGHT`.
 
-If there's ever a problem with the neard runners on each node, for example if you get a connection error running the `status` command, run the `restart-neard-runner` command to restart them, which should be safe to do.
+In your newly created folder, edit the `main.tf` file:
 
-To run a locust load test on the mocknet network, run `python3 tests/mocknet/locust.py init --instance-names {}`, where
-the instance names are VMs that have been prepared for this purpose, and then run `python3 tests/mocknet/locust.py run --master {master_instance_name} --workers {worker_instance_name0,worker_instance_name1,etc...} --funding-key {key.json} --node-ip-port {mocknet_node_ip}:3030`, where `mocknet_node_ip` is an IP address of a node that's been setup by the mirror.py script, and `key.json` is an account key that contains lots of NEAR for this load test. TODO: add extra accounts for load testing purposes during the mocknet setup step
+* **unique_id**: You will identify your forknet by this string. i.e. `my-test`, but not too long. GCP has a limit on names.
+* **start_height**: `START_HEIGHT` **# the number from above**
+* state_dumper : true/false #  When set to `true`, it creates the infrastructure needed for state sync, including a state part dumper and state parts bucket. If you don't plan to have your nodes change tracked shards, keep it `false`.
+* **nodes_location** : here you add your nodes in diferent locations. Only use [these locations](https://github.com/Near-One/infra-ops/blob/main/ansible/prometheus-scrapper/update-config-prometheus.yml) .
+* **tracing_server**: If you want to gather traces on a dedicated server.
+* **machine_type** : Depending on your need "n2d-standard-16" has 64GB RAM while"n2d-standard-8" has 32GB.
 
-# Running mocknet locally
+Edit `resources.tf`:
 
-If you want to set up a mocknet instance locally, the script in local_test_node.py can set this up. First you'll need a neard home directory with some transactions in it (there's no actual requirement that it have any transactions, but it might be more interesting if it does). To get this, you can run one of the pytests that generates transactions, or you can follow the instructions in the README in `pytest/tests/loadtest/locust`.
+* Set **prefix** = "state/infra/network/mocknet/**unique_id-start_height**"
 
-Suppose we've done that and the directory in `~/.near/localnet/node0` contains the state of one of our nodes. First, find the head of the chain:
+  This is to allow other people to modify this network by pushing the state file to a gcp bucket
 
-```
-neard --home ~/.near/localnet/node0 view-state view-chain
-```
+Once you have these files run `terraform init`, `terraform apply` (make sure to run these commands from the newly created directory, not from `mocknet` directory), and push your changes to a branch in the repo. This will allow others to amend / delete this network.
 
-Then find a height of the chain that's a bit behind the head. There's no easy way to find this programmatically at the time of this writing, but you might try `neard --home ~/.near/localnet/node0 view-state view-chain --height {HEIGHT}` where `$HEIGHT` is maybe 100 blocks behind the head. For this earlier height that we choose as the fork height, there also happens to be a requirement that the first block of the epoch it belongs to should be included in the home directory as well. (This is required by the dump-state command, and maybe could be removed in the future) So if you choose some height and the below setup command fails at `view-state dump-state`, you might need to choose a later height. So, say the head of the chain is 400, and we want to fork at height 300. Then to set up a local mocknet, run:
+To save resources, destroy the infrastructure if you do not use it. You can do this with `terraform destroy`
 
-```
-python3 tests/mocknet/local_test_node.py local-test-setup --yes --num-nodes 2 --source-home-dir ~/.near/localnet/node0 --neard-binary-path ~/nearcore/target/debug/neard --fork-height 300 --legacy-records
-```
 
-Then you can run the normal `mirror.py` commands to control this mocknet instance, passing it `--local-test` instead of the usual `--start-height`, `--chain-id` and `--unique-id` flags:
+## Configure the nodes
 
-```
-python3 tests/mocknet/mirror.py --local-test new-test
-python3 tests/mocknet/mirror.py --local-test start-traffic
-```
+To configure and operate the nodes we use the `mirror.py` script from `nearcore` repo.
 
-The above `local_test_node.py` command will set up directories in `~/.near/local-mocknet` where state has been forked from `~/.near/localnet/node0` at height 300. The `--legacy-records` argument tells us to use the older records.json method of forking state instead of the newer `neard fork-network` method. If you want to use that one, it's a bit more involved since you'll need two NEAR directories, where one has some head height, say N, and the other should have a head height M > N, *and* it should include height N as well. This will be the directory we use for the traffic generation, which is why it should include height N so that we can start sending transactions from that point. If you're using locust traffic sent to a localnet for the source chain, one way to achieve this is to start a localnet with, say, four nodes (at least that many so the chain doesn't stall when you stop one of them). Then as you're sending locust traffic, stop one of the nodes and leave the others running for a little while longer (but not so long that they end up garbage collecting the block at which the stopped node went offline). Then if `~/.near/localnet/node1` is the home directory for the node that was stopped early, and `~/.near/localnet/node0` is the home directory for one of the other nodes, you can set up the local mocknet with:
+### Alias
 
-```
-python3 tests/mocknet/local_test_node.py local-test-setup --yes --num-nodes 2 --source-home-dir ~/.near/localnet/node0 --neard-binary-path ~/nearcore/target/debug/neard --target-home-dir ~/.near/localnet/node1
+Create an alias to the `mirror.py` tool with to make the commands shorter by replacing `YOUR_ID` and `YOUR_START_HEIGHT` with the values set in terraform.
+
+```javascript
+alias mirror="python3 tests/mocknet/mirror.py --chain-id mainnet --start-height YOUR_START_HEIGHT --unique-id YOUR_ID"
 ```
 
-And then run the mirror.py commands as explained above.
+
+All `mirror` commands should be run from the `nearcore/pytest` directory, otherwise relative directories will break.
+
+### Binary
+
+Get a link to the binary that you want to test:
+
+```javascript
+NODE_BINARY_URL=https://s3-us-west-1.amazonaws.com/build.nearprotocol.com/nearcore/Linux/master/neard
+```
+
+### Initialize the testing environment
+
+This will upload the orchestrator (\`neard-runner\`) to all the hosts and create the necessary folders: 
+
+```javascript
+mirror init-neard-runner --neard-binary-url $NODE_BINARY_URL --neard-upgrade-binary-url ""
+```
+
+### \[Optional\] genesis configs
+
+Reduce the min gas price to reduce the chance of running out of NEAR.
+
+```javascript
+mirror --host-type traffic run-cmd --cmd 'cp ~/.near/target/setup/genesis.json g.json ; jq ".min_gas_price = \"10000000\"" g.json > ~/.near/target/setup/genesis.json'
+mirror --host-type nodes run-cmd --cmd 'cp ~/.near/setup/genesis.json g.json ; jq ".min_gas_price = \"10000000\"" g.json > ~/.near/setup/genesis.json'
+```
+
+### Create the a new test
+
+```javascript
+mirror new-test \
+  --epoch-length 200 \
+  --genesis-protocol-version 71 \
+  --num-validators 20 \
+  --num-seats 20 \
+  --stateless-setup \
+  --new-chain-id mocknet \
+  --gcs-state-sync
+```
+
+`--epoch-length` If you need state sync, allow at least 5500.
+
+`--genesis-protocol-version` Can be 1 less than the binary version. If you want to do 2 upgrades, you need to set a voting schedule in an ENV variable.
+
+`--num-validators 20` How many of your GCP hosts you want to be added to the validator pool in genesis.
+
+`--num-seats 20` How many block producers do you want in your network. (WIP. Currently a dummy parameter)
+
+`--stateless-setup` Makes your nodes load the tracked shard in memory. 
+
+`--new-chain-id mocknet` Set the name of your chain id in genesis. Do not use `mainnet` or `testnet`. Typical value for this argument is `mocknet`. The chain_id in the grafana metrics is not set by this value, it is set by a value in terraform file. `chain_id` in metrics is always set to `mocknet.`
+
+ `--gcs-state-sync` If you want to benefit from state sync, your nodes will be configured to sync from the bucket dedicated to your mocknet. You need to enable `state_dumper` in [terraform](https://docs.nearone.org/doc/mocknet-tips-7VnYUXjs2A#h-creating-the-infrastructure).
+
+
+First time you run `new-test` it will take less than 1 minute for the nodes to be ready. Check the status with `mirror status`. If you run `new-test` on an existing network the process will take slightly longer because it needs to delete the existing `data` folder (2-3 minutes). 
+
+
+### \[Optional\] Custom shard tracking
+
+If you need to set full shard tracking on any node, you can change the configs like this:
+
+```javascript
+mirror --host-filter "<nodes regex>" update-config --set 'store.load_mem_tries_for_tracked_shards=false,tracked_shards=[0]'
+```
+
+### \[Optional\] Set logs
+
+Note that `RUST_LOG`s are controlled by `log_config.json`.
+
+```javascript
+RUST_LOG="debug,network=info"
+mirror --host-type nodes run-cmd --cmd "jq '.opentelemetry = \"${RUST_LOG}\" | .rust_log = \"${RUST_LOG}\"' /home/ubuntu/.near/log_config.json > tmp && mv tmp /home/ubuntu/.near/log_config.json"
+mirror --host-type traffic run-cmd --cmd "jq '.opentelemetry = \"${RUST_LOG}\" | .rust_log = \"${RUST_LOG}\"' /home/ubuntu/.near/target/log_config.json > tmp && mv tmp /home/ubuntu/.near/target/log_config.json"
+```
+
+
+### \[Optional\] Set tracing server
+
+```javascript
+UNIQUE_ID=your unique id
+SEARCH_STRING="$UNIQUE_ID-tracing"
+SERVER_IP=$(gcloud compute instances list --project=nearone-mocknet | awk -v search="$SEARCH_STRING" '$0 ~ search {print $5}')
+mirror env --key-value "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://$SERVER_IP:4317"
+```
+
+## Operating the network
+
+### Start the network
+
+```none
+# Check if is ready with mirror status
+# Start nodes with traffic
+mirror start-traffic
+# Or start without traffic
+mirror start-nodes
+```
+
+
+### Stop the network
+
+```none
+# Stop all nodes and traffic
+mirror stop-nodes
+
+# Stop traffic 
+mirror stop-traffic
+```
+
+
+### Reset the network
+
+```none
+mirror stop-nodes
+mirror reset --backup-id start --yes
+```
+
+
+### Update the binary
+
+Stop the nodes before altering the running binary.
+
+If you are using the same URL: make a new build and run `update-binaries`:
+
+```none
+update-binaries     Update the neard binaries by re-downloading them. The same urls are used. If you plan to restart the network multiple times, it is recommended to use URLs that only depend on the branch name. This way, every time you
+                    build, you will not need to amend the URL but just run update-binaries.
+```
+
+If you plan to use a binary from another branch, you need to alter the URL with `amend-binaries`:
+
+```none
+ amend-binaries      Add or override the neard URLs by specifying the epoch height or index if you have multiple binaries. If the network was started with 2 binaries, the epoch height for the second binary can be randomly assigned on each
+                     host. Use caution when updating --epoch-height so that it will not add a binary in between the upgrade window for another binary.
+```
+
+```bash
+URL=https://s3-us-west-1.amazonaws.com/build.nearprotocol.com/nearcore/Linux/some_branch/neard
+mirror amend-binaries --neard-binary-url $URL --binary-idx 0
+```
+
+The following option is not recommened, but, if the binary isn't available at a public URL, but you have it on your machine/laptop, you can upload it like:`gcloud --project near-mocknet compute scp {local_neard_path} ubuntu@{instance_name}:/home/ubuntu/.near/neard-runner/binaries/neard0`
+
+### Run commands on the nodes:
+
+```javascript
+mirror run-cmd --cmd "cat .near/neard-runner/.env"
+```
+
+### Target specific hosts
+
+There are three selectors that can be combined
+
+```javascript
+  --host-type {all,nodes,traffic}
+                        Type of hosts to select
+  --host-filter HOST_FILTER
+                        Filter through the selected nodes using regex.
+  --select-partition SELECT_PARTITION
+                        Input should be in the form of "i/n" where 0 < i <= n. Select a group of hosts based on the division provided. For i/n, it will split the selected hosts into n groups and select the i-th group. Use this if you want to
+                        target just a partition of the hosts.
+```
+
+### Get mapped account data
+
+In Forknet, all accounts are set up with a full-access key, allowing full control over all transactions made by those accounts. To retrieve this injected key, you can use the neard mirror show-keys tool on any mainnet database. This can be done using either a local database copy or an accessible RPC endpoint.  This setup is useful for testing purposes since having a full-access key on all accounts enables precise control over transactions and allows for easy testing and debugging across network simulations.
+
+```javascript
+neard mirror show-keys from-rpc  --account-id "astro-stakers.poolv1.near" --rpc-url https://rpc.mainnet.near.org/
+
+If it exists, this account probably has an extra full access key added:
+mapped secret key: ed25519:5GnmuWueJptLxKYoirp6rHHDJpu7vLgM1BCXwfvc8CJ8cmoettg9vYVaN2mqJZPbiRcrqFuPb7AXjf2jCJyVpyNQ
+public key: ed25519:93zQfXQsfWEkDG2n5qKfbTQUxLZdMrvGpBtwpezWpWTJ
+```
+
+### Check the logs
+
+To get the logs of the `neard_runner.py` and see what commands were executed on the host during setup or operation, look at the `journalctl -ru neard-runner`
+
+To check the `neard` logs look at the files in `~/neard-logs/logs.txt`. This file is rotated so it does not become too big.
