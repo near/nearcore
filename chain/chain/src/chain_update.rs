@@ -477,7 +477,7 @@ impl<'a> ChainUpdate<'a> {
                 block_type: BlockType::Normal,
                 height: chunk_header.height_included(),
                 block_hash: *block_header.hash(),
-                prev_block_hash: *chunk_header.prev_block_hash(),
+                prev_block_hash: chunk_header.prev_block_hash(),
                 block_timestamp: block_header.raw_timestamp(),
                 gas_price,
                 random_seed: *block_header.random_value(),
@@ -498,7 +498,7 @@ impl<'a> ChainUpdate<'a> {
         let flat_storage_manager = self.runtime_adapter.get_flat_storage_manager();
         let store_update = flat_storage_manager.save_flat_state_changes(
             *block_header.hash(),
-            *chunk_header.prev_block_hash(),
+            chunk_header.prev_block_hash(),
             chunk_header.height_included(),
             shard_uid,
             apply_result.trie_changes.state_changes(),

@@ -93,7 +93,7 @@ impl GenerateWitnessesCmd {
         let last_block_chunks = last_block.chunks();
         let last_chunk_header = last_block_chunks.get(shard_index).unwrap();
         let last_chunk_prev_hash = last_chunk_header.prev_block_hash();
-        let last_chunk_hash = chain_store.get_next_block_hash(last_chunk_prev_hash).unwrap();
+        let last_chunk_hash = chain_store.get_next_block_hash(&last_chunk_prev_hash).unwrap();
         let end_height = chain_store.get_block_height(&last_chunk_hash).unwrap();
 
         // To generate witnesses for the first chunk in the range, we need to

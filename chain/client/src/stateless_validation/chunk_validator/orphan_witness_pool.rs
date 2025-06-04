@@ -72,7 +72,7 @@ impl OrphanStateWitnessPool {
     ) -> Vec<ChunkStateWitness> {
         let mut to_remove: Vec<ChunkProductionKey> = Vec::new();
         for (cache_key, cache_entry) in &self.witness_cache {
-            if cache_entry.witness.chunk_header.prev_block_hash() == prev_block {
+            if &cache_entry.witness.chunk_header.prev_block_hash() == prev_block {
                 to_remove.push(cache_key.clone());
             }
         }

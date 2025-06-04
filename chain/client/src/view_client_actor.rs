@@ -820,7 +820,7 @@ impl Handler<GetChunk> for ViewClientActorInner {
         let chunk_inner = chunk.cloned_header().take_inner();
         let epoch_id = self
             .epoch_manager
-            .get_epoch_id_from_prev_block(chunk_inner.prev_block_hash())
+            .get_epoch_id_from_prev_block(&chunk_inner.prev_block_hash())
             .into_chain_error()?;
         let author = self
             .epoch_manager
