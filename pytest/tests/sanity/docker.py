@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """Verifies that node can be started inside of a Docker image.
 
-The script builds Docker image using 'make docker-nearcore-debug' command and then
+The script builds Docker image using 'make docker-nearcore' command and then
 starts a cluster with all nodes running inside of containers.  As sanity check
 to see if the cluster works correctly, the test waits for a several blocks and
 then interrogates each node about block with specified hash expecting all of
 them to return the same data.
 
 The purpose of the test is to verify that:
-- `make docker-nearcore-debug` builds a working Docker image,
+- `make docker-nearcore` builds a working Docker image,
 - `docker run ... nearcore` (i.e. the `run_docker.sh` script) works,
 - `docker run -eBOOT_NODE=... ... nearcore` (i.e. passing boot nodes via
   BOOT_NODE environment variable) works and
@@ -20,6 +20,7 @@ import pathlib
 import shlex
 import subprocess
 import sys
+import tempfile
 import typing
 import uuid
 
@@ -188,7 +189,7 @@ def main():
     nodes = []
 
     logger.info("Build the container")
-    run(('make', 'DOCKER_TAG=' + _DOCKER_IMAGE_TAG, 'docker-nearcore-debug'))
+    run(('make', 'DOCKER_TAG=' + _DOCKER_IMAGE_TAG, 'docker-nearcore'))
     try:
         dot_near = pathlib.Path.home() / '.near'
 
