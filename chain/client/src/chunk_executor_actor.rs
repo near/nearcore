@@ -50,6 +50,8 @@ pub struct ChunkExecutorActor {
 
     /// Receipts originating from block keyed by block hash.
     block_receipts_cache: LruCache<CryptoHash, HashMap<(ShardId, ShardId), ReceiptProof>>,
+    /// Next block hashes keyed by block hash.
+    next_block_hashes: LruCache<CryptoHash, Vec<CryptoHash>>,
 
     // Hash of the genesis block.
     genesis_hash: CryptoHash,
@@ -66,6 +68,7 @@ impl ChunkExecutorActor {
         shard_tracker: ShardTracker,
         network_adapter: PeerManagerAdapter,
         block_receipts_cache_capacity: NonZeroUsize,
+        next_block_hashes_cache_capacity: NonZeroUsize,
     ) -> Self {
         Self {
             chain_store: ChainStore::new(store, true, genesis.transaction_validity_period),
@@ -75,6 +78,7 @@ impl ChunkExecutorActor {
             shard_tracker,
             network_adapter,
             block_receipts_cache: LruCache::new(block_receipts_cache_capacity),
+            next_block_hashes: LruCache::new(next_block_hashes_cache_capacity),
             genesis_hash,
         }
     }
@@ -113,32 +117,25 @@ impl Handler<ExecutorIncomingReceipts> for ChunkExecutorActor {
 
         let me = self.validator_signer.get().map(|signer| signer.validator_id().clone());
 
-        // TODO(spice): Make sure that we are executing all the forks correctly. For this we may
-        // have to keep track of blocks pending execution and check appropriately if enough
-        // receipts are available for all of them.
-        let next_block_hash = self.chain_store.get_next_block_hash(&block_hash);
-        let next_block_hash = match next_block_hash {
-            Ok(hash) => hash,
-            Err(err) => {
-                if matches!(err, Error::DBNotFoundErr(_)) {
-                    // Next block wasn't processed yet.
-                    tracing::debug!(target: "chunk_executor", %block_hash, ?err, "no next block hash is available");
-                    return;
-                }
-                tracing::error!(target: "chunk_executor", %block_hash, ?err, "failed to get next block hash");
-                return;
+        let Some(next_block_hashes) = self.next_block_hashes.pop(&block_hash) else {
+            // Next block wasn't processed yet.
+            tracing::debug!(target: "chunk_executor", %block_hash, "no next block hash is available");
+            return;
+        };
+        for next_block_hash in next_block_hashes {
+            // TODO(spice): Avoid storing the same incoming receipts several times.. With many
+            // forks we would be saving the same incoming receipts associated with different blocks
+            // which is redundant.
+            if let Err(err) =
+                self.try_save_incoming_receipts(me.as_ref(), &block_hash, &next_block_hash)
+            {
+                tracing::warn!(target: "chunk_executor", %block_hash, ?err, "failed to save incoming receipts");
             }
-        };
 
-        if let Err(err) =
-            self.try_save_incoming_receipts(me.as_ref(), &block_hash, &next_block_hash)
-        {
-            tracing::warn!(target: "chunk_executor", %block_hash, ?err, "failed to save incoming receipts");
+            if let Err(err) = self.try_apply_chunks(&next_block_hash, me.as_ref()) {
+                tracing::error!(target: "chunk_executor", ?err, ?block_hash, "failed to apply chunk for block hash");
+            };
         }
-
-        if let Err(err) = self.try_apply_chunks(&next_block_hash, me.as_ref()) {
-            tracing::error!(target: "chunk_executor", ?err, ?block_hash, "failed to apply chunk for block hash");
-        };
     }
 }
 
@@ -155,6 +152,9 @@ impl Handler<ExecutorBlock> for ChunkExecutorActor {
         };
         let header = block.header();
         let prev_block_hash = header.prev_hash();
+
+        self.next_block_hashes.get_or_insert_mut(*prev_block_hash, || Vec::new()).push(block_hash);
+
         if let Err(err) =
             self.try_save_incoming_receipts(me.as_ref(), &prev_block_hash, &block_hash)
         {
@@ -478,7 +478,7 @@ impl ChunkExecutorActor {
             return Ok(());
         };
 
-        let mut block_receipts = self.block_receipts_cache.pop(&prev_block_hash).unwrap();
+        let mut block_receipts = self.block_receipts_cache.get(&prev_block_hash).unwrap().clone();
         let mut chain_update = self.chain_update();
         for keys in receipt_keys.chunk_by(|a, b| a.1 == b.1) {
             let to_shard_id = keys[0].1;
