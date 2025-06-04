@@ -559,8 +559,6 @@ impl Signature {
         let _span = tracing::debug_span!(
             target: "near_crypto",
             "Signature::verify",
-            signature_type = self.key_type().to_string(),
-            public_key_type = public_key.key_type().to_string(),
             measure = "detail",
         )
         .entered();

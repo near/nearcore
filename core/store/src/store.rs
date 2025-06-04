@@ -74,12 +74,12 @@ impl Store {
         column: DBCol,
         key: &[u8],
     ) -> io::Result<Option<T>> {
-        let _span = tracing::debug_span!(
-            target: "store",
-            "Store::get_ser",
-            measure = "detail",
-        )
-        .entered();
+        // let _span = tracing::debug_span!(
+        //     target: "store",
+        //     "Store::get_ser",
+        //     measure = "detail",
+        // )
+        // .entered();
         if let Some(anything) = self.storage.get_anything(column, key)? {
             if anything.arc_type_id() == std::any::TypeId::of::<T>() {
                 return Ok(anything.as_arc_any().downcast_ref::<T>().cloned());
